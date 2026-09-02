@@ -146,12 +146,32 @@ lexer_run :: proc(lexer: ^Lexer) {
 			}
 		}
 
+		if c == '"' {
+			lexer.current_token.value = String_Literal {
+				offset = lexer.rune_index - 1,
+			}
+
+			previous_char := c
+
+			for lexer.rune_index < len {
+				c = lexer_advance(lexer)
+
+				if c == '"' && previous_char != '\\' {
+					lexer_push_token_literal(lexer)
+					break
+				}
+
+				previous_char = c
+			}
+		}
+
 		if c == '\n' {
+			lexer_push_token(lexer, .TERMINATOR)
 			lexer.col = 0
 			lexer.line += 1
 		} else if c == '/' && next == '/' {
 			for lexer.rune_index < len {
-				c := lexer_advance(lexer)
+				c = lexer_advance(lexer)
 
 				if c == '\n' {
 					lexer.col = 0
