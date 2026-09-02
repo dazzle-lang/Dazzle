@@ -30,6 +30,10 @@ Token_Kind :: enum {
 	FALSE,
 }
 
+Identifier :: struct {
+	offset: int
+}
+
 String_Literal :: struct {
 	offset: int,
 }
@@ -41,6 +45,7 @@ Numeric_Literal :: struct {
 
 Token_Value :: union {
 	Token_Kind,
+	Identifier,
 	String_Literal,
 	Numeric_Literal,
 }

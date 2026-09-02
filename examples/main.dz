@@ -1,4 +1,15 @@
 fn main() {
-    let a = 5 + 4
-    println("Hello \"{}\"", a)
+    let a = 5 + 4;let b = 3
+    println("Hello \"{}\"", a) // ok
 }
+
+a = "\\"
+a = ""
+a = "a"
+
+a = "a\
+b = 5
+
+"hi
+a = "ab\
+a = "df
