@@ -5,32 +5,33 @@ import "core:unicode"
 import "core:unicode/utf8/utf8string"
 
 Token_Kind :: enum {
-	EQ,			// =
-	PLUS,		// +
-	MINUS, 		// -
-	STAR, 		// *
-	SLASH,		// /
-	PIPE,		// |
+	EQ, // =
+	PLUS, // +
+	MINUS, // -
+	STAR, // *
+	SLASH, // /
+	PIPE, // |
+	STAR_EQ, // *=
+	PLUS_EQ, // +=
+	MINUS_EQ, // -=
+	SLASH_EQ, // /=
+	EQ_EQ, // ==
+	PIPE_PIPE, // ||
 
-	STAR_EQ, 	// *=
-	PLUS_EQ,	// +=
-	MINUS_EQ,	// -=
-	SLASH_EQ,	// /=
-	EQ_EQ,		// ==
-	PIPE_PIPE,	// ||
+	DOT, // .
 
 	// Keywords
 	LET,
 	TRUE,
-	FALSE
+	FALSE,
 }
 
 String_Literal :: struct {
-	value: [dynamic]rune,
+	offset: int,
 }
 
 Numeric_Literal :: struct {
-	value: [dynamic]rune,
+	offset: int,
 }
 
 Token_Value :: union {
@@ -83,6 +84,12 @@ lexer_push_token :: proc(lexer: ^Lexer, kind: Token_Kind) {
 	append(&lexer.tokens, t)
 }
 
+lexer_push_token_literal :: proc(lexer: ^Lexer) {
+	t := lexer_consume_token(lexer)
+	t.length -= 1
+	append(&lexer.tokens, t)
+}
+
 lexer_consume_token :: proc(lexer: ^Lexer) -> Token {
 	t := lexer.current_token
 
@@ -108,14 +115,12 @@ lexer_run :: proc(lexer: ^Lexer) {
 		c := lexer_advance(lexer)
 		next := lexer_peek(lexer)
 
+		_, current_token_is_number := lexer.current_token.value.(Numeric_Literal)
+
 		if c == '\n' {
 			lexer.col = 0
 			lexer.line += 1
-			lexer_consume_token(lexer)
-			continue
-		}
-
-		if c == '/' && next == '/' {
+		} else if c == '/' && next == '/' {
 			for lexer.rune_index < len {
 				c := lexer_advance(lexer)
 
@@ -130,91 +135,95 @@ lexer_run :: proc(lexer: ^Lexer) {
 			continue
 		}
 
-		switch c {
-			case '+':
-			{
-				if next == '=' {
-					lexer_advance(lexer)
-					lexer_push_token(lexer, .PLUS_EQ)
-				} else {
-					lexer_push_token(lexer, .PLUS)
+		if lexer.current_token.length == 1 {
+			if unicode.is_alpha(c) {
+				lexer.current_token.value = String_Literal {
+					offset = lexer.rune_index - 1,
+				}
+			} else if unicode.is_number(c) {
+				lexer.current_token.value = Numeric_Literal {
+					offset = lexer.rune_index - 1,
 				}
 			}
-			case '-':
-			{
-				if next == '=' {
-					lexer_advance(lexer)
-					lexer_push_token(lexer, .MINUS_EQ)
-				} else {
-					lexer_push_token(lexer, .MINUS)
-				}
-			}
-			case '*':
-			{
-				if next == '=' {
-					lexer_advance(lexer)
-					lexer_push_token(lexer, .STAR_EQ)
-				} else {
-					lexer_push_token(lexer, .STAR)
-				}
-			}
-			case '/':
-			{
-				if next == '=' {
-					lexer_advance(lexer)
-					lexer_push_token(lexer, .SLASH_EQ)
-				} else {
-					lexer_push_token(lexer, .SLASH)
-				}
-			}
-			case '=':
-			{
-				if next == '=' {
-					lexer_advance(lexer)
-					lexer_push_token(lexer, .EQ_EQ)
-				} else {
-					lexer_push_token(lexer, .EQ)
-				}
-			}
-			case '|':
-			{
-				if next == '|' {
-					lexer_advance(lexer)
-					lexer_push_token(lexer, .PIPE_PIPE)
-				} else {
-					lexer_push_token(lexer, .PIPE)
-				}
-			}
+		} else if !unicode.is_alpha(c) && !unicode.is_number(c) && !(current_token_is_number && c == '.') {
+			lexer_push_token_literal(lexer)
+			lexer.current_token.col -= 1
+			lexer.current_token.length += 1
 		}
-
-		if unicode.is_space(c) {
+		
+		if unicode.is_alpha(c) || unicode.is_number(c) {
+			continue
+		}
+		else if unicode.is_space(c) {
 			lexer_consume_token(lexer)
+		} else {
+			switch c {
+			case '.': 
+				{
+					if !current_token_is_number {
+						lexer_push_token(lexer, .DOT)
+					}
+				}
+			case '+':
+				{
+					if next == '=' {
+						lexer_advance(lexer)
+						lexer_push_token(lexer, .PLUS_EQ)
+					} else {
+						lexer_push_token(lexer, .PLUS)
+					}
+				}
+			case '-':
+				{
+					if next == '=' {
+						lexer_advance(lexer)
+						lexer_push_token(lexer, .MINUS_EQ)
+					} else {
+						lexer_push_token(lexer, .MINUS)
+					}
+				}
+			case '*':
+				{
+					if next == '=' {
+						lexer_advance(lexer)
+						lexer_push_token(lexer, .STAR_EQ)
+					} else {
+						lexer_push_token(lexer, .STAR)
+					}
+				}
+			case '/':
+				{
+					if next == '=' {
+						lexer_advance(lexer)
+						lexer_push_token(lexer, .SLASH_EQ)
+					} else {
+						lexer_push_token(lexer, .SLASH)
+					}
+				}
+			case '=':
+				{
+					if next == '=' {
+						lexer_advance(lexer)
+						lexer_push_token(lexer, .EQ_EQ)
+					} else {
+						lexer_push_token(lexer, .EQ)
+					}
+				}
+			case '|':
+				{
+					if next == '|' {
+						lexer_advance(lexer)
+						lexer_push_token(lexer, .PIPE_PIPE)
+					} else {
+						lexer_push_token(lexer, .PIPE)
+					}
+				}
+			case:
+				{
+					lexer_consume_token(lexer)
+					fmt.println("Undefined token:", c, "at", lexer.line + 1, ":", lexer.col + 1)
+				}
+			}
 		}
-
-		//is_space := unicode.is_space(c)
-		//is_special_character := !(unicode.is_letter(c) || unicode.is_number(c))
-		//is_2char_token := rune_can_be_2char_token(c)
-
-		// if (is_space || (was_special_character && !was_2char_token) || (is_special_character && !is_2char_token) || (was_2char_token && !is_2char_token) || (is_2char_token && !was_2char_token)) {
-		// 	if current_token.length > 0 {
-		// 		append(&lexer.tokens, current_token)
-		// 	}
-
-		// 	current_token = {
-		// 		col = lexer.col,
-		// 		line = lexer.line,
-		// 		length = 0,
-		// 		value = {}
-		// 	}
-
-		// 	if unicode.is_space(c) {
-		// 		finish_token = true
-		// 	}
-		// }
-
-		// if !finish_token {
-		// 	current_token.length += 1
-		// 	append(&current_token.value, c)
-		// }
 	}
 }
