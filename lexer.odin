@@ -2,6 +2,7 @@
 package dazzle
 
 import "core:fmt"
+import "core:strings"
 import "core:unicode"
 import "core:unicode/utf8/utf8string"
 
@@ -21,7 +22,13 @@ KEYWORDS: map[string]Token_Kind = {
 }
 
 lexer_init :: proc(lexer: ^Lexer) {
-	utf8string.init(&lexer.file_string, #load("examples/main.dz", string))
+
+	s := #load("examples/main.dz", string)
+
+	new_s, ok := strings.replace_all(s, "\r\n", "\n")
+	new_s, ok = strings.replace_all(new_s, "\r", "\n")
+
+	utf8string.init(&lexer.file_string, new_s)
 }
 
 lexer_peek :: proc(lexer: ^Lexer, offset := 0) -> rune {
@@ -33,6 +40,10 @@ lexer_peek :: proc(lexer: ^Lexer, offset := 0) -> rune {
 }
 
 lexer_advance :: proc(lexer: ^Lexer) -> rune {
+	if lexer.rune_index >= utf8string.len(&lexer.file_string) {
+		return 0
+	}
+
 	c := utf8string.at(&lexer.file_string, lexer.rune_index)
 	lexer.col += 1
 	lexer.rune_index += 1
@@ -51,11 +62,12 @@ lexer_push_token :: proc(lexer: ^Lexer, kind: Token_Kind) {
 lexer_push_token_literal :: proc(lexer: ^Lexer) {
 	t := lexer_consume_token(lexer)
 
-	if string_literal, ok := t.value.(String_Literal); ok {
+	// Check if the identifier is a keyword
+	if identifier, ok := t.value.(Identifier); ok {
 		s := utf8string.slice(
 			&lexer.file_string,
-			string_literal.offset,
-			string_literal.offset + int(t.length),
+			identifier.offset,
+			identifier.offset + int(t.length),
 		)
 
 		if token_kind, ok := KEYWORDS[s]; ok {
@@ -92,7 +104,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 		next := lexer_peek(lexer)
 
 		if unicode.is_alpha(c) {
-			lexer.current_token.value = String_Literal {
+			lexer.current_token.value = Identifier {
 				offset = lexer.rune_index - 1,
 			}
 
@@ -148,20 +160,58 @@ lexer_run :: proc(lexer: ^Lexer) {
 
 		if c == '"' {
 			lexer.current_token.value = String_Literal {
-				offset = lexer.rune_index - 1,
+				offset = lexer.rune_index,
 			}
 
-			previous_char := c
+			lexer.current_token.length -= 1
+			previous_c := c
 
-			for lexer.rune_index < len {
+			for lexer.rune_index <= len {
 				c = lexer_advance(lexer)
 
-				if c == '"' && previous_char != '\\' {
-					lexer_push_token_literal(lexer)
-					break
+				if c == '\\' {
+					c = lexer_advance(lexer)
+
+					if c == '\n' {
+						lexer.current_token.length -= 1
+						fmt.println(
+							"Unknown escape sequence at",
+							lexer.line + 1,
+							":",
+							lexer.col + 1,
+						)
+
+						lexer.line += 1
+						lexer.col = 0
+						lexer_push_token_literal(lexer)
+
+						continue loop
+					}
+
+					if c == 0 {
+						lexer_push_token_literal(lexer)
+						fmt.println("Unterminated string at", lexer.line + 1, ":", lexer.col + 1)
+						continue loop
+					}
+
+					continue
 				}
 
-				previous_char = c
+				if c == '"' {
+					lexer.current_token.length -= 1
+					lexer_push_token_literal(lexer)
+					continue loop
+				} else if lexer.rune_index == len || c == '\n' {
+					if c == '\n' {
+						lexer.current_token.length -= 1
+					}
+
+					lexer_push_token_literal(lexer)
+					fmt.println("Unterminated string at", lexer.line + 1, ":", lexer.col)
+
+					if c == '\n' do break
+					else do continue loop
+				}
 			}
 		}
 
@@ -170,6 +220,8 @@ lexer_run :: proc(lexer: ^Lexer) {
 			lexer.col = 0
 			lexer.line += 1
 		} else if c == '/' && next == '/' {
+			lexer_push_token(lexer, .TERMINATOR)
+
 			for lexer.rune_index < len {
 				c = lexer_advance(lexer)
 
@@ -188,6 +240,8 @@ lexer_run :: proc(lexer: ^Lexer) {
 			lexer_consume_token(lexer)
 		} else {
 			switch c {
+			case ';':
+				lexer_push_token(lexer, .TERMINATOR)
 			case '.':
 				handle_dot(lexer, next)
 			case '+':

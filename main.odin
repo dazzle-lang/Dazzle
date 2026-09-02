@@ -21,13 +21,17 @@ main :: proc() {
 		value : string
 
 		switch v in t.value {
+			case Identifier: {
+				s := utf8string.slice(&lexer.file_string, v.offset, v.offset + int(t.length))
+				value = fmt.tprint(s)
+			}
 			case String_Literal: {
 				s := utf8string.slice(&lexer.file_string, v.offset, v.offset + int(t.length))
-				value = fmt.tprint("\"", s, "\"", sep = "")
+				value = fmt.tprint("STRING(\"", s, "\")", sep = "")
 			}
 			case Numeric_Literal: {
 				s:= utf8string.slice(&lexer.file_string, v.offset, v.offset + int(t.length))
-				value = fmt.tprint(" \"", s, "\"", sep = "")
+				value = fmt.tprint("NUMBER(", s, ")", sep = "")
 			}
 			case Token_Kind: {
 				value = fmt.tprint(".", v, sep = "")
