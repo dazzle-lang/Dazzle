@@ -1,6 +1,7 @@
 package dazzle
 
 Token_Kind :: enum {
+    TERMINATOR,     // Represents a semicolon or a new line
 	EQ,             // =
 	PLUS,           // +
 	MINUS,          // -
@@ -13,13 +14,15 @@ Token_Kind :: enum {
 	SLASH_EQ,       // /=
 	EQ_EQ,          // ==
 	PIPE_PIPE,      // ||
-    
+
 	DOT,            // .
     COMMA,          // ,
     LEFT_PAREN,     // (
     RIGHT_PAREN,    // )
     LEFT_BRACE,     // {
     RIGHT_BRACE,    // }
+    DOUBLE_QUOTE,   // "
+    SINGLE_QUOTE,   // ' 
 
 	// Keywords
 	LET,
