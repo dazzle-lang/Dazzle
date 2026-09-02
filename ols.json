@@ -1,0 +1,24 @@
+{
+    "$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
+    "enable_document_symbols": true,
+    "enable_semantic_tokens": true,
+    "enable_inlay_hints_params": true,
+    "enable_inlay_hints_default_params": true,
+    "struct_fields_underscore_visibility": "file",
+    "enable_hover": true,
+    "enable_snippets": true,
+    "enable_fake_methods": true,
+    "verbose": true,
+    "profile": "default",
+    "profiles": [
+        {
+            "name": "default",
+            "checker_path": [
+                ""
+            ],
+            "defines": {
+                "ODIN_DEBUG": "false"
+            }
+        }
+    ]
+}
