@@ -27,10 +27,10 @@ main :: proc() {
 			}
 			case Numeric_Literal: {
 				s:= utf8string.slice(&lexer.file_string, v.offset, v.offset + int(t.length))
-				value = fmt.tprint(v.type, " \"", s, "\"", sep = "")
+				value = fmt.tprint(" \"", s, "\"", sep = "")
 			}
 			case Token_Kind: {
-				value = fmt.tprint(v)
+				value = fmt.tprint(".", v, sep = "")
 			}
 		}
 

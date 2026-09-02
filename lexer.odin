@@ -1,60 +1,9 @@
+#+feature dynamic-literals
 package dazzle
 
 import "core:fmt"
 import "core:unicode"
 import "core:unicode/utf8/utf8string"
-
-Token_Kind :: enum {
-	EQ, // =
-	PLUS, // +
-	MINUS, // -
-	STAR, // *
-	SLASH, // /
-	PIPE, // |
-	STAR_EQ, // *=
-	PLUS_EQ, // +=
-	MINUS_EQ, // -=
-	SLASH_EQ, // /=
-	EQ_EQ, // ==
-	PIPE_PIPE, // ||
-	DOT, // .
-
-	// Keywords
-	LET,
-	TRUE,
-	FALSE,
-}
-
-Numeric_Type :: enum {
-	INT,
-	REAL,
-	BINARY,
-	OCTAL,
-	HEX,
-}
-
-String_Literal :: struct {
-	offset: int,
-}
-
-Numeric_Literal :: struct {
-	offset:      int,
-	prefix_zero: bool,
-	type:        Numeric_Type,
-}
-
-Token_Value :: union {
-	Token_Kind,
-	String_Literal,
-	Numeric_Literal,
-}
-
-Token :: struct {
-	line:   u32,
-	col:    u32,
-	length: u32,
-	value:  Token_Value,
-}
 
 Lexer :: struct {
 	file_string:   utf8string.String,
@@ -63,6 +12,12 @@ Lexer :: struct {
 	col:           u32,
 	rune_index:    int,
 	current_token: Token,
+}
+
+KEYWORDS : map[string]Token_Kind = {
+	"let" = .LET,
+	"true" = .TRUE,
+	"false" = .FALSE
 }
 
 lexer_init :: proc(lexer: ^Lexer) {
@@ -95,6 +50,17 @@ lexer_push_token :: proc(lexer: ^Lexer, kind: Token_Kind) {
 
 lexer_push_token_literal :: proc(lexer: ^Lexer) {
 	t := lexer_consume_token(lexer)
+
+	if string_literal, ok := t.value.(String_Literal); ok {
+		s := utf8string.slice(&lexer.file_string, string_literal.offset, string_literal.offset + int(t.length))
+
+		for keyword, token_kind in KEYWORDS {
+			if keyword == s {
+				t.value = token_kind
+			}
+		}
+	}
+
 	append(&lexer.tokens, t)
 }
 
@@ -147,31 +113,25 @@ lexer_run :: proc(lexer: ^Lexer) {
 				literal := &lexer.current_token.value.(Numeric_Literal)
 				next = lexer_peek(lexer)
 
-				if c == '0' && lexer.current_token.length == 1 && !literal.prefix_zero {
-					literal.prefix_zero = true
+				if unicode.is_alpha(next) && literal.has_dot {
+					lexer_push_token_literal(lexer)
+					fmt.println("Number format is invalid at", lexer.line + 1, ":", lexer.col + 1)
+					continue loop
 				}
 
-				if unicode.is_alpha(next) {
-					if next == 'x' && literal.prefix_zero && literal.type == .INT {
-						literal.type = .HEX
-					} else if next == 'b' && literal.prefix_zero && literal.type == .INT {
-						literal.type = .BINARY
-					} else if next == 'o' && literal.prefix_zero && literal.type == .INT {
-						literal.type = .OCTAL
-					} else {
-						lexer_push_token_literal(lexer)
-						fmt.println("Number format is invalid at", lexer.line + 1, ":",lexer.col + 1 )
-						continue loop
-					}
-				}
-				else if !unicode.is_number(next) || lexer.rune_index == len {
+				if (!unicode.is_number(next) && !unicode.is_alpha(next)) ||
+				   lexer.rune_index == len {
 					if next == '.' {
-						if literal.type == .INT {
-							literal.type = .REAL
-						}
-						else {
+						if !literal.has_dot {
+							literal.has_dot = true
+						} else {
 							lexer_push_token_literal(lexer)
-							fmt.println("Number format is invalid at", lexer.line + 1, ":",lexer.col + 1 )
+							fmt.println(
+								"Number format is invalid at",
+								lexer.line + 1,
+								":",
+								lexer.col + 1,
+							)
 							continue loop
 						}
 					} else {
@@ -207,63 +167,29 @@ lexer_run :: proc(lexer: ^Lexer) {
 		} else {
 			switch c {
 			case '.':
-				{
-					lexer_push_token(lexer, .DOT)
-				}
+				handle_dot(lexer, next)
 			case '+':
-				{
-					if next == '=' {
-						lexer_advance(lexer)
-						lexer_push_token(lexer, .PLUS_EQ)
-					} else {
-						lexer_push_token(lexer, .PLUS)
-					}
-				}
+				handle_plus(lexer, next)
 			case '-':
-				{
-					if next == '=' {
-						lexer_advance(lexer)
-						lexer_push_token(lexer, .MINUS_EQ)
-					} else {
-						lexer_push_token(lexer, .MINUS)
-					}
-				}
+				handle_minus(lexer, next)
 			case '*':
-				{
-					if next == '=' {
-						lexer_advance(lexer)
-						lexer_push_token(lexer, .STAR_EQ)
-					} else {
-						lexer_push_token(lexer, .STAR)
-					}
-				}
+				handle_star(lexer, next)
 			case '/':
-				{
-					if next == '=' {
-						lexer_advance(lexer)
-						lexer_push_token(lexer, .SLASH_EQ)
-					} else {
-						lexer_push_token(lexer, .SLASH)
-					}
-				}
+				handle_slash(lexer, next)
 			case '=':
-				{
-					if next == '=' {
-						lexer_advance(lexer)
-						lexer_push_token(lexer, .EQ_EQ)
-					} else {
-						lexer_push_token(lexer, .EQ)
-					}
-				}
+				handle_equal(lexer, next)
 			case '|':
-				{
-					if next == '|' {
-						lexer_advance(lexer)
-						lexer_push_token(lexer, .PIPE_PIPE)
-					} else {
-						lexer_push_token(lexer, .PIPE)
-					}
-				}
+				handle_pipe(lexer, next)
+			case ',':
+				handle_comma(lexer, next)
+				case '(':
+					handle_left_paren(lexer, next)
+					case ')':
+						handle_right_paren(lexer, next)
+						case '{':
+							handle_left_brace(lexer, next)
+							case '}':
+								handle_right_brace(lexer, next)
 			case:
 				{
 					lexer_consume_token(lexer)
@@ -272,4 +198,94 @@ lexer_run :: proc(lexer: ^Lexer) {
 			}
 		}
 	}
+}
+
+@(private = "file")
+handle_dot :: proc(lexer: ^Lexer, next: rune) {
+	lexer_push_token(lexer, .DOT)
+}
+
+@(private = "file")
+handle_plus :: proc(lexer: ^Lexer, next: rune) {
+	if next == '=' {
+		lexer_advance(lexer)
+		lexer_push_token(lexer, .PLUS_EQ)
+	} else {
+		lexer_push_token(lexer, .PLUS)
+	}
+}
+
+@(private = "file")
+handle_minus :: proc(lexer: ^Lexer, next: rune) {
+	if next == '=' {
+		lexer_advance(lexer)
+		lexer_push_token(lexer, .MINUS_EQ)
+	} else {
+		lexer_push_token(lexer, .MINUS)
+	}
+}
+
+@(private = "file")
+handle_star :: proc(lexer: ^Lexer, next: rune) {
+	if next == '=' {
+		lexer_advance(lexer)
+		lexer_push_token(lexer, .STAR_EQ)
+	} else {
+		lexer_push_token(lexer, .STAR)
+	}
+}
+
+@(private = "file")
+handle_slash :: proc(lexer: ^Lexer, next: rune) {
+	if next == '=' {
+		lexer_advance(lexer)
+		lexer_push_token(lexer, .SLASH_EQ)
+	} else {
+		lexer_push_token(lexer, .SLASH)
+	}
+}
+
+@(private = "file")
+handle_equal :: proc(lexer: ^Lexer, next: rune) {
+	if next == '=' {
+		lexer_advance(lexer)
+		lexer_push_token(lexer, .EQ_EQ)
+	} else {
+		lexer_push_token(lexer, .EQ)
+	}
+}
+
+@(private = "file")
+handle_pipe :: proc(lexer: ^Lexer, next: rune) {
+	if next == '|' {
+		lexer_advance(lexer)
+		lexer_push_token(lexer, .PIPE_PIPE)
+	} else {
+		lexer_push_token(lexer, .PIPE)
+	}
+}
+
+@(private = "file")
+handle_comma :: proc(lexer: ^Lexer, next: rune) {
+	lexer_push_token(lexer, .COMMA)
+}
+
+@(private = "file")
+handle_left_paren :: proc(lexer: ^Lexer, next: rune) {
+	lexer_push_token(lexer, .LEFT_PAREN)
+}
+
+@(private = "file")
+handle_right_paren :: proc(lexer: ^Lexer, next: rune) {
+	lexer_push_token(lexer, .RIGHT_PAREN)
+}
+
+@(private = "file")
+handle_left_brace :: proc(lexer: ^Lexer, next: rune) {
+	lexer_push_token(lexer, .LEFT_BRACE)
+}
+
+@(private = "file")
+handle_right_brace :: proc(lexer: ^Lexer, next: rune) {
+	lexer_push_token(lexer, .RIGHT_BRACE)
 }
