@@ -17,7 +17,6 @@ Token_Kind :: enum {
 	SLASH_EQ, // /=
 	EQ_EQ, // ==
 	PIPE_PIPE, // ||
-
 	DOT, // .
 
 	// Keywords
@@ -26,12 +25,22 @@ Token_Kind :: enum {
 	FALSE,
 }
 
+Numeric_Type :: enum {
+	INT,
+	REAL,
+	BINARY,
+	OCTAL,
+	HEX,
+}
+
 String_Literal :: struct {
 	offset: int,
 }
 
 Numeric_Literal :: struct {
-	offset: int,
+	offset:      int,
+	prefix_zero: bool,
+	type:        Numeric_Type,
 }
 
 Token_Value :: union {
@@ -60,12 +69,12 @@ lexer_init :: proc(lexer: ^Lexer) {
 	utf8string.init(&lexer.file_string, #load("examples/main.dz", string))
 }
 
-lexer_peek :: proc(lexer: ^Lexer) -> rune {
+lexer_peek :: proc(lexer: ^Lexer, offset := 0) -> rune {
 	if lexer.rune_index >= utf8string.len(&lexer.file_string) {
 		return 0
 	}
 
-	return utf8string.at(&lexer.file_string, lexer.rune_index)
+	return utf8string.at(&lexer.file_string, lexer.rune_index + offset)
 }
 
 lexer_advance :: proc(lexer: ^Lexer) -> rune {
@@ -86,7 +95,6 @@ lexer_push_token :: proc(lexer: ^Lexer, kind: Token_Kind) {
 
 lexer_push_token_literal :: proc(lexer: ^Lexer) {
 	t := lexer_consume_token(lexer)
-	t.length -= 1
 	append(&lexer.tokens, t)
 }
 
@@ -109,13 +117,72 @@ lexer_run :: proc(lexer: ^Lexer) {
 	len := utf8string.len(&lexer.file_string)
 
 
-	for lexer.rune_index < len {
+	loop: for lexer.rune_index < len {
 		finish_token := false
 
 		c := lexer_advance(lexer)
 		next := lexer_peek(lexer)
 
-		_, current_token_is_number := lexer.current_token.value.(Numeric_Literal)
+		if unicode.is_alpha(c) {
+			lexer.current_token.value = String_Literal {
+				offset = lexer.rune_index - 1,
+			}
+
+			for lexer.rune_index <= len {
+				next = lexer_peek(lexer)
+
+				if !unicode.is_alpha(next) && !unicode.is_number(next) || lexer.rune_index == len {
+					lexer_push_token_literal(lexer)
+					continue loop
+				}
+
+				c = lexer_advance(lexer)
+			}
+		} else if unicode.is_number(c) {
+			lexer.current_token.value = Numeric_Literal {
+				offset = lexer.rune_index - 1,
+			}
+
+			for lexer.rune_index <= len {
+				literal := &lexer.current_token.value.(Numeric_Literal)
+				next = lexer_peek(lexer)
+
+				if c == '0' && lexer.current_token.length == 1 && !literal.prefix_zero {
+					literal.prefix_zero = true
+				}
+
+				if unicode.is_alpha(next) {
+					if next == 'x' && literal.prefix_zero && literal.type == .INT {
+						literal.type = .HEX
+					} else if next == 'b' && literal.prefix_zero && literal.type == .INT {
+						literal.type = .BINARY
+					} else if next == 'o' && literal.prefix_zero && literal.type == .INT {
+						literal.type = .OCTAL
+					} else {
+						lexer_push_token_literal(lexer)
+						fmt.println("Number format is invalid at", lexer.line + 1, ":",lexer.col + 1 )
+						continue loop
+					}
+				}
+				else if !unicode.is_number(next) || lexer.rune_index == len {
+					if next == '.' {
+						if literal.type == .INT {
+							literal.type = .REAL
+						}
+						else {
+							lexer_push_token_literal(lexer)
+							fmt.println("Number format is invalid at", lexer.line + 1, ":",lexer.col + 1 )
+							continue loop
+						}
+					} else {
+						lexer_push_token_literal(lexer)
+						continue loop
+					}
+				}
+
+				c = lexer_advance(lexer)
+			}
+		}
 
 		if c == '\n' {
 			lexer.col = 0
@@ -135,34 +202,13 @@ lexer_run :: proc(lexer: ^Lexer) {
 			continue
 		}
 
-		if lexer.current_token.length == 1 {
-			if unicode.is_alpha(c) {
-				lexer.current_token.value = String_Literal {
-					offset = lexer.rune_index - 1,
-				}
-			} else if unicode.is_number(c) {
-				lexer.current_token.value = Numeric_Literal {
-					offset = lexer.rune_index - 1,
-				}
-			}
-		} else if !unicode.is_alpha(c) && !unicode.is_number(c) && !(current_token_is_number && c == '.') {
-			lexer_push_token_literal(lexer)
-			lexer.current_token.col -= 1
-			lexer.current_token.length += 1
-		}
-		
-		if unicode.is_alpha(c) || unicode.is_number(c) {
-			continue
-		}
-		else if unicode.is_space(c) {
+		if unicode.is_space(c) {
 			lexer_consume_token(lexer)
 		} else {
 			switch c {
-			case '.': 
+			case '.':
 				{
-					if !current_token_is_number {
-						lexer_push_token(lexer, .DOT)
-					}
+					lexer_push_token(lexer, .DOT)
 				}
 			case '+':
 				{
