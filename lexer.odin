@@ -14,10 +14,10 @@ Lexer :: struct {
 	current_token: Token,
 }
 
-KEYWORDS : map[string]Token_Kind = {
-	"let" = .LET,
-	"true" = .TRUE,
-	"false" = .FALSE
+KEYWORDS: map[string]Token_Kind = {
+	"let"   = .LET,
+	"true"  = .TRUE,
+	"false" = .FALSE,
 }
 
 lexer_init :: proc(lexer: ^Lexer) {
@@ -52,12 +52,14 @@ lexer_push_token_literal :: proc(lexer: ^Lexer) {
 	t := lexer_consume_token(lexer)
 
 	if string_literal, ok := t.value.(String_Literal); ok {
-		s := utf8string.slice(&lexer.file_string, string_literal.offset, string_literal.offset + int(t.length))
+		s := utf8string.slice(
+			&lexer.file_string,
+			string_literal.offset,
+			string_literal.offset + int(t.length),
+		)
 
-		for keyword, token_kind in KEYWORDS {
-			if keyword == s {
-				t.value = token_kind
-			}
+		if token_kind, ok := KEYWORDS[s]; ok {
+			t.value = token_kind
 		}
 	}
 
@@ -182,14 +184,14 @@ lexer_run :: proc(lexer: ^Lexer) {
 				handle_pipe(lexer, next)
 			case ',':
 				handle_comma(lexer, next)
-				case '(':
-					handle_left_paren(lexer, next)
-					case ')':
-						handle_right_paren(lexer, next)
-						case '{':
-							handle_left_brace(lexer, next)
-							case '}':
-								handle_right_brace(lexer, next)
+			case '(':
+				handle_left_paren(lexer, next)
+			case ')':
+				handle_right_paren(lexer, next)
+			case '{':
+				handle_left_brace(lexer, next)
+			case '}':
+				handle_right_brace(lexer, next)
 			case:
 				{
 					lexer_consume_token(lexer)
