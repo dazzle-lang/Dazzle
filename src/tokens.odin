@@ -43,6 +43,7 @@ String_Literal :: struct {
 Numeric_Literal :: struct {
 	offset:  int,
 	has_dot: bool,
+	has_multiple_dots: bool
 }
 
 Token_Value :: union {
