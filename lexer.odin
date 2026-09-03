@@ -2,9 +2,17 @@
 package dazzle
 
 import "core:fmt"
+import "core:strconv"
 import "core:strings"
 import "core:unicode"
 import "core:unicode/utf8/utf8string"
+
+RESET  :: "\e[0m"
+RED    :: "\e[31m"
+GREEN  :: "\e[32m"
+YELLOW :: "\e[33m"
+BLUE   :: "\e[34m"
+BOLD   :: "\e[1m"
 
 Lexer :: struct {
 	file_string:   utf8string.String,
@@ -13,6 +21,7 @@ Lexer :: struct {
 	col:           u32,
 	rune_index:    int,
 	current_token: Token,
+	lines:         []string,
 }
 
 KEYWORDS: map[string]Token_Kind = {
@@ -21,14 +30,27 @@ KEYWORDS: map[string]Token_Kind = {
 	"false" = .FALSE,
 }
 
-lexer_init :: proc(lexer: ^Lexer) {
+lexer_init :: proc(lexer: ^Lexer) -> bool {
 
 	s := #load("examples/main.dz", string)
+
+	// Check if file is Unicode
+	if len(s) >= 2 && ((s[0] == 0xFE && s[1] == 0xFF) || (s[0] == 0xFF && s[1] == 0xFE)) {
+		fmt.println(RED, "This file is in Unicode format which is not compatible. Please convert it to UTF8.", RESET)
+		return false
+	// Check if file is UTF8
+	} else if len(s) >= 3 && (s[0] == 0xEF && s[1] == 0xBB && s[2] == 0xBF) {
+		s = s[3:]
+	}
 
 	new_s, ok := strings.replace_all(s, "\r\n", "\n")
 	new_s, ok = strings.replace_all(new_s, "\r", "\n")
 
+	lexer.lines = strings.split(new_s, "\n")
+
 	utf8string.init(&lexer.file_string, new_s)
+
+	return true
 }
 
 lexer_peek :: proc(lexer: ^Lexer, offset := 0) -> rune {
@@ -91,6 +113,51 @@ lexer_consume_token :: proc(lexer: ^Lexer) -> Token {
 	return t
 }
 
+lexer_error :: proc(lexer: ^Lexer, text: string) {
+	line_text := lexer.lines[lexer.line]
+	line := lexer.line + 1
+	fmt.println(RED, "Error: ", RESET, BOLD, text, RESET, sep = "")
+	fmt.println(BLUE, " -> ", RESET, "examples/main.dz:", line, ":", lexer.col, sep = "")
+
+	fmt.println()
+	line_nr := fmt.tprint(line)
+	fmt.println(BLUE, line_nr, " | ", RESET, line_text, sep = "")
+
+	error_indication: strings.Builder
+	strings.builder_init(&error_indication)
+
+	for i in 0 ..< len(line_nr) + 3 {
+		strings.write_rune(&error_indication, ' ')
+	}
+
+	i :u32 = 0
+	
+	for r in line_text {
+		if i >= lexer.current_token.col + lexer.current_token.length {
+			break
+		}
+		if i >= lexer.current_token.col {
+			strings.write_rune(&error_indication, '~')
+		} else {
+			// \t is a space, so we need to append it rather than writing a space
+			if strings.is_space(r) {
+				strings.write_rune(&error_indication, r)
+			}
+			else {
+				strings.write_rune(&error_indication, ' ')
+			}
+		}
+
+		i += 1
+	}
+	
+	strings.write_rune(&error_indication, '^')
+
+	fmt.println(RED, strings.to_string(error_indication), RESET, sep = "")
+	fmt.println()
+
+}
+
 lexer_run :: proc(lexer: ^Lexer) {
 	lexer.tokens = make([dynamic]Token, context.temp_allocator)
 
@@ -128,8 +195,8 @@ lexer_run :: proc(lexer: ^Lexer) {
 				next = lexer_peek(lexer)
 
 				if unicode.is_alpha(next) && literal.has_dot {
+					lexer_error(lexer, "Number format is invalid")
 					lexer_push_token_literal(lexer)
-					fmt.println("Number format is invalid at", lexer.line + 1, ":", lexer.col + 1)
 					continue loop
 				}
 
@@ -139,13 +206,8 @@ lexer_run :: proc(lexer: ^Lexer) {
 						if !literal.has_dot {
 							literal.has_dot = true
 						} else {
+							lexer_error(lexer, "Number format is invalid")
 							lexer_push_token_literal(lexer)
-							fmt.println(
-								"Number format is invalid at",
-								lexer.line + 1,
-								":",
-								lexer.col + 1,
-							)
 							continue loop
 						}
 					} else {
@@ -174,12 +236,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 
 					if c == '\n' {
 						lexer.current_token.length -= 1
-						fmt.println(
-							"Unknown escape sequence at",
-							lexer.line + 1,
-							":",
-							lexer.col + 1,
-						)
+						lexer_error(lexer, "Unknown escape sequence")
 
 						lexer.line += 1
 						lexer.col = 0
@@ -189,8 +246,8 @@ lexer_run :: proc(lexer: ^Lexer) {
 					}
 
 					if c == 0 {
+						lexer_error(lexer, "Unterminated string at the end of the file")
 						lexer_push_token_literal(lexer)
-						fmt.println("Unterminated string at", lexer.line + 1, ":", lexer.col + 1)
 						continue loop
 					}
 
@@ -206,8 +263,8 @@ lexer_run :: proc(lexer: ^Lexer) {
 						lexer.current_token.length -= 1
 					}
 
+					lexer_error(lexer, "Unterminated string")
 					lexer_push_token_literal(lexer)
-					fmt.println("Unterminated string at", lexer.line + 1, ":", lexer.col)
 
 					if c == '\n' do break
 					else do continue loop
@@ -236,7 +293,10 @@ lexer_run :: proc(lexer: ^Lexer) {
 			continue
 		}
 
-		if unicode.is_space(c) {
+		if c == '\t' {
+			lexer_consume_token(lexer)
+		}
+		else if unicode.is_space(c) {
 			lexer_consume_token(lexer)
 		} else {
 			switch c {
@@ -269,7 +329,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 			case:
 				{
 					lexer_consume_token(lexer)
-					fmt.println("Undefined token:", c, "at", lexer.line + 1, ":", lexer.col + 1)
+					lexer_error(lexer, fmt.tprint("Undefined token:", c))
 				}
 			}
 		}

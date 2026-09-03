@@ -1,6 +1,8 @@
 fn main() {
     let a = 5 + 4;let b = 3
-    println("Hello \"{}\"", a) // ok
+	let b = 342..
+    println(
+		"Hello \"{}\"", a) // ok
 }
 
 a = "\\"
