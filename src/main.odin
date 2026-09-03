@@ -42,6 +42,74 @@ main :: proc() {
 		}
 
 
-		fmt.println(t.line + 1, ":", t.col + 1, "\tlength:", t.length,  value)
+		println(t.line + 1, " : ", t.col + 1, "\tlength: ", t.length, "\t", value)
 	}
+
+	println()
+
+	for d in lexer.diagnostics {
+		handle_error(&lexer, d)
+	}
+}
+
+handle_error :: proc(lexer: ^Lexer, diagnostic: Diagnostic) {
+	line_text := lexer.lines[diagnostic.line - 1]
+	message := diagnostic.message
+	line := diagnostic.line
+	col := diagnostic.column
+	length := diagnostic.length
+
+	output_color(.BOLD)
+	print( "examples/main.dz(", line, ":", col + 1, ") ")
+
+	switch diagnostic.level {
+		case .ERROR:
+			output_color(.RED)
+			print( "Error: ")
+		case .WARNING:
+			output_color(.YELLOW)
+			print("Warning: ")
+	}
+
+	println(message)
+
+	line_nr := fmt.tprint(line)
+	output_color(.BLUE)
+	print(line_nr, " | ")
+	println(line_text)
+
+	error_indication: strings.Builder
+	strings.builder_init(&error_indication)
+
+	for i in 0 ..< len(line_nr) + 3 {
+		strings.write_rune(&error_indication, ' ')
+	}
+
+	i := 0
+	
+	for r in line_text {
+		if i >= col + length || (i == col && length == 1) {
+			break
+		}
+
+		if i >= col {
+			strings.write_rune(&error_indication, '~')
+		} else {
+			// \t is a space, so we need to append it rather than writing a space
+			if strings.is_space(r) {
+				strings.write_rune(&error_indication, r)
+			}
+			else {
+				strings.write_rune(&error_indication, ' ')
+			}
+		}
+
+		i += 1
+	}
+	
+	strings.write_rune(&error_indication, '^')
+
+	output_color(.RED)
+	println(strings.to_string(error_indication))
+	println()
 }

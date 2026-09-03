@@ -1,6 +1,7 @@
 fn main() {
     let a = 5 + 4;let b = 3
-	let b = 342..
+    let x = 324.42f
+	let b = 342..3433.3434
     println(
 		"Hello \"{}\"", a) // ok
 }
