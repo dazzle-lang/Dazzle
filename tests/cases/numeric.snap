@@ -1,0 +1,10 @@
+===TOKENS===
+1:1 length: 1 NUMBER(1)
+1:2 length: 1 .TERMINATOR
+2:1 length: 4 NUMBER(12.3)
+2:5 length: 1 .TERMINATOR
+3:1 length: 9 NUMBER(1.2.3.466)
+3:10 length: 0 .EOF
+
+===DIAGNOSTICS===
+ERROR examples/main.dz(3:1) len=9 Number format is invalid
