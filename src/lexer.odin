@@ -24,9 +24,9 @@ KEYWORDS: map[string]Token_Kind = {
 	"false" = .FALSE,
 }
 
-lexer_init :: proc(lexer: ^Lexer) -> bool {
+lexer_init :: proc(lexer: ^Lexer, content: string) -> bool {
 
-	s := #load("../examples/main.dz", string)
+	s := content
 
 	// Check if file is Unicode
 	if len(s) >= 2 && ((s[0] == 0xFE && s[1] == 0xFF) || (s[0] == 0xFF && s[1] == 0xFE)) {
@@ -107,10 +107,10 @@ lexer_consume_token :: proc(lexer: ^Lexer) -> Token {
 	return t
 }
 
-lexer_error :: proc(lexer: ^Lexer, text: string, col_offset: int = 0, length_offset: int = 0) {
-	line :int = int(lexer.line + 1)
+lexer_error :: proc(lexer: ^Lexer, text: string, col_offset: int = 0) {
+	line :int = int(lexer.line)
 	col := int(lexer.current_token.col) + col_offset
-	length := int(lexer.current_token.length) + length_offset
+	length := int(lexer.current_token.length)
 
 	diagnostic_push(&lexer.diagnostics, text, line, col, length, .ERROR)
 }
@@ -154,7 +154,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 				next = lexer_peek(lexer)
 				following := lexer_peek(lexer, 1)
 
-				if is_character(next) && literal.has_dot {
+				if is_character(c) && literal.has_dot {
 					lexer_error(lexer, "Number format is invalid")
 					lexer_push_token_literal(lexer)
 					continue loop
@@ -165,7 +165,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 					if next == '.' {
 						if is_character(following) {
 							if literal.has_multiple_dots {
-								lexer_error(lexer, "Number format is invalid", length_offset = -1)
+								lexer_error(lexer, "Number format is invalid")
 							}
 
 							lexer_push_token_literal(lexer)
@@ -179,7 +179,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 						}
 					} else {
 						if literal.has_multiple_dots {
-							lexer_error(lexer, "Number format is invalid", length_offset = -1)
+							lexer_error(lexer, "Number format is invalid")
 						}
 
 						lexer_push_token_literal(lexer)
@@ -206,7 +206,6 @@ lexer_run :: proc(lexer: ^Lexer) {
 					c = lexer_advance(lexer)
 
 					if c == '\n' {
-						lexer.current_token.length -= 1
 						lexer_error(lexer, "Unknown escape sequence")
 
 						lexer.line += 1
@@ -217,7 +216,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 					}
 
 					if c == 0 {
-						lexer_error(lexer, "Unterminated string at the end of the file", -1)
+						lexer_error(lexer, "Unterminated string at the end of the file")
 						lexer_push_token_literal(lexer)
 						continue loop
 					}
@@ -230,10 +229,6 @@ lexer_run :: proc(lexer: ^Lexer) {
 					lexer_push_token_literal(lexer)
 					continue loop
 				} else if lexer.rune_index == len || c == '\n' {
-					if c == '\n' {
-						lexer.current_token.length -= 1
-					}
-
 					lexer_error(lexer, "Unterminated string")
 					lexer_push_token_literal(lexer)
 
