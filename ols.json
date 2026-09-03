@@ -14,7 +14,7 @@
         {
             "name": "default",
             "checker_path": [
-                ""
+                "src"
             ],
             "defines": {
                 "ODIN_DEBUG": "false"

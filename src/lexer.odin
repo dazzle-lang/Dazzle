@@ -120,7 +120,6 @@ lexer_error :: proc(lexer: ^Lexer, text: string, col_offset: int = 0) {
 	fmt.println(RED, "Error: ", RESET, BOLD, text, RESET, sep = "")
 	fmt.println(BLUE, " -> ", RESET, "examples/main.dz:", line, ":", col, sep = "")
 
-	fmt.println()
 	line_nr := fmt.tprint(line)
 	fmt.println(BLUE, line_nr, " | ", RESET, line_text, sep = "")
 
