@@ -13,7 +13,10 @@ main :: proc() {
 	windows.SetConsoleOutputCP(.UTF8)
 
 	lexer: Lexer
-	lexer_init(&lexer)
+	
+	if !lexer_init(&lexer) {
+		return
+	}
 
 	lexer_run(&lexer)
 
