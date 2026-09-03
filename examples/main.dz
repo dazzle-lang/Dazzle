@@ -4,7 +4,7 @@ fn main() {
     println(
 		"Hello \"{}\"", a) // ok
 }
-
+&
 a = "\\"
 a = ""
 a = "a"
@@ -15,3 +15,7 @@ b = 5
 "hi
 a = "ab\
 a = "df
+
+let a = 5
+
+4.535.346.3463465.to_string()

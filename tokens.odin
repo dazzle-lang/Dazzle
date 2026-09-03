@@ -24,6 +24,8 @@ Token_Kind :: enum {
     DOUBLE_QUOTE,   // "
     SINGLE_QUOTE,   // ' 
 
+	EOF,
+
 	// Keywords
 	LET,
 	TRUE,

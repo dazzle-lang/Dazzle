@@ -54,7 +54,7 @@ lexer_init :: proc(lexer: ^Lexer) -> bool {
 }
 
 lexer_peek :: proc(lexer: ^Lexer, offset := 0) -> rune {
-	if lexer.rune_index >= utf8string.len(&lexer.file_string) {
+	if lexer.rune_index + offset >= utf8string.len(&lexer.file_string) {
 		return 0
 	}
 
@@ -113,11 +113,12 @@ lexer_consume_token :: proc(lexer: ^Lexer) -> Token {
 	return t
 }
 
-lexer_error :: proc(lexer: ^Lexer, text: string) {
+lexer_error :: proc(lexer: ^Lexer, text: string, col_offset: int = 0) {
 	line_text := lexer.lines[lexer.line]
 	line := lexer.line + 1
+	col := int(lexer.col) + col_offset
 	fmt.println(RED, "Error: ", RESET, BOLD, text, RESET, sep = "")
-	fmt.println(BLUE, " -> ", RESET, "examples/main.dz:", line, ":", lexer.col, sep = "")
+	fmt.println(BLUE, " -> ", RESET, "examples/main.dz:", line, ":", col, sep = "")
 
 	fmt.println()
 	line_nr := fmt.tprint(line)
@@ -133,9 +134,10 @@ lexer_error :: proc(lexer: ^Lexer, text: string) {
 	i :u32 = 0
 	
 	for r in line_text {
-		if i >= lexer.current_token.col + lexer.current_token.length {
+		if i >= lexer.current_token.col + lexer.current_token.length || (i == lexer.current_token.col && lexer.current_token.length == 1) {
 			break
 		}
+
 		if i >= lexer.current_token.col {
 			strings.write_rune(&error_indication, '~')
 		} else {
@@ -170,7 +172,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 		c := lexer_advance(lexer)
 		next := lexer_peek(lexer)
 
-		if unicode.is_alpha(c) {
+		if is_character(c) {
 			lexer.current_token.value = Identifier {
 				offset = lexer.rune_index - 1,
 			}
@@ -178,14 +180,16 @@ lexer_run :: proc(lexer: ^Lexer) {
 			for lexer.rune_index <= len {
 				next = lexer_peek(lexer)
 
-				if !unicode.is_alpha(next) && !unicode.is_number(next) || lexer.rune_index == len {
+				if next == 0xFEFF || next == 0x200B {
+					lexer_error(lexer, "Unsupported character. There is an invisible unsupported character here. Delete it", 1)
+				} else if !is_character(next) && !is_number(next) || lexer.rune_index == len {
 					lexer_push_token_literal(lexer)
 					continue loop
 				}
 
 				c = lexer_advance(lexer)
 			}
-		} else if unicode.is_number(c) {
+		} else if is_number(c) {
 			lexer.current_token.value = Numeric_Literal {
 				offset = lexer.rune_index - 1,
 			}
@@ -193,22 +197,28 @@ lexer_run :: proc(lexer: ^Lexer) {
 			for lexer.rune_index <= len {
 				literal := &lexer.current_token.value.(Numeric_Literal)
 				next = lexer_peek(lexer)
+				following := lexer_peek(lexer, 1)
 
-				if unicode.is_alpha(next) && literal.has_dot {
+				if is_character(next) && literal.has_dot {
 					lexer_error(lexer, "Number format is invalid")
 					lexer_push_token_literal(lexer)
 					continue loop
 				}
 
-				if (!unicode.is_number(next) && !unicode.is_alpha(next)) ||
+				if (!is_number(next) && !is_character(next)) ||
 				   lexer.rune_index == len {
 					if next == '.' {
+						if is_character(following) {
+							lexer_push_token_literal(lexer)
+							continue loop
+						}
+
 						if !literal.has_dot {
 							literal.has_dot = true
 						} else {
-							lexer_error(lexer, "Number format is invalid")
-							lexer_push_token_literal(lexer)
-							continue loop
+							lexer_error(lexer, "Number format is invalid", 1)
+							//lexer_push_token_literal(lexer)
+							//continue loop
 						}
 					} else {
 						lexer_push_token_literal(lexer)
@@ -246,7 +256,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 					}
 
 					if c == 0 {
-						lexer_error(lexer, "Unterminated string at the end of the file")
+						lexer_error(lexer, "Unterminated string at the end of the file", -1)
 						lexer_push_token_literal(lexer)
 						continue loop
 					}
@@ -263,7 +273,7 @@ lexer_run :: proc(lexer: ^Lexer) {
 						lexer.current_token.length -= 1
 					}
 
-					lexer_error(lexer, "Unterminated string")
+					lexer_error(lexer, "Unterminated string", -1)
 					lexer_push_token_literal(lexer)
 
 					if c == '\n' do break
@@ -272,6 +282,10 @@ lexer_run :: proc(lexer: ^Lexer) {
 			}
 		}
 
+		if c == 0xFEFF || c == 0x200B {
+			lexer_error(lexer, "Unsupported character. There is an invisible unsupported character here. Delete it")
+			lexer_consume_token(lexer)
+		}
 		if c == '\n' {
 			lexer_push_token(lexer, .TERMINATOR)
 			lexer.col = 0
@@ -328,12 +342,14 @@ lexer_run :: proc(lexer: ^Lexer) {
 				handle_right_brace(lexer, next)
 			case:
 				{
-					lexer_consume_token(lexer)
 					lexer_error(lexer, fmt.tprint("Undefined token:", c))
+					lexer_consume_token(lexer)
 				}
 			}
 		}
 	}
+
+	lexer_push_token(lexer, .EOF)
 }
 
 @(private = "file")
@@ -424,4 +440,13 @@ handle_left_brace :: proc(lexer: ^Lexer, next: rune) {
 @(private = "file")
 handle_right_brace :: proc(lexer: ^Lexer, next: rune) {
 	lexer_push_token(lexer, .RIGHT_BRACE)
+}
+
+@(private = "file")
+is_number :: #force_inline proc(r: rune) -> bool {
+	return r >= '0' && r <= '9'
+}
+
+is_character :: #force_inline proc(r: rune) -> bool {
+	return unicode.is_alpha(r) || r == '_'
 }
