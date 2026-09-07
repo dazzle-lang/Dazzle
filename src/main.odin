@@ -3,13 +3,10 @@ package dazzle
 import "core:fmt"
 import "core:strings"
 import "core:sys/windows"
-import "core:unicode"
-import "core:unicode/utf8"
 import "core:unicode/utf8/utf8string"
 
 
 main :: proc() {
-
 	windows.SetConsoleOutputCP(.UTF8)
 
 	lexer: Lexer
@@ -18,6 +15,7 @@ main :: proc() {
 		return
 	}
 
+	defer lexer_destroy(&lexer)
 	lexer_run(&lexer)
 
 	for t in lexer.tokens {
@@ -84,8 +82,9 @@ handle_error :: proc(lexer: ^Lexer, diagnostic: Diagnostic) {
 
 	error_indication: strings.Builder
 	strings.builder_init(&error_indication)
+	defer strings.builder_destroy(&error_indication)
 
-	for i in 0 ..< len(line_nr) + 3 {
+	for _ in 0 ..< len(line_nr) + 3 {
 		strings.write_rune(&error_indication, ' ')
 	}
 

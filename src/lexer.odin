@@ -2,7 +2,6 @@
 package dazzle
 
 import "core:fmt"
-import "core:strconv"
 import "core:strings"
 import "core:unicode"
 import "core:unicode/utf8/utf8string"
@@ -26,6 +25,8 @@ KEYWORDS: map[string]Token_Kind = {
 
 lexer_init :: proc(lexer: ^Lexer, content: string) -> bool {
 
+	lexer.tokens = make([dynamic]Token)
+
 	s := content
 
 	// Check if file is Unicode
@@ -37,8 +38,8 @@ lexer_init :: proc(lexer: ^Lexer, content: string) -> bool {
 		s = s[3:]
 	}
 
-	new_s, ok := strings.replace_all(s, "\r\n", "\n")
-	new_s, ok = strings.replace_all(new_s, "\r", "\n")
+	s_carriage, _ := strings.replace_all(s, "\r\n", "\n", context.temp_allocator)	
+	new_s, _ := strings.replace_all(s_carriage, "\r", "\n", context.temp_allocator)
 
 	lexer.lines = strings.split(new_s, "\n")
 
@@ -86,7 +87,7 @@ lexer_push_token_literal :: proc(lexer: ^Lexer) {
 			identifier.offset + int(t.length),
 		)
 
-		if token_kind, ok := KEYWORDS[s]; ok {
+		if token_kind, ok2 := KEYWORDS[s]; ok2 {
 			t.value = token_kind
 		}
 	}
@@ -116,13 +117,9 @@ lexer_error :: proc(lexer: ^Lexer, text: string, col_offset: int = 0) {
 }
 
 lexer_run :: proc(lexer: ^Lexer) {
-	lexer.tokens = make([dynamic]Token, context.temp_allocator)
-
 	len := utf8string.len(&lexer.file_string)
 
-
 	loop: for lexer.rune_index < len {
-		finish_token := false
 
 		c := lexer_advance(lexer)
 		next := lexer_peek(lexer)
@@ -197,7 +194,6 @@ lexer_run :: proc(lexer: ^Lexer) {
 			}
 
 			lexer.current_token.length -= 1
-			previous_c := c
 
 			for lexer.rune_index <= len {
 				c = lexer_advance(lexer)
@@ -306,6 +302,12 @@ lexer_run :: proc(lexer: ^Lexer) {
 	}
 
 	lexer_push_token(lexer, .EOF)
+}
+
+lexer_destroy :: proc(lexer: ^Lexer) {
+	delete(lexer.diagnostics)
+	delete(lexer.tokens)
+	delete(lexer.lines)
 }
 
 @(private = "file")
