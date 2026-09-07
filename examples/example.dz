@@ -1,0 +1,120 @@
+// A language that will be generate C++ code
+
+trait Allocator {
+    fn alloc(size: u32, align: u32) -> ^u8
+    fn realloc(p: ^u8, old_size: u32, new_size: u32, align: u32) -> ^u8
+    fn free(p: ^u8, size: u32, align: u32)
+}
+
+struct Buffer<T> {
+    m_allocator: ^Allocator = null
+    m_data:     own ^T
+    m_len:      u32
+    m_capacity: u32
+
+    Buffer(capacity: u32, allocator: ^Allocator = Allocators::Global) {
+        m_allocator = allocator
+        m_data      = m_allocator.alloc(capacity * sizeof(T), alignof(T)) as ^T
+        m_capacity  = capacity
+        m_len       = 0
+    }
+
+    // Always runs on a defaults-initialized object: assignment is generated as
+    // drop() + reset-to-defaults + copy(), so there are never stale fields here.
+    copy(other: &Self) {
+        m_allocator = other.m_allocator
+        m_capacity  = other.m_capacity
+
+        if other.m_data == null {
+            return                  // fields are at their defaults: a valid empty buffer
+        }
+
+        m_data = m_allocator.alloc(other.m_capacity * sizeof(T), alignof(T)) as ^T
+
+        if T::is_trivially_copyable {
+            memcpy(m_data, other.m_data, other.m_len * sizeof(T))
+            m_len = other.m_len
+        } else {
+            for i in 0..other.m_len {
+                construct(m_data[i], other.m_data[i])
+                m_len += 1
+            }  
+        }
+    }
+
+    drop() {
+        if m_data != null {
+            for i in 0..m_len {
+                destroy(m_data[i])
+            }
+
+            m_allocator.free(m_data as ^u8, m_capacity * sizeof(T), alignof(T))
+        }
+    }
+
+    pub fn length() -> u32 {
+        return self.m_len
+    }
+
+    pub fn capacity() -> u32 {
+        return self.m_capacity
+    }
+
+    pub mut fn resize(new_size: u32) {
+        if m_allocator == null {
+            m_allocator = Allocators::Global
+        }
+
+        if new_size < m_len {
+            for i in new_size..m_len { 
+                destroy(m_data[i]) 
+            }
+
+            m_len = new_size
+        }
+
+        m_data = m_allocator.realloc(m_data as ^u8,
+                                     m_capacity * sizeof(T),
+                                     new_size * sizeof(T),
+                                     alignof(T)) as ^T
+        m_capacity = new_size
+    }
+    
+    pub mut fn append(value: T) {
+        // todo
+    }
+}
+
+struct String {
+    buf: Buffer<char>
+
+    String(text: str, allocator: ^Allocator = Allocators::Global) {
+        buf = Buffer(text.length(), allocator)
+
+        for c in text {
+            buf.append(c)
+        }
+    }
+
+    pub fn length() -> u32 {
+        return buf.length() 
+    }
+}
+
+fn main() {
+    let name = String("John")
+    let a = String("Kaa")
+    let name2 = name        // Copy constructor
+    let mut name3 = move(name2) // Move constructor
+    name3 = a               // Copy assignment
+    name3 = move(a)         // Move assignment
+}
+
+struct File {
+    handle:     own ^u64
+}
+
+fn main() {
+    let f: File
+    let f2 = f // Error cannot copy f, should use move() instead.
+}
