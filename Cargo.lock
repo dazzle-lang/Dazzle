@@ -62,6 +62,7 @@ dependencies = [
  "dz_check",
  "dz_cpp",
  "dz_diag",
+ "dz_flow",
  "dz_fmt",
  "dz_hir",
  "dz_lex",
@@ -101,6 +102,7 @@ dependencies = [
  "dz_ast",
  "dz_check",
  "dz_diag",
+ "dz_hir",
  "dz_project",
  "dz_resolve",
  "dz_span",
@@ -111,6 +113,20 @@ name = "dz_diag"
 version = "0.1.0"
 dependencies = [
  "codespan-reporting",
+ "dz_span",
+]
+
+[[package]]
+name = "dz_flow"
+version = "0.1.0"
+dependencies = [
+ "dz_check",
+ "dz_diag",
+ "dz_hir",
+ "dz_lex",
+ "dz_parse",
+ "dz_project",
+ "dz_resolve",
  "dz_span",
 ]
 

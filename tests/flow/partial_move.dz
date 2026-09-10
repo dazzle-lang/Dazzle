@@ -1,0 +1,25 @@
+// A field moved out of a struct, then the whole struct read (spec §6.4, tracked per field).
+// expect: DZ0404
+
+pub struct Res {
+    m_p: own ^i32
+    drop() {}
+}
+
+pub struct Holder {
+    pub a: Res
+    pub b: Res
+}
+
+fn take(r: Res) -> bool {
+    return true
+}
+
+fn keep(h: Holder) -> bool {
+    return true
+}
+
+fn partly_gone(h: Holder) -> bool {
+    let one = take(move(h.a))
+    return keep(move(h)) && one
+}

@@ -24,12 +24,15 @@
 
 use std::collections::HashMap;
 
-use dz_ast::{AssignOp, BinaryOp, UnaryOp};
 use dz_resolve::SymbolId;
 use dz_span::{FileId, Span};
 
 pub mod dump;
 pub mod ty;
+
+/// Re-exported so consumers of the HIR do not have to depend on `dz_ast` for the
+/// operators its nodes store.
+pub use dz_ast::{AssignOp, BinaryOp, UnaryOp};
 
 use ty::Ty;
 
@@ -131,6 +134,10 @@ pub struct Body {
     /// site; keeping them here is what makes them reachable at all.
     pub param_defaults: Vec<Option<ExprId>>,
     pub ret: Ty,
+    /// `!->` (spec §9.1). The **success** type is in `ret`; this says whether a failure
+    /// can also come back. Codegen needs it to pick the C++ return type, and definite
+    /// return needs it to know what `or return` propagates.
+    pub fallible: bool,
     pub locals: Vec<Local>,
     pub exprs: Vec<Expr>,
     pub stmts: Vec<Stmt>,
@@ -275,8 +282,10 @@ pub enum ExprKind {
     ArrayLit(Vec<ExprId>),
     /// A bare enum constant.
     EnumVariant { owner: SymbolId, index: usize },
-    /// A union variant, with its payload if it has one (spec §7.3).
-    UnionVariant { owner: SymbolId, index: usize, payload: Option<ExprId> },
+    /// A union variant, with its payload's fields in the variant's declaration order and
+    /// `None` where a default applies — the same shape as [`ExprKind::StructLit`], and
+    /// empty for a variant that has no payload (spec §7.5).
+    UnionVariant { owner: SymbolId, index: usize, payload: Vec<Option<ExprId>> },
 
     // --- calls ---
     Call { callee: Callee, args: Vec<ExprId> },

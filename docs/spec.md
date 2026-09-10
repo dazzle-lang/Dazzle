@@ -1,8 +1,9 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 6
-**Status:** M0–M4 implemented — Dazzle programs compile and run, but the language is not
-yet usable for real work. See `docs/PROGRESS.md`.
+**Version:** 0.1 — **unreleased**, revision 7
+**Status:** M0–M5 implemented — Dazzle programs compile and run, and own, move and drop
+their resources deterministically. The language is not yet usable for real work: there are
+no generics and no stdlib. See `docs/PROGRESS.md`.
 
 **The version number stays 0.1 until 0.1 is actually finished.** 0.1 means: an LSP good
 enough to work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop
@@ -643,6 +644,16 @@ let f3 = move(f)        // ok
 `own` on a field is what flips the switch. It is not a comment — it is the declaration that
 this struct is responsible for a resource, and it makes the whole struct move-only.
 
+**`own` describes the struct, not the pointer.** An `own ^T` *value* is one pointer, and
+reading one — comparing it to `null`, dereferencing it, handing it to a release function —
+copies a pointer and nothing else. What is move-only is the struct that declares the field,
+because that is the thing with a `drop` to run. Anything else would make `if handle != null`
+inside `File::drop` a move out of `self`. `[DECIDED]`
+
+Acquiring ownership is an ordinary assignment: a plain `^T` may be stored into an `own ^T`
+field, which is what `alloc` returning `^u8` (§9.8) has to mean. The reverse is also allowed
+— an `own ^T` satisfies a `^T` — so `own` narrows nothing at the use site. `[DECIDED]`
+
 ### 6.4 Move semantics
 
 `move(x)` transfers ownership out of `x`. Afterwards `x` is **moved-from**, and the
@@ -670,9 +681,16 @@ state a freshly declared value would have, which means running its `drop` is alw
 and always a no-op for the resource. It costs a few stores; it removes an entire category
 of bug. `[DECIDED]`
 
+**A move needs a place the function owns.** `move` resets its source, and a `&`, a `^` or an
+array element is not something the function has the right to reset — so `move(p^)`,
+`move(r.field)` through a reference, and `move(xs[i])` are errors. A local, a by-value
+parameter, and a field of either are fine. `[DECIDED]`
+
 The same flow analysis handles **use-before-assignment** for the cases where default
 initialisation does not apply (a `let` with no type and no initialiser is rejected outright;
-a partially-moved struct field is tracked per field).
+a partially-moved struct field is tracked per field), and **definite return**: a function
+that promises a value must produce one on every path. An exhaustive `switch` counts as
+returning if every arm does, since §10.3 already proved there is no other path.
 
 **What is *not* checked:** whether a `&T` outlives what it points at, and whether a `^T`
 dangles. Dazzle has no lifetime system, by design (§1.1). `[DECIDED]`
@@ -1145,6 +1163,11 @@ pub struct Error {
 32 bytes, no allocation, no heap, no vtable. The location is a pointer into static storage
 filled in by `#location` (§12.7), so an error tells you where it came from at zero runtime
 cost — which is most of what a stack trace would have given you, for free.
+
+**`Error` and `SourceLocation` are provided by the language, not by the stdlib.** Both names
+are in scope everywhere with no import, like `str` and `bool`, because `or { e -> … }` binds
+one and there is nowhere for an import to come from. They are the only two structs with that
+status. `[DECIDED]`
 
 Domain-specific codes are ordinary enums:
 
@@ -2345,7 +2368,7 @@ Each milestone ends with something you can actually run.
 | M2 ✅ | Projects, modules, imports, visibility | **done** — `dazzle.toml` loading with span-accurate manifest diagnostics, source globs, dependency graph with cycle detection, module symbol tables, import resolution, `::` path resolution and visibility enforcement. `dz check` runs it. A three-module workspace resolves clean; violations are rejected with cross-file labels and "did you mean". Scope note: `.field` / `.method()` resolution needs the receiver's type and belongs to M3 — `::` is the compile-time operator, `.` the runtime one (§3.3), and the phase split falls exactly there |
 | M3 ✅ | Type checker: primitives, structs, functions, enums | **done** — literals and their contexts, no implicit numeric conversions, casts, structs/fields/methods with `.`-side visibility, mutability, enums and tagged unions with exhaustive `switch`, `T?` and fallible returns with the `or` clause and the consumption rule, arrays, slices, ranges and tuples. Note: M3 shipped against the v0.4 sigils; the v0.5 syntax is a re-spelling of the same checks plus the `^T` → `&T` conversion rule. `dz check` runs it. Generic bodies are skipped rather than misreported, since generics are M6 |
 | M4 ✅ | Codegen + runtime shim + `dz run` | **done — hello world runs.** C++17 emission with `#line` mapping back to `.dz`, the runtime shim, `dz cpp` / `dz build` / `dz run`, and end-to-end tests that compile and execute real programs. Output is warning-clean under `-Wall -Wextra -fno-exceptions -fno-rtti` on both clang++ and g++. Codegen covers functions, structs, enums, control flow, pointers, arrays and `defer`; `T?`, fallible returns, and tagged unions report `DZ0801` and are owed by M5 |
-| M5 | Ownership: `own`, `copy`, `drop`, `move`, flow analysis | your `Buffer<T>` and `String` samples compile and run leak-free under ASan |
+| M5 ✅ | Ownership: `own`, `copy`, `drop`, `move`, flow analysis | **done for everything that is not generic.** `copy` and `drop` become C++ special members, `move` steals and resets, move-only types have their copy operations deleted, and flow analysis reports use-after-move, partial moves, moves out of a borrow, implicit copies and missing returns. Codegen moved onto the HIR, which unblocked `T?`, fallible returns, tagged unions, tuples and block-valued expressions — the `DZ0801` rows M4 left behind. `tests/run/ownership` compiles and runs clean under ASan on clang++ and g++. `Buffer<T>` and `String` themselves are **generic**, so the literal criterion moves to M6; nothing about them is blocked on ownership any more |
 | M6 | Generics + traits + monomorphization | `Buffer<T>`, `Allocator`, and `Arena` work as written in §6 |
 | M7 | C++ interop via libclang | a raylib window opens from Dazzle |
 | M8 | Unions, `switch`, `T?`, `!->`, the `or` clause | the `ButtonState` union sample from `example.dz` works |
@@ -2469,6 +2492,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r7 | 2026-09-10 | Ownership pass, settling what §6 left implicit. **`own` describes the struct, not the pointer**: an `own ^T` value is one pointer and reading one copies a pointer, so `if handle != null` inside a `drop` is not a move; what is move-only is the struct that declares the field (§6.3). **Ownership is acquired by ordinary assignment** — a plain `^T` stores into an `own ^T` field, which is what `alloc` returning `^u8` has to mean (§6.3). **`move` needs a place the function owns**: `move(p^)`, `move(xs[i])` and a move through a `&` are errors, because a move resets its source and a borrow does not confer that right (§6.4). **Definite return** is now a rule: a function that promises a value must produce one on every path, and an exhaustive `switch` counts as returning if every arm does (§6.4). **`Error` and `SourceLocation` are language-provided types**, in scope everywhere with no import, since `or { e -> … }` binds one and there is nowhere for an import to come from (§9.2). |
 | r6 | 2026-09-10 | `or` is **non-associative**: `a() or b() or c` is a syntax error rather than a fallback chain (§9.4, §11.1). The first clause has already produced a value or diverged, so a second `or` could only apply to something that can no longer fail. Same reasoning as non-associative comparison. A fallback that can itself fail gets a clause of its own — `a() or { b() or c }` — which is how "try a, else try b, else c" is written. |
 | r5 | 2026-09-10 | Access/modality split. `?` becomes a postfix suffix on the type name (`T?`, `^T?`, `[]T?`) and applies to value types only — `?^T`, `?&T`, `!&T` and the rest are gone, along with the niche-optimisation table that depended on them. `!` leaves the type system entirely and becomes a signature marker (`!-> T`), so a fallible value cannot be stored, annotated, or pointed at. `with`/`else`, `try` and `catch` are replaced by one postfix `or` clause governed by a single rule: produce a `T` or diverge. Bare `or return` is reserved for propagation. `^T` → `&T` now requires an `or` clause, which is what makes `&T`'s non-null property mean anything. §18 reopens with four items. |
 | r4 | 2026-09-10 | All open questions closed. 18.3: `&T` in a struct field is banned outright (no `ref struct`); context structs use `^T`, and §5.2 now says honestly that this is a heuristic rather than a proof. 18.6: `^Trait` is a fat pointer, with a stable deterministic vtable id added for hot-reload re-resolution. §18 has no open items. |

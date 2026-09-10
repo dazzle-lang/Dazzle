@@ -81,6 +81,12 @@ pub struct StructSig {
     pub fields: Vec<FieldSig>,
     pub methods: HashMap<String, FnSig>,
     pub ctors: Vec<FnSig>,
+    /// `copy(other: &Self)` — its presence is what makes an otherwise move-only type
+    /// copyable (spec §6.3). The signature is kept for the parameter's span.
+    pub copy: Option<FnSig>,
+    /// `drop()` — its presence makes the type move-only and gives it a C++ destructor
+    /// (spec §6.3, §6.6).
+    pub drop: Option<FnSig>,
 }
 
 #[derive(Clone, Debug)]
@@ -99,6 +105,9 @@ pub enum ItemSig {
     Enum {
         backing: IntTy,
         variants: Vec<VariantSig>,
+        /// The `= n` a variant was given, by position. `None` means "one more than the
+        /// previous", which C++ spells the same way, so codegen prints nothing for it.
+        values: Vec<Option<i128>>,
     },
     Trait(StructSig),
     Fn(FnSig),
@@ -126,6 +135,122 @@ impl TypeTable {
 
     pub fn is_generic(&self, id: SymbolId) -> bool {
         self.generic.get(&id).copied().unwrap_or(false)
+    }
+
+    // --- ownership, the type-level half of spec §6 -------------------------
+    //
+    // Flow analysis asks these constantly and so does codegen, so they live next to the
+    // signatures they read rather than being recomputed in each consumer. The
+    // flow-sensitive half — *which* value is moved *where* — is `dz_flow`.
+
+    /// Does a value of this type need work when it dies (spec §6.5)?
+    ///
+    /// True for a type with a `drop`, and for anything holding one, because C++ will
+    /// generate the destructor that runs it. `own ^T` on its own does not: the pointer is
+    /// released by the `drop` its struct is required to have (DZ0412), not by itself.
+    pub fn needs_drop(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Named(id) => match self.get(*id) {
+                Some(ItemSig::Struct(s)) => {
+                    s.drop.is_some() || s.fields.iter().any(|f| self.needs_drop(&f.ty))
+                }
+                Some(ItemSig::Union { variants }) => variants
+                    .iter()
+                    .any(|v| v.fields.iter().any(|f| self.needs_drop(&f.ty))),
+                _ => false,
+            },
+            Ty::Array { elem, len: Some(_) } => self.needs_drop(elem),
+            Ty::Tuple(parts) => parts.iter().any(|t| self.needs_drop(t)),
+            _ => false,
+        }
+    }
+
+    /// Spec §6.3. A type is copyable if it declares a `copy`, or if it declares neither
+    /// `copy` nor `drop`, has no `own` field, and every field is copyable.
+    ///
+    /// Everything not named here is copyable: primitives, pointers, references and slices
+    /// are all bit-copies, and a `^T` copies the pointer, not the pointee — `own ^T` is
+    /// the spelling that says otherwise.
+    pub fn copyable(&self, ty: &Ty) -> bool {
+        self.copyable_guarded(ty, &mut Vec::new())
+    }
+
+    fn copyable_guarded(&self, ty: &Ty, stack: &mut Vec<SymbolId>) -> bool {
+        match ty {
+            // An `own ^T` *value* is one pointer, and reading it is a bit-copy like any
+            // other. What `own` makes move-only is the **struct that declares it**, which
+            // is the rule immediately below — spec §6.3 is careful to say "`own` on a
+            // field". Treating the pointer itself as move-only would make `if handle !=
+            // null` inside the type's own `drop` a diagnostic, which is absurd.
+            Ty::Array { elem, .. } => self.copyable_guarded(elem, stack),
+            Ty::Tuple(parts) => parts.iter().all(|t| self.copyable_guarded(t, stack)),
+            Ty::Named(id) => {
+                // A struct cannot contain itself by value, so a cycle here means the
+                // program is already ill-formed; stop rather than recurse forever.
+                if stack.contains(id) {
+                    return true;
+                }
+                stack.push(*id);
+                let answer = match self.get(*id) {
+                    Some(ItemSig::Struct(s)) => {
+                        if s.copy.is_some() {
+                            true
+                        } else if s.drop.is_some() {
+                            false
+                        } else {
+                            // "no `own` field, and every field is copyable" (spec §6.3).
+                            s.fields.iter().all(|f| {
+                                !matches!(f.ty, Ty::OwnPtr(_))
+                                    && self.copyable_guarded(&f.ty, stack)
+                            })
+                        }
+                    }
+                    Some(ItemSig::Union { variants }) => variants
+                        .iter()
+                        .all(|v| v.fields.iter().all(|f| self.copyable_guarded(&f.ty, stack))),
+                    _ => true,
+                };
+                stack.pop();
+                answer
+            }
+            _ => true,
+        }
+    }
+
+    /// Why `ty` is move-only, phrased for the `help:` of a diagnostic. `None` when it is
+    /// copyable after all.
+    pub fn move_only_because(&self, ty: &Ty) -> Option<String> {
+        if self.copyable(ty) {
+            return None;
+        }
+        Some(match ty {
+            Ty::Named(id) => match self.get(*id) {
+                Some(ItemSig::Struct(s)) if s.drop.is_some() => {
+                    "it declares a `drop`, so copying it would release the same resource \
+                     twice"
+                        .to_owned()
+                }
+                Some(ItemSig::Struct(s)) => {
+                    match s.fields.iter().find(|f| matches!(f.ty, Ty::OwnPtr(_))) {
+                        Some(f) => format!(
+                            "its field `{}` is `own`, so the struct is responsible for                              what it points at",
+                            f.name
+                        ),
+                        None => {
+                            let field = s
+                                .fields
+                                .iter()
+                                .find(|f| !self.copyable(&f.ty))
+                                .map(|f| f.name.clone())
+                                .unwrap_or_default();
+                            format!("its field `{field}` is move-only")
+                        }
+                    }
+                }
+                _ => "it owns a resource".to_owned(),
+            },
+            _ => "it owns a resource".to_owned(),
+        })
     }
 }
 
@@ -283,7 +408,16 @@ pub fn type_name(res: &Resolution, t: &Ty) -> String {
             params.iter().map(&name_of).collect::<Vec<_>>().join(", "),
             name_of(ret)
         ),
+        Ty::Builtin(b) => b.name().to_owned(),
         Ty::Named(id) => res.symbol(*id).name.clone(),
+        Ty::Variant(id, i) => {
+            let owner = res.symbol(*id);
+            let variant = owner.members.iter().filter(|m| m.sort == dz_resolve::MemberSort::Variant).nth(*i);
+            match variant {
+                Some(v) => format!("{}::{}", owner.name, v.name),
+                None => owner.name.clone(),
+            }
+        }
         Ty::SelfTy => "Self".to_owned(),
     }
 }
@@ -437,9 +571,17 @@ impl<'a> Ctx<'a> {
                         span: v.name.span,
                     })
                     .collect();
+                let values = e
+                    .variants
+                    .iter()
+                    .map(|v| match v.value.as_ref().map(|x| &x.kind) {
+                        Some(ExprKind::Int(text)) => parse_int_literal(text),
+                        _ => None,
+                    })
+                    .collect();
                 self.table
                     .sigs
-                    .insert(sym, ItemSig::Enum { backing, variants });
+                    .insert(sym, ItemSig::Enum { backing, variants, values });
             }
             ItemKind::Fn(f) => {
                 let generic = !f.generics.is_empty();
@@ -503,11 +645,38 @@ impl<'a> Ctx<'a> {
                     let s = self.fn_sig(f, m.vis, false);
                     sig.ctors.push(s);
                 }
-                MemberKind::Copy(_) | MemberKind::Drop(_) => {}
+                // §6.1: at most one of each, and both are what §6.3 keys copyability on.
+                MemberKind::Copy(f) => {
+                    let s = self.fn_sig(f, m.vis, false);
+                    if sig.copy.is_some() {
+                        self.duplicate_special(f.name.span, "copy");
+                    } else {
+                        sig.copy = Some(s);
+                    }
+                }
+                MemberKind::Drop(f) => {
+                    let s = self.fn_sig(f, m.vis, false);
+                    if sig.drop.is_some() {
+                        self.duplicate_special(f.name.span, "drop");
+                    } else {
+                        sig.drop = Some(s);
+                    }
+                }
                 MemberKind::TypeAlias { .. } | MemberKind::Error => {}
             }
         }
         sig
+    }
+
+    fn duplicate_special(&mut self, span: Span, what: &str) {
+        self.error_help(
+            codes::DUPLICATE_SPECIAL_MEMBER,
+            span,
+            format!("`{what}` is declared twice"),
+            format!("a struct may declare at most one `{what}`"),
+            "the three special members are a constructor, `copy` and `drop`, and there is \
+             one of each (spec §6.1)",
+        );
     }
 
     fn field_sig(&mut self, f: &Field) -> FieldSig {
@@ -585,7 +754,12 @@ pub(crate) fn builtin_type(name: &str) -> Option<Ty> {
         "cstr" => Ty::CStr,
         "void" => Ty::Void,
         "Self" => Ty::SelfTy,
-        _ => return None,
+        // `Error` and `SourceLocation` are provided by the language, not the stdlib
+        // (spec §9.2, §12.7), so they are spellable without an import.
+        other => match ty::BuiltinTy::from_name(other) {
+            Some(b) => Ty::Builtin(b),
+            None => return None,
+        },
     })
 }
 

@@ -1,0 +1,8 @@
+// Spec §6.5, decision §18.4: a type with an `own` field and no `drop` is an error — it
+// declares that it is responsible for a resource and then never releases it.
+// expect: DZ0412
+
+pub struct Leaky {
+    m_p: own ^i32
+    pub label: str
+}

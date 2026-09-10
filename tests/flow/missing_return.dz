@@ -1,0 +1,8 @@
+// A function that promises a value and has a path that reaches the end without one.
+// expect: DZ0405
+
+fn maybe(n: i32) -> i32 {
+    if n > 0 {
+        return 1
+    }
+}

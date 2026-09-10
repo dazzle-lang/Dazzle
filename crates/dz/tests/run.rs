@@ -161,17 +161,25 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
         return;
     };
 
-    // Copied into a scratch project: `tests/run/features` is also driven by the run
-    // test, and cargo runs tests in parallel, so sharing a build directory would race.
-    let source = std::fs::read_to_string(run_dir("features").join("src/main.dz")).unwrap();
-    let dir = scratch(
-        "dz_wall_wextra",
-        "[module]
-name = \"features\"
+    // Every run fixture, not just one: `ownership` is the only program that exercises
+    // the generated special members, and `failure` the only one that exercises `or`,
+    // tagged unions and tuples. A warning in generated code is a compiler bug
+    // (invariant 7), so the check has to see all of it.
+    for fixture in ["features", "ownership", "failure", "hello"] {
+        check_warning_clean(cxx, fixture);
+    }
+}
+
+/// Generate one fixture's C++ and compile every translation unit with warnings as errors.
+fn check_warning_clean(cxx: &str, fixture: &str) {
+    // Copied into a scratch project: the run test drives the same directories, and cargo
+    // runs tests in parallel, so sharing a build directory would race.
+    let source = std::fs::read_to_string(run_dir(fixture).join("src/main.dz")).unwrap();
+    let manifest = format!("[module]
+name = \"{fixture}\"
 sources = [\"src/**/*.dz\"]
-",
-        &source,
-    );
+");
+    let dir = scratch(&format!("dz_wall_wextra_{fixture}"), &manifest, &source);
     let out = Command::new(dz())
         .args(["cpp", dir.to_str().unwrap()])
         .output()
@@ -210,7 +218,7 @@ fn unsupported_constructs_are_reported_not_miscompiled() {
     .unwrap();
     std::fs::write(
         dir.join("src/a.dz"),
-        "union U {\n A\n B\n}\n\nfn main() {\n    let t = (1, 2)\n}\n",
+        "fn id<T>(x: T) -> T {\n    return x\n}\n\nfn main() {\n    println(\"{}\", 1)\n}\n",
     )
     .unwrap();
 
@@ -283,7 +291,12 @@ fn cpp20_uses_designated_initialisers_and_cpp17_does_not() {
         let cpp = std::fs::read_to_string(dir.join("build/cpp/lit.cpp")).unwrap();
         if expect_designated {
             // ...and reordered into declaration order, which C++20 requires.
-            assert!(cpp.contains("Vec3{ .x = 1, .y = 2 }"), "expected designated init:\n{cpp}");
+            // The literals carry their `f32` type: the HIR records what the checker
+            // concluded, so codegen no longer leans on a C++ implicit conversion.
+            assert!(
+                cpp.contains("Vec3{ .x = 1.0f, .y = 2.0f }"),
+                "expected designated init:\n{cpp}"
+            );
         } else {
             // Match the designated form exactly: the lambda form legitimately contains
             // `_dz_lit1.x = 1`, which has `.x = 1` as a substring.

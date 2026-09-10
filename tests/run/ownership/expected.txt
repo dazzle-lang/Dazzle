@@ -1,0 +1,15 @@
+live: 1
+moved: label=a live=1
+  drop a
+consume: 1
+slot a released: true
+copied: 1 101
+nested: tag=3 live=1
+  drop b
+slot b released: true
+before scope ends
+  drop c
+  deferred
+done
+  drop Counted(101)
+  drop Counted(1)

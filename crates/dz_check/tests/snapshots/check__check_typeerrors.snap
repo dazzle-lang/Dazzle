@@ -248,3 +248,29 @@ error[DZ0501]: `i32` cannot be iterated
     │              ^ not iterable
     │
     = help: `for` works over ranges, arrays and slices; user types need the `Iterate` trait, which arrives with generics (spec §8.5)
+
+error[DZ0505]: `Shape::Circle` has no field `diameter`
+    ┌─ typeerrors/src/errors.dz:207:22
+    │
+207 │             return c.diameter
+    │                      ^^^^^^^^ unknown field
+
+error[DZ0512]: missing field in `Shape::Circle`
+    ┌─ typeerrors/src/errors.dz:216:12
+    │
+216 │     return Shape::Circle{ w: 1 }
+    │            ^^^^^^^^^^^^^^^^^^^^^ `radius` not initialised
+    │
+    = help: a field with a declared default may be omitted (spec §6.2)
+
+error[DZ0505]: `Shape::Circle` has no field `w`
+    ┌─ typeerrors/src/errors.dz:216:27
+    │
+216 │     return Shape::Circle{ w: 1 }
+    │                           ^ unknown field
+
+error[DZ0505]: `Error` has no field `reason`
+    ┌─ typeerrors/src/errors.dz:222:11
+    │
+222 │         e.reason
+    │           ^^^^^^ unknown field

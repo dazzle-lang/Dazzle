@@ -12,4 +12,5 @@ dz_diag.workspace = true
 dz_ast.workspace = true
 dz_project.workspace = true
 dz_resolve.workspace = true
+dz_hir.workspace = true
 dz_check.workspace = true

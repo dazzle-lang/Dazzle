@@ -148,8 +148,10 @@ impl BodyBuilder {
         self.locals.truncate(mark.locals);
     }
 
-    /// Finish the body. `root` is the block the function's statements went into.
-    pub(crate) fn finish(mut self, root: BlockId) -> hir::Body {
+    /// Finish the body. `root` is the block the function's statements went into, and
+    /// `fallible` is the signature's `!->` (spec §9.1), which the return type alone
+    /// cannot say since it holds only the success case.
+    pub(crate) fn finish(mut self, root: BlockId, fallible: bool) -> hir::Body {
         // A node still holding `{integer}`/`{float}` here never met a typing context, so
         // its default is exactly what the language says it is (spec §2.5). Settling them
         // now is what lets the HIR promise that no consumer ever sees an untyped literal.
@@ -170,6 +172,7 @@ impl BodyBuilder {
             params: self.params,
             param_defaults: self.param_defaults,
             ret: self.ret,
+            fallible,
             locals: self.locals,
             exprs: self.exprs,
             stmts: self.stmts,
