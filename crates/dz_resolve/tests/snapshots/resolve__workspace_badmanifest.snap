@@ -1,0 +1,57 @@
+---
+source: crates/dz_resolve/tests/resolve.rs
+expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
+---
+modules: 1, files: 0
+
+error[DZ0004]: `not a valid name` is not a valid module name
+  ┌─ D:/OdinProjects/Dazzle/tests/workspace/badmanifest/dazzle.toml:2:11
+  │
+2 │ name    = "not a valid name"
+  │           ^^^^^^^^^^^^^^^^^^ invalid module name
+  │
+  = help: a name is an identifier, or several joined by `::` — for example "engine" or "engine::render" (spec §3.2)
+
+error[DZ0004]: `module.version` must be a string
+  ┌─ D:/OdinProjects/Dazzle/tests/workspace/badmanifest/dazzle.toml:3:11
+  │
+3 │ version = 3
+  │           ^ this is an integer
+
+error[DZ0004]: `module.sources` must be an array of strings
+  ┌─ D:/OdinProjects/Dazzle/tests/workspace/badmanifest/dazzle.toml:4:11
+  │
+4 │ sources = "src/**/*.dz"
+  │           ^^^^^^^^^^^^^ this is a string
+
+error[DZ0004]: invalid value for `build.output`
+  ┌─ D:/OdinProjects/Dazzle/tests/workspace/badmanifest/dazzle.toml:7:13
+  │
+7 │ output    = "library"
+  │             ^^^^^^^^^ not one of the allowed values
+  │
+  = help: valid values are "executable", "static-lib", "shared-lib"
+
+error[DZ0004]: invalid value for `build.optimize`
+  ┌─ D:/OdinProjects/Dazzle/tests/workspace/badmanifest/dazzle.toml:8:13
+  │
+8 │ optimize  = "fastest"
+  │             ^^^^^^^^^ not one of the allowed values
+  │
+  = help: valid values are "debug", "release", "shipping"
+
+error[DZ0001]: cannot read D:/OdinProjects/Dazzle/tests/workspace/nowhere/dazzle.toml: The system cannot find the path specified. (os error 3)
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/badmanifest/dazzle.toml:12:20
+   │
+12 │ missing = { path = "../nowhere" }
+   │                    ^^^^^^^^^^^^ this dependency's manifest does not exist
+   │
+   = help: the path is relative to the manifest that declares it
+
+error[DZ0003]: dependency `noPath` has no `path`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/badmanifest/dazzle.toml:13:11
+   │
+13 │ noPath  = { version = "1.0" }
+   │           ^^^^^^^^^^^^^^^^^^^ expected `path = "..."`
+   │
+   = help: only path dependencies are supported so far

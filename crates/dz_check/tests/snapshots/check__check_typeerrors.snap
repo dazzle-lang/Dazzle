@@ -1,0 +1,220 @@
+---
+source: crates/dz_check/tests/check.rs
+expression: body
+---
+error[DZ0502]: `300` does not fit in `u8`
+  ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:5:18
+  │
+5 │     World      = 300
+  │                  ^^^ outside the range of `u8`
+  │
+  = help: valid values are 0 to 255
+
+error[DZ0517]: a struct field cannot hold `&Vec3`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:23:17
+   │
+23 │     borrowed:   &Vec3
+   │                 ^^^^^ references live only on the stack
+   │
+   = help: use `^T` for a stored pointer — a reference in a field could outlive what it points at, and Dazzle has no lifetimes to catch that (spec §5.2)
+
+error[DZ0507]: cannot assign to `count`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:34:9
+   │
+34 │         count += 1
+   │         ^^^^^ not mutable
+   │
+   = help: declare it as `let mut count` to allow assignment
+
+error[DZ0501]: expected `i64`, found `i32`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:39:12
+   │
+39 │     return small
+   │            ^^^^^ this is `i32`
+   │
+   = help: Dazzle has no implicit numeric conversions, not even widening (spec §5.1) — write `... as i64`
+
+error[DZ0502]: `300` does not fit in `u8`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:43:17
+   │
+43 │     let b: u8 = 300
+   │                 ^^^ outside the range of `u8`
+   │
+   = help: valid values are 0 to 255
+
+error[DZ0514]: `+` cannot mix `i32` and `i64`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:47:12
+   │
+47 │     return a + b
+   │            ^^^^^ operands have different types
+   │
+   = help: Dazzle has no implicit numeric conversions, not even widening (spec §5.1) — cast one side with `as`
+
+error[DZ0508]: `if` needs a `bool`, found `i32`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:51:8
+   │
+51 │     if n {
+   │        ^ this is `i32`
+   │
+   = help: there is no truthiness in Dazzle — compare explicitly, e.g. `x != 0` or `p != null` (spec §10.1)
+
+error[DZ0508]: `while` needs a `bool`, found `Vec3`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:57:11
+   │
+57 │     while v {
+   │           ^ this is `Vec3`
+   │
+   = help: there is no truthiness in Dazzle — compare explicitly, e.g. `x != 0` or `p != null` (spec §10.1)
+
+error[DZ0505]: `Vec3` has no field `w`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:63:14
+   │
+63 │     return v.w
+   │              ^ unknown field
+   │
+   = help: did you mean `x`?
+
+error[DZ0506]: field `Counter::count` is not visible here
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:67:14
+   │
+21 │     count:      u32
+   │     ----- declared here
+   ·
+67 │     return c.count
+   │              ^^^^^ private field
+   │
+   = help: this field is private to `Counter`; mark it `pub` or `pub(module)` (spec §4)
+
+error[DZ0520]: `Counter` has no method `increment`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:71:14
+   │
+71 │     return c.increment()
+   │              ^^^^^^^^^ unknown method
+
+error[DZ0507]: `bump` needs a mutable receiver
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:75:5
+   │
+75 │     c.bump()
+   │     ^ this is not mutable
+   │
+   = help: `mut fn` methods take `&mut self` — bind with `let mut`, or take `&mut` here (spec §7.3)
+
+error[DZ0507]: cannot assign to `total`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:80:5
+   │
+80 │     total = 2
+   │     ^^^^^ not mutable
+   │
+   = help: declare it as `let mut total` to allow assignment
+
+error[DZ0512]: missing field in `Vec3`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:84:12
+   │
+84 │     return Vec3{ x: 1, y: 2 }
+   │            ^^^^^^^^^^^^^^^^^^ `z` not initialised
+   │
+   = help: a field with a declared default may be omitted (spec §6.2)
+
+error[DZ0505]: `Vec3` has no field `w`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:88:36
+   │
+88 │     return Vec3{ x: 1, y: 2, z: 3, w: 4 }
+   │                                    ^ unknown field
+   │
+   = help: did you mean `x`?
+
+error[DZ0504]: `length` expects 1 argument, found 2
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:92:12
+   │
+92 │     return length(v, v)
+   │            ^^^^^^^^^^^^ wrong number of arguments
+
+error[DZ0511]: cannot cast `Vec3` to `i32`
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:100:12
+    │
+100 │     return v as i32
+    │            ^^^^^^^^ invalid conversion
+    │
+    = help: `as` converts between numbers, between pointers, and from an enum to its backing type; it never runs user code (spec §10.6)
+
+error[DZ0515]: `i32` cannot be indexed
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:104:12
+    │
+104 │     return n[0]
+    │            ^ not an array or slice
+
+error[DZ0518]: `i32` cannot be dereferenced
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:108:12
+    │
+108 │     return n^
+    │            ^^ not a pointer
+    │
+    = help: postfix `^` dereferences a `^T`; `.` already reaches through pointers on its own (spec §5.2)
+
+error[DZ0513]: `switch` on `Shape` is not exhaustive
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:112:5
+    │  
+112 │ ╭     switch s {
+113 │ │         case Circle(c) {
+114 │ │             return 1
+115 │ │         }
+    · │
+118 │ │         }
+119 │ │     }
+    │ ╰─────^ `Point` not covered
+    │  
+    = help: add the missing arms, or a `default` arm (spec §10.3)
+
+error[DZ0505]: `Shape` has no variant `Triangle`
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:125:14
+    │
+125 │         case Triangle {
+    │              ^^^^^^^^ unknown variant
+
+error[DZ0510]: unused `!i32`
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:143:5
+    │
+143 │     may_fail()
+    │     ^^^^^^^^^^ this may fail, and the failure is discarded
+    │
+    = help: handle it with `with`, propagate it with `try`, supply a fallback with `catch`, or write `let _ = ...` to ignore it deliberately (spec §9.7)
+
+error[DZ0516]: `try` on a `!i32` needs an enclosing function returning `!U`
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:147:13
+    │
+147 │     let v = try may_fail()
+    │             ^^^^^^^^^^^^^^ this function returns `i32`
+    │
+    = help: change the return type to `!U`, or handle it here with `with` or `catch` (spec §9.5)
+
+error[DZ0501]: `with` needs a `?T` or `!T`, found `i32`
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:152:11
+    │
+152 │     with (n) {
+    │           ^ this cannot be absent or fail
+    │
+    = help: `with` binds the success payload of an optional or fallible value (spec §9.4)
+
+error[DZ0501]: `?T` has no failure value to bind as `e`
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:160:14
+    │
+160 │     } else { e ->
+    │              ^ nothing to bind here
+    │
+    = help: only `!T` carries an `Error`; write `else { ... }` with no binding (spec §9.4)
+
+error[DZ0521]: `none` needs an optional type here
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:166:13
+    │
+166 │     let x = none
+    │             ^^^^ nothing here expects a `?T`
+    │
+    = help: `none` is the empty case of `?T` (spec §9.1)
+
+error[DZ0501]: `i32` cannot be iterated
+    ┌─ D:/OdinProjects/Dazzle/tests/workspace/typeerrors/src/errors.dz:171:14
+    │
+171 │     for i in n {
+    │              ^ not iterable
+    │
+    = help: `for` works over ranges, arrays and slices; user types need the `Iterate` trait, which arrives with generics (spec §8.5)

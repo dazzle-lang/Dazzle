@@ -1,0 +1,7 @@
+[package]
+name = "dz_span"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Source files, byte spans and line/column mapping for the Dazzle compiler"

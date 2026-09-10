@@ -1,0 +1,10 @@
+// Bounds checking is on in debug builds (spec §5.3), and a panic aborts through the
+// runtime shim rather than a C++ exception (spec §9.8).
+fn main() {
+    let mut xs: [3]i32
+    xs[0] = 7
+    println("ok: {}", xs[0])
+    let i = 5
+    println("{}", xs[i])
+    println("unreachable")
+}

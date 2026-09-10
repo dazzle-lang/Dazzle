@@ -1,0 +1,6 @@
+[module]
+name    = "alpha"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+beta = { path = "../b" }

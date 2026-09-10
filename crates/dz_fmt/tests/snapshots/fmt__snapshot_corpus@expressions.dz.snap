@@ -1,0 +1,87 @@
+---
+source: crates/dz_fmt/tests/fmt.rs
+expression: fmt(&source)
+input_file: tests/fmt/expressions.dz
+---
+fn precedence() {
+    // spec §11.1, loosest to tightest
+    let a = x || y && z
+    let b = x == y && p != q
+    let c = 1 | 2 ^^ 3 & 4
+    let d = 1 & 2 << 3
+    let e = 1 + 2 * 3 - 4 / 5 % 6
+    let f = a as i64 * b
+    let g = -x + !y
+    let h = ~flags & mask
+    let i = (a + b) * c
+    let j = a + b * c
+}
+
+fn postfix() {
+    let a = world.players[0].health
+    let b = p^
+    let c = buf.length()
+    let d = Buffer<f32>::with_capacity(8)
+    let e = math::PI
+    let f = Allocators::Global
+    let g = t.0
+    let h = arr[i + 1]
+    let i = obj.method(1, 2).field.other()
+}
+
+fn literals() {
+    let a = 42
+    let b = 3.14
+    let c = "text"
+    let d = 'x'
+    let e = true
+    let f = false
+    let g = null
+    let h = none
+    let i = 0xDEAD_BEEF
+    let j = 1.5f32
+}
+
+fn structs_and_ranges() {
+    let t = Transform{ position: Vec3{ 0, 1, 0 } }
+    let v = Vec3{ 1, 2, 3 }
+    let s: ButtonState = .Transition{}
+    let k: ButtonState = .Default
+    let r1 = 0..count
+    let r2 = 0..=count
+    let empty = Vec3{}
+}
+
+fn ownership_and_errors() {
+    let a = move(name)
+    let b = &value
+    let c = &mut value
+    let d = try load(path)
+    let e = load(path) catch Textures::Missing
+    let f = load(path) catch { err ->
+    log::warn("failed: {}", err.message)
+    Textures::Missing
+}
+    let g = find(id) catch return
+    let h = #location
+    let i = #line
+}
+
+fn nested_calls() {
+    m_data = m_allocator.realloc(m_data as ^u8, m_capacity * sizeof(T), new_size * sizeof(T), alignof(T)) as ^T
+}
+
+fn expression_forms() -> i32 {
+    let hp = with (find_player(id)) {
+    it.health
+} else {
+    0
+}
+    let x = if ready {
+    1
+} else {
+    2
+}
+    let t = (1, 2.0)
+    return hp
+}

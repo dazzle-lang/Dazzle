@@ -1,0 +1,289 @@
+struct DefaultState {}
+
+struct TransitionState {
+	t: f32
+}
+
+struct ChangeSprite {} 
+
+union ButtonState {
+	DefaultState,
+	TransitionState,
+	ChangeSprite
+}
+
+fn main() {
+	let mut w: World
+	
+	while true {
+		for btn, state in w.query<Button, ButtonState>() {
+			if io::isMouseOver(btn) && io::isMouseDown() {
+				state = TransitionState {}
+			}
+
+			switch s in state {
+				case TransitionState {
+					s.t += deltaTime
+					s.scale = lerp(1, 2, t)
+
+					if t >= 1 {
+						state = ChangeSprite {}
+					}
+				}
+
+				case ChangeSprite {
+					btn.sprite = Sprites::Selected
+					state = DefaultState {}
+				}
+			}
+		}
+	}
+}
+
+
+// =====
+
+def State<Ctx> {
+	def on_enter(ctx: &Ctx)
+	def update(ctx: &Ctx)
+	def on_exit(ctx: &Ctx)
+} 
+
+def StateMachine {
+	def union States;
+	current_state: States
+
+	pub fn goto<T: States>(T state) {
+		current_state = state
+	} 
+}
+
+struct ButtonState: StateMachine {
+	union States {
+		struct Default: State<ButtonContext> {
+			pub update(ctx: &ButtonContext) {
+				if ctx.mouse_down {
+					goto<Transition>()
+				}
+			}
+		},
+
+		struct Transition: State {
+			t: f32
+
+			pub update(ctx: &ButtonContext) {
+				if ctx.mouse_up {
+					goto<Default>()
+				}
+
+				t += ctx.delta_time
+				ctx.scale = lerp(1, 2, t)
+
+				if t >= 1 {
+					goto<ChangeSprite>()
+				} 
+			}
+		},
+
+		struct ChangeSprite: State {
+			pub on_enter(ctx: &ButtonContext) {
+				ctx.sprite = Sprites::Selected
+			}
+		}
+	}
+}
+
+
+fn main() {
+	let mut w: World
+	
+	while true {
+		for btn, state in w.query<Button, ButtonState>() {
+			state.tick(/*ctx*/)
+		}
+	}
+}
+
+
+// ====
+
+def State<Ctx, S> {
+	fn enter (self: &Self, ctx: &Ctx) -> ?S { return none }
+	fn update(self: &Self, ctx: &Ctx) -> ?S { return none }
+	fn exit  (self: &Self, ctx: &Ctx)       {}
+}
+def StateMachine<Ctx> {
+	def union States;
+	current: States
+	pub fn tick(self: &Self, ctx: &Ctx) {
+		let mut next = self.current.update(ctx)
+		let mut hops = 0
+		while let n = next {
+			self.current.exit(ctx)
+			self.current = n
+			next = self.current.enter(ctx)
+			hops += 1
+			if hops > 8 {
+				panic("state machine cycled {} times in one tick", hops)
+			}
+		}
+	}
+}
+
+macro machine -> declaration {
+	syntax Field {                                   // t: f32   or   t: f32 = 0
+		$name:#name : $type:#type ( = $default:#value )?
+	}
+
+	syntax State {                                   // state Grow(t: f32 = 0) { ... }
+		state $name:#name ( $fields:Field[,] )? {
+			$items:#declaration[]
+			$body:#code[]
+		}
+	}
+
+	pattern {                                        // ButtonState(ButtonCtx) { ... }
+		$name:#name ( $ctx:#type ) {
+			$states:State[]
+		}
+	}
+
+	expand {
+		struct $name: StateMachine<$ctx> {
+			union States {
+				$states[,] {
+					struct $.name: State<$ctx, States> {
+						$.fields[,] {
+							$.name: $.type $.default? { = $.default }
+						}
+
+						$.items
+
+						fn update() { $.body }
+					}
+				}
+			}
+		}
+	}
+}
+
+struct ButtonCtx {
+	btn:        &Button
+	input:      &Input
+	delta_time: f32
+}
+
+#machine ButtonState(ButtonCtx) {
+	state Default {
+		if ctx.input.mouse_down && ctx.input.isMouseOver(ctx.btn) {
+			return Transition
+		}
+	}
+	state Transition(t: f32 = 0) {
+		if ctx.input.mouse_up { return Default }
+		t += ctx.delta_time
+		ctx.btn.scale = lerp(1, 2, t)
+		if t >= 1 { return ChangeSprite }
+	}
+	state ChangeSprite {
+		fn enter() {
+			ctx.btn.sprite = Sprites::Selected
+			return Default
+		}
+	}
+}
+
+fn main() {
+	let mut w: World
+
+	while true {
+		for btn, state in w.query<Button, ButtonState>() {
+			let ctx = ButtonCtx{
+				btn:        btn,
+				input:      &input,
+				delta_time: dt,
+			}
+
+			state.tick(&ctx)
+		}
+	}
+}
+
+
+
+struct ButtonCtx {
+	btn:        &Button
+	input:      &Input
+	delta_time: f32
+}
+
+machine! ButtonState(ctx: ButtonCtx) {
+	state Default {
+		if ctx.input.mouse_down && ctx.input.isMouseOver(ctx.btn) {
+			return Transition
+		}
+	}
+
+	state Transition(t: f32 = 0) {
+		if ctx.input.mouse_up { return Default }
+
+		t += ctx.delta_time
+		ctx.btn.scale = lerp(1, 2, t)
+
+		if t >= 1 { return ChangeSprite }
+	}
+
+	state ChangeSprite {
+		fn enter() {
+			ctx.btn.sprite = Sprites::Selected
+			return Default
+		}
+	}
+}
+
+fn main() {
+	let mut w: World
+
+	while true {
+		for btn, state in w.query<Button, ButtonState>() {
+			let ctx = ButtonCtx{
+				btn:        btn,
+				input:      &input,
+				delta_time: dt,
+			}
+
+			state.tick(&ctx)
+		}
+	}
+}
+
+
+
+
+
+struct ButtonState: StateMachine<ButtonCtx> {
+	union States {
+		struct Default: State {
+			fn update() {
+				if ctx.input.mouse_down && ctx.input.isMouseOver(ctx.btn) {
+					return Transition
+				}
+			}
+		},
+		struct Transition: State {
+			t: f32 = 0
+			fn update() {
+				if ctx.input.mouse_up { return Default }
+				t += ctx.delta_time
+				ctx.btn.scale = lerp(1, 2, t)
+				if t >= 1 { return ChangeSprite }
+			}
+		},
+		struct ChangeSprite: State {
+			fn enter() {
+				ctx.btn.sprite = Sprites::Selected
+				return Default
+			}
+		}
+	}
+}

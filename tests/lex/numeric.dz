@@ -1,0 +1,36 @@
+// Ported from tests/cases/numeric.dz, plus the rest of spec §2.5.
+1
+12.3
+1.2.3.466
+
+// radix prefixes
+0xDEAD_BEEF
+0o755
+0b1010_1010
+0xFFu32
+0xabci8
+
+// separators and exponents
+1_000_000
+1e9
+2.5e-3
+1_000.5
+
+// suffixes
+10i8
+20u32
+1.5f32
+1.5f64
+1.5f
+
+// `.` only starts a fraction when a digit follows
+0..10
+0..=10
+4.hello
+
+// malformed
+1x42
+0xx35
+0b102
+1_000_
+1.5i32

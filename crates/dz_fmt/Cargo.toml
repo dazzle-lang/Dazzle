@@ -1,0 +1,17 @@
+[package]
+name = "dz_fmt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Formatter for the Dazzle language"
+
+[dev-dependencies]
+dz_diag.workspace = true
+dz_parse.workspace = true
+insta.workspace = true
+
+[dependencies]
+dz_span.workspace = true
+dz_lex.workspace = true
+dz_ast.workspace = true

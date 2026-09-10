@@ -1,0 +1,13 @@
+"hello"
+"escapes: \n \r \t \\ \" \' \0 \x1B \u{1F600}"
+""
+`C:\raw\no\escapes`
+`raw
+spanning
+lines`
+
+// malformed
+"unterminated
+"bad escape \q"
+"bad hex \xZZ"
+"bad unicode \u{}"

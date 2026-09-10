@@ -1,0 +1,12 @@
+[package]
+name = "dz_project"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Project manifests and the workspace graph for Dazzle"
+
+[dependencies]
+dz_span.workspace = true
+dz_diag.workspace = true
+glob = "0.3"

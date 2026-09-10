@@ -1,0 +1,14 @@
+let a = 1; let b = 2
+let c =
+    3
+foo(a,
+    b,
+    c)
+let d = a +
+        b
+arr[
+    0
+]
+
+
+let e = 1

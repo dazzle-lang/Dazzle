@@ -1,0 +1,22 @@
+---
+source: crates/dz_lex/tests/lex.rs
+expression: "lex_report(&name, &source)"
+input_file: tests/lex/comments.dz
+---
+=== TOKENS ===
+   2:1   DocComment `/// a doc comment, kept as a token`
+   2:35  Terminator
+   4:1   let
+   4:5   Ident `a`
+   4:7   =
+   4:9   Int `1`
+   4:30  Terminator
+   7:1   let
+   7:5   Ident `b`
+   7:7   =
+   7:9   Int `2`
+   7:10  Terminator
+   8:1   Eof
+
+=== DIAGNOSTICS ===
+(none)

@@ -1,0 +1,94 @@
+---
+source: crates/dz_resolve/tests/resolve.rs
+expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
+---
+modules: 3, files: 5
+
+error[DZ0303]: no module `graphics` in scope
+  ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/violations.dz:5:8
+  │
+5 │ import graphics
+  │        ^^^^^^^^ not a dependency of this module
+  │
+  = help: available modules are `engine`, `math`, `badgame`
+
+warning[DZ0307]: unused import `dot`
+  ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/violations.dz:6:16
+  │
+6 │ import math::{ dot }
+  │                ^^^ never referred to in this file
+  │
+  = help: imports are file-scoped (spec §3.2); remove it or use it
+
+error[DZ0304]: function `internal_scale` is private
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/violations.dz:11:18
+   │
+11 │     return math::internal_scale(&v, 2)
+   │                  ^^^^^^^^^^^^^^ not exported from module `math`
+   │
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/libs/math/src/vec.dz:18:4
+   │
+18 │ fn internal_scale(v: &Vec3, k: f32) -> f32 {
+   │    -------------- declared here
+   │
+   = help: add `pub` to the declaration to export it (spec §4)
+
+error[DZ0304]: field `Renderer::m_handle` is private
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/violations.dz:16:30
+   │
+16 │     return engine::Renderer::m_handle
+   │                              ^^^^^^^^ this field is not public
+   │
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/libs/engine/src/render.dz:16:17
+   │
+16 │     pub(module) m_handle: u32
+   │                 -------- declared here
+   │
+   = help: mark it `pub` to export it from module `engine` (spec §4)
+
+error[DZ0305]: `Layer` has no member `Foreground`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/violations.dz:20:27
+   │
+20 │     return engine::Layer::Foreground as u32
+   │                           ^^^^^^^^^^ not found
+   │
+   = help: did you mean `Background`?
+
+error[DZ0301]: module `math` has no `dotp`
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/violations.dz:25:18
+   │
+25 │     return math::dotp(&v, &v)
+   │                  ^^^^ not found in this module
+   │
+   = help: did you mean `dot`?
+
+error[DZ0302]: `unknown_name` is defined more than once in this module
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/violations.dz:28:4
+   │
+28 │ fn unknown_name() -> i32 {
+   │    ^^^^^^^^^^^^ redefined as a function
+   │
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/duplicate.dz:4:4
+   │
+ 4 │ fn unknown_name() -> i32 {
+   │    ------------ first defined as a function here
+   │
+   = help: a module is one namespace shared by all of its files (spec §3.1), so two files cannot declare the same name
+
+error[DZ0301]: cannot find value `not_a_function` in this scope
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/violations.dz:29:12
+   │
+29 │     return not_a_function(1)
+   │            ^^^^^^^^^^^^^^ not found
+   │
+   = help: declare it in this module, or `import` the module that exports it (spec §3.2)
+
+error[DZ0306]: `total` is already bound in this scope
+   ┌─ D:/OdinProjects/Dazzle/tests/workspace/private/src/violations.dz:34:9
+   │
+33 │     let total = 1
+   │         ----- first bound here
+34 │     let total = 2
+   │         ^^^^^ redeclared here
+   │
+   = help: shadowing is allowed in an inner scope but not in the same one (spec §7.1)

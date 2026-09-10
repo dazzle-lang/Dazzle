@@ -1,0 +1,51 @@
+---
+source: crates/dz_lex/tests/lex.rs
+expression: "lex_report(&name, &source)"
+input_file: tests/lex/terminators.dz
+---
+=== TOKENS ===
+   1:1   let
+   1:5   Ident `a`
+   1:7   =
+   1:9   Int `1`
+   1:10  Terminator
+   1:12  let
+   1:16  Ident `b`
+   1:18  =
+   1:20  Int `2`
+   1:21  Terminator
+   2:1   let
+   2:5   Ident `c`
+   2:7   =
+   3:5   Int `3`
+   3:6   Terminator
+   4:1   Ident `foo`
+   4:4   (
+   4:5   Ident `a`
+   4:6   ,
+   5:5   Ident `b`
+   5:6   ,
+   6:5   Ident `c`
+   6:6   )
+   6:7   Terminator
+   7:1   let
+   7:5   Ident `d`
+   7:7   =
+   7:9   Ident `a`
+   7:11  +
+   8:9   Ident `b`
+   8:10  Terminator
+   9:1   Ident `arr`
+   9:4   [
+  10:5   Int `0`
+  11:1   ]
+  11:2   Terminator
+  14:1   let
+  14:5   Ident `e`
+  14:7   =
+  14:9   Int `1`
+  14:10  Terminator
+  15:1   Eof
+
+=== DIAGNOSTICS ===
+(none)

@@ -1,0 +1,260 @@
+// Everything here must type-check. It is the counterweight to typeerrors/: a checker
+// that rejects valid code is as broken as one that accepts invalid code.
+
+pub const MAX: i32 = 4096
+pub const PI = 3.14159
+pub const NAME = "dazzle"
+
+pub enum Layer : u16 {
+    Background = 0
+    World
+    Ui = 300
+}
+
+pub union Shape {
+    Circle { radius: f32 }
+    Rect { w: f32, h: f32 }
+    Point
+}
+
+pub struct Vec3 {
+    pub x: f32
+    pub y: f32
+    pub z: f32 = 0
+
+    pub fn length_squared(&self) -> f32 {
+        return x * x + y * y + z * z
+    }
+}
+
+pub struct Counter {
+    m_count:    u32
+    pub(module) shared: u32
+    pub label:  str
+    pub origin: Vec3
+    pub cursor: ^Vec3 = null
+
+    Counter(start: u32, label: str = "counter") {
+        m_count = start
+        shared = 0
+    }
+
+    pub fn get(&self) -> u32 {
+        return m_count
+    }
+
+    pub mut fn bump(&mut self) {
+        m_count += 1
+        shared += 1
+        origin.x += 1
+    }
+
+    pub mut fn set_from(&mut self, other: &Counter) {
+        m_count = other.m_count
+    }
+}
+
+fn literals_take_their_context() {
+    let a: u8 = 255
+    let b: i64 = 9_000_000_000
+    let c: f32 = 1
+    let d: f64 = 2.5
+    let e = 0xFF
+    let f = 'x'
+    let g = true
+    let h: usize = 0
+}
+
+fn explicit_casts(n: i32, layer: Layer) {
+    let wide = n as i64
+    let narrow = n as u8
+    let f = n as f32
+    let tag = layer as u16
+    let c = 65 as char
+}
+
+fn arithmetic(a: f32, b: f32) -> f32 {
+    return (a + b) * 2 - a / b
+}
+
+fn comparisons(a: i32, b: i32) -> bool {
+    return a < b && a != b || a >= 0
+}
+
+fn bitwise(flags: u32, mask: u32) -> u32 {
+    return flags & mask | (flags ^^ mask) << 2 >> 1
+}
+
+fn defaults_are_optional() -> Counter {
+    let c1 = Counter(0)
+    let c2 = Counter(0, "named")
+    return c2
+}
+
+fn struct_literals() -> Vec3 {
+    let named = Vec3{ x: 1, y: 2, z: 3 }
+    let positional = Vec3{ 1, 2, 3 }
+    // `z` has a default, so it may be omitted (spec §6.2).
+    let partial = Vec3{ x: 1, y: 2 }
+    return partial
+}
+
+fn default_initialisation() -> Counter {
+    // Every value is initialised, so this is a complete object (spec §6.2).
+    let c: Counter
+    return c
+}
+
+fn mutation() {
+    let mut c = Counter(0)
+    c.bump()
+    c.set_from(&c)
+}
+
+fn pointers(v: ^Vec3) -> f32 {
+    // `.` reaches through pointers on its own (spec §5.2).
+    let a = v.x
+    let whole = v^
+    return a + whole.y
+}
+
+fn references(v: &Vec3, w: &mut Vec3) -> f32 {
+    w.x = 1
+    return v.x + w.y
+}
+
+fn arrays_and_slices(fixed: [4]i32, slice: []i32) -> i32 {
+    let a = fixed[0]
+    let b = slice[1]
+    let n = slice.len
+    return a + b
+}
+
+fn ranges(count: i32) -> i32 {
+    let mut total = 0
+    for i in 0..count {
+        total += i
+    }
+    for i in 0..=count {
+        total += i
+    }
+    return total
+}
+
+fn iterating(items: []Vec3) -> f32 {
+    // Annotated `f32`: an unannotated `0.0` would be `f64` (spec §2.5) and then adding an
+    // `f32` field would be an error, because there are no implicit conversions.
+    let mut total: f32 = 0
+    for v in items {
+        total += v.x
+    }
+    for i, v in items {
+        total += v.y
+    }
+    return total
+}
+
+fn switching(s: Shape) -> f32 {
+    switch s {
+        case Circle(c) {
+            return 1
+        }
+        case Rect(r) {
+            return 2
+        }
+        case Point {
+            return 0
+        }
+    }
+}
+
+fn switching_with_default(l: Layer) -> i32 {
+    switch l {
+        case World {
+            return 1
+        }
+        default {
+            return 0
+        }
+    }
+}
+
+fn may_fail(n: i32) -> !i32 {
+    if n < 0 {
+        return error("negative")
+    }
+    return n
+}
+
+fn maybe_find(n: i32) -> ?i32 {
+    if n < 0 {
+        return none
+    }
+    return n
+}
+
+fn propagates() -> !i32 {
+    // `try` in a function that returns `!U` (spec §9.5).
+    let a = try may_fail(1)
+    return a
+}
+
+fn propagates_optional() -> ?i32 {
+    let a = try maybe_find(1)
+    return a
+}
+
+fn handles() -> i32 {
+    with (may_fail(1)) { v ->
+        return v
+    } else { e ->
+        return 0
+    }
+}
+
+fn handles_implicit_binding() -> i32 {
+    with (maybe_find(1)) {
+        return it
+    } else {
+        return 0
+    }
+}
+
+fn falls_back() -> i32 {
+    let a = may_fail(1) catch 0
+    let b = maybe_find(1) catch 0
+    let c = may_fail(1) catch { e ->
+        0
+    }
+    return a + b + c
+}
+
+fn ignored_deliberately() {
+    let _ = may_fail(1)
+}
+
+fn expression_forms(ready: bool) -> i32 {
+    let x = if ready { 1 } else { 2 }
+    let y = with (maybe_find(1)) { it } else { 0 }
+    return x + y
+}
+
+fn tuples() -> i32 {
+    let pair: (i32, f32) = (1, 2.0)
+    let (a, b) = pair
+    return a
+}
+
+fn shadowing_in_inner_scope() -> i32 {
+    let x = 1
+    {
+        let x = 2
+        return x
+    }
+}
+
+fn deferred() {
+    let mut c = Counter(0)
+    defer c.bump()
+    c.bump()
+}

@@ -1,0 +1,174 @@
+// Every line below is a deliberate type error.
+
+pub enum Layer : u8 {
+    Background = 0
+    World      = 300
+}
+
+pub union Shape {
+    Circle { radius: f32 }
+    Rect { w: f32, h: f32 }
+    Point
+}
+
+pub struct Vec3 {
+    pub x: f32
+    pub y: f32
+    pub z: f32
+}
+
+pub struct Counter {
+    count:      u32
+    pub label:  str
+    borrowed:   &Vec3
+
+    pub fn get(&self) -> u32 {
+        return count
+    }
+
+    pub mut fn bump(&mut self) {
+        count += 1
+    }
+
+    pub fn broken_mutation(&self) {
+        count += 1
+    }
+}
+
+fn no_implicit_widening(small: i32) -> i64 {
+    return small
+}
+
+fn literal_out_of_range() {
+    let b: u8 = 300
+}
+
+fn mixed_arithmetic(a: i32, b: i64) -> i32 {
+    return a + b
+}
+
+fn no_truthiness(n: i32) {
+    if n {
+        return
+    }
+}
+
+fn bad_condition_type(v: Vec3) {
+    while v {
+        return
+    }
+}
+
+fn unknown_field(v: Vec3) -> f32 {
+    return v.w
+}
+
+fn private_field_from_here(c: Counter) -> u32 {
+    return c.count
+}
+
+fn unknown_method(c: Counter) -> u32 {
+    return c.increment()
+}
+
+fn immutable_receiver(c: Counter) {
+    c.bump()
+}
+
+fn assign_to_immutable() {
+    let total = 1
+    total = 2
+}
+
+fn missing_struct_field() -> Vec3 {
+    return Vec3{ x: 1, y: 2 }
+}
+
+fn unknown_struct_field() -> Vec3 {
+    return Vec3{ x: 1, y: 2, z: 3, w: 4 }
+}
+
+fn wrong_argument_count(v: Vec3) -> f32 {
+    return length(v, v)
+}
+
+fn length(v: Vec3) -> f32 {
+    return v.x
+}
+
+fn bad_cast(v: Vec3) -> i32 {
+    return v as i32
+}
+
+fn not_indexable(n: i32) -> i32 {
+    return n[0]
+}
+
+fn not_dereferenceable(n: i32) -> i32 {
+    return n^
+}
+
+fn non_exhaustive(s: Shape) -> f32 {
+    switch s {
+        case Circle(c) {
+            return 1
+        }
+        case Rect(r) {
+            return 2
+        }
+    }
+    return 0
+}
+
+fn unknown_variant(s: Shape) {
+    switch s {
+        case Triangle {
+            return
+        }
+        default {
+            return
+        }
+    }
+}
+
+fn may_fail() -> !i32 {
+    return 1
+}
+
+fn maybe() -> ?i32 {
+    return none
+}
+
+fn unused_result() {
+    may_fail()
+}
+
+fn try_without_fallible() -> i32 {
+    let v = try may_fail()
+    return v
+}
+
+fn with_on_plain_value(n: i32) {
+    with (n) {
+        return
+    }
+}
+
+fn else_binding_on_optional() {
+    with (maybe()) { v ->
+        return
+    } else { e ->
+        return
+    }
+}
+
+fn none_without_context() -> i32 {
+    let x = none
+    return 0
+}
+
+fn cannot_iterate(n: i32) {
+    for i in n {
+        return
+    }
+}

@@ -118,3 +118,128 @@ fn main() {
     let f: File
     let f2 = f // Error cannot copy f, should use move() instead.
 }
+
+union ButtonState {
+	struct Default {
+		pub mut fn update() -> ?ButtonState {
+			if ctx.input.mouse_down { return Transition {} }
+		}
+	},
+	struct Transition {
+		t: f32 = 0
+		drop() {
+			ctx.btn.scale = 1
+		}
+		pub mut fn update() -> ?ButtonState {
+			if ctx.input.mouse_up { return Default {} }
+			t += ctx.delta_time
+			ctx.btn.scale = lerp(1, 2, t)
+			if t >= 1 { return ChangeSprite {} }
+		}
+	},
+	struct ChangeSprite {
+		ChangeSprite(ctx: ButtonContext) { 
+			ctx.btn.sprite = Sprites::Selected
+		}
+	},
+}
+
+struct ButtonState: StateMachine {
+	struct Default {
+		pub mut fn update() -> ?ButtonState {
+			if ctx.input.mouse_down { return Transition {} }
+		}
+	},
+	struct Transition {
+		t: f32 = 0
+		drop() {
+			ctx.btn.scale = 1
+		}
+		pub mut fn update() -> ?ButtonState {
+			if ctx.input.mouse_up { return Default {} }
+			t += ctx.delta_time
+			ctx.btn.scale = lerp(1, 2, t)
+			if t >= 1 { return ChangeSprite {} }
+		}
+	},
+	struct ChangeSprite {
+		ChangeSprite(ctx: ButtonContext) { 
+			ctx.btn.sprite = Sprites::Selected
+		}
+	},
+}
+
+fn main() {
+	let a: ButtonState = .Default {}
+
+	//a = .ChangeSprite {}
+	a.set(.ChangeSprite {})
+}
+
+
+
+
+
+
+
+
+@(dispatch: State<ButtonCtx>)
+union ButtonState {
+	struct Default {
+		fn update(ctx: &ButtonCtx) -> ?ButtonState {
+			if ctx.input.mouse_down && ctx.input.isMouseOver(ctx.btn) {
+				return .Transition
+			}
+		}
+	},
+	struct Transition {
+		t: f32 = 0
+		fn exit(ctx: &ButtonCtx, to: ButtonState.Kind) {
+			ctx.btn.scale = 1
+		}
+		mut fn update(ctx: &ButtonCtx) -> ?ButtonState {
+			if ctx.input.mouse_up { return .Default }
+			t += ctx.delta_time
+			ctx.btn.scale = lerp(1, 2, t)
+			if t >= 1 { return .ChangeSprite }
+		}
+	},
+	struct ChangeSprite {
+		fn enter(ctx: &ButtonCtx, from: ?ButtonState.Kind) -> ?ButtonState {
+			ctx.btn.sprite = Sprites::Selected
+			return .Default
+		}
+	},
+}
+
+
+// Statemachine native structure
+
+struct ButtonCtx {
+	btn:        &Button
+	input:      &Input
+	delta_time: f32
+}
+
+machine ButtonState(ctx: ButtonCtx) {
+	state Default {
+		if ctx.input.mouse_down && ctx.input.isMouseOver(ctx.btn) {
+			return .Transition
+		}
+	}
+	state Transition(t: f32 = 0) {
+		exit() {
+			ctx.btn.scale = 1
+		}
+		if ctx.input.mouse_up { return .Default }
+		t += ctx.delta_time
+		ctx.btn.scale = lerp(1, 2, t)
+		if t >= 1 { return .ChangeSprite }
+	}
+	state ChangeSprite {
+		enter() {
+			ctx.btn.sprite = Sprites::Selected
+			return .Default
+		}
+	}
+}

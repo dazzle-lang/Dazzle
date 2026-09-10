@@ -1,0 +1,25 @@
+pub const PI = 3.14159
+
+pub struct Vec3 {
+    pub x: f32
+    pub y: f32
+    pub z: f32
+
+    pub fn length_squared(&self) -> f32 {
+        return x * x + y * y + z * z
+    }
+}
+
+pub fn dot(a: &Vec3, b: &Vec3) -> f32 {
+    return a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+/// Not exported: importers must not be able to name this.
+fn internal_scale(v: &Vec3, k: f32) -> f32 {
+    return v.length_squared() * k
+}
+
+pub fn scaled_length(v: &Vec3) -> f32 {
+    // Same module, so the private helper is reachable from here.
+    return internal_scale(v, 2)
+}

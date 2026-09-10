@@ -1,0 +1,27 @@
+---
+source: crates/dz_lex/tests/lex.rs
+expression: "lex_report(&name, &source)"
+input_file: tests/lex/unicode.dz
+---
+=== TOKENS ===
+   1:1   let
+   1:5   Ident `café`
+   1:10  =
+   1:12  Int `1`
+   1:13  Terminator
+   2:1   let
+   2:5   Ident `日本`
+   2:8   =
+   2:10  Int `2`
+   2:11  Terminator
+   3:1   let
+   3:5   Ident `_leading`
+   3:14  =
+   3:16  Int `3`
+   3:17  Terminator
+   4:1   Str `"emoji: 🎮"`
+   4:11  Terminator
+   5:1   Eof
+
+=== DIAGNOSTICS ===
+(none)

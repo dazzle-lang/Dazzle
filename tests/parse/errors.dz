@@ -1,0 +1,52 @@
+// Every declaration after a broken one must still parse: the parser recovers rather
+// than bailing (spec §17.2).
+
+fn missing_paren( {
+    let a = 1
+}
+
+fn ok_after_broken_signature() -> i32 {
+    return 7
+}
+
+struct MissingBrace {
+    x: i32
+
+fn ok_after_broken_struct() {
+    let a = 1
+}
+
+fn chained_comparison() {
+    let bad = a < b < c
+}
+
+fn missing_expression() {
+    let a =
+    let b = 2
+}
+
+fn bad_member() {
+    let x = 1
+}
+
+struct BadMember {
+    x: i32
+    nonsense
+    y: i32
+}
+
+fn let_with_nothing() {
+    let a
+}
+
+fn assignment_is_a_statement() {
+    a = b = c
+}
+
+fn unclosed_call() {
+    foo(1, 2
+}
+
+fn last_one_still_parses() -> bool {
+    return true
+}

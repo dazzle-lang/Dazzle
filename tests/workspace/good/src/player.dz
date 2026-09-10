@@ -1,0 +1,25 @@
+import engine as gfx
+import math::{ Vec3 }
+
+pub struct Player {
+    pub position: Vec3
+    sprite:       gfx::Sprite
+
+    pub fn layer(&self) -> gfx::Layer {
+        return sprite.layer
+    }
+}
+
+fn spawn(at: Vec3) -> Player {
+    let p: Player
+    return p
+}
+
+fn scoped_shadowing() -> i32 {
+    let x = 1
+    {
+        // Shadowing in an inner scope is fine (spec §7.1).
+        let x = 2
+        return x
+    }
+}

@@ -1,0 +1,36 @@
+import math
+
+pub enum Layer : u16 {
+    Background = 0
+    World
+    Ui
+}
+
+pub struct Sprite {
+    pub id:    u32
+    pub layer: Layer
+}
+
+pub struct Renderer {
+    m_count:              u32
+    pub(module) m_handle: u32
+    pub layer:            Layer
+
+    pub fn count(&self) -> u32 {
+        return m_count
+    }
+
+    pub mut fn draw(&mut self, s: &Sprite, at: math::Vec3) {
+        m_count += 1
+        m_handle = s.id
+    }
+
+    mut fn flush(&mut self) {
+        m_count = 0
+    }
+}
+
+pub fn make_renderer() -> Renderer {
+    let r: Renderer
+    return r
+}

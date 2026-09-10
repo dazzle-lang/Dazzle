@@ -1,0 +1,15 @@
+[package]
+name = "dz_lex"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Lexer for the Dazzle language"
+
+[dependencies]
+dz_span.workspace = true
+dz_diag.workspace = true
+unicode-ident.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

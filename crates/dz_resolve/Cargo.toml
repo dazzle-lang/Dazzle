@@ -1,0 +1,18 @@
+[package]
+name = "dz_resolve"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Name resolution and visibility for Dazzle"
+
+[dependencies]
+dz_span.workspace = true
+dz_diag.workspace = true
+dz_ast.workspace = true
+dz_project.workspace = true
+
+[dev-dependencies]
+dz_lex.workspace = true
+dz_parse.workspace = true
+insta.workspace = true

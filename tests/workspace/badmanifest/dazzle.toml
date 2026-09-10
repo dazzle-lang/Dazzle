@@ -1,0 +1,13 @@
+[module]
+name    = "not a valid name"
+version = 3
+sources = "src/**/*.dz"
+
+[build]
+output    = "library"
+optimize  = "fastest"
+type_info = "used"
+
+[dependencies]
+missing = { path = "../nowhere" }
+noPath  = { version = "1.0" }

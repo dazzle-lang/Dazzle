@@ -1,0 +1,221 @@
+---
+source: crates/dz_parse/tests/parse.rs
+expression: "parse_report(&name, &source)"
+input_file: tests/parse/statements.dz
+---
+=== AST ===
+fn bindings()
+  block
+    let x
+      int 5
+    let mut y: f32
+      float 1.5
+    let z: Buffer<u8>
+    let _
+      call
+        path returns_something
+    let (a, b)
+      call
+        path point
+fn assignment(w: &mut World)
+  block
+    assign =
+      field .count
+        path w
+      int 1
+    assign +=
+      field .count
+        path w
+      int 1
+    assign -=
+      field .count
+        path w
+      int 1
+    assign *=
+      field .count
+        path w
+      int 2
+    assign /=
+      field .count
+        path w
+      int 2
+    assign %=
+      field .count
+        path w
+      int 3
+    assign -=
+      field .health
+        index
+          field .players
+            path w
+          int 0
+      path damage
+fn control_flow(x: i32)
+  block
+    if
+      binary >
+        path x
+        int 0
+      block
+        call
+          path positive
+      else
+        if
+          binary <
+            path x
+            int 0
+          block
+            call
+              path negative
+          else
+            block
+              call
+                path zero
+    while
+      path running
+      block
+        call
+          path tick
+    while 'outer
+      bool true
+      block
+        for e
+          path entities
+          block
+            if
+              binary ==
+                field .id
+                  path e
+                path target
+              block
+                break 'outer
+            continue
+    for i
+      range
+        int 0
+        path count
+      block
+        assign =
+          index
+            path grid
+            path i
+          int 0
+    for i, e
+      ref
+        path entities
+      block
+        call
+          field .draw
+            path e
+          ref mut
+            path batch
+    for e
+      ref mut
+        path entities
+      block
+        call
+          field .update
+            path e
+          path dt
+fn switching(s: Shape) -> f32
+  block
+    switch
+      path s
+      case Circle(c)
+        block
+          return
+            binary *
+              binary *
+                path PI
+                field .radius
+                  path c
+              field .radius
+                path c
+      case Rect(r)
+        block
+          return
+            binary *
+              field .w
+                path r
+              field .h
+                path r
+      case Point
+        block
+          return
+            int 0
+      default
+        block
+          return
+            unary -
+              int 1
+fn multi_case(k: Kind)
+  block
+    switch
+      path k
+      case A, B
+        block
+          call
+            path both
+      case C
+        block
+          call
+            path third
+fn deferred(&mut self)
+  block
+    call
+      path gl::bind_buffer
+      path m_handle
+    defer
+      call
+        path gl::bind_buffer
+        int 0
+    defer
+      block
+        call
+          path cleanup
+    call
+      field .reset
+        path Allocators::Temp
+fn handling(path: str)
+  block
+    with tex
+      call
+        path load_texture
+        path path
+      block
+        assign =
+          field .texture
+            path sprite
+          move
+            path tex
+      else e
+        block
+          call
+            path log::warn
+            str "texture {} failed: {}"
+            path path
+            field .message
+              path e
+    with it
+      call
+        path find_player
+        path id
+      block
+        assign -=
+          field .health
+            path it
+          path damage
+fn nested_declarations()
+  block
+    struct Local
+      field x: i32
+    fn helper() -> i32
+      block
+        return
+          int 1
+    let a
+      call
+        path helper
+
+=== DIAGNOSTICS ===
+(none)
