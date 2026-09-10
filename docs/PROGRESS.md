@@ -18,20 +18,30 @@ the milestone.
 
 | | |
 |---|---|
-| Milestones done | M0, M1, M2, M3, **M4 — Dazzle programs compile and run** |
-| Next | **M5 — ownership: `own`, `move`, `copy`, `drop`, flow analysis** — step 1 (`dz_hir`) done; spec r5–r6 syntax landed |
-| Tests | 86, all green |
+| Milestones done | M0, M1, M2, M3, M4, **M5 — programs own, move and drop their resources** |
+| Next | **M6 — generics, traits, monomorphization** |
+| Tests | 88, all green |
 | Clippy | clean (`--workspace --all-targets`) |
-| Compiler crates | 10 |
-| Language spec | 0.1 **unreleased**, revision 6; four open questions (§18.2) |
+| Compiler crates | 11 |
+| Language spec | 0.1 **unreleased**, revision 7; four open questions (§18.2) |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
 cargo test --workspace
 cargo clippy --workspace --all-targets
 cargo run -p dz -- check tests/workspace/typed
-cargo run -p dz -- run   tests/run/features
+cargo run -p dz -- run   tests/run/ownership
 cargo run -p dz -- hir   tests/workspace/typed
+```
+
+Ownership is checked against a sanitizer rather than against reading. The clang runtime
+has to be on `PATH` on Windows, which is the only fiddly part:
+
+```bash
+cargo run -p dz -- cpp tests/run/ownership
+cd tests/run/ownership/build/cpp
+clang++ -std=c++17 -fno-exceptions -fno-rtti -fsanitize=address -g -O1 *.cpp -o asan.exe
+./asan.exe
 ```
 
 ### Crates
@@ -48,10 +58,11 @@ cargo run -p dz -- hir   tests/workspace/typed
 | `dz_project` | `dazzle.toml`, globs, dependency graph | §3.1 |
 | `dz_resolve` | symbol tables, name resolution, visibility | §3, §4 |
 | `dz_check` | type checker | §5, §7, §9, §10, §11 |
+| `dz_flow` | ownership, moves, definite return | §6 |
 | `dz_cpp` | C++17 emission + the runtime shim | §16 |
 
-Crates still to come are listed in spec §17.1: `dz_flow`, `dz_mono`, `dz_cppimport`,
-`dz_macro`, `dz_lsp`.
+Crates still to come are listed in spec §17.1: `dz_mono`, `dz_cppimport`, `dz_macro`,
+`dz_lsp`.
 
 ---
 
@@ -150,67 +161,80 @@ constructors, control flow, pointers, arrays, casts, `switch` and `defer`.
 - **C++20 is opt-in** (`cpp_standard = "c++20"`). It buys designated initialisers for
   struct literals — real readability, nothing else. C++17 remains the default.
 
----
+### M5 — ownership: `own`, `move`, `copy`, `drop`, flow analysis
 
-## 3. Deferral register
+**Programs own, move and drop their resources deterministically**, and the C++ that comes
+out is warning-clean and ASan-clean on both compilers.
 
-Everything knowingly postponed. Each row has a comment in the code naming the same
-milestone. **This is the list to check before claiming a milestone is complete.**
+- **Codegen moved onto the HIR, and that was the whole unlock.** M4 emitted C++ from the
+  AST and let C++ infer the rest. `or`, block values and moves cannot work that way: `f()
+  or return` is three C++ statements, and whether `x = y` copies or moves needs `y`'s type.
+  Once `dz_cpp` read the typed tree, the five `DZ0801` rows M4 left behind — `T?`, fallible
+  returns, tagged unions, tuples, block-valued `if`/`switch` — fell out in one pass.
+- **Anything that is an expression in Dazzle and a statement in C++ hoists.** `expr()` may
+  write lines *before* the statement being built and leave a temporary as its value. An
+  immediately-invoked lambda would have been shorter and is wrong: `return` inside one
+  returns from the lambda, so `or return` — the most common clause in the language — would
+  silently not propagate. Two places need more than hoisting: a `while` condition, whose
+  hoisted work has to run every iteration, and the right operand of `&&`/`||`, which must
+  not run at all when the left short-circuits. Both become an `if` instead.
+- **The declaration/body split is now explicit.** The HIR has bodies but no items, so
+  `dz_cpp` reads declarations from the AST and the checker's signature table, and bodies
+  from the HIR. That is not a wart — it is the reason a struct's field *names* and a
+  function's *body* have different sources of truth.
+- **`own` describes the struct, not the pointer.** The first version made `own ^T` a
+  move-only *value*, which meant `if handle != null` inside `File::drop` was a move out of
+  `self`. Spec §6.3 is careful to say "`own` on a field": the pointer is a bit-copy, the
+  struct that declares it is what is move-only. Now written down as `[DECIDED]` (spec r7).
+- **A move needs a place the function owns** (`DZ0402`). `move` resets its source, and a
+  `&`, a `^` or an array element is not something the function has the right to reset.
+  `dz_flow` classifies every expression as owned, borrowed or temporary, and only the first
+  can be moved out of.
+- **Union merge, not may/must.** At a join, a place moved on *any* path is moved after it,
+  because §6.4 makes "moved on some paths reaching here" an error at the use. A loop body
+  is replayed from `entry ∪ what-it-moves`, which is what turns "moved on the previous
+  iteration" into a diagnostic rather than silence.
+- **One mistake, one diagnostic.** The first version reported a use-after-move twice — once
+  for the `move(…)` node's span and once for the operand inside it — and reported both
+  `DZ0403` and `DZ0401` for a copy of an already-moved value. Both are now suppressed at
+  the source, and `tests/flow` asserts the *count*, not just the presence.
+- **Drop timing was ABI-dependent, and is not any more.** The same program printed its
+  drops in a different order under g++ and clang++: under the Itanium ABI the *caller*
+  destroys a by-value parameter at the end of the full expression, under the MSVC ABI the
+  *callee* destroys it before returning. Spec §6.5 says the enclosing scope, which for a
+  parameter is the function. Codegen now moves every owning by-value parameter into a local
+  at function entry; the local dies at the end of the body on every ABI, and what the ABI
+  eventually destroys is the moved-from husk, whose `drop` §6.4 already guarantees is a
+  no-op. The language's own reset rule is what makes the fix free.
+- **Placement `new` is the one C++ header the shim needs.** §6.6's copy assignment is
+  "destroy, put back at defaults, then copy", and the middle step has no other spelling.
+  `<new>` declares the operator and pulls in no runtime.
+- **`Error` and `SourceLocation` became language-provided types.** `or { e -> … }` binds an
+  `Error`, and until M12 there is no stdlib for one to come from — so `e.message` resolved
+  to nothing and printed `0`. They are `Ty::Builtin`, not synthesised symbols: a fake
+  `SymbolId` would put two kinds of thing in the symbol table and make every consumer ask
+  which it had.
+- **Three checker bugs the HIR switch exposed**, all of which had been passing silently
+  because an unresolved name types as `Ty::Error` and `Ty::Error` is compatible with
+  everything. `Layer::Ui` resolved to nothing (`path_symbol` only ever tried a module
+  alias for a multi-segment path). `Shape::Circle{ radius: 2 }` was accepted without
+  checking a single field. `copy(other: &Self)` bound `other` as `&Self` rather than
+  substituting the enclosing type, so `other.n` failed. **`Ty::Error` compatibility is a
+  cascade guard, not a licence** — anything that produces it without also producing a
+  diagnostic is a hole, and codegen is where the hole finally shows.
+- **Generated names follow scopes, not a counter.** Dazzle lets a `let` shadow another and
+  C++ does not, so a collision has to be renamed. Renaming on "this name was seen before"
+  turned every second `for i in …` into `i__3`; renaming on "this name is *still in scope*"
+  keeps both `i`s. The generated code is meant to be read (§16.2).
+- **Formatting is written against a sink.** `error(…)` and `format(…)` need the same `{}`
+  substitution writing somewhere other than the console, so `write_value`/`write_format`
+  take an output parameter. Messages land in a small static ring buffer: §9.2 requires that
+  `error(…)` never allocate *and* that the message outlive the call, and a ring is the
+  cheapest thing that does both. It is bounded — the fifth live message overwrites the
+  first — which is a real limit, stated rather than hidden.
 
-| Owed by | What is deferred | Where |
-|---|---|---|
-| **M5** | **Codegen still walks the AST**, not the HIR. `dz_hir` is built and snapshot-tested, but `dz_cpp` has not been moved onto it, so the M5 codegen rows below are still blocked on that switch | `dz_cpp/src/lib.rs` header |
-| **M5** | Ownership: `own`, `move`, `copy`, `drop`, use-after-move, `own` field without `drop` (DZ0412) | spec §6 |
-| **M5** | Definite return: a non-void function with a path that falls off the end | not yet reported |
-| **M5** | Codegen: `?T`/`!T` with `try`/`with`/`catch` — needs the statement-level desugaring HIR gives | `dz_cpp`, reports `DZ0801` |
-| **M5** | Codegen: tagged unions and `switch` over them; needs payload layout and drop rules | reports `DZ0801` |
-| **M5** | Codegen: tuples, tuple destructuring, and `if`/`switch`/block used as a *value* | reports `DZ0801` |
-| **M5** | Codegen: `move(x)` emits a copy, and `copy`/`drop` are not emitted as C++ special members | `dz_cpp/src/lib.rs` |
-| **M6** | Generic bodies are skipped, not checked; generic items are not emitted | `dz_check/src/check.rs`, `dz_cpp` |
-| **M6** | Trait conformance: `struct Arena : Allocator` resolves the name but nothing verifies the methods | `dz_check/src/lib.rs` |
-| **M6** | **§12.9 format-string checking.** Builtin calls are variadic and untyped: the first argument is not required to be a string literal, `{}` count is not compared against the argument count, `{:spec}` is not parsed, and an argument whose type cannot be formatted is not rejected — so `println("{}", some_struct)` reaches C++ and fails there as `DZ0803` (an invariant-7 violation). The check wants the `Format` trait to say what "formattable" means, so it waits for traits | `dz_check/src/check.rs`, `builtin_call_type` |
-| **M6** | `for` over user types needs `Iterate` | `dz_check/src/check.rs` |
-| **M6** | Constant folding; array lengths accept only literals; `const` without an annotation infers from literals only | `dz_check/src/lib.rs` |
-| **M6** | `sizeof`/`alignof` and the reflection builtins are not emitted | `dz_cpp`, reports `DZ0801` |
-| **M7** | `import cpp "…"` is accepted and the alias is opaque; no header is read | `dz_resolve/src/walk.rs` |
-| **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
-| **M12** | No stdlib. `dz_prelude.h` stands in for §12.9's `Format` trait so `println` works at all. `println`/`print`/`format` are temporary builtins and stop being builtins here: they become ordinary stdlib functions over `Format`. The operator traits of §11.2 (`Ord`, `Add`, …), `Iterate`, `Allocator`, `String`, `Buffer` do not exist, so naming one is correctly an unresolved-name error | `dz_cpp/src/runtime.rs` |
 
-### Not deferred — deliberately out of scope forever
-
-- Lifetimes. `&T` cannot be stored in a struct field (§5.2, §18.3) and that is the whole
-  mechanism; a dangling `^T` is the programmer's problem (§1.1).
-- Function overloading, until a later language version (§18.5).
-
----
-
-## 4. Next: M5 — ownership
-
-Ends when `Buffer<T>` and `String` compile and run leak-free under ASan (spec §19). Those
-are *generic*, so M5 and M6 overlap; the ownership rules themselves can be built and tested
-on non-generic types first.
-
-Planned order:
-
-1. ~~**`dz_hir`**~~ — **done.** The resolved, typed tree M4 deferred, built by the checker
-   as it checks rather than by a second pass. See the notes below.
-2. Ownership rules (§6): `own` makes a type move-only; `copy` and `drop` become C++ special
-   members with the `drop() + reset-to-defaults + copy()` assignment lowering of §6.6;
-   move-only types get their C++ copy constructor `= delete`d as a second line of defence.
-3. Flow analysis: use-after-move, partial moves, `own` field with no `drop` (DZ0412),
-   definite return.
-4. Codegen for everything marked M5 in §3: `?T`/`!T`, tagged unions, tuples, block-valued
-   expressions.
-5. Tests: `tests/flow/*.dz` for the ownership diagnostics, and a run test that allocates and
-   frees to prove `drop` fires in the right order.
-
-Constraints already decided:
-
-- A moved-from value is reset to its defaults, never left unspecified (§6.4).
-- `drop` runs in reverse declaration order, and `defer` after that (§6.5).
-- No lifetimes, ever. `&T` in a struct field stays banned (§18.3).
-
-### Step 1 — `dz_hir` (done)
+#### Step 1 — `dz_hir`, the tree the rest is built on
 
 The tree the rest of M5 is built on. `dz check` produces it for every non-generic body;
 `dz hir <dir>` prints it, and `hir_typed.snap` pins the whole tree for the `typed/` fixture.
@@ -242,14 +266,13 @@ The tree the rest of M5 is built on. `dz check` produces it for every non-generi
   than being methods named "copy" and "drop", because flow analysis asks "does this type
   have a `drop`?" constantly and that should not be a string comparison.
 
-Not yet done, and the next thing to do: **`dz_cpp` still walks the AST.** Moving it onto the
-HIR is what unblocks the `T?`, fallible-return, tagged-union, tuple and block-value codegen
-rows in §3.
+Moving `dz_cpp` onto this tree was step 2, and it is what unblocked the `T?`,
+fallible-return, tagged-union, tuple and block-value codegen rows.
 
-### Interlude — spec r5/r6, the access/modality split
+#### Step 1a — spec r5/r6, the access/modality split
 
 Landed between step 1 and step 2, because both new checks live in the code M5's ownership
-rules are about to rewrite. Spec §5.6 and §9 are the contract; what the compiler now does:
+rules then rewrote. Spec §5.6 and §9 are the contract; what the compiler now does:
 
 - **`?` is postfix and binds to the type name.** `^T?` is a pointer to an optional. The
   type parser wraps whatever it just parsed, so access sigils — parsed as prefixes — always
@@ -279,6 +302,74 @@ rules are about to rewrite. Spec §5.6 and §9 are the contract; what the compil
 
 ---
 
+## 3. Deferral register
+
+Everything knowingly postponed. Each row has a comment in the code naming the same
+milestone. **This is the list to check before claiming a milestone is complete.**
+
+| Owed by | What is deferred | Where |
+|---|---|---|
+| **M6** | A slice parameter is immutable through an immutable binding, so `&mut xs[i]` on an `xs: []i32` parameter is rejected. A slice is a pointer and a length, and indexing one arguably ought to be mutable the way `^T` is — but that is a language question (§5.3) for you, not a bug to fix quietly | `dz_check/src/check.rs`, `place_mutability` |
+| **M6** | A range that escapes a `for` loop reports `DZ0801`; `dz::Range<T>` exists in the shim but nothing produces one | `dz_cpp`, `expr` |
+| **M6** | `break` with a value reports `DZ0801` | `dz_cpp`, `expr` |
+| **M6** | Generic bodies are skipped, not checked; generic items are not emitted | `dz_check/src/check.rs`, `dz_cpp` |
+| **M6** | Trait conformance: `struct Arena : Allocator` resolves the name but nothing verifies the methods | `dz_check/src/lib.rs` |
+| **M6** | **§12.9 format-string checking.** Builtin calls are variadic and untyped: the first argument is not required to be a string literal, `{}` count is not compared against the argument count, `{:spec}` is not parsed, and an argument whose type cannot be formatted is not rejected — so `println("{}", some_struct)` reaches C++ and fails there as `DZ0803` (an invariant-7 violation). The check wants the `Format` trait to say what "formattable" means, so it waits for traits | `dz_check/src/check.rs`, `builtin_call_type` |
+| **M6** | `for` over user types needs `Iterate` | `dz_check/src/check.rs` |
+| **M6** | Constant folding; array lengths accept only literals; `const` without an annotation infers from literals only | `dz_check/src/lib.rs` |
+| **M6** | `sizeof`/`alignof` and the reflection builtins are not emitted | `dz_cpp`, reports `DZ0801` |
+| **M7** | `import cpp "…"` is accepted and the alias is opaque; no header is read | `dz_resolve/src/walk.rs` |
+| **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
+| **M12** | A union variant whose payload owns a resource is refused rather than leaked. A C++ union with a non-trivial member needs special members that switch on the tag; §7.5 marks variant drops `[PROPOSED]`, so this waits for that decision | `dz_cpp/src/lib.rs`, `union_decl` |
+| **M12** | `error(…)` and `format(…)` write into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. §9.2 requires no allocation *and* a message that outlives the call; a real answer needs the stdlib's `String` | `dz_cpp/src/runtime.rs` |
+| **M12** | `or unreachable` panics in release as well as debug. §9.4 says release may assume the success path, and §18.20 has not settled whether that means `__builtin_unreachable` or merely skipping the check | `dz_cpp/src/lib.rs`, `clause` |
+| **M12** | No stdlib. `dz_prelude.h` stands in for §12.9's `Format` trait so `println` works at all. `println`/`print`/`format` are temporary builtins and stop being builtins here: they become ordinary stdlib functions over `Format`. The operator traits of §11.2 (`Ord`, `Add`, …), `Iterate`, `Allocator`, `String`, `Buffer` do not exist, so naming one is correctly an unresolved-name error | `dz_cpp/src/runtime.rs` |
+
+### Not deferred — deliberately out of scope forever
+
+- Lifetimes. `&T` cannot be stored in a struct field (§5.2, §18.3) and that is the whole
+  mechanism; a dangling `^T` is the programmer's problem (§1.1).
+- Function overloading, until a later language version (§18.5).
+
+---
+
+## 4. Next: M6 — generics, traits, monomorphization
+
+Ends when `Buffer<T>`, `Allocator` and `Arena` work as written in spec §6 and §8 — which is
+also what M5's stated criterion was waiting for, since `Buffer<T>` and `String` are generic.
+Nothing about them is blocked on ownership any more.
+
+Planned order:
+
+1. **Definition-site checking** (§8.1). A generic body is checked **once**, against its
+   bounds, not per instantiation. This is the whole point of §8.6 and the reason error
+   messages can point at user code — get it wrong and every later diagnostic names a
+   generated instantiation instead.
+2. **Traits** (§7.6): declaration, conformance checking (`struct Arena : Allocator` today
+   resolves the name and verifies nothing), associated types (§8.5), and `^Trait` as the
+   fat pointer §18.6 settled on.
+3. **`dz_mono`**: instantiate generic items, fold compile-time branches (§8.3, §8.4). Names
+   are mangled Dazzle-side so the C++ stays readable and `#line` keeps working.
+4. **The operator and iteration traits** the checker currently hard-codes: `Ord`/`Add`/…
+   (§11.2) and `Iterate` (§10.4), which is what lets `for` run over a user type.
+5. **§12.9 format-string checking**, which has been waiting for `Format` to exist — see the
+   deferral register. Until then `println("{}", some_struct)` fails in C++ rather than in
+   Dazzle, which is the one standing violation of invariant 7.
+6. **Constant folding** (§8.3), which array lengths and un-annotated `const` both need.
+
+Two things to settle early, because they shape everything after:
+
+- **How `Iterate::next` spells one signature for both item kinds** (§18.21). The decision is
+  made — a pointer iterator returns `^T`, a value iterator `Item?` — but the trait
+  declaration still has to say so in one signature.
+- **Whether a generic parameter is a real `Ty` or a substitution.** Today an unresolved type
+  name inside a generic body becomes `Ty::Error`, and `Ty::Error` is compatible with
+  everything, so generic bodies are skipped rather than checked. M5 found three real bugs
+  hiding behind exactly that behaviour; a `Ty::Param` that is compatible with *nothing* it
+  has not been proved compatible with is the shape that avoids repeating it.
+
+---
+
 ## 5. Test map
 
 | Corpus | Runner | Covers |
@@ -292,7 +383,8 @@ rules are about to rewrite. Spec §5.6 and §9 are the contract; what the compil
 | `tests/workspace/badmanifest` | " | manifest validation |
 | `tests/workspace/typed` | `dz_check/tests/check.rs` | **must produce zero diagnostics** |
 | `tests/workspace/typeerrors` | " | one deliberate failure per type rule |
-| `tests/run/*/` | `dz/tests/run.rs` | whole programs compiled by a real C++ compiler and executed, stdout compared against `expected.txt`. A first line of `#panic` marks a program that must abort |
+| `tests/flow/*.dz` | `dz_flow/tests/flow.rs` | one file per ownership rule, each naming the code it must produce in an `// expect:` line, plus `clean.dz` which must produce nothing. The count is asserted too, so a rule that fires twice for one mistake is a regression |
+| `tests/run/*/` | `dz/tests/run.rs` | whole programs compiled by a real C++ compiler and executed, stdout compared against `expected.txt`. A first line of `#panic` marks a program that must abort. `features` covers M4's constructs, `ownership` §6's special members and drop ordering, `failure` §9's `or` clauses plus unions and tuples |
 
 `examples/*.dz` are **not** tests. They are the user's pre-spec design sketches and are not
 expected to parse.

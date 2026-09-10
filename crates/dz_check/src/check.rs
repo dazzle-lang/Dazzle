@@ -64,6 +64,7 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
 }
 
 fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
+    check_owns_are_released(cx, sym);
     // Constructors are addressed by position in declaration order (spec §7.2).
     let mut ctors = 0usize;
     for m in members {
@@ -144,6 +145,37 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
             MemberKind::TypeAlias { .. } | MemberKind::Error => {}
         }
     }
+}
+
+/// Spec §6.5, decision §18.4: **a type with an `own` field and no `drop` is an error.**
+///
+/// `own` is a promise that this struct releases the resource, so a struct that makes it
+/// and never keeps it is a leak the compiler can see from the declaration alone. No flow
+/// information is involved, which is why the rule lives here rather than in `dz_flow`.
+fn check_owns_are_released(cx: &mut Ctx, sym: SymbolId) {
+    // Keyed on the lowered type rather than on the AST's `own` flag: `own ^T` reaches
+    // the parser two ways — as a field modifier and as part of the type — and only the
+    // signature has both already folded into one answer.
+    let first = match cx.table.struct_sig(sym) {
+        Some(s) if s.drop.is_none() => s
+            .fields
+            .iter()
+            .find(|f| matches!(f.ty, Ty::OwnPtr(_)))
+            .map(|f| (f.name.clone(), f.span)),
+        _ => None,
+    };
+    let Some((name, span)) = first else { return };
+    let owner = cx.res.symbol(sym).name.clone();
+    cx.error_help(
+        codes::OWN_FIELD_WITHOUT_DROP,
+        span,
+        format!("`{owner}` owns a resource but never releases it"),
+        "this field is marked `own`",
+        format!(
+            "add a `drop()` that releases `{name}`, or remove `own` if {owner} does not \
+             own this pointer (spec §6.5)"
+        ),
+    );
 }
 
 fn check_enum(cx: &mut Ctx, it: &Item, e: &EnumDecl) {
@@ -254,7 +286,8 @@ impl<'a, 'c> Body<'a, 'c> {
 
     /// Register the finished body. Called once per body, at the end of checking it.
     fn finish(self, root: BlockId) {
-        let body = self.hir.finish(root);
+        let fallible = self.fallible;
+        let body = self.hir.finish(root, fallible);
         self.cx.hir.push(body);
     }
 
@@ -382,6 +415,10 @@ impl<'a, 'c> Body<'a, 'c> {
 
     fn function(&mut self, f: &FnDecl, sig: &FnSig) -> BlockId {
         self.fallible = sig.fallible;
+        // Signatures are collected before any `Self` is known, so `copy(other: &Self)`
+        // arrives here still spelled `Self`. Substituting at the binding is what makes
+        // `other.n` resolve to the enclosing struct's field.
+        self.ret = self.subst(&self.ret.clone());
         self.push();
         if let Some(is_mut) = sig.takes_self {
             self.self_mutable = is_mut;
@@ -413,20 +450,15 @@ impl<'a, 'c> Body<'a, 'c> {
             }
         }
         for (p, ps) in f.params.iter().zip(&sig.params) {
+            let ty = self.subst(&ps.ty);
             let default = p.default.as_ref().map(|default| {
-                let c = self.expr(default, Some(&ps.ty));
-                self.expect(&ps.ty, &c.ty, default.span);
+                let c = self.expr(default, Some(&ty));
+                self.expect(&ty, &c.ty, default.span);
                 c.id
             });
             self.hir.param_default(default);
             // Parameters are immutable bindings; mutate through `&mut` or `^`.
-            self.bind(
-                &ps.name,
-                ps.ty.clone(),
-                false,
-                LocalKind::Param,
-                p.name.span,
-            );
+            self.bind(&ps.name, ty, false, LocalKind::Param, p.name.span);
         }
         let root = match &f.body {
             Some(body) => self.block(body, None).id,
@@ -761,6 +793,10 @@ impl<'a, 'c> Body<'a, 'c> {
                 match &base_ty {
                     Ty::Ptr(_) | Ty::OwnPtr(_) => Some(true),
                     Ty::Ref { mutable, .. } => Some(*mutable),
+                    // A slice falls through to its binding, so `xs[i] = v` on an
+                    // `xs: []T` parameter is rejected. A slice is a pointer and a length,
+                    // and indexing one arguably ought to be mutable the way `^T` is —
+                    // but that is a language question (§5.3). Owed by M6.
                     _ => self.place_mutability(base),
                 }
             }
@@ -1086,6 +1122,12 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             ExprKind::Call { callee, args } => self.call(callee, args, e),
             ExprKind::StructLit { path, fields } => {
+                // `Shape::Circle{ … }` is a union value, not a struct: the path names a
+                // variant, and `Shape::Circle` is not a type of its own (spec §7.5).
+                if let Some((owner, index)) = self.union_variant_path(path) {
+                    let kind = self.union_variant_literal(owner, index, fields, e.span);
+                    return self.mk(e, Ty::Named(owner), kind);
+                }
                 let ty = self.cx.lower_type(&Type {
                     span: path.span,
                     kind: TypeKind::Path(path.clone()),
@@ -1391,6 +1433,65 @@ impl<'a, 'c> Body<'a, 'c> {
         }
         if peeled.is_wildcard() {
             return (Ty::Error, None);
+        }
+        // `Error` and `SourceLocation` have no declaration to look a field up in, so
+        // their field lists come from the type itself (spec §9.2, §12.7).
+        if let Ty::Builtin(b) = &peeled {
+            let fields = b.fields();
+            return match fields.iter().position(|(n, _)| *n == name.name) {
+                Some(i) => (fields[i].1.clone(), Some(i)),
+                None => {
+                    let owner = b.name();
+                    let names: Vec<&str> = fields.iter().map(|(n, _)| *n).collect();
+                    let suggestion = dz_resolve::closest(&name.name, names.into_iter());
+                    let mut d = dz_diag::Diagnostic::error(
+                        codes::NO_SUCH_FIELD,
+                        format!("`{owner}` has no field `{}`", name.name),
+                    )
+                    .at(self.cx.file, name.span, "unknown field");
+                    if let Some(s) = suggestion {
+                        d = d.with_help(format!("did you mean `{s}`?"));
+                    }
+                    self.cx.diags.push(d);
+                    (Ty::Error, None)
+                }
+            };
+        }
+        // A `case Circle(c)` binding: `c` is the variant's own field list (spec §7.5).
+        if let Ty::Variant(owner, index) = &peeled {
+            let variant = match self.cx.table.get(*owner) {
+                Some(ItemSig::Union { variants }) => variants.get(*index).cloned(),
+                _ => None,
+            };
+            let Some(variant) = variant else { return (Ty::Error, None) };
+            let found = variant
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, f)| f.name == name.name);
+            return match found {
+                Some((i, f)) => (f.ty.clone(), Some(i)),
+                None => {
+                    let owner_name = self.cx.res.symbol(*owner).name.clone();
+                    let names: Vec<String> =
+                        variant.fields.iter().map(|f| f.name.clone()).collect();
+                    let suggestion =
+                        dz_resolve::closest(&name.name, names.iter().map(String::as_str));
+                    let mut d = dz_diag::Diagnostic::error(
+                        codes::NO_SUCH_FIELD,
+                        format!(
+                            "`{owner_name}::{}` has no field `{}`",
+                            variant.name, name.name
+                        ),
+                    )
+                    .at(self.cx.file, name.span, "unknown field");
+                    if let Some(s) = suggestion {
+                        d = d.with_help(format!("did you mean `{s}`?"));
+                    }
+                    self.cx.diags.push(d);
+                    (Ty::Error, None)
+                }
+            };
         }
         let Some(sym) = peeled.named() else {
             let t = self.cx.name_of(&peeled);
@@ -1714,16 +1815,21 @@ impl<'a, 'c> Body<'a, 'c> {
         ids
     }
 
+    /// The declaration a path's *owner* segment names: the item itself for `f`, and the
+    /// type or module member for `Type::Variant` and `module::f`.
     fn path_symbol(&self, p: &Path) -> Option<SymbolId> {
         let first = p.segments.first()?;
-        if p.segments.len() == 1 {
-            return self
-                .cx
-                .res
-                .lookup_in_file(self.cx.module, self.cx.file, &first.name.name);
+        if p.segments.len() > 1 {
+            if let Some(target) = self.cx.res.module_alias(self.cx.file, &first.name.name) {
+                return self.cx.res.lookup(target, &p.segments.get(1)?.name.name);
+            }
         }
-        let target = self.cx.res.module_alias(self.cx.file, &first.name.name)?;
-        self.cx.res.lookup(target, &p.segments.get(1)?.name.name)
+        // `Layer::Ui` — the leading segment is a type in scope, not a module. Without
+        // this the path resolved to nothing and, because "nothing" types as `Ty::Error`,
+        // it was accepted in silence rather than reported (spec §3.3).
+        self.cx
+            .res
+            .lookup_in_file(self.cx.module, self.cx.file, &first.name.name)
     }
 
     fn path_expr(&mut self, p: &Path, e: &Expr) -> Checked {
@@ -1821,7 +1927,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         hir::ExprKind::UnionVariant {
                             owner,
                             index,
-                            payload: None,
+                            payload: Vec::new(),
                         },
                     ),
                     None => (Ty::Error, hir::ExprKind::Error),
@@ -1854,13 +1960,31 @@ impl<'a, 'c> Body<'a, 'c> {
             return hir::ExprKind::Error;
         };
         let owner = self.cx.res.symbol(sym).name.clone();
-        let mut values: Vec<Option<hir::ExprId>> = vec![None; sig.fields.len()];
+        let values = self.field_values(&sig.fields, Some(sym), &owner, fields, span);
+        hir::ExprKind::StructLit { ty: sym, fields: values }
+    }
+
+    /// Check a brace-initialiser against a declared field list, returning one slot per
+    /// field in **declaration** order with `None` where the declared default applies.
+    ///
+    /// Shared by struct literals and union-variant literals, which differ only in where
+    /// the field list comes from (spec §7.3, §7.5).
+    fn field_values(
+        &mut self,
+        decl: &[crate::FieldSig],
+        vis_owner: Option<SymbolId>,
+        owner: &str,
+        fields: &[FieldInit],
+        span: Span,
+    ) -> Vec<Option<hir::ExprId>> {
+        let decl = decl.to_vec();
+        let mut values: Vec<Option<hir::ExprId>> = vec![None; decl.len()];
 
         let positional = fields.iter().all(|f| f.name.is_none()) && !fields.is_empty();
         if positional {
             // `Vec3{1, 2, 3}` is allowed only when every field is listed (spec §7.3).
-            if fields.len() != sig.fields.len() {
-                let (want, got) = (sig.fields.len(), fields.len());
+            if fields.len() != decl.len() {
+                let (want, got) = (decl.len(), fields.len());
                 self.cx.error_help(
                     codes::MISSING_FIELD,
                     span,
@@ -1870,16 +1994,13 @@ impl<'a, 'c> Body<'a, 'c> {
                      otherwise (spec §7.3)",
                 );
             }
-            for (i, (f, decl)) in fields.iter().zip(&sig.fields).enumerate() {
-                let want = self.subst(&decl.ty);
+            for (i, (f, d)) in fields.iter().zip(&decl).enumerate() {
+                let want = self.subst(&d.ty);
                 let c = self.expr(&f.value, Some(&want));
                 self.expect(&want, &c.ty, f.value.span);
                 values[i] = Some(c.id);
             }
-            return hir::ExprKind::StructLit {
-                ty: sym,
-                fields: values,
-            };
+            return values;
         }
 
         let mut seen: Vec<&str> = Vec::new();
@@ -1888,9 +2009,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.expr(&f.value, None);
                 continue;
             };
-            let found = sig.fields.iter().position(|x| x.name == name.name);
-            let Some(decl) = found.map(|i| &sig.fields[i]) else {
-                let names: Vec<String> = sig.fields.iter().map(|x| x.name.clone()).collect();
+            let found = decl.iter().position(|x| x.name == name.name);
+            let Some(field) = found.map(|i| &decl[i]) else {
+                let names: Vec<String> = decl.iter().map(|x| x.name.clone()).collect();
                 let suggestion = dz_resolve::closest(&name.name, names.iter().map(String::as_str));
                 let mut d = dz_diag::Diagnostic::error(
                     codes::NO_SUCH_FIELD,
@@ -1914,8 +2035,12 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             seen.push(&name.name);
             let (decl_name, decl_vis, decl_span, decl_ty) =
-                (decl.name.clone(), decl.vis, decl.span, decl.ty.clone());
-            self.check_member_visible(sym, &decl_name, decl_vis, decl_span, name.span, "field");
+                (field.name.clone(), field.vis, field.span, field.ty.clone());
+            if let Some(sym) = vis_owner {
+                self.check_member_visible(
+                    sym, &decl_name, decl_vis, decl_span, name.span, "field",
+                );
+            }
             let want = self.subst(&decl_ty);
             let c = self.expr(&f.value, Some(&want));
             self.expect(&want, &c.ty, f.value.span);
@@ -1925,8 +2050,7 @@ impl<'a, 'c> Body<'a, 'c> {
         }
 
         // Anything omitted must have a default (spec §6.2, §7.3).
-        let missing: Vec<String> = sig
-            .fields
+        let missing: Vec<String> = decl
             .iter()
             .filter(|d| !d.has_default && !seen.contains(&d.name.as_str()))
             .map(|d| format!("`{}`", d.name))
@@ -1948,10 +2072,46 @@ impl<'a, 'c> Body<'a, 'c> {
                 "a field with a declared default may be omitted (spec §6.2)",
             );
         }
-        hir::ExprKind::StructLit {
-            ty: sym,
-            fields: values,
+        values
+    }
+
+    /// `Shape::Circle{ radius: 2 }` — a union variant's payload, which is a field list of
+    /// the variant's own rather than of any struct (spec §7.5).
+    fn union_variant_literal(
+        &mut self,
+        owner: SymbolId,
+        index: usize,
+        fields: &[FieldInit],
+        span: Span,
+    ) -> hir::ExprKind {
+        let variant = match self.cx.table.get(owner) {
+            Some(ItemSig::Union { variants }) => variants.get(index).cloned(),
+            _ => None,
+        };
+        let Some(variant) = variant else { return hir::ExprKind::Error };
+        let name = format!(
+            "{}::{}",
+            self.cx.res.symbol(owner).name,
+            variant.name
+        );
+        // Visibility is the union's, not a per-field thing: a variant's fields are as
+        // public as the variant is, so nothing is checked per field here.
+        let payload = self.field_values(&variant.fields, None, &name, fields, span);
+        hir::ExprKind::UnionVariant { owner, index, payload }
+    }
+
+    /// If `p` names a union variant, the union and the variant's position.
+    fn union_variant_path(&self, p: &Path) -> Option<(SymbolId, usize)> {
+        if p.segments.len() < 2 {
+            return None;
         }
+        let sym = self.path_symbol(p)?;
+        let ItemSig::Union { variants } = self.cx.table.get(sym)? else {
+            return None;
+        };
+        let last = &p.segments.last()?.name.name;
+        let index = variants.iter().position(|v| v.name == *last)?;
+        Some((sym, index))
     }
 
     fn dot_infer(
@@ -1991,24 +2151,21 @@ impl<'a, 'c> Body<'a, 'c> {
             self.cx.diags.push(d);
         }
         // A variant with a payload is written `.Circle{ radius: 1 }`; the payload is the
-        // variant's own field list, which the union's signature carries (spec §7.3).
-        let payload = init.map(|fields| {
-            let ids: Vec<hir::ExprId> = fields
-                .iter()
-                .map(|f| self.expr(&f.value, None).id)
-                .collect();
-            self.hir
-                .expr(span, want.clone(), hir::ExprKind::Tuple(ids))
-                .id
-        });
+        // variant's own field list, which the union's signature carries (spec §7.5).
         match found {
-            Some(index) if is_enum => hir::ExprKind::EnumVariant { owner: sym, index },
-            Some(index) => hir::ExprKind::UnionVariant {
-                owner: sym,
-                index,
-                payload,
-            },
-            None => hir::ExprKind::Error,
+            Some(index) if is_enum => {
+                for f in init.unwrap_or(&[]) {
+                    self.expr(&f.value, None);
+                }
+                hir::ExprKind::EnumVariant { owner: sym, index }
+            }
+            Some(index) => self.union_variant_literal(sym, index, init.unwrap_or(&[]), span),
+            None => {
+                for f in init.unwrap_or(&[]) {
+                    self.expr(&f.value, None);
+                }
+                hir::ExprKind::Error
+            }
         }
     }
 
@@ -2058,12 +2215,14 @@ impl<'a, 'c> Body<'a, 'c> {
                             indices.push(i);
                         }
                         if let Some(b) = &pat.binding {
-                            // The binding is a reference into the union, so matching
-                            // never copies (spec §10.3).
-                            let payload = if is_union && !v.fields.is_empty() {
-                                Ty::Named(sym.unwrap())
-                            } else {
-                                Ty::Named(sym.unwrap_or(SymbolId(0)))
+                            // The binding is a reference into the union's payload, so
+                            // matching never copies (spec §10.3). Its type is the
+                            // variant's field list, not the union — without that,
+                            // `c.radius` had nothing to resolve against.
+                            let index = variants.iter().position(|x| x.name == v.name);
+                            let payload = match (is_union, sym, index) {
+                                (true, Some(owner), Some(i)) => Ty::Variant(owner, i),
+                                _ => Ty::Error,
                             };
                             binding =
                                 Some(self.bind(&b.name, payload, true, LocalKind::Binding, b.span));
@@ -2178,7 +2337,10 @@ impl<'a, 'c> Body<'a, 'c> {
         let subject = self.expr(operand, None);
         let (success, payload) = match &subject.ty {
             // A fallible call is the only shape that carries an `Error` to bind.
-            Ty::Fallible(inner) => ((**inner).clone(), Some(Ty::Error)),
+            Ty::Fallible(inner) => (
+                (**inner).clone(),
+                Some(Ty::Builtin(crate::ty::BuiltinTy::Error)),
+            ),
             Ty::Optional(inner) => ((**inner).clone(), None),
             // `^T or …` is the checked pointer-to-reference conversion of §5.2: the
             // failure case is null, and the success case is the reference it becomes.
@@ -2266,7 +2428,8 @@ impl<'a, 'c> Body<'a, 'c> {
                                  with no binding (spec §9.4)",
                             );
                         }
-                        Some(self.bind(&b.name, Ty::Error, false, LocalKind::Binding, b.span))
+                        let bound = payload.clone().unwrap_or(Ty::Error);
+                        Some(self.bind(&b.name, bound, false, LocalKind::Binding, b.span))
                     }
                     None => None,
                 };

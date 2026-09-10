@@ -1,0 +1,89 @@
+// Ownership code that is correct, and must produce nothing at all. Half of the pair:
+// an analysis that rejects valid code is as broken as one that accepts invalid code.
+// expect: (none)
+
+pub struct Res {
+    m_p: own ^i32
+
+    Res(p: ^i32) {
+        m_p = p
+    }
+
+    pub fn live(&self) -> bool {
+        return m_p != null
+    }
+
+    drop() {
+        if m_p != null {
+            m_p^ = 0
+        }
+    }
+}
+
+// Copyable: it declares a `copy`, so ordinary assignment duplicates it (spec §6.3).
+pub struct Tally {
+    pub n: i32
+
+    copy(other: &Self) {
+        n = other.n
+    }
+
+    drop() {}
+}
+
+pub struct Holder {
+    pub a: Res
+    pub b: Res
+}
+
+fn take(r: Res) -> bool {
+    return r.live()
+}
+
+fn moves_are_fine(r: Res) -> bool {
+    return take(move(r))
+}
+
+// A move on one branch and a move on the other still leaves nothing live after the join.
+fn both_branches(r: Res, flag: bool) -> bool {
+    if flag {
+        return take(move(r))
+    }
+    return take(move(r))
+}
+
+// Assigning to a moved-from binding puts a value back in it (spec §6.4).
+fn reassignment_revives(p: ^i32, q: ^i32) -> bool {
+    let mut r = Res(p)
+    let first = take(move(r))
+    r = Res(q)
+    return take(move(r)) && first
+}
+
+// Every field moved out separately is not a partial move of anything still read.
+fn field_by_field(h: Holder) -> bool {
+    let x = take(move(h.a))
+    let y = take(move(h.b))
+    return x && y
+}
+
+// A copyable type needs no `move` anywhere.
+fn copies_are_fine(t: Tally) -> i32 {
+    let a = t
+    let b = t
+    return a.n + b.n
+}
+
+// Reading through a reference is not a move.
+fn borrowing_is_not_moving(r: &Res) -> bool {
+    return r.live()
+}
+
+// An exhaustive `switch` returns on every path even with no `default` (spec §10.3).
+fn exhaustive_switch_returns(n: i32) -> i32 {
+    let mut total = 0
+    for i in 0..n {
+        total += i
+    }
+    return total
+}

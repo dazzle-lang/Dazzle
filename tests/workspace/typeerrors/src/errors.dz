@@ -197,3 +197,28 @@ fn cannot_iterate(n: i32) {
         return
     }
 }
+
+// --- M5: the rules of spec §6, §7.5 and §9.2 --------------------------------
+
+// A union variant's payload has its own field list (spec §7.5).
+fn unknown_variant_field(s: Shape) -> f32 {
+    switch s {
+        case Circle(c) {
+            return c.diameter
+        }
+        default {
+            return 0
+        }
+    }
+}
+
+fn wrong_variant_payload() -> Shape {
+    return Shape::Circle{ w: 1 }
+}
+
+// `Error` is a struct the language provides, with the fields §9.2 lists.
+fn unknown_error_field() -> i32 {
+    return may_fail() or { e ->
+        e.reason
+    }
+}

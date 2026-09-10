@@ -1,0 +1,17 @@
+// Spec §6.3: a move-only type cannot be assigned or passed by value without `move`.
+// expect: DZ0403
+
+pub struct Res {
+    m_p: own ^i32
+
+    pub fn live(&self) -> bool {
+        return m_p != null
+    }
+
+    drop() {}
+}
+
+fn copied(r: Res) -> bool {
+    let other = r
+    return other.live()
+}

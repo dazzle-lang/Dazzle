@@ -1,0 +1,19 @@
+// Spec §6.4: the analysis is flow-sensitive and handles branches — a value moved on
+// *some* path reaching a use is an error there, not only one moved on all of them.
+// expect: DZ0401
+
+pub struct Res {
+    m_p: own ^i32
+    drop() {}
+}
+
+fn take(r: Res) -> bool {
+    return true
+}
+
+fn one_branch(r: Res, flag: bool) -> bool {
+    if flag {
+        let gone = move(r)
+    }
+    return take(move(r))
+}

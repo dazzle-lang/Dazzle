@@ -77,6 +77,12 @@ impl Diagnostic {
         self.with_label(Label::primary(file, span, message))
     }
 
+    /// Attach a second span: where the thing the primary label complains about came
+    /// from. A use-after-move needs both ends to be readable at all (spec §6.4).
+    pub fn with_secondary(self, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
+        self.with_label(Label::secondary(file, span, message))
+    }
+
     pub fn with_note(mut self, note: impl Into<String>) -> Diagnostic {
         self.notes.push(format!("note: {}", note.into()));
         self

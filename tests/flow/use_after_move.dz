@@ -1,0 +1,16 @@
+// Spec §6.4: a value read after it was moved out of.
+// expect: DZ0401
+
+pub struct Res {
+    m_p: own ^i32
+    drop() {}
+}
+
+fn take(r: Res) -> bool {
+    return true
+}
+
+fn straight_line(r: Res) -> bool {
+    let gone = move(r)
+    return take(move(r))
+}

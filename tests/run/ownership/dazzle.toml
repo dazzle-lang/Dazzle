@@ -1,0 +1,6 @@
+[module]
+name = "ownership"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

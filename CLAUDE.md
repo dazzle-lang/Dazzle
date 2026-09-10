@@ -5,9 +5,9 @@ C++-grade in control, but with RAII reduced to three special members, enforced
 encapsulation, and definition-site generics. The compiler is written in Rust.
 
 Progress: M0 (lexer), M1 (parser, AST, formatter), M2 (projects, modules, imports,
-visibility), M3 (type checker) and M4 (codegen, runtime shim, `dz run`) are done —
-**Dazzle programs compile and run**. Next is M5 — ownership: `own`, `move`, `copy`,
-`drop` and flow analysis. See spec §19 for the full roadmap.
+visibility), M3 (type checker), M4 (codegen, runtime shim, `dz run`) and M5 (ownership) are done —
+**Dazzle programs compile, run, and own, move and drop their resources deterministically**.
+Next is M6 — generics, traits and monomorphization. See spec §19 for the full roadmap.
 
 ## Three documents
 
@@ -73,16 +73,20 @@ crates/
   dz_diag/            Diagnostic model + rendering (codespan-reporting)
   dz_lex/             the lexer (spec §2)
   dz_ast/             the syntax tree, plus a span-free `dump` used by tests and `dz parse`
+  dz_hir/             the resolved, typed tree + `Ty`, built by the checker (spec §17.1)
   dz_parse/           recursive-descent + Pratt parser (spec §20)
   dz_fmt/             the formatter
   dz_project/         dazzle.toml, source globs, the dependency graph (spec §3.1)
   dz_resolve/         module symbol tables, name resolution, visibility (spec §3, §4)
   dz_check/           the type checker (spec §5, §7, §9, §10, §11)
+  dz_flow/            ownership, moves, drops, definite return (spec §6)
   dz_cpp/             C++17 emission + the runtime shim (spec §16)
   dz/                 the `dz` CLI
 tests/lex/*.dz        lexer snapshot corpus    (crates/dz_lex/tests/lex.rs)
 tests/parse/*.dz      parser snapshot corpus   (crates/dz_parse/tests/parse.rs)
 tests/fmt/*.dz        formatter corpus         (crates/dz_fmt/tests/fmt.rs)
+tests/flow/*.dz       one file per ownership rule, each naming the code it must produce
+                      in an `// expect:` line (crates/dz_flow/tests/flow.rs)
 tests/run/            whole programs that are compiled and executed, each with an
                       expected.txt of exact stdout (crates/dz/tests/run.rs)
 tests/workspace/      real multi-module workspaces (crates/dz_resolve/tests/resolve.rs):
@@ -105,7 +109,7 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 
 ```bash
 cargo build --workspace
-cargo test --workspace           # 79 tests at M4
+cargo test --workspace           # 88 tests at M5
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens

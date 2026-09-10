@@ -1,0 +1,100 @@
+// M5's end-to-end criterion: `own`, `move`, `copy` and `drop` do at runtime exactly what
+// spec §6 says. Every line of output is an ordering or a reset that a hand-written C++
+// version would have had to get right by hand.
+//
+// There is no allocator until M12, so the "resource" a handle owns is a caller-provided
+// slot: acquiring it writes 1, releasing it writes 0. Whether a drop ran is then something
+// the program can print rather than something you have to take on faith.
+
+pub struct Handle {
+    m_slot: own ^i32
+    pub label: str
+
+    Handle(slot: ^i32, label: str) {
+        m_slot = slot
+        self.label = label
+        slot^ = 1
+    }
+
+    pub fn live(&self) -> i32 {
+        if m_slot == null {
+            return -1
+        }
+        return m_slot^
+    }
+
+    // §6.5: runs at the end of the enclosing scope, in reverse declaration order.
+    drop() {
+        if m_slot != null {
+            println("  drop {}", label)
+            m_slot^ = 0
+        }
+    }
+}
+
+// §6.3: declaring a `copy` makes an otherwise move-only type copyable. The `+ 100` is
+// there so the output proves the *user's* body ran, not a memberwise copy.
+pub struct Counted {
+    pub n: i32
+
+    Counted(n: i32) {
+        self.n = n
+    }
+
+    copy(other: &Self) {
+        n = other.n + 100
+    }
+
+    drop() {
+        println("  drop Counted({})", n)
+    }
+}
+
+// §6.3: a struct with a move-only field is itself move-only, with no `own` of its own.
+pub struct Pair {
+    pub a: Handle
+    pub tag: i32
+}
+
+fn consume(h: Handle) -> i32 {
+    return h.live()
+}
+
+fn main() {
+    let mut slot_a: i32
+    let mut slot_b: i32
+    let mut slot_c: i32
+
+    let h = Handle(&mut slot_a, "a")
+    println("live: {}", h.live())
+
+    // §6.4: the source of a move is left at its defaults, so the moved-from handle
+    // reports -1 rather than pointing at a slot someone else now owns.
+    let moved = move(h)
+    println("moved: label={} live={}", moved.label, moved.live())
+
+    // Passing by value hands the resource to `consume`, whose parameter dies at its end.
+    println("consume: {}", consume(move(moved)))
+    println("slot a released: {}", slot_a == 0)
+
+    // §6.3: `copy` runs on a defaults-initialised object, so `d.n` is the body's answer.
+    let c = Counted(1)
+    let d = c
+    println("copied: {} {}", c.n, d.n)
+
+    // §6.5: drop at the end of the enclosing scope, not at the end of the function.
+    {
+        let p = Pair{ a: Handle(&mut slot_b, "b"), tag: 3 }
+        println("nested: tag={} live={}", p.tag, p.a.live())
+    }
+    println("slot b released: {}", slot_b == 0)
+
+    // §6.5: `defer` runs at scope exit *after* that scope's drops.
+    {
+        defer println("  deferred")
+        let e = Handle(&mut slot_c, "c")
+        println("before scope ends")
+    }
+
+    println("done")
+}

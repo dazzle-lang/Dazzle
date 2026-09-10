@@ -1,0 +1,9 @@
+// Spec §6.1: a struct declares at most one of each special member.
+// expect: DZ0411
+
+pub struct Twice {
+    pub n: i32
+
+    drop() {}
+    drop() {}
+}

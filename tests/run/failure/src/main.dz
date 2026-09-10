@@ -1,0 +1,111 @@
+// The other half of M5's codegen: everything that is an expression in Dazzle but a
+// statement in C++ — `or` in all its forms, a block or an `if` used as a value — plus the
+// shapes M4 could not emit at all: `T?`, tagged unions and tuples.
+
+pub enum Code : u32 {
+    Odd = 1
+    Negative
+}
+
+pub union Shape {
+    Circle { radius: f32 }
+    Rect   { w: f32, h: f32 }
+    Point
+}
+
+fn area(s: &Shape) -> f32 {
+    switch s {
+        case Circle(c) {
+            return 3 as f32 * c.radius * c.radius
+        }
+        case Rect(r) {
+            return r.w * r.h
+        }
+        case Point {
+            return 0
+        }
+    }
+}
+
+// §9.1: returning a plain `T` is the success case; `error(...)` is the other one.
+fn halve(n: i32) !-> i32 {
+    if n < 0 {
+        return error(Code::Negative, "{} is negative", n)
+    }
+    if n % 2 != 0 {
+        return error(Code::Odd, "{} is odd", n)
+    }
+    return n / 2
+}
+
+// §9.5: bare `or return` propagates, and is legal because this signature carries it.
+fn quarter(n: i32) !-> i32 {
+    let half = halve(n) or return
+    return halve(half) or return
+}
+
+fn maybe(n: i32) -> i32? {
+    if n < 0 {
+        return none
+    }
+    return n
+}
+
+fn find(xs: ^[4]i32, want: i32) -> ^i32 {
+    for i, x in xs {
+        if x == want {
+            return &mut xs[i]
+        }
+    }
+    return null
+}
+
+fn pair() -> (i32, str) {
+    return (7, "seven")
+}
+
+fn main() {
+    // §9.6: fall back and keep going.
+    println("fallback: {} {}", halve(8) or -1, halve(7) or -1)
+    println("propagated: {} {}", quarter(8) or -1, quarter(6) or -1)
+
+    // §9.4: the block clause, with the `Error` bound.
+    let handled = halve(9) or { e ->
+        println("  code {}: {}", e.code, e.message)
+        0
+    }
+    println("handled: {}", handled)
+
+    // §9.4: statement position only, and deliberately discards.
+    halve(5) or ignore
+
+    // §9.4: `or` on a `T?` and on a `^T`.
+    println("optional: {} {}", maybe(3) or -1, maybe(-3) or -1)
+
+    let mut xs: [4]i32
+    xs[0] = 4
+    xs[1] = 5
+    xs[2] = 6
+    let hit = find(&mut xs, 5) or panic("5 must be there")
+    println("pointer: {}", hit)
+    println("missing: {}", find(&mut xs, 99) == null)
+
+    // §5.4: tuples, and destructuring one.
+    let (n, name) = pair()
+    println("tuple: {} {}", n, name)
+
+    // Control flow used as a value.
+    let chosen = if n > 3 { "big" } else { "small" }
+    let computed = {
+        let a = 2
+        let b = 3
+        a * b
+    }
+    println("values: {} {}", chosen, computed)
+
+    // §7.5: tagged unions, constructed and matched.
+    let c = Shape::Circle{ radius: 2 }
+    let r = Shape::Rect{ w: 3, h: 4 }
+    let p = Shape::Point
+    println("areas: {} {} {}", area(&c), area(&r), area(&p))
+}

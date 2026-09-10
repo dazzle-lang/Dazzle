@@ -19,6 +19,9 @@ pub struct Analysis {
     /// The typed tree, when checking ran (spec §17.1). `dz hir` prints it, and from M5 on
     /// flow analysis and codegen consume it.
     pub hir: Option<dz_hir::Hir>,
+    /// Signatures, which the HIR does not carry: it has bodies but no items, so anything
+    /// asking what a struct's fields are called goes here (spec §17.1).
+    pub table: Option<dz_check::TypeTable>,
     pub diags: Diagnostics,
 }
 
@@ -38,6 +41,7 @@ pub fn analyse(entry: &Path) -> Analysis {
             files: HashMap::new(),
             resolution: None,
             hir: None,
+            table: None,
             diags,
         };
     };
@@ -78,20 +82,29 @@ pub fn analyse(entry: &Path) -> Analysis {
 
     let mut resolution = None;
     let mut hir = None;
+    let mut table = None;
     if !diags.has_errors() {
         let r = dz_resolve::resolve(&ws, &files);
         let failed = r.diagnostics.has_errors();
         diags.extend(r.diagnostics.clone());
         if !failed {
             let checked = dz_check::check(&ws, &r, &files);
+            let type_errors = checked.diagnostics.has_errors();
             diags.extend(checked.diagnostics);
+            // Ownership runs on the typed tree (spec §17.2). Skipped when checking
+            // failed: a body whose types are unknown moves values of unknown kinds, and
+            // every answer this pass gave would be a guess.
+            if !type_errors {
+                diags.extend(dz_flow::check(&checked.hir, &checked.table, &r));
+            }
             hir = Some(checked.hir);
+            table = Some(checked.table);
         }
         resolution = Some(r);
     }
 
     diags.sort_by_position();
-    Analysis { map, ws: Some(ws), files, resolution, hir, diags }
+    Analysis { map, ws: Some(ws), files, resolution, hir, table, diags }
 }
 
 pub struct BuildOutput {
@@ -102,10 +115,15 @@ pub struct BuildOutput {
 
 /// Generate C++ for a project, writing only files whose contents changed (spec §16.6).
 pub fn emit_cpp(analysis: &Analysis, root: &Path) -> Result<BuildOutput, Diagnostics> {
-    let (Some(ws), Some(resolution)) = (&analysis.ws, &analysis.resolution) else {
+    let (Some(ws), Some(resolution), Some(table), Some(hir)) = (
+        &analysis.ws,
+        &analysis.resolution,
+        &analysis.table,
+        &analysis.hir,
+    ) else {
         return Err(Diagnostics::new());
     };
-    let emitted = dz_cpp::emit(ws, resolution, &analysis.map, &analysis.files);
+    let emitted = dz_cpp::emit(ws, resolution, table, hir, &analysis.map, &analysis.files);
     if emitted.diagnostics.has_errors() {
         return Err(emitted.diagnostics);
     }

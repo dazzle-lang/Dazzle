@@ -1,0 +1,20 @@
+// A move inside a loop: the second iteration finds the value already gone (spec §6.4).
+// expect: DZ0401
+
+pub struct Res {
+    m_p: own ^i32
+    drop() {}
+}
+
+fn take(r: Res) -> bool {
+    return true
+}
+
+fn in_a_loop(r: Res, n: i32) -> i32 {
+    let mut i = 0
+    while i < n {
+        let gone = take(move(r))
+        i += 1
+    }
+    return i
+}

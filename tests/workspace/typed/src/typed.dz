@@ -275,3 +275,74 @@ fn deferred() {
     defer c.bump()
     c.bump()
 }
+
+// --- M5: ownership and the shapes it unblocked (spec §6, §7.5, §9.2) --------
+
+// §6.1: at most one of each special member, and both are optional.
+pub struct Owner {
+    m_slot: own ^i32
+    pub tag: i32
+
+    Owner(slot: ^i32) {
+        m_slot = slot
+    }
+
+    pub fn live(&self) -> bool {
+        return m_slot != null
+    }
+
+    // §6.5: an `own` field obliges the struct to release it.
+    drop() {
+        if m_slot != null {
+            m_slot^ = 0
+        }
+    }
+}
+
+pub struct Copyable {
+    pub n: i32
+
+    copy(other: &Self) {
+        n = other.n
+    }
+
+    drop() {}
+}
+
+fn consumes(o: Owner) -> bool {
+    return o.live()
+}
+
+// §6.4: `move` transfers ownership, and the source is not read again.
+fn moving(slot: ^i32) -> bool {
+    let o = Owner(slot)
+    return consumes(move(o))
+}
+
+// §6.3: a type with a `copy` needs no `move` at all.
+fn copying(c: Copyable) -> i32 {
+    let a = c
+    return a.n + c.n
+}
+
+// §7.5: a union variant is constructed with its own field list, and `case` binds it.
+fn union_values() -> f32 {
+    let c = Shape::Circle{ radius: 2 }
+    let r = Shape::Rect{ w: 1, h: 2 }
+    let p = Shape::Point
+    return switching(c) + switching(r) + switching(p)
+}
+
+// §7.3: `.Variant` infers the union from the expected type.
+fn inferred_variant() -> Shape {
+    let s: Shape = .Circle{ radius: 1 }
+    return s
+}
+
+// §9.2: the `Error` an `or` block binds is a real struct with real fields.
+fn reads_the_error() -> i32 {
+    return may_fail(1) or { e ->
+        let where_from = e.location.line
+        e.code as i32 + where_from as i32
+    }
+}

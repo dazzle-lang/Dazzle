@@ -1,0 +1,6 @@
+[module]
+name = "failure"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

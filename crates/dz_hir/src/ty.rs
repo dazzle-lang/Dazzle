@@ -85,6 +85,57 @@ impl FloatTy {
     }
 }
 
+/// A struct the language provides rather than the stdlib (spec §9.2, §12.7).
+///
+/// They are not `Ty::Named`, because a `Named` is a `SymbolId` and these are declared
+/// nowhere: synthesising fake symbols for them would put two kinds of thing in the symbol
+/// table and make every consumer ask which it had. When the stdlib arrives (M12) they
+/// become ordinary declarations and this enum goes away.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BuiltinTy {
+    /// `Error` — what a `!->` call carries when it fails (spec §9.2).
+    Error,
+    /// `SourceLocation` — where an error or a panic came from (spec §12.7).
+    SourceLocation,
+}
+
+impl BuiltinTy {
+    pub fn name(&self) -> &'static str {
+        match self {
+            BuiltinTy::Error => "Error",
+            BuiltinTy::SourceLocation => "SourceLocation",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<BuiltinTy> {
+        match name {
+            "Error" => Some(BuiltinTy::Error),
+            "SourceLocation" => Some(BuiltinTy::SourceLocation),
+            _ => None,
+        }
+    }
+
+    /// The fields, in declaration order, exactly as spec §9.2 and §12.7 write them.
+    pub fn fields(&self) -> Vec<(&'static str, Ty)> {
+        match self {
+            BuiltinTy::Error => vec![
+                ("code", Ty::Int(IntTy::U32)),
+                ("message", Ty::Str),
+                (
+                    "location",
+                    Ty::Ptr(Rc::new(Ty::Builtin(BuiltinTy::SourceLocation))),
+                ),
+            ],
+            BuiltinTy::SourceLocation => vec![
+                ("file", Ty::CStr),
+                ("function", Ty::CStr),
+                ("line", Ty::Int(IntTy::U32)),
+                ("column", Ty::Int(IntTy::U32)),
+            ],
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Ty {
     /// A type that could not be determined. Already reported, and compatible with
@@ -125,6 +176,12 @@ pub enum Ty {
     },
     /// A struct, union, enum or trait.
     Named(SymbolId),
+    /// A struct the language provides: `Error`, `SourceLocation` (spec §9.2, §12.7).
+    Builtin(BuiltinTy),
+    /// The payload of one union variant, by the union's symbol and the variant's
+    /// position (spec §7.5). It is not a type anyone writes: it exists so that the
+    /// binding in `case Circle(c)` has something whose `.radius` resolves.
+    Variant(SymbolId, usize),
     /// `Self` inside a struct or trait body.
     SelfTy,
 }
@@ -234,6 +291,10 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
         (Ty::Ptr(a), Ty::Ptr(b)) | (Ty::Ptr(a), Ty::OwnPtr(b)) | (Ty::OwnPtr(a), Ty::OwnPtr(b)) => {
             assignable(a, b)
         }
+        // ...and the reverse is how ownership is *acquired*: `alloc` returns a plain
+        // `^u8` (spec §9.8), and storing it in an `own ^u8` field is what makes the
+        // struct responsible for it. Nothing weaker would let anything own anything.
+        (Ty::OwnPtr(a), Ty::Ptr(b)) => assignable(a, b),
         // `&mut T` satisfies `^T`: giving up the non-null guarantee is safe, and spec
         // §5.2 writes exactly this (`let p: ^Player = &mut world.players[0]`). The
         // reverse is not allowed — a `^T` may be null — and neither is `&T`, which

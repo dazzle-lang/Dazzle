@@ -68,7 +68,8 @@ impl<'a> Dumper<'a> {
             }
         };
         let ret = self.names.name_of_type(&body.ret);
-        self.line(format_args!("body {owner} -> {ret}"));
+        let arrow = if body.fallible { "!->" } else { "->" };
+        self.line(format_args!("body {owner} {arrow} {ret}"));
         self.body = Some(body);
         self.nest(|d| {
             for local in &body.params {
@@ -284,8 +285,14 @@ impl<'a> Dumper<'a> {
                 let name = self.names.name_of_symbol(owner);
                 node!("union-variant {name}#{index}");
                 self.nest(|d| {
-                    if let Some(p) = payload {
-                        d.expr(p);
+                    for (i, f) in payload.iter().enumerate() {
+                        match f {
+                            Some(e) => {
+                                d.line(format_args!("#{i}"));
+                                d.nest(|d| d.expr(*e));
+                            }
+                            None => d.line(format_args!("#{i} (default)")),
+                        }
                     }
                 });
             }

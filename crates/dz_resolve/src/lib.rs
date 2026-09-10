@@ -167,6 +167,8 @@ impl Resolution {
 pub const BUILTIN_TYPES: &[&str] = &[
     "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "isize", "usize", "f32", "f64",
     "bool", "char", "str", "cstr", "void", "Self",
+    // Provided by the language rather than the stdlib (spec §9.2, §12.7).
+    "Error", "SourceLocation",
 ];
 
 pub const BUILTIN_FNS: &[&str] = &[

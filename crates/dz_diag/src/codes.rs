@@ -99,6 +99,24 @@ pub const UNUSED_IMPORT: &str = "DZ0307";
 /// Two imports bringing the same name into scope.
 pub const AMBIGUOUS_IMPORT: &str = "DZ0308";
 
+// --- DZ04xx: ownership and flow analysis (spec §6) -----------------------------
+
+/// A value read after it was moved out of (spec §6.4).
+pub const USE_AFTER_MOVE: &str = "DZ0401";
+/// `move` applied to a place the function does not own: behind a `&`, a `^`, or an
+/// array element, where the compiler cannot reset the source to its defaults (spec §6.4).
+pub const MOVE_OUT_OF_BORROW: &str = "DZ0402";
+/// A move-only value used where a copy would be needed (spec §6.3).
+pub const IMPLICIT_COPY: &str = "DZ0403";
+/// A struct read as a whole after one of its fields was moved out (spec §6.4).
+pub const USE_OF_PARTIAL_MOVE: &str = "DZ0404";
+/// A function with a return type whose body can reach the end without returning.
+pub const MISSING_RETURN: &str = "DZ0405";
+/// A second `copy` or `drop` on one struct (spec §6.1).
+pub const DUPLICATE_SPECIAL_MEMBER: &str = "DZ0411";
+/// A struct with an `own` field and no `drop` (spec §6.5, §18.4).
+pub const OWN_FIELD_WITHOUT_DROP: &str = "DZ0412";
+
 // --- DZ05xx: type checking -----------------------------------------------------
 
 /// A value of one type used where another was required.
