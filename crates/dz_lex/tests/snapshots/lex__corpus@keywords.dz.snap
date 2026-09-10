@@ -7,13 +7,12 @@ input_file: tests/lex/keywords.dz
    1:1   as
    1:4   break
    1:10  case
-   1:15  catch
-   1:21  const
-   1:27  continue
-   1:36  copy
-   1:41  defer
-   1:47  drop
-   1:51  Terminator
+   1:15  const
+   1:21  continue
+   1:30  copy
+   1:35  defer
+   1:41  drop
+   1:45  Terminator
    2:1   else
    2:6   enum
    2:11  extern
@@ -21,8 +20,9 @@ input_file: tests/lex/keywords.dz
    2:24  fn
    2:27  for
    2:31  if
-   2:34  import
-   2:40  Terminator
+   2:34  ignore
+   2:41  import
+   2:47  Terminator
    3:1   in
    3:4   let
    3:8   macro
@@ -31,8 +31,9 @@ input_file: tests/lex/keywords.dz
    3:26  mut
    3:30  none
    3:35  null
-   3:40  own
-   3:43  Terminator
+   3:40  or
+   3:43  own
+   3:46  Terminator
    4:1   pub
    4:5   return
    4:12  self
@@ -42,11 +43,10 @@ input_file: tests/lex/keywords.dz
    4:36  trait
    4:42  true
    4:46  Terminator
-   5:1   try
-   5:5   union
-   5:11  while
-   5:17  with
-   5:21  Terminator
+   5:1   unreachable
+   5:13  union
+   5:19  while
+   5:24  Terminator
    6:1   Ident `async`
    6:7   Ident `await`
    6:13  Ident `impl`
@@ -54,7 +54,8 @@ input_file: tests/lex/keywords.dz
    6:24  Ident `yield`
    6:30  Ident `unsafe`
    6:37  Ident `comptime`
-   6:45  Terminator
+   6:46  Ident `collect`
+   6:53  Terminator
    7:1   Ident `notakeyword`
    7:13  Ident `letx`
    7:18  Ident `_`

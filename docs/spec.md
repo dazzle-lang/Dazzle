@@ -1,7 +1,13 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 (draft)
-**Status:** design phase — nothing past the lexer is implemented yet.
+**Version:** 0.1 — **unreleased**, revision 6
+**Status:** M0–M4 implemented — Dazzle programs compile and run, but the language is not
+yet usable for real work. See `docs/PROGRESS.md`.
+
+**The version number stays 0.1 until 0.1 is actually finished.** 0.1 means: an LSP good
+enough to work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop
+(M7). Until all three land, this document is revised, not versioned — the revision numbers
+below track *changes to the language*, and none of them is a release.
 **Target:** a systems language for game development that compiles to readable C++17.
 
 ---
@@ -42,12 +48,13 @@ pub struct Buffer<T> {                // private by default; pub / pub(module) /
 
 | Concept | Syntax | One-line rule |
 |---|---|---|
-| Refer to a value | `&T` `&mut T` `^T` `own ^T` | `&`/`&mut` are non-null and **stack-only**; `^` is a C pointer; `own ^` means you free it |
+| Refer to a value | `&T` `&mut T` `^T` `own ^T` | `&`/`&mut` are non-null and **stack-only**; `^` is a C pointer; `own ^` means you free it; `^T` → `&T` needs an `or` clause, `&T` → `^T` is free |
 | Copy vs move | `let b = a` / `let b = move(a)` | if the type owns anything, copying needs an explicit `copy()`; otherwise `move()` |
-| Absence / failure | `?T` / `!T` | built in like `^T`. Return `none` or `error("…")`; `?^T` is still one pointer |
-| Handle a failure | `with (x) { it -> … } else { e -> … }` | binds the success payload, `else` binds the `Error` |
-| Propagate a failure | `try f()` | early-returns the error; only legal in a `!T`/`?T` function |
-| Fall back | `f() catch Default` | "on failure use this instead" |
+| Absence | `T?` | postfix, binds to the type name. `^T?` is a pointer to an optional; an optional pointer is just `^T` |
+| Failure | `fn f(…) !-> T` | `!` marks the *signature*, never a type. There is no `T!` to store, annotate, or point at |
+| Handle anything fallible | `let v = f() or { e -> … }` | one clause for `T!`, `T?`, and `^T` alike |
+| Propagate | `f() or return` | only where the enclosing signature can carry the failure |
+| Fall back | `f() or Textures::Missing` | "on failure use this instead" — the common case in game code |
 | Sum type | `union S { A{…} B }` + `switch` | tagged, exhaustive, no fallthrough |
 | Interface | `trait X` + `struct Y : X` | bound `<T: X>` = static dispatch; `^X` = fat pointer, object stays the same size |
 | Generics | `fn f<T: Ord>(…)` | checked once at the definition, then monomorphized by Dazzle |
@@ -201,7 +208,9 @@ compile-time format-string checking instead (§12.9). `[PROPOSED]`
 ::                         scope access (module, enum, associated item, type query)
 ..  ..=                    exclusive / inclusive range
 ->                         return type
-?   !                      optional / fallible type sigils (§9)
+?                          postfix optional-type suffix (§5.6)
+!->                        fallible return marker, in a function signature only (§9)
+or                         failure clause (§9.4)
 #[...]                     attribute
 #                          compiler intrinsic / macro invocation
 $                          macro variable
@@ -212,17 +221,23 @@ _                          discard binding
 which means it cannot also be xor. Xor is therefore `^^`. Odin makes the same trade and it
 causes no practical friction. `[DECIDED]`
 
+`?` is postfix and binds to the type name, so access sigils always sit outside it: `^T?`
+is a pointer to an optional `T`. This is the one place the language reads right-to-left,
+and it is deliberate — access describes how you reach a value, `?` describes the value.
+`!` never appears in a type, so `^T!` is not a parse problem; it is not a thing. `[DECIDED]`
+
 ### 2.7 Keywords
 
 ```
-as       break     case     catch    const     continue  copy     defer
-drop     else      enum      extern   false     fn        for      if
-import   in        let       macro    module    move      mut      none
-null     own       pub       return   self      Self      struct   switch
-trait    true      try       union    while     with
+as       break     case     const    continue  copy      defer    drop
+else     enum      extern   false    fn        for       if       ignore
+import   in        let      macro    module    move      mut      none
+null     or        own      pub      return    self      Self     struct
+switch   trait     true     unreachable        union     while
 ```
 
-Reserved for future use: `async`, `await`, `impl`, `where`, `yield`, `unsafe`, `comptime`.
+Reserved for future use: `async`, `await`, `impl`, `where`, `yield`, `unsafe`, `comptime`,
+`collect`.
 
 ---
 
@@ -396,7 +411,7 @@ void                  the type of a function that returns nothing
 
 Signed integer overflow **panics in debug builds and wraps in release**. Explicit
 wrapping/saturating/checked operations live in the stdlib (`math::wrapping_add`,
-`math::checked_add` returning `?T`). `[PROPOSED]`
+`math::checked_add` returning `T?`). `[PROPOSED]`
 
 There are no implicit numeric conversions, in either direction, ever — not even widening.
 `let a: i64 = some_i32` is an error; write `some_i32 as i64`. Untyped *literals* are the
@@ -419,6 +434,9 @@ Four ways to refer to something — the model your samples already use, plus `&m
   A reference therefore only ever lives on the stack, so it cannot outlive its frame by
   being smuggled into a heap object. `[DECIDED — §18.3]`
 
+  Non-null is enforced at the point of conversion, not by analysis — a `&T` whose target has
+  since been freed is still your problem (§1.1).
+
   This is a cheap heuristic, not a proof — Dazzle has no lifetime analysis, so a `&T`
   passed *down* into a function that outlives its target is still your problem. What the
   rule buys is that the most common dangling case costs zero analysis to prevent, and that
@@ -437,6 +455,25 @@ Four ways to refer to something — the model your samples already use, plus `&m
   a scene graph with parent back-pointers, and it is on you to keep it valid.
 - **`own ^T`** is a `^T` that this struct is responsible for releasing. It changes the
   *type's* semantics — see §6.
+
+**Converting between them.** `&T` → `^T` is free and implicit. `^T` → `&T` is not: a
+pointer may be null and a reference may not, so the conversion goes through an `or` clause
+like any other fallible thing (§9.4):
+
+```dz
+let btn = ctx.btn or return                     // propagate
+let btn = ctx.btn or panic("button missing")    // assert, with a message
+let btn = ctx.btn or unreachable                // checked in debug, free in release
+draw(ctx.btn)                                   // error[DZ0522]: expected &Button, found ^Button
+```
+
+This is the only guarantee `&T` carries that `^T` does not, so it is worth one line at the
+boundary. The check happens once, where the pointer enters scope, rather than on every
+function entry downstream. `[DECIDED]`
+
+The reverse direction stays implicit for now, which means the §18.3 field ban is
+bypassable by widening a `&T` to a `^T` and storing that. The ban is a heuristic, not a
+proof, and this is one of its holes. `[OPEN — 18.16]`
 
 Dereference is postfix `^`, but you rarely write it because `.` auto-dereferences:
 
@@ -474,12 +511,15 @@ cstr            a null-terminated ^u8, for C interop only.
 String literals live in static storage. `String::from("x")` copies; `s.as_str()` borrows.
 Conversion to `cstr` is explicit and may allocate. `[PROPOSED]`
 
+Because `?` binds to the type name, `[]T?` is a slice **of optionals**. An optional slice
+is `([]T)?` — parenthesised, because it is far rarer and the parentheses say which level
+is optional. `[PROPOSED]`
+
 ### 5.4 Compound types
 
 ```dz
 (i32, f32)              tuple
-?T                      optional  — built in, not a library type (§9)
-!T                      fallible  — built in, not a library type (§9)
+T?                      optional  — see §5.6; built in, not a library type
 fn(i32, f32) -> bool    function pointer
 ```
 
@@ -503,6 +543,35 @@ T::fields                  a compile-time sequence, iterable in macros (§12) an
 
 `sizeof(T)` and `alignof(T)` are accepted as aliases for `T::size` / `T::align`, because
 they read better in allocation code, which is where they almost always appear.
+
+### 5.6 Modality
+
+The type sigils divide on two axes, and keeping them apart is what stops them composing
+into unreadable stacks.
+
+| Axis | Spelled | Asks |
+|---|---|---|
+| **Access** | `^T` `&T` `&mut T` `own ^T` `[]T` | how do I reach this value? |
+| **Responsibility** | `own` | who frees it? |
+| **Modality** | `T?` | is the value there at all? |
+
+Access is prefix, modality is postfix, and they never compete for the same position:
+
+```dz
+T?              an optional T
+^T              a pointer, which may be null
+^T?             a pointer to an optional T
+&T?             a reference to an optional T; dereferences to T?
+[]T?            a slice of optionals
+own ^T?         an owning pointer to an optional T
+```
+
+**`?` applies to value types only.** There is no `(&T)?` and no `(^T)?`, because a pointer
+already encodes absence — `^T` *is* the optional pointer, and layering `?` on it would give
+you two spellings for one type. This is why the niche optimisation that earlier drafts
+promised for `?^T` no longer appears anywhere: it has nothing to optimise. `[DECIDED]`
+
+Fallibility is not on this table because it is not a property of a value. See §9.
 
 ---
 
@@ -679,12 +748,15 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     return a + (b - a) * t
 }
 
-pub fn find(items: []Entity, id: EntityId) -> ?&Entity { ... }
+pub fn find(items: []Entity, id: EntityId) -> ^Entity { ... }
 
 fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
 ```
 
 - The return type is omitted for `void`.
+- A fallible function is marked by `!->` in place of `->`; the marker sits on the arrow
+  rather than on the return type so that it lands at a fixed column near the left edge,
+  which is the same argument §9.5 makes for a leading propagation keyword.
 - Default arguments must be trailing, and are evaluated at the **call site** — which is what
   makes `allocator: ^Allocator = Allocators::Global` behave the way you expect.
 - **There is no function overloading.** `[DECIDED — §18.5]` One name, one function.
@@ -901,7 +973,7 @@ what `next` returns, but that answer is different for every container:
 ```dz
 pub trait Iterate {
     type Item                          // "each implementer names this"
-    mut fn next(&mut self) -> ?Item    // ...and next() returns it
+    mut fn next(&mut self) -> Item?    // ...and next() returns it
 }
 ```
 
@@ -909,13 +981,13 @@ Two implementers, two different `Item`s:
 
 ```dz
 struct SliceIter<T> : Iterate {
-    type Item = &T                     // stepping a []T yields references to T
+    type Item = ^T                     // stepping a []T yields pointers into it
 
     m_slice: []T
     m_index: usize
 
-    mut fn next(&mut self) -> ?&T {
-        if m_index >= m_slice.len { return none }
+    mut fn next(&mut self) -> ^T {
+        if m_index >= m_slice.len { return null }
         let e = &m_slice[m_index]
         m_index += 1
         return e
@@ -928,7 +1000,7 @@ struct RangeIter : Iterate {
     m_current: i32
     m_end:     i32
 
-    mut fn next(&mut self) -> ?i32 {
+    mut fn next(&mut self) -> i32? {
         if m_current >= m_end { return none }
         let v = m_current
         m_current += 1
@@ -955,6 +1027,18 @@ distinction: **generic parameters are inputs, associated types are outputs.** `[
 
 Associated types may also carry bounds (`type Item : Format`), which the implementer must
 satisfy.
+
+> **A pointer `Item` is already optional.** `Item?` is the right spelling when `Item` is a
+> value type, as it is for `RangeIter`. It cannot be written when `Item` is `^T`, because
+> `(^T)?` does not exist (§5.6) — so a container that yields pointers into itself declares
+> `Item = ^T` and `next` returns it bare. **A pointer iterator returns `^T`; a value iterator
+> returns `Item?`.** `[DECIDED]`
+>
+> What is still open is only how the *trait* spells one signature covering both. The likely
+> answer is that `Item?` collapses to `Item` when `Item` is a pointer type — `?` on something
+> that already encodes absence is the identity rather than an error — which keeps one
+> protocol and one `for` desugaring. That rule only has to exist once generics do, so it is
+> settled with `Iterate` in M6. `[OPEN — 18.21]`
 
 ### 8.6 Why Dazzle monomorphizes instead of emitting C++ templates
 
@@ -1003,32 +1087,34 @@ struct Buffer__f32 { /* ... */ };
 
 ## 9. Errors and absence
 
-`?T` and `!T` are **built-in type constructors**, exactly like `^T` and `&T`. There is no
-`Maybe<T>` and no `Result<T, E>` — the compiler knows these two shapes directly, and no
-generic instantiation happens when you use them. `[DECIDED]`
+Three different things can fail to give you a value, and Dazzle gives them one handling
+construct:
 
-| Type | Means | Failure case carries |
+| Source | Written | Carries on failure |
 |---|---|---|
-| `?T` | might be absent | nothing |
-| `!T` | might fail | an `Error` |
+| an optional value | `T?` | nothing |
+| a fallible call | `fn f(…) !-> T` | an `Error` |
+| a pointer | `^T` | nothing |
 
-They are the same idea at two levels of detail: *absent*, versus *absent and here is why*.
-Every construct below works identically on both.
+`T?` is a **type**. `!` is a **signature marker** and never a type — there is no `T!` to
+store in a field, annotate a `let` with, or point at. That asymmetry is deliberate: an
+optional is a data shape, a failure is control flow, and the notation now says so.
+`[DECIDED — 18.7]`
 
 ### 9.1 Producing them
 
-In a function returning `?T` or `!T`, returning a plain `T` **is** the success case — there
-is no wrapping step. The failure case has its own literal:
+In a function returning `T?` or marked `!->`, returning a plain `T` **is** the success case;
+there is no wrapping step. The failure case has its own literal:
 
 ```dz
-fn find_player(&mut self, id: EntityId) -> ?&mut Player {
+fn find_player(&mut self, id: EntityId) -> ^Player {
     for p in &mut m_players {
-        if p.id == id { return p }        // success: just return the value
+        if p.id == id { return ^p }
     }
-    return none
+    return null
 }
 
-fn read_header(f: &mut File) -> !Header {
+fn read_header(f: &mut File) !-> Header {
     let mut h: Header
     if f.read_into(&mut h) < Header::size {
         return error("truncated header")
@@ -1040,9 +1126,11 @@ fn read_header(f: &mut File) -> !Header {
 }
 ```
 
-- `none` is a keyword literal, valid only where a `?T` is expected.
-- `error(...)` builds an `Error`, and is valid only where a `!T` is expected. It takes an
+- `none` is a keyword literal, valid only where a `T?` is expected.
+- `error(...)` builds an `Error`, and is valid only in a `!->` function. It takes an
   optional code, a format string, and arguments (§12.9). **It never allocates.**
+- A lookup that returns "the thing or nothing" returns `^T`, not `T?`. `T?` is for optional
+  *values*; `^T` is for optional *access*, and it is one pointer.
 
 ### 9.2 The `Error` type
 
@@ -1066,126 +1154,170 @@ pub enum ErrorCode : u32 { NotFound = 1, BadMagic, UnsupportedVersion, OutOfMemo
 return error(ErrorCode::NotFound, "no such asset: {}", path)
 ```
 
-> **Typed errors are deliberately not supported.** `!T` always carries `Error`; there is no
-> `!<LoadError>T`. This is what buys the native representation and makes `try` free of
-> conversion rules. If exhaustive matching on error kinds is ever genuinely needed, the
-> reserved extension syntax is `LoadError!Texture`, which can be added without breaking
-> anything. `[DECIDED — §18.7]`
+> **Typed errors are deliberately not supported.** A fallible signature always carries
+> `Error`; there is no per-call error type. This is what buys the native representation and
+> makes propagation free of conversion rules. If exhaustive matching on error kinds is ever
+> genuinely needed, the reserved extension syntax is `LoadError!-> Texture`, which can be
+> added without breaking anything. `[DECIDED — §18.7]`
 
 ### 9.3 Representation
 
-Being built-in means the compiler picks the layout, and for the common cases it costs
-nothing:
-
-| Type | Size | Note |
+| Shape | Size | Note |
 |---|---|---|
-| `?^T`, `?&T`, `?&mut T`, `?fn(…)` | one pointer | **niche optimisation**: `none` is the null bit pattern, so there is no tag and no size increase |
-| `?T` otherwise | `sizeof(T)` + 1, padded | `{ T value; bool has; }` |
-| `!T` | `max(sizeof(T), 32)` + tag | `{ u8 tag; union { T value; Error error; } }` |
+| `T?` | `sizeof(T)` + 1, padded | `{ T value; bool has; }` |
+| `!-> T` | `max(sizeof(T), 32)` + tag | `{ u8 tag; union { T value; Error error; } }`, returned by value |
+| `^T` | one pointer | absence is the null bit pattern; nothing added |
 
-`fn find(...) -> ?&Entity` therefore returns exactly a pointer, and the "did I find it"
-check is a null check. That is the same code you would have written by hand, with the
-compiler enforcing that you check it.
+Note what is *not* here. Earlier drafts niche-optimised `?^T` and `?&T` down to one pointer;
+those types no longer exist, so a "might be there" lookup returns `^T` and the check is a
+null check — the same code you would have written by hand, with the compiler enforcing that
+you write it (§9.4).
 
-### 9.4 Handling: `with` / `else`
+### 9.4 The `or` clause
+
+`or` is a postfix binary operator whose left side is fallible — a `!->` call, a `T?`, or a
+`^T` — and whose right side says what to do when it fails.
 
 ```dz
-with (load_texture(path)) { tex ->
-    sprite.texture = move(tex)
-} else { e ->
-    log::warn("texture {} failed: {} ({}:{})", path, e.message, e.location.file, e.location.line)
-    sprite.texture = Textures::Missing
+let tex  = load_texture(path) or Textures::Missing            // fall back
+let f    = File::open(path)   or return                       // propagate
+let hp   = find_player(id)    or continue                     // diverge
+let btn  = ctx.btn            or panic("no button")           // assert
+let cfg  = load_config()      or { e ->                       // handle
+    log::warn("config: {} ({}:{})", e.message, e.location.file, e.location.line)
+    Config{}
 }
+file.write(data) or ignore                                    // deliberately drop
 ```
 
-- `with` binds the **success payload**; `else` binds the **failure payload**.
-- On `?T` there is no failure payload, so `else` takes no binding: `else { ... }`.
-- The binding name may be omitted, in which case it is `it`, as in Kotlin:
-  ```dz
-  with (self.find_player(id)) {
-      it.health -= damage
-  } else {
-      log::warn("no player {}", id)
-  }
-  ```
-- `else` may be omitted. The compiler warns when it is omitted on a `!T` — silently
-  swallowing an error is almost always a bug — but not on a `?T`.
-- `with` is an **expression** when both branches produce the same type:
-  ```dz
-  let hp = with (self.find_player(id)) { it.health } else { 0 }
-  ```
-- The success binding is a reference into the value where possible, so `with` never copies.
+**The single rule: an `or` clause must either produce a `T` or diverge.** Everything above
+is an instance of it. The clause forms are:
 
-### 9.5 Propagation: `try`
+| Form | Meaning |
+|---|---|
+| *expression* | the fallback value; must be a `T` |
+| `{ … }` | a block whose final expression is a `T`, or which diverges |
+| `{ e -> … }` | the same, with the `Error` bound to `e` |
+| `return` | propagate the failure (§9.5) |
+| `return expr` / `break` / `continue` | ordinary divergence |
+| `panic("…")` | abort (§9.8) |
+| `unreachable` | assert non-failure; see below |
+| `ignore` | statement position only; discards the value |
 
-`try e` evaluates `e`; on failure it returns that failure from the enclosing function, on
-success it unwraps to the payload.
+- The error binding must be named explicitly. There is no implicit `it`. `[PROPOSED]`
+- On a `T?` or a `^T` there is no payload, so `{ e -> … }` is an error; write `{ … }`.
+- `or` binds looser than `||` and tighter than assignment, and is **non-associative**
+  (§11.1): `a() or b() or c` is a syntax error, not a fallback chain. The first clause has
+  already produced a value or diverged, so a second `or` could only apply to something that
+  can no longer fail. Comparison is non-associative for the same reason (§11.1).
+
+**A fallback that can itself fail** gets its own clause, which is what the block form is
+for:
 
 ```dz
-pub fn load_level(path: str, alloc: ^Allocator) -> !Level {
-    let file = try File::open(path)
-    let hdr  = try file.read_header()
+let tex = load(path) or { load(fallback_path) or Textures::Missing }
+```
+
+Read outside-in: try `load(path)`; if that fails try `load(fallback_path)`; if that fails
+too, use the placeholder. Each fallible call has exactly one clause, and the nesting is
+visible rather than inferred from precedence. Flat chaining cannot express this and is
+rejected instead of being silently misread. `[DECIDED]`
+
+**`or unreachable`** asserts that the failure cannot happen. In debug builds it panics with
+a `#location`; in release it is free, and the compiler may assume the success path.
+Reaching it in release is undefined behaviour. It is the escape hatch for hot paths where a
+null check is provably redundant, and it is spelled loudly on purpose. `[PROPOSED]`
+
+**`or ignore`** is statement position only, because it neither produces a `T` nor diverges
+and so has nothing to bind:
+
+```dz
+file.write(data) or ignore              // ok
+let x = f() or ignore                   // error[DZ0524]: `ignore` produces no value
+```
+
+`ignore` is also valid as a bare statement inside a block clause, where it marks a
+deliberate drop (§9.5). `[PROPOSED — this dual role is the part of the design least
+supported by real code; revisit after the M12 stdlib pass.]`
+
+### 9.5 Propagation: `or return`
+
+Bare `or return` means **propagate the failure**, and is legal only where the enclosing
+signature can carry it:
+
+| Left side | Enclosing signature | `or return` |
+|---|---|---|
+| `!->` call | `!->` | returns the `Error` ✅ |
+| `!->` call | anything else | error[DZ0516] — the error has nowhere to go |
+| `T?` | `-> U?` | returns `none` ✅ |
+| `T?` | `-> void` | returns ✅ (nothing is discarded) |
+| `^T` | `-> void` | returns ✅ |
+| `^T` | `-> U?` | returns `none` ✅ |
+
+```dz
+pub fn load_level(path: str, alloc: ^Allocator) !-> Level {
+    let file = File::open(path) or return
+    let hdr  = file.read_header() or return
 
     if hdr.magic != LEVEL_MAGIC {
         return error(ErrorCode::BadMagic, "not a level file: {}", path)
     }
 
-    let mut data = try Buffer<u8>::try_new(hdr.size, alloc)
-    try file.read_into(&mut data)
+    let mut data = Buffer<u8>::try_new(hdr.size, alloc) or return
+    file.read_into(&mut data) or return
 
     return Level::parse(data)
 }
 ```
 
-- `try` on a `!T` requires the enclosing function to return `!U`; `try` on a `?T` requires
-  it to return `?U`. Otherwise the error names the return type you would need.
-- Because there is exactly one error type (§9.2), **`try` involves no conversion, no `From`
-  trait, and no inference** — it is a tag check and an early return.
-- `try` is a prefix keyword rather than a `?` suffix so that an early return is visible when
-  scanning the left edge of the code.
-
-Propagate in the middle of a call stack; `with` at the edge, where a decision actually gets
-made:
+Reserving bare `or return` for propagation is what keeps "I passed this up" and "I threw
+this away" from sharing a spelling. A non-fallible function that wants to bail on failure
+writes the discard out:
 
 ```dz
-with (load_level("levels/01.lvl", &arena)) { lvl ->
-    world.load(move(lvl))
-} else { e ->
-    ui::show_error("Could not load level: {}", e.message)
+fn update_hud(&mut self) {
+    let cfg = load_config() or { ignore; return }               // explicit drop
+    let cfg = load_config() or { e -> log::debug("{}", e.message); return }   // better
 }
 ```
 
-### 9.6 Fallback: `catch`
+Any clause that binds and uses the error is self-evidently deliberate, so neither form
+warns. `[DECIDED — 18.8]`
+
+### 9.6 Fallback
+
+The most common thing game code does with a failure is substitute something and keep
+rendering, so that is the cheapest clause to write:
 
 ```dz
-let tex = load_texture(path) catch Textures::Missing
-
-let tex = load_texture(path) catch { e ->
-    log::warn("texture {} failed: {}", path, e.message)
-    Textures::Missing
-}
-
-let cfg = load_config() catch panic("no config")
-let p   = self.find_player(id) catch return          // catch may also diverge
+let tex = load_texture(path) or Textures::Missing
+let cfg = load_config() or Config{}
+let hp  = self.find_player(id) or return
 ```
 
-`catch` is sugar for `with (e) { it } else { fallback }`, and it exists because "on failure,
-use this instead" is what game code does with an error almost every time: a missing texture
-becomes the pink checkerboard, a missing config becomes the defaults, and the frame keeps
-rendering.
+A missing texture becomes the pink checkerboard, a missing config becomes the defaults, and
+the frame keeps going.
 
-### 9.7 The must-use rule
+### 9.7 Consumption
 
-Discarding a `!T` is a compile error. Discarding a `?T` is a warning.
+**A fallible call must be consumed in the statement in which it appears.** There is no `T!`
+type, so there is nowhere for the value to go otherwise.
 
 ```dz
-file.write(data)                 // error[DZ0510]: unused `!void`
-let _ = file.write(data)         // ok — explicitly ignored
-try file.write(data)             // ok — propagated
-with (file.write(data)) { }      // ok — handled
+file.write(data)                        // error[DZ0510]: fallible call not consumed
+file.write(data) or ignore              // ok — explicitly dropped
+file.write(data) or return              // ok — propagated
+let n = file.write(data) or 0           // ok — handled
+f(g() or return)                        // ok — `or` is an expression
 ```
 
-`[PROPOSED]`
+`T?` and `^T` are ordinary values and are not subject to this rule; they may be stored,
+passed, and returned freely. The rule exists because a fallible call carries an `Error` that
+someone has to look at. `[DECIDED]`
+
+This replaces the v0.4 must-use rule. It is stricter — the old rule permitted a `!T` to sit
+in a binding and be examined later — and that is the intended trade: a result that outlives
+its statement is a design mistake in a language with no way to store one.
 
 ### 9.8 What is *not* an error: panics
 
@@ -1198,12 +1330,29 @@ exhausted fixed-size pools, and violated invariants. Errors are for: I/O, parsin
 user-supplied data, and anything crossing a boundary you do not control.
 
 **Allocation failure is a panic by default.** `alloc` returns `^u8` and panics on failure;
-`try_alloc` returns `!^u8` for the rare code (console memory budgets, streaming) that
-genuinely handles OOM. Making every allocation fallible would put `try` on every line of
-`Buffer` for a case that, on a PC game, means the process is already dead. `[PROPOSED]`
+`fn try_alloc(n: usize) !-> ^u8` covers the rare code (console memory budgets, streaming)
+that genuinely handles OOM. Making every allocation fallible would put `or return` on every
+line of `Buffer` for a case that, on a PC game, means the process is already dead.
+`[PROPOSED]`
 
 Panics compile to a call into the Dazzle runtime shim (§16.4), never to a C++ exception.
 The generated C++ builds cleanly with `-fno-exceptions`.
+
+### 9.9 Reserved: `collect`
+
+`collect` is reserved as a fourth clause for accumulating failures rather than acting on
+each one — batch validation, asset manifests, anything where you want every error rather
+than the first:
+
+```dz
+let mut errs: Buffer<Error>
+for path in manifest { load_asset(path) collect errs }
+```
+
+Nothing in this section forecloses it, because it is another eliminator rather than a new
+type. Not in v0.5. `[OPEN — 18.18]`
+
+---
 
 ## 10. Statements and control flow
 
@@ -1291,7 +1440,7 @@ fn upload(&mut self) {
 ```
 
 Runs at scope exit, after that scope's drops, in reverse order of registration. Runs on
-every exit path including `return`, `break`, and `try`.
+every exit path including `return`, `break`, and a diverging `or` clause.
 
 ### 10.6 Casts
 
@@ -1302,7 +1451,9 @@ e as u16            // enum to its backing type
 ```
 
 `as` never invokes user code and never fails. Fallible conversions are library functions
-returning `?T`.
+returning `T?`, or marked `!->` when they have something to say about the failure. `as`
+never fails, so there is deliberately no `as ref` for `^T` → `&T`; that conversion is an
+`or` clause (§5.2) precisely because it is partial.
 
 ---
 
@@ -1314,7 +1465,7 @@ Highest to lowest:
 
 ```
 1   ::  .  ()  []  ^(deref)        postfix
-2   -  !  ~  &  &mut  move  try    prefix
+2   -  !  ~  &  &mut  move        prefix
 3   as                             cast
 4   *  /  %
 5   +  -
@@ -1326,12 +1477,14 @@ Highest to lowest:
 11  <  >  <=  >=  ==  !=           comparison (non-associative)
 12  &&
 13  ||
-14  catch
+14  or                            failure clause (non-associative)
 15  =  +=  -=  *=  /=  %=          assignment (statement, not expression)
 ```
 
 Comparison is non-associative: `a < b < c` is a syntax error, not a silent bug. Mixing `&`,
 `|`, and `^^` with comparison requires parentheses. `[PROPOSED]`
+
+`or` is non-associative too: `a() or b() or c` is a syntax error (§9.4). `[DECIDED]`
 
 ### 11.2 Operator overloading
 
@@ -1399,7 +1552,7 @@ macro machine -> declaration {
                             $.name: $.type $.default? { = $.default }
                         }
                         $.items
-                        mut fn update(&mut self, ctx: &mut $ctx) -> ?States { $.body }
+                        mut fn update(&mut self, ctx: &mut $ctx) -> States? { $.body }
                     }
                 }
             }
@@ -1955,7 +2108,7 @@ nothing but the C standard library.
 
 It contains: `dz_panic` (message, `SourceLocation`, stack trace in debug), the bounds-check
 helper, the overflow-check helpers, `SourceLocation`, the `TypeInfo` structs, slice and
-`str` layouts, and the `?T` / `!T` tag helpers.
+`str` layouts, and the `T?` and fallible-return tag helpers.
 
 There is no allocator in it, no I/O beyond writing a panic message to stderr, no threading,
 and no global constructors. `[DECIDED]`
@@ -2153,8 +2306,8 @@ be exactly what reload needs, and must stay that way:
 | 18.2 | Attribute syntax | **`#[inline]`**. Attributes share the `#` sigil with macros and intrinsics because they are the same category — compile-time transforms. Disambiguated by the following character (§12.8) |
 | 18.4 | `own` field with no `drop()` | **Error.** It is always a leak and the fix is mechanical (§6.5) |
 | 18.5 | Function overloading | **Deferred, not rejected.** Default arguments (§7.2) cover most of it, and constructors already overload. Nothing in this spec precludes adding it in a later version; the resolution machinery has to exist anyway for imported C++ overload sets (§15.3) |
-| 18.7 | Keep the `!T` sigil? | **`?T` and `!T` are built-in type constructors**, like `^T` and `&T`. No `Maybe<T>`, no `Result<T,E>`, no typed errors (§9) |
-| 18.8 | Error propagation style | **Option C.** `with`/`else` to handle, `try` to propagate, `catch` to fall back (§9.4–9.6) |
+| 18.7 | Keep the `!T` sigil? | **No — `!` moves to the signature.** `T?` is a postfix type suffix; fallibility is marked `!->` on the arrow and is never a type. `Maybe<T>` / `Result<T,E>` stay rejected: the value in a built-in is compiler-known layout and no instantiation in every signature, and that survives the notation change (§9) |
+| 18.8 | Error propagation style | **One postfix `or` clause.** `with`/`else`, `try` and `catch` are all deleted; `or` handles `T!`, `T?` and `^T` identically, and bare `or return` is reserved for propagation (§9.4–9.6) |
 | 18.9 | Macro invocation syntax | **Two spellings:** `#name …` in declaration position, `name!(…)` in expression position (§12.5) |
 | 18.10 | Allocator passing | **Explicit parameter with a default argument.** It is the user's and the library's concern, not the language's (§14) |
 | 18.11 | Concurrency | **Deferred to v2.** Threads, atomics, and a job system go in the stdlib once the core language is stable; nothing here forecloses them |
@@ -2163,22 +2316,23 @@ be exactly what reload needs, and must stay that way:
 | 18.14 | Generics: monomorphize or emit C++ templates? | **Monomorphize in Dazzle** (§8.6). Reopen only if compiler-side mono ever dominates build times |
 | 18.3 | May a `&T` be stored in a struct field? | **No** — banned outright, with no escape hatch. References live only on the stack; context structs hold `^T` (§5.2) |
 | 18.6 | Is `^Trait` one pointer or two? | **Two — a fat pointer.** `{ data, vtable }`, vtable in static storage, implementing types unchanged. `Vec3 : Drawable` is still 12 bytes and still blittable (§7.6) |
+| 18.15 | May `?` wrap a pointer or reference? | **No.** `?` applies to value types only. `^T` is already the optional pointer; `(&T)?` would need lifetimes to be a library type and buys nothing as a builtin (§5.6) |
+| 18.17 | `^T` → `&T` | **Checked.** Goes through an `or` clause. `&T` → `^T` stays implicit (§5.2) |
 
 ### 18.2 Still open
 
-**None.** Every question raised during design review has been answered; the two that
-remained after v0.3 were resolved as follows.
+| # | Question | State |
+|---|---|---|
+| 18.16 | Implicit `&T` → `^T` widening | It launders a reference into a storable pointer and so punches a hole in the 18.3 field ban. Options: leave it (the ban is admittedly a heuristic), require an explicit `as ^T`, or add a `&raw` form. Costs nothing to defer; costs a migration to fix late (§5.2) |
+| 18.18 | `collect` | Reserved, unspecified. A fourth `or`-family clause that accumulates errors instead of acting on the first (§9.9) |
+| 18.19 | `ignore` in two positions | It is a clause (`f() or ignore`) and a bare statement (`or { ignore; return }`). Probably fine, possibly one word doing two jobs. Decide against real code after M12 |
+| 18.21 | How `Iterate::next` spells one signature for both item kinds | **Decided:** a pointer iterator returns `^T`, a value iterator returns `Item?` (§8.5). Open only in the trait declaration: probably `Item?` collapses to `Item` for pointer types, since `?` on something that already encodes absence is the identity. Settle with `Iterate` in M6 |
+| 18.20 | `or unreachable` lowering | Debug: panic with `#location`. Release: does it emit `__builtin_unreachable`, or merely skip the check? The first is faster and the second is kinder. §1.1 says Dazzle does not promise safety, which argues for the first (§9.4) |
 
-`&T` in a struct field (18.3) is **banned outright** — no `ref struct` escape hatch, no
-exceptions. Context structs use `^T` (§5.2). The rule is a cheap heuristic rather than a
-guarantee, and it is worth keeping precisely because it costs nothing: it blocks the most
-common dangling case with zero analysis, and it keeps `&T` meaning more than "non-null".
-
-`^Trait` (18.6) is a **fat pointer**: two words, vtable in static storage, implementing
-types untouched (§7.6). `Vec3 : Drawable` stays 12 bytes and stays blittable.
-
-New questions will appear as implementation starts. They belong here, with the same
+New questions will appear as implementation continues. They belong here, with the same
 resolved/open split.
+
+---
 
 ## 19. Roadmap
 
@@ -2189,12 +2343,12 @@ Each milestone ends with something you can actually run.
 | M0 ✅ | Rust workspace, spans, diagnostics, lexer port | **done** — `dz_span` / `dz_diag` / `dz_lex` / `dz` build clean, 16 tests green, 10 snapshot corpora in `tests/lex/`, and `examples/example.dz` and `examples/state.dz` lex with zero errors |
 | M1 ✅ | Parser + AST + `dz fmt` | **done** — full §20 grammar parses with error recovery; `dz parse` and `dz fmt` work; 40 tests green. Round-tripping is pinned as three properties over the corpus: formatting is idempotent, preserves the tree, and re-parses cleanly. Note: `examples/example.dz` and `examples/state.dz` parse only up to the point where they switch to **pre-spec sketches** (nested `struct` inside `union`, native `machine`, `def`, `@(...)`); lines 1–121 of `example.dz` parse with zero errors |
 | M2 ✅ | Projects, modules, imports, visibility | **done** — `dazzle.toml` loading with span-accurate manifest diagnostics, source globs, dependency graph with cycle detection, module symbol tables, import resolution, `::` path resolution and visibility enforcement. `dz check` runs it. A three-module workspace resolves clean; violations are rejected with cross-file labels and "did you mean". Scope note: `.field` / `.method()` resolution needs the receiver's type and belongs to M3 — `::` is the compile-time operator, `.` the runtime one (§3.3), and the phase split falls exactly there |
-| M3 ✅ | Type checker: primitives, structs, functions, enums | **done** — literals and their contexts, no implicit numeric conversions, casts, structs/fields/methods with `.`-side visibility, mutability, enums and tagged unions with exhaustive `switch`, `?T`/`!T` with `try`/`with`/`catch` and the must-use rule, arrays, slices, ranges and tuples. `dz check` runs it. Generic bodies are skipped rather than misreported, since generics are M6 |
-| M4 ✅ | Codegen + runtime shim + `dz run` | **done — hello world runs.** C++17 emission with `#line` mapping back to `.dz`, the runtime shim, `dz cpp` / `dz build` / `dz run`, and end-to-end tests that compile and execute real programs. Output is warning-clean under `-Wall -Wextra -fno-exceptions -fno-rtti` on both clang++ and g++. Codegen covers functions, structs, enums, control flow, pointers, arrays and `defer`; `?T`/`!T` and tagged unions report `DZ0801` and are owed by M5 |
+| M3 ✅ | Type checker: primitives, structs, functions, enums | **done** — literals and their contexts, no implicit numeric conversions, casts, structs/fields/methods with `.`-side visibility, mutability, enums and tagged unions with exhaustive `switch`, `T?` and fallible returns with the `or` clause and the consumption rule, arrays, slices, ranges and tuples. Note: M3 shipped against the v0.4 sigils; the v0.5 syntax is a re-spelling of the same checks plus the `^T` → `&T` conversion rule. `dz check` runs it. Generic bodies are skipped rather than misreported, since generics are M6 |
+| M4 ✅ | Codegen + runtime shim + `dz run` | **done — hello world runs.** C++17 emission with `#line` mapping back to `.dz`, the runtime shim, `dz cpp` / `dz build` / `dz run`, and end-to-end tests that compile and execute real programs. Output is warning-clean under `-Wall -Wextra -fno-exceptions -fno-rtti` on both clang++ and g++. Codegen covers functions, structs, enums, control flow, pointers, arrays and `defer`; `T?`, fallible returns, and tagged unions report `DZ0801` and are owed by M5 |
 | M5 | Ownership: `own`, `copy`, `drop`, `move`, flow analysis | your `Buffer<T>` and `String` samples compile and run leak-free under ASan |
 | M6 | Generics + traits + monomorphization | `Buffer<T>`, `Allocator`, and `Arena` work as written in §6 |
 | M7 | C++ interop via libclang | a raylib window opens from Dazzle |
-| M8 | Unions, `switch`, `?T`/`!T`, chosen error style | the `ButtonState` union sample from `example.dz` works |
+| M8 | Unions, `switch`, `T?`, `!->`, the `or` clause | the `ButtonState` union sample from `example.dz` works |
 | M9 | LSP: diagnostics, hover, go-to-definition, completion | usable in VS Code for real work |
 | M10 | Macros | a user-written `#machine` expands to the `ButtonState` machine and the LSP completes inside it |
 | M11 | Reflection + type table | a 50-line generic JSON serializer works on any `#[reflect]` type |
@@ -2226,7 +2380,8 @@ declaration   = { attribute } [ visibility ] ( fn_decl | struct_decl | union_dec
 visibility    = "pub" [ "(" "module" ")" ] ;
 attribute     = "#" "[" ident [ "(" token_tree ")" ] "]" ;
 
-fn_decl       = [ "mut" ] "fn" ident [ generics ] "(" [ params ] ")" [ "->" type ] block ;
+fn_decl       = [ "mut" ] "fn" ident [ generics ] "(" [ params ] ")"
+                [ ( "->" | "!->" ) type ] block ;
 params        = param { "," param } ;
 param         = [ "&" | "&mut" ] "self" | ident ":" type [ "=" expr ] ;
 generics      = "<" gparam { "," gparam } ">" ;
@@ -2245,16 +2400,24 @@ enum_decl     = "enum" ident [ ":" type ] "{" { ident [ "=" expr ] TERM } "}" ;
 trait_decl    = "trait" ident [ generics ] "{" { trait_item } "}" ;
 trait_item    = "type" ident TERM | fn_decl_sig | fn_decl ;
 
-type          = "^" type | "&" [ "mut" ] type | "?" type | "!" type
+type          = access_type [ "?" ] ;
+access_type   = "^" type | "&" [ "mut" ] type
               | "[" [ expr ] "]" type
               | "own" "^" type
-              | "fn" "(" [ type_list ] ")" [ "->" type ]
+              | "fn" "(" [ type_list ] ")" [ ( "->" | "!->" ) type ]
               | "(" type_list ")"
               | path [ "<" type_list ">" ] ;
 path          = ident { "::" ident } ;
+```
+
+`?` binds to the innermost complete type to its left, so `^T?` parses as `^(T?)`. Inside a
+function type, a trailing `?` belongs to the return type; `(fn(i32) -> bool)?` is how you
+spell an optional function pointer.
+
+```ebnf
 
 statement     = let_stmt | assign | expr_stmt | if_stmt | while_stmt | for_stmt
-              | switch_stmt | with_stmt | return_stmt | defer_stmt | block
+              | switch_stmt | return_stmt | defer_stmt | block
               | "break" [ ident ] | "continue" [ ident ] ;
 
 let_stmt      = "let" [ "mut" ] pattern [ ":" type ] [ "=" expr ] TERM ;
@@ -2265,14 +2428,18 @@ for_stmt      = [ ident ":" ] "for" pattern { "," pattern } "in" expr block ;
 switch_stmt   = "switch" expr "{" { case_arm } [ "default" block ] "}" ;
 case_arm      = "case" variant_pat { "," variant_pat } block ;
 variant_pat   = ident [ "(" ident ")" ] ;
-with_stmt     = "with" "(" expr ")" [ ident "->" ] block
-                [ "else" [ ident "->" ] block ] ;
+or_expr       = expr "or" or_clause ;
+or_clause     = "{" [ ident "->" ] { statement } "}"
+              | "return" [ expr ]
+              | "break" [ ident ] | "continue" [ ident ]
+              | "ignore" | "unreachable"
+              | expr ;
 return_stmt   = "return" [ expr ] TERM ;
 defer_stmt    = "defer" ( statement | block ) ;
 
-expr          = assign_free_expr ;   (* precedence per §11.1; includes `catch` *)
+expr          = assign_free_expr ;   (* precedence per §11.1; includes `or` *)
 primary       = literal | "none" | path | struct_lit | call | index | field_access
-              | "(" expr ")" | "move" "(" expr ")" | "try" expr
+              | "(" expr ")" | "move" "(" expr ")"
               | "error" "(" [ expr { "," expr } ] ")"
               | "&" expr | "&mut" expr | unary | intrinsic | macro_invoke
               | "." ident [ struct_lit_body ] ;
@@ -2296,9 +2463,15 @@ macro_invoke  = "#" ident token_tree | ident "!" "(" token_tree ")" ;
 
 ## 21. Changelog
 
-| Version | Date | Change |
+Revisions of the unreleased 0.1. Every change to the **language** — syntax, semantics, or a
+§18 decision — gets a row here, whether or not the compiler has caught up with it yet.
+Compiler-only work belongs in `docs/PROGRESS.md`, not here.
+
+| Revision | Date | Change |
 |---|---|---|
-| 0.4 | 2026-09-10 | All open questions closed. 18.3: `&T` in a struct field is banned outright (no `ref struct`); context structs use `^T`, and §5.2 now says honestly that this is a heuristic rather than a proof. 18.6: `^Trait` is a fat pointer, with a stable deterministic vtable id added for hot-reload re-resolution. §18 has no open items. |
-| 0.3 | 2026-09-10 | Decisions pass. Resolved 18.1 (`f64` default), 18.2 (attributes are `#[...]`, unified with macros under the `#` sigil), 18.4, 18.5 (overloading deferred, not rejected), 18.9, 18.10, 18.11, 18.12, 18.13 (`machine` is a user macro, not stdlib), 18.14. Added §17.6 hot-reload constraints and roadmap M13. §18 restructured into a decisions log; 18.3 and 18.6 remain open with concrete proposals (`ref struct`, and the fat-vs-thin trait pointer trade). |
-| 0.2 | 2026-09-10 | Review pass. `::` is now the only scope separator (§3.2/3.3); turbofish removed, justified by non-associative comparison; `?T`/`!T` are **built-in type constructors** — `Maybe<T>`/`Result<T,E>` deleted, one `Error` type, `none`/`error()` literals, niche-optimised `?^T` (§9); error style resolved to **Option C** (`with` + `try` + `catch`); associated types explained properly with worked examples (§8.5); new §8.6 arguing monomorphization over C++ templates; added §0.1 one-page summary. |
-| 0.1 | 2026-09-10 | First draft. Decisions taken: Rust compiler, project-as-module, three visibility levels, `&`/`&mut`/`^`/`own ^`, definition-site generics, declarative macros, static type-table reflection, C++17 output via libclang interop. §18 lists what is still open, with §18.8 (error propagation) as the one that most needs an answer. |
+| r6 | 2026-09-10 | `or` is **non-associative**: `a() or b() or c` is a syntax error rather than a fallback chain (§9.4, §11.1). The first clause has already produced a value or diverged, so a second `or` could only apply to something that can no longer fail. Same reasoning as non-associative comparison. A fallback that can itself fail gets a clause of its own — `a() or { b() or c }` — which is how "try a, else try b, else c" is written. |
+| r5 | 2026-09-10 | Access/modality split. `?` becomes a postfix suffix on the type name (`T?`, `^T?`, `[]T?`) and applies to value types only — `?^T`, `?&T`, `!&T` and the rest are gone, along with the niche-optimisation table that depended on them. `!` leaves the type system entirely and becomes a signature marker (`!-> T`), so a fallible value cannot be stored, annotated, or pointed at. `with`/`else`, `try` and `catch` are replaced by one postfix `or` clause governed by a single rule: produce a `T` or diverge. Bare `or return` is reserved for propagation. `^T` → `&T` now requires an `or` clause, which is what makes `&T`'s non-null property mean anything. §18 reopens with four items. |
+| r4 | 2026-09-10 | All open questions closed. 18.3: `&T` in a struct field is banned outright (no `ref struct`); context structs use `^T`, and §5.2 now says honestly that this is a heuristic rather than a proof. 18.6: `^Trait` is a fat pointer, with a stable deterministic vtable id added for hot-reload re-resolution. §18 has no open items. |
+| r3 | 2026-09-10 | Decisions pass. Resolved 18.1 (`f64` default), 18.2 (attributes are `#[...]`, unified with macros under the `#` sigil), 18.4, 18.5 (overloading deferred, not rejected), 18.9, 18.10, 18.11, 18.12, 18.13 (`machine` is a user macro, not stdlib), 18.14. Added §17.6 hot-reload constraints and roadmap M13. §18 restructured into a decisions log; 18.3 and 18.6 remain open with concrete proposals (`ref struct`, and the fat-vs-thin trait pointer trade). |
+| r2 | 2026-09-10 | Review pass. `::` is now the only scope separator (§3.2/3.3); turbofish removed, justified by non-associative comparison; `?T`/`!T` are **built-in type constructors** — `Maybe<T>`/`Result<T,E>` deleted, one `Error` type, `none`/`error()` literals, niche-optimised `?^T` (§9); error style resolved to **Option C** (`with` + `try` + `catch`); associated types explained properly with worked examples (§8.5); new §8.6 arguing monomorphization over C++ templates; added §0.1 one-page summary. |
+| r1 | 2026-09-10 | First draft. Decisions taken: Rust compiler, project-as-module, three visibility levels, `&`/`&mut`/`^`/`own ^`, definition-site generics, declarative macros, static type-table reflection, C++17 output via libclang interop. §18 lists what is still open, with §18.8 (error propagation) as the one that most needs an answer. |

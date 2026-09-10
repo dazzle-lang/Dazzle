@@ -9,21 +9,27 @@
 //! * ownership, moves and definite return — M5 (spec §6);
 //! * macro bodies — M10; C++ imports — M7.
 //!
-//! Types are computed and discarded rather than stored in a side table. When codegen needs
-//! them (M4 onwards) the right move is the HIR that spec §17.1 already calls for, not a
-//! span-keyed map bolted onto the AST.
+//! Checking also **builds the HIR** (spec §17.1, `dz_hir`): every rule returns the type it
+//! concluded together with the node it built for it. That is deliberate — the types this
+//! pass computes are exactly the ones the HIR stores, and a second pass to collect them
+//! would recompute them and could disagree. See `build.rs`.
 
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use dz_ast::*;
 use dz_diag::{codes, Diagnostic, Diagnostics};
+use dz_hir::Hir;
 use dz_project::{ModuleId, Workspace};
 use dz_resolve::{ParsedFile, Resolution, SymbolId, SymbolKind};
 use dz_span::{FileId, Span};
 
+mod build;
 mod check;
-pub mod ty;
+
+/// The type model lives in `dz_hir`, since the HIR stores a `Ty` on every node and
+/// `dz_hir` sits below this crate. Re-exported so `dz_check::ty::Ty` keeps working.
+pub use dz_hir::ty;
 
 use ty::{FloatTy, IntTy, Ty};
 
@@ -50,7 +56,11 @@ pub struct ParamSig {
 #[derive(Clone, Debug)]
 pub struct FnSig {
     pub params: Vec<ParamSig>,
+    /// The **success** type. A fallible signature's failure is not part of it (spec §9).
     pub ret: Ty,
+    /// `!->`: calling this may fail, so the call must be consumed by an `or` clause in the
+    /// statement it appears in (spec §9.7).
+    pub fallible: bool,
     /// `None` for a free function or a constructor.
     pub takes_self: Option<bool>,
     pub is_mut: bool,
@@ -83,8 +93,13 @@ pub struct VariantSig {
 #[derive(Clone, Debug)]
 pub enum ItemSig {
     Struct(StructSig),
-    Union { variants: Vec<VariantSig> },
-    Enum { backing: IntTy, variants: Vec<VariantSig> },
+    Union {
+        variants: Vec<VariantSig>,
+    },
+    Enum {
+        backing: IntTy,
+        variants: Vec<VariantSig>,
+    },
     Trait(StructSig),
     Fn(FnSig),
     Const(Ty),
@@ -116,6 +131,9 @@ impl TypeTable {
 
 pub struct CheckResult {
     pub table: TypeTable,
+    /// Every checked body, resolved and typed (spec §17.1). Flow analysis (M5) and
+    /// codegen consume this rather than the AST.
+    pub hir: Hir,
     pub diagnostics: Diagnostics,
 }
 
@@ -129,7 +147,11 @@ pub fn check(
         ws,
         res,
         diags: Diagnostics::new(),
-        table: TypeTable { sigs: HashMap::new(), generic: HashMap::new() },
+        table: TypeTable {
+            sigs: HashMap::new(),
+            generic: HashMap::new(),
+        },
+        hir: Hir::default(),
         module: ModuleId(0),
         file: FileId(0),
     };
@@ -161,7 +183,11 @@ pub fn check(
     }
 
     cx.diags.sort_by_position();
-    CheckResult { table: cx.table, diagnostics: cx.diags }
+    CheckResult {
+        table: cx.table,
+        hir: cx.hir,
+        diagnostics: cx.diags,
+    }
 }
 
 pub(crate) struct Ctx<'a> {
@@ -169,6 +195,7 @@ pub(crate) struct Ctx<'a> {
     pub(crate) res: &'a Resolution,
     pub(crate) diags: Diagnostics,
     pub(crate) table: TypeTable,
+    pub(crate) hir: Hir,
     pub(crate) module: ModuleId,
     pub(crate) file: FileId,
 }
@@ -181,9 +208,8 @@ impl<'a> Ctx<'a> {
         msg: impl Into<String>,
         label: impl Into<String>,
     ) {
-        self.diags.push(
-            Diagnostic::error(code, msg.into()).at(self.file, span, label.into()),
-        );
+        self.diags
+            .push(Diagnostic::error(code, msg.into()).at(self.file, span, label.into()));
     }
 
     pub(crate) fn error_help(
@@ -203,42 +229,66 @@ impl<'a> Ctx<'a> {
 
     /// Render a type for a diagnostic.
     pub(crate) fn name_of(&self, t: &Ty) -> String {
-        match t {
-            Ty::Error => "{unknown}".to_owned(),
-            Ty::Never => "!".to_owned(),
-            Ty::Void => "void".to_owned(),
-            Ty::Bool => "bool".to_owned(),
-            Ty::Char => "char".to_owned(),
-            Ty::Int(i) => i.name().to_owned(),
-            Ty::Float(f) => f.name().to_owned(),
-            Ty::Str => "str".to_owned(),
-            Ty::CStr => "cstr".to_owned(),
-            Ty::IntLit => "{integer}".to_owned(),
-            Ty::FloatLit => "{float}".to_owned(),
-            Ty::Ptr(i) => format!("^{}", self.name_of(i)),
-            Ty::OwnPtr(i) => format!("own ^{}", self.name_of(i)),
-            Ty::Ref { mutable, inner } => {
-                format!("&{}{}", if *mutable { "mut " } else { "" }, self.name_of(inner))
-            }
-            Ty::Optional(i) => format!("?{}", self.name_of(i)),
-            Ty::Fallible(i) => format!("!{}", self.name_of(i)),
-            Ty::Array { len: Some(n), elem } => format!("[{n}]{}", self.name_of(elem)),
-            Ty::Array { len: None, elem } => format!("[]{}", self.name_of(elem)),
-            Ty::Range(e) => format!("{}..{}", self.name_of(e), self.name_of(e)),
-            Ty::Tuple(elems) => format!(
-                "({})",
-                elems.iter().map(|e| self.name_of(e)).collect::<Vec<_>>().join(", ")
-            ),
-            Ty::Fn { params, ret } => format!(
-                "fn({}) -> {}",
-                params.iter().map(|p| self.name_of(p)).collect::<Vec<_>>().join(", "),
-                self.name_of(ret)
-            ),
-            Ty::Named(id) => self.res.symbol(*id).name.clone(),
-            Ty::SelfTy => "Self".to_owned(),
-        }
+        type_name(self.res, t)
+    }
+}
+
+/// Symbol and type names for [`dz_hir::dump`], which stores ids and no text of its own.
+pub struct Names<'a> {
+    pub res: &'a Resolution,
+}
+
+impl dz_hir::dump::Names for Names<'_> {
+    fn name_of_symbol(&self, id: SymbolId) -> String {
+        self.res.symbol(id).name.clone()
     }
 
+    fn name_of_type(&self, ty: &Ty) -> String {
+        type_name(self.res, ty)
+    }
+}
+
+/// Render a type as it is written in source.
+pub fn type_name(res: &Resolution, t: &Ty) -> String {
+    let name_of = |t: &Ty| type_name(res, t);
+    match t {
+        Ty::Error => "{unknown}".to_owned(),
+        Ty::Never => "!".to_owned(),
+        Ty::Void => "void".to_owned(),
+        Ty::Bool => "bool".to_owned(),
+        Ty::Char => "char".to_owned(),
+        Ty::Int(i) => i.name().to_owned(),
+        Ty::Float(f) => f.name().to_owned(),
+        Ty::Str => "str".to_owned(),
+        Ty::CStr => "cstr".to_owned(),
+        Ty::IntLit => "{integer}".to_owned(),
+        Ty::FloatLit => "{float}".to_owned(),
+        Ty::Ptr(i) => format!("^{}", name_of(i)),
+        Ty::OwnPtr(i) => format!("own ^{}", name_of(i)),
+        Ty::Ref { mutable, inner } => {
+            format!("&{}{}", if *mutable { "mut " } else { "" }, name_of(inner))
+        }
+        Ty::Optional(i) => format!("{}?", name_of(i)),
+        // Not writable in source: the type of a `!->` call before its `or` (spec §9).
+        Ty::Fallible(i) => format!("!-> {}", name_of(i)),
+        Ty::Array { len: Some(n), elem } => format!("[{n}]{}", name_of(elem)),
+        Ty::Array { len: None, elem } => format!("[]{}", name_of(elem)),
+        Ty::Range(e) => format!("{}..{}", name_of(e), name_of(e)),
+        Ty::Tuple(elems) => format!(
+            "({})",
+            elems.iter().map(&name_of).collect::<Vec<_>>().join(", ")
+        ),
+        Ty::Fn { params, ret } => format!(
+            "fn({}) -> {}",
+            params.iter().map(&name_of).collect::<Vec<_>>().join(", "),
+            name_of(ret)
+        ),
+        Ty::Named(id) => res.symbol(*id).name.clone(),
+        Ty::SelfTy => "Self".to_owned(),
+    }
+}
+
+impl<'a> Ctx<'a> {
     // --- resolving syntax types into `Ty` ---------------------------------
 
     pub(crate) fn lower_type(&mut self, t: &Type) -> Ty {
@@ -246,11 +296,11 @@ impl<'a> Ctx<'a> {
             TypeKind::Path(p) => self.lower_path_type(p, t.span),
             TypeKind::Ptr(i) => Ty::Ptr(Rc::new(self.lower_type(i))),
             TypeKind::OwnPtr(i) => Ty::OwnPtr(Rc::new(self.lower_type(i))),
-            TypeKind::Ref { mutable, inner } => {
-                Ty::Ref { mutable: *mutable, inner: Rc::new(self.lower_type(inner)) }
-            }
+            TypeKind::Ref { mutable, inner } => Ty::Ref {
+                mutable: *mutable,
+                inner: Rc::new(self.lower_type(inner)),
+            },
             TypeKind::Optional(i) => Ty::Optional(Rc::new(self.lower_type(i))),
-            TypeKind::Fallible(i) => Ty::Fallible(Rc::new(self.lower_type(i))),
             TypeKind::Array { size, elem } => {
                 let elem = Rc::new(self.lower_type(elem));
                 let len = size.as_ref().and_then(|e| const_usize(e));
@@ -267,9 +317,7 @@ impl<'a> Ctx<'a> {
                 }
                 Ty::Array { len, elem }
             }
-            TypeKind::Tuple(elems) => {
-                Ty::Tuple(elems.iter().map(|e| self.lower_type(e)).collect())
-            }
+            TypeKind::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| self.lower_type(e)).collect()),
             TypeKind::Fn { params, ret } => Ty::Fn {
                 params: params.iter().map(|p| self.lower_type(p)).collect(),
                 ret: Rc::new(ret.as_ref().map(|r| self.lower_type(r)).unwrap_or(Ty::Void)),
@@ -280,7 +328,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn lower_path_type(&mut self, p: &Path, span: Span) -> Ty {
-        let Some(first) = p.segments.first() else { return Ty::Error };
+        let Some(first) = p.segments.first() else {
+            return Ty::Error;
+        };
         let name = first.name.name.as_str();
 
         if p.segments.len() == 1 {
@@ -316,7 +366,10 @@ impl<'a> Ctx<'a> {
                 self.error(
                     codes::TYPE_MISMATCH,
                     span,
-                    format!("`{name}` is a {} and cannot be used as a type", other.describe()),
+                    format!(
+                        "`{name}` is a {} and cannot be used as a type",
+                        other.describe()
+                    ),
                     "not a type",
                 );
                 Ty::Error
@@ -327,7 +380,9 @@ impl<'a> Ctx<'a> {
     // --- signature collection ---------------------------------------------
 
     fn collect_item(&mut self, item: &Item) {
-        let Some(sym) = self.symbol_of(item) else { return };
+        let Some(sym) = self.symbol_of(item) else {
+            return;
+        };
         match &item.kind {
             ItemKind::Struct(s) => {
                 let generic = !s.generics.is_empty();
@@ -382,7 +437,9 @@ impl<'a> Ctx<'a> {
                         span: v.name.span,
                     })
                     .collect();
-                self.table.sigs.insert(sym, ItemSig::Enum { backing, variants });
+                self.table
+                    .sigs
+                    .insert(sym, ItemSig::Enum { backing, variants });
             }
             ItemKind::Fn(f) => {
                 let generic = !f.generics.is_empty();
@@ -481,10 +538,15 @@ impl<'a> Ctx<'a> {
                 has_default: p.default.is_some(),
             })
             .collect();
-        let ret = f.ret.as_ref().map(|r| self.lower_type(r)).unwrap_or(Ty::Void);
+        let ret = f
+            .ret
+            .as_ref()
+            .map(|r| self.lower_type(r))
+            .unwrap_or(Ty::Void);
         FnSig {
             params,
             ret,
+            fallible: f.fallible,
             takes_self: f.self_param.map(|s| s.is_mut),
             is_mut: f.is_mut,
             vis,
@@ -538,15 +600,16 @@ fn const_usize(e: &Expr) -> Option<u64> {
 /// Parse an integer literal's numeric value, ignoring separators and any type suffix.
 pub(crate) fn parse_int_literal(text: &str) -> Option<i128> {
     let cleaned: String = text.chars().filter(|c| *c != '_').collect();
-    let (digits, radix) = if let Some(rest) = cleaned.strip_prefix("0x").or(cleaned.strip_prefix("0X")) {
-        (rest, 16)
-    } else if let Some(rest) = cleaned.strip_prefix("0o").or(cleaned.strip_prefix("0O")) {
-        (rest, 8)
-    } else if let Some(rest) = cleaned.strip_prefix("0b").or(cleaned.strip_prefix("0B")) {
-        (rest, 2)
-    } else {
-        (cleaned.as_str(), 10)
-    };
+    let (digits, radix) =
+        if let Some(rest) = cleaned.strip_prefix("0x").or(cleaned.strip_prefix("0X")) {
+            (rest, 16)
+        } else if let Some(rest) = cleaned.strip_prefix("0o").or(cleaned.strip_prefix("0O")) {
+            (rest, 8)
+        } else if let Some(rest) = cleaned.strip_prefix("0b").or(cleaned.strip_prefix("0B")) {
+            (rest, 2)
+        } else {
+            (cleaned.as_str(), 10)
+        };
     // Strip a trailing type suffix such as `u32`.
     let end = digits
         .char_indices()
@@ -554,6 +617,84 @@ pub(crate) fn parse_int_literal(text: &str) -> Option<i128> {
         .map(|(i, _)| i)
         .unwrap_or(digits.len());
     i128::from_str_radix(&digits[..end], radix).ok()
+}
+
+/// Decode a string or character literal into the bytes it denotes: strip the quotes and
+/// apply the escapes of spec §2.4.
+///
+/// The AST keeps literals as the exact source text, because the formatter has to reproduce
+/// what was written. The HIR keeps the value, because everything downstream wants the
+/// bytes. The lexer has already rejected malformed escapes, so anything unrecognised here
+/// is passed through rather than reported a second time.
+pub(crate) fn decode_string_literal(text: &str) -> String {
+    let body = text
+        .strip_prefix('"')
+        .and_then(|t| t.strip_suffix('"'))
+        .unwrap_or(text);
+    let body = body
+        .strip_prefix('\'')
+        .and_then(|t| t.strip_suffix('\''))
+        .unwrap_or(body);
+    let mut out = String::with_capacity(body.len());
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('0') => out.push('\0'),
+            Some('\\') => out.push('\\'),
+            Some('"') => out.push('"'),
+            Some('\'') => out.push('\''),
+            Some('x') => {
+                let hex: String = chars.by_ref().take(2).collect();
+                match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                    Some(c) => out.push(c),
+                    None => out.push('\u{FFFD}'),
+                }
+            }
+            Some('u') => {
+                let mut hex = String::new();
+                for h in chars.by_ref() {
+                    match h {
+                        '{' => {}
+                        '}' => break,
+                        _ => hex.push(h),
+                    }
+                }
+                match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                    Some(c) => out.push(c),
+                    None => out.push('\u{FFFD}'),
+                }
+            }
+            Some(other) => out.push(other),
+            None => {}
+        }
+    }
+    out
+}
+
+/// Strip the delimiters of a raw string literal, which has no escapes (spec §2.4).
+pub(crate) fn decode_raw_string_literal(text: &str) -> String {
+    text.strip_prefix('"')
+        .and_then(|t| t.strip_suffix('"'))
+        .unwrap_or(text)
+        .to_owned()
+}
+
+/// Parse a float literal's value, ignoring separators and any type suffix.
+pub(crate) fn parse_float_literal(text: &str) -> f64 {
+    let cleaned: String = text.chars().filter(|c| *c != '_').collect();
+    let end = cleaned
+        .char_indices()
+        .find(|(_, c)| !c.is_ascii_digit() && !matches!(c, '.' | 'e' | 'E' | '+' | '-'))
+        .map(|(i, _)| i)
+        .unwrap_or(cleaned.len());
+    cleaned[..end].parse().unwrap_or(0.0)
 }
 
 /// The type of a literal, for a `const` with no annotation. Untyped literals take their
@@ -565,7 +706,10 @@ fn literal_type(e: &Expr) -> Ty {
         ExprKind::Str(_) | ExprKind::RawStr(_) => Ty::Str,
         ExprKind::Char(_) => Ty::Char,
         ExprKind::Bool(_) => Ty::Bool,
-        ExprKind::Unary { op: UnaryOp::Neg, operand } => literal_type(operand),
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            operand,
+        } => literal_type(operand),
         _ => Ty::Error,
     }
 }

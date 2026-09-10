@@ -16,6 +16,9 @@ pub struct Analysis {
     pub ws: Option<Workspace>,
     pub files: HashMap<ModuleId, Vec<ParsedFile>>,
     pub resolution: Option<Resolution>,
+    /// The typed tree, when checking ran (spec §17.1). `dz hir` prints it, and from M5 on
+    /// flow analysis and codegen consume it.
+    pub hir: Option<dz_hir::Hir>,
     pub diags: Diagnostics,
 }
 
@@ -29,7 +32,14 @@ pub fn analyse(entry: &Path) -> Analysis {
     let mut diags = Diagnostics::new();
 
     let Some(ws) = dz_project::load(entry, &mut map, &mut diags) else {
-        return Analysis { map, ws: None, files: HashMap::new(), resolution: None, diags };
+        return Analysis {
+            map,
+            ws: None,
+            files: HashMap::new(),
+            resolution: None,
+            hir: None,
+            diags,
+        };
     };
 
     let mut files: HashMap<ModuleId, Vec<ParsedFile>> = HashMap::new();
@@ -67,18 +77,21 @@ pub fn analyse(entry: &Path) -> Analysis {
     }
 
     let mut resolution = None;
+    let mut hir = None;
     if !diags.has_errors() {
         let r = dz_resolve::resolve(&ws, &files);
         let failed = r.diagnostics.has_errors();
         diags.extend(r.diagnostics.clone());
         if !failed {
-            diags.extend(dz_check::check(&ws, &r, &files).diagnostics);
+            let checked = dz_check::check(&ws, &r, &files);
+            diags.extend(checked.diagnostics);
+            hir = Some(checked.hir);
         }
         resolution = Some(r);
     }
 
     diags.sort_by_position();
-    Analysis { map, ws: Some(ws), files, resolution, diags }
+    Analysis { map, ws: Some(ws), files, resolution, hir, diags }
 }
 
 pub struct BuildOutput {

@@ -31,9 +31,37 @@ truly have to (there is a reference audit one-liner at the bottom of this file).
   with its resolution. **Do not silently re-decide anything in §18.** If implementation
   reveals a decision was wrong, say so explicitly and ask.
 - **§19** is the roadmap (M0…M13). Work proceeds in milestone order.
+- **§21** is the language changelog. See below.
 
 The user drives language design; Claude writes the compiler. Propose alternatives freely,
 but design changes are the user's call, not something to slip into an implementation.
+
+### The version is 0.1 and stays 0.1
+
+The language is **pre-release**. 0.1 is not finished until there is an LSP good enough to
+work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop (M7). Until
+then Dazzle is a toy: it compiles and runs programs, and that is all.
+
+So **do not bump the version number.** The spec is *revised*, not versioned: `r1`, `r2`, …
+in §21. If a change feels big enough to deserve a version bump, it deserves a revision row
+and nothing more.
+
+### Every language change gets a changelog row
+
+**Any change to the language goes in §21 as a new revision row**, in the same edit that
+changes the language. That means syntax, semantics, keywords, operators, precedence, a new
+or reversed §18 decision, or anything that changes what a valid Dazzle program looks like.
+
+- One row per revision, newest first: `| rN | date | what changed and why |`.
+- Write what a *user of the language* needs to know, not what the compiler now does.
+  "`or` is non-associative" — not "added `CHAINED_OR` to `codes.rs`".
+- A revision may cover several related edits; do not split one design change across rows.
+- Bump the revision number in the document header at the same time.
+
+**Compiler work is not a language change** and does not belong in §21 — new crates, new
+diagnostics for existing rules, refactors, performance, test infrastructure. Those go in
+`docs/PROGRESS.md`. The test: if a Dazzle program's meaning or spelling changes, it is §21;
+if only the compiler's internals change, it is `PROGRESS.md`.
 
 ## Repository layout
 
@@ -134,10 +162,30 @@ These are load-bearing. Breaking one is a real regression even if tests still pa
 
 ## Environment gotchas
 
-### Do not use heredocs to write file content
+### NEVER use a heredoc. Not for files, not for scripts, not for anything.
 
-Shell heredocs (`cat > file <<'EOF' … EOF`) **silently corrupt backslashes** in this
-environment. Verified behaviour of the *quoted* form `<<'EOF'`, which is supposed to be
+This rule has been in this file since M1 and has been broken repeatedly — including three
+times in the session that added `dz_hir`, each time costing a wasted edit and a confusing
+failure. So, plainly:
+
+> **Do not write `<<'EOF'`, `<<EOF`, `<<PY`, or any other heredoc in a Bash command.**
+> Not to write a file. Not to pipe a Python or shell script into an interpreter. Not for
+> "just a small one". There is no case where it is correct here.
+
+**A heredoc is not faster, shorter, or cheaper than the alternative.** It is the same
+number of tokens as `Write` and it fails silently, which makes it strictly worse. If you
+catch yourself reaching for one because it "feels" more direct, that instinct is wrong in
+this repo.
+
+**What to do instead**, in order of preference:
+
+1. **`Edit`** — for changing existing code. This is almost always the right tool, and it
+   fails loudly when the match is wrong instead of writing something subtly different.
+2. **`Write`** — for a new file, or a whole-file rewrite. Exact bytes, no escaping layer.
+3. **A script that must run:** `Write` it to the scratchpad directory, then
+   `python <path>` or `bash <path>` in a separate Bash call. Never pipe it in.
+
+Why it is banned — heredocs **silently corrupt backslashes** in this environment. Verified behaviour of the *quoted* form `<<'EOF'`, which is supposed to be
 completely literal:
 
 | Written | Lands in the file | |
@@ -155,12 +203,11 @@ itself being passed through a heredoc to fix the first problem.
 
 Large heredocs have also failed outright with `unexpected EOF while looking for matching`.
 
-**Instead:** use the `Write` and `Edit` tools for all file content. They write exact bytes.
-Use Bash for running commands, not for authoring files. If a file genuinely must be built
-by a script, have the script read its input from a file written by `Write`.
-
 Anything containing `\\` is affected: string-escape test fixtures, Windows paths, regexes,
-and any Rust or Dazzle source with escapes.
+Rust string continuations (`"long text \` at end of line), and any Rust or Dazzle source
+with escapes. Note the second-order failure mode: a Python script passed through a heredoc
+has *its* `\\` corrupted too, so `s.replace(a, b)` silently matches nothing and the script
+reports success having done nothing. That is how this rule gets broken without noticing.
 
 ### Other
 

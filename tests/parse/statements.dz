@@ -91,15 +91,14 @@ fn deferred(&mut self) {
 }
 
 fn handling(path: str) {
-    with (load_texture(path)) { tex ->
-        sprite.texture = move(tex)
-    } else { e ->
+    let tex = load_texture(path) or { e ->
         log::warn("texture {} failed: {}", path, e.message)
+        return
     }
+    sprite.texture = move(tex)
 
-    with (find_player(id)) {
-        it.health -= damage
-    }
+    let p = find_player(id) or return
+    p.health -= damage
 }
 
 fn nested_declarations() {

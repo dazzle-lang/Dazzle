@@ -42,7 +42,7 @@ pub enum TokenKind {
     As,
     Break,
     Case,
-    Catch,
+    Ignore,
     Const,
     Continue,
     Copy,
@@ -73,10 +73,10 @@ pub enum TokenKind {
     Switch,
     Trait,
     True,
-    Try,
+    Or,
     Union,
     While,
-    With,
+    Unreachable,
 
     // --- operators and punctuation (spec §2.6) ---
     Plus,
@@ -117,6 +117,8 @@ pub enum TokenKind {
     ColonColon,
     Comma,
     Arrow,
+    /// `!->`, the fallible return marker (spec §9). Only ever in a signature.
+    BangArrow,
     Question,
     /// `#` — attribute, macro invocation, or intrinsic (spec §12.8).
     Hash,
@@ -153,7 +155,7 @@ impl TokenKind {
             As => "as",
             Break => "break",
             Case => "case",
-            Catch => "catch",
+            Ignore => "ignore",
             Const => "const",
             Continue => "continue",
             Copy => "copy",
@@ -184,10 +186,10 @@ impl TokenKind {
             Switch => "switch",
             Trait => "trait",
             True => "true",
-            Try => "try",
+            Or => "or",
             Union => "union",
             While => "while",
-            With => "with",
+            Unreachable => "unreachable",
             Plus => "+",
             Minus => "-",
             Star => "*",
@@ -222,6 +224,7 @@ impl TokenKind {
             ColonColon => "::",
             Comma => ",",
             Arrow => "->",
+            BangArrow => "!->",
             Question => "?",
             Hash => "#",
             Dollar => "$",
@@ -242,7 +245,7 @@ impl TokenKind {
             self,
             As | Break
                 | Case
-                | Catch
+                | Ignore
                 | Const
                 | Continue
                 | Copy
@@ -273,10 +276,10 @@ impl TokenKind {
                 | Switch
                 | Trait
                 | True
-                | Try
+                | Or
                 | Union
                 | While
-                | With
+                | Unreachable
         )
     }
 
@@ -326,6 +329,7 @@ impl TokenKind {
                 | ColonColon
                 | Comma
                 | Arrow
+                | BangArrow
                 | Question
                 | LParen
                 | LBracket
@@ -344,7 +348,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "as" => As,
         "break" => Break,
         "case" => Case,
-        "catch" => Catch,
+        "ignore" => Ignore,
         "const" => Const,
         "continue" => Continue,
         "copy" => Copy,
@@ -375,10 +379,10 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "switch" => Switch,
         "trait" => Trait,
         "true" => True,
-        "try" => Try,
+        "or" => Or,
         "union" => Union,
         "while" => While,
-        "with" => With,
+        "unreachable" => Unreachable,
         _ => return Option::None,
     })
 }

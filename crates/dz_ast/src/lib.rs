@@ -149,6 +149,9 @@ pub struct FnDecl {
     pub self_param: Option<SelfParam>,
     pub params: Vec<Param>,
     pub ret: Option<Type>,
+    /// `!->` in place of `->`: this function may fail (spec §9). Fallibility lives on the
+    /// signature and never on a type, so there is no `Fallible` in [`TypeKind`].
+    pub fallible: bool,
     /// `None` for a trait method with no default body.
     pub body: Option<Block>,
 }
@@ -294,10 +297,8 @@ pub enum TypeKind {
     OwnPtr(Box<Type>),
     /// `&T` / `&mut T`
     Ref { mutable: bool, inner: Box<Type> },
-    /// `?T` (spec §9)
+    /// `T?` — postfix, binding to the type name (spec §5.6).
     Optional(Box<Type>),
-    /// `!T` (spec §9)
-    Fallible(Box<Type>),
     /// `[N]T`, or `[]T` when `size` is `None`.
     Array { size: Option<Box<Expr>>, elem: Box<Type> },
     Tuple(Vec<Type>),
@@ -439,15 +440,12 @@ pub enum ExprKind {
     /// `p^`
     Deref(Box<Expr>),
     Move(Box<Expr>),
-    /// `try f()` (spec §9.5)
-    Try(Box<Expr>),
-    /// `f() catch fallback` (spec §9.6)
-    Catch { expr: Box<Expr>, handler: Box<CatchHandler> },
+    /// `e or clause` — the one failure eliminator (spec §9.4).
+    Or { expr: Box<Expr>, clause: Box<OrClause> },
     Block(Block),
     If(IfExpr),
     Switch(SwitchExpr),
-    With(WithExpr),
-    /// Diverging expressions, so `f() catch return` parses uniformly.
+    /// Diverging expressions, so `f() or return` parses uniformly.
     Return(Option<Box<Expr>>),
     Break { label: Option<Ident>, value: Option<Box<Expr>> },
     Continue { label: Option<Ident> },
@@ -459,12 +457,20 @@ pub enum ExprKind {
     Error,
 }
 
+/// The right-hand side of an `or` (spec §9.4). The single rule governing all of these is
+/// that the clause must either produce the success type or diverge.
 #[derive(Clone, Debug)]
-pub enum CatchHandler {
-    /// `catch Textures::Missing`
+pub enum OrClause {
+    /// `or Textures::Missing` — the fallback value. `or return`, `or break`, `or continue`
+    /// and `or panic(...)` all arrive here too, as the diverging expressions they already
+    /// are, so no clause form needs its own variant.
     Value(Expr),
-    /// `catch { e -> ... }`
+    /// `or { ... }` and `or { e -> ... }`.
     Block { binding: Option<Ident>, body: Block },
+    /// `or ignore` — statement position only; discards the value.
+    Ignore(Span),
+    /// `or unreachable` — asserts the failure cannot happen.
+    Unreachable(Span),
 }
 
 #[derive(Clone, Debug)]
@@ -508,16 +514,6 @@ pub struct VariantPat {
     pub binding: Option<Ident>,
 }
 
-#[derive(Clone, Debug)]
-pub struct WithExpr {
-    pub span: Span,
-    pub subject: Box<Expr>,
-    /// `{ it -> ... }`; `None` means the implicit `it` binding (spec §9.4).
-    pub binding: Option<Ident>,
-    pub body: Block,
-    pub else_binding: Option<Ident>,
-    pub else_body: Option<Block>,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnaryOp {

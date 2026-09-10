@@ -9,7 +9,7 @@
 //! pointers and references, arrays and slices, `defer`, and the print builtins. Anything
 //! else reports [`codes::CODEGEN_UNSUPPORTED`] with a span rather than emitting something
 //! subtly wrong. The deferral register in `docs/PROGRESS.md` lists what is outstanding and
-//! which milestone owns it; the largest items are `?T`/`!T` and tagged unions, both of
+//! which milestone owns it; the largest items are `T?`/fallible returns and tagged unions, both of
 //! which want the statement-level desugaring that arrives with M5.
 
 use std::collections::{HashMap, HashSet};
@@ -447,7 +447,6 @@ impl<'a> Emitter<'a> {
             TypeKind::Ref { mutable: true, inner } => format!("{}&", self.ty(inner)),
             TypeKind::Ref { mutable: false, inner } => format!("const {}&", self.ty(inner)),
             TypeKind::Optional(i) => format!("dz::Opt<{}>", self.ty(i)),
-            TypeKind::Fallible(i) => format!("dz::Res<{}>", self.ty(i)),
             TypeKind::Array { size: Some(n), elem } => {
                 let len = self.expr(n);
                 format!("dz::Array<{}, {len}>", self.ty(elem))
@@ -855,8 +854,8 @@ impl<'a> Emitter<'a> {
                 self.unsupported(e.span, "an `if`, block or `switch` used as a value", "owed by M5");
                 "{}".to_owned()
             }
-            ExprKind::With(_) | ExprKind::Catch { .. } | ExprKind::Try(_) => {
-                self.unsupported(e.span, "`?T` / `!T` handling", "owed by M5");
+            ExprKind::Or { .. } => {
+                self.unsupported(e.span, "the `or` clause", "owed by M5");
                 "{}".to_owned()
             }
             ExprKind::Range { .. } => {

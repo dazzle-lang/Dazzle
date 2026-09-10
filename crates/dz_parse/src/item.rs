@@ -313,10 +313,28 @@ impl<'a> Parser<'a> {
         let name = self.parse_ident_or_error();
         let generics = self.parse_generics();
         let (self_param, params) = self.parse_params();
-        let ret = if self.eat(TokenKind::Arrow) { Some(self.parse_type()) } else { None };
+        // `!->` in place of `->` marks the signature fallible (spec §9). A fallible
+        // function with no return type is legal — it either succeeds with nothing or
+        // fails — so the marker is recorded even when no type follows.
+        let fallible = self.at(TokenKind::BangArrow);
+        let ret = if self.eat(TokenKind::Arrow) || self.eat(TokenKind::BangArrow) {
+            Some(self.parse_type())
+        } else {
+            None
+        };
 
         let body = if self.at(TokenKind::LBrace) { Some(self.parse_block()) } else { None };
-        FnDecl { span: self.span_from(start), is_mut, name, generics, self_param, params, ret, body }
+        FnDecl {
+            span: self.span_from(start),
+            is_mut,
+            name,
+            generics,
+            self_param,
+            params,
+            ret,
+            fallible,
+            body,
+        }
     }
 
     fn parse_params(&mut self) -> (Option<SelfParam>, Vec<Param>) {
@@ -523,6 +541,7 @@ impl<'a> Parser<'a> {
             self_param,
             params,
             ret: None,
+            fallible: false,
             body,
         }
     }
@@ -540,6 +559,7 @@ impl<'a> Parser<'a> {
             self_param,
             params,
             ret: None,
+            fallible: false,
             body,
         }
     }

@@ -177,22 +177,23 @@ fn ownership_and_errors()
       ref mut
         path value
     let d
-      try
+      or
         call
           path load
           path path
+        return
     let e
-      catch
+      or
         call
           path load
           path path
         path Textures::Missing
     let f
-      catch
+      or
         call
           path load
           path path
-        handler err
+        clause err
           block
             call
               path log::warn
@@ -201,11 +202,22 @@ fn ownership_and_errors()
                 path err
             path Textures::Missing
     let g
-      catch
+      or
         call
           path find
           path id
         return
+    let j
+      or
+        call
+          path find
+          path id
+        unreachable
+    or
+      call
+        path save
+        path path
+      ignore
     let h
       intrinsic #location
     let i
@@ -236,16 +248,11 @@ fn nested_calls()
 fn expression_forms() -> i32
   block
     let hp
-      with it
+      or
         call
           path find_player
           path id
-        block
-          field .health
-            path it
-        else it
-          block
-            int 0
+        int 0
     let x
       if
         path ready

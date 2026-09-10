@@ -16,10 +16,28 @@ struct Checked {
     rendered: String,
     codes: Vec<&'static str>,
     error_count: usize,
+    /// The HIR the checker built, dumped (spec §17.1).
+    hir: String,
 }
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/workspace").join(name)
+}
+
+/// Snapshots must not depend on where the repository is checked out. Diagnostics name
+/// files by absolute path, so normalise separators first (the rendered text is native,
+/// with backslashes on Windows) and then drop everything above the fixture root.
+fn redact(rendered: &str) -> String {
+    const MARKER: &str = "tests/workspace/";
+    rendered
+        .replace('\\', "/")
+        .lines()
+        .map(|l| match l.find(MARKER) {
+            Some(i) => format!("{}{}", &l[..l[..i].rfind(' ').map_or(0, |s| s + 1)], &l[i + MARKER.len()..]),
+            None => l.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Run the whole pipeline: manifest, lex, parse, resolve, type-check.
@@ -28,7 +46,12 @@ fn check(entry: &Path) -> Checked {
     let mut diags = Diagnostics::new();
 
     let Some(ws) = dz_project::load(entry, &mut map, &mut diags) else {
-        return Checked { rendered: "failed to load workspace".into(), codes: vec![], error_count: 1 };
+        return Checked {
+            rendered: "failed to load workspace".into(),
+            codes: vec![],
+            error_count: 1,
+            hir: String::new(),
+        };
     };
 
     let mut files: HashMap<ModuleId, Vec<dz_resolve::ParsedFile>> = HashMap::new();
@@ -51,18 +74,21 @@ fn check(entry: &Path) -> Checked {
     let resolution = dz_resolve::resolve(&ws, &files);
     let resolve_failed = resolution.diagnostics.has_errors();
     diags.extend(resolution.diagnostics.clone());
+    let mut hir = String::new();
     if !resolve_failed {
-        diags.extend(dz_check::check(&ws, &resolution, &files).diagnostics);
+        let checked = dz_check::check(&ws, &resolution, &files);
+        hir = dz_hir::dump::dump(&checked.hir, &dz_check::Names { res: &resolution });
+        diags.extend(checked.diagnostics);
     }
     diags.sort_by_position();
 
-    let root = fixture("").to_string_lossy().replace('\\', "/");
-    let rendered = dz_diag::render_to_string(&map, &diags).replace(&root, "").replace('\\', "/");
+    let rendered = redact(&dz_diag::render_to_string(&map, &diags));
 
     Checked {
         codes: diags.iter().filter_map(|d| d.code).collect(),
         error_count: diags.error_count(),
         rendered,
+        hir,
     }
 }
 
@@ -139,6 +165,33 @@ fn diagnostics_snapshot() {
     }
 }
 
+/// The HIR is the input to flow analysis and, from M5 on, to codegen; if it is wrong,
+/// every later pass is wrong in a way that only surfaces as bad C++. Snapshotting the whole
+/// tree for the `typed/` fixture pins its shape and every type on it.
+#[test]
+fn hir_snapshot() {
+    let r = check(&fixture("typed"));
+    assert_eq!(r.error_count, 0, "fixture should check cleanly:\n{}", r.rendered);
+    assert!(!r.hir.is_empty(), "the checker built no bodies");
+    insta::assert_snapshot!("hir_typed", r.hir);
+}
+
+/// Every expression node must carry a real type. `{integer}` and `{float}` are states the
+/// checker passes through while a literal waits for context (spec §2.5); a consumer that
+/// saw one would have to re-run literal defaulting itself, which is exactly the duplicated
+/// inference the HIR exists to prevent.
+#[test]
+fn the_hir_holds_no_untyped_literals() {
+    let r = check(&fixture("typed"));
+    for (i, line) in r.hir.lines().enumerate() {
+        assert!(
+            !line.contains("{integer}") && !line.contains("{float}"),
+            "line {}: untyped literal survived into the HIR: {line}",
+            i + 1
+        );
+    }
+}
+
 // --- targeted rules -------------------------------------------------------
 
 #[test]
@@ -203,36 +256,106 @@ fn switch_must_cover_every_variant() {
 }
 
 #[test]
-fn a_fallible_result_cannot_be_dropped_on_the_floor() {
-    // spec §9.7
-    let base = "fn may_fail() -> !i32 {\n return 1\n}\n";
+fn a_fallible_call_must_be_consumed_in_its_statement() {
+    // spec §9.7 — there is no `T!` type, so there is nowhere else for it to go.
+    let base = "fn may_fail() !-> i32 {\n return 1\n}\n";
     assert!(snippet(&format!("{base}fn g() {{\n may_fail()\n}}\n"))
         .contains(&dz_diag::codes::UNUSED_RESULT));
-    // Each of the four sanctioned ways to consume it is accepted.
-    assert!(snippet(&format!("{base}fn g() {{\n let _ = may_fail()\n}}\n")).is_empty());
-    assert!(snippet(&format!("{base}fn g() -> !i32 {{\n let v = try may_fail()\n return v\n}}\n")).is_empty());
-    assert!(snippet(&format!("{base}fn g() -> i32 {{\n return may_fail() catch 0\n}}\n")).is_empty());
+    // A binding is no longer an escape hatch: the value would outlive its statement.
+    assert!(snippet(&format!("{base}fn g() {{\n let _ = may_fail()\n}}\n"))
+        .contains(&dz_diag::codes::UNUSED_RESULT));
+    // Each sanctioned way to consume it is accepted.
+    assert!(snippet(&format!("{base}fn g() {{\n may_fail() or ignore\n}}\n")).is_empty());
+    assert!(
+        snippet(&format!("{base}fn g() !-> i32 {{\n let v = may_fail() or return\n return v\n}}\n"))
+            .is_empty()
+    );
+    assert!(snippet(&format!("{base}fn g() -> i32 {{\n return may_fail() or 0\n}}\n")).is_empty());
     assert!(snippet(&format!(
-        "{base}fn g() -> i32 {{\n with (may_fail()) {{ v ->\n  return v\n }} else {{ e ->\n  return 0\n }}\n}}\n"
+        "{base}fn g() -> i32 {{\n let v = may_fail() or {{ e ->\n  return 0\n }}\n return v\n}}\n"
     ))
     .is_empty());
 }
 
 #[test]
-fn try_needs_a_fallible_enclosing_function() {
-    // spec §9.5
-    let base = "fn may_fail() -> !i32 {\n return 1\n}\n";
-    assert!(snippet(&format!("{base}fn g() -> i32 {{\n return try may_fail()\n}}\n"))
-        .contains(&dz_diag::codes::TRY_OUTSIDE_FALLIBLE));
-    assert!(snippet(&format!("{base}fn g() -> !i32 {{\n return try may_fail()\n}}\n")).is_empty());
+fn or_return_needs_a_signature_that_can_carry_the_failure() {
+    // spec §9.5 — bare `or return` is reserved for propagation.
+    let base = "fn may_fail() !-> i32 {\n return 1\n}\n";
+    assert!(
+        snippet(&format!("{base}fn g() -> i32 {{\n return may_fail() or return\n}}\n"))
+            .contains(&dz_diag::codes::TRY_OUTSIDE_FALLIBLE)
+    );
+    assert!(snippet(&format!("{base}fn g() !-> i32 {{\n return may_fail() or return\n}}\n"))
+        .is_empty());
+    // A `T?` propagates into a `-> U?` or a `-> void`, which have somewhere to go.
+    let opt = "fn maybe() -> i32? {\n return none\n}\n";
+    assert!(snippet(&format!("{opt}fn g() -> i32? {{\n return maybe() or return\n}}\n")).is_empty());
+    assert!(snippet(&format!("{opt}fn g() {{\n let v = maybe() or return\n}}\n")).is_empty());
+}
+
+#[test]
+fn a_pointer_becomes_a_reference_only_through_an_or_clause() {
+    // spec §5.2 — this is the one guarantee `&T` carries that `^T` does not.
+    let base = "fn takes(x: &i32) {\n}\nfn ptr() -> ^i32 {\n return null\n}\n";
+    assert!(snippet(&format!("{base}fn g() {{\n takes(ptr())\n}}\n"))
+        .contains(&dz_diag::codes::POINTER_NEEDS_CHECK));
+    assert!(snippet(&format!("{base}fn g() {{\n let p = ptr() or return\n takes(p)\n}}\n"))
+        .is_empty());
+    assert!(
+        snippet(&format!("{base}fn g() {{\n let p = ptr() or unreachable\n takes(p)\n}}\n"))
+            .is_empty()
+    );
+    // The reverse direction stays implicit (spec §5.2, §18.16).
+    assert!(snippet("fn g(r: &mut i32) {\n let p: ^i32 = r\n}\n").is_empty());
+}
+
+#[test]
+fn an_or_clause_must_produce_the_success_type_or_diverge() {
+    // spec §9.4 — the single rule governing every clause form.
+    let opt = "fn maybe() -> i32? {\n return none\n}\n";
+    assert!(snippet(&format!("{opt}fn g() -> i32 {{\n return maybe() or \"no\"\n}}\n"))
+        .contains(&dz_diag::codes::OR_CLAUSE_TYPE));
+    assert!(snippet(&format!("{opt}fn g() -> i32 {{\n return maybe() or 0\n}}\n")).is_empty());
+    // Diverging satisfies the rule without producing anything.
+    assert!(snippet(&format!("{opt}fn g() -> i32 {{\n return maybe() or panic(\"x\")\n}}\n"))
+        .is_empty());
+    // Only a fallible call carries an `Error`, so a `T?` has nothing to bind.
+    assert!(
+        snippet(&format!("{opt}fn g() -> i32 {{\n let v = maybe() or {{ e ->\n  return 0\n }}\n return v\n}}\n"))
+            .contains(&dz_diag::codes::OR_CLAUSE_TYPE)
+    );
+    // `or` on something that cannot fail is meaningless.
+    assert!(snippet("fn g(n: i32) -> i32 {\n return n or 0\n}\n")
+        .contains(&dz_diag::codes::NOT_FALLIBLE));
+}
+
+#[test]
+fn a_fallback_that_can_itself_fail_gets_a_clause_of_its_own() {
+    // spec §9.4 — "try a, else try b, else c" is a real thing to want, and the block form
+    // is how it is written. Flat chaining cannot mean it: an `or` always produces the
+    // success type, so `a() or b()` can no longer fail and has nothing left to catch.
+    let base = "fn a() !-> i32 {\n return 1\n}\nfn b() !-> i32 {\n return 2\n}\n";
+    assert!(snippet(&format!("{base}fn g() -> i32 {{\n return a() or {{ b() or 0 }}\n}}\n"))
+        .is_empty());
+    assert!(
+        snippet(&format!("{base}fn g() -> i32 {{\n return a() or {{ b() or {{ 0 }} }}\n}}\n"))
+            .is_empty()
+    );
+    // Without a clause of its own, the fallback's failure would be discarded.
+    let flat = snippet(&format!("{base}fn g() -> i32 {{\n return (a() or b()) or 0\n}}\n"));
+    assert!(flat.contains(&dz_diag::codes::UNUSED_RESULT), "{flat:?}");
+    assert!(flat.contains(&dz_diag::codes::NOT_FALLIBLE), "{flat:?}");
 }
 
 #[test]
 fn returning_a_plain_value_from_a_fallible_function_is_the_success_case() {
     // spec §9.1 — there is no wrapping step.
-    assert!(snippet("fn f() -> !i32 {\n return 1\n}\n").is_empty());
-    assert!(snippet("fn f() -> ?i32 {\n return none\n}\n").is_empty());
-    assert!(snippet("fn f() -> !i32 {\n return error(\"bad\")\n}\n").is_empty());
+    assert!(snippet("fn f() !-> i32 {\n return 1\n}\n").is_empty());
+    assert!(snippet("fn f() -> i32? {\n return none\n}\n").is_empty());
+    assert!(snippet("fn f() !-> i32 {\n return error(\"bad\")\n}\n").is_empty());
+    // `error(...)` needs a signature that can carry it (spec §9.1).
+    assert!(snippet("fn f() -> i32 {\n return error(\"bad\")\n}\n")
+        .contains(&dz_diag::codes::TRY_OUTSIDE_FALLIBLE));
     // `none` needs somewhere that wants a `?T`.
     assert!(snippet("fn f() {\n let x = none\n}\n")
         .contains(&dz_diag::codes::NO_CONTEXT_FOR_LITERAL));

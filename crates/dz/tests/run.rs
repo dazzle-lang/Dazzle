@@ -132,15 +132,22 @@ fn generated_cpp_snapshot() {
     let dir = run_dir("hello").join("build/cpp");
     let cpp = std::fs::read_to_string(dir.join("hello.cpp")).unwrap();
     let header = std::fs::read_to_string(dir.join("hello.h")).unwrap();
-    // Paths are machine-specific, so keep only the file name in the `#line` directive.
-    let cpp = cpp.replace('\\', "/");
-    let cpp = match cpp.find("#line") {
-        Some(_) => {
-            let re_root = repo_root().to_string_lossy().replace('\\', "/");
-            cpp.replace(&re_root, "").replace("//tests", "tests")
-        }
-        None => cpp,
-    };
+    // `#line` names the `.dz` file by absolute path, which differs on every machine and
+    // cannot be stripped by matching the repo root (`repo_root()` is not normalised, and
+    // drive letters and case vary). Keep only the file name.
+    let cpp = cpp
+        .replace('\\', "/")
+        .lines()
+        .map(|l| match l.strip_prefix("#line ") {
+            Some(rest) => match (rest.find(" \""), rest.rfind('/')) {
+                (Some(n), Some(slash)) => format!("#line {}\"{}", &rest[..=n], &rest[slash + 1..]),
+                _ => l.to_owned(),
+            },
+            None => l.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
     insta::assert_snapshot!("hello_cpp", format!("{header}\n// ---\n{cpp}"));
 }
 

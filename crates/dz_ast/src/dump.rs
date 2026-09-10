@@ -211,7 +211,10 @@ impl<'a> Dumper<'a> {
             f.name.name,
             generics_str(&f.generics),
             all,
-            f.ret.as_ref().map(|t| format!(" -> {}", type_str(t))).unwrap_or_default()
+            f.ret
+                .as_ref()
+                .map(|t| format!(" {} {}", arrow(f.fallible), type_str(t)))
+                .unwrap_or_else(|| if f.fallible { " !->".to_owned() } else { String::new() })
         ));
         for p in &f.params {
             if let Some(default) = &p.default {
@@ -372,23 +375,21 @@ impl<'a> Dumper<'a> {
                 self.line(format_args!("move"));
                 self.nest(|d| d.expr(e));
             }
-            ExprKind::Try(e) => {
-                self.line(format_args!("try"));
-                self.nest(|d| d.expr(e));
-            }
-            ExprKind::Catch { expr, handler } => {
-                self.line(format_args!("catch"));
+            ExprKind::Or { expr, clause } => {
+                self.line(format_args!("or"));
                 self.nest(|d| {
                     d.expr(expr);
-                    match handler.as_ref() {
-                        CatchHandler::Value(v) => d.expr(v),
-                        CatchHandler::Block { binding, body } => {
-                            d.line(format_args!(
-                                "handler {}",
-                                binding.as_ref().map(|b| b.name.as_str()).unwrap_or("it")
-                            ));
+                    match clause.as_ref() {
+                        OrClause::Value(v) => d.expr(v),
+                        OrClause::Block { binding, body } => {
+                            match binding {
+                                Some(b) => d.line(format_args!("clause {}", b.name)),
+                                None => d.line(format_args!("clause")),
+                            }
                             d.nest(|d| d.block(body));
                         }
+                        OrClause::Ignore(_) => d.line(format_args!("ignore")),
+                        OrClause::Unreachable(_) => d.line(format_args!("unreachable")),
                     }
                 });
             }
@@ -423,23 +424,6 @@ impl<'a> Dumper<'a> {
                     if let Some(def) = &s.default {
                         d.line(format_args!("default"));
                         d.nest(|d| d.block(def));
-                    }
-                });
-            }
-            ExprKind::With(w) => {
-                self.line(format_args!(
-                    "with {}",
-                    w.binding.as_ref().map(|b| b.name.as_str()).unwrap_or("it")
-                ));
-                self.nest(|d| {
-                    d.expr(&w.subject);
-                    d.block(&w.body);
-                    if let Some(body) = &w.else_body {
-                        d.line(format_args!(
-                            "else {}",
-                            w.else_binding.as_ref().map(|b| b.name.as_str()).unwrap_or("it")
-                        ));
-                        d.nest(|d| d.block(body));
                     }
                 });
             }
@@ -548,6 +532,15 @@ fn traits_str(traits: &[Path]) -> String {
     }
 }
 
+/// `->`, or `!->` when the signature is fallible (spec §9).
+fn arrow(fallible: bool) -> &'static str {
+    if fallible {
+        "!->"
+    } else {
+        "->"
+    }
+}
+
 pub fn type_str(t: &Type) -> String {
     match &t.kind {
         TypeKind::Path(p) => path_str(p),
@@ -556,8 +549,7 @@ pub fn type_str(t: &Type) -> String {
         TypeKind::Ref { mutable, inner } => {
             format!("&{}{}", if *mutable { "mut " } else { "" }, type_str(inner))
         }
-        TypeKind::Optional(inner) => format!("?{}", type_str(inner)),
-        TypeKind::Fallible(inner) => format!("!{}", type_str(inner)),
+        TypeKind::Optional(inner) => format!("{}?", type_str(inner)),
         TypeKind::Array { size, elem } => match size {
             Some(_) => format!("[N]{}", type_str(elem)),
             None => format!("[]{}", type_str(elem)),

@@ -67,7 +67,7 @@ pub trait Drawable {
 
 pub trait Iterate {
     type Item
-    mut fn next(&mut self) -> ?Item
+    mut fn next(&mut self) -> Item?
 }
 
 pub struct Arena : Allocator {
@@ -91,9 +91,9 @@ pub struct SliceIter<T> : Iterate {
     m_slice: []T
     m_index: usize
 
-    mut fn next(&mut self) -> ?&T {
+    mut fn next(&mut self) -> ^T {
         if m_index >= m_slice.len {
-            return none
+            return null
         }
         let e = &m_slice[m_index]
         m_index += 1

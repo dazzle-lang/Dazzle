@@ -5,7 +5,7 @@ expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_
 modules: 2, files: 2
 
 error[DZ0006]: circular dependency between `alpha` and `beta`
-  ┌─ D:/OdinProjects/Dazzle/tests/workspace/cycle/a/dazzle.toml:6:17
+  ┌─ cycle/a/dazzle.toml:6:17
   │
 6 │ beta = { path = "../b" }
   │                 ^^^^^^ this closes a cycle

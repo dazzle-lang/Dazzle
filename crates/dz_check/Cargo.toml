@@ -12,8 +12,10 @@ dz_diag.workspace = true
 dz_ast.workspace = true
 dz_project.workspace = true
 dz_resolve.workspace = true
+dz_hir.workspace = true
 
 [dev-dependencies]
+dz_hir.workspace = true
 dz_lex.workspace = true
 dz_parse.workspace = true
 insta.workspace = true

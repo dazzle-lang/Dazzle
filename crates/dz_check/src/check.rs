@@ -5,11 +5,16 @@ use std::rc::Rc;
 
 use dz_ast::*;
 use dz_diag::codes;
+use dz_hir::{self as hir, BlockId, BodyOwner, LocalId, LocalKind, StmtId};
 use dz_resolve::{SymbolId, SymbolKind};
 use dz_span::Span;
 
+use crate::build::{BodyBuilder, Checked, CheckedBlock};
 use crate::ty::{assignable, join, IntTy, Ty};
-use crate::{parse_int_literal, Ctx, FnSig, ItemSig};
+use crate::{
+    decode_raw_string_literal, decode_string_literal, parse_float_literal, parse_int_literal, Ctx,
+    FnSig, ItemSig,
+};
 
 pub(crate) fn item(cx: &mut Ctx, it: &Item) {
     match &it.kind {
@@ -19,8 +24,11 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
                     Some(ItemSig::Fn(sig)) => Some(sig.clone()),
                     _ => None,
                 });
-                if let Some(sig) = sig {
-                    Body::new(cx, None, sig.ret.clone()).function(f, &sig);
+                if let (Some(sig), Some(sym)) = (sig, cx.symbol_of(it)) {
+                    let mut body =
+                        Body::new(cx, None, sig.ret.clone(), BodyOwner::Fn(sym), f.name.span);
+                    let root = body.function(f, &sig);
+                    body.finish(root);
                 }
             }
         }
@@ -33,15 +41,17 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
         }
         ItemKind::Enum(e) => check_enum(cx, it, e),
         ItemKind::Const(c) => {
-            let declared = match cx.symbol_of(it).and_then(|s| cx.table.get(s)) {
+            let Some(sym) = cx.symbol_of(it) else { return };
+            let declared = match cx.table.get(sym) {
                 Some(ItemSig::Const(t)) => t.clone(),
                 _ => Ty::Error,
             };
-            let mut body = Body::new(cx, None, Ty::Void);
-            let actual = body.expr(&c.value, Some(&declared));
+            let mut body = Body::new(cx, None, Ty::Void, BodyOwner::Const(sym), c.value.span);
+            let checked = body.expr(&c.value, Some(&declared));
             if !declared.is_error() {
-                body.expect(&declared, &actual, c.value.span);
+                body.expect(&declared, &checked.ty, c.value.span);
             }
+            body.finish_value(c.value.span, checked);
         }
         // Union payload types are checked during signature collection; trait bodies,
         // macros and generic items belong to later milestones.
@@ -54,28 +64,46 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
 }
 
 fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
+    // Constructors are addressed by position in declaration order (spec §7.2).
+    let mut ctors = 0usize;
     for m in members {
         match &m.kind {
             MemberKind::Field(f) => {
                 if let Some(default) = &f.default {
-                    let expected = cx
+                    let found = cx
                         .table
                         .struct_sig(sym)
-                        .and_then(|s| s.fields.iter().find(|x| x.name == f.name.name))
-                        .map(|x| x.ty.clone())
+                        .and_then(|s| s.fields.iter().position(|x| x.name == f.name.name));
+                    let expected = found
+                        .and_then(|i| cx.table.struct_sig(sym).map(|s| s.fields[i].ty.clone()))
                         .unwrap_or(Ty::Error);
-                    let mut body = Body::new(cx, Some(sym), Ty::Void);
-                    let actual = body.expr(default, Some(&expected));
-                    body.expect(&expected, &actual, default.span);
+                    let owner = BodyOwner::FieldDefault {
+                        owner: sym,
+                        index: found.unwrap_or(0),
+                    };
+                    let mut body = Body::new(cx, Some(sym), Ty::Void, owner, default.span);
+                    let checked = body.expr(default, Some(&expected));
+                    body.expect(&expected, &checked.ty, default.span);
+                    body.finish_value(default.span, checked);
                 }
             }
             MemberKind::Fn(f) => {
                 if !f.generics.is_empty() {
                     continue;
                 }
-                let sig = cx.table.struct_sig(sym).and_then(|s| s.methods.get(&f.name.name)).cloned();
+                let sig = cx
+                    .table
+                    .struct_sig(sym)
+                    .and_then(|s| s.methods.get(&f.name.name))
+                    .cloned();
                 if let Some(sig) = sig {
-                    Body::new(cx, Some(sym), sig.ret.clone()).function(f, &sig);
+                    let owner = BodyOwner::Method {
+                        owner: sym,
+                        name: f.name.name.clone(),
+                    };
+                    let mut body = Body::new(cx, Some(sym), sig.ret.clone(), owner, f.name.span);
+                    let root = body.function(f, &sig);
+                    body.finish(root);
                 }
             }
             MemberKind::Ctor(f) | MemberKind::Copy(f) | MemberKind::Drop(f) => {
@@ -91,13 +119,27 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                         })
                         .collect(),
                     ret: Ty::Void,
+                    fallible: false,
                     takes_self: Some(true),
                     is_mut: true,
                     vis: m.vis,
                     span: f.name.span,
                     generic: false,
                 };
-                Body::new(cx, Some(sym), Ty::Void).function(f, &sig);
+                // §6 gives `copy` and `drop` meaning no ordinary member has, so they are
+                // addressable in the HIR by what they are rather than by name.
+                let owner = match &m.kind {
+                    MemberKind::Copy(_) => BodyOwner::Copy(sym),
+                    MemberKind::Drop(_) => BodyOwner::Drop(sym),
+                    _ => {
+                        let index = ctors;
+                        ctors += 1;
+                        BodyOwner::Ctor { owner: sym, index }
+                    }
+                };
+                let mut body = Body::new(cx, Some(sym), Ty::Void, owner, f.name.span);
+                let root = body.function(f, &sig);
+                body.finish(root);
             }
             MemberKind::TypeAlias { .. } | MemberKind::Error => {}
         }
@@ -144,6 +186,21 @@ fn check_enum(cx: &mut Ctx, it: &Item, e: &EnumDecl) {
 struct Local {
     ty: Ty,
     mutable: bool,
+    slot: Slot,
+}
+
+/// What an in-scope name denotes once it is resolved.
+///
+/// A method body sees its own fields unqualified (spec §7.3), so not every name in scope
+/// is a variable. Recording which is which here is what stops the HIR from turning a field
+/// into a local that codegen would then emit as an undeclared identifier.
+#[derive(Clone, Copy)]
+enum Slot {
+    Local(LocalId),
+    /// A field of `self`, by index into the type's declaration order.
+    SelfField {
+        index: usize,
+    },
 }
 
 struct Body<'a, 'c> {
@@ -152,12 +209,53 @@ struct Body<'a, 'c> {
     /// The enclosing function's return type, for `return` and `try`.
     ret: Ty,
     self_ty: Option<SymbolId>,
+    /// Whether the enclosing signature is `!->`, which is what decides where a failure
+    /// can be propagated to (spec §9.5).
+    fallible: bool,
+    /// Whether the expression being checked is a whole statement. `or ignore` produces
+    /// nothing, so it is legal only here — and an expected type is not the signal, since
+    /// `let v = f()` and a bare `f()` both arrive with no expectation.
+    stmt_position: bool,
     self_mutable: bool,
+    /// The `self` parameter's local, for expanding unqualified field access.
+    self_local: Option<LocalId>,
+    hir: BodyBuilder,
 }
 
 impl<'a, 'c> Body<'a, 'c> {
-    fn new(cx: &'c mut Ctx<'a>, self_ty: Option<SymbolId>, ret: Ty) -> Body<'a, 'c> {
-        Body { cx, scopes: Vec::new(), ret, self_ty, self_mutable: false }
+    fn new(
+        cx: &'c mut Ctx<'a>,
+        self_ty: Option<SymbolId>,
+        ret: Ty,
+        owner: BodyOwner,
+        span: Span,
+    ) -> Body<'a, 'c> {
+        let file = cx.file;
+        let hir = BodyBuilder::new(owner, file, span, ret.clone());
+        Body {
+            cx,
+            scopes: Vec::new(),
+            ret,
+            self_ty,
+            fallible: false,
+            stmt_position: false,
+            self_mutable: false,
+            self_local: None,
+            hir,
+        }
+    }
+
+    /// Register a body that is one expression: a `const` initialiser or a field default.
+    fn finish_value(mut self, span: Span, value: Checked) {
+        let stmt = self.hir.stmt(span, hir::StmtKind::Expr(value.id));
+        let root = self.hir.block(span, vec![stmt]);
+        self.finish(root);
+    }
+
+    /// Register the finished body. Called once per body, at the end of checking it.
+    fn finish(self, root: BlockId) {
+        let body = self.hir.finish(root);
+        self.cx.hir.push(body);
     }
 
     // --- scopes -----------------------------------------------------------
@@ -170,9 +268,32 @@ impl<'a, 'c> Body<'a, 'c> {
         self.scopes.pop();
     }
 
-    fn bind(&mut self, name: &str, ty: Ty, mutable: bool) {
+    fn bind(&mut self, name: &str, ty: Ty, mutable: bool, kind: LocalKind, span: Span) -> LocalId {
+        let id = self.hir.local(name, ty.clone(), mutable, span, kind);
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.to_owned(), Local { ty, mutable });
+            scope.insert(
+                name.to_owned(),
+                Local {
+                    ty,
+                    mutable,
+                    slot: Slot::Local(id),
+                },
+            );
+        }
+        id
+    }
+
+    /// Bring a field of `self` into scope unqualified (spec §7.3).
+    fn bind_self_field(&mut self, name: &str, ty: Ty, mutable: bool, index: usize) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(
+                name.to_owned(),
+                Local {
+                    ty,
+                    mutable,
+                    slot: Slot::SelfField { index },
+                },
+            );
         }
     }
 
@@ -189,9 +310,10 @@ impl<'a, 'c> Body<'a, 'c> {
             },
             Ty::Ptr(i) => Ty::Ptr(Rc::new(self.subst(i))),
             Ty::OwnPtr(i) => Ty::OwnPtr(Rc::new(self.subst(i))),
-            Ty::Ref { mutable, inner } => {
-                Ty::Ref { mutable: *mutable, inner: Rc::new(self.subst(inner)) }
-            }
+            Ty::Ref { mutable, inner } => Ty::Ref {
+                mutable: *mutable,
+                inner: Rc::new(self.subst(inner)),
+            },
             Ty::Optional(i) => Ty::Optional(Rc::new(self.subst(i))),
             Ty::Fallible(i) => Ty::Fallible(Rc::new(self.subst(i))),
             other => other.clone(),
@@ -206,6 +328,34 @@ impl<'a, 'c> Body<'a, 'c> {
         }
         let e = self.cx.name_of(&expected);
         let a = self.cx.name_of(&actual);
+        // A fallible call that reached a value position was never consumed (spec §9.7).
+        if let Ty::Fallible(_) = &actual {
+            self.cx.error_help(
+                codes::UNUSED_RESULT,
+                span,
+                "fallible call not consumed",
+                "this may fail, and the failure would be discarded",
+                "add an `or` clause here: `f() or return`, or `f() or <fallback>` \
+                 (spec §9.7)",
+            );
+            return;
+        }
+        // `^T` → `&T` is the one conversion that can fail, so it is written out (§5.2).
+        if let (Ty::Ref { inner: want, .. }, Ty::Ptr(got) | Ty::OwnPtr(got)) =
+            (&expected, &actual)
+        {
+            if assignable(want, got) {
+                self.cx.error_help(
+                    codes::POINTER_NEEDS_CHECK,
+                    span,
+                    format!("expected `{e}`, found `{a}`"),
+                    "a pointer may be null; a reference may not",
+                    "check it once where it enters scope: `let x = p or return`, or \
+                     `or unreachable` if it provably cannot be null (spec §5.2)",
+                );
+                return;
+            }
+        }
         // A numeric mismatch is almost always someone expecting an implicit widening.
         if expected.is_numeric() && actual.is_numeric() {
             self.cx.error_help(
@@ -230,76 +380,111 @@ impl<'a, 'c> Body<'a, 'c> {
 
     // --- functions --------------------------------------------------------
 
-    fn function(&mut self, f: &FnDecl, sig: &FnSig) {
+    fn function(&mut self, f: &FnDecl, sig: &FnSig) -> BlockId {
+        self.fallible = sig.fallible;
         self.push();
         if let Some(is_mut) = sig.takes_self {
             self.self_mutable = is_mut;
             if let Some(sym) = self.self_ty {
-                self.bind("self", Ty::Named(sym), is_mut);
-                // A method body sees its struct's fields unqualified (spec §7.3).
+                let id = self.bind(
+                    "self",
+                    Ty::Named(sym),
+                    is_mut,
+                    LocalKind::Param,
+                    f.name.span,
+                );
+                self.self_local = Some(id);
+                // A method body sees its struct's fields unqualified (spec §7.3). They are
+                // fields, not locals, so they bind to a slot that remembers the index.
                 let fields: Vec<(String, Ty)> = self
                     .cx
                     .table
                     .struct_sig(sym)
-                    .map(|s| s.fields.iter().map(|x| (x.name.clone(), x.ty.clone())).collect())
+                    .map(|s| {
+                        s.fields
+                            .iter()
+                            .map(|x| (x.name.clone(), x.ty.clone()))
+                            .collect()
+                    })
                     .unwrap_or_default();
-                for (name, ty) in fields {
-                    self.bind(&name, ty, is_mut);
+                for (index, (name, ty)) in fields.into_iter().enumerate() {
+                    self.bind_self_field(&name, ty, is_mut, index);
                 }
             }
         }
         for (p, ps) in f.params.iter().zip(&sig.params) {
-            if let Some(default) = &p.default {
-                let actual = self.expr(default, Some(&ps.ty));
-                self.expect(&ps.ty, &actual, default.span);
-            }
+            let default = p.default.as_ref().map(|default| {
+                let c = self.expr(default, Some(&ps.ty));
+                self.expect(&ps.ty, &c.ty, default.span);
+                c.id
+            });
+            self.hir.param_default(default);
             // Parameters are immutable bindings; mutate through `&mut` or `^`.
-            self.bind(&ps.name, ps.ty.clone(), false);
+            self.bind(
+                &ps.name,
+                ps.ty.clone(),
+                false,
+                LocalKind::Param,
+                p.name.span,
+            );
         }
-        if let Some(body) = &f.body {
-            self.block(body, None);
-        }
+        let root = match &f.body {
+            Some(body) => self.block(body, None).id,
+            None => self.hir.block(f.name.span, Vec::new()),
+        };
         self.pop();
+        root
     }
 
     // --- statements -------------------------------------------------------
 
     /// The type a block produces: its final expression statement, or `void`.
-    fn block(&mut self, b: &Block, expected: Option<&Ty>) -> Ty {
+    fn block(&mut self, b: &Block, expected: Option<&Ty>) -> CheckedBlock {
         self.push();
         let mut result = Ty::Void;
+        let mut stmts = Vec::new();
         let last = b.stmts.len().saturating_sub(1);
         for (i, s) in b.stmts.iter().enumerate() {
             if i == last {
                 if let StmtKind::Expr(e) = &s.kind {
-                    result = self.expr(e, expected);
-                    self.check_unused(&result, e);
+                    // The final expression is the block's value only when something wants
+                    // one; otherwise it is an ordinary statement, and `or ignore` is legal.
+                    self.stmt_position = expected.is_none();
+                    let c = self.expr(e, expected);
+                    self.stmt_position = false;
+                    self.check_unused(&c.ty, e);
+                    result = c.ty;
+                    stmts.push(self.hir.stmt(s.span, hir::StmtKind::Expr(c.id)));
                     continue;
                 }
             }
-            self.stmt(s);
+            let id = self.stmt(s);
+            stmts.push(id);
         }
         self.pop();
-        result
+        CheckedBlock {
+            ty: result,
+            id: self.hir.block(b.span, stmts),
+        }
     }
 
-    fn stmt(&mut self, s: &Stmt) {
-        match &s.kind {
+    fn stmt(&mut self, s: &Stmt) -> StmtId {
+        let kind = match &s.kind {
             StmtKind::Let(l) => {
                 let declared = l.ty.as_ref().map(|t| {
                     let t = self.cx.lower_type(t);
                     self.subst(&t)
                 });
-                let ty = match (&declared, &l.init) {
+                let (ty, init) = match (&declared, &l.init) {
                     (Some(d), Some(init)) => {
-                        let actual = self.expr(init, Some(d));
-                        self.expect(d, &actual, init.span);
-                        d.clone()
+                        let c = self.expr(init, Some(d));
+                        self.expect(d, &c.ty, init.span);
+                        (d.clone(), Some(c.id))
                     }
-                    (Some(d), None) => d.clone(),
+                    (Some(d), None) => (d.clone(), None),
                     (None, Some(init)) => {
-                        let t = self.expr(init, None);
-                        if matches!(t, Ty::Void) {
+                        let c = self.expr(init, None);
+                        if matches!(c.ty, Ty::Void) {
                             self.cx.error(
                                 codes::TYPE_MISMATCH,
                                 init.span,
@@ -307,50 +492,78 @@ impl<'a, 'c> Body<'a, 'c> {
                                 "this expression produces no value",
                             );
                         }
-                        t.defaulted()
+                        // A binding is not an escape hatch for a fallible call: there is
+                        // no `T!` to hold, so it must be consumed here (spec §9.7).
+                        if matches!(c.ty, Ty::Fallible(_)) {
+                            self.cx.error_help(
+                                codes::UNUSED_RESULT,
+                                init.span,
+                                "fallible call not consumed",
+                                "a failure cannot be stored, only handled",
+                                "add an `or` clause: `let v = f() or return`, or \
+                                 `let v = f() or <fallback>` (spec §9.7)",
+                            );
+                        }
+                        (c.ty.defaulted(), Some(c.id))
                     }
                     // The parser already reported `let` with neither.
-                    (None, None) => Ty::Error,
+                    (None, None) => (Ty::Error, None),
                 };
-                self.bind_pattern(&l.pat, &ty, l.mutable);
+                let locals = self.bind_pattern(&l.pat, &ty, l.mutable, LocalKind::Let);
+                match (&l.pat.kind, init) {
+                    (PatKind::Tuple(_), Some(init)) => hir::StmtKind::LetTuple { locals, init },
+                    _ => hir::StmtKind::Let {
+                        local: locals.into_iter().next().flatten(),
+                        init,
+                    },
+                }
             }
             StmtKind::Assign { target, op, value } => {
-                let target_ty = self.expr(target, None);
-                let value_ty = self.expr(value, Some(&target_ty));
+                let t = self.expr(target, None);
+                let v = self.expr(value, Some(&t.ty));
                 self.require_mutable(target);
                 if *op == AssignOp::Assign {
-                    self.expect(&target_ty, &value_ty, value.span);
+                    self.expect(&t.ty, &v.ty, value.span);
                 } else {
                     // Compound assignment desugars to `a = a op b` (spec §11.2).
-                    if !target_ty.is_wildcard() && !target_ty.is_numeric() {
-                        let t = self.cx.name_of(&target_ty);
+                    if !t.ty.is_wildcard() && !t.ty.is_numeric() {
+                        let name = self.cx.name_of(&t.ty);
                         let o = op.as_str();
                         self.cx.error(
                             codes::INVALID_OPERANDS,
                             target.span,
-                            format!("`{o}` cannot be applied to `{t}`"),
+                            format!("`{o}` cannot be applied to `{name}`"),
                             "not a numeric type",
                         );
                     }
-                    self.expect(&target_ty, &value_ty, value.span);
+                    self.expect(&t.ty, &v.ty, value.span);
+                }
+                hir::StmtKind::Assign {
+                    target: t.id,
+                    op: *op,
+                    value: v.id,
                 }
             }
             StmtKind::Expr(e) => {
-                let t = self.expr(e, None);
-                self.check_unused(&t, e);
+                self.stmt_position = true;
+                let c = self.expr(e, None);
+                self.stmt_position = false;
+                self.check_unused(&c.ty, e);
+                hir::StmtKind::Expr(c.id)
             }
             StmtKind::While(w) => {
                 let c = self.expr(&w.cond, Some(&Ty::Bool));
-                self.require_bool(&c, w.cond.span, "while");
-                self.block(&w.body, None);
+                self.require_bool(&c.ty, w.cond.span, "while");
+                let body = self.block(&w.body, None).id;
+                hir::StmtKind::While { cond: c.id, body }
             }
             StmtKind::For(f) => {
-                let iter = self.expr(&f.iter, None);
-                let elem = match iter.element() {
+                let subject = self.expr(&f.iter, None);
+                let elem = match subject.ty.element() {
                     Some(e) => e.clone(),
                     None => {
-                        if !iter.is_wildcard() {
-                            let t = self.cx.name_of(&iter);
+                        if !subject.ty.is_wildcard() {
+                            let t = self.cx.name_of(&subject.ty);
                             self.cx.error_help(
                                 codes::TYPE_MISMATCH,
                                 f.iter.span,
@@ -365,31 +578,62 @@ impl<'a, 'c> Body<'a, 'c> {
                 };
                 self.push();
                 // `for i, e in &xs` binds an index alongside the element (spec §10.4).
+                let mut bindings = Vec::new();
                 if f.bindings.len() == 2 {
-                    self.bind_pattern(&f.bindings[0], &Ty::Int(IntTy::Usize), false);
-                    self.bind_pattern(&f.bindings[1], &elem, false);
+                    let idx = Ty::Int(IntTy::Usize);
+                    bindings.extend(self.bind_pattern(
+                        &f.bindings[0],
+                        &idx,
+                        false,
+                        LocalKind::Binding,
+                    ));
+                    bindings.extend(self.bind_pattern(
+                        &f.bindings[1],
+                        &elem,
+                        false,
+                        LocalKind::Binding,
+                    ));
                 } else {
                     for b in &f.bindings {
-                        self.bind_pattern(b, &elem, false);
+                        bindings.extend(self.bind_pattern(b, &elem, false, LocalKind::Binding));
                     }
                 }
-                self.block(&f.body, None);
+                let body = self.block(&f.body, None).id;
                 self.pop();
+                hir::StmtKind::For {
+                    bindings,
+                    subject: subject.id,
+                    body,
+                }
             }
-            StmtKind::Defer(inner) => self.stmt(inner),
+            StmtKind::Defer(inner) => hir::StmtKind::Defer(self.stmt(inner)),
             // Nested declarations are checked by the top-level walk.
-            StmtKind::Item(_) | StmtKind::Error => {}
-        }
+            StmtKind::Item(_) | StmtKind::Error => hir::StmtKind::Error,
+        };
+        self.hir.stmt(s.span, kind)
     }
 
-    fn bind_pattern(&mut self, p: &Pat, ty: &Ty, mutable: bool) {
+    /// Bind a pattern, returning the locals it introduced in source order. `None` is a
+    /// `_`, which binds nothing but still occupies its position.
+    fn bind_pattern(
+        &mut self,
+        p: &Pat,
+        ty: &Ty,
+        mutable: bool,
+        kind: LocalKind,
+    ) -> Vec<Option<LocalId>> {
         match &p.kind {
-            PatKind::Ident(i) => self.bind(&i.name, ty.clone(), mutable),
+            PatKind::Ident(i) => {
+                vec![Some(self.bind(&i.name, ty.clone(), mutable, kind, p.span))]
+            }
             PatKind::Tuple(elems) => match ty {
                 Ty::Tuple(parts) if parts.len() == elems.len() => {
-                    for (e, t) in elems.iter().zip(parts) {
-                        self.bind_pattern(e, t, mutable);
+                    let parts = parts.clone();
+                    let mut out = Vec::new();
+                    for (e, t) in elems.iter().zip(&parts) {
+                        out.extend(self.bind_pattern(e, t, mutable, kind));
                     }
+                    out
                 }
                 _ => {
                     if !ty.is_wildcard() {
@@ -402,12 +646,14 @@ impl<'a, 'c> Body<'a, 'c> {
                             "not a tuple of the right size",
                         );
                     }
+                    let mut out = Vec::new();
                     for e in elems {
-                        self.bind_pattern(e, &Ty::Error, mutable);
+                        out.extend(self.bind_pattern(e, &Ty::Error, mutable, kind));
                     }
+                    out
                 }
             },
-            PatKind::Wild | PatKind::Error => {}
+            PatKind::Wild | PatKind::Error => vec![None],
         }
     }
 
@@ -426,32 +672,33 @@ impl<'a, 'c> Body<'a, 'c> {
         );
     }
 
-    /// Discarding a `!T` is an error; discarding a `?T` is a warning (spec §9.7).
+    /// A fallible call must be consumed in the statement it appears in; discarding a `T?`
+    /// is a warning (spec §9.7).
     fn check_unused(&mut self, t: &Ty, e: &Expr) {
-        // `try` and `with` already consume the result.
-        if matches!(e.kind, ExprKind::Try(_) | ExprKind::With(_) | ExprKind::Catch { .. }) {
+        // An `or` clause has already consumed it.
+        if matches!(e.kind, ExprKind::Or { .. }) {
             return;
         }
         match t {
             Ty::Fallible(_) => {
-                let name = self.cx.name_of(t);
                 self.cx.error_help(
                     codes::UNUSED_RESULT,
                     e.span,
-                    format!("unused `{name}`"),
+                    "fallible call not consumed",
                     "this may fail, and the failure is discarded",
-                    "handle it with `with`, propagate it with `try`, supply a fallback with \
-                     `catch`, or write `let _ = ...` to ignore it deliberately (spec §9.7)",
+                    "add an `or` clause: `or return` to propagate, `or <value>` to fall \
+                     back, or `or ignore` to drop it deliberately (spec §9.7)",
                 );
             }
             Ty::Optional(_) => {
                 let name = self.cx.name_of(t);
                 self.cx.diags.push(
-                    dz_diag::Diagnostic::warning(
-                        codes::UNUSED_RESULT,
-                        format!("unused `{name}`"),
-                    )
-                    .at(self.cx.file, e.span, "this may be absent, and that is discarded"),
+                    dz_diag::Diagnostic::warning(codes::UNUSED_RESULT, format!("unused `{name}`"))
+                        .at(
+                            self.cx.file,
+                            e.span,
+                            "this may be absent, and that is discarded",
+                        ),
                 );
             }
             _ => {}
@@ -531,7 +778,10 @@ impl<'a, 'c> Body<'a, 'c> {
                         format!("declare it as `let mut {name}` to allow assignment"),
                     )
                 } else {
-                    (format!("`{name}`"), "constants and functions cannot be assigned to".to_owned())
+                    (
+                        format!("`{name}`"),
+                        "constants and functions cannot be assigned to".to_owned(),
+                    )
                 }
             }
             ExprKind::Field { name, .. } => (
@@ -544,19 +794,24 @@ impl<'a, 'c> Body<'a, 'c> {
         }
     }
 
-    /// Type of an expression without emitting diagnostics, for place analysis.
+    /// Type of an expression without emitting diagnostics or keeping nodes, for place
+    /// analysis. The expression has already been checked once; this is a second look.
     fn expr_quiet(&mut self, e: &Expr) -> Ty {
         let before = self.cx.diags.len();
-        let t = self.expr(e, None);
+        let mark = self.hir.mark();
+        let t = self.expr(e, None).ty;
+        self.hir.rollback(mark);
         self.cx.diags.truncate(before);
         t
     }
 
     // --- expressions ------------------------------------------------------
 
-    fn expr(&mut self, e: &Expr, expected: Option<&Ty>) -> Ty {
+    fn expr(&mut self, e: &Expr, expected: Option<&Ty>) -> Checked {
         match &e.kind {
             ExprKind::Int(text) => {
+                let value = parse_int_literal(text).unwrap_or(0);
+                let mut ty = Ty::IntLit;
                 if let (Some(exp), Some(v)) = (expected, parse_int_literal(text)) {
                     if let Ty::Int(i) = self.subst(exp) {
                         let (lo, hi) = i.range();
@@ -569,68 +824,103 @@ impl<'a, 'c> Body<'a, 'c> {
                                 format!("outside the range of `{n}`"),
                                 format!("valid values are {lo} to {hi}"),
                             );
-                            return Ty::Error;
+                            ty = Ty::Error;
+                        } else {
+                            ty = Ty::Int(i);
                         }
-                        return Ty::Int(i);
-                    }
-                    if let Ty::Float(f) = self.subst(exp) {
-                        return Ty::Float(f);
+                    } else if let Ty::Float(f) = self.subst(exp) {
+                        // An integer literal in a float context is a float (spec §2.5).
+                        return self.mk(e, Ty::Float(f), hir::ExprKind::Float(value as f64));
                     }
                 }
-                Ty::IntLit
+                self.mk(e, ty, hir::ExprKind::Int(value))
             }
-            ExprKind::Float(_) => match expected.map(|t| self.subst(t)) {
-                Some(Ty::Float(f)) => Ty::Float(f),
-                _ => Ty::FloatLit,
-            },
-            ExprKind::Str(_) | ExprKind::RawStr(_) => Ty::Str,
-            ExprKind::Char(_) => Ty::Char,
-            ExprKind::Bool(_) => Ty::Bool,
-            ExprKind::Null => match expected.map(|t| self.subst(t)) {
-                Some(t @ (Ty::Ptr(_) | Ty::OwnPtr(_))) => t,
-                _ => Ty::Ptr(Rc::new(Ty::Error)),
-            },
-            ExprKind::None => match expected.map(|t| self.subst(t)) {
-                Some(t @ Ty::Optional(_)) => t,
-                _ => {
-                    // `none` only means something where a `?T` is wanted (spec §9.1).
-                    if let Ty::Optional(inner) = &self.ret {
-                        return Ty::Optional(inner.clone());
-                    }
-                    self.cx.error_help(
-                        codes::NO_CONTEXT_FOR_LITERAL,
-                        e.span,
-                        "`none` needs an optional type here",
-                        "nothing here expects a `?T`",
-                        "`none` is the empty case of `?T` (spec §9.1)",
-                    );
-                    Ty::Error
-                }
-            },
-            ExprKind::Path(p) => self.path_expr(p, e.span),
-            ExprKind::Tuple(elems) => {
-                let parts = match expected.map(|t| self.subst(t)) {
-                    Some(Ty::Tuple(want)) if want.len() == elems.len() => {
-                        elems.iter().zip(&want).map(|(x, w)| self.expr(x, Some(w))).collect()
-                    }
-                    _ => elems.iter().map(|x| self.expr(x, None).defaulted()).collect(),
+            ExprKind::Float(text) => {
+                let ty = match expected.map(|t| self.subst(t)) {
+                    Some(Ty::Float(f)) => Ty::Float(f),
+                    _ => Ty::FloatLit,
                 };
-                Ty::Tuple(parts)
+                self.mk(e, ty, hir::ExprKind::Float(parse_float_literal(text)))
+            }
+            ExprKind::Str(text) => {
+                let kind = hir::ExprKind::Str(decode_string_literal(text));
+                self.mk(e, Ty::Str, kind)
+            }
+            ExprKind::RawStr(text) => {
+                let kind = hir::ExprKind::Str(decode_raw_string_literal(text));
+                self.mk(e, Ty::Str, kind)
+            }
+            ExprKind::Char(text) => {
+                let c = decode_string_literal(text).chars().next().unwrap_or('\0');
+                self.mk(e, Ty::Char, hir::ExprKind::Char(c))
+            }
+            ExprKind::Bool(b) => self.mk(e, Ty::Bool, hir::ExprKind::Bool(*b)),
+            ExprKind::Null => {
+                let ty = match expected.map(|t| self.subst(t)) {
+                    Some(t @ (Ty::Ptr(_) | Ty::OwnPtr(_))) => t,
+                    _ => Ty::Ptr(Rc::new(Ty::Error)),
+                };
+                self.mk(e, ty, hir::ExprKind::Null)
+            }
+            ExprKind::None => {
+                let ty = match expected.map(|t| self.subst(t)) {
+                    Some(t @ Ty::Optional(_)) => t,
+                    // `none` only means something where a `T?` is wanted (spec §9.1).
+                    _ => match &self.ret {
+                        Ty::Optional(inner) => Ty::Optional(inner.clone()),
+                        _ => {
+                            self.cx.error_help(
+                                codes::NO_CONTEXT_FOR_LITERAL,
+                                e.span,
+                                "`none` needs an optional type here",
+                                "nothing here expects a `T?`",
+                                "`none` is the empty case of `T?` (spec §9.1)",
+                            );
+                            Ty::Error
+                        }
+                    },
+                };
+                self.mk(e, ty, hir::ExprKind::NoneOpt)
+            }
+            ExprKind::Path(p) => self.path_expr(p, e),
+            ExprKind::Tuple(elems) => {
+                let checked: Vec<Checked> = match expected.map(|t| self.subst(t)) {
+                    Some(Ty::Tuple(want)) if want.len() == elems.len() => elems
+                        .iter()
+                        .zip(&want)
+                        .map(|(x, w)| self.expr(x, Some(w)))
+                        .collect(),
+                    _ => elems.iter().map(|x| self.expr(x, None)).collect(),
+                };
+                let ty = Ty::Tuple(checked.iter().map(|c| c.ty.defaulted()).collect());
+                let parts = checked.iter().map(|c| c.id).collect();
+                self.mk(e, ty, hir::ExprKind::Tuple(parts))
             }
             ExprKind::Ref { mutable, expr } => {
                 let inner = self.expr(expr, None);
                 if *mutable {
                     self.require_mutable(expr);
                 }
-                Ty::Ref { mutable: *mutable, inner: Rc::new(inner.defaulted()) }
+                let ty = Ty::Ref {
+                    mutable: *mutable,
+                    inner: Rc::new(inner.ty.defaulted()),
+                };
+                self.mk(
+                    e,
+                    ty,
+                    hir::ExprKind::Ref {
+                        mutable: *mutable,
+                        place: inner.id,
+                    },
+                )
             }
             ExprKind::Deref(inner) => {
-                let t = self.expr(inner, None);
-                match &t {
+                let c = self.expr(inner, None);
+                let ty = match &c.ty {
                     Ty::Ptr(i) | Ty::OwnPtr(i) => (**i).clone(),
-                    _ if t.is_wildcard() => Ty::Error,
-                    _ => {
-                        let n = self.cx.name_of(&t);
+                    t if t.is_wildcard() => Ty::Error,
+                    t => {
+                        let n = self.cx.name_of(t);
                         self.cx.error_help(
                             codes::NOT_DEREFERENCEABLE,
                             e.span,
@@ -641,12 +931,17 @@ impl<'a, 'c> Body<'a, 'c> {
                         );
                         Ty::Error
                     }
-                }
+                };
+                self.mk(e, ty, hir::ExprKind::Deref(c.id))
             }
-            ExprKind::Move(inner) => self.expr(inner, expected),
+            ExprKind::Move(inner) => {
+                let c = self.expr(inner, expected);
+                self.mk(e, c.ty.clone(), hir::ExprKind::Move(c.id))
+            }
             ExprKind::Unary { op, operand } => {
-                let t = self.expr(operand, expected);
-                match op {
+                let c = self.expr(operand, expected);
+                let t = c.ty.clone();
+                let ty = match op {
                     UnaryOp::Not => {
                         self.require_bool(&t, operand.span, "`!`");
                         Ty::Bool
@@ -660,9 +955,10 @@ impl<'a, 'c> Body<'a, 'c> {
                                 format!("`-` cannot be applied to `{n}`"),
                                 "not a numeric type",
                             );
-                            return Ty::Error;
+                            Ty::Error
+                        } else {
+                            t
                         }
-                        t
                     }
                     UnaryOp::BitNot => {
                         if !t.is_wildcard() && !t.is_integral() {
@@ -673,23 +969,40 @@ impl<'a, 'c> Body<'a, 'c> {
                                 format!("`~` cannot be applied to `{n}`"),
                                 "not an integer type",
                             );
-                            return Ty::Error;
+                            Ty::Error
+                        } else {
+                            t
                         }
-                        t
                     }
-                }
+                };
+                self.mk(
+                    e,
+                    ty,
+                    hir::ExprKind::Unary {
+                        op: *op,
+                        operand: c.id,
+                    },
+                )
             }
-            ExprKind::Binary { op, lhs, rhs } => self.binary(*op, lhs, rhs, e.span, expected),
+            ExprKind::Binary { op, lhs, rhs } => self.binary(*op, lhs, rhs, e, expected),
             ExprKind::Cast { expr, ty } => {
                 let from = self.expr(expr, None);
                 let target = self.cx.lower_type(ty);
                 let target = self.subst(&target);
-                self.check_cast(&from, &target, e.span);
-                target
+                self.check_cast(&from.ty, &target, e.span);
+                self.mk(e, target, hir::ExprKind::Cast { operand: from.id })
             }
-            ExprKind::Range { start, end, .. } => {
-                let s = start.as_ref().map(|x| self.expr(x, None));
-                let en = end.as_ref().map(|x| self.expr(x, None));
+            ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                let start = start.as_ref().map(|x| self.expr(x, None));
+                let end = end.as_ref().map(|x| self.expr(x, None));
+                let (s, en) = (
+                    start.as_ref().map(|c| c.ty.clone()),
+                    end.as_ref().map(|c| c.ty.clone()),
+                );
                 let elem = match (s, en) {
                     (Some(a), Some(b)) => match join(&a, &b) {
                         Some(t) => t.defaulted(),
@@ -716,13 +1029,18 @@ impl<'a, 'c> Body<'a, 'c> {
                         "not an integer",
                     );
                 }
-                Ty::Range(Rc::new(elem))
+                let kind = hir::ExprKind::Range {
+                    start: start.map(|c| c.id),
+                    end: end.map(|c| c.id),
+                    inclusive: *inclusive,
+                };
+                self.mk(e, Ty::Range(Rc::new(elem)), kind)
             }
             ExprKind::Index { base, index } => {
                 let b = self.expr(base, None);
                 let i = self.expr(index, Some(&Ty::Int(IntTy::Usize)));
-                if !i.is_wildcard() && !i.is_integral() {
-                    let n = self.cx.name_of(&i);
+                if !i.ty.is_wildcard() && !i.ty.is_integral() {
+                    let n = self.cx.name_of(&i.ty);
                     self.cx.error(
                         codes::TYPE_MISMATCH,
                         index.span,
@@ -730,11 +1048,11 @@ impl<'a, 'c> Body<'a, 'c> {
                         "not an integer",
                     );
                 }
-                match b.element() {
+                let ty = match b.ty.element() {
                     Some(t) => t.clone(),
                     None => {
-                        if !b.is_wildcard() {
-                            let n = self.cx.name_of(&b);
+                        if !b.ty.is_wildcard() {
+                            let n = self.cx.name_of(&b.ty);
                             self.cx.error(
                                 codes::NOT_INDEXABLE,
                                 base.span,
@@ -744,21 +1062,37 @@ impl<'a, 'c> Body<'a, 'c> {
                         }
                         Ty::Error
                     }
-                }
+                };
+                self.mk(
+                    e,
+                    ty,
+                    hir::ExprKind::Index {
+                        base: b.id,
+                        index: i.id,
+                    },
+                )
             }
             ExprKind::Field { base, name } => {
                 let b = self.expr(base, None);
-                self.field_type(&b, name, base.span)
+                let (ty, index) = self.field_type(&b.ty, name, base.span);
+                match index {
+                    // Tuples are indexed by position, structs by field (spec §5.4).
+                    Some(index) if matches!(b.ty.peeled(), Ty::Tuple(_)) => {
+                        self.mk(e, ty, hir::ExprKind::TupleIndex { base: b.id, index })
+                    }
+                    Some(index) => self.mk(e, ty, hir::ExprKind::Field { base: b.id, index }),
+                    None => self.mk(e, ty, hir::ExprKind::Error),
+                }
             }
-            ExprKind::Call { callee, args } => self.call(callee, args, e.span),
+            ExprKind::Call { callee, args } => self.call(callee, args, e),
             ExprKind::StructLit { path, fields } => {
                 let ty = self.cx.lower_type(&Type {
                     span: path.span,
                     kind: TypeKind::Path(path.clone()),
                 });
                 let ty = self.subst(&ty);
-                self.struct_literal(&ty, fields, e.span);
-                ty
+                let kind = self.struct_literal(&ty, fields, e.span);
+                self.mk(e, ty, kind)
             }
             // `.Variant{}` needs the expected type to know which type it belongs to.
             ExprKind::DotInfer { name, init } => {
@@ -775,82 +1109,73 @@ impl<'a, 'c> Body<'a, 'c> {
                             self.expr(&f.value, None);
                         }
                     }
-                    return Ty::Error;
+                    return self.mk(e, Ty::Error, hir::ExprKind::Error);
                 };
-                self.dot_infer(&want, name, init.as_deref(), e.span);
-                want
+                let kind = self.dot_infer(&want, name, init.as_deref(), e.span);
+                self.mk(e, want, kind)
             }
-            ExprKind::Block(b) => self.block(b, expected),
+            ExprKind::Block(b) => {
+                let c = self.block(b, expected);
+                self.mk(e, c.ty, hir::ExprKind::Block(c.id))
+            }
             ExprKind::If(i) => {
-                let c = self.expr(&i.cond, Some(&Ty::Bool));
-                self.require_bool(&c, i.cond.span, "if");
+                let cond = self.expr(&i.cond, Some(&Ty::Bool));
+                self.require_bool(&cond.ty, i.cond.span, "if");
                 let then = self.block(&i.then, expected);
-                match &i.else_branch {
+                let (ty, else_branch) = match &i.else_branch {
                     Some(else_expr) => {
                         let other = self.expr(else_expr, expected);
-                        join(&then, &other).unwrap_or(Ty::Void)
+                        // The parser only ever produces a block or another `if` here, and
+                        // both are single expressions, so the branch is one HIR block.
+                        let block = self.hir.block(else_expr.span, vec![]);
+                        let stmt = self.hir.stmt(else_expr.span, hir::StmtKind::Expr(other.id));
+                        self.hir.set_block_stmts(block, vec![stmt]);
+                        (join(&then.ty, &other.ty).unwrap_or(Ty::Void), Some(block))
                     }
                     // Without an `else` an `if` cannot produce a value.
-                    None => Ty::Void,
-                }
-            }
-            ExprKind::Switch(s) => self.switch(s, expected),
-            ExprKind::With(w) => self.with(w, expected),
-            ExprKind::Try(inner) => self.try_expr(inner, e.span),
-            ExprKind::Catch { expr, handler } => {
-                let subject = self.expr(expr, None);
-                let (payload, failure) = match &subject {
-                    Ty::Fallible(inner) => ((**inner).clone(), Some(Ty::Error)),
-                    Ty::Optional(inner) => ((**inner).clone(), None),
-                    _ if subject.is_wildcard() => (Ty::Error, None),
-                    _ => {
-                        let n = self.cx.name_of(&subject);
-                        self.cx.error_help(
-                            codes::TYPE_MISMATCH,
-                            expr.span,
-                            format!("`catch` needs a `?T` or `!T`, found `{n}`"),
-                            "this cannot fail",
-                            "`catch` supplies a fallback for a failing expression (spec §9.6)",
-                        );
-                        (Ty::Error, None)
-                    }
+                    None => (Ty::Void, None),
                 };
-                let _ = failure;
-                match handler.as_ref() {
-                    CatchHandler::Value(v) => {
-                        let t = self.expr(v, Some(&payload));
-                        self.expect(&payload, &t, v.span);
-                    }
-                    CatchHandler::Block { binding, body } => {
-                        self.push();
-                        let name =
-                            binding.as_ref().map(|b| b.name.clone()).unwrap_or("it".to_owned());
-                        self.bind(&name, Ty::Error, false);
-                        let t = self.block(body, Some(&payload));
-                        if !matches!(t, Ty::Never | Ty::Void) {
-                            self.expect(&payload, &t, body.span);
-                        }
-                        self.pop();
-                    }
-                }
-                payload
+                let kind = hir::ExprKind::If {
+                    cond: cond.id,
+                    then: then.id,
+                    else_branch,
+                };
+                self.mk(e, ty, kind)
             }
+            ExprKind::Switch(s) => self.switch(s, e, expected),
+            ExprKind::Or { expr, clause } => self.or_expr(expr, clause, e, expected),
             ExprKind::Return(v) => {
                 let ret = self.ret.clone();
+                let mut value = None;
                 match v {
-                    Some(value) => {
-                        let t = self.expr(value, Some(&ret));
-                        // Returning a plain `T` from a `?T`/`!T` function is the success
-                        // case — there is no wrapping step (spec §9.1).
-                        let target = match &ret {
-                            Ty::Optional(inner) | Ty::Fallible(inner)
-                                if !assignable(&ret, &t) =>
-                            {
-                                (**inner).clone()
+                    Some(expr) => {
+                        let c = self.expr(expr, Some(&ret));
+                        value = Some(c.id);
+                        let t = c.ty;
+                        // `return error(...)` is the failure case of a `!->` function
+                        // (spec §9.1); its payload is `Never`, so it unifies with any
+                        // success type and only the signature has to be checked.
+                        if let Ty::Fallible(_) = &t {
+                            if !self.fallible {
+                                self.cx.error_help(
+                                    codes::TRY_OUTSIDE_FALLIBLE,
+                                    expr.span,
+                                    "this function cannot fail",
+                                    "there is nowhere for this error to go",
+                                    "mark the signature fallible by writing `!->` in place                                      of `->` (spec §9.1)",
+                                );
                             }
-                            other => other.clone(),
-                        };
-                        self.expect(&target, &t, value.span);
+                        } else {
+                            // Returning a plain `T` from a `T?` function is the success
+                            // case — there is no wrapping step (spec §9.1).
+                            let target = match &ret {
+                                Ty::Optional(inner) if !assignable(&ret, &t) => {
+                                    (**inner).clone()
+                                }
+                                other => other.clone(),
+                            };
+                            self.expect(&target, &t, expr.span);
+                        }
                     }
                     None => {
                         if !matches!(ret, Ty::Void | Ty::Error) {
@@ -864,29 +1189,37 @@ impl<'a, 'c> Body<'a, 'c> {
                         }
                     }
                 }
-                Ty::Never
+                self.mk(e, Ty::Never, hir::ExprKind::Return(value))
             }
             ExprKind::Break { value, .. } => {
-                if let Some(v) = value {
-                    self.expr(v, None);
-                }
-                Ty::Never
+                let value = value.as_ref().map(|v| self.expr(v, None).id);
+                self.mk(e, Ty::Never, hir::ExprKind::Break { value })
             }
-            ExprKind::Continue { .. } => Ty::Never,
+            ExprKind::Continue { .. } => self.mk(e, Ty::Never, hir::ExprKind::Continue),
             ExprKind::Intrinsic { name, args } => {
-                for a in args {
-                    self.expr(a, None);
-                }
+                let args = args.iter().map(|a| self.expr(a, None).id).collect();
                 // spec §12.7
-                match name.name.as_str() {
+                let ty = match name.name.as_str() {
                     "line" | "column" => Ty::Int(IntTy::U32),
                     "file" | "function" | "module" | "expr_text" => Ty::Str,
                     _ => Ty::Error,
-                }
+                };
+                let kind = hir::ExprKind::Intrinsic {
+                    name: name.name.clone(),
+                    args,
+                };
+                self.mk(e, ty, kind)
             }
             // Macro bodies are opaque until M10.
-            ExprKind::MacroCall { .. } | ExprKind::Error => Ty::Error,
+            ExprKind::MacroCall { .. } | ExprKind::Error => {
+                self.mk(e, Ty::Error, hir::ExprKind::Error)
+            }
         }
+    }
+
+    /// Push the node the checker just decided on, tagged with its source expression.
+    fn mk(&mut self, e: &Expr, ty: Ty, kind: hir::ExprKind) -> Checked {
+        self.hir.expr(e.span, ty, kind)
     }
 
     // --- sub-checks -------------------------------------------------------
@@ -896,23 +1229,24 @@ impl<'a, 'c> Body<'a, 'c> {
         op: BinaryOp,
         lhs: &Expr,
         rhs: &Expr,
-        span: Span,
+        e: &Expr,
         expected: Option<&Ty>,
-    ) -> Ty {
+    ) -> Checked {
         use BinaryOp::*;
-        match op {
+        let span = e.span;
+        let (ty, a, b) = match op {
             And | Or => {
                 let a = self.expr(lhs, Some(&Ty::Bool));
                 let b = self.expr(rhs, Some(&Ty::Bool));
-                self.require_bool(&a, lhs.span, op.as_str());
-                self.require_bool(&b, rhs.span, op.as_str());
-                Ty::Bool
+                self.require_bool(&a.ty, lhs.span, op.as_str());
+                self.require_bool(&b.ty, rhs.span, op.as_str());
+                (Ty::Bool, a, b)
             }
             Eq | Ne | Lt | Gt | Le | Ge => {
                 let a = self.expr(lhs, None);
-                let b = self.expr(rhs, Some(&a));
-                if join(&a, &b).is_none() {
-                    let (x, y) = (self.cx.name_of(&a), self.cx.name_of(&b));
+                let b = self.expr(rhs, Some(&a.ty));
+                if join(&a.ty, &b.ty).is_none() {
+                    let (x, y) = (self.cx.name_of(&a.ty), self.cx.name_of(&b.ty));
                     self.cx.error_help(
                         codes::INVALID_OPERANDS,
                         span,
@@ -921,60 +1255,78 @@ impl<'a, 'c> Body<'a, 'c> {
                         "Dazzle has no implicit conversions (spec §5.1) — cast one side",
                     );
                 }
-                Ty::Bool
+                (Ty::Bool, a, b)
             }
             BitAnd | BitOr | BitXor | Shl | Shr => {
                 let a = self.expr(lhs, expected);
-                let b = self.expr(rhs, Some(&a));
-                for (t, e) in [(&a, lhs), (&b, rhs)] {
+                let b = self.expr(rhs, Some(&a.ty));
+                let mut ty = None;
+                for (t, at) in [(&a.ty, lhs), (&b.ty, rhs)] {
                     if !t.is_wildcard() && !t.is_integral() {
                         let n = self.cx.name_of(t);
                         let o = op.as_str();
                         self.cx.error(
                             codes::INVALID_OPERANDS,
-                            e.span,
+                            at.span,
                             format!("`{o}` needs integer operands, found `{n}`"),
                             "not an integer",
                         );
-                        return Ty::Error;
+                        ty = Some(Ty::Error);
+                        break;
                     }
                 }
-                join(&a, &b).unwrap_or(Ty::Error)
+                let ty = ty.unwrap_or_else(|| join(&a.ty, &b.ty).unwrap_or(Ty::Error));
+                (ty, a, b)
             }
             Add | Sub | Mul | Div | Rem => {
                 let a = self.expr(lhs, expected);
-                let b = self.expr(rhs, Some(&a));
-                for (t, e) in [(&a, lhs), (&b, rhs)] {
+                let b = self.expr(rhs, Some(&a.ty));
+                let mut ty = None;
+                for (t, at) in [(&a.ty, lhs), (&b.ty, rhs)] {
                     if !t.is_wildcard() && !t.is_numeric() {
                         let n = self.cx.name_of(t);
                         let o = op.as_str();
                         self.cx.error(
                             codes::INVALID_OPERANDS,
-                            e.span,
+                            at.span,
                             format!("`{o}` cannot be applied to `{n}`"),
                             "not a numeric type",
                         );
-                        return Ty::Error;
+                        ty = Some(Ty::Error);
+                        break;
                     }
                 }
-                match join(&a, &b) {
+                let ty = match ty {
                     Some(t) => t,
-                    None => {
-                        let (x, y) = (self.cx.name_of(&a), self.cx.name_of(&b));
-                        let o = op.as_str();
-                        self.cx.error_help(
-                            codes::INVALID_OPERANDS,
-                            span,
-                            format!("`{o}` cannot mix `{x}` and `{y}`"),
-                            "operands have different types",
-                            "Dazzle has no implicit numeric conversions, not even widening \
-                             (spec §5.1) — cast one side with `as`",
-                        );
-                        Ty::Error
-                    }
-                }
+                    None => match join(&a.ty, &b.ty) {
+                        Some(t) => t,
+                        None => {
+                            let (x, y) = (self.cx.name_of(&a.ty), self.cx.name_of(&b.ty));
+                            let o = op.as_str();
+                            self.cx.error_help(
+                                codes::INVALID_OPERANDS,
+                                span,
+                                format!("`{o}` cannot mix `{x}` and `{y}`"),
+                                "operands have different types",
+                                "Dazzle has no implicit numeric conversions, not even widening \
+                                 (spec §5.1) — cast one side with `as`",
+                            );
+                            Ty::Error
+                        }
+                    },
+                };
+                (ty, a, b)
             }
-        }
+        };
+        self.mk(
+            e,
+            ty,
+            hir::ExprKind::Binary {
+                op,
+                lhs: a.id,
+                rhs: b.id,
+            },
+        )
     }
 
     fn check_cast(&mut self, from: &Ty, to: &Ty, span: Span) {
@@ -1011,13 +1363,13 @@ impl<'a, 'c> Body<'a, 'c> {
         }
     }
 
-    fn field_type(&mut self, base: &Ty, name: &Ident, base_span: Span) -> Ty {
+    fn field_type(&mut self, base: &Ty, name: &Ident, base_span: Span) -> (Ty, Option<usize>) {
         let peeled = base.peeled().clone();
         // Tuple access: `t.0`
         if let Ty::Tuple(parts) = &peeled {
             if let Ok(i) = name.name.parse::<usize>() {
                 return match parts.get(i) {
-                    Some(t) => t.clone(),
+                    Some(t) => (t.clone(), Some(i)),
                     None => {
                         let n = parts.len();
                         self.cx.error(
@@ -1026,7 +1378,7 @@ impl<'a, 'c> Body<'a, 'c> {
                             format!("this tuple has {n} elements"),
                             format!("no element `{i}`"),
                         );
-                        Ty::Error
+                        (Ty::Error, None)
                     }
                 };
             }
@@ -1034,11 +1386,11 @@ impl<'a, 'c> Body<'a, 'c> {
         // Slices carry a length (spec §5.3).
         if let Ty::Array { .. } = &peeled {
             if name.name == "len" {
-                return Ty::Int(IntTy::Usize);
+                return (Ty::Int(IntTy::Usize), None);
             }
         }
         if peeled.is_wildcard() {
-            return Ty::Error;
+            return (Ty::Error, None);
         }
         let Some(sym) = peeled.named() else {
             let t = self.cx.name_of(&peeled);
@@ -1048,10 +1400,10 @@ impl<'a, 'c> Body<'a, 'c> {
                 format!("`{t}` has no field `{}`", name.name),
                 "not a struct",
             );
-            return Ty::Error;
+            return (Ty::Error, None);
         };
         if self.cx.table.is_generic(sym) {
-            return Ty::Error; // generic members wait for M6
+            return (Ty::Error, None); // generic members wait for M6
         }
         let Some(sig) = self.cx.table.struct_sig(sym) else {
             let t = self.cx.name_of(&peeled);
@@ -1061,9 +1413,14 @@ impl<'a, 'c> Body<'a, 'c> {
                 format!("`{t}` has no fields"),
                 "not a struct",
             );
-            return Ty::Error;
+            return (Ty::Error, None);
         };
-        let Some(field) = sig.fields.iter().find(|f| f.name == name.name).cloned() else {
+        let found = sig
+            .fields
+            .iter()
+            .enumerate()
+            .find(|(_, f)| f.name == name.name);
+        let Some((index, field)) = found.map(|(i, f)| (i, f.clone())) else {
             let owner = self.cx.res.symbol(sym).name.clone();
             let names: Vec<String> = sig.fields.iter().map(|f| f.name.clone()).collect();
             let has_method = sig.methods.contains_key(&name.name);
@@ -1074,16 +1431,19 @@ impl<'a, 'c> Body<'a, 'c> {
             )
             .at(self.cx.file, name.span, "unknown field");
             if has_method {
-                d = d.with_help(format!("`{}` is a method — call it as `.{}()`", name.name, name.name));
+                d = d.with_help(format!(
+                    "`{}` is a method — call it as `.{}()`",
+                    name.name, name.name
+                ));
             } else if let Some(s) = suggestion {
                 d = d.with_help(format!("did you mean `{s}`?"));
             }
             self.cx.diags.push(d);
             let _ = base_span;
-            return Ty::Error;
+            return (Ty::Error, None);
         };
         self.check_member_visible(sym, &field.name, field.vis, field.span, name.span, "field");
-        field.ty
+        (field.ty, Some(index))
     }
 
     fn check_member_visible(
@@ -1123,20 +1483,30 @@ impl<'a, 'c> Body<'a, 'c> {
                 format!("{what} `{owner_name}::{member}` is not visible here"),
             )
             .at(self.cx.file, use_span, format!("private {what}"))
-            .with_label(dz_diag::Label::secondary(decl_file, decl_span, "declared here"))
+            .with_label(dz_diag::Label::secondary(
+                decl_file,
+                decl_span,
+                "declared here",
+            ))
             .with_help(help),
         );
     }
 
-    fn call(&mut self, callee: &Expr, args: &[Expr], span: Span) -> Ty {
+    fn call(&mut self, callee: &Expr, args: &[Expr], e: &Expr) -> Checked {
+        let span = e.span;
         // A method call parses as a call on a field access.
         if let ExprKind::Field { base, name } = &callee.kind {
-            let base_ty = self.expr(base, None);
+            let recv = self.expr(base, None);
+            let base_ty = recv.ty.clone();
             let peeled = base_ty.peeled().clone();
             if let Some(sym) = peeled.named() {
                 if !self.cx.table.is_generic(sym) {
-                    if let Some(sig) =
-                        self.cx.table.struct_sig(sym).and_then(|s| s.methods.get(&name.name)).cloned()
+                    if let Some(sig) = self
+                        .cx
+                        .table
+                        .struct_sig(sym)
+                        .and_then(|s| s.methods.get(&name.name))
+                        .cloned()
                     {
                         self.check_member_visible(
                             sym, &name.name, sig.vis, sig.span, name.span, "method",
@@ -1144,8 +1514,14 @@ impl<'a, 'c> Body<'a, 'c> {
                         if sig.is_mut {
                             self.require_mutable_receiver(base, &base_ty, &name.name);
                         }
-                        self.check_args(&sig, args, span, &name.name);
-                        return self.subst(&sig.ret);
+                        let args = self.check_args(&sig, args, span, &name.name);
+                        let ty = fallible_result(&sig, self.subst(&sig.ret));
+                        let callee = hir::Callee::Method {
+                            recv: recv.id,
+                            owner: sym,
+                            name: name.name.clone(),
+                        };
+                        return self.mk(e, ty, hir::ExprKind::Call { callee, args });
                     }
                     // Not a method: fall through so the field-access path reports.
                     let sig_has_field = self
@@ -1176,7 +1552,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         for a in args {
                             self.expr(a, None);
                         }
-                        return Ty::Error;
+                        return self.mk(e, Ty::Error, hir::ExprKind::Error);
                     }
                 }
             }
@@ -1188,12 +1564,20 @@ impl<'a, 'c> Body<'a, 'c> {
                 if self.cx.res.symbol(sym).kind == SymbolKind::Struct
                     && !self.cx.table.is_generic(sym)
                 {
-                    let ctors =
-                        self.cx.table.struct_sig(sym).map(|s| s.ctors.clone()).unwrap_or_default();
+                    let ctors = self
+                        .cx
+                        .table
+                        .struct_sig(sym)
+                        .map(|s| s.ctors.clone())
+                        .unwrap_or_default();
                     if let Some(sig) = ctors.first().cloned() {
                         let name = self.cx.res.symbol(sym).name.clone();
-                        self.check_args(&sig, args, span, &name);
-                        return Ty::Named(sym);
+                        let args = self.check_args(&sig, args, span, &name);
+                        let callee = hir::Callee::Ctor {
+                            owner: sym,
+                            index: 0,
+                        };
+                        return self.mk(e, Ty::Named(sym), hir::ExprKind::Call { callee, args });
                     }
                 }
             }
@@ -1205,25 +1589,31 @@ impl<'a, 'c> Body<'a, 'c> {
                     if !sig.generic {
                         let sig = sig.clone();
                         let name = self.cx.res.symbol(sym).name.clone();
-                        self.check_args(&sig, args, span, &name);
-                        return self.subst(&sig.ret);
+                        let args = self.check_args(&sig, args, span, &name);
+                        let ty = fallible_result(&sig, self.subst(&sig.ret));
+                        let callee = hir::Callee::Fn(sym);
+                        return self.mk(e, ty, hir::ExprKind::Call { callee, args });
                     }
                 }
             }
 
-            // Builtins are variadic and untyped until the stdlib exists.
-            if p.segments.len() == 1 && dz_resolve::BUILTIN_FNS.contains(&p.segments[0].name.name.as_str())
+            // Builtins are variadic and untyped until the stdlib exists. §12.9's
+            // format-string checking is owed by M6 — see the deferral register.
+            if p.segments.len() == 1
+                && dz_resolve::BUILTIN_FNS.contains(&p.segments[0].name.name.as_str())
             {
-                for a in args {
-                    self.expr(a, None);
-                }
-                return builtin_call_type(&p.segments[0].name.name);
+                let name = p.segments[0].name.name.clone();
+                let args = args.iter().map(|a| self.expr(a, None).id).collect();
+                let ty = builtin_call_type(&name);
+                return self.mk(e, ty, hir::ExprKind::Builtin { name, args });
             }
         }
 
-        let callee_ty = self.expr(callee, None);
-        match &callee_ty {
+        let c = self.expr(callee, None);
+        let callee_ty = c.ty.clone();
+        let (ty, arg_ids) = match &callee_ty {
             Ty::Fn { params, ret } => {
+                let params = params.clone();
                 if params.len() != args.len() {
                     let (want, got) = (params.len(), args.len());
                     self.cx.error(
@@ -1233,32 +1623,40 @@ impl<'a, 'c> Body<'a, 'c> {
                         "wrong number of arguments",
                     );
                 }
-                for (a, p) in args.iter().zip(params) {
-                    let t = self.expr(a, Some(p));
-                    self.expect(p, &t, a.span);
+                let mut ids = Vec::new();
+                for (a, p) in args.iter().zip(&params) {
+                    let arg = self.expr(a, Some(p));
+                    self.expect(p, &arg.ty, a.span);
+                    ids.push(arg.id);
                 }
-                (**ret).clone()
-            }
-            _ if callee_ty.is_wildcard() => {
-                for a in args {
-                    self.expr(a, None);
+                for a in args.iter().skip(params.len()) {
+                    ids.push(self.expr(a, None).id);
                 }
-                Ty::Error
+                ((**ret).clone(), ids)
             }
-            _ => {
-                let n = self.cx.name_of(&callee_ty);
-                self.cx.error(
-                    codes::NOT_CALLABLE,
-                    callee.span,
-                    format!("`{n}` is not callable"),
-                    "not a function",
-                );
-                for a in args {
-                    self.expr(a, None);
+            t => {
+                if !t.is_wildcard() {
+                    let n = self.cx.name_of(t);
+                    self.cx.error(
+                        codes::NOT_CALLABLE,
+                        callee.span,
+                        format!("`{n}` is not callable"),
+                        "not a function",
+                    );
                 }
-                Ty::Error
+                let ids = args.iter().map(|a| self.expr(a, None).id).collect();
+                (Ty::Error, ids)
             }
-        }
+        };
+        let callee = hir::Callee::Value(c.id);
+        self.mk(
+            e,
+            ty,
+            hir::ExprKind::Call {
+                callee,
+                args: arg_ids,
+            },
+        )
     }
 
     fn require_mutable_receiver(&mut self, base: &Expr, base_ty: &Ty, method: &str) {
@@ -1279,7 +1677,14 @@ impl<'a, 'c> Body<'a, 'c> {
         }
     }
 
-    fn check_args(&mut self, sig: &FnSig, args: &[Expr], span: Span, name: &str) {
+    /// Check a call's arguments against a signature, returning the nodes built for them.
+    fn check_args(
+        &mut self,
+        sig: &FnSig,
+        args: &[Expr],
+        span: Span,
+        name: &str,
+    ) -> Vec<hir::ExprId> {
         let required = sig.required();
         let total = sig.params.len();
         if args.len() < required || args.len() > total {
@@ -1296,110 +1701,160 @@ impl<'a, 'c> Body<'a, 'c> {
                 "wrong number of arguments",
             );
         }
+        let mut ids = Vec::with_capacity(args.len());
         for (a, p) in args.iter().zip(&sig.params) {
             let want = self.subst(&p.ty);
-            let t = self.expr(a, Some(&want));
-            self.expect(&want, &t, a.span);
+            let c = self.expr(a, Some(&want));
+            self.expect(&want, &c.ty, a.span);
+            ids.push(c.id);
         }
         for a in args.iter().skip(sig.params.len()) {
-            self.expr(a, None);
+            ids.push(self.expr(a, None).id);
         }
+        ids
     }
 
     fn path_symbol(&self, p: &Path) -> Option<SymbolId> {
         let first = p.segments.first()?;
         if p.segments.len() == 1 {
-            return self.cx.res.lookup_in_file(self.cx.module, self.cx.file, &first.name.name);
+            return self
+                .cx
+                .res
+                .lookup_in_file(self.cx.module, self.cx.file, &first.name.name);
         }
         let target = self.cx.res.module_alias(self.cx.file, &first.name.name)?;
         self.cx.res.lookup(target, &p.segments.get(1)?.name.name)
     }
 
-    fn path_expr(&mut self, p: &Path, span: Span) -> Ty {
-        let Some(first) = p.segments.first() else { return Ty::Error };
+    fn path_expr(&mut self, p: &Path, e: &Expr) -> Checked {
+        let Some(first) = p.segments.first() else {
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        };
 
         // A local wins over everything for a bare name.
         if p.segments.len() == 1 {
-            if let Some(l) = self.local(&first.name.name) {
-                return l.ty.clone();
+            if let Some(l) = self.local(&first.name.name).cloned() {
+                let kind = match l.slot {
+                    Slot::Local(id) => hir::ExprKind::Local(id),
+                    // An unqualified field in a method body is `self.field` (spec §7.3).
+                    Slot::SelfField { index } => match self.self_local {
+                        Some(base) => {
+                            let self_ty = self.self_ty.map(Ty::Named).unwrap_or(Ty::Error);
+                            let base = self.hir.expr(e.span, self_ty, hir::ExprKind::Local(base));
+                            hir::ExprKind::Field {
+                                base: base.id,
+                                index,
+                            }
+                        }
+                        None => hir::ExprKind::Error,
+                    },
+                };
+                return self.mk(e, l.ty.clone(), kind);
             }
             if dz_resolve::BUILTIN_FNS.contains(&first.name.name.as_str()) {
-                return Ty::Error; // only meaningful when called
+                // Only meaningful when called; `call` handles that before reaching here.
+                return self.mk(e, Ty::Error, hir::ExprKind::Error);
             }
         }
 
-        let Some(sym) = self.path_symbol(p) else { return Ty::Error };
+        let Some(sym) = self.path_symbol(p) else {
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        };
         let symbol_kind = self.cx.res.symbol(sym).kind;
 
         // `Type::Variant` and `module::Type::Variant`
-        let tail = if p.segments.len() > 1 && self.cx.res.module_alias(self.cx.file, &first.name.name).is_some() {
+        let tail = if p.segments.len() > 1
+            && self
+                .cx
+                .res
+                .module_alias(self.cx.file, &first.name.name)
+                .is_some()
+        {
             &p.segments[2..]
         } else {
             &p.segments[1..]
         };
 
         if let Some(seg) = tail.first() {
-            return self.assoc_item(sym, seg, span);
+            let (ty, kind) = self.assoc_item(sym, seg);
+            return self.mk(e, ty, kind);
         }
 
-        match symbol_kind {
+        let (ty, kind) = match symbol_kind {
             SymbolKind::Fn => match self.cx.table.get(sym) {
-                Some(ItemSig::Fn(sig)) => Ty::Fn {
-                    params: sig.params.iter().map(|p| p.ty.clone()).collect(),
-                    ret: Rc::new(sig.ret.clone()),
-                },
-                _ => Ty::Error,
+                Some(ItemSig::Fn(sig)) => (
+                    Ty::Fn {
+                        params: sig.params.iter().map(|p| p.ty.clone()).collect(),
+                        ret: Rc::new(sig.ret.clone()),
+                    },
+                    hir::ExprKind::FnItem(sym),
+                ),
+                _ => (Ty::Error, hir::ExprKind::Error),
             },
             SymbolKind::Const => match self.cx.table.get(sym) {
-                Some(ItemSig::Const(t)) => t.clone(),
-                _ => Ty::Error,
+                Some(ItemSig::Const(t)) => (t.clone(), hir::ExprKind::Const(sym)),
+                _ => (Ty::Error, hir::ExprKind::Error),
             },
             // A bare type name in value position is only meaningful as a constructor
             // call, which `call` handles before reaching here.
-            _ => Ty::Named(sym),
-        }
+            _ => (Ty::Named(sym), hir::ExprKind::Error),
+        };
+        self.mk(e, ty, kind)
     }
 
-    fn assoc_item(&mut self, owner: SymbolId, seg: &PathSegment, _span: Span) -> Ty {
+    fn assoc_item(&mut self, owner: SymbolId, seg: &PathSegment) -> (Ty, hir::ExprKind) {
         match self.cx.table.get(owner) {
             Some(ItemSig::Enum { variants, .. }) => {
-                if variants.iter().any(|v| v.name == seg.name.name) {
-                    Ty::Named(owner)
-                } else {
-                    Ty::Error // name resolution already reported the unknown variant
+                match variants.iter().position(|v| v.name == seg.name.name) {
+                    Some(index) => (
+                        Ty::Named(owner),
+                        hir::ExprKind::EnumVariant { owner, index },
+                    ),
+                    // Name resolution already reported the unknown variant.
+                    None => (Ty::Error, hir::ExprKind::Error),
                 }
             }
             Some(ItemSig::Union { variants }) => {
-                if variants.iter().any(|v| v.name == seg.name.name) {
-                    Ty::Named(owner)
-                } else {
-                    Ty::Error
+                match variants.iter().position(|v| v.name == seg.name.name) {
+                    Some(index) => (
+                        Ty::Named(owner),
+                        hir::ExprKind::UnionVariant {
+                            owner,
+                            index,
+                            payload: None,
+                        },
+                    ),
+                    None => (Ty::Error, hir::ExprKind::Error),
                 }
             }
-            _ => Ty::Error,
+            _ => (Ty::Error, hir::ExprKind::Error),
         }
     }
 
-    fn struct_literal(&mut self, ty: &Ty, fields: &[FieldInit], span: Span) {
+    /// Check a struct literal and build its node. Values come back in *declaration*
+    /// order, with `None` where the field's declared default applies, so no consumer has
+    /// to consult the declaration to know what order to emit initialisers in.
+    fn struct_literal(&mut self, ty: &Ty, fields: &[FieldInit], span: Span) -> hir::ExprKind {
         let Some(sym) = ty.named() else {
             for f in fields {
                 self.expr(&f.value, None);
             }
-            return;
+            return hir::ExprKind::Error;
         };
         if self.cx.table.is_generic(sym) {
             for f in fields {
                 self.expr(&f.value, None);
             }
-            return;
+            return hir::ExprKind::Error;
         }
         let Some(sig) = self.cx.table.struct_sig(sym).cloned() else {
             for f in fields {
                 self.expr(&f.value, None);
             }
-            return;
+            return hir::ExprKind::Error;
         };
         let owner = self.cx.res.symbol(sym).name.clone();
+        let mut values: Vec<Option<hir::ExprId>> = vec![None; sig.fields.len()];
 
         let positional = fields.iter().all(|f| f.name.is_none()) && !fields.is_empty();
         if positional {
@@ -1415,12 +1870,16 @@ impl<'a, 'c> Body<'a, 'c> {
                      otherwise (spec §7.3)",
                 );
             }
-            for (f, decl) in fields.iter().zip(&sig.fields) {
+            for (i, (f, decl)) in fields.iter().zip(&sig.fields).enumerate() {
                 let want = self.subst(&decl.ty);
-                let t = self.expr(&f.value, Some(&want));
-                self.expect(&want, &t, f.value.span);
+                let c = self.expr(&f.value, Some(&want));
+                self.expect(&want, &c.ty, f.value.span);
+                values[i] = Some(c.id);
             }
-            return;
+            return hir::ExprKind::StructLit {
+                ty: sym,
+                fields: values,
+            };
         }
 
         let mut seen: Vec<&str> = Vec::new();
@@ -1429,7 +1888,8 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.expr(&f.value, None);
                 continue;
             };
-            let Some(decl) = sig.fields.iter().find(|x| x.name == name.name) else {
+            let found = sig.fields.iter().position(|x| x.name == name.name);
+            let Some(decl) = found.map(|i| &sig.fields[i]) else {
                 let names: Vec<String> = sig.fields.iter().map(|x| x.name.clone()).collect();
                 let suggestion = dz_resolve::closest(&name.name, names.iter().map(String::as_str));
                 let mut d = dz_diag::Diagnostic::error(
@@ -1453,10 +1913,15 @@ impl<'a, 'c> Body<'a, 'c> {
                 );
             }
             seen.push(&name.name);
-            self.check_member_visible(sym, &decl.name, decl.vis, decl.span, name.span, "field");
-            let want = self.subst(&decl.ty);
-            let t = self.expr(&f.value, Some(&want));
-            self.expect(&want, &t, f.value.span);
+            let (decl_name, decl_vis, decl_span, decl_ty) =
+                (decl.name.clone(), decl.vis, decl.span, decl.ty.clone());
+            self.check_member_visible(sym, &decl_name, decl_vis, decl_span, name.span, "field");
+            let want = self.subst(&decl_ty);
+            let c = self.expr(&f.value, Some(&want));
+            self.expect(&want, &c.ty, f.value.span);
+            if let Some(i) = found {
+                values[i] = Some(c.id);
+            }
         }
 
         // Anything omitted must have a default (spec §6.2, §7.3).
@@ -1471,22 +1936,42 @@ impl<'a, 'c> Body<'a, 'c> {
             self.cx.error_help(
                 codes::MISSING_FIELD,
                 span,
-                format!("missing {} in `{owner}`", if missing.len() == 1 { "field" } else { "fields" }),
+                format!(
+                    "missing {} in `{owner}`",
+                    if missing.len() == 1 {
+                        "field"
+                    } else {
+                        "fields"
+                    }
+                ),
                 format!("{list} not initialised"),
                 "a field with a declared default may be omitted (spec §6.2)",
             );
         }
+        hir::ExprKind::StructLit {
+            ty: sym,
+            fields: values,
+        }
     }
 
-    fn dot_infer(&mut self, want: &Ty, name: &Ident, init: Option<&[FieldInit]>, span: Span) {
-        let Some(sym) = want.named() else { return };
-        let known = match self.cx.table.get(sym) {
-            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
-                variants.iter().any(|v| v.name == name.name)
-            }
-            _ => false,
+    fn dot_infer(
+        &mut self,
+        want: &Ty,
+        name: &Ident,
+        init: Option<&[FieldInit]>,
+        span: Span,
+    ) -> hir::ExprKind {
+        let Some(sym) = want.named() else {
+            return hir::ExprKind::Error;
         };
-        if !known {
+        let is_enum = matches!(self.cx.table.get(sym), Some(ItemSig::Enum { .. }));
+        let found = match self.cx.table.get(sym) {
+            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
+                variants.iter().position(|v| v.name == name.name)
+            }
+            _ => None,
+        };
+        if found.is_none() {
             let owner = self.cx.res.symbol(sym).name.clone();
             let names: Vec<String> = match self.cx.table.get(sym) {
                 Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
@@ -1505,17 +1990,31 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             self.cx.diags.push(d);
         }
-        if let Some(fields) = init {
-            for f in fields {
-                self.expr(&f.value, None);
-            }
+        // A variant with a payload is written `.Circle{ radius: 1 }`; the payload is the
+        // variant's own field list, which the union's signature carries (spec §7.3).
+        let payload = init.map(|fields| {
+            let ids: Vec<hir::ExprId> = fields
+                .iter()
+                .map(|f| self.expr(&f.value, None).id)
+                .collect();
+            self.hir
+                .expr(span, want.clone(), hir::ExprKind::Tuple(ids))
+                .id
+        });
+        match found {
+            Some(index) if is_enum => hir::ExprKind::EnumVariant { owner: sym, index },
+            Some(index) => hir::ExprKind::UnionVariant {
+                owner: sym,
+                index,
+                payload,
+            },
+            None => hir::ExprKind::Error,
         }
-        let _ = span;
     }
 
-    fn switch(&mut self, s: &SwitchExpr, expected: Option<&Ty>) -> Ty {
+    fn switch(&mut self, s: &SwitchExpr, e: &Expr, expected: Option<&Ty>) -> Checked {
         let subject = self.expr(&s.subject, None);
-        let peeled = subject.peeled().clone();
+        let peeled = subject.ty.peeled().clone();
         let sym = peeled.named();
 
         let variants: Vec<crate::VariantSig> = match sym.and_then(|id| self.cx.table.get(id)) {
@@ -1544,14 +2043,20 @@ impl<'a, 'c> Body<'a, 'c> {
 
         let mut covered: Vec<String> = Vec::new();
         let mut result: Option<Ty> = None;
+        let mut hir_arms: Vec<hir::Arm> = Vec::new();
 
         for arm in &s.arms {
             self.push();
+            let mut indices = Vec::new();
+            let mut binding = None;
             for pat in &arm.patterns {
                 let known = variants.iter().find(|v| v.name == pat.name.name).cloned();
                 match &known {
                     Some(v) => {
                         covered.push(v.name.clone());
+                        if let Some(i) = variants.iter().position(|x| x.name == v.name) {
+                            indices.push(i);
+                        }
                         if let Some(b) = &pat.binding {
                             // The binding is a reference into the union, so matching
                             // never copies (spec §10.3).
@@ -1560,7 +2065,8 @@ impl<'a, 'c> Body<'a, 'c> {
                             } else {
                                 Ty::Named(sym.unwrap_or(SymbolId(0)))
                             };
-                            self.bind(&b.name, payload, true);
+                            binding =
+                                Some(self.bind(&b.name, payload, true, LocalKind::Binding, b.span));
                         }
                     }
                     None => {
@@ -1578,31 +2084,49 @@ impl<'a, 'c> Body<'a, 'c> {
                                 codes::NO_SUCH_FIELD,
                                 format!("`{owner}` has no variant `{}`", pat.name.name),
                             )
-                            .at(self.cx.file, pat.name.span, "unknown variant");
+                            .at(
+                                self.cx.file,
+                                pat.name.span,
+                                "unknown variant",
+                            );
                             if let Some(x) = suggestion {
                                 d = d.with_help(format!("did you mean `{x}`?"));
                             }
                             self.cx.diags.push(d);
                         }
                         if let Some(b) = &pat.binding {
-                            self.bind(&b.name, Ty::Error, true);
+                            binding = Some(self.bind(
+                                &b.name,
+                                Ty::Error,
+                                true,
+                                LocalKind::Binding,
+                                b.span,
+                            ));
                         }
                     }
                 }
             }
-            let t = self.block(&arm.body, expected);
+            let body = self.block(&arm.body, expected);
             result = Some(match result {
-                Some(prev) => join(&prev, &t).unwrap_or(Ty::Void),
-                None => t,
+                Some(prev) => join(&prev, &body.ty).unwrap_or(Ty::Void),
+                None => body.ty.clone(),
+            });
+            hir_arms.push(hir::Arm {
+                span: arm.span,
+                variants: indices,
+                binding,
+                body: body.id,
             });
             self.pop();
         }
 
+        let mut default = None;
         if let Some(d) = &s.default {
-            let t = self.block(d, expected);
+            let c = self.block(d, expected);
+            default = Some(c.id);
             result = Some(match result {
-                Some(prev) => join(&prev, &t).unwrap_or(Ty::Void),
-                None => t,
+                Some(prev) => join(&prev, &c.ty).unwrap_or(Ty::Void),
+                None => c.ty,
             });
         } else if !variants.is_empty() {
             let missing: Vec<String> = variants
@@ -1611,8 +2135,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 .map(|v| format!("`{}`", v.name))
                 .collect();
             if !missing.is_empty() {
-                let owner =
-                    sym.map(|id| self.cx.res.symbol(id).name.clone()).unwrap_or_default();
+                let owner = sym
+                    .map(|id| self.cx.res.symbol(id).name.clone())
+                    .unwrap_or_default();
                 let list = missing.join(", ");
                 self.cx.error_help(
                     codes::NON_EXHAUSTIVE_SWITCH,
@@ -1624,102 +2149,200 @@ impl<'a, 'c> Body<'a, 'c> {
             }
         }
 
-        result.unwrap_or(Ty::Void)
+        let ty = result.unwrap_or(Ty::Void);
+        let kind = hir::ExprKind::Switch {
+            subject: subject.id,
+            arms: hir_arms,
+            default,
+        };
+        self.mk(e, ty, kind)
     }
 
-    fn with(&mut self, w: &WithExpr, expected: Option<&Ty>) -> Ty {
-        let subject = self.expr(&w.subject, None);
-        let (payload, failure) = match &subject {
-            Ty::Optional(inner) => ((**inner).clone(), None),
+    // --- the `or` clause (spec §9.4) --------------------------------------
+
+    /// `e or clause`.
+    ///
+    /// Three different things can fail, and this is the one eliminator for all of them: a
+    /// fallible call carries an `Error`, a `T?` carries nothing, and a `^T` carries
+    /// nothing. The single rule the clause must satisfy is that it produces the success
+    /// type or diverges.
+    fn or_expr(
+        &mut self,
+        operand: &Expr,
+        clause: &OrClause,
+        e: &Expr,
+        _expected: Option<&Ty>,
+    ) -> Checked {
+        // The clause's own position is what matters; the operand is a subexpression.
+        let stmt_position = std::mem::replace(&mut self.stmt_position, false);
+        let subject = self.expr(operand, None);
+        let (success, payload) = match &subject.ty {
+            // A fallible call is the only shape that carries an `Error` to bind.
             Ty::Fallible(inner) => ((**inner).clone(), Some(Ty::Error)),
-            _ if subject.is_wildcard() => (Ty::Error, None),
-            _ => {
-                let n = self.cx.name_of(&subject);
+            Ty::Optional(inner) => ((**inner).clone(), None),
+            // `^T or …` is the checked pointer-to-reference conversion of §5.2: the
+            // failure case is null, and the success case is the reference it becomes.
+            Ty::Ptr(inner) | Ty::OwnPtr(inner) => {
+                (Ty::Ref { mutable: false, inner: inner.clone() }, None)
+            }
+            t if t.is_wildcard() => (Ty::Error, None),
+            t => {
+                let n = self.cx.name_of(t);
                 self.cx.error_help(
-                    codes::TYPE_MISMATCH,
-                    w.subject.span,
-                    format!("`with` needs a `?T` or `!T`, found `{n}`"),
-                    "this cannot be absent or fail",
-                    "`with` binds the success payload of an optional or fallible value \
-                     (spec §9.4)",
+                    codes::NOT_FALLIBLE,
+                    operand.span,
+                    format!("`or` needs something that can fail, found `{n}`"),
+                    "this cannot fail",
+                    "`or` applies to a fallible call, a `T?`, or a `^T` (spec §9.4)",
                 );
                 (Ty::Error, None)
             }
         };
 
-        self.push();
-        let name = w.binding.as_ref().map(|b| b.name.clone()).unwrap_or("it".to_owned());
-        self.bind(&name, payload, false);
-        let then = self.block(&w.body, expected);
-        self.pop();
-
-        let Some(else_body) = &w.else_body else {
-            // Without an `else` the whole thing produces nothing.
-            return Ty::Void;
-        };
-
-        self.push();
-        if let Some(b) = &w.else_binding {
-            // `else` binds the failure payload; only `!T` has one (spec §9.4).
-            if failure.is_none() && !subject.is_wildcard() {
-                self.cx.error_help(
-                    codes::TYPE_MISMATCH,
-                    b.span,
-                    format!("`?T` has no failure value to bind as `{}`", b.name),
-                    "nothing to bind here",
-                    "only `!T` carries an `Error`; write `else { ... }` with no binding \
-                     (spec §9.4)",
+        // Bare `or return` means propagate, and is legal only where the enclosing
+        // signature can carry the failure (spec §9.5). Reserving it for propagation is
+        // what keeps "I passed this up" and "I threw this away" from sharing a spelling.
+        if let OrClause::Value(v) = clause {
+            if matches!(v.kind, ExprKind::Return(None)) {
+                let carries = match &subject.ty {
+                    Ty::Fallible(_) => self.fallible,
+                    _ => matches!(self.ret, Ty::Optional(_) | Ty::Void | Ty::Error),
+                };
+                if !carries {
+                    let ret = self.cx.name_of(&self.ret.clone());
+                    let help = if matches!(subject.ty, Ty::Fallible(_)) {
+                        "mark this function `!->`, or handle the failure here with a                          fallback or a block (spec §9.5)"
+                            .to_owned()
+                    } else {
+                        format!(
+                            "this function returns `{ret}`, so a bare `return` has no                              value to give — supply a fallback instead (spec §9.5)"
+                        )
+                    };
+                    self.cx.error_help(
+                        codes::TRY_OUTSIDE_FALLIBLE,
+                        v.span,
+                        "the failure has nowhere to go",
+                        "`or return` propagates, and this signature cannot carry it",
+                        help,
+                    );
+                }
+                // Build the node without re-reporting: the propagation rule above has
+                // already said everything there is to say about this `return`.
+                let c = self.hir.expr(v.span, Ty::Never, hir::ExprKind::Return(None)).id;
+                return self.mk(
+                    e,
+                    success,
+                    hir::ExprKind::Or {
+                        operand: subject.id,
+                        clause: hir::OrClause::Value(c),
+                    },
                 );
             }
-            self.bind(&b.name, Ty::Error, false);
-        } else {
-            self.bind("it", Ty::Error, false);
         }
-        let other = self.block(else_body, expected);
-        self.pop();
 
-        join(&then, &other).unwrap_or(Ty::Void)
+        let hir_clause = match clause {
+            OrClause::Value(v) => {
+                // `or return`, `or break`, `or continue` and `or panic(…)` arrive here as
+                // the diverging expressions they are, and `Never` satisfies anything — so
+                // divergence needs no special case, only the type rule.
+                let c = self.expr(v, Some(&success));
+                if !matches!(c.ty, Ty::Never) {
+                    self.expect_or_clause(&success, &c.ty, v.span);
+                }
+                hir::OrClause::Value(c.id)
+            }
+            OrClause::Block { binding, body } => {
+                self.push();
+                let local = match binding {
+                    Some(b) => {
+                        if payload.is_none() && !subject.ty.is_wildcard() {
+                            let n = self.cx.name_of(&subject.ty);
+                            self.cx.error_help(
+                                codes::OR_CLAUSE_TYPE,
+                                b.span,
+                                format!("`{n}` has no failure value to bind as `{}`", b.name),
+                                "nothing to bind here",
+                                "only a fallible call carries an `Error`; write `or { … }` \
+                                 with no binding (spec §9.4)",
+                            );
+                        }
+                        Some(self.bind(&b.name, Ty::Error, false, LocalKind::Binding, b.span))
+                    }
+                    None => None,
+                };
+                let c = self.block(body, Some(&success));
+                if !matches!(c.ty, Ty::Never | Ty::Void) {
+                    self.expect_or_clause(&success, &c.ty, body.span);
+                }
+                self.pop();
+                hir::OrClause::Block { binding: local, body: c.id }
+            }
+            // `or ignore` produces nothing, so it is legal only where nothing is wanted.
+            OrClause::Ignore(span) => {
+                if !stmt_position {
+                    self.cx.error_help(
+                        codes::IGNORE_PRODUCES_NO_VALUE,
+                        *span,
+                        "`ignore` produces no value",
+                        "nothing to bind here",
+                        "`or ignore` is statement position only; to keep a value supply a \
+                         fallback instead (spec §9.4)",
+                    );
+                }
+                hir::OrClause::Ignore
+            }
+            OrClause::Unreachable(_) => hir::OrClause::Unreachable,
+        };
+
+        // `or ignore` discards, so the expression yields nothing at all.
+        let ty = match clause {
+            OrClause::Ignore(_) => Ty::Void,
+            _ => success,
+        };
+        self.mk(e, ty, hir::ExprKind::Or { operand: subject.id, clause: hir_clause })
     }
 
-    fn try_expr(&mut self, inner: &Expr, span: Span) -> Ty {
-        let t = self.expr(inner, None);
-        let payload = match &t {
-            Ty::Optional(i) | Ty::Fallible(i) => (**i).clone(),
-            _ if t.is_wildcard() => return Ty::Error,
-            _ => {
-                let n = self.cx.name_of(&t);
-                self.cx.error_help(
-                    codes::TYPE_MISMATCH,
-                    inner.span,
-                    format!("`try` needs a `?T` or `!T`, found `{n}`"),
-                    "this cannot fail",
-                    "`try` propagates a failure to the caller (spec §9.5)",
-                );
-                return Ty::Error;
-            }
-        };
-
-        // `try` is only legal where the failure has somewhere to go (spec §9.5).
-        let ok = matches!(
-            (&t, &self.ret),
-            (Ty::Fallible(_), Ty::Fallible(_)) | (Ty::Optional(_), Ty::Optional(_))
-        );
-        if !ok {
-            let operand = self.cx.name_of(&t);
-            let ret = self.cx.name_of(&self.ret.clone());
-            let needed = if matches!(t, Ty::Fallible(_)) { "!U" } else { "?U" };
-            self.cx.error_help(
-                codes::TRY_OUTSIDE_FALLIBLE,
-                span,
-                format!("`try` on a `{operand}` needs an enclosing function returning `{needed}`"),
-                format!("this function returns `{ret}`"),
-                format!(
-                    "change the return type to `{needed}`, or handle it here with `with` \
-                     or `catch` (spec §9.5)"
-                ),
-            );
+    /// The clause's own type rule, reported against the clause rather than the operand.
+    fn expect_or_clause(&mut self, expected: &Ty, actual: &Ty, span: Span) {
+        let expected = self.subst(expected);
+        let actual = self.subst(actual);
+        if assignable(&expected, &actual) {
+            return;
         }
-        payload
+        // A fallible fallback — `a() or b()` where `b` can fail too. Nesting is a real
+        // thing to want; it just has to be written out, because an `or` always produces
+        // the success type and so can never be chained onto.
+        if let Ty::Fallible(_) = &actual {
+            self.cx.error_help(
+                codes::UNUSED_RESULT,
+                span,
+                "this fallback can fail too, and its failure is not consumed",
+                "this may fail",
+                "give it a clause of its own: `a() or { b() or <fallback> }` (spec §9.4)",
+            );
+            return;
+        }
+        let (x, a) = (self.cx.name_of(&expected), self.cx.name_of(&actual));
+        self.cx.error_help(
+            codes::OR_CLAUSE_TYPE,
+            span,
+            format!("this `or` clause produces `{a}`, but `{x}` is needed"),
+            format!("this is `{a}`"),
+            "an `or` clause must produce the success type or diverge (spec §9.4)",
+        );
+    }
+}
+
+/// The type a call expression has.
+///
+/// A `!->` call yields a `Ty::Fallible`, which is not a type anyone can write (spec §9):
+/// it exists only between the call and the `or` clause that must consume it in the same
+/// statement, and the consumption rule is what stops it going anywhere else.
+fn fallible_result(sig: &FnSig, ret: Ty) -> Ty {
+    if sig.fallible {
+        Ty::Fallible(Rc::new(ret))
+    } else {
+        ret
     }
 }
 
@@ -1735,7 +2358,7 @@ fn plural(n: usize, word: &str) -> String {
 fn builtin_call_type(name: &str) -> Ty {
     match name {
         "sizeof" | "alignof" => Ty::Int(IntTy::Usize),
-        // `error(...)` is the failure case of whatever `!T` the context wants, so its
+        // `error(...)` is the failure case of whatever `!->` signature encloses it, so its
         // payload is `Never` and unifies with any success type (spec §9.1).
         "error" => Ty::Fallible(Rc::new(Ty::Never)),
         "format" => Ty::Str,
