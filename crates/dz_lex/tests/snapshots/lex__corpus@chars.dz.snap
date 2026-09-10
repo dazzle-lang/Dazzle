@@ -1,0 +1,46 @@
+---
+source: crates/dz_lex/tests/lex.rs
+expression: "lex_report(&name, &source)"
+input_file: tests/lex/chars.dz
+---
+=== TOKENS ===
+   1:1   Char `'a'`
+   1:4   Terminator
+   2:1   Char `'\n'`
+   2:5   Terminator
+   3:1   Char `'\u{1F600}'`
+   3:12  Terminator
+   4:1   Char `'\\'`
+   4:5   Terminator
+   5:1   Char `'\''`
+   5:5   Terminator
+   8:1   Char `''`
+   8:3   Terminator
+   9:1   Char `'ab'`
+   9:5   Terminator
+  10:1   Char `'x`
+  10:3   Terminator
+  11:1   Eof
+
+=== DIAGNOSTICS ===
+error[DZ0111]: empty character literal
+  ┌─ tests/lex/chars.dz:8:1
+  │
+8 │ ''
+  │ ^^ a `char` must hold exactly one character
+
+error[DZ0111]: character literal holds more than one character
+  ┌─ tests/lex/chars.dz:9:1
+  │
+9 │ 'ab'
+  │ ^^^^ found 2 characters
+  │
+  = help: for text, use double quotes: "..."
+
+error[DZ0111]: unterminated character literal
+   ┌─ tests/lex/chars.dz:10:1
+   │
+10 │ 'x
+   │ ^^ expected a closing `'`
+   │
+   = help: for text, use double quotes: "..."

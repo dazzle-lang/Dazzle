@@ -1,0 +1,110 @@
+---
+source: crates/dz_lex/tests/lex.rs
+expression: "lex_report(&name, &source)"
+input_file: tests/lex/numeric.dz
+---
+=== TOKENS ===
+   2:1   Int `1`
+   2:2   Terminator
+   3:1   Float `12.3`
+   3:5   Terminator
+   4:1   Float `1.2.3.466`
+   4:10  Terminator
+   7:1   Int `0xDEAD_BEEF`
+   7:12  Terminator
+   8:1   Int `0o755`
+   8:6   Terminator
+   9:1   Int `0b1010_1010`
+   9:12  Terminator
+  10:1   Int `0xFFu32`
+  10:8   Terminator
+  11:1   Int `0xabci8`
+  11:8   Terminator
+  14:1   Int `1_000_000`
+  14:10  Terminator
+  15:1   Float `1e9`
+  15:4   Terminator
+  16:1   Float `2.5e-3`
+  16:7   Terminator
+  17:1   Float `1_000.5`
+  17:8   Terminator
+  20:1   Int `10i8`
+  20:5   Terminator
+  21:1   Int `20u32`
+  21:6   Terminator
+  22:1   Float `1.5f32`
+  22:7   Terminator
+  23:1   Float `1.5f64`
+  23:7   Terminator
+  24:1   Float `1.5f`
+  24:5   Terminator
+  27:1   Int `0`
+  27:2   ..
+  27:4   Int `10`
+  27:6   Terminator
+  28:1   Int `0`
+  28:2   ..=
+  28:5   Int `10`
+  28:7   Terminator
+  29:1   Int `4`
+  29:2   .
+  29:3   Ident `hello`
+  29:8   Terminator
+  32:1   Int `1x42`
+  32:5   Terminator
+  33:1   Int `0xx35`
+  33:6   Terminator
+  34:1   Int `0b102`
+  34:6   Terminator
+  35:1   Int `1_000_`
+  35:7   Terminator
+  36:1   Float `1.5i32`
+  36:7   Terminator
+  37:1   Eof
+
+=== DIAGNOSTICS ===
+error[DZ0108]: invalid number literal
+  ┌─ tests/lex/numeric.dz:4:1
+  │
+4 │ 1.2.3.466
+  │ ^^^^^^^^^ a number may contain at most one `.`
+  │
+  = help: if you meant a field access, put the operand in parentheses
+
+error[DZ0108]: invalid number literal `1x42`
+   ┌─ tests/lex/numeric.dz:32:1
+   │
+32 │ 1x42
+   │ ^^^^ letters cannot follow the digits of a decimal literal
+   │
+   = help: hexadecimal, octal and binary literals start with `0x`, `0o` and `0b`
+
+error[DZ0109]: invalid digit `x` in hexadecimal literal
+   ┌─ tests/lex/numeric.dz:33:3
+   │
+33 │ 0xx35
+   │   ^ `x` is not a valid hexadecimal digit
+   │
+   = help: valid digits are `0` through `9` and `a` through `f`
+
+error[DZ0109]: invalid digit `2` in binary literal
+   ┌─ tests/lex/numeric.dz:34:5
+   │
+34 │ 0b102
+   │     ^ `2` is not a valid binary digit
+   │
+   = help: valid digits are `0` and `1`
+
+error[DZ0112]: number literal ends with `_`
+   ┌─ tests/lex/numeric.dz:35:6
+   │
+35 │ 1_000_
+   │      ^ a `_` separator must sit between digits
+
+error[DZ0110]: integer suffix `i32` on a float literal
+   ┌─ tests/lex/numeric.dz:36:4
+   │
+36 │ 1.5i32
+   │    ^^^ this literal has a fractional part or exponent
+   │
+   = help: use `f32` or `f64`, or remove the fractional part

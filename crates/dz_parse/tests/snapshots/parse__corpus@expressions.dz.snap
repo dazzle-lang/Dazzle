@@ -1,0 +1,265 @@
+---
+source: crates/dz_parse/tests/parse.rs
+expression: "parse_report(&name, &source)"
+input_file: tests/parse/expressions.dz
+---
+=== AST ===
+fn precedence()
+  block
+    let a
+      binary ||
+        path x
+        binary &&
+          path y
+          path z
+    let b
+      binary &&
+        binary ==
+          path x
+          path y
+        binary !=
+          path p
+          path q
+    let c
+      binary |
+        int 1
+        binary ^^
+          int 2
+          binary &
+            int 3
+            int 4
+    let d
+      binary &
+        int 1
+        binary <<
+          int 2
+          int 3
+    let e
+      binary -
+        binary +
+          int 1
+          binary *
+            int 2
+            int 3
+        binary %
+          binary /
+            int 4
+            int 5
+          int 6
+    let f
+      binary *
+        cast i64
+          path a
+        path b
+    let g
+      binary +
+        unary -
+          path x
+        unary !
+          path y
+    let h
+      binary &
+        unary ~
+          path flags
+        path mask
+    let i
+      binary *
+        binary +
+          path a
+          path b
+        path c
+    let j
+      binary +
+        path a
+        binary *
+          path b
+          path c
+fn postfix()
+  block
+    let a
+      field .health
+        index
+          field .players
+            path world
+          int 0
+    let b
+      deref
+        path p
+    let c
+      call
+        field .length
+          path buf
+    let d
+      call
+        path Buffer<f32>::with_capacity
+        int 8
+    let e
+      path math::PI
+    let f
+      path Allocators::Global
+    let g
+      field .0
+        path t
+    let h
+      index
+        path arr
+        binary +
+          path i
+          int 1
+    let i
+      call
+        field .other
+          field .field
+            call
+              field .method
+                path obj
+              int 1
+              int 2
+fn literals()
+  block
+    let a
+      int 42
+    let b
+      float 3.14
+    let c
+      str "text"
+    let d
+      char 'x'
+    let e
+      bool true
+    let f
+      bool false
+    let g
+      null
+    let h
+      none
+    let i
+      int 0xDEAD_BEEF
+    let j
+      float 1.5f32
+fn structs_and_ranges()
+  block
+    let t
+      struct-lit Transform
+        field-init position
+          struct-lit Vec3
+            int 0
+            int 1
+            int 0
+    let v
+      struct-lit Vec3
+        int 1
+        int 2
+        int 3
+    let s: ButtonState
+      .Transition
+    let k: ButtonState
+      .Default
+    let r1
+      range
+        int 0
+        path count
+    let r2
+      range=
+        int 0
+        path count
+    let empty
+      struct-lit Vec3
+fn ownership_and_errors()
+  block
+    let a
+      move
+        path name
+    let b
+      ref
+        path value
+    let c
+      ref mut
+        path value
+    let d
+      try
+        call
+          path load
+          path path
+    let e
+      catch
+        call
+          path load
+          path path
+        path Textures::Missing
+    let f
+      catch
+        call
+          path load
+          path path
+        handler err
+          block
+            call
+              path log::warn
+              str "failed: {}"
+              field .message
+                path err
+            path Textures::Missing
+    let g
+      catch
+        call
+          path find
+          path id
+        return
+    let h
+      intrinsic #location
+    let i
+      intrinsic #line
+fn nested_calls()
+  block
+    assign =
+      path m_data
+      cast ^T
+        call
+          field .realloc
+            path m_allocator
+          cast ^u8
+            path m_data
+          binary *
+            path m_capacity
+            call
+              path sizeof
+              path T
+          binary *
+            path new_size
+            call
+              path sizeof
+              path T
+          call
+            path alignof
+            path T
+fn expression_forms() -> i32
+  block
+    let hp
+      with it
+        call
+          path find_player
+          path id
+        block
+          field .health
+            path it
+        else it
+          block
+            int 0
+    let x
+      if
+        path ready
+        block
+          int 1
+        else
+          block
+            int 2
+    let t
+      tuple
+        int 1
+        float 2.0
+    return
+      path hp
+
+=== DIAGNOSTICS ===
+(none)

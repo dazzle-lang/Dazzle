@@ -1,0 +1,129 @@
+---
+source: crates/dz_parse/tests/parse.rs
+expression: "parse_report(&name, &source)"
+input_file: tests/parse/items.dz
+---
+=== AST ===
+import math
+import engine::render as gfx
+import math::{pow, sqrt, PI}
+import cpp "raylib.h" as rl
+const MAX_ENTITIES
+  int 4096
+const GRAVITY : f32
+  unary -
+    float 9.81
+attr align
+pub struct CacheLine
+  field data: [N]u8
+pub struct Transform
+  field position: Vec3
+  field rotation: Quat
+    default
+      call
+        path Quat::identity
+  field scale: Vec3
+    default
+      struct-lit Vec3
+        int 1
+        int 1
+        int 1
+  pub fn matrix(&self) -> Mat4
+    block
+      return
+        call
+          path Mat4::from
+          path position
+          path rotation
+          path scale
+  pub mut fn translate(&mut self, d: Vec3)
+    block
+      assign +=
+        path position
+        path d
+pub struct SpriteBatch
+  field m_verts: Buffer<Vertex>
+  field m_gl_handle: u32
+  field count: u32
+  pub mut fn draw(&mut self, s: &Sprite)
+    block
+      assign +=
+        path count
+        int 1
+  mut fn flush(&mut self)
+    block
+pub union Shape
+  variant Circle
+    field radius: f32
+  variant Rect
+    field w: f32
+    field h: f32
+  variant Point
+pub enum Sprite : u16
+  variant None =
+    int 0
+  variant Default
+  variant Selected
+  variant Pressed
+pub trait Allocator
+  fn alloc(&self, size: usize, align: usize) -> ^u8
+  fn free(&self, p: ^u8, size: usize, align: usize)
+pub trait Drawable
+  fn bounds(&self) -> Rect
+  fn is_visible(&self, cam: &Camera) -> bool
+    block
+      return
+        call
+          field .contains
+            field .frustum
+              path cam
+          call
+            field .bounds
+              path self
+pub trait Iterate
+  type Item
+  mut fn next(&mut self) -> ?Item
+pub struct Arena : Allocator
+  field m_base: own ^u8
+  field m_used: usize
+  fn alloc(&self, size: usize, align: usize) -> ^u8
+    block
+      return
+        path m_base
+  fn free(&self, p: ^u8, size: usize, align: usize)
+    block
+  drop drop()
+    block
+      call
+        path free_pages
+        path m_base
+pub struct SliceIter<T> : Iterate
+  type Item = &T
+  field m_slice: []T
+  field m_index: usize
+  mut fn next(&mut self) -> ?&T
+    block
+      if
+        binary >=
+          path m_index
+          field .len
+            path m_slice
+        block
+          return
+            none
+      let e
+        ref
+          index
+            path m_slice
+            path m_index
+      assign +=
+        path m_index
+        int 1
+      return
+        path e
+pub struct Nested
+  field grid: Buffer<Buffer<f32>>
+  field table: HashMap<str, Buffer<Vec3>>
+
+=== DIAGNOSTICS ===
+(none)

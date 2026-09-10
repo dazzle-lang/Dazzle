@@ -1,0 +1,191 @@
+---
+source: crates/dz_lex/tests/lex.rs
+expression: "lex_report(&name, &source)"
+input_file: tests/lex/declarations.dz
+---
+=== TOKENS ===
+   1:1   import
+   1:8   Ident `engine`
+   1:14  ::
+   1:16  Ident `render`
+   1:23  as
+   1:26  Ident `gfx`
+   1:29  Terminator
+   3:1   pub
+   3:5   struct
+   3:12  Ident `Buffer`
+   3:18  <
+   3:19  Ident `T`
+   3:20  >
+   3:22  {
+   4:5   Ident `m_allocator`
+   4:16  :
+   4:18  ^
+   4:19  Ident `Allocator`
+   4:29  =
+   4:31  null
+   4:35  Terminator
+   5:5   Ident `m_data`
+   5:11  :
+   5:18  own
+   5:22  ^
+   5:23  Ident `T`
+   5:24  Terminator
+   6:5   Ident `m_len`
+   6:10  :
+   6:18  Ident `u32`
+   6:21  Terminator
+   8:5   Ident `Buffer`
+   8:11  (
+   8:12  Ident `capacity`
+   8:20  :
+   8:22  Ident `u32`
+   8:25  ,
+   8:27  Ident `allocator`
+   8:36  :
+   8:38  ^
+   8:39  Ident `Allocator`
+   8:49  =
+   8:51  Ident `Allocators`
+   8:61  ::
+   8:63  Ident `Global`
+   8:69  )
+   8:71  {
+   9:9   Ident `m_allocator`
+   9:21  =
+   9:23  Ident `allocator`
+   9:32  Terminator
+  10:9   Ident `m_capacity`
+  10:21  =
+  10:23  Ident `capacity`
+  10:31  Terminator
+  11:5   }
+  11:6   Terminator
+  13:5   copy
+  13:9   (
+  13:10  Ident `other`
+  13:15  :
+  13:17  &
+  13:18  Self
+  13:22  )
+  13:24  {
+  13:26  Ident `m_len`
+  13:32  =
+  13:34  Ident `other`
+  13:39  .
+  13:40  Ident `m_len`
+  13:46  }
+  13:47  Terminator
+  14:5   drop
+  14:9   (
+  14:10  )
+  14:12  {
+  14:14  Ident `m_allocator`
+  14:25  .
+  14:26  Ident `free`
+  14:30  (
+  14:31  Ident `m_data`
+  14:38  as
+  14:41  ^
+  14:42  Ident `u8`
+  14:44  ,
+  14:46  Ident `m_capacity`
+  14:56  ,
+  14:58  Ident `alignof`
+  14:65  (
+  14:66  Ident `T`
+  14:67  )
+  14:68  )
+  14:70  }
+  14:71  Terminator
+  16:5   pub
+  16:9   fn
+  16:12  Ident `length`
+  16:18  (
+  16:19  &
+  16:20  self
+  16:24  )
+  16:26  ->
+  16:29  Ident `u32`
+  16:33  {
+  16:35  return
+  16:42  Ident `m_len`
+  16:48  }
+  16:49  Terminator
+  17:5   pub
+  17:9   mut
+  17:13  fn
+  17:16  Ident `resize`
+  17:22  (
+  17:23  &
+  17:24  mut
+  17:28  self
+  17:32  ,
+  17:34  Ident `n`
+  17:35  :
+  17:37  Ident `u32`
+  17:40  )
+  17:42  {
+  17:44  Ident `m_len`
+  17:50  =
+  17:52  Ident `n`
+  17:54  }
+  17:55  Terminator
+  18:1   }
+  18:2   Terminator
+  20:1   fn
+  20:4   Ident `load`
+  20:8   (
+  20:9   Ident `path`
+  20:13  :
+  20:15  Ident `str`
+  20:18  )
+  20:20  ->
+  20:23  !
+  20:24  Ident `Texture`
+  20:32  {
+  21:5   let
+  21:9   Ident `tex`
+  21:13  =
+  21:15  try
+  21:19  Ident `open`
+  21:23  (
+  21:24  Ident `path`
+  21:28  )
+  21:29  Terminator
+  22:5   with
+  22:10  (
+  22:11  Ident `find`
+  22:15  (
+  22:16  Ident `tex`
+  22:19  )
+  22:20  )
+  22:22  {
+  22:24  Ident `it`
+  22:27  ->
+  23:9   return
+  23:16  Ident `it`
+  23:18  Terminator
+  24:5   }
+  24:7   else
+  24:12  {
+  24:14  Ident `e`
+  24:16  ->
+  25:9   return
+  25:16  Ident `error`
+  25:21  (
+  25:22  Str `"no texture: {}"`
+  25:38  ,
+  25:40  Ident `e`
+  25:41  .
+  25:42  Ident `message`
+  25:49  )
+  25:50  Terminator
+  26:5   }
+  26:6   Terminator
+  27:1   }
+  27:2   Terminator
+  28:1   Eof
+
+=== DIAGNOSTICS ===
+(none)

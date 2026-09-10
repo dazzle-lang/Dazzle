@@ -1,0 +1,66 @@
+---
+source: crates/dz_lex/tests/lex.rs
+expression: "lex_report(&name, &source)"
+input_file: tests/lex/keywords.dz
+---
+=== TOKENS ===
+   1:1   as
+   1:4   break
+   1:10  case
+   1:15  catch
+   1:21  const
+   1:27  continue
+   1:36  copy
+   1:41  defer
+   1:47  drop
+   1:51  Terminator
+   2:1   else
+   2:6   enum
+   2:11  extern
+   2:18  false
+   2:24  fn
+   2:27  for
+   2:31  if
+   2:34  import
+   2:40  Terminator
+   3:1   in
+   3:4   let
+   3:8   macro
+   3:14  module
+   3:21  move
+   3:26  mut
+   3:30  none
+   3:35  null
+   3:40  own
+   3:43  Terminator
+   4:1   pub
+   4:5   return
+   4:12  self
+   4:17  Self
+   4:22  struct
+   4:29  switch
+   4:36  trait
+   4:42  true
+   4:46  Terminator
+   5:1   try
+   5:5   union
+   5:11  while
+   5:17  with
+   5:21  Terminator
+   6:1   Ident `async`
+   6:7   Ident `await`
+   6:13  Ident `impl`
+   6:18  Ident `where`
+   6:24  Ident `yield`
+   6:30  Ident `unsafe`
+   6:37  Ident `comptime`
+   6:45  Terminator
+   7:1   Ident `notakeyword`
+   7:13  Ident `letx`
+   7:18  Ident `_`
+   7:20  Ident `_x`
+   7:22  Terminator
+   8:1   Eof
+
+=== DIAGNOSTICS ===
+(none)

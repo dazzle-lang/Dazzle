@@ -1,0 +1,54 @@
+---
+source: crates/dz_lex/tests/lex.rs
+expression: "lex_report(&name, &source)"
+input_file: tests/lex/strings.dz
+---
+=== TOKENS ===
+   1:1   Str `"hello"`
+   1:8   Terminator
+   2:1   Str `"escapes: \n \r \t \\ \" \' \0 \x1B \u{1F600}"`
+   2:47  Terminator
+   3:1   Str `""`
+   3:3   Terminator
+   4:1   RawStr ``C:\raw\no\escapes``
+   4:20  Terminator
+   5:1   RawStr ``raw\nspanning\nlines``
+   7:7   Terminator
+  10:1   Str `"unterminated`
+  10:14  Terminator
+  11:1   Str `"bad escape \q"`
+  11:16  Terminator
+  12:1   Str `"bad hex \xZZ"`
+  12:15  Terminator
+  13:1   Str `"bad unicode \u{}"`
+  13:19  Terminator
+  14:1   Eof
+
+=== DIAGNOSTICS ===
+error[DZ0104]: unterminated string literal
+   ┌─ tests/lex/strings.dz:10:1
+   │
+10 │ "unterminated
+   │ ^^^^^^^^^^^^^ this string is not closed before the end of the line
+   │
+   = help: use `\n` for a line break, or a `` ` ``-delimited raw string to span lines
+
+error[DZ0107]: unknown escape sequence `\q`
+   ┌─ tests/lex/strings.dz:11:13
+   │
+11 │ "bad escape \q"
+   │             ^^ not a recognised escape
+   │
+   = help: valid escapes are \n \r \t \0 \\ \" \' \xNN \u{...}
+
+error[DZ0107]: invalid `\x` escape
+   ┌─ tests/lex/strings.dz:12:10
+   │
+12 │ "bad hex \xZZ"
+   │          ^^ `\x` must be followed by exactly two hex digits, e.g. `\x1B`
+
+error[DZ0107]: invalid `\u` escape
+   ┌─ tests/lex/strings.dz:13:14
+   │
+13 │ "bad unicode \u{}"
+   │              ^^^^ expected one to six hex digits followed by `}`

@@ -1,0 +1,13 @@
+---
+source: crates/dz_resolve/tests/resolve.rs
+expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
+---
+modules: 2, files: 2
+
+error[DZ0006]: circular dependency between `alpha` and `beta`
+  ┌─ D:/OdinProjects/Dazzle/tests/workspace/cycle/a/dazzle.toml:6:17
+  │
+6 │ beta = { path = "../b" }
+  │                 ^^^^^^ this closes a cycle
+  │
+  = help: modules may not depend on each other in a cycle (spec §3.2); move the shared code into a third module

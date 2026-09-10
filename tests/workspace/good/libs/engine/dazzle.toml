@@ -1,0 +1,10 @@
+[module]
+name    = "engine"
+version = "0.1.0"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+math = { path = "../math" }
+
+[build]
+output = "static-lib"

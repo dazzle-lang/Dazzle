@@ -1,0 +1,107 @@
+import math
+import engine::render as gfx
+import math::{ pow, sqrt, PI }
+import cpp "raylib.h" as rl
+
+/// A doc comment on a constant.
+const MAX_ENTITIES = 4096
+const GRAVITY: f32 = -9.81
+
+#[align(64)]
+pub struct CacheLine {
+    data: [64]u8
+}
+
+pub struct Transform {
+    position: Vec3
+    rotation: Quat = Quat::identity()
+    scale:    Vec3 = Vec3{ 1, 1, 1 }
+
+    pub fn matrix(&self) -> Mat4 {
+        return Mat4::from(position, rotation, scale)
+    }
+
+    pub mut fn translate(&mut self, d: Vec3) {
+        position += d
+    }
+}
+
+pub struct SpriteBatch {
+    m_verts:                 Buffer<Vertex>
+    pub(module) m_gl_handle: u32
+    pub count:               u32
+
+    pub mut fn draw(&mut self, s: &Sprite) {
+        count += 1
+    }
+
+    mut fn flush(&mut self) {}
+}
+
+pub union Shape {
+    Circle { radius: f32 }
+    Rect { w: f32, h: f32 }
+    Point
+}
+
+pub enum Sprite : u16 {
+    None = 0
+    Default
+    /// The selected state.
+    Selected
+    Pressed
+}
+
+pub trait Allocator {
+    fn alloc(&self, size: usize, align: usize) -> ^u8
+    fn free(&self, p: ^u8, size: usize, align: usize)
+}
+
+pub trait Drawable {
+    fn bounds(&self) -> Rect
+
+    fn is_visible(&self, cam: &Camera) -> bool {
+        return cam.frustum.contains(self.bounds())
+    }
+}
+
+pub trait Iterate {
+    type Item
+    mut fn next(&mut self) -> ?Item
+}
+
+pub struct Arena : Allocator {
+    m_base: own ^u8
+    m_used: usize
+
+    fn alloc(&self, size: usize, align: usize) -> ^u8 {
+        return m_base
+    }
+
+    fn free(&self, p: ^u8, size: usize, align: usize) {}
+
+    drop() {
+        free_pages(m_base)
+    }
+}
+
+pub struct SliceIter<T> : Iterate {
+    type Item = &T
+
+    m_slice: []T
+    m_index: usize
+
+    mut fn next(&mut self) -> ?&T {
+        if m_index >= m_slice.len {
+            return none
+        }
+        let e = &m_slice[m_index]
+        m_index += 1
+        return e
+    }
+}
+
+pub struct Nested {
+    grid:  Buffer<Buffer<f32>>
+    table: HashMap<str, Buffer<Vec3>>
+}

@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dz_span",
+    "crates/dz_diag",
+    "crates/dz_lex",
+    "crates/dz_ast",
+    "crates/dz_parse",
+    "crates/dz_fmt",
+    "crates/dz_project",
+    "crates/dz_resolve",
+    "crates/dz_check",
+    "crates/dz_cpp",
+    "crates/dz",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+
+[workspace.dependencies]
+dz_span = { path = "crates/dz_span" }
+dz_diag = { path = "crates/dz_diag" }
+dz_lex = { path = "crates/dz_lex" }
+dz_ast = { path = "crates/dz_ast" }
+dz_parse = { path = "crates/dz_parse" }
+dz_fmt = { path = "crates/dz_fmt" }
+dz_project = { path = "crates/dz_project" }
+dz_resolve = { path = "crates/dz_resolve" }
+dz_check = { path = "crates/dz_check" }
+dz_cpp = { path = "crates/dz_cpp" }
+
+codespan-reporting = "0.11"
+unicode-ident = "1"
+insta = { version = "1", features = ["glob"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

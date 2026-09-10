@@ -1,0 +1,7 @@
+// a line comment
+/// a doc comment, kept as a token
+//// four slashes is an ordinary comment
+let a = 1 // trailing comment
+/* block */
+/* nested /* inner */ still open */
+let b = 2

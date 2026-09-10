@@ -1,0 +1,14 @@
+// A second file in the same module. It shares one namespace with render.dz, so it can
+// name `Layer` and `Renderer` without importing anything (spec §3.1).
+
+fn internal_helper() -> u32 {
+    return 7
+}
+
+pub fn total() -> u32 {
+    return internal_helper() + Layer::World as u32
+}
+
+pub fn fresh() -> Renderer {
+    return make_renderer()
+}

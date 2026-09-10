@@ -1,0 +1,592 @@
+//! The untyped syntax tree (spec §20 is the grammar this mirrors).
+//!
+//! Every node carries a [`Span`], and every list may contain an `Error` node — the parser
+//! recovers rather than bailing (spec §17.2), so a tree always exists even for source that
+//! is halfway through being typed.
+
+pub mod dump;
+
+use dz_span::Span;
+
+// ---------------------------------------------------------------------------
+// names and paths
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ident {
+    pub span: Span,
+    pub name: String,
+}
+
+impl Ident {
+    pub fn new(span: Span, name: impl Into<String>) -> Ident {
+        Ident { span, name: name.into() }
+    }
+}
+
+/// `math::pow`, `Buffer<f32>::with_capacity`. `::` is the only scope separator (spec §3.3).
+#[derive(Clone, Debug)]
+pub struct Path {
+    pub span: Span,
+    pub segments: Vec<PathSegment>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PathSegment {
+    pub span: Span,
+    pub name: Ident,
+    /// `Buffer<f32>` — written without a turbofish (spec §3.3).
+    pub generics: Vec<Type>,
+}
+
+// ---------------------------------------------------------------------------
+// file, imports, items
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Default)]
+pub struct SourceFileAst {
+    pub imports: Vec<Import>,
+    pub items: Vec<Item>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Import {
+    pub span: Span,
+    pub kind: ImportKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum ImportKind {
+    /// `import engine::render as gfx`
+    Module { path: Path, alias: Option<Ident> },
+    /// `import math::{ pow, sqrt }`
+    Selective { path: Path, names: Vec<Ident> },
+    /// `import cpp "raylib.h" as rl` (spec §15.1)
+    Cpp { header: Span, alias: Option<Ident> },
+    Error,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Vis {
+    #[default]
+    Private,
+    /// `pub(module)`
+    Module,
+    /// `pub`
+    Public,
+}
+
+#[derive(Clone, Debug)]
+pub struct Attr {
+    pub span: Span,
+    pub name: Ident,
+    pub args: Vec<AttrArg>,
+}
+
+#[derive(Clone, Debug)]
+pub enum AttrArg {
+    Ident(Ident),
+    Literal(Expr),
+    /// `cfg(os = "windows")`
+    KeyValue { key: Ident, value: Expr },
+    Nested(Attr),
+}
+
+/// Doc comments attached to a declaration, in source order.
+pub type Docs = Vec<Span>;
+
+#[derive(Clone, Debug)]
+pub struct Item {
+    pub span: Span,
+    pub docs: Docs,
+    pub attrs: Vec<Attr>,
+    pub vis: Vis,
+    pub kind: ItemKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum ItemKind {
+    Fn(FnDecl),
+    Struct(StructDecl),
+    Union(UnionDecl),
+    Enum(EnumDecl),
+    Trait(TraitDecl),
+    Const(ConstDecl),
+    /// Parsed shallowly at M1; the body is kept as raw source for M10 (spec §12).
+    Macro(MacroDecl),
+    /// `#machine Foo(Bar) { ... }` — likewise deferred to M10.
+    MacroInvocation { name: Ident, body: Span },
+    Error,
+}
+
+#[derive(Clone, Debug)]
+pub struct Generics {
+    pub span: Span,
+    pub params: Vec<GenericParam>,
+}
+
+impl Generics {
+    pub fn is_empty(&self) -> bool {
+        self.params.is_empty()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct GenericParam {
+    pub span: Span,
+    pub name: Ident,
+    /// `T: Hash + Eq`
+    pub bounds: Vec<Path>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FnDecl {
+    pub span: Span,
+    /// `mut fn` — the receiver is `&mut self` (spec §7.3).
+    pub is_mut: bool,
+    pub name: Ident,
+    pub generics: Generics,
+    pub self_param: Option<SelfParam>,
+    pub params: Vec<Param>,
+    pub ret: Option<Type>,
+    /// `None` for a trait method with no default body.
+    pub body: Option<Block>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SelfParam {
+    pub span: Span,
+    pub is_mut: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct Param {
+    pub span: Span,
+    pub name: Ident,
+    pub ty: Type,
+    /// Trailing default argument, evaluated at the call site (spec §7.2).
+    pub default: Option<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructDecl {
+    pub span: Span,
+    pub name: Ident,
+    pub generics: Generics,
+    /// `struct Arena : Allocator`
+    pub traits: Vec<Path>,
+    pub members: Vec<Member>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Member {
+    pub span: Span,
+    pub docs: Docs,
+    pub attrs: Vec<Attr>,
+    pub vis: Vis,
+    pub kind: MemberKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum MemberKind {
+    Field(Field),
+    Fn(FnDecl),
+    /// `Buffer(cap: u32) { ... }` — name matches the struct.
+    Ctor(FnDecl),
+    /// `copy(other: &Self) { ... }`
+    Copy(FnDecl),
+    /// `drop() { ... }`
+    Drop(FnDecl),
+    /// `type Item = &T` — an associated type on a trait impl (spec §8.5).
+    TypeAlias { name: Ident, ty: Option<Type> },
+    Error,
+}
+
+#[derive(Clone, Debug)]
+pub struct Field {
+    pub span: Span,
+    pub name: Ident,
+    /// `own ^T` — this struct releases the resource (spec §6.3).
+    pub is_own: bool,
+    pub ty: Type,
+    pub default: Option<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub struct UnionDecl {
+    pub span: Span,
+    pub name: Ident,
+    pub generics: Generics,
+    pub variants: Vec<Variant>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Variant {
+    pub span: Span,
+    pub docs: Docs,
+    pub name: Ident,
+    /// `Circle { radius: f32 }`; empty and `has_payload == false` for a bare variant.
+    pub fields: Vec<Field>,
+    pub has_payload: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnumDecl {
+    pub span: Span,
+    pub name: Ident,
+    /// `enum Sprite : u16`
+    pub backing: Option<Type>,
+    pub variants: Vec<EnumVariant>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnumVariant {
+    pub span: Span,
+    pub docs: Docs,
+    pub name: Ident,
+    pub value: Option<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TraitDecl {
+    pub span: Span,
+    pub name: Ident,
+    pub generics: Generics,
+    /// `trait Ord : Eq`
+    pub supertraits: Vec<Path>,
+    pub items: Vec<Member>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConstDecl {
+    pub span: Span,
+    pub name: Ident,
+    pub ty: Option<Type>,
+    pub value: Expr,
+}
+
+#[derive(Clone, Debug)]
+pub struct MacroDecl {
+    pub span: Span,
+    pub name: Ident,
+    /// `declaration`, `expression`, `statement` or `type`.
+    pub kind: Ident,
+    /// Raw source of the `{ ... }` body, kept verbatim until M10.
+    pub body: Span,
+}
+
+// ---------------------------------------------------------------------------
+// types
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct Type {
+    pub span: Span,
+    pub kind: TypeKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypeKind {
+    Path(Path),
+    /// `^T`
+    Ptr(Box<Type>),
+    /// `own ^T`
+    OwnPtr(Box<Type>),
+    /// `&T` / `&mut T`
+    Ref { mutable: bool, inner: Box<Type> },
+    /// `?T` (spec §9)
+    Optional(Box<Type>),
+    /// `!T` (spec §9)
+    Fallible(Box<Type>),
+    /// `[N]T`, or `[]T` when `size` is `None`.
+    Array { size: Option<Box<Expr>>, elem: Box<Type> },
+    Tuple(Vec<Type>),
+    Fn { params: Vec<Type>, ret: Option<Box<Type>> },
+    SelfType,
+    Error,
+}
+
+// ---------------------------------------------------------------------------
+// statements
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct Block {
+    pub span: Span,
+    pub stmts: Vec<Stmt>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Stmt {
+    pub span: Span,
+    pub docs: Docs,
+    pub kind: StmtKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum StmtKind {
+    Let(LetStmt),
+    Assign { target: Expr, op: AssignOp, value: Expr },
+    Expr(Expr),
+    While(WhileStmt),
+    For(ForStmt),
+    Defer(Box<Stmt>),
+    /// A declaration nested inside a body.
+    Item(Box<Item>),
+    Error,
+}
+
+#[derive(Clone, Debug)]
+pub struct LetStmt {
+    pub span: Span,
+    pub mutable: bool,
+    pub pat: Pat,
+    pub ty: Option<Type>,
+    pub init: Option<Expr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AssignOp {
+    Assign,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+}
+
+impl AssignOp {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AssignOp::Assign => "=",
+            AssignOp::Add => "+=",
+            AssignOp::Sub => "-=",
+            AssignOp::Mul => "*=",
+            AssignOp::Div => "/=",
+            AssignOp::Rem => "%=",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Pat {
+    pub span: Span,
+    pub kind: PatKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum PatKind {
+    Ident(Ident),
+    /// `_`
+    Wild,
+    /// `let (x, y) = point()`
+    Tuple(Vec<Pat>),
+    Error,
+}
+
+#[derive(Clone, Debug)]
+pub struct WhileStmt {
+    pub span: Span,
+    pub label: Option<Ident>,
+    pub cond: Expr,
+    pub body: Block,
+}
+
+#[derive(Clone, Debug)]
+pub struct ForStmt {
+    pub span: Span,
+    pub label: Option<Ident>,
+    /// `for i, e in &entities` binds more than one name.
+    pub bindings: Vec<Pat>,
+    pub iter: Expr,
+    pub body: Block,
+}
+
+// ---------------------------------------------------------------------------
+// expressions
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct Expr {
+    pub span: Span,
+    pub kind: ExprKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum ExprKind {
+    /// Literal text is kept verbatim; interpretation happens in the type checker.
+    Int(String),
+    Float(String),
+    Str(String),
+    RawStr(String),
+    Char(String),
+    Bool(bool),
+    Null,
+    None,
+    Path(Path),
+    /// `.Transition{}` — variant inferred from the expected type (spec §7.3).
+    DotInfer { name: Ident, init: Option<Vec<FieldInit>> },
+    StructLit { path: Path, fields: Vec<FieldInit> },
+    Call { callee: Box<Expr>, args: Vec<Expr> },
+    Index { base: Box<Expr>, index: Box<Expr> },
+    Field { base: Box<Expr>, name: Ident },
+    Unary { op: UnaryOp, operand: Box<Expr> },
+    Binary { op: BinaryOp, lhs: Box<Expr>, rhs: Box<Expr> },
+    Cast { expr: Box<Expr>, ty: Type },
+    Range { start: Option<Box<Expr>>, end: Option<Box<Expr>>, inclusive: bool },
+    /// `&e` / `&mut e`
+    Ref { mutable: bool, expr: Box<Expr> },
+    /// `p^`
+    Deref(Box<Expr>),
+    Move(Box<Expr>),
+    /// `try f()` (spec §9.5)
+    Try(Box<Expr>),
+    /// `f() catch fallback` (spec §9.6)
+    Catch { expr: Box<Expr>, handler: Box<CatchHandler> },
+    Block(Block),
+    If(IfExpr),
+    Switch(SwitchExpr),
+    With(WithExpr),
+    /// Diverging expressions, so `f() catch return` parses uniformly.
+    Return(Option<Box<Expr>>),
+    Break { label: Option<Ident>, value: Option<Box<Expr>> },
+    Continue { label: Option<Ident> },
+    /// `#location`, `#file` (spec §12.7)
+    Intrinsic { name: Ident, args: Vec<Expr> },
+    /// `vec!(...)` — body kept raw until M10.
+    MacroCall { name: Ident, body: Span },
+    Tuple(Vec<Expr>),
+    Error,
+}
+
+#[derive(Clone, Debug)]
+pub enum CatchHandler {
+    /// `catch Textures::Missing`
+    Value(Expr),
+    /// `catch { e -> ... }`
+    Block { binding: Option<Ident>, body: Block },
+}
+
+#[derive(Clone, Debug)]
+pub struct FieldInit {
+    pub span: Span,
+    /// `None` for positional initialisation, e.g. `Vec3{1, 2, 3}`.
+    pub name: Option<Ident>,
+    pub value: Expr,
+}
+
+#[derive(Clone, Debug)]
+pub struct IfExpr {
+    pub span: Span,
+    pub cond: Box<Expr>,
+    pub then: Block,
+    /// Either a `Block` expression or another `If`.
+    pub else_branch: Option<Box<Expr>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SwitchExpr {
+    pub span: Span,
+    pub subject: Box<Expr>,
+    pub arms: Vec<SwitchArm>,
+    pub default: Option<Block>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SwitchArm {
+    pub span: Span,
+    /// `case A, B { ... }`
+    pub patterns: Vec<VariantPat>,
+    pub body: Block,
+}
+
+#[derive(Clone, Debug)]
+pub struct VariantPat {
+    pub span: Span,
+    pub name: Ident,
+    /// `case Circle(c)` binds the payload by reference.
+    pub binding: Option<Ident>,
+}
+
+#[derive(Clone, Debug)]
+pub struct WithExpr {
+    pub span: Span,
+    pub subject: Box<Expr>,
+    /// `{ it -> ... }`; `None` means the implicit `it` binding (spec §9.4).
+    pub binding: Option<Ident>,
+    pub body: Block,
+    pub else_binding: Option<Ident>,
+    pub else_body: Option<Block>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnaryOp {
+    Neg,
+    Not,
+    BitNot,
+}
+
+impl UnaryOp {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UnaryOp::Neg => "-",
+            UnaryOp::Not => "!",
+            UnaryOp::BitNot => "~",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Shl,
+    Shr,
+    BitAnd,
+    BitXor,
+    BitOr,
+    Eq,
+    Ne,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+    And,
+    Or,
+}
+
+impl BinaryOp {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BinaryOp::Add => "+",
+            BinaryOp::Sub => "-",
+            BinaryOp::Mul => "*",
+            BinaryOp::Div => "/",
+            BinaryOp::Rem => "%",
+            BinaryOp::Shl => "<<",
+            BinaryOp::Shr => ">>",
+            BinaryOp::BitAnd => "&",
+            // `^` is the pointer sigil, so xor is doubled (spec §2.6).
+            BinaryOp::BitXor => "^^",
+            BinaryOp::BitOr => "|",
+            BinaryOp::Eq => "==",
+            BinaryOp::Ne => "!=",
+            BinaryOp::Lt => "<",
+            BinaryOp::Gt => ">",
+            BinaryOp::Le => "<=",
+            BinaryOp::Ge => ">=",
+            BinaryOp::And => "&&",
+            BinaryOp::Or => "||",
+        }
+    }
+
+    /// Comparison is non-associative (spec §11.1), which is also what removes the need
+    /// for a turbofish.
+    pub fn is_comparison(&self) -> bool {
+        use BinaryOp::*;
+        matches!(self, Eq | Ne | Lt | Gt | Le | Ge)
+    }
+}

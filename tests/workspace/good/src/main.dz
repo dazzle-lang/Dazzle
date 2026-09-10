@@ -1,0 +1,16 @@
+import engine
+import math
+import math::{ dot, PI }
+
+fn main() {
+    let r = engine::make_renderer()
+    let s = engine::Sprite{ id: 1, layer: engine::Layer::World }
+    let v = math::Vec3{ x: 0, y: 1, z: 0 }
+
+    let d = dot(&v, &v)
+    let circumference = PI * 2
+    let t = engine::total()
+    let len = math::scaled_length(&v)
+
+    println("{} {} {} {}", d, circumference, t, len)
+}

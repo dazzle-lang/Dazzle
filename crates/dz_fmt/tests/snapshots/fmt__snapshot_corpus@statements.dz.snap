@@ -1,0 +1,120 @@
+---
+source: crates/dz_fmt/tests/fmt.rs
+expression: fmt(&source)
+input_file: tests/fmt/statements.dz
+---
+fn bindings() {
+    let x = 5
+    let mut y: f32 = 1.5
+    let z: Buffer<u8>
+    let _ = returns_something()
+    let (a, b) = point()
+}
+
+fn assignment(w: &mut World) {
+    w.count = 1
+    w.count += 1
+    w.count -= 1
+    w.count *= 2
+    w.count /= 2
+    w.count %= 3
+    w.players[0].health -= damage
+}
+
+fn control_flow(x: i32) {
+    if x > 0 {
+        positive()
+    } else if x < 0 {
+        negative()
+    } else {
+        zero()
+    }
+
+    while running {
+        tick()
+    }
+
+    outer: while true {
+        for e in entities {
+            if e.id == target {
+                break outer
+            }
+            continue
+        }
+    }
+
+    for i in 0..count {
+        grid[i] = 0
+    }
+
+    for i, e in &entities {
+        e.draw(&mut batch)
+    }
+
+    for e in &mut entities {
+        e.update(dt)
+    }
+}
+
+fn switching(s: Shape) -> f32 {
+    switch s {
+        case Circle(c) {
+            return PI * c.radius * c.radius
+        }
+        case Rect(r) {
+            return r.w * r.h
+        }
+        case Point {
+            return 0
+        }
+        default {
+            return -1
+        }
+    }
+}
+
+fn multi_case(k: Kind) {
+    switch k {
+        case A, B {
+            both()
+        }
+        case C {
+            third()
+        }
+    }
+}
+
+fn deferred(&mut self) {
+    gl::bind_buffer(m_handle)
+    defer gl::bind_buffer(0)
+
+    defer {
+        cleanup()
+    }
+
+    Allocators::Temp.reset()
+}
+
+fn handling(path: str) {
+    with (load_texture(path)) { tex ->
+        sprite.texture = move(tex)
+    } else { e ->
+        log::warn("texture {} failed: {}", path, e.message)
+    }
+
+    with (find_player(id)) {
+        it.health -= damage
+    }
+}
+
+fn nested_declarations() {
+    struct Local {
+        x: i32
+    }
+
+    fn helper() -> i32 {
+        return 1
+    }
+
+    let a = helper()
+}

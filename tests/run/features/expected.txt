@@ -1,0 +1,13 @@
+arithmetic: 26
+conditional: negative zero positive
+loops: 15
+arrays: 15
+vec3: 25 0
+pointer: 4
+counter: 42 counter
+named: named
+casts: 302
+switch: background world ui
+nested: 9
+before defer runs
+deferred: last

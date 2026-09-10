@@ -1,0 +1,36 @@
+// Every line below is a deliberate violation of spec §3 or §4.
+
+import engine
+import math
+import graphics
+import math::{ dot }
+
+fn private_item_from_another_module() -> f32 {
+    let v = math::Vec3{ x: 1, y: 2, z: 3 }
+    // `internal_scale` is not `pub`, so it is invisible outside module `math`.
+    return math::internal_scale(&v, 2)
+}
+
+fn private_member_from_another_module(r: &engine::Renderer) -> u32 {
+    // `m_handle` is `pub(module)`: visible inside `engine`, not outside it.
+    return engine::Renderer::m_handle
+}
+
+fn no_such_member() -> u32 {
+    return engine::Layer::Foreground as u32
+}
+
+fn misspelled_module_item() -> f32 {
+    let v = math::Vec3{ x: 0, y: 0, z: 0 }
+    return math::dotp(&v, &v)
+}
+
+fn unknown_name() -> i32 {
+    return not_a_function(1)
+}
+
+fn same_scope_shadowing() -> i32 {
+    let total = 1
+    let total = 2
+    return total
+}

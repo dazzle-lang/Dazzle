@@ -1,3 +1,5 @@
 *.snap.new
 *.exe
 *.pdb
+/target
+/tests/run/*/build/

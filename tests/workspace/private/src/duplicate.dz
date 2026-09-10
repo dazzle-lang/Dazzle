@@ -1,0 +1,6 @@
+// A module is one namespace shared by all its files (spec §3.1), so this collides with
+// the declaration of the same name in violations.dz.
+
+fn unknown_name() -> i32 {
+    return 0
+}

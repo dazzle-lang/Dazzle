@@ -1,0 +1,7 @@
+[module]
+name    = "math"
+version = "0.1.0"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "static-lib"

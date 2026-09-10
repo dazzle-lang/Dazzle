@@ -1,0 +1,11 @@
+[package]
+name = "dz_diag"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Diagnostic model and renderer for the Dazzle compiler"
+
+[dependencies]
+dz_span.workspace = true
+codespan-reporting.workspace = true

@@ -1,0 +1,118 @@
+---
+source: crates/dz_parse/tests/parse.rs
+expression: "parse_report(&name, &source)"
+input_file: tests/parse/errors.dz
+---
+=== AST ===
+fn missing_paren()
+  block
+    let a
+      int 1
+fn ok_after_broken_signature() -> i32
+  block
+    return
+      int 7
+struct MissingBrace
+  field x: i32
+  fn ok_after_broken_struct()
+    block
+      let a
+        int 1
+  fn chained_comparison()
+    block
+      let bad
+        binary <
+          binary <
+            path a
+            path b
+          path c
+  fn missing_expression()
+    block
+      let a
+        <error expr>
+  fn bad_member()
+    block
+      let x
+        int 1
+  <error member>
+  fn let_with_nothing()
+    block
+      let a
+  fn assignment_is_a_statement()
+    block
+      assign =
+        path a
+        path b
+  fn unclosed_call()
+    block
+      call
+        path foo
+        int 1
+        int 2
+  fn last_one_still_parses() -> bool
+    block
+      return
+        bool true
+
+=== DIAGNOSTICS ===
+error[DZ0201]: expected a name, found `{`
+  ┌─ tests/parse/errors.dz:4:19
+  │
+4 │ fn missing_paren( {
+  │                   ^ expected an identifier here
+
+error[DZ0205]: comparison operators cannot be chained
+   ┌─ tests/parse/errors.dz:20:21
+   │
+20 │     let bad = a < b < c
+   │                     ^ this comparison follows another
+   │
+   = help: comparison is non-associative — write `(a < b) && (b < c)`
+
+error[DZ0203]: expected an expression, found keyword `let`
+   ┌─ tests/parse/errors.dz:25:5
+   │
+25 │     let b = 2
+   │     ^^^ expected an expression here
+
+error[DZ0201]: expected end of statement, found `b`
+   ┌─ tests/parse/errors.dz:25:9
+   │
+25 │     let b = 2
+   │         ^ expected a newline or `;` here
+   │
+   = help: statements are separated by newlines; `;` is optional (spec §2.2)
+
+error[DZ0202]: expected a member, found keyword `struct`
+   ┌─ tests/parse/errors.dz:32:1
+   │
+32 │ struct BadMember {
+   │ ^^^^^^ expected a field, method, constructor, `copy` or `drop`
+
+error[DZ0204]: `let` needs a type or an initialiser
+   ┌─ tests/parse/errors.dz:39:5
+   │
+39 │     let a
+   │     ^^^^^ neither a type nor a value is given
+   │
+   = help: write `let x: T` to default-initialise (spec §6.2), or `let x = value`
+
+error[DZ0209]: assignment is not an expression
+   ┌─ tests/parse/errors.dz:43:11
+   │
+43 │     a = b = c
+   │           ^ a second assignment cannot appear here
+   │
+   = help: assignment is a statement (spec §11.1) — split this into two lines
+
+error[DZ0201]: expected `)` to close the argument list, found `}`
+   ┌─ tests/parse/errors.dz:48:1
+   │
+48 │ }
+   │ ^ expected `)` here
+
+error[DZ0201]: expected `}` to close the body, found end of file
+   ┌─ tests/parse/errors.dz:53:1
+   │
+53 │ 
+   │ ^ expected `}` here

@@ -1,0 +1,14 @@
+[module]
+name    = "game"
+version = "0.1.0"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+engine = { path = "libs/engine" }
+math   = { path = "libs/math" }
+
+[build]
+cpp_standard = "c++17"
+output       = "executable"
+optimize     = "debug"
+type_info    = "used"
