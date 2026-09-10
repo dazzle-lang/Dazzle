@@ -17,11 +17,10 @@ pub struct Buffer<T> {
     pub mut fn resize(&mut self, n: u32) { m_len = n }
 }
 
-fn load(path: str) -> !Texture {
-    let tex = try open(path)
-    with (find(tex)) { it ->
-        return it
-    } else { e ->
+fn load(path: str) !-> Texture {
+    let tex = open(path) or return
+    let found = find(tex) or { e ->
         return error("no texture: {}", e.message)
     }
+    return found
 }

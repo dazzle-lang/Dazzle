@@ -17,6 +17,7 @@ usage:
     dz build [path]             generate C++ and compile it
     dz cpp   [path]             generate C++ only, no compilation
     dz check [path]             load a project and check it without generating code
+    dz hir   [path]             check and print the typed tree
     dz lex   <file.dz>          tokenize and print the token stream
     dz parse <file.dz>          parse and print the syntax tree
     dz fmt   <file.dz>...       format in place
@@ -32,6 +33,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("check") => cmd_check(args.get(1).map(String::as_str).unwrap_or(".")),
+        Some("hir") => cmd_hir(args.get(1).map(String::as_str).unwrap_or(".")),
         Some("cpp") => cmd_pipeline(args.get(1).map(String::as_str).unwrap_or("."), Stage::Cpp),
         Some("build") => cmd_pipeline(args.get(1).map(String::as_str).unwrap_or("."), Stage::Build),
         Some("run") => cmd_pipeline(args.get(1).map(String::as_str).unwrap_or("."), Stage::Run),
@@ -96,6 +98,25 @@ fn project_root(entry: &str) -> std::path::PathBuf {
         p.to_path_buf()
     } else {
         p.parent().unwrap_or(Path::new(".")).to_path_buf()
+    }
+}
+
+/// Print the typed tree the checker built (spec §17.1). A development aid: it is how you
+/// see what the compiler actually concluded, rather than inferring it from the C++.
+fn cmd_hir(entry: &str) -> ExitCode {
+    let analysis = build::analyse(Path::new(entry));
+    if !analysis.diags.is_empty() {
+        dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
+    }
+    if analysis.diags.has_errors() {
+        return failure(&analysis.diags);
+    }
+    match (&analysis.hir, &analysis.resolution) {
+        (Some(hir), Some(res)) => {
+            print!("{}", dz_hir::dump::dump(hir, &dz_check::Names { res }));
+            ExitCode::SUCCESS
+        }
+        _ => ExitCode::FAILURE,
     }
 }
 

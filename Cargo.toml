@@ -9,6 +9,7 @@ members = [
     "crates/dz_fmt",
     "crates/dz_project",
     "crates/dz_resolve",
+    "crates/dz_hir",
     "crates/dz_check",
     "crates/dz_cpp",
     "crates/dz",
@@ -29,6 +30,7 @@ dz_parse = { path = "crates/dz_parse" }
 dz_fmt = { path = "crates/dz_fmt" }
 dz_project = { path = "crates/dz_project" }
 dz_resolve = { path = "crates/dz_resolve" }
+dz_hir = { path = "crates/dz_hir" }
 dz_check = { path = "crates/dz_check" }
 dz_cpp = { path = "crates/dz_cpp" }
 

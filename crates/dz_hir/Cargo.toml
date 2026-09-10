@@ -1,0 +1,12 @@
+[package]
+name = "dz_hir"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Resolved, typed, desugared tree for the Dazzle language"
+
+[dependencies]
+dz_span.workspace = true
+dz_ast.workspace = true
+dz_resolve.workspace = true

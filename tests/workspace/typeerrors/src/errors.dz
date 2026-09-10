@@ -131,35 +131,60 @@ fn unknown_variant(s: Shape) {
     }
 }
 
-fn may_fail() -> !i32 {
+fn may_fail() !-> i32 {
     return 1
 }
 
-fn maybe() -> ?i32 {
+fn maybe() -> i32? {
     return none
 }
 
+fn a_pointer() -> ^i32 {
+    return null
+}
+
+fn takes_ref(x: &i32) {
+}
+
+// A fallible call must be consumed in the statement it appears in (spec §9.7).
 fn unused_result() {
     may_fail()
 }
 
-fn try_without_fallible() -> i32 {
-    let v = try may_fail()
+// Bare `or return` propagates, and this signature cannot carry a failure (spec §9.5).
+fn or_return_without_fallible() -> i32 {
+    let v = may_fail() or return
     return v
 }
 
-fn with_on_plain_value(n: i32) {
-    with (n) {
-        return
-    }
+// `or` needs something that can fail (spec §9.4).
+fn or_on_plain_value(n: i32) -> i32 {
+    return n or 0
 }
 
-fn else_binding_on_optional() {
-    with (maybe()) { v ->
-        return
-    } else { e ->
-        return
+// Only a fallible call carries an `Error` to bind (spec §9.4).
+fn binding_on_optional() -> i32 {
+    let v = maybe() or { e ->
+        return 0
     }
+    return v
+}
+
+// An `or` clause must produce the success type or diverge (spec §9.4).
+fn or_clause_wrong_type() -> i32 {
+    let v = maybe() or "not an i32"
+    return v
+}
+
+// `or ignore` produces no value, so it cannot be bound (spec §9.4).
+fn ignore_in_value_position() -> i32 {
+    let v = may_fail() or ignore
+    return 0
+}
+
+// `^T` → `&T` is not implicit: a pointer may be null (spec §5.2).
+fn pointer_where_reference_wanted() {
+    takes_ref(a_pointer())
 }
 
 fn none_without_context() -> i32 {

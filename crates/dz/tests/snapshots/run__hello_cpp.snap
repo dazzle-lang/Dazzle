@@ -27,7 +27,7 @@ namespace dz {
 namespace hello {
 
 void main() {
-#line 2 "D:/OdinProjects/Dazzle/tests/run/hello/src/main.dz"
+#line 2 "main.dz"
     dz::println(dz::str("Hello, world!", 13));
 }
 

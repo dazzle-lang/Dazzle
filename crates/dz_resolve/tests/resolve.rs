@@ -23,6 +23,22 @@ fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/workspace").join(name)
 }
 
+/// Snapshots must not depend on where the repository is checked out. Diagnostics name
+/// files by absolute path, so normalise separators first (the rendered text is native,
+/// with backslashes on Windows) and then drop everything above the fixture root.
+fn redact(rendered: &str) -> String {
+    const MARKER: &str = "tests/workspace/";
+    rendered
+        .replace('\\', "/")
+        .lines()
+        .map(|l| match l.find(MARKER) {
+            Some(i) => format!("{}{}", &l[..l[..i].rfind(' ').map_or(0, |s| s + 1)], &l[i + MARKER.len()..]),
+            None => l.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Run manifest loading, parsing and resolution over one workspace.
 fn check(entry: &Path) -> Checked {
     let mut map = SourceMap::new();
@@ -64,10 +80,7 @@ fn check(entry: &Path) -> Checked {
     }
     diags.sort_by_position();
 
-    // Fixture paths are absolute and machine-specific, so make snapshots portable.
-    let rendered = dz_diag::render_to_string(&map, &diags);
-    let root = fixture("").to_string_lossy().replace('\\', "/");
-    let rendered = rendered.replace(&root, "").replace('\\', "/");
+    let rendered = redact(&dz_diag::render_to_string(&map, &diags));
 
     Checked {
         codes: diags.iter().filter_map(|d| d.code).collect(),
@@ -214,12 +227,24 @@ fn method_bodies_see_their_struct_fields_unqualified() {
 }
 
 #[test]
-fn with_binds_it_implicitly() {
-    // spec §9.4
+fn an_or_clause_binds_the_error_only_when_it_is_named() {
+    // spec §9.4 — there is no implicit `it`.
     let codes = check_snippet(
-        "fn f(x: ?i32) {\n    with (x) {\n        println(\"{}\", it)\n    }\n}\n",
+        "fn f(x: i32?) {\n    let v = x or { return }\n}\n",
     );
     assert!(codes.is_empty(), "{codes:?}");
+
+    let named = check_snippet(
+        "fn g() !-> i32 {\n    return 1\n}\n\
+         fn f() {\n    let v = g() or { e ->\n        println(\"{}\", e.message)\n        return\n    }\n}\n",
+    );
+    assert!(named.is_empty(), "{named:?}");
+
+    // `it` is not in scope: the binding must be written out.
+    let implicit = check_snippet(
+        "fn f(x: i32?) {\n    let v = x or {\n        println(\"{}\", it)\n        return\n    }\n}\n",
+    );
+    assert!(implicit.contains(&dz_diag::codes::UNRESOLVED_NAME), "{implicit:?}");
 }
 
 #[test]

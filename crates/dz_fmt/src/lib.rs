@@ -571,7 +571,7 @@ impl<'a> Printer<'a> {
     /// Statement-position expressions whose bodies are blocks print multi-line.
     fn expr_stmt(&mut self, e: &Expr) {
         match &e.kind {
-            ExprKind::If(_) | ExprKind::Switch(_) | ExprKind::With(_) | ExprKind::Block(_) => {
+            ExprKind::If(_) | ExprKind::Switch(_) | ExprKind::Block(_) => {
                 let text = self.expr(e);
                 self.emit_multiline(&text);
             }
@@ -605,8 +605,7 @@ impl<'a> Printer<'a> {
             TypeKind::Ref { mutable, inner } => {
                 format!("&{}{}", if *mutable { "mut " } else { "" }, self.ty(inner))
             }
-            TypeKind::Optional(i) => format!("?{}", self.ty(i)),
-            TypeKind::Fallible(i) => format!("!{}", self.ty(i)),
+            TypeKind::Optional(i) => format!("{}?", self.ty(i)),
             TypeKind::Tuple(elems) => {
                 format!("({})", elems.iter().map(|e| self.ty(e)).collect::<Vec<_>>().join(", "))
             }
@@ -702,13 +701,14 @@ impl<'a> Printer<'a> {
             }
             ExprKind::Deref(inner) => format!("{}^", self.expr_prec(inner, 14)),
             ExprKind::Move(inner) => format!("move({})", self.expr(inner)),
-            ExprKind::Try(inner) => format!("try {}", self.expr_prec(inner, 2)),
-            ExprKind::Catch { expr, handler } => {
-                let h = match handler.as_ref() {
-                    CatchHandler::Value(v) => self.expr_prec(v, 2),
-                    CatchHandler::Block { binding, body } => self.closure_block(binding, body),
+            ExprKind::Or { expr, clause } => {
+                let c = match clause.as_ref() {
+                    OrClause::Value(v) => self.expr_prec(v, 2),
+                    OrClause::Block { binding, body } => self.closure_block(binding, body),
+                    OrClause::Ignore(_) => "ignore".to_owned(),
+                    OrClause::Unreachable(_) => "unreachable".to_owned(),
                 };
-                format!("{} catch {h}", self.expr_prec(expr, 1))
+                format!("{} or {c}", self.expr_prec(expr, 1))
             }
             ExprKind::Block(b) => self.render_block(b),
             ExprKind::If(i) => {
@@ -742,18 +742,6 @@ impl<'a> Printer<'a> {
                     s.push('\n');
                 }
                 s.push('}');
-                s
-            }
-            ExprKind::With(w) => {
-                let mut s = format!(
-                    "with ({}) {}",
-                    self.expr(&w.subject),
-                    self.closure_block(&w.binding, &w.body)
-                );
-                if let Some(body) = &w.else_body {
-                    s.push_str(" else ");
-                    s.push_str(&self.closure_block(&w.else_binding, body));
-                }
                 s
             }
             ExprKind::Return(v) => match v {
@@ -940,10 +928,10 @@ fn traits_str(traits: &[Path]) -> String {
 /// where parentheses are required so re-parsing yields the same tree.
 fn expr_precedence(e: &Expr) -> u8 {
     match &e.kind {
-        ExprKind::Catch { .. } => 1,
+        ExprKind::Or { .. } => 1,
         ExprKind::Binary { op, .. } => binary_prec(*op).0,
         ExprKind::Range { .. } => 5,
-        ExprKind::Try(_) | ExprKind::Return(_) | ExprKind::Break { .. } => 2,
+        ExprKind::Return(_) | ExprKind::Break { .. } => 2,
         ExprKind::Cast { .. } => 12,
         ExprKind::Unary { .. } | ExprKind::Ref { .. } => 13,
         _ => 15,

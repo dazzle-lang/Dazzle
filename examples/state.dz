@@ -108,8 +108,8 @@ fn main() {
 // ====
 
 def State<Ctx, S> {
-	fn enter (self: &Self, ctx: &Ctx) -> ?S { return none }
-	fn update(self: &Self, ctx: &Ctx) -> ?S { return none }
+	fn enter (self: &Self, ctx: &Ctx) -> S? { return none }
+	fn update(self: &Self, ctx: &Ctx) -> S? { return none }
 	fn exit  (self: &Self, ctx: &Ctx)       {}
 }
 def StateMachine<Ctx> {

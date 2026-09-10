@@ -121,7 +121,7 @@ fn main() {
 
 union ButtonState {
 	struct Default {
-		pub mut fn update() -> ?ButtonState {
+		pub mut fn update() -> ButtonState? {
 			if ctx.input.mouse_down { return Transition {} }
 		}
 	},
@@ -130,7 +130,7 @@ union ButtonState {
 		drop() {
 			ctx.btn.scale = 1
 		}
-		pub mut fn update() -> ?ButtonState {
+		pub mut fn update() -> ButtonState? {
 			if ctx.input.mouse_up { return Default {} }
 			t += ctx.delta_time
 			ctx.btn.scale = lerp(1, 2, t)
@@ -146,7 +146,7 @@ union ButtonState {
 
 struct ButtonState: StateMachine {
 	struct Default {
-		pub mut fn update() -> ?ButtonState {
+		pub mut fn update() -> ButtonState? {
 			if ctx.input.mouse_down { return Transition {} }
 		}
 	},
@@ -155,7 +155,7 @@ struct ButtonState: StateMachine {
 		drop() {
 			ctx.btn.scale = 1
 		}
-		pub mut fn update() -> ?ButtonState {
+		pub mut fn update() -> ButtonState? {
 			if ctx.input.mouse_up { return Default {} }
 			t += ctx.delta_time
 			ctx.btn.scale = lerp(1, 2, t)
@@ -186,7 +186,7 @@ fn main() {
 @(dispatch: State<ButtonCtx>)
 union ButtonState {
 	struct Default {
-		fn update(ctx: &ButtonCtx) -> ?ButtonState {
+		fn update(ctx: &ButtonCtx) -> ButtonState? {
 			if ctx.input.mouse_down && ctx.input.isMouseOver(ctx.btn) {
 				return .Transition
 			}
@@ -197,7 +197,7 @@ union ButtonState {
 		fn exit(ctx: &ButtonCtx, to: ButtonState.Kind) {
 			ctx.btn.scale = 1
 		}
-		mut fn update(ctx: &ButtonCtx) -> ?ButtonState {
+		mut fn update(ctx: &ButtonCtx) -> ButtonState? {
 			if ctx.input.mouse_up { return .Default }
 			t += ctx.delta_time
 			ctx.btn.scale = lerp(1, 2, t)
@@ -205,7 +205,7 @@ union ButtonState {
 		}
 	},
 	struct ChangeSprite {
-		fn enter(ctx: &ButtonCtx, from: ?ButtonState.Kind) -> ?ButtonState {
+		fn enter(ctx: &ButtonCtx, from: ButtonState.Kind?) -> ButtonState? {
 			ctx.btn.sprite = Sprites::Selected
 			return .Default
 		}

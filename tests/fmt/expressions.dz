@@ -51,13 +51,15 @@ fn ownership_and_errors() {
     let a = move(name)
     let b = &value
     let c = &mut value
-    let d = try load(path)
-    let e = load(path) catch Textures::Missing
-    let f = load(path) catch { err ->
+    let d = load(path) or return
+    let e = load(path) or Textures::Missing
+    let f = load(path) or { err ->
         log::warn("failed: {}", err.message)
         Textures::Missing
     }
-    let g = find(id) catch return
+    let g = find(id) or return
+    let j = find(id) or unreachable
+    save(path) or ignore
     let h = #location
     let i = #line
 }
@@ -67,7 +69,7 @@ fn nested_calls() {
 }
 
 fn expression_forms() -> i32 {
-    let hp = with (find_player(id)) { it.health } else { 0 }
+    let hp = find_player(id) or 0
     let x = if ready { 1 } else { 2 }
     let t = (1, 2.0)
     return hp

@@ -740,6 +740,14 @@ impl<'a> Lexer<'a> {
             '!' => {
                 if self.eat('=') {
                     BangEq
+                } else if self.peek() == Some('-') && self.peek_at(1) == Some('>') {
+                    // `!->` is one token: the fallible return marker (spec §9). Scanning
+                    // it here rather than pairing `!` with `->` in the parser keeps
+                    // `!x->y` — which is not valid Dazzle anyway — from ever looking like
+                    // one, and gives the formatter a single atom to lay out.
+                    self.bump();
+                    self.bump();
+                    BangArrow
                 } else {
                     Bang
                 }

@@ -100,6 +100,17 @@ fn chained_comparison_is_rejected() {
     assert_eq!(p.codes, vec![dz_diag::codes::CHAINED_COMPARISON]);
 }
 
+#[test]
+fn chained_or_is_rejected() {
+    // spec §9.4, §11.1 — `or` is non-associative. The first clause has already produced a
+    // value or diverged, so a second `or` could only apply to something that cannot fail.
+    let p = parse_str("fn f() { let x = a() or b() or c }");
+    assert_eq!(p.codes, vec![dz_diag::codes::CHAINED_OR]);
+    // One `or` is of course fine, and so is a second one inside a parenthesised operand.
+    assert!(parse_str("fn f() { let x = a() or 0 }").codes.is_empty());
+    assert!(parse_str("fn f() { let x = (a() or b()) or 0 }").codes.is_empty());
+}
+
 // --- the turbofish-free generic rule (spec §3.3) --------------------------
 
 #[test]
@@ -133,12 +144,24 @@ fn caret_is_deref_in_postfix_position() {
 
 #[test]
 fn reference_types_parse() {
-    let p = parse_str("fn f(a: &T, b: &mut T, c: ^T, d: own ^T, e: ?T, g: !T, h: []T, i: [4]T) {}");
+    let p =
+        parse_str("fn f(a: &T, b: &mut T, c: ^T, d: own ^T, e: T?, g: ^T?, h: []T, i: [4]T) {}");
     assert!(p.codes.is_empty(), "{:?}", p.codes);
     assert!(p.dump.contains("a: &T"), "{}", p.dump);
     assert!(p.dump.contains("b: &mut T"), "{}", p.dump);
     assert!(p.dump.contains("d: own ^T"), "{}", p.dump);
-    assert!(p.dump.contains("g: !T"), "{}", p.dump);
+    assert!(p.dump.contains("e: T?"), "{}", p.dump);
+    // `?` is postfix and binds to the type name, so access sigils sit outside it: this is
+    // a pointer to an optional, not an optional pointer (spec §5.6).
+    assert!(p.dump.contains("g: ^T?"), "{}", p.dump);
+}
+
+#[test]
+fn a_fallible_signature_is_marked_on_the_arrow() {
+    // spec §9 — `!` never appears in a type, so there is no `T!` to parse.
+    let p = parse_str("fn f() !-> Header { return h }");
+    assert!(p.codes.is_empty(), "{:?}", p.codes);
+    assert!(p.dump.contains("fn f() !-> Header"), "{}", p.dump);
 }
 
 // --- struct literal ambiguity --------------------------------------------

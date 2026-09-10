@@ -55,14 +55,6 @@ impl<'a> Parser<'a> {
                     }),
                 }
             }
-            TokenKind::Question => {
-                self.bump();
-                TypeKind::Optional(Box::new(self.parse_type()))
-            }
-            TokenKind::Bang => {
-                self.bump();
-                TypeKind::Fallible(Box::new(self.parse_type()))
-            }
             // `[N]T` and `[]T`
             TokenKind::LBracket => {
                 self.bump();
@@ -113,7 +105,7 @@ impl<'a> Parser<'a> {
                     }
                     self.expect_in(TokenKind::RParen, "to close a function type");
                 }
-                let ret = if self.eat(TokenKind::Arrow) {
+                let ret = if self.eat(TokenKind::Arrow) || self.eat(TokenKind::BangArrow) {
                     Some(Box::new(self.parse_type()))
                 } else {
                     None
@@ -136,13 +128,24 @@ impl<'a> Parser<'a> {
                     span,
                     format!("expected a type, found {found}"),
                     "expected a type here",
-                    "types are names, `^T`, `&T`, `&mut T`, `own ^T`, `?T`, `!T`, `[N]T`, `[]T`, \
+                    "types are names, `^T`, `&T`, `&mut T`, `own ^T`, `T?`, `[N]T`, `[]T`, \
                      tuples, or `fn(...) -> T`",
                 );
                 TypeKind::Error
             }
         };
-        Type { span: self.span_from(start), kind }
+        // `?` is postfix and binds to the type name, so it wraps whatever was just parsed
+        // (spec §5.6). `^T?` is therefore a pointer to an optional, and access sigils —
+        // parsed above, as prefixes — always sit outside it.
+        let mut ty = Type { span: self.span_from(start), kind };
+        while self.at(TokenKind::Question) {
+            self.bump();
+            ty = Type {
+                span: self.span_from(start),
+                kind: TypeKind::Optional(Box::new(ty)),
+            };
+        }
+        ty
     }
 
     // --- paths ------------------------------------------------------------

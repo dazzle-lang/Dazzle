@@ -62,6 +62,8 @@ pub const UNCLOSED_DELIMITER: &str = "DZ0208";
 pub const ASSIGN_IN_EXPRESSION: &str = "DZ0209";
 /// A struct literal in a position where `{` starts a block instead.
 pub const AMBIGUOUS_STRUCT_LITERAL: &str = "DZ0210";
+/// Two `or` clauses on one expression. `or` is non-associative (spec §9.4, §11.1).
+pub const CHAINED_OR: &str = "DZ0211";
 
 // --- DZ00xx: projects and manifests --------------------------------------------
 
@@ -127,7 +129,8 @@ pub const NON_EXHAUSTIVE_SWITCH: &str = "DZ0513";
 pub const INVALID_OPERANDS: &str = "DZ0514";
 /// Indexing something that is not an array or slice.
 pub const NOT_INDEXABLE: &str = "DZ0515";
-/// `try` in a function that does not return `?T` or `!T` (spec §9.5).
+/// An `or return` whose failure has nowhere to go: the enclosing signature cannot carry
+/// it (spec §9.5). Named for `try` in v0.4, which is what this code originally reported.
 pub const TRY_OUTSIDE_FALLIBLE: &str = "DZ0516";
 /// A `&T` stored in a struct field (spec §5.2, §18.3).
 pub const REF_IN_FIELD: &str = "DZ0517";
@@ -139,6 +142,15 @@ pub const DUPLICATE_FIELD: &str = "DZ0519";
 pub const NO_SUCH_METHOD: &str = "DZ0520";
 /// `none` or `error(...)` where no optional or fallible type is expected (spec §9.1).
 pub const NO_CONTEXT_FOR_LITERAL: &str = "DZ0521";
+/// A `^T` used where a `&T` is required. The conversion is not implicit, because a
+/// pointer may be null and a reference may not — it goes through an `or` clause (§5.2).
+pub const POINTER_NEEDS_CHECK: &str = "DZ0522";
+/// An `or` clause that neither produces the success type nor diverges (spec §9.4).
+pub const OR_CLAUSE_TYPE: &str = "DZ0523";
+/// `or ignore` in expression position: it produces no value to bind (spec §9.4).
+pub const IGNORE_PRODUCES_NO_VALUE: &str = "DZ0524";
+/// An `or` clause on something that cannot fail (spec §9.4).
+pub const NOT_FALLIBLE: &str = "DZ0525";
 
 // --- DZ08xx: code generation ---------------------------------------------------
 

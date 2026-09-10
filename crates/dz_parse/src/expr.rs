@@ -8,13 +8,13 @@ use crate::Parser;
 
 /// Left and right binding powers. Higher binds tighter; `(bp, bp + 1)` is left-associative.
 ///
-/// Mirrors spec §11.1 read from the bottom up: `catch` is loosest, `* / %` tightest of the
+/// Mirrors spec §11.1 read from the bottom up: `or` is loosest, `* / %` tightest of the
 /// infix operators. Postfix (`.`, `()`, `[]`, `^`) and `as` bind tighter still and are
 /// handled in the postfix loop rather than here.
 fn infix_bp(k: TokenKind) -> Option<(u8, u8)> {
     use TokenKind::*;
     Some(match k {
-        Catch => (1, 2),
+        Or => (1, 2),
         PipePipe => (2, 3),
         AmpAmp => (3, 4),
         EqEq | BangEq | Lt | Gt | LtEq | GtEq => (4, 5),
@@ -80,13 +80,29 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            if op_kind == TokenKind::Catch {
+            if op_kind == TokenKind::Or {
                 self.bump();
-                let handler = self.parse_catch_handler();
+                let clause = self.parse_or_clause();
                 lhs = Expr {
                     span: self.span_from(start),
-                    kind: ExprKind::Catch { expr: Box::new(lhs), handler: Box::new(handler) },
+                    kind: ExprKind::Or { expr: Box::new(lhs), clause: Box::new(clause) },
                 };
+                // `a() or b() or c` is rejected rather than silently misparsed. An `or`
+                // clause already produces the success type or diverges (spec §9.4), so a
+                // second `or` can only apply to a value that has stopped being fallible —
+                // it reads as a fallback chain and is not one.
+                if self.at(TokenKind::Or) {
+                    let span = self.peek_token().span;
+                    self.error_help(
+                        codes::CHAINED_OR,
+                        span,
+                        "`or` clauses cannot be chained",
+                        "this `or` follows another",
+                        "`or` is non-associative — the first clause already produced a \
+                         value or diverged, so nothing here can fail (spec §9.4)",
+                    );
+                    break;
+                }
                 continue;
             }
 
@@ -139,14 +155,21 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_catch_handler(&mut self) -> CatchHandler {
-        if self.at(TokenKind::LBrace) {
-            // `catch { e -> ... }` or `catch { ... }` with the implicit `it`.
-            let binding = self.parse_closure_binding();
-            let body = self.parse_block_after_binding(binding.is_some());
-            CatchHandler::Block { binding, body }
-        } else {
-            CatchHandler::Value(self.parse_expr_bp(2))
+    /// The right-hand side of an `or` (spec §9.4).
+    ///
+    /// `return`, `break`, `continue` and `panic(...)` need no special handling here: they
+    /// are already expressions, and the single rule — produce a `T` or diverge — is a type
+    /// question rather than a syntactic one, so the checker enforces it, not the parser.
+    fn parse_or_clause(&mut self) -> OrClause {
+        match self.peek() {
+            TokenKind::LBrace => {
+                let binding = self.parse_closure_binding();
+                let body = self.parse_block_after_binding(binding.is_some());
+                OrClause::Block { binding, body }
+            }
+            TokenKind::Ignore => OrClause::Ignore(self.bump().span),
+            TokenKind::Unreachable => OrClause::Unreachable(self.bump().span),
+            _ => OrClause::Value(self.parse_expr_bp(2)),
         }
     }
 
@@ -184,10 +207,6 @@ impl<'a> Parser<'a> {
                     self.expect_in(TokenKind::RParen, "to close `move(...)`");
                 }
                 ExprKind::Move(Box::new(inner))
-            }
-            TokenKind::Try => {
-                self.bump();
-                ExprKind::Try(Box::new(self.parse_expr_bp(2)))
             }
             TokenKind::Return => {
                 self.bump();
@@ -349,7 +368,6 @@ impl<'a> Parser<'a> {
             }
             TokenKind::If => return self.parse_if(),
             TokenKind::Switch => return self.parse_switch(),
-            TokenKind::With => return self.parse_with(),
             TokenKind::LBrace => {
                 let block = self.parse_block();
                 ExprKind::Block(block)
@@ -619,48 +637,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_with(&mut self) -> Expr {
-        let start = self.start();
-        self.bump(); // `with`
-
-        // `with (expr) { ... }` — the parentheses are part of the form (spec §9.4).
-        let had_paren = self.at(TokenKind::LParen);
-        let subject = if had_paren {
-            self.bump();
-            let saved = std::mem::replace(&mut self.no_struct_literal, 0);
-            let e = self.parse_expr();
-            self.no_struct_literal = saved;
-            self.expect_in(TokenKind::RParen, "to close the `with` subject");
-            e
-        } else {
-            self.parse_expr_no_struct()
-        };
-
-        let binding = self.parse_closure_binding();
-        let body = self.parse_block_after_binding(binding.is_some());
-
-        let (else_binding, else_body) = if self.eat(TokenKind::Else) {
-            let b = self.parse_closure_binding();
-            let blk = self.parse_block_after_binding(b.is_some());
-            (b, Some(blk))
-        } else {
-            (None, None)
-        };
-
-        let span = self.span_from(start);
-        Expr {
-            span,
-            kind: ExprKind::With(WithExpr {
-                span,
-                subject: Box::new(subject),
-                binding,
-                body,
-                else_binding,
-                else_body,
-            }),
-        }
-    }
-
     /// Look for `{ name ->` and consume `{ name ->` if present, leaving the block body.
     ///
     /// Returns `None` for `{ ... }`, where the binding is the implicit `it`.
@@ -711,10 +687,8 @@ impl<'a> Parser<'a> {
                 | Tilde
                 | Amp
                 | Move
-                | Try
                 | If
                 | Switch
-                | With
                 | Hash
                 | Dot
                 | Return

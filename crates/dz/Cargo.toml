@@ -20,6 +20,7 @@ dz_fmt.workspace = true
 dz_project.workspace = true
 dz_resolve.workspace = true
 dz_check.workspace = true
+dz_hir.workspace = true
 dz_cpp.workspace = true
 
 [dev-dependencies]

@@ -63,6 +63,7 @@ dependencies = [
  "dz_cpp",
  "dz_diag",
  "dz_fmt",
+ "dz_hir",
  "dz_lex",
  "dz_parse",
  "dz_project",
@@ -84,6 +85,7 @@ version = "0.1.0"
 dependencies = [
  "dz_ast",
  "dz_diag",
+ "dz_hir",
  "dz_lex",
  "dz_parse",
  "dz_project",
@@ -122,6 +124,15 @@ dependencies = [
  "dz_parse",
  "dz_span",
  "insta",
+]
+
+[[package]]
+name = "dz_hir"
+version = "0.1.0"
+dependencies = [
+ "dz_ast",
+ "dz_resolve",
+ "dz_span",
 ]
 
 [[package]]

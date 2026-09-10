@@ -179,63 +179,80 @@ fn switching_with_default(l: Layer) -> i32 {
     }
 }
 
-fn may_fail(n: i32) -> !i32 {
+fn may_fail(n: i32) !-> i32 {
     if n < 0 {
         return error("negative")
     }
     return n
 }
 
-fn maybe_find(n: i32) -> ?i32 {
+fn maybe_find(n: i32) -> i32? {
     if n < 0 {
         return none
     }
     return n
 }
 
-fn propagates() -> !i32 {
-    // `try` in a function that returns `!U` (spec §9.5).
-    let a = try may_fail(1)
+fn find_ptr(xs: []i32) -> ^i32 {
+    return null
+}
+
+fn propagates() !-> i32 {
+    // Bare `or return` propagates, and the signature can carry it (spec §9.5).
+    let a = may_fail(1) or return
     return a
 }
 
-fn propagates_optional() -> ?i32 {
-    let a = try maybe_find(1)
+fn propagates_optional() -> i32? {
+    let a = maybe_find(1) or return
     return a
 }
 
 fn handles() -> i32 {
-    with (may_fail(1)) { v ->
-        return v
-    } else { e ->
+    let v = may_fail(1) or { e ->
         return 0
     }
+    return v
 }
 
-fn handles_implicit_binding() -> i32 {
-    with (maybe_find(1)) {
-        return it
-    } else {
+fn handles_a_block_without_binding() -> i32 {
+    let v = maybe_find(1) or {
         return 0
     }
+    return v
 }
 
 fn falls_back() -> i32 {
-    let a = may_fail(1) catch 0
-    let b = maybe_find(1) catch 0
-    let c = may_fail(1) catch { e ->
+    let a = may_fail(1) or 0
+    let b = maybe_find(1) or 0
+    let c = may_fail(1) or { e ->
         0
     }
     return a + b + c
 }
 
 fn ignored_deliberately() {
-    let _ = may_fail(1)
+    may_fail(1) or ignore
+}
+
+/// `^T` → `&T` goes through an `or` clause, because a pointer may be null (spec §5.2).
+fn takes_ref(x: &i32) -> i32 {
+    return 0
+}
+
+fn checks_a_pointer(xs: []i32) -> i32 {
+    let a = find_ptr(xs) or return 0
+    return takes_ref(a)
+}
+
+fn asserts_a_pointer(xs: []i32) -> i32 {
+    let a = find_ptr(xs) or unreachable
+    return takes_ref(a)
 }
 
 fn expression_forms(ready: bool) -> i32 {
     let x = if ready { 1 } else { 2 }
-    let y = with (maybe_find(1)) { it } else { 0 }
+    let y = maybe_find(1) or 0
     return x + y
 }
 

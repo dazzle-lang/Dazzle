@@ -382,8 +382,7 @@ impl<'a, 'w> Walker<'a, 'w> {
     fn ty(&mut self, t: &Type) {
         match &t.kind {
             TypeKind::Path(p) => self.path(p, PathUse::Type),
-            TypeKind::Ptr(i) | TypeKind::OwnPtr(i) | TypeKind::Optional(i)
-            | TypeKind::Fallible(i) => self.ty(i),
+            TypeKind::Ptr(i) | TypeKind::OwnPtr(i) | TypeKind::Optional(i) => self.ty(i),
             TypeKind::Ref { inner, .. } => self.ty(inner),
             TypeKind::Array { size, elem } => {
                 if let Some(s) = size {
@@ -501,20 +500,24 @@ impl<'a, 'w> Walker<'a, 'w> {
                     self.expr(s);
                 }
             }
-            ExprKind::Ref { expr, .. }
-            | ExprKind::Deref(expr)
-            | ExprKind::Move(expr)
-            | ExprKind::Try(expr) => self.expr(expr),
-            ExprKind::Catch { expr, handler } => {
+            ExprKind::Ref { expr, .. } | ExprKind::Deref(expr) | ExprKind::Move(expr) => {
+                self.expr(expr)
+            }
+            ExprKind::Or { expr, clause } => {
                 self.expr(expr);
-                match handler.as_ref() {
-                    CatchHandler::Value(v) => self.expr(v),
-                    CatchHandler::Block { binding, body } => {
+                match clause.as_ref() {
+                    OrClause::Value(v) => self.expr(v),
+                    OrClause::Block { binding, body } => {
                         self.push_scope();
-                        self.bind_it(binding);
+                        // The error binding is named explicitly or not at all — there is
+                        // no implicit `it` in an `or` clause (spec §9.4).
+                        if let Some(b) = binding {
+                            self.bind(&b.name, b.span);
+                        }
                         self.block(body);
                         self.pop_scope();
                     }
+                    OrClause::Ignore(_) | OrClause::Unreachable(_) => {}
                 }
             }
             ExprKind::Block(b) => self.block(b),
@@ -539,19 +542,6 @@ impl<'a, 'w> Walker<'a, 'w> {
                 }
                 if let Some(d) = &s.default {
                     self.block(d);
-                }
-            }
-            ExprKind::With(w) => {
-                self.expr(&w.subject);
-                self.push_scope();
-                self.bind_it(&w.binding);
-                self.block(&w.body);
-                self.pop_scope();
-                if let Some(body) = &w.else_body {
-                    self.push_scope();
-                    self.bind_it(&w.else_binding);
-                    self.block(body);
-                    self.pop_scope();
                 }
             }
             ExprKind::Return(v) => {
@@ -588,17 +578,6 @@ impl<'a, 'w> Walker<'a, 'w> {
         }
     }
 
-    /// `with`/`catch` bind `it` implicitly when no name is given (spec §9.4).
-    fn bind_it(&mut self, binding: &Option<Ident>) {
-        match binding {
-            Some(b) => self.bind(&b.name, b.span),
-            None => {
-                if let Some(scope) = self.scopes.last_mut() {
-                    scope.insert("it".to_owned(), Span::DUMMY);
-                }
-            }
-        }
-    }
 
     // --- paths ------------------------------------------------------------
 

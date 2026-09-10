@@ -140,52 +140,48 @@ input_file: tests/lex/declarations.dz
   20:13  :
   20:15  Ident `str`
   20:18  )
-  20:20  ->
-  20:23  !
+  20:20  !->
   20:24  Ident `Texture`
   20:32  {
   21:5   let
   21:9   Ident `tex`
   21:13  =
-  21:15  try
-  21:19  Ident `open`
-  21:23  (
-  21:24  Ident `path`
-  21:28  )
-  21:29  Terminator
-  22:5   with
-  22:10  (
-  22:11  Ident `find`
-  22:15  (
-  22:16  Ident `tex`
-  22:19  )
-  22:20  )
-  22:22  {
-  22:24  Ident `it`
-  22:27  ->
+  21:15  Ident `open`
+  21:19  (
+  21:20  Ident `path`
+  21:24  )
+  21:26  or
+  21:29  return
+  21:35  Terminator
+  22:5   let
+  22:9   Ident `found`
+  22:15  =
+  22:17  Ident `find`
+  22:21  (
+  22:22  Ident `tex`
+  22:25  )
+  22:27  or
+  22:30  {
+  22:32  Ident `e`
+  22:34  ->
   23:9   return
-  23:16  Ident `it`
-  23:18  Terminator
+  23:16  Ident `error`
+  23:21  (
+  23:22  Str `"no texture: {}"`
+  23:38  ,
+  23:40  Ident `e`
+  23:41  .
+  23:42  Ident `message`
+  23:49  )
+  23:50  Terminator
   24:5   }
-  24:7   else
-  24:12  {
-  24:14  Ident `e`
-  24:16  ->
-  25:9   return
-  25:16  Ident `error`
-  25:21  (
-  25:22  Str `"no texture: {}"`
-  25:38  ,
-  25:40  Ident `e`
-  25:41  .
-  25:42  Ident `message`
-  25:49  )
-  25:50  Terminator
-  26:5   }
-  26:6   Terminator
-  27:1   }
-  27:2   Terminator
-  28:1   Eof
+  24:6   Terminator
+  25:5   return
+  25:12  Ident `found`
+  25:17  Terminator
+  26:1   }
+  26:2   Terminator
+  27:1   Eof
 
 === DIAGNOSTICS ===
 (none)
