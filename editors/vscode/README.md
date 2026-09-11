@@ -9,6 +9,8 @@ own language server, `dz lsp` (spec §17.4), so everything it knows comes from t
 - **Errors and warnings as you type**, with the compiler's codes (`DZ0412`) and related spans
   (a use-after-move also shows where the move was). While there is a syntax error, only
   syntax errors are shown; type errors come back once it parses.
+- **Unused bindings** get a warning and are drawn faded. Name one `_x` to say it's unused
+  on purpose, for example a guard kept only for its `drop`.
 - **Hover**: the type of a local or expression, or a declaration's signature and `///` docs.
 - **Go to definition, find references, highlight**: locals, functions, types, fields,
   methods (including `impl` methods and inherited trait defaults), variants, constructors.

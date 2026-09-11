@@ -822,6 +822,10 @@ fn to_lsp(
             source: Some("dazzle".to_owned()),
             message,
             related_information: if related.is_empty() { None } else { Some(related) },
+            // An editor draws "unnecessary" code faded, which is how an unused binding
+            // should look: present, but doing nothing.
+            tags: (d.code == Some(dz_diag::codes::UNUSED_VARIABLE))
+                .then(|| vec![lsp_types::DiagnosticTag::UNNECESSARY]),
             ..Default::default()
         },
     ))

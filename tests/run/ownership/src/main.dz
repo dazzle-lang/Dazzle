@@ -105,7 +105,8 @@ fn main() {
     // §6.5: `defer` runs at scope exit *after* that scope's drops.
     {
         defer println("  deferred")
-        let e = Handle(&mut slot_c, "c")
+        // Held only for its `drop` at the end of the scope: `_` says so (DZ0406).
+        let _e = Handle(&mut slot_c, "c")
         println("before scope ends")
     }
 
