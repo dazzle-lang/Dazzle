@@ -3,7 +3,12 @@
 
 pub struct Twice {
     pub n: i32
+}
 
-    drop() {}
-    drop() {}
+impl Drop for Twice {
+    mut fn drop(&mut self) {}
+}
+
+impl Drop for Twice {
+    mut fn drop(&mut self) {}
 }

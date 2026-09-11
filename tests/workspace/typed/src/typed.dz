@@ -112,10 +112,13 @@ fn mutation() {
 }
 
 fn pointers(v: ^Vec3) -> f32 {
-    // `.` reaches through pointers on its own (spec §5.2).
-    let a = v.x
-    let whole = v^
-    return a + whole.y
+    // `.` reaches through pointers on its own (spec §5.2) — inside `unsafe`, since nothing
+    // checks that `v` still points at a `Vec3`.
+    unsafe {
+        let a = v.x
+        let whole = v^
+        return a + whole.y
+    }
 }
 
 fn references(v: &Vec3, w: &mut Vec3) -> f32 {
@@ -128,6 +131,32 @@ fn arrays_and_slices(fixed: [4]i32, slice: []i32) -> i32 {
     let b = slice[1]
     let n = slice.len
     return a + b
+}
+
+// A slice carries its writability in its type, so `[]mut T` may be written through no
+// matter how the slice itself is bound — it is a view, and the binding governs the view
+// and not the elements (spec §5.3, §18.22).
+fn fill(dst: []mut i32, value: i32) {
+    for i in 0..dst.len {
+        dst[i] = value
+    }
+}
+
+// ...and `[]mut T` satisfies `[]T`, exactly as `&mut T` satisfies `&T`.
+fn sum(xs: []i32) -> i32 {
+    let mut total = 0
+    for x in xs {
+        total += x
+    }
+    return total
+}
+
+fn fill_then_sum() -> i32 {
+    // `let mut`, because viewing an array as `[]mut i32` hands out writes to it. No
+    // initialiser: an array is default-initialised like everything else (spec §6.2).
+    let mut storage: [4]i32
+    fill(storage, 7)
+    return sum(storage)
 }
 
 fn ranges(count: i32) -> i32 {
@@ -290,23 +319,29 @@ pub struct Owner {
     pub fn live(&self) -> bool {
         return m_slot != null
     }
+}
 
-    // §6.5: an `own` field obliges the struct to release it.
-    drop() {
+// §6.5: an `own` field obliges the struct to release it.
+impl Drop for Owner {
+    mut fn drop(&mut self) {
         if m_slot != null {
-            m_slot^ = 0
+            unsafe { m_slot^ = 0 }
         }
     }
 }
 
 pub struct Copyable {
     pub n: i32
+}
 
-    copy(other: &Self) {
+impl Copy for Copyable {
+    mut fn copy(&mut self, other: &Self) {
         n = other.n
     }
+}
 
-    drop() {}
+impl Drop for Copyable {
+    mut fn drop(&mut self) {}
 }
 
 fn consumes(o: Owner) -> bool {
@@ -342,7 +377,384 @@ fn inferred_variant() -> Shape {
 // §9.2: the `Error` an `or` block binds is a real struct with real fields.
 fn reads_the_error() -> i32 {
     return may_fail(1) or { e ->
+        // `location` is a `&SourceLocation` into static storage, read directly (§9.2).
         let where_from = e.location.line
         e.code as i32 + where_from as i32
     }
+}
+
+// --- M6: generics and traits (spec §7.6, §8) --------------------------------
+
+// A trait of one's own, alongside the prelude's. `Weigh : Describe` means every `Weigh` is
+// a `Describe`, and conformance is checked at the declaration below.
+trait Describe {
+    fn describe(&self) -> str
+}
+
+trait Weigh : Describe {
+    fn weight(&self) -> i32
+
+    // A default method: implementers need not supply it (spec §7.6).
+    fn heavy(&self) -> bool {
+        return self.weight() > 100
+    }
+}
+
+struct Crate {
+    m_weight: i32
+
+    Crate(w: i32) {
+        m_weight = w
+    }
+}
+
+impl Describe for Crate {
+    fn describe(&self) -> str {
+        return "crate"
+    }
+}
+
+impl Weigh for Crate {
+    fn weight(&self) -> i32 {
+        return m_weight
+    }
+}
+
+// §8.1: the body is checked once, against `T: Weigh` and nothing else. `weight` is legal
+// because `Weigh` provides it; `describe` is legal because `Weigh : Describe` does.
+fn heaviest<T: Weigh>(a: T, b: T) -> str {
+    if a.weight() > b.weight() {
+        return a.describe()
+    }
+    return b.describe()
+}
+
+fn uses_heaviest() -> str {
+    return heaviest(Crate(3), Crate(7))
+}
+
+// §8.2: an unbounded `T` supports being moved, default-initialised and dropped, which
+// is exactly enough for a container.
+struct Pair<T> {
+    m_first:  T
+    m_second: T
+
+    pub fn first(&self) -> &T {
+        return &m_first
+    }
+}
+
+// §8.4: a member of an instantiation has the instantiated type — `first()` returns `&i32`
+// here, from the `&T` the declaration wrote, which is why `takes_ref` accepts it.
+fn reads_an_instantiation(p: &Pair<i32>) -> i32 {
+    return takes_ref(p.first())
+}
+
+// Array literals (spec §5.3): the length is exactly what is written, elements take the
+// annotation's element type, and struct literals are legal inside the brackets.
+fn array_literals() -> f32 {
+    let a = [1, 2, 3]
+    let b: [4]f32 = [1, 2, 3, 4]
+    let grid = [[1, 2], [3, 4]]
+    let vs = [Vec3{ x: 1, y: 2, z: 3 }, Vec3{ 4, 5, 6 }]
+    let empty: [0]i32 = []
+    let wrapped = [
+        1,
+        2,
+    ]
+    return b[0] + vs[1].y + grid[0][1] as f32 + a[0] as f32 + wrapped[0] as f32
+}
+
+// A literal may be *passed* where a slice is wanted — the temporary outlives the call —
+// even though it may not be stored as one (spec §5.3).
+fn a_literal_may_be_passed_as_a_slice() -> i32 {
+    return sum([1, 2, 3])
+}
+
+// §7.4: a variant may be written `.Left` wherever the enum is already known, on either
+// side of a comparison, and `Layer::World` always works.
+fn enum_variants_without_naming_the_type(l: Layer) -> bool {
+    let a: Layer = .World
+    let b = Layer::Ui
+    if .Background == l {
+        return true
+    }
+    return a == .World && l == b
+}
+
+// --- M6: the prelude and operator traits (spec §3.2, §11.2, §18.23) ---------
+
+// No import: `Ord`, `Eq`, `Ordering`, `Add` and `Mul` all come from the prelude.
+pub struct Score {
+    pub value: i32
+}
+
+impl Eq for Score {
+    fn eq(&self, rhs: &Score) -> bool {
+        return value == rhs.value
+    }
+}
+
+impl Ord for Score {
+    fn cmp(&self, rhs: &Score) -> Ordering {
+        if value < rhs.value {
+            return .Less
+        }
+        if value > rhs.value {
+            return .Greater
+        }
+        return .Equal
+    }
+}
+
+// §11.2: all six comparison operators come from `eq` and `cmp`.
+fn comparing_a_user_type(a: Score, b: Score) -> bool {
+    return a == b || a != b && a < b && a > b && a <= b && a >= b
+}
+
+// `Rhs` defaults to `Self`, so `Add` alone is `Vec2 + Vec2`; `Mul<f32>` is `Vec2 * f32`.
+pub struct Vec2 {
+    pub x: f32
+    pub y: f32
+}
+
+impl Add for Vec2 {
+    type Output = Vec2
+
+    fn add(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x + rhs.x, y: y + rhs.y }
+    }
+}
+
+impl Mul<f32> for Vec2 {
+    type Output = Vec2
+
+    fn mul(&self, rhs: f32) -> Vec2 {
+        return Vec2{ x: x * rhs, y: y * rhs }
+    }
+}
+
+// §11.2: the expression a game language must have.
+fn vector_arithmetic(a: Vec2, b: Vec2) -> Vec2 {
+    return a + b * 3
+}
+
+// `dz::Ord` names the same trait explicitly (spec §3.2).
+// `T` may be move-only, so returning one is written `move` exactly as it would be for any
+// move-only type (spec §6.3, §8.2): a generic body is checked for every `T` at once.
+fn largest<T: dz::Ord>(a: T, b: T) -> T {
+    if a > b {
+        return move(a)
+    }
+    return move(b)
+}
+
+// §11.2: the machine's own types satisfy the operator traits, so §8.1's own example
+// works on numbers.
+fn primitives_satisfy_the_operator_traits() -> i32 {
+    return largest(3, 9)
+}
+
+// --- M6: compile-time queries, constants, formatting, iteration ------------
+
+// §5.5: every type answers these, and `sizeof(T)` is `T::size`.
+fn queries<T>(x: &T) -> usize {
+    if T::is_trivially_copyable && !T::has_drop {
+        return sizeof(T) + T::align
+    }
+    return i32::size + Vec3::align
+}
+
+// §5.3, §8.3: array lengths and un-annotated constants fold at compile time.
+const ROWS = 4
+const CELLS = ROWS * ROWS + 1
+
+fn folded() -> usize {
+    let g: [CELLS]u8
+    return g.len
+}
+
+// §12.9: the format string is parsed at compile time.
+fn formatting(x: i32, f: f32) {
+    println("{} {:x} {:X} {:.3} {{literal}}", x, x, x, f)
+}
+
+// §8.5, §10.4: any type implementing `Iterate` works in `for`.
+struct Upto {
+    pub i: i32
+    pub n: i32
+}
+
+impl Iterate for Upto {
+    type Item = i32
+
+    fn valid(&self) -> bool {
+        return i < n
+    }
+
+    fn get(&self) -> i32 {
+        return i
+    }
+
+    mut fn advance(&mut self) {
+        i += 1
+    }
+}
+
+fn iterating_a_user_type() -> i32 {
+    // Bound first: a struct literal cannot sit in a `for` head, where `{` opens the body.
+    let upto = Upto{ i: 0, n: 3 }
+    let mut total = 0
+    for v in upto {
+        total += v
+    }
+    return total
+}
+
+// §7.6: a default method is callable on a type that inherits it rather than writing it.
+fn inherited(c: Crate) -> bool {
+    return c.heavy()
+}
+
+// --- r12 ------------------------------------------------------------------------------
+
+// §5.2: an `unsafe fn` may touch raw memory in its body, and is called from `unsafe`.
+unsafe fn poke(p: ^i32, v: i32) {
+    p^ = v
+}
+
+// §5.2: forming, copying and comparing a pointer are all safe; only using one is not.
+fn pointer_rules(p: ^i32) -> bool {
+    let q = p
+    if q == null {
+        return false
+    }
+    unsafe { poke(q, 3) }
+    return true
+}
+
+// §5.2: `p or …` checks for null once, and the reference it gives may be written through.
+fn checked_pointer(v: ^Vec3) -> f32 {
+    let r = v or return 0.0
+    r.x = 2.0
+    return r.x
+}
+
+// §5.3: `.ptr` is the unchecked way into a writable view; forming it is safe.
+fn unchecked(xs: []mut i32) -> i32 {
+    let raw = xs.ptr
+    let mut n = 0
+    unsafe { n = raw[0] }
+    return n
+}
+
+// §8.2: a `T: Copy` may be copied, where an unbounded `T` is move-only.
+fn twice<T: Copy>(x: T) -> (T, T) {
+    return (x, x)
+}
+
+fn copies() -> i32 {
+    let t = twice(4)
+    return t.0 + t.1
+}
+
+// §18.27: one operator trait at two arguments, one implementation each.
+pub struct Scale {
+    pub k: f32
+}
+
+impl Mul<f32> for Scale {
+    type Output = Scale
+
+    fn mul(&self, rhs: f32) -> Scale {
+        return Scale{ k: k * rhs }
+    }
+}
+
+// §18.29: each implementation chooses its own `Output` — a `Scale` times a `Scale` is a
+// plain `f32` here, while a `Scale` times an `f32` is a `Scale`.
+impl Mul<Scale> for Scale {
+    type Output = f32
+
+    fn mul(&self, rhs: Scale) -> f32 {
+        return k * rhs.k
+    }
+}
+
+// §7.6: a trait of this module implemented for a type this program did not write.
+trait Label {
+    fn label(&self) -> str
+
+    fn shout(&self) -> str {
+        return self.label()
+    }
+}
+
+impl Label for f32 {
+    fn label(&self) -> str {
+        return "a float"
+    }
+}
+
+// `Label::shout` is a default, reached through `impl Label for f32`; naming the trait is
+// needed only because `Loud` below provides a `shout` too.
+fn labels(x: f32) -> str {
+    return Label::shout(&x)
+}
+
+// §7.6: a generic implementation, applying to every `Wrap<T>` whose `T` is `Label`.
+pub struct Wrap<T> {
+    pub inner: T
+}
+
+impl<T: Label> Label for Wrap<T> {
+    fn label(&self) -> str {
+        return inner.label()
+    }
+}
+
+fn wrapped(w: Wrap<f32>) -> str {
+    return w.label()
+}
+
+// §7.6: two traits both provide `shout`, so the call names the one it means.
+trait Loud {
+    fn shout(&self) -> str
+}
+
+impl Loud for f32 {
+    fn shout(&self) -> str {
+        return "LOUD"
+    }
+}
+
+fn chooses(x: f32) -> str {
+    return Loud::shout(&x)
+}
+
+// §6.1, §8.2: an `impl Copy` that applies only where its bound holds.
+pub struct Held<T> {
+    m_item: own ^T
+}
+
+impl<T> Drop for Held<T> {
+    mut fn drop(&mut self) {}
+}
+
+impl<T: Copy> Copy for Held<T> {
+    mut fn copy(&mut self, other: &Self) {
+        m_item = null
+    }
+}
+
+fn copies_where_it_may(h: Held<i32>) -> Held<i32> {
+    let again = h
+    return again
+}
+
+fn overloads(s: Scale) -> f32 {
+    let a = s * 2.0
+    let b = s * s
+    let c = s.mul(3.0)
+    return a.k + b + c.k
 }

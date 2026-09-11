@@ -62,7 +62,7 @@ fn check(entry: &Path) -> Checked {
     for module in ws.modules() {
         let mut parsed = Vec::new();
         for path in &module.sources {
-            let bytes = std::fs::read(path).expect("fixture source");
+            let bytes = module.read_source(path).expect("fixture source");
             let id = map.add_bytes(path, &bytes).expect("fixture source is UTF-8");
             let text = map.get(id).text().to_owned();
             let lexed = dz_lex::lex(id, &text);
@@ -97,8 +97,9 @@ fn check(entry: &Path) -> Checked {
 fn a_three_module_workspace_resolves_cleanly() {
     let r = check(&fixture("good"));
     assert_eq!(r.error_count, 0, "expected a clean workspace:\n{}", r.rendered);
-    assert_eq!(r.module_count, 3, "game plus two libraries");
-    assert_eq!(r.file_count, 5);
+    // Four, not three: the prelude is a real module in every workspace (spec §18.23).
+    assert_eq!(r.module_count, 4, "game plus two libraries plus the prelude");
+    assert_eq!(r.file_count, 6);
 }
 
 #[test]

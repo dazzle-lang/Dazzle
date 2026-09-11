@@ -5,9 +5,11 @@ C++-grade in control, but with RAII reduced to three special members, enforced
 encapsulation, and definition-site generics. The compiler is written in Rust.
 
 Progress: M0 (lexer), M1 (parser, AST, formatter), M2 (projects, modules, imports,
-visibility), M3 (type checker), M4 (codegen, runtime shim, `dz run`) and M5 (ownership) are done —
-**Dazzle programs compile, run, and own, move and drop their resources deterministically**.
-Next is M6 — generics, traits and monomorphization. See spec §19 for the full roadmap.
+visibility), M3 (type checker), M4 (codegen, runtime shim, `dz run`), M5 (ownership) and M6
+(generics, traits, monomorphization) are done — **Dazzle programs compile, run, own their
+resources, and are generic over checked bounds**. Since then, spec r12–r13 added `unsafe`,
+`Copy`, and `impl Trait for Type` with `Drop`/`Copy` as traits. Next is struct inheritance
+(spec 18.32, designed), then M7 — C++ interop via libclang. See spec §19 for the roadmap.
 
 ## Three documents
 
@@ -76,10 +78,12 @@ crates/
   dz_hir/             the resolved, typed tree + `Ty`, built by the checker (spec §17.1)
   dz_parse/           recursive-descent + Pratt parser (spec §20)
   dz_fmt/             the formatter
-  dz_project/         dazzle.toml, source globs, the dependency graph (spec §3.1)
+  dz_project/         dazzle.toml, source globs, the dependency graph (spec §3.1), and
+                      the prelude, `src/prelude.dz` — real Dazzle, module `dz` (spec §3.2)
   dz_resolve/         module symbol tables, name resolution, visibility (spec §3, §4)
   dz_check/           the type checker (spec §5, §7, §9, §10, §11)
   dz_flow/            ownership, moves, drops, definite return (spec §6)
+  dz_mono/            monomorphization: which instances each module needs (spec §8.4)
   dz_cpp/             C++17 emission + the runtime shim (spec §16)
   dz/                 the `dz` CLI
 tests/lex/*.dz        lexer snapshot corpus    (crates/dz_lex/tests/lex.rs)
@@ -109,7 +113,7 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 
 ```bash
 cargo build --workspace
-cargo test --workspace           # 88 tests at M5
+cargo test --workspace           # 94 tests at M6 + r13
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens

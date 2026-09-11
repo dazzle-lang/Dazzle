@@ -13,21 +13,24 @@ pub struct Handle {
     Handle(slot: ^i32, label: str) {
         m_slot = slot
         self.label = label
-        slot^ = 1
+        unsafe { slot^ = 1 }
     }
 
     pub fn live(&self) -> i32 {
         if m_slot == null {
             return -1
         }
-        return m_slot^
+        unsafe { return m_slot^ }
     }
 
     // §6.5: runs at the end of the enclosing scope, in reverse declaration order.
-    drop() {
+}
+
+impl Drop for Handle {
+    mut fn drop(&mut self) {
         if m_slot != null {
             println("  drop {}", label)
-            m_slot^ = 0
+            unsafe { m_slot^ = 0 }
         }
     }
 }
@@ -40,12 +43,16 @@ pub struct Counted {
     Counted(n: i32) {
         self.n = n
     }
+}
 
-    copy(other: &Self) {
+impl Copy for Counted {
+    mut fn copy(&mut self, other: &Self) {
         n = other.n + 100
     }
+}
 
-    drop() {
+impl Drop for Counted {
+    mut fn drop(&mut self) {
         println("  drop Counted({})", n)
     }
 }

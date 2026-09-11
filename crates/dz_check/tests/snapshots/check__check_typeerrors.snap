@@ -247,7 +247,7 @@ error[DZ0501]: `i32` cannot be iterated
 196 │     for i in n {
     │              ^ not iterable
     │
-    = help: `for` works over ranges, arrays and slices; user types need the `Iterate` trait, which arrives with generics (spec §8.5)
+    = help: `for` works over ranges, arrays, slices, and any type that implements `Iterate` (spec §8.5, §10.4)
 
 error[DZ0505]: `Shape::Circle` has no field `diameter`
     ┌─ typeerrors/src/errors.dz:207:22
@@ -274,3 +274,376 @@ error[DZ0505]: `Error` has no field `reason`
     │
 222 │         e.reason
     │           ^^^^^^ unknown field
+
+error[DZ0507]: cannot assign to an element of a read-only slice
+    ┌─ typeerrors/src/errors.dz:230:5
+    │
+230 │     xs[0] = 1
+    │     ^^^^^ not mutable
+    │
+    = help: `[]i32` is a read-only view; write `[]mut i32` to allow assignment through it (spec §5.3)
+
+error[DZ0501]: expected `[]mut i32`, found `[]i32`
+    ┌─ typeerrors/src/errors.dz:236:11
+    │
+236 │     fills(xs)
+    │           ^^ this is `[]i32`
+
+error[DZ0507]: cannot view `storage` as `[]mut i32`
+    ┌─ typeerrors/src/errors.dz:246:11
+    │
+246 │     fills(storage)
+    │           ^^^^^^^ this array is not writable
+    │
+    = help: a `[]mut T` may be written through, so the array behind it must be mutable — declare it with `let mut` (spec §5.3)
+
+error[DZ0531]: `T` has no method `cmp`
+    ┌─ typeerrors/src/errors.dz:262:14
+    │
+262 │     return a.cmp(&b) == 0
+    │              ^^^ not provided by `Same`
+    │
+    = help: `T` is bounded by `Same`, and that is the whole of what it can do here — add `cmp` to one of those traits, or add a bound to `T` (spec §8.1)
+
+error[DZ0531]: `T` has no field `count`
+    ┌─ typeerrors/src/errors.dz:267:14
+    │
+267 │     return a.count
+    │              ^^^^^ `T` has no bounds, so it has no fields
+    │
+    = help: an unbounded `T` supports only being moved, default-initialised, dropped, and queried with `T::` — add a bound like `T: SomeTrait` to give it more (spec §8.2)
+
+error[DZ0530]: `Layer` is an enum, not a trait
+    ┌─ typeerrors/src/errors.dz:271:28
+    │
+271 │ fn bound_is_not_a_trait<T: Layer>(a: T) -> i32 {
+    │                            ^^^^^ not a trait
+    │
+    = help: a bound names a trait, which is the whole of what the parameter may then do inside the body (spec §8.1)
+
+error[DZ0532]: `impl Rank for Incomplete` does not implement `cmp`
+    ┌─ typeerrors/src/errors.dz:280:6
+    │
+280 │ impl Rank for Incomplete {
+    │      ^^^^ `Rank` requires `cmp`
+    │
+    = help: add `fn cmp(&self, rhs: &Incomplete) -> i32` (spec §7.6)
+
+error[DZ0531]: `Incomplete` implements `Rank` but not `Same`, which it requires
+    ┌─ typeerrors/src/errors.dz:280:6
+    │
+280 │ impl Rank for Incomplete {
+    │      ^^^^ `Rank` requires `Same`
+    │
+    = help: add `impl Same for Incomplete { … }` (spec §7.6)
+
+error[DZ0533]: `eq` does not match `Same::eq`
+    ┌─ typeerrors/src/errors.dz:289:8
+    │
+289 │     fn eq(&self, rhs: &WrongSignature) -> i32 {
+    │        ^^ returns `i32`, but the trait declares `bool`
+    │
+    = help: `Same` declares `fn eq(&self, rhs: &WrongSignature) -> bool`
+
+error[DZ0531]: `Plain` does not implement `Same`
+    ┌─ typeerrors/src/errors.dz:300:12
+    │
+300 │     return unrelated(p, p)
+    │            ^^^^^^^^^^^^^^^ `T` is bounded by `Same`
+    │
+    = help: declare it as `struct Plain : Same` and implement the trait's methods (spec §7.6)
+
+error[DZ0534]: cannot infer `T` in this call to `uninferrable`
+    ┌─ typeerrors/src/errors.dz:313:12
+    │
+313 │     return uninferrable()
+    │            ^^^^^^^^^^^^^^ `T` is not determined by any argument
+    │
+    = help: write it out: `uninferrable<T>(…)` (spec §8.1)
+
+error[DZ0534]: `OneParam` takes 1 type argument, but 2 were given
+    ┌─ typeerrors/src/errors.dz:321:27
+    │
+321 │ fn too_many_type_args(p: &OneParam<i32, f32>) -> i32 {
+    │                           ^^^^^^^^^^^^^^^^^^ expected 1, found 2
+    │
+    = help: `OneParam` is declared with 1 type parameter
+
+error[DZ0501]: expected `[8]i32`, found 2 elements
+    ┌─ typeerrors/src/errors.dz:329:21
+    │
+329 │     let a: [8]i32 = [1, 2]
+    │                     ^^^^^^ this array has 2 elements
+    │
+    = help: an array literal lists exactly as many elements as its type has; `let mut a: [N]T` gives a zeroed one instead (spec §5.3, §6.2)
+
+error[DZ0501]: this array's elements disagree: `i32` and `str`
+    ┌─ typeerrors/src/errors.dz:335:17
+    │
+335 │     let a = [1, "two", 3]
+    │                 ^^^^^ expected `i32`, found `str`
+    │
+    = help: every element of an array has the same type; annotate the binding to say which (spec §5.3)
+
+error[DZ0521]: cannot infer the element type of an empty array
+    ┌─ typeerrors/src/errors.dz:341:13
+    │
+341 │     let a = []
+    │             ^^ no expected type here
+    │
+    = help: annotate the binding, e.g. `let a: [0]i32 = []` (spec §5.3)
+
+error[DZ0507]: cannot store a temporary array as `[]i32`
+    ┌─ typeerrors/src/errors.dz:347:20
+    │
+347 │     let s: []i32 = [1, 2, 3]
+    │                    ^^^^^^^^^ this array does not outlive the statement
+    │
+    = help: a slice is a view, so it would point at storage that is already gone — bind the array first, then take a slice of the binding (spec §5.3)
+
+error[DZ0507]: cannot store a temporary array as `[]i32`
+    ┌─ typeerrors/src/errors.dz:352:12
+    │
+352 │     return [1, 2, 3]
+    │            ^^^^^^^^^ this array does not outlive the statement
+    │
+    = help: a slice is a view, so it would point at storage that is already gone — bind the array first, then take a slice of the binding (spec §5.3)
+
+error[DZ0531]: `==` cannot be applied to `Plain`
+    ┌─ typeerrors/src/errors.dz:360:12
+    │
+360 │     return a == b
+    │            ^^^^^^ `Plain` does not implement `Eq`
+    │
+    = help: operators are traits (spec §11.2) — declare `Plain : Eq` and implement it, or compare the fields you mean
+
+error[DZ0531]: `<` cannot be applied to `Plain`
+    ┌─ typeerrors/src/errors.dz:364:12
+    │
+364 │     return a < b
+    │            ^^^^^ `Plain` does not implement `Ord`
+    │
+    = help: operators are traits (spec §11.2) — declare `Plain : Ord` and implement it, or compare the fields you mean
+
+error[DZ0531]: `+` cannot be applied to `Plain`
+    ┌─ typeerrors/src/errors.dz:369:12
+    │
+369 │     return a + b
+    │            ^^^^^ `Plain` does not implement `Add`
+    │
+    = help: operators are traits (spec §11.2) — declare `Plain : Add` and implement it, or compare the fields you mean
+
+error[DZ0501]: expected `f32`, found `Plain`
+    ┌─ typeerrors/src/errors.dz:386:16
+    │
+386 │     return a * b
+    │                ^ this is `Plain`
+
+error[DZ0505]: `T` has no compile-time query `length`
+    ┌─ typeerrors/src/errors.dz:393:15
+    │
+393 │     return T::length
+    │               ^^^^^^ unknown query
+    │
+    = help: a type answers `size`, `align`, `name`, `is_trivially_copyable`, `is_copyable`, `has_drop` (spec §5.5)
+
+error[DZ0501]: `sizeof` takes a type, and `n` is a value
+    ┌─ typeerrors/src/errors.dz:398:19
+    │
+398 │     return sizeof(n)
+    │                   ^ not a type
+    │
+    = help: `n` is a `i32`, so write `sizeof(i32)` (spec §5.5)
+
+error[DZ0501]: array length must be a constant
+    ┌─ typeerrors/src/errors.dz:403:13
+    │
+403 │     let a: [n]i32
+    │             ^ not a non-negative constant
+    │
+    = help: an array length is an integer made of literals, operators and other `const`s, folded at compile time (spec §5.3, §8.3)
+
+error[DZ0504]: `alloc` takes 2 arguments, found 1
+    ┌─ typeerrors/src/errors.dz:409:12
+    │
+409 │     return alloc(16)
+    │            ^^^^^^^^^ wrong number of arguments
+
+error[DZ0526]: this format string has 2 placeholders but 1 argument was given
+    ┌─ typeerrors/src/errors.dz:414:13
+    │
+414 │     println("{} and {}", x)
+    │             ^^^^^^^^^^^ 2 `{}` here
+    │
+    = help: each `{}` takes one argument, in order; write `{{` or `}}` for a literal brace (spec §12.9)
+
+error[DZ0526]: `{:x}` does not suit `f32`
+    ┌─ typeerrors/src/errors.dz:418:14
+    │
+418 │     println("{:x}", f)
+    │              ^^^^ hex needs an integer
+    │
+    = help: `{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals (spec §12.9)
+
+error[DZ0526]: the format string must be a string literal
+    ┌─ typeerrors/src/errors.dz:422:13
+    │
+422 │     println(s)
+    │             ^ not a literal
+    │
+    = help: it is parsed at compile time, which is what makes a mismatch an error rather than garbage — write `println("{}", value)` (spec §12.9)
+
+error[DZ0527]: `Vec3` cannot be formatted
+    ┌─ typeerrors/src/errors.dz:426:19
+    │
+426 │     println("{}", v)
+    │                   ^ no way to write this
+    │
+    = help: numbers, `bool`, `char`, `str`, `cstr` and pointers can be formatted; a type's own `Format` implementation arrives with the stdlib (spec §12.9, §19 M12) — format the fields you mean
+
+error[DZ0526]: format strings do not interpolate names
+    ┌─ typeerrors/src/errors.dz:430:20
+    │
+430 │     println("hp is {hp}", hp)
+    │                    ^^^^ not a placeholder
+    │
+    = help: write `{}` and pass `hp` as an argument — interpolation is deliberately absent (spec §12.9)
+
+error[DZ0528]: dereferencing a `^T` is unsafe
+    ┌─ typeerrors/src/errors.dz:440:12
+    │
+440 │     return p^
+    │            ^^ outside an `unsafe` block
+    │
+    = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
+
+error[DZ0528]: reaching through a `^T` with `.` is unsafe
+    ┌─ typeerrors/src/errors.dz:444:12
+    │
+444 │     return v.x
+    │            ^^^ outside an `unsafe` block
+    │
+    = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
+
+error[DZ0528]: indexing a `^T` is unsafe
+    ┌─ typeerrors/src/errors.dz:448:12
+    │
+448 │     return p[1]
+    │            ^^^^ outside an `unsafe` block
+    │
+    = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
+
+error[DZ0528]: calling `unsafe fn raw_write` is unsafe
+    ┌─ typeerrors/src/errors.dz:452:5
+    │
+452 │     raw_write(p)
+    │     ^^^^^^^^^^^^ outside an `unsafe` block
+    │
+    = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
+
+error[DZ0528]: `destroy` is unsafe
+    ┌─ typeerrors/src/errors.dz:457:5
+    │
+457 │     destroy(p[0])
+    │     ^^^^^^^^^^^^^ outside an `unsafe` block
+    │
+    = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
+
+error[DZ0528]: a pointer cast is unsafe
+    ┌─ typeerrors/src/errors.dz:461:12
+    │
+461 │     return p as ^u8
+    │            ^^^^^^^^ outside an `unsafe` block
+    │
+    = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
+
+error[DZ0507]: `.ptr` needs a writable view
+    ┌─ typeerrors/src/errors.dz:466:12
+    │
+466 │     return xs.ptr
+    │            ^^^^^^ read-only here
+    │
+    = help: a `^T` can be written through, so only a `[]mut T` or a writable array has one; read elements with `xs[i]` (spec §5.3)
+
+error[DZ0531]: `Unique` does not implement `Copy`
+    ┌─ typeerrors/src/errors.dz:483:12
+    │
+483 │     return keep_copy(move(u))
+    │            ^^^^^^^^^^^^^^^^^^ `T` is bounded by `Copy`
+    │
+    = help: declare it as `struct Unique : Copy` and implement the trait's methods (spec §7.6)
+
+error[DZ0537]: `Twice` has more than one method named `go`
+    ┌─ typeerrors/src/errors.dz:492:12
+    │
+492 │     pub fn go(&self) {}
+    │            ^^ declared again here
+    │
+    = help: a struct declares each method once; to implement one trait at several arguments, like `Mul<f32>` and `Mul<Vec2>`, write one `impl` for each (spec §18.27)
+
+error[DZ0538]: more than one `mul` accepts `{integer}`
+    ┌─ typeerrors/src/errors.dz:516:12
+    │
+516 │     return w * 3
+    │            ^^^^^ ambiguous call
+    │
+    = help: give the argument a type — `3 as i64`, say — so that exactly one fits (spec §18.27)
+
+error[DZ0539]: `impl Add for i32` belongs with `Add` or with `i32`
+    ┌─ typeerrors/src/errors.dz:522:6
+    │
+522 │ impl Add for i32 {
+    │      ^^^ neither is declared in this module
+    │
+    = help: otherwise two libraries could both implement it, and a program using both could not choose between them; to implement someone else's trait for someone else's type, wrap the type in a struct of your own (spec §7.6)
+
+error[DZ0539]: `Same` cannot be implemented for every type at once
+    ┌─ typeerrors/src/errors.dz:531:9
+    │
+531 │ impl<T> Same for T {
+    │         ^^^^ this is any type at all
+    │
+    = help: implement `Same` for each type that needs it, or for a generic type such as `Buffer<T>` — an implementation for every type would overlap all the others (spec §7.6)
+
+error[DZ0539]: `Drop` can only be implemented for a struct, in its own module
+    ┌─ typeerrors/src/errors.dz:538:6
+    │
+538 │ impl Drop for f32 {
+    │      ^^^^ not allowed for `f32` here
+    │
+    = help: `Drop` becomes the struct's C++ destructor, so it is part of the struct's definition and covers every instance — `impl<T> Drop for Buffer<T>`, not one instance (spec §6.1)
+
+error[DZ0540]: `Same` is implemented twice for `Twin`
+    ┌─ typeerrors/src/errors.dz:552:6
+    │
+546 │ impl Same for Twin {
+    │      ---- the first
+    ·
+552 │ impl Same for Twin {
+    │      ^^^^ a second implementation
+    │
+    = help: a type has one implementation of a trait for each set of arguments, or a call could not know which to use (spec §7.6)
+
+error[DZ0533]: `also` is not a method of `Same`
+    ┌─ typeerrors/src/errors.dz:567:8
+    │
+567 │     fn also(&self) -> i32 {
+    │        ^^^^ not in the trait
+    │
+    = help: an implementation holds exactly the trait's methods; a method of the type's own goes in the struct (spec §7.6)
+
+error[DZ0538]: `shout` is provided by both `Yell` and `Holler`
+    ┌─ typeerrors/src/errors.dz:597:14
+    │
+597 │     return c.shout()
+    │              ^^^^^ ambiguous method
+    │
+    = help: name the trait to choose one: `Yell::shout(&v, …)` (spec §7.6)
+
+error[DZ0520]: `drop` cannot be called by name
+    ┌─ typeerrors/src/errors.dz:602:7
+    │
+602 │     u.drop()
+    │       ^^^^ runs by itself
+    │
+    = help: a value's `drop` runs by itself at the end of its scope; to end its life early, `move` it into a scope that ends (spec §6.5)

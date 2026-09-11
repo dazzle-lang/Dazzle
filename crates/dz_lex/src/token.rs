@@ -45,9 +45,7 @@ pub enum TokenKind {
     Ignore,
     Const,
     Continue,
-    Copy,
     Defer,
-    Drop,
     Else,
     Enum,
     Extern,
@@ -55,6 +53,7 @@ pub enum TokenKind {
     Fn,
     For,
     If,
+    Impl,
     Import,
     In,
     Let,
@@ -77,6 +76,7 @@ pub enum TokenKind {
     Union,
     While,
     Unreachable,
+    Unsafe,
 
     // --- operators and punctuation (spec §2.6) ---
     Plus,
@@ -158,9 +158,7 @@ impl TokenKind {
             Ignore => "ignore",
             Const => "const",
             Continue => "continue",
-            Copy => "copy",
             Defer => "defer",
-            Drop => "drop",
             Else => "else",
             Enum => "enum",
             Extern => "extern",
@@ -168,6 +166,7 @@ impl TokenKind {
             Fn => "fn",
             For => "for",
             If => "if",
+            Impl => "impl",
             Import => "import",
             In => "in",
             Let => "let",
@@ -190,6 +189,7 @@ impl TokenKind {
             Union => "union",
             While => "while",
             Unreachable => "unreachable",
+            Unsafe => "unsafe",
             Plus => "+",
             Minus => "-",
             Star => "*",
@@ -248,9 +248,7 @@ impl TokenKind {
                 | Ignore
                 | Const
                 | Continue
-                | Copy
                 | Defer
-                | Drop
                 | Else
                 | Enum
                 | Extern
@@ -258,6 +256,7 @@ impl TokenKind {
                 | Fn
                 | For
                 | If
+                | Impl
                 | Import
                 | In
                 | Let
@@ -280,6 +279,7 @@ impl TokenKind {
                 | Union
                 | While
                 | Unreachable
+                | Unsafe
         )
     }
 
@@ -351,9 +351,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "ignore" => Ignore,
         "const" => Const,
         "continue" => Continue,
-        "copy" => Copy,
         "defer" => Defer,
-        "drop" => Drop,
         "else" => Else,
         "enum" => Enum,
         "extern" => Extern,
@@ -361,6 +359,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "fn" => Fn,
         "for" => For,
         "if" => If,
+        "impl" => Impl,
         "import" => Import,
         "in" => In,
         "let" => Let,
@@ -383,11 +382,11 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "union" => Union,
         "while" => While,
         "unreachable" => Unreachable,
+        "unsafe" => Unsafe,
         _ => return Option::None,
     })
 }
 
 /// Reserved for future use (spec §2.7). Lexed as identifiers today; the parser will
 /// reject them with a clear message rather than a confusing syntax error.
-pub const RESERVED: &[&str] =
-    &["async", "await", "impl", "where", "yield", "unsafe", "comptime"];
+pub const RESERVED: &[&str] = &["async", "await", "where", "yield", "comptime"];

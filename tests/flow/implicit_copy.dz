@@ -7,8 +7,10 @@ pub struct Res {
     pub fn live(&self) -> bool {
         return m_p != null
     }
+}
 
-    drop() {}
+impl Drop for Res {
+    mut fn drop(&mut self) {}
 }
 
 fn copied(r: Res) -> bool {

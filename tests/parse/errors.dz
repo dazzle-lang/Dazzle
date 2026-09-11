@@ -9,6 +9,12 @@ fn ok_after_broken_signature() -> i32 {
     return 7
 }
 
+// `drop` is an implementation of the `Drop` trait, not a member (spec §6.1). Placed above
+// `MissingBrace`, whose unclosed body takes in everything after it.
+struct OldStyle {
+    drop() {}
+}
+
 struct MissingBrace {
     x: i32
 
@@ -45,6 +51,19 @@ fn assignment_is_a_statement() {
 
 fn unclosed_call() {
     foo(1, 2
+}
+
+// `mut` belongs to a slice, not a fixed array: an array is a value, so its mutability
+// comes from the binding that holds it (spec §5.3, §18.22).
+fn mut_on_a_fixed_array(a: [4]mut i32) -> i32 {
+    return a[0]
+}
+
+// `break` takes no value: a loop is a statement (spec §10.2, §18.28).
+fn break_with_a_value() {
+    while true {
+        break 5
+    }
 }
 
 fn last_one_still_parses() -> bool {

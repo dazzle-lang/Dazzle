@@ -1,10 +1,14 @@
 // The source of a move is reset to its defaults (spec §6.4), which is a right a borrow
-// does not confer — so nothing may be moved out from behind a `^` or a `&`.
+// does not confer — so nothing may be moved out from behind a `^` or a `&`. `unsafe`
+// allows the read through the pointer (spec §5.2); it does not relax ownership.
 // expect: DZ0402
 
 pub struct Res {
     m_p: own ^i32
-    drop() {}
+}
+
+impl Drop for Res {
+    mut fn drop(&mut self) {}
 }
 
 fn take(r: Res) -> bool {
@@ -12,5 +16,5 @@ fn take(r: Res) -> bool {
 }
 
 fn through_a_pointer(p: ^Res) -> bool {
-    return take(move(p^))
+    unsafe { return take(move(p^)) }
 }

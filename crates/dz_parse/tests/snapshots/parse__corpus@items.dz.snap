@@ -83,47 +83,96 @@ pub trait Drawable
 pub trait Iterate
   type Item
   mut fn next(&mut self) -> Item?
-pub struct Arena : Allocator
+pub struct Arena
   field m_base: own ^u8
   field m_used: usize
+impl Allocator for Arena
   fn alloc(&self, size: usize, align: usize) -> ^u8
     block
       return
         path m_base
   fn free(&self, p: ^u8, size: usize, align: usize)
     block
-  drop drop()
+impl Drop for Arena
+  mut fn drop(&mut self)
     block
       call
         path free_pages
         path m_base
-pub struct SliceIter<T> : Iterate
-  type Item = &T
+pub struct SliceIter<T>
   field m_slice: []T
   field m_index: usize
-  mut fn next(&mut self) -> ^T
+impl<T> Iterate for SliceIter<T>
+  type Item = &T
+  fn valid(&self) -> bool
     block
-      if
-        binary >=
+      return
+        binary <
           path m_index
           field .len
             path m_slice
-        block
-          return
-            null
-      let e
+  fn get(&self) -> &T
+    block
+      return
         ref
           index
             path m_slice
             path m_index
+  mut fn advance(&mut self)
+    block
       assign +=
         path m_index
         int 1
+pub struct SliceIterMut<T>
+  field m_slice: []mut T
+  field m_index: usize
+impl<T> Iterate for SliceIterMut<T>
+  type Item = &mut T
+  fn valid(&self) -> bool
+    block
       return
-        path e
+        binary <
+          path m_index
+          field .len
+            path m_slice
+  fn get(&self) -> &mut T
+    block
+      return
+        ref mut
+          index
+            path m_slice
+            path m_index
+  mut fn advance(&mut self)
+    block
+      assign +=
+        path m_index
+        int 1
 pub struct Nested
   field grid: Buffer<Buffer<f32>>
   field table: HashMap<str, Buffer<Vec3>>
+pub unsafe fn poke(p: ^i32, v: i32)
+  block
+    assign =
+      deref
+        path p
+      path v
+pub struct Raw
+  field m_p: ^i32
+  unsafe mut fn write(&mut self, v: i32)
+    block
+      assign =
+        deref
+          path m_p
+        path v
+pub struct Button : UiElement
+  field label: str
+impl<T: Copy> Copy for Buffer<T>
+  mut fn copy(&mut self, other: &Self)
+    block
+      assign =
+        path m_len
+        field .m_len
+          path other
 
 === DIAGNOSTICS ===
 (none)

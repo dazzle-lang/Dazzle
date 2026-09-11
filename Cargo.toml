@@ -12,6 +12,7 @@ members = [
     "crates/dz_hir",
     "crates/dz_check",
     "crates/dz_flow",
+    "crates/dz_mono",
     "crates/dz_cpp",
     "crates/dz",
 ]
@@ -34,6 +35,7 @@ dz_resolve = { path = "crates/dz_resolve" }
 dz_hir = { path = "crates/dz_hir" }
 dz_check = { path = "crates/dz_check" }
 dz_flow = { path = "crates/dz_flow" }
+dz_mono = { path = "crates/dz_mono" }
 dz_cpp = { path = "crates/dz_cpp" }
 
 codespan-reporting = "0.11"

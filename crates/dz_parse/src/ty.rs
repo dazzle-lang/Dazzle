@@ -55,7 +55,7 @@ impl<'a> Parser<'a> {
                     }),
                 }
             }
-            // `[N]T` and `[]T`
+            // `[N]T`, `[]T` and `[]mut T`
             TokenKind::LBracket => {
                 self.bump();
                 let size = if self.at(TokenKind::RBracket) {
@@ -64,7 +64,26 @@ impl<'a> Parser<'a> {
                     Some(Box::new(self.parse_expr()))
                 };
                 self.expect_in(TokenKind::RBracket, "in an array or slice type");
-                TypeKind::Array { size, elem: Box::new(self.parse_type()) }
+                // `mut` belongs to a slice only: a fixed array is a value, so its
+                // mutability comes from the binding that holds it (spec §5.3, §18.22).
+                let mut_span = self.peek_token().span;
+                let mutable = self.eat(TokenKind::Mut);
+                match size {
+                    Some(size) => {
+                        if mutable {
+                            self.error_help(
+                                codes::EXPECTED_TYPE,
+                                mut_span,
+                                "`mut` is not allowed on a fixed-size array",
+                                "only a slice carries its writability in its type",
+                                "a `[N]T` is a value: write `let mut a: [N]T` to make it \
+                                 writable, or `[]mut T` for a writable view (spec §5.3)",
+                            );
+                        }
+                        TypeKind::Array { size, elem: Box::new(self.parse_type()) }
+                    }
+                    None => TypeKind::Slice { mutable, elem: Box::new(self.parse_type()) },
+                }
             }
             TokenKind::LParen => {
                 self.bump();
@@ -129,6 +148,7 @@ impl<'a> Parser<'a> {
                     format!("expected a type, found {found}"),
                     "expected a type here",
                     "types are names, `^T`, `&T`, `&mut T`, `own ^T`, `T?`, `[N]T`, `[]T`, \
+                     `[]mut T`, \
                      tuples, or `fn(...) -> T`",
                 );
                 TypeKind::Error

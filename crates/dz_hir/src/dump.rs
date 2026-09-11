@@ -66,6 +66,7 @@ impl<'a> Dumper<'a> {
             BodyOwner::FieldDefault { owner, index } => {
                 format!("field-default {}.{index}", self.names.name_of_symbol(*owner))
             }
+            BodyOwner::ImplMethod { imp, name } => format!("impl#{imp} method {name}"),
         };
         let ret = self.names.name_of_type(&body.ret);
         let arrow = if body.fallible { "!->" } else { "->" };
@@ -298,7 +299,7 @@ impl<'a> Dumper<'a> {
             }
             ExprKind::Call { callee, args } => {
                 match &callee {
-                    Callee::Fn(s) => {
+                    Callee::Fn { sym: s, .. } => {
                         let name = self.names.name_of_symbol(*s);
                         node!("call {name}")
                     }
@@ -382,15 +383,22 @@ impl<'a> Dumper<'a> {
                     }
                 });
             }
-            ExprKind::Break { value } => {
+            ExprKind::Break => {
                 node!("break");
-                self.nest(|d| {
-                    if let Some(v) = value {
-                        d.expr(v);
-                    }
-                });
             }
             ExprKind::Continue => node!("continue"),
+            ExprKind::Len(base) => {
+                node!("len");
+                self.nest(|d| d.expr(base));
+            }
+            ExprKind::DataPtr(base) => {
+                node!("data-ptr");
+                self.nest(|d| d.expr(base));
+            }
+            ExprKind::TypeQuery { ty: queried, query } => {
+                let t = self.names.name_of_type(&queried);
+                node!("type-query {t}::{}", query.name())
+            }
             ExprKind::Builtin { name, args } => {
                 node!("builtin {name}");
                 self.nest(|d| {

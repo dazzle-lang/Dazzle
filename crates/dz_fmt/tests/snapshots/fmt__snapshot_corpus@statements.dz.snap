@@ -97,9 +97,9 @@ fn deferred(&mut self) {
 
 fn handling(path: str) {
     let tex = load_texture(path) or { e ->
-    log::warn("texture {} failed: {}", path, e.message)
-    return
-}
+        log::warn("texture {} failed: {}", path, e.message)
+        return
+    }
     sprite.texture = move(tex)
 
     let p = find_player(id) or return

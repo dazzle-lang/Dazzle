@@ -1,0 +1,289 @@
+// Generics, traits and monomorphization, end to end (spec §6, §7.6, §8, §10.4, §11.2,
+// §12.9).
+
+// A resource with a `drop`, so `Buffer<Tracked>` takes the non-trivial branch of §8.3 and
+// every element is destroyed exactly once.
+struct Tracked {
+    pub id: i32
+
+    Tracked(n: i32) {
+        id = n
+    }
+}
+
+impl Drop for Tracked {
+    mut fn drop(&mut self) {
+        // A moved-from value is back at its defaults (spec §6.4), so it has nothing to say.
+        if id != 0 {
+            println("drop {}", id)
+        }
+    }
+}
+
+// No import: `Ord` and `Ordering` come from the prelude (spec §3.2, §18.23).
+struct Score {
+    pub value: i32
+
+    Score(v: i32) {
+        value = v
+    }
+}
+
+// `Ord` requires `Eq`, so both are implemented (spec §7.6).
+impl Eq for Score {
+    fn eq(&self, rhs: &Score) -> bool {
+        return value == rhs.value
+    }
+}
+
+impl Ord for Score {
+    fn cmp(&self, rhs: &Score) -> Ordering {
+        if value < rhs.value {
+            return .Less
+        }
+        if value > rhs.value {
+            return .Greater
+        }
+        return .Equal
+    }
+}
+
+// §8.1: checked once, against `T: Ord`, and instantiated for `i32` and for `Score`.
+fn largest<T: Ord>(a: T, b: T) -> T {
+    if a > b {
+        return move(a)
+    }
+    return move(b)
+}
+
+// §8.2: an unbounded `T` is enough for a plain container.
+struct Pair<T> {
+    pub first:  T
+    pub second: T
+}
+
+// The M6 criterion (spec §19): an `own` field, a `drop`, a compile-time branch on
+// `T::is_trivially_copyable`, and `construct`/`destroy`, allocating through the C heap.
+struct Buffer<T> {
+    m_data: own ^T
+    m_len:  usize
+    m_cap:  usize
+
+    // The raw-memory work is `unsafe` (spec §5.2); what `Buffer` offers its users is not.
+    Buffer(cap: usize) {
+        // Allocating is safe; calling the bytes `T`s is the part nothing checks.
+        unsafe { m_data = alloc(cap * sizeof(T), alignof(T)) as ^T }
+        m_cap = cap
+    }
+
+    pub mut fn push(&mut self, v: T) {
+        if m_len == m_cap {
+            panic("buffer full")
+        }
+        unsafe { construct(m_data[m_len], move(v)) }
+        m_len += 1
+    }
+
+    pub fn len(&self) -> usize {
+        return m_len
+    }
+
+    pub fn at(&self, i: usize) -> ^T {
+        unsafe { return &mut m_data[i] }
+    }
+
+    // §8.2, §18.26: `T` counts as `Copy` in here, because this `copy` only exists for
+    // instances whose `T` is — `Buffer<i32>` has one, `Buffer<Tracked>` is move-only.
+
+    // §8.3: the branch not taken for this `T` is not emitted at all, so `Buffer<i32>`
+    // has no destroy loop in its C++ and `Buffer<Tracked>` does.
+}
+
+impl<T: Copy> Copy for Buffer<T> {
+    mut fn copy(&mut self, other: &Self) {
+        unsafe {
+            m_data = alloc(other.m_cap * sizeof(T), alignof(T)) as ^T
+            if T::is_trivially_copyable {
+                memcpy(m_data, other.m_data, other.m_len * sizeof(T))
+            } else {
+                for i in 0..other.m_len {
+                    construct(m_data[i], other.m_data[i])
+                }
+            }
+        }
+        m_cap = other.m_cap
+        m_len = other.m_len
+    }
+}
+
+impl<T> Drop for Buffer<T> {
+    mut fn drop(&mut self) {
+        unsafe {
+            if !T::is_trivially_copyable {
+                for i in 0..m_len {
+                    destroy(m_data[i])
+                }
+            }
+            free(m_data)
+        }
+    }
+}
+
+// §8.5, §10.4: a user iterator — three methods rather than an optional `next`.
+struct Countdown {
+    m_at: i32
+
+    Countdown(from: i32) {
+        m_at = from
+    }
+}
+
+impl Iterate for Countdown {
+    type Item = i32
+
+    fn valid(&self) -> bool {
+        return m_at > 0
+    }
+
+    fn get(&self) -> i32 {
+        return m_at
+    }
+
+    mut fn advance(&mut self) {
+        m_at -= 1
+    }
+}
+
+// §7.6: a default method, inherited by a type that does not write it.
+trait Describe {
+    fn name(&self) -> str
+
+    fn shout(&self) -> str {
+        return self.name()
+    }
+}
+
+struct Crate {
+    pub n: i32
+}
+
+impl Describe for Crate {
+    fn name(&self) -> str {
+        return "crate"
+    }
+}
+
+// §11.2, §18.27: one operator trait at two arguments, one implementation each — and the
+// right operand's type picks between them.
+struct Vec2 {
+    pub x: f32
+    pub y: f32
+}
+
+impl Mul<f32> for Vec2 {
+    type Output = Vec2
+
+    fn mul(&self, rhs: f32) -> Vec2 {
+        return Vec2{ x: x * rhs, y: y * rhs }
+    }
+}
+
+impl Mul<Vec2> for Vec2 {
+    type Output = Vec2
+
+    fn mul(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x * rhs.x, y: y * rhs.y }
+    }
+}
+
+// §7.6: an implementation for a type the program did not write — here `i32`, which has no
+// members of its own — adds behaviour without touching it.
+trait Describe2 {
+    fn label(&self) -> str
+}
+
+impl Describe2 for i32 {
+    fn label(&self) -> str {
+        return "an i32"
+    }
+}
+
+// §7.6: a generic implementation — every `Boxed<T>` whose `T` describes itself — emitted
+// once per `T` that uses it.
+struct Boxed<T> {
+    pub inner: T
+}
+
+impl<T: Describe2> Describe2 for Boxed<T> {
+    fn label(&self) -> str {
+        return inner.label()
+    }
+}
+
+// §5.3, §8.3: array lengths and un-annotated constants fold at compile time.
+const SLOTS = 4 * 2
+const HALF: i32 = SLOTS / 2
+
+fn main() {
+    println("largest i32: {}", largest(3, 9))
+    println("largest Score: {}", largest(Score(12), Score(4)).value)
+
+    let p = Pair<f32>{ first: 1.5, second: 2.5 }
+    println("pair: {} {}", p.first, p.second)
+
+    let mut ints = Buffer<i32>(4)
+    ints.push(10)
+    ints.push(20)
+    ints.push(30)
+    let mut second = 0
+    unsafe {
+        second = ints.at(1)^
+    }
+    println("ints: len={} [1]={}", ints.len(), second)
+    // `Buffer<i32>` is copyable — its `copy` exists because `i32` is `Copy` (§18.26).
+    let copied = ints
+    println("copy: len={}", copied.len())
+    println("i32 trivially copyable: {}, Tracked: {}", i32::is_trivially_copyable, Tracked::is_trivially_copyable)
+
+    {
+        let mut things = Buffer<Tracked>(3)
+        things.push(Tracked(1))
+        things.push(Tracked(2))
+        println("things: len={}", things.len())
+    }
+
+    let mut seen = 0
+    for n in Countdown(3) {
+        seen += n
+    }
+    println("countdown: {}", seen)
+    for i, n in Countdown(2) {
+        println("step {} -> {}", i, n)
+    }
+
+    let c = Crate{ n: 1 }
+    println("default method: {}", c.shout())
+    let seven = 7
+    println("impl for a primitive: {}", seven.label())
+    let boxed = Boxed<i32>{ inner: 5 }
+    println("generic impl: {}", boxed.label())
+
+    let v = Vec2{ x: 1.0, y: 2.0 }
+    let scaled = v * 3.0
+    let stretched = v * Vec2{ x: 2.0, y: 0.5 }
+    let direct = v.mul(10.0)
+    println("mul: {} {} / {} {} / {}", scaled.x, scaled.y, stretched.x, stretched.y, direct.y)
+
+    println("hex: {:x} {:X}, fixed: {:.2}, braces: {{}}", 255, 255, 3.14159)
+
+    let grid: [SLOTS]i32
+    println("consts: {} {} {}", SLOTS, HALF, grid.len)
+
+    let r = 1..4
+    let mut total = 0
+    for i in r {
+        total += i
+    }
+    println("range value: {}", total)
+    println("done")
+}

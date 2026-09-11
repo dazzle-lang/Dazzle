@@ -218,7 +218,11 @@ fn unsupported_constructs_are_reported_not_miscompiled() {
     .unwrap();
     std::fs::write(
         dir.join("src/a.dz"),
-        "fn id<T>(x: T) -> T {\n    return x\n}\n\nfn main() {\n    println(\"{}\", 1)\n}\n",
+        // A trait object: dynamic dispatch (spec §7.6) is not in M6, and without a DZ0801
+        // it would reach C++ as a pointer to a type nobody declared.
+        "trait Shape {\n    fn area(&self) -> f32\n}\n\n\
+         fn total(s: ^Shape) -> f32 {\n    return 0\n}\n\n\
+         fn main() {\n    println(\"{}\", 1)\n}\n",
     )
     .unwrap();
 
@@ -229,6 +233,26 @@ fn unsupported_constructs_are_reported_not_miscompiled() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "expected codegen to refuse:\n{stderr}");
     assert!(stderr.contains("DZ0801"), "expected DZ0801:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn runaway_instantiation_is_bounded_by_the_compiler() {
+    // Spec §8.4: recursive instantiation depth is bounded by the compiler with a clear
+    // diagnostic, rather than left to C++'s template depth limit — and one runaway is one
+    // diagnostic, not one per level.
+    let dir = scratch(
+        "dz_mono_runaway",
+        "[module]\nname = \"r\"\nsources = [\"src/**/*.dz\"]\n",
+        "struct Box<T> {\n    pub v: T\n}\n\n\
+         fn deeper<T>(x: T) -> i32 {\n    let b = Box<T>{ v: move(x) }\n    \
+         return deeper(move(b))\n}\n\n\
+         fn main() {\n    println(\"{}\", deeper(1))\n}\n",
+    );
+    let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "expected the runaway to be refused:\n{stderr}");
+    assert_eq!(stderr.matches("DZ0536").count(), 1, "expected exactly one DZ0536:\n{stderr}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

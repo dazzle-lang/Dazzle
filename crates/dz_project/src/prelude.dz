@@ -1,0 +1,144 @@
+// The prelude: in scope in every file with no `import` (spec §3.2, §18.23).
+//
+// This is ordinary Dazzle source, carried by the compiler rather than read from disk. It is
+// not a fixture to be thrown away — it is the seed of the stdlib (§19 M12), and keeping it
+// in the language means the trait machinery is exercised by real Dazzle code from the day it
+// exists rather than by compiler-invented symbols.
+//
+// What may go in here is limited by what the compiler can do with it. There are no method
+// bodies below, because every declaration here is a trait: the *implementations* live in
+// user code, and the stdlib types that will implement them (`String`, `Buffer`, `HashMap`)
+// wait for M12.
+
+// --- ownership (spec §6.3, §8.2) --------------------------------------------
+
+/// What runs when a value dies (§6.5). Implementing it makes the type move-only, and it
+/// becomes the type's C++ destructor — which is why it may only be implemented for a
+/// struct, in the struct's own module, for every instance at once (§6.1).
+pub trait Drop {
+    mut fn drop(&mut self)
+}
+
+/// A type that can be copied. Every copyable type satisfies it (§6.3): one with no `drop`
+/// and no `own` field is copyable by default and needs no implementation. Implementing it
+/// is how a type that owns something becomes copyable anyway — `copy` runs on a value at
+/// its defaults, and fills it in from `other` (§6.6). `impl<T: Copy> Copy for Buffer<T>`
+/// makes `Buffer<f32>` copyable and leaves `Buffer<File>` move-only (§8.2, §18.26).
+pub trait Copy {
+    mut fn copy(&mut self, other: &Self)
+}
+
+// --- comparison (spec §11.2) ------------------------------------------------
+
+/// The result of `cmp`. Ordinary enum, so `switch` on it is exhaustive.
+pub enum Ordering : i8 {
+    Less    = -1
+    Equal   = 0
+    Greater = 1
+}
+
+/// `==` and `!=`.
+///
+/// `rhs` is a reference because comparing must not consume: a move-only type (§6.3) taken
+/// by value would be moved, and `a == b` has no business destroying `b`.
+pub trait Eq {
+    fn eq(&self, rhs: &Self) -> bool
+}
+
+/// `<`, `>`, `<=`, `>=`. Every `Ord` is an `Eq`, so a type implementing `Ord` must
+/// implement both.
+pub trait Ord : Eq {
+    fn cmp(&self, rhs: &Self) -> Ordering
+}
+
+// --- arithmetic (spec §11.2) ------------------------------------------------
+//
+// `Rhs` defaults to `Self`, so `struct Vec3 : Add` means `Vec3 + Vec3`, while
+// `struct Vec3 : Mul<f32>` means `Vec3 * f32` — which is what makes `v * scalar` work.
+//
+// `rhs` is by value, unlike `Eq`'s and `Ord`'s: `Rhs` may be a scalar, and a `&f32` is not
+// readable as an `f32` (§5.2, §18.25). It is also the right signature for the copyable math
+// types these traits exist for — a 4-byte copy beats an indirection.
+
+pub trait Add<Rhs = Self> {
+    type Output
+    fn add(&self, rhs: Rhs) -> Output
+}
+
+pub trait Sub<Rhs = Self> {
+    type Output
+    fn sub(&self, rhs: Rhs) -> Output
+}
+
+pub trait Mul<Rhs = Self> {
+    type Output
+    fn mul(&self, rhs: Rhs) -> Output
+}
+
+pub trait Div<Rhs = Self> {
+    type Output
+    fn div(&self, rhs: Rhs) -> Output
+}
+
+pub trait Rem<Rhs = Self> {
+    type Output
+    fn rem(&self, rhs: Rhs) -> Output
+}
+
+/// Unary `-`.
+pub trait Neg {
+    type Output
+    fn neg(&self) -> Output
+}
+
+/// `container[i]`. Returns a reference, so `a[i] = v` writes through it.
+pub trait Index<I> {
+    type Output
+    fn index(&self, i: I) -> &Output
+}
+
+// --- iteration (spec §8.5, §10.4) -------------------------------------------
+
+/// Something you can step through, and what `for` desugars to.
+///
+/// Three methods rather than one `next() -> Item?`: an optional return would put the
+/// end-of-iteration signal inside the item's own value domain, so an iterator over
+/// `[]^Entity` would stop at its first null element and one over `[]T?` at its first
+/// `none`. Keeping "is there one" apart from "what is it" lets `Item` be any type at all —
+/// `&T`, `&mut T`, `^T`, `T?`, a tuple. See §8.5 for the full argument.
+pub trait Iterate {
+    type Item
+
+    fn valid(&self) -> bool
+    fn get(&self) -> Item
+    mut fn advance(&mut self)
+}
+
+// --- formatting (spec §12.9) ------------------------------------------------
+
+/// Where a `Format` implementation writes.
+///
+/// Empty for now, and deliberately so: what it needs is a growable buffer, which is
+/// `String` and arrives with M12. Declaring it here means `Format` can be written and
+/// implemented today, and filling it in later adds fields rather than changing anything's
+/// shape.
+pub struct Formatter {
+}
+
+/// What `println("{}", x)` needs of `x`. The format string is parsed at compile time and
+/// lowers to a direct sequence of these calls, with no allocation and no intermediate
+/// string.
+pub trait Format {
+    fn format(&self, f: &mut Formatter)
+}
+
+// --- allocation (spec §7.6, §14) --------------------------------------------
+
+/// Allocation is a library concern expressed through a trait, and the allocator is an
+/// explicit parameter (§14, §18.10). The standard allocators and `Arena` are stdlib types
+/// and arrive with M12; this is the interface they will implement.
+pub trait Allocator {
+    fn alloc(&self, size: usize, align: usize) -> ^u8
+    fn realloc(&self, p: ^u8, old_size: usize, new_size: usize, align: usize) -> ^u8
+    fn free(&self, p: ^u8, size: usize, align: usize)
+}

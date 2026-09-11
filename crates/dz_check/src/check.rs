@@ -4,41 +4,57 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use dz_ast::*;
-use dz_diag::codes;
+use dz_diag::{codes, Diagnostic};
 use dz_hir::{self as hir, BlockId, BodyOwner, LocalId, LocalKind, StmtId};
 use dz_resolve::{SymbolId, SymbolKind};
 use dz_span::Span;
 
 use crate::build::{BodyBuilder, Checked, CheckedBlock};
-use crate::ty::{assignable, join, IntTy, Ty};
+use crate::impls::might_overlap;
+use crate::ty::{self, assignable, join, IntTy, Ty};
 use crate::{
-    decode_raw_string_literal, decode_string_literal, parse_float_literal, parse_int_literal, Ctx,
-    FnSig, ItemSig,
+    const_int_literal, decode_raw_string_literal, decode_string_literal, parse_float_literal,
+    parse_int_literal, type_name, Ctx, FnSig, ImplSig, ItemSig, ParamDef, TraitRef,
 };
 
 pub(crate) fn item(cx: &mut Ctx, it: &Item) {
     match &it.kind {
+        // A generic body is checked **once**, here, against its bounds and nothing else —
+        // not once per instantiation (spec §8.1, §8.6). Its parameters go into scope first
+        // so that `T` inside it is `Ty::Param` rather than a hole.
         ItemKind::Fn(f) => {
-            if f.generics.is_empty() {
-                let sig = cx.symbol_of(it).and_then(|s| match cx.table.get(s) {
-                    Some(ItemSig::Fn(sig)) => Some(sig.clone()),
-                    _ => None,
-                });
-                if let (Some(sig), Some(sym)) = (sig, cx.symbol_of(it)) {
-                    let mut body =
-                        Body::new(cx, None, sig.ret.clone(), BodyOwner::Fn(sym), f.name.span);
-                    let root = body.function(f, &sig);
-                    body.finish(root);
-                }
+            let sig = cx.symbol_of(it).and_then(|s| match cx.table.get(s) {
+                Some(ItemSig::Fn(sig)) => Some(sig.clone()),
+                _ => None,
+            });
+            if let (Some(sig), Some(sym)) = (sig, cx.symbol_of(it)) {
+                cx.push_params(&sig.generics);
+                let mut body =
+                    Body::new(cx, None, sig.ret.clone(), BodyOwner::Fn(sym), f.name.span);
+                let root = body.function(f, &sig);
+                body.finish(root);
+                cx.pop_params();
             }
         }
         ItemKind::Struct(s) => {
             let Some(sym) = cx.symbol_of(it) else { return };
-            if !s.generics.is_empty() {
-                return; // generic bodies are M6
+            if let Some(b) = &s.base {
+                cx.error_help(
+                    codes::CODEGEN_UNSUPPORTED,
+                    b.span,
+                    "struct inheritance is not implemented yet",
+                    "a base struct",
+                    "`: Base` names the struct this one inherits from, which arrives with the \
+                     next revision; a trait is implemented with `impl Trait for Type { … }` \
+                     (spec §7.6)",
+                );
             }
+            cx.push_declared_params(sym);
             check_members(cx, sym, &s.members);
+            report_duplicate_methods(cx, sym);
+            cx.pop_params();
         }
+        ItemKind::Impl(i) => check_impl(cx, it, i),
         ItemKind::Enum(e) => check_enum(cx, it, e),
         ItemKind::Const(c) => {
             let Some(sym) = cx.symbol_of(it) else { return };
@@ -53,20 +69,343 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
             }
             body.finish_value(c.value.span, checked);
         }
-        // Union payload types are checked during signature collection; trait bodies,
-        // macros and generic items belong to later milestones.
+        // A trait's default methods are checked once, here, with `Self` standing for
+        // whichever type inherits them (spec §7.6, §8.1). They used to be skipped outright,
+        // so a mistake in one surfaced only when an implementer's copy reached C++.
+        // Implementers get a concrete copy at monomorphization; the trait is never emitted.
+        ItemKind::Trait(t) => {
+            let Some(sym) = cx.symbol_of(it) else { return };
+            cx.push_declared_params(sym);
+            let keys = cx.table.struct_sig(sym).map(|s| s.method_keys.clone()).unwrap_or_default();
+            let fns = t.items.iter().filter_map(|m| match &m.kind {
+                MemberKind::Fn(f) => Some(f),
+                _ => None,
+            });
+            for (f, key) in fns.zip(keys) {
+                if f.body.is_none() {
+                    continue; // required of every implementer, and nothing to check here
+                }
+                let sig = cx.table.struct_sig(sym).and_then(|s| s.methods.get(&key)).cloned();
+                if let Some(sig) = sig {
+                    let owner = BodyOwner::Method { owner: sym, name: key };
+                    cx.push_params(&sig.generics);
+                    let mut body = Body::new(cx, Some(sym), sig.ret.clone(), owner, f.name.span);
+                    let root = body.function(f, &sig);
+                    body.finish(root);
+                    cx.pop_params();
+                }
+            }
+            report_duplicate_methods(cx, sym);
+            cx.pop_params();
+        }
+        // Union payload types are checked during signature collection; macros belong to
+        // M10.
         ItemKind::Union(_)
-        | ItemKind::Trait(_)
         | ItemKind::Macro(_)
         | ItemKind::MacroInvocation { .. }
         | ItemKind::Error => {}
     }
 }
 
+/// An implementation, `impl Trait for Type` (spec §7.6): where it may be written, whether it
+/// overlaps another, whether it implements what its trait asks, and its method bodies.
+///
+/// Checked where the implementation is written, so a missing method or a mismatched
+/// signature is reported at the `impl`, never at some later use.
+fn check_impl(cx: &mut Ctx, it: &Item, i: &ImplDecl) {
+    let Some(&idx) = cx.impl_at.get(&(cx.file, it.span.start)) else { return };
+    let imp = cx.table.impls()[idx].clone();
+    let trait_sym = imp.trait_ref.trait_sym;
+    let trait_name = cx.res.symbol(trait_sym).name.clone();
+    let me = cx.name_of(&imp.self_ty);
+    let drop_trait = cx.prelude_trait("Drop");
+    let copy_trait = cx.prelude_trait("Copy");
+    let special = Some(trait_sym) == drop_trait || Some(trait_sym) == copy_trait;
+
+    // One implementation of a trait per type and arguments, or a call could not choose.
+    // Reported at the later one. `Drop` and `Copy` have their own "declared twice".
+    if !special {
+        for j in 0..idx {
+            let other = &cx.table.impls()[j];
+            let same_args = other.trait_ref.args.len() == imp.trait_ref.args.len()
+                && other.trait_ref.args.iter().zip(&imp.trait_ref.args).all(|(a, b)| might_overlap(a, b));
+            if other.trait_ref.trait_sym == trait_sym
+                && same_args
+                && might_overlap(&other.self_ty, &imp.self_ty)
+            {
+                let (ofile, ospan) = (other.file, other.span);
+                cx.diags.push(
+                    Diagnostic::error(
+                        codes::OVERLAPPING_IMPL,
+                        format!("`{trait_name}` is implemented twice for `{me}`"),
+                    )
+                    .at(cx.file, imp.span, "a second implementation")
+                    .with_label(dz_diag::Label::secondary(ofile, ospan, "the first"))
+                    .with_help(
+                        "a type has one implementation of a trait for each set of arguments, \
+                         or a call could not know which to use (spec §7.6)",
+                    ),
+                );
+                break;
+            }
+        }
+    }
+
+    check_impl_conformance(cx, &imp, &trait_name, &me);
+
+    // `impl Ord for S` promises an `Eq` as well, since every `Ord` is an `Eq` (spec §7.6).
+    let map = imp.trait_ref.subst_map(cx.table.type_params(trait_sym));
+    for s in cx.table.supertraits(trait_sym).to_vec() {
+        let s = TraitRef {
+            trait_sym: s.trait_sym,
+            args: s.args.iter().map(|a| ty::substitute_with(a, &map, Some(&imp.self_ty))).collect(),
+            span: s.span,
+        };
+        if !cx.table.implements_directly(&imp.self_ty, &s) {
+            let sup = cx.res.symbol(s.trait_sym).name.clone();
+            cx.error_help(
+                codes::UNSATISFIED_BOUND,
+                imp.span,
+                format!("`{me}` implements `{trait_name}` but not `{sup}`, which it requires"),
+                format!("`{trait_name}` requires `{sup}`"),
+                format!("add `impl {sup} for {me} {{ … }}` (spec §7.6)"),
+            );
+        }
+    }
+
+    // The bodies. A method sees the type's private members only when the implementation
+    // is in the type's own module (spec §4, §7.6).
+    let privileged = match &imp.self_ty {
+        Ty::Named { sym, .. } if cx.res.symbol(*sym).module == cx.module => Some(*sym),
+        _ => None,
+    };
+    let special_owner = if special { cx.special_owner(&imp) } else { None };
+    cx.push_impl_scope(idx);
+    for m in &i.items {
+        let MemberKind::Fn(f) = &m.kind else { continue };
+        let Some(sig) = imp.methods.get(&f.name.name).cloned() else { continue };
+        if f.body.is_none() {
+            cx.error_help(
+                codes::TRAIT_MEMBER_MISMATCH,
+                f.name.span,
+                format!("`{}` has no body", f.name.name),
+                "an implementation must supply it",
+                "only the trait's own declaration may leave a method without a body (spec §7.6)",
+            );
+            continue;
+        }
+        // `Drop` and `Copy` are the struct's destructor and copy constructor, and are
+        // owned as such, so ownership analysis and codegen find them where they always did.
+        let owner = match special_owner {
+            Some(sym) if Some(trait_sym) == drop_trait && f.name.name == "drop" => {
+                BodyOwner::Drop(sym)
+            }
+            Some(sym) if Some(trait_sym) == copy_trait && f.name.name == "copy" => {
+                BodyOwner::Copy(sym)
+            }
+            _ => BodyOwner::ImplMethod { imp: idx as u32, name: f.name.name.clone() },
+        };
+        cx.push_params(&sig.generics);
+        let mut body = Body::new(cx, privileged, sig.ret.clone(), owner, f.name.span);
+        body.self_full = Some(imp.self_ty.clone());
+        let root = body.function(f, &sig);
+        body.finish(root);
+        cx.pop_params();
+    }
+    cx.pop_params();
+}
+
+/// Does an implementation supply what its trait asks (spec §7.6, §8.5)? Every method the
+/// trait gives no default for, with the declared signature; nothing the trait does not
+/// declare; and every associated type the trait leaves to the implementer.
+fn check_impl_conformance(cx: &mut Ctx, imp: &ImplSig, trait_name: &str, me: &str) {
+    let r = &imp.trait_ref;
+    let Some(spec) = cx.table.struct_sig(r.trait_sym).cloned() else { return };
+    for method in &spec.method_keys {
+        // Read through this implementation, so `Mul<f32>` asks for `fn mul(&self, rhs:
+        // f32)` rather than for `Rhs` (spec §11.2).
+        let Some(want) = cx.table.trait_method(r, &imp.self_ty, method) else { continue };
+        match imp.methods.get(method) {
+            None if spec.methods[method].has_body => {}
+            None => {
+                let shown = signature_of(cx, method, &want);
+                cx.error_help(
+                    codes::MISSING_TRAIT_MEMBER,
+                    imp.span,
+                    format!("`impl {trait_name} for {me}` does not implement `{method}`"),
+                    format!("`{trait_name}` requires `{method}`"),
+                    format!("add `{shown}` (spec §7.6)"),
+                );
+            }
+            Some(got) => {
+                if let Some(why) = signature_differs(cx, &want, got) {
+                    let shown = signature_of(cx, method, &want);
+                    cx.diags.push(
+                        Diagnostic::error(
+                            codes::TRAIT_MEMBER_MISMATCH,
+                            format!("`{method}` does not match `{trait_name}::{method}`"),
+                        )
+                        .at(cx.file, got.span, why)
+                        .with_help(format!("`{trait_name}` declares `{shown}`")),
+                    );
+                }
+            }
+        }
+    }
+    for name in &imp.method_order {
+        if spec.methods.contains_key(name) {
+            continue;
+        }
+        let span = imp.methods[name].span;
+        cx.error_help(
+            codes::TRAIT_MEMBER_MISMATCH,
+            span,
+            format!("`{name}` is not a method of `{trait_name}`"),
+            "not in the trait",
+            "an implementation holds exactly the trait's methods; a method of the type's own \
+             goes in the struct (spec §7.6)",
+        );
+    }
+    for assoc in &spec.assoc_types {
+        if assoc.ty.is_some() {
+            continue; // the trait chose it itself
+        }
+        match imp.assoc_types.iter().find(|a| a.name == assoc.name) {
+            None => cx.error_help(
+                codes::MISSING_TRAIT_MEMBER,
+                imp.span,
+                format!("`impl {trait_name} for {me}` does not choose `{}`", assoc.name),
+                format!("`{trait_name}` names an associated type `{}`", assoc.name),
+                format!(
+                    "add `type {} = <some type>` — an associated type is chosen by each \
+                     implementation (spec §8.5)",
+                    assoc.name
+                ),
+            ),
+            Some(chosen) if chosen.ty.is_none() => cx.error_help(
+                codes::MISSING_TRAIT_MEMBER,
+                chosen.span,
+                format!("`{}` has no type", chosen.name),
+                "declared but not chosen",
+                format!("write `type {} = <some type>` (spec §8.5)", chosen.name),
+            ),
+            Some(_) => {}
+        }
+    }
+    for chosen in &imp.assoc_types {
+        if !spec.assoc_types.iter().any(|a| a.name == chosen.name) {
+            cx.error_help(
+                codes::TRAIT_MEMBER_MISMATCH,
+                chosen.span,
+                format!("`{trait_name}` has no associated type `{}`", chosen.name),
+                "not in the trait",
+                "an implementation chooses the associated types its trait names (spec §8.5)",
+            );
+        }
+    }
+}
+
+/// A struct declares each method once. The only methods that share a name are those of
+/// one trait implemented at several arguments, and they live in separate `impl` blocks
+/// (spec §7.6, §18.27) — so every repeat here is reported, at the later declaration.
+fn report_duplicate_methods(cx: &mut Ctx, sym: SymbolId) {
+    let Some(sig) = cx.table.struct_sig(sym).cloned() else { return };
+    let me = cx.res.symbol(sym).name.clone();
+    for key in &sig.method_keys {
+        if !key.contains('#') {
+            continue;
+        }
+        let base = key.split('#').next().unwrap_or(key);
+        let Some(m) = sig.methods.get(key) else { continue };
+        cx.error_help(
+            codes::DUPLICATE_METHOD,
+            m.span,
+            format!("`{me}` has more than one method named `{base}`"),
+            "declared again here",
+            "a struct declares each method once; to implement one trait at several arguments, \
+             like `Mul<f32>` and `Mul<Vec2>`, write one `impl` for each (spec §18.27)",
+        );
+    }
+}
+
+/// Why two signatures differ, phrased for a label. `None` when they match.
+fn signature_differs(cx: &Ctx, want: &FnSig, got: &FnSig) -> Option<String> {
+    if want.params.len() != got.params.len() {
+        let (w, g) = (want.params.len(), got.params.len());
+        return Some(format!(
+            "takes {g} {}, but the trait declares {w}",
+            plural(g, "parameter")
+        ));
+    }
+    for (i, (w, g)) in want.params.iter().zip(&got.params).enumerate() {
+        if w.ty != g.ty {
+            let (wn, gn) = (type_name(cx.res, &w.ty), type_name(cx.res, &g.ty));
+            return Some(format!(
+                "parameter {} is `{gn}`, but the trait declares `{wn}`",
+                i + 1
+            ));
+        }
+    }
+    if want.ret != got.ret {
+        let (wn, gn) = (type_name(cx.res, &want.ret), type_name(cx.res, &got.ret));
+        return Some(format!("returns `{gn}`, but the trait declares `{wn}`"));
+    }
+    if want.fallible != got.fallible {
+        return Some(if want.fallible {
+            "the trait declares this fallible (`!->`)".to_owned()
+        } else {
+            "the trait does not declare this fallible".to_owned()
+        });
+    }
+    if want.takes_self != got.takes_self {
+        return Some(match want.takes_self {
+            Some(true) => "the trait declares `mut fn`, taking `&mut self`".to_owned(),
+            Some(false) => "the trait declares `fn`, taking `&self`".to_owned(),
+            None => "the trait declares this without a receiver".to_owned(),
+        });
+    }
+    if want.is_unsafe != got.is_unsafe {
+        return Some(if want.is_unsafe {
+            "the trait declares this `unsafe fn`".to_owned()
+        } else {
+            "the trait does not declare this `unsafe`".to_owned()
+        });
+    }
+    None
+}
+
+/// A signature as it would be written in source, for a `help:` that can be pasted.
+fn signature_of(cx: &Ctx, name: &str, sig: &FnSig) -> String {
+    let recv = match sig.takes_self {
+        Some(true) => vec!["&mut self".to_owned()],
+        Some(false) => vec!["&self".to_owned()],
+        None => vec![],
+    };
+    let params: Vec<String> = recv
+        .into_iter()
+        .chain(
+            sig.params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, type_name(cx.res, &p.ty))),
+        )
+        .collect();
+    let arrow = if sig.fallible { "!->" } else { "->" };
+    let ret = match &sig.ret {
+        Ty::Void => String::new(),
+        other => format!(" {arrow} {}", type_name(cx.res, other)),
+    };
+    let unsafe_ = if sig.is_unsafe { "unsafe " } else { "" };
+    let mutable = if sig.is_mut { "mut " } else { "" };
+    format!("{unsafe_}{mutable}fn {name}({}){ret}", params.join(", "))
+}
+
 fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
     check_owns_are_released(cx, sym);
-    // Constructors are addressed by position in declaration order (spec §7.2).
+    // Constructors are addressed by position in declaration order (spec §7.2), and methods
+    // by key, since two may share a name (spec §18.27).
     let mut ctors = 0usize;
+    let keys = cx.table.struct_sig(sym).map(|s| s.method_keys.clone()).unwrap_or_default();
+    let mut fns = 0usize;
     for m in members {
         match &m.kind {
             MemberKind::Field(f) => {
@@ -89,26 +428,22 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                 }
             }
             MemberKind::Fn(f) => {
-                if !f.generics.is_empty() {
-                    continue;
-                }
-                let sig = cx
-                    .table
-                    .struct_sig(sym)
-                    .and_then(|s| s.methods.get(&f.name.name))
-                    .cloned();
+                let key = keys.get(fns).cloned().unwrap_or_else(|| f.name.name.clone());
+                fns += 1;
+                let sig = cx.table.struct_sig(sym).and_then(|s| s.methods.get(&key)).cloned();
                 if let Some(sig) = sig {
-                    let owner = BodyOwner::Method {
-                        owner: sym,
-                        name: f.name.name.clone(),
-                    };
+                    let owner = BodyOwner::Method { owner: sym, name: key };
+                    // The method's own parameters on top of the struct's, which the caller
+                    // has already pushed (spec §8.1).
+                    cx.push_params(&sig.generics);
                     let mut body = Body::new(cx, Some(sym), sig.ret.clone(), owner, f.name.span);
                     let root = body.function(f, &sig);
                     body.finish(root);
+                    cx.pop_params();
                 }
             }
-            MemberKind::Ctor(f) | MemberKind::Copy(f) | MemberKind::Drop(f) => {
-                // Constructors and `copy`/`drop` run on the object, so `self` is mutable.
+            MemberKind::Ctor(f) => {
+                // A constructor runs on the object, so `self` is mutable.
                 let sig = FnSig {
                     params: f
                         .params
@@ -123,21 +458,14 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     fallible: false,
                     takes_self: Some(true),
                     is_mut: true,
+                    is_unsafe: false,
                     vis: m.vis,
                     span: f.name.span,
-                    generic: false,
+                    generics: Vec::new(),
+                    has_body: f.body.is_some(),
                 };
-                // §6 gives `copy` and `drop` meaning no ordinary member has, so they are
-                // addressable in the HIR by what they are rather than by name.
-                let owner = match &m.kind {
-                    MemberKind::Copy(_) => BodyOwner::Copy(sym),
-                    MemberKind::Drop(_) => BodyOwner::Drop(sym),
-                    _ => {
-                        let index = ctors;
-                        ctors += 1;
-                        BodyOwner::Ctor { owner: sym, index }
-                    }
-                };
+                let owner = BodyOwner::Ctor { owner: sym, index: ctors };
+                ctors += 1;
                 let mut body = Body::new(cx, Some(sym), Ty::Void, owner, f.name.span);
                 let root = body.function(f, &sig);
                 body.finish(root);
@@ -187,7 +515,7 @@ fn check_enum(cx: &mut Ctx, it: &Item, e: &EnumDecl) {
     let (lo, hi) = backing.range();
     for v in &e.variants {
         let Some(value) = &v.value else { continue };
-        let ExprKind::Int(text) = &value.kind else {
+        let Some(n) = const_int_literal(value) else {
             cx.error_help(
                 codes::TYPE_MISMATCH,
                 value.span,
@@ -197,7 +525,7 @@ fn check_enum(cx: &mut Ctx, it: &Item, e: &EnumDecl) {
             );
             continue;
         };
-        if let Some(n) = parse_int_literal(text) {
+        {
             if n < lo || n > hi {
                 let name = backing.name();
                 cx.error_help(
@@ -251,6 +579,18 @@ struct Body<'a, 'c> {
     self_mutable: bool,
     /// The `self` parameter's local, for expanding unqualified field access.
     self_local: Option<LocalId>,
+    /// How many `unsafe` blocks enclose the expression being checked; an `unsafe fn`'s
+    /// body starts at one (spec §5.2).
+    unsafe_depth: u32,
+    /// Spans `require_unsafe` has reported. One missing `unsafe` around
+    /// `construct(m_data[i], v)` is one mistake, not one per operation inside it.
+    unsafe_reported: Vec<Span>,
+    /// What `Self` and `self` are in an implementation's method: the type implemented for,
+    /// which need not be a struct (`impl Inspect for f32`) — spec §7.6. `self_ty` is then
+    /// the struct only when the implementation may see its private members.
+    self_full: Option<Ty>,
+    /// The type `self` was bound with, for an unqualified field's base.
+    self_local_ty: Option<Ty>,
     hir: BodyBuilder,
 }
 
@@ -273,8 +613,34 @@ impl<'a, 'c> Body<'a, 'c> {
             stmt_position: false,
             self_mutable: false,
             self_local: None,
+            unsafe_depth: 0,
+            unsafe_reported: Vec::new(),
+            self_full: None,
+            self_local_ty: None,
             hir,
         }
+    }
+
+    /// Spec §5.2: a raw-memory operation is allowed only inside `unsafe`. The compiler
+    /// cannot see whether a pointer still points at something, so the programmer says so,
+    /// in a place a reader — or `grep` — can find.
+    fn require_unsafe(&mut self, span: Span, what: &str) {
+        if self.unsafe_depth > 0 {
+            return;
+        }
+        let nested = |a: &Span, b: &Span| a.start <= b.start && b.end <= a.end;
+        if self.unsafe_reported.iter().any(|s| nested(s, &span) || nested(&span, s)) {
+            return;
+        }
+        self.unsafe_reported.push(span);
+        self.cx.error_help(
+            codes::UNSAFE_OPERATION,
+            span,
+            format!("{what} is unsafe"),
+            "outside an `unsafe` block",
+            "wrap it in `unsafe { … }` — nothing checks that the memory is still there. \
+             To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)",
+        );
     }
 
     /// Register a body that is one expression: a `const` initialiser or a field default.
@@ -335,20 +701,37 @@ impl<'a, 'c> Body<'a, 'c> {
     }
 
     /// `Self` means the enclosing type.
+    /// Replace `Self` with the type whose body this is.
+    ///
+    /// Total over the type tree, so `Self` is replaced wherever it sits — `[]Self`,
+    /// `Buffer<Self>`, `(Self, i32)`. A generic parameter is *not* substituted here: inside
+    /// the body that declares it, `T` is a type in its own right (spec §8.1), and replacing
+    /// it is monomorphization's job.
     fn subst(&self, t: &Ty) -> Ty {
+        let rc = |x: &Rc<Ty>| Rc::new(self.subst(x));
         match t {
-            Ty::SelfTy => match self.self_ty {
-                Some(s) => Ty::Named(s),
-                None => Ty::Error,
+            Ty::SelfTy => match (&self.self_full, self.self_ty) {
+                (Some(t), _) => t.clone(),
+                (None, Some(s)) => self.cx.self_type_of(s),
+                (None, None) => Ty::Error,
             },
-            Ty::Ptr(i) => Ty::Ptr(Rc::new(self.subst(i))),
-            Ty::OwnPtr(i) => Ty::OwnPtr(Rc::new(self.subst(i))),
-            Ty::Ref { mutable, inner } => Ty::Ref {
-                mutable: *mutable,
-                inner: Rc::new(self.subst(inner)),
+            Ty::Ptr(i) => Ty::Ptr(rc(i)),
+            Ty::OwnPtr(i) => Ty::OwnPtr(rc(i)),
+            Ty::Ref { mutable, inner } => Ty::Ref { mutable: *mutable, inner: rc(inner) },
+            Ty::Optional(i) => Ty::Optional(rc(i)),
+            Ty::Fallible(i) => Ty::Fallible(rc(i)),
+            Ty::Range(i) => Ty::Range(rc(i)),
+            Ty::Array { len, elem } => Ty::Array { len: *len, elem: rc(elem) },
+            Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
+            Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(|p| self.subst(p)).collect()),
+            Ty::Named { sym, args } => Ty::Named {
+                sym: *sym,
+                args: args.iter().map(|a| self.subst(a)).collect(),
             },
-            Ty::Optional(i) => Ty::Optional(Rc::new(self.subst(i))),
-            Ty::Fallible(i) => Ty::Fallible(Rc::new(self.subst(i))),
+            Ty::Fn { params, ret } => Ty::Fn {
+                params: params.iter().map(|p| self.subst(p)).collect(),
+                ret: rc(ret),
+            },
             other => other.clone(),
         }
     }
@@ -415,6 +798,9 @@ impl<'a, 'c> Body<'a, 'c> {
 
     fn function(&mut self, f: &FnDecl, sig: &FnSig) -> BlockId {
         self.fallible = sig.fallible;
+        if sig.is_unsafe {
+            self.unsafe_depth = 1;
+        }
         // Signatures are collected before any `Self` is known, so `copy(other: &Self)`
         // arrives here still spelled `Self`. Substituting at the binding is what makes
         // `other.n` resolve to the enclosing struct's field.
@@ -422,30 +808,32 @@ impl<'a, 'c> Body<'a, 'c> {
         self.push();
         if let Some(is_mut) = sig.takes_self {
             self.self_mutable = is_mut;
-            if let Some(sym) = self.self_ty {
-                let id = self.bind(
-                    "self",
-                    Ty::Named(sym),
-                    is_mut,
-                    LocalKind::Param,
-                    f.name.span,
-                );
+            let self_type = self.self_full.clone().or_else(|| self.self_ty.map(Ty::plain));
+            if let Some(st) = self_type {
+                let id = self.bind("self", st.clone(), is_mut, LocalKind::Param, f.name.span);
                 self.self_local = Some(id);
+                self.self_local_ty = Some(st.clone());
                 // A method body sees its struct's fields unqualified (spec §7.3). They are
-                // fields, not locals, so they bind to a slot that remembers the index.
-                let fields: Vec<(String, Ty)> = self
-                    .cx
-                    .table
-                    .struct_sig(sym)
-                    .map(|s| {
-                        s.fields
-                            .iter()
-                            .map(|x| (x.name.clone(), x.ty.clone()))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                for (index, (name, ty)) in fields.into_iter().enumerate() {
-                    self.bind_self_field(&name, ty, is_mut, index);
+                // fields, not locals, so they bind to a slot that remembers the index. An
+                // implementation outside the struct's module sees only the `pub` ones.
+                if let Ty::Named { sym, args } = &st {
+                    let privileged = self.self_ty == Some(*sym);
+                    let fields: Vec<(usize, String, Ty)> = match self.cx.table.struct_sig(*sym) {
+                        Some(s) => {
+                            let tys = self.cx.table.field_types(*sym, args, &s.fields);
+                            s.fields
+                                .iter()
+                                .zip(tys)
+                                .enumerate()
+                                .filter(|(_, (x, _))| privileged || x.vis == Vis::Public)
+                                .map(|(i, (x, t))| (i, x.name.clone(), t))
+                                .collect()
+                        }
+                        None => Vec::new(),
+                    };
+                    for (index, name, ty) in fields {
+                        self.bind_self_field(&name, ty, is_mut, index);
+                    }
                 }
             }
         }
@@ -511,6 +899,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     (Some(d), Some(init)) => {
                         let c = self.expr(init, Some(d));
                         self.expect(d, &c.ty, init.span);
+                        self.reject_temporary_slice(d, init, &c.ty);
                         (d.clone(), Some(c.id))
                     }
                     (Some(d), None) => (d.clone(), None),
@@ -556,6 +945,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.require_mutable(target);
                 if *op == AssignOp::Assign {
                     self.expect(&t.ty, &v.ty, value.span);
+                    self.reject_temporary_slice(&t.ty, value, &v.ty);
                 } else {
                     // Compound assignment desugars to `a = a op b` (spec §11.2).
                     if !t.ty.is_wildcard() && !t.ty.is_numeric() {
@@ -593,20 +983,23 @@ impl<'a, 'c> Body<'a, 'c> {
                 let subject = self.expr(&f.iter, None);
                 let elem = match subject.ty.element() {
                     Some(e) => e.clone(),
-                    None => {
-                        if !subject.ty.is_wildcard() {
-                            let t = self.cx.name_of(&subject.ty);
-                            self.cx.error_help(
-                                codes::TYPE_MISMATCH,
-                                f.iter.span,
-                                format!("`{t}` cannot be iterated"),
-                                "not iterable",
-                                "`for` works over ranges, arrays and slices; user types need \
-                                 the `Iterate` trait, which arrives with generics (spec §8.5)",
-                            );
+                    None => match self.iterate_item(&subject.ty, f.iter.span) {
+                        Some(item) => item,
+                        None => {
+                            if !subject.ty.is_wildcard() {
+                                let t = self.cx.name_of(&subject.ty);
+                                self.cx.error_help(
+                                    codes::TYPE_MISMATCH,
+                                    f.iter.span,
+                                    format!("`{t}` cannot be iterated"),
+                                    "not iterable",
+                                    "`for` works over ranges, arrays, slices, and any type \
+                                     that implements `Iterate` (spec §8.5, §10.4)",
+                                );
+                            }
+                            Ty::Error
                         }
-                        Ty::Error
-                    }
+                    },
                 };
                 self.push();
                 // `for i, e in &xs` binds an index alongside the element (spec §10.4).
@@ -793,10 +1186,10 @@ impl<'a, 'c> Body<'a, 'c> {
                 match &base_ty {
                     Ty::Ptr(_) | Ty::OwnPtr(_) => Some(true),
                     Ty::Ref { mutable, .. } => Some(*mutable),
-                    // A slice falls through to its binding, so `xs[i] = v` on an
-                    // `xs: []T` parameter is rejected. A slice is a pointer and a length,
-                    // and indexing one arguably ought to be mutable the way `^T` is —
-                    // but that is a language question (§5.3). Owed by M6.
+                    // A slice is a view, so its own binding says nothing about its
+                    // elements: writability is in the type (spec §5.3, §18.22).
+                    Ty::Slice { mutable, .. } => Some(*mutable),
+                    // A fixed array *is* the value, so it follows the binding.
                     _ => self.place_mutability(base),
                 }
             }
@@ -826,6 +1219,20 @@ impl<'a, 'c> Body<'a, 'c> {
                  takes `&self`, so make it `mut fn` (spec §7.3)"
                     .to_owned(),
             ),
+            ExprKind::Index { base, .. } => match self.expr_quiet(base) {
+                Ty::Slice { mutable: false, elem } => {
+                    let elem = self.cx.name_of(&elem);
+                    (
+                        "an element of a read-only slice".to_owned(),
+                        format!(
+                            "`[]{elem}` is a read-only view; write `[]mut {elem}` to allow \
+                             assignment through it (spec §5.3)"
+                        ),
+                    )
+                }
+                // A fixed array is a value, so the fault is with whatever holds it.
+                _ => self.describe_place(base),
+            },
             _ => ("this".to_owned(), "not a mutable place".to_owned()),
         }
     }
@@ -834,16 +1241,48 @@ impl<'a, 'c> Body<'a, 'c> {
     /// analysis. The expression has already been checked once; this is a second look.
     fn expr_quiet(&mut self, e: &Expr) -> Ty {
         let before = self.cx.diags.len();
+        let reported = self.unsafe_reported.len();
         let mark = self.hir.mark();
         let t = self.expr(e, None).ty;
         self.hir.rollback(mark);
         self.cx.diags.truncate(before);
+        // A probe that ran before the real check must not use up its diagnostic.
+        self.unsafe_reported.truncate(reported);
         t
     }
 
     // --- expressions ------------------------------------------------------
 
+    /// Check `e`, then apply the one rule that needs both a type and a place.
+    ///
+    /// Coercing a fixed array to a `[]mut T` hands out write access to the array's
+    /// elements, so the array itself has to be writable — a question `assignable` cannot
+    /// answer, because it sees types and not places (spec §5.3, §18.22). Every context
+    /// that supplies an expected type goes through here, so the rule is stated once.
     fn expr(&mut self, e: &Expr, expected: Option<&Ty>) -> Checked {
+        let checked = self.expr_inner(e, expected);
+        if let Some(exp) = expected {
+            if let (Ty::Slice { mutable: true, .. }, Ty::Array { .. }) =
+                (&self.subst(exp), &self.subst(&checked.ty))
+            {
+                if self.place_mutability(e) == Some(false) {
+                    let (desc, _) = self.describe_place(e);
+                    let want = self.cx.name_of(exp);
+                    self.cx.error_help(
+                        codes::NOT_MUTABLE,
+                        e.span,
+                        format!("cannot view {desc} as `{want}`"),
+                        "this array is not writable",
+                        "a `[]mut T` may be written through, so the array behind it must be \
+                         mutable — declare it with `let mut` (spec §5.3)",
+                    );
+                }
+            }
+        }
+        checked
+    }
+
+    fn expr_inner(&mut self, e: &Expr, expected: Option<&Ty>) -> Checked {
         match &e.kind {
             ExprKind::Int(text) => {
                 let value = parse_int_literal(text).unwrap_or(0);
@@ -953,7 +1392,10 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Deref(inner) => {
                 let c = self.expr(inner, None);
                 let ty = match &c.ty {
-                    Ty::Ptr(i) | Ty::OwnPtr(i) => (**i).clone(),
+                    Ty::Ptr(i) | Ty::OwnPtr(i) => {
+                        self.require_unsafe(e.span, "dereferencing a `^T`");
+                        (**i).clone()
+                    }
                     t if t.is_wildcard() => Ty::Error,
                     t => {
                         let n = self.cx.name_of(t);
@@ -1026,6 +1468,11 @@ impl<'a, 'c> Body<'a, 'c> {
                 let target = self.cx.lower_type(ty);
                 let target = self.subst(&target);
                 self.check_cast(&from.ty, &target, e.span);
+                // Reinterpreting what a pointer points at is the whole of what makes a
+                // pointer cast dangerous (spec §5.2, §10.6).
+                if matches!(from.ty, Ty::Ptr(_) | Ty::OwnPtr(_)) && matches!(target, Ty::Ptr(_)) {
+                    self.require_unsafe(e.span, "a pointer cast");
+                }
                 self.mk(e, target, hir::ExprKind::Cast { operand: from.id })
             }
             ExprKind::Range {
@@ -1084,7 +1531,22 @@ impl<'a, 'c> Body<'a, 'c> {
                         "not an integer",
                     );
                 }
-                let ty = match b.ty.element() {
+                // Indexing a `^T` is pointer arithmetic, as in C: unchecked, since a pointer
+                // carries no length. §8.3's own `m_data[i]` on an `own ^T` depends on it.
+                // Kept out of `Ty::element` so that `for x in ptr` stays an error — a
+                // pointer is indexable but it is not a sequence.
+                let pointee = match b.ty.peeled_refs() {
+                    Ty::Ptr(inner) | Ty::OwnPtr(inner)
+                        if !matches!(**inner, Ty::Array { .. } | Ty::Slice { .. }) =>
+                    {
+                        Some((**inner).clone())
+                    }
+                    _ => None,
+                };
+                if pointee.is_some() {
+                    self.require_unsafe(e.span, "indexing a `^T`");
+                }
+                let ty = match pointee.as_ref().or(b.ty.element()) {
                     Some(t) => t.clone(),
                     None => {
                         if !b.ty.is_wildcard() {
@@ -1110,6 +1572,9 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             ExprKind::Field { base, name } => {
                 let b = self.expr(base, None);
+                if matches!(b.ty.peeled_refs(), Ty::Ptr(_) | Ty::OwnPtr(_)) {
+                    self.require_unsafe(e.span, "reaching through a `^T` with `.`");
+                }
                 let (ty, index) = self.field_type(&b.ty, name, base.span);
                 match index {
                     // Tuples are indexed by position, structs by field (spec §5.4).
@@ -1117,6 +1582,31 @@ impl<'a, 'c> Body<'a, 'c> {
                         self.mk(e, ty, hir::ExprKind::TupleIndex { base: b.id, index })
                     }
                     Some(index) => self.mk(e, ty, hir::ExprKind::Field { base: b.id, index }),
+                    // `.len` is the one successful member with no field index: the
+                    // container knows its own length (spec §5.3). Every other `None` is a
+                    // mistake `field_type` has already reported.
+                    None if name.name == "len" && !ty.is_error() => {
+                        self.mk(e, ty, hir::ExprKind::Len(b.id))
+                    }
+                    // A `^T` may be written through, so only a view that allows writing has
+                    // one — the same rule that keeps `&T` from widening to `^T` (spec §5.2).
+                    None if name.name == "ptr" && !ty.is_error() => {
+                        let writable = match b.ty.peeled() {
+                            Ty::Slice { mutable, .. } => *mutable,
+                            _ => self.place_mutability(base) != Some(false),
+                        };
+                        if !writable {
+                            self.cx.error_help(
+                                codes::NOT_MUTABLE,
+                                e.span,
+                                "`.ptr` needs a writable view",
+                                "read-only here",
+                                "a `^T` can be written through, so only a `[]mut T` or a \
+                                 writable array has one; read elements with `xs[i]` (spec §5.3)",
+                            );
+                        }
+                        self.mk(e, ty, hir::ExprKind::DataPtr(b.id))
+                    }
                     None => self.mk(e, ty, hir::ExprKind::Error),
                 }
             }
@@ -1126,7 +1616,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 // variant, and `Shape::Circle` is not a type of its own (spec §7.5).
                 if let Some((owner, index)) = self.union_variant_path(path) {
                     let kind = self.union_variant_literal(owner, index, fields, e.span);
-                    return self.mk(e, Ty::Named(owner), kind);
+                    return self.mk(e, Ty::plain(owner), kind);
                 }
                 let ty = self.cx.lower_type(&Type {
                     span: path.span,
@@ -1136,6 +1626,8 @@ impl<'a, 'c> Body<'a, 'c> {
                 let kind = self.struct_literal(&ty, fields, e.span);
                 self.mk(e, ty, kind)
             }
+            // `[1, 2, 3]` — an array of exactly this many elements (spec §5.3).
+            ExprKind::ArrayLit(elems) => self.array_literal(elems, e, expected),
             // `.Variant{}` needs the expected type to know which type it belongs to.
             ExprKind::DotInfer { name, init } => {
                 let Some(want) = expected.map(|t| self.subst(t)) else {
@@ -1158,6 +1650,14 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             ExprKind::Block(b) => {
                 let c = self.block(b, expected);
+                self.mk(e, c.ty, hir::ExprKind::Block(c.id))
+            }
+            // Past checking, an `unsafe` block is an ordinary block: the permission it
+            // grants is a compile-time fact, and nothing about it reaches C++ (spec §5.2).
+            ExprKind::Unsafe(b) => {
+                self.unsafe_depth += 1;
+                let c = self.block(b, expected);
+                self.unsafe_depth -= 1;
                 self.mk(e, c.ty, hir::ExprKind::Block(c.id))
             }
             ExprKind::If(i) => {
@@ -1217,6 +1717,11 @@ impl<'a, 'c> Body<'a, 'c> {
                                 other => other.clone(),
                             };
                             self.expect(&target, &t, expr.span);
+                            // `return [1, 2, 3]` from a `-> []i32` is the same certain
+                            // dangle as storing one (§5.3). Returning a slice of a *local*
+                            // array dangles too, but that needs escape analysis to see,
+                            // and §1.1 leaves it to the programmer as with a stale `^T`.
+                            self.reject_temporary_slice(&target, expr, &t);
                         }
                     }
                     None => {
@@ -1233,10 +1738,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
                 self.mk(e, Ty::Never, hir::ExprKind::Return(value))
             }
-            ExprKind::Break { value, .. } => {
-                let value = value.as_ref().map(|v| self.expr(v, None).id);
-                self.mk(e, Ty::Never, hir::ExprKind::Break { value })
-            }
+            ExprKind::Break { .. } => self.mk(e, Ty::Never, hir::ExprKind::Break),
             ExprKind::Continue { .. } => self.mk(e, Ty::Never, hir::ExprKind::Continue),
             ExprKind::Intrinsic { name, args } => {
                 let args = args.iter().map(|a| self.expr(a, None).id).collect();
@@ -1285,8 +1787,20 @@ impl<'a, 'c> Body<'a, 'c> {
                 (Ty::Bool, a, b)
             }
             Eq | Ne | Lt | Gt | Le | Ge => {
-                let a = self.expr(lhs, None);
-                let b = self.expr(rhs, Some(&a.ty));
+                // Whichever side can stand alone is checked first, so it can supply the
+                // expected type for the other. That is what makes `.Left == s` work as
+                // well as `s == .Left` (spec §7.4) — a comparison has no reason to prefer
+                // one side, and without this the left operand of every comparison would be
+                // the one place a variant could not be written with a leading dot.
+                let (a, b) = if needs_context(lhs) && !needs_context(rhs) {
+                    let b = self.expr(rhs, None);
+                    let a = self.expr(lhs, Some(&b.ty));
+                    (a, b)
+                } else {
+                    let a = self.expr(lhs, None);
+                    let b = self.expr(rhs, Some(&a.ty));
+                    (a, b)
+                };
                 if join(&a.ty, &b.ty).is_none() {
                     let (x, y) = (self.cx.name_of(&a.ty), self.cx.name_of(&b.ty));
                     self.cx.error_help(
@@ -1296,6 +1810,13 @@ impl<'a, 'c> Body<'a, 'c> {
                         "operands have different types",
                         "Dazzle has no implicit conversions (spec §5.1) — cast one side",
                     );
+                    return self.mk(e, Ty::Bool, hir::ExprKind::Error);
+                }
+                // A user type is compared through `Eq` or `Ord`, not by the machine
+                // (spec §11.2). Without this the comparison would reach C++ and fail there
+                // for a struct with no `operator==`, which invariant 7 forbids.
+                if self.needs_operator_trait(a.ty.peeled()) {
+                    return self.comparison_through_trait(op, &a, &b, rhs, e);
                 }
                 (Ty::Bool, a, b)
             }
@@ -1322,6 +1843,36 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             Add | Sub | Mul | Div | Rem => {
                 let a = self.expr(lhs, expected);
+                // `v1 + v2` and `v * scalar` on a user type go through the trait §11.2
+                // names for the operator (spec §11.2).
+                if self.needs_operator_trait(a.ty.peeled()) {
+                    let (trait_name, method) = match op {
+                        Add => ("Add", "add"),
+                        Sub => ("Sub", "sub"),
+                        Mul => ("Mul", "mul"),
+                        Div => ("Div", "div"),
+                        _ => ("Rem", "rem"),
+                    };
+                    // The right operand is *not* given the left's type as context: `v *
+                    // scalar` is what §11.2's `Rhs` parameter exists for, so the sides may
+                    // differ. It is checked twice — once without context to see which
+                    // implementation applies, then against that implementation's `Rhs` so an
+                    // untyped literal takes the right type. `3` in `v * 3` has to become an
+                    // `f32` here, not an `i32` that C++ would quietly convert.
+                    let probe = self.expr_quiet(rhs);
+                    let want = self.operator_rhs_type(trait_name, method, &a.ty, &probe);
+                    let b = self.expr(rhs, want.as_ref());
+                    let call =
+                        self.operator_call(trait_name, method, &a, Some(&b), Some(rhs), span);
+                    return match call {
+                        Some(c) => c,
+                        None => {
+                            let t = a.ty.peeled().clone();
+                            self.operator_needs_trait(op.as_str(), &t, trait_name, span);
+                            self.mk(e, Ty::Error, hir::ExprKind::Error)
+                        }
+                    };
+                }
                 let b = self.expr(rhs, Some(&a.ty));
                 let mut ty = None;
                 for (t, at) in [(&a.ty, lhs), (&b.ty, rhs)] {
@@ -1382,7 +1933,7 @@ impl<'a, 'c> Body<'a, 'c> {
             (a, Ty::Char) if a.is_integral() => true,
             (Ty::Bool, b) if b.is_integral() => true,
             // An enum converts to its backing type (spec §7.4).
-            (Ty::Named(id), b) if b.is_integral() => {
+            (Ty::Named { sym: id, .. }, b) if b.is_integral() => {
                 matches!(self.cx.table.get(*id), Some(ItemSig::Enum { .. }))
             }
             _ => matches!(
@@ -1425,10 +1976,14 @@ impl<'a, 'c> Body<'a, 'c> {
                 };
             }
         }
-        // Slices carry a length (spec §5.3).
-        if let Ty::Array { .. } = &peeled {
+        // Arrays and slices both carry a length, and hand out their first element as a
+        // pointer for unchecked access (spec §5.3).
+        if let Ty::Array { elem, .. } | Ty::Slice { elem, .. } = &peeled {
             if name.name == "len" {
                 return (Ty::Int(IntTy::Usize), None);
+            }
+            if name.name == "ptr" {
+                return (Ty::ptr((**elem).clone()), None);
             }
         }
         if peeled.is_wildcard() {
@@ -1493,6 +2048,13 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
             };
         }
+        // A generic parameter has no fields of its own; what it has is what its bounds
+        // give it, and a trait declares methods and associated types, never fields
+        // (spec §7.6, §8.1).
+        if let Ty::Param(p) = &peeled {
+            self.no_such_member_on_param(p, name, "field");
+            return (Ty::Error, None);
+        }
         let Some(sym) = peeled.named() else {
             let t = self.cx.name_of(&peeled);
             self.cx.error(
@@ -1503,9 +2065,12 @@ impl<'a, 'c> Body<'a, 'c> {
             );
             return (Ty::Error, None);
         };
-        if self.cx.table.is_generic(sym) {
-            return (Ty::Error, None); // generic members wait for M6
-        }
+        // A field of an instantiation has the instantiated type: `Buffer<f32>.m_data` is
+        // `^f32`, from the `^T` the declaration wrote (spec §8.4).
+        let args: Vec<Ty> = match &peeled {
+            Ty::Named { args, .. } => args.clone(),
+            _ => Vec::new(),
+        };
         let Some(sig) = self.cx.table.struct_sig(sym) else {
             let t = self.cx.name_of(&peeled);
             self.cx.error(
@@ -1544,7 +2109,727 @@ impl<'a, 'c> Body<'a, 'c> {
             return (Ty::Error, None);
         };
         self.check_member_visible(sym, &field.name, field.vis, field.span, name.span, "field");
-        (field.ty, Some(index))
+        (self.cx.instantiate(sym, &args, &field.ty), Some(index))
+    }
+
+    // --- operators through traits (spec §11.2) -----------------------------
+
+    /// Does this type need a trait to be compared or added, rather than being something the
+    /// language handles itself?
+    ///
+    /// Everything except a user struct or union, and a generic parameter, keeps the built-in
+    /// operator it has always had: integers, floats, `bool`, `char`, pointers, enums (which
+    /// are named integers, §7.4) and slices are compared by the machine.
+    fn needs_operator_trait(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Param(_) => true,
+            Ty::Named { sym, .. } => matches!(
+                self.cx.table.get(*sym),
+                Some(ItemSig::Struct(_)) | Some(ItemSig::Union { .. })
+            ),
+            _ => false,
+        }
+    }
+
+    /// The `Rhs` of whichever implementation of `trait_name` accepts `arg` (spec §11.2).
+    ///
+    /// Used as the expected type when the right operand is checked for real, so an untyped
+    /// literal settles on the implementation's type rather than on its own default.
+    fn operator_rhs_type(
+        &mut self,
+        trait_name: &str,
+        method: &str,
+        recv: &Ty,
+        arg: &Ty,
+    ) -> Option<Ty> {
+        // A probe: the real call reports an ambiguity, so this one must not as well — and
+        // an ambiguous operand is left untyped, or the real call would see it already
+        // settled on the first implementation and have nothing to report.
+        let before = self.cx.diags.len();
+        let found = self.select_operator_impl(trait_name, method, recv, Some(arg), Span::DUMMY);
+        let ambiguous = self.cx.diags.len() > before;
+        self.cx.diags.truncate(before);
+        if ambiguous {
+            return None;
+        }
+        let (_, sig) = found?;
+        sig.params.first().map(|p| p.ty.clone())
+    }
+
+    /// Which implementation of an operator's trait applies to this pair of operands.
+    ///
+    /// A type may implement `Mul<f32>` and `Mul<Vec2>` both, so the applicable one is the
+    /// one whose `Rhs` accepts the right operand — not one built from the operand's type,
+    /// which would miss `v * 3` where the literal is still untyped (spec §11.2).
+    fn select_operator_impl(
+        &mut self,
+        trait_name: &str,
+        method: &str,
+        recv: &Ty,
+        arg: Option<&Ty>,
+        span: Span,
+    ) -> Option<(TraitRef, FnSig)> {
+        let trait_sym = self.cx.prelude_trait(trait_name)?;
+        let self_ty = recv.peeled().clone();
+        let declared = self.declared_traits_of(&self_ty);
+        let found: Vec<(TraitRef, FnSig)> = self
+            .cx
+            .table
+            .trait_closure(&declared, &self_ty)
+            .into_iter()
+            .filter(|r| r.trait_sym == trait_sym)
+            .filter_map(|r| {
+                let sig = self.cx.table.trait_method(&r, &self_ty, method)?;
+                Some((r, sig))
+            })
+            .collect();
+        if found.is_empty() {
+            return None;
+        }
+        // An implementation that does not accept this operand is still returned when it is
+        // the only one: the argument check then names both types, the better diagnostic.
+        let sigs: Vec<FnSig> = found.iter().map(|(_, s)| s.clone()).collect();
+        let i = self.pick_overload(&sigs, arg, span, method);
+        found.into_iter().nth(i)
+    }
+
+    /// A method by name, read through `sym`'s instantiation — and when `sym` has several of
+    /// that name, the one whose first parameter the first argument fits (spec §18.27).
+    fn method_by_args(
+        &mut self,
+        sym: SymbolId,
+        type_args: &[Ty],
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<FnSig> {
+        let keys = self.cx.table.struct_sig(sym)?.overloads.get(name)?.clone();
+        // A method of `Buffer<f32>` has `f32` wherever it wrote `T`.
+        let sigs: Vec<FnSig> = keys
+            .iter()
+            .filter_map(|k| self.cx.table.struct_sig(sym)?.methods.get(k).cloned())
+            .map(|s| self.cx.instantiate_sig(sym, type_args, &s))
+            .collect();
+        if sigs.len() <= 1 {
+            return sigs.into_iter().next();
+        }
+        let arg = args.first().map(|a| self.expr_quiet(a));
+        let i = self.pick_overload(&sigs, arg.as_ref(), span, name);
+        sigs.into_iter().nth(i)
+    }
+
+    /// Which of several same-named methods a first argument picks (spec §18.27): the one
+    /// its type fits, preferring an exact match and then the type an untyped literal would
+    /// default to. A literal that fits several and defaults to none of them is ambiguous.
+    /// With nothing fitting, the first is returned and the argument check reports.
+    fn pick_overload(&mut self, sigs: &[FnSig], arg: Option<&Ty>, span: Span, name: &str) -> usize {
+        let Some(arg) = arg else { return 0 };
+        let first = |s: &FnSig| s.params.first().map(|p| p.ty.peeled().clone());
+        let fits: Vec<usize> = (0..sigs.len())
+            .filter(|&i| first(&sigs[i]).is_some_and(|p| assignable(&p, arg.peeled())))
+            .collect();
+        if fits.len() <= 1 {
+            return fits.first().copied().unwrap_or(0);
+        }
+        for want in [arg.peeled().clone(), arg.defaulted()] {
+            let exact: Vec<usize> = fits
+                .iter()
+                .copied()
+                .filter(|&i| first(&sigs[i]).as_ref() == Some(&want))
+                .collect();
+            if exact.len() == 1 {
+                return exact[0];
+            }
+        }
+        let shown = self.cx.name_of(arg);
+        self.cx.error_help(
+            codes::AMBIGUOUS_CALL,
+            span,
+            format!("more than one `{name}` accepts `{shown}`"),
+            "ambiguous call",
+            "give the argument a type — `3 as i64`, say — so that exactly one fits \
+             (spec §18.27)",
+        );
+        fits[0]
+    }
+
+    /// Find the trait method an operator dispatches to, and build the call (spec §11.2).
+    ///
+    /// `None` means the operand does not implement the trait; the caller reports that,
+    /// because only it knows which operator was written.
+    fn operator_call(
+        &mut self,
+        trait_name: &str,
+        method: &str,
+        recv: &Checked,
+        arg: Option<&Checked>,
+        arg_expr: Option<&Expr>,
+        span: Span,
+    ) -> Option<Checked> {
+        let arg_ty = arg.map(|a| a.ty.clone());
+        let (r, sig) =
+            self.select_operator_impl(trait_name, method, &recv.ty, arg_ty.as_ref(), span)?;
+        let trait_sym = r.trait_sym;
+
+        let mut arg_ids = Vec::new();
+        if let (Some(a), Some(e)) = (arg, arg_expr) {
+            let want = sig.params.first().map(|p| p.ty.clone()).unwrap_or(Ty::Error);
+            // `Eq::eq` takes `&Self`, so borrow the operand rather than passing it —
+            // otherwise a move-only type would be consumed by `==`. A temporary has nothing
+            // to borrow and nothing to consume, so it goes by value and C++ binds it to the
+            // `const T&` parameter itself.
+            let id = match (&want, self.place_mutability(e).is_some()) {
+                (Ty::Ref { mutable: false, .. }, true) => {
+                    self.hir.expr(
+                        e.span,
+                        Ty::reference(false, a.ty.clone()),
+                        hir::ExprKind::Ref { mutable: false, place: a.id },
+                    )
+                    .id
+                }
+                _ => {
+                    self.expect(&want, &a.ty, e.span);
+                    a.id
+                }
+            };
+            arg_ids.push(id);
+        }
+
+        let callee = hir::Callee::Method {
+            recv: recv.id,
+            owner: trait_sym,
+            name: method.to_owned(),
+        };
+        let node = self.hir.expr(
+            span,
+            sig.ret.clone(),
+            hir::ExprKind::Call { callee, args: arg_ids },
+        );
+        Some(node)
+    }
+
+    /// `a == b` and `a < b` on a user type (spec §11.2).
+    ///
+    /// `==`/`!=` go to `Eq::eq`. The four orderings go to `Ord::cmp` and then compare its
+    /// `Ordering` against the variant that answers the question — so a type implements one
+    /// method and gets four operators, and `<` and `>=` cannot disagree with each other.
+    fn comparison_through_trait(
+        &mut self,
+        op: BinaryOp,
+        a: &Checked,
+        b: &Checked,
+        rhs: &Expr,
+        e: &Expr,
+    ) -> Checked {
+        use BinaryOp::*;
+        let equality = matches!(op, Eq | Ne);
+        let (trait_name, method) = if equality { ("Eq", "eq") } else { ("Ord", "cmp") };
+        let Some(call) = self.operator_call(trait_name, method, a, Some(b), Some(rhs), e.span)
+        else {
+            self.operator_needs_trait(op.as_str(), a.ty.peeled(), trait_name, e.span);
+            return self.mk(e, Ty::Bool, hir::ExprKind::Error);
+        };
+
+        if equality {
+            // `!=` is `!eq(...)`; there is no separate `ne` to get out of step with `eq`.
+            return match op {
+                Ne => self.mk(
+                    e,
+                    Ty::Bool,
+                    hir::ExprKind::Unary { op: UnaryOp::Not, operand: call.id },
+                ),
+                _ => call,
+            };
+        }
+
+        // `cmp` yields an `Ordering`; each operator is one comparison against one variant.
+        // `<` and `>` test for the variant, `<=` and `>=` test for its opposite.
+        let (variant, negate) = match op {
+            Lt => ("Less", false),
+            Gt => ("Greater", false),
+            Le => ("Greater", true),
+            _ => ("Less", true),
+        };
+        let Some(ordering) = self.cx.prelude_enum("Ordering") else {
+            return self.mk(e, Ty::Bool, hir::ExprKind::Error);
+        };
+        let index = match self.cx.table.get(ordering) {
+            Some(ItemSig::Enum { variants, .. }) => {
+                variants.iter().position(|v| v.name == variant)
+            }
+            _ => None,
+        };
+        let Some(index) = index else {
+            return self.mk(e, Ty::Bool, hir::ExprKind::Error);
+        };
+        let want = self.hir.expr(
+            e.span,
+            Ty::plain(ordering),
+            hir::ExprKind::EnumVariant { owner: ordering, index },
+        );
+        self.mk(
+            e,
+            Ty::Bool,
+            hir::ExprKind::Binary {
+                op: if negate { Ne } else { Eq },
+                lhs: call.id,
+                rhs: want.id,
+            },
+        )
+    }
+
+    /// An operator its operand's type does not provide (spec §11.2).
+    fn operator_needs_trait(&mut self, op: &str, t: &Ty, trait_name: &str, span: Span) {
+        let shown = self.cx.name_of(t);
+        self.cx.error_help(
+            codes::UNSATISFIED_BOUND,
+            span,
+            format!("`{op}` cannot be applied to `{shown}`"),
+            format!("`{shown}` does not implement `{trait_name}`"),
+            format!(
+                "operators are traits (spec §11.2) — declare `{shown} : {trait_name}` and \
+                 implement it, or compare the fields you mean"
+            ),
+        );
+    }
+
+    // --- calling a generic (spec §8.1, §8.4) -------------------------------
+
+    /// Work out a generic call's type arguments and return the concrete signature.
+    ///
+    /// Arguments may be written (`largest<Score>(a, b)`) or inferred from the argument
+    /// types. Inference is deliberately simple — one pass, structural, no backtracking —
+    /// because definition-site checking has already done the hard part: the body was
+    /// verified against the bounds, so all that is left here is to pick the types and check
+    /// they satisfy those bounds.
+    fn solve_call(
+        &mut self,
+        sig: &FnSig,
+        seg: &PathSegment,
+        args: &[Expr],
+        span: Span,
+        name: &str,
+    ) -> (FnSig, Vec<Ty>) {
+        let mut map: HashMap<u32, Ty> = HashMap::new();
+
+        if !seg.generics.is_empty() {
+            let written: Vec<Ty> = seg.generics.iter().map(|t| self.cx.lower_type(t)).collect();
+            if written.len() != sig.generics.len() {
+                let (wanted, got) = (sig.generics.len(), written.len());
+                self.cx.error_help(
+                    codes::WRONG_TYPE_ARG_COUNT,
+                    seg.span,
+                    format!(
+                        "`{name}` takes {wanted} type {}, but {got} {} given",
+                        plural(wanted, "argument"),
+                        if got == 1 { "was" } else { "were" }
+                    ),
+                    format!("expected {wanted}, found {got}"),
+                    format!("`{name}` is declared with {wanted} type {}",
+                        plural(wanted, "parameter")),
+                );
+            }
+            for (def, ty) in sig.generics.iter().zip(written) {
+                map.insert(def.param.id, ty);
+            }
+        } else {
+            // Each argument is checked once, without an expected type, and its type is
+            // matched against the parameter's to solve for the parameters it mentions.
+            for (a, p) in args.iter().zip(&sig.params) {
+                if !p.ty.has_params() {
+                    continue;
+                }
+                let actual = self.expr_quiet(a);
+                unify(&p.ty, &actual.defaulted(), &mut map);
+            }
+        }
+
+        // A parameter no argument mentions cannot be inferred. Saying so here is much
+        // better than the cascade of mismatches that would follow.
+        for def in &sig.generics {
+            if let std::collections::hash_map::Entry::Vacant(slot) = map.entry(def.param.id) {
+                slot.insert(Ty::Error);
+                let t = def.name();
+                self.cx.error_help(
+                    codes::WRONG_TYPE_ARG_COUNT,
+                    span,
+                    format!("cannot infer `{t}` in this call to `{name}`"),
+                    format!("`{t}` is not determined by any argument"),
+                    format!("write it out: `{name}<{t}>(…)` (spec §8.1)"),
+                );
+            }
+        }
+
+        for def in &sig.generics {
+            let chosen = map[&def.param.id].clone();
+            self.check_bounds(def, &chosen, span);
+        }
+
+        let solved: Vec<Ty> = sig.generics.iter().map(|d| map[&d.param.id].clone()).collect();
+        let concrete = FnSig {
+            params: sig
+                .params
+                .iter()
+                .map(|p| crate::ParamSig {
+                    name: p.name.clone(),
+                    ty: ty::substitute(&p.ty, &map),
+                    has_default: p.has_default,
+                })
+                .collect(),
+            ret: ty::substitute(&sig.ret, &map),
+            generics: Vec::new(),
+            ..sig.clone()
+        };
+        (concrete, solved)
+    }
+
+    /// Does the type chosen for a parameter satisfy the parameter's bounds (spec §8.1)?
+    ///
+    /// The bounds are written in terms of the parameter, so `T: Mul` is `T: Mul<T>`; when
+    /// `T` is solved to `Vec3` the obligation becomes `Mul<Vec3>`, which is why the bound is
+    /// substituted before it is checked.
+    fn check_bounds(&mut self, def: &ParamDef, chosen: &Ty, span: Span) {
+        if chosen.is_wildcard() {
+            return;
+        }
+        let mut map = HashMap::new();
+        map.insert(def.param.id, chosen.clone());
+        for bound in &def.bounds {
+            let wanted = TraitRef {
+                trait_sym: bound.trait_sym,
+                args: bound.args.iter().map(|a| ty::substitute(a, &map)).collect(),
+                span: bound.span,
+            };
+            if self.satisfies(chosen, &wanted) {
+                continue;
+            }
+            let t = self.cx.name_of(chosen);
+            let shown = self.trait_ref_name(&wanted);
+            let p = def.name();
+            self.cx.error_help(
+                codes::UNSATISFIED_BOUND,
+                span,
+                format!("`{t}` does not implement `{shown}`"),
+                format!("`{p}` is bounded by `{shown}`"),
+                format!(
+                    "declare it as `struct {t} : {shown}` and implement the trait's \
+                     methods (spec §7.6)"
+                ),
+            );
+        }
+    }
+
+    /// `Mul<f32>` — a trait reference as it would be written, for a diagnostic.
+    fn trait_ref_name(&self, r: &TraitRef) -> String {
+        let name = self.cx.res.symbol(r.trait_sym).name.clone();
+        // A default argument is not shown: `Mul<Vec3>` on a `Vec3` is spelled `Mul`.
+        let params = self.cx.table.type_params(r.trait_sym);
+        let interesting: Vec<&Ty> = r
+            .args
+            .iter()
+            .zip(params)
+            .filter(|(_, p)| p.default.is_none())
+            .map(|(a, _)| a)
+            .collect();
+        if interesting.is_empty() {
+            return name;
+        }
+        let args: Vec<String> = interesting.iter().map(|a| self.cx.name_of(a)).collect();
+        format!("{name}<{}>", args.join(", "))
+    }
+
+    /// Does `t` satisfy `wanted`, directly or through a supertrait chain (spec §7.6)?
+    ///
+    /// A `Ty::Param` satisfies a bound its own bounds already provide, which is what lets a
+    /// generic body call another generic function: `fn a<T: Ord>` may call `fn b<U: Ord>`
+    /// with its own `T`.
+    fn satisfies(&self, t: &Ty, wanted: &TraitRef) -> bool {
+        self.cx.table.implements(t, wanted)
+    }
+
+    /// What `t` is known to implement: a parameter's bounds, or the traits the `impl`s that
+    /// apply to it implement (spec §7.6).
+    fn declared_traits_of(&self, t: &Ty) -> Vec<TraitRef> {
+        match t {
+            Ty::Param(p) => self.cx.table.bounds_of(p).to_vec(),
+            _ => self.cx.table.traits_of(t),
+        }
+    }
+
+    /// What `for x in it` binds `x` to when `it` implements the prelude's `Iterate`: the
+    /// implementer's chosen `Item`, read off `get` (spec §8.5, §10.4). `None` when the type
+    /// does not implement it at all.
+    fn iterate_item(&mut self, t: &Ty, span: Span) -> Option<Ty> {
+        let t = self.subst(t);
+        let iterate = self.cx.prelude_trait("Iterate")?;
+        let r = TraitRef { trait_sym: iterate, args: Vec::new(), span };
+        if !self.satisfies(&t, &r) {
+            return None;
+        }
+        if let Ty::Param(p) = &t {
+            // `T: Iterate` gives the loop variable the type `T::Item`, and monomorphization
+            // cannot yet trace that back to the implementer that chose it — so this is
+            // refused here rather than emitted as broken C++.
+            let name = p.name.clone();
+            self.cx.error_help(
+                codes::CODEGEN_UNSUPPORTED,
+                span,
+                format!("`for` over a generic `{name}: Iterate` is not supported yet"),
+                "its element type would be the projection `T::Item`",
+                "iterate a concrete type, or pass a slice — see the deferral register in \
+                 docs/PROGRESS.md",
+            );
+            return Some(Ty::Error);
+        }
+        let sig = self.cx.table.trait_method(&r, &t, "get")?;
+        Some(sig.ret)
+    }
+
+    /// `v.name(…)` reaching a trait's method through an implementation for `v`'s type (spec
+    /// §7.6) — one the `impl` writes, or a default the trait supplies. `None` when no
+    /// implementation provides `name`.
+    ///
+    /// A type's own methods have already been tried, so they win over a trait's. Two
+    /// implementations of one trait at different arguments are chosen between by the first
+    /// argument (§18.27); two *traits* both providing `name` is ambiguous, and the answer is
+    /// to name the trait: `Describe::name(&v)`.
+    #[allow(clippy::too_many_arguments)]
+    fn trait_method_call(
+        &mut self,
+        recv: &Checked,
+        base: &Expr,
+        peeled: &Ty,
+        name: &Ident,
+        args: &[Expr],
+        e: &Expr,
+    ) -> Option<Checked> {
+        let span = e.span;
+        if self.is_special_trait_method(peeled, name) {
+            return Some(self.special_member_called(name, args, e));
+        }
+        let mut found: Vec<(SymbolId, FnSig)> = Vec::new();
+        for (idx, r, _) in self.cx.table.impls_for(peeled) {
+            let written = self.cx.table.impls()[idx].methods.contains_key(&name.name);
+            let default = self
+                .cx
+                .table
+                .struct_sig(r.trait_sym)
+                .and_then(|s| s.methods.get(&name.name))
+                .is_some_and(|m| m.has_body);
+            if !written && !default {
+                continue;
+            }
+            if let Some(sig) = self.cx.table.trait_method(&r, peeled, &name.name) {
+                found.push((r.trait_sym, sig));
+            }
+        }
+        if found.is_empty() {
+            return None;
+        }
+        let (trait_sym, sig) = if found.len() == 1 {
+            found.remove(0)
+        } else if found.iter().all(|(t, _)| *t == found[0].0) {
+            let sigs: Vec<FnSig> = found.iter().map(|(_, s)| s.clone()).collect();
+            let arg = args.first().map(|a| self.expr_quiet(a));
+            let i = self.pick_overload(&sigs, arg.as_ref(), span, &name.name);
+            found.swap_remove(i)
+        } else {
+            let traits: Vec<String> =
+                found.iter().map(|(t, _)| self.cx.res.symbol(*t).name.clone()).collect();
+            let first = traits[0].clone();
+            self.cx.error_help(
+                codes::AMBIGUOUS_CALL,
+                name.span,
+                format!("`{}` is provided by both `{}`", name.name, traits.join("` and `")),
+                "ambiguous method",
+                format!(
+                    "name the trait to choose one: `{first}::{}(&v, …)` (spec §7.6)",
+                    name.name
+                ),
+            );
+            found.remove(0)
+        };
+        if sig.is_mut {
+            self.require_mutable_receiver(base, &recv.ty, &name.name);
+        }
+        if sig.is_unsafe {
+            self.require_unsafe(span, &format!("calling `unsafe fn {}`", name.name));
+        }
+        let args = self.check_args(&sig, args, span, &name.name);
+        let ty = fallible_result(&sig, self.subst(&sig.ret));
+        let callee = hir::Callee::Method { recv: recv.id, owner: trait_sym, name: name.name.clone() };
+        Some(self.mk(e, ty, hir::ExprKind::Call { callee, args }))
+    }
+
+    /// Is `name` `drop` or `copy` on a type whose `impl Drop` / `impl Copy` provides it?
+    /// Those are the destructor and the copy constructor, and nothing calls them by name.
+    fn is_special_trait_method(&self, ty: &Ty, name: &Ident) -> bool {
+        let trait_named = match name.name.as_str() {
+            "drop" => "Drop",
+            "copy" => "Copy",
+            _ => return false,
+        };
+        let Some(special) = self.cx.prelude_trait(trait_named) else { return false };
+        self.cx.table.traits_of(ty).iter().any(|r| r.trait_sym == special)
+    }
+
+    /// `x.drop()` or `x.copy(y)`: both run by themselves — at the end of the scope, and on
+    /// every copy (spec §6.4, §6.5) — so calling one would run it twice.
+    fn special_member_called(&mut self, name: &Ident, args: &[Expr], e: &Expr) -> Checked {
+        let help = if name.name == "drop" {
+            "a value's `drop` runs by itself at the end of its scope; to end its life early, \
+             `move` it into a scope that ends (spec §6.5)"
+        } else {
+            "`copy` runs by itself on every copy: write `let b = a` (spec §6.3)"
+        };
+        self.cx.error_help(
+            codes::NO_SUCH_METHOD,
+            name.span,
+            format!("`{}` cannot be called by name", name.name),
+            "runs by itself",
+            help,
+        );
+        for a in args {
+            self.expr(a, None);
+        }
+        self.mk(e, Ty::Error, hir::ExprKind::Error)
+    }
+
+    /// `Describe::name(&v, …)` — a trait's method named through the trait, the way to choose
+    /// between two traits that both provide `name` (spec §7.6). The first argument is the
+    /// receiver, borrowed as a method call would borrow it.
+    fn qualified_trait_call(
+        &mut self,
+        tsym: SymbolId,
+        method: &Ident,
+        args: &[Expr],
+        e: &Expr,
+    ) -> Checked {
+        let span = e.span;
+        let tname = self.cx.res.symbol(tsym).name.clone();
+        if Some(tsym) == self.cx.prelude_trait("Drop") || Some(tsym) == self.cx.prelude_trait("Copy")
+        {
+            return self.special_member_called(method, args, e);
+        }
+        let Some((first, rest)) = args.split_first() else {
+            self.cx.error_help(
+                codes::WRONG_ARG_COUNT,
+                span,
+                format!("`{tname}::{}` needs the value to call it on", method.name),
+                "no receiver",
+                format!("pass it first: `{tname}::{}(&v)` (spec §7.6)", method.name),
+            );
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        };
+        let recv_expr = match &first.kind {
+            ExprKind::Ref { expr, .. } => expr.as_ref(),
+            _ => first,
+        };
+        let recv = self.expr(recv_expr, None);
+        let peeled = recv.ty.peeled().clone();
+        let refs: Vec<TraitRef> = match &peeled {
+            Ty::Param(p) => {
+                let bounds = self.cx.table.bounds_of(p).to_vec();
+                self.cx.table.trait_closure(&bounds, &peeled)
+            }
+            _ => self.cx.table.traits_of(&peeled),
+        };
+        let found: Vec<FnSig> = refs
+            .iter()
+            .filter(|r| r.trait_sym == tsym)
+            .filter_map(|r| self.cx.table.trait_method(r, &peeled, &method.name))
+            .collect();
+        if found.is_empty() {
+            if !peeled.is_wildcard() {
+                let t = self.cx.name_of(&peeled);
+                self.cx.error_help(
+                    codes::UNSATISFIED_BOUND,
+                    first.span,
+                    format!("`{t}` does not implement `{tname}::{}`", method.name),
+                    format!("no `impl {tname}` for this"),
+                    format!("`{tname}::{}` can only be called on a type that implements `{tname}` (spec §7.6)", method.name),
+                );
+            }
+            for a in rest {
+                self.expr(a, None);
+            }
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        }
+        let i = if found.len() == 1 {
+            0
+        } else {
+            let arg = rest.first().map(|a| self.expr_quiet(a));
+            self.pick_overload(&found, arg.as_ref(), span, &method.name)
+        };
+        let sig = found[i].clone();
+        if sig.is_mut {
+            self.require_mutable_receiver(recv_expr, &recv.ty, &method.name);
+        }
+        if sig.is_unsafe {
+            self.require_unsafe(span, &format!("calling `unsafe fn {}`", method.name));
+        }
+        let args = self.check_args(&sig, rest, span, &method.name);
+        let ty = fallible_result(&sig, self.subst(&sig.ret));
+        let callee = hir::Callee::Method { recv: recv.id, owner: tsym, name: method.name.clone() };
+        self.mk(e, ty, hir::ExprKind::Call { callee, args })
+    }
+
+    /// `.x` or `.x()` on a generic parameter that its bounds do not provide (spec §8.1).
+    ///
+    /// The message names the bounds, because that is the actionable part: the fix is
+    /// either to use something the bound already has, or to add a bound. This is reported
+    /// at the line inside the generic body, never at an instantiation (§8.6).
+    fn no_such_member_on_param(&mut self, p: &ty::Param, name: &Ident, what: &str) {
+        let bounds = self.cx.table.bounds_of(p).to_vec();
+        let t = &p.name;
+        let member = &name.name;
+        let (label, help) = if bounds.is_empty() {
+            (
+                format!("`{t}` has no bounds, so it has no {what}s"),
+                format!(
+                    "an unbounded `{t}` supports only being moved, default-initialised, \
+                     dropped, and queried with `{t}::` — add a bound like `{t}: SomeTrait` \
+                     to give it more (spec §8.2)"
+                ),
+            )
+        } else {
+            let names: Vec<String> =
+                bounds.iter().map(|b| self.trait_ref_name(b)).collect();
+            let listed = names.join(" + ");
+            (
+                format!("not provided by `{listed}`"),
+                format!(
+                    "`{t}` is bounded by `{listed}`, and that is the whole of what it can \
+                     do here — add `{member}` to one of those traits, or add a bound to \
+                     `{t}` (spec §8.1)"
+                ),
+            )
+        };
+        self.cx.error_help(
+            codes::UNSATISFIED_BOUND,
+            name.span,
+            format!("`{t}` has no {what} `{member}`"),
+            label,
+            help,
+        );
+    }
+
+    /// A method one of a generic parameter's bounds provides, already read through that
+    /// bound (spec §8.1).
+    ///
+    /// Supertraits count: a `T: Ord` may use `Eq`'s methods, because `trait Ord : Eq` means
+    /// every `Ord` is an `Eq` (spec §7.6). The returned signature has both the trait's own
+    /// parameters and `Self` substituted, so it is stated in terms the caller can check
+    /// arguments against directly.
+    fn param_method(&mut self, p: &ty::Param, name: &str) -> Option<(SymbolId, FnSig)> {
+        let self_ty = Ty::Param(p.clone());
+        let bounds = self.cx.table.bounds_of(p).to_vec();
+        for r in self.cx.table.trait_closure(&bounds, &self_ty) {
+            if let Some(sig) = self.cx.table.trait_method(&r, &self_ty, name) {
+                return Some((r.trait_sym, sig));
+            }
+        }
+        None
     }
 
     fn check_member_visible(
@@ -1600,20 +2885,53 @@ impl<'a, 'c> Body<'a, 'c> {
             let recv = self.expr(base, None);
             let base_ty = recv.ty.clone();
             let peeled = base_ty.peeled().clone();
+            if matches!(base_ty.peeled_refs(), Ty::Ptr(_) | Ty::OwnPtr(_)) {
+                self.require_unsafe(callee.span, "calling a method through a `^T`");
+            }
+
+            // A method on a generic parameter comes from its bounds, and from nothing else
+            // (spec §8.1). Resolution is static: the bound names one trait method, and
+            // monomorphization turns the call into a direct one (§7.6).
+            if let Ty::Param(p) = &peeled {
+                let found = self.param_method(p, &name.name);
+                let Some((trait_sym, sig)) = found else {
+                    self.no_such_member_on_param(p, name, "method");
+                    for a in args {
+                        self.expr(a, None);
+                    }
+                    return self.mk(e, Ty::Error, hir::ExprKind::Error);
+                };
+                if sig.is_mut {
+                    self.require_mutable_receiver(base, &base_ty, &name.name);
+                }
+                // `Self` in the trait's signature is this parameter.
+                let sig = instantiate_self(&sig, &peeled);
+                let args = self.check_args(&sig, args, span, &name.name);
+                let ty = fallible_result(&sig, self.subst(&sig.ret));
+                let callee = hir::Callee::Method {
+                    recv: recv.id,
+                    owner: trait_sym,
+                    name: name.name.clone(),
+                };
+                return self.mk(e, ty, hir::ExprKind::Call { callee, args });
+            }
+
             if let Some(sym) = peeled.named() {
-                if !self.cx.table.is_generic(sym) {
-                    if let Some(sig) = self
-                        .cx
-                        .table
-                        .struct_sig(sym)
-                        .and_then(|s| s.methods.get(&name.name))
-                        .cloned()
+                {
+                    let type_args: Vec<Ty> = match &peeled {
+                        Ty::Named { args, .. } => args.clone(),
+                        _ => Vec::new(),
+                    };
+                    if let Some(sig) = self.method_by_args(sym, &type_args, &name.name, args, span)
                     {
                         self.check_member_visible(
                             sym, &name.name, sig.vis, sig.span, name.span, "method",
                         );
                         if sig.is_mut {
                             self.require_mutable_receiver(base, &base_ty, &name.name);
+                        }
+                        if sig.is_unsafe {
+                            self.require_unsafe(span, &format!("calling `unsafe fn {}`", name.name));
                         }
                         let args = self.check_args(&sig, args, span, &name.name);
                         let ty = fallible_result(&sig, self.subst(&sig.ret));
@@ -1623,6 +2941,10 @@ impl<'a, 'c> Body<'a, 'c> {
                             name: name.name.clone(),
                         };
                         return self.mk(e, ty, hir::ExprKind::Call { callee, args });
+                    }
+                    // A trait's method, through an implementation for this type (spec §7.6).
+                    if let Some(c) = self.trait_method_call(&recv, base, &peeled, name, args, e) {
+                        return c;
                     }
                     // Not a method: fall through so the field-access path reports.
                     let sig_has_field = self
@@ -1637,7 +2959,7 @@ impl<'a, 'c> Body<'a, 'c> {
                             .cx
                             .table
                             .struct_sig(sym)
-                            .map(|s| s.methods.keys().cloned().collect())
+                            .map(|s| s.overloads.keys().cloned().collect())
                             .unwrap_or_default();
                         let suggestion =
                             dz_resolve::closest(&name.name, names.iter().map(String::as_str));
@@ -1656,15 +2978,33 @@ impl<'a, 'c> Body<'a, 'c> {
                         return self.mk(e, Ty::Error, hir::ExprKind::Error);
                     }
                 }
+            } else if let Some(c) = self.trait_method_call(&recv, base, &peeled, name, args, e) {
+                // A type with no methods of its own — `f32`, say — has a trait's, through an
+                // implementation for it (spec §7.6).
+                return c;
             }
         }
 
-        // A constructor call: `Buffer(8)`.
+        // `Describe::name(&v)` — a trait's method named through the trait (spec §7.6).
+        if let ExprKind::Path(p) = &callee.kind {
+            if p.segments.len() >= 2 {
+                let prefix = Path {
+                    span: p.span,
+                    segments: p.segments[..p.segments.len() - 1].to_vec(),
+                };
+                if let Some(tsym) = self.path_symbol(&prefix) {
+                    if self.cx.res.symbol(tsym).kind == SymbolKind::Trait {
+                        let method = &p.segments[p.segments.len() - 1].name;
+                        return self.qualified_trait_call(tsym, method, args, e);
+                    }
+                }
+            }
+        }
+
+        // A constructor call: `Buffer(8)`, or `Buffer<f32>(8)` for a generic struct.
         if let ExprKind::Path(p) = &callee.kind {
             if let Some(sym) = self.path_symbol(p) {
-                if self.cx.res.symbol(sym).kind == SymbolKind::Struct
-                    && !self.cx.table.is_generic(sym)
-                {
+                if self.cx.res.symbol(sym).kind == SymbolKind::Struct {
                     let ctors = self
                         .cx
                         .table
@@ -1673,12 +3013,27 @@ impl<'a, 'c> Body<'a, 'c> {
                         .unwrap_or_default();
                     if let Some(sig) = ctors.first().cloned() {
                         let name = self.cx.res.symbol(sym).name.clone();
+                        // A generic struct's parameters are solved exactly as a generic
+                        // function's are: written (`Buffer<f32>(8)`) or inferred from the
+                        // arguments (spec §8.1). The result is the instantiation.
+                        let (sig, ty) = if self.cx.table.is_generic(sym) {
+                            let generic = FnSig {
+                                generics: self.cx.table.type_params(sym).to_vec(),
+                                ..sig
+                            };
+                            let last = p.segments.last().expect("a path has segments");
+                            let (solved, targs) =
+                                self.solve_call(&generic, last, args, span, &name);
+                            (solved, Ty::Named { sym, args: targs })
+                        } else {
+                            (sig, Ty::plain(sym))
+                        };
                         let args = self.check_args(&sig, args, span, &name);
                         let callee = hir::Callee::Ctor {
                             owner: sym,
                             index: 0,
                         };
-                        return self.mk(e, Ty::Named(sym), hir::ExprKind::Call { callee, args });
+                        return self.mk(e, ty, hir::ExprKind::Call { callee, args });
                     }
                 }
             }
@@ -1687,26 +3042,73 @@ impl<'a, 'c> Body<'a, 'c> {
             // does not record which parameters have defaults.
             if let Some(sym) = self.path_symbol(p) {
                 if let Some(ItemSig::Fn(sig)) = self.cx.table.get(sym) {
-                    if !sig.generic {
-                        let sig = sig.clone();
-                        let name = self.cx.res.symbol(sym).name.clone();
-                        let args = self.check_args(&sig, args, span, &name);
-                        let ty = fallible_result(&sig, self.subst(&sig.ret));
-                        let callee = hir::Callee::Fn(sym);
-                        return self.mk(e, ty, hir::ExprKind::Call { callee, args });
+                    let mut sig = sig.clone();
+                    let name = self.cx.res.symbol(sym).name.clone();
+                    // A generic function is called with concrete types, so its parameters
+                    // are solved from the arguments before the call is checked (spec §8.1).
+                    // The solution is kept on the call: it is what monomorphization
+                    // instantiates the function with.
+                    let mut type_args = Vec::new();
+                    if sig.is_generic() {
+                        let last = p.segments.last().expect("a path has segments");
+                        let (solved, targs) = self.solve_call(&sig, last, args, span, &name);
+                        sig = solved;
+                        type_args = targs;
                     }
+                    if sig.is_unsafe {
+                        self.require_unsafe(span, &format!("calling `unsafe fn {name}`"));
+                    }
+                    let args = self.check_args(&sig, args, span, &name);
+                    let ty = fallible_result(&sig, self.subst(&sig.ret));
+                    let callee = hir::Callee::Fn { sym, type_args };
+                    return self.mk(e, ty, hir::ExprKind::Call { callee, args });
                 }
             }
 
-            // Builtins are variadic and untyped until the stdlib exists. §12.9's
-            // format-string checking is owed by M6 — see the deferral register.
+            // Builtins are untyped until the stdlib exists: arity is checked by
+            // `builtin_arity`, and a formatting call's literal by `check_format` (§12.9).
             if p.segments.len() == 1
                 && dz_resolve::BUILTIN_FNS.contains(&p.segments[0].name.name.as_str())
             {
                 let name = p.segments[0].name.name.clone();
-                let args = args.iter().map(|a| self.expr(a, None).id).collect();
+                // `sizeof(T)` and `alignof(T)` take a *type*, and are spellings of `T::size`
+                // and `T::align` (spec §5.5).
+                if matches!(name.as_str(), "sizeof" | "alignof") && args.len() == 1 {
+                    if let Some(q) = self.type_argument_query(&name, &args[0]) {
+                        return self.mk(e, q.0, q.1);
+                    }
+                }
+                // Codegen reads these by position, so a missing argument must be a Dazzle
+                // diagnostic rather than a panic in the compiler or bad C++ (invariant 7).
+                if let Some((lo, hi)) = builtin_arity(&name) {
+                    if args.len() < lo || args.len() > hi {
+                        let want = if lo == hi { lo.to_string() } else { format!("{lo} or {hi}") };
+                        self.cx.error(
+                            codes::WRONG_ARG_COUNT,
+                            span,
+                            format!(
+                                "`{name}` takes {want} {}, found {}",
+                                plural(hi, "argument"),
+                                args.len()
+                            ),
+                            "wrong number of arguments",
+                        );
+                        for a in args {
+                            self.expr(a, None);
+                        }
+                        return self.mk(e, Ty::Error, hir::ExprKind::Error);
+                    }
+                }
+                // The placement primitives and the heap's release write memory nothing
+                // tracks (spec §5.2, §14.3). `alloc` only hands a pointer out, which is safe.
+                if matches!(name.as_str(), "construct" | "destroy" | "memcpy" | "free") {
+                    self.require_unsafe(span, &format!("`{name}`"));
+                }
+                let checked: Vec<Checked> = args.iter().map(|a| self.expr(a, None)).collect();
+                self.check_format(&name, args, &checked, span);
+                let ids = checked.iter().map(|c| c.id).collect();
                 let ty = builtin_call_type(&name);
-                return self.mk(e, ty, hir::ExprKind::Builtin { name, args });
+                return self.mk(e, ty, hir::ExprKind::Builtin { name, args: ids });
             }
         }
 
@@ -1817,6 +3219,231 @@ impl<'a, 'c> Body<'a, 'c> {
 
     /// The declaration a path's *owner* segment names: the item itself for `f`, and the
     /// type or module member for `Type::Variant` and `module::f`.
+    /// `Head::query` where `Head` names a type (spec §5.5). `None` when `Head` is not a type,
+    /// or is a type whose own member of that name should win.
+    fn path_type_query(&mut self, head: &PathSegment, q: &Ident) -> Option<(Ty, hir::ExprKind)> {
+        let name = &head.name.name;
+        let is_param = self.cx.param_in_scope(name).is_some();
+        let is_builtin = crate::builtin_type(name).is_some();
+        if !is_param && !is_builtin {
+            // A declared type answers only if it has no member of that name.
+            let sym = self.cx.res.lookup_in_file(self.cx.module, self.cx.file, name)?;
+            let symbol = self.cx.res.symbol(sym);
+            let is_type =
+                matches!(symbol.kind, SymbolKind::Struct | SymbolKind::Union | SymbolKind::Enum);
+            if !is_type || symbol.member(&q.name).is_some() || hir::TypeQuery::from_name(&q.name).is_none() {
+                return None;
+            }
+        }
+        let path = Path { span: head.span, segments: vec![head.clone()] };
+        let ty = self.cx.lower_type(&Type { span: head.span, kind: TypeKind::Path(path) });
+        let ty = self.subst(&ty);
+        match hir::TypeQuery::from_name(&q.name) {
+            Some(query) => Some((query.result(), hir::ExprKind::TypeQuery { ty, query })),
+            None => {
+                let shown = self.cx.name_of(&ty);
+                let suggestion =
+                    dz_resolve::closest(&q.name, dz_resolve::TYPE_QUERIES.iter().copied());
+                let mut d = Diagnostic::error(
+                    codes::NO_SUCH_FIELD,
+                    format!("`{shown}` has no compile-time query `{}`", q.name),
+                )
+                .at(self.cx.file, q.span, "unknown query");
+                d = d.with_help(match suggestion {
+                    Some(s) => format!("did you mean `{s}`? (spec §5.5)"),
+                    None => format!(
+                        "a type answers {} (spec §5.5)",
+                        dz_resolve::TYPE_QUERIES
+                            .iter()
+                            .map(|q| format!("`{q}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                });
+                self.cx.diags.push(d);
+                Some((Ty::Error, hir::ExprKind::Error))
+            }
+        }
+    }
+
+    /// §12.9: a formatting call's first argument is a string literal, parsed here, so a
+    /// wrong argument count, an unknown `{:spec}`, or an argument with no way to be written
+    /// is an ordinary compile error pointing into the literal — not a stray `{}` at runtime
+    /// and not a `printf` mismatch.
+    fn check_format(&mut self, name: &str, args: &[Expr], checked: &[Checked], call: Span) {
+        let at = match name {
+            "println" | "print" | "format" | "panic" => 0,
+            // `error(code?, fmt, args…)`: the code is optional and comes first (§9.1).
+            "error" => usize::from(
+                checked.len() > 1
+                    && (checked[0].ty.is_integral() || matches!(checked[0].ty, Ty::Named { .. })),
+            ),
+            _ => return,
+        };
+        let Some(fmt) = args.get(at) else {
+            self.cx.error_help(
+                codes::BAD_FORMAT_STRING,
+                call,
+                format!("`{name}` needs a format string"),
+                "no format string",
+                format!("write `{name}(\"…\")` (spec §12.9)"),
+            );
+            return;
+        };
+        let raw = match &fmt.kind {
+            ExprKind::Str(t) => t.strip_prefix('"').and_then(|t| t.strip_suffix('"')),
+            ExprKind::RawStr(t) => t.strip_prefix('`').and_then(|t| t.strip_suffix('`')),
+            _ => None,
+        };
+        let Some(raw) = raw else {
+            self.cx.error_help(
+                codes::BAD_FORMAT_STRING,
+                fmt.span,
+                "the format string must be a string literal",
+                "not a literal",
+                "it is parsed at compile time, which is what makes a mismatch an error rather \
+                 than garbage — write `println(\"{}\", value)` (spec §12.9)",
+            );
+            return;
+        };
+        // Offsets inside the literal map straight onto the file: the AST keeps the exact
+        // source text, and no escape sequence contains a brace.
+        let base = fmt.span.start + 1;
+        let span_of = |s: usize, e: usize| Span { start: base + s as u32, end: base + e as u32 };
+
+        let bytes = raw.as_bytes();
+        let mut holes: Vec<(usize, usize, &str)> = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'{' if bytes.get(i + 1) == Some(&b'{') => i += 2,
+                b'}' if bytes.get(i + 1) == Some(&b'}') => i += 2,
+                b'{' => {
+                    let Some(rel) = raw[i + 1..].find('}') else {
+                        self.cx.error_help(
+                            codes::BAD_FORMAT_STRING,
+                            span_of(i, bytes.len()),
+                            "unclosed `{` in a format string",
+                            "this `{` is never closed",
+                            "write `{{` for a literal brace (spec §12.9)",
+                        );
+                        return;
+                    };
+                    holes.push((i, i + 2 + rel, &raw[i + 1..i + 1 + rel]));
+                    i += 2 + rel;
+                }
+                b'}' => {
+                    self.cx.error_help(
+                        codes::BAD_FORMAT_STRING,
+                        span_of(i, i + 1),
+                        "unmatched `}` in a format string",
+                        "nothing opened this",
+                        "write `}}` for a literal brace (spec §12.9)",
+                    );
+                    return;
+                }
+                _ => i += 1,
+            }
+        }
+
+        let values = &checked[(at + 1).min(checked.len())..];
+        for (k, (s, e, inner)) in holes.iter().enumerate() {
+            let here = span_of(*s, *e);
+            let spec = if inner.is_empty() {
+                ""
+            } else if let Some(sp) = inner.strip_prefix(':') {
+                sp
+            } else {
+                self.cx.error_help(
+                    codes::BAD_FORMAT_STRING,
+                    here,
+                    "format strings do not interpolate names",
+                    "not a placeholder",
+                    format!(
+                        "write `{{}}` and pass `{inner}` as an argument — interpolation is \
+                         deliberately absent (spec §12.9)"
+                    ),
+                );
+                continue;
+            };
+            let Some(v) = values.get(k) else { continue };
+            let t = self.subst(&v.ty).defaulted();
+            if !formattable(&t) {
+                let shown = self.cx.name_of(&t);
+                let help = if matches!(&t, Ty::Named { sym, .. }
+                    if self.cx.res.symbol(*sym).kind == SymbolKind::Enum)
+                {
+                    "an enum is written through its backing integer: `x as i32` (spec §7.4)"
+                        .to_owned()
+                } else {
+                    "numbers, `bool`, `char`, `str`, `cstr` and pointers can be formatted; a \
+                     type's own `Format` implementation arrives with the stdlib (spec §12.9, \
+                     §19 M12) — format the fields you mean"
+                        .to_owned()
+                };
+                self.cx.error_help(
+                    codes::NOT_FORMATTABLE,
+                    args[at + 1 + k].span,
+                    format!("`{shown}` cannot be formatted"),
+                    "no way to write this",
+                    help,
+                );
+                continue;
+            }
+            if let Err(why) = spec_fits(spec, &t) {
+                let shown = self.cx.name_of(&t);
+                self.cx.error_help(
+                    codes::BAD_FORMAT_STRING,
+                    here,
+                    format!("`{{:{spec}}}` does not suit `{shown}`"),
+                    why,
+                    "`{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N \
+                     decimals (spec §12.9)",
+                );
+            }
+        }
+
+        if holes.len() != values.len() {
+            let (h, v) = (holes.len(), values.len());
+            self.cx.error_help(
+                codes::BAD_FORMAT_STRING,
+                fmt.span,
+                format!(
+                    "this format string has {h} {} but {v} {} given",
+                    plural(h, "placeholder"),
+                    if v == 1 { "argument was" } else { "arguments were" }
+                ),
+                format!("{h} `{{}}` here"),
+                "each `{}` takes one argument, in order; write `{{` or `}}` for a literal \
+                 brace (spec §12.9)",
+            );
+        }
+    }
+
+    /// `sizeof(T)` / `alignof(T)`: the argument is a type, so it is lowered as one.
+    fn type_argument_query(&mut self, name: &str, arg: &Expr) -> Option<(Ty, hir::ExprKind)> {
+        let ExprKind::Path(tp) = &arg.kind else { return None };
+        // A value is not a type: `sizeof(x)` for a local `x` is a mistake worth naming,
+        // since it would otherwise lower to nothing and be accepted in silence.
+        if tp.segments.len() == 1 && self.local(&tp.segments[0].name.name).is_some() {
+            let v = tp.segments[0].name.name.clone();
+            let ty = self.local(&v).map(|l| l.ty.clone()).unwrap_or(Ty::Error);
+            let ty = self.cx.name_of(&ty);
+            self.cx.error_help(
+                codes::TYPE_MISMATCH,
+                arg.span,
+                format!("`{name}` takes a type, and `{v}` is a value"),
+                "not a type",
+                format!("`{v}` is a `{ty}`, so write `{name}({ty})` (spec §5.5)"),
+            );
+            return Some((Ty::Error, hir::ExprKind::Error));
+        }
+        let ty = self.cx.lower_type(&Type { span: tp.span, kind: TypeKind::Path(tp.clone()) });
+        let ty = self.subst(&ty);
+        let query = if name == "sizeof" { hir::TypeQuery::Size } else { hir::TypeQuery::Align };
+        Some((query.result(), hir::ExprKind::TypeQuery { ty, query }))
+    }
+
     fn path_symbol(&self, p: &Path) -> Option<SymbolId> {
         let first = p.segments.first()?;
         if p.segments.len() > 1 {
@@ -1837,6 +3464,14 @@ impl<'a, 'c> Body<'a, 'c> {
             return self.mk(e, Ty::Error, hir::ExprKind::Error);
         };
 
+        // `T::is_trivially_copyable`, `i32::size`, `Vec3::is_copyable` — a compile-time
+        // query about a type rather than a path to a value (spec §5.5).
+        if p.segments.len() == 2 {
+            if let Some((ty, kind)) = self.path_type_query(first, &p.segments[1].name) {
+                return self.mk(e, ty, kind);
+            }
+        }
+
         // A local wins over everything for a bare name.
         if p.segments.len() == 1 {
             if let Some(l) = self.local(&first.name.name).cloned() {
@@ -1845,7 +3480,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     // An unqualified field in a method body is `self.field` (spec §7.3).
                     Slot::SelfField { index } => match self.self_local {
                         Some(base) => {
-                            let self_ty = self.self_ty.map(Ty::Named).unwrap_or(Ty::Error);
+                            let self_ty = self.self_local_ty.clone().unwrap_or(Ty::Error);
                             let base = self.hir.expr(e.span, self_ty, hir::ExprKind::Local(base));
                             hir::ExprKind::Field {
                                 base: base.id,
@@ -1903,7 +3538,7 @@ impl<'a, 'c> Body<'a, 'c> {
             },
             // A bare type name in value position is only meaningful as a constructor
             // call, which `call` handles before reaching here.
-            _ => (Ty::Named(sym), hir::ExprKind::Error),
+            _ => (Ty::plain(sym), hir::ExprKind::Error),
         };
         self.mk(e, ty, kind)
     }
@@ -1913,7 +3548,7 @@ impl<'a, 'c> Body<'a, 'c> {
             Some(ItemSig::Enum { variants, .. }) => {
                 match variants.iter().position(|v| v.name == seg.name.name) {
                     Some(index) => (
-                        Ty::Named(owner),
+                        Ty::plain(owner),
                         hir::ExprKind::EnumVariant { owner, index },
                     ),
                     // Name resolution already reported the unknown variant.
@@ -1923,7 +3558,7 @@ impl<'a, 'c> Body<'a, 'c> {
             Some(ItemSig::Union { variants }) => {
                 match variants.iter().position(|v| v.name == seg.name.name) {
                     Some(index) => (
-                        Ty::Named(owner),
+                        Ty::plain(owner),
                         hir::ExprKind::UnionVariant {
                             owner,
                             index,
@@ -1947,20 +3582,27 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             return hir::ExprKind::Error;
         };
-        if self.cx.table.is_generic(sym) {
-            for f in fields {
-                self.expr(&f.value, None);
-            }
-            return hir::ExprKind::Error;
-        }
         let Some(sig) = self.cx.table.struct_sig(sym).cloned() else {
             for f in fields {
                 self.expr(&f.value, None);
             }
             return hir::ExprKind::Error;
         };
+        // A literal of an instantiation checks its fields against the instantiated types:
+        // `Pair<f32>{ first: 1.5 }` wants an `f32`, not the `T` the declaration wrote
+        // (spec §8.4). Empty arguments leave a plain struct's fields as they are.
+        let args = match ty {
+            Ty::Named { args, .. } => args.clone(),
+            _ => Vec::new(),
+        };
+        let instantiated: Vec<crate::FieldSig> = sig
+            .fields
+            .iter()
+            .zip(self.cx.table.field_types(sym, &args, &sig.fields))
+            .map(|(f, t)| crate::FieldSig { ty: t, ..f.clone() })
+            .collect();
         let owner = self.cx.res.symbol(sym).name.clone();
-        let values = self.field_values(&sig.fields, Some(sym), &owner, fields, span);
+        let values = self.field_values(&instantiated, Some(sym), &owner, fields, span);
         hir::ExprKind::StructLit { ty: sym, fields: values }
     }
 
@@ -2112,6 +3754,126 @@ impl<'a, 'c> Body<'a, 'c> {
         let last = &p.segments.last()?.name.name;
         let index = variants.iter().position(|v| v.name == *last)?;
         Some((sym, index))
+    }
+
+    /// `[1, 2, 3]` (spec §5.3).
+    ///
+    /// The element type comes from the annotation when there is one — including from a
+    /// slice annotation, since a literal may be *passed* where a slice is wanted — so
+    /// `[4]f32 = [1, 2, 3, 4]` gives four `f32`s rather than four `i32`s that would then
+    /// need a conversion Dazzle does not have (§5.1). With no annotation the elements must
+    /// agree with each other and an untyped one defaults as §2.5 says.
+    fn array_literal(&mut self, elems: &[Expr], e: &Expr, expected: Option<&Ty>) -> Checked {
+        let want = expected.map(|t| self.subst(t));
+        let want_elem = match &want {
+            Some(Ty::Array { elem, .. } | Ty::Slice { elem, .. }) => Some((**elem).clone()),
+            _ => None,
+        };
+        let want_len = match &want {
+            Some(Ty::Array { len, .. }) => Some(*len),
+            _ => None,
+        };
+
+        let mut ids = Vec::new();
+        let mut found: Option<Ty> = None;
+        for x in elems {
+            let c = self.expr(x, want_elem.as_ref());
+            match &want_elem {
+                Some(w) => self.expect(w, &c.ty, x.span),
+                // No annotation: the first element sets the type and the rest must join
+                // with it. One diagnostic per disagreeing element, at that element.
+                None => {
+                    found = match found {
+                        None => Some(c.ty.clone()),
+                        Some(prev) => match join(&prev, &c.ty) {
+                            Some(j) => Some(j),
+                            None => {
+                                // Shown defaulted: an unannotated `[1, "two"]` is settling
+                                // on `i32`, and `{integer}` would name a thing the user
+                                // cannot write (spec §2.5).
+                                let (a, b) = (
+                                    self.cx.name_of(&prev.defaulted()),
+                                    self.cx.name_of(&c.ty.defaulted()),
+                                );
+                                self.cx.error_help(
+                                    codes::TYPE_MISMATCH,
+                                    x.span,
+                                    format!("this array's elements disagree: `{a}` and `{b}`"),
+                                    format!("expected `{a}`, found `{b}`"),
+                                    "every element of an array has the same type; annotate \
+                                     the binding to say which (spec §5.3)",
+                                );
+                                Some(Ty::Error)
+                            }
+                        },
+                    }
+                }
+            }
+            ids.push(c.id);
+        }
+
+        let elem = want_elem
+            .or(found)
+            .map(|t| t.defaulted())
+            .unwrap_or_else(|| {
+                // `[]` with nothing to read an element type from.
+                self.cx.error_help(
+                    codes::NO_CONTEXT_FOR_LITERAL,
+                    e.span,
+                    "cannot infer the element type of an empty array",
+                    "no expected type here",
+                    "annotate the binding, e.g. `let a: [0]i32 = []` (spec §5.3)",
+                );
+                Ty::Error
+            });
+
+        // The length is exactly what is written (spec §5.3). On a mismatch the *expected*
+        // length is reported back, so the outer check does not restate the same mistake.
+        let len = match want_len {
+            Some(n) if n != elems.len() as u64 => {
+                let shown = self.cx.name_of(want.as_ref().expect("want_len implies want"));
+                let got = elems.len();
+                self.cx.error_help(
+                    codes::TYPE_MISMATCH,
+                    e.span,
+                    format!("expected `{shown}`, found {got} {}", plural(got, "element")),
+                    format!("this array has {got} {}", plural(got, "element")),
+                    "an array literal lists exactly as many elements as its type has; \
+                     `let mut a: [N]T` gives a zeroed one instead (spec §5.3, §6.2)",
+                );
+                n
+            }
+            _ => elems.len() as u64,
+        };
+
+        let ty = Ty::Array { len, elem: Rc::new(elem) };
+        self.mk(e, ty, hir::ExprKind::ArrayLit(ids))
+    }
+
+    /// An array that is not a place cannot be *stored* as a slice (spec §5.3).
+    ///
+    /// The slice would point at a temporary that is gone by the end of the statement. Keyed
+    /// on placehood rather than on the syntax, so it also catches an array coming out of an
+    /// `if` or a call, and still allows slicing a local or a field — those outlive the
+    /// binding. Storing sites call this; an argument does not, because a temporary passed to
+    /// a call outlives the call.
+    fn reject_temporary_slice(&mut self, target: &Ty, value: &Expr, value_ty: &Ty) {
+        let (Ty::Slice { .. }, Ty::Array { .. }) = (&self.subst(target), &self.subst(value_ty))
+        else {
+            return;
+        };
+        if self.place_mutability(value).is_some() {
+            return;
+        }
+        let shown = self.cx.name_of(target);
+        self.cx.error_help(
+            codes::NOT_MUTABLE,
+            value.span,
+            format!("cannot store a temporary array as `{shown}`"),
+            "this array does not outlive the statement",
+            "a slice is a view, so it would point at storage that is already gone — bind \
+             the array first, then take a slice of the binding (spec §5.3)",
+        );
     }
 
     fn dot_infer(
@@ -2343,9 +4105,12 @@ impl<'a, 'c> Body<'a, 'c> {
             ),
             Ty::Optional(inner) => ((**inner).clone(), None),
             // `^T or …` is the checked pointer-to-reference conversion of §5.2: the
-            // failure case is null, and the success case is the reference it becomes.
+            // failure case is null, and the success case is the reference it becomes. A
+            // `^T` may be written through, so the reference may be too; it still passes
+            // wherever a `&T` is wanted. Safe code: the null check is the one thing that can
+            // be checked, and whether the pointee is still alive is the programmer's (§1.1).
             Ty::Ptr(inner) | Ty::OwnPtr(inner) => {
-                (Ty::Ref { mutable: false, inner: inner.clone() }, None)
+                (Ty::Ref { mutable: true, inner: inner.clone() }, None)
             }
             t if t.is_wildcard() => (Ty::Error, None),
             t => {
@@ -2509,7 +4274,94 @@ fn fallible_result(sig: &FnSig, ret: Ty) -> Ty {
     }
 }
 
-fn plural(n: usize, word: &str) -> String {
+/// Does this expression have no type of its own, so that it needs one from context?
+///
+/// `.Variant`, `none` and an empty array literal are the three. Each already reports
+/// `DZ0521` when there is nothing to read a type from, so this only decides which side of a
+/// comparison to check first.
+fn needs_context(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::DotInfer { .. } | ExprKind::None => true,
+        ExprKind::ArrayLit(elems) => elems.is_empty(),
+        _ => false,
+    }
+}
+
+/// Match a declaration's type against a concrete one, solving for generic parameters
+/// (spec §8.1).
+///
+/// Structural and one-pass. Where the two shapes disagree it simply stops looking rather
+/// than reporting: the argument is checked against the solved signature afterwards, and
+/// that check produces a diagnostic phrased in terms of the types the user wrote. A
+/// parameter already solved is not overwritten — the first argument that determines it
+/// wins, and a later disagreement surfaces as an ordinary mismatch on that argument.
+fn unify(pattern: &Ty, actual: &Ty, out: &mut HashMap<u32, Ty>) {
+    match (pattern, actual) {
+        (Ty::Param(p), _) => {
+            if !actual.is_wildcard() {
+                out.entry(p.id).or_insert_with(|| actual.clone());
+            }
+        }
+        (Ty::Ptr(a), Ty::Ptr(b) | Ty::OwnPtr(b)) | (Ty::OwnPtr(a), Ty::OwnPtr(b) | Ty::Ptr(b)) => {
+            unify(a, b, out)
+        }
+        // `&T` also matches a `&mut U`, since `&mut U` may be passed where `&U` is wanted.
+        (Ty::Ref { inner: a, .. }, Ty::Ref { inner: b, .. }) => unify(a, b, out),
+        (Ty::Optional(a), Ty::Optional(b)) => unify(a, b, out),
+        (Ty::Fallible(a), Ty::Fallible(b)) => unify(a, b, out),
+        (Ty::Range(a), Ty::Range(b)) => unify(a, b, out),
+        // A slice parameter also matches a fixed array, which coerces to one (§5.3).
+        (Ty::Slice { elem: a, .. }, Ty::Slice { elem: b, .. } | Ty::Array { elem: b, .. }) => {
+            unify(a, b, out)
+        }
+        (Ty::Array { elem: a, .. }, Ty::Array { elem: b, .. }) => unify(a, b, out),
+        (Ty::Tuple(a), Ty::Tuple(b)) if a.len() == b.len() => {
+            for (x, y) in a.iter().zip(b) {
+                unify(x, y, out);
+            }
+        }
+        (Ty::Named { sym: a, args: xs }, Ty::Named { sym: b, args: ys })
+            if a == b && xs.len() == ys.len() =>
+        {
+            for (x, y) in xs.iter().zip(ys) {
+                unify(x, y, out);
+            }
+        }
+        (Ty::Fn { params: ps, ret: r1 }, Ty::Fn { params: qs, ret: r2 })
+            if ps.len() == qs.len() =>
+        {
+            for (x, y) in ps.iter().zip(qs) {
+                unify(x, y, out);
+            }
+            unify(r1, r2, out);
+        }
+        _ => {}
+    }
+}
+
+/// A trait method's signature as seen through one implementer (spec §7.6).
+///
+/// A trait writes `Self` for "the implementing type", so reading `Eq::eq` off a `T: Eq`
+/// means `fn eq(&self, rhs: &T) -> bool`. Nothing else in the signature changes.
+fn instantiate_self(sig: &FnSig, self_ty: &Ty) -> FnSig {
+    let empty = HashMap::new();
+    let sub = |t: &Ty| ty::substitute_with(t, &empty, Some(self_ty));
+    FnSig {
+        params: sig
+            .params
+            .iter()
+            .map(|p| crate::ParamSig {
+                name: p.name.clone(),
+                ty: sub(&p.ty),
+                has_default: p.has_default,
+            })
+            .collect(),
+        ret: sub(&sig.ret),
+        ..sig.clone()
+    }
+}
+
+pub(crate) fn plural(n: usize, word: &str) -> String {
     if n == 1 {
         word.to_owned()
     } else {
@@ -2518,9 +4370,54 @@ fn plural(n: usize, word: &str) -> String {
 }
 
 /// Return types of the builtin calls (spec §5.5, §9.1, §12.9, §13.1).
+/// What the runtime shim can write today (spec §12.9). A user type's own `Format`
+/// implementation needs `Formatter` to have somewhere to write, which is the stdlib's
+/// `String` (§19 M12), so structs, enums and containers are refused rather than miswritten.
+fn formattable(t: &Ty) -> bool {
+    match t {
+        Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::CStr => true,
+        Ty::Ptr(_) | Ty::OwnPtr(_) => true,
+        Ty::Ref { inner, .. } => formattable(inner),
+        _ => false,
+    }
+}
+
+/// Does a `{:spec}` suit its argument? `Err` carries the label for the diagnostic.
+fn spec_fits(spec: &str, t: &Ty) -> Result<(), &'static str> {
+    let t = t.peeled();
+    match spec {
+        "" => Ok(()),
+        "x" | "X" if matches!(t, Ty::Int(_)) => Ok(()),
+        "x" | "X" => Err("hex needs an integer"),
+        s if s.len() > 1 && s.starts_with('.') && s[1..].bytes().all(|b| b.is_ascii_digit()) => {
+            if matches!(t, Ty::Float(_)) {
+                Ok(())
+            } else {
+                Err("a precision needs a float")
+            }
+        }
+        _ => Err("not a format spec"),
+    }
+}
+
+/// How many arguments a builtin takes, where codegen depends on the count. `None` for the
+/// variadic formatting calls, which §12.9's format-string checking will cover.
+fn builtin_arity(name: &str) -> Option<(usize, usize)> {
+    Some(match name {
+        "alloc" => (2, 2),
+        "free" | "destroy" | "sizeof" | "alignof" => (1, 1),
+        // `construct(dst)` default-constructs; `construct(dst, v)` copies or moves in.
+        "construct" => (1, 2),
+        "memcpy" => (3, 3),
+        _ => return None,
+    })
+}
+
 fn builtin_call_type(name: &str) -> Ty {
     match name {
         "sizeof" | "alignof" => Ty::Int(IntTy::Usize),
+        // `alloc` returns `^u8` and panics on failure rather than failing (spec §9.8).
+        "alloc" => Ty::ptr(Ty::Int(IntTy::U8)),
         // `error(...)` is the failure case of whatever `!->` signature encloses it, so its
         // payload is `Never` and unifies with any success type (spec §9.1).
         "error" => Ty::Fallible(Rc::new(Ty::Never)),

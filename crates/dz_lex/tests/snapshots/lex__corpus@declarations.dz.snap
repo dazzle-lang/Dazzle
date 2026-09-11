@@ -61,7 +61,7 @@ input_file: tests/lex/declarations.dz
   10:31  Terminator
   11:5   }
   11:6   Terminator
-  13:5   copy
+  13:5   Ident `copy`
   13:9   (
   13:10  Ident `other`
   13:15  :
@@ -76,7 +76,7 @@ input_file: tests/lex/declarations.dz
   13:40  Ident `m_len`
   13:46  }
   13:47  Terminator
-  14:5   drop
+  14:5   Ident `drop`
   14:9   (
   14:10  )
   14:12  {

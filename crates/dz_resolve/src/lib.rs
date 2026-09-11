@@ -53,6 +53,18 @@ impl SymbolKind {
         }
     }
 
+    /// [`SymbolKind::describe`] with its article, for a message that reads as English.
+    /// `enum` is the only vowel-initial kind, but spelling the rule out is cheaper than
+    /// remembering the exception at every call site.
+    pub fn describe_a(&self) -> String {
+        let word = self.describe();
+        let article = match word.chars().next() {
+            Some('a' | 'e' | 'i' | 'o' | 'u') => "an",
+            _ => "a",
+        };
+        format!("{article} {word}")
+    }
+
     /// Can this be named on the left of `::`?
     pub fn has_members(&self) -> bool {
         matches!(self, SymbolKind::Struct | SymbolKind::Union | SymbolKind::Enum | SymbolKind::Trait)
@@ -128,6 +140,8 @@ pub struct Resolution {
     pub symbols: Vec<Symbol>,
     pub scopes: HashMap<ModuleId, ModuleScope>,
     pub imports: HashMap<FileId, FileImports>,
+    /// The prelude (spec §3.2, §18.23), so an unqualified lookup can fall back to it.
+    pub prelude: ModuleId,
     pub diagnostics: Diagnostics,
 }
 
@@ -150,11 +164,27 @@ impl Resolution {
         if let Some(id) = self.lookup(module, name) {
             return Some(id);
         }
-        self.imports.get(&file)?.unqualified.get(name).copied()
+        if let Some(id) = self.imports.get(&file).and_then(|i| i.unqualified.get(name)) {
+            return Some(*id);
+        }
+        // The prelude, last, so a local declaration or an explicit import shadows it
+        // (spec §3.2, §18.23). This mirrors `resolve_head`'s order exactly: the two must
+        // agree, or the checker would type a name that resolution pointed elsewhere.
+        if module != self.prelude {
+            return self.lookup(self.prelude, name);
+        }
+        None
     }
 
     pub fn module_alias(&self, file: FileId, name: &str) -> Option<ModuleId> {
-        self.imports.get(&file)?.module_aliases.get(name).copied()
+        if let Some(m) = self.imports.get(&file).and_then(|i| i.module_aliases.get(name)) {
+            return Some(*m);
+        }
+        // `dz::Ord` needs no import line, so it is not in the alias map.
+        if name == dz_project::PRELUDE_MODULE {
+            return Some(self.prelude);
+        }
+        None
     }
 }
 
@@ -172,6 +202,10 @@ pub const BUILTIN_TYPES: &[&str] = &[
 ];
 
 pub const BUILTIN_FNS: &[&str] = &[
+    // `alloc` and `free` go straight to the C heap until the stdlib's allocators exist
+    // (spec §9.8, §14, §19 M6). Like `println`, they stop being builtins at M12.
+    "alloc",
+    "free",
     "sizeof",
     "alignof",
     "construct",
@@ -188,12 +222,21 @@ pub const BUILTIN_FNS: &[&str] = &[
     "memcpy",
 ];
 
+/// The compile-time queries every type answers through `::` (spec §5.5), so resolution can
+/// accept `T::size` and `Vec3::is_copyable` without mistaking them for members.
+/// `dz_hir::TypeQuery::from_name` is the authority on what each one means, and a test there
+/// keeps the two lists in step. `T::fields` is absent: it is a compile-time sequence for
+/// macros and reflection, which are M10 and M11.
+pub const TYPE_QUERIES: &[&str] =
+    &["size", "align", "name", "is_trivially_copyable", "is_copyable", "has_drop"];
+
 /// Resolve every module in the workspace.
 pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Resolution {
     let mut r = Resolution {
         symbols: Vec::new(),
         scopes: HashMap::new(),
         imports: HashMap::new(),
+        prelude: ws.prelude,
         diagnostics: Diagnostics::new(),
     };
 
@@ -300,7 +343,8 @@ fn describe_item(item: &Item) -> Option<(&Ident, SymbolKind, Vec<MemberSymbol>)>
                 })
                 .collect(),
         ),
-        ItemKind::MacroInvocation { .. } | ItemKind::Error => return None,
+        // An `impl` declares nothing nameable: it attaches a trait to a type (spec §7.6).
+        ItemKind::Impl(_) | ItemKind::MacroInvocation { .. } | ItemKind::Error => return None,
     })
 }
 
@@ -313,8 +357,7 @@ fn struct_members(members: &[Member]) -> Vec<MemberSymbol> {
                 MemberKind::Fn(f) => (&f.name, MemberSort::Method),
                 MemberKind::Ctor(f) => (&f.name, MemberSort::Ctor),
                 MemberKind::TypeAlias { name, .. } => (name, MemberSort::AssocType),
-                // `copy` and `drop` are never named by user code.
-                MemberKind::Copy(_) | MemberKind::Drop(_) | MemberKind::Error => return None,
+                MemberKind::Error => return None,
             };
             Some(MemberSymbol {
                 name: name.name.clone(),

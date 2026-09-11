@@ -222,3 +222,382 @@ fn unknown_error_field() -> i32 {
         e.reason
     }
 }
+
+// --- M6: slices carry their writability (spec §5.3, §18.22) -----------------
+
+// A `[]T` is a read-only view; its elements cannot be written however it is bound.
+fn writes_through_a_read_only_slice(xs: []i32) {
+    xs[0] = 1
+}
+
+// `[]T` does not satisfy `[]mut T` — that direction would gain the right to write.
+fn narrow_then_widen(xs: []i32) {
+    writes_through_a_read_only_slice(xs)
+    fills(xs)
+}
+
+fn fills(dst: []mut i32) {
+    dst[0] = 0
+}
+
+// Viewing an array as `[]mut T` needs the array itself to be writable.
+fn immutable_array_as_mutable_slice() {
+    let storage: [4]i32
+    fills(storage)
+}
+
+// --- M6: generics and traits (spec §7.6, §8) --------------------------------
+
+trait Same {
+    fn eq(&self, rhs: &Self) -> bool
+}
+
+trait Rank : Same {
+    fn cmp(&self, rhs: &Self) -> i32
+}
+
+// §8.1: a body may only do what its bounds allow, and this is reported here, inside the
+// generic, rather than at any instantiation.
+fn beyond_its_bounds<T: Same>(a: T, b: T) -> bool {
+    return a.cmp(&b) == 0
+}
+
+// §8.2: an unbounded `T` has no members at all.
+fn unbounded_has_no_members<T>(a: T) -> i32 {
+    return a.count
+}
+
+// §8.1: a bound must name a trait.
+fn bound_is_not_a_trait<T: Layer>(a: T) -> i32 {
+    return 0
+}
+
+// §7.6: `impl Rank` obliges `cmp`, and `Rank : Same` obliges an `impl Same` as well.
+struct Incomplete {
+    m_value: i32
+}
+
+impl Rank for Incomplete {
+}
+
+// §7.6: implemented, but not with the declared signature.
+struct WrongSignature {
+    m_value: i32
+}
+
+impl Same for WrongSignature {
+    fn eq(&self, rhs: &WrongSignature) -> i32 {
+        return 0
+    }
+}
+
+struct Plain {
+    pub n: i32
+}
+
+// §8.1: the type chosen for a bounded parameter must satisfy the bound.
+fn argument_does_not_satisfy(p: Plain) -> bool {
+    return unrelated(p, p)
+}
+
+fn unrelated<T: Same>(a: T, b: T) -> bool {
+    return a.eq(&b)
+}
+
+// §8.1: a parameter no argument determines cannot be inferred.
+fn uninferrable<T: Same>() -> i32 {
+    return 0
+}
+
+fn calls_uninferrable() -> i32 {
+    return uninferrable()
+}
+
+// §8.1: the wrong number of type arguments.
+struct OneParam<T> {
+    m_value: T
+}
+
+fn too_many_type_args(p: &OneParam<i32, f32>) -> i32 {
+    return 0
+}
+
+// --- M6: array literals (spec §5.3) -----------------------------------------
+
+// The length is exactly what is written; a short literal is not a zero-fill.
+fn array_literal_wrong_length() -> i32 {
+    let a: [8]i32 = [1, 2]
+    return a[0]
+}
+
+// Every element has the same type.
+fn array_literal_elements_disagree() -> i32 {
+    let a = [1, "two", 3]
+    return 0
+}
+
+// An empty literal has nothing to read an element type from.
+fn empty_array_literal_without_context() -> i32 {
+    let a = []
+    return 0
+}
+
+// A temporary array cannot be stored as a slice: the slice would already dangle.
+fn array_literal_stored_as_a_slice() -> i32 {
+    let s: []i32 = [1, 2, 3]
+    return s[0]
+}
+
+fn array_literal_returned_as_a_slice() -> []i32 {
+    return [1, 2, 3]
+}
+
+// --- M6: operators are traits (spec §11.2) ----------------------------------
+
+// Comparing a struct that implements neither `Eq` nor `Ord`. This used to reach C++ and
+// fail there, which invariant 7 forbids.
+fn compares_without_eq(a: Plain, b: Plain) -> bool {
+    return a == b
+}
+
+fn orders_without_ord(a: Plain, b: Plain) -> bool {
+    return a < b
+}
+
+// Arithmetic likewise: `+` is `Add`.
+fn adds_without_add(a: Plain, b: Plain) -> Plain {
+    return a + b
+}
+
+// `impl Mul<f32>` accepts an `f32` on the right, not a `Plain`.
+pub struct Scaled {
+    pub v: f32
+}
+
+impl Mul<f32> for Scaled {
+    type Output = Scaled
+
+    fn mul(&self, rhs: f32) -> Scaled {
+        return Scaled{ v: v * rhs }
+    }
+}
+
+fn wrong_rhs(a: Scaled, b: Plain) -> Scaled {
+    return a * b
+}
+
+// --- M6: compile-time queries, constants and formatting ---------------------
+
+// §5.5: only the listed queries exist.
+fn unknown_query<T>(x: &T) -> usize {
+    return T::length
+}
+
+// §5.5: `sizeof` takes a type, not a value.
+fn sizeof_of_a_value(n: i32) -> usize {
+    return sizeof(n)
+}
+
+// §5.3: an array length must fold to a non-negative constant.
+fn not_a_constant_length(n: usize) -> i32 {
+    let a: [n]i32
+    return 0
+}
+
+// The builtins codegen reads by position have their argument counts checked.
+fn alloc_without_alignment() -> ^u8 {
+    return alloc(16)
+}
+
+// §12.9: the format string is checked against its arguments, at compile time.
+fn format_count_mismatch(x: i32) {
+    println("{} and {}", x)
+}
+
+fn format_spec_does_not_fit(f: f32) {
+    println("{:x}", f)
+}
+
+fn format_not_a_literal(s: str) {
+    println(s)
+}
+
+fn format_unformattable(v: Vec3) {
+    println("{}", v)
+}
+
+fn format_interpolation(hp: i32) {
+    println("hp is {hp}", hp)
+}
+
+// --- r12: `unsafe` (spec §5.2) ---------------------------------------------------------
+
+unsafe fn raw_write(p: ^i32) {
+    p^ = 1
+}
+
+fn deref_outside_unsafe(p: ^i32) -> i32 {
+    return p^
+}
+
+fn field_through_pointer(v: ^Vec3) -> f32 {
+    return v.x
+}
+
+fn index_a_pointer(p: ^i32) -> i32 {
+    return p[1]
+}
+
+fn call_an_unsafe_fn(p: ^i32) {
+    raw_write(p)
+}
+
+// One missing `unsafe`, one diagnostic — not one for `destroy` and one for `p[0]`.
+fn placement_outside_unsafe(p: ^i32) {
+    destroy(p[0])
+}
+
+fn pointer_cast_outside_unsafe(p: ^i32) -> ^u8 {
+    return p as ^u8
+}
+
+// A `^T` may be written through, so a read-only view has none to give (spec §5.3).
+fn pointer_from_a_read_only_slice(xs: []i32) -> ^i32 {
+    return xs.ptr
+}
+
+// --- r12: `Copy` (spec §8.2, §18.26) -----------------------------------------------------
+
+fn keep_copy<T: Copy>(x: T) -> T {
+    return x
+}
+
+pub struct Unique {
+}
+
+impl Drop for Unique {
+    mut fn drop(&mut self) {}
+}
+
+fn copy_bound_unsatisfied(u: Unique) -> Unique {
+    return keep_copy(move(u))
+}
+
+// --- r12: one trait at several arguments (spec §18.27) ----------------------------------
+
+// A struct declares each method once; implementations of one trait at several arguments
+// live in separate `impl` blocks.
+pub struct Twice {
+    pub fn go(&self) {}
+    pub fn go(&self) {}
+}
+
+pub struct Widen {
+}
+
+impl Mul<i64> for Widen {
+    type Output = Widen
+
+    fn mul(&self, rhs: i64) -> Widen {
+        return Widen{}
+    }
+}
+
+impl Mul<u8> for Widen {
+    type Output = Widen
+
+    fn mul(&self, rhs: u8) -> Widen {
+        return Widen{}
+    }
+}
+
+// `3` fits both an `i64` and a `u8`, and would default to neither.
+fn ambiguous_operand(w: Widen) -> Widen {
+    return w * 3
+}
+
+// --- r13: implementations (spec §6.1, §7.6) ----------------------------------------------
+
+// The orphan rule: neither `Add` nor `i32` is declared in this module.
+impl Add for i32 {
+    type Output = i32
+
+    fn add(&self, rhs: i32) -> i32 {
+        return 0
+    }
+}
+
+// An implementation for every type at once.
+impl<T> Same for T {
+    fn eq(&self, rhs: &T) -> bool {
+        return false
+    }
+}
+
+// `Drop` is a destructor, so it belongs to a struct of this module.
+impl Drop for f32 {
+    mut fn drop(&mut self) {}
+}
+
+// One implementation of a trait per type and arguments.
+struct Twin {
+}
+
+impl Same for Twin {
+    fn eq(&self, rhs: &Twin) -> bool {
+        return true
+    }
+}
+
+impl Same for Twin {
+    fn eq(&self, rhs: &Twin) -> bool {
+        return false
+    }
+}
+
+// An implementation holds exactly the trait's methods.
+struct Extra {
+}
+
+impl Same for Extra {
+    fn eq(&self, rhs: &Extra) -> bool {
+        return true
+    }
+
+    fn also(&self) -> i32 {
+        return 0
+    }
+}
+
+// Two traits both provide `shout`; the call has to name the one it means.
+trait Yell {
+    fn shout(&self) -> i32
+}
+
+trait Holler {
+    fn shout(&self) -> i32
+}
+
+struct Crier {
+}
+
+impl Yell for Crier {
+    fn shout(&self) -> i32 {
+        return 1
+    }
+}
+
+impl Holler for Crier {
+    fn shout(&self) -> i32 {
+        return 2
+    }
+}
+
+fn ambiguous_trait_method(c: Crier) -> i32 {
+    return c.shout()
+}
+
+// `drop` is the destructor: it runs by itself, and calling it would run it twice.
+fn drop_called_by_name(u: Unique) {
+    u.drop()
+}

@@ -110,6 +110,10 @@ struct Flow<'a> {
 }
 
 impl<'a> Flow<'a> {
+    fn copyable(&self, t: &Ty) -> bool {
+        self.table.copyable(t)
+    }
+
     fn error(&mut self, d: Diagnostic) {
         if !self.quiet {
             self.diags.push(d);
@@ -202,7 +206,14 @@ impl<'a> Flow<'a> {
                 false
             }
             hir::StmtKind::For { bindings, subject, body } => {
-                self.read(*subject);
+                // A user iterator is copied or moved into the loop's own iterator, which
+                // `advance` then mutates (spec §10.4) — so its subject is a value, and a
+                // move-only iterator needs a `move`. An array or slice is walked in place.
+                if matches!(self.body.ty(*subject).peeled(), hir::ty::Ty::Named { .. }) {
+                    self.value(*subject);
+                } else {
+                    self.read(*subject);
+                }
                 for l in bindings.iter().flatten() {
                     self.revive(&Place { local: *l, path: Vec::new() });
                 }
@@ -240,7 +251,7 @@ impl<'a> Flow<'a> {
     /// spec §6.3 forbids.
     fn value(&mut self, e: ExprId) -> bool {
         let ty = self.body.ty(e).clone();
-        if !self.table.copyable(&ty) && !matches!(self.body.expr(e).kind, hir::ExprKind::Move(_)) {
+        if !self.copyable(&ty) && !matches!(self.body.expr(e).kind, hir::ExprKind::Move(_)) {
             match self.denotes(e) {
                 // Already moved: `read` below reports that, and it is the more useful of
                 // the two answers — saying "this would copy it" about a value that is not
@@ -347,12 +358,12 @@ impl<'a> Flow<'a> {
                         self.walk_place_bases(inner);
                         // Moving a copyable value is a copy, so it leaves nothing behind
                         // to track (spec §6.3).
-                        if !self.table.copyable(&ty) {
+                        if !self.copyable(&ty) {
                             self.moved.insert(p, span);
                         }
                     }
                     Denotes::Borrowed => {
-                        if !self.table.copyable(&ty) {
+                        if !self.copyable(&ty) {
                             let name = self.type_name(&ty);
                             self.error(
                                 Diagnostic::error(
@@ -419,6 +430,25 @@ impl<'a> Flow<'a> {
                 }
                 false
             }
+            // Asking a container its length reads nothing out of it, so the container is a
+            // place here — `.len` on an array of move-only elements is not a copy.
+            hir::ExprKind::Len(base) | hir::ExprKind::DataPtr(base) => self.place_only(base),
+            // `construct(dst, …)` and `destroy(dst)` act on `dst` in place (spec §14.3): it is
+            // storage being initialised or torn down, not a value being read, so it is
+            // neither copied nor moved out of — the same as a method receiver. Treating it as
+            // a value made `destroy(m_data[i])` a "move out of a borrow".
+            hir::ExprKind::Builtin { name, args }
+                if matches!(name.as_str(), "construct" | "destroy") =>
+            {
+                let mut rest = args.into_iter();
+                if let Some(dst) = rest.next() {
+                    self.place_only(dst);
+                }
+                for a in rest {
+                    self.value(a);
+                }
+                false
+            }
             hir::ExprKind::Builtin { args, .. } | hir::ExprKind::Intrinsic { args, .. } => {
                 for a in args {
                     self.value(a);
@@ -464,13 +494,7 @@ impl<'a> Flow<'a> {
                 }
                 true
             }
-            hir::ExprKind::Break { value } => {
-                if let Some(v) = value {
-                    self.value(v);
-                }
-                true
-            }
-            hir::ExprKind::Continue => true,
+            hir::ExprKind::Break | hir::ExprKind::Continue => true,
             // `panic(...)` never comes back, which is what its `Never` type says.
             _ => matches!(self.body.ty(e), Ty::Never),
         }
@@ -581,7 +605,7 @@ impl<'a> Flow<'a> {
         let mut ty = self.body.local(p.local).ty.clone();
         for index in &p.path {
             let name = match ty.peeled() {
-                Ty::Named(sym) => self
+                Ty::Named { sym, .. } => self
                     .table
                     .struct_sig(*sym)
                     .and_then(|s| s.fields.get(*index))

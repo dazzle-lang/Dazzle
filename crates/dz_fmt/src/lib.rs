@@ -250,12 +250,9 @@ impl<'a> Printer<'a> {
         match &item.kind {
             ItemKind::Fn(f) => self.fn_decl(vis, f),
             ItemKind::Struct(s) => {
-                let head = format!(
-                    "{vis}struct {}{}{} {{",
-                    s.name.name,
-                    generics_str(&s.generics),
-                    traits_str(&s.traits)
-                );
+                let base = s.base.as_ref().map(|b| format!(" : {}", self.path(b))).unwrap_or_default();
+                let head =
+                    format!("{vis}struct {}{}{base} {{", s.name.name, generics_str(&s.generics));
                 self.line(&head);
                 self.indent += 1;
                 self.members(&s.members);
@@ -324,6 +321,19 @@ impl<'a> Printer<'a> {
                 ));
                 self.indent += 1;
                 self.members(&t.items);
+                self.indent -= 1;
+                self.line("}");
+            }
+            ItemKind::Impl(i) => {
+                let tr = i.trait_path.as_ref().map(|p| self.path(p)).unwrap_or_default();
+                let head = format!(
+                    "impl{} {tr} for {} {{",
+                    generics_str(&i.generics),
+                    self.ty(&i.self_ty)
+                );
+                self.line(&head);
+                self.indent += 1;
+                self.members(&i.items);
                 self.indent -= 1;
                 self.line("}");
             }
@@ -409,13 +419,19 @@ impl<'a> Printer<'a> {
                 self.emit_trailing_comment(m.span.end);
             }
             MemberKind::Fn(f) => self.fn_decl(vis, f),
-            MemberKind::Ctor(f) | MemberKind::Copy(f) | MemberKind::Drop(f) => {
-                self.special_member(vis, f)
-            }
-            MemberKind::TypeAlias { name, ty } => {
+            MemberKind::Ctor(f) => self.special_member(vis, f),
+            MemberKind::TypeAlias { name, bounds, ty } => {
                 let s = format!(
-                    "{vis}type {}{}",
+                    "{vis}type {}{}{}",
                     name.name,
+                    if bounds.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            ": {}",
+                            bounds.iter().map(|b| self.path(b)).collect::<Vec<_>>().join(" + ")
+                        )
+                    },
                     ty.as_ref().map(|t| format!(" = {}", self.ty(t))).unwrap_or_default()
                 );
                 self.line(&s);
@@ -427,7 +443,8 @@ impl<'a> Printer<'a> {
 
     fn fn_decl(&mut self, vis: &str, f: &FnDecl) {
         let head = format!(
-            "{vis}{}fn {}{}",
+            "{vis}{}{}fn {}{}",
+            if f.is_unsafe { "unsafe " } else { "" },
             if f.is_mut { "mut " } else { "" },
             f.name.name,
             generics_str(&f.generics)
@@ -513,13 +530,15 @@ impl<'a> Printer<'a> {
                     if l.mutable { "mut " } else { "" },
                     dump::pat_str(&l.pat)
                 );
-                self.line(&text);
+                // Multi-line when the value is a block, an `if` or a `switch`: every line
+                // needs the statement's indentation, not only the first.
+                self.emit_multiline(&text);
                 self.emit_trailing_comment(s.span.end);
             }
             StmtKind::Assign { target, op, value } => {
                 let text =
                     format!("{} {} {}", self.expr(target), op.as_str(), self.expr(value));
-                self.line(&text);
+                self.emit_multiline(&text);
                 self.emit_trailing_comment(s.span.end);
             }
             StmtKind::Expr(e) => {
@@ -571,7 +590,7 @@ impl<'a> Printer<'a> {
     /// Statement-position expressions whose bodies are blocks print multi-line.
     fn expr_stmt(&mut self, e: &Expr) {
         match &e.kind {
-            ExprKind::If(_) | ExprKind::Switch(_) | ExprKind::Block(_) => {
+            ExprKind::If(_) | ExprKind::Switch(_) | ExprKind::Block(_) | ExprKind::Unsafe(_) => {
                 let text = self.expr(e);
                 self.emit_multiline(&text);
             }
@@ -596,10 +615,12 @@ impl<'a> Printer<'a> {
 
     fn ty(&self, t: &Type) -> String {
         match &t.kind {
-            TypeKind::Array { size: Some(n), elem } => {
-                format!("[{}]{}", self.expr(n), self.ty(elem))
+            TypeKind::Array { size, elem } => {
+                format!("[{}]{}", self.expr(size), self.ty(elem))
             }
-            TypeKind::Array { size: None, elem } => format!("[]{}", self.ty(elem)),
+            TypeKind::Slice { mutable, elem } => {
+                format!("[]{}{}", if *mutable { "mut " } else { "" }, self.ty(elem))
+            }
             TypeKind::Ptr(i) => format!("^{}", self.ty(i)),
             TypeKind::OwnPtr(i) => format!("own ^{}", self.ty(i)),
             TypeKind::Ref { mutable, inner } => {
@@ -662,6 +683,10 @@ impl<'a> Printer<'a> {
                 Some(fields) => format!(".{}{}", name.name, self.struct_body(fields)),
                 None => format!(".{}", name.name),
             },
+            ExprKind::ArrayLit(elems) => {
+                let rendered: Vec<String> = elems.iter().map(|x| self.expr(x)).collect();
+                format!("[{}]", rendered.join(", "))
+            }
             ExprKind::StructLit { path, fields } => {
                 format!("{}{}", self.path(path), self.struct_body(fields))
             }
@@ -711,6 +736,7 @@ impl<'a> Printer<'a> {
                 format!("{} or {c}", self.expr_prec(expr, 1))
             }
             ExprKind::Block(b) => self.render_block(b),
+            ExprKind::Unsafe(b) => format!("unsafe {}", self.render_block(b)),
             ExprKind::If(i) => {
                 let mut s = format!("if {} {}", self.expr(&i.cond), self.render_block(&i.then));
                 if let Some(e) = &i.else_branch {
@@ -748,18 +774,10 @@ impl<'a> Printer<'a> {
                 Some(v) => format!("return {}", self.expr(v)),
                 None => "return".to_owned(),
             },
-            ExprKind::Break { label, value } => {
-                let mut s = "break".to_owned();
-                if let Some(l) = label {
-                    s.push(' ');
-                    s.push_str(&l.name);
-                }
-                if let Some(v) = value {
-                    s.push(' ');
-                    s.push_str(&self.expr(v));
-                }
-                s
-            }
+            ExprKind::Break { label } => match label {
+                Some(l) => format!("break {}", l.name),
+                None => "break".to_owned(),
+            },
             ExprKind::Continue { label } => match label {
                 Some(l) => format!("continue {}", l.name),
                 None => "continue".to_owned(),
@@ -905,12 +923,15 @@ fn generics_str(g: &Generics) -> String {
         .params
         .iter()
         .map(|p| {
-            if p.bounds.is_empty() {
-                p.name.name.clone()
-            } else {
+            let mut s = p.name.name.clone();
+            if !p.bounds.is_empty() {
                 let b: Vec<String> = p.bounds.iter().map(dump::path_str).collect();
-                format!("{}: {}", p.name.name, b.join(" + "))
+                s = format!("{s}: {}", b.join(" + "));
             }
+            if let Some(d) = &p.default {
+                s = format!("{s} = {}", dump::type_str(d));
+            }
+            s
         })
         .collect();
     format!("<{}>", params.join(", "))

@@ -467,5 +467,10 @@ impl<'a> Parser<'a> {
 /// Tokens that can begin a top-level declaration, used as resynchronisation points.
 pub(crate) fn starts_item(k: TokenKind) -> bool {
     use TokenKind::*;
-    matches!(k, Import | Pub | Fn | Mut | Struct | Union | Enum | Trait | Const | Macro | Hash)
+    // `unsafe` is not here: it begins a block as often as an `unsafe fn`, and the statement
+    // parser asks this question to tell a nested declaration from a statement.
+    matches!(
+        k,
+        Import | Pub | Fn | Mut | Struct | Union | Enum | Trait | Impl | Const | Macro | Hash
+    )
 }

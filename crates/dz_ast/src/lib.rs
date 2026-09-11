@@ -111,6 +111,8 @@ pub enum ItemKind {
     Union(UnionDecl),
     Enum(EnumDecl),
     Trait(TraitDecl),
+    /// `impl Trait for Type { … }` — the only way a trait is implemented (spec §7.6).
+    Impl(ImplDecl),
     Const(ConstDecl),
     /// Parsed shallowly at M1; the body is kept as raw source for M10 (spec §12).
     Macro(MacroDecl),
@@ -137,6 +139,9 @@ pub struct GenericParam {
     pub name: Ident,
     /// `T: Hash + Eq`
     pub bounds: Vec<Path>,
+    /// `Rhs = Self` — used when an instantiation leaves this argument out (spec §11.2).
+    /// Only a trailing run of parameters may have defaults, since arguments are positional.
+    pub default: Option<Type>,
 }
 
 #[derive(Clone, Debug)]
@@ -144,6 +149,9 @@ pub struct FnDecl {
     pub span: Span,
     /// `mut fn` — the receiver is `&mut self` (spec §7.3).
     pub is_mut: bool,
+    /// `unsafe fn` — its body may touch raw memory, and so a call to it must itself be
+    /// inside `unsafe` (spec §5.2).
+    pub is_unsafe: bool,
     pub name: Ident,
     pub generics: Generics,
     pub self_param: Option<SelfParam>,
@@ -176,9 +184,22 @@ pub struct StructDecl {
     pub span: Span,
     pub name: Ident,
     pub generics: Generics,
-    /// `struct Arena : Allocator`
-    pub traits: Vec<Path>,
+    /// `struct Button : UiElement` — the one base a struct may inherit from (spec §7.3).
+    /// Traits are never listed here; they are implemented with `impl` (spec §7.6).
+    pub base: Option<Path>,
     pub members: Vec<Member>,
+}
+
+/// `impl<T: Copy> Copy for Buffer<T> { … }` (spec §7.6).
+#[derive(Clone, Debug)]
+pub struct ImplDecl {
+    pub span: Span,
+    pub generics: Generics,
+    /// `None` only when the parser could not read one, having already reported it.
+    pub trait_path: Option<Path>,
+    pub self_ty: Type,
+    /// Methods and associated-type choices; anything else is a checker error.
+    pub items: Vec<Member>,
 }
 
 #[derive(Clone, Debug)]
@@ -196,12 +217,10 @@ pub enum MemberKind {
     Fn(FnDecl),
     /// `Buffer(cap: u32) { ... }` — name matches the struct.
     Ctor(FnDecl),
-    /// `copy(other: &Self) { ... }`
-    Copy(FnDecl),
-    /// `drop() { ... }`
-    Drop(FnDecl),
-    /// `type Item = &T` — an associated type on a trait impl (spec §8.5).
-    TypeAlias { name: Ident, ty: Option<Type> },
+    /// An associated type (spec §8.5). `type Item` or `type Item : Format` on a trait,
+    /// which names a type without choosing it; `type Item = &T` on an implementer, which
+    /// chooses one.
+    TypeAlias { name: Ident, bounds: Vec<Path>, ty: Option<Type> },
     Error,
 }
 
@@ -299,8 +318,12 @@ pub enum TypeKind {
     Ref { mutable: bool, inner: Box<Type> },
     /// `T?` — postfix, binding to the type name (spec §5.6).
     Optional(Box<Type>),
-    /// `[N]T`, or `[]T` when `size` is `None`.
-    Array { size: Option<Box<Expr>>, elem: Box<Type> },
+    /// `[N]T` — a fixed-size value type (spec §5.3).
+    Array { size: Box<Expr>, elem: Box<Type> },
+    /// `[]T`, or `[]mut T` — a two-word view whose writability is part of the type
+    /// (spec §5.3, §18.22). A fixed array has no such flag: it is a value, so its
+    /// mutability comes from the binding that holds it.
+    Slice { mutable: bool, elem: Box<Type> },
     Tuple(Vec<Type>),
     Fn { params: Vec<Type>, ret: Option<Box<Type>> },
     SelfType,
@@ -425,8 +448,10 @@ pub enum ExprKind {
     Null,
     None,
     Path(Path),
-    /// `.Transition{}` — variant inferred from the expected type (spec §7.3).
+    /// `.Transition{}` — variant inferred from the expected type (spec §7.3, §7.4).
     DotInfer { name: Ident, init: Option<Vec<FieldInit>> },
+    /// `[1, 2, 3]` — an array of exactly this many elements (spec §5.3).
+    ArrayLit(Vec<Expr>),
     StructLit { path: Path, fields: Vec<FieldInit> },
     Call { callee: Box<Expr>, args: Vec<Expr> },
     Index { base: Box<Expr>, index: Box<Expr> },
@@ -443,11 +468,13 @@ pub enum ExprKind {
     /// `e or clause` — the one failure eliminator (spec §9.4).
     Or { expr: Box<Expr>, clause: Box<OrClause> },
     Block(Block),
+    /// `unsafe { … }` — a block in which raw-memory operations are allowed (spec §5.2).
+    Unsafe(Block),
     If(IfExpr),
     Switch(SwitchExpr),
     /// Diverging expressions, so `f() or return` parses uniformly.
     Return(Option<Box<Expr>>),
-    Break { label: Option<Ident>, value: Option<Box<Expr>> },
+    Break { label: Option<Ident> },
     Continue { label: Option<Ident> },
     /// `#location`, `#file` (spec §12.7)
     Intrinsic { name: Ident, args: Vec<Expr> },

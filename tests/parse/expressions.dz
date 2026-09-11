@@ -74,3 +74,25 @@ fn expression_forms() -> i32 {
     let t = (1, 2.0)
     return hp
 }
+
+fn array_literals() -> i32 {
+    let a = [1, 2, 3]
+    let b: [4]f32 = [1, 2, 3, 4]
+    let nested = [[1, 2], [3, 4]]
+    let structs = [Vec3{ x: 1, y: 2, z: 3 }, Vec3{ 4, 5, 6 }]
+    let empty: [0]i32 = []
+    let wrapped = [
+        1,
+        2,
+    ]
+    return a[0]
+}
+
+// `unsafe { … }` as a statement and as a value (spec §5.2).
+fn unsafe_blocks(p: ^i32) -> i32 {
+    unsafe {
+        p^ = 1
+    }
+    let n = unsafe { p^ }
+    return n
+}

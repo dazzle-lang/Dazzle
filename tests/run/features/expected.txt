@@ -9,5 +9,9 @@ named: named
 casts: 302
 switch: background world ui
 nested: 9
+array literals: 10
+typed array literal: 4
+literal as slice: 60
+dotted: background world ui
 before defer runs
 deferred: last
