@@ -1,0 +1,11 @@
+// Spec §6.4, §18.33: a borrow gives no right to reset what it points at — for a copyable
+// field as much as for a resource.
+// expect: DZ0402
+
+pub struct Point {
+    pub x: i32
+}
+
+fn steal(p: &Point) -> i32 {
+    return move(p.x)
+}

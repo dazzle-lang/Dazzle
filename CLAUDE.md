@@ -8,7 +8,10 @@ Progress: M0 (lexer), M1 (parser, AST, formatter), M2 (projects, modules, import
 visibility), M3 (type checker), M4 (codegen, runtime shim, `dz run`), M5 (ownership) and M6
 (generics, traits, monomorphization) are done — **Dazzle programs compile, run, own their
 resources, and are generic over checked bounds**. Since then, spec r12–r13 added `unsafe`,
-`Copy`, and `impl Trait for Type` with `Drop`/`Copy` as traits. Next is struct inheritance
+`Copy`, and `impl Trait for Type` with `Drop`/`Copy` as traits, r14 made `move` end its
+source for every type (18.33), and most of M9 was pulled
+forward: `dz lsp` and a VS Code extension (`editors/vscode`), over an analysis that keeps
+answering around syntax errors (`dz_driver::Mode::Editor`). Next is struct inheritance
 (spec 18.32, designed), then M7 — C++ interop via libclang. See spec §19 for the roadmap.
 
 ## Three documents
@@ -85,7 +88,14 @@ crates/
   dz_flow/            ownership, moves, drops, definite return (spec §6)
   dz_mono/            monomorphization: which instances each module needs (spec §8.4)
   dz_cpp/             C++17 emission + the runtime shim (spec §16)
+  dz_driver/          the analysis pipeline as a library, shared by the CLI and the LSP;
+                      `analyse_with` lets unsaved editor buffers stand in for files
+  dz_lsp/             the language server (spec §17.4): `lib.rs` is the protocol loop,
+                      `ide.rs` the queries (hover, definition, completion, outline), which
+                      take an `Analysis` and an offset and are tested without a client
   dz/                 the `dz` CLI
+editors/vscode/       the VS Code extension: TextMate grammar, language configuration, and
+                      a client that runs `dz lsp` (see its README for building the .vsix)
 tests/lex/*.dz        lexer snapshot corpus    (crates/dz_lex/tests/lex.rs)
 tests/parse/*.dz      parser snapshot corpus   (crates/dz_parse/tests/parse.rs)
 tests/fmt/*.dz        formatter corpus         (crates/dz_fmt/tests/fmt.rs)
@@ -113,7 +123,7 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 
 ```bash
 cargo build --workspace
-cargo test --workspace           # 94 tests at M6 + r13
+cargo test --workspace           # 139 tests at M6 + r14 + M9
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens
@@ -122,6 +132,9 @@ cargo run -p dz -- fmt --stdout <file.dz>
 cargo run -p dz -- check <dir>   # analyse only
 cargo run -p dz -- cpp   <dir>   # generate C++ into <dir>/build/cpp
 cargo run -p dz -- run   <dir>   # build and execute; DZ_CXX picks the C++ compiler
+cargo run -p dz -- lsp           # the language server on stdio (what VS Code runs)
+cd editors/vscode && npm install && npm run deploy    # build dazzle.vsix and install it
+                                 # (--force: the version stays 0.1.0, so a plain install is a no-op)
 ```
 
 ## Invariants that must not be broken

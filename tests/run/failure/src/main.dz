@@ -9,7 +9,7 @@ pub enum Code : u32 {
 
 pub union Shape {
     Circle { radius: f32 }
-    Rect   { w: f32, h: f32 }
+    Rect { w: f32, h: f32 }
     Point
 }
 
@@ -89,6 +89,7 @@ fn main() {
     xs[0] = 4
     xs[1] = 5
     xs[2] = 6
+
     let hit = find(&mut xs, 5) or panic("5 must be there")
     println("pointer: {}", hit)
     println("missing: {}", find(&mut xs, 99) == null)
@@ -98,7 +99,11 @@ fn main() {
     println("tuple: {} {}", n, name)
 
     // Control flow used as a value.
-    let chosen = if n > 3 { "big" } else { "small" }
+    let chosen = if n > 3 {
+        "big"
+    } else {
+        "small"
+    }
     let computed = {
         let a = 2
         let b = 3

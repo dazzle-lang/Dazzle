@@ -1,0 +1,8 @@
+// Spec §6.4, §18.33: `move` ends its source whatever the type — a copyable one included.
+// expect: DZ0401
+
+fn twice() -> str {
+    let a = "sdasd"
+    let b = move(a)
+    return move(a)
+}

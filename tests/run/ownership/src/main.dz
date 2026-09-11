@@ -8,29 +8,35 @@
 
 pub struct Handle {
     m_slot: own ^i32
-    pub label: str
+    pub label:  str
 
     Handle(slot: ^i32, label: str) {
         m_slot = slot
         self.label = label
-        unsafe { slot^ = 1 }
+        unsafe {
+            slot^ = 1
+        }
     }
 
     pub fn live(&self) -> i32 {
         if m_slot == null {
             return -1
         }
-        unsafe { return m_slot^ }
+        unsafe {
+            return m_slot^
+        }
     }
-
-    // §6.5: runs at the end of the enclosing scope, in reverse declaration order.
 }
+
+// §6.5: runs at the end of the enclosing scope, in reverse declaration order.
 
 impl Drop for Handle {
     mut fn drop(&mut self) {
         if m_slot != null {
             println("  drop {}", label)
-            unsafe { m_slot^ = 0 }
+            unsafe {
+                m_slot^ = 0
+            }
         }
     }
 }
@@ -59,7 +65,7 @@ impl Drop for Counted {
 
 // §6.3: a struct with a move-only field is itself move-only, with no `own` of its own.
 pub struct Pair {
-    pub a: Handle
+    pub a:   Handle
     pub tag: i32
 }
 

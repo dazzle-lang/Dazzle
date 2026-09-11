@@ -1,0 +1,24 @@
+[package]
+name = "dz_lsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The Dazzle language server"
+
+[dependencies]
+dz_span.workspace = true
+dz_diag.workspace = true
+dz_lex.workspace = true
+dz_ast.workspace = true
+dz_parse.workspace = true
+dz_fmt.workspace = true
+dz_project.workspace = true
+dz_resolve.workspace = true
+dz_hir.workspace = true
+dz_check.workspace = true
+dz_driver.workspace = true
+lsp-server.workspace = true
+lsp-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true

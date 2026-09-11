@@ -1,5 +1,6 @@
 ---
 source: crates/dz_check/tests/check.rs
+assertion_line: 190
 expression: body
 ---
 error[DZ0502]: `300` does not fit in `u8`
@@ -185,7 +186,7 @@ error[DZ0516]: the failure has nowhere to go
 156 │     let v = may_fail() or return
     │                           ^^^^^^ `or return` propagates, and this signature cannot carry it
     │
-    = help: mark this function `!->`, or handle the failure here with a                          fallback or a block (spec §9.5)
+    = help: mark this function `!->`, or handle the failure here with a fallback or a block (spec §9.5)
 
 error[DZ0525]: `or` needs something that can fail, found `i32`
     ┌─ typeerrors/src/errors.dz:162:12

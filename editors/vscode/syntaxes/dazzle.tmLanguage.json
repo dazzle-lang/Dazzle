@@ -1,0 +1,222 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Dazzle",
+  "scopeName": "source.dazzle",
+  "fileTypes": ["dz"],
+  "comment": "Scopes are chosen for what common themes (Dark+, Light+) colour distinctly. The language server's semantic tokens refine names on top of this: parameter vs local, field, method, variant.",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#attributes" },
+    { "include": "#strings" },
+    { "include": "#characters" },
+    { "include": "#numbers" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#variables" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.documentation.dazzle", "match": "///.*$" },
+        { "name": "comment.line.double-slash.dazzle", "match": "//.*$" },
+        { "include": "#block-comment" }
+      ]
+    },
+    "block-comment": {
+      "comment": "Block comments nest (spec §2.3).",
+      "name": "comment.block.dazzle",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": [{ "include": "#block-comment" }]
+    },
+    "attributes": {
+      "name": "meta.attribute.dazzle",
+      "begin": "#\\[",
+      "end": "\\]",
+      "beginCaptures": { "0": { "name": "punctuation.definition.attribute.dazzle" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.attribute.dazzle" } },
+      "patterns": [
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "name": "entity.other.attribute-name.dazzle", "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b" }
+      ]
+    },
+    "escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.dazzle",
+          "match": "\\\\(?:[nrt\\\\\"'0]|x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\})"
+        },
+        { "name": "invalid.illegal.escape.dazzle", "match": "\\\\." }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "comment": "A newline ends a non-raw string, as the lexer recovers (spec §2.5).",
+          "name": "string.quoted.double.dazzle",
+          "begin": "\"",
+          "end": "\"|$",
+          "patterns": [
+            { "include": "#escapes" },
+            {
+              "comment": "Format placeholders and escaped braces (spec §12.9).",
+              "name": "constant.other.placeholder.dazzle",
+              "match": "\\{\\{|\\}\\}|\\{[^{}\"]*\\}"
+            }
+          ]
+        },
+        { "name": "string.quoted.other.raw.dazzle", "begin": "`", "end": "`" }
+      ]
+    },
+    "characters": {
+      "name": "string.quoted.single.dazzle",
+      "match": "'(?:\\\\(?:[nrt\\\\\"'0]|x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\})|[^'\\\\])'"
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.hex.dazzle", "match": "\\b0x[0-9A-Fa-f_]+(?:[iu](?:8|16|32|64|size))?\\b" },
+        { "name": "constant.numeric.octal.dazzle", "match": "\\b0o[0-7_]+(?:[iu](?:8|16|32|64|size))?\\b" },
+        { "name": "constant.numeric.binary.dazzle", "match": "\\b0b[01_]+(?:[iu](?:8|16|32|64|size))?\\b" },
+        {
+          "name": "constant.numeric.float.dazzle",
+          "match": "\\b[0-9][0-9_]*(?:\\.[0-9][0-9_]*(?:[eE][+-]?[0-9_]+)?|[eE][+-]?[0-9_]+)(?:f32|f64|f)?\\b"
+        },
+        { "name": "constant.numeric.float.dazzle", "match": "\\b[0-9][0-9_]*(?:f32|f64|f)\\b" },
+        { "name": "constant.numeric.integer.dazzle", "match": "\\b[0-9][0-9_]*(?:[iu](?:8|16|32|64|size))?\\b" }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.dazzle" },
+            "2": { "name": "entity.name.function.dazzle" }
+          }
+        },
+        {
+          "match": "\\b(struct|union|enum|trait)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.$1.dazzle" },
+            "2": { "name": "entity.name.type.dazzle" }
+          }
+        },
+        {
+          "match": "\\b(macro)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.macro.dazzle" },
+            "2": { "name": "entity.name.function.macro.dazzle" }
+          }
+        },
+        {
+          "match": "\\b(const)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.const.dazzle" },
+            "2": { "name": "variable.other.constant.dazzle" }
+          }
+        },
+        {
+          "comment": "An associated type (spec §8.5). `type` is not a keyword elsewhere.",
+          "match": "^\\s*(type)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.alias.dazzle" },
+            "2": { "name": "entity.name.type.dazzle" }
+          }
+        },
+        {
+          "comment": "An intrinsic or macro invocation: #location, #machine (spec §12).",
+          "name": "entity.name.function.macro.dazzle",
+          "match": "#[A-Za-z_][A-Za-z0-9_]*"
+        },
+        { "name": "variable.other.macro.dazzle", "match": "\\$[A-Za-z_][A-Za-z0-9_]*" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.dazzle",
+          "match": "\\b(?:if|else|for|while|switch|case|default|break|continue|return|defer|unreachable|in|ignore)\\b"
+        },
+        {
+          "comment": "`or` decides where control goes when something fails (spec §9.4).",
+          "name": "keyword.control.or.dazzle",
+          "match": "\\bor\\b"
+        },
+        {
+          "comment": "`wordlike`, `cast` and `expression` are the keyword-operator scopes themes colour as keywords; plain `keyword.operator` renders like ordinary text.",
+          "name": "keyword.operator.expression.move.dazzle",
+          "match": "\\bmove\\b"
+        },
+        { "name": "keyword.operator.cast.dazzle", "match": "\\bas\\b" },
+        { "name": "keyword.other.dazzle", "match": "\\b(?:import|module|impl|let|unsafe|extern)\\b" },
+        { "name": "storage.type.dazzle", "match": "\\b(?:fn|struct|union|enum|trait|const|macro)\\b" },
+        { "name": "storage.modifier.dazzle", "match": "\\b(?:pub|mut|own)\\b" },
+        { "name": "constant.language.dazzle", "match": "\\b(?:true|false|null|none)\\b" },
+        { "name": "variable.language.self.dazzle", "match": "\\bself\\b" },
+        { "name": "keyword.other.reserved.dazzle", "match": "\\b(?:async|await|where|yield|comptime)\\b" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "comment": "Coloured as types, not as keywords: `let mut x: i32` should not read as three keywords.",
+          "name": "entity.name.type.primitive.dazzle",
+          "match": "\\b(?:i8|i16|i32|i64|u8|u16|u32|u64|isize|usize|f32|f64|bool|char|str|cstr|void)\\b"
+        },
+        { "name": "storage.type.self.dazzle", "match": "\\bSelf\\b" },
+        { "name": "entity.name.type.dazzle", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.dazzle",
+          "match": "\\b(?:println|print|format|panic|assert|sizeof|alignof|alloc|free|construct|destroy|memcpy|error|typeinfo_of|typeid_of|typeinfo)(?=\\s*\\()"
+        },
+        {
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": { "1": { "name": "entity.name.function.call.dazzle" } }
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "comment": "After a single `.` (not the range `..`): a field.",
+          "name": "variable.other.property.dazzle",
+          "match": "(?<=[^.]\\.)[a-z_][A-Za-z0-9_]*\\b"
+        },
+        { "name": "variable.other.dazzle", "match": "\\b[a-z_][A-Za-z0-9_]*\\b" }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.fallible.dazzle", "match": "!->" },
+        { "name": "keyword.operator.arrow.dazzle", "match": "->" },
+        { "name": "keyword.operator.namespace.dazzle", "match": "::" },
+        { "name": "keyword.operator.range.dazzle", "match": "\\.\\.=?" },
+        { "name": "keyword.operator.comparison.dazzle", "match": "==|!=|<=|>=" },
+        { "name": "keyword.operator.logical.dazzle", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.assignment.compound.dazzle", "match": "[+\\-*/%]=" },
+        { "name": "keyword.operator.bitwise.dazzle", "match": "\\^\\^|<<|>>|~|\\|" },
+        { "name": "keyword.operator.pointer.dazzle", "match": "\\^" },
+        { "name": "keyword.operator.reference.dazzle", "match": "&" },
+        { "name": "keyword.operator.arithmetic.dazzle", "match": "[+\\-*/%]" },
+        { "name": "keyword.operator.comparison.dazzle", "match": "[<>]" },
+        { "name": "keyword.operator.assignment.dazzle", "match": "=" },
+        { "name": "keyword.operator.optional.dazzle", "match": "\\?" }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.accessor.dazzle", "match": "\\." },
+        { "name": "punctuation.separator.dazzle", "match": "[,;:]" }
+      ]
+    }
+  }
+}

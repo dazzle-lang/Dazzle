@@ -356,27 +356,24 @@ impl<'a> Flow<'a> {
                         // same expression (invariant 6 in CLAUDE.md).
                         self.check_live(&p, span);
                         self.walk_place_bases(inner);
-                        // Moving a copyable value is a copy, so it leaves nothing behind
-                        // to track (spec §6.3).
-                        if !self.copyable(&ty) {
-                            self.moved.insert(p, span);
-                        }
+                        // A move ends its source whatever the type: a copyable value is
+                        // moved-from afterwards like any other (spec §6.4, §18.33).
+                        self.moved.insert(p, span);
                     }
                     Denotes::Borrowed => {
-                        if !self.copyable(&ty) {
-                            let name = self.type_name(&ty);
-                            self.error(
-                                Diagnostic::error(
-                                    codes::MOVE_OUT_OF_BORROW,
-                                    format!("cannot move `{name}` out of a reference"),
-                                )
-                                .at(self.file, span, "this is borrowed, not owned")
-                                .with_help(
-                                    "the source of a move is reset to its defaults, and a \
-                                     borrow does not give the right to do that (spec §6.4)",
-                                ),
-                            );
-                        }
+                        let name = self.type_name(&ty);
+                        self.error(
+                            Diagnostic::error(
+                                codes::MOVE_OUT_OF_BORROW,
+                                format!("cannot move `{name}` out of a reference"),
+                            )
+                            .at(self.file, span, "this is borrowed, not owned")
+                            .with_help(
+                                "the source of a move is reset to its defaults, and a borrow \
+                                 does not give the right to do that (spec §6.4); to copy the \
+                                 value instead, leave out `move`",
+                            ),
+                        );
                         self.place_only(inner);
                     }
                     Denotes::Temporary => {
