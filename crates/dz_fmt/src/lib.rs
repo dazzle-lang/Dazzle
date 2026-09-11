@@ -470,9 +470,8 @@ impl<'a> Printer<'a> {
 
     fn fn_decl(&mut self, vis: &str, f: &FnDecl) {
         let head = format!(
-            "{vis}{}{}fn {}{}",
+            "{vis}{}fn {}{}",
             if f.is_unsafe { "unsafe " } else { "" },
-            if f.is_mut { "mut " } else { "" },
             f.name.name,
             generics_str(&f.generics)
         );
@@ -779,7 +778,16 @@ impl<'a> Printer<'a> {
             ExprKind::Block(b) => self.render_block(b),
             ExprKind::Unsafe(b) => format!("unsafe {}", self.render_block(b)),
             ExprKind::If(i) => {
-                let mut s = format!("if {} {}", self.expr(&i.cond), self.render_block(&i.then));
+                let head = match &i.binding {
+                    Some(b) => format!(
+                        "if let {}{} = {}",
+                        if b.mutable { "mut " } else { "" },
+                        b.name.name,
+                        self.expr(&i.cond)
+                    ),
+                    None => format!("if {}", self.expr(&i.cond)),
+                };
+                let mut s = format!("{head} {}", self.render_block(&i.then));
                 if let Some(e) = &i.else_branch {
                     s.push_str(" else ");
                     s.push_str(&self.expr_inner(e));

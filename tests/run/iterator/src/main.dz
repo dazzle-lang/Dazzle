@@ -1,0 +1,157 @@
+// Two generic types that name each other: `List<T>::iter` returns a `ListIterator<T>`, and
+// the iterator points back at its `List<T>`. Neither stores the other by value, so there is
+// a valid C++ layout — but only if every type is declared before any is defined, since
+// `List`'s definition mentions `ListIterator` and `ListIterator`'s mentions `List`.
+//
+// Also the case for `self` inside a generic struct being `List<T>`, not a bare `List`:
+// `&mut self` has to satisfy a `^List<T>`.
+
+struct Buffer<T> {
+    m_data: own ^T
+    m_len:  usize
+    m_cap:  usize
+
+    Buffer(cap: usize) {
+        unsafe {
+            m_data = alloc(cap * sizeof(T), alignof(T)) as ^T
+        }
+        m_cap = cap
+    }
+
+    pub fn push(&mut self, v: T) {
+        if m_len == m_cap {
+            panic("buffer full")
+        }
+        unsafe {
+            construct(m_data[m_len], move(v))
+        }
+        m_len += 1
+    }
+
+    pub fn len(&self) -> usize {
+        return m_len
+    }
+
+    pub fn at(&self, i: usize) -> ^T {
+        unsafe {
+            return &mut m_data[i]
+        }
+    }
+}
+
+impl<T> Drop for Buffer<T> {
+    fn drop(&mut self) {
+        unsafe {
+            if !T::is_trivially_copyable {
+                for i in 0..m_len {
+                    destroy(m_data[i])
+                }
+            }
+            free(m_data)
+        }
+    }
+}
+
+struct Movie {
+    pub id:     u32
+    pub rating: f32
+    pub name:   str
+}
+
+struct List<T> {
+    m_buffer: Buffer<T>
+
+    List(cap: usize) {
+        m_buffer = Buffer<T>(cap)
+    }
+
+    pub fn push(&mut self, value: T) {
+        m_buffer.push(move(value))
+    }
+
+    pub fn len(&self) -> usize {
+        return m_buffer.len()
+    }
+
+    pub fn at(&self, i: usize) -> ^T {
+        return m_buffer.at(i)
+    }
+
+    pub fn iter(&mut self) -> ListIterator<T> {
+        return ListIterator<T>{ 0, &mut self }
+    }
+}
+
+struct ListIterator<T> {
+    m_at:   usize
+    m_list: ^List<T>
+}
+
+impl<T> Iterate for ListIterator<T> {
+    type Item = &T
+
+    fn valid(&self) -> bool {
+        unsafe {
+            return m_at < m_list.len()
+        }
+    }
+
+    fn get(&self) -> &T {
+        unsafe {
+            return m_list.at(m_at) or unreachable
+        }
+    }
+
+    fn advance(&mut self) {
+        m_at += 1
+    }
+}
+
+// §18.35: `m` is a `&Movie`, and returning it where a `Movie` is wanted copies the element.
+fn find_movie(list: &mut List<Movie>, name: str) -> Movie? {
+    for m in list.iter() {
+        if m.name == name {
+            return m
+        }
+    }
+    return none
+}
+
+fn main() {
+    let mut list = List<Movie>(4)
+    list.push(Movie{ 1, 7.1, "Fast and Furious" })
+    list.push(Movie{ 2, 7.4, "Madagascar" })
+
+    for m in list.iter() {
+        println("{} {}", m.id, m.name)
+    }
+    println("{}", list.len())
+
+    let found = find_movie(&mut list, "Madagascar") or return
+    println("found {} {}", found.id, found.name)
+
+    // `== none` tests the optional's flag; it once reached C++ as `Opt == Opt`.
+    let missing = find_movie(&mut list, "Nemo")
+    if missing == none {
+        println("Nemo not found")
+    }
+
+    // `if let` (spec §9.4): the value exists in the first block only.
+    for name in ["Madagascar", "Nemo"] {
+        if let m = find_movie(&mut list, name) {
+            println("if let: {} is {}", m.name, m.id)
+        } else {
+            println("if let: no {}", name)
+        }
+    }
+
+    // On a `^T` the binding is the `&mut T` that `or` would give.
+    if let first = list.at(0) {
+        first.id = 10
+    }
+    println("first is now {}", (list.at(0) or unreachable).id)
+
+    // And as a value, when both blocks produce one.
+    let rating = if let m = find_movie(&mut list, "Nemo") { m.rating } else { 0.0 }
+    println("rating {}", rating)
+}

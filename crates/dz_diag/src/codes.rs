@@ -70,6 +70,9 @@ pub const BREAK_WITH_VALUE: &str = "DZ0212";
 /// `drop()` or `copy(other: &Self)` written as a member. They are implementations of the
 /// `Drop` and `Copy` traits (spec §6.1).
 pub const SPECIAL_MEMBER_IS_A_TRAIT: &str = "DZ0213";
+/// `mut fn`, removed in r15: the receiver alone says whether a method mutates, so
+/// `fn f(&mut self)` is the one spelling (spec §7.3, §18.34).
+pub const MUT_FN_REMOVED: &str = "DZ0214";
 
 // --- DZ00xx: projects and manifests --------------------------------------------
 
@@ -188,6 +191,9 @@ pub const NOT_FORMATTABLE: &str = "DZ0527";
 /// one, a pointer cast, `construct`/`destroy`/`memcpy`/`free`, or a call to an `unsafe fn`
 /// (spec §5.2). Forming, copying, storing and comparing a pointer are all safe.
 pub const UNSAFE_OPERATION: &str = "DZ0528";
+/// `if let` on a fallible call. Its `else` has no `Error` to hand over, so the failure
+/// would be silently dropped; that is `or`'s job (spec §9.4, §9.5).
+pub const IF_LET_FALLIBLE: &str = "DZ0529";
 
 // --- DZ053x: generics and traits (spec §8, §7.6) -------------------------------
 //

@@ -16,7 +16,7 @@
 /// becomes the type's C++ destructor — which is why it may only be implemented for a
 /// struct, in the struct's own module, for every instance at once (§6.1).
 pub trait Drop {
-    mut fn drop(&mut self)
+    fn drop(&mut self)
 }
 
 /// A type that can be copied. Every copyable type satisfies it (§6.3): one with no `drop`
@@ -25,7 +25,7 @@ pub trait Drop {
 /// its defaults, and fills it in from `other` (§6.6). `impl<T: Copy> Copy for Buffer<T>`
 /// makes `Buffer<f32>` copyable and leaves `Buffer<File>` move-only (§8.2, §18.26).
 pub trait Copy {
-    mut fn copy(&mut self, other: &Self)
+    fn copy(&mut self, other: &Self)
 }
 
 // --- comparison (spec §11.2) ------------------------------------------------
@@ -56,9 +56,10 @@ pub trait Ord : Eq {
 // `Rhs` defaults to `Self`, so `struct Vec3 : Add` means `Vec3 + Vec3`, while
 // `struct Vec3 : Mul<f32>` means `Vec3 * f32` — which is what makes `v * scalar` work.
 //
-// `rhs` is by value, unlike `Eq`'s and `Ord`'s: `Rhs` may be a scalar, and a `&f32` is not
-// readable as an `f32` (§5.2, §18.25). It is also the right signature for the copyable math
-// types these traits exist for — a 4-byte copy beats an indirection.
+// `rhs` is by value, unlike `Eq`'s and `Ord`'s: `Rhs` may be a scalar, and when this was
+// decided a `&f32` could not be read as an `f32` (§18.25; it can now, §18.35). By value is
+// still the right signature for the copyable math types these traits exist for — a 4-byte
+// copy beats an indirection.
 
 pub trait Add<Rhs = Self> {
     type Output
@@ -111,7 +112,7 @@ pub trait Iterate {
 
     fn valid(&self) -> bool
     fn get(&self) -> Item
-    mut fn advance(&mut self)
+    fn advance(&mut self)
 }
 
 // --- formatting (spec §12.9) ------------------------------------------------

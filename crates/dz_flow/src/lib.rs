@@ -497,6 +497,12 @@ impl<'a> Flow<'a> {
                 let other = else_branch.map(Branch::Block).unwrap_or(Branch::Nothing);
                 self.branches(&[Branch::Block(then)], Some(other))
             }
+            // The operand is read as `or` reads it; then the two blocks are the branches.
+            hir::ExprKind::IfLet { operand, then, else_branch, .. } => {
+                self.value(operand);
+                let other = else_branch.map(Branch::Block).unwrap_or(Branch::Nothing);
+                self.branches(&[Branch::Block(then)], Some(other))
+            }
             hir::ExprKind::Switch { subject, arms, default } => {
                 self.place_only(subject);
                 if arms.is_empty() && default.is_none() {

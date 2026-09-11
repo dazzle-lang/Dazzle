@@ -1,5 +1,6 @@
 ---
 source: crates/dz_lex/tests/lex.rs
+assertion_line: 47
 expression: "lex_report(&name, &source)"
 input_file: tests/lex/declarations.dz
 ---
@@ -113,24 +114,23 @@ input_file: tests/lex/declarations.dz
   16:48  }
   16:49  Terminator
   17:5   pub
-  17:9   mut
-  17:13  fn
-  17:16  Ident `resize`
-  17:22  (
-  17:23  &
-  17:24  mut
-  17:28  self
-  17:32  ,
-  17:34  Ident `n`
-  17:35  :
-  17:37  Ident `u32`
-  17:40  )
-  17:42  {
-  17:44  Ident `m_len`
-  17:50  =
-  17:52  Ident `n`
-  17:54  }
-  17:55  Terminator
+  17:9   fn
+  17:12  Ident `resize`
+  17:18  (
+  17:19  &
+  17:20  mut
+  17:24  self
+  17:28  ,
+  17:30  Ident `n`
+  17:31  :
+  17:33  Ident `u32`
+  17:36  )
+  17:38  {
+  17:40  Ident `m_len`
+  17:46  =
+  17:48  Ident `n`
+  17:50  }
+  17:51  Terminator
   18:1   }
   18:2   Terminator
   20:1   fn

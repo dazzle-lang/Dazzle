@@ -1,5 +1,6 @@
 ---
 source: crates/dz_parse/tests/parse.rs
+assertion_line: 34
 expression: "parse_report(&name, &source)"
 input_file: tests/parse/items.dz
 ---
@@ -36,7 +37,7 @@ pub struct Transform
           path position
           path rotation
           path scale
-  pub mut fn translate(&mut self, d: Vec3)
+  pub fn translate(&mut self, d: Vec3)
     block
       assign +=
         path position
@@ -45,12 +46,12 @@ pub struct SpriteBatch
   field m_verts: Buffer<Vertex>
   field m_gl_handle: u32
   field count: u32
-  pub mut fn draw(&mut self, s: &Sprite)
+  pub fn draw(&mut self, s: &Sprite)
     block
       assign +=
         path count
         int 1
-  mut fn flush(&mut self)
+  fn flush(&mut self)
     block
 pub union Shape
   variant Circle
@@ -82,7 +83,7 @@ pub trait Drawable
               path self
 pub trait Iterate
   type Item
-  mut fn next(&mut self) -> Item?
+  fn next(&mut self) -> Item?
 pub struct Arena
   field m_base: own ^u8
   field m_used: usize
@@ -94,7 +95,7 @@ impl Allocator for Arena
   fn free(&self, p: ^u8, size: usize, align: usize)
     block
 impl Drop for Arena
-  mut fn drop(&mut self)
+  fn drop(&mut self)
     block
       call
         path free_pages
@@ -118,7 +119,7 @@ impl<T> Iterate for SliceIter<T>
           index
             path m_slice
             path m_index
-  mut fn advance(&mut self)
+  fn advance(&mut self)
     block
       assign +=
         path m_index
@@ -142,7 +143,7 @@ impl<T> Iterate for SliceIterMut<T>
           index
             path m_slice
             path m_index
-  mut fn advance(&mut self)
+  fn advance(&mut self)
     block
       assign +=
         path m_index
@@ -158,7 +159,7 @@ pub unsafe fn poke(p: ^i32, v: i32)
       path v
 pub struct Raw
   field m_p: ^i32
-  unsafe mut fn write(&mut self, v: i32)
+  unsafe fn write(&mut self, v: i32)
     block
       assign =
         deref
@@ -167,7 +168,7 @@ pub struct Raw
 pub struct Button : UiElement
   field label: str
 impl<T: Copy> Copy for Buffer<T>
-  mut fn copy(&mut self, other: &Self)
+  fn copy(&mut self, other: &Self)
     block
       assign =
         path m_len

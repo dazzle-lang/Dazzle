@@ -221,7 +221,7 @@ fn a_local_shadows_nothing_it_should_not() {
 fn method_bodies_see_their_struct_fields_unqualified() {
     // spec §7.3 — `m_count` resolves without `self.`
     let codes = check_snippet(
-        "struct S {\n    m_count: u32\n    pub mut fn bump(&mut self) {\n        \
+        "struct S {\n    m_count: u32\n    pub fn bump(&mut self) {\n        \
          m_count += 1\n    }\n}\n",
     );
     assert!(codes.is_empty(), "{codes:?}");

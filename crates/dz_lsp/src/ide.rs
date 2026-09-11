@@ -1203,14 +1203,26 @@ pub fn complete(
 // inlay hints, signature help, workspace symbols
 // ---------------------------------------------------------------------------
 
-/// A type shown after a binding that does not write one.
+/// Text the editor shows inline that is not in the file.
+#[derive(Debug)]
 pub struct Hint {
     pub offset: u32,
     pub label: String,
+    pub kind: HintKind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HintKind {
+    /// `: T` after a binding that does not write its type.
+    Type,
+    /// `name:` before a value in a positional struct literal, naming the field it fills.
+    Field,
 }
 
 /// `: T` after every `let`, `for` and `case` binding in `range` that leaves its type to
-/// inference (spec §17.4 item 7).
+/// inference (spec §17.4 item 7), and `name:` before every value of a positional struct
+/// literal — `Movie{ 1, 7.1, "Heat" }` is legal only when every field is listed (§7.3), so
+/// the reader otherwise has to count.
 pub fn inlay_hints(a: &Analysis, file: FileId, range: Span) -> Vec<Hint> {
     let (Some(hir), Some(res)) = (a.hir.as_ref(), a.resolution.as_ref()) else { return Vec::new() };
     let text = a.map.get(file).text();
@@ -1236,12 +1248,53 @@ pub fn inlay_hints(a: &Analysis, file: FileId, range: Span) -> Vec<Hint> {
                 continue;
             }
             if seen.insert(l.span.end) {
-                out.push(Hint { offset: l.span.end, label: format!(": {ty}") });
+                out.push(Hint { offset: l.span.end, label: format!(": {ty}"), kind: HintKind::Type });
             }
+        }
+        if let Some(table) = a.table.as_ref() {
+            field_hints(body, table, text, range, &mut out);
         }
     }
     out.sort_by_key(|h| h.offset);
     out
+}
+
+/// The field each positional value of a struct literal or union payload lands in.
+fn field_hints(body: &Body, table: &TypeTable, text: &str, range: Span, out: &mut Vec<Hint>) {
+    for e in &body.exprs {
+        let (fields, values): (&[FieldSig], &[Option<ExprId>]) = match &e.kind {
+            ExprKind::StructLit { ty, fields } => match table.struct_sig(*ty) {
+                Some(s) => (&s.fields, fields),
+                None => continue,
+            },
+            ExprKind::UnionVariant { owner, index, payload } => match table.get(*owner) {
+                Some(ItemSig::Union { variants }) => match variants.get(*index) {
+                    Some(v) => (&v.fields, payload),
+                    None => continue,
+                },
+                _ => continue,
+            },
+            _ => continue,
+        };
+        for (field, value) in fields.iter().zip(values) {
+            let Some(v) = value else { continue };
+            let span = body.expr(*v).span;
+            if span.start < range.start || span.start > range.end {
+                continue;
+            }
+            // Positional values only: one that follows `{` or `,` has no name written, while
+            // one after `name:` already says which field it is.
+            let before = text.get(..span.start as usize).unwrap_or("").trim_end();
+            if !before.ends_with(['{', ',']) {
+                continue;
+            }
+            // `Vec3{ x, y, z }` names its fields already, by the variables it passes.
+            if text.get(span.range()) == Some(field.name.as_str()) {
+                continue;
+            }
+            out.push(Hint { offset: span.start, label: format!("{}:", field.name), kind: HintKind::Field });
+        }
+    }
 }
 
 /// The signature of the call the cursor is inside.

@@ -43,13 +43,13 @@ pub struct Counter {
         return m_count
     }
 
-    pub mut fn bump(&mut self) {
+    pub fn bump(&mut self) {
         m_count += 1
         shared += 1
         origin.x += 1
     }
 
-    pub mut fn set_from(&mut self, other: &Counter) {
+    pub fn set_from(&mut self, other: &Counter) {
         m_count = other.m_count
     }
 }
@@ -323,7 +323,7 @@ pub struct Owner {
 
 // §6.5: an `own` field obliges the struct to release it.
 impl Drop for Owner {
-    mut fn drop(&mut self) {
+    fn drop(&mut self) {
         if m_slot != null {
             unsafe { m_slot^ = 0 }
         }
@@ -335,13 +335,13 @@ pub struct Copyable {
 }
 
 impl Copy for Copyable {
-    mut fn copy(&mut self, other: &Self) {
+    fn copy(&mut self, other: &Self) {
         n = other.n
     }
 }
 
 impl Drop for Copyable {
-    mut fn drop(&mut self) {}
+    fn drop(&mut self) {}
 }
 
 fn consumes(o: Owner) -> bool {
@@ -596,7 +596,7 @@ impl Iterate for Upto {
         return i
     }
 
-    mut fn advance(&mut self) {
+    fn advance(&mut self) {
         i += 1
     }
 }
@@ -738,11 +738,11 @@ pub struct Held<T> {
 }
 
 impl<T> Drop for Held<T> {
-    mut fn drop(&mut self) {}
+    fn drop(&mut self) {}
 }
 
 impl<T: Copy> Copy for Held<T> {
-    mut fn copy(&mut self, other: &Self) {
+    fn copy(&mut self, other: &Self) {
         m_item = null
     }
 }
@@ -757,4 +757,39 @@ fn overloads(s: Scale) -> f32 {
     let b = s * s
     let c = s.mul(3.0)
     return a.k + b + c.k
+}
+
+// §5.2, §18.35: a `&T` reads as a `T` wherever a `T` is wanted, when `T` is copyable.
+fn copies_out_of_a_reference(v: &Vec3) -> Vec3 {
+    return v
+}
+
+fn reference_where_a_value_is_wanted(v: &mut Vec3) -> f32 {
+    let copy: Vec3 = v
+    let r = v
+    return by_value(r) + copy.length_squared()
+}
+
+fn by_value(v: Vec3) -> f32 {
+    return v.length_squared()
+}
+
+fn generic_copy_out_of_a_reference<T: Copy>(r: &T) -> T {
+    return r
+}
+
+// §9: comparing an optional with `none` asks whether it is empty, from either side.
+fn optional_presence(v: i32?) -> bool {
+    return v == none || none != v
+}
+
+// §9.4: `if let` binds what `or` would produce, in the first block only.
+fn if_let_forms(o: i32?, p: ^Vec3) -> f32 {
+    if let mut n = o {
+        n += 1
+    } else if let v = p {
+        v.x = 1
+    }
+    let got = if let v = p { v.x } else { 0 }
+    return got
 }

@@ -147,8 +147,6 @@ pub struct GenericParam {
 #[derive(Clone, Debug)]
 pub struct FnDecl {
     pub span: Span,
-    /// `mut fn` — the receiver is `&mut self` (spec §7.3).
-    pub is_mut: bool,
     /// `unsafe fn` — its body may touch raw memory, and so a call to it must itself be
     /// inside `unsafe` (spec §5.2).
     pub is_unsafe: bool,
@@ -511,10 +509,19 @@ pub struct FieldInit {
 #[derive(Clone, Debug)]
 pub struct IfExpr {
     pub span: Span,
+    /// `if let name = value` (spec §9.4): `cond` is then the value — a `T?` or a `^T` —
+    /// and `name` holds what is inside it, for the `then` block only.
+    pub binding: Option<IfBinding>,
     pub cond: Box<Expr>,
     pub then: Block,
     /// Either a `Block` expression or another `If`.
     pub else_branch: Option<Box<Expr>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct IfBinding {
+    pub name: Ident,
+    pub mutable: bool,
 }
 
 #[derive(Clone, Debug)]

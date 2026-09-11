@@ -1,6 +1,6 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 190
+assertion_line: 192
 expression: body
 ---
 error[DZ0502]: `300` does not fit in `u8`
@@ -98,7 +98,7 @@ error[DZ0507]: `bump` needs a mutable receiver
 75 │     c.bump()
    │     ^ this is not mutable
    │
-   = help: `mut fn` methods take `&mut self` — bind with `let mut`, or take `&mut` here (spec §7.3)
+   = help: the method takes `&mut self` — bind with `let mut`, or take `&mut` here (spec §7.3)
 
 error[DZ0507]: cannot assign to `total`
    ┌─ typeerrors/src/errors.dz:80:5
@@ -648,3 +648,27 @@ error[DZ0520]: `drop` cannot be called by name
     │       ^^^^ runs by itself
     │
     = help: a value's `drop` runs by itself at the end of its scope; to end its life early, `move` it into a scope that ends (spec §6.5)
+
+error[DZ0514]: cannot compare `i32?` with `i32?`
+    ┌─ typeerrors/src/errors.dz:607:12
+    │
+607 │     return a == b
+    │            ^^^^^^ an optional is compared only with `none`
+    │
+    = help: `x == none` asks whether it is empty; to use the value, take it out with `or` first (spec §9.4)
+
+error[DZ0529]: `if let` cannot take a fallible call
+    ┌─ typeerrors/src/errors.dz:613:16
+    │
+613 │     if let v = may_fail() {
+    │                ^^^^^^^^^^ this may fail with an `Error`
+    │
+    = help: `else` has no `Error` to hand over, so the failure would be dropped unseen — handle it with `or` (spec §9.4)
+
+error[DZ0525]: `if let` needs a `T?` or a `^T`, found `i32`
+    ┌─ typeerrors/src/errors.dz:619:16
+    │
+619 │     if let v = n {
+    │                ^ this is always present
+    │
+    = help: `if let` takes the value out of something that may be empty; for a `bool`, write a plain `if` (spec §9.4)

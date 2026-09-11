@@ -30,7 +30,7 @@ pub struct Counter {
         return m_count
     }
 
-    pub mut fn bump(&mut self) {
+    pub fn bump(&mut self) {
         m_count += 1
     }
 }

@@ -26,7 +26,7 @@ pub struct Counter {
         return count
     }
 
-    pub mut fn bump(&mut self) {
+    pub fn bump(&mut self) {
         count += 1
     }
 
@@ -476,7 +476,7 @@ pub struct Unique {
 }
 
 impl Drop for Unique {
-    mut fn drop(&mut self) {}
+    fn drop(&mut self) {}
 }
 
 fn copy_bound_unsatisfied(u: Unique) -> Unique {
@@ -536,7 +536,7 @@ impl<T> Same for T {
 
 // `Drop` is a destructor, so it belongs to a struct of this module.
 impl Drop for f32 {
-    mut fn drop(&mut self) {}
+    fn drop(&mut self) {}
 }
 
 // One implementation of a trait per type and arguments.
@@ -600,4 +600,23 @@ fn ambiguous_trait_method(c: Crier) -> i32 {
 // `drop` is the destructor: it runs by itself, and calling it would run it twice.
 fn drop_called_by_name(u: Unique) {
     u.drop()
+}
+
+// §9: an optional is compared only with `none`; two optionals have no `==`.
+fn compares_two_optionals(a: i32?, b: i32?) -> bool {
+    return a == b
+}
+
+// §9.4: `if let` takes a `T?` or a `^T`. A fallible call carries an `Error` that its
+// `else` would drop, and a plain value has nothing to take out.
+fn if_let_on_a_fallible_call() {
+    if let v = may_fail() {
+        return
+    }
+}
+
+fn if_let_on_a_plain_value(n: i32) {
+    if let v = n {
+        return
+    }
 }

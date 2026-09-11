@@ -342,6 +342,18 @@ impl<'a> Dumper<'a> {
                     }
                 });
             }
+            ExprKind::IfLet { binding, operand, then, else_branch } => {
+                node!("if-let");
+                self.nest(|d| {
+                    d.expr(operand);
+                    let name = d.opt_local(&Some(binding));
+                    d.line(format_args!("bind {name}"));
+                    d.block(then);
+                    if let Some(e) = else_branch {
+                        d.block(e);
+                    }
+                });
+            }
             ExprKind::Switch { subject, arms, default } => {
                 node!("switch");
                 self.nest(|d| {

@@ -6,7 +6,7 @@ pub struct Res {
 }
 
 impl Drop for Res {
-    mut fn drop(&mut self) {}
+    fn drop(&mut self) {}
 }
 
 pub struct Holder {

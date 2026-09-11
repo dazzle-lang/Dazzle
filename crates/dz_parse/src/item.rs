@@ -310,19 +310,30 @@ impl<'a> Parser<'a> {
 
     // --- functions --------------------------------------------------------
 
-    /// `unsafe fn` or `unsafe mut fn` (spec §5.2) — the modifier order `mut fn` already
-    /// has, with `unsafe` outermost.
+    /// `unsafe fn` (spec §5.2). `unsafe mut fn` is recognised too, so the removed `mut` gets
+    /// its own diagnostic rather than derailing the declaration.
     fn at_unsafe_fn(&self) -> bool {
         self.peek_at(1) == TokenKind::Fn
             || (self.peek_at(1) == TokenKind::Mut && self.peek_at(2) == TokenKind::Fn)
     }
 
-    /// Called at `fn`, `mut fn`, `unsafe fn` or `unsafe mut fn`; the caller has checked
-    /// that `fn` follows the modifiers.
+    /// Called at `fn` or `unsafe fn` — or at either with the removed `mut` before `fn`; the
+    /// caller has checked that `fn` follows the modifiers.
     pub(crate) fn parse_fn(&mut self) -> FnDecl {
         let start = self.start();
         let is_unsafe = self.eat(TokenKind::Unsafe);
-        let is_mut = self.eat(TokenKind::Mut);
+        // `mut fn` said what `&mut self` already says, and the two could disagree (r15,
+        // spec §18.34). Reported, then parsed as if absent — the receiver decides.
+        if self.at(TokenKind::Mut) {
+            let t = self.bump();
+            self.error_help(
+                codes::MUT_FN_REMOVED,
+                t.span,
+                "`mut fn` is no longer part of Dazzle",
+                "remove this `mut`",
+                "a method that mutates says so by its receiver: `fn name(&mut self)` (spec §7.3)",
+            );
+        }
         self.bump(); // `fn`
         let name = self.parse_ident_or_error();
         let generics = self.parse_generics();
@@ -340,7 +351,6 @@ impl<'a> Parser<'a> {
         let body = if self.at(TokenKind::LBrace) { Some(self.parse_block()) } else { None };
         FnDecl {
             span: self.span_from(start),
-            is_mut,
             is_unsafe,
             name,
             generics,
@@ -396,7 +406,7 @@ impl<'a> Parser<'a> {
                     t.span,
                     "`self` must be taken by reference",
                     "expected `&self` or `&mut self`",
-                    "methods are `fn` (taking `&self`) or `mut fn` (taking `&mut self`) — spec §7.3",
+                    "a method takes `&self` to read, or `&mut self` to mutate — spec §7.3",
                 );
                 if self_param.is_none() {
                     self_param = Some(SelfParam { span: t.span, is_mut: false });
@@ -547,9 +557,9 @@ impl<'a> Parser<'a> {
                     // became traits (spec §6.1); say what they are now written as.
                     if (got == "drop" || got == "copy") && got != struct_name {
                         let (tr, sig) = if got == "drop" {
-                            ("Drop", "mut fn drop(&mut self)")
+                            ("Drop", "fn drop(&mut self)")
                         } else {
-                            ("Copy", "mut fn copy(&mut self, other: &Self)")
+                            ("Copy", "fn copy(&mut self, other: &Self)")
                         };
                         let owner = if struct_name.is_empty() { "T" } else { struct_name };
                         self.error_help(
@@ -589,7 +599,7 @@ impl<'a> Parser<'a> {
                         span,
                         format!("expected a member, found {found}"),
                         "not a field, method or constructor",
-                        "a field is `name: Type`; a method is `fn name(...)` or `mut fn name(...)`",
+                        "a field is `name: Type`; a method is `fn name(&self, ...)`",
                     );
                     self.recover_to_statement_end();
                     MemberKind::Error
@@ -619,7 +629,6 @@ impl<'a> Parser<'a> {
         let body = if self.at(TokenKind::LBrace) { Some(self.parse_block()) } else { None };
         FnDecl {
             span: self.span_from(start),
-            is_mut: false,
             is_unsafe: false,
             name,
             generics: Generics { span: Span::DUMMY, params: Vec::new() },
