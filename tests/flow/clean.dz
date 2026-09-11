@@ -12,10 +12,12 @@ pub struct Res {
     pub fn live(&self) -> bool {
         return m_p != null
     }
+}
 
-    drop() {
+impl Drop for Res {
+    mut fn drop(&mut self) {
         if m_p != null {
-            m_p^ = 0
+            unsafe { m_p^ = 0 }
         }
     }
 }
@@ -23,12 +25,16 @@ pub struct Res {
 // Copyable: it declares a `copy`, so ordinary assignment duplicates it (spec §6.3).
 pub struct Tally {
     pub n: i32
+}
 
-    copy(other: &Self) {
+impl Copy for Tally {
+    mut fn copy(&mut self, other: &Self) {
         n = other.n
     }
+}
 
-    drop() {}
+impl Drop for Tally {
+    mut fn drop(&mut self) {}
 }
 
 pub struct Holder {

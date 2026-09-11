@@ -267,6 +267,65 @@ fn expression_forms() -> i32
         float 2.0
     return
       path hp
+fn array_literals() -> i32
+  block
+    let a
+      array-lit 3
+        int 1
+        int 2
+        int 3
+    let b: [N]f32
+      array-lit 4
+        int 1
+        int 2
+        int 3
+        int 4
+    let nested
+      array-lit 2
+        array-lit 2
+          int 1
+          int 2
+        array-lit 2
+          int 3
+          int 4
+    let structs
+      array-lit 2
+        struct-lit Vec3
+          field-init x
+            int 1
+          field-init y
+            int 2
+          field-init z
+            int 3
+        struct-lit Vec3
+          int 4
+          int 5
+          int 6
+    let empty: [N]i32
+      array-lit 0
+    let wrapped
+      array-lit 2
+        int 1
+        int 2
+    return
+      index
+        path a
+        int 0
+fn unsafe_blocks(p: ^i32) -> i32
+  block
+    unsafe
+      block
+        assign =
+          deref
+            path p
+          int 1
+    let n
+      unsafe
+        block
+          deref
+            path p
+    return
+      path n
 
 === DIAGNOSTICS ===
 (none)

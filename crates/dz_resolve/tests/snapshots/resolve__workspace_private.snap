@@ -2,7 +2,7 @@
 source: crates/dz_resolve/tests/resolve.rs
 expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
 ---
-modules: 3, files: 5
+modules: 4, files: 6
 
 error[DZ0303]: no module `graphics` in scope
   ┌─ private/src/violations.dz:5:8

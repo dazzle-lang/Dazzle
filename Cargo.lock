@@ -66,6 +66,7 @@ dependencies = [
  "dz_fmt",
  "dz_hir",
  "dz_lex",
+ "dz_mono",
  "dz_parse",
  "dz_project",
  "dz_resolve",
@@ -103,6 +104,7 @@ dependencies = [
  "dz_check",
  "dz_diag",
  "dz_hir",
+ "dz_mono",
  "dz_project",
  "dz_resolve",
  "dz_span",
@@ -159,6 +161,18 @@ dependencies = [
  "dz_span",
  "insta",
  "unicode-ident",
+]
+
+[[package]]
+name = "dz_mono"
+version = "0.1.0"
+dependencies = [
+ "dz_check",
+ "dz_diag",
+ "dz_hir",
+ "dz_project",
+ "dz_resolve",
+ "dz_span",
 ]
 
 [[package]]

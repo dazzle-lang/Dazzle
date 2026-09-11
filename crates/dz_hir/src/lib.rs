@@ -119,9 +119,16 @@ pub enum BodyOwner {
     Const(SymbolId),
     /// The initialiser of a field with a default (spec §7.1).
     FieldDefault { owner: SymbolId, index: usize },
+    /// A method of an `impl Trait for Type` (spec §7.6). An implementation has no name, so
+    /// it is addressed by its position in the checker's table of them.
+    ImplMethod { imp: u32, name: String },
 }
 
 /// One function body: its locals and its statement/expression arenas.
+///
+/// `Clone` because monomorphization makes one concrete copy per instantiation (spec §8.4,
+/// [`substitute_body`]).
+#[derive(Clone, Debug)]
 pub struct Body {
     pub owner: BodyOwner,
     pub file: FileId,
@@ -302,8 +309,26 @@ pub enum ExprKind {
     /// type, so consumers never see the failure shape.
     Or { operand: ExprId, clause: OrClause },
     Return(Option<ExprId>),
-    Break { value: Option<ExprId> },
+    Break,
     Continue,
+
+    /// `xs.len` on an array or slice (spec §5.3). A node of its own because it is not a
+    /// field: nothing is stored under that name, and codegen asks the container itself.
+    /// Before this existed `.len` was built as `Error` and emitted as a literal `0`, so
+    /// `for i in 0..xs.len` compiled to a loop that never ran.
+    Len(ExprId),
+    /// `.ptr` on an array or slice: its first element as a `^T`, for unchecked access inside
+    /// `unsafe` (spec §5.3). Only a writable view has one, since a `^T` may be written
+    /// through.
+    DataPtr(ExprId),
+
+    /// `T::is_trivially_copyable`, `sizeof(T)` — a question about a type (spec §5.5).
+    ///
+    /// Inside a generic body `ty` is a `Ty::Param`, so the answer is not known until
+    /// monomorphization supplies the argument; that is where it is answered, and where an
+    /// `if` made only of these is folded so the dead branch is never emitted (§8.3). Kept
+    /// as a node rather than evaluated in the checker for exactly that reason.
+    TypeQuery { ty: Ty, query: TypeQuery },
 
     /// `println`, `sizeof`, `panic`, … — temporary builtins that become stdlib functions
     /// at M12. Kept as a node of their own so that when they do, only this variant and its
@@ -313,10 +338,106 @@ pub enum ExprKind {
     Intrinsic { name: String, args: Vec<ExprId> },
 }
 
+/// A concrete copy of a generic body (spec §8.4): every type in it with `map` applied.
+///
+/// Types are the only thing that differs between instantiations — node ids, locals and
+/// control flow are identical — so the copy is structural and exact. Besides each node's
+/// and local's own type, only two node kinds carry a type inside them: a type query and a
+/// generic call's solved arguments.
+pub fn substitute_body(body: &Body, map: &HashMap<u32, Ty>) -> Body {
+    substitute_body_with(body, map, None)
+}
+
+/// [`substitute_body`], and also what `Self` stands for — which a trait's default method
+/// needs when it is copied into a type that inherits it rather than writing it (spec §7.6).
+pub fn substitute_body_with(body: &Body, map: &HashMap<u32, Ty>, self_ty: Option<&Ty>) -> Body {
+    map_body_types(body, |t| ty::substitute_with(t, map, self_ty))
+}
+
+/// A copy of `body` with `f` applied to every type in it: each node's and local's own type,
+/// the return type, and the two node kinds that carry a type inside them.
+pub fn map_body_types(body: &Body, f: impl Fn(&Ty) -> Ty) -> Body {
+    let mut b = body.clone();
+    let s = |t: &Ty| f(t);
+    b.ret = s(&b.ret);
+    for l in &mut b.locals {
+        l.ty = s(&l.ty);
+    }
+    for e in &mut b.exprs {
+        e.ty = s(&e.ty);
+        match &mut e.kind {
+            ExprKind::TypeQuery { ty: queried, .. } => *queried = s(queried),
+            ExprKind::Call { callee: Callee::Fn { type_args, .. }, .. } => {
+                for t in type_args.iter_mut() {
+                    *t = s(t);
+                }
+            }
+            _ => {}
+        }
+    }
+    b
+}
+
+/// The compile-time questions every type answers (spec §5.5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TypeQuery {
+    /// `T::size`, and `sizeof(T)`.
+    Size,
+    /// `T::align`, and `alignof(T)`.
+    Align,
+    /// `T::name` — the source-level name.
+    Name,
+    /// `T::is_trivially_copyable` — no drop, no copy, every field trivially copyable.
+    IsTriviallyCopyable,
+    /// `T::is_copyable` — has an implicit or explicit copy (§6.3).
+    IsCopyable,
+    /// `T::has_drop`.
+    HasDrop,
+}
+
+impl TypeQuery {
+    pub fn from_name(name: &str) -> Option<TypeQuery> {
+        Some(match name {
+            "size" => TypeQuery::Size,
+            "align" => TypeQuery::Align,
+            "name" => TypeQuery::Name,
+            "is_trivially_copyable" => TypeQuery::IsTriviallyCopyable,
+            "is_copyable" => TypeQuery::IsCopyable,
+            "has_drop" => TypeQuery::HasDrop,
+            _ => return None,
+        })
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            TypeQuery::Size => "size",
+            TypeQuery::Align => "align",
+            TypeQuery::Name => "name",
+            TypeQuery::IsTriviallyCopyable => "is_trivially_copyable",
+            TypeQuery::IsCopyable => "is_copyable",
+            TypeQuery::HasDrop => "has_drop",
+        }
+    }
+
+    /// The type of the answer.
+    pub fn result(&self) -> Ty {
+        match self {
+            TypeQuery::Size | TypeQuery::Align => Ty::Int(ty::IntTy::Usize),
+            TypeQuery::Name => Ty::Str,
+            TypeQuery::IsTriviallyCopyable | TypeQuery::IsCopyable | TypeQuery::HasDrop => {
+                Ty::Bool
+            }
+        }
+    }
+}
+
 /// What a call actually calls, decided by the checker rather than re-derived downstream.
 #[derive(Clone, Debug)]
 pub enum Callee {
-    Fn(SymbolId),
+    /// A free function. `type_args` is empty unless the function is generic, in which case
+    /// it is what the call solved its parameters to (spec §8.1) — inside another generic
+    /// body those may themselves be `Ty::Param`, which monomorphization substitutes.
+    Fn { sym: SymbolId, type_args: Vec<Ty> },
     /// `recv.name(...)`, with the receiver evaluated once.
     Method { recv: ExprId, owner: SymbolId, name: String },
     /// A constructor, by position in the type's declaration order (spec §7.2).
@@ -349,4 +470,19 @@ pub enum OrClause {
     /// `or unreachable` — the failure is asserted not to happen. Panics in debug, and in
     /// release the success path may be assumed (spec §9.4).
     Unreachable,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TypeQuery;
+
+    /// Resolution accepts exactly the queries this type can represent; the two lists must
+    /// not drift, or `T::size` would resolve and then fail to check (spec §5.5).
+    #[test]
+    fn resolution_and_the_hir_agree_on_the_type_queries() {
+        for q in dz_resolve::TYPE_QUERIES {
+            let parsed = TypeQuery::from_name(q).expect("a query resolution accepts");
+            assert_eq!(parsed.name(), *q);
+        }
+    }
 }

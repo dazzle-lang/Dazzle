@@ -3,7 +3,10 @@
 
 pub struct Res {
     m_p: own ^i32
-    drop() {}
+}
+
+impl Drop for Res {
+    mut fn drop(&mut self) {}
 }
 
 fn take(r: Res) -> bool {

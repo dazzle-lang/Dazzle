@@ -2,7 +2,7 @@
 source: crates/dz_resolve/tests/resolve.rs
 expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
 ---
-modules: 2, files: 2
+modules: 3, files: 3
 
 error[DZ0006]: circular dependency between `alpha` and `beta`
   ┌─ cycle/a/dazzle.toml:6:17

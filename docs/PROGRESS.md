@@ -18,12 +18,12 @@ the milestone.
 
 | | |
 |---|---|
-| Milestones done | M0, M1, M2, M3, M4, **M5 — programs own, move and drop their resources** |
-| Next | **M6 — generics, traits, monomorphization** |
-| Tests | 88, all green |
+| Milestones done | M0, M1, M2, M3, M4, M5, **M6 — generics, traits, monomorphization** |
+| Next | **Struct inheritance (spec 18.32)**, then **M7 — C++ interop via libclang.** See §4 |
+| Tests | 94, all green |
 | Clippy | clean (`--workspace --all-targets`) |
-| Compiler crates | 11 |
-| Language spec | 0.1 **unreleased**, revision 7; four open questions (§18.2) |
+| Compiler crates | 13, plus the `dz` CLI |
+| Language spec | 0.1 **unreleased**, revision 13; four open questions (§18.2), one of them inheritance, which is designed and next |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -55,14 +55,14 @@ clang++ -std=c++17 -fno-exceptions -fno-rtti -fsanitize=address -g -O1 *.cpp -o 
 | `dz_hir` | resolved, typed tree + `Ty` + span-free dump | §17.1 |
 | `dz_parse` | recursive descent + Pratt | §20 |
 | `dz_fmt` | formatter | §17.3 |
-| `dz_project` | `dazzle.toml`, globs, dependency graph | §3.1 |
+| `dz_project` | `dazzle.toml`, globs, dependency graph, **the prelude** (`src/prelude.dz`) | §3.1, §3.2 |
 | `dz_resolve` | symbol tables, name resolution, visibility | §3, §4 |
 | `dz_check` | type checker | §5, §7, §9, §10, §11 |
 | `dz_flow` | ownership, moves, definite return | §6 |
+| `dz_mono` | monomorphization: the instances each module needs, and their concrete bodies | §8.4 |
 | `dz_cpp` | C++17 emission + the runtime shim | §16 |
 
-Crates still to come are listed in spec §17.1: `dz_mono`, `dz_cppimport`, `dz_macro`,
-`dz_lsp`.
+Crates still to come are listed in spec §17.1: `dz_cppimport`, `dz_macro`, `dz_lsp`.
 
 ---
 
@@ -300,6 +300,214 @@ rules then rewrote. Spec §5.6 and §9 are the contract; what the compiler now d
 - **18.21 is settled in the direction you chose**: a pointer iterator returns `^T`. What
   remains open is only how the *trait* spells one signature for both item kinds.
 
+### M6 — generics, traits, monomorphization
+
+**`Buffer<T>` runs** — a generic struct with an `own ^T` field, a `drop`, a folded
+compile-time branch on `T::is_trivially_copyable`, and `construct`/`destroy` over
+`alloc`/`free` — instantiated for `i32` and for a type that owns a resource, in
+`tests/run/generics`. Four questions were settled before any code was written, and are in
+spec §18.21–18.23 and r8: `Iterate` is `valid`/`get`/`advance`, slices carry their
+writability as `[]T` / `[]mut T`, the traits live in a prelude written in Dazzle, and a
+generic parameter is a real type rather than a hole.
+
+**The checker half.**
+
+- **`Ty::Param`** (§8.1). A generic parameter is a type whose identity is a unique id,
+  compatible with nothing it has not been proved compatible with. `Ty::Named` grew type
+  arguments in the same change, since `Buffer<f32>` and `Buffer<i32>` are two types;
+  `ty::substitute` / `substitute_with` are the one place parameters and `Self` are replaced.
+- **Definition-site checking** (§8.1, §8.6). A generic body is checked once, against its
+  bounds, and `a.frobnicate()` in `fn f<T: Ord>` is reported at that line, naming the bound
+  that does not provide it. Method lookup walks the bound's supertraits. Checking against
+  *nothing* has a consequence worth knowing: an unbounded `T` is move-only, so `largest`
+  returns `move(b)` — correct by §6.4, and now written into §8.2 (r11).
+- **Traits** (§7.6). Conformance is verified at the declaration: every non-default method,
+  with its declared signature, and every associated type chosen, supertraits included. A
+  trait reference carries its arguments (`TraitRef`), because `Mul<f32>` and `Mul<Vec2>` are
+  different obligations. **An associated type is a `Ty::Param` allocated per trait** — inside
+  the trait it is a type nobody has chosen, which is exactly what a generic parameter is, so
+  every rule already built applies to it unchanged.
+- **Call-site inference** (§8.1): type arguments solved from the argument types or taken as
+  written (`largest<Score>(a, b)`), an undetermined parameter reported, bounds checked.
+- **Operators dispatch through the prelude's traits** (§11.2), which closed invariant 7's
+  standing comparison hole. `==`/`!=` go to `Eq::eq`; `<`, `>`, `<=`, `>=` all go to
+  `Ord::cmp`, so four operators cannot disagree. For arithmetic the implementation is
+  *found* rather than constructed from the operand — `v * 3` has to pick `Mul<f32>` while the
+  literal is still untyped, then re-check the `3` against it so C++ sees `3.0f` rather than
+  an `int` it would quietly convert. Primitives satisfy the traits for the purpose of bounds
+  and keep their machine operators; codegen lowers a trait call on a primitive back to one.
+- **Four passes, in dependency order**: type parameters and associated types, then bounds
+  and trait lists, then signatures, then bodies. `struct Vec3 : Mul<f32>` must check its
+  argument count against `Mul`, which may be declared after it, and order never matters
+  within a module (§3.2).
+- **The prelude** (§3.2, §18.23) is `crates/dz_project/src/prelude.dz`: ordinary Dazzle,
+  compiled into the binary and injected as module `dz`, on which every module depends
+  implicitly. It lexes, parses, resolves, checks and is emitted like any module, and a
+  mistake in it renders against `<prelude>/dz.dz` with a caret. Two things fell out:
+  **shim references became `::dz::`**, since a module named `dz` otherwise shadows the
+  shim's namespace, and **a signed enum may be negative** (`Less = -1`).
+- **Array literals** (§5.3, §18.24) and **`.Variant` on either side of a comparison** (§7.4)
+  landed alongside, at the user's request.
+- **§12.9 format strings are checked** (DZ0526, DZ0527): a literal first argument, the
+  placeholder count, whether each spec suits its argument, and whether the argument can be
+  written at all. That removed invariant 7's last known violation — `println("{}", s)` on a
+  struct used to reach C++ and fail there. The shim grew `{:x}`, `{:X}`, `{:.N}` and brace
+  escapes to match.
+- **Constant folding** (§8.3). Array lengths and un-annotated `const`s fold from literals,
+  operators and other `const`s, with a cycle guard. `[n]i32` over a local is now an error
+  rather than silently a slice.
+
+**The emission half.**
+
+- **`dz_mono` decides what exists; `dz_cpp` only spells it.** Per module, a worklist starts
+  from every non-generic body and struct field, collects each `(generic, arguments)` pair it
+  reaches, and builds the concrete body by substituting the *already checked* generic body
+  (`dz_hir::substitute_body`). An instance is never re-checked, so it cannot fail
+  differently from its definition — which is §8.6's whole argument. It runs inside
+  `analyse`, so `dz check` reports what monomorphization reports.
+- **Runaway instantiation is `DZ0536`, once per module**, at depth 32 — a `f<Box<T>>()`
+  inside `f<T>` names the call instead of exhausting C++'s template depth (§8.4).
+- **Readable mangling** (§8.4, §16.2): `Buffer<f32>` is `Buffer__f32`, a named argument is
+  qualified by its module, nested arguments are bracketed `_L_…_R`. An instance is emitted in
+  its generic's home namespace behind its own include guard, with method bodies `inline` in
+  the header, since several translation units may need the same one.
+- **One layout sort over `Ty`s** replaced the per-module declaration sort: a struct holding a
+  `Buffer<Tracked>` by value needs the instance defined first, and the instance needs
+  `Tracked`, so named types and instances have to be ordered together.
+- **§8.3 folding.** A condition built from type queries, `bool` constants, `!`, `&&` and `||`
+  is evaluated per instance and the dead branch is not emitted. `sizeof(T)`, `alignof(T)`
+  and every `T::` query lower to one `TypeQuery` node, answered from the instance's
+  concrete type — `T::name` included.
+- **Default methods are copied into each implementer**: checked once with `Self` as a
+  parameter, then substituted and emitted as the struct's own method, so `c.heavy()` is an
+  ordinary member call. **Trait default bodies had never been checked at all** — the body
+  pass skipped traits, and nothing noticed until one had to be emitted.
+- **`for` over a user `Iterate`** is `for (auto it = x; it.valid(); it.advance())` with the
+  `get()` first in the body — §10.4's desugaring, with `continue` landing on `advance` for
+  free. A range held in a variable is a `::dz::Range<T>` and iterates the same way.
+- **`DZ0804`: codegen refuses an `Error` node nobody reported.** It exists because of what it
+  found. `.len` had never been a node the checker built, so it lowered to `Ty::Error`, which
+  C++ received as `0`: **every `xs.len` in a generated program was zero**, silently, since
+  `Ty::Error` is compatible with everything. It is now `ExprKind::Len`. M5 wrote that
+  `Ty::Error` without a diagnostic is a hole; this is the rule that makes the next one a
+  compiler error instead of a miscompile.
+- **Trait objects are refused, not half-emitted**: `^Trait` reports `DZ0801` naming M12.
+- **Every `DZ0801` that said "owed by M6" was re-homed**, each to the milestone whose work it
+  actually is — see §3.
+
+**Found, and handed back rather than decided** (spec §18.2, r11) — all three settled in r12,
+below:
+
+- **§8.3's own example did not check** (18.26). Its `else` branch copies an element, and an
+  unbounded `T` cannot be copied (§8.2). Folding happens after checking, so a branch that is
+  dead for `f32` must still check for every `T`.
+- **One right-hand side per operator** (18.27). `Mat4 : Mul<Vec4> + Mul<f32>` needs two
+  `mul`s, which §18.5's deferral of overloading forbade.
+- **`break` with a value** (18.28) was parsed but absent from §20's grammar and undefined.
+
+**Noticed, not fixed:**
+
+- **Slice element types are not invariant.** `assignable` recurses with `assignable` rather
+  than equality, so `[]^T` accepts a `[]&mut T`. Pre-existing, and orthogonal to §18.22.
+- **Returning a slice of a local array is not caught.** The temporary rule (§5.3) is keyed
+  on placehood, so `return [1, 2, 3]` from a `-> []i32` is rejected but `let a: [4]i32;
+  return a` is not. Seeing that needs escape analysis, and §1.1 leaves a stale view to the
+  programmer as it does a stale `^T`.
+- **§18.16 bit in a small way**: §5.2 said `&T` → `^T` is implicit, and the checker allowed
+  only `&mut T` → `^T`, which M4 did deliberately (§2, M4). r12 made the spec agree with the
+  checker.
+
+### r12 — `unsafe`, `Copy`, one trait at several arguments
+
+A language revision rather than a milestone: the answers to r11's open questions, built and
+tested before M7 starts. Spec §21 r12 is the contract; what the compiler does:
+
+- **`unsafe` is checked where the operation is built, not by a pass.** The body checker
+  carries an `unsafe` depth — one inside `unsafe { }`, and from the start of an `unsafe fn` —
+  and each raw-memory operation asks for it: deref, `.`/`[i]`/a method call through a `^T`,
+  a pointer cast, the four raw builtins, and a call to an `unsafe fn` (`DZ0528`). Past the
+  checker an `unsafe` block is an ordinary HIR block; nothing about it reaches C++.
+- **One missing `unsafe` is one diagnostic.** `construct(m_data[i], v)` is two unsafe
+  operations and one mistake, so a report is suppressed when its span nests with one
+  already made — and the list rolls back with the checker's quiet re-checks, or a probe
+  that runs before the real check would swallow its diagnostic.
+- **`Copy` is structural.** `satisfies` answers it from `TypeTable::copyable` rather than
+  from an implements-list, and a `T: Copy` is copyable everywhere copyability is asked.
+  A generic struct's `copy` body is checked — and flow-analysed — with the struct's
+  parameters assumed copyable (`copyable_assuming`); an instance whose arguments are not
+  gets deleted copy operations in C++, and `dz_mono` never instantiates its `copy` body.
+  `tests/run/generics`' `Buffer<T>` now has a `copy`, so the M6 criterion holds as §8.3
+  writes it.
+- **Several methods of one name are keyed, not overwritten.** `StructSig.methods` used to
+  be a plain name map, so a second `fn mul` **silently replaced the first** — a duplicate
+  method was never reported at all. Now the second is stored as `mul#1`, conformance
+  matches each trait instantiation to the method whose signature fits, and every leftover
+  repeat is `DZ0537`. A call picks by its first argument's type (`DZ0538` when a literal
+  fits several and defaults to none).
+- *(Superseded in r13, where each implementation is its own `impl` block and its methods
+  free functions; the reasoning about C++ overloading still holds.)* **Overloads get their
+  own C++ names**, `mul__f32` beside `mul__generics_Vec2`, and codegen
+  resolves the name per call from the argument's concrete type. C++ overloading was the
+  obvious alternative and is wrong: `3ll` is not `int64_t` everywhere, and `i8 + i8`
+  promotes to `int`, so C++ could pick a different method than the checker did. Resolving
+  in codegen also covers a call written against a bound, which only has a concrete
+  receiver once it is an instance.
+- **`or` on a `^T` gives a `&mut T`**, and `.ptr` (a new `DataPtr` HIR node) gives the
+  unchecked way into a writable array or slice. Bounds checks are no longer compiled out
+  of release builds: `DZ_NO_BOUNDS_CHECK` is gone from the shim and the build flags.
+- **`break` lost its value** in the AST, the HIR and every consumer; the parser reports one
+  as `DZ0212` and still consumes it, so the line does not cascade.
+- **Two existing bugs, found on the way.** A struct's trait list was parsed with the
+  expression-style path parser, which accepts `>` only before `::`, `(` or `{` — so
+  `: Mul<f32> + Mul<Vec2>` was a syntax error and only a generic trait written *last*
+  worked. And the formatter wrote a block-valued `let` or assignment with its body
+  unindented (`let x = if c {` then `1` at column 4); the committed snapshot had pinned the
+  wrong output.
+
+### r13 — implementations: `impl Trait for Type`, and `Drop` / `Copy` as traits
+
+The second half of the answers to r11's questions, and the reason for it: adding behaviour
+to a type without touching it — an editor's `Inspect` for an engine's components. Spec §21
+r13 and §7.6 are the contract; what the compiler does:
+
+- **An implementation is a table entry, not a property of a struct.** `TypeTable::impls`
+  holds one `ImplSig` per `impl` — the trait with its arguments, the type, its own generic
+  parameters, its methods and its associated-type choices — and every question that used
+  to read a struct's trait list reads it instead: bounds (`implements`), method lookup
+  (`impls_for`), operators, `for` over an `Iterate`, and associated types, which are now
+  looked up per implementation (`assoc_bindings` takes the `TraitRef`). That last is all
+  18.29 needed: `Mat4 × Vec4` and `Mat4 × f32` have different `Output`s because they are
+  different entries.
+- **A generic implementation is a pattern.** `impl<T: Copy> Copy for Buffer<T>` applies to a
+  type by matching `Buffer<T>` against it and then checking the bounds on what `T` became
+  (`impl_applies`). The same matching drives codegen and monomorphization, so a call
+  written against a bound resolves to the right implementation only once it is an instance.
+- **A misplaced implementation is never registered.** The orphan rule, an `impl` for every
+  type, and the placement rules for `Drop`/`Copy` are checked in pass 1, and an
+  implementation that breaks one is reported and dropped. Registering it and reporting
+  later was the first version, and `impl<T> Same for T` then made every type satisfy
+  `Same` — silently removing a real error elsewhere in the fixture.
+- **`Drop` and `Copy` implementations fill the slots special members used to.** After pass
+  2 they are attached to their struct (`attach_special_impls`) as `StructSig::drop` /
+  `copy`, and their bodies are owned as `BodyOwner::Drop` / `Copy`. Flow analysis, the
+  C++ special members and monomorphization therefore did not change shape; only where the
+  bodies come from did. r12's implicit "`T` counts as `Copy` inside `copy`" is gone —
+  `impl<T: Copy>` says it, and a `T: Copy` is copyable everywhere.
+- **Other implementations' methods are free functions**, `Mul_f32__generics_Vec2__mul(const
+  Vec2& self, float rhs)`, because C++ cannot add members to a class from another header
+  or to `float`. Calls to a trait's method resolve the implementation at emission, per
+  instance; `for` over an `Iterate` calls `Iterate__T__valid(it)` and friends. The
+  receiver is `[[maybe_unused]]`, since a method that ignores `self` otherwise warns — the
+  two-compiler check caught it, invariant 7 working as intended.
+- **Trait defaults are per implementation.** A default the `impl` does not override is
+  instantiated for that implementation (`impl_defaults`), replacing r12's per-struct copies.
+- **A struct's `: Base` is parsed and reserved.** The checker reports it as not yet
+  implemented; inheritance is designed (18.32) and is the next piece of work.
+- **`Error.location` is a `&SourceLocation`** in the type system and still a pointer in the
+  shim; reading the field dereferences it, so `let at = e.location` binds a C++ reference.
+- Explicitly calling `drop` or `copy` is an error: they reach a destructor and a copy
+  constructor, not functions, and there is no correct C++ to emit for the call.
+
 ---
 
 ## 3. Deferral register
@@ -309,21 +517,27 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 
 | Owed by | What is deferred | Where |
 |---|---|---|
-| **M6** | A slice parameter is immutable through an immutable binding, so `&mut xs[i]` on an `xs: []i32` parameter is rejected. A slice is a pointer and a length, and indexing one arguably ought to be mutable the way `^T` is — but that is a language question (§5.3) for you, not a bug to fix quietly | `dz_check/src/check.rs`, `place_mutability` |
-| **M6** | A range that escapes a `for` loop reports `DZ0801`; `dz::Range<T>` exists in the shim but nothing produces one | `dz_cpp`, `expr` |
-| **M6** | `break` with a value reports `DZ0801` | `dz_cpp`, `expr` |
-| **M6** | Generic bodies are skipped, not checked; generic items are not emitted | `dz_check/src/check.rs`, `dz_cpp` |
-| **M6** | Trait conformance: `struct Arena : Allocator` resolves the name but nothing verifies the methods | `dz_check/src/lib.rs` |
-| **M6** | **§12.9 format-string checking.** Builtin calls are variadic and untyped: the first argument is not required to be a string literal, `{}` count is not compared against the argument count, `{:spec}` is not parsed, and an argument whose type cannot be formatted is not rejected — so `println("{}", some_struct)` reaches C++ and fails there as `DZ0803` (an invariant-7 violation). The check wants the `Format` trait to say what "formattable" means, so it waits for traits | `dz_check/src/check.rs`, `builtin_call_type` |
-| **M6** | `for` over user types needs `Iterate` | `dz_check/src/check.rs` |
-| **M6** | Constant folding; array lengths accept only literals; `const` without an annotation infers from literals only | `dz_check/src/lib.rs` |
-| **M6** | `sizeof`/`alignof` and the reflection builtins are not emitted | `dz_cpp`, reports `DZ0801` |
+| **next** | **Struct inheritance.** `struct Button : UiElement` parses, and the checker reports it with `DZ0801`; the design is settled as spec 18.32 | `dz_check/src/check.rs`, `item` |
 | **M7** | `import cpp "…"` is accepted and the alias is opaque; no header is read | `dz_resolve/src/walk.rs` |
+| **M7** | **No read-only pointer.** `.ptr` refuses a `[]T`, and `&T` cannot widen, because the only pointer is the writable `^T`. A `^const T` belongs with the `const T*` mapping M7 has to decide (spec §15.2) | `dz_check/src/check.rs`, `Field` |
+| **M8** | **A generic union** reports `DZ0801`. Unions are M8's, and the tagged-union emission has no instance path yet | `dz_cpp/src/lib.rs`, `module` |
+| **M8** | **Hoisting in initialiser position.** A `const`, a field default or a default argument whose value needs statements — an `or` clause, a block-valued `if` or `switch` — reports `DZ0801`, because each is emitted where C++ allows only an expression | `dz_cpp`, `const_decl`, `field_default`, `decl_params` |
+| **M8** | `switch` on a subject that is neither an enum nor a union (an integer, a `str`) | `dz_cpp`, `switch` |
+| **M8** | `for` with three or more bindings, i.e. destructuring a tuple `Item` (§10.4's `for btn, state in …` with an index) | `dz_cpp`, `for_loop` |
 | **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
+| **M10** | The intrinsics `#module`, `#location` and `#expr_text` are typed but not emitted (`#file`, `#line`, `#column` and `#function` are) | `dz_cpp`, `intrinsic` |
+| **M11** | `typeinfo_of`, `typeid_of` and `typeinfo` are typed but not emitted | `dz_cpp`, `builtin` |
+| **M12** | **Generic methods** — a method with type parameters of its own — report `DZ0801`. A generic *type*'s methods are instantiated; a method generic over its own arguments needs a second instance key and has no user yet | `dz_cpp/src/lib.rs`, `struct_decl` |
+| **M12** | **`^Trait`**, and so a stored `^Allocator`: static dispatch only, per the M6 plan (§7.6, §18.6). Refused with `DZ0801` wherever one appears | `dz_cpp`, `reject_trait_objects` |
+| **M12** | **Associated-type projection** (`T::Item`, `T::Output`). An associated type resolves through an implementer but cannot be named off a bounded parameter, so `for` over a generic `T: Iterate` is refused by the checker (`DZ0801`), and generic arithmetic cannot name its result type | `dz_check/src/check.rs`, `iterate_item` |
+| **M12** | An open-ended range (`lo..`) held in a variable rather than written in a `for` head | `dz_cpp`, `expr` |
+| **M12** | `assert` is typed but not emitted; it becomes an ordinary stdlib function | `dz_cpp`, `builtin` |
+| **M12** | `alloc` panics on an alignment stricter than `malloc` guarantees, rather than honouring it | `dz_cpp/src/runtime.rs`, `alloc` |
+| **M12** | A trait default method is exercised by `tests/run/generics` only for bodies that call the trait's own methods; one that builds or returns a `Self` value has no test | `dz_mono`, `inherited_defaults` |
 | **M12** | A union variant whose payload owns a resource is refused rather than leaked. A C++ union with a non-trivial member needs special members that switch on the tag; §7.5 marks variant drops `[PROPOSED]`, so this waits for that decision | `dz_cpp/src/lib.rs`, `union_decl` |
 | **M12** | `error(…)` and `format(…)` write into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. §9.2 requires no allocation *and* a message that outlives the call; a real answer needs the stdlib's `String` | `dz_cpp/src/runtime.rs` |
 | **M12** | `or unreachable` panics in release as well as debug. §9.4 says release may assume the success path, and §18.20 has not settled whether that means `__builtin_unreachable` or merely skipping the check | `dz_cpp/src/lib.rs`, `clause` |
-| **M12** | No stdlib. `dz_prelude.h` stands in for §12.9's `Format` trait so `println` works at all. `println`/`print`/`format` are temporary builtins and stop being builtins here: they become ordinary stdlib functions over `Format`. The operator traits of §11.2 (`Ord`, `Add`, …), `Iterate`, `Allocator`, `String`, `Buffer` do not exist, so naming one is correctly an unresolved-name error | `dz_cpp/src/runtime.rs` |
+| **M12** | No stdlib. `println`/`print`/`format` are still builtins and stop being so here: they become ordinary stdlib functions over `Format`. The prelude declares the traits (§18.23) but nothing implements them — `String`, `Buffer`, `HashMap`, `Arena` and `Allocators::Global` are M12 — and `Formatter` is an empty struct until `String` exists to give it a buffer | `dz_cpp/src/runtime.rs`, `dz_project/src/prelude.dz` |
 
 ### Not deferred — deliberately out of scope forever
 
@@ -333,40 +547,60 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 
 ---
 
-## 4. Next: M6 — generics, traits, monomorphization
+## 4. Next: struct inheritance, then M7
 
-Ends when `Buffer<T>`, `Allocator` and `Arena` work as written in spec §6 and §8 — which is
-also what M5's stated criterion was waiting for, since `Buffer<T>` and `String` are generic.
-Nothing about them is blocked on ownership any more.
+### Struct inheritance (spec 18.32)
 
-Planned order:
+Designed with the user and recorded as 18.32; written into §7.3 by the revision that
+implements it. `: Base` already parses and is reserved. The work, roughly in order:
 
-1. **Definition-site checking** (§8.1). A generic body is checked **once**, against its
-   bounds, not per instantiation. This is the whole point of §8.6 and the reason error
-   messages can point at user code — get it wrong and every later diagnostic names a
-   generated instantiation instead.
-2. **Traits** (§7.6): declaration, conformance checking (`struct Arena : Allocator` today
-   resolves the name and verifies nothing), associated types (§8.5), and `^Trait` as the
-   fat pointer §18.6 settled on.
-3. **`dz_mono`**: instantiate generic items, fold compile-time branches (§8.3, §8.4). Names
-   are mangled Dazzle-side so the C++ stays readable and `#line` keeps working.
-4. **The operator and iteration traits** the checker currently hard-codes: `Ord`/`Add`/…
-   (§11.2) and `Iterate` (§10.4), which is what lets `for` run over a user type.
-5. **§12.9 format-string checking**, which has been waiting for `Format` to exist — see the
-   deferral register. Until then `println("{}", some_struct)` fails in C++ rather than in
-   Dazzle, which is the one standing violation of invariant 7.
-6. **Constant folding** (§8.3), which array lengths and un-annotated `const` both need.
+1. **Layout and conversions.** The base's fields come first, so `&Derived` → `&Base` and
+   `^Derived` → `^Base` are free; lower to real C++ single inheritance. A by-value
+   `Derived` → `Base` is an error (no slicing). Fields and methods of the base are in
+   scope in the derived type, as its own are (§7.3).
+2. **Constructors.** A base with a constructor must be constructed through it:
+   `Button(…) : UiElement(r) { … }`, an error when left out; a base without one is
+   default-initialised (§6.2). The same rule makes a struct literal of a type with a
+   constructor an error — agreed alongside, and part of the same revision.
+3. **`virtual` / `override`.** Both checked in both directions; a body-less `virtual fn`
+   makes the base abstract and not constructible. `drop` is virtual automatically once a
+   type or a base has a `virtual` method. `UiElement::draw(self)` calls the base's version.
+   Lowers to C++ `virtual`, which is also what lets a Dazzle struct inherit an imported C++
+   class at M7 (Jolt's listeners) — and what M13's hot reload will have to re-point.
+4. **`protected`**, a fourth visibility: the type's own methods and its derived types'.
+5. **Implementations are inherited** — a `Button` is `Inspect` if `UiElement` is — and a
+   more specific `impl Inspect for Button` overrides the inherited one. Static, so
+   dispatch through a `&UiElement` goes to `UiElement`'s implementation; runtime dispatch
+   is a `virtual` method called from it. This needs `impl_applies` to consider bases, and
+   overlap to allow exactly this one shape.
 
-Two things to settle early, because they shape everything after:
+### M7 — C++ interop via libclang
 
-- **How `Iterate::next` spells one signature for both item kinds** (§18.21). The decision is
-  made — a pointer iterator returns `^T`, a value iterator `Item?` — but the trait
-  declaration still has to say so in one signature.
-- **Whether a generic parameter is a real `Ty` or a substitution.** Today an unresolved type
-  name inside a generic body becomes `Ty::Error`, and `Ty::Error` is compatible with
-  everything, so generic bodies are skipped rather than checked. M5 found three real bugs
-  hiding behind exactly that behaviour; a `Ty::Param` that is compatible with *nothing* it
-  has not been proved compatible with is the shape that avoids repeating it.
+Ends when **a raylib window opens from Dazzle** (spec §19). This is the milestone that
+turns Dazzle from a toy that prints into something that can draw, and it is the first of
+0.1's three release conditions (the others are M9's LSP and M12's stdlib).
+
+What exists: `import cpp "…"` parses, resolves to an opaque alias, and reads nothing
+(`dz_resolve/src/walk.rs`). Everything else is new.
+
+1. **Read spec §15 first, all of it** — importing (§15.1), the mapping table (§15.2),
+   overloads (§15.3), templates (§15.4) and exporting (§15.5). Anything it leaves open is a
+   question for the user before code, as the four were before M6.
+2. **`dz_cppimport`** (spec §17.1): a libclang reader that turns a header into Dazzle-side
+   declarations the resolver and checker can treat like any module's. The binding is a
+   choice to make deliberately — `clang-sys` needs `libclang.dll` at run time on Windows,
+   which is the same environment problem ASan already has (§1).
+3. **Map the subset raylib needs, and nothing more**: C functions, plain structs, enums,
+   `#define` integer constants, pointers. raylib is C, so overloads and templates can wait
+   for a C++ header that needs them.
+4. **Emission and linking.** The generated `.cpp` includes the header, and `dazzle.toml`
+   needs somewhere to say which library to link. `dz run` must still work on both
+   compilers.
+
+**Decide during M7:** whether there is a `^const T`. raylib's `const Vector2*` parameters
+are the real cases to judge it against, and it is what `.ptr` on a `[]T` is waiting for.
+`impl` blocks are what an imported type gets traits through — raylib's `Color` can only
+ever be `Inspect` that way — so M7 is also their first real test.
 
 ---
 
@@ -384,7 +618,7 @@ Two things to settle early, because they shape everything after:
 | `tests/workspace/typed` | `dz_check/tests/check.rs` | **must produce zero diagnostics** |
 | `tests/workspace/typeerrors` | " | one deliberate failure per type rule |
 | `tests/flow/*.dz` | `dz_flow/tests/flow.rs` | one file per ownership rule, each naming the code it must produce in an `// expect:` line, plus `clean.dz` which must produce nothing. The count is asserted too, so a rule that fires twice for one mistake is a regression |
-| `tests/run/*/` | `dz/tests/run.rs` | whole programs compiled by a real C++ compiler and executed, stdout compared against `expected.txt`. A first line of `#panic` marks a program that must abort. `features` covers M4's constructs, `ownership` §6's special members and drop ordering, `failure` §9's `or` clauses plus unions and tuples |
+| `tests/run/*/` | `dz/tests/run.rs` | whole programs compiled by a real C++ compiler and executed, stdout compared against `expected.txt`. A first line of `#panic` marks a program that must abort. `features` covers M4's constructs plus array literals and `.Variant`, `ownership` §6's special members and drop ordering, `failure` §9's `or` clauses plus unions and tuples, `generics` §8's `Buffer<T>` for two element types, traits and default methods, a user `Iterate`, format specs and folded constants. `run.rs` also pins that runaway instantiation is one `DZ0536` and that a trait object is refused |
 
 `examples/*.dz` are **not** tests. They are the user's pre-spec design sketches and are not
 expected to parse.

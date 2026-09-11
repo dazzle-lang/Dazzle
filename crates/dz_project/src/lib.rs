@@ -71,6 +71,9 @@ pub struct Dependency {
     pub alias: String,
     pub alias_span: Span,
     pub module: ModuleId,
+    /// True for the prelude, which every module depends on without saying so (spec §3.2).
+    /// An unused-import warning would be nonsense for a dependency nobody wrote.
+    pub implicit: bool,
 }
 
 #[derive(Debug)]
@@ -88,6 +91,10 @@ pub struct Module {
     pub deps: Vec<Dependency>,
     pub build: BuildConfig,
     pub cpp: CppConfig,
+    /// Set only on the **prelude** (spec §3.2, §18.23): its source is carried by the
+    /// compiler rather than read from disk, and `sources` holds one pseudo-path for it so
+    /// ordering, spans and diagnostics all work exactly as they do for a real file.
+    pub embedded_source: Option<&'static str>,
 }
 
 impl Module {
@@ -95,12 +102,30 @@ impl Module {
     pub fn dependency(&self, alias: &str) -> Option<&Dependency> {
         self.deps.iter().find(|d| d.alias == alias)
     }
+
+    /// The bytes of one of this module's sources. Every phase goes through here rather
+    /// than calling `std::fs::read`, so the prelude needs no special case downstream.
+    pub fn read_source(&self, path: &Path) -> std::io::Result<Vec<u8>> {
+        match self.embedded_source {
+            Some(text) => Ok(text.as_bytes().to_vec()),
+            None => std::fs::read(path),
+        }
+    }
+
+    /// Is this the compiler's own prelude (spec §18.23)? It is emitted like any other
+    /// module — `Ordering` and `Formatter` are real types user code can name — so this is
+    /// for diagnostics and for the "did you mean" lists, not for skipping work.
+    pub fn is_prelude(&self) -> bool {
+        self.embedded_source.is_some()
+    }
 }
 
 #[derive(Debug)]
 pub struct Workspace {
     modules: Vec<Module>,
     pub root: ModuleId,
+    /// The prelude (spec §3.2, §18.23). Always present, and always module 0.
+    pub prelude: ModuleId,
 }
 
 impl Workspace {
@@ -140,9 +165,33 @@ pub fn load(
         normalize(&if entry.is_dir() { entry.join("dazzle.toml") } else { entry.to_owned() });
 
     let mut loader = Loader { map, diags, modules: Vec::new(), by_path: HashMap::new() };
+    let prelude = loader.add_prelude();
     let root = loader.load_module(&manifest_path, None)?;
-    Some(Workspace { modules: loader.modules, root })
+
+    // Every module depends on the prelude, so `Ord` and `Iterate` are in scope everywhere
+    // with no import (spec §3.2, §18.23). Recorded as an ordinary dependency rather than as
+    // a special case in name resolution, so visibility, "did you mean", and the cycle check
+    // all treat it like any other module.
+    let mut modules = loader.modules;
+    for m in &mut modules {
+        if m.id != prelude {
+            m.deps.push(Dependency {
+                alias: PRELUDE_MODULE.to_owned(),
+                alias_span: Span::DUMMY,
+                module: prelude,
+                implicit: true,
+            });
+        }
+    }
+    Some(Workspace { modules, root, prelude })
 }
+
+/// The prelude's module name (spec §3.2). `dz::Ord` always reaches it, and a local
+/// declaration of the same name shadows the unqualified spelling.
+pub const PRELUDE_MODULE: &str = "dz";
+
+/// The prelude's source, compiled into the binary.
+const PRELUDE_SOURCE: &str = include_str!("prelude.dz");
 
 struct Loader<'a> {
     map: &'a mut SourceMap,
@@ -153,6 +202,34 @@ struct Loader<'a> {
 }
 
 impl<'a> Loader<'a> {
+    /// Add the prelude as module 0 (spec §3.2, §18.23).
+    ///
+    /// It is a real module in every respect except that its source comes from the compiler
+    /// rather than from disk: it goes into the `SourceMap` under a pseudo-path, so a
+    /// diagnostic inside it renders with a caret and a line number exactly as any other
+    /// file's would. That matters — a mistake in the prelude is a compiler bug, and it
+    /// should be as readable as a user's.
+    fn add_prelude(&mut self) -> ModuleId {
+        let id = ModuleId(self.modules.len() as u32);
+        let path = PathBuf::from("<prelude>").join("dz.dz");
+        let file = self.map.add(path.clone(), PRELUDE_SOURCE.to_owned());
+        self.modules.push(Module {
+            id,
+            name: PRELUDE_MODULE.to_owned(),
+            name_span: Span::DUMMY,
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            root_dir: PathBuf::from("<prelude>"),
+            manifest: file,
+            manifest_path: path.clone(),
+            sources: vec![path],
+            deps: Vec::new(),
+            build: BuildConfig::default(),
+            cpp: CppConfig::default(),
+            embedded_source: Some(PRELUDE_SOURCE),
+        });
+        id
+    }
+
     /// `from` is the manifest that depends on this one, used for the cycle message.
     fn load_module(&mut self, manifest_path: &Path, from: Option<(FileId, Span)>) -> Option<ModuleId> {
         let canonical =
@@ -227,6 +304,7 @@ impl<'a> Loader<'a> {
             deps: Vec::new(),
             build,
             cpp,
+            embedded_source: None,
         });
 
         let deps = self.load_dependencies(file, &doc, &root_dir, id);
@@ -473,6 +551,7 @@ impl<'a> Loader<'a> {
                         alias: entry.key.clone(),
                         alias_span: entry.key_span,
                         module: dep_id,
+                        implicit: false,
                     });
                 }
                 None => continue,

@@ -64,6 +64,12 @@ pub const ASSIGN_IN_EXPRESSION: &str = "DZ0209";
 pub const AMBIGUOUS_STRUCT_LITERAL: &str = "DZ0210";
 /// Two `or` clauses on one expression. `or` is non-associative (spec §9.4, §11.1).
 pub const CHAINED_OR: &str = "DZ0211";
+/// `break` followed by a value. A loop is a statement and has no result to give, so the
+/// language has no such form (spec §10.2, §18.28).
+pub const BREAK_WITH_VALUE: &str = "DZ0212";
+/// `drop()` or `copy(other: &Self)` written as a member. They are implementations of the
+/// `Drop` and `Copy` traits (spec §6.1).
+pub const SPECIAL_MEMBER_IS_A_TRAIT: &str = "DZ0213";
 
 // --- DZ00xx: projects and manifests --------------------------------------------
 
@@ -169,6 +175,52 @@ pub const OR_CLAUSE_TYPE: &str = "DZ0523";
 pub const IGNORE_PRODUCES_NO_VALUE: &str = "DZ0524";
 /// An `or` clause on something that cannot fail (spec §9.4).
 pub const NOT_FALLIBLE: &str = "DZ0525";
+/// A formatting call whose format string does not fit its arguments: not a string literal,
+/// a `{}` count that differs from the argument count, an unknown `{:spec}` or one that does
+/// not suit its argument, an unbalanced brace, or a `{name}` (spec §12.9).
+pub const BAD_FORMAT_STRING: &str = "DZ0526";
+/// A formatting argument whose type has no way to be written (spec §12.9).
+pub const NOT_FORMATTABLE: &str = "DZ0527";
+/// A raw-memory operation outside `unsafe`: reading or writing through a `^T`, indexing
+/// one, a pointer cast, `construct`/`destroy`/`memcpy`/`free`, or a call to an `unsafe fn`
+/// (spec §5.2). Forming, copying, storing and comparing a pointer are all safe.
+pub const UNSAFE_OPERATION: &str = "DZ0528";
+
+// --- DZ053x: generics and traits (spec §8, §7.6) -------------------------------
+//
+// Still type checking, so still DZ05xx; a block of their own only so they are easy to
+// find. DZ06xx is spoken for by macros.
+
+/// A generic bound, or a `struct S : X`, naming something that is not a trait (§8.1).
+pub const NOT_A_TRAIT: &str = "DZ0530";
+/// Something done with a generic parameter that its bounds do not permit (spec §8.1).
+/// The whole point of definition-site generics: this is reported inside the generic body,
+/// at the offending line, and never at an instantiation (§8.6, principle 4).
+pub const UNSATISFIED_BOUND: &str = "DZ0531";
+/// A type declaring `: Trait` that does not implement one of the trait's methods (§7.6).
+pub const MISSING_TRAIT_MEMBER: &str = "DZ0532";
+/// A trait method implemented with a signature that does not match the trait's (§7.6).
+pub const TRAIT_MEMBER_MISMATCH: &str = "DZ0533";
+/// A type argument list of the wrong length, or a type argument that cannot be inferred
+/// (spec §8.1).
+pub const WRONG_TYPE_ARG_COUNT: &str = "DZ0534";
+// DZ0535 was a duplicate generic parameter. Name resolution binds generic parameters
+// through the same path as every other binding, so `<T, T>` is DZ0306 and this code was
+// never reachable. Codes are not reused, so the number is retired rather than reassigned.
+/// Monomorphization that does not terminate, bounded by the compiler rather than left to
+/// C++'s template depth limit (spec §8.4).
+pub const RECURSIVE_INSTANTIATION: &str = "DZ0536";
+/// Two methods with one name that are not implementations of one trait at different
+/// arguments — the only overloading there is (spec §7.6, §18.5, §18.27).
+pub const DUPLICATE_METHOD: &str = "DZ0537";
+/// A call that more than one of a type's same-named methods would accept (spec §18.27).
+pub const AMBIGUOUS_CALL: &str = "DZ0538";
+/// An `impl` written where it may not be: outside both the trait's module and the type's
+/// (the orphan rule), for every type at once, or a `Drop`/`Copy` that is not its struct's
+/// own (spec §6.1, §7.6).
+pub const ORPHAN_IMPL: &str = "DZ0539";
+/// Two implementations of one trait that could both apply to the same type (spec §7.6).
+pub const OVERLAPPING_IMPL: &str = "DZ0540";
 
 // --- DZ08xx: code generation ---------------------------------------------------
 
@@ -178,3 +230,7 @@ pub const CODEGEN_UNSUPPORTED: &str = "DZ0801";
 pub const NO_ENTRY_POINT: &str = "DZ0802";
 /// The C++ compiler could not be found, or failed on the generated code.
 pub const CPP_COMPILER_FAILED: &str = "DZ0803";
+/// A compiler bug: a later phase met something an earlier phase should have reported or
+/// never produced — an error node with no diagnostic behind it, say. Always our fault, and
+/// said so, rather than surfacing as bad C++ (invariant 7).
+pub const INTERNAL_ERROR: &str = "DZ0804";

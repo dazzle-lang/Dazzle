@@ -163,8 +163,10 @@ fn keywords_are_distinguished_from_identifiers() {
     use TokenKind::*;
     assert_eq!(kinds("let letx"), vec![Let, Ident, Eof]);
     assert_eq!(kinds("self Self"), vec![SelfValue, SelfType, Eof]);
-    // Reserved words still lex as identifiers for now (spec §2.7).
-    assert_eq!(kinds("unsafe"), vec![Ident, Eof]);
+    // Reserved words still lex as identifiers for now (spec §2.7); `unsafe` stopped
+    // being one when it became a keyword (spec §5.2).
+    assert_eq!(kinds("async"), vec![Ident, Eof]);
+    assert_eq!(kinds("unsafe"), vec![Unsafe, Eof]);
 }
 
 #[test]

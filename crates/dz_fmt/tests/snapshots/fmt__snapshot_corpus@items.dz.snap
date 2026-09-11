@@ -76,38 +76,82 @@ pub trait Iterate {
     mut fn next(&mut self) -> Item?
 }
 
-pub struct Arena : Allocator {
+pub struct Arena {
     m_base: own ^u8
     m_used: usize
+}
 
+impl Allocator for Arena {
     fn alloc(&self, size: usize, align: usize) -> ^u8 {
         return m_base
     }
 
     fn free(&self, p: ^u8, size: usize, align: usize) {}
+}
 
-    drop() {
+impl Drop for Arena {
+    mut fn drop(&mut self) {
         free_pages(m_base)
     }
 }
 
-pub struct SliceIter<T> : Iterate {
-    type Item = &T
-
+pub struct SliceIter<T> {
     m_slice: []T
     m_index: usize
+}
 
-    mut fn next(&mut self) -> ^T {
-        if m_index >= m_slice.len {
-            return null
-        }
-        let e = &m_slice[m_index]
+impl<T> Iterate for SliceIter<T> {
+    type Item = &T
+
+    fn valid(&self) -> bool {
+        return m_index < m_slice.len
+    }
+
+    fn get(&self) -> &T {
+        return &m_slice[m_index]
+    }
+
+    mut fn advance(&mut self) {
         m_index += 1
-        return e
+    }
+}
+
+pub struct SliceIterMut<T> {
+    m_slice: []mut T
+    m_index: usize
+}
+
+impl<T> Iterate for SliceIterMut<T> {
+    type Item = &mut T
+
+    fn get(&self) -> &mut T {
+        return &mut m_slice[m_index]
     }
 }
 
 pub struct Nested {
     grid:  Buffer<Buffer<f32>>
     table: HashMap<str, Buffer<Vec3>>
+}
+
+pub unsafe fn poke(p: ^i32, v: i32) {
+    p^ = v
+}
+
+pub struct Raw {
+    m_p: ^i32
+
+    unsafe mut fn write(&mut self, v: i32) {
+        m_p^ = v
+    }
+}
+
+pub struct Button : UiElement {
+    label: str
+}
+
+impl<T: Copy> Copy for Buffer<T> {
+    mut fn copy(&mut self, other: &Self) {
+        m_len = other.m_len
+    }
 }

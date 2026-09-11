@@ -139,12 +139,14 @@ impl<'a> Parser<'a> {
         let vis = self.parse_vis();
 
         let kind = match self.peek() {
-            TokenKind::Fn => ItemKind::Fn(self.parse_fn(false)),
-            TokenKind::Mut if self.peek_at(1) == TokenKind::Fn => ItemKind::Fn(self.parse_fn(true)),
+            TokenKind::Fn => ItemKind::Fn(self.parse_fn()),
+            TokenKind::Mut if self.peek_at(1) == TokenKind::Fn => ItemKind::Fn(self.parse_fn()),
+            TokenKind::Unsafe if self.at_unsafe_fn() => ItemKind::Fn(self.parse_fn()),
             TokenKind::Struct => ItemKind::Struct(self.parse_struct()),
             TokenKind::Union => ItemKind::Union(self.parse_union()),
             TokenKind::Enum => ItemKind::Enum(self.parse_enum()),
             TokenKind::Trait => ItemKind::Trait(self.parse_trait()),
+            TokenKind::Impl => ItemKind::Impl(self.parse_impl()),
             TokenKind::Const => ItemKind::Const(self.parse_const()),
             TokenKind::Macro => ItemKind::Macro(self.parse_macro_decl()),
             _ => {
@@ -157,7 +159,8 @@ impl<'a> Parser<'a> {
                         codes::EXPECTED_ITEM,
                         span,
                         format!("expected a declaration after this, found {found}"),
-                        "expected `fn`, `struct`, `union`, `enum`, `trait`, `const` or `macro`",
+                        "expected `fn`, `struct`, `union`, `enum`, `trait`, `impl`, `const` or \
+                         `macro`",
                     );
                     self.recover_to_item();
                     ItemKind::Error
@@ -286,14 +289,17 @@ impl<'a> Parser<'a> {
             let name = self.parse_ident_or_error();
             let mut bounds = Vec::new();
             if self.eat(TokenKind::Colon) {
-                while let Some(p) = self.parse_path_no_generics() {
+                // A bound may carry type arguments: `T: Mul<f32>`, `I: Iterate<Item>`.
+                while let Some(p) = self.parse_type_path() {
                     bounds.push(p);
                     if !self.eat(TokenKind::Plus) {
                         break;
                     }
                 }
             }
-            params.push(GenericParam { span: self.span_from(p_start), name, bounds });
+            // `Rhs = Self` (spec §11.2).
+            let default = if self.eat(TokenKind::Eq) { Some(self.parse_type()) } else { None };
+            params.push(GenericParam { span: self.span_from(p_start), name, bounds, default });
             if !self.eat(TokenKind::Comma) {
                 break;
             }
@@ -304,11 +310,19 @@ impl<'a> Parser<'a> {
 
     // --- functions --------------------------------------------------------
 
-    pub(crate) fn parse_fn(&mut self, is_mut: bool) -> FnDecl {
+    /// `unsafe fn` or `unsafe mut fn` (spec §5.2) — the modifier order `mut fn` already
+    /// has, with `unsafe` outermost.
+    fn at_unsafe_fn(&self) -> bool {
+        self.peek_at(1) == TokenKind::Fn
+            || (self.peek_at(1) == TokenKind::Mut && self.peek_at(2) == TokenKind::Fn)
+    }
+
+    /// Called at `fn`, `mut fn`, `unsafe fn` or `unsafe mut fn`; the caller has checked
+    /// that `fn` follows the modifiers.
+    pub(crate) fn parse_fn(&mut self) -> FnDecl {
         let start = self.start();
-        if is_mut {
-            self.bump(); // `mut`
-        }
+        let is_unsafe = self.eat(TokenKind::Unsafe);
+        let is_mut = self.eat(TokenKind::Mut);
         self.bump(); // `fn`
         let name = self.parse_ident_or_error();
         let generics = self.parse_generics();
@@ -327,6 +341,7 @@ impl<'a> Parser<'a> {
         FnDecl {
             span: self.span_from(start),
             is_mut,
+            is_unsafe,
             name,
             generics,
             self_param,
@@ -415,16 +430,56 @@ impl<'a> Parser<'a> {
         self.bump(); // `struct`
         let name = self.parse_ident_or_error();
         let generics = self.parse_generics();
-        let traits = self.parse_trait_list();
+        // `: Base` — at most one, and never a trait (spec §7.3, §7.6).
+        let base = if self.eat(TokenKind::Colon) { self.parse_type_path() } else { None };
+        if base.is_some() && self.at(TokenKind::Plus) {
+            let span = self.peek_token().span;
+            self.error_help(
+                codes::EXPECTED_TOKEN,
+                span,
+                "a struct has at most one base",
+                "a second base here",
+                "inheritance is single (spec §7.3); a trait is implemented with \
+                 `impl Trait for Type { … }`, not listed after `:` (spec §7.6)",
+            );
+            while self.eat(TokenKind::Plus) {
+                self.parse_type_path();
+            }
+        }
         let members = self.parse_members(&name.name);
-        StructDecl { span: self.span_from(start), name, generics, traits, members }
+        StructDecl { span: self.span_from(start), name, generics, base, members }
     }
 
-    /// `: Allocator + Drawable`
+    /// `impl Trait for Type { … }`, `impl<T: Copy> Copy for Buffer<T> { … }` (spec §7.6).
+    fn parse_impl(&mut self) -> ImplDecl {
+        let start = self.start();
+        self.bump(); // `impl`
+        let generics = self.parse_generics();
+        let trait_path = self.parse_type_path();
+        if trait_path.is_none() {
+            let span = self.peek_token().span;
+            let found = self.describe_current();
+            self.error_help(
+                codes::EXPECTED_TOKEN,
+                span,
+                format!("expected the trait being implemented, found {found}"),
+                "expected a trait",
+                "an implementation is written `impl Trait for Type { … }` (spec §7.6)",
+            );
+        }
+        self.expect_in(TokenKind::For, "between the trait and the type it is implemented for");
+        let self_ty = self.parse_type();
+        let items = self.parse_members("");
+        ImplDecl { span: self.span_from(start), generics, trait_path, self_ty, items }
+    }
+
+    /// `: Allocator + Drawable`, `: Mul<f32> + Mul<Vec2>` — a type position, so `<` is
+    /// always generic arguments. The expression-style path used to be read here, and it
+    /// accepts `>` only before `::`, `(` or `{`, which made `Mul<f32> + …` a syntax error.
     fn parse_trait_list(&mut self) -> Vec<Path> {
         let mut traits = Vec::new();
         if self.eat(TokenKind::Colon) {
-            while let Some(p) = self.parse_path() {
+            while let Some(p) = self.parse_type_path() {
                 traits.push(p);
                 if !self.eat(TokenKind::Plus) {
                     break;
@@ -461,18 +516,24 @@ impl<'a> Parser<'a> {
         let vis = self.parse_vis();
 
         let kind = match self.peek() {
-            TokenKind::Fn => MemberKind::Fn(self.parse_fn(false)),
-            TokenKind::Mut if self.peek_at(1) == TokenKind::Fn => {
-                MemberKind::Fn(self.parse_fn(true))
-            }
-            TokenKind::Drop => MemberKind::Drop(self.parse_special_member()),
-            TokenKind::Copy => MemberKind::Copy(self.parse_special_member()),
-            // `type Item = &T` (spec §8.5)
+            TokenKind::Fn => MemberKind::Fn(self.parse_fn()),
+            TokenKind::Mut if self.peek_at(1) == TokenKind::Fn => MemberKind::Fn(self.parse_fn()),
+            TokenKind::Unsafe if self.at_unsafe_fn() => MemberKind::Fn(self.parse_fn()),
+            // `type Item`, `type Item : Format`, `type Item = &T` (spec §8.5)
             TokenKind::Ident if self.token_text(self.peek_token()) == "type" => {
                 self.bump();
                 let name = self.parse_ident_or_error();
+                let mut bounds = Vec::new();
+                if self.eat(TokenKind::Colon) {
+                    while let Some(p) = self.parse_path_no_generics() {
+                        bounds.push(p);
+                        if !self.eat(TokenKind::Plus) {
+                            break;
+                        }
+                    }
+                }
                 let ty = if self.eat(TokenKind::Eq) { Some(self.parse_type()) } else { None };
-                MemberKind::TypeAlias { name, ty }
+                MemberKind::TypeAlias { name, bounds, ty }
             }
             // `own m_data: ^T`
             TokenKind::Own => MemberKind::Field(self.parse_field()),
@@ -480,9 +541,34 @@ impl<'a> Parser<'a> {
                 // `Buffer(cap: u32) { ... }` — a constructor.
                 TokenKind::LParen => {
                     let ctor = self.parse_ctor();
-                    if ctor.name.name != struct_name {
-                        let span = ctor.name.span;
-                        let got = ctor.name.name.clone();
+                    let got = ctor.name.name.clone();
+                    let span = ctor.name.span;
+                    // `drop()` and `copy(other: &Self)` were special members until they
+                    // became traits (spec §6.1); say what they are now written as.
+                    if (got == "drop" || got == "copy") && got != struct_name {
+                        let (tr, sig) = if got == "drop" {
+                            ("Drop", "mut fn drop(&mut self)")
+                        } else {
+                            ("Copy", "mut fn copy(&mut self, other: &Self)")
+                        };
+                        let owner = if struct_name.is_empty() { "T" } else { struct_name };
+                        self.error_help(
+                            codes::SPECIAL_MEMBER_IS_A_TRAIT,
+                            span,
+                            format!("`{got}` is written as an implementation of `{tr}`"),
+                            format!("`{got}` is not a member any more"),
+                            format!("write `impl {tr} for {owner} {{ {sig} {{ … }} }}` (spec §6.1)"),
+                        );
+                    } else if struct_name.is_empty() {
+                        self.error_help(
+                            codes::EXPECTED_ITEM,
+                            span,
+                            format!("`{got}` cannot be declared in an `impl`"),
+                            "not a method",
+                            "an `impl` holds the trait's methods and associated types; \
+                             constructors belong to the struct (spec §7.6)",
+                        );
+                    } else if got != struct_name {
                         self.error_help(
                             codes::EXPECTED_ITEM,
                             span,
@@ -502,7 +588,7 @@ impl<'a> Parser<'a> {
                         codes::EXPECTED_ITEM,
                         span,
                         format!("expected a member, found {found}"),
-                        "not a field, method, constructor, `copy` or `drop`",
+                        "not a field, method or constructor",
                         "a field is `name: Type`; a method is `fn name(...)` or `mut fn name(...)`",
                     );
                     self.recover_to_statement_end();
@@ -516,7 +602,7 @@ impl<'a> Parser<'a> {
                     codes::EXPECTED_ITEM,
                     span,
                     format!("expected a member, found {found}"),
-                    "expected a field, method, constructor, `copy` or `drop`",
+                    "expected a field, method or constructor",
                 );
                 self.recover_to_statement_end();
                 MemberKind::Error
@@ -524,26 +610,6 @@ impl<'a> Parser<'a> {
         };
 
         Member { span: self.span_from(start), docs, attrs, vis, kind }
-    }
-
-    /// `copy(other: &Self) { ... }` and `drop() { ... }` share this shape.
-    fn parse_special_member(&mut self) -> FnDecl {
-        let start = self.start();
-        let t = self.bump();
-        let name = Ident::new(t.span, t.kind.name());
-        let (self_param, params) = self.parse_params();
-        let body = if self.at(TokenKind::LBrace) { Some(self.parse_block()) } else { None };
-        FnDecl {
-            span: self.span_from(start),
-            is_mut: false,
-            name,
-            generics: Generics { span: t.span, params: Vec::new() },
-            self_param,
-            params,
-            ret: None,
-            fallible: false,
-            body,
-        }
     }
 
     fn parse_ctor(&mut self) -> FnDecl {
@@ -554,6 +620,7 @@ impl<'a> Parser<'a> {
         FnDecl {
             span: self.span_from(start),
             is_mut: false,
+            is_unsafe: false,
             name,
             generics: Generics { span: Span::DUMMY, params: Vec::new() },
             self_param,

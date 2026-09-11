@@ -121,9 +121,15 @@ impl BuiltinTy {
             BuiltinTy::Error => vec![
                 ("code", Ty::Int(IntTy::U32)),
                 ("message", Ty::Str),
+                // A reference, not a pointer: it points into static storage for the whole
+                // run, so it can neither be null nor dangle — the one stored reference the
+                // language has (spec §9.2, §18.30).
                 (
                     "location",
-                    Ty::Ptr(Rc::new(Ty::Builtin(BuiltinTy::SourceLocation))),
+                    Ty::Ref {
+                        mutable: false,
+                        inner: Rc::new(Ty::Builtin(BuiltinTy::SourceLocation)),
+                    },
                 ),
             ],
             BuiltinTy::SourceLocation => vec![
@@ -135,6 +141,31 @@ impl BuiltinTy {
         }
     }
 }
+
+/// A generic parameter, as seen from **inside** the body that declares it (spec §8.1).
+///
+/// The whole point of definition-site generics is that a generic body is checked once,
+/// against its bounds, so `T` has to be a type the checker can reason about — not a hole.
+/// `Ty::Error` was standing in for one until M6, and because `Ty::Error` is compatible with
+/// everything, generic bodies had to be skipped rather than checked.
+///
+/// Identity is [`Param::id`] and nothing else: two parameters written `T` in two different
+/// declarations are different types. The name rides along only so a type can be rendered
+/// for a diagnostic without a side table; bounds live in `dz_check`'s table, since only the
+/// checker needs them.
+#[derive(Clone, Debug)]
+pub struct Param {
+    pub id: u32,
+    pub name: Rc<str>,
+}
+
+impl PartialEq for Param {
+    fn eq(&self, other: &Param) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Param {}
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Ty {
@@ -162,9 +193,16 @@ pub enum Ty {
     },
     Optional(Rc<Ty>),
     Fallible(Rc<Ty>),
-    /// `len == None` is a slice `[]T`; `Some(n)` is `[n]T`.
+    /// `[n]T` — a fixed-size value type (spec §5.3).
     Array {
-        len: Option<u64>,
+        len: u64,
+        elem: Rc<Ty>,
+    },
+    /// `[]T` and `[]mut T`. Writability is part of the type, exactly as it is for a
+    /// reference: a `[]T`'s elements cannot be written however the slice is bound, and a
+    /// `[]mut T` satisfies a `[]T` while the reverse does not (spec §5.3, §18.22).
+    Slice {
+        mutable: bool,
         elem: Rc<Ty>,
     },
     Tuple(Vec<Ty>),
@@ -174,8 +212,13 @@ pub enum Ty {
         params: Vec<Ty>,
         ret: Rc<Ty>,
     },
-    /// A struct, union, enum or trait.
-    Named(SymbolId),
+    /// A struct, union, enum or trait, with its type arguments (spec §8.1).
+    ///
+    /// `args` is empty for a non-generic declaration. It is part of the type's identity:
+    /// `Buffer<f32>` and `Buffer<i32>` are two types, and §8.4 emits two C++ structs for
+    /// them. Inside `Buffer<T>`'s own body the argument is `Ty::Param`, which is what
+    /// monomorphization later substitutes.
+    Named { sym: SymbolId, args: Vec<Ty> },
     /// A struct the language provides: `Error`, `SourceLocation` (spec §9.2, §12.7).
     Builtin(BuiltinTy),
     /// The payload of one union variant, by the union's symbol and the variant's
@@ -184,6 +227,9 @@ pub enum Ty {
     Variant(SymbolId, usize),
     /// `Self` inside a struct or trait body.
     SelfTy,
+    /// A generic parameter inside the body that declares it (spec §8.1). Replaced by a
+    /// concrete type during monomorphization; never present in emitted code.
+    Param(Param),
 }
 
 impl Ty {
@@ -244,20 +290,147 @@ impl Ty {
         }
     }
 
+    /// Strip `&` and `&mut` only, leaving pointers. Indexing reaches through a reference to
+    /// what it refers to, but a `^T` is itself the thing being indexed.
+    pub fn peeled_refs(&self) -> &Ty {
+        let mut t = self;
+        while let Ty::Ref { inner, .. } = t {
+            t = inner;
+        }
+        t
+    }
+
     /// Element type of something indexable.
     pub fn element(&self) -> Option<&Ty> {
         match self.peeled() {
-            Ty::Array { elem, .. } => Some(elem),
+            Ty::Array { elem, .. } | Ty::Slice { elem, .. } => Some(elem),
             Ty::Range(elem) => Some(elem),
+            _ => None,
+        }
+    }
+
+    /// `[]mut T` and `&mut T` grant writes to what they point at; `[]T` and `&T` do not.
+    /// A `^T` does too, which is why it is not on this list — see `place_mutability`.
+    pub fn grants_write(&self) -> Option<bool> {
+        match self {
+            Ty::Slice { mutable, .. } | Ty::Ref { mutable, .. } => Some(*mutable),
             _ => None,
         }
     }
 
     pub fn named(&self) -> Option<SymbolId> {
         match self {
-            Ty::Named(id) => Some(*id),
+            Ty::Named { sym, .. } => Some(*sym),
             _ => None,
         }
+    }
+
+    /// A declaration with no type arguments — the non-generic case, and the spelling most
+    /// call sites want.
+    pub fn plain(sym: SymbolId) -> Ty {
+        Ty::Named { sym, args: Vec::new() }
+    }
+
+    /// Does this type mention a generic parameter anywhere inside it? A type that does not
+    /// needs no substitution, which is what lets monomorphization skip most of the tree.
+    pub fn has_params(&self) -> bool {
+        match self {
+            Ty::Param(_) => true,
+            Ty::Ptr(i) | Ty::OwnPtr(i) | Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => {
+                i.has_params()
+            }
+            Ty::Ref { inner, .. } => inner.has_params(),
+            Ty::Array { elem, .. } | Ty::Slice { elem, .. } => elem.has_params(),
+            Ty::Tuple(parts) => parts.iter().any(Ty::has_params),
+            Ty::Named { args, .. } => args.iter().any(Ty::has_params),
+            Ty::Fn { params, ret } => params.iter().any(Ty::has_params) || ret.has_params(),
+            _ => false,
+        }
+    }
+}
+
+/// Replace generic parameters by type, by parameter id (spec §8.4).
+///
+/// This is the one operation that turns a declaration's types into an instantiation's:
+/// `Buffer<T>`'s field `m_data: ^T` becomes `^f32` for `Buffer<f32>`. It is used both by
+/// the checker, to type a member access on an instantiation, and by monomorphization, to
+/// build the concrete item that is emitted.
+///
+/// A parameter with no entry in `map` is left alone, which is what makes a *partial*
+/// substitution work: inside `Buffer<T>`, a method's own `U` stays `U` while `T` is
+/// replaced.
+pub fn substitute(t: &Ty, map: &std::collections::HashMap<u32, Ty>) -> Ty {
+    if map.is_empty() || !t.has_params() {
+        return t.clone();
+    }
+    substitute_with(t, map, None)
+}
+
+/// [`substitute`], and additionally what `Self` stands for.
+///
+/// Both replacements walk the same tree, so they are one traversal rather than two: a
+/// trait method's `fn eq(&self, rhs: &Self) -> bool`, read through a `T: Eq`, needs `Self`
+/// to become `T` at the same moment the trait's own parameters become `T`'s arguments.
+pub fn substitute_with(
+    t: &Ty,
+    map: &std::collections::HashMap<u32, Ty>,
+    self_ty: Option<&Ty>,
+) -> Ty {
+    if map.is_empty() && self_ty.is_none() {
+        return t.clone();
+    }
+    let rc = |x: &Rc<Ty>| Rc::new(substitute_with(x, map, self_ty));
+    let substitute = |x: &Ty| substitute_with(x, map, self_ty);
+    match t {
+        Ty::SelfTy => self_ty.cloned().unwrap_or(Ty::SelfTy),
+        Ty::Param(p) => map.get(&p.id).cloned().unwrap_or_else(|| t.clone()),
+        Ty::Ptr(i) => Ty::Ptr(rc(i)),
+        Ty::OwnPtr(i) => Ty::OwnPtr(rc(i)),
+        Ty::Ref { mutable, inner } => Ty::Ref { mutable: *mutable, inner: rc(inner) },
+        Ty::Optional(i) => Ty::Optional(rc(i)),
+        Ty::Fallible(i) => Ty::Fallible(rc(i)),
+        Ty::Range(i) => Ty::Range(rc(i)),
+        Ty::Array { len, elem } => Ty::Array { len: *len, elem: rc(elem) },
+        Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
+        Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(&substitute).collect()),
+        Ty::Named { sym, args } => Ty::Named {
+            sym: *sym,
+            args: args.iter().map(&substitute).collect(),
+        },
+        Ty::Fn { params, ret } => Ty::Fn {
+            params: params.iter().map(&substitute).collect(),
+            ret: rc(ret),
+        },
+        other => other.clone(),
+    }
+}
+
+/// Replace every occurrence of the type `from` inside `t` with `to`.
+///
+/// Used where a type stands in for another by position rather than by parameter: inside a
+/// trait's own default body the checker reads `self` through the trait's signature, so
+/// `Self` there is spelled as the trait, and an implementer's copy has to say itself.
+pub fn replace(t: &Ty, from: &Ty, to: &Ty) -> Ty {
+    if t == from {
+        return to.clone();
+    }
+    let rc = |x: &Rc<Ty>| Rc::new(replace(x, from, to));
+    let r = |x: &Ty| replace(x, from, to);
+    match t {
+        Ty::Ptr(i) => Ty::Ptr(rc(i)),
+        Ty::OwnPtr(i) => Ty::OwnPtr(rc(i)),
+        Ty::Ref { mutable, inner } => Ty::Ref { mutable: *mutable, inner: rc(inner) },
+        Ty::Optional(i) => Ty::Optional(rc(i)),
+        Ty::Fallible(i) => Ty::Fallible(rc(i)),
+        Ty::Range(i) => Ty::Range(rc(i)),
+        Ty::Array { len, elem } => Ty::Array { len: *len, elem: rc(elem) },
+        Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
+        Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(r).collect()),
+        Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(r).collect() },
+        Ty::Fn { params, ret } => {
+            Ty::Fn { params: params.iter().map(r).collect(), ret: rc(ret) }
+        }
+        other => other.clone(),
     }
 }
 
@@ -304,11 +477,19 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
         (Ty::Optional(a), Ty::Optional(b)) => assignable(a, b),
         (Ty::Fallible(a), Ty::Fallible(b)) => assignable(a, b),
 
-        // A fixed array converts to a slice of the same element type.
-        (Ty::Array { len: None, elem: a }, Ty::Array { elem: b, .. }) => assignable(a, b),
-        (Ty::Array { len: Some(m), elem: a }, Ty::Array { len: Some(n), elem: b }) => {
+        (Ty::Array { len: m, elem: a }, Ty::Array { len: n, elem: b }) => {
             m == n && assignable(a, b)
         }
+        // A `[]mut T` satisfies a `[]T`, exactly as `&mut T` satisfies `&T`; the reverse
+        // would silently gain the right to write (spec §5.3, §18.22).
+        (Ty::Slice { mutable: false, elem: a }, Ty::Slice { elem: b, .. }) => assignable(a, b),
+        (Ty::Slice { mutable: true, elem: a }, Ty::Slice { mutable: true, elem: b }) => {
+            assignable(a, b)
+        }
+        // A fixed array converts to a view of its elements. Producing a `[]mut T` this way
+        // additionally needs the array's *place* to be writable, which is not a question a
+        // type can answer — the caller checks it (see `coerce_to_slice` in `dz_check`).
+        (Ty::Slice { elem: a, .. }, Ty::Array { elem: b, .. }) => assignable(a, b),
 
         (Ty::Range(a), Ty::Range(b)) => assignable(a, b),
         (Ty::Tuple(a), Ty::Tuple(b)) => {

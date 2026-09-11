@@ -50,7 +50,7 @@ fn analyse(dir: &Path) -> Outcome {
     for module in ws.modules() {
         let mut parsed = Vec::new();
         for path in &module.sources {
-            let bytes = std::fs::read(path).expect("fixture source");
+            let bytes = module.read_source(path).expect("fixture source");
             let id = map.add_bytes(path, &bytes).expect("fixture is UTF-8");
             let text = map.get(id).text().to_owned();
             let lexed = dz_lex::lex(id, &text);

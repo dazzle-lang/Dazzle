@@ -1,0 +1,20 @@
+largest i32: 9
+largest Score: 12
+pair: 1.5 2.5
+ints: len=3 [1]=20
+copy: len=3
+i32 trivially copyable: true, Tracked: false
+things: len=2
+drop 1
+drop 2
+countdown: 6
+step 0 -> 2
+step 1 -> 1
+default method: crate
+impl for a primitive: an i32
+generic impl: an i32
+mul: 3 6 / 2 1 / 20
+hex: ff FF, fixed: 3.14, braces: {}
+consts: 8 4 8
+range value: 6
+done

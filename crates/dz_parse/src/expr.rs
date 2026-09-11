@@ -216,8 +216,29 @@ impl<'a> Parser<'a> {
             TokenKind::Break => {
                 self.bump();
                 let label = if self.at(TokenKind::Ident) { self.parse_ident() } else { None };
-                let value = if self.starts_expr() { Some(Box::new(self.parse_expr())) } else { None };
-                ExprKind::Break { label, value }
+                // `break` carries no value (spec §10.2, §18.28). One is still parsed, so the
+                // rest of the line is consumed rather than cascading into more errors.
+                if self.starts_expr() {
+                    let value = self.parse_expr();
+                    self.error_help(
+                        codes::BREAK_WITH_VALUE,
+                        value.span,
+                        "`break` does not take a value",
+                        "a value here",
+                        "a loop is a statement, not an expression — to leave one with a result, \
+                         assign it to a variable declared before the loop (spec §10.2)",
+                    );
+                }
+                ExprKind::Break { label }
+            }
+            TokenKind::Unsafe => {
+                self.bump();
+                if self.at(TokenKind::LBrace) {
+                    ExprKind::Unsafe(self.parse_block())
+                } else {
+                    self.expect_in(TokenKind::LBrace, "to open the `unsafe` block");
+                    ExprKind::Error
+                }
             }
             TokenKind::Continue => {
                 self.bump();
@@ -300,6 +321,33 @@ impl<'a> Parser<'a> {
         lhs
     }
 
+    /// The elements of `[a, b, c]` (spec §5.3), with a trailing comma allowed.
+    fn parse_array_lit_elements(&mut self) -> Vec<Expr> {
+        let mut elems = Vec::new();
+        self.bump(); // `[`
+        // Struct literals are legal again inside brackets, so `[Vec3{1, 2, 3}]` parses
+        // even in a position where a bare `{` would have begun a block.
+        let saved = std::mem::replace(&mut self.no_struct_literal, 0);
+        loop {
+            self.skip_terminators();
+            if self.at(TokenKind::RBracket) || self.at_end() {
+                break;
+            }
+            if self.stalled() {
+                continue;
+            }
+            elems.push(self.parse_expr());
+            self.skip_terminators();
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        self.skip_terminators();
+        self.expect_in(TokenKind::RBracket, "to close the array literal");
+        self.no_struct_literal = saved;
+        elems
+    }
+
     fn parse_call_args(&mut self) -> Vec<Expr> {
         let mut args = Vec::new();
         self.bump(); // `(`
@@ -372,6 +420,9 @@ impl<'a> Parser<'a> {
                 let block = self.parse_block();
                 ExprKind::Block(block)
             }
+            // `[1, 2, 3]` — an array literal (spec §5.3). A `[` can only begin one here:
+            // indexing is postfix, so it never reaches primary position.
+            TokenKind::LBracket => ExprKind::ArrayLit(self.parse_array_lit_elements()),
             // `.Transition{}` — variant inferred from context (spec §7.3).
             TokenKind::Dot if self.peek_at(1) == TokenKind::Ident => {
                 self.bump();
@@ -694,6 +745,7 @@ impl<'a> Parser<'a> {
                 | Return
                 | Break
                 | Continue
+                | Unsafe
         ) || (self.peek() == LBrace && self.no_struct_literal == 0)
     }
 }

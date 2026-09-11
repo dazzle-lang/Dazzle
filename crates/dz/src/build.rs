@@ -22,6 +22,9 @@ pub struct Analysis {
     /// Signatures, which the HIR does not carry: it has bodies but no items, so anything
     /// asking what a struct's fields are called goes here (spec §17.1).
     pub table: Option<dz_check::TypeTable>,
+    /// Which generic instantiations each module needs, with a concrete copy of every body
+    /// (spec §8.4). `None` when checking failed, since there is nothing sound to instantiate.
+    pub mono: Option<dz_mono::Mono>,
     pub diags: Diagnostics,
 }
 
@@ -42,6 +45,7 @@ pub fn analyse(entry: &Path) -> Analysis {
             resolution: None,
             hir: None,
             table: None,
+            mono: None,
             diags,
         };
     };
@@ -50,7 +54,7 @@ pub fn analyse(entry: &Path) -> Analysis {
     for module in ws.modules() {
         let mut parsed = Vec::new();
         for path in &module.sources {
-            let bytes = match std::fs::read(path) {
+            let bytes = match module.read_source(path) {
                 Ok(b) => b,
                 Err(e) => {
                     diags.push(Diagnostic::error(
@@ -83,6 +87,7 @@ pub fn analyse(entry: &Path) -> Analysis {
     let mut resolution = None;
     let mut hir = None;
     let mut table = None;
+    let mut mono = None;
     if !diags.has_errors() {
         let r = dz_resolve::resolve(&ws, &files);
         let failed = r.diagnostics.has_errors();
@@ -96,6 +101,12 @@ pub fn analyse(entry: &Path) -> Analysis {
             // every answer this pass gave would be a guess.
             if !type_errors {
                 diags.extend(dz_flow::check(&checked.hir, &checked.table, &r));
+                // Instantiation runs here rather than at codegen so that `dz check`
+                // reports a runaway instantiation (DZ0536) too; it is a property of the
+                // program, not of the C++ (spec §8.4).
+                let m = dz_mono::monomorphize(&r, &checked.table, &checked.hir);
+                diags.extend(m.diagnostics.clone());
+                mono = Some(m);
             }
             hir = Some(checked.hir);
             table = Some(checked.table);
@@ -104,7 +115,7 @@ pub fn analyse(entry: &Path) -> Analysis {
     }
 
     diags.sort_by_position();
-    Analysis { map, ws: Some(ws), files, resolution, hir, table, diags }
+    Analysis { map, ws: Some(ws), files, resolution, hir, table, mono, diags }
 }
 
 pub struct BuildOutput {
@@ -115,15 +126,17 @@ pub struct BuildOutput {
 
 /// Generate C++ for a project, writing only files whose contents changed (spec §16.6).
 pub fn emit_cpp(analysis: &Analysis, root: &Path) -> Result<BuildOutput, Diagnostics> {
-    let (Some(ws), Some(resolution), Some(table), Some(hir)) = (
+    let (Some(ws), Some(resolution), Some(table), Some(hir), Some(mono)) = (
         &analysis.ws,
         &analysis.resolution,
         &analysis.table,
         &analysis.hir,
+        &analysis.mono,
     ) else {
         return Err(Diagnostics::new());
     };
-    let emitted = dz_cpp::emit(ws, resolution, table, hir, &analysis.map, &analysis.files);
+    let emitted =
+        dz_cpp::emit(ws, resolution, table, hir, mono, &analysis.map, &analysis.files);
     if emitted.diagnostics.has_errors() {
         return Err(emitted.diagnostics);
     }
@@ -224,15 +237,17 @@ pub fn compile(
     // spec §16.5 — nothing generated may need exceptions or RTTI.
     cmd.arg(format!("-std={}", module.build.cpp_standard))
         .args(["-fno-exceptions", "-fno-rtti", "-Wall", "-Wextra"]);
+    // Bounds checks are not a build setting: indexing an array or slice is safe code, and
+    // stays checked in every build (spec §5.3). Unchecked access is `unsafe { xs.ptr[i] }`.
     match module.build.optimize {
         Optimize::Debug => {
             cmd.args(["-O0", "-g"]);
         }
         Optimize::Release => {
-            cmd.args(["-O2", "-DDZ_NO_BOUNDS_CHECK"]);
+            cmd.args(["-O2"]);
         }
         Optimize::Shipping => {
-            cmd.args(["-O3", "-DNDEBUG", "-DDZ_NO_BOUNDS_CHECK"]);
+            cmd.args(["-O3", "-DNDEBUG"]);
         }
     }
     for dir in &module.cpp.include_dirs {

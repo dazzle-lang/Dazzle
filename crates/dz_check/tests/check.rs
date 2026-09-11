@@ -58,7 +58,7 @@ fn check(entry: &Path) -> Checked {
     for module in ws.modules() {
         let mut parsed = Vec::new();
         for path in &module.sources {
-            let bytes = std::fs::read(path).expect("fixture source");
+            let bytes = module.read_source(path).expect("fixture source");
             let id = map.add_bytes(path, &bytes).expect("fixture is UTF-8");
             let text = map.get(id).text().to_owned();
             let lexed = dz_lex::lex(id, &text);
@@ -151,9 +151,35 @@ fn every_rule_has_a_failing_case() {
         NOT_DEREFERENCEABLE,
         NO_SUCH_METHOD,
         NO_CONTEXT_FOR_LITERAL,
+        // M6 — generics and traits (spec §7.6, §8).
+        NOT_A_TRAIT,
+        UNSATISFIED_BOUND,
+        MISSING_TRAIT_MEMBER,
+        TRAIT_MEMBER_MISMATCH,
+        WRONG_TYPE_ARG_COUNT,
+        // M6 — format strings (spec §12.9).
+        BAD_FORMAT_STRING,
+        NOT_FORMATTABLE,
+        // r12 — `unsafe`, and one trait at several arguments (spec §5.2, §18.27).
+        UNSAFE_OPERATION,
+        DUPLICATE_METHOD,
+        AMBIGUOUS_CALL,
+        // r13 — implementations (spec §6.1, §7.6).
+        ORPHAN_IMPL,
+        OVERLAPPING_IMPL,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }
+}
+
+/// Spec §5.2: one missing `unsafe` is one mistake, however many raw-memory operations
+/// sit inside the expression it should have wrapped.
+#[test]
+fn one_missing_unsafe_is_one_diagnostic() {
+    let codes = snippet("fn f(p: ^i32) {\n destroy(p[0])\n}\n");
+    let n = codes.iter().filter(|c| **c == dz_diag::codes::UNSAFE_OPERATION).count();
+    assert_eq!(n, 1, "{codes:?}");
+    assert!(snippet("fn f(p: ^i32) {\n unsafe { destroy(p[0]) }\n}\n").is_empty());
 }
 
 #[test]
@@ -393,21 +419,71 @@ fn field_and_method_visibility_is_enforced_through_a_value() {
 
 #[test]
 fn dot_reaches_through_pointers_and_references() {
-    // spec §5.2 — there is no `->`.
-    assert!(snippet("struct S {\n pub n: i32\n}\nfn f(p: ^S, r: &S) -> i32 {\n return p.n + r.n\n}\n")
+    // spec §5.2 — there is no `->`. Through a `^T` it is a raw read, so it needs `unsafe`;
+    // through a reference it does not.
+    let s = "struct S {\n pub n: i32\n}\n";
+    assert!(snippet(&format!("{s}fn f(p: ^S, r: &S) -> i32 {{\n unsafe {{ return p.n + r.n }}\n}}\n"))
         .is_empty());
+    assert!(snippet(&format!("{s}fn f(r: &S) -> i32 {{\n return r.n\n}}\n")).is_empty());
+    assert!(snippet(&format!("{s}fn f(p: ^S) -> i32 {{\n return p.n\n}}\n"))
+        .contains(&dz_diag::codes::UNSAFE_OPERATION));
 }
 
+/// A generic body is checked **once**, against its bounds (spec §8.1, §8.6). `Ord` here is
+/// the prelude's, in scope with no import (§18.23), which is what makes `a > b` legal.
 #[test]
-fn generic_items_are_skipped_rather_than_misreported() {
-    // Generics are M6. Until then a generic body must not produce spurious errors.
-    // `Ord` is declared here rather than assumed: the operator traits of spec §11.2 are
-    // stdlib, and there is no stdlib until M12.
+fn a_generic_body_is_checked_against_its_bounds() {
     let codes = snippet(
-        "trait Ord {\n fn cmp(&self, other: &Self) -> i32\n}\n\n\
-         struct Buffer<T> {\n m_data: ^T\n m_len: u32\n \
+        "struct Buffer<T> {\n m_data: ^T\n m_len: u32\n \
          pub fn length(&self) -> u32 {\n  return m_len\n }\n}\n\n\
          fn f<T: Ord>(a: T, b: T) -> T {\n if a > b {\n  return a\n }\n return b\n}\n",
     );
-    assert!(codes.is_empty(), "generic code should be skipped, got {codes:?}");
+    assert!(codes.is_empty(), "valid generic code was rejected: {codes:?}");
+}
+
+/// ...and only against its bounds: the same body without the bound must be rejected, at the
+/// line inside the generic rather than at any instantiation.
+#[test]
+fn a_generic_body_may_not_exceed_its_bounds() {
+    let codes = snippet(
+        "fn f<T>(a: T, b: T) -> T {\n if a > b {\n  return a\n }\n return b\n}\n",
+    );
+    assert!(
+        codes.contains(&dz_diag::codes::UNSATISFIED_BOUND),
+        "an unbounded `T` has no `>`, got {codes:?}"
+    );
+}
+
+/// Operators are traits (spec §11.2). Comparing a struct that implements neither `Eq` nor
+/// `Ord` used to reach C++ and fail there, which invariant 7 forbids.
+#[test]
+fn comparing_a_struct_needs_eq() {
+    let without = snippet("struct P {\n pub n: i32\n}\nfn f(a: P, b: P) -> bool {\n return a == b\n}\n");
+    assert!(
+        without.contains(&dz_diag::codes::UNSATISFIED_BOUND),
+        "a struct with no `Eq` must not be comparable, got {without:?}"
+    );
+    let with = snippet(
+        "struct P {\n pub n: i32\n}\n\
+         impl Eq for P {\n fn eq(&self, rhs: &P) -> bool {\n  return n == rhs.n\n }\n}\n\
+         fn f(a: P, b: P) -> bool {\n return a == b\n}\n",
+    );
+    assert!(with.is_empty(), "a struct implementing `Eq` is comparable, got {with:?}");
+}
+
+/// Spec §7.6: an implementation may be written where the trait is declared, or where the
+/// type is — so a module can give a type it did not write behaviour of its own, `f32`
+/// included — and nowhere else.
+#[test]
+fn an_impl_belongs_with_its_trait_or_its_type() {
+    let own_trait = snippet(
+        "trait Named {\n fn name(&self) -> str\n}\n\
+         impl Named for f32 {\n fn name(&self) -> str {\n  return \"f32\"\n }\n}\n\
+         fn f(x: f32) -> str {\n return x.name()\n}\n",
+    );
+    assert!(own_trait.is_empty(), "a module's own trait for `f32`, got {own_trait:?}");
+    let neither = snippet(
+        "impl Add for i32 {\n type Output = i32\n fn add(&self, rhs: i32) -> i32 {\n  return 0\n }\n}\n",
+    );
+    assert_eq!(neither, vec![dz_diag::codes::ORPHAN_IMPL], "one diagnostic, for the orphan");
 }

@@ -72,6 +72,9 @@ fn main() {
     // §9.4: the block clause, with the `Error` bound.
     let handled = halve(9) or { e ->
         println("  code {}: {}", e.code, e.message)
+        // `location` is a reference into static storage (spec §9.2), read directly.
+        let at = e.location
+        println("  located: {}", at.line > 0)
         0
     }
     println("handled: {}", handled)

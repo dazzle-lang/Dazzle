@@ -22,6 +22,7 @@ dz_resolve.workspace = true
 dz_check.workspace = true
 dz_flow.workspace = true
 dz_hir.workspace = true
+dz_mono.workspace = true
 dz_cpp.workspace = true
 
 [dev-dependencies]

@@ -33,6 +33,8 @@ pub(crate) fn resolve_file(
         ws,
         module,
         file: pf.file,
+        prelude: ws.prelude,
+        generic_spans: Vec::new(),
         module_aliases: HashMap::new(),
         unqualified: HashMap::new(),
         scopes: Vec::new(),
@@ -57,6 +59,11 @@ struct Walker<'a, 'w> {
     ws: &'w Workspace,
     module: ModuleId,
     file: FileId,
+    /// The prelude, in scope everywhere with no import (spec §3.2, §18.23).
+    prelude: ModuleId,
+    /// Spans of generic-parameter bindings, so a binding found in scope can be told apart
+    /// from a local value of the same name.
+    generic_spans: Vec<Span>,
     /// `import engine::render as gfx` → "gfx" → that module.
     module_aliases: HashMap<String, (ModuleId, usize)>,
     /// `import math::{ pow }` → "pow" → that symbol.
@@ -142,9 +149,12 @@ impl<'a, 'w> Walker<'a, 'w> {
             }
         }
 
+        // The prelude is not listed: it is an implicit dependency (spec §3.2), so offering
+        // it as something to import would answer a question the user did not ask.
         let known: Vec<String> = me
             .deps
             .iter()
+            .filter(|d| !d.implicit)
             .map(|d| self.ws.module(d.module).name.clone())
             .chain(std::iter::once(me.name.clone()))
             .collect();
@@ -255,19 +265,46 @@ impl<'a, 'w> Walker<'a, 'w> {
                 // A type's generic parameters are in scope for its own members.
                 self.push_scope();
                 self.bind_generics(&s.generics);
-                for b in &s.traits {
+                self.bind_assoc_types(&s.members);
+                if let Some(b) = &s.base {
                     self.path(b, PathUse::Type);
                 }
-                self.members(&s.members, &s.name.name, Some(&s.members));
+                let fields: Vec<String> = s
+                    .members
+                    .iter()
+                    .filter_map(|m| match &m.kind {
+                        MemberKind::Field(f) => Some(f.name.name.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                self.members(&s.members, Some(&fields));
                 self.pop_scope();
             }
             ItemKind::Trait(t) => {
                 self.push_scope();
                 self.bind_generics(&t.generics);
+                self.bind_assoc_types(&t.items);
                 for b in &t.supertraits {
                     self.path(b, PathUse::Type);
                 }
-                self.members(&t.items, &t.name.name, None);
+                // A trait has no fields, but its default methods do have a `self` (spec
+                // §7.6) — the same scope that binds a struct's fields binds that.
+                self.members(&t.items, Some(&[]));
+                self.pop_scope();
+            }
+            ItemKind::Impl(i) => {
+                self.push_scope();
+                self.bind_generics(&i.generics);
+                self.bind_assoc_types(&i.items);
+                if let Some(p) = &i.trait_path {
+                    self.path(p, PathUse::Type);
+                }
+                self.ty(&i.self_ty);
+                // An implementation's methods see the type's fields unqualified, as the
+                // type's own do (spec §7.3) — all of them in the type's own module, and
+                // only the `pub` ones from anywhere else (spec §4, §7.6).
+                let fields = self.fields_of_type(&i.self_ty);
+                self.members(&i.items, Some(&fields));
                 self.pop_scope();
             }
             ItemKind::Union(u) => {
@@ -297,14 +334,43 @@ impl<'a, 'w> Walker<'a, 'w> {
         }
     }
 
-    fn members(&mut self, members: &[Member], _owner: &str, fields_in_scope: Option<&[Member]>) {
+    /// The struct an `impl`'s type names, if it names one. Resolution has already reported
+    /// a name that does not resolve; this only looks.
+    fn struct_of(&self, t: &Type) -> Option<SymbolId> {
+        let TypeKind::Path(p) = &t.kind else { return None };
+        let sym = match p.segments.as_slice() {
+            [one] => {
+                let name = &one.name.name;
+                self.r
+                    .lookup(self.module, name)
+                    .or_else(|| self.unqualified.get(name).map(|(s, _)| *s))
+                    .or_else(|| self.prelude_item(name))?
+            }
+            [m, item] => {
+                let (target, _) = self.module_aliases.get(&m.name.name).copied()?;
+                self.r.lookup(target, &item.name.name)?
+            }
+            _ => return None,
+        };
+        (self.r.symbol(sym).kind == crate::SymbolKind::Struct).then_some(sym)
+    }
+
+    fn fields_of_type(&self, t: &Type) -> Vec<String> {
+        let Some(sym) = self.struct_of(t) else { return Vec::new() };
+        let s = self.r.symbol(sym);
+        s.members
+            .iter()
+            .filter(|m| m.sort == crate::MemberSort::Field)
+            .filter(|m| s.module == self.module || m.vis == Vis::Public)
+            .map(|m| m.name.clone())
+            .collect()
+    }
+
+    fn members(&mut self, members: &[Member], fields_in_scope: Option<&[String]>) {
         for m in members {
             match &m.kind {
                 MemberKind::Field(f) => self.field(f),
-                MemberKind::Fn(f)
-                | MemberKind::Ctor(f)
-                | MemberKind::Copy(f)
-                | MemberKind::Drop(f) => self.function(f, fields_in_scope),
+                MemberKind::Fn(f) | MemberKind::Ctor(f) => self.function(f, fields_in_scope),
                 MemberKind::TypeAlias { ty, .. } => {
                     if let Some(t) = ty {
                         self.ty(t);
@@ -319,8 +385,33 @@ impl<'a, 'w> Walker<'a, 'w> {
     fn bind_generics(&mut self, g: &Generics) {
         for p in &g.params {
             self.bind(&p.name.name, p.name.span);
+            // Remembered so `T::is_trivially_copyable` is recognised as a type query
+            // rather than a path into a module named `T` (spec §5.5).
+            self.generic_spans.push(p.name.span);
             for b in &p.bounds {
                 self.path(b, PathUse::Type);
+            }
+            if let Some(d) = &p.default {
+                self.ty(d);
+            }
+        }
+    }
+
+    /// Is `name` a generic parameter in scope, as opposed to a local value?
+    fn is_type_param(&self, name: &str) -> bool {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|s| s.get(name))
+            .is_some_and(|span| self.generic_spans.contains(span))
+    }
+
+    /// An associated type is nameable inside the declaration that has it, whether that
+    /// declaration is the trait naming it or the implementer choosing it (spec §8.5).
+    fn bind_assoc_types(&mut self, members: &[Member]) {
+        for m in members {
+            if let MemberKind::TypeAlias { name, .. } = &m.kind {
+                self.bind(&name.name, name.span);
             }
         }
     }
@@ -334,7 +425,7 @@ impl<'a, 'w> Walker<'a, 'w> {
         }
     }
 
-    fn function(&mut self, f: &FnDecl, fields_in_scope: Option<&[Member]>) {
+    fn function(&mut self, f: &FnDecl, fields_in_scope: Option<&[String]>) {
         self.push_scope();
 
         self.bind_generics(&f.generics);
@@ -342,16 +433,12 @@ impl<'a, 'w> Walker<'a, 'w> {
         // Inside a method, the struct's fields are in scope unqualified (spec §7.3).
         // They go in their own scope so a parameter of the same name shadows the field
         // rather than colliding with it.
-        if let Some(members) = fields_in_scope {
+        if let Some(fields) = fields_in_scope {
             self.push_scope();
             if let Some(scope) = self.scopes.last_mut() {
                 scope.insert("self".to_owned(), Span::DUMMY);
-            }
-            for m in members {
-                if let MemberKind::Field(field) = &m.kind {
-                    if let Some(scope) = self.scopes.last_mut() {
-                        scope.entry(field.name.name.clone()).or_insert(field.name.span);
-                    }
+                for field in fields {
+                    scope.entry(field.clone()).or_insert(Span::DUMMY);
                 }
             }
         }
@@ -385,11 +472,10 @@ impl<'a, 'w> Walker<'a, 'w> {
             TypeKind::Ptr(i) | TypeKind::OwnPtr(i) | TypeKind::Optional(i) => self.ty(i),
             TypeKind::Ref { inner, .. } => self.ty(inner),
             TypeKind::Array { size, elem } => {
-                if let Some(s) = size {
-                    self.expr(s);
-                }
+                self.expr(size);
                 self.ty(elem);
             }
+            TypeKind::Slice { elem, .. } => self.ty(elem),
             TypeKind::Tuple(elems) => {
                 for e in elems {
                     self.ty(e);
@@ -471,6 +557,11 @@ impl<'a, 'w> Walker<'a, 'w> {
                     }
                 }
             }
+            ExprKind::ArrayLit(elems) => {
+                for x in elems {
+                    self.expr(x);
+                }
+            }
             ExprKind::Call { callee, args } => {
                 self.expr(callee);
                 for a in args {
@@ -520,7 +611,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                     OrClause::Ignore(_) | OrClause::Unreachable(_) => {}
                 }
             }
-            ExprKind::Block(b) => self.block(b),
+            ExprKind::Block(b) | ExprKind::Unsafe(b) => self.block(b),
             ExprKind::If(i) => {
                 self.expr(&i.cond);
                 self.block(&i.then);
@@ -549,11 +640,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                     self.expr(v);
                 }
             }
-            ExprKind::Break { value, .. } => {
-                if let Some(v) = value {
-                    self.expr(v);
-                }
-            }
+            ExprKind::Break { .. } => {}
             ExprKind::Intrinsic { args, .. } => {
                 for a in args {
                     self.expr(a);
@@ -610,6 +697,14 @@ impl<'a, 'w> Walker<'a, 'w> {
         }
     }
 
+    /// A public item of the prelude, which every module can name without an import.
+    fn prelude_item(&self, name: &str) -> Option<SymbolId> {
+        if self.module == self.prelude {
+            return None;
+        }
+        self.r.lookup(self.prelude, name)
+    }
+
     fn resolve_head(&mut self, name: &Ident, use_kind: PathUse, qualified: bool) -> Head {
         if !qualified && self.is_local(&name.name) {
             return Head::Local;
@@ -617,6 +712,17 @@ impl<'a, 'w> Walker<'a, 'w> {
         if let Some((m, idx)) = self.module_aliases.get(&name.name).copied() {
             self.used_imports[idx] = true;
             return Head::Module(m);
+        }
+        // `dz::Ord` — the prelude is reachable by name as well as implicitly, and needs no
+        // `import` line to be, so it is not one of the tracked aliases above.
+        if qualified && name.name == dz_project::PRELUDE_MODULE && self.module != self.prelude {
+            return Head::Module(self.prelude);
+        }
+        // `T::is_trivially_copyable` — a compile-time query on a generic parameter
+        // (spec §5.5). Which queries exist is the checker's business; resolution only has
+        // to not mistake `T` for a module.
+        if qualified && self.is_type_param(&name.name) {
+            return Head::Local;
         }
         if let Some(sym) = self.r.lookup(self.module, &name.name) {
             return Head::Symbol(sym);
@@ -629,6 +735,12 @@ impl<'a, 'w> Walker<'a, 'w> {
             || (use_kind == PathUse::Value && BUILTIN_FNS.contains(&name.name.as_str()))
         {
             return Head::Builtin;
+        }
+        // The prelude, last: a declaration in this module or an explicit import wins, so
+        // declaring your own `Ord` shadows `dz::Ord` rather than colliding with it
+        // (spec §3.2, §18.23).
+        if let Some(sym) = self.prelude_item(&name.name) {
+            return Head::Symbol(sym);
         }
         // A single-segment name in value position may still be a local from an outer
         // construct the walker does not model yet; anything else is a real error.
@@ -654,6 +766,15 @@ impl<'a, 'w> Walker<'a, 'w> {
                 return;
             }
             let Some(member) = symbol.member(&seg.name.name) else {
+                // `Vec3::size` — a type answers the §5.5 queries as well as naming its
+                // members. A member of the same name wins, which is why this comes second.
+                let is_type = matches!(
+                    symbol.kind,
+                    crate::SymbolKind::Struct | crate::SymbolKind::Union | crate::SymbolKind::Enum
+                );
+                if is_type && crate::TYPE_QUERIES.contains(&seg.name.name.as_str()) {
+                    return;
+                }
                 let owner = symbol.name.clone();
                 let names: Vec<String> = symbol.members.iter().map(|m| m.name.clone()).collect();
                 let suggestion = closest(&seg.name.name, names.iter().map(String::as_str));

@@ -78,7 +78,7 @@ impl<'a> Dumper<'a> {
                     "{vis}struct {}{}{}",
                     s.name.name,
                     generics_str(&s.generics),
-                    traits_str(&s.traits)
+                    s.base.as_ref().map(|b| format!(" : {}", path_str(b))).unwrap_or_default()
                 ));
                 self.nest(|d| {
                     for m in &s.members {
@@ -134,6 +134,19 @@ impl<'a> Dumper<'a> {
                     }
                 });
             }
+            ItemKind::Impl(i) => {
+                self.line(format_args!(
+                    "impl{} {} for {}",
+                    generics_str(&i.generics),
+                    i.trait_path.as_ref().map(path_str).unwrap_or_else(|| "<error>".to_owned()),
+                    type_str(&i.self_ty)
+                ));
+                self.nest(|d| {
+                    for m in &i.items {
+                        d.member(m);
+                    }
+                });
+            }
             ItemKind::Const(c) => {
                 self.line(format_args!(
                     "{vis}const {}{}",
@@ -158,11 +171,17 @@ impl<'a> Dumper<'a> {
             MemberKind::Field(f) => self.field(f),
             MemberKind::Fn(f) => self.fn_decl("fn", vis, f),
             MemberKind::Ctor(f) => self.fn_decl("ctor", vis, f),
-            MemberKind::Copy(f) => self.fn_decl("copy", vis, f),
-            MemberKind::Drop(f) => self.fn_decl("drop", vis, f),
-            MemberKind::TypeAlias { name, ty } => self.line(format_args!(
-                "type {}{}",
+            MemberKind::TypeAlias { name, bounds, ty } => self.line(format_args!(
+                "type {}{}{}",
                 name.name,
+                if bounds.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ": {}",
+                        bounds.iter().map(path_str).collect::<Vec<_>>().join(" + ")
+                    )
+                },
                 ty.as_ref().map(|t| format!(" = {}", type_str(t))).unwrap_or_default()
             )),
             MemberKind::Error => self.line(format_args!("<error member>")),
@@ -205,7 +224,8 @@ impl<'a> Dumper<'a> {
             format!("{recv}, {}", params.join(", "))
         };
         self.line(format_args!(
-            "{vis}{}{} {}{}({}){}",
+            "{vis}{}{}{} {}{}({}){}",
+            if f.is_unsafe { "unsafe " } else { "" },
             if f.is_mut { "mut " } else { "" },
             what,
             f.name.name,
@@ -311,6 +331,14 @@ impl<'a> Dumper<'a> {
                     self.nest(|d| d.field_inits(fields));
                 }
             }
+            ExprKind::ArrayLit(elems) => {
+                self.line(format_args!("array-lit {}", elems.len()));
+                self.nest(|d| {
+                    for x in elems {
+                        d.expr(x);
+                    }
+                });
+            }
             ExprKind::StructLit { path, fields } => {
                 self.line(format_args!("struct-lit {}", path_str(path)));
                 self.nest(|d| d.field_inits(fields));
@@ -394,6 +422,10 @@ impl<'a> Dumper<'a> {
                 });
             }
             ExprKind::Block(b) => self.block(b),
+            ExprKind::Unsafe(b) => {
+                self.line(format_args!("unsafe"));
+                self.nest(|d| d.block(b));
+            }
             ExprKind::If(i) => {
                 self.line(format_args!("if"));
                 self.nest(|d| {
@@ -433,14 +465,11 @@ impl<'a> Dumper<'a> {
                     self.nest(|d| d.expr(v));
                 }
             }
-            ExprKind::Break { label, value } => {
+            ExprKind::Break { label } => {
                 self.line(format_args!(
                     "break{}",
                     label.as_ref().map(|l| format!(" '{}", l.name)).unwrap_or_default()
                 ));
-                if let Some(v) = value {
-                    self.nest(|d| d.expr(v));
-                }
             }
             ExprKind::Continue { label } => self.line(format_args!(
                 "continue{}",
@@ -513,12 +542,15 @@ fn generics_str(g: &Generics) -> String {
         .params
         .iter()
         .map(|p| {
-            if p.bounds.is_empty() {
-                p.name.name.clone()
-            } else {
+            let mut s = p.name.name.clone();
+            if !p.bounds.is_empty() {
                 let bounds: Vec<String> = p.bounds.iter().map(path_str).collect();
-                format!("{}: {}", p.name.name, bounds.join(" + "))
+                s = format!("{s}: {}", bounds.join(" + "));
             }
+            if let Some(d) = &p.default {
+                s = format!("{s} = {}", type_str(d));
+            }
+            s
         })
         .collect();
     format!("<{}>", params.join(", "))
@@ -550,10 +582,10 @@ pub fn type_str(t: &Type) -> String {
             format!("&{}{}", if *mutable { "mut " } else { "" }, type_str(inner))
         }
         TypeKind::Optional(inner) => format!("{}?", type_str(inner)),
-        TypeKind::Array { size, elem } => match size {
-            Some(_) => format!("[N]{}", type_str(elem)),
-            None => format!("[]{}", type_str(elem)),
-        },
+        TypeKind::Array { elem, .. } => format!("[N]{}", type_str(elem)),
+        TypeKind::Slice { mutable, elem } => {
+            format!("[]{}{}", if *mutable { "mut " } else { "" }, type_str(elem))
+        }
         TypeKind::Tuple(elems) => {
             format!("({})", elems.iter().map(type_str).collect::<Vec<_>>().join(", "))
         }

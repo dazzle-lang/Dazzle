@@ -86,9 +86,12 @@ fn arrays() -> i32 {
 }
 
 fn pointers(v: ^Vec3) -> f32 {
-    // `.` reaches through the pointer on its own; there is no `->` (spec §5.2).
-    v.x += 1
-    return v.x
+    // `.` reaches through the pointer on its own; there is no `->` (spec §5.2). Doing so
+    // is `unsafe`: nothing checks that `v` still points at something.
+    unsafe {
+        v.x += 1
+        return v.x
+    }
 }
 
 fn casts(n: i32, l: Layer) -> i64 {
@@ -109,6 +112,40 @@ fn layer_name(l: Layer) -> str {
             return "ui"
         }
     }
+}
+
+// Array literals (spec §5.3): the length is exactly what is written, and the elements take
+// their type from the annotation when there is one.
+fn array_literals() -> i32 {
+    let a = [1, 2, 3]
+    let grid = [[1, 2], [3, 4]]
+    let vs = [Vec3{ x: 1, y: 2 }, Vec3{ x: 3, y: 4 }]
+    return a[0] + a[2] + grid[1][0] + vs[1].x as i32
+}
+
+fn typed_array_literal() -> f32 {
+    let b: [4]f32 = [1, 2, 3, 4]
+    return b[3]
+}
+
+// A literal may be passed where a slice is wanted: the temporary outlives the call (§5.3).
+fn sum_slice(xs: []i32) -> i32 {
+    let mut total = 0
+    for x in xs {
+        total += x
+    }
+    return total
+}
+
+// §7.4: `.World` where the enum is already known, on either side of a comparison.
+fn dotted_variant(l: Layer) -> str {
+    if .Background == l {
+        return "background"
+    }
+    if l == .World {
+        return "world"
+    }
+    return "ui"
 }
 
 fn main() {
@@ -133,6 +170,11 @@ fn main() {
 
     let o = Outer{ inner: Inner{ value: 9 }, tag: Layer::World }
     println("nested: {}", o.inner.value)
+
+    println("array literals: {}", array_literals())
+    println("typed array literal: {}", typed_array_literal())
+    println("literal as slice: {}", sum_slice([10, 20, 30]))
+    println("dotted: {} {} {}", dotted_variant(Layer::Background), dotted_variant(.World), dotted_variant(.Ui))
 
     defer println("deferred: last")
     println("before defer runs")

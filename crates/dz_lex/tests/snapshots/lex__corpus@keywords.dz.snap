@@ -9,9 +9,9 @@ input_file: tests/lex/keywords.dz
    1:10  case
    1:15  const
    1:21  continue
-   1:30  copy
+   1:30  Ident `copy`
    1:35  defer
-   1:41  drop
+   1:41  Ident `drop`
    1:45  Terminator
    2:1   else
    2:6   enum
@@ -49,10 +49,10 @@ input_file: tests/lex/keywords.dz
    5:24  Terminator
    6:1   Ident `async`
    6:7   Ident `await`
-   6:13  Ident `impl`
+   6:13  impl
    6:18  Ident `where`
    6:24  Ident `yield`
-   6:30  Ident `unsafe`
+   6:30  unsafe
    6:37  Ident `comptime`
    6:46  Ident `collect`
    6:53  Terminator
