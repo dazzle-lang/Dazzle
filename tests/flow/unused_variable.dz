@@ -1,0 +1,11 @@
+// A binding nothing reads is a warning — a parameter, a `let`, and a `let` that is only
+// ever assigned to. A leading `_` says it is unused on purpose.
+// expect: DZ0406, DZ0406, DZ0406
+
+fn f(used: i32, never: i32, _deliberate: i32) -> i32 {
+    let a = 1
+    let mut b = 0
+    b = 2
+    let _c = 3
+    return used
+}

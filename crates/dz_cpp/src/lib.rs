@@ -1337,6 +1337,7 @@ impl<'a> Emitter<'a> {
     fn decl_params(&mut self, owner: &BodyOwner, with_defaults: bool) -> String {
         let Some(body) = self.find_body(owner) else { return String::new() };
         let names = local_names(body);
+        let uses = hir::local_uses(body);
         let has_self = body
             .params
             .first()
@@ -1347,7 +1348,9 @@ impl<'a> Emitter<'a> {
         for (i, p) in body.params.iter().enumerate().skip(start) {
             let local = body.local(*p);
             let ty = self.cpp_ty(&local.ty);
-            let mut text = format!("{ty} {}", incoming_name(&names[p.index()], self.table, &local.ty));
+            let unused = if uses[p.index()].read { "" } else { "[[maybe_unused]] " };
+            let mut text =
+                format!("{unused}{ty} {}", incoming_name(&names[p.index()], self.table, &local.ty));
             if with_defaults {
                 if let Some(default) = body.param_defaults.get(i - start).copied().flatten() {
                     let (pre, value) = self.in_body(body, |e| e.expr(default));
@@ -1407,6 +1410,7 @@ impl<'a> Emitter<'a> {
     /// per owning parameter, which is what the language promised anyway.
     fn take_ownership_of_params(&mut self, body: &'a hir::Body) {
         let names = local_names(body);
+        let uses = hir::local_uses(body);
         for p in &body.params {
             let local = body.local(*p);
             if local.name == "self" || !self.table.needs_drop(&local.ty) {
@@ -1415,7 +1419,21 @@ impl<'a> Emitter<'a> {
             let ty = self.cpp_ty(&local.ty);
             let name = &names[p.index()];
             let arg = incoming_name(name, self.table, &local.ty);
-            self.line(&format!("{ty} {name} = ::dz::mv({arg});"));
+            let unused = if uses[p.index()].read { "" } else { "[[maybe_unused]] " };
+            self.line(&format!("{unused}{ty} {name} = ::dz::mv({arg});"));
+        }
+    }
+
+    /// "[[maybe_unused]] " for a local nothing reads. The user has already had a DZ0406
+    /// warning for it, and the C++ compiler warning about the same variable again would be
+    /// a compiler bug (invariant 7). The one answer comes from dz_hir::local_uses, which is
+    /// what dz_flow warns from.
+    fn unused_attr(&self, index: usize) -> &'static str {
+        let read = hir::local_uses(self.cur()).get(index).map_or(true, |u| u.read);
+        if read {
+            ""
+        } else {
+            "[[maybe_unused]] "
         }
     }
 
@@ -1547,13 +1565,15 @@ impl<'a> Emitter<'a> {
                     let ty = self.cpp_ty(&body.local(*l).ty);
                     let name = self.names[l.index()].clone();
                     let v = self.expr(*init);
-                    self.line(&format!("{ty} {name} = {v};"));
+                    let unused = self.unused_attr(l.index());
+                    self.line(&format!("{unused}{ty} {name} = {v};"));
                 }
                 // Declared with no value: default-initialise (spec §6.2).
                 (Some(l), None) => {
                     let ty = self.cpp_ty(&body.local(*l).ty);
                     let name = self.names[l.index()].clone();
-                    self.line(&format!("{ty} {name}{{}};"));
+                    let unused = self.unused_attr(l.index());
+                    self.line(&format!("{unused}{ty} {name}{{}};"));
                 }
                 // `let _ = f()` still evaluates.
                 (None, Some(init)) => self.stmt_expr(*init),
@@ -1568,7 +1588,8 @@ impl<'a> Emitter<'a> {
                     let Some(l) = l else { continue };
                     let lty = self.cpp_ty(&body.local(*l).ty);
                     let name = self.names[l.index()].clone();
-                    self.line(&format!("{lty} {name} = {tmp}.v{i};"));
+                    let unused = self.unused_attr(l.index());
+                    self.line(&format!("{unused}{lty} {name} = {tmp}.v{i};"));
                 }
             }
             hir::StmtKind::Assign { target, op, value } => {
@@ -1721,7 +1742,8 @@ impl<'a> Emitter<'a> {
             if let Some(l) = bindings.last().copied().flatten() {
                 let ty = self.cpp_ty(&body.local(l).ty);
                 let name = self.names[l.index()].clone();
-                self.line(&format!("{ty} {name} = {get}({it});"));
+                let unused = self.unused_attr(l.index());
+                self.line(&format!("{unused}{ty} {name} = {get}({it});"));
             }
             self.block_into(block, Dest::None);
             self.indent -= 1;
@@ -1774,14 +1796,15 @@ impl<'a> Emitter<'a> {
             self.indent += 1;
             if let Some(l) = bindings[1] {
                 let name = self.names[l.index()].clone();
-                self.line(&format!("{elem}& {name} = ::dz::obj({seq})[{idx}];"));
+                let unused = self.unused_attr(l.index());
+                self.line(&format!("{unused}{elem}& {name} = ::dz::obj({seq})[{idx}];"));
             }
         } else {
-            let name = match bindings.first().copied().flatten() {
-                Some(l) => self.names[l.index()].clone(),
-                None => self.fresh("x"),
+            let (name, unused) = match bindings.first().copied().flatten() {
+                Some(l) => (self.names[l.index()].clone(), self.unused_attr(l.index())),
+                None => (self.fresh("x"), "[[maybe_unused]] "),
             };
-            self.line(&format!("for (auto& {name} : ::dz::obj({seq})) {{"));
+            self.line(&format!("for ({unused}auto& {name} : ::dz::obj({seq})) {{"));
             self.indent += 1;
         }
         self.block_into(block, Dest::None);
@@ -1881,8 +1904,9 @@ impl<'a> Emitter<'a> {
                 if let Some(name) = variants.get(*v) {
                     // The payload binds by reference, so matching never copies (§10.3).
                     let binding = self.names[local.index()].clone();
+                    let unused = self.unused_attr(local.index());
                     self.line(&format!(
-                        "auto& {binding} = ::dz::obj({text}).{name};"
+                        "{unused}auto& {binding} = ::dz::obj({text}).{name};"
                     ));
                 }
             }
@@ -2464,7 +2488,8 @@ impl<'a> Emitter<'a> {
             hir::OrClause::Block { binding, body: block } => {
                 if let (Some(local), Some(err)) = (binding, error) {
                     let name = self.names[local.index()].clone();
-                    self.line(&format!("const ::dz::Error& {name} = {err};"));
+                    let unused = self.unused_attr(local.index());
+                    self.line(&format!("{unused}const ::dz::Error& {name} = {err};"));
                 }
                 self.block_into(*block, dest);
             }

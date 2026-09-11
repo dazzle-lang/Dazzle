@@ -118,6 +118,9 @@ pub const IMPLICIT_COPY: &str = "DZ0403";
 pub const USE_OF_PARTIAL_MOVE: &str = "DZ0404";
 /// A function with a return type whose body can reach the end without returning.
 pub const MISSING_RETURN: &str = "DZ0405";
+/// A warning: a local or parameter nothing reads. A leading `_` in the name says it is
+/// unused on purpose.
+pub const UNUSED_VARIABLE: &str = "DZ0406";
 /// A second `copy` or `drop` on one struct (spec §6.1).
 pub const DUPLICATE_SPECIAL_MEMBER: &str = "DZ0411";
 /// A struct with an `own` field and no `drop` (spec §6.5, §18.4).

@@ -608,8 +608,28 @@ part 2 makes analysis tolerate errors (§4). Compiler work only — nothing in �
   missed all of it because the corpus had no fallible signature and no comment inside an
   expression block; it now includes every `tests/run` program, and a fourth property —
   every comment survives, in order — is checked across it.
-- Two help messages had a run of 30-odd spaces in the middle, a line continuation that lost
-  its backslash (`dz_check`, DZ0516).
+- Three help messages had a run of 30-odd spaces in the middle, a line continuation that
+  lost its backslash (`dz_check`).
+
+### Unused bindings
+
+- **`DZ0406`, a warning**: a local or parameter nothing reads, and a local that is only ever
+  assigned to ("assigned but never read"). `self`, names starting with `_`, and bindings
+  the checker made itself (an implicit `it`, whose span is not its name) are exempt, and
+  the prelude is never warned about. The user's call: a warning, with `_name` for "unused
+  on purpose", the Rust and Odin convention. A guard kept only for its `drop` needs it too,
+  as `tests/run/ownership` now shows.
+- **One answer, two consumers.** `dz_hir::local_uses` decides; `dz_flow` warns from it, and
+  `dz_cpp` marks exactly those bindings `[[maybe_unused]]` at every declaration site —
+  parameters, owning parameters' locals, `let`, `let (a, b)`, all three `for` forms, `case`
+  payloads, `or { e -> }` — so the C++ compiler never repeats the warning. Before this an
+  unused `let` put a `-Wunused-variable` into the generated code (invariant 7).
+- In the editor the diagnostic carries the protocol's *unnecessary* tag, so the name is
+  drawn faded.
+- `tests/run/unused` builds each kind of unused binding warning-clean under both compilers.
+  The flow harness counts `DZ0406` only in the fixture that asks for it
+  (`tests/flow/unused_variable.dz`), since rule fixtures and `typed/` are full of throwaway
+  bindings on purpose.
 
 ---
 

@@ -1,0 +1,56 @@
+// Bindings nothing reads get DZ0406, a warning, and must still build warning-clean in
+// C++: each one is emitted `[[maybe_unused]]` (invariant 7). One of every kind of binding.
+
+pub enum Code : u32 {
+    Odd = 1
+}
+
+pub union Shape {
+    Circle { radius: f32 }
+    Point
+}
+
+fn halve(n: i32) !-> i32 {
+    if n % 2 != 0 {
+        return error(Code::Odd, "{} is odd", n)
+    }
+    return n / 2
+}
+
+fn pair() -> (i32, str) {
+    return (7, "seven")
+}
+
+// A `case` payload nothing reads.
+fn describe(s: &Shape) -> i32 {
+    switch s {
+        case Circle(c) {
+            return 1
+        }
+        case Point {
+            return 2
+        }
+    }
+}
+
+// A parameter nothing reads, and one whose name says so.
+fn ignores(unused_param: i32, _deliberate: i32) -> i32 {
+    return 0
+}
+
+fn main() {
+    let never = 1
+    let mut only_set = 0
+    only_set = 2
+    let (first, second) = pair()
+    let xs = [1, 2, 3]
+    for i, x in xs {
+    }
+    for y in xs {
+    }
+    let fallback = halve(3) or { e ->
+        0
+    }
+    let p = Shape::Point
+    println("{} {} {}", ignores(1, 2), describe(&p), second)
+}

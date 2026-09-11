@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use dz_diag::codes::UNUSED_VARIABLE;
 use dz_diag::Diagnostics;
 use dz_project::ModuleId;
 use dz_span::SourceMap;
@@ -15,6 +16,15 @@ use dz_span::SourceMap;
 struct Outcome {
     codes: Vec<&'static str>,
     rendered: String,
+}
+
+impl Outcome {
+    /// The codes, less the unused-binding warning. A fixture for one rule — or `typed/`,
+    /// which declares values only to type-check them — has throwaway bindings, and a
+    /// warning about them says nothing about the rule under test.
+    fn without_unused(&self) -> Vec<&'static str> {
+        self.codes.iter().copied().filter(|c| *c != UNUSED_VARIABLE).collect()
+    }
 }
 
 fn corpus() -> PathBuf {
@@ -91,7 +101,7 @@ fn the_typed_workspace_is_ownership_clean() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/workspace/typed");
     let got = analyse(&dir);
     assert!(
-        got.codes.is_empty(),
+        got.without_unused().is_empty(),
         "valid code produced ownership diagnostics: {:?}\n{}",
         got.codes,
         got.rendered
@@ -123,36 +133,42 @@ fn every_ownership_rule_has_a_case() {
     for path in &files {
         let source = std::fs::read_to_string(path).unwrap();
         let want = expected(&source);
-        let got = run(path);
+        let outcome = run(path);
+        // Unused-binding warnings count only in a fixture that asks for them.
+        let got = if want.iter().any(|c| c == UNUSED_VARIABLE) {
+            outcome.codes.clone()
+        } else {
+            outcome.without_unused()
+        };
         let name = path.file_name().unwrap().to_string_lossy().to_string();
 
         for code in &want {
             assert!(
-                got.codes.iter().any(|c| c == code),
+                got.iter().any(|c| c == code),
                 "{name}: expected {code}, got {:?}\n{}",
-                got.codes,
-                got.rendered
+                got,
+                outcome.rendered
             );
             seen.push(code.clone());
         }
         if want.is_empty() {
             assert!(
-                got.codes.is_empty(),
+                got.is_empty(),
                 "{name}: expected no diagnostics, got {:?}\n{}",
-                got.codes,
-                got.rendered
+                got,
+                outcome.rendered
             );
         } else {
             // One mistake, one diagnostic (invariant 6 in CLAUDE.md). A rule that fires
             // twice for one violation is a regression even though the assertion above
             // would still pass.
             assert_eq!(
-                got.codes.len(),
+                got.len(),
                 want.len(),
                 "{name}: expected exactly {:?}, got {:?}\n{}",
                 want,
-                got.codes,
-                got.rendered
+                got,
+                outcome.rendered
             );
         }
     }
@@ -166,6 +182,7 @@ fn every_ownership_rule_has_a_case() {
         IMPLICIT_COPY,
         USE_OF_PARTIAL_MOVE,
         MISSING_RETURN,
+        UNUSED_VARIABLE,
         DUPLICATE_SPECIAL_MEMBER,
         OWN_FIELD_WITHOUT_DROP,
     ] {

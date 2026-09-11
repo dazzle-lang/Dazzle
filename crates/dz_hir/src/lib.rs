@@ -174,6 +174,41 @@ impl Body {
     }
 }
 
+/// How one local is used within its body.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct LocalUse {
+    /// Its value is read somewhere: anything but being the target of an assignment.
+    pub read: bool,
+    /// It is assigned to after its declaration.
+    pub assigned: bool,
+}
+
+/// Every local's [`LocalUse`], by [`LocalId`].
+///
+/// One answer for two consumers: flow analysis warns about a binding nothing reads, and
+/// codegen marks the same bindings `[[maybe_unused]]` so the C++ compiler does not warn
+/// again about the code the user was already warned about (invariant 7).
+pub fn local_uses(body: &Body) -> Vec<LocalUse> {
+    let mut uses = vec![LocalUse::default(); body.locals.len()];
+    let mut targets = std::collections::HashSet::new();
+    for s in &body.stmts {
+        if let StmtKind::Assign { target, .. } = &s.kind {
+            if let ExprKind::Local(l) = body.expr(*target).kind {
+                uses[l.index()].assigned = true;
+                targets.insert(*target);
+            }
+        }
+    }
+    for (i, e) in body.exprs.iter().enumerate() {
+        if let ExprKind::Local(l) = e.kind {
+            if !targets.contains(&ExprId(i as u32)) {
+                uses[l.index()].read = true;
+            }
+        }
+    }
+    uses
+}
+
 /// A local variable. Parameters, `let` bindings, `for` and `with` bindings and `case`
 /// payload bindings are all locals; flow analysis does not care which is which except when
 /// wording a diagnostic.

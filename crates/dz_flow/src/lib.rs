@@ -2,12 +2,13 @@
 //!
 //! Everything here is a consequence of one sentence in §6.3: a type that owns a resource
 //! is **move-only**, and every other rule is about keeping track of where the one live
-//! copy is. Four things are checked:
+//! copy is. Five things are checked:
 //!
 //! * a move-only value used where a copy would be needed (`DZ0403`);
 //! * a value read after it was moved out of, on any path (`DZ0401`, `DZ0404`);
 //! * `move` out of somewhere the function does not own (`DZ0402`);
-//! * a value-returning function with a path that falls off the end (`DZ0405`).
+//! * a value-returning function with a path that falls off the end (`DZ0405`);
+//! * a binding nothing reads — a warning, not an error (`DZ0406`).
 //!
 //! **This pass reads the HIR and nothing else.** It needs a name to be a `LocalId` so a
 //! place can be a map key, and every expression to carry its type so "is this move-only?"
@@ -31,6 +32,9 @@ use dz_span::{FileId, Span};
 /// Check every body in the program.
 pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
     let mut diags = Diagnostics::new();
+    // The prelude is the compiler's own code: a warning there is noise in every program.
+    let prelude: std::collections::HashSet<FileId> =
+        res.symbols.iter().filter(|s| s.module == res.prelude).map(|s| s.file).collect();
     for (_, body) in hir.bodies() {
         let mut cx = Flow {
             body,
@@ -42,9 +46,41 @@ pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
             quiet: false,
         };
         cx.body();
+        if !prelude.contains(&body.file) {
+            unused(body, &mut diags);
+        }
     }
     diags.sort_by_position();
     diags
+}
+
+/// A warning for each binding nothing reads (`DZ0406`). The program is still correct, so
+/// it is not an error; but an unread `let` is usually a leftover or a typo, and a parameter
+/// nothing reads is a signature worth a second look.
+fn unused(body: &hir::Body, diags: &mut Diagnostics) {
+    for (l, u) in body.locals.iter().zip(hir::local_uses(body)) {
+        // `self` is part of a method's shape; a leading `_` says "unused on purpose"; and a
+        // local whose span is not its own name — an implicit `it` — was written by no one.
+        let written = l.span.len() as usize == l.name.len();
+        if u.read || l.name == "self" || l.name.starts_with('_') || !written {
+            continue;
+        }
+        let what = if l.kind == hir::LocalKind::Param { "parameter" } else { "variable" };
+        let d = if u.assigned {
+            Diagnostic::warning(
+                codes::UNUSED_VARIABLE,
+                format!("`{}` is assigned but never read", l.name),
+            )
+            .at(body.file, l.span, "every value given to it is thrown away")
+        } else {
+            Diagnostic::warning(codes::UNUSED_VARIABLE, format!("{what} `{}` is never used", l.name))
+                .at(body.file, l.span, "nothing reads this")
+        };
+        diags.push(d.with_help(format!(
+            "if that is deliberate, name it `_{}`; otherwise remove it",
+            l.name
+        )));
+    }
 }
 
 // ---------------------------------------------------------------------------
