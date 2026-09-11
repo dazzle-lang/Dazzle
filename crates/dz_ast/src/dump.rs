@@ -224,9 +224,8 @@ impl<'a> Dumper<'a> {
             format!("{recv}, {}", params.join(", "))
         };
         self.line(format_args!(
-            "{vis}{}{}{} {}{}({}){}",
+            "{vis}{}{} {}{}({}){}",
             if f.is_unsafe { "unsafe " } else { "" },
-            if f.is_mut { "mut " } else { "" },
             what,
             f.name.name,
             generics_str(&f.generics),
@@ -427,7 +426,14 @@ impl<'a> Dumper<'a> {
                 self.nest(|d| d.block(b));
             }
             ExprKind::If(i) => {
-                self.line(format_args!("if"));
+                match &i.binding {
+                    Some(b) => self.line(format_args!(
+                        "if let {}{}",
+                        if b.mutable { "mut " } else { "" },
+                        b.name.name
+                    )),
+                    None => self.line(format_args!("if")),
+                }
                 self.nest(|d| {
                     d.expr(&i.cond);
                     d.block(&i.then);

@@ -162,6 +162,8 @@ fn every_rule_has_a_failing_case() {
         NOT_FORMATTABLE,
         // r12 — `unsafe`, and one trait at several arguments (spec §5.2, §18.27).
         UNSAFE_OPERATION,
+        IF_LET_FALLIBLE,
+        NOT_FALLIBLE,
         DUPLICATE_METHOD,
         AMBIGUOUS_CALL,
         // r13 — implementations (spec §6.1, §7.6).
@@ -267,7 +269,7 @@ fn mutation_requires_a_mutable_binding_or_receiver() {
     )
     .contains(&dz_diag::codes::NOT_MUTABLE));
     assert!(snippet(
-        "struct S {\n n: i32\n pub mut fn ok(&mut self) {\n  n = 1\n }\n}\n"
+        "struct S {\n n: i32\n pub fn ok(&mut self) {\n  n = 1\n }\n}\n"
     )
     .is_empty());
 }

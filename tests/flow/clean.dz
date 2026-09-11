@@ -15,7 +15,7 @@ pub struct Res {
 }
 
 impl Drop for Res {
-    mut fn drop(&mut self) {
+    fn drop(&mut self) {
         if m_p != null {
             unsafe { m_p^ = 0 }
         }
@@ -28,13 +28,13 @@ pub struct Tally {
 }
 
 impl Copy for Tally {
-    mut fn copy(&mut self, other: &Self) {
+    fn copy(&mut self, other: &Self) {
         n = other.n
     }
 }
 
 impl Drop for Tally {
-    mut fn drop(&mut self) {}
+    fn drop(&mut self) {}
 }
 
 pub struct Holder {

@@ -339,6 +339,20 @@ fn inlay_hints_show_inferred_types_only() {
 }
 
 #[test]
+fn inlay_hints_name_the_fields_of_a_positional_literal() {
+    let (a, f, text) = edited(typed_above("ints.push(10)", "let hinted = Vec2{ 1.5, 2.5 }"));
+    let hints = ide::inlay_hints(&a, f, dz_span::Span::new(0, text.len()));
+    let field_at = |needle: &str, within: usize| {
+        let at = offset_in(&text, needle, within);
+        hints.iter().find(|h| h.offset == at && h.kind == ide::HintKind::Field).map(|h| h.label.clone())
+    };
+    assert_eq!(field_at("Vec2{ 1.5, 2.5 }", 6).as_deref(), Some("x:"), "{hints:?}");
+    assert_eq!(field_at("Vec2{ 1.5, 2.5 }", 11).as_deref(), Some("y:"), "{hints:?}");
+    // `Vec2{ x: 1.0, y: 2.0 }` already names them.
+    assert_eq!(field_at("Vec2{ x: 1.0, y: 2.0 }", 9), None, "a named field gets no hint");
+}
+
+#[test]
 fn semantic_tokens_classify_names_by_what_they_are() {
     use dz_lsp::ide::TokenClass as C;
     let (a, f) = generics();

@@ -595,6 +595,16 @@ impl<'a> Parser<'a> {
     fn parse_if(&mut self) -> Expr {
         let start = self.start();
         self.bump(); // `if`
+        // `if let name = value` (spec §9.4). A missing name or `=` is reported and the
+        // rest still parses, as for any `if`.
+        let binding = if self.eat(TokenKind::Let) {
+            let mutable = self.eat(TokenKind::Mut);
+            let name = self.parse_ident_or_error();
+            self.expect_in(TokenKind::Eq, "after the `if let` binding");
+            Some(dz_ast::IfBinding { name, mutable })
+        } else {
+            None
+        };
         let cond = self.parse_expr_no_struct();
         let then = self.parse_block();
         let else_branch = if self.eat(TokenKind::Else) {
@@ -614,7 +624,7 @@ impl<'a> Parser<'a> {
         let span = self.span_from(start);
         Expr {
             span,
-            kind: ExprKind::If(IfExpr { span, cond: Box::new(cond), then, else_branch }),
+            kind: ExprKind::If(IfExpr { span, binding, cond: Box::new(cond), then, else_branch }),
         }
     }
 

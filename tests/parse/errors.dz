@@ -15,6 +15,12 @@ struct OldStyle {
     drop() {}
 }
 
+// `mut fn` was removed: the receiver says whether a method mutates (spec §7.3, §18.34).
+// Reported once, and the method still parses. Also above `MissingBrace`.
+struct Removed {
+    pub mut fn bump(&mut self) {}
+}
+
 struct MissingBrace {
     x: i32
 

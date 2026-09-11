@@ -685,15 +685,19 @@ impl Server {
         Some(
             ide::inlay_hints(&analysis, file, range)
                 .into_iter()
-                .map(|h| InlayHint {
-                    position: convert::position(source, h.offset),
-                    label: InlayHintLabel::String(h.label),
-                    kind: Some(InlayHintKind::TYPE),
-                    text_edits: None,
-                    tooltip: None,
-                    padding_left: None,
-                    padding_right: None,
-                    data: None,
+                .map(|h| {
+                    let field = h.kind == ide::HintKind::Field;
+                    InlayHint {
+                        position: convert::position(source, h.offset),
+                        label: InlayHintLabel::String(h.label),
+                        kind: Some(if field { InlayHintKind::PARAMETER } else { InlayHintKind::TYPE }),
+                        text_edits: None,
+                        tooltip: None,
+                        padding_left: None,
+                        // `id: 1`, not `id:1`: the hint sits before the value it names.
+                        padding_right: field.then_some(true),
+                        data: None,
+                    }
                 })
                 .collect(),
         )

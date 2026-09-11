@@ -21,7 +21,7 @@ pub struct Transform {
         return Mat4::from(position, rotation, scale)
     }
 
-    pub mut fn translate(&mut self, d: Vec3) {
+    pub fn translate(&mut self, d: Vec3) {
         position += d
     }
 }
@@ -31,11 +31,11 @@ pub struct SpriteBatch {
     pub(module) m_gl_handle: u32
     pub count:               u32
 
-    pub mut fn draw(&mut self, s: &Sprite) {
+    pub fn draw(&mut self, s: &Sprite) {
         count += 1
     }
 
-    mut fn flush(&mut self) {}
+    fn flush(&mut self) {}
 }
 
 pub union Shape {
@@ -67,7 +67,7 @@ pub trait Drawable {
 
 pub trait Iterate {
     type Item
-    mut fn next(&mut self) -> Item?
+    fn next(&mut self) -> Item?
 }
 
 pub struct Arena {
@@ -84,7 +84,7 @@ impl Allocator for Arena {
 }
 
 impl Drop for Arena {
-    mut fn drop(&mut self) {
+    fn drop(&mut self) {
         free_pages(m_base)
     }
 }
@@ -105,7 +105,7 @@ impl<T> Iterate for SliceIter<T> {
         return &m_slice[m_index]
     }
 
-    mut fn advance(&mut self) {
+    fn advance(&mut self) {
         m_index += 1
     }
 }
@@ -126,7 +126,7 @@ impl<T> Iterate for SliceIterMut<T> {
         return &mut m_slice[m_index]
     }
 
-    mut fn advance(&mut self) {
+    fn advance(&mut self) {
         m_index += 1
     }
 }
@@ -136,7 +136,7 @@ pub struct Nested {
     table: HashMap<str, Buffer<Vec3>>
 }
 
-// `unsafe fn` and `unsafe mut fn` (spec §5.2), and a trait list with type arguments.
+// `unsafe fn` and `unsafe fn` (spec §5.2), and a trait list with type arguments.
 pub unsafe fn poke(p: ^i32, v: i32) {
     p^ = v
 }
@@ -144,7 +144,7 @@ pub unsafe fn poke(p: ^i32, v: i32) {
 pub struct Raw {
     m_p: ^i32
 
-    unsafe mut fn write(&mut self, v: i32) {
+    unsafe fn write(&mut self, v: i32) {
         m_p^ = v
     }
 }
@@ -156,7 +156,7 @@ pub struct Button : UiElement {
 
 // A generic implementation with a bounded parameter (spec §7.6).
 impl<T: Copy> Copy for Buffer<T> {
-    mut fn copy(&mut self, other: &Self) {
+    fn copy(&mut self, other: &Self) {
         m_len = other.m_len
     }
 }

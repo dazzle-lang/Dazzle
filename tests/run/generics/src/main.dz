@@ -12,7 +12,7 @@ struct Tracked {
 }
 
 impl Drop for Tracked {
-    mut fn drop(&mut self) {
+    fn drop(&mut self) {
         // A moved-from value is back at its defaults (spec §6.4), so it has nothing to say.
         if id != 0 {
             println("drop {}", id)
@@ -76,7 +76,7 @@ struct Buffer<T> {
         m_cap = cap
     }
 
-    pub mut fn push(&mut self, v: T) {
+    pub fn push(&mut self, v: T) {
         if m_len == m_cap {
             panic("buffer full")
         }
@@ -100,7 +100,7 @@ struct Buffer<T> {
 }
 
 impl<T: Copy> Copy for Buffer<T> {
-    mut fn copy(&mut self, other: &Self) {
+    fn copy(&mut self, other: &Self) {
         unsafe {
             m_data = alloc(other.m_cap * sizeof(T), alignof(T)) as ^T
             if T::is_trivially_copyable {
@@ -117,7 +117,7 @@ impl<T: Copy> Copy for Buffer<T> {
 }
 
 impl<T> Drop for Buffer<T> {
-    mut fn drop(&mut self) {
+    fn drop(&mut self) {
         unsafe {
             if !T::is_trivially_copyable {
                 for i in 0..m_len {
@@ -149,7 +149,7 @@ impl Iterate for Countdown {
         return m_at
     }
 
-    mut fn advance(&mut self) {
+    fn advance(&mut self) {
         m_at -= 1
     }
 }

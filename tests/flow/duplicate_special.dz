@@ -6,9 +6,9 @@ pub struct Twice {
 }
 
 impl Drop for Twice {
-    mut fn drop(&mut self) {}
+    fn drop(&mut self) {}
 }
 
 impl Drop for Twice {
-    mut fn drop(&mut self) {}
+    fn drop(&mut self) {}
 }

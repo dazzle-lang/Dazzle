@@ -368,6 +368,7 @@ impl<'a> Emitter<'a> {
         let mut nodes: Vec<(SymbolId, Vec<Ty>)> =
             own_types.iter().map(|(_, _, s)| (*s, Vec::new())).collect();
         nodes.extend(instances.iter().map(|i| (i.sym, i.args.clone())));
+        self.forward_decls(&own_types, &instances);
         for i in self.sort_types(&nodes) {
             match own_types.get(i) {
                 Some(&(file, item, sym)) => {
@@ -403,6 +404,50 @@ impl<'a> Emitter<'a> {
         }
         self.impl_definitions();
         self.instance_definitions();
+    }
+
+    /// Declare every type before defining any. `sort_types` orders definitions by what they
+    /// store by value, but a type may also *mention* one declared after it — `List<T>`'s
+    /// `iter()` returns a `ListIterator<T>`, which points back at the `List<T>` — and a
+    /// member's signature only needs the name. Dazzle has no declaration order (spec §3),
+    /// so every name is made visible up front rather than chasing the cycles.
+    fn forward_decls(
+        &mut self,
+        own_types: &[(FileId, &Item, SymbolId)],
+        instances: &[&'a dz_mono::Instance],
+    ) {
+        let mut any = false;
+        for &(_, item, sym) in own_types {
+            let line = match &item.kind {
+                ItemKind::Struct(s) => format!("struct {};", self.struct_cpp_name(s, sym, &[])),
+                ItemKind::Union(u) => format!("struct {};", u.name.name),
+                ItemKind::Enum(e) => {
+                    let backing = match self.table.get(sym) {
+                        Some(ItemSig::Enum { backing, .. }) => int_name(*backing),
+                        _ => "int32_t",
+                    };
+                    format!("enum class {} : {backing};", e.name.name)
+                }
+                _ => continue,
+            };
+            let _ = writeln!(self.header, "{line}");
+            any = true;
+        }
+        for &inst in instances {
+            if !self.struct_asts.contains_key(&inst.sym) {
+                continue;
+            }
+            // In the generic's own namespace, where its definition will go. Repeating a
+            // declaration is harmless, so unlike the definition this needs no guard.
+            self.with_instance(inst, |e| {
+                let name = e.instance_name(inst.sym, &inst.args);
+                let _ = writeln!(e.header, "struct {name};");
+            });
+            any = true;
+        }
+        if any {
+            self.header.push('\n');
+        }
     }
 
     // --- implementations (spec §7.6) -------------------------------------------
@@ -501,7 +546,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// `Ret name(const T& self, params…)`: the receiver is an ordinary first parameter,
-    /// `const` unless the method is a `mut fn`.
+    /// `const` unless the method takes `&mut self`.
     fn impl_fn_head(&mut self, owner: &BodyOwner, name: &str, with_defaults: bool) -> Option<String> {
         let body = self.find_body(owner)?;
         let recv = body.params.first().map(|p| body.local(*p))?;
@@ -1057,7 +1102,7 @@ impl<'a> Emitter<'a> {
                     let owner = BodyOwner::Method { owner: sym, name: key };
                     let params = self.decl_params(&owner, true);
                     let ret = self.body_ret_ty(&owner);
-                    let cst = if f.is_mut { "" } else { " const" };
+                    let cst = if f.self_param.is_some_and(|s| s.is_mut) { "" } else { " const" };
                     let _ = writeln!(self.header, "    {ret} {method}({params}){cst};");
                 }
                 _ => {}
@@ -1145,7 +1190,7 @@ impl<'a> Emitter<'a> {
                     let owner = BodyOwner::Method { owner: sym, name: key };
                     let params = self.decl_params(&owner, false);
                     let ret = self.body_ret_ty(&owner);
-                    let cst = if f.is_mut { "" } else { " const" };
+                    let cst = if f.self_param.is_some_and(|s| s.is_mut) { "" } else { " const" };
                     self.current_fn = format!("{name}::{method}");
                     let head = format!("{inline}{ret} {name}::{method}({params}){cst} {{");
                     self.emit_body(&owner, &head);
@@ -1640,9 +1685,10 @@ impl<'a> Emitter<'a> {
     fn stmt_expr(&mut self, e: ExprId) {
         let body = self.cur();
         match &body.expr(e).kind {
-            hir::ExprKind::If { .. } | hir::ExprKind::Switch { .. } | hir::ExprKind::Block(_) => {
-                self.control_flow(e, Dest::None)
-            }
+            hir::ExprKind::If { .. }
+            | hir::ExprKind::IfLet { .. }
+            | hir::ExprKind::Switch { .. }
+            | hir::ExprKind::Block(_) => self.control_flow(e, Dest::None),
             hir::ExprKind::Or { operand, clause } => {
                 self.or_expr(e, *operand, clause, Dest::None);
             }
@@ -1816,6 +1862,54 @@ impl<'a> Emitter<'a> {
     fn control_flow(&mut self, e: ExprId, dest: Dest<'_>) {
         let body = self.cur();
         match &body.expr(e).kind {
+            // `if let x = v` (spec §9.4): the presence test `or` makes, with `x` declared
+            // inside the `if` so it exists only where the value does.
+            hir::ExprKind::IfLet { binding, operand, then, else_branch } => {
+                let operand_ty = body.ty(*operand).clone();
+                let name = self.names[binding.index()].clone();
+                let unused = self.unused_attr(binding.index());
+                let v = self.expr(*operand);
+                match operand_ty {
+                    Ty::Optional(inner) => {
+                        let cpp = self.cpp_ty(&inner);
+                        let tmp = self.fresh("opt");
+                        self.line(&format!("::dz::Opt<{cpp}> {tmp} = {v};"));
+                        self.line(&format!("if ({tmp}.has) {{"));
+                        self.indent += 1;
+                        let value = if self.table.copyable(&inner) {
+                            format!("{tmp}.value")
+                        } else {
+                            format!("::dz::mv({tmp}.value)")
+                        };
+                        self.line(&format!("{unused}{cpp} {name} = {value};"));
+                    }
+                    Ty::Ptr(inner) | Ty::OwnPtr(inner) => {
+                        let cpp = self.cpp_ty(&inner);
+                        let tmp = self.fresh("ptr");
+                        self.line(&format!("{cpp}* {tmp} = {v};"));
+                        self.line(&format!("if ({tmp} != nullptr) {{"));
+                        self.indent += 1;
+                        self.line(&format!("{unused}{cpp}& {name} = *{tmp};"));
+                    }
+                    // The checker reported the operand; keep the braces balanced.
+                    _ => {
+                        self.line("if (false) {");
+                        self.indent += 1;
+                    }
+                }
+                self.block_into(*then, dest);
+                self.indent -= 1;
+                match else_branch {
+                    Some(other) => {
+                        self.line("} else {");
+                        self.indent += 1;
+                        self.block_into(*other, dest);
+                        self.indent -= 1;
+                        self.line("}");
+                    }
+                    None => self.line("}"),
+                }
+            }
             hir::ExprKind::If { cond, then, else_branch } => {
                 // §8.3: a condition made only of compile-time queries is decided here and
                 // the dead branch is not emitted at all. It must not be: for this `T` it may
@@ -2031,8 +2125,11 @@ impl<'a> Emitter<'a> {
                 format!("::dz::index(::dz::obj({b}), static_cast<size_t>({i}), {loc})")
             }
             hir::ExprKind::Deref(inner) => {
+                let is_ref = matches!(body.ty(*inner), Ty::Ref { .. });
                 let v = self.expr(*inner);
-                format!("(*({v}))")
+                // A `&T` read as a `T` (spec §18.35) is a C++ reference already; using it
+                // where a value is wanted is the copy.
+                if is_ref { v } else { format!("(*({v}))") }
             }
             // `&x` yields a proxy convertible to both `T&` and `T*` (spec §5.2).
             hir::ExprKind::Ref { place, .. } => {
@@ -2119,7 +2216,10 @@ impl<'a> Emitter<'a> {
                 }
             }
 
-            hir::ExprKind::Block(_) | hir::ExprKind::If { .. } | hir::ExprKind::Switch { .. } => {
+            hir::ExprKind::Block(_)
+            | hir::ExprKind::If { .. }
+            | hir::ExprKind::IfLet { .. }
+            | hir::ExprKind::Switch { .. } => {
                 let ty = body.ty(e).clone();
                 if matches!(ty, Ty::Void | Ty::Never | Ty::Error) {
                     self.control_flow(e, Dest::None);
@@ -2169,6 +2269,25 @@ impl<'a> Emitter<'a> {
     /// cannot simply be hoisted — the statements would run unconditionally. It becomes an
     /// `if` instead, which keeps `f() or return` working inside a condition.
     fn binary(&mut self, op: BinaryOp, lhs: ExprId, rhs: ExprId) -> String {
+        // `x == none` asks whether an optional is empty (spec §9): a test of its flag, since
+        // `Opt` has no `==` — and `T` may not have one either. The checker allows no other
+        // comparison on an optional.
+        if matches!(op, BinaryOp::Eq | BinaryOp::Ne) {
+            let body = self.cur();
+            let is_none = |x: ExprId| matches!(body.expr(x).kind, hir::ExprKind::NoneOpt);
+            let subject = if is_none(rhs) {
+                Some(lhs)
+            } else if is_none(lhs) {
+                Some(rhs)
+            } else {
+                None
+            };
+            if let Some(s) = subject {
+                let v = self.expr(s);
+                let not = if matches!(op, BinaryOp::Eq) { "!" } else { "" };
+                return format!("({not}({v}).has)");
+            }
+        }
         let short_circuit = matches!(op, BinaryOp::And | BinaryOp::Or);
         let a = self.expr(lhs);
         let (pre, b) = self.capture(|e| e.expr(rhs));
@@ -2857,6 +2976,16 @@ impl Namer<'_> {
             hir::ExprKind::If { cond, then, else_branch } => {
                 self.expr(cond);
                 self.block(then);
+                if let Some(b) = else_branch {
+                    self.block(b);
+                }
+            }
+            hir::ExprKind::IfLet { binding, operand, then, else_branch } => {
+                self.expr(operand);
+                self.scoped(|n| {
+                    n.declare(binding);
+                    n.block(then);
+                });
                 if let Some(b) = else_branch {
                     self.block(b);
                 }

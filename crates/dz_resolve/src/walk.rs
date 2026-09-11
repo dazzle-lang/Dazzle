@@ -614,7 +614,16 @@ impl<'a, 'w> Walker<'a, 'w> {
             ExprKind::Block(b) | ExprKind::Unsafe(b) => self.block(b),
             ExprKind::If(i) => {
                 self.expr(&i.cond);
-                self.block(&i.then);
+                // `if let x = v`: `x` exists in the `then` block and nowhere else.
+                match &i.binding {
+                    Some(b) => {
+                        self.push_scope();
+                        self.bind(&b.name.name, b.name.span);
+                        self.block(&i.then);
+                        self.pop_scope();
+                    }
+                    None => self.block(&i.then),
+                }
                 if let Some(e) = &i.else_branch {
                     self.expr(e);
                 }

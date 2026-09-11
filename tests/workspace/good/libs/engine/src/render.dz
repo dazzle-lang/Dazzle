@@ -20,12 +20,12 @@ pub struct Renderer {
         return m_count
     }
 
-    pub mut fn draw(&mut self, s: &Sprite, at: math::Vec3) {
+    pub fn draw(&mut self, s: &Sprite, at: math::Vec3) {
         m_count += 1
         m_handle = s.id
     }
 
-    mut fn flush(&mut self) {
+    fn flush(&mut self) {
         m_count = 0
     }
 }

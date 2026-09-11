@@ -31,7 +31,7 @@ pub struct Handle {
 // §6.5: runs at the end of the enclosing scope, in reverse declaration order.
 
 impl Drop for Handle {
-    mut fn drop(&mut self) {
+    fn drop(&mut self) {
         if m_slot != null {
             println("  drop {}", label)
             unsafe {
@@ -52,13 +52,13 @@ pub struct Counted {
 }
 
 impl Copy for Counted {
-    mut fn copy(&mut self, other: &Self) {
+    fn copy(&mut self, other: &Self) {
         n = other.n + 100
     }
 }
 
 impl Drop for Counted {
-    mut fn drop(&mut self) {
+    fn drop(&mut self) {
         println("  drop Counted({})", n)
     }
 }

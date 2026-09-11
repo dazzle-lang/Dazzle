@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 14
+**Version:** 0.1 — **unreleased**, revision 17
 **Status:** M0–M6 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, and have generics and traits. The language is not yet usable
 for real work: there is no C++ interop and no stdlib. See `docs/PROGRESS.md`.
@@ -40,16 +40,16 @@ pub struct Buffer<T> {                // private by default; pub / pub(module) /
 
     Buffer(cap: u32, a: ^Allocator = Allocators::Global) { ... }   // constructor
 
-    pub fn     length(&self)      -> u32 { return m_len }   // fn      = &self
-    pub mut fn resize(&mut self, n: u32) { ... }            // mut fn  = &mut self
+    pub fn length(&self)      -> u32 { return m_len }       // &self     = reads
+    pub fn resize(&mut self, n: u32) { ... }                // &mut self = mutates
 }
 
 impl<T> Drop for Buffer<T> {                    // destructor -> deterministic, C++ handles it
-    mut fn drop(&mut self) { ... }
+    fn drop(&mut self) { ... }
 }
 
 impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable when T is
-    mut fn copy(&mut self, other: &Self) { ... }
+    fn copy(&mut self, other: &Self) { ... }
 }
 ```
 
@@ -403,8 +403,8 @@ pub struct SpriteBatch {
     pub(module) m_gl_handle: u32             // the rest of the engine may poke this
     pub         count:       u32             // anyone may read
 
-    pub mut fn draw(&mut self, s: &Sprite) { ... }
-    mut fn flush(&mut self) { ... }          // private helper
+    pub fn draw(&mut self, s: &Sprite) { ... }
+    fn flush(&mut self) { ... }          // private helper
 }
 ```
 
@@ -476,6 +476,13 @@ Four ways to refer to something — the model your samples already use, plus `&m
 - **`own ^T`** is a `^T` that this struct is responsible for releasing. It changes the
   *type's* semantics — see §6.
 
+**Reading through a reference.** A `&T` or `&mut T` is accepted where a `T` is wanted, and
+copies the value it refers to — `return m` in a function returning `Movie`, `let v: Vec3 =
+r`, an argument, a field. Reading cannot fail, so it is not spelled out. Only a copyable `T`
+can be read this way: a move-only one would have to be moved, and nothing may be moved out
+of a borrow (`DZ0402`, §6.4), and in a generic body that means `T: Copy`. Where no type is
+wanted, a reference stays a reference: `let r2 = r` is another `&T`. `[DECIDED — §18.35]`
+
 **Converting between them.** `&mut T` → `^T` is free and implicit: forming a pointer changes
 nothing. `&T` → `^T` is not allowed at all, because a `^T` may be written through and a
 `&T` promises the opposite. `^T` → `&mut T` goes through an `or` clause like any other
@@ -534,7 +541,7 @@ shared ownership is the stdlib's `Rc<T>` (§19 M12). `[DECIDED — §18.16]`
 `null` is a value of type `^T` for any `T`. There is no null `&T`.
 
 **Auto-referencing.** Method receivers are auto-referenced: `buf.resize(8)` works and
-passes `&mut buf` when `resize` is a `mut fn`. Free functions are **not** auto-referenced —
+passes `&mut buf` when `resize` takes `&mut self`. Free functions are **not** auto-referenced —
 you write `resize(&mut buf, 8)` — so that reading a call site tells you whether the callee
 can modify the argument. `[PROPOSED]`
 
@@ -690,11 +697,11 @@ struct Buffer<T> {
 }
 
 impl<T> Drop for Buffer<T> {        // destructor
-    mut fn drop(&mut self) { ... }
+    fn drop(&mut self) { ... }
 }
 
 impl<T: Copy> Copy for Buffer<T> {  // copy constructor, for the instances it covers
-    mut fn copy(&mut self, other: &Self) { ... }
+    fn copy(&mut self, other: &Self) { ... }
 }
 ```
 
@@ -752,7 +759,7 @@ struct File {
 }
 
 impl Drop for File {
-    mut fn drop(&mut self) { close(handle) }
+    fn drop(&mut self) { close(handle) }
 }
 
 let f  = File("save.dat")
@@ -919,11 +926,13 @@ pub struct Transform {
     scale:    Vec3 = Vec3{1, 1, 1}
 
     pub fn matrix(&self) -> Mat4 { ... }
-    pub mut fn translate(&mut self, d: Vec3) { position += d }
+    pub fn translate(&mut self, d: Vec3) { position += d }
 }
 ```
 
-Methods declared `fn` take `&self`; methods declared `mut fn` take `&mut self`. Inside a
+A method's receiver is its first parameter: `&self` to read the value, `&mut self` to
+mutate it. The receiver is the only place a method says it mutates — there is no `mut fn`,
+which would say it a second time and could disagree (§18.34). Inside a
 method, fields are in scope unqualified (`position`), and `self.position` is also valid —
 and required when a local shadows a field.
 
@@ -1156,7 +1165,7 @@ resource. Inside that `copy`, `T` is `Copy` because the implementation says so.
 
 ```dz
 impl<T: Copy> Copy for Buffer<T> {
-    mut fn copy(&mut self, other: &Self) {
+    fn copy(&mut self, other: &Self) {
         unsafe {
             m_data = alloc(other.m_cap * sizeof(T), alignof(T)) as ^T
             if T::is_trivially_copyable {
@@ -1211,7 +1220,7 @@ pub trait Iterate {
 
     fn valid(&self) -> bool         // is there a current element?
     fn get(&self) -> Item           // ...then this is it
-    mut fn advance(&mut self)       // step past it
+    fn advance(&mut self)       // step past it
 }
 ```
 
@@ -1228,7 +1237,7 @@ impl<T> Iterate for SliceIter<T> {
 
     fn valid(&self) -> bool   { return m_index < m_slice.len }
     fn get(&self)   -> &T     { return &m_slice[m_index] }
-    mut fn advance(&mut self) { m_index += 1 }
+    fn advance(&mut self) { m_index += 1 }
 }
 
 struct RangeIter {
@@ -1241,7 +1250,7 @@ impl Iterate for RangeIter {
 
     fn valid(&self) -> bool   { return m_current < m_end }
     fn get(&self)   -> i32    { return m_current }
-    mut fn advance(&mut self) { m_current += 1 }
+    fn advance(&mut self) { m_current += 1 }
 }
 ```
 
@@ -1503,6 +1512,28 @@ let x = f() or ignore                   // error[DZ0524]: `ignore` produces no v
 deliberate drop (§9.5). `[PROPOSED — this dual role is the part of the design least
 supported by real code; revisit after the M12 stdlib pass.]`
 
+**`if let`** is for when both outcomes carry on — "do this if it is there, that if it is
+not, then continue" — which an `or` clause cannot say, since it must produce a value or
+diverge:
+
+```dz
+if let m = find_movie(&mut list, "Nemo") {
+    println("found {}", m.id)        // m: Movie
+} else {
+    println("not found")
+}
+```
+
+The binding holds exactly what `or` would produce: the `T` of a `T?`, or the `&mut T` of a
+`^T`, so it is also the checked pointer-to-reference conversion of §5.2. It exists in the
+first block only. `if let mut m` makes it mutable, `else if` chains as for any `if`, and
+`if let` is an expression when both blocks produce a value. It does not take a fallible
+call: its `else` has no `Error` to hand over, so the failure would be dropped unseen, which
+§9.5 exists to prevent — that is `or`'s job (`DZ0529`). `[DECIDED — §18.36]`
+
+An optional can also be tested without taking the value out: `m == none` and `m != none`.
+Nothing else compares a `T?` — two optionals have no `==` (§18.36).
+
 ### 9.5 Propagation: `or return`
 
 Bare `or return` means **propagate the failure**, and is legal only where the enclosing
@@ -1633,6 +1664,7 @@ if x > 0 {
 
 Parentheses around the condition are not used. Braces are mandatory. The condition must be
 `bool` — there is no truthiness, and no pointer-to-bool conversion (`if p != null`).
+`if let x = v { … }` takes the value out of a `T?` or a `^T` for the first block (§9.4).
 
 ### 10.2 `while`
 
@@ -1886,7 +1918,7 @@ macro machine -> declaration {
                             $.name: $.type $.default? { = $.default }
                         }
                         $.items
-                        mut fn update(&mut self, ctx: &mut $ctx) -> States? { $.body }
+                        fn update(&mut self, ctx: &mut $ctx) -> States? { $.body }
                     }
                 }
             }
@@ -2339,7 +2371,7 @@ struct Texture {
 }
 
 impl Drop for Texture {
-    mut fn drop(&mut self) { rl::UnloadTexture(handle) }
+    fn drop(&mut self) { rl::UnloadTexture(handle) }
 }
 ```
 
@@ -2687,7 +2719,7 @@ be exactly what reload needs, and must stay that way:
 | 18.17 | `^T` → `&T` | **Checked.** Goes through an `or` clause, which since r12 yields a `&mut T`. The second half — "`&T` → `^T` stays implicit" — is **reversed by 18.16** (§5.2) |
 | 18.21 | How `Iterate::next` spells one signature for both item kinds | **The question is void — there is no `next`.** `Iterate` is `valid` / `get` / `advance`, so termination is not encoded in the item and `Item` is never wrapped (§8.5). This **reverses the decided half of the old 18.21** ("a pointer iterator returns `^T`, a value iterator returns `Item?`"): that split existed only to dodge `(^T)?`, and with the item unwrapped it buys nothing. `Item` may now be `&T`, which `Item?` could never express, so §10.4's `for e in &entities` yields a `&Entity` as it always claimed |
 | 18.22 | Is a slice writable through an immutable binding? | **Neither — writability moves into the type.** `[]T` is a read-only view and `[]mut T` a writable one, standing to each other as `&T` and `&mut T` do. Following the binding was rejected because a slice is a view, so the binding says nothing about the elements (§5.3) |
-| 18.25 | Can a `&T` be read as a `T`? | **Not yet — and the operator traits stop needing it.** `&T` reaches through `.` for members and is otherwise not a value: `fn f(b: &f32) -> f32 { return b }` is an error, and `^` derefs a `^T` only (§5.2). That made §11.2's `fn mul(&self, rhs: &Rhs)` unimplementable for `Mul<f32>`, so `Rhs` is taken **by value** instead, which is the better signature for the copyable math types these traits exist for. `Eq`/`Ord` keep `&Self`, because comparing a move-only type must not consume it. Whether `&T` should gain a read of its own is left open — nothing needs it now |
+| 18.25 | Can a `&T` be read as a `T`? | **Not yet — and the operator traits stop needing it.** `&T` reaches through `.` for members and is otherwise not a value: `fn f(b: &f32) -> f32 { return b }` is an error, and `^` derefs a `^T` only (§5.2). That made §11.2's `fn mul(&self, rhs: &Rhs)` unimplementable for `Mul<f32>`, so `Rhs` is taken **by value** instead, which is the better signature for the copyable math types these traits exist for. `Eq`/`Ord` keep `&Self`, because comparing a move-only type must not consume it. Whether `&T` should gain a read of its own is left open — nothing needs it now. **Settled by 18.35**: it reads as a `T` where one is wanted |
 | 18.24 | Array literals, and reaching an enum variant without naming its type | **`[a, b, c]`, with the length exactly as written**: no repeat form (§6.2 already zeroes an array, and `;` is a terminator so `[0; 8]` is unavailable), no short form, and a literal may not be *stored* as a slice though it may be passed as one (§5.3). **`.Selected` works wherever the enum is already known** — the same mechanism a union variant already used — while `Sprite::Selected` always works and is what an uninferrable position needs (§7.4). `Sprite.Selected` stays invalid: `.` is the runtime operator (§3.3) |
 | 18.23 | Where do `Ord`, `Add`, `Iterate` and `Format` live before the stdlib? | **An implicit prelude written in Dazzle**, module `dz`, carried as source by the compiler and in scope everywhere with no import. Not compiler-invented symbols: the trait machinery is then exercised by real Dazzle code from the first day it exists, and at M12 the prelude grows into the stdlib instead of being deleted (§3.2) |
 | 18.16 | Implicit `&T` → `^T` widening, and what a raw pointer may do | **Forming a pointer is safe; using one is `unsafe`.** `&mut T` → `^T` stays implicit; `&T` → `^T` is forbidden, since a `^T` may be written through and a `&T` promises it will not be. Reading or writing through a `^T` (`p^`, `.`, `[i]`), a pointer cast, `construct`/`destroy`/`memcpy`/`free`, and calling an `unsafe fn` are allowed only inside `unsafe { }` or an `unsafe fn`. The `or` conversion stays safe and yields a `&mut T`. `unsafe` is a marker, not a proof: it promises that raw-memory operations are findable, not that safe code is free of undefined behaviour. Array and slice indexing is therefore safe and bounds-checked in every build, with `xs.ptr` as the unchecked spelling (§5.2, §5.3). An explicit `as ^T` was rejected because it makes forming the pointer loud and leaves using it silent — the opposite of where the danger is |
@@ -2698,6 +2730,9 @@ be exactly what reload needs, and must stay that way:
 | 18.31 | How is a trait implemented, and where? | **Only by `impl Trait for Type { … }`, written with the trait or with the type** — Rust's orphan rule. A module can then add behaviour to a type it did not write (an editor implementing `Inspect` for an engine's structs, or for `f32`), and two libraries can never both implement a third's trait for a fourth's type. A struct no longer lists traits after `:`, which is reserved for inheritance (18.32). `Drop` and `Copy` become prelude traits, stricter than others: the struct's own module, every instance, no bounds on `Drop`, never called by name — they are its C++ destructor and copy constructor. A type's own method wins over a trait's; two traits providing one name are chosen between as `Trait::method(&v)`. An implementation for every type at once (`impl<T> X for T`) is not allowed (§6.1, §7.6) |
 | 18.28 | `break` with a value | **Removed.** A loop is a statement and has no result to give; the parser rejects a value after `break`, which keeps its optional label (§10.2) |
 | 18.33 | `move` on a copyable value | **It moves.** The source is moved-from, a later use is an error, and it is reset to its defaults at runtime — the same as for any type. The compiler had been treating it as a copy, which §6.4 never said; one rule for every type is simpler to learn, and it keeps a generic body meaning one thing for every argument. To keep using a copyable value, leave out `move` (§6.4) |
+| 18.34 | `mut fn` | **Removed — the receiver says it.** A method mutates when it takes `&mut self` and reads when it takes `&self`; `fn resize(&mut self, n: u32)` is the one spelling. `mut fn` stated the same fact twice, and the two could disagree: `fn f(&mut self)` was accepted, and the compiler went on to treat the method as mutating in one place and as read-only in another. The parser now rejects `mut fn` with a help saying what to write (§7.3) |
+| 18.35 | Reading a `&T` as a `T` — the open half of 18.25 | **Implicit, for a copyable `T`.** A reference is accepted where its referent's type is wanted, and the value is copied: `for m in list.iter() { if m.name == name { return m } }` returns a `Movie`. Reading cannot fail, so by the rule that makes `^T` → `&T` loud and `&mut T` → `^T` quiet, it is not spelled. A move-only `T` is still refused, as a move out of a borrow; a generic body needs `T: Copy`. An explicit `r^` was considered and rejected — it would put a sigil on the most ordinary read in the language — and `^` stays the pointer dereference (§5.2) |
+| 18.36 | Using a `T?` when both outcomes continue | **`if let name = value { … } else { … }`.** The binding holds what `or` would produce — the `T` of a `T?`, the `&mut T` of a `^T` — in the first block only. Chosen over narrowing `m` after `if m != none`, which needs flow-sensitive types and works only on locals, and over "`or` only", which leaves "both branches, then carry on" with no spelling. It does not take a fallible call, whose `else` would drop the `Error` unseen (§9.5); binding the error in `else` is left for later. `m == none` / `m != none` test presence; two optionals do not compare (§9.4) |
 
 ### 18.2 Still open
 
@@ -2802,7 +2837,8 @@ statement     = let_stmt | assign | expr_stmt | if_stmt | while_stmt | for_stmt
 
 let_stmt      = "let" [ "mut" ] pattern [ ":" type ] [ "=" expr ] TERM ;
 assign        = place ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" ) expr TERM ;
-if_stmt       = "if" expr block { "else" "if" expr block } [ "else" block ] ;
+if_stmt       = "if" if_head block { "else" "if" if_head block } [ "else" block ] ;
+if_head       = expr | "let" [ "mut" ] ident "=" expr ;
 while_stmt    = [ ident ":" ] "while" expr block ;
 for_stmt      = [ ident ":" ] "for" pattern { "," pattern } "in" expr block ;
 switch_stmt   = "switch" expr "{" { case_arm } [ "default" block ] "}" ;
@@ -2852,6 +2888,9 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r17 | 2026-09-11 | **`if let`.** `if let m = find(...) { … } else { … }` takes the value out of a `T?` (or a `^T`, giving a `&mut T`) for the first block, so "if it is there do this, otherwise that, then carry on" has a spelling — `or` must produce a value or diverge. Not for a fallible call, which still goes through `or`. Also written down: `x == none` and `x != none` test an optional, and nothing else compares one (§9.4, §10.1, 18.36). |
+| r16 | 2026-09-11 | **A reference reads as a value.** Where a `T` is wanted, a `&T` or `&mut T` is accepted and the value copied — `return m` from inside `for m in list.iter()` returns the element itself. Only for a copyable `T`; a move-only one is still an error, since nothing moves out of a borrow. Where no type is wanted, a reference stays a reference (§5.2, 18.35). |
+| r15 | 2026-09-11 | **`mut fn` is removed.** Whether a method mutates is said once, by its receiver: `fn push(&mut self, v: T)` mutates, `fn len(&self)` reads. `mut fn` repeated that and could contradict it; it is now a parse error (`DZ0214`) whose fix is to delete `mut`. Trait methods follow suit — `Drop` is `fn drop(&mut self)`, `Iterate::advance` is `fn advance(&mut self)` (§7.3, 18.34). |
 | r14 | 2026-09-11 | **`move` always moves**, whatever the type. `move` on a copyable value — an `i32`, a `str` — leaves the source moved-from, so a later use is an error, and resets it to its defaults at runtime, exactly as for a resource. The compiler had been treating it as a copy, which §6.4 never said. To keep using a copyable value, leave out `move` (§6.4, 18.33). |
 | r13 | 2026-09-11 | Implementations. **A trait is implemented only by `impl Trait for Type { … }`**, written in the trait's module or the type's (the orphan rule), so a module can add a trait to a type it did not write — an editor's `Inspect` for an engine's structs, or for `f32` — while two libraries can never both implement a third's trait for a fourth's type (§7.6, 18.31). `impl` is a keyword. An implementation holds exactly the trait's methods and chooses the trait's associated types, **each for itself**, so `Mat4 × Vec4` can be a `Vec4` while `Mat4 × f32` is a `Mat4` (§8.5, 18.29); a trait implemented at several arguments is one `impl` per argument (§11.2). Generic implementations (`impl<T: X> X for Buffer<T>`) are allowed; one for every type at once is not; two that could apply to the same type are an error; a type's own method wins over a trait's, and `Trait::method(&v)` chooses between two traits. **`Drop` and `Copy` are prelude traits** rather than special members: `impl Drop for File { mut fn drop(&mut self) … }`, `impl<T: Copy> Copy for Buffer<T> { mut fn copy(&mut self, other: &Self) … }` — only for a struct, in its own module, for every instance, never called by name; `copy` and `drop` stop being keywords (§6.1). **A struct no longer lists traits after `:`**; `struct Button : UiElement` is reserved for inheritance, whose design is recorded as 18.32 and lands with the next revision (§7.3). **`Error.location` is a `&SourceLocation`**, read as `e.location.line` — the one stored reference, since it points into static storage (§9.2, 18.30). |
 | r12 | 2026-09-11 | Safety and generics pass, settling r11's open questions. **`unsafe`**: a new keyword, formerly reserved. Forming, copying, storing, comparing and passing a pointer are safe; reading or writing *through* a `^T` (`p^`, `.`, `[i]`), a pointer cast, `construct`/`destroy`/`memcpy`/`free`, and calling an `unsafe fn` are allowed only inside `unsafe { … }` or an `unsafe fn` (§5.2). It marks raw memory and is not a safety proof, and it relaxes no other rule. **`&T` → `^T` is forbidden**, reversing half of 18.17: a `^T` may be written through, so widening a read-only reference would launder it. `&mut T` → `^T` stays implicit, and **`p or …` now yields a `&mut T`**, so a context struct's pointer can be written through safely once checked (18.16). **Indexing an array or slice is bounds-checked in every build**, not just debug; `xs.ptr` is the unchecked way in, on a writable view only (§5.3). **`Copy`**: a prelude trait with no methods, satisfied by every copyable type without declaring it, so `fn dup<T: Copy>` may copy its `T`; a generic struct's own `copy` exists only for instances whose arguments are `Copy`, so `Buffer<f32>` copies and `Buffer<File>` is move-only (§8.2, 18.26). **A type may implement one trait at several arguments** — `Vec2 : Mul<f32> + Mul<Vec2>` with two `mul`s, picked by the argument's type; the only overloading there is (§11.2, 18.27). **`break` takes no value** (§10.2, 18.28). §8.1's `max` example now writes `move`, as r11's rule requires, and §11.2's example uses `+` between traits, which is the syntax. Opened 18.29 (an associated type per implementation) and 18.30 (`Error.location` is a `^T`). |

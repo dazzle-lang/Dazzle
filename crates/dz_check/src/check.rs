@@ -359,8 +359,8 @@ fn signature_differs(cx: &Ctx, want: &FnSig, got: &FnSig) -> Option<String> {
     }
     if want.takes_self != got.takes_self {
         return Some(match want.takes_self {
-            Some(true) => "the trait declares `mut fn`, taking `&mut self`".to_owned(),
-            Some(false) => "the trait declares `fn`, taking `&self`".to_owned(),
+            Some(true) => "the trait's method takes `&mut self`".to_owned(),
+            Some(false) => "the trait's method takes `&self`".to_owned(),
             None => "the trait declares this without a receiver".to_owned(),
         });
     }
@@ -395,8 +395,7 @@ fn signature_of(cx: &Ctx, name: &str, sig: &FnSig) -> String {
         other => format!(" {arrow} {}", type_name(cx.res, other)),
     };
     let unsafe_ = if sig.is_unsafe { "unsafe " } else { "" };
-    let mutable = if sig.is_mut { "mut " } else { "" };
-    format!("{unsafe_}{mutable}fn {name}({}){ret}", params.join(", "))
+    format!("{unsafe_}fn {name}({}){ret}", params.join(", "))
 }
 
 fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
@@ -808,7 +807,10 @@ impl<'a, 'c> Body<'a, 'c> {
         self.push();
         if let Some(is_mut) = sig.takes_self {
             self.self_mutable = is_mut;
-            let self_type = self.self_full.clone().or_else(|| self.self_ty.map(Ty::plain));
+            // `self_type_of`, not `Ty::plain`: inside `List<T>`, `self` is a `List<T>`, and a
+            // bare `List` would match nothing written with its arguments (`&mut self` where
+            // a `^List<T>` is wanted).
+            let self_type = self.self_full.clone().or_else(|| self.self_ty.map(|s| self.cx.self_type_of(s)));
             if let Some(st) = self_type {
                 let id = self.bind("self", st.clone(), is_mut, LocalKind::Param, f.name.span);
                 self.self_local = Some(id);
@@ -1215,8 +1217,8 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             ExprKind::Field { name, .. } => (
                 format!("field `{}`", name.name),
-                "a field is mutable through `&mut self` or a `^` pointer; a `fn` method \
-                 takes `&self`, so make it `mut fn` (spec §7.3)"
+                "a field is mutable through `&mut self` or a `^` pointer; this method \
+                 takes `&self`, so make it take `&mut self` (spec §7.3)"
                     .to_owned(),
             ),
             ExprKind::Index { base, .. } => match self.expr_quiet(base) {
@@ -1259,9 +1261,25 @@ impl<'a, 'c> Body<'a, 'c> {
     /// elements, so the array itself has to be writable — a question `assignable` cannot
     /// answer, because it sees types and not places (spec §5.3, §18.22). Every context
     /// that supplies an expected type goes through here, so the rule is stated once.
+    ///
+    /// The other coercion that needs a node is reading a `&T` where a `T` is wanted: it
+    /// copies the referent (spec §5.2, §18.35). Made explicit as a `Deref` so flow sees the
+    /// read — and reports `DZ0402` when `T` is move-only — and codegen sees the copy.
     fn expr(&mut self, e: &Expr, expected: Option<&Ty>) -> Checked {
         let checked = self.expr_inner(e, expected);
         if let Some(exp) = expected {
+            let (want, got) = (self.subst(exp), self.subst(&checked.ty));
+            // A `T?` is filled from a `T` later, where the value is wrapped, so the read has
+            // to look inside it: `return m` into a `Movie?` reads a `Movie` (spec §9.1).
+            let value = match &want {
+                Ty::Optional(v) => (**v).clone(),
+                other => other.clone(),
+            };
+            if let Ty::Ref { inner, .. } = &got {
+                if !want.is_wildcard() && !assignable(&want, &got) && assignable(&value, inner) {
+                    return self.hir.expr(e.span, (**inner).clone(), hir::ExprKind::Deref(checked.id));
+                }
+            }
             if let (Ty::Slice { mutable: true, .. }, Ty::Array { .. }) =
                 (&self.subst(exp), &self.subst(&checked.ty))
             {
@@ -1661,9 +1679,55 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.mk(e, c.ty, hir::ExprKind::Block(c.id))
             }
             ExprKind::If(i) => {
-                let cond = self.expr(&i.cond, Some(&Ty::Bool));
-                self.require_bool(&cond.ty, i.cond.span, "if");
-                let then = self.block(&i.then, expected);
+                // `if let name = value` (spec §9.4): `name` holds what `or` would produce
+                // from the value — the `T` of a `T?`, or the `&mut T` of a `^T` — and exists
+                // only in the `then` block.
+                let (head, then) = match &i.binding {
+                    None => {
+                        let cond = self.expr(&i.cond, Some(&Ty::Bool));
+                        self.require_bool(&cond.ty, i.cond.span, "if");
+                        (Err(cond.id), self.block(&i.then, expected))
+                    }
+                    Some(b) => {
+                        let subject = self.expr(&i.cond, None);
+                        let bound = match &subject.ty {
+                            Ty::Optional(inner) => (**inner).clone(),
+                            Ty::Ptr(inner) | Ty::OwnPtr(inner) => {
+                                Ty::Ref { mutable: true, inner: inner.clone() }
+                            }
+                            t if t.is_wildcard() => Ty::Error,
+                            Ty::Fallible(_) => {
+                                self.cx.error_help(
+                                    codes::IF_LET_FALLIBLE,
+                                    i.cond.span,
+                                    "`if let` cannot take a fallible call",
+                                    "this may fail with an `Error`",
+                                    "`else` has no `Error` to hand over, so the failure would be \
+                                     dropped unseen — handle it with `or` (spec §9.4)",
+                                );
+                                Ty::Error
+                            }
+                            t => {
+                                let n = self.cx.name_of(t);
+                                self.cx.error_help(
+                                    codes::NOT_FALLIBLE,
+                                    i.cond.span,
+                                    format!("`if let` needs a `T?` or a `^T`, found `{n}`"),
+                                    "this is always present",
+                                    "`if let` takes the value out of something that may be \
+                                     empty; for a `bool`, write a plain `if` (spec §9.4)",
+                                );
+                                Ty::Error
+                            }
+                        };
+                        self.push();
+                        let local =
+                            self.bind(&b.name.name, bound, b.mutable, LocalKind::Binding, b.name.span);
+                        let then = self.block(&i.then, expected);
+                        self.pop();
+                        (Ok((local, subject.id)), then)
+                    }
+                };
                 let (ty, else_branch) = match &i.else_branch {
                     Some(else_expr) => {
                         let other = self.expr(else_expr, expected);
@@ -1677,10 +1741,11 @@ impl<'a, 'c> Body<'a, 'c> {
                     // Without an `else` an `if` cannot produce a value.
                     None => (Ty::Void, None),
                 };
-                let kind = hir::ExprKind::If {
-                    cond: cond.id,
-                    then: then.id,
-                    else_branch,
+                let kind = match head {
+                    Err(cond) => hir::ExprKind::If { cond, then: then.id, else_branch },
+                    Ok((binding, operand)) => {
+                        hir::ExprKind::IfLet { binding, operand, then: then.id, else_branch }
+                    }
                 };
                 self.mk(e, ty, kind)
             }
@@ -1809,6 +1874,24 @@ impl<'a, 'c> Body<'a, 'c> {
                         format!("cannot compare `{x}` with `{y}`"),
                         "operands have different types",
                         "Dazzle has no implicit conversions (spec §5.1) — cast one side",
+                    );
+                    return self.mk(e, Ty::Bool, hir::ExprKind::Error);
+                }
+                // A `T?` is compared only with `none`, which asks whether it is empty (spec
+                // §9). Two optionals have no comparison in the spec, and used to reach C++
+                // as `Opt == Opt`, which does not compile (invariant 7).
+                let is_none = |x: &Expr| matches!(x.kind, ExprKind::None);
+                let optional =
+                    matches!(a.ty, Ty::Optional(_)) || matches!(b.ty, Ty::Optional(_));
+                if optional && !(matches!(op, Eq | Ne) && (is_none(lhs) || is_none(rhs))) {
+                    let (x, y) = (self.cx.name_of(&a.ty), self.cx.name_of(&b.ty));
+                    self.cx.error_help(
+                        codes::INVALID_OPERANDS,
+                        span,
+                        format!("cannot compare `{x}` with `{y}`"),
+                        "an optional is compared only with `none`",
+                        "`x == none` asks whether it is empty; to use the value, take it out \
+                         with `or` first (spec §9.4)",
                     );
                     return self.mk(e, Ty::Bool, hir::ExprKind::Error);
                 }
@@ -3174,7 +3257,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 base.span,
                 format!("`{method}` needs a mutable receiver"),
                 "this is not mutable",
-                "`mut fn` methods take `&mut self` — bind with `let mut`, or take `&mut` here \
+                "the method takes `&mut self` — bind with `let mut`, or take `&mut` here \
                  (spec §7.3)",
             );
         }

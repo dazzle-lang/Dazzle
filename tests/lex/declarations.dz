@@ -14,7 +14,7 @@ pub struct Buffer<T> {
     drop() { m_allocator.free(m_data as ^u8, m_capacity, alignof(T)) }
 
     pub fn length(&self) -> u32 { return m_len }
-    pub mut fn resize(&mut self, n: u32) { m_len = n }
+    pub fn resize(&mut self, n: u32) { m_len = n }
 }
 
 fn load(path: str) !-> Texture {

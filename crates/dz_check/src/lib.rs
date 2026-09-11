@@ -1664,7 +1664,8 @@ impl<'a> Ctx<'a> {
             ret,
             fallible: f.fallible,
             takes_self: f.self_param.map(|s| s.is_mut),
-            is_mut: f.is_mut,
+            // The receiver is the only place a method says it mutates (spec §7.3, §18.34).
+            is_mut: f.self_param.is_some_and(|s| s.is_mut),
             is_unsafe: f.is_unsafe,
             vis,
             span: f.name.span,

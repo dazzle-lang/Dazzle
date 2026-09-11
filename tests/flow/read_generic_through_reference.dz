@@ -1,0 +1,7 @@
+// Reading a `&T` as a `T` copies it (spec §18.35), and an unbounded `T` might be move-only,
+// so a generic body needs `T: Copy` to do it. Reported here, in the generic, not at a use.
+// expect: DZ0402
+
+fn out_of_a_generic_reference<T>(r: &T) -> T {
+    return r
+}

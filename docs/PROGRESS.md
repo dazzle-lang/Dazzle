@@ -631,6 +631,67 @@ part 2 makes analysis tolerate errors (§4). Compiler work only — nothing in �
   (`tests/flow/unused_variable.dz`), since rule fixtures and `typed/` are full of throwaway
   bindings on purpose.
 
+### Fixes from `examples/books`
+
+A user program — a generic `List<T>` with a `ListIterator<T>` pointing back at it — hit
+three compiler bugs, none a language change.
+
+- **`self` in a generic struct's method was the bare struct.** `Body::function` typed it
+  `Ty::plain(sym)`, so inside `List<T>`, `&mut self` was a `&mut List` and matched no
+  `^List<T>`. It now uses `self_type_of`, the declaration applied to its own parameters —
+  what `Self` already meant. The `hir_typed` snapshot shows the difference (`self: Pair<T>`).
+- **C++ declaration order.** `sort_types` orders definitions by what each type stores by
+  value, which is not enough when a signature merely *mentions* a type defined later:
+  `List__Movie::iter()` returns a `ListIterator__Movie`, which holds a `List__Movie*`.
+  Every module header now forward-declares all its types — its own structs, unions and
+  enums, and its instances in their home namespaces — before defining any. Unguarded,
+  since repeating a declaration is harmless. `tests/run/iterator` pins it.
+- **`fn f(&mut self)` produced C++ that did not compile.** The receiver was said twice, and
+  each half of the compiler believed a different half: the checker went by `&mut self` and
+  allowed mutation, codegen went by the missing `mut` and emitted a `const` member. The
+  user's call, recorded as 18.34 / r15: **`mut fn` is removed** and the receiver alone
+  decides. `FnDecl.is_mut` is gone from the AST, so nothing can consult the old keyword;
+  `FnSig.is_mut` is now derived from `&mut self`. The parser reports `mut fn` as
+  **`DZ0214`** and parses on as if the `mut` were absent. Every fixture, the prelude and
+  the spec's examples were rewritten.
+- **Inlay hints name the fields of a positional literal**: `Movie{ id: 1, rating: 7.1, … }`
+  is shown for `Movie{ 1, 7.1, … }`, and the same for a union variant's payload. A value
+  after `name:` gets none, and neither does one spelled as its field's name (`Vec2{ x, y }`).
+  They are sent as the protocol's *parameter* hints, so they take the editor's styling for
+  argument names.
+
+### r16 — a reference reads as a value
+
+- The user's call, recorded as 18.35 / r16, settling the half of 18.25 left open: `return m`
+  from inside `for m in list.iter()` should return the element. `Body::expr` — the one
+  place every expected type passes through — now wraps a `&T` that meets an expected `T`
+  in a `Deref` node typed `T`. Nothing else in the checker changed.
+- Making the read a node rather than loosening `assignable` is what keeps it honest: flow
+  already treats a `Deref` as a borrowed place, so a move-only or unbounded generic `T`
+  gets the existing `DZ0402` (`tests/flow/read_move_only_through_reference.dz`), and
+  codegen emits a `Deref` of a reference as the reference itself, since C++ copies it at
+  the use site.
+- `typed/` has the accepted forms (return, annotated `let`, argument, `T: Copy` generic),
+  and `tests/run/iterator` runs the user's `find_movie`.
+
+### r17 — `if let`, and comparing an optional
+
+- **`m == none` produced C++ that did not compile** (`Opt == Opt`; `Opt` has no `==`), and
+  so did every other comparison with an optional operand, all accepted by the checker.
+  `x == none` / `x != none`, from either side, now lower to a test of the flag
+  (`(!(x).has)`); every other comparison on a `T?` is `DZ0514` at the checker. Written into
+  §9.4 with r17, since the spec had never said.
+- **`if let`** — the user's call, 18.36 / r17. The AST's `IfExpr` gains an optional
+  `binding`, resolved in a scope around the `then` block only. The HIR gets its own node,
+  `IfLet { binding, operand, then, else_branch }`, rather than a desugaring through `or
+  unreachable`, which would have emitted the null check twice (§16.2); it lowers to the
+  test `or` makes with the local declared inside the `if`. Flow reads the operand as `or`
+  does and treats the two blocks as branches. The binding's type is `or`'s success type; a
+  fallible operand is the new **`DZ0529`** (never shipped under its short-lived r15-era
+  meaning, so not a reuse), a plain value is `NOT_FALLIBLE`.
+- `tests/run/iterator` runs all three forms on both compilers — `T?`, `^T` with a write
+  through the binding, and `if let` as a value — and the formatter corpus round-trips them.
+
 ---
 
 ## 3. Deferral register

@@ -1,0 +1,16 @@
+// A `&T` reads as a `T` where one is wanted by copying the value (spec §5.2, §18.35). A
+// move-only `T` has no copy, and nothing may be moved out of a borrow, so it cannot be read
+// that way.
+// expect: DZ0402
+
+pub struct Res {
+    m_p: own ^i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+
+fn out_of_a_reference(r: &Res) -> Res {
+    return r
+}

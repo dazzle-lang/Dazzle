@@ -1,0 +1,6 @@
+[module]
+name = "iterator"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

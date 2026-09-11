@@ -338,6 +338,9 @@ pub enum ExprKind {
     // --- control flow used as a value ---
     Block(BlockId),
     If { cond: ExprId, then: BlockId, else_branch: Option<BlockId> },
+    /// `if let binding = operand` (spec §9.4). `operand` is a `T?` or a `^T`; `binding`
+    /// holds what `or` would produce from it — the `T`, or a `&mut T` — in `then` only.
+    IfLet { binding: LocalId, operand: ExprId, then: BlockId, else_branch: Option<BlockId> },
     Switch { subject: ExprId, arms: Vec<Arm>, default: Option<BlockId> },
     /// `e or clause` — the one failure eliminator (spec §9.4). `operand` is fallible: a
     /// call to a `!->` function, a `T?`, or a `^T`. The node's own type is the success
