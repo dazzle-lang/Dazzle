@@ -11,6 +11,8 @@
 //! Every layout decision is a pure function of the AST and the current indent, which is
 //! what makes formatting idempotent.
 
+use std::cell::Cell;
+
 use dz_ast::*;
 use dz_lex::{Comment, CommentKind};
 use dz_span::{SourceFile, Span};
@@ -20,11 +22,12 @@ const MAX_WIDTH: usize = 100;
 const INDENT: &str = "    ";
 
 pub fn format(file: &SourceFile, ast: &SourceFileAst, comments: &[Comment]) -> String {
+    let cursor = Cell::new(0);
     let mut p = Printer {
         file,
         src: file.text(),
         comments,
-        next_comment: 0,
+        next_comment: &cursor,
         out: String::new(),
         indent: 0,
         pending_blank: false,
@@ -37,7 +40,10 @@ struct Printer<'a> {
     file: &'a SourceFile,
     src: &'a str,
     comments: &'a [Comment],
-    next_comment: usize,
+    /// The next comment still to be placed. Shared with the sub-printers that render a
+    /// block inside an expression — an `if` body, an `or { … }` — so a comment written in
+    /// such a block is placed there, rather than left queued until after the block.
+    next_comment: &'a Cell<usize>,
     out: String,
     indent: usize,
     pending_blank: bool,
@@ -60,10 +66,13 @@ impl<'a> Printer<'a> {
         self.out.push('\n');
     }
 
+    /// Write the blank line an author left, unless it would open a scope: there is never a
+    /// blank line at the top of a file or straight after a `{`.
     fn flush_blank(&mut self) {
         if self.pending_blank {
             self.pending_blank = false;
-            if !self.out.is_empty() && !self.out.ends_with("\n\n") {
+            let at_scope_start = self.out.is_empty() || self.out.ends_with("{\n");
+            if !at_scope_start && !self.out.ends_with("\n\n") {
                 self.out.push('\n');
             }
         }
@@ -73,13 +82,19 @@ impl<'a> Printer<'a> {
         self.file.location(offset as usize).line
     }
 
+    /// How many bytes into its line `offset` is.
+    fn column_of(&self, offset: u32) -> usize {
+        let before = &self.src[..offset as usize];
+        before.len() - before.rfind(['\n', '\r']).map_or(0, |i| i + 1)
+    }
+
     fn text(&self, span: Span) -> &'a str {
         &self.src[span.range()]
     }
 
     fn finish(mut self) -> String {
         // Anything after the last declaration.
-        self.emit_comments_before(u32::MAX, false);
+        self.emit_comments_before(u32::MAX);
         while self.out.ends_with("\n\n") {
             self.out.pop();
         }
@@ -91,19 +106,18 @@ impl<'a> Printer<'a> {
 
     // --- comments ---------------------------------------------------------
 
-    /// Emit every pending comment that starts before `offset`.
-    ///
-    /// `keep_blanks` preserves a single blank line where the source had one, so comments
-    /// stay attached to whatever they were written above.
-    fn emit_comments_before(&mut self, offset: u32, keep_blanks: bool) {
-        while self.next_comment < self.comments.len() {
-            let c = self.comments[self.next_comment];
+    /// Emit every pending comment that starts before `offset`, keeping a single blank line
+    /// where the source had one, so comments stay attached to whatever they were written
+    /// above.
+    fn emit_comments_before(&mut self, offset: u32) {
+        while self.next_comment.get() < self.comments.len() {
+            let c = self.comments[self.next_comment.get()];
             if c.span.start >= offset {
                 break;
             }
-            self.next_comment += 1;
+            self.next_comment.set(self.next_comment.get() + 1);
 
-            if keep_blanks && self.blank_line_before(c.span.start) {
+            if self.blank_line_before(c.span.start) {
                 self.pending_blank = true;
             }
             match c.kind {
@@ -112,13 +126,28 @@ impl<'a> Printer<'a> {
                     self.line(&text);
                 }
                 CommentKind::Block => {
-                    // Block comments are reproduced verbatim; re-indenting their interior
-                    // would corrupt ASCII art and commented-out code.
+                    // Interior lines keep their indentation *relative to the comment's first
+                    // line*, so ASCII art and commented-out code survive being re-indented,
+                    // and a second pass changes nothing.
                     let text = self.text(c.span).to_owned();
+                    let column = self.column_of(c.span.start);
                     self.flush_blank();
-                    self.write_indent();
-                    self.out.push_str(&text);
-                    self.out.push('\n');
+                    let mut lines = text.split('\n');
+                    if let Some(first) = lines.next() {
+                        self.write_indent();
+                        self.out.push_str(first.trim_end());
+                        self.out.push('\n');
+                    }
+                    for l in lines {
+                        let l = l.trim_end();
+                        let leading = l.len() - l.trim_start_matches([' ', '\t']).len();
+                        let rest = &l[leading.min(column)..];
+                        if !rest.is_empty() {
+                            self.write_indent();
+                            self.out.push_str(rest);
+                        }
+                        self.out.push('\n');
+                    }
                 }
             }
         }
@@ -126,14 +155,14 @@ impl<'a> Printer<'a> {
 
     /// A trailing comment on the same source line as `end`, e.g. `let a = 1 // why`.
     fn emit_trailing_comment(&mut self, end: u32) {
-        if self.next_comment >= self.comments.len() {
+        if self.next_comment.get() >= self.comments.len() {
             return;
         }
-        let c = self.comments[self.next_comment];
+        let c = self.comments[self.next_comment.get()];
         if c.kind != CommentKind::Line || self.line_of(c.span.start) != self.line_of(end) {
             return;
         }
-        self.next_comment += 1;
+        self.next_comment.set(self.next_comment.get() + 1);
         let text = self.text(c.span).trim_end().to_owned();
         // Replace the newline the caller just wrote.
         if self.out.ends_with('\n') {
@@ -162,11 +191,12 @@ impl<'a> Printer<'a> {
         false
     }
 
-    /// Common prologue for anything with docs, attributes and a leading blank line.
-    fn prologue(&mut self, span: Span, docs: &Docs, attrs: &[Attr], first: bool) {
+    /// Comments, the author's blank line, docs and attributes: everything that comes
+    /// before a declaration or a statement.
+    fn prologue(&mut self, span: Span, docs: &Docs, attrs: &[Attr]) {
         let anchor = docs.first().map(|d| d.start).unwrap_or(span.start);
-        self.emit_comments_before(anchor, !first);
-        if !first && self.blank_line_before(anchor) {
+        self.emit_comments_before(anchor);
+        if self.blank_line_before(anchor) {
             self.pending_blank = true;
         }
         for d in docs {
@@ -205,8 +235,8 @@ impl<'a> Printer<'a> {
     fn file_ast(&mut self, ast: &SourceFileAst) {
         let mut first = true;
         for import in &ast.imports {
-            self.emit_comments_before(import.span.start, !first);
-            if !first && self.blank_line_before(import.span.start) {
+            self.emit_comments_before(import.span.start);
+            if self.blank_line_before(import.span.start) {
                 self.pending_blank = true;
             }
             let text = self.import(import);
@@ -218,7 +248,7 @@ impl<'a> Printer<'a> {
             if !first {
                 self.pending_blank = true;
             }
-            self.item(item, first);
+            self.item(item);
             first = false;
         }
     }
@@ -244,8 +274,8 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn item(&mut self, item: &Item, first: bool) {
-        self.prologue(item.span, &item.docs, &item.attrs, first);
+    fn item(&mut self, item: &Item) {
+        self.prologue(item.span, &item.docs, &item.attrs);
         let vis = vis_str(item.vis);
         match &item.kind {
             ItemKind::Fn(f) => self.fn_decl(vis, f),
@@ -262,9 +292,9 @@ impl<'a> Printer<'a> {
             ItemKind::Union(u) => {
                 self.line(&format!("{vis}union {}{} {{", u.name.name, generics_str(&u.generics)));
                 self.indent += 1;
-                for (i, v) in u.variants.iter().enumerate() {
-                    self.emit_comments_before(v.span.start, i > 0);
-                    if i > 0 && self.blank_line_before(v.span.start) {
+                for v in &u.variants {
+                    self.emit_comments_before(v.span.start);
+                    if self.blank_line_before(v.span.start) {
                         self.pending_blank = true;
                     }
                     for d in &v.docs {
@@ -291,9 +321,9 @@ impl<'a> Printer<'a> {
                     e.backing.as_ref().map(|t| format!(" : {}", self.ty(t))).unwrap_or_default();
                 self.line(&format!("{vis}enum {}{} {{", e.name.name, backing));
                 self.indent += 1;
-                for (i, v) in e.variants.iter().enumerate() {
-                    self.emit_comments_before(v.span.start, i > 0);
-                    if i > 0 && self.blank_line_before(v.span.start) {
+                for v in &e.variants {
+                    self.emit_comments_before(v.span.start);
+                    if self.blank_line_before(v.span.start) {
                         self.pending_blank = true;
                     }
                     for d in &v.docs {
@@ -377,7 +407,6 @@ impl<'a> Printer<'a> {
         // Consecutive fields get their types aligned, which is the style the language's
         // own samples use. The run ends at any non-field member or a blank line.
         let mut i = 0;
-        let mut first = true;
         while i < members.len() {
             let run_end = field_run_end(members, i, self);
             if run_end > i + 1 {
@@ -392,20 +421,18 @@ impl<'a> Printer<'a> {
                     .max()
                     .unwrap_or(0);
                 for m in &members[i..run_end] {
-                    self.member(m, first, width);
-                    first = false;
+                    self.member(m, width);
                 }
                 i = run_end;
             } else {
-                self.member(&members[i], first, 0);
-                first = false;
+                self.member(&members[i], 0);
                 i += 1;
             }
         }
     }
 
-    fn member(&mut self, m: &Member, first: bool, align: usize) {
-        self.prologue(m.span, &m.docs, &m.attrs, first);
+    fn member(&mut self, m: &Member, align: usize) {
+        self.prologue(m.span, &m.docs, &m.attrs);
         let vis = vis_str(m.vis);
         match &m.kind {
             MemberKind::Field(f) => {
@@ -467,7 +494,14 @@ impl<'a> Printer<'a> {
                 p.default.as_ref().map(|d| format!(" = {}", self.expr(d))).unwrap_or_default();
             params.push(format!("{}: {}{default}", p.name.name, self.ty(&p.ty)));
         }
-        let ret = f.ret.as_ref().map(|t| format!(" -> {}", self.ty(t))).unwrap_or_default();
+        // Fallibility is part of the signature, spelled on the arrow (spec §9.1): dropping
+        // the `!` would change what the function means, not how it looks.
+        let arrow = if f.fallible { "!->" } else { "->" };
+        let ret = match &f.ret {
+            Some(t) => format!(" {arrow} {}", self.ty(t)),
+            None if f.fallible => format!(" {arrow}"),
+            None => String::new(),
+        };
         let empty_body = f.body.as_ref().is_some_and(|b| b.stmts.is_empty());
         let open = match &f.body {
             Some(_) if empty_body => " {}",
@@ -502,17 +536,17 @@ impl<'a> Printer<'a> {
     // --- statements -------------------------------------------------------
 
     fn block_body(&mut self, b: &Block) {
-        for (i, s) in b.stmts.iter().enumerate() {
-            self.stmt(s, i == 0);
+        for s in &b.stmts {
+            self.stmt(s);
         }
         // Comments sitting at the end of the block, after the last statement.
-        self.emit_comments_before(b.span.end, true);
+        self.emit_comments_before(b.span.end);
     }
 
-    fn stmt(&mut self, s: &Stmt, first: bool) {
+    fn stmt(&mut self, s: &Stmt) {
         let anchor = s.docs.first().map(|d| d.start).unwrap_or(s.span.start);
-        self.emit_comments_before(anchor, !first);
-        if !first && self.blank_line_before(anchor) {
+        self.emit_comments_before(anchor);
+        if self.blank_line_before(anchor) {
             self.pending_blank = true;
         }
         for d in &s.docs {
@@ -574,7 +608,7 @@ impl<'a> Printer<'a> {
                 self.flush_blank();
                 let mark = self.out.len();
                 let indent_at = self.indent;
-                self.stmt(inner, true);
+                self.stmt(inner);
                 let rendered = self.out.split_off(mark);
                 let prefix = INDENT.repeat(indent_at);
                 let body = rendered.strip_prefix(&prefix).unwrap_or(&rendered).to_owned();
@@ -582,7 +616,7 @@ impl<'a> Printer<'a> {
                 self.out.push_str("defer ");
                 self.out.push_str(&body);
             }
-            StmtKind::Item(item) => self.item(item, first),
+            StmtKind::Item(item) => self.item(item),
             StmtKind::Error => self.line("/* <error> */"),
         }
     }
@@ -602,11 +636,15 @@ impl<'a> Printer<'a> {
     }
 
     /// Write pre-rendered text that may already contain newlines, indenting each line.
+    /// A line left empty — a paragraph break inside a nested block — stays empty rather
+    /// than collecting trailing whitespace.
     fn emit_multiline(&mut self, text: &str) {
         self.flush_blank();
         for l in text.split('\n') {
-            self.write_indent();
-            self.out.push_str(l);
+            if !l.is_empty() {
+                self.write_indent();
+                self.out.push_str(l);
+            }
             self.out.push('\n');
         }
     }
@@ -727,13 +765,16 @@ impl<'a> Printer<'a> {
             ExprKind::Deref(inner) => format!("{}^", self.expr_prec(inner, 14)),
             ExprKind::Move(inner) => format!("move({})", self.expr(inner)),
             ExprKind::Or { expr, clause } => {
+                // The operand first: it comes first in the source, and rendering is also
+                // where the comments inside a block are placed, in order.
+                let operand = self.expr_prec(expr, 1);
                 let c = match clause.as_ref() {
                     OrClause::Value(v) => self.expr_prec(v, 2),
                     OrClause::Block { binding, body } => self.closure_block(binding, body),
                     OrClause::Ignore(_) => "ignore".to_owned(),
                     OrClause::Unreachable(_) => "unreachable".to_owned(),
                 };
-                format!("{} or {c}", self.expr_prec(expr, 1))
+                format!("{operand} or {c}")
             }
             ExprKind::Block(b) => self.render_block(b),
             ExprKind::Unsafe(b) => format!("unsafe {}", self.render_block(b)),
@@ -833,16 +874,17 @@ impl<'a> Printer<'a> {
     }
 
     fn render_block(&self, b: &Block) -> String {
-        if b.stmts.is_empty() {
+        if b.stmts.is_empty() && !self.comment_inside(b.span) {
             return "{}".to_owned();
         }
         // Nested blocks inside an expression are rendered by re-entering a sub-printer, so
-        // statement layout is identical wherever a block appears.
+        // statement layout is identical wherever a block appears. It shares the comment
+        // cursor, so the comments written inside the block land inside it.
         let mut sub = Printer {
             file: self.file,
             src: self.src,
-            comments: &[],
-            next_comment: 0,
+            comments: self.comments,
+            next_comment: self.next_comment,
             out: String::new(),
             indent: 0,
             pending_blank: false,
@@ -851,12 +893,22 @@ impl<'a> Printer<'a> {
         let body = sub.out;
         let mut s = "{\n".to_owned();
         for l in body.trim_end_matches('\n').split('\n') {
-            s.push_str(INDENT);
-            s.push_str(l);
+            if !l.is_empty() {
+                s.push_str(INDENT);
+                s.push_str(l);
+            }
             s.push('\n');
         }
         s.push('}');
         s
+    }
+
+    /// Is a comment still to be placed inside `span`? An otherwise empty block holding one
+    /// must not print as `{}`, which would lose it.
+    fn comment_inside(&self, span: Span) -> bool {
+        self.comments
+            .get(self.next_comment.get())
+            .is_some_and(|c| span.start <= c.span.start && c.span.end <= span.end)
     }
 
     fn closure_block(&self, binding: &Option<Ident>, body: &Block) -> String {

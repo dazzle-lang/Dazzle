@@ -555,7 +555,7 @@ impl TypeTable {
                 Some(ItemSig::Struct(s)) => {
                     match s.fields.iter().find(|f| matches!(f.ty, Ty::OwnPtr(_))) {
                         Some(f) => format!(
-                            "its field `{}` is `own`, so the struct is responsible for                              what it points at",
+                            "its field `{}` is `own`, so the struct is responsible for what it points at",
                             f.name
                         ),
                         None => {

@@ -1704,7 +1704,7 @@ impl<'a, 'c> Body<'a, 'c> {
                                     expr.span,
                                     "this function cannot fail",
                                     "there is nowhere for this error to go",
-                                    "mark the signature fallible by writing `!->` in place                                      of `->` (spec §9.1)",
+                                    "mark the signature fallible by writing `!->` in place of `->` (spec §9.1)",
                                 );
                             }
                         } else {
@@ -4138,11 +4138,11 @@ impl<'a, 'c> Body<'a, 'c> {
                 if !carries {
                     let ret = self.cx.name_of(&self.ret.clone());
                     let help = if matches!(subject.ty, Ty::Fallible(_)) {
-                        "mark this function `!->`, or handle the failure here with a                          fallback or a block (spec §9.5)"
+                        "mark this function `!->`, or handle the failure here with a fallback or a block (spec §9.5)"
                             .to_owned()
                     } else {
                         format!(
-                            "this function returns `{ret}`, so a bare `return` has no                              value to give — supply a fallback instead (spec §9.5)"
+                            "this function returns `{ret}`, so a bare `return` has no value to give — supply a fallback instead (spec §9.5)"
                         )
                     };
                     self.cx.error_help(

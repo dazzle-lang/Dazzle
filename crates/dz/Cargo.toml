@@ -24,6 +24,8 @@ dz_flow.workspace = true
 dz_hir.workspace = true
 dz_mono.workspace = true
 dz_cpp.workspace = true
+dz_driver.workspace = true
+dz_lsp.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

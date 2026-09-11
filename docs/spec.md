@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 13
+**Version:** 0.1 — **unreleased**, revision 14
 **Status:** M0–M6 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, and have generics and traits. The language is not yet usable
 for real work: there is no C++ interop and no stdlib. See `docs/PROGRESS.md`.
@@ -801,6 +801,12 @@ This is a deliberate divergence from C++: the source of a move is reset to exact
 state a freshly declared value would have, which means running its `drop` is always safe
 and always a no-op for the resource. It costs a few stores; it removes an entire category
 of bug. `[DECIDED]`
+
+**This holds for every type.** `move` on a copyable value — an `i32`, a `str` — is still a
+move: the source is moved-from afterwards, a later use of it is an error, and at runtime it
+is reset to its defaults. To go on using a copyable value, copy it instead: leave out
+`move`. One rule for every type is also what keeps a generic body honest: `move(v)` in a
+`Buffer<T>` means the same for `Buffer<i32>` as for `Buffer<File>`. `[DECIDED — §18.33]`
 
 **A move needs a place the function owns.** `move` resets its source, and a `&`, a `^` or an
 array element is not something the function has the right to reset — so `move(p^)`,
@@ -2525,7 +2531,8 @@ crates/
   dz_cpp         C++ emission, mangling, #line mapping (§16)
   dz_cppimport   libclang header importer (§15)
   dz_project     dazzle.toml parsing, dependency graph, build orchestration
-  dz_lsp         tower-lsp server (§17.4)
+  dz_driver      the pipeline as a library, shared by the CLI and the LSP (§17.2)
+  dz_lsp         language server (§17.4)
   dz_fmt         formatter
   dz             the CLI
 ```
@@ -2571,8 +2578,11 @@ dz cpp                 emit C++ only, no compilation
 
 ### 17.4 Language server
 
-Built on `tower-lsp`, sharing every crate above — the server is not a reimplementation, it
-is the compiler with a different front end. Target feature set, in priority order:
+Sharing every crate above — the server is not a reimplementation, it is the compiler with a
+different front end. It is built on `lsp-server`, a synchronous loop, rather than
+`tower-lsp`: the compiler's types are single-threaded (`Ty` holds `Rc`s), so an analysis
+cannot live in the `Send + Sync` state an async server needs. Target feature set, in
+priority order:
 
 1. Diagnostics on save, then on keystroke.
 2. Hover: type, doc comment, and for a fat trait pointer or `own` field, a note saying so.
@@ -2687,6 +2697,7 @@ be exactly what reload needs, and must stay that way:
 | 18.30 | `Error.location` is a `^T` | **It is a `&SourceLocation`**, the one reference the language stores in a struct: the location lives in static storage for the whole program, so the reason §18.3 bans stored references does not apply. `e.location.line` reads it directly, and `Error` stays 32 bytes. User structs still cannot store a reference (§9.2) |
 | 18.31 | How is a trait implemented, and where? | **Only by `impl Trait for Type { … }`, written with the trait or with the type** — Rust's orphan rule. A module can then add behaviour to a type it did not write (an editor implementing `Inspect` for an engine's structs, or for `f32`), and two libraries can never both implement a third's trait for a fourth's type. A struct no longer lists traits after `:`, which is reserved for inheritance (18.32). `Drop` and `Copy` become prelude traits, stricter than others: the struct's own module, every instance, no bounds on `Drop`, never called by name — they are its C++ destructor and copy constructor. A type's own method wins over a trait's; two traits providing one name are chosen between as `Trait::method(&v)`. An implementation for every type at once (`impl<T> X for T`) is not allowed (§6.1, §7.6) |
 | 18.28 | `break` with a value | **Removed.** A loop is a statement and has no result to give; the parser rejects a value after `break`, which keeps its optional label (§10.2) |
+| 18.33 | `move` on a copyable value | **It moves.** The source is moved-from, a later use is an error, and it is reset to its defaults at runtime — the same as for any type. The compiler had been treating it as a copy, which §6.4 never said; one rule for every type is simpler to learn, and it keeps a generic body meaning one thing for every argument. To keep using a copyable value, leave out `move` (§6.4) |
 
 ### 18.2 Still open
 
@@ -2841,6 +2852,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r14 | 2026-09-11 | **`move` always moves**, whatever the type. `move` on a copyable value — an `i32`, a `str` — leaves the source moved-from, so a later use is an error, and resets it to its defaults at runtime, exactly as for a resource. The compiler had been treating it as a copy, which §6.4 never said. To keep using a copyable value, leave out `move` (§6.4, 18.33). |
 | r13 | 2026-09-11 | Implementations. **A trait is implemented only by `impl Trait for Type { … }`**, written in the trait's module or the type's (the orphan rule), so a module can add a trait to a type it did not write — an editor's `Inspect` for an engine's structs, or for `f32` — while two libraries can never both implement a third's trait for a fourth's type (§7.6, 18.31). `impl` is a keyword. An implementation holds exactly the trait's methods and chooses the trait's associated types, **each for itself**, so `Mat4 × Vec4` can be a `Vec4` while `Mat4 × f32` is a `Mat4` (§8.5, 18.29); a trait implemented at several arguments is one `impl` per argument (§11.2). Generic implementations (`impl<T: X> X for Buffer<T>`) are allowed; one for every type at once is not; two that could apply to the same type are an error; a type's own method wins over a trait's, and `Trait::method(&v)` chooses between two traits. **`Drop` and `Copy` are prelude traits** rather than special members: `impl Drop for File { mut fn drop(&mut self) … }`, `impl<T: Copy> Copy for Buffer<T> { mut fn copy(&mut self, other: &Self) … }` — only for a struct, in its own module, for every instance, never called by name; `copy` and `drop` stop being keywords (§6.1). **A struct no longer lists traits after `:`**; `struct Button : UiElement` is reserved for inheritance, whose design is recorded as 18.32 and lands with the next revision (§7.3). **`Error.location` is a `&SourceLocation`**, read as `e.location.line` — the one stored reference, since it points into static storage (§9.2, 18.30). |
 | r12 | 2026-09-11 | Safety and generics pass, settling r11's open questions. **`unsafe`**: a new keyword, formerly reserved. Forming, copying, storing, comparing and passing a pointer are safe; reading or writing *through* a `^T` (`p^`, `.`, `[i]`), a pointer cast, `construct`/`destroy`/`memcpy`/`free`, and calling an `unsafe fn` are allowed only inside `unsafe { … }` or an `unsafe fn` (§5.2). It marks raw memory and is not a safety proof, and it relaxes no other rule. **`&T` → `^T` is forbidden**, reversing half of 18.17: a `^T` may be written through, so widening a read-only reference would launder it. `&mut T` → `^T` stays implicit, and **`p or …` now yields a `&mut T`**, so a context struct's pointer can be written through safely once checked (18.16). **Indexing an array or slice is bounds-checked in every build**, not just debug; `xs.ptr` is the unchecked way in, on a writable view only (§5.3). **`Copy`**: a prelude trait with no methods, satisfied by every copyable type without declaring it, so `fn dup<T: Copy>` may copy its `T`; a generic struct's own `copy` exists only for instances whose arguments are `Copy`, so `Buffer<f32>` copies and `Buffer<File>` is move-only (§8.2, 18.26). **A type may implement one trait at several arguments** — `Vec2 : Mul<f32> + Mul<Vec2>` with two `mul`s, picked by the argument's type; the only overloading there is (§11.2, 18.27). **`break` takes no value** (§10.2, 18.28). §8.1's `max` example now writes `move`, as r11's rule requires, and §11.2's example uses `+` between traits, which is the syntax. Opened 18.29 (an associated type per implementation) and 18.30 (`Error.location` is a `^T`). |
 | r11 | 2026-09-11 | Generics pass, second half — what implementing M6 turned up. **The primitives implement the operator traits**: every number is `Eq`, `Ord` and the arithmetic traits with `Rhs = Self`, so `fn largest<T: Ord>` accepts an `i32` (§11.2); `Rem`, already in the prelude, joins §11.2's listing. **An unbounded `T` is move-only inside its body**, so returning or passing one by value is written `move(x)`, as for any move-only type (§8.2). **What a compile-time branch may test** is spelled out — type queries, `bool` constants, and `!`, `&&`, `||` over them — and both branches are checked for every `T` although only one is emitted (§8.3). **Format specs** are `{}`, `{:x}`/`{:X}` on integers and `{:.N}` on floats, with `{{`/`}}` for a literal brace; until the stdlib, numbers, `bool`, `char`, `str`, `cstr` and pointers are formattable and a struct is an error (§12.9). **Indexing a `^T` is unchecked pointer arithmetic**, as a container's `m_data[i]` needs (§5.3). **`alloc(size, align)` and `free(p)`** are builtins until the stdlib's allocators replace them (§14). Three questions opened: 18.26 (§8.3's own example copies a `T` that §8.2 says cannot be copied), 18.27 (two right-hand sides for one operator runs into §18.5), and 18.28 (`break` with a value is parsed but is not in the grammar). |

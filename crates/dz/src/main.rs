@@ -23,11 +23,12 @@ usage:
     dz fmt   <file.dz>...       format in place
     dz fmt --check <file.dz>... report which files are not formatted (exit 1 if any)
     dz fmt --stdout <file.dz>   print the formatted source without writing
+    dz lsp                      run the language server on stdin/stdout
     dz --version
     dz --help
 
 `path` is a dazzle.toml or a directory containing one; it defaults to the current
-directory. Other subcommands (test, expand, lsp) are not implemented yet.";
+directory. Other subcommands (test, expand) are not implemented yet.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -40,6 +41,7 @@ fn main() -> ExitCode {
         Some("lex") => with_file(&args, cmd_lex),
         Some("parse") => with_file(&args, cmd_parse),
         Some("fmt") => cmd_fmt(&args[1..]),
+        Some("lsp") => cmd_lsp(),
         Some("--version" | "-V") => {
             println!("dz {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -201,6 +203,18 @@ fn cmd_pipeline(entry: &str, stage: Stage) -> ExitCode {
         }
         Err(e) => {
             eprintln!("error: could not run {}: {e}", exe.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// The language server (spec §17.4). It speaks the protocol on stdout, so nothing else
+/// may print there.
+fn cmd_lsp() -> ExitCode {
+    match dz_lsp::run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: language server: {e}");
             ExitCode::FAILURE
         }
     }

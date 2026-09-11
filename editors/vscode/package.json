@@ -1,0 +1,151 @@
+{
+  "name": "dazzle",
+  "displayName": "Dazzle",
+  "description": "Dazzle language support: highlighting, diagnostics as you type, hover, go to definition, references, rename, completion, and running the project.",
+  "version": "0.1.0",
+  "publisher": "dazzle-lang",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Marco012/Dazzle"
+  },
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:dazzle",
+    "workspaceContains:**/dazzle.toml"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "dazzle",
+        "aliases": [
+          "Dazzle",
+          "dazzle"
+        ],
+        "extensions": [
+          ".dz"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dazzle",
+        "scopeName": "source.dazzle",
+        "path": "./syntaxes/dazzle.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "dazzle.run",
+        "title": "Run Project",
+        "category": "Dazzle",
+        "icon": "$(play)"
+      },
+      {
+        "command": "dazzle.check",
+        "title": "Check Project",
+        "category": "Dazzle",
+        "icon": "$(check)"
+      },
+      {
+        "command": "dazzle.restartServer",
+        "title": "Restart Language Server",
+        "category": "Dazzle"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "dazzle.run",
+          "when": "resourceLangId == dazzle",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dazzle.check",
+          "when": "resourceLangId == dazzle",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "dazzle.run",
+          "when": "editorLangId == dazzle"
+        },
+        {
+          "command": "dazzle.check",
+          "when": "editorLangId == dazzle"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "dazzle.run",
+        "key": "ctrl+f5",
+        "mac": "cmd+f5",
+        "when": "editorLangId == dazzle"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "dazzle",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "run",
+              "build",
+              "check"
+            ],
+            "description": "The dz subcommand to run."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project directory (the one holding dazzle.toml)."
+          }
+        }
+      }
+    ],
+    "configurationDefaults": {
+      "[dazzle]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "configuration": {
+      "title": "Dazzle",
+      "properties": {
+        "dazzle.server.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `dz` executable. `${workspaceFolder}` is expanded. When empty, `target/debug/dz` (then `target/release/dz`) in a workspace folder is used, then `dz` on `PATH`."
+        },
+        "dazzle.server.restartOnRebuild": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restart the language server when the dz executable changes, e.g. after `cargo build` of the compiler."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package --skip-license --out dazzle.vsix",
+    "deploy": "vsce package --skip-license --out dazzle.vsix && code --install-extension dazzle.vsix --force"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.1"
+  }
+}

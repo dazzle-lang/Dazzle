@@ -18,11 +18,11 @@ the milestone.
 
 | | |
 |---|---|
-| Milestones done | M0, M1, M2, M3, M4, M5, **M6 — generics, traits, monomorphization** |
+| Milestones done | M0, M1, M2, M3, M4, M5, **M6 — generics, traits, monomorphization**; most of **M9 — language server and VS Code extension**, pulled forward (what remains is in §3) |
 | Next | **Struct inheritance (spec 18.32)**, then **M7 — C++ interop via libclang.** See §4 |
-| Tests | 94, all green |
+| Tests | 139, all green on the committed tree |
 | Clippy | clean (`--workspace --all-targets`) |
-| Compiler crates | 13, plus the `dz` CLI |
+| Compiler crates | 15, plus the `dz` CLI |
 | Language spec | 0.1 **unreleased**, revision 13; four open questions (§18.2), one of them inheritance, which is designed and next |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
@@ -61,8 +61,12 @@ clang++ -std=c++17 -fno-exceptions -fno-rtti -fsanitize=address -g -O1 *.cpp -o 
 | `dz_flow` | ownership, moves, definite return | §6 |
 | `dz_mono` | monomorphization: the instances each module needs, and their concrete bodies | §8.4 |
 | `dz_cpp` | C++17 emission + the runtime shim | §16 |
+| `dz_driver` | the analysis pipeline as a library (`analyse`), with editor buffers able to stand in for files | §17.2 |
+| `dz_lsp` | the language server, `dz lsp`; the queries themselves are protocol-free, in `ide.rs` | §17.4 |
 
-Crates still to come are listed in spec §17.1: `dz_cppimport`, `dz_macro`, `dz_lsp`.
+Crates still to come are listed in spec §17.1: `dz_cppimport`, `dz_macro`. The VS Code
+extension is `editors/vscode`: plain JavaScript, a TextMate grammar, and a client that runs
+`dz lsp`.
 
 ---
 
@@ -508,6 +512,105 @@ r13 and §7.6 are the contract; what the compiler does:
 - Explicitly calling `drop` or `copy` is an error: they reach a destructor and a copy
   constructor, not functions, and there is no correct C++ to emit for the call.
 
+### M9 part 1 — language server and VS Code extension (pulled forward)
+
+Pulled ahead of struct inheritance and M7 at the user's request, to have an editor to feel
+the language in. Split in two: this part is everything the existing pipeline can answer;
+part 2 makes analysis tolerate errors (§4). Compiler work only — nothing in §21.
+
+- **`dz_driver`** holds `analyse`, moved out of the CLI so the server runs the very same
+  pipeline. `analyse_with` takes an overlay: a buffer the editor has open stands in for the
+  file on disk, and spans are offsets into that buffer.
+- **`dz_lsp`, `dz lsp`.** `lsp-server`, not `tower-lsp` — `Ty` holds `Rc`s, so an analysis
+  cannot live in async `Send + Sync` state; spec §17.4 now says so. One synchronous loop. A
+  project is re-analysed whole after 150 ms of quiet. A compiler panic is caught, logged to
+  the client, and does not take the server down.
+- **Diagnostics**: every compiler diagnostic, code included, notes appended to the message,
+  and every labelled span as related information (so a use-after-move shows where the move
+  was). A file its project does not list, or one outside any project, gets a lex+parse check.
+- **Hover and go to definition.** The innermost HIR expression containing the cursor,
+  accepted only when the name it uses is the one under the cursor — otherwise `Tracked` in
+  `Buffer<Tracked>(3)` would answer as the constructor call around it. Before that, a
+  declaration's own name and a local's binding; after it, the resolver's `lookup_in_file`
+  for names with no expression (types in signatures, imports, `::` paths), so the two can
+  never disagree. Hover quotes the declaration's source header plus its `///` docs rather
+  than rebuilding a signature from types.
+- **Methods are found as declarations**: the type's own body, then its `impl`s, then the
+  defaults of the traits those implement (§7.6). The last two are matched by type name.
+- **Completion** reads the context (`.`, `::`, a bare name) from the buffer and names from
+  the last analysis that resolved, since the line being typed rarely parses: locals of the
+  enclosing body, bare fields of `self`, module, import and prelude items, keywords,
+  builtins; after `.`, a local's fields and methods, private ones only from inside the type;
+  after `::`, a module's items, a type's members and the §5.5 type queries.
+- **Outline and formatting** need only the buffer, so they work in any `.dz` file.
+  Formatting refuses a file with syntax errors (invariant 10).
+- **The extension** (`editors/vscode`): a TextMate grammar, language configuration, and a
+  client. It runs a *copy* of `dz`, because Windows cannot replace a running executable and
+  `cargo build` would otherwise fail while VS Code is open, and restarts the server when the
+  binary changes.
+- **Tests**: `dz_lsp/tests/ide.rs` pins each query against `tests/run/generics`;
+  `convert.rs` pins UTF-16 columns and all three line endings. The protocol itself was
+  smoke-tested by driving `dz lsp` over stdio with VS Code's `c%3A` URI spelling.
+
+### M9 part 2 — analysis that keeps answering around errors
+
+- **`Mode::Editor`** in `dz_driver`. Once a phase fails, resolution and checking still run
+  over whatever parsed, but the diagnostics are exactly `Mode::Build`'s: only the first
+  failing phase's. The user's call — no type errors while there is a syntax error. The CLI
+  is untouched. Resolve and check needed no changes: neither has a panic path, and error
+  nodes already type as `Ty::Error`. `dz_driver/tests/tolerant.rs` holds that: every
+  `tests/run` program is damaged about 200 ways (a token deleted, the file cut off, a stray
+  `.`, `(` or `{`), and each must analyse without panicking and without a later phase's
+  errors showing. The server still falls back to `Mode::Build` if editor mode ever panics.
+- **Completion types the receiver.** The server re-analyses the buffer when completion is
+  asked for, and the widest expression ending at the `.` is the receiver, so `a.b().` and
+  `Countdown(3).` work. The last analysis that parsed cleanly remains a by-name fallback.
+  (A `.` at the end of a line continues onto the next, so a `p.` typed above a line usually
+  parses as a method call with a type error rather than a syntax error.)
+- **One resolver behind every query.** `target_at` answers hover, definition, references,
+  rename and signature help alike. References compare an identity: a constructor stands for
+  its struct, and an implementing method for the trait method it implements, so a rename
+  keeps them together. Declarations the checker records by their whole extent (fields,
+  variants) are narrowed to their name.
+- **Rename** refuses keywords, non-names, `self` and `Self`, the prelude's declarations, and
+  — in the server — any project with a syntax error, which could hide a use.
+- **Inlay hints** for bindings without a written type (`let`, `for`, `case`); **signature
+  help** from the declaration's header, receiver left out; **workspace symbols** by fuzzy
+  subsequence; **document highlight** from references.
+- **Tests**: 30 in `dz_lsp/tests/ide.rs` — references are counted against every identifier
+  token of the name in the fixture — and 3 in `dz_driver/tests/tolerant.rs`. The stdio smoke
+  test drives each request through the real binary.
+- **Then, from using it**: semantic tokens (`ide::semantic_tokens`, the same resolution as
+  hover, so a name's colour and its hover cannot disagree; a member of a built-in type such
+  as `e.message` falls back to property/method after a `.`); a grammar using the scopes
+  common themes colour (`move`, `as` and `or` had been drawn as plain text, and primitives
+  as keywords); a ▷ Run button and Ctrl+F5 (`dz run` on the file's project as a VS Code
+  task), and **Check Project**. `npm run deploy` packages and installs with `--force`: at
+  the same version, a plain `code --install-extension` silently keeps the old build.
+
+### r14 — `move` always moves; the formatter fixed
+
+- **`move` on a copyable value** had been a copy in both `dz_flow` (never marked moved-from)
+  and `dz_cpp` (no reset), each citing §6.3 for a rule §6.3 does not contain; §6.4 always
+  said `move` ends its source. The user's call, recorded as 18.33 / r14: it moves, for every
+  type. Flow now marks the source moved-from and refuses a move out of a borrow whatever the
+  type (`tests/flow/move_copyable.dz`, `move_copyable_out_of_borrow.dz`). A copyable type
+  has no move constructor to reset its source, so codegen moves a copyable *place* through
+  a new shim function, `::dz::take`, which returns the value and assigns `T{}` back.
+- **The formatter changed meaning**, breaking invariant 10 three ways, all found by
+  formatting `tests/run/failure` in the editor: it printed every `!->` as `->`; it rendered
+  blocks inside expressions (`if`/`switch` bodies, `or { … }`, `unsafe`) with an empty
+  comment table, so their comments were emitted after the block; and it dropped the author's
+  blank line before a scope's first item or statement. The comment cursor is now shared with
+  the sub-printers, an empty block holding a comment keeps it, block comments re-indent
+  relative to their first line (so a nested one no longer drifts right on each pass), and
+  "no blank line at the top of a scope" is enforced in one place, `flush_blank`. The tests
+  missed all of it because the corpus had no fallible signature and no comment inside an
+  expression block; it now includes every `tests/run` program, and a fourth property —
+  every comment survives, in order — is checked across it.
+- Two help messages had a run of 30-odd spaces in the middle, a line continuation that lost
+  its backslash (`dz_check`, DZ0516).
+
 ---
 
 ## 3. Deferral register
@@ -517,6 +620,9 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 
 | Owed by | What is deferred | Where |
 |---|---|---|
+| **M9** | Code actions (fill `switch` arms, insert `move()`, add `impl Drop`) and inlay hints for implicit `drop`s — §17.4 items 6 and 7 | `dz_lsp/src/lib.rs`, `capabilities` |
+| **M9** | No incremental analysis: every settle re-runs the whole project. Fine at today's sizes; §17.2's per-module cache is the answer | `dz_lsp/src/lib.rs`, `analyse` |
+| **M9** | `impl` methods and inherited trait defaults are tied to their type by name, so two same-named types in different modules could cross. The checker knows each implementation's real target; it should say | `dz_lsp/src/ide.rs`, `methods_of` |
 | **next** | **Struct inheritance.** `struct Button : UiElement` parses, and the checker reports it with `DZ0801`; the design is settled as spec 18.32 | `dz_check/src/check.rs`, `item` |
 | **M7** | `import cpp "…"` is accepted and the alias is opaque; no header is read | `dz_resolve/src/walk.rs` |
 | **M7** | **No read-only pointer.** `.ptr` refuses a `[]T`, and `&T` cannot widen, because the only pointer is the writable `^T`. A `^const T` belongs with the `const T*` mapping M7 has to decide (spec §15.2) | `dz_check/src/check.rs`, `Field` |
@@ -548,6 +654,11 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 ---
 
 ## 4. Next: struct inheritance, then M7
+
+What M9 still owes — semantic tokens, code actions, implicit-drop hints, incremental
+analysis — is in §3. None of it blocks the language work, and inheritance will be the
+first real test of the editor queries: a base's fields and methods must show up in hover,
+definition and `.` completion of the derived type.
 
 ### Struct inheritance (spec 18.32)
 
@@ -610,7 +721,7 @@ ever be `Inspect` that way — so M7 is also their first real test.
 |---|---|---|
 | `tests/lex/*.dz` | `dz_lex/tests/lex.rs` | tokens + lexer diagnostics, snapshotted |
 | `tests/parse/*.dz` | `dz_parse/tests/parse.rs` | AST + parser diagnostics, incl. `errors.dz` for recovery |
-| `tests/fmt/*.dz` | `dz_fmt/tests/fmt.rs` | idempotence, tree preservation, comment survival |
+| `tests/fmt/*.dz`, `tests/parse/*.dz`, `tests/run/*/src/main.dz` | `dz_fmt/tests/fmt.rs` | idempotence, tree preservation, re-parsing, and every comment kept in order — over the whole-program corpus too, which is what catches a formatter that changes meaning (a dropped `!->`, a comment moved out of its block); plus targeted cases for comments in expression blocks, empty blocks holding a comment, and blank lines after a header comment |
 | `tests/workspace/good` | `dz_resolve/tests/resolve.rs` | three-module workspace, resolves clean |
 | `tests/workspace/private` | " | one violation per §3/§4 rule |
 | `tests/workspace/cycle` | " | circular module dependencies |
@@ -619,6 +730,9 @@ ever be `Inspect` that way — so M7 is also their first real test.
 | `tests/workspace/typeerrors` | " | one deliberate failure per type rule |
 | `tests/flow/*.dz` | `dz_flow/tests/flow.rs` | one file per ownership rule, each naming the code it must produce in an `// expect:` line, plus `clean.dz` which must produce nothing. The count is asserted too, so a rule that fires twice for one mistake is a regression |
 | `tests/run/*/` | `dz/tests/run.rs` | whole programs compiled by a real C++ compiler and executed, stdout compared against `expected.txt`. A first line of `#panic` marks a program that must abort. `features` covers M4's constructs plus array literals and `.Variant`, `ownership` §6's special members and drop ordering, `failure` §9's `or` clauses plus unions and tuples, `generics` §8's `Buffer<T>` for two element types, traits and default methods, a user `Iterate`, format specs and folded constants. `run.rs` also pins that runaway instantiation is one `DZ0536` and that a trait object is refused |
+
+| `tests/run/generics` | `dz_lsp/tests/ide.rs` | the editor queries against a real program: hover and definition for every kind of name, including beside a syntax error; references counted against every token of the name, so a missed use fails; rename and what it refuses; completion in scope, on a typed receiver (`largest(…).`), by name from an older analysis, after `::`, and silence in comments and strings; signature help; inlay hints; the outline; workspace symbols; formatting refusing broken source |
+| `tests/run/*/` | `dz_driver/tests/tolerant.rs` | editor mode on about 1,200 damaged programs (a token deleted, the file cut off, a stray `.`, `(` or `{`): never a panic, never a later phase's errors while an earlier one failed, and diagnostics identical to build mode's |
 
 `examples/*.dz` are **not** tests. They are the user's pre-spec design sketches and are not
 expected to parse.

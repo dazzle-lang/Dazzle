@@ -2070,13 +2070,28 @@ impl<'a> Emitter<'a> {
 
             hir::ExprKind::Call { callee, args } => self.call(callee, args, body.ty(e).clone()),
             hir::ExprKind::Move(inner) => {
+                /// Something `take` can reset: a local, or a field of one.
+                fn is_place(body: &hir::Body, e: hir::ExprId) -> bool {
+                    match &body.expr(e).kind {
+                        hir::ExprKind::Local(_) => true,
+                        hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. } => {
+                            is_place(body, *base)
+                        }
+                        _ => false,
+                    }
+                }
                 let v = self.expr(*inner);
-                if self.table.copyable(body.ty(e)) {
-                    // `move` on a copyable value is a copy: there is nothing to steal,
-                    // and resetting the source would surprise (spec §6.3).
-                    v
-                } else {
+                if !self.table.copyable(body.ty(e)) {
+                    // The type's move constructor resets the source (spec §6.4).
                     format!("::dz::mv({v})")
+                } else if is_place(body, *inner) {
+                    // A copyable type has no move constructor to do the resetting, so the
+                    // shim does it: the source is left at its defaults like any other
+                    // moved-from value (spec §6.4, §18.33).
+                    format!("::dz::take({v})")
+                } else {
+                    // A temporary leaves nothing behind to reset.
+                    v
                 }
             }
 

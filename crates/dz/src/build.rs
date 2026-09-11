@@ -1,122 +1,13 @@
 //! The build pipeline: source to C++ to a running program (spec §16).
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use dz_diag::{codes, Diagnostic, Diagnostics};
-use dz_project::{ModuleId, Optimize, OutputKind, Workspace};
-use dz_resolve::{ParsedFile, Resolution};
-use dz_span::SourceMap;
+use dz_project::{Optimize, OutputKind};
 
-pub struct Analysis {
-    pub map: SourceMap,
-    /// `None` when the root manifest could not be loaded at all, in which case `diags`
-    /// says why and no later phase ran.
-    pub ws: Option<Workspace>,
-    pub files: HashMap<ModuleId, Vec<ParsedFile>>,
-    pub resolution: Option<Resolution>,
-    /// The typed tree, when checking ran (spec §17.1). `dz hir` prints it, and from M5 on
-    /// flow analysis and codegen consume it.
-    pub hir: Option<dz_hir::Hir>,
-    /// Signatures, which the HIR does not carry: it has bodies but no items, so anything
-    /// asking what a struct's fields are called goes here (spec §17.1).
-    pub table: Option<dz_check::TypeTable>,
-    /// Which generic instantiations each module needs, with a concrete copy of every body
-    /// (spec §8.4). `None` when checking failed, since there is nothing sound to instantiate.
-    pub mono: Option<dz_mono::Mono>,
-    pub diags: Diagnostics,
-}
-
-/// Load a project and run every analysis phase that the previous one left viable.
-///
-/// Each phase is skipped when an earlier one failed, because checking a tree whose names
-/// did not resolve — or resolving one that did not parse — produces noise about things the
-/// compiler could never have known.
-pub fn analyse(entry: &Path) -> Analysis {
-    let mut map = SourceMap::new();
-    let mut diags = Diagnostics::new();
-
-    let Some(ws) = dz_project::load(entry, &mut map, &mut diags) else {
-        return Analysis {
-            map,
-            ws: None,
-            files: HashMap::new(),
-            resolution: None,
-            hir: None,
-            table: None,
-            mono: None,
-            diags,
-        };
-    };
-
-    let mut files: HashMap<ModuleId, Vec<ParsedFile>> = HashMap::new();
-    for module in ws.modules() {
-        let mut parsed = Vec::new();
-        for path in &module.sources {
-            let bytes = match module.read_source(path) {
-                Ok(b) => b,
-                Err(e) => {
-                    diags.push(Diagnostic::error(
-                        codes::MANIFEST_MISSING,
-                        format!("cannot read {}: {e}", path.display()),
-                    ));
-                    continue;
-                }
-            };
-            let id = match map.add_bytes(path, &bytes) {
-                Ok(id) => id,
-                Err(e) => {
-                    diags.push(Diagnostic::error(
-                        codes::BAD_ENCODING,
-                        format!("{}: {e}", path.display()),
-                    ));
-                    continue;
-                }
-            };
-            let text = map.get(id).text().to_owned();
-            let lexed = dz_lex::lex(id, &text);
-            let parsed_file = dz_parse::parse(id, &text, &lexed.tokens);
-            diags.extend(lexed.diagnostics);
-            diags.extend(parsed_file.diagnostics);
-            parsed.push(ParsedFile { file: id, ast: parsed_file.ast });
-        }
-        files.insert(module.id, parsed);
-    }
-
-    let mut resolution = None;
-    let mut hir = None;
-    let mut table = None;
-    let mut mono = None;
-    if !diags.has_errors() {
-        let r = dz_resolve::resolve(&ws, &files);
-        let failed = r.diagnostics.has_errors();
-        diags.extend(r.diagnostics.clone());
-        if !failed {
-            let checked = dz_check::check(&ws, &r, &files);
-            let type_errors = checked.diagnostics.has_errors();
-            diags.extend(checked.diagnostics);
-            // Ownership runs on the typed tree (spec §17.2). Skipped when checking
-            // failed: a body whose types are unknown moves values of unknown kinds, and
-            // every answer this pass gave would be a guess.
-            if !type_errors {
-                diags.extend(dz_flow::check(&checked.hir, &checked.table, &r));
-                // Instantiation runs here rather than at codegen so that `dz check`
-                // reports a runaway instantiation (DZ0536) too; it is a property of the
-                // program, not of the C++ (spec §8.4).
-                let m = dz_mono::monomorphize(&r, &checked.table, &checked.hir);
-                diags.extend(m.diagnostics.clone());
-                mono = Some(m);
-            }
-            hir = Some(checked.hir);
-            table = Some(checked.table);
-        }
-        resolution = Some(r);
-    }
-
-    diags.sort_by_position();
-    Analysis { map, ws: Some(ws), files, resolution, hir, table, mono, diags }
-}
+// Analysis is shared with the language server, so it lives in `dz_driver` (spec §17.4).
+pub use dz_driver::{analyse, Analysis};
 
 pub struct BuildOutput {
     pub cpp_dir: PathBuf,

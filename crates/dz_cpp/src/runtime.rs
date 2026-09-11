@@ -226,6 +226,16 @@ DZ_INLINE typename strip_ref<T>::type&& mv(T&& x) {
     return static_cast<typename strip_ref<T>::type&&>(x);
 }
 
+// `move` of a copyable value (spec §6.4, §18.33). Such a type has no move constructor to
+// reset its source, so this does: the source is left at its defaults, like any other
+// moved-from value.
+template <class T>
+DZ_INLINE T take(T& x) {
+    T v = static_cast<T&&>(x);
+    x = T{};
+    return v;
+}
+
 // --- raw memory (spec §9.8, §14.3) ----------------------------------------
 //
 // `alloc` and `free` use the C heap until the stdlib's allocators exist (§19 M6).
