@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 33
+**Version:** 0.1 — **unreleased**, revision 34
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -2439,6 +2439,12 @@ defines = ["JPH_PROFILE_ENABLED=0"]
 - **`link_libs`** are passed as `-l<name>`. **`frameworks`** is the macOS counterpart,
   passed as `-framework <name>`, because a macOS system library is a framework and `-l`
   does not find one. It belongs in a `target.macos` section, and is ignored elsewhere.
+- **`flags`** are passed to the compiler for this library's sources, after the ones `dz`
+  chooses — so a recipe can override one, which is the point. It is the escape hatch for
+  what a define cannot express: raylib's `rglfw.c` includes GLFW's Cocoa backend, so on
+  macOS that translation unit is Objective-C despite its `.c` name and needs
+  `flags = ["-x", "objective-c"]`. A **library's** sources only: Dazzle's own output must
+  compile under the fixed set above, and a manifest does not get to weaken that.
 - **A module's include dirs** — its `[cpp]`'s and every vendored library's — and **the
   defines of its `[cpp]`** apply to its own generated C++, to the headers it imports, and to
   every module that depends on it. A header means what the shared defines say, so everything
@@ -3100,6 +3106,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r34 | 2026-09-12 | **`flags` in a library's recipe** (§15.1): raw flags passed to the compiler for *that library's* sources, after the ones `dz` chooses, so the last one wins. Needed because some libraries require something no `defines` or `include_dirs` can say — raylib's `rglfw.c` includes GLFW's Cocoa backend, so on macOS it must be compiled as Objective-C despite its `.c` name, and `flags = ["-x", "objective-c"]` in a `target.macos` section is how a recipe says that. It applies to a vendored library only, never to Dazzle's own generated code: invariant 7 fixes the flags that must compile warning-clean, and a manifest does not get to weaken them. |
 | r33 | 2026-09-12 | **Which C++ compiler builds a project is configurable** (§16.5). `cxx = "g++"` in `[build]`, or in `[build.target.<os>]` for one platform, says what a project is known to build with; `--cxx <compiler>` on `run`, `build`, `cpp`, `test` and `bench` overrides it for one command, and `DZ_CXX` sits between them. With none of them `dz` still picks the first of `clang++`, `g++`, `c++` it finds. A compiler named explicitly is not probed first: if it is not there the build says so, rather than quietly using a different one. |
 | r32 | 2026-09-12 | **`frameworks` in a library's recipe** (§15.1). A macOS system library is a framework, and `link_libs` becomes `-l<name>`, which does not find one — so `frameworks = ["Cocoa", "IOKit"]` in a `[cpp.libs.<name>.target.macos]` section is linked as `-framework <name>`, and ignored on every other platform. Without it no recipe for a windowing library could link on macOS, and the failure named undefined Objective-C symbols rather than anything about a framework. |
 | r31 | 2026-09-12 | **Tests and benchmarks are language features (§19 M14, M15).** `#[test] fn name() { … }` is a test: it passes by returning and fails by panicking. `#[bench] fn name() { … }` is a benchmark: the runner times its body over as many iterations as it takes to measure. Both take no arguments, return nothing, are not fallible, are not generic and have a body — anything else is `DZ0546` — and both are written **beside the code they cover**. A normal build contains **neither**: `dz test` and `dz bench` each build a binary of their own, so a shipped program never carries them. **New builtin `blackbox(v)`**, which returns `v` as a value the optimiser knows nothing about. It exists because a benchmark has two ways to measure nothing — its result is never read, so the work computing it may be deleted; its input is usually a literal, so the answer may be computed at compile time — and passing the value through `blackbox` stops both. It is the only new name a program can collide with. |

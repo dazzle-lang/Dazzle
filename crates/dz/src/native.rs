@@ -120,6 +120,10 @@ pub fn build_libraries(
             args.extend(module.cpp.include_dirs.iter().map(|d| format!("-I{}", d.display())));
             args.extend(lib.defines.iter().map(|d| format!("-D{d}")));
             args.extend(lib.include_dirs.iter().map(|d| format!("-I{}", d.display())));
+            // Last, so a recipe can override what `dz` chose — which is the point of the
+            // key. `-x objective-c` after the `-x c` above is exactly that: the final `-x`
+            // before the input is the one that applies (spec §15.1).
+            args.extend(lib.flags.iter().cloned());
 
             // The object's name carries everything its bytes depend on besides its inputs'
             // contents, so changing a flag compiles a new object rather than reusing one.

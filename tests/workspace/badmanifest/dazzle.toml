@@ -21,4 +21,6 @@ defines = ["AMIGA"]
 
 [cpp.libs.broken]
 sources = ["missing.c", "dazzle.toml"]
-flags   = ["-O3"]
+# `flags` used to be the unknown key here; it became a real one when raylib needed
+# `-x objective-c` on macOS (spec §15.1), so this is a key that is still not one.
+optimise = "fast"

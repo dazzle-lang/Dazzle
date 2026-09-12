@@ -110,6 +110,18 @@ pub struct CppLib {
     pub link_libs: Vec<String>,
     /// See [`CppConfig::frameworks`].
     pub frameworks: Vec<String>,
+    /// `flags = ["-x", "objective-c"]` — passed to the compiler for **this library's**
+    /// sources, after the ones `dz` chooses, so a recipe can say something `defines` and
+    /// `include_dirs` cannot (spec §15.1).
+    ///
+    /// The case that forced it: raylib's `rglfw.c` includes GLFW's Cocoa backend, which is
+    /// Objective-C, so on macOS that one translation unit has to be compiled as Objective-C
+    /// even though it is named `.c`. raylib's own Makefile does the same thing.
+    ///
+    /// Only a vendored library's, never the generated code's: invariant 7 says Dazzle's own
+    /// output must compile warning-clean under a fixed set of flags, and that is not
+    /// something a manifest gets to weaken.
+    pub flags: Vec<String>,
 }
 
 /// Everything the final link needs, gathered from the whole dependency graph.
@@ -961,9 +973,10 @@ impl<'a> Loader<'a> {
             "lib_dirs",
             "link_libs",
             "frameworks",
+            "flags",
         ];
         const LIB_TARGET_KEYS: &[&str] =
-            &["sources", "include_dirs", "defines", "lib_dirs", "link_libs", "frameworks"];
+            &["sources", "include_dirs", "defines", "lib_dirs", "link_libs", "frameworks", "flags"];
         const MANIFEST_DIR: &str = "the directory holding dazzle.toml";
         const LIB_ROOT: &str = "the library's `root`, or the manifest's directory without one";
 
@@ -1079,6 +1092,7 @@ impl<'a> Loader<'a> {
                     lib_dirs: l.lib_dirs,
                     link_libs: l.link_libs,
                     frameworks: l.frameworks,
+                    flags: l.flags,
                 })
                 .collect(),
         }
@@ -1167,6 +1181,7 @@ impl<'a> Loader<'a> {
                     "defines" => out.defines.push(s.clone()),
                     "link_libs" => out.link_libs.push(s.clone()),
                     "frameworks" => out.frameworks.push(s.clone()),
+                    "flags" => out.flags.push(s.clone()),
                     "sources" => {
                         self.lib_sources(file, base, base_desc, s, *span, &mut out.sources)
                     }
@@ -1304,6 +1319,7 @@ struct Lists {
     lib_dirs: Vec<PathBuf>,
     link_libs: Vec<String>,
     frameworks: Vec<String>,
+    flags: Vec<String>,
 }
 
 fn as_str(v: &Value) -> Option<&str> {

@@ -23,12 +23,23 @@ defines      = ["PLATFORM_DESKTOP", "GRAPHICS_API_OPENGL_33"]
 [cpp.libs.raylib.target.windows]
 link_libs = ["opengl32", "gdi32", "winmm", "user32", "shell32"]
 
+# `_GLFW_X11` picks the backend. GLFW refuses to guess: with neither `_GLFW_X11` nor
+# `_GLFW_WAYLAND` defined, `rglfw.c` stops at `#error "Cannot disable Wayland and X11 at
+# the same time"`. Windows and macOS select themselves from the platform macros; Linux is
+# the one that has to be told.
 [cpp.libs.raylib.target.linux]
+defines   = ["_GLFW_X11"]
 link_libs = ["GL", "m", "pthread", "dl", "rt", "X11"]
 
 # macOS's window system is a set of frameworks, which `-lCocoa` does not find. Without
 # these the link fails with undefined Objective-C symbols from GLFW's Cocoa backend, which
 # names nothing that looks like a missing framework.
+#
+# `-x objective-c` is the other half: on Apple, `rglfw.c` includes GLFW's Cocoa backend —
+# `cocoa_init.m` and four more `.m` files — so that one translation unit is Objective-C
+# despite its `.c` name, and compiling it as plain C fails at the first `NSString`.
+# raylib's own Makefile passes the same flag for the same reason.
 [cpp.libs.raylib.target.macos]
+flags      = ["-x", "objective-c"]
 link_libs  = ["m", "pthread", "dl"]
 frameworks = ["Cocoa", "IOKit", "CoreVideo", "CoreFoundation", "OpenGL"]
