@@ -161,7 +161,10 @@ pub struct Enumerator {
 pub enum ConstValue {
     Int(i128),
     /// `single` when written with an `f` suffix, which makes it a C `float`.
-    Float { value: f64, single: bool },
+    Float {
+        value: f64,
+        single: bool,
+    },
     /// A macro whose value is not a number but which clang can give a type — raylib's
     /// `RAYWHITE`, a `Color` compound literal. Emitted as the macro's own name (§15.2).
     Typed(CType),
@@ -181,18 +184,34 @@ pub enum CType {
     Int(CInt),
     /// `size_t` and `uintptr_t` (unsigned), `ptrdiff_t` and `intptr_t` (signed): Dazzle's
     /// `usize` and `isize` rather than whatever width they have here.
-    Size { signed: bool },
-    Float { bits: u8 },
+    Size {
+        signed: bool,
+    },
+    Float {
+        bits: u8,
+    },
     /// `const char *`.
     CStr,
-    Ptr { mutable: bool, pointee: Box<CType> },
+    Ptr {
+        mutable: bool,
+        pointee: Box<CType>,
+    },
     /// `float m[16]` — a fixed-size array, as a struct member has one.
-    Array { len: u64, elem: Box<CType> },
+    Array {
+        len: u64,
+        elem: Box<CType>,
+    },
     /// `void (*)(const RGFW_event *)` — a callback, which is Dazzle's `fn(…) -> T`.
-    Fn { params: Vec<CType>, ret: Box<CType> },
+    Fn {
+        params: Vec<CType>,
+        ret: Box<CType>,
+    },
     /// `const T&` and `T&`, which are Dazzle's `&T` and `&mut T` (spec §15.2). A C++ API
     /// takes one almost everywhere a C API would take a pointer.
-    Ref { mutable: bool, referent: Box<CType> },
+    Ref {
+        mutable: bool,
+        referent: Box<CType>,
+    },
     /// A struct or enum imported from the same header, by the name it was imported under.
     Named(String),
     /// Something Dazzle cannot name yet, as C spells it.
@@ -272,8 +291,7 @@ pub fn import(req: &Request<'_>) -> Result<Arc<Header>, ImportError> {
     // modules asking for different ones must not share an entry (spec §15.4).
     let wanted =
         req.instantiate.iter().map(|(c, n)| format!("{c}={n}")).collect::<Vec<_>>().join("\0");
-    let key =
-        format!("{}\0{}\0{}\0{wanted}", req.header, req.from_dir.display(), args.join("\0"));
+    let key = format!("{}\0{}\0{}\0{wanted}", req.header, req.from_dir.display(), args.join("\0"));
     if let Ok(map) = cache().lock() {
         if let Some((header, stamps)) = map.get(&key) {
             if stamps.iter().all(|s| *s == Stamp::of(&s.path)) {
@@ -314,11 +332,12 @@ fn ensure_loaded() -> Result<(), String> {
     }
     static SHARED: OnceLock<Result<Arc<clang_sys::SharedLibrary>, String>> = OnceLock::new();
     let shared = SHARED.get_or_init(|| {
-        // An LLVM install keeps libclang beside `clang`, which is on the path of anyone who
-        // can build a Dazzle program with clang — so look there before clang-sys's own
-        // search, which knows only the usual install directories.
+        // Where libclang is looked for, nearest first. `LIBCLANG_PATH` set by hand wins;
+        // after that comes **the one shipped with `dz`**, so a release that carries its own
+        // copy needs nothing installed on the machine; then an LLVM install, which anyone
+        // who can build a Dazzle program with clang already has.
         if std::env::var_os("LIBCLANG_PATH").is_none() {
-            if let Some(dir) = beside_clang() {
+            if let Some(dir) = bundled().or_else(beside_clang) {
                 std::env::set_var("LIBCLANG_PATH", dir);
             }
         }
@@ -334,14 +353,41 @@ fn ensure_loaded() -> Result<(), String> {
     }
 }
 
-fn beside_clang() -> Option<PathBuf> {
-    let lib = if cfg!(windows) {
+/// The platform's file name for libclang.
+fn lib_name() -> &'static str {
+    if cfg!(windows) {
         "libclang.dll"
     } else if cfg!(target_os = "macos") {
         "libclang.dylib"
     } else {
         "libclang.so"
-    };
+    }
+}
+
+/// A libclang shipped **with `dz` itself**, beside the executable or in a `lib/` next to
+/// it — the layout a release archive unpacks to:
+///
+/// ```text
+/// dz/
+///   bin/dz            (or dz.exe)
+///   lib/libclang.so   (or .dll / .dylib)
+/// ```
+///
+/// This is what lets a distributed compiler read C headers on a machine with no LLVM
+/// installed: the only thing `dz` then asks of the system is a C++ compiler to hand its
+/// generated code to, which is a tool the user chooses anyway (spec §15.1, §16.5).
+///
+/// Nothing is bundled by the `cargo build` used during development, so this finds nothing
+/// and the search falls through to an installed LLVM.
+fn bundled() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let candidates = [dir.to_path_buf(), dir.join("lib"), dir.parent().map(|p| p.join("lib"))?];
+    candidates.into_iter().find(|d| d.join(lib_name()).is_file())
+}
+
+fn beside_clang() -> Option<PathBuf> {
+    let lib = lib_name();
     let exe = if cfg!(windows) { "clang.exe" } else { "clang" };
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path).find(|d| d.join(exe).is_file() && d.join(lib).is_file())
@@ -421,12 +467,7 @@ unsafe fn parse(req: &Request<'_>, args: &[String]) -> Result<(Header, Vec<PathB
 /// `(1 << 3)` is an untyped integer like any other (§18.38) — and one that is merely
 /// well-typed, raylib's `RAYWHITE`, keeps its type and is emitted by name. Whatever does
 /// not compile leaves no variable behind and is recorded as skipped (spec §15.2).
-unsafe fn type_macros(
-    w: &mut Walker,
-    index: CXIndex,
-    main: &CString,
-    args: &[CString],
-) {
+unsafe fn type_macros(w: &mut Walker, index: CXIndex, main: &CString, args: &[CString]) {
     /// A header with thousands of macros is not worth a second parse of each.
     const LIMIT: usize = 512;
 
@@ -644,7 +685,12 @@ unsafe fn diagnostics(tu: CXTranslationUnit) -> Vec<String> {
 
 /// Every file the parse read, for the cache to watch.
 unsafe fn inclusions(tu: CXTranslationUnit) -> Vec<PathBuf> {
-    extern "C" fn visit(file: CXFile, _stack: *mut CXSourceLocation, _len: c_uint, data: CXClientData) {
+    extern "C" fn visit(
+        file: CXFile,
+        _stack: *mut CXSourceLocation,
+        _len: c_uint,
+        data: CXClientData,
+    ) {
         // SAFETY: `data` is the `Vec` passed below, alive for the whole visit.
         let out = unsafe { &mut *(data as *mut Vec<PathBuf>) };
         let name = unsafe { string(clang_getFileName(file)) };
@@ -708,8 +754,7 @@ impl Walker {
             if matches!(
                 clang_getCursorKind(decl),
                 CXCursor_StructDecl | CXCursor_EnumDecl | CXCursor_ClassDecl | CXCursor_UnionDecl
-            )
-                && is_anonymous(decl)
+            ) && is_anonymous(decl)
             {
                 if let Some(key) = position(decl) {
                     self.anon_names.insert(key, string(clang_getCursorSpelling(c)));
@@ -867,9 +912,7 @@ impl Walker {
         let path = self.files.first()?;
         Some(match std::fs::canonicalize(path) {
             // Windows' canonical form is a `\\?\` path, which clang does not take.
-            Ok(p) => PathBuf::from(
-                p.to_string_lossy().trim_start_matches(r"\\?\").to_owned(),
-            ),
+            Ok(p) => PathBuf::from(p.to_string_lossy().trim_start_matches(r"\\?\").to_owned()),
             Err(_) => std::env::current_dir().ok()?.join(path),
         })
     }
@@ -896,7 +939,14 @@ impl Walker {
     /// Record a declaration whose C++ spelling is not simply its name under the current
     /// namespace: a handle adopted from a type the header never shows, or the concrete type
     /// `[cpp.instantiate]` asked for (spec §15.4).
-    fn push_cpp(&mut self, name: String, cpp: String, scope: Vec<String>, loc: Loc, kind: DeclKind) {
+    fn push_cpp(
+        &mut self,
+        name: String,
+        cpp: String,
+        scope: Vec<String>,
+        loc: Loc,
+        kind: DeclKind,
+    ) {
         let docs = std::mem::take(&mut self.pending_docs);
         self.decls.push(Decl { name, scope, cpp, loc, docs, kind });
     }
@@ -907,7 +957,11 @@ impl Walker {
             return; // a redeclaration
         }
         if clang_isFunctionTypeVariadic(clang_getCursorType(c)) != 0 {
-            return self.skip(name, loc, "a variadic function; spec §15.2 imports a fixed-arity one");
+            return self.skip(
+                name,
+                loc,
+                "a variadic function; spec §15.2 imports a fixed-arity one",
+            );
         }
         let Some(params) = self.parameters(c, &name, loc) else { return };
         let result = clang_getCursorResultType(c);
@@ -1015,7 +1069,11 @@ impl Walker {
             // associated functions to call it with yet (spec §7) — so it is left out with
             // the reason, rather than imported as something nothing can name.
             if !is_ctor && clang_CXXMethod_isStatic(m) != 0 {
-                self.skip(full, mloc, "a static member function; Dazzle has no associated functions yet");
+                self.skip(
+                    full,
+                    mloc,
+                    "a static member function; Dazzle has no associated functions yet",
+                );
                 continue;
             }
             let receiver = if is_ctor {
@@ -1080,10 +1138,7 @@ impl Walker {
             // type — the layout is the header's, since Dazzle never redeclares it — so it
             // is opaque padding exactly as §15.2 says. A C struct's members come through
             // this as public, which is what they are.
-            if matches!(
-                clang_getCXXAccessSpecifier(f),
-                CX_CXXPrivate | CX_CXXProtected
-            ) {
+            if matches!(clang_getCXXAccessSpecifier(f), CX_CXXPrivate | CX_CXXProtected) {
                 continue;
             }
             let fname = string(clang_getCursorSpelling(f));
@@ -1095,7 +1150,9 @@ impl Walker {
                 CType::Unsupported(what) => {
                     self.skip(format!("{owner}.{fname}"), floc, format!("its type is `{what}`"))
                 }
-                ty => out.push(Field { name: fname, ty, loc: floc, docs: doc_comment(f), bitfield }),
+                ty => {
+                    out.push(Field { name: fname, ty, loc: floc, docs: doc_comment(f), bitfield })
+                }
             }
         }
     }
@@ -1125,7 +1182,11 @@ impl Walker {
             } else {
                 i128::from(clang_getEnumConstantDeclUnsignedValue(v))
             };
-            variants.push(Enumerator { name: string(clang_getCursorSpelling(v)), value, loc: vloc });
+            variants.push(Enumerator {
+                name: string(clang_getCursorSpelling(v)),
+                value,
+                loc: vloc,
+            });
         }
         // C code uses an unscoped enum's enumerators as plain integers — raylib's
         // `IsKeyDown(int key)` takes a `KEY_A` — so each is also a constant of its own
@@ -1133,7 +1194,8 @@ impl Walker {
         if !scoped {
             for v in &variants {
                 if self.claim(&v.name) {
-                    let kind = DeclKind::Const { value: ConstValue::Int(v.value), from_macro: false };
+                    let kind =
+                        DeclKind::Const { value: ConstValue::Int(v.value), from_macro: false };
                     self.push(v.name.clone(), v.loc, kind);
                 }
             }
@@ -1248,7 +1310,8 @@ impl Walker {
             }
             _ => {}
         }
-        let int = |signed: bool| CType::Int(CInt { bits: (clang_Type_getSizeOf(t) * 8) as u8, signed });
+        let int =
+            |signed: bool| CType::Int(CInt { bits: (clang_Type_getSizeOf(t) * 8) as u8, signed });
         match t.kind {
             CXType_Void => CType::Void,
             CXType_Bool => CType::Bool,
@@ -1270,7 +1333,9 @@ impl Walker {
                     // stands and the crossing is cast — see `mismatched_spelling` (§15.2).
                     CXType_WChar => CType::Unsupported(spelling(t)),
                     // A callback: the pointer is the type, as it is in C (spec §15.2).
-                    CXType_FunctionProto | CXType_FunctionNoProto => self.function_pointer(canonical, t),
+                    CXType_FunctionProto | CXType_FunctionNoProto => {
+                        self.function_pointer(canonical, t)
+                    }
                     _ => match self.map_type(pointee) {
                         CType::Unsupported(_) => CType::Unsupported(spelling(t)),
                         inner => CType::Ptr { mutable, pointee: Box::new(inner) },
@@ -1362,9 +1427,10 @@ impl Walker {
                 _ => {}
             }
         }
-        let walk = |t: &CType, at: Loc, behind: &mut Vec<(String, Loc)>, value: &mut HashSet<String>| {
-            scan(t, false, at, &known, behind, value);
-        };
+        let walk =
+            |t: &CType, at: Loc, behind: &mut Vec<(String, Loc)>, value: &mut HashSet<String>| {
+                scan(t, false, at, &known, behind, value);
+            };
         for d in &self.decls {
             match &d.kind {
                 DeclKind::Fn { params, ret, .. } => {
@@ -1407,7 +1473,12 @@ impl Walker {
             let named: HashSet<String> = self
                 .decls
                 .iter()
-                .filter(|d| matches!(d.kind, DeclKind::Struct { .. } | DeclKind::Enum { .. } | DeclKind::Alias { .. }))
+                .filter(|d| {
+                    matches!(
+                        d.kind,
+                        DeclKind::Struct { .. } | DeclKind::Enum { .. } | DeclKind::Alias { .. }
+                    )
+                })
                 .map(|d| d.cpp.clone())
                 .collect();
             fn first_missing(t: &CType, named: &HashSet<String>) -> Option<String> {
@@ -1428,7 +1499,11 @@ impl Walker {
             let mut skipped = Vec::new();
             self.decls.retain_mut(|d| match &mut d.kind {
                 DeclKind::Fn { params, ret, .. } => {
-                    let gone = params.iter().map(|p| &p.ty).chain(std::iter::once(&*ret)).find_map(missing);
+                    let gone = params
+                        .iter()
+                        .map(|p| &p.ty)
+                        .chain(std::iter::once(&*ret))
+                        .find_map(missing);
                     match gone {
                         Some(x) => {
                             skipped.push(Skipped {
@@ -1472,7 +1547,8 @@ fn cstring(s: &str) -> CString {
 
 unsafe fn string(s: CXString) -> String {
     let p = clang_getCString(s);
-    let out = if p.is_null() { String::new() } else { CStr::from_ptr(p).to_string_lossy().into_owned() };
+    let out =
+        if p.is_null() { String::new() } else { CStr::from_ptr(p).to_string_lossy().into_owned() };
     clang_disposeString(s);
     out
 }
@@ -1508,9 +1584,10 @@ unsafe fn doc_comment(c: CXCursor) -> String {
     } else {
         for line in raw.lines() {
             let l = line.trim_start();
-            let l = l.strip_prefix("///").or_else(|| l.strip_prefix("//!")).unwrap_or_else(|| {
-                l.strip_prefix("//").unwrap_or(l)
-            });
+            let l = l
+                .strip_prefix("///")
+                .or_else(|| l.strip_prefix("//!"))
+                .unwrap_or_else(|| l.strip_prefix("//").unwrap_or(l));
             lines.push(l.trim_end().to_owned());
         }
     }
@@ -1522,7 +1599,8 @@ unsafe fn doc_comment(c: CXCursor) -> String {
         .map(|l| l.len() - l.trim_start().len())
         .min()
         .unwrap_or(0);
-    let text: Vec<&str> = lines.iter().map(|l| if l.len() >= indent { &l[indent..] } else { "" }).collect();
+    let text: Vec<&str> =
+        lines.iter().map(|l| if l.len() >= indent { &l[indent..] } else { "" }).collect();
     text.join("\n").trim().to_owned()
 }
 

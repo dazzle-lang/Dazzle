@@ -177,10 +177,7 @@ impl<'a> Parser<'a> {
         let mut ty = Type { span: self.span_from(start), kind };
         while self.at(TokenKind::Question) {
             self.bump();
-            ty = Type {
-                span: self.span_from(start),
-                kind: TypeKind::Optional(Box::new(ty)),
-            };
+            ty = Type { span: self.span_from(start), kind: TypeKind::Optional(Box::new(ty)) };
         }
         ty
     }
@@ -216,9 +213,7 @@ impl<'a> Parser<'a> {
                 match mode {
                     GenericsMode::Never => Vec::new(),
                     GenericsMode::Greedy => self.parse_generic_args(),
-                    GenericsMode::Speculative => {
-                        self.try_parse_generic_args().unwrap_or_default()
-                    }
+                    GenericsMode::Speculative => self.try_parse_generic_args().unwrap_or_default(),
                 }
             } else {
                 Vec::new()

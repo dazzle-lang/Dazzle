@@ -2,4 +2,7 @@
 *.exe
 *.pdb
 /target
-/tests/run/*/build/
+# Build output from any test fixture, at whatever depth: `tests/run/<name>/build/`
+# and `tests/bench/build/` both. The narrower `/tests/run/*/build/` missed the latter,
+# which is how build artifacts reached a commit.
+/tests/**/build/

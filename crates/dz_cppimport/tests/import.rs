@@ -35,7 +35,9 @@ const I32: CType = CType::Int(CInt { bits: 32, signed: true });
 #[test]
 fn a_c_header_imports_its_functions_structs_enums_and_macros() {
     let Some(h) = import_mini() else { return };
-    let kind = |name: &str| &h.decl(name).unwrap_or_else(|| panic!("`{name}` was not imported: {h:#?}")).kind;
+    let kind = |name: &str| {
+        &h.decl(name).unwrap_or_else(|| panic!("`{name}` was not imported: {h:#?}")).kind
+    };
 
     assert!(matches!(kind("MiniVec2"), DeclKind::Struct { fields, .. } if fields.len() == 2
         && fields[0].name == "x" && fields[0].ty == CType::Float { bits: 32 }));
@@ -63,10 +65,18 @@ fn a_c_header_imports_its_functions_structs_enums_and_macros() {
     assert!(matches!(kind("mini_name"), DeclKind::Fn { ret: CType::CStr, .. }));
 
     // An unscoped enum is a type, and each enumerator a constant of its own.
-    assert!(matches!(kind("MiniShape"), DeclKind::Enum { scoped: false, variants, .. } if variants.len() == 2));
-    assert!(matches!(kind("MINI_SQUARE"), DeclKind::Const { value: ConstValue::Int(4), from_macro: false }));
+    assert!(
+        matches!(kind("MiniShape"), DeclKind::Enum { scoped: false, variants, .. } if variants.len() == 2)
+    );
+    assert!(matches!(
+        kind("MINI_SQUARE"),
+        DeclKind::Const { value: ConstValue::Int(4), from_macro: false }
+    ));
 
-    assert!(matches!(kind("MINI_VERSION"), DeclKind::Const { value: ConstValue::Int(7), from_macro: true }));
+    assert!(matches!(
+        kind("MINI_VERSION"),
+        DeclKind::Const { value: ConstValue::Int(7), from_macro: true }
+    ));
     assert!(matches!(
         kind("MINI_HALF"),
         DeclKind::Const { value: ConstValue::Float { single: true, .. }, .. }
@@ -80,18 +90,27 @@ fn a_struct_the_header_never_defines_is_a_handle() {
     // spec §15.2, §18.40 — `MiniCounter` is declared and defined only in the library's own
     // source, as RGFW's window and C's `FILE` are.
     let Some(h) = import_mini() else { return };
-    let kind = |name: &str| &h.decl(name).unwrap_or_else(|| panic!("`{name}` was not imported")).kind;
+    let kind =
+        |name: &str| &h.decl(name).unwrap_or_else(|| panic!("`{name}` was not imported")).kind;
 
-    assert!(matches!(kind("MiniCounter"), DeclKind::Struct { opaque: true, fields, .. } if fields.is_empty()));
+    assert!(
+        matches!(kind("MiniCounter"), DeclKind::Struct { opaque: true, fields, .. } if fields.is_empty())
+    );
     // The functions that pass one around import as usual.
     let handle = CType::Named("::MiniCounter".into());
     match kind("mini_bump") {
         DeclKind::Fn { params, .. } => {
-            assert_eq!(params[0].ty, CType::Ptr { mutable: true, pointee: Box::new(handle.clone()) })
+            assert_eq!(
+                params[0].ty,
+                CType::Ptr { mutable: true, pointee: Box::new(handle.clone()) }
+            )
         }
         other => panic!("{other:?}"),
     }
-    assert!(matches!(kind("mini_counter"), DeclKind::Fn { ret: CType::Ptr { mutable: true, .. }, .. }));
+    assert!(matches!(
+        kind("mini_counter"),
+        DeclKind::Fn { ret: CType::Ptr { mutable: true, .. }, .. }
+    ));
     match kind("mini_count") {
         DeclKind::Fn { params, .. } => {
             assert_eq!(params[0].ty, CType::Ptr { mutable: false, pointee: Box::new(handle) })
@@ -105,7 +124,8 @@ fn a_c_union_imports_as_a_type_whose_members_overlap() {
     // spec §15.2, §18.41 — Dazzle's own `union` is tagged and a C one is not, so it comes
     // in as a type with members, the way RGFW's event does.
     let Some(h) = import_mini() else { return };
-    let kind = |name: &str| &h.decl(name).unwrap_or_else(|| panic!("`{name}` was not imported")).kind;
+    let kind =
+        |name: &str| &h.decl(name).unwrap_or_else(|| panic!("`{name}` was not imported")).kind;
 
     match kind("MiniValue") {
         DeclKind::Struct { fields, is_union: true, opaque: false, .. } => {
@@ -117,7 +137,9 @@ fn a_c_union_imports_as_a_type_whose_members_overlap() {
         other => panic!("{other:?}"),
     }
     // And the functions that take or return one import as usual.
-    assert!(matches!(kind("mini_int_value"), DeclKind::Fn { ret, .. } if *ret == CType::Named("::MiniValue".into())));
+    assert!(
+        matches!(kind("mini_int_value"), DeclKind::Fn { ret, .. } if *ret == CType::Named("::MiniValue".into()))
+    );
     assert!(matches!(kind("mini_read_int"), DeclKind::Fn { params, .. } if params[0].ty
         == CType::Ptr { mutable: false, pointee: Box::new(CType::Named("::MiniValue".into())) }));
 }
@@ -146,10 +168,7 @@ fn a_callback_imports_as_a_function_type() {
     match &h.decl("mini_apply").expect("mini_apply was not imported").kind {
         DeclKind::Fn { params, ret, .. } => {
             assert_eq!(*ret, I32);
-            assert_eq!(
-                params[0].ty,
-                CType::Fn { params: vec![I32], ret: Box::new(I32) }
-            );
+            assert_eq!(params[0].ty, CType::Fn { params: vec![I32], ret: Box::new(I32) });
         }
         other => panic!("{other:?}"),
     }
@@ -174,7 +193,9 @@ fn a_missing_header_is_reported_with_clang_s_words() {
         instantiate: &[],
     };
     match import(&req) {
-        Err(ImportError::Failed(msgs)) => assert!(msgs.iter().any(|m| m.contains("no_such_header.h")), "{msgs:?}"),
+        Err(ImportError::Failed(msgs)) => {
+            assert!(msgs.iter().any(|m| m.contains("no_such_header.h")), "{msgs:?}")
+        }
         Err(ImportError::Unavailable(_)) => {}
         Ok(h) => panic!("imported a header that does not exist: {h:?}"),
     }
@@ -188,9 +209,7 @@ fn shapes() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/cppinterop/vendor/shapes/include")
 }
 
-fn import_shapes(
-    instantiate: &[(String, String)],
-) -> Option<std::sync::Arc<dz_cppimport::Header>> {
+fn import_shapes(instantiate: &[(String, String)]) -> Option<std::sync::Arc<dz_cppimport::Header>> {
     let dirs = [shapes()];
     let req = Request {
         header: "shapes.hpp",
@@ -246,10 +265,9 @@ fn a_cpp_reference_is_a_dazzle_reference() {
         other => panic!("{other:?}"),
     }
     match &h.decl("translate").expect("translate was not imported").kind {
-        DeclKind::Fn { params, .. } => assert_eq!(
-            params[0].ty,
-            CType::Ref { mutable: true, referent: Box::new(point) }
-        ),
+        DeclKind::Fn { params, .. } => {
+            assert_eq!(params[0].ty, CType::Ref { mutable: true, referent: Box::new(point) })
+        }
         other => panic!("{other:?}"),
     }
 }
@@ -296,7 +314,9 @@ fn a_class_with_a_destructor_and_no_copy_constructor_is_move_only() {
     assert!(move_only);
     // The deleted copy constructor is C++'s own business and is not a method to call.
     assert_eq!(methods.iter().filter(|m| m.is_ctor).count(), 1);
-    assert!(methods.iter().any(|m| m.name == "fill" && m.receiver == Some(dz_cppimport::Receiver::MutRef)));
+    assert!(methods
+        .iter()
+        .any(|m| m.name == "fill" && m.receiver == Some(dz_cppimport::Receiver::MutRef)));
 }
 
 #[test]

@@ -88,15 +88,13 @@ impl<'a> Parser<'a> {
                 }
             },
             // `#[attr] fn ...` nested in a body, but `#location` is an expression.
-            TokenKind::Hash if self.peek_at(1) == TokenKind::LBracket => {
-                match self.parse_item() {
-                    Some(item) => StmtKind::Item(Box::new(item)),
-                    None => {
-                        self.recover_to_statement_end();
-                        StmtKind::Error
-                    }
+            TokenKind::Hash if self.peek_at(1) == TokenKind::LBracket => match self.parse_item() {
+                Some(item) => StmtKind::Item(Box::new(item)),
+                None => {
+                    self.recover_to_statement_end();
+                    StmtKind::Error
                 }
-            }
+            },
             _ => {
                 let expr = self.parse_expr();
                 if let Some(op) = assign_op(self.peek()) {

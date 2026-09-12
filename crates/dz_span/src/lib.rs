@@ -153,11 +153,7 @@ impl SourceFile {
     /// Byte range of a 0-based line, including its terminator.
     pub fn line_range(&self, line: usize) -> Option<Range<usize>> {
         let start = *self.line_starts.get(line)? as usize;
-        let end = self
-            .line_starts
-            .get(line + 1)
-            .map(|&e| e as usize)
-            .unwrap_or(self.text.len());
+        let end = self.line_starts.get(line + 1).map(|&e| e as usize).unwrap_or(self.text.len());
         Some(start..end)
     }
 

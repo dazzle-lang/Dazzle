@@ -199,7 +199,11 @@ fn dz_test_runs_the_projects_tests() {
         .output()
         .expect("failed to run dz");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "dz test failed\n{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "dz test failed\n{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(stdout.contains("running 3 tests"), "{stdout}");
     assert!(stdout.contains("ok    tests::addition_works"), "{stdout}");
     assert!(stdout.contains("3 passed"), "{stdout}");
@@ -215,10 +219,8 @@ fn dz_test_runs_the_projects_tests() {
 
     // The program build must not carry them: `addition_works` exists only in the test
     // binary, and linking tests into a shipped program is exactly the mistake to catch.
-    let cpp = Command::new(dz())
-        .args(["cpp", dir.to_str().unwrap()])
-        .output()
-        .expect("failed to run dz");
+    let cpp =
+        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
     assert!(cpp.status.success(), "{}", String::from_utf8_lossy(&cpp.stderr));
     let generated = std::fs::read_to_string(dir.join("build/cpp/tests.cpp")).unwrap();
     assert!(
@@ -273,26 +275,25 @@ fn dz_bench_times_the_projects_benchmarks() {
                   while i < n {\n        t += i\n        i += 1\n    }\n    return t\n}\n\n\
                   #[bench]\nfn adding() {\n    blackbox(work(blackbox(64)))\n}\n\n\
                   fn main() {\n    println(\"{}\", work(4))\n}\n";
-    let dir = scratch(
-        "dz_bench_smoke",
-        "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n",
-        source,
-    );
+    let dir =
+        scratch("dz_bench_smoke", "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n", source);
     let out = Command::new(dz())
         .args(["bench", dir.to_str().unwrap()])
         .output()
         .expect("failed to run dz");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "dz bench failed\n{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "dz bench failed\n{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(stdout.contains("running 1 benchmark"), "{stdout}");
     assert!(stdout.contains("b::adding"), "{stdout}");
     assert!(stdout.contains("ns/iter"), "a benchmark reports a time\n{stdout}");
 
     // The program build carries neither the benchmark nor `blackbox`'s work.
-    let cpp = Command::new(dz())
-        .args(["cpp", dir.to_str().unwrap()])
-        .output()
-        .expect("failed to run dz");
+    let cpp =
+        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
     assert!(cpp.status.success(), "{}", String::from_utf8_lossy(&cpp.stderr));
     let generated = std::fs::read_to_string(dir.join("build/cpp/b.cpp")).unwrap();
     assert!(!generated.contains("adding"), "a normal build must not contain benchmarks");
@@ -308,10 +309,8 @@ fn the_benchmark_suite_agrees_with_its_cpp_baseline() {
         return;
     }
     let dir = repo_root().join("tests/bench");
-    let out = Command::new(dz())
-        .args(["run", dir.to_str().unwrap()])
-        .output()
-        .expect("failed to run dz");
+    let out =
+        Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("failed to run dz");
     if !out.status.success() {
         // `import cpp` needs libclang; without it the suite cannot be built at all.
         eprintln!("skipping: the benchmark suite did not build (libclang missing?)");
@@ -325,6 +324,62 @@ fn the_benchmark_suite_agrees_with_its_cpp_baseline() {
             "a benchmark pair computes different things: {line:?}"
         );
     }
+}
+
+/// Which C++ compiler builds the generated code, and who gets the last word (spec §16.5).
+///
+/// Four places may say. The test pins the *order* rather than any one of them, by naming a
+/// compiler that does not exist at the level being tested and checking that the build fails
+/// with that name — the only way to prove which one was actually consulted.
+#[test]
+fn the_cpp_compiler_can_be_chosen_at_four_levels() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let src = "fn main() {\n    println(\"ok\")\n}\n";
+    let plain = "[module]\nname = \"cx\"\nsources = [\"src/**/*.dz\"]\n";
+    let with_cxx = format!("{plain}\n[build]\ncxx = \"dz-not-a-compiler\"\n");
+
+    let ran = |dir: &std::path::Path, args: &[&str]| -> (bool, String) {
+        let mut c = Command::new(dz());
+        c.arg("build").arg(dir).args(args);
+        let out = c.output().expect("failed to run dz");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (out.status.success(), text)
+    };
+
+    // 3. The manifest names it, and is used when nothing nearer does.
+    let dir = scratch("dz_cxx_manifest", &with_cxx, src);
+    let (ok, text) = ran(&dir, &[]);
+    assert!(!ok && text.contains("dz-not-a-compiler"), "the manifest should decide:\n{text}");
+
+    // 1. `--cxx` beats the manifest.
+    let (ok, text) = ran(&dir, &["--cxx", "clang++"]);
+    assert!(
+        ok || !text.contains("dz-not-a-compiler"),
+        "`--cxx` should override the manifest:\n{text}"
+    );
+
+    // 2. `[build.target.<os>]` beats the plain `[build]`.
+    let host = if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let targeted = format!("{with_cxx}\n[build.target.{host}]\ncxx = \"dz-also-not-one\"\n");
+    let dir = scratch("dz_cxx_target", &targeted, src);
+    let (ok, text) = ran(&dir, &[]);
+    assert!(
+        !ok && text.contains("dz-also-not-one"),
+        "the platform section should beat the base table:\n{text}"
+    );
 }
 
 #[test]
@@ -412,15 +467,15 @@ fn check_warning_clean(cxx: &str, fixture: &str) {
     // Copied into a scratch project: the run test drives the same directories, and cargo
     // runs tests in parallel, so sharing a build directory would race.
     let source = std::fs::read_to_string(run_dir(fixture).join("src/main.dz")).unwrap();
-    let manifest = format!("[module]
+    let manifest = format!(
+        "[module]
 name = \"{fixture}\"
 sources = [\"src/**/*.dz\"]
-");
+"
+    );
     let dir = scratch(&format!("dz_wall_wextra_{fixture}"), &manifest, &source);
-    let out = Command::new(dz())
-        .args(["cpp", dir.to_str().unwrap()])
-        .output()
-        .expect("failed to run dz");
+    let out =
+        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 
     let dir = dir.join("build/cpp");
@@ -428,7 +483,14 @@ sources = [\"src/**/*.dz\"]
         let p = entry.path();
         if p.extension().is_some_and(|e| e == "cpp") {
             let out = Command::new(cxx)
-                .args(["-std=c++17", "-fno-exceptions", "-fno-rtti", "-Wall", "-Wextra", "-fsyntax-only"])
+                .args([
+                    "-std=c++17",
+                    "-fno-exceptions",
+                    "-fno-rtti",
+                    "-Wall",
+                    "-Wextra",
+                    "-fsyntax-only",
+                ])
                 .arg(&p)
                 .output()
                 .expect("failed to run the C++ compiler");
@@ -463,10 +525,8 @@ fn unsupported_constructs_are_reported_not_miscompiled() {
     )
     .unwrap();
 
-    let out = Command::new(dz())
-        .args(["cpp", dir.to_str().unwrap()])
-        .output()
-        .expect("failed to run dz");
+    let out =
+        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "expected codegen to refuse:\n{stderr}");
     assert!(stderr.contains("DZ0801"), "expected DZ0801:\n{stderr}");
@@ -504,10 +564,8 @@ fn a_project_without_main_is_reported() {
     .unwrap();
     std::fs::write(dir.join("src/a.dz"), "fn helper() -> i32 {\n    return 1\n}\n").unwrap();
 
-    let out = Command::new(dz())
-        .args(["cpp", dir.to_str().unwrap()])
-        .output()
-        .expect("failed to run dz");
+    let out =
+        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("DZ0802"), "expected DZ0802:\n{stderr}");
     let _ = std::fs::remove_dir_all(&dir);
@@ -652,7 +710,8 @@ fn a_call_into_c_is_type_checked_like_any_other() {
          fn main() {\n    let xs: [2]i32 = [1, 2]\n    api::fill(xs.ptr, 2)\n    \
          let n: i64 = 3\n    api::fill(null, n)\n}\n",
     );
-    std::fs::write(dir.join("api.h"), "#pragma once\nextern \"C\" void fill(int *out, int n);\n").unwrap();
+    std::fs::write(dir.join("api.h"), "#pragma once\nextern \"C\" void fill(int *out, int n);\n")
+        .unwrap();
     let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     if stderr.contains("DZ0703") {
@@ -684,7 +743,11 @@ fn an_imported_handle_cannot_be_held_by_value() {
     if stderr.contains("DZ0703") {
         return; // no libclang here
     }
-    assert_eq!(stderr.matches("DZ0704").count(), 1, "expected one handle-by-value error:\n{stderr}");
+    assert_eq!(
+        stderr.matches("DZ0704").count(),
+        1,
+        "expected one handle-by-value error:\n{stderr}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -795,7 +858,8 @@ fn cpp20_uses_designated_initialisers_and_cpp17_does_not() {
             "[module]\nname = \"lit\"\nsources = [\"src/**/*.dz\"]\n\n\
              [build]\noutput = \"executable\"\ncpp_standard = \"{std_name}\"\n"
         );
-        let dir = scratch(&format!("dz_lit_{}", std_name.replace("+", "p")), &manifest, LITERAL_SRC);
+        let dir =
+            scratch(&format!("dz_lit_{}", std_name.replace("+", "p")), &manifest, LITERAL_SRC);
         let out = Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 
@@ -864,7 +928,10 @@ fn the_access_helpers_cost_nothing_in_the_generated_code() {
             .filter(|l| l.contains("call"))
             .filter(|l| {
                 // `panic_bounds` is the cold failure path and should stay a call.
-                (l.contains("obj@") || l.contains("3obj") || l.contains("index@") || l.contains("5index"))
+                (l.contains("obj@")
+                    || l.contains("3obj")
+                    || l.contains("index@")
+                    || l.contains("5index"))
                     && !l.contains("panic")
             })
             .collect();

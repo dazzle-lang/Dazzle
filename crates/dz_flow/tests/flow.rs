@@ -33,10 +33,8 @@ fn corpus() -> PathBuf {
 
 /// Run the pipeline through flow analysis on one source file.
 fn run(source_path: &Path) -> Outcome {
-    let dir = std::env::temp_dir().join(format!(
-        "dz_flow_{}",
-        source_path.file_stem().unwrap().to_string_lossy()
-    ));
+    let dir = std::env::temp_dir()
+        .join(format!("dz_flow_{}", source_path.file_stem().unwrap().to_string_lossy()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(
@@ -87,10 +85,7 @@ fn analyse(dir: &Path) -> Outcome {
     diags.sort_by_position();
 
     let rendered = dz_diag::render_to_string(&map, &diags);
-    Outcome {
-        codes: diags.iter().filter_map(|d| d.code).collect(),
-        rendered,
-    }
+    Outcome { codes: diags.iter().filter_map(|d| d.code).collect(), rendered }
 }
 
 /// The `typed/` fixture is the checker's "valid code is accepted" half (invariant 8), and

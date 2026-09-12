@@ -98,7 +98,9 @@ impl Ctx<'_> {
                 self.error_help(
                     codes::ORPHAN_IMPL,
                     imp.span,
-                    format!("`{trait_name}` can only be implemented for a struct, in its own module"),
+                    format!(
+                        "`{trait_name}` can only be implemented for a struct, in its own module"
+                    ),
                     format!("not allowed for `{me}` here"),
                     format!(
                         "`{trait_name}` becomes the struct's C++ {}, so it is part of the \
@@ -441,11 +443,8 @@ impl TypeTable {
         method: &str,
         arg: Option<&Ty>,
     ) -> Option<(usize, HashMap<u32, Ty>)> {
-        let found: Vec<(usize, TraitRef, HashMap<u32, Ty>)> = self
-            .impls_for(recv)
-            .into_iter()
-            .filter(|(_, r, _)| r.trait_sym == trait_sym)
-            .collect();
+        let found: Vec<(usize, TraitRef, HashMap<u32, Ty>)> =
+            self.impls_for(recv).into_iter().filter(|(_, r, _)| r.trait_sym == trait_sym).collect();
         if found.len() > 1 {
             if let Some(arg) = arg {
                 let arg = arg.peeled().clone();
@@ -525,9 +524,13 @@ pub(crate) fn might_overlap(a: &Ty, b: &Ty) -> bool {
         | (Ty::OwnPtr { mutable: ma, inner: x }, Ty::OwnPtr { mutable: mb, inner: y }) => {
             ma == mb && o(x, y)
         }
-        (Ty::Ref { mutable: ma, inner: x }, Ty::Ref { mutable: mb, inner: y }) => ma == mb && o(x, y),
+        (Ty::Ref { mutable: ma, inner: x }, Ty::Ref { mutable: mb, inner: y }) => {
+            ma == mb && o(x, y)
+        }
         (Ty::Array { len: la, elem: x }, Ty::Array { len: lb, elem: y }) => la == lb && o(x, y),
-        (Ty::Slice { mutable: ma, elem: x }, Ty::Slice { mutable: mb, elem: y }) => ma == mb && o(x, y),
+        (Ty::Slice { mutable: ma, elem: x }, Ty::Slice { mutable: mb, elem: y }) => {
+            ma == mb && o(x, y)
+        }
         (Ty::Tuple(x), Ty::Tuple(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| o(p, q)),
         _ => a == b,
     }

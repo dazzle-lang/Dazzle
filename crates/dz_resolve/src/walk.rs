@@ -8,8 +8,7 @@ use dz_project::{ModuleId, Workspace};
 use dz_span::{FileId, Span};
 
 use crate::{
-    closest, visible_from, MemberSort, ParsedFile, Resolution, SymbolId, BUILTIN_FNS,
-    BUILTIN_TYPES,
+    closest, visible_from, MemberSort, ParsedFile, Resolution, SymbolId, BUILTIN_FNS, BUILTIN_TYPES,
 };
 
 /// What a leading path segment turned out to name.
@@ -29,7 +28,8 @@ fn cpp_alias(header: &str) -> Option<String> {
     let stem = file.split('.').next()?;
     let mut chars = stem.chars();
     let first = chars.next()?;
-    let ok = (first.is_alphabetic() || first == '_') && chars.all(|c| c.is_alphanumeric() || c == '_');
+    let ok =
+        (first.is_alphabetic() || first == '_') && chars.all(|c| c.is_alphanumeric() || c == '_');
     ok.then(|| stem.to_owned())
 }
 
@@ -80,12 +80,7 @@ pub(crate) fn link_bases(r: &mut Resolution, ws: &Workspace, module: ModuleId, p
     }
 }
 
-pub(crate) fn resolve_file(
-    r: &mut Resolution,
-    ws: &Workspace,
-    module: ModuleId,
-    pf: &ParsedFile,
-) {
+pub(crate) fn resolve_file(r: &mut Resolution, ws: &Workspace, module: ModuleId, pf: &ParsedFile) {
     let mut w = Walker {
         r: &mut *r,
         ws,
@@ -176,7 +171,11 @@ impl<'a, 'w> Walker<'a, 'w> {
                                     codes::AMBIGUOUS_IMPORT,
                                     format!("`{}` is imported more than once", n.name),
                                 )
-                                .at(file, n.span, format!("`{prev_name}` is already in scope")),
+                                .at(
+                                    file,
+                                    n.span,
+                                    format!("`{prev_name}` is already in scope"),
+                                ),
                             );
                             continue;
                         }
@@ -259,9 +258,9 @@ impl<'a, 'w> Walker<'a, 'w> {
                 "available modules are {}",
                 known.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", ")
             )),
-            None => d.with_help(
-                "add it to `[dependencies]` in this module's dazzle.toml (spec §3.1)",
-            ),
+            None => {
+                d.with_help("add it to `[dependencies]` in this module's dazzle.toml (spec §3.1)")
+            }
         };
         self.error(d);
         None
@@ -576,9 +575,9 @@ impl<'a, 'w> Walker<'a, 'w> {
         match &t.kind {
             TypeKind::Path(p) => self.path(p, PathUse::Type),
             TypeKind::Optional(i) => self.ty(i),
-            TypeKind::Ptr { inner, .. } | TypeKind::OwnPtr { inner, .. } | TypeKind::Ref { inner, .. } => {
-                self.ty(inner)
-            }
+            TypeKind::Ptr { inner, .. }
+            | TypeKind::OwnPtr { inner, .. }
+            | TypeKind::Ref { inner, .. } => self.ty(inner),
             TypeKind::Array { size, elem } => {
                 self.expr(size);
                 self.ty(elem);
@@ -782,7 +781,6 @@ impl<'a, 'w> Walker<'a, 'w> {
         }
     }
 
-
     // --- paths ------------------------------------------------------------
 
     fn path(&mut self, p: &Path, use_kind: PathUse) {
@@ -887,7 +885,11 @@ impl<'a, 'w> Walker<'a, 'w> {
                             codes::NO_SUCH_MEMBER,
                             format!("namespace `{owner}` has no `{}`", seg.name.name),
                         )
-                        .at(file, seg.name.span, "not found in this namespace");
+                        .at(
+                            file,
+                            seg.name.span,
+                            "not found in this namespace",
+                        );
                         if let Some(s) = suggestion {
                             d = d.with_help(format!("did you mean `{s}`?"));
                         }
@@ -905,7 +907,11 @@ impl<'a, 'w> Walker<'a, 'w> {
                         codes::NO_SUCH_MEMBER,
                         format!("`{owner}` is a {kind} and has no members"),
                     )
-                    .at(file, seg.name.span, format!("`{owner}` cannot be used with `::`")),
+                    .at(
+                        file,
+                        seg.name.span,
+                        format!("`{owner}` cannot be used with `::`"),
+                    ),
                 );
                 return;
             }

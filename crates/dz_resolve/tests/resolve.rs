@@ -32,7 +32,11 @@ fn redact(rendered: &str) -> String {
         .replace('\\', "/")
         .lines()
         .map(|l| match l.find(MARKER) {
-            Some(i) => format!("{}{}", &l[..l[..i].rfind(' ').map_or(0, |s| s + 1)], &l[i + MARKER.len()..]),
+            Some(i) => format!(
+                "{}{}",
+                &l[..l[..i].rfind(' ').map_or(0, |s| s + 1)],
+                &l[i + MARKER.len()..]
+            ),
             None => l.to_owned(),
         })
         .collect::<Vec<_>>()
@@ -122,11 +126,7 @@ fn private_access_across_modules_is_rejected() {
         dz_diag::codes::SHADOWED_BINDING,
         dz_diag::codes::UNUSED_IMPORT,
     ] {
-        assert!(
-            r.codes.contains(&expected),
-            "expected {expected} in:\n{}",
-            r.rendered
-        );
+        assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }
     // Two private-access violations: a non-`pub` function, and a `pub(module)` field
     // reached from outside its module.
@@ -231,9 +231,7 @@ fn method_bodies_see_their_struct_fields_unqualified() {
 #[test]
 fn an_or_clause_binds_the_error_only_when_it_is_named() {
     // spec §9.4 — there is no implicit `it`.
-    let codes = check_snippet(
-        "fn f(x: i32?) {\n    let v = x or { return }\n}\n",
-    );
+    let codes = check_snippet("fn f(x: i32?) {\n    let v = x or { return }\n}\n");
     assert!(codes.is_empty(), "{codes:?}");
 
     let named = check_snippet(

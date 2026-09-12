@@ -104,7 +104,8 @@ fn definition_of_a_method_call_is_the_method_in_its_struct() {
     let (start, text) = definition_text(&a, &info(&a, f, "ints.push(10)", 6));
     assert_eq!(text, "push");
     let src = a.map.get(f).text();
-    let body = src.find("struct Buffer<T>").unwrap() as u32..src.find("impl<T: Copy>").unwrap() as u32;
+    let body =
+        src.find("struct Buffer<T>").unwrap() as u32..src.find("impl<T: Copy>").unwrap() as u32;
     assert!(body.contains(&start), "`push` should be the one declared in `struct Buffer`");
 }
 
@@ -160,10 +161,12 @@ fn queries_still_answer_beside_a_syntax_error() {
     let (a, f, text) = edited(typed_above("println(\"done\")", "let broken = ("));
     assert!(!a.parsed_cleanly);
     assert!(
-        a.diags.iter().all(|d| d.code.is_some_and(|c| c.starts_with("DZ01") || c.starts_with("DZ02"))),
+        a.diags
+            .iter()
+            .all(|d| d.code.is_some_and(|c| c.starts_with("DZ01") || c.starts_with("DZ02"))),
         "only syntax errors are shown while there is one"
     );
-    let hover = ide::info_at(&a, f, offset_in(&text, "largest(3, 9)", 2), ).unwrap().hover.unwrap();
+    let hover = ide::info_at(&a, f, offset_in(&text, "largest(3, 9)", 2)).unwrap().hover.unwrap();
     assert!(hover.contains("fn largest"), "{hover}");
     let copied = ide::info_at(&a, f, offset_in(&text, "copied.len()", 1)).unwrap().hover.unwrap();
     assert!(copied.contains("Buffer<i32>"), "{copied}");
@@ -174,7 +177,11 @@ fn queries_still_answer_beside_a_syntax_error() {
 /// How many times `name` is written as a name (not in a string or comment) in the fixture.
 fn written(a: &Analysis, f: FileId, name: &str) -> usize {
     let text = a.map.get(f).text();
-    dz_lex::lex(f, text).tokens.iter().filter(|t| t.kind == TokenKind::Ident && t.text(text) == name).count()
+    dz_lex::lex(f, text)
+        .tokens
+        .iter()
+        .filter(|t| t.kind == TokenKind::Ident && t.text(text) == name)
+        .count()
 }
 
 #[test]
@@ -367,7 +374,10 @@ fn inlay_hints_name_the_fields_of_a_positional_literal() {
     let hints = ide::inlay_hints(&a, f, dz_span::Span::new(0, text.len()));
     let field_at = |needle: &str, within: usize| {
         let at = offset_in(&text, needle, within);
-        hints.iter().find(|h| h.offset == at && h.kind == ide::HintKind::Field).map(|h| h.label.clone())
+        hints
+            .iter()
+            .find(|h| h.offset == at && h.kind == ide::HintKind::Field)
+            .map(|h| h.label.clone())
     };
     assert_eq!(field_at("Vec2{ 1.5, 2.5 }", 6).as_deref(), Some("x:"), "{hints:?}");
     assert_eq!(field_at("Vec2{ 1.5, 2.5 }", 11).as_deref(), Some("y:"), "{hints:?}");

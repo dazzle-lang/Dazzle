@@ -191,7 +191,9 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
 /// implementation has no name.
 pub fn owner_sym(owner: &BodyOwner) -> Option<SymbolId> {
     match owner {
-        BodyOwner::Fn(s) | BodyOwner::Copy(s) | BodyOwner::Drop(s) | BodyOwner::Const(s) => Some(*s),
+        BodyOwner::Fn(s) | BodyOwner::Copy(s) | BodyOwner::Drop(s) | BodyOwner::Const(s) => {
+            Some(*s)
+        }
         BodyOwner::Method { owner, .. }
         | BodyOwner::Ctor { owner, .. }
         | BodyOwner::FieldDefault { owner, .. } => Some(*owner),
@@ -265,12 +267,7 @@ impl Worklist<'_> {
     }
 
     fn params_map(&self, sym: SymbolId, args: &[Ty]) -> HashMap<u32, Ty> {
-        self.table
-            .type_params(sym)
-            .iter()
-            .map(|p| p.param.id)
-            .zip(args.iter().cloned())
-            .collect()
+        self.table.type_params(sym).iter().map(|p| p.param.id).zip(args.iter().cloned()).collect()
     }
 
     fn instantiate_type(&mut self, sym: SymbolId, args: Vec<Ty>) {
@@ -382,11 +379,20 @@ impl Worklist<'_> {
         }
     }
 
-    fn want_impl(&mut self, trait_sym: SymbolId, recv: &Ty, method: &str, arg: Option<&Ty>, at: (FileId, Span)) {
+    fn want_impl(
+        &mut self,
+        trait_sym: SymbolId,
+        recv: &Ty,
+        method: &str,
+        arg: Option<&Ty>,
+        at: (FileId, Span),
+    ) {
         if recv.has_params() {
             return; // reached again, concretely, through each instance
         }
-        let Some((idx, map)) = self.table.resolve_impl(trait_sym, recv, method, arg) else { return };
+        let Some((idx, map)) = self.table.resolve_impl(trait_sym, recv, method, arg) else {
+            return;
+        };
         let imp = &self.table.impls()[idx];
         if imp.generics.is_empty() {
             return; // emitted with the module that declares it
@@ -482,7 +488,12 @@ impl Worklist<'_> {
 /// associated types become the implementation's choices — the same three substitutions a
 /// call through the trait already sees. Methods are taken in declaration order so the
 /// output is deterministic.
-pub fn impl_defaults(table: &TypeTable, hir: &Hir, idx: usize, map: &HashMap<u32, Ty>) -> Vec<Body> {
+pub fn impl_defaults(
+    table: &TypeTable,
+    hir: &Hir,
+    idx: usize,
+    map: &HashMap<u32, Ty>,
+) -> Vec<Body> {
     let imp = &table.impls()[idx];
     let self_ty = ty::substitute(&imp.self_ty, map);
     let r = TraitRef {
@@ -501,7 +512,8 @@ pub fn impl_defaults(table: &TypeTable, hir: &Hir, idx: usize, map: &HashMap<u32
         if !spec.methods[name].has_body || imp.methods.contains_key(name) {
             continue;
         }
-        let Some(template) = hir.find(&BodyOwner::Method { owner: r.trait_sym, name: name.clone() })
+        let Some(template) =
+            hir.find(&BodyOwner::Method { owner: r.trait_sym, name: name.clone() })
         else {
             continue;
         };

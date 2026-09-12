@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 32
+**Version:** 0.1 — **unreleased**, revision 33
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -2697,6 +2697,24 @@ The generated code is required to build cleanly with:
 Nothing Dazzle emits may need exceptions or RTTI, because console and mobile targets
 routinely disable both.
 
+**Which compiler builds it is the project's choice, and the command's.** `dz` drives an
+ordinary C++ compiler, and any of them that takes those flags will do — a console SDK's
+compiler as much as `clang++` or `g++`. Four places may name one, and the nearest to the
+person running the build wins: `--cxx <compiler>` on the command line, `DZ_CXX` in the
+environment, `cxx` in the manifest's `[build]` table, and `cxx` in
+`[build.target.<os>]` for a single platform. With none of them `dz` uses the first of
+`clang++`, `g++`, `c++` on the path. A compiler named explicitly is **not** probed first:
+if it is not there the build fails saying so, rather than quietly using another one.
+`[DECIDED]`
+
+```toml
+[build]
+cxx = "clang++"                 # what this project is known to build with
+
+[build.target.linux]
+cxx = "g++"                     # except here
+```
+
 **C++20 is supported and opt-in**, via `cpp_standard = "c++20"` in `dazzle.toml`. The
 only thing it changes is readability: struct literals become designated initialisers,
 `Vec3{ .x = 1, .y = 2 }`, instead of the immediately-invoked lambda C++17 forces. Runtime
@@ -3082,6 +3100,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r33 | 2026-09-12 | **Which C++ compiler builds a project is configurable** (§16.5). `cxx = "g++"` in `[build]`, or in `[build.target.<os>]` for one platform, says what a project is known to build with; `--cxx <compiler>` on `run`, `build`, `cpp`, `test` and `bench` overrides it for one command, and `DZ_CXX` sits between them. With none of them `dz` still picks the first of `clang++`, `g++`, `c++` it finds. A compiler named explicitly is not probed first: if it is not there the build says so, rather than quietly using a different one. |
 | r32 | 2026-09-12 | **`frameworks` in a library's recipe** (§15.1). A macOS system library is a framework, and `link_libs` becomes `-l<name>`, which does not find one — so `frameworks = ["Cocoa", "IOKit"]` in a `[cpp.libs.<name>.target.macos]` section is linked as `-framework <name>`, and ignored on every other platform. Without it no recipe for a windowing library could link on macOS, and the failure named undefined Objective-C symbols rather than anything about a framework. |
 | r31 | 2026-09-12 | **Tests and benchmarks are language features (§19 M14, M15).** `#[test] fn name() { … }` is a test: it passes by returning and fails by panicking. `#[bench] fn name() { … }` is a benchmark: the runner times its body over as many iterations as it takes to measure. Both take no arguments, return nothing, are not fallible, are not generic and have a body — anything else is `DZ0546` — and both are written **beside the code they cover**. A normal build contains **neither**: `dz test` and `dz bench` each build a binary of their own, so a shipped program never carries them. **New builtin `blackbox(v)`**, which returns `v` as a value the optimiser knows nothing about. It exists because a benchmark has two ways to measure nothing — its result is never read, so the work computing it may be deleted; its input is usually a literal, so the answer may be computed at compile time — and passing the value through `blackbox` stops both. It is the only new name a program can collide with. |
 | r30 | 2026-09-12 | **Struct inheritance (§7.3, §4, 18.32).** `struct Button : UiElement` inherits from one struct. The base's fields come first, so **`&Derived` → `&Base` and `^Derived` → `^Base` are implicit and free**; a by-value `Derived` where a `Base` is wanted is an error, because copying one would drop what the derived type adds. A base's fields and methods are the derived type's, in scope unqualified inside its methods, and neither may be redeclared. **A base with a constructor is constructed through it** — `Button(r: Rect, text: str) : UiElement(r) { … }` — and, as part of the same rule, **a type with a constructor is no longer built with a struct literal**: the constructor is what establishes its invariant. **Dispatch is static unless written:** `virtual fn` opts a method into runtime dispatch, `override fn` replaces one and must match its signature, both checked in both directions, and a **body-less `virtual fn` makes the struct abstract** — no value of it exists, only a `&` or a `^` to one. `Base::method(self)` calls the base's version without dispatch, so an override can build on what it replaces; `drop` becomes virtual as soon as anything in the chain has a `virtual` method. **`protected` is a fourth visibility** (§4), opening a member to the structs that inherit it and to nothing else — a different axis from the other three, which is why it is not a `pub(…)` form, and it is refused at module scope. **Implementations are inherited**: a `Button` is `Inspect` if `UiElement` is, and a more specific `impl Inspect for Button` replaces the inherited one, statically. `virtual`, `override` and `protected` are new keywords and are no longer usable as identifiers. |

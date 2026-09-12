@@ -227,7 +227,10 @@ pub enum Ty {
     /// `Buffer<f32>` and `Buffer<i32>` are two types, and §8.4 emits two C++ structs for
     /// them. Inside `Buffer<T>`'s own body the argument is `Ty::Param`, which is what
     /// monomorphization later substitutes.
-    Named { sym: SymbolId, args: Vec<Ty> },
+    Named {
+        sym: SymbolId,
+        args: Vec<Ty>,
+    },
     /// A struct the language provides: `Error`, `SourceLocation` (spec §9.2, §12.7).
     Builtin(BuiltinTy),
     /// The payload of one union variant, by the union's symbol and the variant's
@@ -407,14 +410,12 @@ pub fn substitute_with(
         Ty::Array { len, elem } => Ty::Array { len: *len, elem: rc(elem) },
         Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(&substitute).collect()),
-        Ty::Named { sym, args } => Ty::Named {
-            sym: *sym,
-            args: args.iter().map(&substitute).collect(),
-        },
-        Ty::Fn { params, ret } => Ty::Fn {
-            params: params.iter().map(&substitute).collect(),
-            ret: rc(ret),
-        },
+        Ty::Named { sym, args } => {
+            Ty::Named { sym: *sym, args: args.iter().map(&substitute).collect() }
+        }
+        Ty::Fn { params, ret } => {
+            Ty::Fn { params: params.iter().map(&substitute).collect(), ret: rc(ret) }
+        }
         other => other.clone(),
     }
 }
@@ -441,9 +442,7 @@ pub fn replace(t: &Ty, from: &Ty, to: &Ty) -> Ty {
         Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(r).collect()),
         Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(r).collect() },
-        Ty::Fn { params, ret } => {
-            Ty::Fn { params: params.iter().map(r).collect(), ret: rc(ret) }
-        }
+        Ty::Fn { params, ret } => Ty::Fn { params: params.iter().map(r).collect(), ret: rc(ret) },
         other => other.clone(),
     }
 }
@@ -479,10 +478,9 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
         (Ty::IntLit, Ty::IntLit) | (Ty::FloatLit, Ty::FloatLit) => true,
 
         // A `&mut T` may be passed where `&T` is wanted, but never the reverse.
-        (
-            Ty::Ref { mutable: false, inner: a },
-            Ty::Ref { mutable: _, inner: b },
-        ) => assignable(a, b),
+        (Ty::Ref { mutable: false, inner: a }, Ty::Ref { mutable: _, inner: b }) => {
+            assignable(a, b)
+        }
         (Ty::Ref { mutable: true, inner: a }, Ty::Ref { mutable: true, inner: b }) => {
             assignable(a, b)
         }

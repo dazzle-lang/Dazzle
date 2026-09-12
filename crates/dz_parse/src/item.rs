@@ -624,7 +624,9 @@ impl<'a> Parser<'a> {
                             span,
                             format!("`{got}` is written as an implementation of `{tr}`"),
                             format!("`{got}` is not a member any more"),
-                            format!("write `impl {tr} for {owner} {{ {sig} {{ … }} }}` (spec §6.1)"),
+                            format!(
+                                "write `impl {tr} for {owner} {{ {sig} {{ … }} }}` (spec §6.1)"
+                            ),
                         );
                     } else if struct_name.is_empty() {
                         self.error_help(
@@ -641,8 +643,10 @@ impl<'a> Parser<'a> {
                             span,
                             format!("`{got}` is not a valid member of `{struct_name}`"),
                             "a constructor's name must match its struct",
-                            format!("rename it to `{struct_name}`, or write `fn {got}(...)` to \
-                                     make it a method"),
+                            format!(
+                                "rename it to `{struct_name}`, or write `fn {got}(...)` to \
+                                     make it a method"
+                            ),
                         );
                     }
                     MemberKind::Ctor(ctor)
@@ -688,10 +692,9 @@ impl<'a> Parser<'a> {
         // can be meant by a `:` here.
         let base_init = if self.eat(TokenKind::Colon) {
             let bstart = self.start();
-            let path = self.parse_path_no_generics().unwrap_or(Path {
-                span: self.peek_token().span,
-                segments: Vec::new(),
-            });
+            let path = self
+                .parse_path_no_generics()
+                .unwrap_or(Path { span: self.peek_token().span, segments: Vec::new() });
             let args = if self.at(TokenKind::LParen) {
                 self.parse_call_args()
             } else {

@@ -87,11 +87,7 @@ impl<'a> Dumper<'a> {
                 });
             }
             ItemKind::Union(u) => {
-                self.line(format_args!(
-                    "{vis}union {}{}",
-                    u.name.name,
-                    generics_str(&u.generics)
-                ));
+                self.line(format_args!("{vis}union {}{}", u.name.name, generics_str(&u.generics)));
                 self.nest(|d| {
                     for v in &u.variants {
                         d.line(format_args!("variant {}", v.name.name));
@@ -177,10 +173,7 @@ impl<'a> Dumper<'a> {
                 if bounds.is_empty() {
                     String::new()
                 } else {
-                    format!(
-                        ": {}",
-                        bounds.iter().map(path_str).collect::<Vec<_>>().join(" + ")
-                    )
+                    format!(": {}", bounds.iter().map(path_str).collect::<Vec<_>>().join(" + "))
                 },
                 ty.as_ref().map(|t| format!(" = {}", type_str(t))).unwrap_or_default()
             )),
@@ -208,7 +201,12 @@ impl<'a> Dumper<'a> {
             .params
             .iter()
             .map(|p| {
-                format!("{}: {}{}", p.name.name, type_str(&p.ty), if p.default.is_some() { " = ..." } else { "" })
+                format!(
+                    "{}: {}{}",
+                    p.name.name,
+                    type_str(&p.ty),
+                    if p.default.is_some() { " = ..." } else { "" }
+                )
             })
             .collect();
         let recv = match &f.self_param {
@@ -505,7 +503,9 @@ impl<'a> Dumper<'a> {
                     }
                 });
             }
-            ExprKind::MacroCall { name, .. } => self.line(format_args!("macro-call {}!", name.name)),
+            ExprKind::MacroCall { name, .. } => {
+                self.line(format_args!("macro-call {}!", name.name))
+            }
             ExprKind::Tuple(elems) => {
                 self.line(format_args!("tuple"));
                 self.nest(|d| {

@@ -149,11 +149,7 @@ impl Resolution {
             at = self.symbol(s).base;
         }
         // Bases first, so a derived declaration of the same name comes later and wins.
-        chain
-            .iter()
-            .rev()
-            .flat_map(|s| self.symbol(*s).members.iter())
-            .collect()
+        chain.iter().rev().flat_map(|s| self.symbol(*s).members.iter()).collect()
     }
 }
 
@@ -223,12 +219,7 @@ impl Resolution {
     }
 
     /// Resolve a leading path segment the way [`walk`] does, for later phases.
-    pub fn lookup_in_file(
-        &self,
-        module: ModuleId,
-        file: FileId,
-        name: &str,
-    ) -> Option<SymbolId> {
+    pub fn lookup_in_file(&self, module: ModuleId, file: FileId, name: &str) -> Option<SymbolId> {
         if let Some(id) = self.lookup(module, name) {
             return Some(id);
         }
@@ -263,10 +254,27 @@ impl Resolution {
 /// §9.1, `panic` is §9.8, the formatting calls are §12.9, the reflection calls are §13.1,
 /// and `construct`/`destroy` are §14.3.
 pub const BUILTIN_TYPES: &[&str] = &[
-    "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "isize", "usize", "f32", "f64",
-    "bool", "char", "str", "cstr", "void", "Self",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "isize",
+    "usize",
+    "f32",
+    "f64",
+    "bool",
+    "char",
+    "str",
+    "cstr",
+    "void",
+    "Self",
     // Provided by the language rather than the stdlib (spec §9.2, §12.7).
-    "Error", "SourceLocation",
+    "Error",
+    "SourceLocation",
 ];
 
 pub const BUILTIN_FNS: &[&str] = &[
@@ -484,7 +492,16 @@ fn collect_foreign(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId
         };
         let (file, span) = at(d.loc);
         let id = SymbolId(r.symbols.len() as u32);
-        r.symbols.push(Symbol { name: d.name.clone(), kind, vis: Vis::Public, module, file, span, members, base: None });
+        r.symbols.push(Symbol {
+            name: d.name.clone(),
+            kind,
+            vis: Vis::Public,
+            module,
+            file,
+            span,
+            members,
+            base: None,
+        });
         // Inside a namespace it is reached through it, and only through it; at the
         // header's own scope it is a name of the module (spec §15.2).
         match namespaces.get(&d.scope) {
@@ -579,12 +596,7 @@ fn struct_members(members: &[Member]) -> Vec<MemberSymbol> {
                 MemberKind::TypeAlias { name, .. } => (name, MemberSort::AssocType),
                 MemberKind::Error => return None,
             };
-            Some(MemberSymbol {
-                name: name.name.clone(),
-                sort,
-                vis: m.vis,
-                span: name.span,
-            })
+            Some(MemberSymbol { name: name.name.clone(), sort, vis: m.vis, span: name.span })
         })
         .collect()
 }

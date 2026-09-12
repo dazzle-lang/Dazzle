@@ -88,10 +88,7 @@ fn logical_binds_looser_than_comparison() {
 #[test]
 fn bitwise_precedence_is_or_xor_and() {
     // `1 | 2 ^^ 3 & 4` groups as `1 | (2 ^^ (3 & 4))`.
-    assert_eq!(
-        expr_shape("1 | 2 ^^ 3 & 4"),
-        "binary | int 1 binary ^^ int 2 binary & int 3 int 4"
-    );
+    assert_eq!(expr_shape("1 | 2 ^^ 3 & 4"), "binary | int 1 binary ^^ int 2 binary & int 3 int 4");
 }
 
 #[test]
@@ -124,7 +121,10 @@ fn generic_call_parses_without_a_turbofish() {
 #[test]
 fn less_than_still_parses_as_comparison() {
     assert_eq!(expr_shape("a < b"), "binary < path a path b");
-    assert_eq!(expr_shape("(a < b) && (c > d)"), "binary && binary < path a path b binary > path c path d");
+    assert_eq!(
+        expr_shape("(a < b) && (c > d)"),
+        "binary && binary < path a path b binary > path c path d"
+    );
 }
 
 #[test]
@@ -254,7 +254,5 @@ fn every_corpus_file_that_should_be_clean_is_clean() {
 }
 
 fn concat_path(name: &str) -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/parse")
-        .join(name)
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/parse").join(name)
 }

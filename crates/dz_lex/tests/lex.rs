@@ -31,10 +31,7 @@ fn lex_report(name: &str, source: &str) -> String {
 fn corpus() {
     insta::glob!("../../../tests/lex", "*.dz", |path| {
         let bytes = std::fs::read(path).expect("failed to read corpus file");
-        let name = format!(
-            "tests/lex/{}",
-            path.file_name().unwrap().to_string_lossy()
-        );
+        let name = format!("tests/lex/{}", path.file_name().unwrap().to_string_lossy());
 
         let mut map = SourceMap::new();
         let source = match map.add_bytes(&name, &bytes) {
@@ -58,21 +55,13 @@ use dz_lex::TokenKind;
 fn kinds(source: &str) -> Vec<TokenKind> {
     let mut map = SourceMap::new();
     let id = map.add("t.dz", source.to_owned());
-    dz_lex::lex(id, map.get(id).text())
-        .tokens
-        .iter()
-        .map(|t| t.kind)
-        .collect()
+    dz_lex::lex(id, map.get(id).text()).tokens.iter().map(|t| t.kind).collect()
 }
 
 fn error_codes(source: &str) -> Vec<&'static str> {
     let mut map = SourceMap::new();
     let id = map.add("t.dz", source.to_owned());
-    dz_lex::lex(id, map.get(id).text())
-        .diagnostics
-        .iter()
-        .filter_map(|d| d.code)
-        .collect()
+    dz_lex::lex(id, map.get(id).text()).diagnostics.iter().filter_map(|d| d.code).collect()
 }
 
 #[test]
@@ -121,10 +110,7 @@ fn newlines_terminate_but_operators_suppress() {
 #[test]
 fn block_comments_nest() {
     assert!(error_codes("/* a /* b */ c */").is_empty());
-    assert_eq!(
-        error_codes("/* a /* b */"),
-        vec![dz_diag::codes::UNTERMINATED_BLOCK_COMMENT]
-    );
+    assert_eq!(error_codes("/* a /* b */"), vec![dz_diag::codes::UNTERMINATED_BLOCK_COMMENT]);
 }
 
 #[test]
@@ -174,10 +160,6 @@ fn every_input_ends_with_exactly_one_eof() {
     for src in ["", "\n", "a", "\"unterminated", "/* unterminated", "0x"] {
         let k = kinds(src);
         assert_eq!(k.last(), Some(&TokenKind::Eof), "input {src:?}");
-        assert_eq!(
-            k.iter().filter(|k| **k == TokenKind::Eof).count(),
-            1,
-            "input {src:?}"
-        );
+        assert_eq!(k.iter().filter(|k| **k == TokenKind::Eof).count(), 1, "input {src:?}");
     }
 }

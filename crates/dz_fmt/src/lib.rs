@@ -280,7 +280,8 @@ impl<'a> Printer<'a> {
         match &item.kind {
             ItemKind::Fn(f) => self.fn_decl(vis, f),
             ItemKind::Struct(s) => {
-                let base = s.base.as_ref().map(|b| format!(" : {}", self.path(b))).unwrap_or_default();
+                let base =
+                    s.base.as_ref().map(|b| format!(" : {}", self.path(b))).unwrap_or_default();
                 let head =
                     format!("{vis}struct {}{}{base} {{", s.name.name, generics_str(&s.generics));
                 self.line(&head);
@@ -581,8 +582,7 @@ impl<'a> Printer<'a> {
                 self.emit_trailing_comment(s.span.end);
             }
             StmtKind::Assign { target, op, value } => {
-                let text =
-                    format!("{} {} {}", self.expr(target), op.as_str(), self.expr(value));
+                let text = format!("{} {} {}", self.expr(target), op.as_str(), self.expr(value));
                 self.emit_multiline(&text);
                 self.emit_trailing_comment(s.span.end);
             }
@@ -591,8 +591,7 @@ impl<'a> Printer<'a> {
                 self.emit_trailing_comment(s.span.end);
             }
             StmtKind::While(w) => {
-                let label =
-                    w.label.as_ref().map(|l| format!("{}: ", l.name)).unwrap_or_default();
+                let label = w.label.as_ref().map(|l| format!("{}: ", l.name)).unwrap_or_default();
                 let text = format!("{label}while {} {{", self.expr(&w.cond));
                 self.line(&text);
                 self.indent += 1;
@@ -601,11 +600,9 @@ impl<'a> Printer<'a> {
                 self.line("}");
             }
             StmtKind::For(f) => {
-                let label =
-                    f.label.as_ref().map(|l| format!("{}: ", l.name)).unwrap_or_default();
+                let label = f.label.as_ref().map(|l| format!("{}: ", l.name)).unwrap_or_default();
                 let binds: Vec<String> = f.bindings.iter().map(dump::pat_str).collect();
-                let text =
-                    format!("{label}for {} in {} {{", binds.join(", "), self.expr(&f.iter));
+                let text = format!("{label}for {} in {} {{", binds.join(", "), self.expr(&f.iter));
                 self.line(&text);
                 self.indent += 1;
                 self.block_body(&f.body);
@@ -726,7 +723,10 @@ impl<'a> Printer<'a> {
 
     fn expr_inner(&self, e: &Expr) -> String {
         match &e.kind {
-            ExprKind::Int(v) | ExprKind::Float(v) | ExprKind::Str(v) | ExprKind::RawStr(v)
+            ExprKind::Int(v)
+            | ExprKind::Float(v)
+            | ExprKind::Str(v)
+            | ExprKind::RawStr(v)
             | ExprKind::Char(v) => v.clone(),
             ExprKind::Bool(b) => b.to_string(),
             ExprKind::Null => "null".to_owned(),
@@ -758,12 +758,7 @@ impl<'a> Printer<'a> {
             }
             ExprKind::Binary { op, lhs, rhs } => {
                 let (l, r) = binary_prec(*op);
-                format!(
-                    "{} {} {}",
-                    self.expr_prec(lhs, l),
-                    op.as_str(),
-                    self.expr_prec(rhs, r)
-                )
+                format!("{} {} {}", self.expr_prec(lhs, l), op.as_str(), self.expr_prec(rhs, r))
             }
             ExprKind::Cast { expr, ty } => {
                 format!("{} as {}", self.expr_prec(expr, 12), self.ty(ty))

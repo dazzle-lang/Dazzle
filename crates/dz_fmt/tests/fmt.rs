@@ -78,7 +78,15 @@ fn corpus_files() -> Vec<std::path::PathBuf> {
 }
 
 fn corpus_name(path: &std::path::Path) -> String {
-    path.components().rev().take(3).collect::<Vec<_>>().iter().rev().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
+    path.components()
+        .rev()
+        .take(3)
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[test]
@@ -142,7 +150,11 @@ fn formatting_keeps_every_comment_in_order() {
                 .map(|c| c.lines().map(str::trim).collect::<Vec<_>>().join("\n"))
                 .collect::<Vec<_>>()
         };
-        assert_eq!(norm(&before.comments), norm(&after.comments), "formatting {name} lost or reordered a comment");
+        assert_eq!(
+            norm(&before.comments),
+            norm(&after.comments),
+            "formatting {name} lost or reordered a comment"
+        );
     }
 }
 
