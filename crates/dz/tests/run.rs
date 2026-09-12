@@ -394,6 +394,43 @@ fn the_cpp_compiler_can_be_chosen_at_four_levels() {
     );
 }
 
+/// A vendored library's recipe can pass raw flags to the compiler for its own sources
+/// (spec §15.1).
+///
+/// The case that forced this key: raylib's `rglfw.c` includes GLFW's Cocoa backend, so on
+/// macOS it must be compiled as Objective-C despite its `.c` name, which no amount of
+/// `defines` or `include_dirs` can say. That path cannot be exercised here, so this checks
+/// the mechanism instead — a define moved out of `defines` and into `flags` must still
+/// reach the compiler, and the library must still behave the same.
+#[test]
+fn a_recipe_can_pass_flags_to_the_compiler() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = copy_fixture("cinterop", "dz_lib_flags");
+    let manifest = dir.join("dazzle.toml");
+    let original = std::fs::read_to_string(&manifest).unwrap();
+    assert!(
+        original.contains("defines      = [\"MINI_SCALE=3\"]"),
+        "the fixture should still define MINI_SCALE the ordinary way:\n{original}"
+    );
+    // `mini.c` refuses to compile without it, so if the build succeeds the flag arrived.
+    let moved = original
+        .replace("defines      = [\"MINI_SCALE=3\"]", "flags        = [\"-DMINI_SCALE=3\"]");
+    std::fs::write(&manifest, moved).unwrap();
+
+    let out =
+        Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("failed to run dz");
+    assert!(
+        out.status.success(),
+        "a flag from the recipe should reach the compiler\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let expected = normalise(&std::fs::read_to_string(dir.join("expected.txt")).unwrap());
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), expected);
+}
+
 #[test]
 fn hello_world_runs() {
     // The M4 acceptance criterion, called out on its own so a failure names itself.

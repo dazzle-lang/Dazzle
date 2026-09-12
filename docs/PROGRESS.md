@@ -20,10 +20,10 @@ the milestone.
 |---|---|
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30 |
 | Next | **Get CI green on all three platforms** — the workflow is written and has never run — then fetched packages (M16). M14, M15 and struct inheritance have landed. Struct inheritance landed as r30, which also unblocks the last substantive M7 row — a Dazzle struct inheriting an imported C++ class, Jolt's listeners. See §4 |
-| Tests | 183, all green |
+| Tests | 184, all green |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 33; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
+| Language spec | 0.1 **unreleased**, revision 34; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -1392,9 +1392,14 @@ the workflow** — every one of them invisible on Windows, which is what the mat
 | importer | **No `import cpp` worked on macOS**: "'assert.h' file not found". The C and C++ standard headers live inside the active SDK there, and libclang does not run `xcrun` to find it the way the `clang` driver does | Only macOS puts the standard headers behind an SDK path |
 | tests | **`#panic` fixtures failed on Windows.** The marker was stripped with `strip_prefix("#panic\n")` *before* normalising, and git checks `expected.txt` out with CRLF on Windows — so the marker stayed in the expected text and the test looked for the literal "#panic" in the program's own stderr | `.gitattributes` forced LF for `.dz` and `.snap` but not `expected.txt` |
 | tests | **The compiler-precedence test passed vacuously.** `DZ_CXX` sits above the manifest in the order it checks, and CI sets it for the whole job — so the manifest levels were unobservable | It passed locally only because that machine had no `DZ_CXX` set |
+| recipe | **raylib did not build on Linux or macOS.** On Linux GLFW refuses to guess a backend and stops at `#error "Cannot disable Wayland and X11 at the same time"` — it needed `_GLFW_X11` in `defines`. On macOS `rglfw.c` includes GLFW's Cocoa backend, five Objective-C `.m` files, so the translation unit has to be compiled as Objective-C despite its `.c` name | Windows selects its backend from the platform macros and has no Objective-C |
 | workflow | **libclang was never found on Linux**, so every interop test reported `DZ0703` and *skipped*. `llvm-config --libdir` produced an empty string: Ubuntu installs it versioned (`llvm-config-18`) and the bare name is absent | — |
 
-The fixes: `write_value` and `write_hex` are now overloaded on C++'s ten **fundamental**
+raylib needed a new recipe key to be buildable at all on macOS: **`flags`** (§21 r34),
+raw compiler flags for a library's own sources. Nothing a `define` can say makes a `.c`
+file compile as Objective-C, and raylib's own Makefile passes the same `-x objective-c`.
+
+The other fixes: `write_value` and `write_hex` are now overloaded on C++'s ten **fundamental**
 integer types, which are always ten distinct types and which every `intN_t`/`size_t`/
 `ptrdiff_t` aliases exactly one of — so the set covers all of them on every platform, and
 needs no `PRId32`-style macros to do it. The importer passes `-isysroot` from `xcrun` on
