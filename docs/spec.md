@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 34
+**Version:** 0.1 — **unreleased**, revision 35
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -2623,9 +2623,17 @@ build/
     game.h
     game.cpp
     dz_typeinfo.cpp     the static type table (§13)
-  obj/
-  game.exe
+  obj/                  one object per vendored library source (§15.1)
+  bin/
+    game.exe            the program
+  test/                 `dz test`'s own build, the same shape again (§19 M14)
+  bench/                and `dz bench`'s (§19 M15)
 ```
+
+**`build/` holds only directories `dz` names itself**, which is why the executable is in
+`bin/` rather than beside them. A module named `bench` would otherwise produce the *file*
+`build/bench`, which is exactly the directory `dz bench` needs — and the build fails with
+"Not a directory" on every platform whose executables have no extension.
 
 One header and one translation unit per module. Generic instantiations are emitted into the
 module that *uses* them, deduplicated by mangled name with include guards, so a
@@ -3106,6 +3114,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r35 | 2026-09-13 | **The built program is in `build/bin/`**, not `build/` (§16.1). `build/` now holds only directories `dz` names itself — `bin`, `cpp`, `obj`, and the roots `dz test` and `dz bench` create — because the two could collide: a module named `bench` produced the *file* `build/bench`, which is exactly the directory `dz bench` wants, and the build failed with "Not a directory" on every platform whose executables have no extension. `dz run` is unaffected; `dz build` prints the path it wrote. |
 | r34 | 2026-09-12 | **`flags` in a library's recipe** (§15.1): raw flags passed to the compiler for *that library's* sources, after the ones `dz` chooses, so the last one wins. Needed because some libraries require something no `defines` or `include_dirs` can say — raylib's `rglfw.c` includes GLFW's Cocoa backend, so on macOS it must be compiled as Objective-C despite its `.c` name, and `flags = ["-x", "objective-c"]` in a `target.macos` section is how a recipe says that. It applies to a vendored library only, never to Dazzle's own generated code: invariant 7 fixes the flags that must compile warning-clean, and a manifest does not get to weaken them. |
 | r33 | 2026-09-12 | **Which C++ compiler builds a project is configurable** (§16.5). `cxx = "g++"` in `[build]`, or in `[build.target.<os>]` for one platform, says what a project is known to build with; `--cxx <compiler>` on `run`, `build`, `cpp`, `test` and `bench` overrides it for one command, and `DZ_CXX` sits between them. With none of them `dz` still picks the first of `clang++`, `g++`, `c++` it finds. A compiler named explicitly is not probed first: if it is not there the build says so, rather than quietly using a different one. |
 | r32 | 2026-09-12 | **`frameworks` in a library's recipe** (§15.1). A macOS system library is a framework, and `link_libs` becomes `-l<name>`, which does not find one — so `frameworks = ["Cocoa", "IOKit"]` in a `[cpp.libs.<name>.target.macos]` section is linked as `-framework <name>`, and ignored on every other platform. Without it no recipe for a windowing library could link on macOS, and the failure named undefined Objective-C symbols rather than anything about a framework. |

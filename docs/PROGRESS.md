@@ -20,10 +20,10 @@ the milestone.
 |---|---|
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30 |
 | Next | **Get CI green on all three platforms** — the workflow is written and has never run — then fetched packages (M16). M14, M15 and struct inheritance have landed. Struct inheritance landed as r30, which also unblocks the last substantive M7 row — a Dazzle struct inheriting an imported C++ class, Jolt's listeners. See §4 |
-| Tests | 184, all green |
+| Tests | 185, all green |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 34; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
+| Language spec | 0.1 **unreleased**, revision 35; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -1161,6 +1161,7 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M9** | Code actions (fill `switch` arms, insert `move()`, add `impl Drop`) and inlay hints for implicit `drop`s — §17.4 items 6 and 7 | `dz_lsp/src/lib.rs`, `capabilities` |
 | **M9** | No incremental analysis: every settle re-runs the whole project. Fine at today's sizes; §17.2's per-module cache is the answer | `dz_lsp/src/lib.rs`, `analyse` |
 | **M9** | `impl` methods and inherited trait defaults are tied to their type by name, so two same-named types in different modules could cross. The checker knows each implementation's real target; it should say | `dz_lsp/src/ide.rs`, `methods_of` |
+| **M12** | **A module named after a runtime-shim identifier does not compile.** The shim declares about forty names directly in `namespace dz` — `obj`, `len`, `mv`, `str`, `index`, `Array`… — and a module’s namespace is `dz::<name>`, so a module called `obj` emits `namespace dz::obj` beside the existing `dz::obj()` and g++ rejects it as "redeclared as different kind of entity". Found by `a_module_named_after_a_build_directory_does_not_collide`, which now skips that one name. Listing the shim’s names in the namespace sanitiser would work but drifts as the shim grows; moving the shim into `dz::rt` and leaving `dz` to module namespaces alone is the fix that cannot drift | `dz_cpp/src/lib.rs`, `qualified_namespace` |
 | **M12** | **A generic base.** `struct Button : Panel<i32>` is refused (`DZ0541`): inheriting an instantiation means laying out one base per instance, which monomorphization does not do. A generic *derived* type over a concrete base works | `dz_check/src/lib.rs`, `collect_base` |
 | **M12** | **Several constructors are not resolved by argument.** A constructor call, and a base initialiser, take the first one declared — the same limitation both had before inheritance, now visible in two places | `dz_check/src/check.rs`, `call` |
 | **M7a** | **Hover on an imported name** shows nothing: the editor queries build their text from Dazzle declarations. Go-to-definition should already land in the header, since the symbol's span points there — untested | `dz_lsp/src/ide.rs` |
@@ -1383,7 +1384,7 @@ and `dz bench` driven as a user would meet them, on `ubuntu-latest`, `macos-late
 `windows-latest`. `fail-fast` is off, because one platform failing is a fact worth having
 about the other two.
 
-**It has found seven bugs across its first runs, three of them in the compiler rather
+**It has found eight bugs across its first runs, three of them in the compiler rather
 than in the workflow** — every one of them invisible on Windows, which is what the matrix was for.
 
 | Where | What | Why it only showed up there |
@@ -1394,6 +1395,7 @@ than in the workflow** — every one of them invisible on Windows, which is what
 | tests | **A snapshot pinned the operating system's wording.** `cannot read …: The system cannot find the path specified. (os error 3)` on Windows is `No such file or directory (os error 2)` elsewhere, so the snapshot failed everywhere it had not been recorded | The message comes from the OS, not from Dazzle |
 | tests | **The compiler-precedence test passed vacuously.** `DZ_CXX` sits above the manifest in the order it checks, and CI sets it for the whole job — so the manifest levels were unobservable | It passed locally only because that machine had no `DZ_CXX` set |
 | recipe | **raylib did not build on Linux or macOS.** On Linux GLFW refuses to guess a backend and stops at `#error "Cannot disable Wayland and X11 at the same time"` — it needed `_GLFW_X11` in `defines`. On macOS `rglfw.c` includes GLFW's Cocoa backend, five Objective-C `.m` files, so the translation unit has to be compiled as Objective-C despite its `.c` name | Windows selects its backend from the platform macros and has no Objective-C |
+| layout | **`dz bench` could not run on Linux or macOS**: "cannot create `build/bench/cpp`: Not a directory". The built program sat in `build/`, so a module named `bench` *was* the file `build/bench` — the very directory the harness needed. The executable moved to `build/bin/` (§21 r35), leaving `build/` to directories alone | Windows names it `bench.exe`, so the two never met |
 | workflow | **libclang was never found on Linux**, so every interop test reported `DZ0703` and *skipped*. `llvm-config --libdir` produced an empty string: Ubuntu installs it versioned (`llvm-config-18`) and the bare name is absent | — |
 
 raylib needed a new recipe key to be buildable at all on macOS: **`flags`** (§21 r34),
