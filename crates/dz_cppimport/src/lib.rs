@@ -315,9 +315,43 @@ fn arguments(req: &Request<'_>) -> Vec<String> {
     // Parsed as C++, because the generated C++ is what includes it: a C header has to
     // survive that anyway, and its `extern "C"` guard is only visible this way.
     let mut args = vec!["-x".to_owned(), "c++".to_owned(), format!("-std={}", req.cpp_standard)];
+    if let Some(sdk) = macos_sysroot() {
+        // On macOS the C and C++ standard headers live inside the active SDK rather than
+        // in `/usr/include`, and libclang does not run `xcrun` to find it the way the
+        // `clang` driver does. Without this, importing any header that includes a system
+        // one fails with "'assert.h' file not found" — which names the wrong problem
+        // entirely (spec §15.1).
+        args.push("-isysroot".to_owned());
+        args.push(sdk);
+    }
     args.extend(req.include_dirs.iter().map(|d| format!("-I{}", d.display())));
     args.extend(req.defines.iter().map(|d| format!("-D{d}")));
     args
+}
+
+/// The active macOS SDK, asked for once. `None` everywhere else, and on a macOS without
+/// the command line tools — where there is nothing to point at anyway.
+fn macos_sysroot() -> Option<String> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    static SDK: OnceLock<Option<String>> = OnceLock::new();
+    SDK.get_or_init(|| {
+        // `SDKROOT` is what Xcode itself sets, so honour it before shelling out.
+        if let Some(root) = std::env::var_os("SDKROOT") {
+            let root = root.to_string_lossy().into_owned();
+            if !root.is_empty() && Path::new(&root).is_dir() {
+                return Some(root);
+            }
+        }
+        let out = std::process::Command::new("xcrun").args(["--show-sdk-path"]).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        (!path.is_empty() && Path::new(&path).is_dir()).then_some(path)
+    })
+    .clone()
 }
 
 // ---------------------------------------------------------------------------

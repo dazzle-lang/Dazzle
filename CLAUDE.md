@@ -26,10 +26,11 @@ inheritance). **Struct inheritance landed as r30** — single inheritance, `virt
 M7 row. **`dz test` (M14) and `dz bench` (M15) have landed** — `#[test]` and `#[bench]`
 functions beside the code they cover, each run in its own process, and a comparison suite
 in `tests/bench` measuring Dazzle against hand-written C++. **CI runs on three platforms**
-(`.github/workflows/ci.yml`); its first run found a clippy lint and two recipes that could
-only link on Windows. Next: a release workflow that ships libclang beside `dz`, so a
-released compiler needs nothing installed but a C++ compiler — then fetched packages (M16).
-Spec §19 is the roadmap.
+(`.github/workflows/ci.yml`) and has already earned its keep: its first runs found a shim
+bug that broke `println("{}", xs.len)` on macOS, an `import cpp` that could not find the
+SDK headers there, and two test bugs that had been passing vacuously. Next: a release
+workflow that ships libclang beside `dz`, so a released compiler needs nothing installed
+but a C++ compiler — then fetched packages (M16). Spec §19 is the roadmap.
 
 **Formatting is rustfmt's**, configured by `rustfmt.toml` (`use_small_heuristics = "Max"`,
 which is what keeps it close to how this repository was written by hand). Run `cargo fmt

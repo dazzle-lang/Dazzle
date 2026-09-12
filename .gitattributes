@@ -1,2 +1,5 @@
 *.snap text eol=lf
 *.dz   text eol=lf
+# Exact expected stdout: a CRLF here is simply wrong, and on a Windows checkout it made
+# the `#panic` marker unmatchable (see `every_program_produces_its_expected_output`).
+expected.txt text eol=lf
