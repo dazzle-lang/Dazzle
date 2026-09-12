@@ -1376,16 +1376,32 @@ dependencies are supported so far"*. A git source is a real feature, not a manif
    `dz` will and will not run from a fetched package (today: nothing — there are no build
    scripts, and `[cpp.libs]` recipes are declarative, which is a property worth keeping).
 
-### CI — GitHub Actions across Linux, macOS and Windows ✅ written, **unverified**
+### CI — GitHub Actions across Linux, macOS and Windows ✅ running
 
 `.github/workflows/ci.yml`: build, clippy with `-D warnings`, the test suite, and `dz test`
 and `dz bench` driven as a user would meet them, on `ubuntu-latest`, `macos-latest` and
 `windows-latest`. `fail-fast` is off, because one platform failing is a fact worth having
 about the other two.
 
-**It has never run.** Everything below was verified locally on Windows; the Linux and macOS
-jobs are the workflow's first real test, and the useful outcome of the first run is
-whatever it reports rather than a green tick.
+**It found five bugs on its first two runs, three of them in the compiler rather than in
+the workflow** — every one of them invisible on Windows, which is what the matrix was for.
+
+| Where | What | Why it only showed up there |
+|---|---|---|
+| shim | **`println("{}", xs.len)` did not compile on macOS.** `write_value` was overloaded on `int32_t`, `uint64_t` and the rest, which are *aliases*: on macOS `size_t` is `unsigned long` while `uint64_t` is `unsigned long long`, so a `usize` matched no overload exactly and the call was ambiguous | On Windows and Linux x86-64 `size_t` happens to alias one of the fixed-width names, so the set covered it by luck |
+| importer | **No `import cpp` worked on macOS**: "'assert.h' file not found". The C and C++ standard headers live inside the active SDK there, and libclang does not run `xcrun` to find it the way the `clang` driver does | Only macOS puts the standard headers behind an SDK path |
+| tests | **`#panic` fixtures failed on Windows.** The marker was stripped with `strip_prefix("#panic\n")` *before* normalising, and git checks `expected.txt` out with CRLF on Windows — so the marker stayed in the expected text and the test looked for the literal "#panic" in the program's own stderr | `.gitattributes` forced LF for `.dz` and `.snap` but not `expected.txt` |
+| tests | **The compiler-precedence test passed vacuously.** `DZ_CXX` sits above the manifest in the order it checks, and CI sets it for the whole job — so the manifest levels were unobservable | It passed locally only because that machine had no `DZ_CXX` set |
+| workflow | **libclang was never found on Linux**, so every interop test reported `DZ0703` and *skipped*. `llvm-config --libdir` produced an empty string: Ubuntu installs it versioned (`llvm-config-18`) and the bare name is absent | — |
+
+The fixes: `write_value` and `write_hex` are now overloaded on C++'s ten **fundamental**
+integer types, which are always ten distinct types and which every `intN_t`/`size_t`/
+`ptrdiff_t` aliases exactly one of — so the set covers all of them on every platform, and
+needs no `PRId32`-style macros to do it. The importer passes `-isysroot` from `xcrun` on
+macOS. The run-test normalises before stripping, and `expected.txt` is `eol=lf` in
+`.gitattributes`. The precedence test clears `DZ_CXX`. CI finds libclang by locating the
+library rather than asking `llvm-config`, and **fails the job** when it cannot — a skipped
+interop suite reads as a pass, which is the worst way for this to go wrong.
 
 What writing it turned up, all of it fixed here rather than left for CI to discover:
 
@@ -1406,13 +1422,13 @@ What writing it turned up, all of it fixed here rather than left for CI to disco
   is invariant 7's "more than one compiler" checked rather than assumed. The Linux job
   repeats the suite under `clang++` for the same reason.
 
-Still open, and what CI is expected to surface first:
+Still open:
 
-- **libclang's location** differs per platform and is guessed at in three separate steps.
-  Where it is missing the interop tests report `DZ0703` and *skip*, which reads as a pass —
-  so the workflow prints `LIBCLANG_PATH` and the compiler version before running anything.
 - **libclang parses with its own default target** (a §3 row): on Windows that is MSVC while
-  `g++` builds against mingw. CI running both compilers is exactly what would surface that.
+  `g++` builds against mingw. CI running both compilers is what should surface it.
+- **Lints run on a pinned toolchain.** `-D warnings` against a floating `stable` means any
+  new lint Rust ships turns CI red through no change of ours, which is what happened on the
+  very first run: 1.98 added `question_mark`. `LINT_TOOLCHAIN` is bumped deliberately.
 
 ### M9's remaining editor work, resized
 

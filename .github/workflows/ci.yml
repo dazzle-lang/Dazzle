@@ -73,7 +73,16 @@ jobs:
             libclang-dev \
             libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
             libxcursor-dev libxi-dev
-          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+          # Not `llvm-config --libdir`: Ubuntu installs it versioned (`llvm-config-18`),
+          # so the bare name is usually absent and the command substitution silently
+          # produced an empty path. Find the library itself instead.
+          lib=$(find /usr/lib /usr/local/lib -name 'libclang*.so*' 2>/dev/null | head -n1)
+          if [ -z "$lib" ]; then
+            echo "::error::libclang not found after installing libclang-dev"
+            exit 1
+          fi
+          echo "found $lib"
+          echo "LIBCLANG_PATH=$(dirname "$lib")" >> "$GITHUB_ENV"
 
       - name: Locate libclang (macos)
         if: matrix.name == 'macos'
@@ -104,6 +113,13 @@ jobs:
           rustc -vV
           "$DZ_CXX" --version
           echo "LIBCLANG_PATH=${LIBCLANG_PATH:-<unset>}"
+          # Without libclang every `import cpp` test reports DZ0703 and *skips*, which
+          # reads as a pass. Stop here instead, so a missing dependency is a red job
+          # rather than a quietly reduced test suite.
+          if [ -z "${LIBCLANG_PATH:-}" ] && [ "${{ matrix.name }}" != "windows" ]; then
+            echo "::error::LIBCLANG_PATH is unset; the interop tests would silently skip"
+            exit 1
+          fi
 
       - name: Build
         run: cargo build --workspace --all-targets

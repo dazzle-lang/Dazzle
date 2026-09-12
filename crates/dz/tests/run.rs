@@ -76,9 +76,16 @@ fn every_program_produces_its_expected_output() {
 
     for (name, dir) in found {
         // Projects that are meant to abort record their expectation on the first line.
-        let expected = std::fs::read_to_string(dir.join("expected.txt")).unwrap();
+        //
+        // Normalised *before* the marker is stripped: git may check these files out with
+        // CRLF, and `#panic\r\n` does not start with `#panic\n`. Stripping first made the
+        // marker part of the expected output, and the test then looked for the literal
+        // "#panic" in the program's own stderr — which is how this passed on a Linux
+        // checkout and failed on a Windows one.
+        let expected = normalise(&std::fs::read_to_string(dir.join("expected.txt")).unwrap());
         let should_panic = expected.starts_with("#panic");
-        let expected_body = normalise(expected.strip_prefix("#panic\n").unwrap_or(&expected));
+        let expected_body =
+            expected.strip_prefix("#panic\n").map(str::to_owned).unwrap_or(expected);
 
         let out = Command::new(dz())
             .args(["run", dir.to_str().unwrap()])
@@ -344,6 +351,11 @@ fn the_cpp_compiler_can_be_chosen_at_four_levels() {
     let ran = |dir: &std::path::Path, args: &[&str]| -> (bool, String) {
         let mut c = Command::new(dz());
         c.arg("build").arg(dir).args(args);
+        // `DZ_CXX` sits *above* the manifest in the precedence this test is checking, and
+        // CI sets it for the whole job to pin the matrix entry — so leaving it in the
+        // environment made the manifest levels unobservable and the test passed only on a
+        // machine that happened not to set it.
+        c.env_remove("DZ_CXX");
         let out = c.output().expect("failed to run dz");
         let text = format!(
             "{}{}",
