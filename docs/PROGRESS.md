@@ -1383,14 +1383,15 @@ and `dz bench` driven as a user would meet them, on `ubuntu-latest`, `macos-late
 `windows-latest`. `fail-fast` is off, because one platform failing is a fact worth having
 about the other two.
 
-**It found five bugs on its first two runs, three of them in the compiler rather than in
-the workflow** — every one of them invisible on Windows, which is what the matrix was for.
+**It has found seven bugs across its first runs, three of them in the compiler rather
+than in the workflow** — every one of them invisible on Windows, which is what the matrix was for.
 
 | Where | What | Why it only showed up there |
 |---|---|---|
 | shim | **`println("{}", xs.len)` did not compile on macOS.** `write_value` was overloaded on `int32_t`, `uint64_t` and the rest, which are *aliases*: on macOS `size_t` is `unsigned long` while `uint64_t` is `unsigned long long`, so a `usize` matched no overload exactly and the call was ambiguous | On Windows and Linux x86-64 `size_t` happens to alias one of the fixed-width names, so the set covered it by luck |
 | importer | **No `import cpp` worked on macOS**: "'assert.h' file not found". The C and C++ standard headers live inside the active SDK there, and libclang does not run `xcrun` to find it the way the `clang` driver does | Only macOS puts the standard headers behind an SDK path |
 | tests | **`#panic` fixtures failed on Windows.** The marker was stripped with `strip_prefix("#panic\n")` *before* normalising, and git checks `expected.txt` out with CRLF on Windows — so the marker stayed in the expected text and the test looked for the literal "#panic" in the program's own stderr | `.gitattributes` forced LF for `.dz` and `.snap` but not `expected.txt` |
+| tests | **A snapshot pinned the operating system's wording.** `cannot read …: The system cannot find the path specified. (os error 3)` on Windows is `No such file or directory (os error 2)` elsewhere, so the snapshot failed everywhere it had not been recorded | The message comes from the OS, not from Dazzle |
 | tests | **The compiler-precedence test passed vacuously.** `DZ_CXX` sits above the manifest in the order it checks, and CI sets it for the whole job — so the manifest levels were unobservable | It passed locally only because that machine had no `DZ_CXX` set |
 | recipe | **raylib did not build on Linux or macOS.** On Linux GLFW refuses to guess a backend and stops at `#error "Cannot disable Wayland and X11 at the same time"` — it needed `_GLFW_X11` in `defines`. On macOS `rglfw.c` includes GLFW's Cocoa backend, five Objective-C `.m` files, so the translation unit has to be compiled as Objective-C despite its `.c` name | Windows selects its backend from the platform macros and has no Objective-C |
 | workflow | **libclang was never found on Linux**, so every interop test reported `DZ0703` and *skipped*. `llvm-config --libdir` produced an empty string: Ubuntu installs it versioned (`llvm-config-18`) and the bare name is absent | — |
@@ -1404,7 +1405,9 @@ integer types, which are always ten distinct types and which every `intN_t`/`siz
 `ptrdiff_t` aliases exactly one of — so the set covers all of them on every platform, and
 needs no `PRId32`-style macros to do it. The importer passes `-isysroot` from `xcrun` on
 macOS. The run-test normalises before stripping, and `expected.txt` is `eol=lf` in
-`.gitattributes`. The precedence test clears `DZ_CXX`. CI finds libclang by locating the
+`.gitattributes`. The precedence test clears `DZ_CXX`, and the resolve snapshot redacts the OS's own
+message — which stays in the *diagnostic*, where "permission denied" against "not
+found" is something a user needs to be told. CI finds libclang by locating the
 library rather than asking `llvm-config`, and **fails the job** when it cannot — a skipped
 interop suite reads as a pass, which is the worst way for this to go wrong.
 

@@ -1,6 +1,6 @@
 ---
 source: crates/dz_resolve/tests/resolve.rs
-assertion_line: 169
+assertion_line: 187
 expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
 ---
 modules: 2, files: 1
@@ -41,7 +41,7 @@ error[DZ0004]: invalid value for `build.optimize`
   │
   = help: valid values are "debug", "release", "shipping"
 
-error[DZ0001]: cannot read nowhere/dazzle.toml: The system cannot find the path specified. (os error 3)
+error[DZ0001]: cannot read nowhere/dazzle.toml: <os error>
    ┌─ badmanifest/dazzle.toml:12:20
    │
 12 │ missing = { path = "../nowhere" }
