@@ -22,11 +22,12 @@
 //! shorter and is wrong: `return` inside one returns from the lambda, so `or return` — the
 //! single most common clause in the language — would silently not propagate.
 
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use dz_ast::{
-    AssignOp, BinaryOp, Dispatch, EnumDecl, Item, ItemKind, MemberKind, StructDecl, UnaryOp, UnionDecl,
+    AssignOp, BinaryOp, Dispatch, EnumDecl, Item, ItemKind, MemberKind, StructDecl, UnaryOp,
+    UnionDecl,
 };
 use dz_check::{ItemSig, TypeTable};
 use dz_diag::{codes, Diagnostic, Diagnostics};
@@ -167,7 +168,8 @@ pub fn emit(
         let mut header_body = String::new();
         for (m, text) in std::mem::take(&mut e.chunks) {
             let name = &ws.module(m).name;
-            let _ = write!(header_body, "{}\n{text}\n{}", namespace_open(name), namespace_close(name));
+            let _ =
+                write!(header_body, "{}\n{text}\n{}", namespace_open(name), namespace_close(name));
         }
 
         let mut includes = String::from("#include \"dz_runtime.h\"\n#include \"dz_prelude.h\"\n");
@@ -220,8 +222,7 @@ pub fn emit(
                      int main() {{\n    {}::main();\n    return 0;\n}}\n",
                     qualified_namespace(&module.name)
                 );
-                out.files
-                    .push(GeneratedFile { name: "dz_main.cpp".into(), contents: entry });
+                out.files.push(GeneratedFile { name: "dz_main.cpp".into(), contents: entry });
                 out.entry = Some("dz_main.cpp".into());
             } else {
                 out.diagnostics.push(
@@ -265,11 +266,7 @@ fn harness_entry(ws: &Workspace, res: &Resolution, table: &TypeTable, mode: Mode
         let module = ws.module(symbol.module);
         // Qualified by module, so two modules may each have a `roundtrips` (spec §3.2).
         let name = format!("{}::{}", module.name, symbol.name);
-        let call = format!(
-            "{}::{}",
-            qualified_namespace(&module.name),
-            sanitize(&symbol.name)
-        );
+        let call = format!("{}::{}", qualified_namespace(&module.name), sanitize(&symbol.name));
         let quoted = quote_cpp(&name);
         let _ = writeln!(list, "    std::puts({quoted});");
         let body = if mode == Mode::Benches {
@@ -277,10 +274,7 @@ fn harness_entry(ws: &Workspace, res: &Resolution, table: &TypeTable, mode: Mode
         } else {
             format!("{call}(); return 0;")
         };
-        let _ = writeln!(
-            dispatch,
-            "    if (which == std::string({quoted})) {{ {body} }}"
-        );
+        let _ = writeln!(dispatch, "    if (which == std::string({quoted})) {{ {body} }}");
     }
 
     let mut includes = String::new();
@@ -426,14 +420,9 @@ impl<'a> Emitter<'a> {
 
     fn unsupported(&mut self, span: Span, what: &str, owner: &str) {
         self.diags.push(
-            Diagnostic::error(
-                codes::CODEGEN_UNSUPPORTED,
-                format!("{what} is not generated yet"),
-            )
-            .at(self.file, span, "no C++ is emitted for this")
-            .with_help(format!(
-                "{owner} — see the deferral register in docs/PROGRESS.md"
-            )),
+            Diagnostic::error(codes::CODEGEN_UNSUPPORTED, format!("{what} is not generated yet"))
+                .at(self.file, span, "no C++ is emitted for this")
+                .with_help(format!("{owner} — see the deferral register in docs/PROGRESS.md")),
         );
     }
 
@@ -532,8 +521,11 @@ impl<'a> Emitter<'a> {
                     ItemKind::Fn(_) if self.excluded(item) => {}
                     ItemKind::Fn(_) | ItemKind::Const(_) => functions.push((pf.file, item)),
                     // Implementations are emitted from the checker's table, below.
-                    ItemKind::Trait(_) | ItemKind::Impl(_) | ItemKind::Macro(_)
-                    | ItemKind::MacroInvocation { .. } | ItemKind::Error => {}
+                    ItemKind::Trait(_)
+                    | ItemKind::Impl(_)
+                    | ItemKind::Macro(_)
+                    | ItemKind::MacroInvocation { .. }
+                    | ItemKind::Error => {}
                 }
             }
         }
@@ -708,7 +700,11 @@ impl<'a> Emitter<'a> {
             .iter()
             .map(|a| self.mangle(&dz_hir::ty::substitute_with(a, map, Some(&self_ty))))
             .collect();
-        let tr = if args.is_empty() { trait_name.clone() } else { format!("{trait_name}_{}", args.join("_")) };
+        let tr = if args.is_empty() {
+            trait_name.clone()
+        } else {
+            format!("{trait_name}_{}", args.join("_"))
+        };
         format!("{tr}__{}__{method}", self.mangle(&self_ty))
     }
 
@@ -725,7 +721,12 @@ impl<'a> Emitter<'a> {
 
     /// `Ret name(const T& self, params…)`: the receiver is an ordinary first parameter,
     /// `const` unless the method takes `&mut self`.
-    fn impl_fn_head(&mut self, owner: &BodyOwner, name: &str, with_defaults: bool) -> Option<String> {
+    fn impl_fn_head(
+        &mut self,
+        owner: &BodyOwner,
+        name: &str,
+        with_defaults: bool,
+    ) -> Option<String> {
         let body = self.find_body(owner)?;
         let recv = body.params.first().map(|p| body.local(*p))?;
         let recv_ty = self.cpp_ty(&recv.ty);
@@ -743,7 +744,13 @@ impl<'a> Emitter<'a> {
     /// method, which is a C++ member. Decided here rather than by the checker because a
     /// call written against a bound (`T: Mul<f32>`) has a concrete receiver only once it is
     /// an instance — and this body is one.
-    fn impl_target(&self, recv: ExprId, owner: SymbolId, name: &str, args: &[ExprId]) -> Option<String> {
+    fn impl_target(
+        &self,
+        recv: ExprId,
+        owner: SymbolId,
+        name: &str,
+        args: &[ExprId],
+    ) -> Option<String> {
         if self.res.symbol(owner).kind != dz_resolve::SymbolKind::Trait {
             return None;
         }
@@ -1144,9 +1151,8 @@ impl<'a> Emitter<'a> {
             }
         }
         let mono = self.mono;
-        if let Some(b) = mono
-            .module(self.module)
-            .and_then(|m| m.defaults.iter().find(|b| &b.owner == owner))
+        if let Some(b) =
+            mono.module(self.module).and_then(|m| m.defaults.iter().find(|b| &b.owner == owner))
         {
             return Some(b);
         }
@@ -1316,7 +1322,8 @@ impl<'a> Emitter<'a> {
                     let _ = writeln!(self.header, "    {name}({params});");
                 }
                 MemberKind::Fn(f) => {
-                    let key = sig.method_keys.get(fns).cloned().unwrap_or_else(|| f.name.name.clone());
+                    let key =
+                        sig.method_keys.get(fns).cloned().unwrap_or_else(|| f.name.name.clone());
                     fns += 1;
                     // A method with parameters of its own is instantiated per call, which
                     // `dz_mono` does not do yet — see the deferral register.
@@ -1494,7 +1501,10 @@ impl<'a> Emitter<'a> {
     /// back at its defaults, then run the user's `copy`. The self-assignment guard is what
     /// keeps `x = x` from destroying `x` before reading it.
     fn copy_assignment(&mut self, name: &str, param: &str) {
-        self.line(&format!("{}{name}& {name}::operator=(const {name}& {param}) {{", self.def_prefix));
+        self.line(&format!(
+            "{}{name}& {name}::operator=(const {name}& {param}) {{",
+            self.def_prefix
+        ));
         self.indent += 1;
         self.line(&format!("if (this == &{param}) {{ return *this; }}"));
         self.line(&format!("this->~{name}();"));
@@ -1654,10 +1664,7 @@ impl<'a> Emitter<'a> {
         let Some(body) = self.find_body(owner) else { return String::new() };
         let names = local_names(body);
         let uses = hir::local_uses(body);
-        let has_self = body
-            .params
-            .first()
-            .is_some_and(|p| body.local(*p).name == "self");
+        let has_self = body.params.first().is_some_and(|p| body.local(*p).name == "self");
         let start = usize::from(has_self);
 
         let mut parts: Vec<String> = Vec::new();
@@ -1719,9 +1726,7 @@ impl<'a> Emitter<'a> {
         // A `!-> void` still has to say it succeeded.
         if body.fallible && matches!(body.ret, Ty::Void) {
             self.line("return ::dz::Res<void>::good();");
-        } else if !matches!(body.ret, Ty::Void | Ty::Error | Ty::Never)
-            && !ends_in_return(body)
-        {
+        } else if !matches!(body.ret, Ty::Void | Ty::Error | Ty::Never) && !ends_in_return(body) {
             // `dz_flow` proved every Dazzle path returns, but C++ cannot see that through
             // an exhaustive `switch` with no `default` — and a `-Wreturn-type` warning in
             // generated code is a compiler bug, not a user error (invariant 7).
@@ -1875,9 +1880,8 @@ impl<'a> Emitter<'a> {
     /// `#[bench]` to the benchmark binary; the program carries neither, and neither
     /// carries the other (spec §19 M14, M15).
     fn excluded(&self, item: &Item) -> bool {
-        let marked = ["test", "bench"]
-            .into_iter()
-            .find(|w| item.attrs.iter().any(|a| a.name.name == *w));
+        let marked =
+            ["test", "bench"].into_iter().find(|w| item.attrs.iter().any(|a| a.name.name == *w));
         match marked {
             Some(w) => self.mode.attribute() != Some(w),
             None => false,
@@ -2083,9 +2087,7 @@ impl<'a> Emitter<'a> {
                     None => self.fresh("i"),
                 };
                 let cmp = if *inclusive { "<=" } else { "<" };
-                self.line(&format!(
-                    "for ({elem} {name} = {lo}; {name} {cmp} {hi}; ++{name}) {{"
-                ));
+                self.line(&format!("for ({elem} {name} = {lo}; {name} {cmp} {hi}; ++{name}) {{"));
                 self.indent += 1;
                 self.block_into(block, Dest::None);
                 self.indent -= 1;
@@ -2188,9 +2190,7 @@ impl<'a> Emitter<'a> {
                 Some(l) => self.names[l.index()].clone(),
                 None => self.fresh("i"),
             };
-            self.line(&format!(
-                "for (size_t {idx} = 0; {idx} < ::dz::len({seq}); ++{idx}) {{"
-            ));
+            self.line(&format!("for (size_t {idx} = 0; {idx} < ::dz::len({seq}); ++{idx}) {{"));
             self.indent += 1;
             if let Some(l) = bindings[1] {
                 let name = self.names[l.index()].clone();
@@ -2334,11 +2334,7 @@ impl<'a> Emitter<'a> {
         let owner = self.qualify(sym);
         let text = self.expr(subject);
         // A union switches on its generated tag; an enum is already the value (§7.5).
-        let scrutinee = if is_union {
-            format!("::dz::obj({text}).kind")
-        } else {
-            text.clone()
-        };
+        let scrutinee = if is_union { format!("::dz::obj({text}).kind") } else { text.clone() };
         let label_ty = if is_union { format!("{owner}::Kind") } else { owner };
 
         self.line(&format!("switch ({scrutinee}) {{"));
@@ -2354,9 +2350,7 @@ impl<'a> Emitter<'a> {
                     // The payload binds by reference, so matching never copies (§10.3).
                     let binding = self.names[local.index()].clone();
                     let unused = self.unused_attr(local.index());
-                    self.line(&format!(
-                        "{unused}auto& {binding} = ::dz::obj({text}).{name};"
-                    ));
+                    self.line(&format!("{unused}auto& {binding} = ::dz::obj({text}).{name};"));
                 }
             }
             self.block_into(arm.body, dest);
@@ -2455,10 +2449,9 @@ impl<'a> Emitter<'a> {
                 let name = self.field_name(*base, *index);
                 // `Error.location` is a `&SourceLocation` in Dazzle and a pointer into static
                 // storage in the shim, so reading it yields the referent (spec §9.2).
-                let deref = matches!(
-                    body.ty(*base).peeled(),
-                    Ty::Builtin(dz_hir::ty::BuiltinTy::Error)
-                ) && name == "location";
+                let deref =
+                    matches!(body.ty(*base).peeled(), Ty::Builtin(dz_hir::ty::BuiltinTy::Error))
+                        && name == "location";
                 let b = self.expr(*base);
                 if deref {
                     format!("(*::dz::obj({b}).{name})")
@@ -2485,14 +2478,21 @@ impl<'a> Emitter<'a> {
                     return format!("({b})[static_cast<size_t>({i})]");
                 }
                 let loc = self.source_location(node.span);
-                { let base = self.through(*base, b); format!("::dz::index({base}, static_cast<size_t>({i}), {loc})") }
+                {
+                    let base = self.through(*base, b);
+                    format!("::dz::index({base}, static_cast<size_t>({i}), {loc})")
+                }
             }
             hir::ExprKind::Deref(inner) => {
                 let is_ref = matches!(body.ty(*inner), Ty::Ref { .. });
                 let v = self.expr(*inner);
                 // A `&T` read as a `T` (spec §18.35) is a C++ reference already; using it
                 // where a value is wanted is the copy.
-                if is_ref { v } else { format!("(*({v}))") }
+                if is_ref {
+                    v
+                } else {
+                    format!("(*({v}))")
+                }
             }
             // `&x` yields a proxy convertible to both `T&` and `T*` (spec §5.2).
             hir::ExprKind::Ref { place, .. } => {
@@ -2518,7 +2518,11 @@ impl<'a> Emitter<'a> {
                 format!("::dz::Range<{t}>{{{lo}, {hi}, {inclusive}}}")
             }
             hir::ExprKind::Range { .. } => {
-                self.unsupported(node.span, "an open-ended range outside a `for` loop", "owed by M12");
+                self.unsupported(
+                    node.span,
+                    "an open-ended range outside a `for` loop",
+                    "owed by M12",
+                );
                 "{}".to_owned()
             }
 
@@ -2533,11 +2537,17 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::TypeQuery { ty, query } => self.type_query(ty, *query),
             hir::ExprKind::Len(base) => {
                 let b = self.expr(*base);
-                { let base = self.through(*base, b); format!("::dz::len({base})") }
+                {
+                    let base = self.through(*base, b);
+                    format!("::dz::len({base})")
+                }
             }
             hir::ExprKind::DataPtr(base) => {
                 let b = self.expr(*base);
-                { let base = self.through(*base, b); format!("::dz::data({base})") }
+                {
+                    let base = self.through(*base, b);
+                    format!("::dz::data({base})")
+                }
             }
             hir::ExprKind::ArrayLit(parts) => {
                 let t = self.cpp_ty(body.ty(e));
@@ -2558,9 +2568,8 @@ impl<'a> Emitter<'a> {
                 fn is_place(body: &hir::Body, e: hir::ExprId) -> bool {
                     match &body.expr(e).kind {
                         hir::ExprKind::Local(_) => true,
-                        hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. } => {
-                            is_place(body, *base)
-                        }
+                        hir::ExprKind::Field { base, .. }
+                        | hir::ExprKind::TupleIndex { base, .. } => is_place(body, *base),
                         _ => false,
                     }
                 }
@@ -2695,11 +2704,9 @@ impl<'a> Emitter<'a> {
                 .and_then(|s| s.fields.get(index))
                 .map(|f| sanitize(&f.name))
                 .unwrap_or_else(unknown),
-            Ty::Builtin(b) => b
-                .fields()
-                .get(index)
-                .map(|(n, _)| (*n).to_owned())
-                .unwrap_or_else(unknown),
+            Ty::Builtin(b) => {
+                b.fields().get(index).map(|(n, _)| (*n).to_owned()).unwrap_or_else(unknown)
+            }
             // A `case Circle(c)` binding reaches into the variant's own field list.
             Ty::Variant(sym, v) => match self.table.get(*sym) {
                 Some(ItemSig::Union { variants }) => variants
@@ -2715,10 +2722,9 @@ impl<'a> Emitter<'a> {
 
     fn variant_name(&self, owner: SymbolId, index: usize) -> String {
         match self.table.get(owner) {
-            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => variants
-                .get(index)
-                .map(|v| sanitize(&v.name))
-                .unwrap_or_default(),
+            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
+                variants.get(index).map(|v| sanitize(&v.name)).unwrap_or_default()
+            }
             _ => String::new(),
         }
     }
@@ -2873,7 +2879,8 @@ impl<'a> Emitter<'a> {
             let moved = !self.table.copyable(self.cur().ty(*a));
             let v = self.expr(*a);
             let v = if moved { format!("::dz::mv({v})") } else { v };
-            let cast = imported.as_ref().and_then(|s| s.params.get(i)).and_then(|p| p.c_cast.clone());
+            let cast =
+                imported.as_ref().and_then(|s| s.params.get(i)).and_then(|p| p.c_cast.clone());
             rendered.push(match cast {
                 Some(c) => format!("({c})({v})"),
                 None => v,
@@ -2998,13 +3005,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// The right-hand side of an `or`: a value, a block, `ignore` or `unreachable`.
-    fn clause(
-        &mut self,
-        clause: &hir::OrClause,
-        dest: Dest<'_>,
-        error: Option<&str>,
-        span: Span,
-    ) {
+    fn clause(&mut self, clause: &hir::OrClause, dest: Dest<'_>, error: Option<&str>, span: Span) {
         let body = self.cur();
         match clause {
             hir::OrClause::Value(v) => {
@@ -3092,17 +3093,11 @@ impl<'a> Emitter<'a> {
                     .map(|a| self.cur().ty(*a))
                     .is_some_and(|t| t.is_integral() || matches!(t, Ty::Named { .. }));
                 let (code, rest) = if integral && rendered.len() > 1 {
-                    (
-                        format!("::dz::cast<uint32_t>({})", rendered[0]),
-                        &rendered[1..],
-                    )
+                    (format!("::dz::cast<uint32_t>({})", rendered[0]), &rendered[1..])
                 } else {
                     ("0u".to_owned(), &rendered[..])
                 };
-                format!(
-                    "::dz::make_error({code}, {loc}, {})",
-                    rest.join(", ")
-                )
+                format!("::dz::make_error({code}, {loc}, {})", rest.join(", "))
             }
             _ => {
                 // What reaches here is reflection (`typeinfo_of` and friends, spec §13), which
@@ -3188,7 +3183,9 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Unary { op: UnaryOp::Not, operand } => {
                 self.const_bool(*operand).map(|(v, q)| (!v, q))
             }
-            hir::ExprKind::Binary { op, lhs, rhs } if matches!(op, BinaryOp::And | BinaryOp::Or) => {
+            hir::ExprKind::Binary { op, lhs, rhs }
+                if matches!(op, BinaryOp::And | BinaryOp::Or) =>
+            {
                 let (a, qa) = self.const_bool(*lhs)?;
                 let (b, qb) = self.const_bool(*rhs)?;
                 let v = if matches!(op, BinaryOp::And) { a && b } else { a || b };
@@ -3278,11 +3275,8 @@ fn ends_in_return(body: &hir::Body) -> bool {
 /// the time the second starts — the generated code is meant to be read (spec §16.2), and
 /// renaming every repeat would be a steady tax for a rare collision.
 fn local_names(body: &hir::Body) -> Vec<String> {
-    let mut namer = Namer {
-        body,
-        names: vec![String::new(); body.locals.len()],
-        scopes: vec![Vec::new()],
-    };
+    let mut namer =
+        Namer { body, names: vec![String::new(); body.locals.len()], scopes: vec![Vec::new()] };
     for p in &body.params {
         namer.declare(*p);
     }
@@ -3483,8 +3477,9 @@ impl Namer<'_> {
             }
             hir::ExprKind::Call { callee, args } => {
                 match callee {
-                    hir::Callee::Method { recv, .. }
-                    | hir::Callee::BaseMethod { recv, .. } => self.expr(recv),
+                    hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. } => {
+                        self.expr(recv)
+                    }
                     hir::Callee::Value(v) => self.expr(v),
                     _ => {}
                 }
@@ -3507,16 +3502,69 @@ impl Namer<'_> {
 fn is_cpp_reserved(name: &str) -> bool {
     matches!(
         name,
-        "alignas" | "alignof" | "and" | "asm" | "auto" | "bitand" | "bitor" | "catch"
-            | "class" | "compl" | "concept" | "constexpr" | "const_cast" | "co_await"
-            | "co_return" | "co_yield" | "decltype" | "delete" | "double" | "dynamic_cast"
-            | "explicit" | "export" | "extern" | "float" | "friend" | "goto" | "inline"
-            | "int" | "long" | "mutable" | "namespace" | "new" | "noexcept" | "not"
-            | "nullptr" | "operator" | "or" | "private" | "protected" | "public"
-            | "register" | "reinterpret_cast" | "requires" | "short" | "signed" | "sizeof"
-            | "static" | "static_assert" | "static_cast" | "template" | "this"
-            | "thread_local" | "throw" | "try" | "typedef" | "typeid" | "typename"
-            | "unsigned" | "using" | "virtual" | "volatile" | "wchar_t" | "xor"
+        "alignas"
+            | "alignof"
+            | "and"
+            | "asm"
+            | "auto"
+            | "bitand"
+            | "bitor"
+            | "catch"
+            | "class"
+            | "compl"
+            | "concept"
+            | "constexpr"
+            | "const_cast"
+            | "co_await"
+            | "co_return"
+            | "co_yield"
+            | "decltype"
+            | "delete"
+            | "double"
+            | "dynamic_cast"
+            | "explicit"
+            | "export"
+            | "extern"
+            | "float"
+            | "friend"
+            | "goto"
+            | "inline"
+            | "int"
+            | "long"
+            | "mutable"
+            | "namespace"
+            | "new"
+            | "noexcept"
+            | "not"
+            | "nullptr"
+            | "operator"
+            | "or"
+            | "private"
+            | "protected"
+            | "public"
+            | "register"
+            | "reinterpret_cast"
+            | "requires"
+            | "short"
+            | "signed"
+            | "sizeof"
+            | "static"
+            | "static_assert"
+            | "static_cast"
+            | "template"
+            | "this"
+            | "thread_local"
+            | "throw"
+            | "try"
+            | "typedef"
+            | "typeid"
+            | "typename"
+            | "unsigned"
+            | "using"
+            | "virtual"
+            | "volatile"
+            | "wchar_t"
+            | "xor"
     )
 }
 

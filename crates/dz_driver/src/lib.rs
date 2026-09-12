@@ -223,8 +223,15 @@ fn import_headers(
                         }
                         if ids.len() != h.files.len() {
                             diags.push(
-                                Diagnostic::error(codes::CPP_HEADER_FAILED, format!("cannot import `{name}`"))
-                                    .at(pf.file, *header, "one of the files it includes could not be read"),
+                                Diagnostic::error(
+                                    codes::CPP_HEADER_FAILED,
+                                    format!("cannot import `{name}`"),
+                                )
+                                .at(
+                                    pf.file,
+                                    *header,
+                                    "one of the files it includes could not be read",
+                                ),
                             );
                             continue;
                         }

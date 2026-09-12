@@ -19,7 +19,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 
-use dz_ast::{Field, FnDecl, Ident, Item, ItemKind, Member, MemberKind, SourceFileAst, Type, TypeKind, Vis};
+use dz_ast::{
+    Field, FnDecl, Ident, Item, ItemKind, Member, MemberKind, SourceFileAst, Type, TypeKind, Vis,
+};
 use dz_check::{type_name, type_name_in_file, FieldSig, FnSig, ItemSig, TypeTable, VariantSig};
 use dz_diag::Diagnostics;
 use dz_driver::Analysis;
@@ -27,7 +29,9 @@ use dz_hir::ty::Ty;
 use dz_hir::{Body, Callee, ExprId, ExprKind, Hir, LocalId, LocalKind};
 use dz_lex::{Comment, Token, TokenKind};
 use dz_project::ModuleId;
-use dz_resolve::{MemberSort, Resolution, SymbolId, SymbolKind, BUILTIN_FNS, BUILTIN_TYPES, TYPE_QUERIES};
+use dz_resolve::{
+    MemberSort, Resolution, SymbolId, SymbolKind, BUILTIN_FNS, BUILTIN_TYPES, TYPE_QUERIES,
+};
 use dz_span::{FileId, SourceMap, Span};
 
 // ---------------------------------------------------------------------------
@@ -148,9 +152,15 @@ fn item_decl(text: &str, item: &Item) -> Option<Decl> {
                 .iter()
                 .map(|v| {
                     let header = self::header(text, v.span.start, v.span.end);
-                    let mut vd =
-                        Decl::new(DeclKind::Variant, &v.name, v.span, header, doc_text(text, &v.docs));
-                    vd.children = v.fields.iter().map(|f| field_decl(text, f, String::new())).collect();
+                    let mut vd = Decl::new(
+                        DeclKind::Variant,
+                        &v.name,
+                        v.span,
+                        header,
+                        doc_text(text, &v.docs),
+                    );
+                    vd.children =
+                        v.fields.iter().map(|f| field_decl(text, f, String::new())).collect();
                     vd
                 })
                 .collect();
@@ -177,11 +187,8 @@ fn item_decl(text: &str, item: &Item) -> Option<Decl> {
         }
         ItemKind::Impl(i) => {
             let head = header(text, i.span.start, brace_after(text, i.span, i.self_ty.span.end));
-            let trait_name = i
-                .trait_path
-                .as_ref()
-                .and_then(|p| p.segments.last())
-                .map(|s| s.name.name.clone());
+            let trait_name =
+                i.trait_path.as_ref().and_then(|p| p.segments.last()).map(|s| s.name.name.clone());
             Decl {
                 name: head.clone(),
                 kind: DeclKind::Impl,
@@ -294,9 +301,9 @@ fn doc_text(text: &str, docs: &[Span]) -> String {
 fn type_base(t: &Type) -> Option<String> {
     match &t.kind {
         TypeKind::Path(p) => p.segments.last().map(|s| s.name.name.clone()),
-        TypeKind::Ptr { inner, .. } | TypeKind::OwnPtr { inner, .. } | TypeKind::Ref { inner, .. } => {
-            type_base(inner)
-        }
+        TypeKind::Ptr { inner, .. }
+        | TypeKind::OwnPtr { inner, .. }
+        | TypeKind::Ref { inner, .. } => type_base(inner),
         _ => None,
     }
 }
@@ -316,7 +323,11 @@ fn flatten(decls: &[Decl]) -> Vec<&Decl> {
 /// The declaration named at `span`, with the one it is nested in. An `impl` has no name of
 /// its own — its `name_span` is the trait it implements — so it never matches.
 fn named_with_parent(decls: &[Decl], span: Span) -> Option<(&Decl, Option<&Decl>)> {
-    fn walk<'d>(decls: &'d [Decl], parent: Option<&'d Decl>, span: Span) -> Option<(&'d Decl, Option<&'d Decl>)> {
+    fn walk<'d>(
+        decls: &'d [Decl],
+        parent: Option<&'d Decl>,
+        span: Span,
+    ) -> Option<(&'d Decl, Option<&'d Decl>)> {
         for d in decls {
             if d.name_span == span && d.kind != DeclKind::Impl {
                 return Some((d, parent));
@@ -524,18 +535,20 @@ fn adt_of(ty: &Ty) -> Option<Adt> {
     match ty {
         Ty::Named { sym, .. } => Some(Adt::Struct(*sym)),
         Ty::Variant(s, v) => Some(Adt::Variant(*s, *v)),
-        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } | Ty::Optional(inner) => {
-            adt_of(inner)
-        }
+        Ty::Ref { inner, .. }
+        | Ty::Ptr { inner, .. }
+        | Ty::OwnPtr { inner, .. }
+        | Ty::Optional(inner) => adt_of(inner),
         _ => None,
     }
 }
 
 fn peel(ty: &Ty) -> &Ty {
     match ty {
-        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } | Ty::Optional(inner) => {
-            peel(inner)
-        }
+        Ty::Ref { inner, .. }
+        | Ty::Ptr { inner, .. }
+        | Ty::OwnPtr { inner, .. }
+        | Ty::Optional(inner) => peel(inner),
         _ => ty,
     }
 }
@@ -600,7 +613,12 @@ fn member_access(q: &Query, file: FileId, tokens: &[Token], i: usize) -> Option<
 ///
 /// A struct and its constructors are one thing — they share a name, and renaming one must
 /// rename the other — and so are a trait method and the methods implementing it.
-pub fn references(a: &Analysis, file: FileId, offset: u32, include_declaration: bool) -> Vec<(FileId, Span)> {
+pub fn references(
+    a: &Analysis,
+    file: FileId,
+    offset: u32,
+    include_declaration: bool,
+) -> Vec<(FileId, Span)> {
     let Some(q) = Query::new(a) else { return Vec::new() };
     let text = a.map.get(file).text();
     let tokens = dz_lex::lex(file, text).tokens;
@@ -633,7 +651,12 @@ pub fn prepare_rename(a: &Analysis, file: FileId, offset: u32) -> Result<Span, S
 }
 
 /// Every span to replace with `new_name`.
-pub fn rename(a: &Analysis, file: FileId, offset: u32, new_name: &str) -> Result<Vec<(FileId, Span)>, String> {
+pub fn rename(
+    a: &Analysis,
+    file: FileId,
+    offset: u32,
+    new_name: &str,
+) -> Result<Vec<(FileId, Span)>, String> {
     prepare_rename(a, file, offset)?;
     let mut chars = new_name.chars();
     let starts_well = chars.next().is_some_and(|c| c == '_' || c.is_alphabetic());
@@ -683,11 +706,7 @@ impl<'a> Query<'a> {
     }
 
     fn module_of(&self, file: FileId) -> Option<ModuleId> {
-        self.a
-            .files
-            .iter()
-            .find(|(_, fs)| fs.iter().any(|f| f.file == file))
-            .map(|(m, _)| *m)
+        self.a.files.iter().find(|(_, fs)| fs.iter().any(|f| f.file == file)).map(|(m, _)| *m)
     }
 
     /// The declaration named at `span`, or failing that the innermost one around it.
@@ -797,7 +816,13 @@ impl<'a> Query<'a> {
     }
 
     /// What the name token `tokens[i]` means.
-    fn target_at(&self, file: FileId, tokens: &[Token], text: &str, i: usize) -> Option<Target<'a>> {
+    fn target_at(
+        &self,
+        file: FileId,
+        tokens: &[Token],
+        text: &str,
+        i: usize,
+    ) -> Option<Target<'a>> {
         let tok = tokens[i];
         let name = tok.text(text);
         let offset = tok.span.start;
@@ -831,7 +856,9 @@ impl<'a> Query<'a> {
         }
 
         // A name written where there is no expression: a type, an import, a `::` path.
-        self.path_ref(file, tokens, i, text).filter(|r| self.definition(r).is_some()).map(Target::Ref)
+        self.path_ref(file, tokens, i, text)
+            .filter(|r| self.definition(r).is_some())
+            .map(Target::Ref)
     }
 
     fn target_definition(&self, t: &Target<'a>) -> Option<(FileId, Span)> {
@@ -879,7 +906,12 @@ impl<'a> Query<'a> {
         }
     }
 
-    fn occurrences(&self, key: (FileId, Span), name: &str, include_declaration: bool) -> Vec<(FileId, Span)> {
+    fn occurrences(
+        &self,
+        key: (FileId, Span),
+        name: &str,
+        include_declaration: bool,
+    ) -> Vec<(FileId, Span)> {
         let mut out = Vec::new();
         for f in self.all_files() {
             let source = self.a.map.get(f);
@@ -893,7 +925,8 @@ impl<'a> Query<'a> {
                 if !is_name(t.kind) || t.text(text) != name {
                     continue;
                 }
-                let same = self.target_at(f, &tokens, text, j).and_then(|t| self.key(&t)) == Some(key);
+                let same =
+                    self.target_at(f, &tokens, text, j).and_then(|t| self.key(&t)) == Some(key);
                 if same && (include_declaration || (f, t.span) != key) {
                     out.push((f, t.span));
                 }
@@ -922,7 +955,8 @@ impl<'a> Query<'a> {
     }
 
     fn member_ref(&self, owner: SymbolId, name: &str) -> Ref<'a> {
-        if let Some(i) = self.variants(owner).and_then(|vs| vs.iter().position(|v| v.name == name)) {
+        if let Some(i) = self.variants(owner).and_then(|vs| vs.iter().position(|v| v.name == name))
+        {
             return Ref::Variant(owner, i);
         }
         if let Some(i) = self.fields(owner).and_then(|fs| fs.iter().position(|f| f.name == name)) {
@@ -948,7 +982,9 @@ impl<'a> Query<'a> {
             Ref::Local(b, l) => return Some((b.file, b.local(*l).span)),
             Ref::Symbol(s) => (file_of(s), self.res.symbol(*s).span),
             Ref::Field(s, i) => (file_of(s), self.fields(*s)?.get(*i)?.span),
-            Ref::VariantField(s, v, i) => (file_of(s), self.variants(*s)?.get(*v)?.fields.get(*i)?.span),
+            Ref::VariantField(s, v, i) => {
+                (file_of(s), self.variants(*s)?.get(*v)?.fields.get(*i)?.span)
+            }
             Ref::Variant(s, v) => (file_of(s), self.variants(*s)?.get(*v)?.span),
             Ref::Ctor(s, i) => (file_of(s), self.table?.struct_sig(*s)?.ctors.get(*i)?.span),
             Ref::Method(s, n) => {
@@ -1055,7 +1091,10 @@ impl<'a> Query<'a> {
         let own = self.decls(sym.file);
         if let Some(d) = flatten(&own).into_iter().find(|d| d.name_span == sym.span) {
             out.extend(
-                d.children.iter().filter(|c| c.kind == DeclKind::Method).map(|c| (sym.file, c.clone())),
+                d.children
+                    .iter()
+                    .filter(|c| c.kind == DeclKind::Method)
+                    .map(|c| (sym.file, c.clone())),
             );
         }
         let files = self.all_files();
@@ -1064,7 +1103,10 @@ impl<'a> Query<'a> {
             for d in self.decls(f).iter() {
                 if d.kind == DeclKind::Impl && d.impl_for.as_deref() == Some(sym.name.as_str()) {
                     out.extend(
-                        d.children.iter().filter(|c| c.kind == DeclKind::Method).map(|c| (f, c.clone())),
+                        d.children
+                            .iter()
+                            .filter(|c| c.kind == DeclKind::Method)
+                            .map(|c| (f, c.clone())),
                     );
                     traits.extend(d.impl_trait.clone());
                 }
@@ -1074,7 +1116,10 @@ impl<'a> Query<'a> {
             for d in self.decls(f).iter() {
                 if d.kind == DeclKind::Trait && traits.contains(&d.name) {
                     out.extend(
-                        d.children.iter().filter(|c| c.kind == DeclKind::Method).map(|c| (f, c.clone())),
+                        d.children
+                            .iter()
+                            .filter(|c| c.kind == DeclKind::Method)
+                            .map(|c| (f, c.clone())),
                     );
                 }
             }
@@ -1105,7 +1150,9 @@ impl<'a> Query<'a> {
             .map(|(_, b)| b)
             .filter(|b| b.file == file)
             .flat_map(|b| b.exprs.iter().map(move |e| (b, e)))
-            .filter(|(_, e)| e.span.end == dot && !e.span.is_empty() && !matches!(e.kind, ExprKind::Error))
+            .filter(|(_, e)| {
+                e.span.end == dot && !e.span.is_empty() && !matches!(e.kind, ExprKind::Error)
+            })
             .max_by_key(|(_, e)| e.span.len())
             .map(|(b, e)| (b, e.ty.clone()))
     }
@@ -1195,7 +1242,13 @@ impl<'a> Query<'a> {
 
     /// After `recv.`, finding `recv` by name — for when the text being completed is not the
     /// text this analysis saw. Says whether it found the receiver.
-    fn members_by_name(&self, file: FileId, recv: &str, offset: u32, out: &mut Completions) -> bool {
+    fn members_by_name(
+        &self,
+        file: FileId,
+        recv: &str,
+        offset: u32,
+        out: &mut Completions,
+    ) -> bool {
         let Some(body) = self.body_at(file, offset) else { return false };
         let local = body.locals.iter().rev().find(|l| l.name == recv && l.span.start <= offset);
         let ty = match local {
@@ -1347,10 +1400,44 @@ pub struct Completion {
 
 /// The keywords of spec §2.7. A test holds this to the lexer's own list.
 pub const KEYWORDS: &[&str] = &[
-    "as", "break", "case", "const", "continue", "defer", "else", "enum", "extern", "false",
-    "fn", "for", "if", "ignore", "impl", "import", "in", "let", "macro", "module", "move",
-    "mut", "none", "null", "or", "own", "pub", "return", "self", "Self", "struct", "switch",
-    "trait", "true", "unreachable", "union", "unsafe", "while",
+    "as",
+    "break",
+    "case",
+    "const",
+    "continue",
+    "defer",
+    "else",
+    "enum",
+    "extern",
+    "false",
+    "fn",
+    "for",
+    "if",
+    "ignore",
+    "impl",
+    "import",
+    "in",
+    "let",
+    "macro",
+    "module",
+    "move",
+    "mut",
+    "none",
+    "null",
+    "or",
+    "own",
+    "pub",
+    "return",
+    "self",
+    "Self",
+    "struct",
+    "switch",
+    "trait",
+    "true",
+    "unreachable",
+    "union",
+    "unsafe",
+    "while",
 ];
 
 /// One slot per label, first come first served.
@@ -1513,7 +1600,11 @@ pub fn inlay_hints(a: &Analysis, file: FileId, range: Span) -> Vec<Hint> {
     let mut out = Vec::new();
     for (_, body) in hir.bodies().filter(|(_, b)| b.file == file) {
         for l in &body.locals {
-            if l.kind == LocalKind::Param || l.name == "_" || l.span.end < range.start || l.span.start > range.end {
+            if l.kind == LocalKind::Param
+                || l.name == "_"
+                || l.span.end < range.start
+                || l.span.start > range.end
+            {
                 continue;
             }
             // Only where the binding is spelled out; the checker's own locals (`self`, whose
@@ -1531,7 +1622,11 @@ pub fn inlay_hints(a: &Analysis, file: FileId, range: Span) -> Vec<Hint> {
                 continue;
             }
             if seen.insert(l.span.end) {
-                out.push(Hint { offset: l.span.end, label: format!(": {ty}"), kind: HintKind::Type });
+                out.push(Hint {
+                    offset: l.span.end,
+                    label: format!(": {ty}"),
+                    kind: HintKind::Type,
+                });
             }
         }
         if let Some(table) = a.table.as_ref() {
@@ -1575,7 +1670,11 @@ fn field_hints(body: &Body, table: &TypeTable, text: &str, range: Span, out: &mu
             if text.get(span.range()) == Some(field.name.as_str()) {
                 continue;
             }
-            out.push(Hint { offset: span.start, label: format!("{}:", field.name), kind: HintKind::Field });
+            out.push(Hint {
+                offset: span.start,
+                label: format!("{}:", field.name),
+                kind: HintKind::Field,
+            });
         }
     }
 }
@@ -1731,7 +1830,13 @@ pub fn workspace_symbols(a: &Analysis, query: &str) -> Vec<SymbolMatch> {
         }
         want.peek().is_none()
     };
-    fn walk(decls: &[Decl], container: Option<&str>, file: FileId, out: &mut Vec<SymbolMatch>, matches: &dyn Fn(&str) -> bool) {
+    fn walk(
+        decls: &[Decl],
+        container: Option<&str>,
+        file: FileId,
+        out: &mut Vec<SymbolMatch>,
+        matches: &dyn Fn(&str) -> bool,
+    ) {
         for d in decls {
             if d.kind != DeclKind::Impl && matches(&d.name) {
                 out.push(SymbolMatch {
@@ -1845,7 +1950,12 @@ pub fn semantic_tokens(a: &Analysis, file: FileId) -> Vec<SemanticToken> {
             if i > 0 && tokens[i - 1].kind == TokenKind::Dot {
                 let call = tokens.get(i + 1).is_some_and(|n| n.kind == TokenKind::LParen);
                 let class = if call { TokenClass::Method } else { TokenClass::Property };
-                out.push(SemanticToken { span: t.span, class, declaration: false, readonly: false });
+                out.push(SemanticToken {
+                    span: t.span,
+                    class,
+                    declaration: false,
+                    readonly: false,
+                });
             }
             continue;
         };

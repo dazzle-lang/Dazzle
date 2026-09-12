@@ -31,16 +31,16 @@ use lsp_types::{
     DocumentSymbolParams, DocumentSymbolResponse, Documentation, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, InlayHint,
     InlayHintKind, InlayHintLabel, InlayHintParams, Location, LogMessageParams, MarkupContent,
-    MarkupKind, MessageType, NumberOrString, OneOf, ParameterInformation, ParameterLabel,
-    Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
-    RenameOptions, RenameParams, SaveOptions, SemanticToken, SemanticTokenModifier,
-    SemanticTokenType, SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend,
-    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelp,
-    SignatureHelpOptions, SignatureHelpParams, SignatureInformation, SymbolInformation,
-    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Url, WorkspaceEdit,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    MarkupKind, MessageType, NumberOrString, OneOf, ParameterInformation, ParameterLabel, Position,
+    PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams, RenameOptions,
+    RenameParams, SaveOptions, SemanticToken, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
+    ServerCapabilities, SignatureHelp, SignatureHelpOptions, SignatureHelpParams,
+    SignatureInformation, SymbolInformation, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
+    WorkspaceSymbolResponse,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -475,7 +475,9 @@ impl Server {
             Err(_) => Response::new_err(
                 id,
                 ErrorCode::InternalError as i32,
-                format!("the language server panicked answering `{method}`; this is a compiler bug"),
+                format!(
+                    "the language server panicked answering `{method}`; this is a compiler bug"
+                ),
             ),
         };
         let _ = self.conn.sender.send(Message::Response(response));
@@ -491,7 +493,8 @@ impl Server {
             let p = serde_json::from_value(params)
                 .map_err(|e| (ErrorCode::InvalidParams as i32, e.to_string()))?;
             let answer = f(p).map_err(|m| (REQUEST_FAILED, m))?;
-            serde_json::to_value(answer).map_err(|e| (ErrorCode::InternalError as i32, e.to_string()))
+            serde_json::to_value(answer)
+                .map_err(|e| (ErrorCode::InternalError as i32, e.to_string()))
         }
         let params = r.params;
         Some(match r.method.as_str() {
@@ -557,8 +560,13 @@ impl Server {
         )
     }
 
-    fn prepare_rename(&mut self, p: TextDocumentPositionParams) -> Result<Option<PrepareRenameResponse>, String> {
-        let Some((analysis, file)) = self.analysis_for(&p.text_document.uri) else { return Ok(None) };
+    fn prepare_rename(
+        &mut self,
+        p: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>, String> {
+        let Some((analysis, file)) = self.analysis_for(&p.text_document.uri) else {
+            return Ok(None);
+        };
         // Code that does not parse may hide uses of the name, and a rename that misses one
         // breaks the program in a way no diagnostic points back to.
         if !analysis.parsed_cleanly {
@@ -571,7 +579,9 @@ impl Server {
 
     fn rename(&mut self, p: RenameParams) -> Result<Option<WorkspaceEdit>, String> {
         let at = p.text_document_position;
-        let Some((analysis, file)) = self.analysis_for(&at.text_document.uri) else { return Ok(None) };
+        let Some((analysis, file)) = self.analysis_for(&at.text_document.uri) else {
+            return Ok(None);
+        };
         if !analysis.parsed_cleanly {
             return Err("fix the syntax errors first: a rename could miss uses of the name in code that does not parse".to_owned());
         }
@@ -663,7 +673,10 @@ impl Server {
             .collect();
         let active = (!parameters.is_empty()).then(|| sig.active.min(parameters.len() - 1) as u32);
         let documentation = (!sig.docs.is_empty()).then(|| {
-            Documentation::MarkupContent(MarkupContent { kind: MarkupKind::Markdown, value: sig.docs.clone() })
+            Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: sig.docs.clone(),
+            })
         });
         Some(SignatureHelp {
             signatures: vec![SignatureInformation {
@@ -680,7 +693,8 @@ impl Server {
     fn inlay_hints(&mut self, p: InlayHintParams) -> Option<Vec<InlayHint>> {
         let (analysis, file) = self.analysis_for(&p.text_document.uri)?;
         let source = analysis.map.get(file);
-        let (start, end) = (convert::offset(source, p.range.start), convert::offset(source, p.range.end));
+        let (start, end) =
+            (convert::offset(source, p.range.start), convert::offset(source, p.range.end));
         let range = Span::new(start.min(end) as usize, start.max(end) as usize);
         Some(
             ide::inlay_hints(&analysis, file, range)
@@ -690,7 +704,11 @@ impl Server {
                     InlayHint {
                         position: convert::position(source, h.offset),
                         label: InlayHintLabel::String(h.label),
-                        kind: Some(if field { InlayHintKind::PARAMETER } else { InlayHintKind::TYPE }),
+                        kind: Some(if field {
+                            InlayHintKind::PARAMETER
+                        } else {
+                            InlayHintKind::TYPE
+                        }),
                         text_edits: None,
                         tooltip: None,
                         padding_left: None,

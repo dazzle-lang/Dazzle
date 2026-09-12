@@ -85,11 +85,7 @@ impl BodyBuilder {
     /// [`BodyBuilder::finish`] settles whatever is still untyped once checking is done.
     pub(crate) fn expr(&mut self, span: Span, ty: Ty, kind: hir::ExprKind) -> Checked {
         let id = ExprId(self.exprs.len() as u32);
-        self.exprs.push(hir::Expr {
-            span,
-            ty: ty.clone(),
-            kind,
-        });
+        self.exprs.push(hir::Expr { span, ty: ty.clone(), kind });
         Checked { ty, id }
     }
 
@@ -120,13 +116,7 @@ impl BodyBuilder {
         kind: LocalKind,
     ) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
-        self.locals.push(hir::Local {
-            name: name.to_owned(),
-            ty,
-            mutable,
-            span,
-            kind,
-        });
+        self.locals.push(hir::Local { name: name.to_owned(), ty, mutable, span, kind });
         if kind == LocalKind::Param {
             self.params.push(id);
         }

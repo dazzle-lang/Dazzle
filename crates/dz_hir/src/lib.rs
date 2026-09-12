@@ -112,16 +112,28 @@ impl Hir {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum BodyOwner {
     Fn(SymbolId),
-    Method { owner: SymbolId, name: String },
-    Ctor { owner: SymbolId, index: usize },
+    Method {
+        owner: SymbolId,
+        name: String,
+    },
+    Ctor {
+        owner: SymbolId,
+        index: usize,
+    },
     Copy(SymbolId),
     Drop(SymbolId),
     Const(SymbolId),
     /// The initialiser of a field with a default (spec §7.1).
-    FieldDefault { owner: SymbolId, index: usize },
+    FieldDefault {
+        owner: SymbolId,
+        index: usize,
+    },
     /// A method of an `impl Trait for Type` (spec §7.6). An implementation has no name, so
     /// it is addressed by its position in the checker's table of them.
-    ImplMethod { imp: u32, name: String },
+    ImplMethod {
+        imp: u32,
+        name: String,
+    },
 }
 
 /// One function body: its locals and its statement/expression arenas.
@@ -253,17 +265,34 @@ pub struct Stmt {
 pub enum StmtKind {
     /// `let` with an initialiser. A `let` without one stores `None`, which is what
     /// use-before-init analysis keys on; `let _ = f()` has no local but still evaluates.
-    Let { local: Option<LocalId>, init: Option<ExprId> },
+    Let {
+        local: Option<LocalId>,
+        init: Option<ExprId>,
+    },
     /// `let (a, b) = e` — the tuple is evaluated once, then destructured in order.
-    LetTuple { locals: Vec<Option<LocalId>>, init: ExprId },
+    LetTuple {
+        locals: Vec<Option<LocalId>>,
+        init: ExprId,
+    },
     /// Compound assignment keeps its operator: `a += b` evaluates `a` once, which matters
     /// once places can have side effects.
-    Assign { target: ExprId, op: AssignOp, value: ExprId },
+    Assign {
+        target: ExprId,
+        op: AssignOp,
+        value: ExprId,
+    },
     Expr(ExprId),
-    While { cond: ExprId, body: BlockId },
+    While {
+        cond: ExprId,
+        body: BlockId,
+    },
     /// `for x in subject`, or `for i, x in subject` — two bindings mean index and
     /// element (spec §10.4). The subject's type decides what iteration means.
-    For { bindings: Vec<Option<LocalId>>, subject: ExprId, body: BlockId },
+    For {
+        bindings: Vec<Option<LocalId>>,
+        subject: ExprId,
+        body: BlockId,
+    },
     /// Runs at scope exit in reverse order, after drops (spec §6.5).
     Defer(StmtId),
     /// A declaration nested in a body. It is checked and emitted as an item; the statement
@@ -308,48 +337,102 @@ pub enum ExprKind {
     /// A function used as a value.
     FnItem(SymbolId),
     /// Field access resolved to an index into the type's declaration order.
-    Field { base: ExprId, index: usize },
-    TupleIndex { base: ExprId, index: usize },
-    Index { base: ExprId, index: ExprId },
+    Field {
+        base: ExprId,
+        index: usize,
+    },
+    TupleIndex {
+        base: ExprId,
+        index: usize,
+    },
+    Index {
+        base: ExprId,
+        index: ExprId,
+    },
     Deref(ExprId),
-    Ref { mutable: bool, place: ExprId },
+    Ref {
+        mutable: bool,
+        place: ExprId,
+    },
 
     // --- operators ---
-    Unary { op: UnaryOp, operand: ExprId },
-    Binary { op: BinaryOp, lhs: ExprId, rhs: ExprId },
-    Cast { operand: ExprId },
-    Range { start: Option<ExprId>, end: Option<ExprId>, inclusive: bool },
+    Unary {
+        op: UnaryOp,
+        operand: ExprId,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: ExprId,
+        rhs: ExprId,
+    },
+    Cast {
+        operand: ExprId,
+    },
+    Range {
+        start: Option<ExprId>,
+        end: Option<ExprId>,
+        inclusive: bool,
+    },
 
     // --- aggregates ---
     /// Fields in declaration order, `None` where the declaration's default applies
     /// (spec §7.1). Codegen never has to consult the declaration to know the order.
-    StructLit { ty: SymbolId, fields: Vec<Option<ExprId>> },
+    StructLit {
+        ty: SymbolId,
+        fields: Vec<Option<ExprId>>,
+    },
     Tuple(Vec<ExprId>),
     ArrayLit(Vec<ExprId>),
     /// A bare enum constant.
-    EnumVariant { owner: SymbolId, index: usize },
+    EnumVariant {
+        owner: SymbolId,
+        index: usize,
+    },
     /// A union variant, with its payload's fields in the variant's declaration order and
     /// `None` where a default applies — the same shape as [`ExprKind::StructLit`], and
     /// empty for a variant that has no payload (spec §7.5).
-    UnionVariant { owner: SymbolId, index: usize, payload: Vec<Option<ExprId>> },
+    UnionVariant {
+        owner: SymbolId,
+        index: usize,
+        payload: Vec<Option<ExprId>>,
+    },
 
     // --- calls ---
-    Call { callee: Callee, args: Vec<ExprId> },
+    Call {
+        callee: Callee,
+        args: Vec<ExprId>,
+    },
 
     // --- ownership (spec §6) ---
     Move(ExprId),
 
     // --- control flow used as a value ---
     Block(BlockId),
-    If { cond: ExprId, then: BlockId, else_branch: Option<BlockId> },
+    If {
+        cond: ExprId,
+        then: BlockId,
+        else_branch: Option<BlockId>,
+    },
     /// `if let binding = operand` (spec §9.4). `operand` is a `T?` or a `^T`; `binding`
     /// holds what `or` would produce from it — the `T`, or a `&mut T` — in `then` only.
-    IfLet { binding: LocalId, operand: ExprId, then: BlockId, else_branch: Option<BlockId> },
-    Switch { subject: ExprId, arms: Vec<Arm>, default: Option<BlockId> },
+    IfLet {
+        binding: LocalId,
+        operand: ExprId,
+        then: BlockId,
+        else_branch: Option<BlockId>,
+    },
+    Switch {
+        subject: ExprId,
+        arms: Vec<Arm>,
+        default: Option<BlockId>,
+    },
     /// `e or clause` — the one failure eliminator (spec §9.4). `operand` is fallible: a
     /// call to a `!->` function, a `T?`, or a `^T`. The node's own type is the success
     /// type, so consumers never see the failure shape.
-    Or { operand: ExprId, clause: OrClause },
+    Or {
+        operand: ExprId,
+        clause: OrClause,
+    },
     Return(Option<ExprId>),
     Break,
     Continue,
@@ -370,14 +453,23 @@ pub enum ExprKind {
     /// monomorphization supplies the argument; that is where it is answered, and where an
     /// `if` made only of these is folded so the dead branch is never emitted (§8.3). Kept
     /// as a node rather than evaluated in the checker for exactly that reason.
-    TypeQuery { ty: Ty, query: TypeQuery },
+    TypeQuery {
+        ty: Ty,
+        query: TypeQuery,
+    },
 
     /// `println`, `sizeof`, `panic`, … — temporary builtins that become stdlib functions
     /// at M12. Kept as a node of their own so that when they do, only this variant and its
     /// consumers disappear (deferral register, `docs/PROGRESS.md`).
-    Builtin { name: String, args: Vec<ExprId> },
+    Builtin {
+        name: String,
+        args: Vec<ExprId>,
+    },
     /// `#location`, `#file` (spec §12.7).
-    Intrinsic { name: String, args: Vec<ExprId> },
+    Intrinsic {
+        name: String,
+        args: Vec<ExprId>,
+    },
 }
 
 /// A concrete copy of a generic body (spec §8.4): every type in it with `map` applied.
@@ -466,9 +558,7 @@ impl TypeQuery {
         match self {
             TypeQuery::Size | TypeQuery::Align => Ty::Int(ty::IntTy::Usize),
             TypeQuery::Name => Ty::Str,
-            TypeQuery::IsTriviallyCopyable | TypeQuery::IsCopyable | TypeQuery::HasDrop => {
-                Ty::Bool
-            }
+            TypeQuery::IsTriviallyCopyable | TypeQuery::IsCopyable | TypeQuery::HasDrop => Ty::Bool,
         }
     }
 }

@@ -41,12 +41,22 @@ as many iterations as it takes to measure — and a normal build leaves both out
 `bench` builds `--release` unless told otherwise, since timing `-O0` measures
 nothing anyone ships.
 
-`run`, `build` and `cpp` take a build mode, which overrides the manifest's
-`[build] optimize` for that one command:
+`run`, `build`, `cpp`, `test` and `bench` take a build mode, which overrides the
+manifest's `[build] optimize` for that one command:
 
     --debug                     -O0 -g  (the default)
     --release                   -O2
-    --shipping                  -O3 -DNDEBUG";
+    --shipping                  -O3 -DNDEBUG
+
+They also take `--cxx <compiler>`, which is the last word on which C++ compiler
+builds the generated code. Four places may say, nearest first:
+
+    --cxx g++                   this one build
+    DZ_CXX=g++                  the environment
+    [build] cxx = \"g++\"          the project
+    [build.target.linux] cxx    the project, on one platform
+
+With none of them, `dz` uses the first of clang++, g++, c++ that it finds.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -175,9 +185,19 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     // `dz bench` optimises by default; `dz bench --debug` is still available for
     // anyone who wants to see what the debug build costs.
     let mut mode: Option<Optimize> = if benching { Some(Optimize::Release) } else { None };
+    let mut cxx: Option<String> = None;
     let mut positional = 0;
-    for a in &args[1..] {
+    let mut rest = args[1..].iter();
+    while let Some(a) = rest.next() {
         match a.as_str() {
+            "--cxx" => match rest.next() {
+                Some(c) => cxx = Some(c.clone()),
+                None => {
+                    eprintln!("error: `--cxx` needs a compiler\n\n{USAGE}");
+                    return ExitCode::FAILURE;
+                }
+            },
+            other if other.starts_with("--cxx=") => cxx = Some(other[6..].to_owned()),
             "--debug" => mode = Some(Optimize::Debug),
             "--release" => mode = Some(Optimize::Release),
             "--shipping" => mode = Some(Optimize::Shipping),
@@ -195,6 +215,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
             }
         }
     }
+    let cxx = cxx.as_deref();
 
     let mut analysis = build::analyse(Path::new(path));
     if let (Some(m), Some(ws)) = (mode, analysis.ws.as_mut()) {
@@ -217,9 +238,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
         .unwrap_or(0);
     if count == 0 {
         let attr = if benching { "bench" } else { "test" };
-        println!(
-            "no {what}s found; write `#[{attr}] fn name() {{ … }}` beside the code it covers"
-        );
+        println!("no {what}s found; write `#[{attr}] fn name() {{ … }}` beside the code it covers");
         return ExitCode::SUCCESS;
     }
 
@@ -235,7 +254,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
             return failure(&d);
         }
     };
-    let exe = match build::compile(&analysis, &out, &root) {
+    let exe = match build::compile(&analysis, &out, &root, cxx) {
         Ok(e) => e,
         Err(d) => {
             dz_diag::emit_to_stderr(&analysis.map, &d);
@@ -266,11 +285,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    println!(
-        "running {} {what}{}",
-        names.len(),
-        if names.len() == 1 { "" } else { "s" }
-    );
+    println!("running {} {what}{}", names.len(), if names.len() == 1 { "" } else { "s" });
     let mut failed = Vec::new();
     for name in &names {
         match std::process::Command::new(&exe).arg(name).output() {
@@ -332,8 +347,20 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
 fn with_mode(args: &[String], stage: Stage) -> ExitCode {
     let mut path = ".";
     let mut mode: Option<Optimize> = None;
-    for a in &args[1..] {
+    let mut cxx: Option<String> = None;
+    let mut rest = args[1..].iter();
+    while let Some(a) = rest.next() {
         match a.as_str() {
+            // `--cxx g++` and `--cxx=g++` both, since a flag taking a value is usually
+            // written either way and guessing wrong is a confusing error.
+            "--cxx" => match rest.next() {
+                Some(c) => cxx = Some(c.clone()),
+                None => {
+                    eprintln!("error: `--cxx` needs a compiler\n\n{USAGE}");
+                    return ExitCode::FAILURE;
+                }
+            },
+            other if other.starts_with("--cxx=") => cxx = Some(other[6..].to_owned()),
             "--debug" => mode = Some(Optimize::Debug),
             "--release" => mode = Some(Optimize::Release),
             "--shipping" => mode = Some(Optimize::Shipping),
@@ -344,11 +371,11 @@ fn with_mode(args: &[String], stage: Stage) -> ExitCode {
             other => path = other,
         }
     }
-    cmd_pipeline(path, stage, mode)
+    cmd_pipeline(path, stage, mode, cxx.as_deref())
 }
 
 /// `dz cpp`, `dz build` and `dz run` share everything up to where they stop.
-fn cmd_pipeline(entry: &str, stage: Stage, mode: Option<Optimize>) -> ExitCode {
+fn cmd_pipeline(entry: &str, stage: Stage, mode: Option<Optimize>, cxx: Option<&str>) -> ExitCode {
     let mut analysis = build::analyse(Path::new(entry));
     if let (Some(m), Some(ws)) = (mode, analysis.ws.as_mut()) {
         // Every module, not just the root: one command builds one program, and a
@@ -388,7 +415,7 @@ fn cmd_pipeline(entry: &str, stage: Stage, mode: Option<Optimize>) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let exe = match build::compile(&analysis, &out, &root) {
+    let exe = match build::compile(&analysis, &out, &root, cxx) {
         Ok(e) => e,
         Err(d) => {
             dz_diag::emit_to_stderr(&analysis.map, &d);
@@ -442,8 +469,11 @@ fn cmd_lsp() -> ExitCode {
 fn failure(diags: &dz_diag::Diagnostics) -> ExitCode {
     let n = diags.error_count();
     if n > 0 {
-        eprintln!("
-{n} error{} emitted", if n == 1 { "" } else { "s" });
+        eprintln!(
+            "
+{n} error{} emitted",
+            if n == 1 { "" } else { "s" }
+        );
     }
     ExitCode::FAILURE
 }

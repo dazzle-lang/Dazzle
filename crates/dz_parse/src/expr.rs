@@ -210,7 +210,8 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Return => {
                 self.bump();
-                let value = if self.starts_expr() { Some(Box::new(self.parse_expr())) } else { None };
+                let value =
+                    if self.starts_expr() { Some(Box::new(self.parse_expr())) } else { None };
                 ExprKind::Return(value)
             }
             TokenKind::Break => {
@@ -248,7 +249,8 @@ impl<'a> Parser<'a> {
             TokenKind::DotDot | TokenKind::DotDotEq => {
                 let inclusive = self.peek() == TokenKind::DotDotEq;
                 self.bump();
-                let end = if self.starts_expr() { Some(Box::new(self.parse_expr_bp(6)))} else { None };
+                let end =
+                    if self.starts_expr() { Some(Box::new(self.parse_expr_bp(6))) } else { None };
                 ExprKind::Range { start: None, end, inclusive }
             }
             _ => return self.parse_primary(),
@@ -302,10 +304,8 @@ impl<'a> Parser<'a> {
                 // Postfix `^` is dereference; xor is `^^`, so there is no ambiguity.
                 TokenKind::Caret => {
                     self.bump();
-                    lhs = Expr {
-                        span: self.span_from(start),
-                        kind: ExprKind::Deref(Box::new(lhs)),
-                    };
+                    lhs =
+                        Expr { span: self.span_from(start), kind: ExprKind::Deref(Box::new(lhs)) };
                 }
                 TokenKind::As => {
                     self.bump();
@@ -325,8 +325,8 @@ impl<'a> Parser<'a> {
     fn parse_array_lit_elements(&mut self) -> Vec<Expr> {
         let mut elems = Vec::new();
         self.bump(); // `[`
-        // Struct literals are legal again inside brackets, so `[Vec3{1, 2, 3}]` parses
-        // even in a position where a bare `{` would have begun a block.
+                     // Struct literals are legal again inside brackets, so `[Vec3{1, 2, 3}]` parses
+                     // even in a position where a bare `{` would have begun a block.
         let saved = std::mem::replace(&mut self.no_struct_literal, 0);
         loop {
             self.skip_terminators();
@@ -351,7 +351,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_call_args(&mut self) -> Vec<Expr> {
         let mut args = Vec::new();
         self.bump(); // `(`
-        // Struct literals are legal again inside parentheses.
+                     // Struct literals are legal again inside parentheses.
         let saved = std::mem::replace(&mut self.no_struct_literal, 0);
         loop {
             self.skip_terminators();
@@ -478,7 +478,8 @@ impl<'a> Parser<'a> {
             }
             TokenKind::SelfValue | TokenKind::SelfType | TokenKind::Ident => {
                 // `name!(...)` — an expression macro (spec §12.5), raw until M10.
-                if self.at(TokenKind::Ident) && self.peek_at(1) == TokenKind::Bang
+                if self.at(TokenKind::Ident)
+                    && self.peek_at(1) == TokenKind::Bang
                     && self.peek_at(2) == TokenKind::LParen
                 {
                     let name = self.parse_ident_or_error();
@@ -516,9 +517,7 @@ impl<'a> Parser<'a> {
                     }
                     _ => match self.parse_path() {
                         Some(p) => p,
-                        None => {
-                            return Expr { span: self.span_from(start), kind: ExprKind::Error }
-                        }
+                        None => return Expr { span: self.span_from(start), kind: ExprKind::Error },
                     },
                 };
 
@@ -595,8 +594,8 @@ impl<'a> Parser<'a> {
     fn parse_if(&mut self) -> Expr {
         let start = self.start();
         self.bump(); // `if`
-        // `if let name = value` (spec §9.4). A missing name or `=` is reported and the
-        // rest still parses, as for any `if`.
+                     // `if let name = value` (spec §9.4). A missing name or `=` is reported and the
+                     // rest still parses, as for any `if`.
         let binding = if self.eat(TokenKind::Let) {
             let mutable = self.eat(TokenKind::Mut);
             let name = self.parse_ident_or_error();
@@ -613,10 +612,7 @@ impl<'a> Parser<'a> {
             } else {
                 let b_start = self.start();
                 let block = self.parse_block();
-                Some(Box::new(Expr {
-                    span: self.span_from(b_start),
-                    kind: ExprKind::Block(block),
-                }))
+                Some(Box::new(Expr { span: self.span_from(b_start), kind: ExprKind::Block(block) }))
             }
         } else {
             None
@@ -689,12 +685,7 @@ impl<'a> Parser<'a> {
         let span = self.span_from(start);
         Expr {
             span,
-            kind: ExprKind::Switch(SwitchExpr {
-                span,
-                subject: Box::new(subject),
-                arms,
-                default,
-            }),
+            kind: ExprKind::Switch(SwitchExpr { span, subject: Box::new(subject), arms, default }),
         }
     }
 

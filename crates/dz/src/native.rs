@@ -131,7 +131,8 @@ pub fn build_libraries(
                 key.extend_from_slice(part.as_bytes());
                 key.push(0);
             }
-            let stem = source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let stem =
+                source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             let object = dir.join(format!("{stem}-{:016x}.o", fnv1a(&key)));
             objects.push(object.clone());
 
@@ -141,7 +142,11 @@ pub fn build_libraries(
             }
         }
         if stale > 0 {
-            eprintln!("   compiling {} ({stale} file{})", lib.name, if stale == 1 { "" } else { "s" });
+            eprintln!(
+                "   compiling {} ({stale} file{})",
+                lib.name,
+                if stale == 1 { "" } else { "s" }
+            );
         }
     }
 

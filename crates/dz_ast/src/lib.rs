@@ -58,12 +58,22 @@ pub struct Import {
 #[derive(Clone, Debug)]
 pub enum ImportKind {
     /// `import engine::render as gfx`
-    Module { path: Path, alias: Option<Ident> },
+    Module {
+        path: Path,
+        alias: Option<Ident>,
+    },
     /// `import math::{ pow, sqrt }`
-    Selective { path: Path, names: Vec<Ident> },
+    Selective {
+        path: Path,
+        names: Vec<Ident>,
+    },
     /// `import cpp "raylib.h" as rl` (spec §15.1)
     /// `name` is the text between the quotes, which is what the header is looked up by.
-    Cpp { header: Span, name: String, alias: Option<Ident> },
+    Cpp {
+        header: Span,
+        name: String,
+        alias: Option<Ident>,
+    },
     Error,
 }
 
@@ -93,7 +103,10 @@ pub enum AttrArg {
     Ident(Ident),
     Literal(Expr),
     /// `cfg(os = "windows")`
-    KeyValue { key: Ident, value: Expr },
+    KeyValue {
+        key: Ident,
+        value: Expr,
+    },
     Nested(Attr),
 }
 
@@ -122,7 +135,10 @@ pub enum ItemKind {
     /// Parsed shallowly at M1; the body is kept as raw source for M10 (spec §12).
     Macro(MacroDecl),
     /// `#machine Foo(Bar) { ... }` — likewise deferred to M10.
-    MacroInvocation { name: Ident, body: Span },
+    MacroInvocation {
+        name: Ident,
+        body: Span,
+    },
     Error,
 }
 
@@ -253,7 +269,11 @@ pub enum MemberKind {
     /// An associated type (spec §8.5). `type Item` or `type Item : Format` on a trait,
     /// which names a type without choosing it; `type Item = &T` on an implementer, which
     /// chooses one.
-    TypeAlias { name: Ident, bounds: Vec<Path>, ty: Option<Type> },
+    TypeAlias {
+        name: Ident,
+        bounds: Vec<Path>,
+        ty: Option<Type>,
+    },
     Error,
 }
 
@@ -344,21 +364,39 @@ pub struct Type {
 pub enum TypeKind {
     Path(Path),
     /// `^T` / `^mut T` (spec §5.2)
-    Ptr { mutable: bool, inner: Box<Type> },
+    Ptr {
+        mutable: bool,
+        inner: Box<Type>,
+    },
     /// `own ^T` / `own ^mut T`
-    OwnPtr { mutable: bool, inner: Box<Type> },
+    OwnPtr {
+        mutable: bool,
+        inner: Box<Type>,
+    },
     /// `&T` / `&mut T`
-    Ref { mutable: bool, inner: Box<Type> },
+    Ref {
+        mutable: bool,
+        inner: Box<Type>,
+    },
     /// `T?` — postfix, binding to the type name (spec §5.6).
     Optional(Box<Type>),
     /// `[N]T` — a fixed-size value type (spec §5.3).
-    Array { size: Box<Expr>, elem: Box<Type> },
+    Array {
+        size: Box<Expr>,
+        elem: Box<Type>,
+    },
     /// `[]T`, or `[]mut T` — a two-word view whose writability is part of the type
     /// (spec §5.3, §18.22). A fixed array has no such flag: it is a value, so its
     /// mutability comes from the binding that holds it.
-    Slice { mutable: bool, elem: Box<Type> },
+    Slice {
+        mutable: bool,
+        elem: Box<Type>,
+    },
     Tuple(Vec<Type>),
-    Fn { params: Vec<Type>, ret: Option<Box<Type>> },
+    Fn {
+        params: Vec<Type>,
+        ret: Option<Box<Type>>,
+    },
     SelfType,
     Error,
 }
@@ -383,7 +421,11 @@ pub struct Stmt {
 #[derive(Clone, Debug)]
 pub enum StmtKind {
     Let(LetStmt),
-    Assign { target: Expr, op: AssignOp, value: Expr },
+    Assign {
+        target: Expr,
+        op: AssignOp,
+        value: Expr,
+    },
     Expr(Expr),
     While(WhileStmt),
     For(ForStmt),
@@ -482,24 +524,59 @@ pub enum ExprKind {
     None,
     Path(Path),
     /// `.Transition{}` — variant inferred from the expected type (spec §7.3, §7.4).
-    DotInfer { name: Ident, init: Option<Vec<FieldInit>> },
+    DotInfer {
+        name: Ident,
+        init: Option<Vec<FieldInit>>,
+    },
     /// `[1, 2, 3]` — an array of exactly this many elements (spec §5.3).
     ArrayLit(Vec<Expr>),
-    StructLit { path: Path, fields: Vec<FieldInit> },
-    Call { callee: Box<Expr>, args: Vec<Expr> },
-    Index { base: Box<Expr>, index: Box<Expr> },
-    Field { base: Box<Expr>, name: Ident },
-    Unary { op: UnaryOp, operand: Box<Expr> },
-    Binary { op: BinaryOp, lhs: Box<Expr>, rhs: Box<Expr> },
-    Cast { expr: Box<Expr>, ty: Type },
-    Range { start: Option<Box<Expr>>, end: Option<Box<Expr>>, inclusive: bool },
+    StructLit {
+        path: Path,
+        fields: Vec<FieldInit>,
+    },
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+    },
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+    },
+    Field {
+        base: Box<Expr>,
+        name: Ident,
+    },
+    Unary {
+        op: UnaryOp,
+        operand: Box<Expr>,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Cast {
+        expr: Box<Expr>,
+        ty: Type,
+    },
+    Range {
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,
+    },
     /// `&e` / `&mut e`
-    Ref { mutable: bool, expr: Box<Expr> },
+    Ref {
+        mutable: bool,
+        expr: Box<Expr>,
+    },
     /// `p^`
     Deref(Box<Expr>),
     Move(Box<Expr>),
     /// `e or clause` — the one failure eliminator (spec §9.4).
-    Or { expr: Box<Expr>, clause: Box<OrClause> },
+    Or {
+        expr: Box<Expr>,
+        clause: Box<OrClause>,
+    },
     Block(Block),
     /// `unsafe { … }` — a block in which raw-memory operations are allowed (spec §5.2).
     Unsafe(Block),
@@ -507,12 +584,22 @@ pub enum ExprKind {
     Switch(SwitchExpr),
     /// Diverging expressions, so `f() or return` parses uniformly.
     Return(Option<Box<Expr>>),
-    Break { label: Option<Ident> },
-    Continue { label: Option<Ident> },
+    Break {
+        label: Option<Ident>,
+    },
+    Continue {
+        label: Option<Ident>,
+    },
     /// `#location`, `#file` (spec §12.7)
-    Intrinsic { name: Ident, args: Vec<Expr> },
+    Intrinsic {
+        name: Ident,
+        args: Vec<Expr>,
+    },
     /// `vec!(...)` — body kept raw until M10.
-    MacroCall { name: Ident, body: Span },
+    MacroCall {
+        name: Ident,
+        body: Span,
+    },
     Tuple(Vec<Expr>),
     Error,
 }
@@ -582,7 +669,6 @@ pub struct VariantPat {
     /// `case Circle(c)` binds the payload by reference.
     pub binding: Option<Ident>,
 }
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnaryOp {

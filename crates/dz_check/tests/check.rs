@@ -33,7 +33,11 @@ fn redact(rendered: &str) -> String {
         .replace('\\', "/")
         .lines()
         .map(|l| match l.find(MARKER) {
-            Some(i) => format!("{}{}", &l[..l[..i].rfind(' ').map_or(0, |s| s + 1)], &l[i + MARKER.len()..]),
+            Some(i) => format!(
+                "{}{}",
+                &l[..l[..i].rfind(' ').map_or(0, |s| s + 1)],
+                &l[i + MARKER.len()..]
+            ),
             None => l.to_owned(),
         })
         .collect::<Vec<_>>()
@@ -96,8 +100,11 @@ fn check(entry: &Path) -> Checked {
 fn snippet(source: &str) -> Vec<&'static str> {
     let dir = std::env::temp_dir().join(format!("dz_check_{:x}", hash(source)));
     let _ = std::fs::create_dir_all(dir.join("src"));
-    std::fs::write(dir.join("dazzle.toml"), "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n")
-        .unwrap();
+    std::fs::write(
+        dir.join("dazzle.toml"),
+        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n",
+    )
+    .unwrap();
     std::fs::write(dir.join("src/a.dz"), source).unwrap();
     let r = check(&dir);
     let _ = std::fs::remove_dir_all(&dir);
@@ -246,8 +253,9 @@ fn untyped_literals_take_the_type_of_their_context() {
     // spec §2.5 — none of these is a cast.
     assert!(snippet("fn f() {\n let a: u64 = 5\n let b: f32 = 1\n let c: i8 = -3\n}\n").is_empty());
     // ...but the value still has to fit.
-    assert!(snippet("fn f() {\n let b: u8 = 300\n}\n")
-        .contains(&dz_diag::codes::LITERAL_OUT_OF_RANGE));
+    assert!(
+        snippet("fn f() {\n let b: u8 = 300\n}\n").contains(&dz_diag::codes::LITERAL_OUT_OF_RANGE)
+    );
 }
 
 #[test]
@@ -272,14 +280,9 @@ fn mutation_requires_a_mutable_binding_or_receiver() {
     assert!(snippet("fn f() {\n let a = 1\n a = 2\n}\n").contains(&dz_diag::codes::NOT_MUTABLE));
     assert!(snippet("fn f() {\n let mut a = 1\n a = 2\n}\n").is_empty());
     // A `fn` method takes `&self`, so it cannot assign to a field.
-    assert!(snippet(
-        "struct S {\n n: i32\n pub fn bad(&self) {\n  n = 1\n }\n}\n"
-    )
-    .contains(&dz_diag::codes::NOT_MUTABLE));
-    assert!(snippet(
-        "struct S {\n n: i32\n pub fn ok(&mut self) {\n  n = 1\n }\n}\n"
-    )
-    .is_empty());
+    assert!(snippet("struct S {\n n: i32\n pub fn bad(&self) {\n  n = 1\n }\n}\n")
+        .contains(&dz_diag::codes::NOT_MUTABLE));
+    assert!(snippet("struct S {\n n: i32\n pub fn ok(&mut self) {\n  n = 1\n }\n}\n").is_empty());
 }
 
 #[test]
@@ -302,10 +305,10 @@ fn a_fallible_call_must_be_consumed_in_its_statement() {
         .contains(&dz_diag::codes::UNUSED_RESULT));
     // Each sanctioned way to consume it is accepted.
     assert!(snippet(&format!("{base}fn g() {{\n may_fail() or ignore\n}}\n")).is_empty());
-    assert!(
-        snippet(&format!("{base}fn g() !-> i32 {{\n let v = may_fail() or return\n return v\n}}\n"))
-            .is_empty()
-    );
+    assert!(snippet(&format!(
+        "{base}fn g() !-> i32 {{\n let v = may_fail() or return\n return v\n}}\n"
+    ))
+    .is_empty());
     assert!(snippet(&format!("{base}fn g() -> i32 {{\n return may_fail() or 0\n}}\n")).is_empty());
     assert!(snippet(&format!(
         "{base}fn g() -> i32 {{\n let v = may_fail() or {{ e ->\n  return 0\n }}\n return v\n}}\n"
@@ -317,12 +320,11 @@ fn a_fallible_call_must_be_consumed_in_its_statement() {
 fn or_return_needs_a_signature_that_can_carry_the_failure() {
     // spec §9.5 — bare `or return` is reserved for propagation.
     let base = "fn may_fail() !-> i32 {\n return 1\n}\n";
+    assert!(snippet(&format!("{base}fn g() -> i32 {{\n return may_fail() or return\n}}\n"))
+        .contains(&dz_diag::codes::TRY_OUTSIDE_FALLIBLE));
     assert!(
-        snippet(&format!("{base}fn g() -> i32 {{\n return may_fail() or return\n}}\n"))
-            .contains(&dz_diag::codes::TRY_OUTSIDE_FALLIBLE)
+        snippet(&format!("{base}fn g() !-> i32 {{\n return may_fail() or return\n}}\n")).is_empty()
     );
-    assert!(snippet(&format!("{base}fn g() !-> i32 {{\n return may_fail() or return\n}}\n"))
-        .is_empty());
     // A `T?` propagates into a `-> U?` or a `-> void`, which have somewhere to go.
     let opt = "fn maybe() -> i32? {\n return none\n}\n";
     assert!(snippet(&format!("{opt}fn g() -> i32? {{\n return maybe() or return\n}}\n")).is_empty());
@@ -335,12 +337,11 @@ fn a_pointer_becomes_a_reference_only_through_an_or_clause() {
     let base = "fn takes(x: &i32) {\n}\nfn ptr() -> ^i32 {\n return null\n}\n";
     assert!(snippet(&format!("{base}fn g() {{\n takes(ptr())\n}}\n"))
         .contains(&dz_diag::codes::POINTER_NEEDS_CHECK));
-    assert!(snippet(&format!("{base}fn g() {{\n let p = ptr() or return\n takes(p)\n}}\n"))
-        .is_empty());
     assert!(
-        snippet(&format!("{base}fn g() {{\n let p = ptr() or unreachable\n takes(p)\n}}\n"))
-            .is_empty()
+        snippet(&format!("{base}fn g() {{\n let p = ptr() or return\n takes(p)\n}}\n")).is_empty()
     );
+    assert!(snippet(&format!("{base}fn g() {{\n let p = ptr() or unreachable\n takes(p)\n}}\n"))
+        .is_empty());
     // The reverse direction stays implicit (spec §5.2, §18.16).
     assert!(snippet("fn g(r: &mut i32) {\n let p: ^i32 = r\n}\n").is_empty());
 }
@@ -385,8 +386,9 @@ fn a_pointer_is_as_writable_as_it_says() {
     // Writing needs the `mut`; reading does not.
     assert!(snippet("fn g(p: ^i32) -> i32 {\n unsafe { return p^ }\n}\n").is_empty());
     assert!(snippet("fn g(p: ^mut i32) {\n unsafe { p^ = 1 }\n}\n").is_empty());
-    assert!(snippet("fn g(p: ^i32) {\n unsafe { p^ = 1 }\n}\n")
-        .contains(&dz_diag::codes::NOT_MUTABLE));
+    assert!(
+        snippet("fn g(p: ^i32) {\n unsafe { p^ = 1 }\n}\n").contains(&dz_diag::codes::NOT_MUTABLE)
+    );
     // Through a writable pointer the pointee cannot widen: a `^mut ^i32` made from a
     // `^mut ^mut i32` could store a read-only pointer where a writable one is expected.
     assert!(snippet("fn g(q: ^^mut i32) {\n let p: ^^i32 = q\n}\n").is_empty());
@@ -405,10 +407,10 @@ fn an_or_clause_must_produce_the_success_type_or_diverge() {
     assert!(snippet(&format!("{opt}fn g() -> i32 {{\n return maybe() or panic(\"x\")\n}}\n"))
         .is_empty());
     // Only a fallible call carries an `Error`, so a `T?` has nothing to bind.
-    assert!(
-        snippet(&format!("{opt}fn g() -> i32 {{\n let v = maybe() or {{ e ->\n  return 0\n }}\n return v\n}}\n"))
-            .contains(&dz_diag::codes::OR_CLAUSE_TYPE)
-    );
+    assert!(snippet(&format!(
+        "{opt}fn g() -> i32 {{\n let v = maybe() or {{ e ->\n  return 0\n }}\n return v\n}}\n"
+    ))
+    .contains(&dz_diag::codes::OR_CLAUSE_TYPE));
     // `or` on something that cannot fail is meaningless.
     assert!(snippet("fn g(n: i32) -> i32 {\n return n or 0\n}\n")
         .contains(&dz_diag::codes::NOT_FALLIBLE));
@@ -420,12 +422,11 @@ fn a_fallback_that_can_itself_fail_gets_a_clause_of_its_own() {
     // is how it is written. Flat chaining cannot mean it: an `or` always produces the
     // success type, so `a() or b()` can no longer fail and has nothing left to catch.
     let base = "fn a() !-> i32 {\n return 1\n}\nfn b() !-> i32 {\n return 2\n}\n";
-    assert!(snippet(&format!("{base}fn g() -> i32 {{\n return a() or {{ b() or 0 }}\n}}\n"))
-        .is_empty());
     assert!(
-        snippet(&format!("{base}fn g() -> i32 {{\n return a() or {{ b() or {{ 0 }} }}\n}}\n"))
-            .is_empty()
+        snippet(&format!("{base}fn g() -> i32 {{\n return a() or {{ b() or 0 }}\n}}\n")).is_empty()
     );
+    assert!(snippet(&format!("{base}fn g() -> i32 {{\n return a() or {{ b() or {{ 0 }} }}\n}}\n"))
+        .is_empty());
     // Without a clause of its own, the fallback's failure would be discarded.
     let flat = snippet(&format!("{base}fn g() -> i32 {{\n return (a() or b()) or 0\n}}\n"));
     assert!(flat.contains(&dz_diag::codes::UNUSED_RESULT), "{flat:?}");
@@ -442,8 +443,9 @@ fn returning_a_plain_value_from_a_fallible_function_is_the_success_case() {
     assert!(snippet("fn f() -> i32 {\n return error(\"bad\")\n}\n")
         .contains(&dz_diag::codes::TRY_OUTSIDE_FALLIBLE));
     // `none` needs somewhere that wants a `?T`.
-    assert!(snippet("fn f() {\n let x = none\n}\n")
-        .contains(&dz_diag::codes::NO_CONTEXT_FOR_LITERAL));
+    assert!(
+        snippet("fn f() {\n let x = none\n}\n").contains(&dz_diag::codes::NO_CONTEXT_FOR_LITERAL)
+    );
 }
 
 #[test]
@@ -472,8 +474,10 @@ fn field_and_method_visibility_is_enforced_through_a_value() {
         .contains(&dz_diag::codes::PRIVATE_FIELD));
     assert!(snippet(&format!("{base}fn g(s: S) -> i32 {{\n return s.shown\n}}\n")).is_empty());
     // ...but the struct's own methods see everything.
-    assert!(snippet("struct S {\n hidden: i32\n pub fn g(&self) -> i32 {\n  return hidden\n }\n}\n")
-        .is_empty());
+    assert!(snippet(
+        "struct S {\n hidden: i32\n pub fn g(&self) -> i32 {\n  return hidden\n }\n}\n"
+    )
+    .is_empty());
 }
 
 #[test]
@@ -481,8 +485,10 @@ fn dot_reaches_through_pointers_and_references() {
     // spec §5.2 — there is no `->`. Through a `^T` it is a raw read, so it needs `unsafe`;
     // through a reference it does not.
     let s = "struct S {\n pub n: i32\n}\n";
-    assert!(snippet(&format!("{s}fn f(p: ^S, r: &S) -> i32 {{\n unsafe {{ return p.n + r.n }}\n}}\n"))
-        .is_empty());
+    assert!(snippet(&format!(
+        "{s}fn f(p: ^S, r: &S) -> i32 {{\n unsafe {{ return p.n + r.n }}\n}}\n"
+    ))
+    .is_empty());
     assert!(snippet(&format!("{s}fn f(r: &S) -> i32 {{\n return r.n\n}}\n")).is_empty());
     assert!(snippet(&format!("{s}fn f(p: ^S) -> i32 {{\n return p.n\n}}\n"))
         .contains(&dz_diag::codes::UNSAFE_OPERATION));
@@ -504,9 +510,7 @@ fn a_generic_body_is_checked_against_its_bounds() {
 /// line inside the generic rather than at any instantiation.
 #[test]
 fn a_generic_body_may_not_exceed_its_bounds() {
-    let codes = snippet(
-        "fn f<T>(a: T, b: T) -> T {\n if a > b {\n  return a\n }\n return b\n}\n",
-    );
+    let codes = snippet("fn f<T>(a: T, b: T) -> T {\n if a > b {\n  return a\n }\n return b\n}\n");
     assert!(
         codes.contains(&dz_diag::codes::UNSATISFIED_BOUND),
         "an unbounded `T` has no `>`, got {codes:?}"
@@ -517,7 +521,8 @@ fn a_generic_body_may_not_exceed_its_bounds() {
 /// `Ord` used to reach C++ and fail there, which invariant 7 forbids.
 #[test]
 fn comparing_a_struct_needs_eq() {
-    let without = snippet("struct P {\n pub n: i32\n}\nfn f(a: P, b: P) -> bool {\n return a == b\n}\n");
+    let without =
+        snippet("struct P {\n pub n: i32\n}\nfn f(a: P, b: P) -> bool {\n return a == b\n}\n");
     assert!(
         without.contains(&dz_diag::codes::UNSATISFIED_BOUND),
         "a struct with no `Eq` must not be comparable, got {without:?}"

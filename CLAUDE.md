@@ -25,9 +25,16 @@ inheritance). **Struct inheritance landed as r30** — single inheritance, `virt
 `protected`, base initialisers, inherited implementations — which also unblocks that last
 M7 row. **`dz test` (M14) and `dz bench` (M15) have landed** — `#[test]` and `#[bench]`
 functions beside the code they cover, each run in its own process, and a comparison suite
-in `tests/bench` measuring Dazzle against hand-written C++. **CI is written but has never
-run** (`.github/workflows/ci.yml`, three platforms); getting it green is next, then fetched
-packages (M16). Spec §19 is the roadmap.
+in `tests/bench` measuring Dazzle against hand-written C++. **CI runs on three platforms**
+(`.github/workflows/ci.yml`); its first run found a clippy lint and two recipes that could
+only link on Windows. Next: a release workflow that ships libclang beside `dz`, so a
+released compiler needs nothing installed but a C++ compiler — then fetched packages (M16).
+Spec §19 is the roadmap.
+
+**Formatting is rustfmt's**, configured by `rustfmt.toml` (`use_small_heuristics = "Max"`,
+which is what keeps it close to how this repository was written by hand). Run `cargo fmt
+--all` before finishing; CI checks it on a **pinned** toolchain, as it does clippy, so a new
+Rust release cannot turn the build red on its own.
 
 ## Three documents
 
@@ -140,7 +147,7 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 
 ```bash
 cargo build --workspace
-cargo test --workspace           # 182 tests at M6 + M7 + M9 + M14 + M15
+cargo test --workspace           # 183 tests at M6 + M7 + M9 + M14 + M15
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens

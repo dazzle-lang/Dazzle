@@ -111,10 +111,14 @@ fn editor_mode_survives_every_damaged_program() {
 #[test]
 fn editor_mode_reports_exactly_what_build_mode_reports() {
     for (root, text) in programs() {
-        for broken in [text.clone(), text.replacen('{', "", 1), text.replacen("fn main", "fn 1main", 1)] {
+        for broken in
+            [text.clone(), text.replacen('{', "", 1), text.replacen("fn main", "fn 1main", 1)]
+        {
             let build = analyse(&root, &broken, Mode::Build);
             let editor = analyse(&root, &broken, Mode::Editor);
-            let codes = |a: &Analysis| a.diags.iter().map(|d| (d.code, d.message.clone())).collect::<Vec<_>>();
+            let codes = |a: &Analysis| {
+                a.diags.iter().map(|d| (d.code, d.message.clone())).collect::<Vec<_>>()
+            };
             assert_eq!(codes(&build), codes(&editor), "{}", root.display());
         }
     }

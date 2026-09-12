@@ -73,8 +73,11 @@ fn unused(body: &hir::Body, diags: &mut Diagnostics) {
             )
             .at(body.file, l.span, "every value given to it is thrown away")
         } else {
-            Diagnostic::warning(codes::UNUSED_VARIABLE, format!("{what} `{}` is never used", l.name))
-                .at(body.file, l.span, "nothing reads this")
+            Diagnostic::warning(
+                codes::UNUSED_VARIABLE,
+                format!("{what} `{}` is never used", l.name),
+            )
+            .at(body.file, l.span, "nothing reads this")
         };
         diags.push(d.with_help(format!(
             "if that is deliberate, name it `_{}`; otherwise remove it",
@@ -103,12 +106,7 @@ impl Place {
     /// Moving `a` takes `a.b` with it, and moving `a.b` makes a later read of `a` a read
     /// of a partially-moved value. Both are prefix relationships, in opposite directions.
     fn overlaps(&self, other: &Place) -> bool {
-        self.local == other.local
-            && self
-                .path
-                .iter()
-                .zip(&other.path)
-                .all(|(a, b)| a == b)
+        self.local == other.local && self.path.iter().zip(&other.path).all(|(a, b)| a == b)
     }
 
     fn is_prefix_of(&self, other: &Place) -> bool {
@@ -596,11 +594,7 @@ impl<'a> Flow<'a> {
 
     /// Report if `p`, anything containing it, or anything inside it has been moved.
     fn check_live(&mut self, p: &Place, span: Span) {
-        let hit = self
-            .moved
-            .iter()
-            .find(|(q, _)| q.overlaps(p))
-            .map(|(q, s)| (q.clone(), *s));
+        let hit = self.moved.iter().find(|(q, _)| q.overlaps(p)).map(|(q, s)| (q.clone(), *s));
         let Some((q, at)) = hit else { return };
         let name = self.body.local(p.local).name.clone();
         let whole = q.is_prefix_of(p);

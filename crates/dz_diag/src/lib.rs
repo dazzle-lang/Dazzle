@@ -79,7 +79,12 @@ impl Diagnostic {
 
     /// Attach a second span: where the thing the primary label complains about came
     /// from. A use-after-move needs both ends to be readable at all (spec §6.4).
-    pub fn with_secondary(self, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
+    pub fn with_secondary(
+        self,
+        file: FileId,
+        span: Span,
+        message: impl Into<String>,
+    ) -> Diagnostic {
         self.with_label(Label::secondary(file, span, message))
     }
 
@@ -180,17 +185,11 @@ impl<'a> codespan_reporting::files::Files<'a> for MapFiles<'a> {
     type Source = &'a str;
 
     fn name(&'a self, id: FileId) -> Result<String, codespan_reporting::files::Error> {
-        self.0
-            .try_get(id)
-            .map(|f| f.name())
-            .ok_or(codespan_reporting::files::Error::FileMissing)
+        self.0.try_get(id).map(|f| f.name()).ok_or(codespan_reporting::files::Error::FileMissing)
     }
 
     fn source(&'a self, id: FileId) -> Result<&'a str, codespan_reporting::files::Error> {
-        self.0
-            .try_get(id)
-            .map(|f| f.text())
-            .ok_or(codespan_reporting::files::Error::FileMissing)
+        self.0.try_get(id).map(|f| f.text()).ok_or(codespan_reporting::files::Error::FileMissing)
     }
 
     fn line_index(
@@ -237,11 +236,8 @@ fn to_codespan(d: &Diagnostic) -> codespan_reporting::diagnostic::Diagnostic<Fil
         d.labels
             .iter()
             .map(|l| {
-                let style = if l.primary {
-                    cs::LabelStyle::Primary
-                } else {
-                    cs::LabelStyle::Secondary
-                };
+                let style =
+                    if l.primary { cs::LabelStyle::Primary } else { cs::LabelStyle::Secondary };
                 cs::Label::new(style, l.file, l.span.range()).with_message(&l.message)
             })
             .collect(),

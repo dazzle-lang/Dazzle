@@ -15,9 +15,8 @@ use dz_span::{FileId, Span};
 use crate::token::{keyword, Token, TokenKind};
 
 /// Integer and float suffixes (spec §2.5), longest first so matching is greedy.
-const SUFFIXES: &[&str] = &[
-    "usize", "isize", "i16", "i32", "i64", "u16", "u32", "u64", "f32", "f64", "i8", "u8", "f",
-];
+const SUFFIXES: &[&str] =
+    &["usize", "isize", "i16", "i32", "i64", "u16", "u32", "u64", "f32", "f64", "i8", "u8", "f"];
 
 const INT_SUFFIXES: &[&str] =
     &["usize", "isize", "i16", "i32", "i64", "u16", "u32", "u64", "i8", "u8"];
@@ -109,8 +108,7 @@ impl<'a> Lexer<'a> {
         message: impl Into<String>,
         label: impl Into<String>,
     ) {
-        self.diags
-            .push(Diagnostic::error(code, message.into()).at(self.file, span, label.into()));
+        self.diags.push(Diagnostic::error(code, message.into()).at(self.file, span, label.into()));
     }
 
     fn error_with_help(
@@ -200,7 +198,7 @@ impl<'a> Lexer<'a> {
     fn line_comment(&mut self, start: usize) {
         self.bump();
         self.bump(); // "//"
-        // `///` is a doc comment, but `////` is just a comment.
+                     // `///` is a doc comment, but `////` is just a comment.
         let is_doc = self.peek() == Some('/') && self.peek_at(1) != Some('/');
         while let Some(c) = self.peek() {
             if c == '\n' || c == '\r' {
@@ -256,8 +254,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn record_block_comment(&mut self, start: usize) {
-        self.comments
-            .push(Comment { span: Span::new(start, self.pos), kind: CommentKind::Block });
+        self.comments.push(Comment { span: Span::new(start, self.pos), kind: CommentKind::Block });
     }
 
     // --- identifiers ------------------------------------------------------
@@ -307,7 +304,8 @@ impl<'a> Lexer<'a> {
 
             // `1.2.3.466` — consume the whole run so it becomes one error, not three tokens.
             if self.peek() == Some('.') && self.peek_at(1).is_some_and(|c| c.is_ascii_digit()) {
-                while self.peek() == Some('.') && self.peek_at(1).is_some_and(|c| c.is_ascii_digit())
+                while self.peek() == Some('.')
+                    && self.peek_at(1).is_some_and(|c| c.is_ascii_digit())
                 {
                     self.bump();
                     self.eat_digits();
@@ -418,8 +416,8 @@ impl<'a> Lexer<'a> {
             };
 
             if !SUFFIXES.contains(&suffix.as_str()) {
-                let looks_like_radix = matches!(suffix.chars().next(), Some('x' | 'o' | 'b'))
-                    && suffix.len() > 1;
+                let looks_like_radix =
+                    matches!(suffix.chars().next(), Some('x' | 'o' | 'b')) && suffix.len() > 1;
                 let d = if looks_like_radix {
                     // e.g. `1x42` — almost always a mistyped `0x42`.
                     let whole = Span::new(start, self.pos);

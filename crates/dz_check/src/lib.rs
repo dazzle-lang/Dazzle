@@ -82,11 +82,7 @@ impl TraitRef {
     /// The map that turns a type written inside the trait into one seen through this
     /// reference. `self_ty` is what the trait is applied to, which is what `Self` means.
     pub(crate) fn subst_map(&self, params: &[ParamDef]) -> HashMap<u32, Ty> {
-        params
-            .iter()
-            .map(|p| p.param.id)
-            .zip(self.args.iter().cloned())
-            .collect()
+        params.iter().map(|p| p.param.id).zip(self.args.iter().cloned()).collect()
     }
 }
 
@@ -630,12 +626,8 @@ impl TypeTable {
 
     /// A declaration's field types as seen from one instantiation of it (spec §8.4).
     pub fn field_types(&self, sym: SymbolId, args: &[Ty], fields: &[FieldSig]) -> Vec<Ty> {
-        let map: HashMap<u32, Ty> = self
-            .type_params(sym)
-            .iter()
-            .map(|p| p.param.id)
-            .zip(args.iter().cloned())
-            .collect();
+        let map: HashMap<u32, Ty> =
+            self.type_params(sym).iter().map(|p| p.param.id).zip(args.iter().cloned()).collect();
         fields.iter().map(|f| ty::substitute(&f.ty, &map)).collect()
     }
 
@@ -656,9 +648,10 @@ impl TypeTable {
                         && s.drop.is_none()
                         && s.copy.is_none()
                         && !self.base_has_drop(*sym)
-                        && self.field_types(*sym, args, &s.fields).iter().all(|t| {
-                            !matches!(t, Ty::OwnPtr { .. }) && self.trivially_copyable(t)
-                        })
+                        && self
+                            .field_types(*sym, args, &s.fields)
+                            .iter()
+                            .all(|t| !matches!(t, Ty::OwnPtr { .. }) && self.trivially_copyable(t))
                 }
                 Some(ItemSig::Union { variants }) => variants.iter().all(|v| {
                     self.field_types(*sym, args, &v.fields)
@@ -689,8 +682,7 @@ impl TypeTable {
             }
             Ty::Named { sym: id, .. } => match self.get(*id) {
                 Some(ItemSig::Struct(s)) if s.copy.is_some() => {
-                    "its `impl Copy` does not apply to these type arguments (spec §8.2)"
-                        .to_owned()
+                    "its `impl Copy` does not apply to these type arguments (spec §8.2)".to_owned()
                 }
                 Some(ItemSig::Struct(s)) if s.cpp_owned => {
                     "the C++ class it is imported from has a destructor and no copy \
@@ -824,11 +816,7 @@ pub fn check(
     run(ws, files, &mut cx, check::item);
 
     cx.diags.sort_by_position();
-    CheckResult {
-        table: cx.table,
-        hir: cx.hir,
-        diagnostics: cx.diags,
-    }
+    CheckResult { table: cx.table, hir: cx.hir, diagnostics: cx.diags }
 }
 
 impl Ctx<'_> {
@@ -847,7 +835,8 @@ impl Ctx<'_> {
             let Some(f) = &module.foreign else { continue };
             for d in &f.header.decls {
                 let Some(sym) = self.res.foreign(module.id, &d.cpp) else { continue };
-                let span = |l: dz_project::cppimport::Loc| Span::new(l.start as usize, l.end as usize);
+                let span =
+                    |l: dz_project::cppimport::Loc| Span::new(l.start as usize, l.end as usize);
                 let sig = match &d.kind {
                     DeclKind::Fn { params, ret, ret_cast } => ItemSig::Fn(FnSig {
                         ret_cast: *ret_cast,
@@ -899,7 +888,11 @@ impl Ctx<'_> {
                         backing: foreign_int(*backing),
                         variants: variants
                             .iter()
-                            .map(|v| VariantSig { name: v.name.clone(), fields: Vec::new(), span: span(v.loc) })
+                            .map(|v| VariantSig {
+                                name: v.name.clone(),
+                                fields: Vec::new(),
+                                span: span(v.loc),
+                            })
                             .collect(),
                         values: variants.iter().map(|v| Some(v.value)).collect(),
                     },
@@ -1054,8 +1047,7 @@ impl<'a> Ctx<'a> {
         msg: impl Into<String>,
         label: impl Into<String>,
     ) {
-        self.diags
-            .push(Diagnostic::error(code, msg.into()).at(self.file, span, label.into()));
+        self.diags.push(Diagnostic::error(code, msg.into()).at(self.file, span, label.into()));
     }
 
     pub(crate) fn error_help(
@@ -1162,10 +1154,9 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
             format!("[]{}{}", if *mutable { "mut " } else { "" }, name_of(elem))
         }
         Ty::Range(e) => format!("{}..{}", name_of(e), name_of(e)),
-        Ty::Tuple(elems) => format!(
-            "({})",
-            elems.iter().map(&name_of).collect::<Vec<_>>().join(", ")
-        ),
+        Ty::Tuple(elems) => {
+            format!("({})", elems.iter().map(&name_of).collect::<Vec<_>>().join(", "))
+        }
         Ty::Fn { params, ret } => format!(
             "fn({}) -> {}",
             params.iter().map(&name_of).collect::<Vec<_>>().join(", "),
@@ -1188,7 +1179,8 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
         }
         Ty::Variant(id, i) => {
             let owner = res.symbol(*id);
-            let variant = owner.members.iter().filter(|m| m.sort == dz_resolve::MemberSort::Variant).nth(*i);
+            let variant =
+                owner.members.iter().filter(|m| m.sort == dz_resolve::MemberSort::Variant).nth(*i);
             match variant {
                 Some(v) => format!("{}::{}", owner.name, v.name),
                 None => owner.name.clone(),
@@ -1435,12 +1427,7 @@ impl<'a> Ctx<'a> {
     /// What `Self` means inside `sym`'s body: the declaration applied to its own
     /// parameters, so `Self` inside `Buffer<T>` is `Buffer<T>` and not a bare `Buffer`.
     pub(crate) fn self_type_of(&self, sym: SymbolId) -> Ty {
-        let args = self
-            .table
-            .type_params(sym)
-            .iter()
-            .map(|p| Ty::Param(p.param.clone()))
-            .collect();
+        let args = self.table.type_params(sym).iter().map(|p| Ty::Param(p.param.clone())).collect();
         Ty::Named { sym, args }
     }
 
@@ -1461,8 +1448,7 @@ impl<'a> Ctx<'a> {
                     if got == 1 { "was" } else { "were" }
                 ),
                 format!("expected {wanted}, found {got}"),
-                format!("`{name}` is declared with {wanted} type {}",
-                    plural(wanted, "parameter")),
+                format!("`{name}` is declared with {wanted} type {}", plural(wanted, "parameter")),
             );
         }
         let empty = HashMap::new();
@@ -1512,10 +1498,8 @@ impl<'a> Ctx<'a> {
 
     /// Bring a declaration's parameters into scope for whatever is lowered next.
     pub(crate) fn push_params(&mut self, defs: &[ParamDef]) {
-        let scope = defs
-            .iter()
-            .map(|d| (d.name().to_owned(), Ty::Param(d.param.clone())))
-            .collect();
+        let scope =
+            defs.iter().map(|d| (d.name().to_owned(), Ty::Param(d.param.clone()))).collect();
         self.param_scopes.push(scope);
     }
 
@@ -1582,10 +1566,9 @@ impl<'a> Ctx<'a> {
             Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => self.abstract_by_value(i),
             Ty::Tuple(parts) => parts.iter().find_map(|p| self.abstract_by_value(p)),
             Ty::Named { args, .. } => args.iter().find_map(|a| self.abstract_by_value(a)),
-            Ty::Fn { params, ret } => params
-                .iter()
-                .chain(std::iter::once(&**ret))
-                .find_map(|p| self.abstract_by_value(p)),
+            Ty::Fn { params, ret } => {
+                params.iter().chain(std::iter::once(&**ret)).find_map(|p| self.abstract_by_value(p))
+            }
             _ => None,
         }
     }
@@ -1601,10 +1584,9 @@ impl<'a> Ctx<'a> {
             Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => self.opaque_by_value(i),
             Ty::Tuple(parts) => parts.iter().find_map(|p| self.opaque_by_value(p)),
             Ty::Named { args, .. } => args.iter().find_map(|a| self.opaque_by_value(a)),
-            Ty::Fn { params, ret } => params
-                .iter()
-                .chain(std::iter::once(&**ret))
-                .find_map(|p| self.opaque_by_value(p)),
+            Ty::Fn { params, ret } => {
+                params.iter().chain(std::iter::once(&**ret)).find_map(|p| self.opaque_by_value(p))
+            }
             _ => None,
         }
     }
@@ -1618,10 +1600,9 @@ impl<'a> Ctx<'a> {
             TypeKind::OwnPtr { mutable, inner } => {
                 Ty::OwnPtr { mutable: *mutable, inner: Rc::new(self.lower_type_inner(inner)) }
             }
-            TypeKind::Ref { mutable, inner } => Ty::Ref {
-                mutable: *mutable,
-                inner: Rc::new(self.lower_type_inner(inner)),
-            },
+            TypeKind::Ref { mutable, inner } => {
+                Ty::Ref { mutable: *mutable, inner: Rc::new(self.lower_type_inner(inner)) }
+            }
             TypeKind::Optional(i) => Ty::Optional(Rc::new(self.lower_type_inner(i))),
             TypeKind::Array { size, elem } => {
                 let elem = Rc::new(self.lower_type_inner(elem));
@@ -1642,11 +1623,12 @@ impl<'a> Ctx<'a> {
                     }
                 }
             }
-            TypeKind::Slice { mutable, elem } => Ty::Slice {
-                mutable: *mutable,
-                elem: Rc::new(self.lower_type_inner(elem)),
-            },
-            TypeKind::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect()),
+            TypeKind::Slice { mutable, elem } => {
+                Ty::Slice { mutable: *mutable, elem: Rc::new(self.lower_type_inner(elem)) }
+            }
+            TypeKind::Tuple(elems) => {
+                Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect())
+            }
             TypeKind::Fn { params, ret } => Ty::Fn {
                 params: params.iter().map(|p| self.lower_type_inner(p)).collect(),
                 ret: Rc::new(ret.as_ref().map(|r| self.lower_type_inner(r)).unwrap_or(Ty::Void)),
@@ -1761,10 +1743,7 @@ impl<'a> Ctx<'a> {
                 self.error(
                     codes::TYPE_MISMATCH,
                     span,
-                    format!(
-                        "`{name}` is {} and cannot be used as a type",
-                        other.describe_a()
-                    ),
+                    format!("`{name}` is {} and cannot be used as a type", other.describe_a()),
                     "not a type",
                 );
                 Ty::Error
@@ -1894,8 +1873,10 @@ impl<'a> Ctx<'a> {
             || kind != SymbolKind::Struct
         {
             let what = match kind {
-                SymbolKind::Trait => "a trait is implemented, not inherited from: write \
-                                      `impl Trait for Type { … }` (spec §7.6)",
+                SymbolKind::Trait => {
+                    "a trait is implemented, not inherited from: write \
+                                      `impl Trait for Type { … }` (spec §7.6)"
+                }
                 SymbolKind::Union => "a union is a sum type; inherit from a struct (§7.5)",
                 SymbolKind::Enum => "an enum is a named integer; inherit from a struct (§7.4)",
                 _ => "`: Base` names one struct to inherit from (spec §7.3)",
@@ -2020,9 +2001,7 @@ impl<'a> Ctx<'a> {
         // A field redeclared in the derived type is an error, not a hiding: two fields of
         // one name in one type would make `self.x` mean two things (spec §7.3).
         let own: Vec<(String, Span)> = match self.table.get(sym) {
-            Some(ItemSig::Struct(s)) => {
-                s.fields.iter().map(|f| (f.name.clone(), f.span)).collect()
-            }
+            Some(ItemSig::Struct(s)) => s.fields.iter().map(|f| (f.name.clone(), f.span)).collect(),
             _ => Vec::new(),
         };
         for (name, span) in &own {
@@ -2134,10 +2113,7 @@ impl<'a> Ctx<'a> {
             }
             // A bound is on whatever the implementer chooses, so `Self` in it means that
             // implementer: `type Item : Format`.
-            let bounds = bounds
-                .iter()
-                .filter_map(|b| self.trait_bound(b, &Ty::SelfTy))
-                .collect();
+            let bounds = bounds.iter().filter_map(|b| self.trait_bound(b, &Ty::SelfTy)).collect();
             out.push(AssocType {
                 name: name.name.clone(),
                 ty: ty.as_ref().map(|t| self.lower_type(t)),
@@ -2154,8 +2130,7 @@ impl<'a> Ctx<'a> {
         for (def, p) in defs.iter_mut().zip(&g.params) {
             // A bound on `T` is applied to `T` itself, so `T: Mul` means `T: Mul<T>`.
             let self_ty = Ty::Param(def.param.clone());
-            def.bounds =
-                p.bounds.iter().filter_map(|b| self.trait_bound(b, &self_ty)).collect();
+            def.bounds = p.bounds.iter().filter_map(|b| self.trait_bound(b, &self_ty)).collect();
             def.default = p.default.as_ref().map(|t| self.lower_type(t));
             self.table.param_bounds.insert(def.param.id, def.bounds.clone());
         }
@@ -2232,9 +2207,7 @@ impl<'a> Ctx<'a> {
                     .iter()
                     .map(|v| v.value.as_ref().and_then(const_int_literal))
                     .collect();
-                self.table
-                    .sigs
-                    .insert(sym, ItemSig::Enum { backing, variants, values });
+                self.table.sigs.insert(sym, ItemSig::Enum { backing, variants, values });
             }
             ItemKind::Fn(f) => {
                 let sig = self.fn_sig(f, item.vis, Some(sym));
@@ -2268,15 +2241,10 @@ impl<'a> Ctx<'a> {
     /// the value meant, and a generic one has no single instance to call — so all three
     /// are refused here, where the declaration is, rather than at some later point.
     fn check_test_attribute(&mut self, item: &Item, f: &FnDecl, sig: &FnSig, sym: SymbolId) {
-        let which = ["test", "bench"]
-            .into_iter()
-            .find(|w| item.attrs.iter().any(|a| a.name.name == *w));
+        let which =
+            ["test", "bench"].into_iter().find(|w| item.attrs.iter().any(|a| a.name.name == *w));
         let Some(which) = which else { return };
-        let attr = item
-            .attrs
-            .iter()
-            .find(|a| a.name.name == which)
-            .expect("just found it");
+        let attr = item.attrs.iter().find(|a| a.name.name == which).expect("just found it");
         if item.attrs.iter().any(|a| a.name.name == "test")
             && item.attrs.iter().any(|a| a.name.name == "bench")
         {
@@ -2307,10 +2275,7 @@ impl<'a> Ctx<'a> {
                 "the runner has nothing to do with a value",
             ))
         } else if !sig.generics.is_empty() {
-            Some((
-                format!("a {which} has no type parameters"),
-                "there is no instance to run",
-            ))
+            Some((format!("a {which} has no type parameters"), "there is no instance to run"))
         } else if f.body.is_none() {
             Some((format!("a {which} needs a body"), "there is nothing to run"))
         } else {
@@ -2470,14 +2435,10 @@ impl<'a> Ctx<'a> {
                 name: p.name.name.clone(),
                 ty: self.lower_type(&p.ty),
                 has_default: p.default.is_some(),
-                            c_cast: None,
+                c_cast: None,
             })
             .collect();
-        let ret = f
-            .ret
-            .as_ref()
-            .map(|r| self.lower_type(r))
-            .unwrap_or(Ty::Void);
+        let ret = f.ret.as_ref().map(|r| self.lower_type(r)).unwrap_or(Ty::Void);
         FnSig {
             // Only an imported function needs a cast at the boundary (spec §15.2).
             ret_cast: false,
@@ -2528,10 +2489,7 @@ pub(crate) fn builtin_type(name: &str) -> Option<Ty> {
         "Self" => Ty::SelfTy,
         // `Error` and `SourceLocation` are provided by the language, not the stdlib
         // (spec §9.2, §12.7), so they are spellable without an import.
-        other => match ty::BuiltinTy::from_name(other) {
-            Some(b) => Ty::Builtin(b),
-            None => return None,
-        },
+        other => Ty::Builtin(ty::BuiltinTy::from_name(other)?),
     })
 }
 
@@ -2542,13 +2500,10 @@ pub(crate) fn builtin_type(name: &str) -> Option<Ty> {
 pub(crate) fn const_int_literal(e: &Expr) -> Option<i128> {
     match &e.kind {
         ExprKind::Int(text) => parse_int_literal(text),
-        ExprKind::Unary { op: UnaryOp::Neg, operand } => {
-            const_int_literal(operand).map(|n| -n)
-        }
+        ExprKind::Unary { op: UnaryOp::Neg, operand } => const_int_literal(operand).map(|n| -n),
         _ => None,
     }
 }
-
 
 /// Parse an integer literal's numeric value, ignoring separators and any type suffix.
 pub(crate) fn parse_int_literal(text: &str) -> Option<i128> {
@@ -2580,14 +2535,8 @@ pub(crate) fn parse_int_literal(text: &str) -> Option<i128> {
 /// bytes. The lexer has already rejected malformed escapes, so anything unrecognised here
 /// is passed through rather than reported a second time.
 pub(crate) fn decode_string_literal(text: &str) -> String {
-    let body = text
-        .strip_prefix('"')
-        .and_then(|t| t.strip_suffix('"'))
-        .unwrap_or(text);
-    let body = body
-        .strip_prefix('\'')
-        .and_then(|t| t.strip_suffix('\''))
-        .unwrap_or(body);
+    let body = text.strip_prefix('"').and_then(|t| t.strip_suffix('"')).unwrap_or(text);
+    let body = body.strip_prefix('\'').and_then(|t| t.strip_suffix('\'')).unwrap_or(body);
     let mut out = String::with_capacity(body.len());
     let mut chars = body.chars();
     while let Some(c) = chars.next() {
@@ -2633,10 +2582,7 @@ pub(crate) fn decode_string_literal(text: &str) -> String {
 
 /// Strip the delimiters of a raw string literal, which has no escapes (spec §2.4).
 pub(crate) fn decode_raw_string_literal(text: &str) -> String {
-    text.strip_prefix('"')
-        .and_then(|t| t.strip_suffix('"'))
-        .unwrap_or(text)
-        .to_owned()
+    text.strip_prefix('"').and_then(|t| t.strip_suffix('"')).unwrap_or(text).to_owned()
 }
 
 /// Parse a float literal's value, ignoring separators and any type suffix.
@@ -2649,4 +2595,3 @@ pub(crate) fn parse_float_literal(text: &str) -> f64 {
         .unwrap_or(cleaned.len());
     cleaned[..end].parse().unwrap_or(0.0)
 }
-

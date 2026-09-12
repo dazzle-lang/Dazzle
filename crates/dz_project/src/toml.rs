@@ -107,10 +107,11 @@ impl<'a> Parser<'a> {
     }
 
     fn error(&mut self, span: Span, msg: impl Into<String>, label: impl Into<String>) {
-        self.diags.push(
-            Diagnostic::error(codes::MANIFEST_SYNTAX, msg.into())
-                .at(self.file, span, label.into()),
-        );
+        self.diags.push(Diagnostic::error(codes::MANIFEST_SYNTAX, msg.into()).at(
+            self.file,
+            span,
+            label.into(),
+        ));
     }
 
     /// Skip spaces, tabs and comments; `stop_at_newline` keeps line structure visible.
@@ -310,7 +311,8 @@ impl<'a> Parser<'a> {
                     return None;
                 }
                 let span = Span::new(start, self.pos);
-                let text: String = self.src[start..self.pos].chars().filter(|c| *c != '_').collect();
+                let text: String =
+                    self.src[start..self.pos].chars().filter(|c| *c != '_').collect();
                 match text.parse::<i64>() {
                     Ok(v) => Some(Value::Int(v, span)),
                     Err(_) => {
@@ -325,7 +327,11 @@ impl<'a> Parser<'a> {
                 }
                 let span = Span::new(start, self.pos);
                 if !span.is_empty() {
-                    self.error(span, "expected a value", "not a string, integer, boolean, array or table");
+                    self.error(
+                        span,
+                        "expected a value",
+                        "not a string, integer, boolean, array or table",
+                    );
                 }
                 None
             }

@@ -16,14 +16,14 @@ pub struct BuildOutput {
 }
 
 /// Generate C++ for a project, writing only files whose contents changed (spec §16.6).
-pub fn emit_cpp(analysis: &Analysis, root: &Path, mode: dz_cpp::Mode) -> Result<BuildOutput, Diagnostics> {
-    let (Some(ws), Some(resolution), Some(table), Some(hir), Some(mono)) = (
-        &analysis.ws,
-        &analysis.resolution,
-        &analysis.table,
-        &analysis.hir,
-        &analysis.mono,
-    ) else {
+pub fn emit_cpp(
+    analysis: &Analysis,
+    root: &Path,
+    mode: dz_cpp::Mode,
+) -> Result<BuildOutput, Diagnostics> {
+    let (Some(ws), Some(resolution), Some(table), Some(hir), Some(mono)) =
+        (&analysis.ws, &analysis.resolution, &analysis.table, &analysis.hir, &analysis.mono)
+    else {
         return Err(Diagnostics::new());
     };
     let emitted =
@@ -66,11 +66,32 @@ pub fn emit_cpp(analysis: &Analysis, root: &Path, mode: dz_cpp::Mode) -> Result<
     Ok(BuildOutput { cpp_dir, written })
 }
 
-/// A C++ compiler to drive, honouring `DZ_CXX` before searching the path.
-pub fn find_compiler() -> Option<String> {
+/// The C++ compiler to drive (spec §16.5).
+///
+/// Four places may say which, and the nearest to the person running the build wins:
+///
+/// 1. `--cxx` on the command line, passed here as `chosen` — one build, one compiler.
+/// 2. `DZ_CXX` in the environment, which is how CI pins a matrix entry.
+/// 3. `[build] cxx` in the manifest, or `[build.target.<os>] cxx` for one platform —
+///    where a project says what it is known to build with.
+/// 4. Otherwise the first of `clang++`, `g++`, `c++` found on the path.
+///
+/// A name given explicitly is **not** probed: if it does not exist the compile fails
+/// saying so, which is better than silently using a different compiler than was asked for.
+pub fn find_compiler(analysis: &Analysis, chosen: Option<&str>) -> Option<String> {
+    if let Some(c) = chosen.filter(|c| !c.is_empty()) {
+        return Some(c.to_owned());
+    }
     if let Ok(cxx) = std::env::var("DZ_CXX") {
         if !cxx.is_empty() {
             return Some(cxx);
+        }
+    }
+    if let Some(ws) = &analysis.ws {
+        if let Some(cxx) = ws.module(ws.root).build.cxx.clone() {
+            if !cxx.is_empty() {
+                return Some(cxx);
+            }
         }
     }
     for candidate in ["clang++", "g++", "c++"] {
@@ -86,14 +107,15 @@ pub fn compile(
     analysis: &Analysis,
     out: &BuildOutput,
     root: &Path,
+    cxx: Option<&str>,
 ) -> Result<PathBuf, Diagnostics> {
     let mut diags = Diagnostics::new();
-    let Some(cxx) = find_compiler() else {
+    let Some(cxx) = find_compiler(analysis, cxx) else {
         diags.push(
-            Diagnostic::error(codes::CPP_COMPILER_FAILED, "no C++ compiler found")
-                .with_help(
-                    "install clang++ or g++, or set DZ_CXX to the compiler to use",
-                ),
+            Diagnostic::error(codes::CPP_COMPILER_FAILED, "no C++ compiler found").with_help(
+                "install clang++ or g++, or name one: `--cxx <compiler>`, `DZ_CXX` in the \
+                 environment, or `cxx` in the manifest's `[build]` table",
+            ),
         );
         return Err(diags);
     };

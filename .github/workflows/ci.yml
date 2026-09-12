@@ -5,9 +5,11 @@ name: CI
 # parts that differ per platform, so the point of this matrix is not the Rust build —
 # it is that `dz` drives three different C++ toolchains to the same result.
 #
-# There is no `cargo fmt --check` step on purpose: this repository is hand-formatted to a
-# wider style than rustfmt's default, and running it would rewrite nearly every file.
-# Adopting rustfmt would need a `rustfmt.toml` and a one-time reformat first.
+# Lints run on a **pinned** toolchain, and the build and tests on stable. `-D warnings`
+# against a floating stable means any new lint Rust ships turns CI red through no change of
+# ours, which is exactly what happened the first time this ran: 1.98 added `question_mark`
+# and the Linux and macOS jobs failed on code that had been fine. Bump LINT_TOOLCHAIN
+# deliberately, see what the new release thinks, and fix it in its own commit.
 on:
   push:
     branches: [master]
@@ -16,6 +18,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # The toolchain clippy and rustfmt run on. Pinned on purpose — see the note above.
+  LINT_TOOLCHAIN: "1.98"
   # A CI machine has no incremental cache worth keeping between jobs, and building one
   # costs both time and disk.
   CARGO_INCREMENTAL: 0
@@ -47,10 +51,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install Rust (stable, for the build and tests)
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust (pinned, for the lints)
+        uses: dtolnay/rust-toolchain@master
         with:
-          components: clippy
+          toolchain: ${{ env.LINT_TOOLCHAIN }}
+          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
 
@@ -100,8 +108,17 @@ jobs:
       - name: Build
         run: cargo build --workspace --all-targets
 
+      # One platform is enough for the lints: they read the source, which is the same
+      # everywhere, and running them three times only triples the chance of a flake.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        if: matrix.name == 'linux'
+        run: cargo +${{ env.LINT_TOOLCHAIN }} clippy --workspace --all-targets -- -D warnings
+
+      # `rustfmt.toml` sets `use_small_heuristics = "Max"`, which is what keeps rustfmt's
+      # output close to how this repository was already written by hand.
+      - name: Format
+        if: matrix.name == 'linux'
+        run: cargo +${{ env.LINT_TOOLCHAIN }} fmt --all -- --check
 
       - name: Test
         run: cargo test --workspace

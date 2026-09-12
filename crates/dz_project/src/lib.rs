@@ -24,6 +24,14 @@ pub struct ModuleId(pub u32);
 #[derive(Debug, Clone)]
 pub struct BuildConfig {
     pub cpp_standard: String,
+    /// `cxx = "g++"` — the C++ compiler that builds this project's generated code, and
+    /// the vendored libraries alongside it (spec §16.5).
+    ///
+    /// `None` lets `dz` pick the first of `clang++`, `g++`, `c++` it finds. A
+    /// `[build.target.<os>]` section overrides it per platform, and `--cxx` on the command
+    /// line overrides both, so "which compiler" is answerable at whichever level actually
+    /// knows: the project, the platform, or the person running the build.
+    pub cxx: Option<String>,
     pub output: OutputKind,
     pub optimize: Optimize,
     pub type_info: TypeInfo,
@@ -33,6 +41,7 @@ impl Default for BuildConfig {
     fn default() -> Self {
         BuildConfig {
             cpp_standard: "c++17".to_owned(),
+            cxx: None,
             output: OutputKind::Executable,
             optimize: Optimize::Debug,
             type_info: TypeInfo::Used,
@@ -303,11 +312,20 @@ impl Workspace {
     /// Make an imported header a module of the workspace, and record that `importer`
     /// imports it as `requested`. A header two modules import with the same flags is one
     /// module: the same C declarations, named once.
-    pub fn add_foreign(&mut self, importer: ModuleId, requested: &str, foreign: Foreign) -> ModuleId {
+    pub fn add_foreign(
+        &mut self,
+        importer: ModuleId,
+        requested: &str,
+        foreign: Foreign,
+    ) -> ModuleId {
         let existing = self
             .modules
             .iter()
-            .find(|m| m.foreign.as_ref().is_some_and(|f| std::sync::Arc::ptr_eq(&f.header, &foreign.header)))
+            .find(|m| {
+                m.foreign
+                    .as_ref()
+                    .is_some_and(|f| std::sync::Arc::ptr_eq(&f.header, &foreign.header))
+            })
             .map(|m| m.id);
         let id = match existing {
             Some(id) => id,
@@ -404,11 +422,7 @@ impl Workspace {
 /// Returns `None` only when the root manifest could not be read at all; every other
 /// problem is reported as a diagnostic and loading continues, so one broken dependency
 /// does not hide the rest.
-pub fn load(
-    entry: &Path,
-    map: &mut SourceMap,
-    diags: &mut Diagnostics,
-) -> Option<Workspace> {
+pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Option<Workspace> {
     let manifest_path =
         normalize(&if entry.is_dir() { entry.join("dazzle.toml") } else { entry.to_owned() });
 
@@ -502,7 +516,11 @@ impl<'a> Loader<'a> {
     }
 
     /// `from` is the manifest that depends on this one, used for the cycle message.
-    fn load_module(&mut self, manifest_path: &Path, from: Option<(FileId, Span)>) -> Option<ModuleId> {
+    fn load_module(
+        &mut self,
+        manifest_path: &Path,
+        from: Option<(FileId, Span)>,
+    ) -> Option<ModuleId> {
         let canonical =
             manifest_path.canonicalize().unwrap_or_else(|_| manifest_path.to_path_buf());
         if let Some(id) = self.by_path.get(&canonical) {
@@ -519,9 +537,7 @@ impl<'a> Loader<'a> {
                             .at(file, span, "this dependency's manifest does not exist")
                             .with_help("the path is relative to the manifest that declares it"),
                     ),
-                    None => self
-                        .diags
-                        .push(Diagnostic::error(codes::MANIFEST_MISSING, msg)),
+                    None => self.diags.push(Diagnostic::error(codes::MANIFEST_MISSING, msg)),
                 }
                 return None;
             }
@@ -589,9 +605,12 @@ impl<'a> Loader<'a> {
     fn module_name(&mut self, file: FileId, doc: &Document) -> (String, Span) {
         let Some(table) = doc.table("module") else {
             self.diags.push(
-                Diagnostic::error(codes::MANIFEST_MISSING_FIELD, "manifest has no `[module]` table")
-                    .at(file, Span::at(0), "expected a `[module]` table here")
-                    .with_help("every dazzle.toml needs `[module]` with a `name` (spec §3.1)"),
+                Diagnostic::error(
+                    codes::MANIFEST_MISSING_FIELD,
+                    "manifest has no `[module]` table",
+                )
+                .at(file, Span::at(0), "expected a `[module]` table here")
+                .with_help("every dazzle.toml needs `[module]` with a `name` (spec §3.1)"),
             );
             return (String::new(), Span::DUMMY);
         };
@@ -777,7 +796,11 @@ impl<'a> Loader<'a> {
                         format!("duplicate dependency `{}`", entry.key),
                     )
                     .at(file, entry.key_span, "declared twice")
-                    .with_label(dz_diag::Label::secondary(file, prev_span, "first declared here")),
+                    .with_label(dz_diag::Label::secondary(
+                        file,
+                        prev_span,
+                        "first declared here",
+                    )),
                 );
                 continue;
             }
@@ -800,7 +823,11 @@ impl<'a> Loader<'a> {
                                 codes::MODULE_CYCLE,
                                 "a module cannot depend on itself",
                             )
-                            .at(file, *path_span, "this points back at this module"),
+                            .at(
+                                file,
+                                *path_span,
+                                "this points back at this module",
+                            ),
                         );
                         continue;
                     }
@@ -862,6 +889,21 @@ impl<'a> Loader<'a> {
                 None => self.type_error(file, v, "build.cpp_standard", "a string"),
             }
         }
+        if let Some(v) = table.get("cxx") {
+            match as_str(v) {
+                Some(s) => cfg.cxx = Some(s.to_owned()),
+                None => self.type_error(file, v, "build.cxx", "a string"),
+            }
+        }
+        // `[build.target.<os>]` replaces what the base table said, for this platform only.
+        // Replaces rather than adds: there is one compiler, not a list of them.
+        let key = format!("build.target.{}", host_target());
+        if let Some(v) = doc.table(&key).and_then(|t| t.get("cxx")) {
+            match as_str(v) {
+                Some(s) => cfg.cxx = Some(s.to_owned()),
+                None => self.type_error(file, v, &format!("{key}.cxx"), "a string"),
+            }
+        }
         if let Some(v) = table.get("output") {
             cfg.output = match as_str(v) {
                 Some("executable") => OutputKind::Executable,
@@ -910,9 +952,16 @@ impl<'a> Loader<'a> {
     fn cpp_config(&mut self, file: FileId, doc: &Document, root_dir: &Path) -> CppConfig {
         const MODULE_KEYS: &[&str] =
             &["include_dirs", "defines", "lib_dirs", "link_libs", "frameworks"];
-        const LIB_KEYS: &[&str] =
-            &["root", "sources", "header", "include_dirs", "defines", "lib_dirs", "link_libs",
-              "frameworks"];
+        const LIB_KEYS: &[&str] = &[
+            "root",
+            "sources",
+            "header",
+            "include_dirs",
+            "defines",
+            "lib_dirs",
+            "link_libs",
+            "frameworks",
+        ];
         const LIB_TARGET_KEYS: &[&str] =
             &["sources", "include_dirs", "defines", "lib_dirs", "link_libs", "frameworks"];
         const MANIFEST_DIR: &str = "the directory holding dazzle.toml";
@@ -950,7 +999,9 @@ impl<'a> Loader<'a> {
         for table in &doc.tables {
             let parts: Vec<&str> = table.name.split('.').collect();
             match parts[..] {
-                ["cpp"] => self.cpp_section(file, table, root_dir, MANIFEST_DIR, MODULE_KEYS, &mut module),
+                ["cpp"] => {
+                    self.cpp_section(file, table, root_dir, MANIFEST_DIR, MODULE_KEYS, &mut module)
+                }
                 ["cpp", "target", os] => {
                     let applies = self.check_target(file, table, os) && os == host;
                     let mut elsewhere = Lists::default();
@@ -1089,7 +1140,12 @@ impl<'a> Loader<'a> {
                 continue;
             }
             let Value::Array(items, _) = &entry.value else {
-                self.type_error(file, &entry.value, &format!("{}.{key}", table.name), "an array of strings");
+                self.type_error(
+                    file,
+                    &entry.value,
+                    &format!("{}.{key}", table.name),
+                    "an array of strings",
+                );
                 continue;
             };
             for item in items {
@@ -1099,7 +1155,11 @@ impl<'a> Loader<'a> {
                             codes::MANIFEST_BAD_VALUE,
                             format!("`{}.{key}` entries must be strings", table.name),
                         )
-                        .at(file, item.span(), format!("this is {}", item.type_name())),
+                        .at(
+                            file,
+                            item.span(),
+                            format!("this is {}", item.type_name()),
+                        ),
                     );
                     continue;
                 };
@@ -1107,13 +1167,19 @@ impl<'a> Loader<'a> {
                     "defines" => out.defines.push(s.clone()),
                     "link_libs" => out.link_libs.push(s.clone()),
                     "frameworks" => out.frameworks.push(s.clone()),
-                    "sources" => self.lib_sources(file, base, base_desc, s, *span, &mut out.sources),
+                    "sources" => {
+                        self.lib_sources(file, base, base_desc, s, *span, &mut out.sources)
+                    }
                     _ => {
                         let dir = normalize(&base.join(s));
                         if !dir.is_dir() {
                             self.missing_dir(file, s, *span, base_desc);
                         }
-                        let list = if key == "include_dirs" { &mut out.include_dirs } else { &mut out.lib_dirs };
+                        let list = if key == "include_dirs" {
+                            &mut out.include_dirs
+                        } else {
+                            &mut out.lib_dirs
+                        };
                         if !list.contains(&dir) {
                             list.push(dir);
                         }
@@ -1141,8 +1207,11 @@ impl<'a> Loader<'a> {
             Ok(m) => m.flatten().filter(|p| p.is_file()).collect(),
             Err(e) => {
                 self.diags.push(
-                    Diagnostic::error(codes::MANIFEST_BAD_VALUE, format!("invalid source pattern: {e}"))
-                        .at(file, span, "not a valid glob"),
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("invalid source pattern: {e}"),
+                    )
+                    .at(file, span, "not a valid glob"),
                 );
                 return;
             }
@@ -1199,19 +1268,19 @@ impl<'a> Loader<'a> {
 
     fn missing_dir(&mut self, file: FileId, path: &str, span: Span, base_desc: &str) {
         self.diags.push(
-            Diagnostic::error(codes::MANIFEST_BAD_VALUE, format!("directory `{path}` does not exist"))
-                .at(file, span, "no such directory")
-                .with_help(format!("the path is relative to {base_desc}")),
+            Diagnostic::error(
+                codes::MANIFEST_BAD_VALUE,
+                format!("directory `{path}` does not exist"),
+            )
+            .at(file, span, "no such directory")
+            .with_help(format!("the path is relative to {base_desc}")),
         );
     }
 
     fn type_error(&mut self, file: FileId, value: &Value, what: &str, expected: &str) {
         self.diags.push(
-            Diagnostic::error(
-                codes::MANIFEST_BAD_VALUE,
-                format!("`{what}` must be {expected}"),
-            )
-            .at(file, value.span(), format!("this is {}", value.type_name())),
+            Diagnostic::error(codes::MANIFEST_BAD_VALUE, format!("`{what}` must be {expected}"))
+                .at(file, value.span(), format!("this is {}", value.type_name())),
         );
     }
 
@@ -1256,10 +1325,9 @@ fn normalize(path: &Path) -> PathBuf {
             std::path::Component::CurDir => {}
             std::path::Component::ParentDir => {
                 // Only pop a real directory name; keep `..` that would escape the root.
-                let popped = matches!(
-                    out.components().next_back(),
-                    Some(std::path::Component::Normal(_))
-                ) && out.pop();
+                let popped =
+                    matches!(out.components().next_back(), Some(std::path::Component::Normal(_)))
+                        && out.pop();
                 if !popped {
                     out.push("..");
                 }
