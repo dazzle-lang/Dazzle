@@ -18,4 +18,17 @@ root         = "vendor/rgfw"
 header       = "RGFW.h"
 include_dirs = ["."]
 defines      = ["RGFW_IMPLEMENTATION"]
-link_libs    = ["opengl32", "gdi32"]
+
+# The window system each platform's backend calls into. These were `link_libs` at the top
+# of the recipe and so applied everywhere, which meant this fixture could only ever link on
+# Windows: `opengl32` and `gdi32` do not exist elsewhere. A `target.<os>` section is how a
+# recipe says "only here" (spec §15.1).
+[cpp.libs.rgfw.target.windows]
+link_libs = ["opengl32", "gdi32"]
+
+[cpp.libs.rgfw.target.linux]
+link_libs = ["GL", "X11", "Xrandr", "m", "dl", "pthread"]
+
+# macOS system libraries are frameworks, not `-l` names.
+[cpp.libs.rgfw.target.macos]
+frameworks = ["Cocoa", "OpenGL", "IOKit", "CoreVideo"]
