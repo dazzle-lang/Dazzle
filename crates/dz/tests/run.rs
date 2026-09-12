@@ -19,6 +19,22 @@ fn run_dir(name: &str) -> PathBuf {
     repo_root().join("tests/run").join(name)
 }
 
+/// Every project under `tests/run/` that opens a window, and so has no `expected.txt` to
+/// compare against: `raylib` and `cinterop_rgfw`, which are M7b's acceptance criterion.
+/// They are built rather than run — see `the_windowed_interop_programs_build`.
+fn windowed_projects() -> Vec<(String, PathBuf)> {
+    let root = repo_root().join("tests/run");
+    let Ok(entries) = std::fs::read_dir(&root) else { return Vec::new() };
+    let mut out: Vec<(String, PathBuf)> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.join("dazzle.toml").exists() && !p.join("expected.txt").exists())
+        .map(|p| (p.file_name().unwrap().to_string_lossy().to_string(), p))
+        .collect();
+    out.sort();
+    out
+}
+
 /// Every project under `tests/run/` that has an `expected.txt`.
 fn projects() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
@@ -87,6 +103,227 @@ fn every_program_produces_its_expected_output() {
             assert!(out.status.success(), "{name}: dz run failed\n{stderr}");
             assert_eq!(stdout, expected_body, "{name}: stdout differs");
         }
+    }
+}
+
+/// M7b's acceptance criterion, guarded. `tests/run/raylib` opens a window and
+/// `tests/run/cinterop_rgfw` opens one too, so neither can carry an `expected.txt` and
+/// neither is reached by `every_program_produces_its_expected_output`. That left the
+/// milestone's own criterion untested: a break in `import cpp`, in a `[cpp.libs]` recipe,
+/// in the single-header `header =` form, in callbacks or in `[cpp.instantiate]` would have
+/// passed green. `dz build` exercises all of it — libclang reading the headers, the
+/// library's own sources compiling, the link — and stops short of the window.
+#[test]
+fn the_windowed_interop_programs_build() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let found = windowed_projects();
+    assert!(
+        !found.is_empty(),
+        "no windowed projects found under tests/run/; if one gained an `expected.txt`, \
+         point this test at whatever now covers raylib and RGFW"
+    );
+
+    for (name, dir) in found {
+        let out = Command::new(dz())
+            .args(["build", dir.to_str().unwrap()])
+            .output()
+            .expect("failed to run dz");
+        assert!(
+            out.status.success(),
+            "{name}: dz build failed\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+/// `--release` overrides the manifest's `[build] optimize` for one command.
+///
+/// Asserted through behaviour rather than through the command line the driver built: the
+/// point is that the program still compiles and runs identically at every level, which is
+/// what makes the flag safe to reach for when measuring.
+#[test]
+fn a_build_mode_can_be_chosen_on_the_command_line() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    // A scratch copy, not `tests/run/hello` itself: cargo runs tests in parallel and
+    // `hello_world_runs` builds that directory too, so sharing one would race in `build/`.
+    let dir = scratch(
+        "dz_build_modes",
+        "[module]\nname = \"hello\"\nsources = [\"src/**/*.dz\"]\n",
+        "fn main() {\n    println(\"Hello, world!\")\n}\n",
+    );
+    for mode in ["--debug", "--release", "--shipping"] {
+        let out = Command::new(dz())
+            .args(["run", dir.to_str().unwrap(), mode])
+            .output()
+            .expect("failed to run dz");
+        assert!(
+            out.status.success(),
+            "{mode}: dz run failed\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            normalise(&String::from_utf8_lossy(&out.stdout)),
+            "Hello, world!",
+            "{mode}: stdout differs"
+        );
+    }
+
+    let bad = Command::new(dz())
+        .args(["run", dir.to_str().unwrap(), "--nonsense"])
+        .output()
+        .expect("failed to run dz");
+    assert!(!bad.status.success(), "an unknown option should be refused");
+}
+
+/// `dz test` finds `#[test]` functions, runs each one, and reports (spec §19 M14).
+///
+/// Also asserts the half that is easy to lose: a **normal build leaves the tests out**.
+/// `every_program_produces_its_expected_output` covers the other side of it — running the
+/// same project prints only what `main` prints.
+#[test]
+fn dz_test_runs_the_projects_tests() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = copy_fixture("tests", "dz_test_fixture");
+
+    let out = Command::new(dz())
+        .args(["test", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "dz test failed\n{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("running 3 tests"), "{stdout}");
+    assert!(stdout.contains("ok    tests::addition_works"), "{stdout}");
+    assert!(stdout.contains("3 passed"), "{stdout}");
+
+    // A filter selects by substring.
+    let filtered = Command::new(dz())
+        .args(["test", dir.to_str().unwrap(), "commutes"])
+        .output()
+        .expect("failed to run dz");
+    let text = String::from_utf8_lossy(&filtered.stdout);
+    assert!(text.contains("running 1 test"), "{text}");
+    assert!(text.contains("addition_commutes"), "{text}");
+
+    // The program build must not carry them: `addition_works` exists only in the test
+    // binary, and linking tests into a shipped program is exactly the mistake to catch.
+    let cpp = Command::new(dz())
+        .args(["cpp", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    assert!(cpp.status.success(), "{}", String::from_utf8_lossy(&cpp.stderr));
+    let generated = std::fs::read_to_string(dir.join("build/cpp/tests.cpp")).unwrap();
+    assert!(
+        !generated.contains("addition_works"),
+        "a normal build must not contain the tests:\n{generated}"
+    );
+}
+
+/// A test that panics is reported as a failure, by name, with its own message — and the
+/// tests after it still run, which is the reason each one gets its own process.
+#[test]
+fn a_failing_test_is_reported_and_does_not_stop_the_rest() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let source = "#[test]\nfn passes() {}\n\n\
+                  #[test]\nfn fails() {\n    panic(\"deliberately broken\")\n}\n\n\
+                  #[test]\nfn also_passes() {}\n\nfn main() {}\n";
+    let dir = scratch(
+        "dz_test_failing",
+        "[module]\nname = \"failing\"\nsources = [\"src/**/*.dz\"]\n",
+        source,
+    );
+    let out = Command::new(dz())
+        .args(["test", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    assert!(!out.status.success(), "a failing test must fail the run\n{stdout}");
+    assert!(stdout.contains("FAIL  failing::fails"), "{stdout}");
+    assert!(stdout.contains("deliberately broken"), "the panic message is the report\n{stdout}");
+    // The point of one process per test: what follows a failure still runs.
+    assert!(stdout.contains("ok    failing::also_passes"), "{stdout}");
+    assert!(stdout.contains("2 passed, 1 failed"), "{stdout}");
+}
+
+/// `dz bench` times `#[bench]` functions and reports ns/iter (spec §19 M15).
+///
+/// The comparison suite itself is not asserted on — a number from one machine is not a
+/// fact about the language — but the machinery is: benchmarks are found, timed, and
+/// excluded from the program, and the two halves of each pair agree on what they compute,
+/// which is what makes comparing them meaningful at all.
+#[test]
+fn dz_bench_times_the_projects_benchmarks() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let source = "fn work(n: i32) -> i32 {\n    let mut t = 0\n    let mut i = 0\n    \
+                  while i < n {\n        t += i\n        i += 1\n    }\n    return t\n}\n\n\
+                  #[bench]\nfn adding() {\n    blackbox(work(blackbox(64)))\n}\n\n\
+                  fn main() {\n    println(\"{}\", work(4))\n}\n";
+    let dir = scratch(
+        "dz_bench_smoke",
+        "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n",
+        source,
+    );
+    let out = Command::new(dz())
+        .args(["bench", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "dz bench failed\n{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("running 1 benchmark"), "{stdout}");
+    assert!(stdout.contains("b::adding"), "{stdout}");
+    assert!(stdout.contains("ns/iter"), "a benchmark reports a time\n{stdout}");
+
+    // The program build carries neither the benchmark nor `blackbox`'s work.
+    let cpp = Command::new(dz())
+        .args(["cpp", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    assert!(cpp.status.success(), "{}", String::from_utf8_lossy(&cpp.stderr));
+    let generated = std::fs::read_to_string(dir.join("build/cpp/b.cpp")).unwrap();
+    assert!(!generated.contains("adding"), "a normal build must not contain benchmarks");
+}
+
+/// The benchmark suite's two halves must compute the same thing, or the comparison between
+/// them measures nothing (spec §19 M15). Running the project is what checks that: `main`
+/// prints each Dazzle result beside the C++ one it is measured against.
+#[test]
+fn the_benchmark_suite_agrees_with_its_cpp_baseline() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = repo_root().join("tests/bench");
+    let out = Command::new(dz())
+        .args(["run", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    if !out.status.success() {
+        // `import cpp` needs libclang; without it the suite cannot be built at all.
+        eprintln!("skipping: the benchmark suite did not build (libclang missing?)");
+        return;
+    }
+    for line in normalise(&String::from_utf8_lossy(&out.stdout)).lines() {
+        let mut halves = line.split_whitespace();
+        let (dazzle, cpp) = (halves.next(), halves.next());
+        assert!(
+            dazzle.is_some() && dazzle == cpp,
+            "a benchmark pair computes different things: {line:?}"
+        );
     }
 }
 
@@ -165,7 +402,7 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
     // the generated special members, and `failure` the only one that exercises `or`,
     // tagged unions and tuples. A warning in generated code is a compiler bug
     // (invariant 7), so the check has to see all of it.
-    for fixture in ["features", "ownership", "failure", "hello"] {
+    for fixture in ["features", "ownership", "failure", "hello", "keywords", "inherit"] {
         check_warning_clean(cxx, fixture);
     }
 }

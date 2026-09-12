@@ -470,7 +470,8 @@ impl<'a> Printer<'a> {
 
     fn fn_decl(&mut self, vis: &str, f: &FnDecl) {
         let head = format!(
-            "{vis}{}fn {}{}",
+            "{vis}{}{}fn {}{}",
+            dispatch_str(f.dispatch),
             if f.is_unsafe { "unsafe " } else { "" },
             f.name.name,
             generics_str(&f.generics)
@@ -481,6 +482,15 @@ impl<'a> Printer<'a> {
     fn special_member(&mut self, vis: &str, f: &FnDecl) {
         let head = format!("{vis}{}", f.name.name);
         self.signature(&head, f);
+    }
+
+    /// `: UiElement(w)` — a constructor's base initialiser, which is part of what it
+    /// means and so has to survive formatting (spec §7.3, 18.32).
+    fn base_init(&mut self, f: &FnDecl) -> String {
+        let Some(b) = &f.base_init else { return String::new() };
+        let path = self.path(&b.path);
+        let args: Vec<String> = b.args.iter().map(|a| self.expr(a)).collect();
+        format!(" : {path}({})", args.join(", "))
     }
 
     fn signature(&mut self, head: &str, f: &FnDecl) {
@@ -496,10 +506,12 @@ impl<'a> Printer<'a> {
         // Fallibility is part of the signature, spelled on the arrow (spec §9.1): dropping
         // the `!` would change what the function means, not how it looks.
         let arrow = if f.fallible { "!->" } else { "->" };
+        // A constructor has no return type, and its `: Base(…)` sits where one would
+        // (spec §7.3); the two are never both present.
         let ret = match &f.ret {
             Some(t) => format!(" {arrow} {}", self.ty(t)),
             None if f.fallible => format!(" {arrow}"),
-            None => String::new(),
+            None => self.base_init(f),
         };
         let empty_body = f.body.as_ref().is_some_and(|b| b.stmts.is_empty());
         let open = match &f.body {
@@ -974,8 +986,19 @@ fn indent_lines(text: &str) -> String {
 fn vis_str(v: Vis) -> &'static str {
     match v {
         Vis::Private => "",
+        Vis::Protected => "protected ",
         Vis::Module => "pub(module) ",
         Vis::Public => "pub ",
+    }
+}
+
+/// `virtual ` / `override ` — part of what a method means, so it survives formatting
+/// (spec §7.3, 18.32).
+fn dispatch_str(d: Dispatch) -> &'static str {
+    match d {
+        Dispatch::Static => "",
+        Dispatch::Virtual => "virtual ",
+        Dispatch::Override => "override ",
     }
 }
 

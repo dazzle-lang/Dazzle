@@ -655,3 +655,142 @@ fn if_let_on_a_plain_value(n: i32) {
         return
     }
 }
+
+// §7.3, 18.32: struct inheritance, one deliberate failure per rule.
+pub struct Panel {
+    pub left: i32 = 0
+}
+
+pub struct Framed : Panel {
+    pub thickness: i32 = 1
+}
+
+// A base must be a struct: a trait is implemented, not inherited from.
+pub struct NotAStruct : Yell {
+    pub n: i32 = 0
+}
+
+// A base's field cannot be redeclared — a name means one thing in a type.
+pub struct Redeclares : Panel {
+    pub left: i32 = 5
+}
+
+// A whole `Framed` is not a `Panel`: copying one would drop what `Framed` adds.
+fn slices_by_value(f: Framed) -> i32 {
+    let p: Panel = f
+    return p.left
+}
+
+// A read-only reference does not become a writable one on the way to the base.
+fn widens_a_read_only_reference(f: &Framed) {
+    writes_a_panel(f)
+}
+
+fn writes_a_panel(p: &mut Panel) {
+    p.left = 1
+}
+
+// A base with a constructor has to be constructed through it.
+pub struct Measured {
+    pub w: i32 = 0
+
+    Measured(width: i32) {
+        w = width
+    }
+}
+
+pub struct ForgetsTheBase : Measured {
+    pub extra: i32 = 0
+
+    ForgetsTheBase(e: i32) {
+        extra = e
+    }
+}
+
+// A base initialiser names the one base the struct declares, and nothing else.
+pub struct InitialisesTheWrongBase : Panel {
+    InitialisesTheWrongBase() : Measured(1) {}
+}
+
+// A type with a constructor is built by calling it, not with a literal.
+fn literal_of_a_type_with_a_constructor() -> i32 {
+    let m = Measured{ w: 2 }
+    return m.w
+}
+
+// §7.3, 18.32: `virtual`, `override` and `protected`, one deliberate failure per rule.
+pub struct Abstract {
+    protected inner: i32 = 0
+
+    pub virtual fn area(&self) -> i32
+    pub virtual fn label(&self) -> i32 { return 1 }
+    pub fn fixed(&self) -> i32 { return 2 }
+}
+
+// Abstract: inherits a body-less `virtual` and does not override it.
+pub struct StillAbstract : Abstract {
+    pub n: i32 = 0
+}
+
+// An abstract type has no values, so it cannot be held by value or built.
+fn holds_an_abstract_by_value(a: Abstract) -> i32 {
+    return a.area()
+}
+
+fn builds_an_abstract() -> i32 {
+    let a = StillAbstract{}
+    return a.n
+}
+
+// `override` with nothing to override.
+pub struct OverridesNothing {
+    pub override fn missing(&self) -> i32 { return 0 }
+}
+
+// `override` aimed at a method that is not `virtual`.
+pub struct OverridesAFixedOne : Abstract {
+    pub override fn area(&self) -> i32 { return 1 }
+    pub override fn fixed(&self) -> i32 { return 3 }
+}
+
+// An override whose signature has drifted from the base's.
+pub struct DriftedSignature : Abstract {
+    pub override fn area(&self) -> i32 { return 1 }
+    pub override fn label(&self, extra: i32) -> i32 { return extra }
+}
+
+// Redeclaring a base's method without `override` is a shadow, which Dazzle has not got.
+pub struct ShadowsAMethod : Abstract {
+    pub override fn area(&self) -> i32 { return 1 }
+    pub fn label(&self) -> i32 { return 9 }
+}
+
+// `protected` is for the family, not for everyone.
+pub struct Unrelated {
+    pub fn peeks(&self, a: &Abstract) -> i32 {
+        return a.inner
+    }
+}
+
+// `Abstract::area` is called on an `Abstract` or something that inherits from one.
+fn base_call_on_an_unrelated_type(u: &Unrelated) -> i32 {
+    return Abstract::label(u)
+}
+
+// A `#[test]` is a function the runner calls with nothing and reads nothing back
+// from: it passes by returning and fails by panicking (spec §19 M14).
+#[test]
+fn a_test_that_takes_an_argument(n: i32) {}
+
+#[test]
+fn a_test_that_returns_a_value() -> i32 {
+    return 1
+}
+
+#[test]
+fn a_test_that_is_fallible() !-> i32 {
+    return 1
+}
+
+#[test]
+fn a_test_with_type_parameters<T>() {}

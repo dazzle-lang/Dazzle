@@ -1,0 +1,46 @@
+// `#[test]` and `dz test` (spec §19 M14).
+//
+// Tests live beside the code they test. A test passes by returning and fails by panicking,
+// and a normal build leaves every one of them out — which is what `expected.txt` checks:
+// running this project prints only what `main` prints, and the tests are not linked in.
+
+pub struct Counter {
+    pub n: i32 = 0
+
+    pub fn bump(&mut self) {
+        n += 1
+    }
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+#[test]
+fn addition_works() {
+    if add(2, 2) != 4 {
+        panic("2 + 2 should be 4")
+    }
+}
+
+#[test]
+fn addition_commutes() {
+    if add(2, 3) != add(3, 2) {
+        panic("addition should commute")
+    }
+}
+
+// A test is ordinary Dazzle: it may build values, mutate them and call methods.
+#[test]
+fn a_counter_counts() {
+    let mut c = Counter{}
+    c.bump()
+    c.bump()
+    if c.n != 2 {
+        panic("two bumps should be two")
+    }
+}
+
+fn main() {
+    println("{}", add(1, 2))
+}

@@ -16,7 +16,7 @@ pub struct BuildOutput {
 }
 
 /// Generate C++ for a project, writing only files whose contents changed (spec §16.6).
-pub fn emit_cpp(analysis: &Analysis, root: &Path) -> Result<BuildOutput, Diagnostics> {
+pub fn emit_cpp(analysis: &Analysis, root: &Path, mode: dz_cpp::Mode) -> Result<BuildOutput, Diagnostics> {
     let (Some(ws), Some(resolution), Some(table), Some(hir), Some(mono)) = (
         &analysis.ws,
         &analysis.resolution,
@@ -27,12 +27,12 @@ pub fn emit_cpp(analysis: &Analysis, root: &Path) -> Result<BuildOutput, Diagnos
         return Err(Diagnostics::new());
     };
     let emitted =
-        dz_cpp::emit(ws, resolution, table, hir, mono, &analysis.map, &analysis.files);
+        dz_cpp::emit(ws, resolution, table, hir, mono, &analysis.map, &analysis.files, mode);
     if emitted.diagnostics.has_errors() {
         return Err(emitted.diagnostics);
     }
 
-    let cpp_dir = root.join("build").join("cpp");
+    let cpp_dir = root.join("cpp");
     if let Err(e) = std::fs::create_dir_all(&cpp_dir) {
         let mut d = Diagnostics::new();
         d.push(Diagnostic::error(
@@ -116,7 +116,7 @@ pub fn compile(
         return Err(diags);
     }
 
-    let bin_dir = root.join("build");
+    let bin_dir = root.to_path_buf();
     let exe_name = if cfg!(windows) {
         format!("{}.exe", file_stem(&module.name))
     } else {

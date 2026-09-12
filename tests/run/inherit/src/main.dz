@@ -1,0 +1,176 @@
+// Struct inheritance, end to end (spec §7.3, 18.32).
+//
+// The base's fields come first and the C++ output is real single inheritance, which is
+// what makes `&Derived` → `&Base` and `^Derived` → `^Base` free rather than a conversion.
+
+pub struct Widget {
+    pub left: i32 = 1
+    pub top: i32 = 2
+
+    pub fn origin(&self) -> i32 {
+        return left + top
+    }
+}
+
+pub struct Panel : Widget {
+    pub title: cstr = "panel"
+
+    // A base's fields are in scope unqualified here, exactly as this type's own are.
+    pub fn area(&self) -> i32 {
+        return left * top
+    }
+}
+
+// Three deep: `Dialog` holds `Widget`'s fields, then `Panel`'s, then its own.
+pub struct Dialog : Panel {
+    pub modal: bool = true
+}
+
+fn widget_origin(w: &Widget) -> i32 {
+    return w.origin()
+}
+
+fn shift(w: &mut Widget) {
+    w.left += 10
+}
+
+fn through_a_pointer(w: ^Widget) -> i32 {
+    return unsafe { w^.top }
+}
+
+// A base with a constructor is built through it (spec §7.3).
+pub struct Sized {
+    pub w: i32 = 0
+    pub h: i32 = 0
+
+    Sized(width: i32, height: i32) {
+        w = width
+        h = height
+    }
+
+    pub fn volume(&self) -> i32 {
+        return w * h
+    }
+}
+
+pub struct Boxed : Sized {
+    pub depth: i32 = 0
+
+    Boxed(width: i32, height: i32, d: i32) : Sized(width, height) {
+        depth = d
+    }
+}
+
+fn main() {
+    let mut d = Dialog{ left: 3, top: 4, title: "dialog", modal: false }
+
+    // Inherited fields and methods, at every depth of the chain.
+    println("{} {} {} {}", d.left, d.top, d.title, d.modal)
+    println("{} {} {}", d.origin(), d.area(), widget_origin(&d))
+
+    // `&mut Derived` where a `&mut Base` is wanted, writing through it.
+    shift(&mut d)
+    println("{} {}", d.left, through_a_pointer(&d))
+
+    // Defaults come from the declaration that wrote them, whichever type that was.
+    let p = Panel{}
+    println("{} {} {}", p.left, p.top, p.title)
+
+    // A constructor that builds its base.
+    let b = Boxed(2, 5, 7)
+    println("{} {} {} {}", b.w, b.h, b.depth, b.volume())
+
+    virtual_and_protected()
+}
+
+// --- `virtual`, `override`, `protected` (spec §7.3, 18.32) ------------------
+
+trait Measured {
+    fn measure(&self) -> i32
+}
+
+pub struct Shape {
+    protected weight: i32 = 2
+    pub scale: i32 = 1
+
+    // No body: `Shape` is abstract, and only something that overrides this can exist.
+    pub virtual fn area(&self) -> i32
+
+    pub virtual fn label(&self) -> i32 {
+        return 100
+    }
+
+    // A non-virtual method calling a virtual one still reaches the override.
+    pub fn report(&self) -> i32 {
+        return self.area() + self.label()
+    }
+
+    protected fn heft(&self) -> i32 {
+        return weight * 10
+    }
+}
+
+pub struct Circle : Shape {
+    pub radius: i32 = 3
+
+    pub override fn area(&self) -> i32 {
+        // `protected` and `pub` fields of the base, in scope unqualified.
+        return radius * radius * scale
+    }
+
+    pub override fn label(&self) -> i32 {
+        // The base's version, called without virtual dispatch, plus a `protected` method.
+        return Shape::label(self) + self.heft()
+    }
+}
+
+pub struct Box : Shape {
+    pub side: i32 = 2
+
+    pub override fn area(&self) -> i32 {
+        return side * side * side
+    }
+}
+
+// An abstract type is usable behind a reference: that is what `virtual` is for.
+fn area_through_base(s: &Shape) -> i32 {
+    return s.area()
+}
+
+fn report_through_base(s: &Shape) -> i32 {
+    return s.report()
+}
+
+// A base's implementation is the derived type's, and a more specific one replaces it.
+impl Measured for Shape {
+    fn measure(&self) -> i32 {
+        return scale
+    }
+}
+
+impl Measured for Box {
+    fn measure(&self) -> i32 {
+        return side
+    }
+}
+
+fn measure_any<T: Measured>(v: &T) -> i32 {
+    return v.measure()
+}
+
+fn virtual_and_protected() {
+    let c = Circle{ scale: 2, radius: 3 }
+    let b = Box{ scale: 7, side: 3 }
+
+    // Runtime dispatch through a base reference.
+    println("{} {}", area_through_base(&c), area_through_base(&b))
+
+    // A base method calling a virtual one lands on the override.
+    println("{} {}", report_through_base(&c), report_through_base(&b))
+
+    // `Shape::label(self)` from inside the override, plus a `protected` method.
+    println("{} {}", c.label(), b.label())
+
+    // `Circle` inherits `Shape`'s implementation; `Box` has its own.
+    println("{} {}", measure_any(&c), measure_any(&b))
+}

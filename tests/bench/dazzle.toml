@@ -1,0 +1,15 @@
+[module]
+name    = "bench"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"
+
+# The hand-written C++ this suite measures Dazzle against (spec §19 M15). It is vendored as
+# source and compiled by `dz` at the same optimisation level as the Dazzle half, into the
+# same binary, so a difference between a pair of benchmarks is a difference between the two
+# languages rather than between two ways of running a benchmark.
+[cpp.libs.baseline]
+root         = "vendor/baseline"
+sources      = ["*.cpp"]
+include_dirs = ["."]

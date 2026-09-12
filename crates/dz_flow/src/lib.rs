@@ -453,7 +453,11 @@ impl<'a> Flow<'a> {
             }
 
             hir::ExprKind::Call { callee, args } => {
-                if let hir::Callee::Method { recv, .. } = &callee {
+                // A base-qualified call borrows its receiver exactly as `recv.m()` does
+                // (spec §7.3, 18.32).
+                if let hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. } =
+                    &callee
+                {
                     self.place_only(*recv);
                 } else if let hir::Callee::Value(v) = &callee {
                     self.value(*v);

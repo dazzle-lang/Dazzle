@@ -338,6 +338,29 @@ fn inlay_hints_show_inferred_types_only() {
     assert_eq!(hint_at("grid: [SLOTS]i32", "grid"), None, "a written type gets no hint");
 }
 
+/// A hint must show a name you could actually type at that position (spec §3.3).
+///
+/// An imported header's type is only ever reachable as `mini::MiniVec2` in the file that
+/// wrote `import cpp "mini.h" as mini` — a bare `MiniVec2` names nothing there, so
+/// offering it in a hint offers something that would not compile.
+#[test]
+fn inlay_hints_qualify_an_imported_type_the_way_the_file_must_write_it() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/cinterop");
+    let a = analyse(&dir);
+    if a.diags.has_errors() {
+        // `import cpp` needs libclang; without it there is nothing to assert about.
+        eprintln!("skipping: the C interop fixture did not analyse (libclang missing?)");
+        return;
+    }
+    let file = main_file(&a);
+    let text = a.map.get(file).text();
+    let hints = ide::inlay_hints(&a, file, dz_span::Span::new(0, text.len()));
+
+    let end = offset_in(text, "a = mini::MiniVec2{", 0) + 1;
+    let label = hints.iter().find(|h| h.offset == end).map(|h| h.label.clone());
+    assert_eq!(label.as_deref(), Some(": mini::MiniVec2"), "{hints:?}");
+}
+
 #[test]
 fn inlay_hints_name_the_fields_of_a_positional_literal() {
     let (a, f, text) = edited(typed_above("ints.push(10)", "let hinted = Vec2{ 1.5, 2.5 }"));

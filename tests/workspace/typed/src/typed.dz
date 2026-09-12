@@ -840,3 +840,156 @@ fn if_let_forms(o: i32?, p: ^mut Vec3) -> f32 {
     let got = if let v = p { v.x } else { 0 }
     return got
 }
+
+// §7.3, 18.32: struct inheritance. The base's fields come first, so a `&Derived` is a
+// `&Base` and a `^Derived` a `^Base`; a base's fields and methods are the derived type's,
+// in scope unqualified inside its methods exactly as its own are.
+pub struct Widget {
+    pub left: i32 = 0
+    pub top: i32 = 0
+
+    pub fn origin(&self) -> i32 {
+        return left + top
+    }
+}
+
+pub struct Panel : Widget {
+    pub title: cstr = ""
+
+    pub fn area(&self) -> i32 {
+        return left * top
+    }
+}
+
+// A chain of three: `Dialog` holds `Widget`'s fields, then `Panel`'s, then its own.
+pub struct Dialog : Panel {
+    pub modal: bool = false
+}
+
+fn base_reference_from_a_derived_one(p: &Panel, d: &Dialog) -> i32 {
+    return reads_a_widget(p) + reads_a_widget(d)
+}
+
+fn reads_a_widget(w: &Widget) -> i32 {
+    return w.origin()
+}
+
+fn base_pointer_from_a_derived_one(d: ^mut Dialog) -> ^Widget {
+    return d
+}
+
+fn writes_through_a_base_reference(p: &mut Panel) {
+    shifts_a_widget(p)
+}
+
+fn shifts_a_widget(w: &mut Widget) {
+    w.left += 1
+}
+
+fn inherited_members_are_reachable(d: &Dialog) -> i32 {
+    return d.left + d.top + d.origin() + d.area()
+}
+
+// §7.3: a base with a constructor is built through it, and the derived type says so.
+pub struct Sized {
+    pub w: i32 = 0
+
+    Sized(width: i32) {
+        w = width
+    }
+}
+
+pub struct Boxed : Sized {
+    pub depth: i32 = 0
+
+    Boxed(width: i32, d: i32) : Sized(width) {
+        depth = d
+    }
+}
+
+// A base with no constructor may still be named, which is default-initialisation.
+pub struct Explicitly : Widget {
+    Explicitly() : Widget() {}
+}
+
+fn builds_through_constructors() -> i32 {
+    let b = Boxed(3, 4)
+    let e = Explicitly()
+    return b.w + b.depth + e.left
+}
+
+// §7.3, 18.32: `virtual`, `override`, `protected`, and inherited implementations.
+pub struct Drawable {
+    protected depth: i32 = 0
+    pub scale: i32 = 1
+
+    // A `virtual fn` with no body makes this type abstract: only something that
+    // overrides it can exist.
+    pub virtual fn area(&self) -> i32
+
+    pub virtual fn label(&self) -> i32 {
+        return 1
+    }
+
+    protected fn bump(&self) -> i32 {
+        return depth + 1
+    }
+}
+
+pub struct Circle : Drawable {
+    pub radius: i32 = 2
+
+    pub override fn area(&self) -> i32 {
+        // `protected` is reachable from a derived type, and so is the base's own field.
+        return radius * radius * scale + depth
+    }
+
+    pub override fn label(&self) -> i32 {
+        // A base's version, called without virtual dispatch, so an override can build on
+        // what it replaces instead of discarding it.
+        return Drawable::label(self) + self.bump()
+    }
+}
+
+// An abstract type is fine behind a reference: that is what `virtual` is for.
+fn area_of(d: &Drawable) -> i32 {
+    return d.area() + d.label()
+}
+
+fn abstract_through_a_pointer(d: ^Drawable) -> ^Drawable {
+    return d
+}
+
+// A trait implemented for a base is implemented for everything that inherits it, and a
+// more specific implementation replaces the inherited one.
+trait Measured {
+    fn measure(&self) -> i32
+}
+
+impl Measured for Drawable {
+    fn measure(&self) -> i32 {
+        return scale
+    }
+}
+
+pub struct Square : Drawable {
+    pub side: i32 = 1
+
+    pub override fn area(&self) -> i32 {
+        return side * side
+    }
+}
+
+impl Measured for Square {
+    fn measure(&self) -> i32 {
+        return side
+    }
+}
+
+fn measure_any<T: Measured>(v: &T) -> i32 {
+    return v.measure()
+}
+
+fn inherited_and_overridden_implementations(c: &Circle, s: &Square) -> i32 {
+    return measure_any(c) + measure_any(s)
+}

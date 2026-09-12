@@ -20,7 +20,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use dz_ast::{Field, FnDecl, Ident, Item, ItemKind, Member, MemberKind, SourceFileAst, Type, TypeKind, Vis};
-use dz_check::{type_name, FieldSig, FnSig, ItemSig, TypeTable, VariantSig};
+use dz_check::{type_name, type_name_in_file, FieldSig, FnSig, ItemSig, TypeTable, VariantSig};
 use dz_diag::Diagnostics;
 use dz_driver::Analysis;
 use dz_hir::ty::Ty;
@@ -241,10 +241,11 @@ fn field_decl(text: &str, f: &Field, docs: String) -> Decl {
 fn with_vis(d: &mut Decl, vis: Vis) {
     let prefix = match vis {
         Vis::Private => return,
+        Vis::Protected => "protected ",
         Vis::Module => "pub(module) ",
         Vis::Public => "pub ",
     };
-    if !d.header.starts_with("pub") {
+    if !d.header.starts_with("pub") && !d.header.starts_with("protected") {
         d.header.insert_str(0, prefix);
     }
 }
@@ -559,7 +560,7 @@ pub fn info_at(a: &Analysis, file: FileId, offset: u32) -> Option<Info> {
         return Some(Info {
             span: expr.span,
             definition: None,
-            hover: Some(code(&type_name(q.res, &expr.ty))),
+            hover: Some(code(&type_name_in_file(q.res, file, &expr.ty))),
         });
     };
     let Some(target) = q.target_at(file, &tokens, text, i) else {
@@ -570,7 +571,7 @@ pub fn info_at(a: &Analysis, file: FileId, offset: u32) -> Option<Info> {
         return Some(Info {
             span: tokens[i].span,
             definition: None,
-            hover: Some(code(&format!("{name}: {}", type_name(q.res, &ty)))),
+            hover: Some(code(&format!("{name}: {}", type_name_in_file(q.res, file, &ty)))),
         });
     };
     Some(Info {
@@ -781,7 +782,12 @@ impl<'a> Query<'a> {
             }
             ExprKind::Call { callee, .. } => match callee {
                 Callee::Fn { sym, .. } => vec![Ref::Symbol(*sym)],
-                Callee::Method { owner, name, .. } => vec![Ref::Method(*owner, name.clone())],
+                Callee::Method { owner, name, .. }
+                // `UiElement::draw(self)` names the base's method, and that is the one
+                // hover, definition and references should all land on (spec §7.3).
+                | Callee::BaseMethod { owner, name, .. } => {
+                    vec![Ref::Method(*owner, name.clone())]
+                }
                 // The constructor, or the type when it has none written.
                 Callee::Ctor { owner, index } => vec![Ref::Ctor(*owner, *index), Ref::Symbol(*owner)],
                 Callee::Value(_) => Vec::new(),
@@ -1520,7 +1526,7 @@ pub fn inlay_hints(a: &Analysis, file: FileId, range: Span) -> Vec<Hint> {
             if after.trim_start_matches([' ', '\t']).starts_with(':') {
                 continue;
             }
-            let ty = type_name(res, &l.ty);
+            let ty = type_name_in_file(res, file, &l.ty);
             if ty.contains("{unknown}") {
                 continue;
             }

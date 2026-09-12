@@ -307,6 +307,10 @@ impl<'a> Dumper<'a> {
                         let o = self.names.name_of_symbol(*owner);
                         node!("call-method {o}::{name}")
                     }
+                    Callee::BaseMethod { owner, name, .. } => {
+                        let o = self.names.name_of_symbol(*owner);
+                        node!("call-base-method {o}::{name}")
+                    }
                     Callee::Ctor { owner, index } => {
                         let name = self.names.name_of_symbol(*owner);
                         node!("call-ctor {name}#{index}")
@@ -315,7 +319,9 @@ impl<'a> Dumper<'a> {
                 }
                 self.nest(|d| {
                     match &callee {
-                        Callee::Method { recv, .. } => d.expr(*recv),
+                        Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => {
+                            d.expr(*recv)
+                        }
                         Callee::Value(v) => d.expr(*v),
                         _ => {}
                     }

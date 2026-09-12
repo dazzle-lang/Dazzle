@@ -38,20 +38,10 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
         }
         ItemKind::Struct(s) => {
             let Some(sym) = cx.symbol_of(it) else { return };
-            if let Some(b) = &s.base {
-                cx.error_help(
-                    codes::CODEGEN_UNSUPPORTED,
-                    b.span,
-                    "struct inheritance is not implemented yet",
-                    "a base struct",
-                    "`: Base` names the struct this one inherits from, which arrives with the \
-                     next revision; a trait is implemented with `impl Trait for Type { … }` \
-                     (spec §7.6)",
-                );
-            }
             cx.push_declared_params(sym);
             check_members(cx, sym, &s.members);
             report_duplicate_methods(cx, sym);
+            check_overrides(cx, sym);
             cx.pop_params();
         }
         ItemKind::Impl(i) => check_impl(cx, it, i),
@@ -308,6 +298,160 @@ fn check_impl_conformance(cx: &mut Ctx, imp: &ImplSig, trait_name: &str, me: &st
 /// A struct declares each method once. The only methods that share a name are those of
 /// one trait implemented at several arguments, and they live in separate `impl` blocks
 /// (spec §7.6, §18.27) — so every repeat here is reported, at the later declaration.
+/// `virtual` and `override`, checked in both directions (spec §7.3, 18.32).
+///
+/// A method that replaces a base's must say `override`, and an `override` must have
+/// something to replace — so neither a silent shadow nor a signature that has drifted
+/// away from the base's can get through. The signature must match exactly: the whole
+/// point of a `virtual` is that a call through a `&Base` reaches this body.
+fn check_overrides(cx: &mut Ctx, sym: SymbolId) {
+    let Some(sig) = cx.table.struct_sig(sym).cloned() else { return };
+    let me = cx.res.symbol(sym).name.clone();
+    let bases: Vec<SymbolId> = cx.table.with_bases(sym).into_iter().skip(1).collect();
+
+    for key in &sig.method_keys {
+        let Some(mine) = sig.methods.get(key) else { continue };
+        let name = key.split('#').next().unwrap_or(key);
+        // The nearest base declaring a method of this name is the one being replaced.
+        let found = bases.iter().find_map(|b| {
+            let bsig = cx.table.struct_sig(*b)?;
+            let bkey = bsig.overloads.get(name)?.first()?;
+            Some((*b, bsig.methods.get(bkey)?.clone()))
+        });
+
+        match (mine.dispatch, found) {
+            (Dispatch::Override, None) => {
+                cx.error_help(
+                    codes::BAD_OVERRIDE,
+                    mine.span,
+                    format!("`{me}::{name}` overrides nothing"),
+                    "no base declares this method",
+                    format!(
+                        "`override` replaces a base's `virtual fn {name}`; without one to \
+                         replace, drop the `override` and this is an ordinary method \
+                         (spec §7.3)"
+                    ),
+                );
+            }
+            (Dispatch::Static | Dispatch::Virtual, Some((b, theirs))) => {
+                let bname = cx.res.symbol(b).name.clone();
+                let what = if mine.dispatch == Dispatch::Virtual {
+                    format!(
+                        "`virtual` declares a new one; to replace `{bname}`'s, write \
+                         `override fn {name}`"
+                    )
+                } else {
+                    format!(
+                        "a name means one thing in a type — write `override fn {name}` to \
+                         replace `{bname}`'s, or rename this one (spec §7.3)"
+                    )
+                };
+                cx.diags.push(
+                    dz_diag::Diagnostic::error(
+                        codes::SHADOWS_BASE_MEMBER,
+                        format!("`{name}` is already inherited from `{bname}`"),
+                    )
+                    .at(cx.file, mine.span, "redeclared here")
+                    .with_label(dz_diag::Label::secondary(
+                        cx.res.symbol(b).file,
+                        theirs.span,
+                        "inherited from here",
+                    ))
+                    .with_help(what),
+                );
+            }
+            (Dispatch::Override, Some((b, theirs))) => {
+                if theirs.dispatch == Dispatch::Static {
+                    let bname = cx.res.symbol(b).name.clone();
+                    cx.diags.push(
+                        dz_diag::Diagnostic::error(
+                            codes::BAD_OVERRIDE,
+                            format!("`{bname}::{name}` is not `virtual`"),
+                        )
+                        .at(cx.file, mine.span, "cannot be overridden")
+                        .with_label(dz_diag::Label::secondary(
+                            cx.res.symbol(b).file,
+                            theirs.span,
+                            "declared here, without `virtual`",
+                        ))
+                        .with_help(format!(
+                            "a method is dispatched statically unless it says otherwise — \
+                             mark `{bname}`'s `virtual fn {name}` to let a derived type \
+                             replace it (spec §7.3)"
+                        )),
+                    );
+                } else {
+                    check_override_signature(cx, &me, name, mine, b, &theirs);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// An `override` must have the base's signature exactly. A call through a `&Base` is
+/// compiled against the base's declaration, so anything else would be a different method
+/// wearing its name (spec §7.3).
+fn check_override_signature(
+    cx: &mut Ctx,
+    me: &str,
+    name: &str,
+    mine: &FnSig,
+    base: SymbolId,
+    theirs: &FnSig,
+) {
+    let bname = cx.res.symbol(base).name.clone();
+    let mismatch = if mine.params.len() != theirs.params.len() {
+        Some(format!(
+            "it takes {} argument(s) where `{bname}::{name}` takes {}",
+            mine.params.len(),
+            theirs.params.len()
+        ))
+    } else if let Some(i) =
+        (0..mine.params.len()).find(|&i| mine.params[i].ty != theirs.params[i].ty)
+    {
+        Some(format!(
+            "argument {} is `{}` where `{bname}::{name}` has `{}`",
+            i + 1,
+            cx.name_of(&mine.params[i].ty),
+            cx.name_of(&theirs.params[i].ty)
+        ))
+    } else if mine.ret != theirs.ret {
+        Some(format!(
+            "it returns `{}` where `{bname}::{name}` returns `{}`",
+            cx.name_of(&mine.ret),
+            cx.name_of(&theirs.ret)
+        ))
+    } else if mine.is_mut != theirs.is_mut {
+        let want = if theirs.is_mut { "&mut self" } else { "&self" };
+        Some(format!("`{bname}::{name}` takes `{want}`"))
+    } else if mine.fallible != theirs.fallible {
+        let want = if theirs.fallible { "is fallible" } else { "is not fallible" };
+        Some(format!("`{bname}::{name}` {want}"))
+    } else {
+        None
+    };
+
+    let Some(detail) = mismatch else { return };
+    cx.diags.push(
+        dz_diag::Diagnostic::error(
+            codes::BAD_OVERRIDE,
+            format!("`{me}::{name}` does not match the method it overrides"),
+        )
+        .at(cx.file, mine.span, detail)
+        .with_label(dz_diag::Label::secondary(
+            cx.res.symbol(base).file,
+            theirs.span,
+            "overriding this",
+        ))
+        .with_help(
+            "an override is reached through a `&Base`, which is compiled against the \
+             base's signature — so the two must be the same (spec §7.3)"
+                .to_owned(),
+        ),
+    );
+}
+
 fn report_duplicate_methods(cx: &mut Ctx, sym: SymbolId) {
     let Some(sig) = cx.table.struct_sig(sym).cloned() else { return };
     let me = cx.res.symbol(sym).name.clone();
@@ -445,6 +589,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                 // A constructor runs on the object, so `self` is mutable.
                 let sig = FnSig {
                     ret_cast: false,
+                    dispatch: Dispatch::Static,
                     params: f
                         .params
                         .iter()
@@ -742,10 +887,75 @@ impl<'a, 'c> Body<'a, 'c> {
         }
     }
 
+    /// A `&Derived` where a `&Base` is wanted, and a `^Derived` where a `^Base` is
+    /// (spec §7.3, 18.32).
+    ///
+    /// Free, because the base's fields come first and the C++ output is real single
+    /// inheritance — so the two are the same address. Behind a reference or a pointer
+    /// only: a *by-value* `Derived` where a `Base` is wanted would have to drop the
+    /// derived half, which is C++'s slicing and is an error here. Not through a slice
+    /// either, where the element stride would be the derived type's.
+    fn base_convertible(&self, expected: &Ty, actual: &Ty) -> bool {
+        let (want_mut, want, have_mut, have) = match (expected, actual) {
+            (Ty::Ref { mutable: wm, inner: w }, Ty::Ref { mutable: hm, inner: h })
+            | (
+                Ty::Ptr { mutable: wm, inner: w },
+                Ty::Ptr { mutable: hm, inner: h }
+                | Ty::OwnPtr { mutable: hm, inner: h }
+                | Ty::Ref { mutable: hm, inner: h },
+            ) => (*wm, w, *hm, h),
+            _ => return false,
+        };
+        // Writability follows the ordinary rule: a read-only view never gains the right
+        // to write (spec §5.2).
+        if want_mut && !have_mut {
+            return false;
+        }
+        match (want.as_ref(), have.as_ref()) {
+            (Ty::Named { sym: base, args: ba }, Ty::Named { sym: derived, args: da })
+                if ba.is_empty() && da.is_empty() =>
+            {
+                self.cx.table.inherits_from(*derived, *base)
+            }
+            _ => false,
+        }
+    }
+
+    /// Would a by-value `actual` fit `expected` if slicing were allowed? Used only to tell
+    /// someone who wrote one what to write instead.
+    fn would_slice(&self, expected: &Ty, actual: &Ty) -> bool {
+        match (expected, actual) {
+            (Ty::Named { sym: base, args: ba }, Ty::Named { sym: derived, args: da })
+                if ba.is_empty() && da.is_empty() =>
+            {
+                self.cx.table.inherits_from(*derived, *base)
+            }
+            _ => false,
+        }
+    }
+
     fn expect(&mut self, expected: &Ty, actual: &Ty, span: Span) {
         let expected = self.subst(expected);
         let actual = self.subst(actual);
-        if assignable(&expected, &actual) {
+        if assignable(&expected, &actual) || self.base_convertible(&expected, &actual) {
+            return;
+        }
+        // A whole `Derived` where a `Base` is wanted: C++ would silently drop the derived
+        // half, which is the one thing 18.32 rules out.
+        if self.would_slice(&expected, &actual) {
+            let e = self.cx.name_of(&expected);
+            let a = self.cx.name_of(&actual);
+            self.cx.error_help(
+                codes::TYPE_MISMATCH,
+                span,
+                format!("expected `{e}`, found `{a}`"),
+                format!("a whole `{a}`, which is bigger than a `{e}`"),
+                format!(
+                    "a `{a}` is a `{e}` only behind a reference or a pointer — write \
+                     `&…` or `^…`. Copying one into a `{e}` would drop everything `{a}` \
+                     adds, which Dazzle does not do silently (spec §7.3)"
+                ),
+            );
             return;
         }
         let e = self.cx.name_of(&expected);
@@ -827,6 +1037,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 // implementation outside the struct's module sees only the `pub` ones.
                 if let Ty::Named { sym, args } = &st {
                     let privileged = self.self_ty == Some(*sym);
+                    let module = self.cx.module;
                     let fields: Vec<(usize, String, Ty)> = match self.cx.table.struct_sig(*sym) {
                         Some(s) => {
                             let tys = self.cx.table.field_types(*sym, args, &s.fields);
@@ -834,7 +1045,19 @@ impl<'a, 'c> Body<'a, 'c> {
                                 .iter()
                                 .zip(tys)
                                 .enumerate()
-                                .filter(|(_, (x, _))| privileged || x.vis == Vis::Public)
+                                .filter(|(_, (x, _))| match x.declared_in {
+                                    // The type's own field: its methods see all of them.
+                                    None => privileged || x.vis == Vis::Public,
+                                    // A base's. Inheriting is not the same as being the
+                                    // type, so a base's `private` field stays the base's
+                                    // business; `protected` is exactly what opens one up
+                                    // to a derived type (spec §4, §7.3, 18.32).
+                                    Some(b) => match x.vis {
+                                        Vis::Public | Vis::Protected => true,
+                                        Vis::Module => self.cx.res.symbol(b).module == module,
+                                        Vis::Private => false,
+                                    },
+                                })
                                 .map(|(i, (x, t))| (i, x.name.clone(), t))
                                 .collect()
                         }
@@ -857,12 +1080,119 @@ impl<'a, 'c> Body<'a, 'c> {
             // Parameters are immutable bindings; mutate through `&mut` or `^`.
             self.bind(&ps.name, ty, false, LocalKind::Param, p.name.span);
         }
+        // A constructor's `: Base(…)`, checked here because C++ runs it before the body
+        // and its arguments see the constructor's parameters — which are in scope exactly
+        // now, and go out of scope at the `pop` below (spec §7.3, 18.32).
+        self.base_initialiser(f);
         let root = match &f.body {
             Some(body) => self.block(body, None).id,
             None => self.hir.block(f.name.span, Vec::new()),
         };
         self.pop();
         root
+    }
+
+    /// Check a constructor's base initialiser, and require one where the base needs it.
+    ///
+    /// A base with a constructor of its own has to be built through it: C++ would
+    /// otherwise default-initialise the base subobject and skip whatever that constructor
+    /// establishes (spec §7.3, 18.32).
+    fn base_initialiser(&mut self, f: &FnDecl) {
+        let Some(owner) = self.self_ty else { return };
+        // Only a constructor has one; `parse_ctor` is the only place that fills it in.
+        let base = self.cx.table.struct_sig(owner).and_then(|s| s.base);
+
+        let Some(init) = &f.base_init else {
+            // Nothing written. Fine unless the base insists.
+            let Some(b) = base else { return };
+            let needs = self.cx.table.struct_sig(b).is_some_and(|s| !s.ctors.is_empty());
+            // Only a constructor builds the base; a method of the same type must not be
+            // asked to.
+            if !needs || !self.hir.owner_is_ctor() {
+                return;
+            }
+            let bname = self.cx.res.symbol(b).name.clone();
+            let oname = self.cx.res.symbol(owner).name.clone();
+            self.cx.error_help(
+                codes::MISSING_BASE_INIT,
+                f.name.span,
+                format!("`{oname}` must construct its base `{bname}`"),
+                "no base initialiser",
+                format!(
+                    "`{bname}` has a constructor, so it cannot be left to default — write \
+                     `{oname}(…) : {bname}(…) {{ … }}` (spec §7.3)"
+                ),
+            );
+            return;
+        };
+
+        let Some(b) = base else {
+            let oname = self.cx.res.symbol(owner).name.clone();
+            self.cx.error_help(
+                codes::BAD_BASE,
+                init.span,
+                format!("`{oname}` has no base to initialise"),
+                "no base to construct",
+                format!("give `{oname}` a base — `struct {oname} : Base` — or drop this \
+                         initialiser (spec §7.3)"),
+            );
+            for a in &init.args {
+                self.expr(a, None);
+            }
+            return;
+        };
+
+        // The path must name the declared base. Anything else would read as constructing
+        // something this type does not contain.
+        let named = self.path_symbol(&init.path);
+        if named != Some(b) {
+            let bname = self.cx.res.symbol(b).name.clone();
+            let shown = dz_ast::dump::path_str(&init.path);
+            self.cx.error_help(
+                codes::BAD_BASE,
+                init.path.span,
+                format!("`{shown}` is not this type's base"),
+                format!("its base is `{bname}`"),
+                format!("a base initialiser constructs the one base the struct declares: \
+                         write `: {bname}(…)` (spec §7.3)"),
+            );
+            for a in &init.args {
+                self.expr(a, None);
+            }
+            return;
+        }
+
+        let ctors = self.cx.table.struct_sig(b).map(|s| s.ctors.clone()).unwrap_or_default();
+        if ctors.is_empty() {
+            // `: Base()` on a base with no constructor is default-initialisation, which is
+            // what happens anyway — allowed when it is written as such, and nothing is
+            // recorded, so codegen leaves C++ to value-initialise the subobject (§6.2).
+            if !init.args.is_empty() {
+                let bname = self.cx.res.symbol(b).name.clone();
+                self.cx.error_help(
+                    codes::WRONG_ARG_COUNT,
+                    init.span,
+                    format!("`{bname}` has no constructor"),
+                    "nothing takes these arguments",
+                    format!("`{bname}`'s fields take their defaults; write `: {bname}()`, \
+                             or give `{bname}` a constructor (spec §6.2, §7.3)"),
+                );
+            }
+            for a in &init.args {
+                self.expr(a, None);
+            }
+            return;
+        }
+
+        // A constructor call picks the first constructor, as every other one does today
+        // — several constructors on one type are not resolved by argument yet.
+        let sig = ctors[0].clone();
+        let bname = self.cx.res.symbol(b).name.clone();
+        let args = self.check_args(&sig, &init.args, init.span, &bname);
+        let ty = Ty::Named { sym: b, args: Vec::new() };
+        let callee = hir::Callee::Ctor { owner: b, index: 0 };
+        let call = self.hir.expr(init.span, ty, hir::ExprKind::Call { callee, args });
+        self.hir.set_base_init(call.id);
     }
 
     // --- statements -------------------------------------------------------
@@ -1760,10 +2090,12 @@ impl<'a, 'c> Body<'a, 'c> {
                     let kind = self.union_variant_literal(owner, index, fields, e.span);
                     return self.mk(e, Ty::plain(owner), kind);
                 }
-                let ty = self.cx.lower_type(&Type {
-                    span: path.span,
-                    kind: TypeKind::Path(path.clone()),
-                });
+                // `lower_path_type`, not `lower_type`: this is the type a path *names*,
+                // not a type written in a declaration, and the by-value checks that
+                // `lower_type` adds would report a literal of an abstract type twice —
+                // once as "by value" and once as `struct_literal`'s better "cannot be
+                // built" (spec §7.3, 18.32).
+                let ty = self.cx.lower_path_type(path, path.span);
                 let ty = self.subst(&ty);
                 let kind = self.struct_literal(&ty, fields, e.span);
                 self.mk(e, ty, kind)
@@ -2918,6 +3250,84 @@ impl<'a, 'c> Body<'a, 'c> {
         self.mk(e, Ty::Error, hir::ExprKind::Error)
     }
 
+    /// `UiElement::draw(self, …)` — a base's version of a method (spec §7.3, 18.32).
+    ///
+    /// The receiver is the first argument, as it is for a trait's qualified call. The
+    /// point is the *static* dispatch: inside `override fn draw`, `UiElement::draw(self)`
+    /// runs the base's body, where `self.draw()` would call this one again forever.
+    fn qualified_base_call(
+        &mut self,
+        base: SymbolId,
+        method: &Ident,
+        args: &[Expr],
+        e: &Expr,
+    ) -> Checked {
+        let span = e.span;
+        let bname = self.cx.res.symbol(base).name.clone();
+        let Some((first, rest)) = args.split_first() else {
+            self.cx.error_help(
+                codes::WRONG_ARG_COUNT,
+                span,
+                format!("`{bname}::{}` needs the value to call it on", method.name),
+                "no receiver",
+                format!("write `{bname}::{}(self, …)` (spec §7.3)", method.name),
+            );
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        };
+
+        let recv = self.expr(first, None);
+        let peeled = recv.ty.peeled().clone();
+        // The receiver must actually *be* one of these: the base itself, or something
+        // that inherits from it. Otherwise this names a method of an unrelated type.
+        let ok = match peeled.named() {
+            Some(s) => s == base || self.cx.table.inherits_from(s, base),
+            None => false,
+        };
+        if !ok {
+            let shown = self.cx.name_of(&recv.ty);
+            self.cx.error_help(
+                codes::TYPE_MISMATCH,
+                first.span,
+                format!("`{shown}` does not inherit from `{bname}`"),
+                format!("not a `{bname}`"),
+                format!(
+                    "`{bname}::{}` is called on a `{bname}` or on something that inherits \
+                     from one (spec §7.3)",
+                    method.name
+                ),
+            );
+            for a in rest {
+                self.expr(a, None);
+            }
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        }
+
+        let Some(sig) = self.method_by_args(base, &[], &method.name, rest, span) else {
+            self.cx.error(
+                codes::NO_SUCH_METHOD,
+                method.span,
+                format!("`{bname}` has no method `{}`", method.name),
+                "unknown method",
+            );
+            for a in rest {
+                self.expr(a, None);
+            }
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        };
+        self.check_member_visible(base, &method.name, sig.vis, sig.span, method.span, "method");
+        if sig.is_mut {
+            self.require_mutable_receiver(first, &recv.ty, &method.name);
+        }
+        if sig.is_unsafe {
+            self.require_unsafe(span, &format!("calling `unsafe fn {}`", method.name));
+        }
+        let args = self.check_args(&sig, rest, span, &method.name);
+        let ty = fallible_result(&sig, self.subst(&sig.ret));
+        let callee =
+            hir::Callee::BaseMethod { recv: recv.id, owner: base, name: method.name.clone() };
+        self.mk(e, ty, hir::ExprKind::Call { callee, args })
+    }
+
     /// `Describe::name(&v, …)` — a trait's method named through the trait, the way to choose
     /// between two traits that both provide `name` (spec §7.6). The first argument is the
     /// receiver, borrowed as a method call would borrow it.
@@ -3075,16 +3485,26 @@ impl<'a, 'c> Body<'a, 'c> {
         }
         let ok = match vis {
             Vis::Public => true,
+            // `protected` is reachable from the type that declares it and from the types
+            // that inherit from it — wherever those are written, since inheriting is what
+            // grants the access, not sharing a module (spec §4, §7.3, 18.32).
+            Vis::Protected => {
+                self.self_ty.is_some_and(|s| self.cx.table.inherits_from(s, owner))
+            }
             Vis::Module | Vis::Private => owner_module == self.cx.module && vis == Vis::Module,
         };
         if ok {
             return;
         }
         let module_name = self.cx.ws.module(owner_module).name.clone();
-        let help = if vis == Vis::Module {
-            format!("`pub(module)` is visible inside module `{module_name}` only; mark it `pub` to export it (spec §4)")
-        } else {
-            format!("this {what} is private to `{owner_name}`; mark it `pub` or `pub(module)` (spec §4)")
+        let help = match vis {
+            Vis::Module => format!("`pub(module)` is visible inside module `{module_name}` only; mark it `pub` to export it (spec §4)"),
+            Vis::Protected => format!(
+                "`protected` is visible to `{owner_name}` and the types that inherit from \
+                 it, and to nothing else — inherit from `{owner_name}`, or mark this \
+                 {what} `pub` (spec §4, §7.3)"
+            ),
+            _ => format!("this {what} is private to `{owner_name}`; mark it `pub` or `pub(module)` (spec §4)"),
         };
         self.cx.diags.push(
             dz_diag::Diagnostic::error(
@@ -3145,10 +3565,15 @@ impl<'a, 'c> Body<'a, 'c> {
                         Ty::Named { args, .. } => args.clone(),
                         _ => Vec::new(),
                     };
-                    if let Some(sig) = self.method_by_args(sym, &type_args, &name.name, args, span)
+                    // A base's methods are the derived type's, so the lookup walks the
+                    // chain; the type that declared it is the one whose visibility applies
+                    // and the one the HIR records (spec §7.3, 18.32).
+                    let owner = self.cx.table.method_owner(sym, &name.name).unwrap_or(sym);
+                    if let Some(sig) =
+                        self.method_by_args(owner, &type_args, &name.name, args, span)
                     {
                         self.check_member_visible(
-                            sym, &name.name, sig.vis, sig.span, name.span, "method",
+                            owner, &name.name, sig.vis, sig.span, name.span, "method",
                         );
                         if sig.is_mut {
                             self.require_mutable_receiver(base, &base_ty, &name.name);
@@ -3160,7 +3585,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         let ty = fallible_result(&sig, self.subst(&sig.ret));
                         let callee = hir::Callee::Method {
                             recv: recv.id,
-                            owner: sym,
+                            owner,
                             name: name.name.clone(),
                         };
                         return self.mk(e, ty, hir::ExprKind::Call { callee, args });
@@ -3178,12 +3603,16 @@ impl<'a, 'c> Body<'a, 'c> {
                         .unwrap_or(false);
                     if !sig_has_field {
                         let owner = self.cx.res.symbol(sym).name.clone();
+                        // A base's methods are among the ones this type has, so they are
+                        // among the ones worth suggesting (spec §7.3).
                         let names: Vec<String> = self
                             .cx
                             .table
-                            .struct_sig(sym)
-                            .map(|s| s.overloads.keys().cloned().collect())
-                            .unwrap_or_default();
+                            .with_bases(sym)
+                            .iter()
+                            .filter_map(|s| self.cx.table.struct_sig(*s))
+                            .flat_map(|s| s.overloads.keys().cloned())
+                            .collect();
                         let suggestion =
                             dz_resolve::closest(&name.name, names.iter().map(String::as_str));
                         let mut d = dz_diag::Diagnostic::error(
@@ -3220,6 +3649,26 @@ impl<'a, 'c> Body<'a, 'c> {
                         let method = &p.segments[p.segments.len() - 1].name;
                         return self.qualified_trait_call(tsym, method, args, e);
                     }
+                    // `UiElement::draw(self)` — a base's version, called without virtual
+                    // dispatch, which is how an `override` builds on what it replaces
+                    // (spec §7.3, 18.32).
+                    if self.cx.res.symbol(tsym).kind == SymbolKind::Struct
+                        && self
+                            .cx
+                            .table
+                            .struct_sig(tsym)
+                            .is_some_and(|s| !s.ctors.is_empty() || !s.method_keys.is_empty())
+                    {
+                        let method = p.segments[p.segments.len() - 1].name.clone();
+                        if self
+                            .cx
+                            .table
+                            .struct_sig(tsym)
+                            .is_some_and(|s| s.overloads.contains_key(&method.name))
+                        {
+                            return self.qualified_base_call(tsym, &method, args, e);
+                        }
+                    }
                 }
             }
         }
@@ -3252,6 +3701,7 @@ impl<'a, 'c> Body<'a, 'c> {
                             (sig, Ty::plain(sym))
                         };
                         let args = self.check_args(&sig, args, span, &name);
+                        self.refuse_abstract(sym, span);
                         let callee = hir::Callee::Ctor {
                             owner: sym,
                             index: 0,
@@ -3351,7 +3801,14 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
                 self.check_format(&name, args, &checked, span);
                 let ids = checked.iter().map(|c| c.id).collect();
-                let ty = builtin_call_type(&name);
+                // `blackbox` hands back exactly what it was given (spec §19 M15). Its type
+                // cannot come from the fixed table: the whole point is that the value
+                // survives, and a benchmark passes whatever it is measuring.
+                let ty = if name == "blackbox" {
+                    checked.first().map(|c| c.ty.clone()).unwrap_or(Ty::Void)
+                } else {
+                    builtin_call_type(&name)
+                };
                 return self.mk(e, ty, hir::ExprKind::Builtin { name, args: ids });
             }
         }
@@ -3854,6 +4311,32 @@ impl<'a, 'c> Body<'a, 'c> {
     /// Check a struct literal and build its node. Values come back in *declaration*
     /// order, with `None` where the field's declared default applies, so no consumer has
     /// to consult the declaration to know what order to emit initialisers in.
+    /// Building a value of a type with a body-less `virtual fn`: there is nothing for the
+    /// vtable slot to point at, so no such value can exist (spec §7.3, 18.32).
+    fn refuse_abstract(&mut self, sym: SymbolId, span: Span) {
+        let Some((owner, method)) = self.cx.table.abstract_method(sym) else { return };
+        let name = self.cx.res.symbol(sym).name.clone();
+        let owner = self.cx.res.symbol(owner).name.clone();
+        let help = if owner == name {
+            format!(
+                "give `{method}` a body, or build a struct that inherits from `{name}` \
+                 and overrides it (spec §7.3)"
+            )
+        } else {
+            format!(
+                "`{name}` inherits `{owner}::{method}` and does not override it — add \
+                 `override fn {method}(…) {{ … }}` to `{name}` (spec §7.3)"
+            )
+        };
+        self.cx.error_help(
+            codes::ABSTRACT_TYPE,
+            span,
+            format!("`{name}` is abstract and cannot be built"),
+            format!("`{owner}::{method}` has no body"),
+            help,
+        );
+    }
+
     fn struct_literal(&mut self, ty: &Ty, fields: &[FieldInit], span: Span) -> hir::ExprKind {
         let Some(sym) = ty.named() else {
             for f in fields {
@@ -3881,6 +4364,40 @@ impl<'a, 'c> Body<'a, 'c> {
             .map(|(f, t)| crate::FieldSig { ty: t, ..f.clone() })
             .collect();
         let owner = self.cx.res.symbol(sym).name.clone();
+        self.refuse_abstract(sym, span);
+        // A type with a constructor is built through it, never field by field: the
+        // constructor is what establishes whatever invariant the type has, and a literal
+        // would step around it. A base's constructor counts, since building the derived
+        // type builds the base (spec §7.2, §7.3, 18.32). An imported C or C++ struct is
+        // exempt: its "constructor" is the C++ one, and a C struct's literal is how §15.2
+        // says to write one.
+        if !sig.is_union && self.cx.ws.module(self.cx.res.symbol(sym).module).foreign.is_none() {
+            let with_ctor = self
+                .cx
+                .table
+                .with_bases(sym)
+                .into_iter()
+                .find(|s| self.cx.table.struct_sig(*s).is_some_and(|x| !x.ctors.is_empty()));
+            if let Some(c) = with_ctor {
+                let cname = self.cx.res.symbol(c).name.clone();
+                let help = if c == sym {
+                    format!("call it: `{owner}(…)` (spec §7.2)")
+                } else {
+                    format!(
+                        "`{owner}` inherits from `{cname}`, which has one, so a `{owner}` \
+                         is built through a constructor of its own — give `{owner}` one, \
+                         written `{owner}(…) : {cname}(…) {{ … }}` (spec §7.3)"
+                    )
+                };
+                self.cx.error_help(
+                    codes::MISSING_BASE_INIT,
+                    span,
+                    format!("`{owner}` has a constructor, so it is not built with a literal"),
+                    format!("`{cname}` declares a constructor"),
+                    help,
+                );
+            }
+        }
         // An imported C union's members are one piece of memory, so writing two of them
         // writes the same bytes twice and only the last survives (spec §15.2, §18.41).
         if sig.is_union && fields.len() > 1 {
@@ -4715,7 +5232,7 @@ fn spec_fits(spec: &str, t: &Ty) -> Result<(), &'static str> {
 fn builtin_arity(name: &str) -> Option<(usize, usize)> {
     Some(match name {
         "alloc" => (2, 2),
-        "free" | "destroy" | "sizeof" | "alignof" => (1, 1),
+        "free" | "destroy" | "sizeof" | "alignof" | "blackbox" => (1, 1),
         // `construct(dst)` default-constructs; `construct(dst, v)` copies or moves in.
         "construct" => (1, 2),
         "memcpy" => (3, 3),

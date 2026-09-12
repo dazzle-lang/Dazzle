@@ -71,6 +71,10 @@ pub enum ImportKind {
 pub enum Vis {
     #[default]
     Private,
+    /// `protected` — the type's own methods and those of the types that inherit from it,
+    /// and nothing else. The fourth visibility, and the only one that exists because of
+    /// inheritance (spec §4, §7.3, 18.32).
+    Protected,
     /// `pub(module)`
     Module,
     /// `pub`
@@ -151,6 +155,9 @@ pub struct FnDecl {
     /// `unsafe fn` — its body may touch raw memory, and so a call to it must itself be
     /// inside `unsafe` (spec §5.2).
     pub is_unsafe: bool,
+    /// `virtual fn` / `override fn` — which one, if either (spec §7.3, 18.32). A
+    /// `virtual fn` with no body makes its struct abstract and not constructible.
+    pub dispatch: Dispatch,
     pub name: Ident,
     pub generics: Generics,
     pub self_param: Option<SelfParam>,
@@ -161,6 +168,33 @@ pub struct FnDecl {
     pub fallible: bool,
     /// `None` for a trait method with no default body.
     pub body: Option<Block>,
+    /// `Button(w: i32) : UiElement(w) { … }` — a constructor's base initialiser, and
+    /// `None` on everything else. A base that has a constructor of its own must be
+    /// constructed through one (spec §7.3, 18.32).
+    pub base_init: Option<BaseInit>,
+}
+
+/// How a method is dispatched (spec §7.3, 18.32).
+///
+/// Static by default: a method call goes to the type the receiver is written as. `virtual`
+/// opts one method into runtime dispatch, and `override` replaces one — both spelled, and
+/// both checked, so neither can happen by accident.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum Dispatch {
+    #[default]
+    Static,
+    /// `virtual fn draw(&self)`. With no body, the struct is abstract.
+    Virtual,
+    /// `override fn draw(&self)`, replacing a base's `virtual`.
+    Override,
+}
+
+/// The `: UiElement(w)` of a constructor that builds its base explicitly (spec §7.3).
+#[derive(Clone, Debug)]
+pub struct BaseInit {
+    pub span: Span,
+    pub path: Path,
+    pub args: Vec<Expr>,
 }
 
 #[derive(Clone, Copy, Debug)]

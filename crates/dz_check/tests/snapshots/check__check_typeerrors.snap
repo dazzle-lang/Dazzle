@@ -1,6 +1,6 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 192
+assertion_line: 200
 expression: body
 ---
 error[DZ0502]: `300` does not fit in `u8`
@@ -722,3 +722,168 @@ error[DZ0525]: `if let` needs a `T?` or a `^T`, found `i32`
     │                ^ this is always present
     │
     = help: `if let` takes the value out of something that may be empty; for a `bool`, write a plain `if` (spec §9.4)
+
+error[DZ0541]: `Yell` is not a struct
+    ┌─ typeerrors/src/errors.dz:669:25
+    │
+669 │ pub struct NotAStruct : Yell {
+    │                         ^^^^ not a struct
+    │
+    = help: a trait is implemented, not inherited from: write `impl Trait for Type { … }` (spec §7.6)
+
+error[DZ0542]: field `left` is already inherited from `Panel`
+    ┌─ typeerrors/src/errors.dz:675:9
+    │
+661 │     pub left: i32 = 0
+    │         ---- inherited from here
+    ·
+675 │     pub left: i32 = 5
+    │         ^^^^ redeclared here
+    │
+    = help: a name means one thing in a type, whichever declaration it came from — rename this field, or drop it and use the base's (spec §7.3)
+
+error[DZ0501]: expected `Panel`, found `Framed`
+    ┌─ typeerrors/src/errors.dz:680:20
+    │
+680 │     let p: Panel = f
+    │                    ^ a whole `Framed`, which is bigger than a `Panel`
+    │
+    = help: a `Framed` is a `Panel` only behind a reference or a pointer — write `&…` or `^…`. Copying one into a `Panel` would drop everything `Framed` adds, which Dazzle does not do silently (spec §7.3)
+
+error[DZ0501]: expected `&mut Panel`, found `&Framed`
+    ┌─ typeerrors/src/errors.dz:686:20
+    │
+686 │     writes_a_panel(f)
+    │                    ^ this is `&Framed`
+
+error[DZ0543]: `ForgetsTheBase` must construct its base `Measured`
+    ┌─ typeerrors/src/errors.dz:705:5
+    │
+705 │     ForgetsTheBase(e: i32) {
+    │     ^^^^^^^^^^^^^^ no base initialiser
+    │
+    = help: `Measured` has a constructor, so it cannot be left to default — write `ForgetsTheBase(…) : Measured(…) { … }` (spec §7.3)
+
+error[DZ0541]: `Measured` is not this type's base
+    ┌─ typeerrors/src/errors.dz:712:33
+    │
+712 │     InitialisesTheWrongBase() : Measured(1) {}
+    │                                 ^^^^^^^^ its base is `Panel`
+    │
+    = help: a base initialiser constructs the one base the struct declares: write `: Panel(…)` (spec §7.3)
+
+error[DZ0543]: `Measured` has a constructor, so it is not built with a literal
+    ┌─ typeerrors/src/errors.dz:717:13
+    │
+717 │     let m = Measured{ w: 2 }
+    │             ^^^^^^^^^^^^^^^^ `Measured` declares a constructor
+    │
+    = help: call it: `Measured(…)` (spec §7.2)
+
+error[DZ0545]: `Abstract` is abstract, so there is no value of it
+    ┌─ typeerrors/src/errors.dz:736:34
+    │
+736 │ fn holds_an_abstract_by_value(a: Abstract) -> i32 {
+    │                                  ^^^^^^^^ abstract type by value
+    │
+    = help: `Abstract::area` is a `virtual fn` with no body — write `&Abstract` or `^Abstract` and pass a type that overrides it (spec §7.3)
+
+error[DZ0545]: `StillAbstract` is abstract and cannot be built
+    ┌─ typeerrors/src/errors.dz:741:13
+    │
+741 │     let a = StillAbstract{}
+    │             ^^^^^^^^^^^^^^^ `Abstract::area` has no body
+    │
+    = help: `StillAbstract` inherits `Abstract::area` and does not override it — add `override fn area(…) { … }` to `StillAbstract` (spec §7.3)
+
+error[DZ0544]: `OverridesNothing::missing` overrides nothing
+    ┌─ typeerrors/src/errors.dz:747:21
+    │
+747 │     pub override fn missing(&self) -> i32 { return 0 }
+    │                     ^^^^^^^ no base declares this method
+    │
+    = help: `override` replaces a base's `virtual fn missing`; without one to replace, drop the `override` and this is an ordinary method (spec §7.3)
+
+error[DZ0544]: `Abstract::fixed` is not `virtual`
+    ┌─ typeerrors/src/errors.dz:753:21
+    │
+727 │     pub fn fixed(&self) -> i32 { return 2 }
+    │            ----- declared here, without `virtual`
+    ·
+753 │     pub override fn fixed(&self) -> i32 { return 3 }
+    │                     ^^^^^ cannot be overridden
+    │
+    = help: a method is dispatched statically unless it says otherwise — mark `Abstract`'s `virtual fn fixed` to let a derived type replace it (spec §7.3)
+
+error[DZ0544]: `DriftedSignature::label` does not match the method it overrides
+    ┌─ typeerrors/src/errors.dz:759:21
+    │
+726 │     pub virtual fn label(&self) -> i32 { return 1 }
+    │                    ----- overriding this
+    ·
+759 │     pub override fn label(&self, extra: i32) -> i32 { return extra }
+    │                     ^^^^^ it takes 1 argument(s) where `Abstract::label` takes 0
+    │
+    = help: an override is reached through a `&Base`, which is compiled against the base's signature — so the two must be the same (spec §7.3)
+
+error[DZ0542]: `label` is already inherited from `Abstract`
+    ┌─ typeerrors/src/errors.dz:765:12
+    │
+726 │     pub virtual fn label(&self) -> i32 { return 1 }
+    │                    ----- inherited from here
+    ·
+765 │     pub fn label(&self) -> i32 { return 9 }
+    │            ^^^^^ redeclared here
+    │
+    = help: a name means one thing in a type — write `override fn label` to replace `Abstract`'s, or rename this one (spec §7.3)
+
+error[DZ0506]: field `Abstract::inner` is not visible here
+    ┌─ typeerrors/src/errors.dz:771:18
+    │
+723 │     protected inner: i32 = 0
+    │               ----- declared here
+    ·
+771 │         return a.inner
+    │                  ^^^^^ private field
+    │
+    = help: `protected` is visible to `Abstract` and the types that inherit from it, and to nothing else — inherit from `Abstract`, or mark this field `pub` (spec §4, §7.3)
+
+error[DZ0501]: `&Unrelated` does not inherit from `Abstract`
+    ┌─ typeerrors/src/errors.dz:777:28
+    │
+777 │     return Abstract::label(u)
+    │                            ^ not a `Abstract`
+    │
+    = help: `Abstract::label` is called on a `Abstract` or on something that inherits from one (spec §7.3)
+
+error[DZ0546]: `a_test_that_takes_an_argument` cannot be a test: a test takes no arguments
+    ┌─ typeerrors/src/errors.dz:783:4
+    │
+783 │ fn a_test_that_takes_an_argument(n: i32) {}
+    │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the runner has nothing to pass
+    │
+    = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
+
+error[DZ0546]: `a_test_that_returns_a_value` cannot be a test: a test returns nothing
+    ┌─ typeerrors/src/errors.dz:786:4
+    │
+786 │ fn a_test_that_returns_a_value() -> i32 {
+    │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the runner has nothing to do with a value
+    │
+    = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
+
+error[DZ0546]: `a_test_that_is_fallible` cannot be a test: a test is not fallible
+    ┌─ typeerrors/src/errors.dz:791:4
+    │
+791 │ fn a_test_that_is_fallible() !-> i32 {
+    │    ^^^^^^^^^^^^^^^^^^^^^^^ report the failure with `panic`, which is what a failing one does
+    │
+    = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
+
+error[DZ0546]: `a_test_with_type_parameters` cannot be a test: a test has no type parameters
+    ┌─ typeerrors/src/errors.dz:796:4
+    │
+796 │ fn a_test_with_type_parameters<T>() {}
+    │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ there is no instance to run
+    │
+    = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)

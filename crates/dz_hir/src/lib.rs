@@ -150,6 +150,10 @@ pub struct Body {
     pub stmts: Vec<Stmt>,
     pub blocks: Vec<Block>,
     pub root: BlockId,
+    /// A constructor's `: UiElement(w)`, as a call to the base's constructor — in this
+    /// body's arena, so its arguments see the constructor's parameters, but not reachable
+    /// from `root`, because C++ runs it before the body (spec §7.3, 18.32).
+    pub base_init: Option<ExprId>,
 }
 
 impl Body {
@@ -478,6 +482,11 @@ pub enum Callee {
     Fn { sym: SymbolId, type_args: Vec<Ty> },
     /// `recv.name(...)`, with the receiver evaluated once.
     Method { recv: ExprId, owner: SymbolId, name: String },
+    /// `UiElement::draw(self)` — a base's version of a method, named through the base so
+    /// that it is called *without* virtual dispatch. This is how an `override` extends
+    /// what it replaces instead of discarding it (spec §7.3, 18.32). `owner` is the base
+    /// the call is qualified by, and C++ writes it as `recv.UiElement::draw()`.
+    BaseMethod { recv: ExprId, owner: SymbolId, name: String },
     /// A constructor, by position in the type's declaration order (spec §7.2).
     Ctor { owner: SymbolId, index: usize },
     /// Calling a value of function type.

@@ -14,7 +14,7 @@
 //! pass computes are exactly the ones the HIR stores, and a second pass to collect them
 //! would recompute them and could disagree. See `build.rs`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use dz_ast::*;
@@ -97,6 +97,11 @@ pub struct FieldSig {
     pub vis: Vis,
     pub has_default: bool,
     pub span: Span,
+    /// The base this field was inherited from, if it was — `None` for a type's own.
+    /// `span` points into the base's declaration, which is in the base's file, so anything
+    /// that turns a field into a location has to ask this and not the type it was reached
+    /// through (spec §7.3, 18.32).
+    pub declared_in: Option<SymbolId>,
     /// An imported C bit-field, `unsigned flags : 3`. Read and written like any other
     /// member; its address cannot be taken, in C++ or here (spec §15.2).
     pub bitfield: bool,
@@ -137,6 +142,9 @@ pub struct FnSig {
     /// An imported function whose returned pointer is cast back to Dazzle's own C++
     /// type — the other half of [`ParamSig::c_cast`] (spec §15.2).
     pub ret_cast: bool,
+    /// `virtual fn` / `override fn` (spec §7.3, 18.32). A `virtual` with `has_body`
+    /// false is abstract, and makes its struct not constructible.
+    pub dispatch: Dispatch,
 }
 
 impl FnSig {
@@ -152,7 +160,19 @@ impl FnSig {
 
 #[derive(Clone, Debug, Default)]
 pub struct StructSig {
+    /// The base's fields first, then this type's own — so a `&Derived` is already a
+    /// `&Base` at offset zero, and the C++ output can be real single inheritance
+    /// (spec §7.3, 18.32). `inherited` says where the type's own begin, and every field
+    /// index in the HIR is an index into this one flat list.
     pub fields: Vec<FieldSig>,
+    /// `struct Button : UiElement` — the one struct this one inherits from (18.32).
+    pub base: Option<SymbolId>,
+    /// How many leading entries of `fields` came from bases. Zero without a base.
+    pub inherited: usize,
+    /// Does this type, or anything it inherits from, declare a `virtual` method? A C++
+    /// class with one is never trivially copyable and needs a virtual destructor, so this
+    /// is asked well away from the declaration that caused it.
+    pub polymorphic: bool,
     /// An imported C struct whose header declares it and never defines it — a handle
     /// (spec §15.2, §18.40). No fields to name, not copyable, never used by value.
     pub opaque: bool,
@@ -246,6 +266,14 @@ pub enum ItemSig {
 
 /// Everything the body checker needs to know about declarations.
 pub struct TypeTable {
+    /// Every `#[test] fn`, in declaration order across the workspace (spec §19 M14).
+    /// Held here because both halves of the build ask about it: a normal build leaves
+    /// these functions out entirely, and `dz test` generates an entry point that is
+    /// nothing but calls to them.
+    pub tests: Vec<SymbolId>,
+    /// Every `#[bench] fn`, the same way (spec §19 M15). Separate from `tests` because
+    /// the two are run by different commands and neither belongs in the other's binary.
+    pub benches: Vec<SymbolId>,
     sigs: HashMap<SymbolId, ItemSig>,
     /// The generic parameters of a struct, union or trait, in declaration order (spec
     /// §8.1). A generic *function*'s parameters live on its [`FnSig`] instead, because a
@@ -266,6 +294,9 @@ pub struct TypeTable {
     /// The prelude's `Copy`, which every copyable type satisfies (spec §8.2). Held here
     /// because copyability is asked from every phase.
     copy_trait: Option<SymbolId>,
+    /// The prelude's `Drop`, for the same reason — and so that inheriting a base's
+    /// implementations can leave the two special members alone (spec §6.1, §7.3).
+    drop_trait: Option<SymbolId>,
     /// Every `impl Trait for Type`, in declaration order (spec §7.6).
     impls: Vec<ImplSig>,
     /// The `impl Drop` / `impl Copy` of each struct that has one (spec §6.1). They are
@@ -387,6 +418,75 @@ impl TypeTable {
         }
     }
 
+    /// `sym` and then each of its bases, nearest first. Stops at a cycle, which
+    /// `flatten_bases` has already reported and broken (spec §7.3, 18.32).
+    pub fn with_bases(&self, sym: SymbolId) -> Vec<SymbolId> {
+        let mut chain = vec![sym];
+        let mut at = self.struct_sig(sym).and_then(|s| s.base);
+        while let Some(b) = at {
+            if chain.contains(&b) {
+                break;
+            }
+            chain.push(b);
+            at = self.struct_sig(b).and_then(|s| s.base);
+        }
+        chain
+    }
+
+    /// Which type in `sym`'s chain declares a method of this name — `sym` itself if it
+    /// does, else the nearest base that does. A derived type's own method wins, which is
+    /// what makes `override` a replacement rather than an ambiguity (spec §7.3).
+    pub fn method_owner(&self, sym: SymbolId, name: &str) -> Option<SymbolId> {
+        self.with_bases(sym)
+            .into_iter()
+            .find(|s| self.struct_sig(*s).is_some_and(|x| x.overloads.contains_key(name)))
+    }
+
+    /// Does `sym` inherit from `base`, at any depth? A `&Derived` is usable as a `&Base`
+    /// exactly when this is true (spec §7.3, 18.32).
+    pub fn inherits_from(&self, sym: SymbolId, base: SymbolId) -> bool {
+        sym != base && self.with_bases(sym).contains(&base)
+    }
+
+    /// Does anything `sym` inherits from declare a `drop`, or is otherwise move-only in
+    /// its own right? The derived type inherits that: C++ runs the base's destructor and
+    /// has already deleted its copy operations (spec §6.3, §7.3, 18.32).
+    pub fn base_has_drop(&self, sym: SymbolId) -> bool {
+        self.with_bases(sym)
+            .into_iter()
+            .skip(1)
+            .filter_map(|b| self.struct_sig(b))
+            .any(|s| s.drop.is_some() || s.cpp_owned)
+    }
+
+    /// The first `virtual fn` with no body that `sym` has not been given a body for —
+    /// which is what makes a type **abstract**: there is nothing to call, so no value of
+    /// it can exist (spec §7.3, 18.32).
+    ///
+    /// The nearest declaration of a name wins, so a derived type that overrides a
+    /// body-less `virtual` with a real one is concrete again.
+    pub fn abstract_method(&self, sym: SymbolId) -> Option<(SymbolId, String)> {
+        let chain = self.with_bases(sym);
+        let mut seen: Vec<&str> = Vec::new();
+        let mut found: Option<(SymbolId, String)> = None;
+        for s in &chain {
+            let Some(sig) = self.struct_sig(*s) else { continue };
+            for key in &sig.method_keys {
+                let name = key.split('#').next().unwrap_or(key);
+                // A nearer declaration of the same name has already decided this one.
+                if seen.contains(&name) {
+                    continue;
+                }
+                seen.push(name);
+                let Some(m) = sig.methods.get(key) else { continue };
+                if m.dispatch == Dispatch::Virtual && !m.has_body && found.is_none() {
+                    found = Some((*s, name.to_owned()));
+                }
+            }
+        }
+        found
+    }
+
     pub fn is_generic(&self, id: SymbolId) -> bool {
         match self.sigs.get(&id) {
             Some(ItemSig::Fn(sig)) => sig.is_generic(),
@@ -493,6 +593,14 @@ impl TypeTable {
                             }
                         } else if s.drop.is_some() || s.cpp_owned {
                             false
+                        } else if self.base_has_drop(*id) {
+                            // A base's `drop` is the derived type's too: C++ runs it as
+                            // part of `~Derived()`, and it deleted the base's copy
+                            // operations, so a `Derived` is move-only whether or not it
+                            // declares anything itself (spec §6.3, §7.3, 18.32). Without
+                            // this the checker would allow a copy that C++ refuses, which
+                            // is a compiler bug by invariant 7.
+                            false
                         } else {
                             // "no `own` field, and every field is copyable" (spec §6.3),
                             // read through the instantiation so `Pair<Owner>` is move-only.
@@ -538,9 +646,16 @@ impl TypeTable {
         match ty {
             Ty::Named { sym, args } => match self.get(*sym) {
                 Some(ItemSig::Struct(s)) => {
+                    // A C++ class with a virtual function is **never** trivially
+                    // copyable — the standard requires none, and it carries a vtable
+                    // pointer that a `memcpy` between two objects would corrupt. So a
+                    // polymorphic Dazzle struct must answer `false` here, or `Buffer<T>`
+                    // would take its `memcpy` path over one (spec §5.5, §7.3, 18.32).
                     !s.opaque
+                        && !s.polymorphic
                         && s.drop.is_none()
                         && s.copy.is_none()
+                        && !self.base_has_drop(*sym)
                         && self.field_types(*sym, args, &s.fields).iter().all(|t| {
                             !matches!(t, Ty::OwnPtr { .. }) && self.trivially_copyable(t)
                         })
@@ -631,6 +746,8 @@ pub fn check(
         res,
         diags: Diagnostics::new(),
         table: TypeTable {
+            tests: Vec::new(),
+            benches: Vec::new(),
             sigs: HashMap::new(),
             type_params: HashMap::new(),
             param_bounds: HashMap::new(),
@@ -638,6 +755,7 @@ pub fn check(
             assoc_decls: HashMap::new(),
             declared_traits: HashMap::new(),
             copy_trait: None,
+            drop_trait: None,
             impls: Vec::new(),
             drop_impls: HashMap::new(),
             copy_impls: HashMap::new(),
@@ -653,6 +771,7 @@ pub fn check(
         impl_at: HashMap::new(),
     };
     cx.table.copy_trait = cx.prelude_trait("Copy");
+    cx.table.drop_trait = cx.prelude_trait("Drop");
     for (i, s) in res.symbols.iter().enumerate() {
         if s.module == res.prelude && s.kind == SymbolKind::Trait {
             cx.table.prelude_names.insert(SymbolId(i as u32), s.name.clone());
@@ -693,6 +812,11 @@ pub fn check(
     run(ws, files, &mut cx, |cx, it| cx.collect_type_params(it));
     run(ws, files, &mut cx, |cx, it| cx.collect_trait_refs(it));
     run(ws, files, &mut cx, |cx, it| cx.collect_item(it));
+    // `: Base` needs every struct's signature to exist before any base can be resolved,
+    // and then the bases flattened parent-first — so it is its own pass, after 2 and
+    // before any body is checked (spec §7.3, 18.32).
+    run(ws, files, &mut cx, |cx, it| cx.collect_base(it));
+    cx.flatten_bases();
     // `impl Drop` and `impl Copy` fill in their struct's special members, which every
     // later question about ownership reads — so after every signature exists, and before
     // any body is checked (spec §6.1).
@@ -727,6 +851,9 @@ impl Ctx<'_> {
                 let sig = match &d.kind {
                     DeclKind::Fn { params, ret, ret_cast } => ItemSig::Fn(FnSig {
                         ret_cast: *ret_cast,
+                        // A C++ class's own `virtual` is its business: Dazzle calls it
+                        // through C++'s dispatch and never declares one (spec §15.2).
+                        dispatch: Dispatch::Static,
                         params: params
                             .iter()
                             .map(|p| ParamSig {
@@ -757,6 +884,7 @@ impl Ctx<'_> {
                                     has_default: true,
                                     span: span(x.loc),
                                     bitfield: x.bitfield,
+                                    declared_in: None,
                                 })
                                 .collect(),
                             opaque: *opaque,
@@ -806,6 +934,7 @@ impl Ctx<'_> {
         for m in methods {
             let span = Span::new(m.loc.start as usize, m.loc.end as usize);
             let f = FnSig {
+                dispatch: Dispatch::Static,
                 params: m
                     .params
                     .iter()
@@ -967,7 +1096,43 @@ impl dz_hir::dump::Names for Names<'_> {
 
 /// Render a type as it is written in source.
 pub fn type_name(res: &Resolution, t: &Ty) -> String {
-    let name_of = |t: &Ty| type_name(res, t);
+    type_name_at(res, None, t)
+}
+
+/// A type as it would be **written in `file`** (spec §3.3).
+///
+/// The plain [`type_name`] gives a declaration's own name, which is what a message about
+/// the declaration wants. An editor wants something else: the spelling you would have to
+/// type at that position. An imported header's type is `rl::Vector2` in the file that
+/// wrote `import cpp "raylib.h" as rl`, and there is no other way to name it — showing
+/// `Vector2` in a hint offers a name that would not compile.
+pub fn type_name_in_file(res: &Resolution, file: FileId, t: &Ty) -> String {
+    type_name_at(res, Some(file), t)
+}
+
+/// How a named type reaches `file`: bare when it is already in scope under that name,
+/// `alias::Name` when it arrived through an `import`.
+fn qualified_for(res: &Resolution, file: FileId, sym: SymbolId) -> String {
+    let symbol = res.symbol(sym);
+    let name = symbol.name.clone();
+    // Declared here, or brought in by a selective `import math::{ Vec3 }`: written bare.
+    if res.file_module.get(&file) == Some(&symbol.module) || symbol.module == res.prelude {
+        return name;
+    }
+    let Some(imports) = res.imports.get(&file) else { return name };
+    if imports.unqualified.get(&name) == Some(&sym) {
+        return name;
+    }
+    // Reached through a module alias — which is what `import cpp … as rl` makes too, since
+    // an imported header is a module whose name is its alias (§15.1).
+    match imports.module_aliases.iter().find(|(_, m)| **m == symbol.module) {
+        Some((alias, _)) => format!("{alias}::{name}"),
+        None => name,
+    }
+}
+
+fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
+    let name_of = |t: &Ty| type_name_at(res, file, t);
     match t {
         Ty::Error => "{unknown}".to_owned(),
         Ty::Never => "!".to_owned(),
@@ -1008,7 +1173,10 @@ pub fn type_name(res: &Resolution, t: &Ty) -> String {
         ),
         Ty::Builtin(b) => b.name().to_owned(),
         Ty::Named { sym: id, args } => {
-            let name = res.symbol(*id).name.clone();
+            let name = match file {
+                Some(f) => qualified_for(res, f, *id),
+                None => res.symbol(*id).name.clone(),
+            };
             if args.is_empty() {
                 name
             } else {
@@ -1366,6 +1534,27 @@ impl<'a> Ctx<'a> {
     /// §18.40). Behind a pointer — which is how a C library hands one out — it is fine.
     pub(crate) fn lower_type(&mut self, t: &Type) -> Ty {
         let ty = self.lower_type_inner(t);
+        // An abstract type has a method with no body, so a value of it would have nothing
+        // to call. Behind a reference or a pointer it is exactly what `virtual` is for
+        // (spec §7.3, 18.32). Checked here, as a handle's by-value use is, so C++ never
+        // has to report it — a C++ error in generated code is a compiler bug (invariant 7).
+        if let Some(sym) = self.abstract_by_value(&ty) {
+            if let Some((owner, method)) = self.table.abstract_method(sym) {
+                let name = self.res.symbol(sym).name.clone();
+                let owner = self.res.symbol(owner).name.clone();
+                self.error_help(
+                    codes::ABSTRACT_TYPE,
+                    t.span,
+                    format!("`{name}` is abstract, so there is no value of it"),
+                    "abstract type by value",
+                    format!(
+                        "`{owner}::{method}` is a `virtual fn` with no body — write \
+                         `&{name}` or `^{name}` and pass a type that overrides it \
+                         (spec §7.3)"
+                    ),
+                );
+            }
+        }
         if let Some(sym) = self.opaque_by_value(&ty) {
             let name = self.res.symbol(sym).name.clone();
             self.error_help(
@@ -1380,6 +1569,25 @@ impl<'a> Ctx<'a> {
             );
         }
         ty
+    }
+
+    /// The first abstract struct inside `t` that is not behind a pointer or a reference.
+    /// Same shape as [`Ctx::opaque_by_value`], and for the same reason: both are types
+    /// that exist only to be pointed at (spec §7.3, §15.2).
+    fn abstract_by_value(&self, t: &Ty) -> Option<SymbolId> {
+        match t {
+            Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. } => None,
+            Ty::Named { sym, .. } if self.table.abstract_method(*sym).is_some() => Some(*sym),
+            Ty::Array { elem, .. } | Ty::Slice { elem, .. } => self.abstract_by_value(elem),
+            Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => self.abstract_by_value(i),
+            Ty::Tuple(parts) => parts.iter().find_map(|p| self.abstract_by_value(p)),
+            Ty::Named { args, .. } => args.iter().find_map(|a| self.abstract_by_value(a)),
+            Ty::Fn { params, ret } => params
+                .iter()
+                .chain(std::iter::once(&**ret))
+                .find_map(|p| self.abstract_by_value(p)),
+            _ => None,
+        }
     }
 
     /// The first imported handle inside `t` that is not behind a pointer, if there is one.
@@ -1448,7 +1656,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn lower_path_type(&mut self, p: &Path, span: Span) -> Ty {
+    pub(crate) fn lower_path_type(&mut self, p: &Path, span: Span) -> Ty {
         let Some(first) = p.segments.first() else {
             return Ty::Error;
         };
@@ -1622,6 +1830,234 @@ impl<'a> Ctx<'a> {
                 self.table.assoc_params.insert(sym, assoc);
             }
         }
+    }
+
+    /// Pass 2b: resolve `struct Button : UiElement` to the base's symbol (spec §7.3, 18.32).
+    ///
+    /// Only the link is made here; the base's fields are copied in afterwards by
+    /// [`Ctx::flatten_bases`], which needs every link to exist first so it can work
+    /// parent-first and notice a cycle instead of recursing into one.
+    fn collect_base(&mut self, item: &Item) {
+        let ItemKind::Struct(s) = &item.kind else { return };
+        let Some(base) = &s.base else { return };
+        let Some(sym) = self.symbol_of(item) else { return };
+
+        // A base is a plain type path, so this is `lower_type`'s work — but the errors it
+        // would give ("not a type") are not the ones to give here.
+        self.push_declared_params(sym);
+        let ty = self.lower_path_type(base, base.span);
+        self.pop_params();
+
+        let base_sym = match &ty {
+            Ty::Error => return,
+            Ty::Named { sym: b, args } if args.is_empty() => *b,
+            Ty::Named { sym: b, .. } => {
+                let name = self.res.symbol(*b).name.clone();
+                self.error_help(
+                    codes::BAD_BASE,
+                    base.span,
+                    format!("`{name}` is generic, and a generic base is not supported yet"),
+                    "a base with type arguments",
+                    "inheriting from an instantiation means laying out one base per \
+                     instance, which monomorphization does not do yet; inherit from a \
+                     concrete struct (spec §7.3, 18.32)",
+                );
+                return;
+            }
+            other => {
+                let shown = self.name_of(other);
+                self.error_help(
+                    codes::BAD_BASE,
+                    base.span,
+                    format!("`{shown}` cannot be a base"),
+                    "not a struct",
+                    "`: Base` names one struct to inherit from; a trait is implemented \
+                     with `impl Trait for Type { … }` instead (spec §7.3, §7.6)",
+                );
+                return;
+            }
+        };
+
+        let kind = self.res.symbol(base_sym).kind;
+        let name = self.res.symbol(base_sym).name.clone();
+        if base_sym == sym {
+            self.error_help(
+                codes::BAD_BASE,
+                base.span,
+                format!("`{name}` cannot inherit from itself"),
+                "its own base",
+                "a struct that contained itself would have no size (spec §7.3)",
+            );
+            return;
+        }
+        if !matches!(self.table.get(base_sym), Some(ItemSig::Struct(_)))
+            || kind != SymbolKind::Struct
+        {
+            let what = match kind {
+                SymbolKind::Trait => "a trait is implemented, not inherited from: write \
+                                      `impl Trait for Type { … }` (spec §7.6)",
+                SymbolKind::Union => "a union is a sum type; inherit from a struct (§7.5)",
+                SymbolKind::Enum => "an enum is a named integer; inherit from a struct (§7.4)",
+                _ => "`: Base` names one struct to inherit from (spec §7.3)",
+            };
+            self.error_help(
+                codes::BAD_BASE,
+                base.span,
+                format!("`{name}` is not a struct"),
+                "not a struct",
+                what,
+            );
+            return;
+        }
+        // An imported C++ class as a base is the Jolt-listener case, and it needs the
+        // importer to bring a base's members in and to emit the `: Base` C++ wants; it is
+        // in the deferral register rather than here.
+        if self.ws.module(self.res.symbol(base_sym).module).foreign.is_some() {
+            self.error_help(
+                codes::BAD_BASE,
+                base.span,
+                format!("`{name}` is imported from C++, and cannot be a base yet"),
+                "an imported base",
+                "inheriting an imported class is what Jolt's listeners need and is not \
+                 implemented; a Dazzle struct may inherit a Dazzle struct (spec §15.2)",
+            );
+            return;
+        }
+        if let Some(ItemSig::Struct(sig)) = self.table.sigs.get_mut(&sym) {
+            sig.base = Some(base_sym);
+        }
+    }
+
+    /// Pass 2c: copy each base's fields into the types that inherit them (18.32).
+    ///
+    /// The base's fields come first and the type's own follow, so a field index means the
+    /// same thing everywhere and a `&Derived` is a `&Base` at offset zero. Walking
+    /// parent-first is what lets a chain of three work from one pass: by the time a type
+    /// is flattened its base already holds *its* base's fields.
+    fn flatten_bases(&mut self) {
+        let with_base: Vec<SymbolId> = self
+            .table
+            .sigs
+            .iter()
+            .filter_map(|(sym, sig)| match sig {
+                ItemSig::Struct(s) if s.base.is_some() => Some(*sym),
+                _ => None,
+            })
+            .collect();
+
+        // Deterministic order: the map's iteration order is not, and a cycle's diagnostic
+        // must land on the same struct every run.
+        let mut with_base = with_base;
+        with_base.sort_by_key(|s| s.0);
+
+        let mut done: HashSet<SymbolId> = HashSet::new();
+        for sym in with_base {
+            self.flatten_one(sym, &mut done, &mut Vec::new());
+        }
+    }
+
+    /// Flatten one type, its bases first. `chain` is the path taken to get here, which is
+    /// how a cycle is caught and named.
+    fn flatten_one(
+        &mut self,
+        sym: SymbolId,
+        done: &mut HashSet<SymbolId>,
+        chain: &mut Vec<SymbolId>,
+    ) {
+        if done.contains(&sym) {
+            return;
+        }
+        let base = match self.table.get(sym) {
+            Some(ItemSig::Struct(s)) => s.base,
+            _ => return,
+        };
+        let Some(base) = base else {
+            done.insert(sym);
+            return;
+        };
+        if chain.contains(&sym) {
+            // Break the link before reporting, so nothing downstream can walk the cycle.
+            if let Some(ItemSig::Struct(s)) = self.table.sigs.get_mut(&sym) {
+                s.base = None;
+            }
+            let names: Vec<String> = chain
+                .iter()
+                .chain(std::iter::once(&sym))
+                .map(|s| self.res.symbol(*s).name.clone())
+                .collect();
+            let span = self.res.symbol(sym).span;
+            let file = self.res.symbol(sym).file;
+            self.diags.push(
+                dz_diag::Diagnostic::error(
+                    codes::BAD_BASE,
+                    format!("`{}` inherits from itself", names.last().cloned().unwrap_or_default()),
+                )
+                .at(file, span, "this base chain comes back round")
+                .with_help(format!(
+                    "the chain is {} — a struct cannot contain itself (spec §7.3)",
+                    names.join(" : ")
+                )),
+            );
+            done.insert(sym);
+            return;
+        }
+        chain.push(sym);
+        self.flatten_one(base, done, chain);
+        chain.pop();
+
+        // The base may have lost its link to a cycle just above.
+        let Some(ItemSig::Struct(base_sig)) = self.table.get(base) else {
+            done.insert(sym);
+            return;
+        };
+        let base_fields: Vec<FieldSig> = base_sig
+            .fields
+            .iter()
+            .map(|f| FieldSig { declared_in: Some(f.declared_in.unwrap_or(base)), ..f.clone() })
+            .collect();
+        let base_polymorphic = base_sig.polymorphic;
+
+        // A field redeclared in the derived type is an error, not a hiding: two fields of
+        // one name in one type would make `self.x` mean two things (spec §7.3).
+        let own: Vec<(String, Span)> = match self.table.get(sym) {
+            Some(ItemSig::Struct(s)) => {
+                s.fields.iter().map(|f| (f.name.clone(), f.span)).collect()
+            }
+            _ => Vec::new(),
+        };
+        for (name, span) in &own {
+            if let Some(b) = base_fields.iter().find(|f| &f.name == name) {
+                let base_name = self.res.symbol(base).name.clone();
+                let decl_in = b.declared_in.unwrap_or(base);
+                let file = self.res.symbol(sym).file;
+                self.diags.push(
+                    dz_diag::Diagnostic::error(
+                        codes::SHADOWS_BASE_MEMBER,
+                        format!("field `{name}` is already inherited from `{base_name}`"),
+                    )
+                    .at(file, *span, "redeclared here")
+                    .with_label(dz_diag::Label::secondary(
+                        self.res.symbol(decl_in).file,
+                        b.span,
+                        "inherited from here",
+                    ))
+                    .with_help(
+                        "a name means one thing in a type, whichever declaration it came \
+                         from — rename this field, or drop it and use the base's (spec §7.3)"
+                            .to_owned(),
+                    ),
+                );
+            }
+        }
+
+        if let Some(ItemSig::Struct(s)) = self.table.sigs.get_mut(&sym) {
+            s.inherited = base_fields.len();
+            let mut fields = base_fields;
+            fields.append(&mut s.fields);
+            s.fields = fields;
+            s.polymorphic = s.polymorphic || base_polymorphic;
+        }
+        done.insert(sym);
     }
 
     /// Pass 1: bounds and trait lists (spec §7.6, §8.1).
@@ -1802,6 +2238,7 @@ impl<'a> Ctx<'a> {
             }
             ItemKind::Fn(f) => {
                 let sig = self.fn_sig(f, item.vis, Some(sym));
+                self.check_test_attribute(item, f, &sig, sym);
                 self.table.sigs.insert(sym, ItemSig::Fn(sig));
             }
             ItemKind::Const(c) => {
@@ -1820,6 +2257,97 @@ impl<'a> Ctx<'a> {
             | ItemKind::Macro(_)
             | ItemKind::MacroInvocation { .. }
             | ItemKind::Error => {}
+        }
+    }
+
+    /// `#[test] fn it_adds() { … }` and `#[bench] fn adding() { … }` (spec §19 M14, M15).
+    ///
+    /// Both are functions a runner calls with nothing and reads nothing back from: a test
+    /// either returns or panics, and a benchmark is timed. Taking an argument would leave
+    /// the runner deciding what to pass, returning a value would leave it deciding what
+    /// the value meant, and a generic one has no single instance to call — so all three
+    /// are refused here, where the declaration is, rather than at some later point.
+    fn check_test_attribute(&mut self, item: &Item, f: &FnDecl, sig: &FnSig, sym: SymbolId) {
+        let which = ["test", "bench"]
+            .into_iter()
+            .find(|w| item.attrs.iter().any(|a| a.name.name == *w));
+        let Some(which) = which else { return };
+        let attr = item
+            .attrs
+            .iter()
+            .find(|a| a.name.name == which)
+            .expect("just found it");
+        if item.attrs.iter().any(|a| a.name.name == "test")
+            && item.attrs.iter().any(|a| a.name.name == "bench")
+        {
+            let name = f.name.name.clone();
+            self.error_help(
+                codes::BAD_TEST,
+                f.name.span,
+                format!("`{name}` is both a test and a benchmark"),
+                "one or the other",
+                "a test is run once and asked whether it passed; a benchmark is run many \
+                 times and asked how long it took (spec §19 M14, M15)",
+            );
+            return;
+        }
+
+        // Fallibility is checked before the return type, so `!-> i32` is reported as the
+        // fallible signature it is rather than as a non-void return.
+        let bad = if !sig.params.is_empty() {
+            Some((format!("a {which} takes no arguments"), "the runner has nothing to pass"))
+        } else if sig.fallible {
+            Some((
+                format!("a {which} is not fallible"),
+                "report the failure with `panic`, which is what a failing one does",
+            ))
+        } else if !matches!(sig.ret, Ty::Void) {
+            Some((
+                format!("a {which} returns nothing"),
+                "the runner has nothing to do with a value",
+            ))
+        } else if !sig.generics.is_empty() {
+            Some((
+                format!("a {which} has no type parameters"),
+                "there is no instance to run",
+            ))
+        } else if f.body.is_none() {
+            Some((format!("a {which} needs a body"), "there is nothing to run"))
+        } else {
+            None
+        };
+
+        if let Some((message, label)) = bad {
+            let name = f.name.name.clone();
+            let how = if which == "test" {
+                "a test is `#[test] fn name() { … }`; it passes by returning and fails by \
+                 panicking (spec §19 M14)"
+            } else {
+                "a benchmark is `#[bench] fn name() { … }`; the runner times its body over \
+                 many iterations (spec §19 M15)"
+            };
+            self.error_help(
+                codes::BAD_TEST,
+                f.name.span,
+                format!("`{name}` cannot be a {which}: {message}"),
+                label,
+                how,
+            );
+            return;
+        }
+        if !attr.args.is_empty() {
+            self.error_help(
+                codes::BAD_TEST,
+                attr.span,
+                format!("`#[{which}]` takes no arguments"),
+                "unexpected arguments",
+                format!("write `#[{which}]` on its own"),
+            );
+        }
+        if which == "test" {
+            self.table.tests.push(sym);
+        } else {
+            self.table.benches.push(sym);
         }
     }
 
@@ -1862,6 +2390,12 @@ impl<'a> Ctx<'a> {
                 }
                 MemberKind::Fn(f) => {
                     let s = self.fn_sig(f, m.vis, None);
+                    // One `virtual` anywhere in the chain makes the whole type
+                    // polymorphic, which decides its destructor and whether it can be
+                    // memcpy'd (spec §7.3, 18.32). `flatten_bases` carries it downward.
+                    if f.dispatch != Dispatch::Static {
+                        sig.polymorphic = true;
+                    }
                     let name = f.name.name.clone();
                     let taken = sig.overloads.get(&name).map_or(0, Vec::len);
                     let key = if taken == 0 { name.clone() } else { format!("{name}#{taken}") };
@@ -1908,6 +2442,7 @@ impl<'a> Ctx<'a> {
             span: f.name.span,
             // Dazzle has no bit-fields of its own; only an imported C struct brings them.
             bitfield: false,
+            declared_in: None,
         }
     }
 
@@ -1946,6 +2481,7 @@ impl<'a> Ctx<'a> {
         FnSig {
             // Only an imported function needs a cast at the boundary (spec §15.2).
             ret_cast: false,
+            dispatch: f.dispatch,
             params,
             ret,
             fallible: f.fallible,
