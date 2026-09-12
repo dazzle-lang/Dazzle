@@ -167,12 +167,17 @@ pub fn compile(
     }
     cmd.args(&objects);
     cmd.arg("-o").arg(&exe);
-    let (lib_dirs, link_libs) = ws.link_inputs();
-    for dir in &lib_dirs {
+    let link = ws.link_inputs();
+    let (lib_dirs, link_libs) = (&link.dirs, &link.libs);
+    for dir in lib_dirs {
         cmd.arg(format!("-L{}", dir.display()));
     }
-    for lib in &link_libs {
+    for lib in link_libs {
         cmd.arg(format!("-l{lib}"));
+    }
+    // macOS system libraries are frameworks, which `-l` does not find (spec §15.1).
+    for f in &link.frameworks {
+        cmd.arg("-framework").arg(f);
     }
 
     let output = match cmd.output() {

@@ -26,5 +26,9 @@ link_libs = ["opengl32", "gdi32", "winmm", "user32", "shell32"]
 [cpp.libs.raylib.target.linux]
 link_libs = ["GL", "m", "pthread", "dl", "rt", "X11"]
 
+# macOS's window system is a set of frameworks, which `-lCocoa` does not find. Without
+# these the link fails with undefined Objective-C symbols from GLFW's Cocoa backend, which
+# names nothing that looks like a missing framework.
 [cpp.libs.raylib.target.macos]
-link_libs = ["m", "pthread", "dl"]
+link_libs  = ["m", "pthread", "dl"]
+frameworks = ["Cocoa", "IOKit", "CoreVideo", "CoreFoundation", "OpenGL"]

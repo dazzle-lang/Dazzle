@@ -71,6 +71,11 @@ pub struct CppConfig {
     pub defines: Vec<String>,
     pub lib_dirs: Vec<PathBuf>,
     pub link_libs: Vec<String>,
+    /// `frameworks = ["Cocoa", "IOKit"]` — macOS only, where a system library is a
+    /// framework and `-lCocoa` finds nothing. Linked as `-framework <name>`; ignored on
+    /// every other platform, so a recipe names them in a `[….target.macos]` section
+    /// (spec §15.1).
+    pub frameworks: Vec<String>,
     pub libs: Vec<CppLib>,
     /// `[cpp.instantiate]`: the C++ type to instantiate, and the Dazzle name to import it
     /// under — `("std::vector<float>", "StdVecF32")` (spec §15.4).
@@ -94,6 +99,17 @@ pub struct CppLib {
     pub defines: Vec<String>,
     pub lib_dirs: Vec<PathBuf>,
     pub link_libs: Vec<String>,
+    /// See [`CppConfig::frameworks`].
+    pub frameworks: Vec<String>,
+}
+
+/// Everything the final link needs, gathered from the whole dependency graph.
+#[derive(Debug, Clone, Default)]
+pub struct LinkInputs {
+    pub dirs: Vec<PathBuf>,
+    pub libs: Vec<String>,
+    /// macOS frameworks, linked as `-framework <name>`. Empty everywhere else.
+    pub frameworks: Vec<String>,
 }
 
 /// What the preprocessor is given for one module's C++: see [`Workspace::cpp_flags`].
@@ -181,12 +197,17 @@ impl Workspace {
         out
     }
 
-    /// Library search directories and libraries to link, from every module the root
-    /// reaches, each once.
-    pub fn link_inputs(&self) -> (Vec<PathBuf>, Vec<String>) {
-        let (mut dirs, mut libs) = (Vec::new(), Vec::new());
+    /// Library search directories, libraries, and macOS frameworks to link — from every
+    /// module the root reaches, each once.
+    pub fn link_inputs(&self) -> LinkInputs {
+        let (mut dirs, mut libs, mut frameworks) = (Vec::new(), Vec::new(), Vec::new());
         for m in self.reachable(self.root) {
             let cpp = &self.module(m).cpp;
+            for f in cpp.libs.iter().flat_map(|l| &l.frameworks).chain(&cpp.frameworks) {
+                if !frameworks.contains(f) {
+                    frameworks.push(f.clone());
+                }
+            }
             let module_dirs = cpp.libs.iter().flat_map(|l| &l.lib_dirs).chain(&cpp.lib_dirs);
             for d in module_dirs {
                 if !dirs.contains(d) {
@@ -199,7 +220,7 @@ impl Workspace {
                 }
             }
         }
-        (dirs, libs)
+        LinkInputs { dirs, libs, frameworks }
     }
 
     /// Every vendored library the root reaches, with the module whose manifest declares it.
@@ -887,11 +908,13 @@ impl<'a> Loader<'a> {
     /// but every section is checked, so a recipe that is wrong for another platform says so
     /// on this one too.
     fn cpp_config(&mut self, file: FileId, doc: &Document, root_dir: &Path) -> CppConfig {
-        const MODULE_KEYS: &[&str] = &["include_dirs", "defines", "lib_dirs", "link_libs"];
+        const MODULE_KEYS: &[&str] =
+            &["include_dirs", "defines", "lib_dirs", "link_libs", "frameworks"];
         const LIB_KEYS: &[&str] =
-            &["root", "sources", "header", "include_dirs", "defines", "lib_dirs", "link_libs"];
+            &["root", "sources", "header", "include_dirs", "defines", "lib_dirs", "link_libs",
+              "frameworks"];
         const LIB_TARGET_KEYS: &[&str] =
-            &["sources", "include_dirs", "defines", "lib_dirs", "link_libs"];
+            &["sources", "include_dirs", "defines", "lib_dirs", "link_libs", "frameworks"];
         const MANIFEST_DIR: &str = "the directory holding dazzle.toml";
         const LIB_ROOT: &str = "the library's `root`, or the manifest's directory without one";
 
@@ -991,6 +1014,7 @@ impl<'a> Loader<'a> {
             defines: module.defines,
             lib_dirs: module.lib_dirs,
             link_libs: module.link_libs,
+            frameworks: module.frameworks,
             instantiate,
             libs: libs
                 .into_iter()
@@ -1003,6 +1027,7 @@ impl<'a> Loader<'a> {
                     defines: l.defines,
                     lib_dirs: l.lib_dirs,
                     link_libs: l.link_libs,
+                    frameworks: l.frameworks,
                 })
                 .collect(),
         }
@@ -1081,6 +1106,7 @@ impl<'a> Loader<'a> {
                 match key {
                     "defines" => out.defines.push(s.clone()),
                     "link_libs" => out.link_libs.push(s.clone()),
+                    "frameworks" => out.frameworks.push(s.clone()),
                     "sources" => self.lib_sources(file, base, base_desc, s, *span, &mut out.sources),
                     _ => {
                         let dir = normalize(&base.join(s));
@@ -1208,6 +1234,7 @@ struct Lists {
     defines: Vec<String>,
     lib_dirs: Vec<PathBuf>,
     link_libs: Vec<String>,
+    frameworks: Vec<String>,
 }
 
 fn as_str(v: &Value) -> Option<&str> {

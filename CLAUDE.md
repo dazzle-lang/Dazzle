@@ -25,8 +25,9 @@ inheritance). **Struct inheritance landed as r30** — single inheritance, `virt
 `protected`, base initialisers, inherited implementations — which also unblocks that last
 M7 row. **`dz test` (M14) and `dz bench` (M15) have landed** — `#[test]` and `#[bench]`
 functions beside the code they cover, each run in its own process, and a comparison suite
-in `tests/bench` measuring Dazzle against hand-written C++. Next is CI across the three
-platforms, then fetched packages (M16). Spec §19 is the roadmap.
+in `tests/bench` measuring Dazzle against hand-written C++. **CI is written but has never
+run** (`.github/workflows/ci.yml`, three platforms); getting it green is next, then fetched
+packages (M16). Spec §19 is the roadmap.
 
 ## Three documents
 

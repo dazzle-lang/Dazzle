@@ -1,0 +1,124 @@
+name: CI
+
+# The compiler is portable Rust, but what it *produces* is C++ built by the host's own
+# toolchain, and what it reads is headers parsed by the host's libclang. Those are the
+# parts that differ per platform, so the point of this matrix is not the Rust build —
+# it is that `dz` drives three different C++ toolchains to the same result.
+#
+# There is no `cargo fmt --check` step on purpose: this repository is hand-formatted to a
+# wider style than rustfmt's default, and running it would rewrite nearly every file.
+# Adopting rustfmt would need a `rustfmt.toml` and a one-time reformat first.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A CI machine has no incremental cache worth keeping between jobs, and building one
+  # costs both time and disk.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing is a fact worth having about the other two, so let them finish.
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+            cxx: g++
+          - name: macos
+            os: macos-latest
+            cxx: clang++
+          - name: windows
+            os: windows-latest
+            cxx: clang++
+
+    env:
+      # Which C++ compiler `dz` drives. Without it `dz` picks the first of clang++, g++,
+      # c++ that it finds, and the matrix would not know which one it tested.
+      DZ_CXX: ${{ matrix.cxx }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `import cpp` loads libclang at run time (`clang-sys`'s "runtime" feature), so it is
+      # an installed-package problem rather than a build one. Without it every interop test
+      # reports DZ0703 and skips — which would look like a pass.
+      - name: Install libclang and the window-system headers (linux)
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libclang-dev \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+
+      - name: Locate libclang (macos)
+        if: matrix.name == 'macos'
+        run: |
+          # The Xcode command line tools ship libclang; Homebrew's llvm is the fallback.
+          if [ -f /Library/Developer/CommandLineTools/usr/lib/libclang.dylib ]; then
+            echo "LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib" >> "$GITHUB_ENV"
+          else
+            brew install llvm
+            echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+          fi
+
+      - name: Locate libclang (windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          $dir = "C:\Program Files\LLVM\bin"
+          if (-not (Test-Path (Join-Path $dir "libclang.dll"))) {
+            choco install llvm --no-progress -y
+          }
+          "LIBCLANG_PATH=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Printed rather than assumed: when a platform's interop tests skip, this is the line
+      # that says why.
+      - name: Report the toolchain
+        shell: bash
+        run: |
+          rustc -vV
+          "$DZ_CXX" --version
+          echo "LIBCLANG_PATH=${LIBCLANG_PATH:-<unset>}"
+
+      - name: Build
+        run: cargo build --workspace --all-targets
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      # Invariant 7: generated C++ must compile warning-clean on more than one compiler.
+      # The suite checks whichever it is given, so on the platform that has both, it runs
+      # again against the other.
+      - name: Test against clang++ as well
+        if: matrix.name == 'linux'
+        env:
+          DZ_CXX: clang++
+        run: cargo test --workspace
+
+      # `dz`'s own commands, exercised the way a user meets them rather than through the
+      # Rust test harness.
+      - name: dz test
+        run: cargo run -p dz -- test tests/run/tests
+
+      - name: dz bench
+        run: cargo run -p dz -- bench tests/bench

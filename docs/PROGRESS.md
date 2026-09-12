@@ -19,11 +19,11 @@ the milestone.
 | | |
 |---|---|
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30 |
-| Next | **CI across Linux, macOS and Windows**, then fetched packages (M16). `dz test` (M14) and `dz bench` (M15) have landed. Struct inheritance landed as r30, which also unblocks the last substantive M7 row — a Dazzle struct inheriting an imported C++ class, Jolt's listeners. See §4 |
+| Next | **Get CI green on all three platforms** — the workflow is written and has never run — then fetched packages (M16). M14, M15 and struct inheritance have landed. Struct inheritance landed as r30, which also unblocks the last substantive M7 row — a Dazzle struct inheriting an imported C++ class, Jolt's listeners. See §4 |
 | Tests | 182, all green |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 31; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
+| Language spec | 0.1 **unreleased**, revision 32; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -1200,7 +1200,7 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 
 ---
 
-## 4. Next: CI, then fetched packages
+## 4. Next: get CI green, then fetched packages
 
 Struct inheritance is done (r30). What follows is the tooling the language needs before it
 can be worked in seriously, raised by the user on 2026-09-12 and sized here against what
@@ -1339,20 +1339,43 @@ dependencies are supported so far"*. A git source is a real feature, not a manif
    `dz` will and will not run from a fetched package (today: nothing — there are no build
    scripts, and `[cpp.libs]` recipes are declarative, which is a property worth keeping).
 
-### CI — GitHub Actions across Linux, macOS and Windows
+### CI — GitHub Actions across Linux, macOS and Windows ✅ written, **unverified**
 
-There is no `.github/` yet. The workspace is portable Rust and the tests shell out to a C++
-compiler, so the matrix is mostly free — with three real constraints, all of them already
-visible in the code:
+`.github/workflows/ci.yml`: build, clippy with `-D warnings`, the test suite, and `dz test`
+and `dz bench` driven as a user would meet them, on `ubuntu-latest`, `macos-latest` and
+`windows-latest`. `fail-fast` is off, because one platform failing is a fact worth having
+about the other two.
 
-- **libclang** must be present, or every `import cpp` test reports `DZ0703` and the C
-  interop corpus is skipped rather than run. It is loaded at run time, so it is an
-  installed-package problem, not a build one.
-- **raylib needs system libraries** on Linux (X11 and friends); `the_windowed_interop_programs_build`
-  builds it, so those packages have to be installed even though no window opens.
+**It has never run.** Everything below was verified locally on Windows; the Linux and macOS
+jobs are the workflow's first real test, and the useful outcome of the first run is
+whatever it reports rather than a green tick.
+
+What writing it turned up, all of it fixed here rather than left for CI to discover:
+
+- **`tests/run/cinterop_rgfw` could only ever link on Windows.** Its recipe listed
+  `opengl32` and `gdi32` as plain `link_libs`, which apply on every platform; nothing
+  else has those libraries. They are now in a `target.windows` section, with the X11 and
+  Cocoa equivalents beside them.
+- **macOS could not have linked either fixture**, because a macOS system library is a
+  *framework* and `link_libs` becomes `-lNAME`, which finds nothing. Hence **`frameworks`**
+  in a recipe (§15.1), linked as `-framework NAME`. `raylib`'s and `rgfw`'s macOS sections
+  now name the ones GLFW's Cocoa backend needs; without them the link fails with undefined
+  Objective-C symbols, which name nothing that looks like a missing framework.
+- **No `cargo fmt --check` step**, deliberately. This repository is hand-formatted to a
+  wider style than rustfmt's default: running it rewrites nearly every file, including ones
+  untouched for months. Adopting rustfmt needs a `rustfmt.toml` and a one-time reformat,
+  which is a decision rather than a CI step.
+- The suite was run against **both** `clang++` and `g++` locally and passes on each, which
+  is invariant 7's "more than one compiler" checked rather than assumed. The Linux job
+  repeats the suite under `clang++` for the same reason.
+
+Still open, and what CI is expected to surface first:
+
+- **libclang's location** differs per platform and is guessed at in three separate steps.
+  Where it is missing the interop tests report `DZ0703` and *skip*, which reads as a pass —
+  so the workflow prints `LIBCLANG_PATH` and the compiler version before running anything.
 - **libclang parses with its own default target** (a §3 row): on Windows that is MSVC while
-  `g++` builds against mingw. CI running both compilers is exactly what would surface that,
-  which is a reason to do it rather than a reason to avoid it.
+  `g++` builds against mingw. CI running both compilers is exactly what would surface that.
 
 ### M9's remaining editor work, resized
 

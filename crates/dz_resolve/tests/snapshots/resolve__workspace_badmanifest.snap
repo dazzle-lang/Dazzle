@@ -95,4 +95,4 @@ error[DZ0004]: unknown key `flags` in `[cpp.libs.broken]`
 24 │ flags   = ["-O3"]
    │ ^^^^^ not a key of this table
    │
-   = help: the keys here are `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs` (spec §15.1)
+   = help: the keys here are `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs`, `frameworks` (spec §15.1)
