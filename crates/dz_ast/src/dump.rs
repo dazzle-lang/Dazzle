@@ -57,7 +57,7 @@ impl<'a> Dumper<'a> {
                 let names: Vec<&str> = names.iter().map(|n| n.name.as_str()).collect();
                 self.line(format_args!("import {}::{{{}}}", path_str(path), names.join(", ")));
             }
-            ImportKind::Cpp { header, alias } => self.line(format_args!(
+            ImportKind::Cpp { header, alias, .. } => self.line(format_args!(
                 "import cpp {}{}",
                 self.text(*header),
                 alias.as_ref().map(|a| format!(" as {}", a.name)).unwrap_or_default()
@@ -582,8 +582,12 @@ fn arrow(fallible: bool) -> &'static str {
 pub fn type_str(t: &Type) -> String {
     match &t.kind {
         TypeKind::Path(p) => path_str(p),
-        TypeKind::Ptr(inner) => format!("^{}", type_str(inner)),
-        TypeKind::OwnPtr(inner) => format!("own ^{}", type_str(inner)),
+        TypeKind::Ptr { mutable, inner } => {
+            format!("^{}{}", if *mutable { "mut " } else { "" }, type_str(inner))
+        }
+        TypeKind::OwnPtr { mutable, inner } => {
+            format!("own ^{}{}", if *mutable { "mut " } else { "" }, type_str(inner))
+        }
         TypeKind::Ref { mutable, inner } => {
             format!("&{}{}", if *mutable { "mut " } else { "" }, type_str(inner))
         }

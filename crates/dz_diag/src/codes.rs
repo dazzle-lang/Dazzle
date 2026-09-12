@@ -231,6 +231,30 @@ pub const ORPHAN_IMPL: &str = "DZ0539";
 /// Two implementations of one trait that could both apply to the same type (spec §7.6).
 pub const OVERLAPPING_IMPL: &str = "DZ0540";
 
+// --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
+
+/// A library vendored as source failed to compile. Neither a Dazzle bug nor a mistake in
+/// Dazzle code: the library's own source is wrong, or its recipe in `dazzle.toml` is
+/// missing a define or an include dir (spec §15.1).
+pub const CPP_LIBRARY_FAILED: &str = "DZ0701";
+/// An `import cpp` header that clang could not read: not found through the include dirs,
+/// or with errors of its own (spec §15.1).
+pub const CPP_HEADER_FAILED: &str = "DZ0702";
+/// `import cpp` on a machine where libclang could not be loaded (spec §15.1).
+pub const CPP_UNAVAILABLE: &str = "DZ0703";
+/// An imported type whose header only declares it — a handle — used where a value of it
+/// would have to exist. Nothing here knows its size (spec §15.2, §18.40).
+pub const OPAQUE_BY_VALUE: &str = "DZ0704";
+/// A literal of an imported C `union` that sets more than one member. They are the same
+/// memory, so all but the last would be overwritten (spec §15.2, §18.41).
+pub const UNION_LITERAL: &str = "DZ0705";
+/// `&` or `&mut` on an imported C bit-field. It is a few bits inside a larger member, and
+/// C++ has no pointer or reference to one (spec §15.2).
+pub const BITFIELD_ADDRESS: &str = "DZ0706";
+/// An imported C array member taken as a value. C++ cannot copy or assign a raw array, so
+/// it is indexed, iterated or pointed at instead (spec §15.2).
+pub const C_ARRAY_BY_VALUE: &str = "DZ0707";
+
 // --- DZ08xx: code generation ---------------------------------------------------
 
 /// A construct the code generator does not handle yet.

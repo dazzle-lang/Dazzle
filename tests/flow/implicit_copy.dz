@@ -2,7 +2,7 @@
 // expect: DZ0403
 
 pub struct Res {
-    m_p: own ^i32
+    m_p: own ^mut i32
 
     pub fn live(&self) -> bool {
         return m_p != null

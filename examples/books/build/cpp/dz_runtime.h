@@ -241,7 +241,8 @@ inline uint8_t* alloc(size_t size, size_t align, SourceLocation where) {
     return static_cast<uint8_t*>(p);
 }
 
-inline void dealloc(void* p) { ::free(p); }
+// `free` takes any pointer, `own ^T` included: releasing memory is not writing it (§14.3).
+inline void dealloc(const void* p) { ::free(const_cast<void*>(p)); }
 
 // `construct(dst, v)` and `destroy(x)` (spec §14.3): placement new and an explicit
 // destructor call — the only places a value is seen in a not-yet-constructed state.
@@ -267,11 +268,12 @@ template <class T, size_t N> DZ_INLINE size_t len(const Array<T, N>&) { return N
 DZ_INLINE size_t len(const str& s) { return s.len; }
 template <class T> DZ_INLINE size_t len(T* p) { return len(*p); }
 
-/// `.ptr` (spec §5.3): the first element, for unchecked access inside `unsafe`. The checker
-/// allows it only on a writable view, so there is no `Slice<const T>` form to need.
+/// `.ptr` (spec §5.3): the first element, for unchecked access inside `unsafe`. A read-only
+/// view gives a `^T`, which is a `const T*` — `Slice<const T>` does that by itself.
 template <class T> DZ_INLINE T* data(Slice<T>& s) { return s.ptr; }
 template <class T> DZ_INLINE T* data(const Slice<T>& s) { return s.ptr; }
 template <class T, size_t N> DZ_INLINE T* data(Array<T, N>& a) { return a.data; }
+template <class T, size_t N> DZ_INLINE const T* data(const Array<T, N>& a) { return a.data; }
 
 // Hand-rolled rather than pulled from <type_traits>, so the shim keeps its promise of
 // depending on nothing but the C standard library. Compiler builtins are avoided too:
@@ -281,12 +283,13 @@ template <class T> struct is_ptr<T*> { static constexpr bool value = true; };
 
 /// `as` between numbers, pointers, and an enum and its backing type (spec §10.6).
 ///
-/// `static_cast` already covers enum-to-integer and every numeric conversion; only
-/// pointer-to-pointer needs `reinterpret_cast`.
+/// `static_cast` already covers enum-to-integer and every numeric conversion. A pointer
+/// cast may also turn a `^T` into a `^mut T` (spec §10.6), which is `const T*` to `T*` and
+/// beyond `reinterpret_cast`; the C-style cast is the one spelling that does both.
 template <class To, class From>
 DZ_INLINE To cast(From f) {
     if constexpr (is_ptr<From>::value && is_ptr<To>::value) {
-        return reinterpret_cast<To>(f);
+        return (To)(f);
     } else {
         return static_cast<To>(f);
     }
@@ -303,6 +306,13 @@ DZ_INLINE auto index(C& c, size_t i, SourceLocation where) -> decltype(c[i]) {
 
 template <class T, size_t N>
 DZ_INLINE T& index(Array<T, N>& a, size_t i, SourceLocation where) {
+    if (i >= N) { panic_bounds(i, N, where); }
+    return a.data[i];
+}
+
+// An array read through a `^T` is `const` (spec §18.37).
+template <class T, size_t N>
+DZ_INLINE const T& index(const Array<T, N>& a, size_t i, SourceLocation where) {
     if (i >= N) { panic_bounds(i, N, where); }
     return a.data[i];
 }

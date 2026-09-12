@@ -1,0 +1,41 @@
+// M7b (spec §15.1, §15.2, §19): a C++ library vendored as source, built by `dz`, and
+// called directly — a namespace is a scope Dazzle reaches through, a class is a struct
+// with methods, and an overload set resolves by argument type (§15.3).
+import cpp "shapes.hpp" as shp
+
+fn main() {
+    // A namespace is a nested scope: `shp` is the header, `shapes` the namespace in it.
+    let a = shp::shapes::Point{ x: 1, y: 2 }
+    let b = shp::shapes::Point{ x: 4, y: 6 }
+
+    // A nested namespace takes one more segment.
+    println("manhattan {}", shp::shapes::geom::manhattan(a, b))
+
+    // A scoped enum's enumerators are reached only through it (§18.38).
+    println("round {} square {}",
+            shp::shapes::area_of(shp::shapes::Kind::Round, 5),
+            shp::shapes::area_of(shp::shapes::Kind::Square, 5))
+
+    // A C++ reference: `const Point&` is a `&Point`, `Point&` a `&mut Point` (§15.2).
+    let mut moving = shp::shapes::Point{ x: 3, y: 4 }
+    println("length sq {}", shp::shapes::length_sq(&moving))
+    shp::shapes::translate(&mut moving, 1, 1)
+    println("moved {} {}", moving.x, moving.y)
+
+    // A class: a constructor call, a `const` method, and a mutating one.
+    let mut counter = shp::shapes::Counter(10)
+    counter.add(5)
+    // The other `add` of the overload set, chosen by the argument's type (§15.3).
+    counter.add(a)
+    println("counter {}", counter.value())
+
+    // A class C++ destroys itself: move-only in Dazzle, and its destructor runs at the end
+    // of this scope without Dazzle emitting a `drop` for it (§15.2).
+    let mut buf = shp::shapes::Buffer(4)
+    buf.fill(3)
+    println("buffer {} {}", buf.len(), buf.sum())
+
+    // A named template instantiation is an ordinary type (spec §15.4).
+    let pair = shp::IntPair(3, 9)
+    println("pair {} {}", pair.first(), pair.sum())
+}

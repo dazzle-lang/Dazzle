@@ -7,13 +7,13 @@
 // `&mut self` has to satisfy a `^List<T>`.
 
 struct Buffer<T> {
-    m_data: own ^T
+    m_data: own ^mut T
     m_len:  usize
     m_cap:  usize
 
     Buffer(cap: usize) {
         unsafe {
-            m_data = alloc(cap * sizeof(T), alignof(T)) as ^T
+            m_data = alloc(cap * sizeof(T), alignof(T)) as ^mut T
         }
         m_cap = cap
     }
@@ -32,7 +32,7 @@ struct Buffer<T> {
         return m_len
     }
 
-    pub fn at(&self, i: usize) -> ^T {
+    pub fn at(&self, i: usize) -> ^mut T {
         unsafe {
             return &mut m_data[i]
         }
@@ -73,7 +73,7 @@ struct List<T> {
         return m_buffer.len()
     }
 
-    pub fn at(&self, i: usize) -> ^T {
+    pub fn at(&self, i: usize) -> ^mut T {
         return m_buffer.at(i)
     }
 
@@ -145,7 +145,7 @@ fn main() {
         }
     }
 
-    // On a `^T` the binding is the `&mut T` that `or` would give.
+    // On a `^mut T` the binding is the `&mut T` that `or` would give.
     if let first = list.at(0) {
         first.id = 10
     }

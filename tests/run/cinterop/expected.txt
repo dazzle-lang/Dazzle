@@ -1,0 +1,17 @@
+scaled 15
+sum 3 4
+length sq 25
+zero 0 0
+sides 0 4
+square 4 version 7 half 0.5
+total 24
+name mini
+length 5
+measured mini
+callback 21
+upper 72 73
+bits 1 5 sample 3 total 10 10
+event 1 5
+union 9 9
+chosen 4
+count 2

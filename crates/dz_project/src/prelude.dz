@@ -139,7 +139,7 @@ pub trait Format {
 /// explicit parameter (§14, §18.10). The standard allocators and `Arena` are stdlib types
 /// and arrive with M12; this is the interface they will implement.
 pub trait Allocator {
-    fn alloc(&self, size: usize, align: usize) -> ^u8
-    fn realloc(&self, p: ^u8, old_size: usize, new_size: usize, align: usize) -> ^u8
-    fn free(&self, p: ^u8, size: usize, align: usize)
+    fn alloc(&self, size: usize, align: usize) -> ^mut u8
+    fn realloc(&self, p: ^mut u8, old_size: usize, new_size: usize, align: usize) -> ^mut u8
+    fn free(&self, p: ^mut u8, size: usize, align: usize)
 }

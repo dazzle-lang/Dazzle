@@ -422,10 +422,10 @@ impl Worklist<'_> {
                     self.want(true, *sym, args.clone(), at);
                 }
             }
-            Ty::Ptr(i) | Ty::OwnPtr(i) | Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => {
-                self.visit_ty(i, at)
+            Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => self.visit_ty(i, at),
+            Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
+                self.visit_ty(inner, at)
             }
-            Ty::Ref { inner, .. } => self.visit_ty(inner, at),
             Ty::Array { elem, .. } | Ty::Slice { elem, .. } => self.visit_ty(elem, at),
             Ty::Tuple(parts) => {
                 for p in parts {
@@ -528,8 +528,8 @@ pub fn impl_defaults(table: &TypeTable, hir: &Hir, idx: usize, map: &HashMap<u32
 fn depth(t: &Ty) -> usize {
     match t {
         Ty::Named { args, .. } => 1 + args.iter().map(depth).max().unwrap_or(0),
-        Ty::Ptr(i) | Ty::OwnPtr(i) | Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => depth(i),
-        Ty::Ref { inner, .. } => depth(inner),
+        Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => depth(i),
+        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => depth(inner),
         Ty::Array { elem, .. } | Ty::Slice { elem, .. } => depth(elem),
         Ty::Tuple(parts) => parts.iter().map(depth).max().unwrap_or(0),
         _ => 0,

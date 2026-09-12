@@ -265,7 +265,7 @@ impl<'a> Printer<'a> {
                 dump::path_str(path),
                 names.iter().map(|n| n.name.as_str()).collect::<Vec<_>>().join(", ")
             ),
-            ImportKind::Cpp { header, alias } => format!(
+            ImportKind::Cpp { header, alias, .. } => format!(
                 "import cpp {}{}",
                 self.text(*header),
                 alias.as_ref().map(|a| format!(" as {}", a.name)).unwrap_or_default()
@@ -658,8 +658,12 @@ impl<'a> Printer<'a> {
             TypeKind::Slice { mutable, elem } => {
                 format!("[]{}{}", if *mutable { "mut " } else { "" }, self.ty(elem))
             }
-            TypeKind::Ptr(i) => format!("^{}", self.ty(i)),
-            TypeKind::OwnPtr(i) => format!("own ^{}", self.ty(i)),
+            TypeKind::Ptr { mutable, inner } => {
+                format!("^{}{}", if *mutable { "mut " } else { "" }, self.ty(inner))
+            }
+            TypeKind::OwnPtr { mutable, inner } => {
+                format!("own ^{}{}", if *mutable { "mut " } else { "" }, self.ty(inner))
+            }
             TypeKind::Ref { mutable, inner } => {
                 format!("&{}{}", if *mutable { "mut " } else { "" }, self.ty(inner))
             }

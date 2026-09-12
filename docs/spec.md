@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 17
+**Version:** 0.1 — **unreleased**, revision 29
 **Status:** M0–M6 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, and have generics and traits. The language is not yet usable
 for real work: there is no C++ interop and no stdlib. See `docs/PROGRESS.md`.
@@ -35,7 +35,7 @@ import engine::render as gfx          // :: is the only scope separator, everywh
 
 pub struct Buffer<T> {                // private by default; pub / pub(module) / (nothing)
     m_allocator: ^Allocator = null    // ^T  nullable pointer
-    m_data:      own ^T               // own ^T  this struct frees it -> Buffer is move-only
+    m_data:      own ^mut T           // own ^mut T  this struct frees it -> Buffer is move-only
     m_len:       u32                  // fields default-initialise; no uninitialised memory
 
     Buffer(cap: u32, a: ^Allocator = Allocators::Global) { ... }   // constructor
@@ -55,7 +55,7 @@ impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable 
 
 | Concept | Syntax | One-line rule |
 |---|---|---|
-| Refer to a value | `&T` `&mut T` `^T` `own ^T` | `&`/`&mut` are non-null and **stack-only**; `^` is a C pointer; `own ^` means you free it; `^T` → `&mut T` needs an `or` clause, `&mut T` → `^T` is free, and reading or writing *through* a `^T` is `unsafe` |
+| Refer to a value | `&T` `&mut T` `^T` `^mut T` `own ^mut T` | `&`/`&mut` are non-null and **stack-only**; `^` is a C pointer, read-only unless `^mut`; `own ^` means you free it; `^T` → `&T` needs an `or` clause, `&T` → `^T` is free, and reading or writing *through* a pointer is `unsafe` |
 | Copy vs move | `let b = a` / `let b = move(a)` | if the type owns anything, copying needs an `impl Copy`; otherwise `move()` |
 | Absence | `T?` | postfix, binds to the type name. `^T?` is a pointer to an optional; an optional pointer is just `^T` |
 | Failure | `fn f(…) !-> T` | `!` marks the *signature*, never a type. There is no `T!` to store, annotate, or point at |
@@ -138,10 +138,10 @@ Consecutive terminators collapse into one, and terminators are suppressed:
 That is what lets a call wrap across lines without a continuation character:
 
 ```dz
-m_data = m_allocator.realloc(m_data as ^u8,
+m_data = m_allocator.realloc(m_data as ^mut u8,
                              m_capacity * sizeof(T),
                              new_size * sizeof(T),
-                             alignof(T)) as ^T
+                             alignof(T)) as ^mut T
 ```
 
 Semicolons are legal but never required, and `dz fmt` removes them. `[PROPOSED]`
@@ -282,9 +282,10 @@ output       = "static-lib"   # "executable" | "static-lib" | "shared-lib"
 optimize     = "debug"        # "debug" | "release" | "shipping"
 type_info    = "used"         # "none" | "used" | "all"   (§13)
 
-[cpp]
-include_dirs = ["vendor/raylib/include"]
-link_libs    = ["raylib", "opengl32", "gdi32", "winmm"]
+[cpp.libs.stb]                     # a C or C++ library, vendored as source (§15.1)
+root         = "vendor/stb"
+sources      = ["stb_image.c"]
+include_dirs = ["."]
 ```
 
 A workspace has a root project depending on sibling projects, conventionally in `libs/`:
@@ -440,14 +441,16 @@ code and it costs nothing to forbid. `[DECIDED]`
 
 ### 5.2 Pointers and references
 
-Four ways to refer to something — the model your samples already use, plus `&mut`.
+Five ways to refer to something — the model your samples already use, plus `&mut` and
+`^mut`.
 
 | Syntax | Meaning | Nullable | Mutable | Owns |
 |---|---|---|---|---|
 | `&T` | shared reference | no | no | no |
 | `&mut T` | exclusive reference | no | yes | no |
-| `^T` | raw pointer | yes | yes | no |
-| `own ^T` | owning pointer | yes | yes | **yes** |
+| `^T` | raw pointer, read-only | yes | no | no |
+| `^mut T` | raw pointer | yes | yes | no |
+| `own ^mut T` | owning pointer | yes | yes | **yes** |
 
 - **`&T` / `&mut T`** are what you pass to functions. They are guaranteed non-null and
   **cannot be stored in a struct field**, cannot be heap-allocated, and cannot be `own`ed.
@@ -471,10 +474,14 @@ Four ways to refer to something — the model your samples already use, plus `&m
       delta_time: f32
   }
   ```
-- **`^T`** is a C pointer. Nullable, freely storable, no guarantees. This is how you build
-  a scene graph with parent back-pointers, and it is on you to keep it valid.
-- **`own ^T`** is a `^T` that this struct is responsible for releasing. It changes the
-  *type's* semantics — see §6.
+- **`^T`** and **`^mut T`** are C pointers — `const T*` and `T*`. Nullable, freely
+  storable, no guarantees. This is how you build a scene graph with parent back-pointers,
+  and it is on you to keep it valid. A `^T` is only read through; a `^mut T` may be written
+  through as well. They stand to each other as `&T` and `&mut T` do, and as `[]T` and
+  `[]mut T` do: read-only unless `mut` is written. `[DECIDED — §18.37]`
+- **`own ^mut T`** is a `^mut T` that this struct is responsible for releasing. It changes
+  the *type's* semantics — see §6. `own ^T` exists too, an owned block that is only read,
+  but a container writes into what it owns, so `own ^mut T` is the usual form.
 
 **Reading through a reference.** A `&T` or `&mut T` is accepted where a `T` is wanted, and
 copies the value it refers to — `return m` in a function returning `Movie`, `let v: Vec3 =
@@ -483,10 +490,15 @@ can be read this way: a move-only one would have to be moved, and nothing may be
 of a borrow (`DZ0402`, §6.4), and in a generic body that means `T: Copy`. Where no type is
 wanted, a reference stays a reference: `let r2 = r` is another `&T`. `[DECIDED — §18.35]`
 
-**Converting between them.** `&mut T` → `^T` is free and implicit: forming a pointer changes
-nothing. `&T` → `^T` is not allowed at all, because a `^T` may be written through and a
-`&T` promises the opposite. `^T` → `&mut T` goes through an `or` clause like any other
-fallible thing (§9.4), because a pointer may be null and a reference may not:
+**Converting between them.** Forming a pointer changes nothing, so a reference becomes a
+pointer of the same writability for free — `&T` → `^T`, `&mut T` → `^mut T` — and anything
+writable also serves where the read-only form is wanted (`&mut T` → `^T`, `^mut T` → `^T`).
+Nothing converts the other way: a `&T` or a `^T` never becomes a `^mut T`, which would gain
+the right to write. Behind a `^mut` the pointee must match exactly, so a `^mut ^mut T` is not
+a `^mut ^T` — through it, a read-only pointer could be stored where a writable one is
+expected, which is why C forbids `T**` → `const T**` too. A pointer becomes a reference
+through an `or` clause like any other fallible thing (§9.4), because a pointer may be null
+and a reference may not:
 
 ```dz
 let btn = ctx.btn or return                     // propagate
@@ -495,11 +507,10 @@ let btn = ctx.btn or unreachable                // checked in debug, free in rel
 draw(ctx.btn)                                   // error[DZ0522]: expected &Button, found ^Button
 ```
 
-The reference it produces is a `&mut T` — the pointer could be written through, so the
-reference may be too — and it passes anywhere a `&T` is wanted. This is the only guarantee
-`&T` carries that `^T` does not, so it is worth one line at the boundary. The check happens
-once, where the pointer enters scope, rather than on every function entry downstream.
-`[DECIDED — §18.16]`
+The reference it produces is as writable as the pointer: a `^mut T` gives a `&mut T`, and a
+`^T` gives a `&T`. Non-null is the only guarantee a reference carries that a pointer does
+not, so it is worth one line at the boundary. The check happens once, where the pointer
+enters scope, rather than on every function entry downstream. `[DECIDED — §18.16, §18.37]`
 
 **Using a pointer is `unsafe`.** Nothing can check that a `^T` still points at something, so
 the operations that assume it does are allowed only inside an `unsafe` block, or in the body
@@ -507,14 +518,14 @@ of an `unsafe fn`. Dereference is postfix `^`, and `.` reaches through a pointer
 both count:
 
 ```dz
-let p: ^Player = &mut world.players[0]   // forming a pointer: safe
-if p != null { ... }                     // comparing, copying, storing, passing: safe
-let pl = p or return                     // the checked conversion: safe
-pl.health -= 10                          // through the reference: safe
+let p: ^mut Player = &mut world.players[0]   // forming a pointer: safe
+if p != null { ... }                         // comparing, copying, storing, passing: safe
+let pl = p or return                         // the checked conversion: safe
+pl.health -= 10                              // through the reference: safe
 
 unsafe {
-    p.health -= 10                       // `.` through a `^T`
-    let h = p^                           // explicit deref, copies the Player
+    p.health -= 10                           // `.` through a `^mut T`
+    let h = p^                               // explicit deref, copies the Player
 }
 ```
 
@@ -526,7 +537,7 @@ one whose callers must uphold something the compiler cannot see; its body is an 
 block, and calling it needs one:
 
 ```dz
-unsafe fn poke(p: ^i32, v: i32) { p^ = v }
+unsafe fn poke(p: ^mut i32, v: i32) { p^ = v }
 
 unsafe { poke(slot, 3) }
 ```
@@ -538,7 +549,7 @@ place a dangling pointer can bite is marked, and that a container's raw-memory w
 behind the safe interface it offers. Pointers are the escape hatch, not the everyday tool:
 shared ownership is the stdlib's `Rc<T>` (§19 M12). `[DECIDED — §18.16]`
 
-`null` is a value of type `^T` for any `T`. There is no null `&T`.
+`null` is a value of every pointer type, `^T` and `^mut T` alike. There is no null `&T`.
 
 **Auto-referencing.** Method receivers are auto-referenced: `buf.resize(8)` works and
 passes `&mut buf` when `resize` takes `&mut self`. Free functions are **not** auto-referenced —
@@ -570,13 +581,13 @@ rejected because a slice is a *view*, so the binding says nothing about the elem
 safe code, and an out-of-range `buf[i]` panics with the file, line, index and length rather
 than reading past the end. A loop over `0..xs.len` pays nothing for it, since the optimiser
 proves the check redundant. Where it does cost, the unchecked read is spelled out: `xs.ptr` is
-the first element as a `^T`, and indexing that is pointer arithmetic, inside `unsafe`.
-`.ptr` exists only on a writable view — a `[]mut T` or a writable array — since a `^T` may
-be written through (§5.2). `[DECIDED]`
+the first element as a pointer, and indexing that is pointer arithmetic, inside `unsafe`.
+`.ptr` is as writable as its view: a `[]mut T` or a writable array gives a `^mut T`, and a
+`[]T` or a read-only array a `^T` (§5.2). `[DECIDED — §18.37]`
 
 **Indexing a `^T` is pointer arithmetic**, as in C: `p[i]` is the `i`th `T` after `p`, and
 it is never checked, because a pointer carries no length to check against — which is why it
-is `unsafe` (§5.2). This is what a container's `m_data[i]` over its `own ^T` is (§8.3). A
+is `unsafe` (§5.2). This is what a container's `m_data[i]` over its `own ^mut T` is (§8.3). A
 `^T` is not a sequence, so `for x in p` remains an error — make a slice when you want one.
 
 **An array literal** is a bracketed list, and its type is an array of exactly as many
@@ -616,8 +627,14 @@ String          stdlib: owning, growable, allocator-aware. Written in Dazzle, no
 cstr            a null-terminated ^u8, for C interop only.
 ```
 
-String literals live in static storage. `String::from("x")` copies; `s.as_str()` borrows.
-Conversion to `cstr` is explicit and may allocate. `[PROPOSED]`
+String literals live in static storage, with a zero after the last byte. **A string literal
+is a `cstr` wherever a `cstr` is wanted** — a parameter, an annotated `let`, a field — and
+costs nothing: C++ sees the literal itself, so `rl::InitWindow(1280, 720, "Dazzle")` is the
+call it looks like. `"x" as cstr` says the same explicitly. The other way, `c as str`
+measures a C string and copies nothing. A runtime `str` cannot become a `cstr`: nothing
+follows its last byte, so a C string needs a copy, and a copy has to be owned and freed. That
+owning C string arrives with the stdlib's `String` (M12), freed by its drop. `String::from("x")`
+copies; `s.as_str()` borrows. `[DECIDED — §18.39]`
 
 Because `?` binds to the type name, `[]T?` is a slice **of optionals**. An optional slice
 is `([]T)?` — parenthesised, because it is far rarer and the parentheses say which level
@@ -659,7 +676,7 @@ into unreadable stacks.
 
 | Axis | Spelled | Asks |
 |---|---|---|
-| **Access** | `^T` `&T` `&mut T` `own ^T` `[]T` `[]mut T` | how do I reach this value? |
+| **Access** | `^T` `^mut T` `&T` `&mut T` `own ^mut T` `[]T` `[]mut T` | how do I reach this value? |
 | **Responsibility** | `own` | who frees it? |
 | **Modality** | `T?` | is the value there at all? |
 
@@ -779,7 +796,7 @@ because that is the thing with a `drop` to run. Anything else would make `if han
 inside `File::drop` a move out of `self`. `[DECIDED]`
 
 Acquiring ownership is an ordinary assignment: a plain `^T` may be stored into an `own ^T`
-field, which is what `alloc` returning `^u8` (§9.8) has to mean. The reverse is also allowed
+field, which is what `alloc` returning `^mut u8` (§9.8) has to mean. The reverse is also allowed
 — an `own ^T` satisfies a `^T` — so `own` narrows nothing at the use site. `[DECIDED]`
 
 ### 6.4 Move semantics
@@ -1024,9 +1041,9 @@ Untagged/overlapping storage, should interop ever need it, is a separate `#[raw]
 
 ```dz
 pub trait Allocator {
-    fn alloc(&self, size: usize, align: usize) -> ^u8
-    fn realloc(&self, p: ^u8, old_size: usize, new_size: usize, align: usize) -> ^u8
-    fn free(&self, p: ^u8, size: usize, align: usize)
+    fn alloc(&self, size: usize, align: usize) -> ^mut u8
+    fn realloc(&self, p: ^mut u8, old_size: usize, new_size: usize, align: usize) -> ^mut u8
+    fn free(&self, p: ^mut u8, size: usize, align: usize)
 }
 
 pub trait Drawable {
@@ -1043,13 +1060,13 @@ pub trait Drawable {
 
 ```dz
 pub struct Arena {
-    m_base: own ^u8
+    m_base: own ^mut u8
     m_used: usize
 }
 
 impl Allocator for Arena {
-    fn alloc(&self, size: usize, align: usize) -> ^u8 { ... }
-    fn realloc(...) -> ^u8 { ... }
+    fn alloc(&self, size: usize, align: usize) -> ^mut u8 { ... }
+    fn realloc(...) -> ^mut u8 { ... }
     fn free(...) { }
 }
 ```
@@ -1096,7 +1113,7 @@ monomorphized and direct.
 **Dynamic dispatch** happens through `^Trait` or `&Trait`, which is a **fat pointer**:
 
 ```dz
-struct TraitPtr { data: ^void, vtable: ^const VTable }
+struct TraitPtr { data: ^mut void, vtable: ^VTable }
 ```
 
 The vtable lives in static storage; **the object carries nothing** — no vptr, no header, no
@@ -1167,7 +1184,7 @@ resource. Inside that `copy`, `T` is `Copy` because the implementation says so.
 impl<T: Copy> Copy for Buffer<T> {
     fn copy(&mut self, other: &Self) {
         unsafe {
-            m_data = alloc(other.m_cap * sizeof(T), alignof(T)) as ^T
+            m_data = alloc(other.m_cap * sizeof(T), alignof(T)) as ^mut T
             if T::is_trivially_copyable {
                 memcpy(m_data, other.m_data, other.m_len * sizeof(T))
             } else {
@@ -1623,8 +1640,8 @@ Panics are for: out-of-bounds indexing, integer overflow in debug, failed assert
 exhausted fixed-size pools, and violated invariants. Errors are for: I/O, parsing,
 user-supplied data, and anything crossing a boundary you do not control.
 
-**Allocation failure is a panic by default.** `alloc` returns `^u8` and panics on failure;
-`fn try_alloc(n: usize) !-> ^u8` covers the rare code (console memory budgets, streaming)
+**Allocation failure is a panic by default.** `alloc` returns `^mut u8` and panics on failure;
+`fn try_alloc(n: usize) !-> ^mut u8` covers the rare code (console memory budgets, streaming)
 that genuinely handles OOM. Making every allocation fallible would put `or return` on every
 line of `Buffer` for a case that, on a PC game, means the process is already dead.
 `[PROPOSED]`
@@ -2242,7 +2259,7 @@ allocates through the runtime shim directly (§19 M6), using two stand-in builti
 straight to the C heap:
 
 ```dz
-alloc(size: usize, align: usize) -> ^u8   // never null — exhaustion panics (§9.8)
+alloc(size: usize, align: usize) -> ^mut u8   // never null — exhaustion panics (§9.8)
 free(p)                                   // releases what alloc returned — `unsafe`
 ```
 
@@ -2305,12 +2322,70 @@ overhead. The importer's only job is to teach the type checker what the header c
 
 ### 15.1 Importing a header
 
+A C or C++ library is **vendored as source and built by `dz`** — no CMake, no Makefiles,
+no binaries to find for each platform. Its recipe says which files to compile and how, and
+lives in the `dazzle.toml` of the module that uses it:
+
 ```toml
-[cpp]
-include_dirs = ["vendor/raylib/include", "vendor/jolt"]
-link_libs    = ["raylib", "Jolt"]
-defines      = ["JPH_PROFILE_ENABLED=0"]
+[cpp.libs.raylib]
+root         = "vendor/raylib"          # the paths below are relative to this
+sources      = ["src/rcore.c", "src/rshapes.c", "src/rtextures.c", "src/rtext.c",
+                "src/rmodels.c", "src/raudio.c", "src/utils.c"]
+include_dirs = ["src"]
+defines      = ["GRAPHICS_API_OPENGL_33"]
+
+[cpp.libs.raylib.target.windows]        # added to the above when building for Windows
+sources   = ["src/rglfw.c"]
+defines   = ["PLATFORM_DESKTOP"]
+link_libs = ["opengl32", "gdi32", "winmm"]
+
+[cpp.libs.rgfw]                         # a single-header library: no source to write
+root         = "vendor/rgfw"
+header       = "RGFW.h"
+include_dirs = ["."]
+defines      = ["RGFW_IMPLEMENTATION"]
+
+[cpp.libs.jolt]                         # a library that ships binaries instead
+include_dirs = ["vendor/jolt/include"]
+lib_dirs     = ["vendor/jolt/lib"]
+link_libs    = ["Jolt"]
+
+[cpp]                                   # for everything, not tied to one library
+defines = ["JPH_PROFILE_ENABLED=0"]
 ```
+
+- **`sources`** are paths or globs. A glob skips what is not `.c`, `.cc`, `.cpp` or `.cxx`;
+  a path written out must be one. `.c` files are compiled as C. Each source becomes one
+  object under `build/obj/`, rebuilt only when the source, a header it includes, or its
+  flags change — judged by content, as generated C++ is (§16.6).
+- A library is compiled with **its own** `include_dirs` and `defines`, and with its
+  module's `[cpp]` ones, at the build's optimisation level, with warnings off: its warnings
+  are not the project's to fix.
+- **Every path is relative to the manifest**, or to the library's `root` when it has one.
+- **`[cpp.target.<os>]`** and **`[cpp.libs.<name>.target.<os>]`** add to their base table
+  when building for that target — `windows`, `linux`, `macos` or `web`. Every section is
+  checked on every platform, so a recipe that is wrong for another platform says so here.
+- **A module's include dirs** — its `[cpp]`'s and every vendored library's — and **the
+  defines of its `[cpp]`** apply to its own generated C++, to the headers it imports, and to
+  every module that depends on it. A header means what the shared defines say, so everything
+  that includes it has to agree; it is also what lets a Dazzle module that wraps a library
+  carry the recipe for its users. Two recipes for one library are an error.
+- **A library's own `defines` build its sources and nothing else.** A single-header library
+  puts its implementation behind one — `RGFW_IMPLEMENTATION`, `STB_IMAGE_IMPLEMENTATION` —
+  and it must reach exactly the source that compiles it, or every symbol would be defined
+  again in each translation unit that includes the header. A define that has to hold on both
+  sides, such as the `SHLDEF=` that gives a header-only library's declarations external
+  linkage, goes in `[cpp]`.
+- **`header`** names a single-header library, and replaces `sources` for one. Such a library
+  needs exactly one translation unit that includes its header with the implementation define
+  in force, and nothing else about that file is interesting, so `dz` writes it rather than
+  making you keep a one-line `.c` beside the header. It is compiled as C for a `.h` header
+  and as C++ otherwise. Forgetting to write that file by hand produces an unresolved symbol
+  at link time, which says nothing about what is actually missing — this is the same recipe
+  without that trap.
+- A library that needs a configure step — a generated `config.h` — cannot be described this
+  way. Ship its binaries through `lib_dirs` and `link_libs`, or generate the file once and
+  vendor it. `[DECIDED]`
 
 ```dz
 import cpp "raylib.h" as rl
@@ -2342,23 +2417,40 @@ libclang pass runs once and not on every build.
 | C / C++ | Dazzle |
 |---|---|
 | `int`, `unsigned`, `float`, … | `i32`, `u32`, `f32`, … (exact width resolved by libclang) |
-| `T*` | `^T` |
-| `const T*` | `^T` (immutability is not enforced across the boundary) |
+| `size_t`, `uintptr_t` / `ptrdiff_t`, `intptr_t` | `usize` / `isize` |
+| `T*` | `^mut T` |
+| `const T*` | `^T` — read-only, as in C (§18.37) |
 | `T&` | `&mut T` |
 | `const T&` | `&T` |
+| `T&&` | not imported: `&&` is C++'s spelling of a move, and §6.4 has its own |
 | `const char*` | `cstr` |
-| `struct` / `class` | `struct`, fields mapped, private C++ members become opaque padding |
-| member function | method |
-| constructor / destructor | Dazzle constructor / `drop` |
-| C++ copy constructor | `copy` |
-| `namespace A::B` | nested scope: `ns::A::B::thing` |
-| `enum` / `enum class` | `enum` |
+| `struct` / `class` | `struct`, public fields mapped, private and protected C++ members become opaque padding — they stay in the type, since Dazzle never redeclares it, but cannot be named. A field whose type Dazzle cannot name yet is left out the same way. Every field defaults to zero, as `{}` makes it, so a literal names only the fields it sets |
+| `typedef` of a struct or enum | a second name for the same type |
+| a `struct` the header only declares | a **handle**: used behind `^T` and `^mut T`, never by value (§18.40) |
+| C `union` | a type whose members are the same memory, as in C; a literal sets one of them (§18.41) |
+| an array member, `float m[16]` | `[16]f32` — indexed, iterated, `.len`, `.ptr`, bounds-checked. A whole one is not a value: C cannot copy an array either (`DZ0707`) |
+| a bit-field, `unsigned on : 1` | an ordinary member to read and assign. It has no address, so `&` on one is refused (`DZ0706`) |
+| a function pointer, `void (*)(const RGFW_event *)` | `fn(^RGFW_event)` (§5.4): a Dazzle function is handed to C as a callback |
+| member function | method — `const` takes `&self`, any other `&mut self`. A `static` one needs associated functions, which Dazzle does not have yet, and is left out with that reason |
+| constructor | a constructor call, `Counter(10)` |
+| destructor | **C++ runs it.** Dazzle emits no `drop` for an imported type; the type is move-only instead, so it is never destroyed twice |
+| C++ copy constructor | what makes such a type copyable again: a class with a destructor *and* a public copy constructor is an ordinary value |
+| `namespace A::B` | nested scope: `ns::A::B::thing`. An `inline` namespace adds no segment, as in C++ |
+| `enum` | `enum`, and each enumerator also an untyped integer constant at the header's scope (§18.38) |
+| `enum class` | `enum`, its enumerators reached only through it |
 | overload set | see §15.3 |
 | `virtual` method | callable normally; Dazzle types cannot inherit from it |
 | template | not imported unless explicitly instantiated (§15.4) |
-| macro `#define X 1` | constant, when it is a simple literal |
+| macro `#define X 1` | constant, emitted by its own name: an integer is untyped, a float `f32` when written with `f` and untyped otherwise (§18.38). A macro whose value is another expression clang can type keeps that type — raylib's `RAYWHITE` is a `Color` |
 | function-like macro | not imported |
 | variadic `...` | not imported; use a fixed-arity overload |
+
+The importer only teaches the compiler what exists. **A call into a header is ordinary safe
+code**, emitted as the call it names (`::InitWindow(1280, 720, "Dazzle")`): what the callee
+does with a pointer is the header's promise, which Dazzle can neither check nor improve on
+by making every call `unsafe`. Forming the pointer is safe as always (§5.2); a nicer API is a
+Dazzle module wrapping the header. What cannot be named in Dazzle yet — a variadic function,
+a union, a function pointer — is left out of the import rather than guessed at.
 
 An imported type with a non-trivial C++ destructor is **move-only in Dazzle** unless it also
 has a copy constructor, which makes C++ RAII types obey Dazzle's rules automatically.
@@ -2379,9 +2471,15 @@ impl Drop for Texture {
 
 Dazzle has no function overloading (§7.2), but C++ headers are full of it. Imported
 overload sets are resolved by argument types at the call site, using exact matches only —
-no implicit conversions, no promotion, no SFINAE. When two overloads both match exactly, or
-none does, the error lists the candidates with their parameter types and asks you to
-disambiguate:
+no implicit conversions, no promotion, no SFINAE.
+
+An overloaded **member function** resolves this way today: `counter.add(5)` and
+`counter.add(point)` reach the two `add`s of one C++ class. An overloaded **free function**
+does not yet — the header's second declaration of a name is passed over, and the first is
+the one imported.
+
+When two overloads both match exactly, or none does, the error lists the candidates with
+their parameter types and asks you to disambiguate:
 
 ```dz
 rl::DrawTextureEx@(Texture2D, Vector2, f32, f32, Color)(tex, pos, 0, 1, tint)
@@ -2405,6 +2503,12 @@ want, and they are imported as ordinary concrete types:
 import cpp "vector" as std
 let v: std::StdVecF32
 ```
+
+The Dazzle name is a name of the header's module, whatever namespaces the C++ type sits in;
+the generated C++ writes the instantiation itself. The type's members are the template's,
+with its parameters bound to the arguments named here — so `Pair<int>`'s `sum()` returns
+`i32`. A member whose type does not follow from that binding (`typename T::value_type`) is
+left out with its reason, like any other unmappable declaration.
 
 This covers the real cases (a handful of instantiations per project) without the enormous
 complexity of unifying two different generic systems. `[DECIDED]`
@@ -2716,13 +2820,13 @@ be exactly what reload needs, and must stay that way:
 | 18.3 | May a `&T` be stored in a struct field? | **No** — banned outright, with no escape hatch. References live only on the stack; context structs hold `^T` (§5.2) |
 | 18.6 | Is `^Trait` one pointer or two? | **Two — a fat pointer.** `{ data, vtable }`, vtable in static storage, implementing types unchanged. `Vec3 : Drawable` is still 12 bytes and still blittable (§7.6) |
 | 18.15 | May `?` wrap a pointer or reference? | **No.** `?` applies to value types only. `^T` is already the optional pointer; `(&T)?` would need lifetimes to be a library type and buys nothing as a builtin (§5.6) |
-| 18.17 | `^T` → `&T` | **Checked.** Goes through an `or` clause, which since r12 yields a `&mut T`. The second half — "`&T` → `^T` stays implicit" — is **reversed by 18.16** (§5.2) |
+| 18.17 | `^T` → `&T` | **Checked.** Goes through an `or` clause, which yields a reference as writable as the pointer (18.37). The second half — "`&T` → `^T` stays implicit" — is **reversed by 18.16** (§5.2) |
 | 18.21 | How `Iterate::next` spells one signature for both item kinds | **The question is void — there is no `next`.** `Iterate` is `valid` / `get` / `advance`, so termination is not encoded in the item and `Item` is never wrapped (§8.5). This **reverses the decided half of the old 18.21** ("a pointer iterator returns `^T`, a value iterator returns `Item?`"): that split existed only to dodge `(^T)?`, and with the item unwrapped it buys nothing. `Item` may now be `&T`, which `Item?` could never express, so §10.4's `for e in &entities` yields a `&Entity` as it always claimed |
 | 18.22 | Is a slice writable through an immutable binding? | **Neither — writability moves into the type.** `[]T` is a read-only view and `[]mut T` a writable one, standing to each other as `&T` and `&mut T` do. Following the binding was rejected because a slice is a view, so the binding says nothing about the elements (§5.3) |
 | 18.25 | Can a `&T` be read as a `T`? | **Not yet — and the operator traits stop needing it.** `&T` reaches through `.` for members and is otherwise not a value: `fn f(b: &f32) -> f32 { return b }` is an error, and `^` derefs a `^T` only (§5.2). That made §11.2's `fn mul(&self, rhs: &Rhs)` unimplementable for `Mul<f32>`, so `Rhs` is taken **by value** instead, which is the better signature for the copyable math types these traits exist for. `Eq`/`Ord` keep `&Self`, because comparing a move-only type must not consume it. Whether `&T` should gain a read of its own is left open — nothing needs it now. **Settled by 18.35**: it reads as a `T` where one is wanted |
 | 18.24 | Array literals, and reaching an enum variant without naming its type | **`[a, b, c]`, with the length exactly as written**: no repeat form (§6.2 already zeroes an array, and `;` is a terminator so `[0; 8]` is unavailable), no short form, and a literal may not be *stored* as a slice though it may be passed as one (§5.3). **`.Selected` works wherever the enum is already known** — the same mechanism a union variant already used — while `Sprite::Selected` always works and is what an uninferrable position needs (§7.4). `Sprite.Selected` stays invalid: `.` is the runtime operator (§3.3) |
 | 18.23 | Where do `Ord`, `Add`, `Iterate` and `Format` live before the stdlib? | **An implicit prelude written in Dazzle**, module `dz`, carried as source by the compiler and in scope everywhere with no import. Not compiler-invented symbols: the trait machinery is then exercised by real Dazzle code from the first day it exists, and at M12 the prelude grows into the stdlib instead of being deleted (§3.2) |
-| 18.16 | Implicit `&T` → `^T` widening, and what a raw pointer may do | **Forming a pointer is safe; using one is `unsafe`.** `&mut T` → `^T` stays implicit; `&T` → `^T` is forbidden, since a `^T` may be written through and a `&T` promises it will not be. Reading or writing through a `^T` (`p^`, `.`, `[i]`), a pointer cast, `construct`/`destroy`/`memcpy`/`free`, and calling an `unsafe fn` are allowed only inside `unsafe { }` or an `unsafe fn`. The `or` conversion stays safe and yields a `&mut T`. `unsafe` is a marker, not a proof: it promises that raw-memory operations are findable, not that safe code is free of undefined behaviour. Array and slice indexing is therefore safe and bounds-checked in every build, with `xs.ptr` as the unchecked spelling (§5.2, §5.3). An explicit `as ^T` was rejected because it makes forming the pointer loud and leaves using it silent — the opposite of where the danger is |
+| 18.16 | Implicit `&T` → `^T` widening, and what a raw pointer may do | **Forming a pointer is safe; using one is `unsafe`.** `&mut T` → `^T` stays implicit; `&T` → `^T` is forbidden, since a `^T` may be written through and a `&T` promises it will not be. Reading or writing through a `^T` (`p^`, `.`, `[i]`), a pointer cast, `construct`/`destroy`/`memcpy`/`free`, and calling an `unsafe fn` are allowed only inside `unsafe { }` or an `unsafe fn`. The `or` conversion stays safe and yields a `&mut T`. `unsafe` is a marker, not a proof: it promises that raw-memory operations are findable, not that safe code is free of undefined behaviour. Array and slice indexing is therefore safe and bounds-checked in every build, with `xs.ptr` as the unchecked spelling (§5.2, §5.3). An explicit `as ^T` was rejected because it makes forming the pointer loud and leaves using it silent — the opposite of where the danger is. **Its first half is revised by 18.37**: a pointer now says whether it may be written through, so `&T` → `^T` is allowed — a `^T` is only read — and it is `&T` → `^mut T` that is refused |
 | 18.26 | Copying a `T` inside a compile-time branch | **A `copy` only where `T` is `Copy`.** Written since r13 as a bounded implementation, `impl<T: Copy> Copy for Buffer<T>`: `Buffer<f32>` copies, `Buffer<File>` is move-only, and inside the `copy` `T` is `Copy` because the implementation says so (r12 had the same effect through an implicit rule). Every copyable type satisfies `Copy`, so `fn dup<T: Copy>` can say what it needs. Bounding the container itself (`Buffer<T: Copy>`) was rejected because it would shut out every element type that owns a resource (§8.2, §8.3) |
 | 18.27 | One operator, two right-hand sides | **A type may implement one trait at several arguments**, one `impl` each, and the argument's type picks one — an exact match, then an untyped literal's default type, else an error asking for a type. The one overloading there is, and only for this; a repeated method name in a struct is still an error (§11.2) |
 | 18.29 | An associated type per implementation | **Each implementation chooses its own.** The associated type belongs to the `impl`, not the type, so `impl Mul<Vec4> for Mat4` answers `Output = Vec4` and `impl Mul<f32> for Mat4` answers `Output = Mat4`. Falls out of 18.31; `Mul<Rhs, Output>` with a defaulted second parameter was the alternative, and would have needed a rule forbidding two outputs for one right-hand side (§8.5, §11.2) |
@@ -2733,6 +2837,13 @@ be exactly what reload needs, and must stay that way:
 | 18.34 | `mut fn` | **Removed — the receiver says it.** A method mutates when it takes `&mut self` and reads when it takes `&self`; `fn resize(&mut self, n: u32)` is the one spelling. `mut fn` stated the same fact twice, and the two could disagree: `fn f(&mut self)` was accepted, and the compiler went on to treat the method as mutating in one place and as read-only in another. The parser now rejects `mut fn` with a help saying what to write (§7.3) |
 | 18.35 | Reading a `&T` as a `T` — the open half of 18.25 | **Implicit, for a copyable `T`.** A reference is accepted where its referent's type is wanted, and the value is copied: `for m in list.iter() { if m.name == name { return m } }` returns a `Movie`. Reading cannot fail, so by the rule that makes `^T` → `&T` loud and `&mut T` → `^T` quiet, it is not spelled. A move-only `T` is still refused, as a move out of a borrow; a generic body needs `T: Copy`. An explicit `r^` was considered and rejected — it would put a sigil on the most ordinary read in the language — and `^` stays the pointer dereference (§5.2) |
 | 18.36 | Using a `T?` when both outcomes continue | **`if let name = value { … } else { … }`.** The binding holds what `or` would produce — the `T` of a `T?`, the `&mut T` of a `^T` — in the first block only. Chosen over narrowing `m` after `if m != none`, which needs flow-sensitive types and works only on locals, and over "`or` only", which leaves "both branches, then carry on" with no spelling. It does not take a fallible call, whose `else` would drop the `Error` unseen (§9.5); binding the error in `else` is left for later. `m == none` / `m != none` test presence; two optionals do not compare (§9.4) |
+| 18.37 | Read-only pointers, and what C's `const T*` becomes | **`^T` is read-only and `^mut T` writable**, standing to each other as `&T`/`&mut T` and `[]T`/`[]mut T` do: read-only unless `mut` is written. `const T*` maps to `^T` and `T*` to `^mut T` (§15.2). `&T` → `^T` and `&mut T` → `^mut T` are implicit, anything writable serves where the read-only form is wanted, and nothing gains writability; `or` gives a `&T` from a `^T` and a `&mut T` from a `^mut T`; `.ptr` is as writable as its view; the owning pointer is `own ^mut T`. Behind a `^mut` the pointee must match exactly, for the reason C forbids `T**` → `const T**`. A `^const T` was rejected as the Rust shape, which reads against the rest of the language. Forced by M7: with one writable pointer, every read-only C parameter needed an `&mut` at the call (§5.2, §5.3) |
+| 18.38 | How C's unscoped enums and `#define`s come in | **An unscoped enumerator is also an untyped integer constant** at the header's scope, beside the enum itself: raylib's `IsKeyDown(int key)` takes `rl::KEY_A` as it is, and `.KEY_A` still names the typed variant wherever the enum is wanted. An `enum class` keeps its enumerators behind its name. **An object-like macro is a constant when its value can be typed**, emitted by its own name: at M7a a number (an integer untyped, a float `f32` with an `f` suffix and untyped without), with other expressions clang can type — `RAYWHITE`'s compound literal — to follow. Typed enumerators, which would need a cast at every raylib input call, were the alternative (§15.2) |
+| 18.39 | How is a `cstr` made? | **A string literal is one wherever a `cstr` is wanted**, typed by its context as an untyped number is, and emitted as the C literal itself: it is zero-terminated static storage already, so nothing is allocated. `"x" as cstr` is the explicit spelling; `c as str` measures a C string. A runtime `str` has no terminating zero, so making a C string from one needs an owned copy, freed by its drop — which arrives with `String` (M12) and is spelled then. This replaces §5.3's `[PROPOSED]` "conversion to `cstr` is explicit and may allocate", which contradicted §15.1's own `InitWindow(…, "Dazzle")` (§5.3) |
+
+| 18.40 | A C type whose definition its header does not show | **It imports as a handle**: a type used behind `^T` or `^mut T` and never by value — no local, field, parameter, return or `p^`, and not copyable, because nothing outside the library knows its size. That is how `RGFW_window`, `GLFWwindow`, `sqlite3` and `FILE` are handed out, and the functions taking one are then callable as they are in C. A type the header never mentions at all, declared in a system header it includes, is adopted the same way **when every use of it is behind a pointer**; where one is used by value the declaration that does so is left out instead, since its size really is unknown. Refusing such a header outright was the alternative, and would have shut out most C libraries (§15.2) |
+
+| 18.41 | What a C `union` becomes | **A type whose members overlap**, read and written as C does it — not a Dazzle `union`, which is tagged (§7.5) and would promise a discriminant the C type does not have, with an exhaustive `switch` that means nothing. So `RGFW_event` comes in with all its members, `e.type` reads the one C would, and reading a member nobody wrote is C's own bargain rather than something Dazzle can check. A literal may set **one** member, since they are the same bytes (`DZ0705`); the type is never defined by Dazzle, so its layout stays the header's (§15.2) |
 
 ### 18.2 Still open
 
@@ -2761,7 +2872,8 @@ Each milestone ends with something you can actually run.
 | M4 ✅ | Codegen + runtime shim + `dz run` | **done — hello world runs.** C++17 emission with `#line` mapping back to `.dz`, the runtime shim, `dz cpp` / `dz build` / `dz run`, and end-to-end tests that compile and execute real programs. Output is warning-clean under `-Wall -Wextra -fno-exceptions -fno-rtti` on both clang++ and g++. Codegen covers functions, structs, enums, control flow, pointers, arrays and `defer`; `T?`, fallible returns, and tagged unions report `DZ0801` and are owed by M5 |
 | M5 ✅ | Ownership: `own`, `copy`, `drop`, `move`, flow analysis | **done for everything that is not generic.** `copy` and `drop` become C++ special members, `move` steals and resets, move-only types have their copy operations deleted, and flow analysis reports use-after-move, partial moves, moves out of a borrow, implicit copies and missing returns. Codegen moved onto the HIR, which unblocked `T?`, fallible returns, tagged unions, tuples and block-valued expressions — the `DZ0801` rows M4 left behind. `tests/run/ownership` compiles and runs clean under ASan on clang++ and g++. `Buffer<T>` and `String` themselves are **generic**, so the literal criterion moves to M6; nothing about them is blocked on ownership any more |
 | M6 ✅ | Generics + traits + monomorphization | **done.** `Buffer<T>` runs as a generic struct with an `own ^T` field, a `drop`, a folded compile-time branch on `T::is_trivially_copyable`, and `construct`/`destroy`, allocating through `alloc`/`free` — instantiated for a trivially-copyable and a resource-owning `T` in `tests/run/generics`. Generic bodies are checked once against their bounds; traits, conformance, associated types, default methods and bounds work; operators dispatch through the prelude's traits; `for` runs over a user `Iterate`; format strings are checked. `Buffer<T>` has a `copy` exactly when `T` is `Copy` (§18.26, settled in r12). **Static dispatch only:** `^Trait` fat pointers (§7.6, §18.6) and therefore a stored `^Allocator` are not in this milestone, so `Allocator` exists as a trait and a bound while `Arena` and `Allocators::Global` wait for the stdlib pass |
-| M7 | C++ interop via libclang | a raylib window opens from Dazzle |
+| M7a | C interop: a vendored C library, built from source | a C library in `tests/` — one header and one `.c` file, never prebuilt — compiles with the program and is called from Dazzle, on clang++ and g++ |
+| M7b | Full C and C++ interop | a raylib window opens from Dazzle, raylib built from its own vendored source; C++ classes, namespaces, overloads and named template instances import (§15) |
 | M8 | Unions, `switch`, `T?`, `!->`, the `or` clause | the `ButtonState` union sample from `example.dz` works |
 | M9 | LSP: diagnostics, hover, go-to-definition, completion | usable in VS Code for real work |
 | M10 | Macros | a user-written `#machine` expands to the `ButtonState` machine and the LSP completes inside it |
@@ -2888,6 +3000,18 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r29 | 2026-09-12 | **`header` in a library's recipe, for a single-header library** (§15.1). `header = "RGFW.h"` replaces `sources`: `dz` writes and compiles the one translation unit that includes it with the recipe's `defines` in force, so RGFW, stb and their kind need no hand-written one-line `.c` beside the header. Forgetting that file used to produce an unresolved symbol at link time, which named nothing that was actually missing. |
+| r28 | 2026-09-12 | **C++ references import**: `const T&` is a `&T` and `T&` a `&mut T`, so a C++ API that takes a reference — which is most of them — is callable: `shapes::length_sq(&p)`, `shapes::translate(&mut p, 1, 1)`. An rvalue reference `T&&` is not imported: it is C++'s spelling of a move and §6.4 has its own (§15.2). |
+| r27 | 2026-09-12 | **C++ imports: namespaces, classes, overloaded methods, and named template instances (§15.2, §15.3, §15.4).** A `namespace` is a scope reached through, one segment per level — `shp::shapes::geom::manhattan(a, b)` — with an `inline` namespace adding none, as in C++. A `class` is a struct: its **public** fields are fields and its public member functions are methods, `const` taking `&self` and any other `&mut self`; private and protected members stay in the type as padding and cannot be named. A constructor is a constructor call, `shapes::Counter(10)`. **A destructor stays C++'s:** Dazzle emits no `drop` for an imported type, and makes it move-only instead so it is never destroyed twice — unless the class also has a public copy constructor, which makes it an ordinary value again. Two member functions of one name are an overload set, resolved at the call site by argument type (§15.3); an overloaded *free* function still imports only its first declaration. A **template** is imported only where `[cpp.instantiate]` names an instantiation — `"shapes::Pair<int>" = "IntPair"` — which becomes an ordinary concrete type whose members have the template's parameters bound to those arguments (§15.4). A macro whose value is not a number but which clang can type now keeps that type, so raylib's `RAYWHITE` is a `Color` (§18.38). `dazzle.toml` accepts a quoted key, which `[cpp.instantiate]` needs. |
+| r26 | 2026-09-12 | **C callbacks import.** A function-pointer parameter, field or return — `void (*)(const RGFW_event *)` — is a Dazzle `fn(^RGFW_event)` (§5.4), so a Dazzle function can be given to a C library as a callback: `rgfw::RGFW_setEventCallback(rgfw::RGFW_windowResized, on_event)`. A variadic one is still left out (§15.2). |
+| r25 | 2026-09-12 | **A C struct's array members and bit-fields import.** `float m[16]` is a `[16]f32`: indexed, iterated with `for`, asked for `.len` and `.ptr`, and bounds-checked like any other array — but not taken as a whole value, which C cannot do either (`DZ0707`). `unsigned on : 1` is an ordinary member to read and assign, though `&` on one is refused (`DZ0706`): C++ has no reference to a few bits inside another member (§15.2). |
+| r24 | 2026-09-12 | **A C `union` imports.** Its members come in as members of one piece of memory, exactly as C has them — so RGFW's `RGFW_event` can be held, filled in through `&mut`, and read with `e.type`. A literal sets one member (`DZ0705`); it is not a Dazzle `union`, which is tagged (§15.2, 18.41). |
+| r23 | 2026-09-12 | **A C type the header only declares is a handle.** `import cpp` brings in `RGFW_window`, `sqlite3` or `FILE` as an opaque type, so the functions that take or return `^T` are callable exactly as in C. Holding one by value — a local, a field, a parameter, `p^` — is `DZ0704`: nothing outside the library knows its size (§15.2, 18.40). |
+| r22 | 2026-09-12 | **A vendored library's `defines` are its own.** They build its sources and are no longer given to everything that includes its header, so a single-header library's `RGFW_IMPLEMENTATION` compiles the implementation once instead of in every translation unit. A module's `[cpp]` defines are the shared ones, and now reach its libraries' sources as well as its generated C++ — that is where a define both sides need belongs (§15.1). |
+| r21 | 2026-09-11 | **A string literal is a `cstr` where one is wanted.** `show("aaa")` for a `cstr` parameter, `let c: cstr = "aaa"` and `"aaa" as cstr` all work, cost nothing, and reach C++ as the literal. `c as str` measures a C string. A runtime `str` still cannot become a `cstr`: that needs an owned copy, which arrives with `String` (§5.3, 18.39). |
+| r20 | 2026-09-11 | **`import cpp` reads C headers.** `import cpp "mini.h" as mini` makes the header's functions, structs, enums, typedefs and numeric macros names under `mini::`, called and constructed like Dazzle's own and emitted as the C they name. A C struct's fields default to zero; an unscoped enumerator is also an untyped integer constant, and an integer macro is one too (18.38); `size_t` is `usize`; a call into C is safe code. An import without `as` is named after the header's file (§15.1, §15.2). |
+| r19 | 2026-09-11 | **C and C++ libraries are vendored as source and built by `dz`.** A `[cpp.libs.<name>]` table in `dazzle.toml` is a library's recipe — `sources` (paths or globs), `include_dirs`, `defines`, `lib_dirs`, `link_libs`, and a `root` they are relative to — and `[cpp.target.<os>]` / `[cpp.libs.<name>.target.<os>]` add to it for one platform. Every manifest path is now relative to the manifest; `include_dirs` had been passed to the C++ compiler as written. A module's include dirs and defines apply to the modules that depend on it (§3.1, §15.1). |
+| r18 | 2026-09-11 | **`^T` is read-only; `^mut T` is writable.** A pointer now says whether it may be written through, as a reference and a slice already do: `p^ = v` needs a `^mut T`, and an owning field that is written into is `own ^mut T`. In exchange `&T` → `^T` is allowed, a `^mut T` passes where a `^T` is wanted, `or` on a `^T` gives a `&T`, and `.ptr` works on a read-only view, giving a `^T`. `alloc` returns `^mut u8`. This is what C's `const T*` maps to (§15.2), which is why it changed. `^^T` now parses as a pointer to a pointer (§5.2, §5.3, §15.2, 18.16, 18.37). |
 | r17 | 2026-09-11 | **`if let`.** `if let m = find(...) { … } else { … }` takes the value out of a `T?` (or a `^T`, giving a `&mut T`) for the first block, so "if it is there do this, otherwise that, then carry on" has a spelling — `or` must produce a value or diverge. Not for a fallible call, which still goes through `or`. Also written down: `x == none` and `x != none` test an optional, and nothing else compares one (§9.4, §10.1, 18.36). |
 | r16 | 2026-09-11 | **A reference reads as a value.** Where a `T` is wanted, a `&T` or `&mut T` is accepted and the value copied — `return m` from inside `for m in list.iter()` returns the element itself. Only for a copyable `T`; a move-only one is still an error, since nothing moves out of a borrow. Where no type is wanted, a reference stays a reference (§5.2, 18.35). |
 | r15 | 2026-09-11 | **`mut fn` is removed.** Whether a method mutates is said once, by its receiver: `fn push(&mut self, v: T)` mutates, `fn len(&self)` reads. `mut fn` repeated that and could contradict it; it is now a parse error (`DZ0214`) whose fix is to delete `mut`. Trait methods follow suit — `Drop` is `fn drop(&mut self)`, `Iterate::advance` is `fn advance(&mut self)` (§7.3, 18.34). |

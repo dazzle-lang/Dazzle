@@ -97,6 +97,9 @@ pub struct FieldSig {
     pub vis: Vis,
     pub has_default: bool,
     pub span: Span,
+    /// An imported C bit-field, `unsigned flags : 3`. Read and written like any other
+    /// member; its address cannot be taken, in C++ or here (spec §15.2).
+    pub bitfield: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -104,6 +107,9 @@ pub struct ParamSig {
     pub name: String,
     pub ty: Ty,
     pub has_default: bool,
+    /// The C spelling an imported parameter is cast to at the call: `char *` is not
+    /// `int8_t *`, nor `long *` an `int32_t *`, and pointers do not convert (spec §15.2).
+    pub c_cast: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -128,6 +134,9 @@ pub struct FnSig {
     /// Whether a body was written. Only interesting on a trait method, where no body means
     /// every implementer must supply one and a body makes it a default method (spec §7.6).
     pub has_body: bool,
+    /// An imported function whose returned pointer is cast back to Dazzle's own C++
+    /// type — the other half of [`ParamSig::c_cast`] (spec §15.2).
+    pub ret_cast: bool,
 }
 
 impl FnSig {
@@ -144,6 +153,16 @@ impl FnSig {
 #[derive(Clone, Debug, Default)]
 pub struct StructSig {
     pub fields: Vec<FieldSig>,
+    /// An imported C struct whose header declares it and never defines it — a handle
+    /// (spec §15.2, §18.40). No fields to name, not copyable, never used by value.
+    pub opaque: bool,
+    /// An imported C `union`: its members are one piece of memory rather than fields beside
+    /// each other, so a literal may set only one of them (spec §15.2, §18.41).
+    pub is_union: bool,
+    /// An imported C++ class with a destructor of its own. C++ runs it, so Dazzle emits no
+    /// `drop` for one — but the type is move-only all the same, because copying it would
+    /// run that destructor twice (spec §15.2, §6.3).
+    pub cpp_owned: bool,
     /// Keyed by method key: the name itself, or `name#1`, `name#2`… for a second and later
     /// method of the same name, which is allowed only for implementations of one trait at
     /// different arguments (spec §18.27).
@@ -353,6 +372,7 @@ impl TypeTable {
                     name: p.name.clone(),
                     ty: ty::substitute_with(&p.ty, &map, Some(self_ty)),
                     has_default: p.has_default,
+                    c_cast: p.c_cast.clone(),
                 })
                 .collect(),
             ret: ty::substitute_with(&sig.ret, &map, Some(self_ty)),
@@ -423,6 +443,12 @@ impl TypeTable {
         self.copyable_guarded(ty, &mut Vec::new())
     }
 
+    /// Is this an imported handle — a C struct whose header never defines it (spec §15.2)?
+    pub fn is_opaque(&self, ty: &Ty) -> bool {
+        matches!(ty, Ty::Named { sym, .. }
+            if matches!(self.get(*sym), Some(ItemSig::Struct(s)) if s.opaque))
+    }
+
     /// Is `p` bounded by `Copy`, directly or through a supertrait (spec §8.2)?
     pub fn param_is_copy(&self, p: &ty::Param) -> bool {
         let Some(copy) = self.copy_trait else { return false };
@@ -454,7 +480,10 @@ impl TypeTable {
                 stack.push(*id);
                 let answer = match self.get(*id) {
                     Some(ItemSig::Struct(s)) => {
-                        if s.copy.is_some() {
+                        // A handle has no size here, so there is nothing to copy.
+                        if s.opaque {
+                            false
+                        } else if s.copy.is_some() {
                             // An `impl Copy` makes the type copyable wherever it applies:
                             // `impl<T: Copy> Copy for Buffer<T>` covers `Buffer<f32>` and
                             // not `Buffer<File>`, which is move-only (spec §6.1, §8.2).
@@ -462,13 +491,13 @@ impl TypeTable {
                                 Some(&i) => self.impl_applies(&self.impls[i], ty).is_some(),
                                 None => true,
                             }
-                        } else if s.drop.is_some() {
+                        } else if s.drop.is_some() || s.cpp_owned {
                             false
                         } else {
                             // "no `own` field, and every field is copyable" (spec §6.3),
                             // read through the instantiation so `Pair<Owner>` is move-only.
                             self.field_types(*id, args, &s.fields).iter().all(|t| {
-                                !matches!(t, Ty::OwnPtr(_)) && self.copyable_guarded(t, stack)
+                                !matches!(t, Ty::OwnPtr { .. }) && self.copyable_guarded(t, stack)
                             })
                         }
                     }
@@ -509,10 +538,11 @@ impl TypeTable {
         match ty {
             Ty::Named { sym, args } => match self.get(*sym) {
                 Some(ItemSig::Struct(s)) => {
-                    s.drop.is_none()
+                    !s.opaque
+                        && s.drop.is_none()
                         && s.copy.is_none()
                         && self.field_types(*sym, args, &s.fields).iter().all(|t| {
-                            !matches!(t, Ty::OwnPtr(_)) && self.trivially_copyable(t)
+                            !matches!(t, Ty::OwnPtr { .. }) && self.trivially_copyable(t)
                         })
                 }
                 Some(ItemSig::Union { variants }) => variants.iter().all(|v| {
@@ -547,13 +577,19 @@ impl TypeTable {
                     "its `impl Copy` does not apply to these type arguments (spec §8.2)"
                         .to_owned()
                 }
+                Some(ItemSig::Struct(s)) if s.cpp_owned => {
+                    "the C++ class it is imported from has a destructor and no copy \
+                     constructor, so copying it would destroy the same resource twice \
+                     (spec §15.2)"
+                        .to_owned()
+                }
                 Some(ItemSig::Struct(s)) if s.drop.is_some() => {
                     "it declares a `drop`, so copying it would release the same resource \
                      twice"
                         .to_owned()
                 }
                 Some(ItemSig::Struct(s)) => {
-                    match s.fields.iter().find(|f| matches!(f.ty, Ty::OwnPtr(_))) {
+                    match s.fields.iter().find(|f| matches!(f.ty, Ty::OwnPtr { .. })) {
                         Some(f) => format!(
                             "its field `{}` is `own`, so the struct is responsible for what it points at",
                             f.name
@@ -623,6 +659,10 @@ pub fn check(
         }
     }
 
+    // Imported headers first: their signatures come from libclang, and a Dazzle signature
+    // may name one of their types (spec §15.2).
+    cx.collect_foreign();
+
     // Four passes, in strict dependency order. Each exists because the one before it
     // supplies something the next cannot do without, whatever order declarations appear in
     // — which is the point, since order never matters inside a module (spec §3.2).
@@ -664,6 +704,188 @@ pub fn check(
         table: cx.table,
         hir: cx.hir,
         diagnostics: cx.diags,
+    }
+}
+
+impl Ctx<'_> {
+    /// Signatures for every imported header's declarations (spec §15.2).
+    ///
+    /// A C struct's fields all have a default, zero, as `{}` gives them in C++ — so a
+    /// literal names only the fields it sets. An unscoped enumerator or an integer macro is
+    /// an untyped integer, as a literal is, since C code passes them where an `int` or an
+    /// `unsigned` is wanted; a float macro written with `f` is an `f32`. Calling a C
+    /// function is safe code: what it does with a pointer is the header's promise, and
+    /// §15.1 calls raylib without `unsafe`.
+    fn collect_foreign(&mut self) {
+        use dz_project::cppimport::{ConstValue, DeclKind};
+        let ws = self.ws;
+        for module in ws.modules() {
+            let Some(f) = &module.foreign else { continue };
+            for d in &f.header.decls {
+                let Some(sym) = self.res.foreign(module.id, &d.cpp) else { continue };
+                let span = |l: dz_project::cppimport::Loc| Span::new(l.start as usize, l.end as usize);
+                let sig = match &d.kind {
+                    DeclKind::Fn { params, ret, ret_cast } => ItemSig::Fn(FnSig {
+                        ret_cast: *ret_cast,
+                        params: params
+                            .iter()
+                            .map(|p| ParamSig {
+                                name: p.name.clone(),
+                                ty: self.foreign_ty(module.id, &p.ty),
+                                has_default: false,
+                                c_cast: p.c_cast.clone(),
+                            })
+                            .collect(),
+                        ret: self.foreign_ty(module.id, ret),
+                        fallible: false,
+                        takes_self: None,
+                        is_mut: false,
+                        is_unsafe: false,
+                        vis: Vis::Public,
+                        span: span(d.loc),
+                        generics: Vec::new(),
+                        has_body: true,
+                    }),
+                    DeclKind::Struct { fields, opaque, is_union, methods, move_only } => {
+                        let mut sig = StructSig {
+                            fields: fields
+                                .iter()
+                                .map(|x| FieldSig {
+                                    name: x.name.clone(),
+                                    ty: self.foreign_ty(module.id, &x.ty),
+                                    vis: Vis::Public,
+                                    has_default: true,
+                                    span: span(x.loc),
+                                    bitfield: x.bitfield,
+                                })
+                                .collect(),
+                            opaque: *opaque,
+                            is_union: *is_union,
+                            cpp_owned: *move_only,
+                            ..StructSig::default()
+                        };
+                        self.foreign_methods(module.id, methods, &mut sig);
+                        ItemSig::Struct(sig)
+                    }
+                    DeclKind::Enum { backing, variants, .. } => ItemSig::Enum {
+                        backing: foreign_int(*backing),
+                        variants: variants
+                            .iter()
+                            .map(|v| VariantSig { name: v.name.clone(), fields: Vec::new(), span: span(v.loc) })
+                            .collect(),
+                        values: variants.iter().map(|v| Some(v.value)).collect(),
+                    },
+                    DeclKind::Const { value, .. } => ItemSig::Const(match value {
+                        ConstValue::Int(_) => Ty::IntLit,
+                        ConstValue::Float { single: true, .. } => Ty::Float(FloatTy::F32),
+                        ConstValue::Float { .. } => Ty::FloatLit,
+                        // A macro whose expansion is not a number but has a type of its
+                        // own: raylib's `RAYWHITE` is a `Color` (spec §15.2).
+                        ConstValue::Typed(t) => self.foreign_ty(module.id, t),
+                    }),
+                    // The alias's name already leads to its target's symbol.
+                    DeclKind::Alias { .. } => continue,
+                };
+                self.table.sigs.insert(sym, sig);
+            }
+        }
+    }
+
+    /// A C++ class's member functions as Dazzle methods and constructors (spec §15.2).
+    ///
+    /// They land in exactly the places a Dazzle `impl` block fills, so overload resolution,
+    /// visibility and receiver-mutability all work on them without a second mechanism —
+    /// C++ overloading by argument types is what §18.27's method keys already express.
+    fn foreign_methods(
+        &mut self,
+        module: ModuleId,
+        methods: &[dz_project::cppimport::Method],
+        sig: &mut StructSig,
+    ) {
+        use dz_project::cppimport::Receiver;
+        for m in methods {
+            let span = Span::new(m.loc.start as usize, m.loc.end as usize);
+            let f = FnSig {
+                params: m
+                    .params
+                    .iter()
+                    .map(|p| ParamSig {
+                        name: p.name.clone(),
+                        ty: self.foreign_ty(module, &p.ty),
+                        has_default: false,
+                        c_cast: p.c_cast.clone(),
+                    })
+                    .collect(),
+                ret: self.foreign_ty(module, &m.ret),
+                ret_cast: m.ret_cast,
+                fallible: false,
+                takes_self: m.receiver.map(|r| matches!(r, Receiver::Ref | Receiver::MutRef)),
+                is_mut: matches!(m.receiver, Some(Receiver::MutRef)),
+                is_unsafe: false,
+                vis: Vis::Public,
+                span,
+                generics: Vec::new(),
+                has_body: true,
+            };
+            if m.is_ctor {
+                sig.ctors.push(f);
+                continue;
+            }
+            // A second method of the same name is an overload, keyed the way §18.27 keys
+            // one, and resolved at the call site by its argument types (spec §15.3).
+            let existing = sig.overloads.entry(m.name.clone()).or_default();
+            let key = match existing.len() {
+                0 => m.name.clone(),
+                n => format!("{}#{n}", m.name),
+            };
+            existing.push(key.clone());
+            sig.method_keys.push(key.clone());
+            sig.methods.insert(key, f);
+        }
+    }
+
+    /// A C type as Dazzle names it (spec §15.2).
+    fn foreign_ty(&self, module: ModuleId, t: &dz_project::cppimport::CType) -> Ty {
+        use dz_project::cppimport::CType;
+        match t {
+            CType::Void => Ty::Void,
+            CType::Bool => Ty::Bool,
+            CType::Int(i) => Ty::Int(foreign_int(*i)),
+            CType::Size { signed: true } => Ty::Int(IntTy::Isize),
+            CType::Size { signed: false } => Ty::Int(IntTy::Usize),
+            CType::Float { bits: 32 } => Ty::Float(FloatTy::F32),
+            CType::Float { .. } => Ty::Float(FloatTy::F64),
+            CType::CStr => Ty::CStr,
+            CType::Ptr { mutable, pointee } => {
+                Ty::Ptr { mutable: *mutable, inner: Rc::new(self.foreign_ty(module, pointee)) }
+            }
+            CType::Ref { mutable, referent } => {
+                Ty::Ref { mutable: *mutable, inner: Rc::new(self.foreign_ty(module, referent)) }
+            }
+            CType::Array { len, elem } => {
+                Ty::Array { len: *len, elem: Rc::new(self.foreign_ty(module, elem)) }
+            }
+            CType::Fn { params, ret } => Ty::Fn {
+                params: params.iter().map(|p| self.foreign_ty(module, p)).collect(),
+                ret: Rc::new(self.foreign_ty(module, ret)),
+            },
+            CType::Named(n) => self.res.foreign(module, n).map(Ty::plain).unwrap_or(Ty::Error),
+            // The importer leaves out whatever uses one, so this is never reached.
+            CType::Unsupported(_) => Ty::Error,
+        }
+    }
+}
+
+fn foreign_int(i: dz_project::cppimport::CInt) -> IntTy {
+    match (i.bits, i.signed) {
+        (8, true) => IntTy::I8,
+        (16, true) => IntTy::I16,
+        (32, true) => IntTy::I32,
+        (8, false) => IntTy::U8,
+        (16, false) => IntTy::U16,
+        (32, false) => IntTy::U32,
+        (_, false) => IntTy::U64,
+        (_, true) => IntTy::I64,
     }
 }
 
@@ -758,8 +980,12 @@ pub fn type_name(res: &Resolution, t: &Ty) -> String {
         Ty::CStr => "cstr".to_owned(),
         Ty::IntLit => "{integer}".to_owned(),
         Ty::FloatLit => "{float}".to_owned(),
-        Ty::Ptr(i) => format!("^{}", name_of(i)),
-        Ty::OwnPtr(i) => format!("own ^{}", name_of(i)),
+        Ty::Ptr { mutable, inner } => {
+            format!("^{}{}", if *mutable { "mut " } else { "" }, name_of(inner))
+        }
+        Ty::OwnPtr { mutable, inner } => {
+            format!("own ^{}{}", if *mutable { "mut " } else { "" }, name_of(inner))
+        }
         Ty::Ref { mutable, inner } => {
             format!("&{}{}", if *mutable { "mut " } else { "" }, name_of(inner))
         }
@@ -1010,6 +1236,7 @@ impl<'a> Ctx<'a> {
                     name: p.name.clone(),
                     ty: self.instantiate(sym, args, &p.ty),
                     has_default: p.has_default,
+                    c_cast: p.c_cast.clone(),
                 })
                 .collect(),
             ret: self.instantiate(sym, args, &sig.ret),
@@ -1134,18 +1361,62 @@ impl<'a> Ctx<'a> {
 
     // --- resolving syntax types into `Ty` ---------------------------------
 
+    /// Lower a written type, refusing an imported handle anywhere a value of it would have
+    /// to exist: its header never defines it, so nothing here knows its size (spec §15.2,
+    /// §18.40). Behind a pointer — which is how a C library hands one out — it is fine.
     pub(crate) fn lower_type(&mut self, t: &Type) -> Ty {
+        let ty = self.lower_type_inner(t);
+        if let Some(sym) = self.opaque_by_value(&ty) {
+            let name = self.res.symbol(sym).name.clone();
+            self.error_help(
+                codes::OPAQUE_BY_VALUE,
+                t.span,
+                format!("`{name}` has no definition in its header"),
+                "its size is unknown here",
+                format!(
+                    "the header only declares `{name}`, so it is a handle: write `^{name}` \
+                     or `^mut {name}` and let the library make one (spec §15.2)"
+                ),
+            );
+        }
+        ty
+    }
+
+    /// The first imported handle inside `t` that is not behind a pointer, if there is one.
+    fn opaque_by_value(&self, t: &Ty) -> Option<SymbolId> {
+        match t {
+            // Behind a pointer is where a handle belongs, and a reference is what `or`
+            // makes of that pointer — no more a value of it than the pointer was.
+            Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. } => None,
+            Ty::Named { sym, .. } if self.table.is_opaque(t) => Some(*sym),
+            Ty::Array { elem, .. } | Ty::Slice { elem, .. } => self.opaque_by_value(elem),
+            Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => self.opaque_by_value(i),
+            Ty::Tuple(parts) => parts.iter().find_map(|p| self.opaque_by_value(p)),
+            Ty::Named { args, .. } => args.iter().find_map(|a| self.opaque_by_value(a)),
+            Ty::Fn { params, ret } => params
+                .iter()
+                .chain(std::iter::once(&**ret))
+                .find_map(|p| self.opaque_by_value(p)),
+            _ => None,
+        }
+    }
+
+    fn lower_type_inner(&mut self, t: &Type) -> Ty {
         match &t.kind {
             TypeKind::Path(p) => self.lower_path_type(p, t.span),
-            TypeKind::Ptr(i) => Ty::Ptr(Rc::new(self.lower_type(i))),
-            TypeKind::OwnPtr(i) => Ty::OwnPtr(Rc::new(self.lower_type(i))),
+            TypeKind::Ptr { mutable, inner } => {
+                Ty::Ptr { mutable: *mutable, inner: Rc::new(self.lower_type_inner(inner)) }
+            }
+            TypeKind::OwnPtr { mutable, inner } => {
+                Ty::OwnPtr { mutable: *mutable, inner: Rc::new(self.lower_type_inner(inner)) }
+            }
             TypeKind::Ref { mutable, inner } => Ty::Ref {
                 mutable: *mutable,
-                inner: Rc::new(self.lower_type(inner)),
+                inner: Rc::new(self.lower_type_inner(inner)),
             },
-            TypeKind::Optional(i) => Ty::Optional(Rc::new(self.lower_type(i))),
+            TypeKind::Optional(i) => Ty::Optional(Rc::new(self.lower_type_inner(i))),
             TypeKind::Array { size, elem } => {
-                let elem = Rc::new(self.lower_type(elem));
+                let elem = Rc::new(self.lower_type_inner(elem));
                 match self.const_int(size).and_then(|v| u64::try_from(v).ok()) {
                     Some(len) => Ty::Array { len, elem },
                     None => {
@@ -1165,12 +1436,12 @@ impl<'a> Ctx<'a> {
             }
             TypeKind::Slice { mutable, elem } => Ty::Slice {
                 mutable: *mutable,
-                elem: Rc::new(self.lower_type(elem)),
+                elem: Rc::new(self.lower_type_inner(elem)),
             },
-            TypeKind::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| self.lower_type(e)).collect()),
+            TypeKind::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect()),
             TypeKind::Fn { params, ret } => Ty::Fn {
-                params: params.iter().map(|p| self.lower_type(p)).collect(),
-                ret: Rc::new(ret.as_ref().map(|r| self.lower_type(r)).unwrap_or(Ty::Void)),
+                params: params.iter().map(|p| self.lower_type_inner(p)).collect(),
+                ret: Rc::new(ret.as_ref().map(|r| self.lower_type_inner(r)).unwrap_or(Ty::Void)),
             },
             TypeKind::SelfType => Ty::SelfTy,
             TypeKind::Error => Ty::Error,
@@ -1199,13 +1470,23 @@ impl<'a> Ctx<'a> {
             return Ty::Error;
         }
 
-        // `module::Type`
+        // `module::Type`, and `header::ns::Type` for a C++ namespace, which the path walks
+        // through one segment at a time (spec §15.2).
         if let Some(target) = self.res.module_alias(self.file, name) {
-            if let Some(second) = p.segments.get(1) {
-                if let Some(sym) = self.res.lookup(target, &second.name.name) {
-                    return self.named_or_error(sym, second, span);
-                }
+            let Some(second) = p.segments.get(1) else { return Ty::Error };
+            let Some(mut sym) = self.res.lookup(target, &second.name.name) else {
+                return Ty::Error;
+            };
+            let mut at = second;
+            let mut used = 2;
+            while self.res.symbol(sym).kind == SymbolKind::Namespace {
+                let Some(seg) = p.segments.get(used) else { return Ty::Error };
+                let Some(next) = self.res.inner(sym, &seg.name.name) else { return Ty::Error };
+                sym = next;
+                at = seg;
+                used += 1;
             }
+            return self.named_or_error(sym, at, span);
         }
         Ty::Error
     }
@@ -1615,8 +1896,8 @@ impl<'a> Ctx<'a> {
         if f.is_own {
             // `own ^T` is written as a pointer; the parser records `own` separately when
             // it appears as a field modifier.
-            if let Ty::Ptr(inner) = ty {
-                ty = Ty::OwnPtr(inner);
+            if let Ty::Ptr { mutable, inner } = ty {
+                ty = Ty::OwnPtr { mutable, inner };
             }
         }
         FieldSig {
@@ -1625,6 +1906,8 @@ impl<'a> Ctx<'a> {
             vis: Vis::Private,
             has_default: f.default.is_some(),
             span: f.name.span,
+            // Dazzle has no bit-fields of its own; only an imported C struct brings them.
+            bitfield: false,
         }
     }
 
@@ -1652,6 +1935,7 @@ impl<'a> Ctx<'a> {
                 name: p.name.name.clone(),
                 ty: self.lower_type(&p.ty),
                 has_default: p.default.is_some(),
+                            c_cast: None,
             })
             .collect();
         let ret = f
@@ -1660,6 +1944,8 @@ impl<'a> Ctx<'a> {
             .map(|r| self.lower_type(r))
             .unwrap_or(Ty::Void);
         FnSig {
+            // Only an imported function needs a cast at the boundary (spec §15.2).
+            ret_cast: false,
             params,
             ret,
             fallible: f.fallible,

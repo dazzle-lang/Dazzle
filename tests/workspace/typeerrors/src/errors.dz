@@ -432,7 +432,7 @@ fn format_interpolation(hp: i32) {
 
 // --- r12: `unsafe` (spec §5.2) ---------------------------------------------------------
 
-unsafe fn raw_write(p: ^i32) {
+unsafe fn raw_write(p: ^mut i32) {
     p^ = 1
 }
 
@@ -448,12 +448,12 @@ fn index_a_pointer(p: ^i32) -> i32 {
     return p[1]
 }
 
-fn call_an_unsafe_fn(p: ^i32) {
+fn call_an_unsafe_fn(p: ^mut i32) {
     raw_write(p)
 }
 
 // One missing `unsafe`, one diagnostic — not one for `destroy` and one for `p[0]`.
-fn placement_outside_unsafe(p: ^i32) {
+fn placement_outside_unsafe(p: ^mut i32) {
     destroy(p[0])
 }
 
@@ -461,9 +461,44 @@ fn pointer_cast_outside_unsafe(p: ^i32) -> ^u8 {
     return p as ^u8
 }
 
-// A `^T` may be written through, so a read-only view has none to give (spec §5.3).
-fn pointer_from_a_read_only_slice(xs: []i32) -> ^i32 {
+// --- r21: a runtime `str` has no terminating zero, so it is not a `cstr` (§5.3, §18.39) ---
+
+fn runtime_str_to_cstr(s: str) -> cstr {
+    return s as cstr
+}
+
+// --- r18: `^T` and `^mut T` (spec §5.2, §18.37) ------------------------------------------
+
+// `.ptr` is as writable as its view, so a read-only slice gives a `^T` (spec §5.3).
+fn writable_pointer_from_a_read_only_slice(xs: []i32) -> ^mut i32 {
     return xs.ptr
+}
+
+// A `^T` is only read through.
+fn write_through_a_read_only_pointer(p: ^i32) {
+    unsafe { p^ = 1 }
+}
+
+fn field_through_a_read_only_pointer(v: ^Vec3) {
+    unsafe { v.x = 1.0 }
+}
+
+// Neither a `^T` nor a `&T` becomes a `^mut T`: each would gain the right to write.
+fn read_only_to_writable(p: ^i32) -> ^mut i32 {
+    return p
+}
+
+fn shared_reference_to_writable(r: &i32) -> ^mut i32 {
+    return r
+}
+
+// `construct` and `memcpy` write their destination.
+fn construct_through_a_read_only_pointer(p: ^i32) {
+    unsafe { construct(p[0], 1) }
+}
+
+fn memcpy_into_a_read_only_pointer(dst: ^u8, src: ^u8) {
+    unsafe { memcpy(dst, src, 4) }
 }
 
 // --- r12: `Copy` (spec §8.2, §18.26) -----------------------------------------------------

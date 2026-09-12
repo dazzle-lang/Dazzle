@@ -309,10 +309,10 @@ fn deferred() {
 
 // §6.1: at most one of each special member, and both are optional.
 pub struct Owner {
-    m_slot: own ^i32
+    m_slot: own ^mut i32
     pub tag: i32
 
-    Owner(slot: ^i32) {
+    Owner(slot: ^mut i32) {
         m_slot = slot
     }
 
@@ -349,7 +349,7 @@ fn consumes(o: Owner) -> bool {
 }
 
 // §6.4: `move` transfers ownership, and the source is not read again.
-fn moving(slot: ^i32) -> bool {
+fn moving(slot: ^mut i32) -> bool {
     let o = Owner(slot)
     return consumes(move(o))
 }
@@ -619,12 +619,12 @@ fn inherited(c: Crate) -> bool {
 // --- r12 ------------------------------------------------------------------------------
 
 // §5.2: an `unsafe fn` may touch raw memory in its body, and is called from `unsafe`.
-unsafe fn poke(p: ^i32, v: i32) {
+unsafe fn poke(p: ^mut i32, v: i32) {
     p^ = v
 }
 
 // §5.2: forming, copying and comparing a pointer are all safe; only using one is not.
-fn pointer_rules(p: ^i32) -> bool {
+fn pointer_rules(p: ^mut i32) -> bool {
     let q = p
     if q == null {
         return false
@@ -633,19 +633,66 @@ fn pointer_rules(p: ^i32) -> bool {
     return true
 }
 
-// §5.2: `p or …` checks for null once, and the reference it gives may be written through.
-fn checked_pointer(v: ^Vec3) -> f32 {
+// §5.2: `p or …` checks for null once, and the reference it gives may be written through
+// when the pointer may.
+fn checked_pointer(v: ^mut Vec3) -> f32 {
     let r = v or return 0.0
     r.x = 2.0
     return r.x
 }
 
-// §5.3: `.ptr` is the unchecked way into a writable view; forming it is safe.
+// §5.3: `.ptr` is the unchecked way into a view; forming it is safe.
 fn unchecked(xs: []mut i32) -> i32 {
     let raw = xs.ptr
     let mut n = 0
+    unsafe {
+        raw[0] = 1
+        n = raw[0]
+    }
+    return n
+}
+
+// --- r21: making a `cstr` (spec §5.3, §18.39) --------------------------------------------
+
+fn takes_cstr(s: cstr) -> cstr {
+    return s
+}
+
+// A string literal is a `cstr` wherever one is wanted, and `as` says so explicitly; a
+// `cstr` is measured into a `str` with `as`.
+fn cstr_from_literals() -> str {
+    let a: cstr = "annotated"
+    let b = "cast" as cstr
+    let c = takes_cstr("argument")
+    let _ = a
+    let _ = b
+    return c as str
+}
+
+// --- r18: `^T` and `^mut T` (spec §5.2, §18.37) ----------------------------------------
+
+// A shared reference forms a read-only pointer, and a writable pointer widens to one.
+fn read_only_pointers(v: &Vec3, w: ^mut Vec3) -> f32 {
+    let p: ^Vec3 = v
+    let q: ^Vec3 = w
+    let mut total: f32 = 0
+    unsafe { total = p.x + q.x }
+    return total
+}
+
+// A read-only view's `.ptr` is a `^T`, which reads.
+fn read_only_ptr(xs: []i32) -> i32 {
+    let raw: ^i32 = xs.ptr
+    let mut n = 0
     unsafe { n = raw[0] }
     return n
+}
+
+// `or` on a `^T` gives a `&T`; through a read-only pointer's pointee the pointer may widen.
+fn read_through(p: ^Vec3, pp: ^^mut Vec3) -> f32 {
+    let r = p or return 0.0
+    let widened: ^^Vec3 = pp
+    return r.x
 }
 
 // §8.2: a `T: Copy` may be copied, where an unbounded `T` is move-only.
@@ -784,7 +831,7 @@ fn optional_presence(v: i32?) -> bool {
 }
 
 // §9.4: `if let` binds what `or` would produce, in the first block only.
-fn if_let_forms(o: i32?, p: ^Vec3) -> f32 {
+fn if_let_forms(o: i32?, p: ^mut Vec3) -> f32 {
     if let mut n = o {
         n += 1
     } else if let v = p {

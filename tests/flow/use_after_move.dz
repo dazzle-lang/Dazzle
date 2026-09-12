@@ -2,7 +2,7 @@
 // expect: DZ0401
 
 pub struct Res {
-    m_p: own ^i32
+    m_p: own ^mut i32
 }
 
 impl Drop for Res {

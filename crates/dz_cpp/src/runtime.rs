@@ -68,6 +68,9 @@ struct str {
     constexpr str() : ptr(nullptr), len(0) {}
     // Not constexpr: `reinterpret_cast` is forbidden in a constant expression.
     str(const char* s, size_t n) : ptr(reinterpret_cast<const uint8_t*>(s)), len(n) {}
+    /// `c as str` (spec §5.3): a C string, measured. Explicit, so only `as` reaches it.
+    explicit str(const char* s)
+        : ptr(reinterpret_cast<const uint8_t*>(s)), len(s ? ::strlen(s) : 0) {}
     constexpr str(const uint8_t* s, size_t n) : ptr(s), len(n) {}
 };
 
@@ -194,6 +197,12 @@ struct Tuple<A, B, C, D> { A v0; B v1; C v2; D v3; };
 // there is no `->`. `obj()` lets the generated code write a single form and leaves the
 // pointer/value distinction to C++ overload resolution.
 
+/// A function pointer (spec §5.4), and a C callback (§15.2). C++ spells one
+/// `R (*name)(A...)`, with the name inside, so it cannot be written where a type goes;
+/// this alias can, which is what lets a `fn(i32) -> i32` be a local, a field or a
+/// parameter like anything else.
+template <class R, class... A> using fn = R (*)(A...);
+
 template <class T> DZ_INLINE T& obj(T& x) { return x; }
 template <class T> DZ_INLINE const T& obj(const T& x) { return x; }
 template <class T> DZ_INLINE T& obj(T* x) { return *x; }
@@ -255,7 +264,8 @@ inline uint8_t* alloc(size_t size, size_t align, SourceLocation where) {
     return static_cast<uint8_t*>(p);
 }
 
-inline void dealloc(void* p) { ::free(p); }
+// `free` takes any pointer, `own ^T` included: releasing memory is not writing it (§14.3).
+inline void dealloc(const void* p) { ::free(const_cast<void*>(p)); }
 
 // `construct(dst, v)` and `destroy(x)` (spec §14.3): placement new and an explicit
 // destructor call — the only places a value is seen in a not-yet-constructed state.
@@ -278,14 +288,19 @@ template <class T> DZ_INLINE size_t len(Slice<T>& s) { return s.len; }
 template <class T> DZ_INLINE size_t len(const Slice<T>& s) { return s.len; }
 template <class T, size_t N> DZ_INLINE size_t len(Array<T, N>&) { return N; }
 template <class T, size_t N> DZ_INLINE size_t len(const Array<T, N>&) { return N; }
+template <class T, size_t N> DZ_INLINE size_t len(T (&)[N]) { return N; }
+template <class T, size_t N> DZ_INLINE size_t len(const T (&)[N]) { return N; }
 DZ_INLINE size_t len(const str& s) { return s.len; }
 template <class T> DZ_INLINE size_t len(T* p) { return len(*p); }
 
-/// `.ptr` (spec §5.3): the first element, for unchecked access inside `unsafe`. The checker
-/// allows it only on a writable view, so there is no `Slice<const T>` form to need.
+/// `.ptr` (spec §5.3): the first element, for unchecked access inside `unsafe`. A read-only
+/// view gives a `^T`, which is a `const T*` — `Slice<const T>` does that by itself.
 template <class T> DZ_INLINE T* data(Slice<T>& s) { return s.ptr; }
 template <class T> DZ_INLINE T* data(const Slice<T>& s) { return s.ptr; }
 template <class T, size_t N> DZ_INLINE T* data(Array<T, N>& a) { return a.data; }
+template <class T, size_t N> DZ_INLINE const T* data(const Array<T, N>& a) { return a.data; }
+template <class T, size_t N> DZ_INLINE T* data(T (&a)[N]) { return a; }
+template <class T, size_t N> DZ_INLINE const T* data(const T (&a)[N]) { return a; }
 
 // Hand-rolled rather than pulled from <type_traits>, so the shim keeps its promise of
 // depending on nothing but the C standard library. Compiler builtins are avoided too:
@@ -295,12 +310,13 @@ template <class T> struct is_ptr<T*> { static constexpr bool value = true; };
 
 /// `as` between numbers, pointers, and an enum and its backing type (spec §10.6).
 ///
-/// `static_cast` already covers enum-to-integer and every numeric conversion; only
-/// pointer-to-pointer needs `reinterpret_cast`.
+/// `static_cast` already covers enum-to-integer and every numeric conversion. A pointer
+/// cast may also turn a `^T` into a `^mut T` (spec §10.6), which is `const T*` to `T*` and
+/// beyond `reinterpret_cast`; the C-style cast is the one spelling that does both.
 template <class To, class From>
 DZ_INLINE To cast(From f) {
     if constexpr (is_ptr<From>::value && is_ptr<To>::value) {
-        return reinterpret_cast<To>(f);
+        return (To)(f);
     } else {
         return static_cast<To>(f);
     }
@@ -319,6 +335,27 @@ template <class T, size_t N>
 DZ_INLINE T& index(Array<T, N>& a, size_t i, SourceLocation where) {
     if (i >= N) { panic_bounds(i, N, where); }
     return a.data[i];
+}
+
+// An array read through a `^T` is `const` (spec §18.37).
+template <class T, size_t N>
+DZ_INLINE const T& index(const Array<T, N>& a, size_t i, SourceLocation where) {
+    if (i >= N) { panic_bounds(i, N, where); }
+    return a.data[i];
+}
+
+// A C array member of an imported struct — `float m[16]` — is a raw array, not an
+// `Array<T, N>`, and indexing it is checked the same way (spec §15.2).
+template <class T, size_t N>
+DZ_INLINE T& index(T (&a)[N], size_t i, SourceLocation where) {
+    if (i >= N) { panic_bounds(i, N, where); }
+    return a[i];
+}
+
+template <class T, size_t N>
+DZ_INLINE const T& index(const T (&a)[N], size_t i, SourceLocation where) {
+    if (i >= N) { panic_bounds(i, N, where); }
+    return a[i];
 }
 
 /// Runs a block at scope exit, in reverse order of registration (spec §10.5).

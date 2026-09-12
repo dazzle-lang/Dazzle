@@ -1,0 +1,8 @@
+// A single-header C library (spec §15.1): `[cpp] defines` reach both the library's source
+// and this generated code, while the library's own `defines` build only its source — so the
+// implementation is compiled once, and the declarations this call sees can link to it.
+import cpp "shl.h" as shl
+
+fn main() {
+    println("doubled {}", shl::shl_double(21))
+}

@@ -558,117 +558,167 @@ error[DZ0528]: a pointer cast is unsafe
     │
     = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
 
-error[DZ0507]: `.ptr` needs a writable view
-    ┌─ typeerrors/src/errors.dz:466:12
+error[DZ0511]: a runtime `str` cannot become a `cstr` yet
+    ┌─ typeerrors/src/errors.dz:467:12
     │
-466 │     return xs.ptr
-    │            ^^^^^^ read-only here
+467 │     return s as cstr
+    │            ^^^^^^^^^ not a string literal
     │
-    = help: a `^T` can be written through, so only a `[]mut T` or a writable array has one; read elements with `xs[i]` (spec §5.3)
+    = help: a `str` has no zero after its last byte, so a C string needs a copy of it — an owning one, which arrives with the stdlib's `String` (spec §5.3, §19 M12). A string literal is a `cstr` as it is
+
+error[DZ0501]: expected `^mut i32`, found `^i32`
+    ┌─ typeerrors/src/errors.dz:474:12
+    │
+474 │     return xs.ptr
+    │            ^^^^^^ this is `^i32`
+
+error[DZ0507]: cannot assign to memory behind a read-only pointer
+    ┌─ typeerrors/src/errors.dz:479:14
+    │
+479 │     unsafe { p^ = 1 }
+    │              ^^ not mutable
+    │
+    = help: `^i32` is only read through; a `^mut` pointer allows writing (spec §5.2)
+
+error[DZ0507]: cannot assign to memory behind a read-only pointer
+    ┌─ typeerrors/src/errors.dz:483:14
+    │
+483 │     unsafe { v.x = 1.0 }
+    │              ^^^ not mutable
+    │
+    = help: `^Vec3` is only read through; a `^mut` pointer allows writing (spec §5.2)
+
+error[DZ0501]: expected `^mut i32`, found `^i32`
+    ┌─ typeerrors/src/errors.dz:488:12
+    │
+488 │     return p
+    │            ^ this is `^i32`
+
+error[DZ0501]: expected `^mut i32`, found `&i32`
+    ┌─ typeerrors/src/errors.dz:492:12
+    │
+492 │     return r
+    │            ^ this is `&i32`
+
+error[DZ0507]: `construct` cannot write to memory behind a read-only pointer
+    ┌─ typeerrors/src/errors.dz:497:24
+    │
+497 │     unsafe { construct(p[0], 1) }
+    │                        ^^^^ not writable
+    │
+    = help: `^i32` is only read through; a `^mut` pointer allows writing (spec §5.2)
+
+error[DZ0507]: `memcpy` writes through its first argument
+    ┌─ typeerrors/src/errors.dz:501:21
+    │
+501 │     unsafe { memcpy(dst, src, 4) }
+    │                     ^^^ this is a read-only `^u8`
+    │
+    = help: the destination must be a `^mut` pointer (spec §5.2, §14.3)
 
 error[DZ0531]: `Unique` does not implement `Copy`
-    ┌─ typeerrors/src/errors.dz:483:12
+    ┌─ typeerrors/src/errors.dz:518:12
     │
-483 │     return keep_copy(move(u))
+518 │     return keep_copy(move(u))
     │            ^^^^^^^^^^^^^^^^^^ `T` is bounded by `Copy`
     │
     = help: declare it as `struct Unique : Copy` and implement the trait's methods (spec §7.6)
 
 error[DZ0537]: `Twice` has more than one method named `go`
-    ┌─ typeerrors/src/errors.dz:492:12
+    ┌─ typeerrors/src/errors.dz:527:12
     │
-492 │     pub fn go(&self) {}
+527 │     pub fn go(&self) {}
     │            ^^ declared again here
     │
     = help: a struct declares each method once; to implement one trait at several arguments, like `Mul<f32>` and `Mul<Vec2>`, write one `impl` for each (spec §18.27)
 
 error[DZ0538]: more than one `mul` accepts `{integer}`
-    ┌─ typeerrors/src/errors.dz:516:12
+    ┌─ typeerrors/src/errors.dz:551:12
     │
-516 │     return w * 3
+551 │     return w * 3
     │            ^^^^^ ambiguous call
     │
     = help: give the argument a type — `3 as i64`, say — so that exactly one fits (spec §18.27)
 
 error[DZ0539]: `impl Add for i32` belongs with `Add` or with `i32`
-    ┌─ typeerrors/src/errors.dz:522:6
+    ┌─ typeerrors/src/errors.dz:557:6
     │
-522 │ impl Add for i32 {
+557 │ impl Add for i32 {
     │      ^^^ neither is declared in this module
     │
     = help: otherwise two libraries could both implement it, and a program using both could not choose between them; to implement someone else's trait for someone else's type, wrap the type in a struct of your own (spec §7.6)
 
 error[DZ0539]: `Same` cannot be implemented for every type at once
-    ┌─ typeerrors/src/errors.dz:531:9
+    ┌─ typeerrors/src/errors.dz:566:9
     │
-531 │ impl<T> Same for T {
+566 │ impl<T> Same for T {
     │         ^^^^ this is any type at all
     │
     = help: implement `Same` for each type that needs it, or for a generic type such as `Buffer<T>` — an implementation for every type would overlap all the others (spec §7.6)
 
 error[DZ0539]: `Drop` can only be implemented for a struct, in its own module
-    ┌─ typeerrors/src/errors.dz:538:6
+    ┌─ typeerrors/src/errors.dz:573:6
     │
-538 │ impl Drop for f32 {
+573 │ impl Drop for f32 {
     │      ^^^^ not allowed for `f32` here
     │
     = help: `Drop` becomes the struct's C++ destructor, so it is part of the struct's definition and covers every instance — `impl<T> Drop for Buffer<T>`, not one instance (spec §6.1)
 
 error[DZ0540]: `Same` is implemented twice for `Twin`
-    ┌─ typeerrors/src/errors.dz:552:6
+    ┌─ typeerrors/src/errors.dz:587:6
     │
-546 │ impl Same for Twin {
+581 │ impl Same for Twin {
     │      ---- the first
     ·
-552 │ impl Same for Twin {
+587 │ impl Same for Twin {
     │      ^^^^ a second implementation
     │
     = help: a type has one implementation of a trait for each set of arguments, or a call could not know which to use (spec §7.6)
 
 error[DZ0533]: `also` is not a method of `Same`
-    ┌─ typeerrors/src/errors.dz:567:8
+    ┌─ typeerrors/src/errors.dz:602:8
     │
-567 │     fn also(&self) -> i32 {
+602 │     fn also(&self) -> i32 {
     │        ^^^^ not in the trait
     │
     = help: an implementation holds exactly the trait's methods; a method of the type's own goes in the struct (spec §7.6)
 
 error[DZ0538]: `shout` is provided by both `Yell` and `Holler`
-    ┌─ typeerrors/src/errors.dz:597:14
+    ┌─ typeerrors/src/errors.dz:632:14
     │
-597 │     return c.shout()
+632 │     return c.shout()
     │              ^^^^^ ambiguous method
     │
     = help: name the trait to choose one: `Yell::shout(&v, …)` (spec §7.6)
 
 error[DZ0520]: `drop` cannot be called by name
-    ┌─ typeerrors/src/errors.dz:602:7
+    ┌─ typeerrors/src/errors.dz:637:7
     │
-602 │     u.drop()
+637 │     u.drop()
     │       ^^^^ runs by itself
     │
     = help: a value's `drop` runs by itself at the end of its scope; to end its life early, `move` it into a scope that ends (spec §6.5)
 
 error[DZ0514]: cannot compare `i32?` with `i32?`
-    ┌─ typeerrors/src/errors.dz:607:12
+    ┌─ typeerrors/src/errors.dz:642:12
     │
-607 │     return a == b
+642 │     return a == b
     │            ^^^^^^ an optional is compared only with `none`
     │
     = help: `x == none` asks whether it is empty; to use the value, take it out with `or` first (spec §9.4)
 
 error[DZ0529]: `if let` cannot take a fallible call
-    ┌─ typeerrors/src/errors.dz:613:16
+    ┌─ typeerrors/src/errors.dz:648:16
     │
-613 │     if let v = may_fail() {
+648 │     if let v = may_fail() {
     │                ^^^^^^^^^^ this may fail with an `Error`
     │
     = help: `else` has no `Error` to hand over, so the failure would be dropped unseen — handle it with `or` (spec §9.4)
 
 error[DZ0525]: `if let` needs a `T?` or a `^T`, found `i32`
-    ┌─ typeerrors/src/errors.dz:619:16
+    ┌─ typeerrors/src/errors.dz:654:16
     │
-619 │     if let v = n {
+654 │     if let v = n {
     │                ^ this is always present
     │
     = help: `if let` takes the value out of something that may be empty; for a `bool`, write a plain `if` (spec §9.4)

@@ -1,0 +1,21 @@
+[module]
+name    = "cinterop"
+sources = ["src/**/*.dz"]
+
+# RGFW is a single-header library: its declarations are `RGFWDEF`, which is `inline` unless
+# told otherwise, because it expects to be included in one translation unit. Here there are
+# two — its own source and Dazzle's generated code — so `RGFWDEF=` gives them external
+# linkage. `[cpp]` is the right table for it: it has to hold for both.
+[cpp]
+defines = ["RGFWDEF="]
+
+# The library itself, vendored as source and compiled by `dz` (spec §15.1). RGFW is a
+# single-header library: `header` names it, and `dz` compiles the one translation unit that
+# includes it with `RGFW_IMPLEMENTATION` defined. Nothing else sees that define, so nothing
+# is defined twice.
+[cpp.libs.rgfw]
+root         = "vendor/rgfw"
+header       = "RGFW.h"
+include_dirs = ["."]
+defines      = ["RGFW_IMPLEMENTATION"]
+link_libs    = ["opengl32", "gdi32"]

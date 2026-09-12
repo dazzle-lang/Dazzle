@@ -1,5 +1,6 @@
 ---
 source: crates/dz_resolve/tests/resolve.rs
+assertion_line: 169
 expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
 ---
 modules: 2, files: 1
@@ -55,3 +56,43 @@ error[DZ0003]: dependency `noPath` has no `path`
    │           ^^^^^^^^^^^^^^^^^^^ expected `path = "..."`
    │
    = help: only path dependencies are supported so far
+
+error[DZ0004]: directory `no/such/dir` does not exist
+   ┌─ badmanifest/dazzle.toml:17:17
+   │
+17 │ include_dirs = ["no/such/dir"]
+   │                 ^^^^^^^^^^^^^ no such directory
+   │
+   = help: the path is relative to the directory holding dazzle.toml
+
+error[DZ0004]: unknown target `amiga`
+   ┌─ badmanifest/dazzle.toml:19:1
+   │
+19 │ [cpp.target.amiga]
+   │ ^^^^^^^^^^^^^^^^^^ not a target dz builds for
+   │
+   = help: targets are windows, linux, macos, web (spec §15.1)
+
+error[DZ0005]: source `missing.c` does not exist
+   ┌─ badmanifest/dazzle.toml:23:12
+   │
+23 │ sources = ["missing.c", "dazzle.toml"]
+   │            ^^^^^^^^^^^ no such file
+   │
+   = help: the path is relative to the library's `root`, or the manifest's directory without one
+
+error[DZ0004]: `dazzle.toml` is not a C or C++ source
+   ┌─ badmanifest/dazzle.toml:23:25
+   │
+23 │ sources = ["missing.c", "dazzle.toml"]
+   │                         ^^^^^^^^^^^^^ not compilable
+   │
+   = help: a library source ends in .c, .cc, .cpp or .cxx; headers are found through `include_dirs` (spec §15.1)
+
+error[DZ0004]: unknown key `flags` in `[cpp.libs.broken]`
+   ┌─ badmanifest/dazzle.toml:24:1
+   │
+24 │ flags   = ["-O3"]
+   │ ^^^^^ not a key of this table
+   │
+   = help: the keys here are `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs` (spec §15.1)

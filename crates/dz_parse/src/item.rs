@@ -53,8 +53,15 @@ impl<'a> Parser<'a> {
         // `import cpp "raylib.h" as rl` (spec §15.1)
         if self.at(TokenKind::Ident) && self.token_text(self.peek_token()) == "cpp" {
             self.bump();
-            let header = if self.at(TokenKind::Str) {
-                self.bump().span
+            let (header, name) = if self.at(TokenKind::Str) {
+                let span = self.bump().span;
+                // The text between the quotes. A header name is a path, so of the string
+                // escapes only `\\` and `\"` can matter.
+                let inner = self
+                    .src
+                    .get(span.start as usize + 1..(span.end as usize).saturating_sub(1))
+                    .unwrap_or("");
+                (span, inner.replace("\\\\", "\\").replace("\\\"", "\""))
             } else {
                 let span = self.peek_token().span;
                 self.error_labeled(
@@ -63,10 +70,13 @@ impl<'a> Parser<'a> {
                     "expected a header path string after `import cpp`",
                     "expected a string like \"raylib.h\"",
                 );
-                span
+                (span, String::new())
             };
             let alias = if self.eat(TokenKind::As) { self.parse_ident() } else { None };
-            return Import { span: self.span_from(start), kind: ImportKind::Cpp { header, alias } };
+            return Import {
+                span: self.span_from(start),
+                kind: ImportKind::Cpp { header, name, alias },
+            };
         }
 
         let path = match self.parse_path_no_generics() {

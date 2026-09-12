@@ -7,6 +7,7 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#attributes" },
+    { "include": "#imports" },
     { "include": "#strings" },
     { "include": "#characters" },
     { "include": "#numbers" },
@@ -32,6 +33,55 @@
       "begin": "/\\*",
       "end": "\\*/",
       "patterns": [{ "include": "#block-comment" }]
+    },
+    "imports": {
+      "comment": "An import line names a module, and what it is named *as* is a module name too — not a variable. `cpp` is part of the keyword: `import cpp` is one thing to read, not `import` followed by an identifier (spec §15.1).",
+      "patterns": [
+        {
+          "comment": "`import cpp \"raylib.h\" as rl`",
+          "begin": "\\b(import)\\s+(cpp)\\b",
+          "end": "$",
+          "beginCaptures": {
+            "1": { "name": "keyword.other.import.dazzle" },
+            "2": { "name": "keyword.other.import.cpp.dazzle" }
+          },
+          "patterns": [
+            {
+              "match": "\\b(as)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+              "captures": {
+                "1": { "name": "keyword.operator.cast.dazzle" },
+                "2": { "name": "entity.name.namespace.dazzle" }
+              }
+            },
+            { "include": "#strings" },
+            { "include": "#comments" }
+          ]
+        },
+        {
+          "comment": "`import engine::render as gfx`, and `import math::{ pow }`.",
+          "begin": "\\b(import)\\b",
+          "end": "$",
+          "beginCaptures": { "1": { "name": "keyword.other.import.dazzle" } },
+          "patterns": [
+            {
+              "match": "\\b(as)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+              "captures": {
+                "1": { "name": "keyword.operator.cast.dazzle" },
+                "2": { "name": "entity.name.namespace.dazzle" }
+              }
+            },
+            { "include": "#comments" },
+            { "name": "keyword.operator.namespace.dazzle", "match": "::" },
+            {
+              "comment": "Names brought in unqualified keep their own colouring; the module path is a namespace.",
+              "begin": "\\{",
+              "end": "\\}",
+              "patterns": [{ "include": "#types" }, { "include": "#variables" }]
+            },
+            { "name": "entity.name.namespace.dazzle", "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b" }
+          ]
+        }
+      ]
     },
     "attributes": {
       "name": "meta.attribute.dazzle",

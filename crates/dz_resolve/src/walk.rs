@@ -22,6 +22,17 @@ enum Head {
     Unresolved,
 }
 
+/// The name an unaliased `import cpp` goes by: its file name without the extension, so
+/// `"Jolt/Physics/Body.h"` is `Body` — when that is an identifier.
+fn cpp_alias(header: &str) -> Option<String> {
+    let file = header.rsplit(['/', '\\']).next()?;
+    let stem = file.split('.').next()?;
+    let mut chars = stem.chars();
+    let first = chars.next()?;
+    let ok = (first.is_alphabetic() || first == '_') && chars.all(|c| c.is_alphanumeric() || c == '_');
+    ok.then(|| stem.to_owned())
+}
+
 pub(crate) fn resolve_file(
     r: &mut Resolution,
     ws: &Workspace,
@@ -125,8 +136,38 @@ impl<'a, 'w> Walker<'a, 'w> {
                         self.unqualified.insert(n.name.clone(), (sym, index));
                     }
                 }
-                // C++ headers are not read until M7; the alias is accepted as opaque.
-                ImportKind::Cpp { .. } | ImportKind::Error => {}
+                // An imported header is a module of its own, added by the driver before
+                // resolution ran (spec §15.1). One that failed to import was reported there.
+                ImportKind::Cpp { header, name, alias } => {
+                    let me = self.ws.module(self.module);
+                    let Some(&(_, target)) = me.cpp_imports.iter().find(|(h, _)| h == name) else {
+                        continue;
+                    };
+                    let local = match alias {
+                        Some(a) => a.name.clone(),
+                        None => match cpp_alias(name) {
+                            Some(s) => s,
+                            None => {
+                                let file = self.file;
+                                self.error(
+                                    Diagnostic::error(
+                                        codes::UNKNOWN_MODULE,
+                                        format!("`import cpp \"{name}\"` needs a name"),
+                                    )
+                                    .at(file, *header, "its file name is not an identifier")
+                                    .with_help(format!(
+                                        "name it: `import cpp \"{name}\" as some_name` (spec §15.1)"
+                                    )),
+                                );
+                                continue;
+                            }
+                        },
+                    };
+                    self.imports.push((local.clone(), import.span));
+                    self.used_imports.push(false);
+                    self.module_aliases.insert(local, (target, index));
+                }
+                ImportKind::Error => {}
             }
         }
     }
@@ -469,8 +510,10 @@ impl<'a, 'w> Walker<'a, 'w> {
     fn ty(&mut self, t: &Type) {
         match &t.kind {
             TypeKind::Path(p) => self.path(p, PathUse::Type),
-            TypeKind::Ptr(i) | TypeKind::OwnPtr(i) | TypeKind::Optional(i) => self.ty(i),
-            TypeKind::Ref { inner, .. } => self.ty(inner),
+            TypeKind::Optional(i) => self.ty(i),
+            TypeKind::Ptr { inner, .. } | TypeKind::OwnPtr { inner, .. } | TypeKind::Ref { inner, .. } => {
+                self.ty(inner)
+            }
             TypeKind::Array { size, elem } => {
                 self.expr(size);
                 self.ty(elem);
@@ -761,6 +804,33 @@ impl<'a, 'w> Walker<'a, 'w> {
         let mut current = sym;
         for seg in rest {
             let symbol = self.r.symbol(current);
+            // A C++ namespace holds declarations, not members: the path goes on through it
+            // for as many segments as it has (spec §15.2).
+            if symbol.kind == crate::SymbolKind::Namespace {
+                match self.r.inner(current, &seg.name.name) {
+                    Some(id) => {
+                        current = id;
+                        continue;
+                    }
+                    None => {
+                        let owner = symbol.name.clone();
+                        let names: Vec<String> =
+                            symbol.members.iter().map(|m| m.name.clone()).collect();
+                        let suggestion = closest(&seg.name.name, names.iter().map(String::as_str));
+                        let file = self.file;
+                        let mut d = Diagnostic::error(
+                            codes::NO_SUCH_MEMBER,
+                            format!("namespace `{owner}` has no `{}`", seg.name.name),
+                        )
+                        .at(file, seg.name.span, "not found in this namespace");
+                        if let Some(s) = suggestion {
+                            d = d.with_help(format!("did you mean `{s}`?"));
+                        }
+                        self.error(d);
+                        return;
+                    }
+                }
+            }
             if !symbol.kind.has_members() {
                 let kind = symbol.kind.describe();
                 let owner = symbol.name.clone();

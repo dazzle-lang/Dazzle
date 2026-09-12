@@ -20,18 +20,35 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_type(&mut self) -> Type {
         let start = self.start();
         let kind = match self.peek() {
-            // `^T`
+            // `^T` / `^mut T` (spec §5.2)
             TokenKind::Caret => {
                 self.bump();
-                TypeKind::Ptr(Box::new(self.parse_type()))
+                let mutable = self.eat(TokenKind::Mut);
+                TypeKind::Ptr { mutable, inner: Box::new(self.parse_type()) }
             }
-            // `own ^T` (spec §5.2)
+            // `^^T` — the lexer reads `^^` as xor, so unpick it here, as `&&` is below.
+            TokenKind::CaretCaret => {
+                let t = self.bump();
+                let inner_start = t.span.start + 1;
+                let mutable = self.eat(TokenKind::Mut);
+                let inner = self.parse_type();
+                let inner_span = dz_span::Span { start: inner_start, end: inner.span.end };
+                TypeKind::Ptr {
+                    mutable: false,
+                    inner: Box::new(Type {
+                        span: inner_span,
+                        kind: TypeKind::Ptr { mutable, inner: Box::new(inner) },
+                    }),
+                }
+            }
+            // `own ^T` / `own ^mut T`
             TokenKind::Own => {
                 self.bump();
                 if !self.expect_in(TokenKind::Caret, "after `own`") {
                     TypeKind::Error
                 } else {
-                    TypeKind::OwnPtr(Box::new(self.parse_type()))
+                    let mutable = self.eat(TokenKind::Mut);
+                    TypeKind::OwnPtr { mutable, inner: Box::new(self.parse_type()) }
                 }
             }
             // `&T` / `&mut T`

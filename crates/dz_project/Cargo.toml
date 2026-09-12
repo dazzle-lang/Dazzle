@@ -10,3 +10,4 @@ description = "Project manifests and the workspace graph for Dazzle"
 dz_span.workspace = true
 dz_diag.workspace = true
 glob = "0.3"
+dz_cppimport.workspace = true

@@ -18,12 +18,12 @@ the milestone.
 
 | | |
 |---|---|
-| Milestones done | M0, M1, M2, M3, M4, M5, **M6 — generics, traits, monomorphization**; most of **M9 — language server and VS Code extension**, pulled forward (what remains is in §3) |
-| Next | **Struct inheritance (spec 18.32)**, then **M7 — C++ interop via libclang.** See §4 |
-| Tests | 139, all green on the committed tree |
+| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7a — C interop from vendored source**; most of **M9 — language server and VS Code extension**, pulled forward (what remains is in §3) |
+| Next | **M7b — the rest of C, then C++.** Handles are in (r23); still to come: `char *` and `long *`, arrays and bit-fields in struct fields, unions, function pointers, compound-literal macros (`RAYWHITE`), raylib from its own source, then C++ classes, namespaces and overloads. Struct inheritance (spec 18.32) follows. See §4 |
+| Tests | 161, all green |
 | Clippy | clean (`--workspace --all-targets`) |
-| Compiler crates | 15, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 13; four open questions (§18.2), one of them inheritance, which is designed and next |
+| Compiler crates | 16, plus the `dz` CLI |
+| Language spec | 0.1 **unreleased**, revision 18; four open questions (§18.2), one of them inheritance, which is designed and follows M7 |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -61,10 +61,11 @@ clang++ -std=c++17 -fno-exceptions -fno-rtti -fsanitize=address -g -O1 *.cpp -o 
 | `dz_flow` | ownership, moves, definite return | §6 |
 | `dz_mono` | monomorphization: the instances each module needs, and their concrete bodies | §8.4 |
 | `dz_cpp` | C++17 emission + the runtime shim | §16 |
+| `dz_cppimport` | reads a C header through libclang (`clang-sys`, loaded at run time) into plain declarations; an in-process cache | §15 |
 | `dz_driver` | the analysis pipeline as a library (`analyse`), with editor buffers able to stand in for files | §17.2 |
 | `dz_lsp` | the language server, `dz lsp`; the queries themselves are protocol-free, in `ide.rs` | §17.4 |
 
-Crates still to come are listed in spec §17.1: `dz_cppimport`, `dz_macro`. The VS Code
+Crates still to come are listed in spec §17.1: `dz_macro`. The VS Code
 extension is `editors/vscode`: plain JavaScript, a TextMate grammar, and a client that runs
 `dz lsp`.
 
@@ -692,6 +693,302 @@ three compiler bugs, none a language change.
 - `tests/run/iterator` runs all three forms on both compilers — `T?`, `^T` with a write
   through the binding, and `if let` as a value — and the formatter corpus round-trips them.
 
+### r18 — `^T` and `^mut T` (M7a step 1)
+
+- The user's call, 18.37 / r18, made so that C's `const T*` has somewhere to go. `Ty::Ptr`
+  and `Ty::OwnPtr` (and the AST's `TypeKind` pair) become `{ mutable, inner }`, the shape
+  `Ref` and `Slice` already had. Every rule that read "through a pointer" as writable now
+  reads the flag: `place_mutability`, the mutable-receiver check, `or` and `if let` (a `^T`
+  gives a `&T`), `.ptr` (as writable as its view, where it used to be refused on a
+  read-only one), and `construct`/`destroy`/`memcpy`, which refuse a read-only
+  destination. A write through a `^T` is `DZ0507` with a help naming `^mut`.
+- `assignable` shares one pointee rule between pointers and the references that widen to
+  them: writing needs a writable source, and behind a `^mut` the pointee must match both
+  ways — otherwise `^mut ^mut T` → `^mut ^T` would be accepted and emit `T**` →
+  `const T**`, which C++ rightly refuses.
+- Codegen: `^T` is `const T*`, with the `const` on the right after a pointer pointee
+  (`int32_t* const*`); mangling gains `pm_`/`opm_`. The shim's pointer `cast` became a
+  C-style cast, since `^T as ^mut T` casts away `const`, which `reinterpret_cast` cannot;
+  `dealloc` takes a `const void*`; `data` and `index` gained `const Array` overloads; and a
+  two-binding `for` binds `auto&`, which is `const` over a read-only view. All three were
+  found by `tests/run/failure`, whose `find` now takes and returns read-only pointers.
+- The parser unpicks `^^T` (lexed as xor) into two pointers, the way it already did `&&T`.
+- Tests: `a_pointer_is_as_writable_as_it_says` pins the conversions, including the
+  two-level one; `typed/` and `typeerrors/` gained an r18 section each; the corpus now
+  says `^mut` wherever it writes. 141 tests, clang++ and g++.
+
+### r19 — recipes, and building vendored sources (M7a steps 2 and 6)
+
+- **Manifest.** `CppConfig` holds resolved `PathBuf`s and a list of `CppLib` recipes read
+  from `[cpp.libs.<name>]`; `[cpp.target.<os>]` and `[cpp.libs.<name>.target.<os>]` are
+  folded in for the host (`host_target()`; there is no cross-compilation yet) and checked
+  for every other target. A library's `root` is read in a first pass, since a target
+  section may come before its base table. Unknown keys, unknown tables, unknown targets,
+  missing directories and sources, and a non-source written out as a source are all
+  `DZ0004`/`DZ0005` at the offending span — a typo such as `source =` must not silently
+  build nothing. Two recipes for one library are refused in `load`. `[cpp.instantiate]`
+  is refused as not yet implemented (M7b).
+- **Paths are relative to the manifest.** The bug noted in §4 — `include_dirs` passed to
+  the compiler as written — is gone with the move to resolved paths.
+- **Flags travel down the graph.** `Workspace::cpp_flags(m)` is a module's include dirs
+  and defines followed by its dependencies'; the generated C++ is compiled with the
+  root's, and the importer will parse headers with the importing module's.
+  `link_inputs` gathers `-L`/`-l` from everything the root reaches.
+- **`dz/src/native.rs`** compiles each vendored source with the same driver as the
+  generated code (`-x c` for `.c`), `-w`, the build's optimisation flags, and the
+  library's own defines and include dirs, as many at once as there are cores. The object
+  name carries a hash of the command, so a changed flag compiles a new object; a stamp
+  beside it lists the content hash of the source and every header in its `-MD` depfile,
+  and the object is reused only while all of them match. A failure is the new
+  **`DZ0701`**, pointing at the recipe and blaming the library, never the Dazzle
+  compiler.
+- Tests: `tests/run/cinterop` vendors `mini` — a header in `include/` and a `.c` that
+  `#error`s without the recipe's define — found by a glob; two run tests pin that an
+  unchanged library is not recompiled and a changed header is, and that a broken library
+  is `DZ0701` and not `DZ0803`; `badmanifest/` gained one case per new manifest check; a
+  unit test parses a depfile with continuations, CRLF and an escaped space.
+
+### r20 — `import cpp` (M7a steps 3–5 and 8; M7a's criterion met)
+
+- **`dz_cppimport`** loads libclang through `clang-sys`'s runtime feature: once per
+  process, shared to every thread (clang-sys keeps it per thread), and found beside `clang`
+  on the path when `LIBCLANG_PATH` is unset. A header is reached through an `#include` in an
+  unsaved file placed where the generated C++ is compiled, parsed as C++ with the importing
+  module's `cpp_flags`, so the search is the C++ compiler's. The walk keeps what is outside
+  system headers, looks inside `extern "C"`, names an anonymous struct or enum after its
+  typedef, reads numeric macros from their tokens, and turns each C type into a `CType`;
+  anything that cannot be named is recorded in `skipped`, and a function using something
+  that was skipped goes too. Results are cached per process, keyed on header, directory and
+  flags, and held while every included file keeps its size and timestamp — the tolerant
+  test's 1,200 analyses of `cinterop` parse `mini.h` once.
+- **The imported header is a module.** The driver adds it to the workspace (`Module::foreign`,
+  and `cpp_imports` on the importer) after parsing and before resolution. The resolver
+  builds its symbols straight from the declarations — pointing into the header's own text,
+  added to the source map — and maps a typedef to its target's symbol, which is why the
+  header's declarations were not turned into Dazzle source: an alias needs no syntax this
+  way, and a span can be the header's. The checker builds signatures from them before any
+  Dazzle signature is read. Codegen skips the module, `#include`s the header as written,
+  spells its names `::name` (a macro bare), and casts an imported constant to its Dazzle
+  type, since C's is an enum or an `int`.
+- New codes: **`DZ0702`** a header clang could not read (with clang's messages as notes),
+  **`DZ0703`** no libclang. The parser now keeps the header's text on `ImportKind::Cpp`.
+- Tests: `dz_cppimport/tests/import.rs` against `mini.h` (every kind of declaration, a span
+  landing on the name, a missing header); `tests/run/cinterop` calls into `mini` — struct
+  literals and zero-initialisation, an enum parameter by variant, an unscoped enumerator as
+  an `i32`, macros, `^mut`/`^` pointers from an array's `.ptr`, a `cstr` return — on both
+  compilers, and its C++ is warning-clean under `-Wall -Wextra`; run tests for DZ0702 and for
+  a type mismatch at a C call. 150 tests.
+
+### r29 — single-header libraries, and the editor on imported names
+
+- **`header` in a library's recipe** (§15.1). A single-header library needs exactly one
+  translation unit that includes it with the implementation macro defined, and nothing else
+  about that file is interesting — so `dz` writes `build/obj/<lib>/dz_<lib>_impl.c` and
+  compiles it with the recipe's `defines` in force. `tests/run/cinterop_header` and
+  `tests/run/cinterop_rgfw` both dropped their hand-written one-line `.c`. The include is
+  absolute for the same reason the generated C++'s is: the file lives in `build/obj/`, and a
+  quoted include is searched from there first.
+- **Hover on an imported name** — the M7a deferral. There is no Dazzle source to quote, so
+  the signature is rebuilt from the checker's own types (`fn area_of(kind: Kind, size: i32)
+  -> i32`), followed by the C++ path it really is and the header's comment.
+- **Doxygen is rendered**, for Dazzle's `///` comments and imported headers alike.
+  `@param`/`\param`, `@return`, `@brief`, `@note`, `@see`, `@code` and the inline `@p`/`@c`
+  become Markdown; anything else passes through untouched, so no comment is made worse by
+  being rendered. The importer strips comment markers (`doc_comment`) and keeps the commands
+  as the header's author wrote them.
+- **Completion after a path walks every segment written before it.** `complete_path` was
+  given only the last identifier, so `rl::MouseButton::` looked for `MouseButton` in the
+  *current* file's scope and found nothing. It now takes the whole prefix: module alias, then
+  a step per C++ namespace, then the symbol's members. A head that resolves to nothing still
+  offers the §5.5 type queries, which `T::` on a generic parameter needs.
+- **Signature help on an imported call**, through the same `foreign_decl` hover uses, so the
+  two cannot disagree — the parameter being typed is named with its Dazzle type, and the
+  header's Doxygen comes with it. Dazzle's own signature help renders Doxygen now too.
+- **A module reads as a module.** `TokenClass::Namespace`: the head of a qualified path
+  resolves to no symbol, so `rl` in `rl::SetTargetFPS(60)` was coloured as a variable.
+  Semantic tokens now emit a namespace for a module alias and for a C++ namespace. The
+  grammar gained an `imports` rule to match — `cpp` in `import cpp` is part of the keyword,
+  and what follows `as` is a module name, not a variable.
+
+### r28 — raylib from source, and C++ references (M7b's criterion met)
+
+- **`tests/run/raylib` opens a raylib window**, raylib 6.0 compiled from its own vendored
+  source by `dz` — seven `.c` files, `rglfw.c` among them, no CMake and no prebuilt
+  library. This is M7b's acceptance criterion (spec §19). It carries **no `expected.txt`**,
+  so the run suite does not execute it: it opens a window and waits, as
+  `tests/run/cinterop_rgfw` does. `dz build tests/run/raylib` is the check.
+- **A module named after the header it imports included itself.** Module `raylib` generates
+  `build/cpp/raylib.h`; a quoted `#include "raylib.h"` is searched from the including
+  file's own directory first, so it found the generated file, whose guard was already
+  defined — and every raylib declaration vanished. The *importer* had the same bug, and
+  worse: it depended on whether an earlier build had left the file there, so `dz check`
+  passed and `dz build` failed. Both now emit the **angle form**, which searches only the
+  `-I` paths — exactly the include dirs the header was resolved with — and can never reach
+  generated output. The two sides must agree, or the compiler would check one header and
+  compile against another.
+- **C++ references import** (§15.2): `CType::Ref`, mapped to `Ty::Ref`, which `cpp_ty`
+  already spelled `T&` / `const T&`. `adopt_handles` and `drop_dangling` treat a reference
+  as a pointer, so a type only ever reached through one is still a handle.
+- **A link failure no longer claims to be a compiler bug.** `DZ0803` said "this is a bug in
+  the Dazzle compiler" for *any* C++ failure, which is right for a compile error
+  (invariant 7) and wrong for a link error — where the code was accepted and what is
+  missing is a definition. `linker_failure` tells them apart, and the link message points
+  at the recipe: a single-header library needs one source that defines its
+  `*_IMPLEMENTATION` macro, since a library's `defines` build its own sources and nothing
+  else (r22).
+
+### r27 — C++: namespaces, classes, overloads, template instances (M7b)
+
+The C++ half of §15. `tests/run/cppinterop` is the fixture: a small C++ library vendored as
+source (`vendor/shapes`), built by `dz`, and called from Dazzle — verified on clang++ and
+g++.
+
+- **Compound-literal macros.** `type_macros` finished: a macro clang can type but not fold
+  keeps its type (`ConstValue::Typed`), so raylib's `RAYWHITE` is a `Color`. The bug was
+  that an `auto` variable's *declared* type is the placeholder, whose spelling shows the
+  deduced type while its kind does not — `clang_getCanonicalType` first.
+- **The second translation unit never found the header.** Both extra passes wrote
+  `#include "<path>"` using the path clang reported, which is *relative* whenever the `-I`
+  was; a quoted include is searched from the including file's directory first, and that is
+  `build/cpp`. So the macro pass had been silently importing nothing outside tests, where
+  the path happened to be absolute. `Walker::header_include` absolutises it.
+- **Every declaration carries its C++ spelling** (`Decl::cpp`) and the namespaces around it
+  (`Decl::scope`). `CType::Named` and `DeclKind::Alias` now hold that path rather than a
+  bare name — two namespaces may each declare a `Body`. Codegen writes `Decl::cpp` verbatim
+  instead of reconstructing it, and mangles imported types by it.
+- **Namespaces** are `SymbolKind::Namespace` symbols; `Resolution::inner` holds what each
+  one contains, and the resolver's `check_members`, the checker's `path_head` and
+  `lower_path_type` all walk it one segment at a time.
+- **Classes** fill exactly the places a Dazzle `impl` block fills — `StructSig::methods`,
+  `method_keys`, `overloads`, `ctors` — so **overload resolution by argument type, receiver
+  mutability and visibility all work on C++ methods with no second mechanism**; §18.27's
+  method keys already expressed what C++ overloading needs. `::dz::obj(recv).name(args)` was
+  already the right emission.
+- **A C++ destructor stays C++'s.** `StructSig::cpp_owned` makes such a type move-only
+  (DZ0403, with its own message) without Dazzle emitting a `drop` — a public copy
+  constructor makes it an ordinary value again.
+- **Private and protected members are no longer imported.** They were, which meant Dazzle
+  accepted `buf.data` and C++ rejected it — an invariant-7 break.
+- **`[cpp.instantiate]`** (§15.4), which needed quoted keys in `dazzle.toml`. libclang
+  exposes *no children* for an implicit specialization, so the members are read from the
+  template pattern with its parameters bound to the instantiation's arguments
+  (`Walker::template_args`, consulted by `map_type`). A member whose type does not follow
+  from that binding maps to nothing and is skipped, as anything unmappable is.
+- **`static` member functions are skipped with their reason**: they need associated
+  functions, which Dazzle does not have (§7).
+
+### r26 — C callbacks, and function values that compile (M7b)
+
+- The importer maps a pointer to a function type onto Dazzle's own `fn(…) -> T`. A variadic
+  one, or a parameter that cannot be mapped, leaves the declaration out as before.
+- **Function values did not compile at all** — in any Dazzle program, not just an importing
+  one. `let g = twice` reached C++ as `int32_t(*)(int32_t) g = …`, and a
+  `fn(i32) -> i32` parameter the same way: C++ writes a function pointer with the name
+  *inside* the parentheses, so the type cannot go where a type goes. The shim gained
+  `template <class R, class... A> using fn = R (*)(A...)`, and `cpp_ty` now spells a
+  function type `::dz::fn<R, A…>`. §5.4 has had the type since r1 and nothing could use it.
+- `tests/run/cinterop` hands `triple` to C through `mini_apply`; a run test pins the
+  Dazzle-only case; an RGFW probe registers `RGFW_setEventCallback(RGFW_windowResized,
+  on_event)`, compiles and runs.
+
+### r25 — C array members and bit-fields (M7b)
+
+- A struct's `float m[16]` imports as `[16]f32` and `unsigned on : 1` as an ordinary
+  member. Both were hidden before, which took whole structs out of reach — raylib's
+  `Matrix` and most device structs are built from them.
+- **Codegen: `::dz::obj` is now emitted only where it does something**, which is reaching
+  through a pointer. A C array member handed to a template decays to a pointer and takes
+  its length with it, so `obj(T*)` won by partial ordering and indexing broke; adding
+  array overloads only made the call ambiguous. A value or a reference never needed the
+  wrapper at all. The shim gained raw-array `index`, `len` and `data`.
+- **Invariant 7 nearly slipped through**: `let copy = s.items` emitted
+  `::dz::Array<int32_t, 4> copy = b.items;`, which C++ rejects — a raw array cannot be
+  copied or assigned. The checker now tracks whether a member access is *reached into* —
+  indexed, iterated, `.len`, `.ptr` — and refuses a whole C array anywhere else
+  (**`DZ0707`**), instead of leaving it to the C++ compiler to complain about generated
+  code. `&` on a bit-field is **`DZ0706`** for the same reason: C++ has no reference to one.
+- `mini.h` gained `MiniFlags` — two bit-fields and an `int[4]` — which
+  `tests/run/cinterop` reads, indexes, iterates and passes back to C; run tests pin
+  `DZ0706` and `DZ0707`, and an importer test pins the field shapes.
+
+### r24 — C unions, and two silent mistakes (M7b)
+
+- RGFW's event loop is built on `RGFW_event`, a named C union filled in through a pointer.
+  A C union is not Dazzle's: §7.5's carries a tag and switches exhaustively over it, which
+  a C one cannot promise. It imports as a type whose members are the same memory, so
+  `e.type` reads exactly what C reads and a literal may set one member (**`DZ0705`**).
+  `map_type` no longer refuses a union, and `record` imports one with `is_union` set.
+- **The loop runs**: `RGFW_init`, `RGFW_createWindow`, a `RGFW_event` by value,
+  `RGFW_window_checkEvent(win, &mut event)` polled until it returns 0, `event.type`
+  compared against an enumerator, then `RGFW_window_close` and `RGFW_deinit`.
+- A diagnostic that was missing entirely: `.Variant` where the expected type is neither an
+  enum nor a union reported **nothing** — `.NotAThing` against a `u32` checked clean, since
+  `dot_infer` returned an error node without saying anything. It now names the type that
+  was wanted. (The user's own `rgfw::RGFW_windowCenter::RGFW_windowCenter` was already
+  `DZ0305`: the flag is an untyped integer, so the constant alone, `0`, and `a | b` all
+  pass a `u32` parameter.)
+- `mini.h` gained `MiniValue`, a union of an `int` and a `float`: `tests/run/cinterop`
+  makes one through the library, reads it back, writes a literal, and prints both; a run
+  test pins `DZ0705`, and a checker test pins the `.Variant` message.
+
+### r23 — handles: a C type its header only declares (M7b)
+
+- Found by the user: RGFW's `RGFW_createWindow` did not exist as far as Dazzle was
+  concerned. RGFW keeps `struct RGFW_window`'s definition behind `RGFW_NATIVE` /
+  `RGFW_IMPLEMENTATION`, so a consumer sees a forward declaration and nothing else — and
+  M7a skipped opaque structs, stranding every function that mentions one.
+- The importer imports a record it never sees defined as `Struct { opaque: true }`, and
+  `adopt_handles` does the same for a type the header never mentions at all — one declared
+  in a system header it includes, `FILE` or `HWND` — **when every use of it is behind a
+  pointer**. Used by value, the declaration that does so is still dropped: its size really
+  is unknown.
+- The checker makes such a type a handle: not copyable, and refused wherever a value of one
+  would have to exist. `lower_type` gained a wrapper that walks the lowered type and reports
+  the new **`DZ0704`** for a handle that is not behind a pointer — one hook covering locals,
+  fields, parameters, returns, generic arguments and containers — and `p^` on one is the
+  same error, since there is nothing to read out.
+- `mini.h` gained `MiniCounter`, defined only in `mini.c`: `tests/run/cinterop` bumps it
+  through its pointer and prints the count, and a run test pins `DZ0704` for holding one by
+  value. RGFW's window API resolves with no workaround.
+
+### r22 — a vendored library's defines are its own
+
+- Found by the user, vendoring **RGFW**: the project would not link. Two mistakes in M7a's
+  recipe model, one on each side of the boundary.
+- `Workspace::cpp_flags` handed a library's `defines` to everything that included its
+  header, so the generated C++ was compiled with `RGFW_IMPLEMENTATION` too and every symbol
+  RGFW defines was defined twice (`LNK1169`). A library's defines now build its own sources
+  and nothing else; `[cpp]`'s are the shared ones, as §15.1's `JPH_PROFILE_ENABLED` always
+  was.
+- The other way round, a module's `[cpp]` defines never reached its libraries' sources, so
+  the `RGFWDEF=` that gives a single-header library's declarations external linkage could
+  not be written anywhere that worked: with it, the header's declarations are `inline` with
+  no definition in that translation unit (`LNK1120`). `native::build_libraries` now passes
+  the module's `[cpp]` include dirs and defines before the library's own, which win where
+  the two disagree.
+- `tests/run/cinterop_header` is the shape both bugs live in: a single-header library whose
+  implementation is behind `SHL_IMPLEMENTATION` and whose `SHLDEF` is `inline` unless the
+  build says otherwise. Leaking the library's define makes it fail to link with duplicate
+  symbols; not propagating the module's makes it fail with an unresolved one.
+
+### r21 — making a `cstr`
+
+- The user asked how to create one and found there was no way: a literal did not fit a
+  `cstr` parameter (`DZ0501`), `"x" as cstr` type-checked and then produced C++ that did
+  not compile (`DZ0803` — invariant 7), and `cstr("x")` said nothing of its own, so the
+  only message was `` `{unknown}` cannot be formatted `` from the `println` that consumed it.
+- §5.3's `[PROPOSED]` "conversion to `cstr` is explicit and may allocate" contradicted
+  §15.1's own `InitWindow(…, "Dazzle")`. Settled as 18.39 / r21: **a string literal is a
+  `cstr` wherever one is wanted**, typed by its context as an untyped number is, and emitted
+  as the C literal itself rather than as `::dz::str(s, n)`. `"x" as cstr` hands the same
+  expected type to its operand. `c as str` works through an explicit `str(const char*)` in
+  the shim, which measures it. A runtime `str` is refused, with a help naming M12's `String`
+  as the owning copy it would need.
+- Two diagnostics fixed alongside: a builtin type name in value position — `cstr("x")`,
+  `i32(3)` — is `DZ0503` at the name, with the conversion in its help; and `check_format`
+  no longer reports an argument whose type is already an error, which is what turned one
+  mistake into two.
+
 ---
 
 ## 3. Deferral register
@@ -705,8 +1002,15 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M9** | No incremental analysis: every settle re-runs the whole project. Fine at today's sizes; §17.2's per-module cache is the answer | `dz_lsp/src/lib.rs`, `analyse` |
 | **M9** | `impl` methods and inherited trait defaults are tied to their type by name, so two same-named types in different modules could cross. The checker knows each implementation's real target; it should say | `dz_lsp/src/ide.rs`, `methods_of` |
 | **next** | **Struct inheritance.** `struct Button : UiElement` parses, and the checker reports it with `DZ0801`; the design is settled as spec 18.32 | `dz_check/src/check.rs`, `item` |
-| **M7** | `import cpp "…"` is accepted and the alias is opaque; no header is read | `dz_resolve/src/walk.rs` |
-| **M7** | **No read-only pointer.** `.ptr` refuses a `[]T`, and `&T` cannot widen, because the only pointer is the writable `^T`. A `^const T` belongs with the `const T*` mapping M7 has to decide (spec §15.2) | `dz_check/src/check.rs`, `Field` |
+| **M7a** | **Hover on an imported name** shows nothing: the editor queries build their text from Dazzle declarations. Go-to-definition should already land in the header, since the symbol's span points there — untested | `dz_lsp/src/ide.rs` |
+| **M7a** | The import cache is **in-process only**. §15.1 wants it on disk too, so `dz check` does not re-parse an unchanged header; the LSP, which matters most, is covered | `dz_cppimport`, `cache` |
+| **M7b** | Left out of an import, with a reason in `Header::skipped`: variadic functions and function pointers; a `wchar_t` pointer; an rvalue reference `T&&`; a `static` member function (it needs associated functions, §7); a member whose type does not follow from a template instantiation's argument binding | `dz_cppimport`, `map_type` |
+| **M7b** | **An overloaded free function imports only its first declaration** — `claim` takes the name and the rest are passed over. Overloaded *methods* do resolve by argument type (§15.3). The `@(...)` disambiguation suffix is `[PROPOSED]` and unparsed | `dz_cppimport`, `function` |
+| **M7b** | An imported overloaded method is not cast at the boundary the way a free function is: `hir::Callee::Method` carries the name, not the overload key, so `dz_cpp` applies `c_cast`/`ret_cast` only where the name names one method | `dz_cpp/src/lib.rs`, `call` |
+| **M7b** | Inheritance between imported C++ classes: a base's members are not imported into a derived class, and `&Derived` does not convert to `&Base`. A Dazzle struct inheriting a C++ class (Jolt's listeners) waits for struct inheritance | `dz_cppimport`, `collect_methods` |
+| **M7b** | A whole C array member is refused rather than copied (`DZ0707`), and cannot be passed as a `[]T`. Copying one needs a helper that fills a `dz::Array` element by element; the slice needs a `Slice{ptr, len}` built at the use site. Indexing, `for`, `.len` and `.ptr` all work | `dz_check/src/check.rs`, `is_c_array_member` |
+| **M7b** | libclang parses with its own default target (MSVC here), not the C++ compiler's: a header needing the C library's own headers may find MSVC's while g++ builds against mingw's | `dz_cppimport`, `arguments` |
+| **M7b** | An untyped imported integer is not range-checked against its context: `let b: u8 = rl::SOME_BIG` reaches C++ as a narrowing `static_cast`. The importer knows the value; the checker should compare it, as it does a literal's | `dz_check/src/lib.rs`, `collect_foreign` |
 | **M8** | **A generic union** reports `DZ0801`. Unions are M8's, and the tagged-union emission has no instance path yet | `dz_cpp/src/lib.rs`, `module` |
 | **M8** | **Hoisting in initialiser position.** A `const`, a field default or a default argument whose value needs statements — an `or` clause, a block-valued `if` or `switch` — reports `DZ0801`, because each is emitted where C++ allows only an expression | `dz_cpp`, `const_decl`, `field_default`, `decl_params` |
 | **M8** | `switch` on a subject that is neither an enum nor a union (an integer, a `str`) | `dz_cpp`, `switch` |
@@ -724,6 +1028,8 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M12** | A union variant whose payload owns a resource is refused rather than leaked. A C++ union with a non-trivial member needs special members that switch on the tag; §7.5 marks variant drops `[PROPOSED]`, so this waits for that decision | `dz_cpp/src/lib.rs`, `union_decl` |
 | **M12** | `error(…)` and `format(…)` write into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. §9.2 requires no allocation *and* a message that outlives the call; a real answer needs the stdlib's `String` | `dz_cpp/src/runtime.rs` |
 | **M12** | `or unreachable` panics in release as well as debug. §9.4 says release may assume the success path, and §18.20 has not settled whether that means `__builtin_unreachable` or merely skipping the check | `dz_cpp/src/lib.rs`, `clause` |
+| **M12** | **`str` has no `.len`.** §5.3 gives it `{ ptr, len }` and a slice answers `.len`, but member lookup knows only arrays and slices, so `name.len` on a `str` is `DZ0505`. Found while writing r21's tests | `dz_check/src/check.rs`, `field_type` |
+| **M12** | **C++ keyword escaping covers locals only** (`sanitize`), so a *declaration* named `double`, `class` or `template` reaches C++ as itself and does not compile. Found while testing function values, with a Dazzle `fn double(…)` | `dz_cpp/src/lib.rs`, `sanitize` |
 | **M12** | No stdlib. `println`/`print`/`format` are still builtins and stop being so here: they become ordinary stdlib functions over `Format`. The prelude declares the traits (§18.23) but nothing implements them — `String`, `Buffer`, `HashMap`, `Arena` and `Allocators::Global` are M12 — and `Formatter` is an empty struct until `String` exists to give it a buffer | `dz_cpp/src/runtime.rs`, `dz_project/src/prelude.dz` |
 
 ### Not deferred — deliberately out of scope forever
@@ -766,33 +1072,86 @@ implements it. `: Base` already parses and is reserved. The work, roughly in ord
    is a `virtual` method called from it. This needs `impl_applies` to consider bases, and
    overlap to allow exactly this one shape.
 
-### M7 — C++ interop via libclang
+### M7 — C and C++ interop, split in two
 
-Ends when **a raylib window opens from Dazzle** (spec §19). This is the milestone that
-turns Dazzle from a toy that prints into something that can draw, and it is the first of
-0.1's three release conditions (the others are M9's LSP and M12's stdlib).
+M7 is the milestone that turns Dazzle from a toy that prints into something that can draw,
+and the first of 0.1's three release conditions (the others are M9's LSP and M12's stdlib).
+It was pulled ahead of struct inheritance at the user's call, and split in two.
 
-What exists: `import cpp "…"` parses, resolves to an opaque alias, and reads nothing
-(`dz_resolve/src/walk.rs`). Everything else is new.
+**Decided with the user (2026-09-11), before any code:**
 
-1. **Read spec §15 first, all of it** — importing (§15.1), the mapping table (§15.2),
-   overloads (§15.3), templates (§15.4) and exporting (§15.5). Anything it leaves open is a
-   question for the user before code, as the four were before M6.
-2. **`dz_cppimport`** (spec §17.1): a libclang reader that turns a header into Dazzle-side
-   declarations the resolver and checker can treat like any module's. The binding is a
-   choice to make deliberately — `clang-sys` needs `libclang.dll` at run time on Windows,
-   which is the same environment problem ASan already has (§1).
-3. **Map the subset raylib needs, and nothing more**: C functions, plain structs, enums,
-   `#define` integer constants, pointers. raylib is C, so overloads and templates can wait
-   for a C++ header that needs them.
-4. **Emission and linking.** The generated `.cpp` includes the header, and `dazzle.toml`
-   needs somewhere to say which library to link. `dz run` must still work on both
-   compilers.
+- **The importer only teaches the checker what exists.** A call into a header is emitted
+  exactly as written — no wrappers, no marshalling (§15). A nicer API (`rl::Color::White`)
+  is a Dazzle wrapper module written on top, once the raw names are visible.
+- **Libraries are vendored as source and built by `dz`**, never by CMake, XMake or Make —
+  avoiding that tooling is a reason Dazzle exists. A build recipe (sources, include dirs,
+  defines, system libraries, with `[cpp.target.<os>]` sections so one recipe serves every
+  platform) lives in a `[cpp.libs.<name>]` table of the manifest that uses it. A Dazzle
+  wrapper module can carry the recipe instead, and its dependents inherit its include
+  dirs and link inputs. `.c` files go through the C compiler, and library sources are
+  built without `-Wall -Wextra`: invariant 7 is about *generated* code. Objects are cached
+  in `build/obj`, keyed on the content of the source and every header it included plus
+  the flags. Prebuilt binaries stay possible (`lib_dirs` + `link_libs`) for the libraries
+  that generate files at configure time. All paths are relative to the manifest (today
+  `include_dirs` is passed through as written and resolves against the working
+  directory — a bug to fix on the way). Cross-platform is designed in, Windows is built.
+- **Pointers: `^T` is read-only, `^mut T` writable, `own ^mut T` the owning writable
+  pointer** — the pattern `&T`/`&mut T` and `[]T`/`[]mut T` already follow. `const T*`
+  maps to `^T`, `T*` to `^mut T`. A `^const T` was rejected as the Rust shape, which reads
+  against Dazzle's "read-only unless `mut`". Done first, as r18, since the mapping needs it.
+- **Unscoped C enums:** each enumerator is also an untyped integer constant at the
+  header's scope, so `rl::IsKeyDown(rl::KEY_A)` works against raylib's `int` parameters.
+  The enum type is imported too; an `enum class` is a real, scoped Dazzle enum.
+- **Macros:** an object-like macro imports as a constant when clang can type its
+  expansion as an importable value, and is emitted as the macro's own name. Function-like
+  macros and variadic functions are not imported.
+- **libclang through `clang-sys`, loaded at run time**, so `dz` starts without it and only
+  `import cpp` reports its absence. In-process because the LSP needs it: loaded once per
+  process, each header's import cached on the content of every file it pulled in plus the
+  flags, and mirrored into `build/` so `dz check` does not re-parse either. Hover and
+  go-to-definition on an imported name land in the header.
 
-**Decide during M7:** whether there is a `^const T`. raylib's `const Vector2*` parameters
-are the real cases to judge it against, and it is what `.ptr` on a `[]T` is waiting for.
+### M7a — a small C library, from source
+
+Ends when **a C library in `tests/` — one header and one `.c` file, never prebuilt — is
+compiled by `dz` from source and called from Dazzle**, on clang++ and g++.
+
+1. **r18 — `^T` / `^mut T`.** Language, compiler, corpus, spec (§5.2, §15.2, 18.16).
+2. **Manifest.** `[cpp.libs.<name>]` with `sources`, `include_dirs`, `defines`,
+   `link_libs`, `lib_dirs`, and `[cpp.target.<os>]` overrides; paths relative to the
+   manifest; recipes inherited through dependencies.
+3. **`dz_cppimport`** (spec §17.1): libclang to a declaration table — C functions, plain
+   structs, unscoped and scoped enums, integer and float `#define`s, pointers, `cstr`.
+4. **Resolver and checker.** `alias::name` resolves into the table; imported structs,
+   enums and functions become symbols like any module's, carrying their C spelling.
+5. **Codegen.** `#include` the header, emit names verbatim, zero-initialise imported
+   structs (§6.2), struct literals of imported types.
+6. **Build.** Compile each library source to a cached object, link.
+7. **LSP.** The per-process cache; hover and definition into the header.
+8. **Tests.** A `tests/run/` program with a vendored library; `typed/` and `typeerrors/`
+   cases for what imports and what is refused.
+
+### M7b — raylib from source, and C++
+
+Ends when **a raylib window opens from Dazzle**, raylib compiled from its own vendored
+source (spec §19). Adds what raylib needs beyond M7a — typedefs, compound-literal macros
+such as `RAYWHITE`, many sources, per-platform system libraries — and C++ (the user's call
+to keep it in M7b): classes and member functions, constructors and destructors (§15.2),
+namespaces, overload sets (§15.3), explicit template instantiation (§15.4). A Dazzle struct
+inheriting a C++ class (Jolt's listeners) waits for struct inheritance, which follows.
 `impl` blocks are what an imported type gets traits through — raylib's `Color` can only
-ever be `Inspect` that way — so M7 is also their first real test.
+ever be `Inspect` that way — so M7b is also their first real test.
+
+**Met at r28.** `tests/run/raylib` opens a raylib window with raylib 6.0 compiled from its
+own vendored source. The C++ language work is covered by `tests/run/cppinterop` on clang++
+and g++: namespaces, classes, methods, constructors, C++-owned destructors, overloaded
+methods, references, and named template instantiations. Handles, unions, arrays,
+bit-fields, callbacks and compound-literal macros landed in r21–r27.
+
+What is left is narrower than the milestone, and is in the deferral register rather than
+here: overloaded *free* functions (methods do resolve), the boundary cast for an overloaded
+method, and inheritance between imported C++ classes — which wants struct inheritance
+first, so Jolt's listeners wait for that either way.
 
 ---
 
@@ -810,7 +1169,10 @@ ever be `Inspect` that way — so M7 is also their first real test.
 | `tests/workspace/typed` | `dz_check/tests/check.rs` | **must produce zero diagnostics** |
 | `tests/workspace/typeerrors` | " | one deliberate failure per type rule |
 | `tests/flow/*.dz` | `dz_flow/tests/flow.rs` | one file per ownership rule, each naming the code it must produce in an `// expect:` line, plus `clean.dz` which must produce nothing. The count is asserted too, so a rule that fires twice for one mistake is a regression |
-| `tests/run/*/` | `dz/tests/run.rs` | whole programs compiled by a real C++ compiler and executed, stdout compared against `expected.txt`. A first line of `#panic` marks a program that must abort. `features` covers M4's constructs plus array literals and `.Variant`, `ownership` §6's special members and drop ordering, `failure` §9's `or` clauses plus unions and tuples, `generics` §8's `Buffer<T>` for two element types, traits and default methods, a user `Iterate`, format specs and folded constants. `run.rs` also pins that runaway instantiation is one `DZ0536` and that a trait object is refused |
+| `tests/run/*/` | `dz/tests/run.rs` | whole programs compiled by a real C++ compiler and executed, stdout compared against `expected.txt`. A first line of `#panic` marks a program that must abort. `features` covers M4's constructs plus array literals and `.Variant`, `ownership` §6's special members and drop ordering, `failure` §9's `or` clauses plus unions and tuples, `generics` §8's `Buffer<T>` for two element types, traits and default methods, a user `Iterate`, format specs and folded constants. `cinterop` covers §15's C mapping end to end and `cinterop_header` the single-header library both define-scoping bugs lived in; `cinterop_rgfw` (no `expected.txt`, so not run — it opens a window) is the manual RGFW probe. `run.rs` also pins that runaway instantiation is one `DZ0536` and that a trait object is refused |
+| `tests/run/cppinterop` | " | §15's **C++** mapping against a vendored C++ library: a namespace and a nested one, a scoped enum, `const T&` and `T&` parameters, a class with a constructor and `const`/mutating methods, an overload set resolved by argument type (§15.3), a class C++ destroys itself (move-only, no Dazzle `drop`), and a `[cpp.instantiate]` template instance (§15.4) |
+| `tests/run/raylib` | — (no `expected.txt`) | **M7b's criterion**: raylib 6.0 compiled from its own vendored source by `dz` and a window opened from Dazzle. Not run by the suite — it opens a window and waits, as `cinterop_rgfw` does. Check it with `dz build tests/run/raylib`, run it to see the window |
+| `tests/run/cinterop*`, `tests/run/cppinterop` | `dz_cppimport/tests/import.rs` | the importer against those same headers, one test per §15.2 rule: functions/structs/enums/macros, handles, unions, array members and bit-fields, callbacks, namespaces and C++ paths, public members and overloads, the move-only rule, and that a template imports only where an instantiation is named |
 
 | `tests/run/generics` | `dz_lsp/tests/ide.rs` | the editor queries against a real program: hover and definition for every kind of name, including beside a syntax error; references counted against every token of the name, so a missed use fails; rename and what it refuses; completion in scope, on a typed receiver (`largest(…).`), by name from an older analysis, after `::`, and silence in comments and strings; signature help; inlay hints; the outline; workspace symbols; formatting refusing broken source |
 | `tests/run/*/` | `dz_driver/tests/tolerant.rs` | editor mode on about 1,200 damaged programs (a token deleted, the file cut off, a stray `.`, `(` or `{`): never a panic, never a later phase's errors while an earlier one failed, and diagnostics identical to build mode's |

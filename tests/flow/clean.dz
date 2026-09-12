@@ -3,9 +3,9 @@
 // expect: (none)
 
 pub struct Res {
-    m_p: own ^i32
+    m_p: own ^mut i32
 
-    Res(p: ^i32) {
+    Res(p: ^mut i32) {
         m_p = p
     }
 
@@ -59,7 +59,7 @@ fn both_branches(r: Res, flag: bool) -> bool {
 }
 
 // Assigning to a moved-from binding puts a value back in it (spec §6.4).
-fn reassignment_revives(p: ^i32, q: ^i32) -> bool {
+fn reassignment_revives(p: ^mut i32, q: ^mut i32) -> bool {
     let mut r = Res(p)
     let first = take(move(r))
     r = Res(q)

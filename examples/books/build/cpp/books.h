@@ -25,7 +25,7 @@ struct Movie {
 #define DZ_INST_books_ListIterator__books_Movie
 struct ListIterator__books_Movie {
     size_t m_at{};
-    List__books_Movie* m_list{};
+    const List__books_Movie* m_list{};
 };
 
 #endif  // DZ_INST_books_ListIterator__books_Movie
@@ -40,7 +40,7 @@ struct Buffer__books_Movie {
     Buffer__books_Movie(size_t cap);
     void push(Movie v);
     size_t len() const;
-    Movie* at(size_t i) const;
+    const Movie* at(size_t i) const;
 
     Buffer__books_Movie() = default;
     ~Buffer__books_Movie();
@@ -67,7 +67,7 @@ struct List__books_Movie {
     Buffer__books_Movie m_buffer = Buffer__books_Movie(10ull);
     void push(Movie value);
     size_t len() const;
-    Movie* at(size_t i) const;
+    const Movie* at(size_t i) const;
     ListIterator__books_Movie iter();
 
     List__books_Movie() = default;
@@ -104,24 +104,24 @@ void Iterate__books_ListIterator_L_books_Movie_R__advance([[maybe_unused]] ListI
 #ifndef DZ_INST_books_List__books_Movie_DEF
 #define DZ_INST_books_List__books_Movie_DEF
 inline void List__books_Movie::push(Movie value) {
-#line 57 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 57 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     ::dz::obj(::dz::obj((*this)).m_buffer).push(::dz::take(value));
 }
 
 inline size_t List__books_Movie::len() const {
-#line 61 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 61 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     return ::dz::obj(::dz::obj((*this)).m_buffer).len();
 }
 
-inline Movie* List__books_Movie::at(size_t i) const {
-#line 65 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+inline const Movie* List__books_Movie::at(size_t i) const {
+#line 65 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     return ::dz::obj(::dz::obj((*this)).m_buffer).at(i);
 }
 
 inline ListIterator__books_Movie List__books_Movie::iter() {
-#line 69 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
-    List__books_Movie* l = ::dz::addr((*this));
-#line 70 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 69 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
+    const List__books_Movie* l = ::dz::addr((*this));
+#line 70 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     return [&] { ListIterator__books_Movie _dz_lit6{}; _dz_lit6.m_at = 0ull; _dz_lit6.m_list = l; return _dz_lit6; }();
 }
 
@@ -142,49 +142,49 @@ inline List__books_Movie& List__books_Movie::operator=(List__books_Movie&& other
 #ifndef DZ_INST_books_Buffer__books_Movie_DEF
 #define DZ_INST_books_Buffer__books_Movie_DEF
 inline Buffer__books_Movie::Buffer__books_Movie(size_t cap) {
-#line 7 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 7 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     {
-#line 8 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
-        ::dz::obj((*this)).m_data = ::dz::cast<Movie*>(::dz::alloc((cap * sizeof(Movie)), alignof(Movie), ::dz::SourceLocation{"c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz", "Buffer__books_Movie::Buffer__books_Movie", 8, 22}));
+#line 8 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
+        ::dz::obj((*this)).m_data = ::dz::cast<Movie*>(::dz::alloc((cap * sizeof(Movie)), alignof(Movie), ::dz::SourceLocation{"d:/OdinProjects/Dazzle/examples/books/src/main.dz", "Buffer__books_Movie::Buffer__books_Movie", 8, 22}));
     }
-#line 10 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 10 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     ::dz::obj((*this)).m_cap = cap;
 }
 
 inline void Buffer__books_Movie::push(Movie v) {
-#line 14 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 14 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     if (::dz::obj((*this)).m_len == ::dz::obj((*this)).m_cap) {
-#line 15 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
-        ::dz::panic_str(::dz::format(::dz::str("buffer full", 11)), ::dz::SourceLocation{"c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz", "Buffer__books_Movie::push", 15, 13});
+#line 15 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
+        ::dz::panic_str(::dz::format(::dz::str("buffer full", 11)), ::dz::SourceLocation{"d:/OdinProjects/Dazzle/examples/books/src/main.dz", "Buffer__books_Movie::push", 15, 13});
     }
-#line 17 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 17 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     {
-#line 18 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 18 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
         ::dz::construct((::dz::obj((*this)).m_data)[static_cast<size_t>(::dz::obj((*this)).m_len)], ::dz::take(v));
     }
-#line 20 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 20 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     ::dz::obj((*this)).m_len += 1ull;
 }
 
 inline size_t Buffer__books_Movie::len() const {
-#line 24 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 24 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     return ::dz::obj((*this)).m_len;
 }
 
-inline Movie* Buffer__books_Movie::at(size_t i) const {
-#line 28 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+inline const Movie* Buffer__books_Movie::at(size_t i) const {
+#line 28 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     {
-#line 29 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 29 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
         return ::dz::addr((::dz::obj((*this)).m_data)[static_cast<size_t>(i)]);
     }
-    ::dz::unreachable(::dz::SourceLocation{"c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz", "Buffer__books_Movie::at", 27, 12});
+    ::dz::unreachable(::dz::SourceLocation{"d:/OdinProjects/Dazzle/examples/books/src/main.dz", "Buffer__books_Movie::at", 27, 12});
 }
 
 inline Buffer__books_Movie::~Buffer__books_Movie() {
-#line 36 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 36 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     {
-#line 37 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
-#line 42 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 37 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
+#line 42 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
         ::dz::dealloc(::dz::obj((*this)).m_data);
     }
 }
@@ -208,12 +208,12 @@ inline Buffer__books_Movie& Buffer__books_Movie::operator=(Buffer__books_Movie&&
 #ifndef DZ_INST_books_Iterate__books_ListIterator_L_books_Movie_R__valid_DEF
 #define DZ_INST_books_Iterate__books_ListIterator_L_books_Movie_R__valid_DEF
 inline bool Iterate__books_ListIterator_L_books_Movie_R__valid([[maybe_unused]] const ListIterator__books_Movie& self) {
-#line 83 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 83 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     {
-#line 84 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 84 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
         return (::dz::obj(self).m_at < ::dz::obj(::dz::obj(self).m_list).len());
     }
-    ::dz::unreachable(::dz::SourceLocation{"c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz", "Iterate__books_ListIterator_L_books_Movie_R__valid", 82, 8});
+    ::dz::unreachable(::dz::SourceLocation{"d:/OdinProjects/Dazzle/examples/books/src/main.dz", "Iterate__books_ListIterator_L_books_Movie_R__valid", 82, 8});
 }
 
 #endif  // DZ_INST_books_Iterate__books_ListIterator_L_books_Movie_R__valid_DEF
@@ -221,19 +221,19 @@ inline bool Iterate__books_ListIterator_L_books_Movie_R__valid([[maybe_unused]] 
 #ifndef DZ_INST_books_Iterate__books_ListIterator_L_books_Movie_R__get_DEF
 #define DZ_INST_books_Iterate__books_ListIterator_L_books_Movie_R__get_DEF
 inline const Movie& Iterate__books_ListIterator_L_books_Movie_R__get([[maybe_unused]] const ListIterator__books_Movie& self) {
-#line 89 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 89 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     {
-#line 90 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
-        Movie* _dz_ok7 = nullptr;
-        Movie* _dz_ptr8 = ::dz::obj(::dz::obj(self).m_list).at(::dz::obj(self).m_at);
+#line 90 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
+        const Movie* _dz_ok7 = nullptr;
+        const Movie* _dz_ptr8 = ::dz::obj(::dz::obj(self).m_list).at(::dz::obj(self).m_at);
         if (_dz_ptr8 != nullptr) {
             _dz_ok7 = _dz_ptr8;
         } else {
-            ::dz::unreachable(::dz::SourceLocation{"c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz", "Iterate__books_ListIterator_L_books_Movie_R__get", 90, 20});
+            ::dz::unreachable(::dz::SourceLocation{"d:/OdinProjects/Dazzle/examples/books/src/main.dz", "Iterate__books_ListIterator_L_books_Movie_R__get", 90, 20});
         }
         return (*_dz_ok7);
     }
-    ::dz::unreachable(::dz::SourceLocation{"c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz", "Iterate__books_ListIterator_L_books_Movie_R__get", 88, 8});
+    ::dz::unreachable(::dz::SourceLocation{"d:/OdinProjects/Dazzle/examples/books/src/main.dz", "Iterate__books_ListIterator_L_books_Movie_R__get", 88, 8});
 }
 
 #endif  // DZ_INST_books_Iterate__books_ListIterator_L_books_Movie_R__get_DEF
@@ -241,7 +241,7 @@ inline const Movie& Iterate__books_ListIterator_L_books_Movie_R__get([[maybe_unu
 #ifndef DZ_INST_books_Iterate__books_ListIterator_L_books_Movie_R__advance_DEF
 #define DZ_INST_books_Iterate__books_ListIterator_L_books_Movie_R__advance_DEF
 inline void Iterate__books_ListIterator_L_books_Movie_R__advance([[maybe_unused]] ListIterator__books_Movie& self) {
-#line 95 "c:/Users/marco/Documents/OdinProjects/dazzle/examples/books/src/main.dz"
+#line 95 "d:/OdinProjects/Dazzle/examples/books/src/main.dz"
     ::dz::obj(self).m_at += 1ull;
 }
 

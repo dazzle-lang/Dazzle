@@ -1,0 +1,19 @@
+import cpp "raylib.h" as rl
+
+fn main() {
+    rl::InitWindow(1600, 900, "Window name")
+    defer rl::CloseWindow()
+
+    rl::SetTargetFPS(60)
+
+    while !rl::WindowShouldClose() {
+        rl::BeginDrawing()
+        rl::ClearBackground(rl::RAYWHITE)
+        rl::DrawText("hello", 190, 200, 40, rl::DARKGRAY)
+
+        let mouse = rl::GetMousePosition()
+        rl::DrawCircleV(mouse, 8, rl::MAROON)
+
+        rl::EndDrawing()
+    }
+}

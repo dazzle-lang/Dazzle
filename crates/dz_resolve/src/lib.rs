@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 use dz_ast::*;
 use dz_diag::{codes, Diagnostic, Diagnostics};
-use dz_project::{ModuleId, Workspace};
+use dz_project::{Foreign, ModuleId, Workspace};
 use dz_span::{FileId, Span};
 
 mod walk;
@@ -38,6 +38,9 @@ pub enum SymbolKind {
     Fn,
     Const,
     Macro,
+    /// A C++ namespace, which holds the declarations written inside it: Dazzle reaches
+    /// them through it, `eng::ui::draw` (spec §15.2).
+    Namespace,
 }
 
 impl SymbolKind {
@@ -50,6 +53,7 @@ impl SymbolKind {
             SymbolKind::Fn => "function",
             SymbolKind::Const => "constant",
             SymbolKind::Macro => "macro",
+            SymbolKind::Namespace => "namespace",
         }
     }
 
@@ -67,7 +71,14 @@ impl SymbolKind {
 
     /// Can this be named on the left of `::`?
     pub fn has_members(&self) -> bool {
-        matches!(self, SymbolKind::Struct | SymbolKind::Union | SymbolKind::Enum | SymbolKind::Trait)
+        matches!(
+            self,
+            SymbolKind::Struct
+                | SymbolKind::Union
+                | SymbolKind::Enum
+                | SymbolKind::Trait
+                | SymbolKind::Namespace
+        )
     }
 }
 
@@ -140,6 +151,15 @@ pub struct Resolution {
     pub symbols: Vec<Symbol>,
     pub scopes: HashMap<ModuleId, ModuleScope>,
     pub imports: HashMap<FileId, FileImports>,
+    /// What each C++ namespace symbol holds, by name — `eng::ui::draw` walks one link of
+    /// this per segment (spec §15.2).
+    pub inner: HashMap<(SymbolId, String), SymbolId>,
+    /// Every imported declaration by the C++ path it was imported under, so a type named
+    /// in a signature — `::JPH::Body` — finds the symbol it belongs to wherever the
+    /// namespaces put it (spec §15.2).
+    pub foreign_cpp: HashMap<(ModuleId, String), SymbolId>,
+    /// The same in reverse: what the generated C++ writes for an imported symbol.
+    pub foreign_path: HashMap<SymbolId, String>,
     /// The prelude (spec §3.2, §18.23), so an unqualified lookup can fall back to it.
     pub prelude: ModuleId,
     pub diagnostics: Diagnostics,
@@ -152,6 +172,22 @@ impl Resolution {
 
     pub fn lookup(&self, module: ModuleId, name: &str) -> Option<SymbolId> {
         self.scopes.get(&module)?.items.get(name).copied()
+    }
+
+    /// A name declared inside a C++ namespace (spec §15.2).
+    pub fn inner(&self, ns: SymbolId, name: &str) -> Option<SymbolId> {
+        self.inner.get(&(ns, name.to_owned())).copied()
+    }
+
+    /// The symbol an imported header gave the C++ path `cpp` (spec §15.2).
+    pub fn foreign(&self, module: ModuleId, cpp: &str) -> Option<SymbolId> {
+        self.foreign_cpp.get(&(module, cpp.to_owned())).copied()
+    }
+
+    /// What the generated C++ writes for an imported symbol: `::InitWindow`, `::JPH::Body`,
+    /// and for a macro its bare name, which cannot take a `::` (spec §15.2).
+    pub fn cpp_path(&self, sym: SymbolId) -> Option<&str> {
+        self.foreign_path.get(&sym).map(String::as_str)
     }
 
     /// Resolve a leading path segment the way [`walk`] does, for later phases.
@@ -236,6 +272,9 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
         symbols: Vec::new(),
         scopes: HashMap::new(),
         imports: HashMap::new(),
+        inner: HashMap::new(),
+        foreign_cpp: HashMap::new(),
+        foreign_path: HashMap::new(),
         prelude: ws.prelude,
         diagnostics: Diagnostics::new(),
     };
@@ -244,6 +283,9 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
     // and cross-module references can be checked in pass 2 (spec §3.2).
     for module in ws.modules() {
         let mut scope = ModuleScope::default();
+        if let Some(f) = &module.foreign {
+            collect_foreign(&mut r, &mut scope, module.id, f);
+        }
         if let Some(module_files) = files.get(&module.id) {
             for pf in module_files {
                 collect_file(&mut r, &mut scope, module.id, pf);
@@ -306,6 +348,127 @@ fn collect_file(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId, p
 
         scope.items.insert(symbol.name.clone(), id);
         r.symbols.push(symbol);
+    }
+}
+
+/// An imported header's declarations (spec §15.1): symbols like any module's, except that
+/// they come from libclang, point into the header, and are all public.
+fn collect_foreign(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId, f: &Foreign) {
+    use dz_project::cppimport::{DeclKind, Loc};
+    let at = |l: Loc| (f.files[l.file as usize], Span::new(l.start as usize, l.end as usize));
+    let mut aliases = Vec::new();
+    // A C++ namespace becomes a symbol of its own holding what was written inside it, so
+    // `eng::ui::draw` walks one per segment (spec §15.2). Built as declarations arrive, and
+    // registered in whichever namespace encloses it.
+    let mut namespaces: HashMap<Vec<String>, SymbolId> = HashMap::new();
+    for d in &f.header.decls {
+        let (file, span) = at(d.loc);
+        let mut path: Vec<String> = Vec::new();
+        let mut parent: Option<SymbolId> = None;
+        for segment in &d.scope {
+            path.push(segment.clone());
+            let id = match namespaces.get(&path) {
+                Some(id) => *id,
+                None => {
+                    let id = SymbolId(r.symbols.len() as u32);
+                    r.symbols.push(Symbol {
+                        name: segment.clone(),
+                        kind: SymbolKind::Namespace,
+                        vis: Vis::Public,
+                        module,
+                        file,
+                        span,
+                        members: Vec::new(),
+                    });
+                    namespaces.insert(path.clone(), id);
+                    match parent {
+                        Some(p) => {
+                            r.inner.insert((p, segment.clone()), id);
+                            r.symbols[p.0 as usize].members.push(MemberSymbol {
+                                name: segment.clone(),
+                                sort: MemberSort::AssocType,
+                                vis: Vis::Public,
+                                span,
+                            });
+                        }
+                        None => {
+                            scope.items.entry(segment.clone()).or_insert(id);
+                        }
+                    }
+                    id
+                }
+            };
+            parent = Some(id);
+        }
+    }
+
+    for d in &f.header.decls {
+        let member = |name: &str, sort: MemberSort, loc: Loc| MemberSymbol {
+            name: name.to_owned(),
+            sort,
+            vis: Vis::Public,
+            span: at(loc).1,
+        };
+        let (kind, members) = match &d.kind {
+            DeclKind::Fn { .. } => (SymbolKind::Fn, Vec::new()),
+            DeclKind::Const { .. } => (SymbolKind::Const, Vec::new()),
+            DeclKind::Struct { fields, .. } => (
+                SymbolKind::Struct,
+                fields.iter().map(|x| member(&x.name, MemberSort::Field, x.loc)).collect(),
+            ),
+            DeclKind::Enum { variants, .. } => (
+                SymbolKind::Enum,
+                variants.iter().map(|v| member(&v.name, MemberSort::Variant, v.loc)).collect(),
+            ),
+            DeclKind::Alias { target } => {
+                aliases.push((d.name.clone(), d.scope.clone(), target.clone()));
+                continue;
+            }
+        };
+        let (file, span) = at(d.loc);
+        let id = SymbolId(r.symbols.len() as u32);
+        r.symbols.push(Symbol { name: d.name.clone(), kind, vis: Vis::Public, module, file, span, members });
+        // Inside a namespace it is reached through it, and only through it; at the
+        // header's own scope it is a name of the module (spec §15.2).
+        match namespaces.get(&d.scope) {
+            Some(ns) => {
+                r.inner.entry((*ns, d.name.clone())).or_insert(id);
+                r.symbols[ns.0 as usize].members.push(MemberSymbol {
+                    name: d.name.clone(),
+                    sort: member_sort(kind),
+                    vis: Vis::Public,
+                    span,
+                });
+            }
+            None => {
+                scope.items.entry(d.name.clone()).or_insert(id);
+            }
+        }
+        r.foreign_cpp.entry((module, d.cpp.clone())).or_insert(id);
+        r.foreign_path.insert(id, d.cpp.clone());
+    }
+    // `typedef Texture Texture2D`: a second name for the same symbol, so the two are one
+    // type, as they are in C. The typedef names its target by the C++ path it has, which is
+    // where namespaces put it rather than where the typedef was written.
+    for (name, scope_of, target) in aliases {
+        let Some(id) = r.foreign(module, &target) else { continue };
+        match namespaces.get(&scope_of) {
+            Some(ns) => {
+                r.inner.entry((*ns, name)).or_insert(id);
+            }
+            None => {
+                scope.items.entry(name).or_insert(id);
+            }
+        }
+    }
+}
+
+/// How a namespace's member is described when a path names it wrongly.
+fn member_sort(kind: SymbolKind) -> MemberSort {
+    match kind {
+        SymbolKind::Fn => MemberSort::Method,
+        SymbolKind::Const => MemberSort::Variant,
+        _ => MemberSort::AssocType,
     }
 }
 
