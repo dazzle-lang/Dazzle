@@ -23,9 +23,11 @@ fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/workspace").join(name)
 }
 
-/// Snapshots must not depend on where the repository is checked out. Diagnostics name
-/// files by absolute path, so normalise separators first (the rendered text is native,
-/// with backslashes on Windows) and then drop everything above the fixture root.
+/// Snapshots must not depend on where the repository is checked out, or on which operating
+/// system ran them. Diagnostics name files by absolute path, so normalise separators first
+/// (the rendered text is native, with backslashes on Windows) and then drop everything
+/// above the fixture root; and a diagnostic that reports an OS error quotes the OS's own
+/// wording, which is redacted by [`redact_os_error`].
 fn redact(rendered: &str) -> String {
     const MARKER: &str = "tests/workspace/";
     rendered
@@ -39,8 +41,24 @@ fn redact(rendered: &str) -> String {
             ),
             None => l.to_owned(),
         })
+        .map(|l| redact_os_error(&l))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Replace the operating system's own message for a failed file operation.
+///
+/// The same missing file is "The system cannot find the path specified. (os error 3)" on
+/// Windows and "No such file or directory (os error 2)" on Linux and macOS. Keeping it in
+/// the *diagnostic* is right — "permission denied" and "not found" are different problems
+/// and a user needs to know which — but a snapshot that pins it is pinning the operating
+/// system rather than the compiler, and fails everywhere it was not recorded.
+fn redact_os_error(line: &str) -> String {
+    let Some(at) = line.find("(os error ") else { return line.to_owned() };
+    match line[..at].rfind(": ") {
+        Some(start) => format!("{}: <os error>", &line[..start]),
+        None => line.to_owned(),
+    }
 }
 
 /// Run manifest loading, parsing and resolution over one workspace.

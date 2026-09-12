@@ -202,6 +202,20 @@ These are load-bearing. Breaking one is a real regression even if tests still pa
 - **Tests**: snapshot corpora for breadth (`tests/lex/*.dz`), plus targeted unit tests that
   pin one spec rule each so a regression names the rule it broke instead of producing a
   large snapshot diff. Every `[DECIDED]` rule in the spec should end up with a test.
+- **A test must not depend on the host.** CI runs on Linux, macOS and Windows, and it has
+  caught this three separate times — each one a test that passed only on the machine it was
+  written on:
+  - an **OS error message** in a snapshot ("The system cannot find the path specified. (os
+    error 3)" against "No such file or directory"). Keep it in the *diagnostic*, where
+    "permission denied" versus "not found" matters to a user; redact it in the test.
+  - **line endings**: git checks non-`eol=lf` files out as CRLF on Windows, so a fixture
+    compared byte-for-byte needs a `.gitattributes` entry *and* a test that normalises.
+  - **an environment variable the test does not control**: `DZ_CXX` is set by CI, and a
+    test asserting compiler precedence passed vacuously until it cleared it.
+
+  The rule that catches all three: a snapshot pins *Dazzle's* behaviour. Anything in it
+  that comes from the operating system, the checkout, or the environment is noise and
+  belongs behind a redaction.
 - **Comments** explain *why*, especially where a choice looks arbitrary. Do not narrate
   what the code already says.
 - **Do not commit or push unless the user asks.**
