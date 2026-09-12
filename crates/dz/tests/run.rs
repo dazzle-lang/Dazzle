@@ -431,6 +431,49 @@ fn a_recipe_can_pass_flags_to_the_compiler() {
     assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), expected);
 }
 
+/// A module whose name is one of `dz`'s own build directories still builds and benches
+/// (spec §16.1).
+///
+/// The executable used to sit directly in `build/`, beside the `cpp/`, `obj/`, `test/` and
+/// `bench/` directories — so a module named `bench` produced `build/bench`, a *file*, which
+/// is exactly the directory `dz bench` then wanted. It failed with "Not a directory".
+/// Windows never showed it, because there the file is `bench.exe`; every other platform did.
+/// The executable now lives in `build/bin/`, leaving `build/` to directories alone.
+#[test]
+fn a_module_named_after_a_build_directory_does_not_collide() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let src = "#[bench]\nfn measured() {\n    blackbox(1)\n}\n\n\
+               #[test]\nfn checked() {}\n\n\
+               fn main() {\n    println(\"ok\")\n}\n";
+    // Not `obj`: that name collides with the runtime shim's `dz::obj` helper rather than
+    // with a directory, which is a separate bug — see the deferral register.
+    for name in ["bench", "test", "cpp", "bin"] {
+        let dir = scratch(
+            &format!("dz_collide_{name}"),
+            &format!("[module]\nname = \"{name}\"\nsources = [\"src/**/*.dz\"]\n"),
+            src,
+        );
+        // Build first, so the executable exists where a harness directory would go.
+        for args in [
+            vec!["build", dir.to_str().unwrap()],
+            vec!["bench", dir.to_str().unwrap()],
+            vec!["test", dir.to_str().unwrap()],
+        ] {
+            let out = Command::new(dz()).args(&args).output().expect("failed to run dz");
+            assert!(
+                out.status.success(),
+                "module named `{name}`: `dz {}` failed\n{}{}",
+                args[0],
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+    }
+}
+
 #[test]
 fn hello_world_runs() {
     // The M4 acceptance criterion, called out on its own so a failure names itself.

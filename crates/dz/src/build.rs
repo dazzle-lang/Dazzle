@@ -138,7 +138,21 @@ pub fn compile(
         return Err(diags);
     }
 
-    let bin_dir = root.to_path_buf();
+    // The executable goes in `bin/` rather than straight into the output directory, so
+    // that directory holds only subdirectories `dz` names itself — `bin`, `cpp`, `obj`,
+    // and the harness roots `dz test` and `dz bench` create (spec §16.1).
+    //
+    // Otherwise the two collide: on Unix the executable of a module named `bench` *is*
+    // `build/bench`, which is exactly the directory `dz bench` wants, and the build fails
+    // with "Not a directory". Windows never saw it, because there the file is `bench.exe`.
+    let bin_dir = root.join("bin");
+    if let Err(e) = std::fs::create_dir_all(&bin_dir) {
+        diags.push(Diagnostic::error(
+            codes::CPP_COMPILER_FAILED,
+            format!("cannot create {}: {e}", bin_dir.display()),
+        ));
+        return Err(diags);
+    }
     let exe_name = if cfg!(windows) {
         format!("{}.exe", file_stem(&module.name))
     } else {
@@ -156,8 +170,8 @@ pub fn compile(
 
     // Vendored libraries first: a failure there is the library's, and should be reported
     // as such before the generated code is even tried (spec §15.1).
-    let objects =
-        crate::native::build_libraries(ws, &cxx, &bin_dir, opt, &module.build.cpp_standard)?;
+    // `root`, not `bin_dir`: the object cache is `build/obj/`, a sibling of `bin/`.
+    let objects = crate::native::build_libraries(ws, &cxx, root, opt, &module.build.cpp_standard)?;
 
     let mut cmd = Command::new(&cxx);
     // spec §16.5 — nothing generated may need exceptions or RTTI.
