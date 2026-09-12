@@ -493,26 +493,26 @@ body fn takes_ref -> i32
 body fn checks_a_pointer -> i32
   param _0 xs: []i32
   block
-    let _1 a: &mut i32
-      or: &mut i32
+    let _1 a: &i32
+      or: &i32
         call find_ptr: ^i32
           local _0 xs: []i32
         return: !
           int 0: i32
     return: !
       call takes_ref: i32
-        local _1 a: &mut i32
+        local _1 a: &i32
 body fn asserts_a_pointer -> i32
   param _0 xs: []i32
   block
-    let _1 a: &mut i32
-      or: &mut i32
+    let _1 a: &i32
+      or: &i32
         call find_ptr: ^i32
           local _0 xs: []i32
         unreachable
     return: !
       call takes_ref: i32
-        local _1 a: &mut i32
+        local _1 a: &i32
 body fn expression_forms -> i32
   param _0 ready: bool
   block
@@ -566,34 +566,34 @@ body fn deferred -> void
       local _0 c: Counter
 body ctor Owner#0 -> void
   param _0 self: Owner
-  param _1 slot: ^i32
+  param _1 slot: ^mut i32
   block
     assign =
-      field #0: own ^i32
+      field #0: own ^mut i32
         local _0 self: Owner
-      local _1 slot: ^i32
+      local _1 slot: ^mut i32
 body method Owner::live -> bool
   param _0 self: Owner
   block
     return: !
       binary !=: bool
-        field #0: own ^i32
+        field #0: own ^mut i32
           local _0 self: Owner
-        null: own ^i32
+        null: own ^mut i32
 body drop Owner -> void
   param _0 self: Owner
   block
     if: void
       binary !=: bool
-        field #0: own ^i32
+        field #0: own ^mut i32
           local _0 self: Owner
-        null: own ^i32
+        null: own ^mut i32
       block
         block-value: void
           block
             assign =
               deref: i32
-                field #0: own ^i32
+                field #0: own ^mut i32
                   local _0 self: Owner
               int 0: i32
 body copy Copyable -> void
@@ -616,11 +616,11 @@ body fn consumes -> bool
       call-method Owner::live: bool
         local _0 o: Owner
 body fn moving -> bool
-  param _0 slot: ^i32
+  param _0 slot: ^mut i32
   block
     let _1 o: Owner
       call-ctor Owner#0: Owner
-        local _0 slot: ^i32
+        local _0 slot: ^mut i32
     return: !
       call consumes: bool
         move: Owner
@@ -1086,38 +1086,38 @@ body fn inherited -> bool
       call-method Weigh::heavy: bool
         local _0 c: Crate
 body fn poke -> void
-  param _0 p: ^i32
+  param _0 p: ^mut i32
   param _1 v: i32
   block
     assign =
       deref: i32
-        local _0 p: ^i32
+        local _0 p: ^mut i32
       local _1 v: i32
 body fn pointer_rules -> bool
-  param _0 p: ^i32
+  param _0 p: ^mut i32
   block
-    let _1 q: ^i32
-      local _0 p: ^i32
+    let _1 q: ^mut i32
+      local _0 p: ^mut i32
     if: void
       binary ==: bool
-        local _1 q: ^i32
-        null: ^i32
+        local _1 q: ^mut i32
+        null: ^mut i32
       block
         return: !
           bool false: bool
     block-value: void
       block
         call poke: void
-          local _1 q: ^i32
+          local _1 q: ^mut i32
           int 3: i32
     return: !
       bool true: bool
 body fn checked_pointer -> f32
-  param _0 v: ^Vec3
+  param _0 v: ^mut Vec3
   block
     let _1 r: &mut Vec3
       or: &mut Vec3
-        local _0 v: ^Vec3
+        local _0 v: ^mut Vec3
         return: !
           float 0: f32
     assign =
@@ -1130,9 +1130,74 @@ body fn checked_pointer -> f32
 body fn unchecked -> i32
   param _0 xs: []mut i32
   block
+    let _1 raw: ^mut i32
+      data-ptr: ^mut i32
+        local _0 xs: []mut i32
+    let _2 n: i32
+      int 0: i32
+    block-value: void
+      block
+        assign =
+          index: i32
+            local _1 raw: ^mut i32
+            int 0: usize
+          int 1: i32
+        assign =
+          local _2 n: i32
+          index: i32
+            local _1 raw: ^mut i32
+            int 0: usize
+    return: !
+      local _2 n: i32
+body fn takes_cstr -> cstr
+  param _0 s: cstr
+  block
+    return: !
+      local _0 s: cstr
+body fn cstr_from_literals -> str
+  block
+    let _0 a: cstr
+      str "annotated": cstr
+    let _1 b: cstr
+      cast: cstr
+        str "cast": cstr
+    let _2 c: cstr
+      call takes_cstr: cstr
+        str "argument": cstr
+    let _: _
+      local _0 a: cstr
+    let _: _
+      local _1 b: cstr
+    return: !
+      cast: str
+        local _2 c: cstr
+body fn read_only_pointers -> f32
+  param _0 v: &Vec3
+  param _1 w: ^mut Vec3
+  block
+    let _2 p: ^Vec3
+      local _0 v: &Vec3
+    let _3 q: ^Vec3
+      local _1 w: ^mut Vec3
+    let _4 total: f32
+      float 0: f32
+    block-value: void
+      block
+        assign =
+          local _4 total: f32
+          binary +: f32
+            field #0: f32
+              local _2 p: ^Vec3
+            field #0: f32
+              local _3 q: ^Vec3
+    return: !
+      local _4 total: f32
+body fn read_only_ptr -> i32
+  param _0 xs: []i32
+  block
     let _1 raw: ^i32
       data-ptr: ^i32
-        local _0 xs: []mut i32
+        local _0 xs: []i32
     let _2 n: i32
       int 0: i32
     block-value: void
@@ -1144,6 +1209,20 @@ body fn unchecked -> i32
             int 0: usize
     return: !
       local _2 n: i32
+body fn read_through -> f32
+  param _0 p: ^Vec3
+  param _1 pp: ^^mut Vec3
+  block
+    let _2 r: &Vec3
+      or: &Vec3
+        local _0 p: ^Vec3
+        return: !
+          float 0: f32
+    let _3 widened: ^^Vec3
+      local _1 pp: ^^mut Vec3
+    return: !
+      field #0: f32
+        local _2 r: &Vec3
 body fn twice -> (T, T)
   param _0 x: T
   block
@@ -1312,7 +1391,7 @@ body fn optional_presence -> bool
           local _0 v: i32?
 body fn if_let_forms -> f32
   param _0 o: i32?
-  param _1 p: ^Vec3
+  param _1 p: ^mut Vec3
   block
     if-let: void
       local _0 o: i32?
@@ -1323,7 +1402,7 @@ body fn if_let_forms -> f32
           int 1: i32
       block
         if-let: void
-          local _1 p: ^Vec3
+          local _1 p: ^mut Vec3
           bind _3 v
           block
             assign =
@@ -1332,7 +1411,7 @@ body fn if_let_forms -> f32
               float 1: f32
     let _5 got: f32
       if-let: f32
-        local _1 p: ^Vec3
+        local _1 p: ^mut Vec3
         bind _4 v
         block
           field #0: f32

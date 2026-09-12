@@ -14,6 +14,7 @@ members = [
     "crates/dz_flow",
     "crates/dz_mono",
     "crates/dz_cpp",
+    "crates/dz_cppimport",
     "crates/dz_driver",
     "crates/dz_lsp",
     "crates/dz",
@@ -39,6 +40,7 @@ dz_check = { path = "crates/dz_check" }
 dz_flow = { path = "crates/dz_flow" }
 dz_mono = { path = "crates/dz_mono" }
 dz_cpp = { path = "crates/dz_cpp" }
+dz_cppimport = { path = "crates/dz_cppimport" }
 dz_driver = { path = "crates/dz_driver" }
 dz_lsp = { path = "crates/dz_lsp" }
 

@@ -12,7 +12,11 @@ use dz_span::{FileId, SourceMap, Span};
 
 pub mod toml;
 
-use crate::toml::{Document, Value};
+/// The header importer, re-exported so every phase that meets an imported header reads its
+/// declarations through the crate that holds them.
+pub use dz_cppimport as cppimport;
+
+use crate::toml::{Document, Table, Value};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ModuleId(pub u32);
@@ -58,11 +62,172 @@ pub enum TypeInfo {
     All,
 }
 
+/// A module's C and C++ settings: its `[cpp]` table and the libraries it vendors (spec
+/// §15.1). Paths are resolved against the manifest's directory when it is read, and the
+/// host target's sections are already folded in.
 #[derive(Debug, Clone, Default)]
 pub struct CppConfig {
-    pub include_dirs: Vec<String>,
-    pub link_libs: Vec<String>,
+    pub include_dirs: Vec<PathBuf>,
     pub defines: Vec<String>,
+    pub lib_dirs: Vec<PathBuf>,
+    pub link_libs: Vec<String>,
+    pub libs: Vec<CppLib>,
+    /// `[cpp.instantiate]`: the C++ type to instantiate, and the Dazzle name to import it
+    /// under — `("std::vector<float>", "StdVecF32")` (spec §15.4).
+    pub instantiate: Vec<(String, String)>,
+}
+
+/// A C or C++ library vendored as source and compiled by `dz`, from a `[cpp.libs.<name>]`
+/// recipe (spec §15.1). One with no `sources` is header-only, or ships its binaries.
+#[derive(Debug, Clone)]
+pub struct CppLib {
+    pub name: String,
+    /// The recipe's table header, which a build failure points at.
+    pub name_span: Span,
+    pub sources: Vec<PathBuf>,
+    /// `header = "RGFW.h"` — a single-header library. Its declarations are in the header
+    /// and its definitions appear only where the implementation macro is defined, so `dz`
+    /// compiles one translation unit of its own that includes it with this recipe's
+    /// `defines` in force (spec §15.1).
+    pub header: Option<PathBuf>,
+    pub include_dirs: Vec<PathBuf>,
+    pub defines: Vec<String>,
+    pub lib_dirs: Vec<PathBuf>,
+    pub link_libs: Vec<String>,
+}
+
+/// What the preprocessor is given for one module's C++: see [`Workspace::cpp_flags`].
+#[derive(Debug, Clone, Default)]
+pub struct CppFlags {
+    pub include_dirs: Vec<PathBuf>,
+    pub defines: Vec<String>,
+}
+
+/// The language a vendored source is compiled as, decided by its extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceLang {
+    C,
+    Cpp,
+}
+
+pub fn source_language(path: &Path) -> Option<SourceLang> {
+    match path.extension()?.to_str()? {
+        "c" => Some(SourceLang::C),
+        "cc" | "cpp" | "cxx" => Some(SourceLang::Cpp),
+        _ => None,
+    }
+}
+
+/// The platforms a `[cpp.target.<os>]` section may name (spec §15.1).
+pub const TARGETS: &[&str] = &["windows", "linux", "macos", "web"];
+
+/// The target being built for. There is no cross-compilation yet, so it is the host.
+pub fn host_target() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "unknown"
+    }
+}
+
+impl Workspace {
+    /// The include dirs and defines one module's C++ is compiled with, and its imported
+    /// headers are parsed with: the include dirs of its own `[cpp]` and of every library it
+    /// vendors, the defines of its `[cpp]` alone, and the same from everything it depends
+    /// on. They travel down the dependency graph because a header means what the defines
+    /// say, and every module that includes it has to agree — which is also what lets a
+    /// Dazzle module wrapping a library carry the recipe for its users (spec §15.1).
+    pub fn cpp_flags(&self, id: ModuleId) -> CppFlags {
+        let mut out = CppFlags::default();
+        for m in self.reachable(id) {
+            let cpp = &self.module(m).cpp;
+            let dirs = cpp.include_dirs.iter().chain(cpp.libs.iter().flat_map(|l| &l.include_dirs));
+            for dir in dirs {
+                if !out.include_dirs.contains(dir) {
+                    out.include_dirs.push(dir.clone());
+                }
+            }
+            // A library's own `defines` are not among them: they build *its* sources. A
+            // single-header library is the reason — `RGFW_IMPLEMENTATION` compiles the
+            // implementation into the one source that asks for it, and defining it for
+            // every translation unit that includes the header would define every symbol
+            // again, which the linker rejects. A define that has to be shared belongs in
+            // `[cpp]`, as §15.1's `JPH_PROFILE_ENABLED` is.
+            for d in cpp.defines.iter() {
+                if !out.defines.contains(d) {
+                    out.defines.push(d.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// The template instantiations one module's imports should produce: its own, and those
+    /// of everything it depends on, so a Dazzle module wrapping a C++ library can name the
+    /// instantiations its users need (spec §15.4, and the same reasoning as `cpp_flags`).
+    pub fn cpp_instantiate(&self, id: ModuleId) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for m in self.reachable(id) {
+            for pair in &self.module(m).cpp.instantiate {
+                if !out.iter().any(|(_, name)| *name == pair.1) {
+                    out.push(pair.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// Library search directories and libraries to link, from every module the root
+    /// reaches, each once.
+    pub fn link_inputs(&self) -> (Vec<PathBuf>, Vec<String>) {
+        let (mut dirs, mut libs) = (Vec::new(), Vec::new());
+        for m in self.reachable(self.root) {
+            let cpp = &self.module(m).cpp;
+            let module_dirs = cpp.libs.iter().flat_map(|l| &l.lib_dirs).chain(&cpp.lib_dirs);
+            for d in module_dirs {
+                if !dirs.contains(d) {
+                    dirs.push(d.clone());
+                }
+            }
+            for l in cpp.libs.iter().flat_map(|l| &l.link_libs).chain(&cpp.link_libs) {
+                if !libs.contains(l) {
+                    libs.push(l.clone());
+                }
+            }
+        }
+        (dirs, libs)
+    }
+
+    /// Every vendored library the root reaches, with the module whose manifest declares it.
+    pub fn cpp_libs(&self) -> Vec<(&Module, &CppLib)> {
+        self.reachable(self.root)
+            .into_iter()
+            .flat_map(|m| {
+                let module = self.module(m);
+                module.cpp.libs.iter().map(move |l| (module, l))
+            })
+            .collect()
+    }
+
+    /// `id` and every module it depends on, directly or not, each once and `id` first.
+    fn reachable(&self, id: ModuleId) -> Vec<ModuleId> {
+        let mut out = Vec::new();
+        let mut stack = vec![id];
+        while let Some(m) = stack.pop() {
+            if out.contains(&m) {
+                continue;
+            }
+            out.push(m);
+            for d in self.module(m).deps.iter().rev() {
+                stack.push(d.module);
+            }
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +260,61 @@ pub struct Module {
     /// compiler rather than read from disk, and `sources` holds one pseudo-path for it so
     /// ordering, spans and diagnostics all work exactly as they do for a real file.
     pub embedded_source: Option<&'static str>,
+    /// Set on a module that is an imported C or C++ header (spec §15.1). Its declarations
+    /// come from libclang rather than from Dazzle source, and nothing is generated for it:
+    /// its names are the header's own.
+    pub foreign: Option<Foreign>,
+    /// The headers this module imports with `import cpp`, as written, each with the module
+    /// it became.
+    pub cpp_imports: Vec<(String, ModuleId)>,
+}
+
+/// What an imported header's module holds.
+#[derive(Debug)]
+pub struct Foreign {
+    pub header: std::sync::Arc<dz_cppimport::Header>,
+    /// `header.files` as they were added to the source map, so a declaration's span points
+    /// into the header it came from.
+    pub files: Vec<FileId>,
+}
+
+impl Workspace {
+    /// Make an imported header a module of the workspace, and record that `importer`
+    /// imports it as `requested`. A header two modules import with the same flags is one
+    /// module: the same C declarations, named once.
+    pub fn add_foreign(&mut self, importer: ModuleId, requested: &str, foreign: Foreign) -> ModuleId {
+        let existing = self
+            .modules
+            .iter()
+            .find(|m| m.foreign.as_ref().is_some_and(|f| std::sync::Arc::ptr_eq(&f.header, &foreign.header)))
+            .map(|m| m.id);
+        let id = match existing {
+            Some(id) => id,
+            None => {
+                let id = ModuleId(self.modules.len() as u32);
+                let header_path = foreign.header.path.clone();
+                self.modules.push(Module {
+                    id,
+                    name: requested.to_owned(),
+                    name_span: Span::DUMMY,
+                    version: String::new(),
+                    root_dir: header_path.parent().map(Path::to_path_buf).unwrap_or_default(),
+                    manifest: foreign.files.first().copied().unwrap_or(FileId(0)),
+                    manifest_path: header_path,
+                    sources: Vec::new(),
+                    deps: Vec::new(),
+                    build: BuildConfig::default(),
+                    cpp: CppConfig::default(),
+                    embedded_source: None,
+                    foreign: Some(foreign),
+                    cpp_imports: Vec::new(),
+                });
+                id
+            }
+        };
+        self.modules[importer.0 as usize].cpp_imports.push((requested.to_owned(), id));
+        id
+    }
 }
 
 impl Module {
@@ -183,6 +403,27 @@ pub fn load(
             });
         }
     }
+
+    // Two recipes for one library would compile it twice and link its symbols twice.
+    let mut seen: HashMap<&str, (FileId, Span)> = HashMap::new();
+    for m in &modules {
+        for lib in &m.cpp.libs {
+            match seen.get(lib.name.as_str()) {
+                Some(&(first_file, first_span)) => diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("library `{}` has two recipes", lib.name),
+                    )
+                    .at(m.manifest, lib.name_span, "declared again here")
+                    .with_label(dz_diag::Label::secondary(first_file, first_span, "first declared here"))
+                    .with_help("keep one; a module that depends on it sees its headers already (spec §15.1)"),
+                ),
+                None => {
+                    seen.insert(&lib.name, (m.manifest, lib.name_span));
+                }
+            }
+        }
+    }
     Some(Workspace { modules, root, prelude })
 }
 
@@ -226,6 +467,8 @@ impl<'a> Loader<'a> {
             build: BuildConfig::default(),
             cpp: CppConfig::default(),
             embedded_source: Some(PRELUDE_SOURCE),
+            foreign: None,
+            cpp_imports: Vec::new(),
         });
         id
     }
@@ -290,7 +533,7 @@ impl<'a> Loader<'a> {
         };
         let sources = self.expand_sources(file, &doc, &root_dir, &name);
         let build = self.build_config(file, &doc);
-        let cpp = self.cpp_config(file, &doc);
+        let cpp = self.cpp_config(file, &doc, &root_dir);
 
         self.modules.push(Module {
             id,
@@ -305,6 +548,8 @@ impl<'a> Loader<'a> {
             build,
             cpp,
             embedded_source: None,
+            foreign: None,
+            cpp_imports: Vec::new(),
         });
 
         let deps = self.load_dependencies(file, &doc, &root_dir, id);
@@ -630,36 +875,301 @@ impl<'a> Loader<'a> {
         cfg
     }
 
-    fn cpp_config(&mut self, file: FileId, doc: &Document) -> CppConfig {
-        let mut cfg = CppConfig::default();
-        let Some(table) = doc.table("cpp") else { return cfg };
-        for (key, out) in [
-            ("include_dirs", &mut cfg.include_dirs),
-            ("link_libs", &mut cfg.link_libs),
-            ("defines", &mut cfg.defines),
-        ] {
-            match table.get(key) {
-                Some(Value::Array(items, _)) => {
-                    for item in items {
-                        match as_str(item) {
-                            Some(s) => out.push(s.to_owned()),
-                            None => {
-                                self.diags.push(
-                                    Diagnostic::error(
-                                        codes::MANIFEST_BAD_VALUE,
-                                        format!("`cpp.{key}` entries must be strings"),
-                                    )
-                                    .at(file, item.span(), format!("this is {}", item.type_name())),
-                                );
+    /// `[cpp]`, `[cpp.target.<os>]`, `[cpp.libs.<name>]` and `[cpp.libs.<name>.target.<os>]`
+    /// (spec §15.1). A target section adds to its base table and only the host's is kept,
+    /// but every section is checked, so a recipe that is wrong for another platform says so
+    /// on this one too.
+    fn cpp_config(&mut self, file: FileId, doc: &Document, root_dir: &Path) -> CppConfig {
+        const MODULE_KEYS: &[&str] = &["include_dirs", "defines", "lib_dirs", "link_libs"];
+        const LIB_KEYS: &[&str] =
+            &["root", "sources", "header", "include_dirs", "defines", "lib_dirs", "link_libs"];
+        const LIB_TARGET_KEYS: &[&str] =
+            &["sources", "include_dirs", "defines", "lib_dirs", "link_libs"];
+        const MANIFEST_DIR: &str = "the directory holding dazzle.toml";
+        const LIB_ROOT: &str = "the library's `root`, or the manifest's directory without one";
+
+        let host = host_target();
+
+        // A library's `root` is needed before any of its paths can be resolved, and nothing
+        // stops its target sections coming first, so roots are read in a pass of their own.
+        let mut roots: HashMap<String, PathBuf> = HashMap::new();
+        for table in &doc.tables {
+            let parts: Vec<&str> = table.name.split('.').collect();
+            if let ["cpp", "libs", name] = parts[..] {
+                let root = match table.get("root") {
+                    None => root_dir.to_path_buf(),
+                    Some(Value::Str(r, span)) => {
+                        let p = normalize(&root_dir.join(r));
+                        if !p.is_dir() {
+                            self.missing_dir(file, r, *span, MANIFEST_DIR);
+                        }
+                        p
+                    }
+                    Some(other) => {
+                        self.type_error(file, other, &format!("{}.root", table.name), "a string");
+                        root_dir.to_path_buf()
+                    }
+                };
+                roots.insert(name.to_owned(), root);
+            }
+        }
+
+        let mut module = Lists::default();
+        let mut instantiate: Vec<(String, String)> = Vec::new();
+        let mut libs: Vec<(String, Span, Lists)> = Vec::new();
+        for table in &doc.tables {
+            let parts: Vec<&str> = table.name.split('.').collect();
+            match parts[..] {
+                ["cpp"] => self.cpp_section(file, table, root_dir, MANIFEST_DIR, MODULE_KEYS, &mut module),
+                ["cpp", "target", os] => {
+                    let applies = self.check_target(file, table, os) && os == host;
+                    let mut elsewhere = Lists::default();
+                    let out = if applies { &mut module } else { &mut elsewhere };
+                    self.cpp_section(file, table, root_dir, MANIFEST_DIR, MODULE_KEYS, out);
+                }
+                ["cpp", "libs"] if table.entries.is_empty() => {}
+                ["cpp", "libs", name] | ["cpp", "libs", name, "target", _] => {
+                    let base = roots.get(name).cloned().unwrap_or_else(|| root_dir.to_path_buf());
+                    let idx = match libs.iter().position(|(n, ..)| n == name) {
+                        Some(i) => i,
+                        None => {
+                            libs.push((name.to_owned(), table.header_span, Lists::default()));
+                            libs.len() - 1
+                        }
+                    };
+                    if let ["cpp", "libs", _, "target", os] = parts[..] {
+                        let applies = self.check_target(file, table, os) && os == host;
+                        let mut elsewhere = Lists::default();
+                        let out = if applies { &mut libs[idx].2 } else { &mut elsewhere };
+                        self.cpp_section(file, table, &base, LIB_ROOT, LIB_TARGET_KEYS, out);
+                    } else {
+                        libs[idx].1 = table.header_span;
+                        self.cpp_section(file, table, &base, LIB_ROOT, LIB_KEYS, &mut libs[idx].2);
+                    }
+                }
+                // `"std::vector<float>" = "StdVecF32"`: the instantiations this project
+                // wants, each imported as an ordinary concrete type (spec §15.4).
+                ["cpp", "instantiate"] => {
+                    for entry in &table.entries {
+                        match &entry.value {
+                            Value::Str(name, _) => {
+                                instantiate.push((entry.key.clone(), name.clone()))
                             }
+                            other => self.type_error(
+                                file,
+                                other,
+                                &format!("{}.{}", table.name, entry.key),
+                                "a string naming the Dazzle type to import it as",
+                            ),
                         }
                     }
                 }
-                Some(other) => self.type_error(file, other, &format!("cpp.{key}"), "an array of strings"),
-                None => {}
+                ["cpp", ..] => self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("unknown table `[{}]`", table.name),
+                    )
+                    .at(file, table.header_span, "not a table dazzle.toml has")
+                    .with_help(
+                        "the C++ tables are `[cpp]`, `[cpp.target.<os>]`, `[cpp.libs.<name>]` \
+                         and `[cpp.libs.<name>.target.<os>]` (spec §15.1)",
+                    ),
+                ),
+                _ => {}
             }
         }
-        cfg
+
+        CppConfig {
+            include_dirs: module.include_dirs,
+            defines: module.defines,
+            lib_dirs: module.lib_dirs,
+            link_libs: module.link_libs,
+            instantiate,
+            libs: libs
+                .into_iter()
+                .map(|(name, name_span, l)| CppLib {
+                    name,
+                    name_span,
+                    sources: l.sources,
+                    header: l.header,
+                    include_dirs: l.include_dirs,
+                    defines: l.defines,
+                    lib_dirs: l.lib_dirs,
+                    link_libs: l.link_libs,
+                })
+                .collect(),
+        }
+    }
+
+    /// One C++ table's entries, every one of them a list of strings.
+    fn cpp_section(
+        &mut self,
+        file: FileId,
+        table: &Table,
+        base: &Path,
+        base_desc: &str,
+        allowed: &[&str],
+        out: &mut Lists,
+    ) {
+        for entry in &table.entries {
+            let key = entry.key.as_str();
+            if !allowed.contains(&key) {
+                let list = allowed.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", ");
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("unknown key `{key}` in `[{}]`", table.name),
+                    )
+                    .at(file, entry.key_span, "not a key of this table")
+                    .with_help(format!("the keys here are {list} (spec §15.1)")),
+                );
+                continue;
+            }
+            if key == "root" {
+                continue; // read in a pass of its own, before any path is resolved
+            }
+            // `header = "RGFW.h"`: a single-header library, whose implementation `dz`
+            // compiles itself rather than making you write a one-line `.c` for it
+            // (spec §15.1). A string, not a list — there is one of them.
+            if key == "header" {
+                match &entry.value {
+                    Value::Str(s, span) => {
+                        let path = normalize(&base.join(s));
+                        if !path.is_file() {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::MANIFEST_BAD_VALUE,
+                                    format!("`{s}` is not a file"),
+                                )
+                                .at(file, *span, "no header here")
+                                .with_help(format!("the path is relative to {base_desc}")),
+                            );
+                        }
+                        out.header = Some(path);
+                    }
+                    other => self.type_error(
+                        file,
+                        other,
+                        &format!("{}.{key}", table.name),
+                        "a string naming the library's header",
+                    ),
+                }
+                continue;
+            }
+            let Value::Array(items, _) = &entry.value else {
+                self.type_error(file, &entry.value, &format!("{}.{key}", table.name), "an array of strings");
+                continue;
+            };
+            for item in items {
+                let Value::Str(s, span) = item else {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MANIFEST_BAD_VALUE,
+                            format!("`{}.{key}` entries must be strings", table.name),
+                        )
+                        .at(file, item.span(), format!("this is {}", item.type_name())),
+                    );
+                    continue;
+                };
+                match key {
+                    "defines" => out.defines.push(s.clone()),
+                    "link_libs" => out.link_libs.push(s.clone()),
+                    "sources" => self.lib_sources(file, base, base_desc, s, *span, &mut out.sources),
+                    _ => {
+                        let dir = normalize(&base.join(s));
+                        if !dir.is_dir() {
+                            self.missing_dir(file, s, *span, base_desc);
+                        }
+                        let list = if key == "include_dirs" { &mut out.include_dirs } else { &mut out.lib_dirs };
+                        if !list.contains(&dir) {
+                            list.push(dir);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// One `sources` entry of a library: a path or a glob. A glob may sweep up headers and
+    /// other files, which are skipped; a path written out must be a C or C++ source and
+    /// must exist.
+    fn lib_sources(
+        &mut self,
+        file: FileId,
+        base: &Path,
+        base_desc: &str,
+        pattern: &str,
+        span: Span,
+        out: &mut Vec<PathBuf>,
+    ) {
+        let is_glob = pattern.contains(['*', '?', '[']);
+        let joined = normalize(&base.join(pattern)).to_string_lossy().replace('\\', "/");
+        let matches: Vec<PathBuf> = match glob::glob(&joined) {
+            Ok(m) => m.flatten().filter(|p| p.is_file()).collect(),
+            Err(e) => {
+                self.diags.push(
+                    Diagnostic::error(codes::MANIFEST_BAD_VALUE, format!("invalid source pattern: {e}"))
+                        .at(file, span, "not a valid glob"),
+                );
+                return;
+            }
+        };
+        let mut found = 0usize;
+        for p in &matches {
+            if source_language(p).is_none() {
+                if !is_glob {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MANIFEST_BAD_VALUE,
+                            format!("`{pattern}` is not a C or C++ source"),
+                        )
+                        .at(file, span, "not compilable")
+                        .with_help(
+                            "a library source ends in .c, .cc, .cpp or .cxx; headers are found \
+                             through `include_dirs` (spec §15.1)",
+                        ),
+                    );
+                    return;
+                }
+                continue;
+            }
+            found += 1;
+            if !out.contains(p) {
+                out.push(p.clone());
+            }
+        }
+        if found == 0 {
+            let (msg, label) = if is_glob {
+                (format!("`{pattern}` matched no C or C++ sources"), "nothing here")
+            } else {
+                (format!("source `{pattern}` does not exist"), "no such file")
+            };
+            self.diags.push(
+                Diagnostic::error(codes::MANIFEST_NO_SOURCES, msg)
+                    .at(file, span, label)
+                    .with_help(format!("the path is relative to {base_desc}")),
+            );
+        }
+    }
+
+    fn check_target(&mut self, file: FileId, table: &Table, os: &str) -> bool {
+        if TARGETS.contains(&os) {
+            return true;
+        }
+        self.diags.push(
+            Diagnostic::error(codes::MANIFEST_BAD_VALUE, format!("unknown target `{os}`"))
+                .at(file, table.header_span, "not a target dz builds for")
+                .with_help(format!("targets are {} (spec §15.1)", TARGETS.join(", "))),
+        );
+        false
+    }
+
+    fn missing_dir(&mut self, file: FileId, path: &str, span: Span, base_desc: &str) {
+        self.diags.push(
+            Diagnostic::error(codes::MANIFEST_BAD_VALUE, format!("directory `{path}` does not exist"))
+                .at(file, span, "no such directory")
+                .with_help(format!("the path is relative to {base_desc}")),
+        );
     }
 
     fn type_error(&mut self, file: FileId, value: &Value, what: &str, expected: &str) {
@@ -680,6 +1190,17 @@ impl<'a> Loader<'a> {
                 .with_help(format!("valid values are {list}")),
         );
     }
+}
+
+/// The lists one C++ table contributes, gathered before they become a [`CppConfig`].
+#[derive(Default)]
+struct Lists {
+    sources: Vec<PathBuf>,
+    header: Option<PathBuf>,
+    include_dirs: Vec<PathBuf>,
+    defines: Vec<String>,
+    lib_dirs: Vec<PathBuf>,
+    link_libs: Vec<String>,
 }
 
 fn as_str(v: &Value) -> Option<&str> {

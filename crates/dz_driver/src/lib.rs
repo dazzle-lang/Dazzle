@@ -5,12 +5,12 @@
 //! run exactly this function rather than a copy of it that could drift.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_project::{ModuleId, Workspace};
 use dz_resolve::{ParsedFile, Resolution};
-use dz_span::SourceMap;
+use dz_span::{FileId, SourceMap};
 
 /// How far analysis goes past a phase that failed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -67,7 +67,7 @@ pub fn analyse_with(
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
 
-    let Some(ws) = dz_project::load(entry, &mut map, &mut diags) else {
+    let Some(mut ws) = dz_project::load(entry, &mut map, &mut diags) else {
         return Analysis {
             map,
             ws: None,
@@ -121,6 +121,8 @@ pub fn analyse_with(
         files.insert(module.id, parsed);
     }
 
+    import_headers(&mut ws, &files, &mut map, &mut diags);
+
     // Each flag says whether the phase's diagnostics are still worth showing: true until
     // some earlier phase has reported an error.
     let parsed_cleanly = !diags.has_errors();
@@ -161,4 +163,99 @@ pub fn analyse_with(
 
     diags.sort_by_position();
     Analysis { map, ws: Some(ws), files, resolution, hir, table, mono, diags, parsed_cleanly }
+}
+
+/// `import cpp` (spec §15.1): read each imported header through libclang, with the flags
+/// the generated C++ will be compiled with, and add it to the workspace as a module of its
+/// own before resolution needs its names. Its files go into the source map, so what points
+/// at a declaration points into the header.
+fn import_headers(
+    ws: &mut Workspace,
+    files: &HashMap<ModuleId, Vec<ParsedFile>>,
+    map: &mut SourceMap,
+    diags: &mut Diagnostics,
+) {
+    use dz_ast::ImportKind;
+    use dz_project::cppimport::{import, ImportError, Request};
+
+    let root = ws.module(ws.root);
+    // Where the generated C++ is compiled, so a quoted include is searched for from there.
+    let from_dir = root.root_dir.join("build").join("cpp");
+    let cpp_standard = root.build.cpp_standard.clone();
+    let mut added: HashMap<PathBuf, FileId> = HashMap::new();
+    let ids: Vec<ModuleId> = ws.modules().map(|m| m.id).collect();
+
+    for id in ids {
+        let Some(parsed) = files.get(&id) else { continue };
+        let mut done: Vec<&str> = Vec::new();
+        for pf in parsed {
+            for import_line in &pf.ast.imports {
+                let ImportKind::Cpp { header, name, .. } = &import_line.kind else { continue };
+                if name.is_empty() || done.contains(&name.as_str()) {
+                    continue;
+                }
+                done.push(name);
+                let flags = ws.cpp_flags(id);
+                let instantiate = ws.cpp_instantiate(id);
+                let req = Request {
+                    header: name,
+                    include_dirs: &flags.include_dirs,
+                    defines: &flags.defines,
+                    cpp_standard: &cpp_standard,
+                    from_dir: &from_dir,
+                    instantiate: &instantiate,
+                };
+                match import(&req) {
+                    Ok(h) => {
+                        let mut ids = Vec::new();
+                        for p in &h.files {
+                            if let Some(f) = added.get(p) {
+                                ids.push(*f);
+                                continue;
+                            }
+                            match std::fs::read(p).ok().and_then(|b| map.add_bytes(p, &b).ok()) {
+                                Some(f) => {
+                                    added.insert(p.clone(), f);
+                                    ids.push(f);
+                                }
+                                None => break,
+                            }
+                        }
+                        if ids.len() != h.files.len() {
+                            diags.push(
+                                Diagnostic::error(codes::CPP_HEADER_FAILED, format!("cannot import `{name}`"))
+                                    .at(pf.file, *header, "one of the files it includes could not be read"),
+                            );
+                            continue;
+                        }
+                        ws.add_foreign(id, name, dz_project::Foreign { header: h, files: ids });
+                    }
+                    Err(ImportError::Unavailable(why)) => diags.push(
+                        Diagnostic::error(
+                            codes::CPP_UNAVAILABLE,
+                            "libclang is not available, so `import cpp` cannot read headers",
+                        )
+                        .at(pf.file, *header, "needs libclang")
+                        .with_note(why)
+                        .with_help(
+                            "install LLVM, or set LIBCLANG_PATH to the directory holding \
+                             libclang (spec §15.1)",
+                        ),
+                    ),
+                    Err(ImportError::Failed(messages)) => {
+                        let mut d = Diagnostic::error(codes::CPP_HEADER_FAILED, format!("cannot import `{name}`"))
+                            .at(pf.file, *header, "clang could not read this header")
+                            .with_help(
+                                "headers are found through the `include_dirs` of this module's \
+                                 `[cpp]` and `[cpp.libs]` tables, and its dependencies' (spec §15.1)",
+                            );
+                        for m in messages.iter().take(5) {
+                            d = d.with_note(m.clone());
+                        }
+                        diags.push(d);
+                    }
+                }
+            }
+        }
+    }
 }

@@ -1,0 +1,15 @@
+[module]
+name    = "cppinterop"
+sources = ["src/**/*.dz"]
+
+# M7b's criterion (spec §15.1, §15.2, §19): a C++ library vendored as source, never
+# prebuilt, whose namespaces, classes, methods and overloads Dazzle imports and calls.
+[cpp.libs.shapes]
+root         = "vendor/shapes"
+sources      = ["*.cpp"]
+include_dirs = ["include"]
+
+# A C++ template is not imported on its own: the instantiations this project wants are
+# named here, and each becomes an ordinary concrete type (spec §15.4).
+[cpp.instantiate]
+"shapes::Pair<int>" = "IntPair"

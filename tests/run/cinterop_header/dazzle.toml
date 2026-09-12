@@ -1,0 +1,19 @@
+[module]
+name    = "headerlib"
+sources = ["src/**/*.dz"]
+
+# A single-header library's declarations must have external linkage in both translation
+# units that see them, so this one is shared: `[cpp]` reaches the generated C++ *and* the
+# library's own sources (spec §15.1).
+[cpp]
+defines = ["SHLDEF="]
+
+# A single-header library: `header` replaces `sources`, and `dz` writes the one translation
+# unit that includes it with `SHL_IMPLEMENTATION` defined (spec §15.1). The implementation
+# belongs to that unit alone — were the define shared, every symbol would be defined twice
+# and the link would fail.
+[cpp.libs.shl]
+root         = "vendor/shl"
+header       = "shl.h"
+include_dirs = ["."]
+defines      = ["SHL_IMPLEMENTATION"]

@@ -11,8 +11,17 @@ resources, and are generic over checked bounds**. Since then, spec r12–r13 add
 `Copy`, and `impl Trait for Type` with `Drop`/`Copy` as traits, r14 made `move` end its
 source for every type (18.33), and most of M9 was pulled
 forward: `dz lsp` and a VS Code extension (`editors/vscode`), over an analysis that keeps
-answering around syntax errors (`dz_driver::Mode::Editor`). Next is struct inheritance
-(spec 18.32, designed), then M7 — C++ interop via libclang. See spec §19 for the roadmap.
+answering around syntax errors (`dz_driver::Mode::Editor`).
+
+**M7 is done.** A C or C++ library vendored as *source* is compiled by `dz` from a
+`[cpp.libs.<name>]` recipe and called through `import cpp` with no wrapper — no CMake, no
+Makefile, no prebuilt library. **`tests/run/raylib` opens a raylib window with raylib built
+from its own seven `.c` files**, which is M7b's criterion (spec §19). r21–r28 got there:
+handles, C unions, array members and bit-fields, callbacks, compound-literal macros, then
+the C++ half — namespaces, classes, methods, constructors, C++-owned destructors,
+overloaded methods, references, and `[cpp.instantiate]` template instances. What is left is
+narrower and listed in the deferral register (overloaded *free* functions, imported-class
+inheritance). Struct inheritance (spec 18.32, designed) is next. Spec §19 is the roadmap.
 
 ## Three documents
 
@@ -88,6 +97,8 @@ crates/
   dz_flow/            ownership, moves, drops, definite return (spec §6)
   dz_mono/            monomorphization: which instances each module needs (spec §8.4)
   dz_cpp/             C++17 emission + the runtime shim (spec §16)
+  dz_cppimport/       `import cpp`: libclang (loaded at run time) reads a header into plain
+                      declarations, which become a module of their own (spec §15)
   dz_driver/          the analysis pipeline as a library, shared by the CLI and the LSP;
                       `analyse_with` lets unsaved editor buffers stand in for files
   dz_lsp/             the language server (spec §17.4): `lib.rs` is the protocol loop,
@@ -123,7 +134,7 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 
 ```bash
 cargo build --workspace
-cargo test --workspace           # 139 tests at M6 + r14 + M9
+cargo test --workspace           # 172 tests at M6 + M7 + M9
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens

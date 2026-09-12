@@ -151,6 +151,7 @@ fn manifest_problems_are_reported_with_spans() {
         dz_diag::codes::MANIFEST_BAD_VALUE,
         dz_diag::codes::MANIFEST_MISSING_FIELD,
         dz_diag::codes::MANIFEST_MISSING,
+        dz_diag::codes::MANIFEST_NO_SOURCES,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected}:\n{}", r.rendered);
     }

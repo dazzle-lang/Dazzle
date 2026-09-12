@@ -62,7 +62,8 @@ pub enum ImportKind {
     /// `import math::{ pow, sqrt }`
     Selective { path: Path, names: Vec<Ident> },
     /// `import cpp "raylib.h" as rl` (spec §15.1)
-    Cpp { header: Span, alias: Option<Ident> },
+    /// `name` is the text between the quotes, which is what the header is looked up by.
+    Cpp { header: Span, name: String, alias: Option<Ident> },
     Error,
 }
 
@@ -308,10 +309,10 @@ pub struct Type {
 #[derive(Clone, Debug)]
 pub enum TypeKind {
     Path(Path),
-    /// `^T`
-    Ptr(Box<Type>),
-    /// `own ^T`
-    OwnPtr(Box<Type>),
+    /// `^T` / `^mut T` (spec §5.2)
+    Ptr { mutable: bool, inner: Box<Type> },
+    /// `own ^T` / `own ^mut T`
+    OwnPtr { mutable: bool, inner: Box<Type> },
     /// `&T` / `&mut T`
     Ref { mutable: bool, inner: Box<Type> },
     /// `T?` — postfix, binding to the type name (spec §5.6).

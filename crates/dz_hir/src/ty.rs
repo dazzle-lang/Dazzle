@@ -185,8 +185,17 @@ pub enum Ty {
     IntLit,
     /// A float literal that has not met a typing context yet.
     FloatLit,
-    Ptr(Rc<Ty>),
-    OwnPtr(Rc<Ty>),
+    /// `^T` and `^mut T`. Writability is in the type, as for a reference and a slice: a
+    /// `^T` is only read through, a `^mut T` written through too (spec §5.2, §18.37).
+    Ptr {
+        mutable: bool,
+        inner: Rc<Ty>,
+    },
+    /// `own ^T` and `own ^mut T`: a pointer its holder must release (spec §6.5).
+    OwnPtr {
+        mutable: bool,
+        inner: Rc<Ty>,
+    },
     Ref {
         mutable: bool,
         inner: Rc<Ty>,
@@ -233,8 +242,8 @@ pub enum Ty {
 }
 
 impl Ty {
-    pub fn ptr(inner: Ty) -> Ty {
-        Ty::Ptr(Rc::new(inner))
+    pub fn ptr(mutable: bool, inner: Ty) -> Ty {
+        Ty::Ptr { mutable, inner: Rc::new(inner) }
     }
 
     pub fn reference(mutable: bool, inner: Ty) -> Ty {
@@ -284,7 +293,9 @@ impl Ty {
         let mut t = self;
         loop {
             match t {
-                Ty::Ref { inner, .. } | Ty::Ptr(inner) | Ty::OwnPtr(inner) => t = inner,
+                Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
+                    t = inner
+                }
                 _ => return t,
             }
         }
@@ -309,11 +320,14 @@ impl Ty {
         }
     }
 
-    /// `[]mut T` and `&mut T` grant writes to what they point at; `[]T` and `&T` do not.
-    /// A `^T` does too, which is why it is not on this list — see `place_mutability`.
+    /// `[]mut T`, `&mut T` and `^mut T` grant writes to what they point at; `[]T`, `&T` and
+    /// `^T` do not (spec §5.2, §5.3).
     pub fn grants_write(&self) -> Option<bool> {
         match self {
-            Ty::Slice { mutable, .. } | Ty::Ref { mutable, .. } => Some(*mutable),
+            Ty::Slice { mutable, .. }
+            | Ty::Ref { mutable, .. }
+            | Ty::Ptr { mutable, .. }
+            | Ty::OwnPtr { mutable, .. } => Some(*mutable),
             _ => None,
         }
     }
@@ -336,10 +350,10 @@ impl Ty {
     pub fn has_params(&self) -> bool {
         match self {
             Ty::Param(_) => true,
-            Ty::Ptr(i) | Ty::OwnPtr(i) | Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => {
-                i.has_params()
+            Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => i.has_params(),
+            Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
+                inner.has_params()
             }
-            Ty::Ref { inner, .. } => inner.has_params(),
             Ty::Array { elem, .. } | Ty::Slice { elem, .. } => elem.has_params(),
             Ty::Tuple(parts) => parts.iter().any(Ty::has_params),
             Ty::Named { args, .. } => args.iter().any(Ty::has_params),
@@ -384,8 +398,8 @@ pub fn substitute_with(
     match t {
         Ty::SelfTy => self_ty.cloned().unwrap_or(Ty::SelfTy),
         Ty::Param(p) => map.get(&p.id).cloned().unwrap_or_else(|| t.clone()),
-        Ty::Ptr(i) => Ty::Ptr(rc(i)),
-        Ty::OwnPtr(i) => Ty::OwnPtr(rc(i)),
+        Ty::Ptr { mutable, inner } => Ty::Ptr { mutable: *mutable, inner: rc(inner) },
+        Ty::OwnPtr { mutable, inner } => Ty::OwnPtr { mutable: *mutable, inner: rc(inner) },
         Ty::Ref { mutable, inner } => Ty::Ref { mutable: *mutable, inner: rc(inner) },
         Ty::Optional(i) => Ty::Optional(rc(i)),
         Ty::Fallible(i) => Ty::Fallible(rc(i)),
@@ -417,8 +431,8 @@ pub fn replace(t: &Ty, from: &Ty, to: &Ty) -> Ty {
     let rc = |x: &Rc<Ty>| Rc::new(replace(x, from, to));
     let r = |x: &Ty| replace(x, from, to);
     match t {
-        Ty::Ptr(i) => Ty::Ptr(rc(i)),
-        Ty::OwnPtr(i) => Ty::OwnPtr(rc(i)),
+        Ty::Ptr { mutable, inner } => Ty::Ptr { mutable: *mutable, inner: rc(inner) },
+        Ty::OwnPtr { mutable, inner } => Ty::OwnPtr { mutable: *mutable, inner: rc(inner) },
         Ty::Ref { mutable, inner } => Ty::Ref { mutable: *mutable, inner: rc(inner) },
         Ty::Optional(i) => Ty::Optional(rc(i)),
         Ty::Fallible(i) => Ty::Fallible(rc(i)),
@@ -431,6 +445,19 @@ pub fn replace(t: &Ty, from: &Ty, to: &Ty) -> Ty {
             Ty::Fn { params: params.iter().map(r).collect(), ret: rc(ret) }
         }
         other => other.clone(),
+    }
+}
+
+/// The pointee half of a pointer conversion. Writing needs a writable source. Through a
+/// read-only pointer the pointee may itself widen — `^^mut T` satisfies `^^T` — but through
+/// a writable one it must match both ways: a `^mut ^T` made from a `^mut ^mut T` could store
+/// a read-only pointer where a writable one is expected. C++ rejects `T**` → `const T**` for
+/// the same reason, and the output has to compile.
+fn pointee_assignable(want_mut: bool, have_mut: bool, want: &Ty, have: &Ty) -> bool {
+    if want_mut {
+        have_mut && assignable(want, have) && assignable(have, want)
+    } else {
+        assignable(want, have)
     }
 }
 
@@ -460,19 +487,22 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
             assignable(a, b)
         }
 
-        // `own ^T` is a `^T` that also carries release duty, so it satisfies `^T`.
-        (Ty::Ptr(a), Ty::Ptr(b)) | (Ty::Ptr(a), Ty::OwnPtr(b)) | (Ty::OwnPtr(a), Ty::OwnPtr(b)) => {
-            assignable(a, b)
+        // Pointers follow references (spec §5.2, §18.37): a writable one satisfies a
+        // read-only one, never the reverse. `own` is release duty rather than a different
+        // pointer, so an `own ^T` satisfies a `^T` — and a `^T` satisfies an `own ^T`, which
+        // is how ownership is *acquired*: `alloc` returns a `^mut u8` (spec §9.8), and
+        // storing it in an `own ^mut u8` field is what makes the struct responsible for it.
+        (
+            Ty::Ptr { mutable: want, inner: a } | Ty::OwnPtr { mutable: want, inner: a },
+            Ty::Ptr { mutable: have, inner: b } | Ty::OwnPtr { mutable: have, inner: b },
+        ) => pointee_assignable(*want, *have, a, b),
+        // A reference satisfies a pointer of no more writability: giving up the non-null
+        // guarantee is safe, and §5.2 writes exactly this (`let p: ^mut Player = &mut
+        // world.players[0]`). The reverse is not allowed — a pointer may be null — and goes
+        // through `or` instead.
+        (Ty::Ptr { mutable: want, inner: a }, Ty::Ref { mutable: have, inner: b }) => {
+            pointee_assignable(*want, *have, a, b)
         }
-        // ...and the reverse is how ownership is *acquired*: `alloc` returns a plain
-        // `^u8` (spec §9.8), and storing it in an `own ^u8` field is what makes the
-        // struct responsible for it. Nothing weaker would let anything own anything.
-        (Ty::OwnPtr(a), Ty::Ptr(b)) => assignable(a, b),
-        // `&mut T` satisfies `^T`: giving up the non-null guarantee is safe, and spec
-        // §5.2 writes exactly this (`let p: ^Player = &mut world.players[0]`). The
-        // reverse is not allowed — a `^T` may be null — and neither is `&T`, which
-        // would silently gain the right to mutate.
-        (Ty::Ptr(a), Ty::Ref { mutable: true, inner: b }) => assignable(a, b),
 
         (Ty::Optional(a), Ty::Optional(b)) => assignable(a, b),
         (Ty::Fallible(a), Ty::Fallible(b)) => assignable(a, b),

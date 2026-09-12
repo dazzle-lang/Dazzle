@@ -178,10 +178,10 @@ fn every_rule_has_a_failing_case() {
 /// sit inside the expression it should have wrapped.
 #[test]
 fn one_missing_unsafe_is_one_diagnostic() {
-    let codes = snippet("fn f(p: ^i32) {\n destroy(p[0])\n}\n");
+    let codes = snippet("fn f(p: ^mut i32) {\n destroy(p[0])\n}\n");
     let n = codes.iter().filter(|c| **c == dz_diag::codes::UNSAFE_OPERATION).count();
     assert_eq!(n, 1, "{codes:?}");
-    assert!(snippet("fn f(p: ^i32) {\n unsafe { destroy(p[0]) }\n}\n").is_empty());
+    assert!(snippet("fn f(p: ^mut i32) {\n unsafe { destroy(p[0]) }\n}\n").is_empty());
 }
 
 #[test]
@@ -335,6 +335,55 @@ fn a_pointer_becomes_a_reference_only_through_an_or_clause() {
     );
     // The reverse direction stays implicit (spec §5.2, §18.16).
     assert!(snippet("fn g(r: &mut i32) {\n let p: ^i32 = r\n}\n").is_empty());
+}
+
+#[test]
+fn a_dot_variant_needs_an_enum_or_union_to_come_from() {
+    // `.Idle` takes its variant from the expected type; where that is a number there is
+    // nothing to infer from, and saying nothing let the mistake through in silence.
+    let codes = snippet("fn f(n: u32) {\n}\nfn g() {\n f(.Nope)\n}\n");
+    assert_eq!(codes, vec![dz_diag::codes::NO_SUCH_FIELD], "{codes:?}");
+    assert!(snippet("enum E {\n A\n B\n}\nfn f(e: E) {\n}\nfn g() {\n f(.A)\n}\n").is_empty());
+}
+
+#[test]
+fn a_string_literal_is_a_cstr_where_one_is_wanted() {
+    // spec §5.3, §18.39 — a literal is zero-terminated static storage already.
+    assert!(snippet("fn f(s: cstr) {\n}\nfn g() {\n f(\"x\")\n}\n").is_empty());
+    assert!(snippet("fn g() {\n let c: cstr = \"x\"\n let d = \"y\" as cstr\n}\n").is_empty());
+    assert!(snippet("fn g(c: cstr) -> str {\n return c as str\n}\n").is_empty());
+    // A runtime `str` has no terminating zero, so it needs a copy — not yet.
+    assert!(snippet("fn g(s: str) -> cstr {\n return s as cstr\n}\n")
+        .contains(&dz_diag::codes::INVALID_CAST));
+    // Without a `cstr` wanted, a literal is a `str` as before.
+    assert!(snippet("fn f(s: cstr) {\n}\nfn g() {\n let s = \"x\"\n f(s)\n}\n")
+        .contains(&dz_diag::codes::TYPE_MISMATCH));
+    // `cstr("x")` is one mistake at the type name, not a silent error that surfaces later as
+    // "`{unknown}` cannot be formatted".
+    let codes = snippet("fn g() {\n let c = cstr(\"x\")\n println(\"{}\", c)\n}\n");
+    assert_eq!(codes, vec![dz_diag::codes::NOT_CALLABLE], "{codes:?}");
+}
+
+#[test]
+fn a_pointer_is_as_writable_as_it_says() {
+    // spec §5.2, §18.37 — `^T` and `^mut T` stand to each other as `&T` and `&mut T` do.
+    assert!(snippet("fn g(r: &i32) {\n let p: ^i32 = r\n}\n").is_empty());
+    assert!(snippet("fn g(r: &mut i32) {\n let p: ^mut i32 = r\n}\n").is_empty());
+    assert!(snippet("fn g(q: ^mut i32) {\n let p: ^i32 = q\n}\n").is_empty());
+    assert!(snippet("fn g(r: &i32) {\n let p: ^mut i32 = r\n}\n")
+        .contains(&dz_diag::codes::TYPE_MISMATCH));
+    assert!(snippet("fn g(q: ^i32) {\n let p: ^mut i32 = q\n}\n")
+        .contains(&dz_diag::codes::TYPE_MISMATCH));
+    // Writing needs the `mut`; reading does not.
+    assert!(snippet("fn g(p: ^i32) -> i32 {\n unsafe { return p^ }\n}\n").is_empty());
+    assert!(snippet("fn g(p: ^mut i32) {\n unsafe { p^ = 1 }\n}\n").is_empty());
+    assert!(snippet("fn g(p: ^i32) {\n unsafe { p^ = 1 }\n}\n")
+        .contains(&dz_diag::codes::NOT_MUTABLE));
+    // Through a writable pointer the pointee cannot widen: a `^mut ^i32` made from a
+    // `^mut ^mut i32` could store a read-only pointer where a writable one is expected.
+    assert!(snippet("fn g(q: ^^mut i32) {\n let p: ^^i32 = q\n}\n").is_empty());
+    assert!(snippet("fn g(q: ^mut ^mut i32) {\n let p: ^mut ^i32 = q\n}\n")
+        .contains(&dz_diag::codes::TYPE_MISMATCH));
 }
 
 #[test]

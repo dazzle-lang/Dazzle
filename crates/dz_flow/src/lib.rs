@@ -683,7 +683,7 @@ impl<'a> Flow<'a> {
                 // Reaching through a pointer or reference lands outside this function.
                 if matches!(
                     self.body.ty(*base),
-                    Ty::Ptr(_) | Ty::OwnPtr(_) | Ty::Ref { .. }
+                    Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. }
                 ) {
                     return Denotes::Borrowed;
                 }

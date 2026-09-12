@@ -4,7 +4,7 @@
 // expect: DZ0402
 
 pub struct Res {
-    m_p: own ^i32
+    m_p: own ^mut i32
 }
 
 impl Drop for Res {
@@ -15,6 +15,6 @@ fn take(r: Res) -> bool {
     return true
 }
 
-fn through_a_pointer(p: ^Res) -> bool {
+fn through_a_pointer(p: ^mut Res) -> bool {
     unsafe { return take(move(p^)) }
 }

@@ -451,9 +451,11 @@ fn match_ty(pat: &Ty, ty: &Ty, params: &[u32], map: &mut HashMap<u32, Ty>) -> bo
                 && aa.len() == ba.len()
                 && aa.iter().zip(ba).all(|(x, y)| match_ty(x, y, params, map))
         }
-        (Ty::Ptr(a), Ty::Ptr(b))
-        | (Ty::OwnPtr(a), Ty::OwnPtr(b))
-        | (Ty::Optional(a), Ty::Optional(b)) => match_ty(a, b, params, map),
+        (Ty::Optional(a), Ty::Optional(b)) => match_ty(a, b, params, map),
+        (Ty::Ptr { mutable: ma, inner: a }, Ty::Ptr { mutable: mb, inner: b })
+        | (Ty::OwnPtr { mutable: ma, inner: a }, Ty::OwnPtr { mutable: mb, inner: b }) => {
+            ma == mb && match_ty(a, b, params, map)
+        }
         (Ty::Ref { mutable: ma, inner: a }, Ty::Ref { mutable: mb, inner: b }) => {
             ma == mb && match_ty(a, b, params, map)
         }
@@ -480,8 +482,10 @@ pub(crate) fn might_overlap(a: &Ty, b: &Ty) -> bool {
         (Ty::Named { sym: sa, args: aa }, Ty::Named { sym: sb, args: ab }) => {
             sa == sb && aa.len() == ab.len() && aa.iter().zip(ab).all(|(x, y)| o(x, y))
         }
-        (Ty::Ptr(x), Ty::Ptr(y)) | (Ty::OwnPtr(x), Ty::OwnPtr(y)) | (Ty::Optional(x), Ty::Optional(y)) => {
-            o(x, y)
+        (Ty::Optional(x), Ty::Optional(y)) => o(x, y),
+        (Ty::Ptr { mutable: ma, inner: x }, Ty::Ptr { mutable: mb, inner: y })
+        | (Ty::OwnPtr { mutable: ma, inner: x }, Ty::OwnPtr { mutable: mb, inner: y }) => {
+            ma == mb && o(x, y)
         }
         (Ty::Ref { mutable: ma, inner: x }, Ty::Ref { mutable: mb, inner: y }) => ma == mb && o(x, y),
         (Ty::Array { len: la, elem: x }, Ty::Array { len: lb, elem: y }) => la == lb && o(x, y),

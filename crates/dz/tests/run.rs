@@ -276,6 +276,256 @@ fn a_project_without_main_is_reported() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn a_function_is_a_value() {
+    // spec §5.4 — a function type is written `fn(i32) -> i32`, and C++ spells one
+    // `R (*name)(A)`, with the name inside the parentheses. It reached the generated code
+    // as `int32_t(*)(int32_t) g`, which does not compile; the shim's `dz::fn` alias is
+    // what lets it be written where every other type goes.
+    if !have_compiler() {
+        return;
+    }
+    let dir = scratch(
+        "dz_fn_value",
+        "[module]\nname = \"f\"\nsources = [\"src/**/*.dz\"]\n",
+        "fn twice(a: i32) -> i32 {\n    return a * 2\n}\n\n\
+         fn apply(f: fn(i32) -> i32, v: i32) -> i32 {\n    return f(v)\n}\n\n\
+         fn main() {\n    let g = twice\n    println(\"{} {}\", apply(twice, 21), g(3))\n}\n",
+    );
+    let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "42 6");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// --- vendored libraries (spec §15.1) ------------------------------------------
+
+/// Copy a fixture into a scratch directory, leaving out its `build/`, so a test that builds
+/// it does not race the run test driving the same directory.
+fn copy_fixture(name: &str, scratch_name: &str) -> PathBuf {
+    fn copy_dir(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap().flatten() {
+            let p = e.path();
+            if p.file_name().is_some_and(|n| n == "build") {
+                continue;
+            }
+            if p.is_dir() {
+                copy_dir(&p, &to.join(e.file_name()));
+            } else {
+                std::fs::copy(&p, to.join(e.file_name())).unwrap();
+            }
+        }
+    }
+    let to = std::env::temp_dir().join(scratch_name);
+    let _ = std::fs::remove_dir_all(&to);
+    copy_dir(&run_dir(name), &to);
+    to
+}
+
+#[test]
+fn a_vendored_library_is_compiled_once_and_again_when_a_header_changes() {
+    // spec §15.1, §16.6 — an object is rebuilt only when something that went into it
+    // changed, and a header it includes is one of those things.
+    if !have_compiler() {
+        return;
+    }
+    let dir = copy_fixture("cinterop", "dz_vendored_cache");
+    let build = || {
+        let out = Command::new(dz()).args(["build", dir.to_str().unwrap()]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    };
+    let objects = || {
+        let mut found: Vec<(PathBuf, std::time::SystemTime)> =
+            std::fs::read_dir(dir.join("build/obj/mini"))
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "o"))
+                .map(|p| {
+                    let t = std::fs::metadata(&p).unwrap().modified().unwrap();
+                    (p, t)
+                })
+                .collect();
+        found.sort();
+        found
+    };
+
+    build();
+    let first = objects();
+    assert_eq!(first.len(), 1, "one source, one object: {first:?}");
+    build();
+    assert_eq!(objects(), first, "an unchanged library was recompiled");
+
+    let header = dir.join("vendor/mini/include/mini.h");
+    let mut text = std::fs::read_to_string(&header).unwrap();
+    text.push_str("\n/* changed */\n");
+    std::fs::write(&header, text).unwrap();
+    build();
+    assert_ne!(objects(), first, "a changed header did not recompile the library");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_library_that_fails_to_compile_is_blamed_on_the_library() {
+    // DZ0803 says "this is a bug in the Dazzle compiler"; a vendored library's own error
+    // must never be reported that way (spec §15.1).
+    if !have_compiler() {
+        return;
+    }
+    let dir = scratch(
+        "dz_vendored_broken",
+        "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n\
+         [cpp.libs.broken]\nsources = [\"broken.c\"]\n",
+        "fn main() {\n    println(\"{}\", 1)\n}\n",
+    );
+    std::fs::write(dir.join("broken.c"), "int broken(void) { return }\n").unwrap();
+    let out = Command::new(dz()).args(["build", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "expected the build to fail:\n{stderr}");
+    assert!(stderr.contains("DZ0701"), "expected DZ0701:\n{stderr}");
+    assert!(!stderr.contains("DZ0803"), "a library's error is not a Dazzle bug:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_header_that_is_not_found_is_reported_at_the_import() {
+    // spec §15.1 — clang's own words, attached to the line that asked for the header.
+    let dir = scratch(
+        "dz_import_missing",
+        "[module]\nname = \"m\"\nsources = [\"src/**/*.dz\"]\n",
+        "import cpp \"no_such_header.h\" as nope\n\nfn main() {\n    println(\"{}\", 1)\n}\n",
+    );
+    let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "expected the import to fail:\n{stderr}");
+    // DZ0703 instead where this machine has no libclang: the import is refused either way.
+    assert!(stderr.contains("DZ0702") || stderr.contains("DZ0703"), "{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_call_into_c_is_type_checked_like_any_other() {
+    // spec §15.2, §18.37 — `int *` is a `^mut i32`, so a read-only pointer does not pass,
+    // and there are no implicit numeric conversions across the boundary either.
+    let dir = scratch(
+        "dz_import_types",
+        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
+        "import cpp \"api.h\" as api\n\n\
+         fn main() {\n    let xs: [2]i32 = [1, 2]\n    api::fill(xs.ptr, 2)\n    \
+         let n: i64 = 3\n    api::fill(null, n)\n}\n",
+    );
+    std::fs::write(dir.join("api.h"), "#pragma once\nextern \"C\" void fill(int *out, int n);\n").unwrap();
+    let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("DZ0703") {
+        return; // no libclang here
+    }
+    assert_eq!(stderr.matches("DZ0501").count(), 2, "expected two type mismatches:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_imported_handle_cannot_be_held_by_value() {
+    // spec §15.2, §18.40 — the header declares `Handle` and never defines it, so nothing
+    // here knows its size. Behind a pointer it is exactly what the library hands out.
+    let dir = scratch(
+        "dz_import_handle",
+        "[module]\nname = \"h\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
+        "import cpp \"api.h\" as api\n\n\
+         fn keep(h: ^api::Handle) -> ^api::Handle {\n    return h\n}\n\n\
+         fn main() {\n    let h = api::api_open()\n    let _ = keep(h)\n    \
+         let bad: api::Handle\n}\n",
+    );
+    std::fs::write(
+        dir.join("api.h"),
+        "#pragma once\ntypedef struct Handle Handle;\nextern \"C\" Handle *api_open(void);\n",
+    )
+    .unwrap();
+    let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("DZ0703") {
+        return; // no libclang here
+    }
+    assert_eq!(stderr.matches("DZ0704").count(), 1, "expected one handle-by-value error:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_c_union_literal_sets_one_member() {
+    // spec §15.2, §18.41 — the members are the same memory, so setting two writes the same
+    // bytes twice and only the last survives.
+    let dir = scratch(
+        "dz_import_union",
+        "[module]\nname = \"u\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
+        "import cpp \"api.h\" as api\n\n\
+         fn main() {\n    let one = api::Value{ as_int: 1 }\n    \
+         let two = api::Value{ as_int: 1, as_float: 2.0 }\n    \
+         println(\"{} {}\", one.as_int, two.as_int)\n}\n",
+    );
+    std::fs::write(
+        dir.join("api.h"),
+        "#pragma once\ntypedef union Value { int as_int; float as_float; } Value;\n",
+    )
+    .unwrap();
+    let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("DZ0703") {
+        return; // no libclang here
+    }
+    assert_eq!(stderr.matches("DZ0705").count(), 1, "expected one union-literal error:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_c_bit_field_has_no_address() {
+    // spec §15.2 — a bit-field is a few bits inside another member, and C++ has no pointer
+    // or reference to one. The ordinary field beside it is unaffected.
+    let dir = scratch(
+        "dz_import_bitfield",
+        "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
+        "import cpp \"api.h\" as api\n\n\
+         fn main() {\n    let mut bits: api::Bits\n    let on = &mut bits.on\n    \
+         let count = &mut bits.count\n    println(\"{}\", bits.count)\n}\n",
+    );
+    std::fs::write(
+        dir.join("api.h"),
+        "#pragma once\ntypedef struct Bits { unsigned int on : 1; int count; } Bits;\n",
+    )
+    .unwrap();
+    let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("DZ0703") {
+        return; // no libclang here
+    }
+    assert_eq!(stderr.matches("DZ0706").count(), 1, "expected one bit-field error:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_c_array_member_is_indexed_not_copied() {
+    // spec §15.2 — a raw array cannot be copied or assigned in C++, so taking one as a
+    // value is refused here rather than emitted as code that will not compile.
+    let dir = scratch(
+        "dz_import_carray",
+        "[module]\nname = \"a\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
+        "import cpp \"api.h\" as api\n\n\
+         fn main() {\n    let box: api::Box\n    let first = box.items[0]\n    \
+         let n = box.items.len\n    let copied = box.items\n    \
+         println(\"{} {} {}\", first, n, copied[0])\n}\n",
+    );
+    std::fs::write(dir.join("api.h"), "#pragma once\ntypedef struct Box { int items[4]; } Box;\n")
+        .unwrap();
+    let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("DZ0703") {
+        return; // no libclang here
+    }
+    // Indexing and `.len` are fine; only the copy is refused.
+    assert_eq!(stderr.matches("DZ0707").count(), 1, "expected one array-copy error:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // --- code quality ---------------------------------------------------------
 
 /// Write a throwaway project and return its directory.

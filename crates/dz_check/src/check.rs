@@ -444,6 +444,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
             MemberKind::Ctor(f) => {
                 // A constructor runs on the object, so `self` is mutable.
                 let sig = FnSig {
+                    ret_cast: false,
                     params: f
                         .params
                         .iter()
@@ -451,6 +452,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                             name: p.name.name.clone(),
                             ty: cx.lower_type(&p.ty),
                             has_default: p.default.is_some(),
+                            c_cast: None,
                         })
                         .collect(),
                     ret: Ty::Void,
@@ -487,7 +489,7 @@ fn check_owns_are_released(cx: &mut Ctx, sym: SymbolId) {
         Some(s) if s.drop.is_none() => s
             .fields
             .iter()
-            .find(|f| matches!(f.ty, Ty::OwnPtr(_)))
+            .find(|f| matches!(f.ty, Ty::OwnPtr { .. }))
             .map(|f| (f.name.clone(), f.span)),
         _ => None,
     };
@@ -581,6 +583,10 @@ struct Body<'a, 'c> {
     /// How many `unsafe` blocks enclose the expression being checked; an `unsafe fn`'s
     /// body starts at one (spec §5.2).
     unsafe_depth: u32,
+    /// Set while checking what is indexed, iterated, or asked for its `.len`/`.ptr` — the
+    /// places that reach *into* a sequence rather than take it as a value. An imported C
+    /// array member may only be used there, since C++ cannot copy one (spec §15.2).
+    reaching_into: bool,
     /// Spans `require_unsafe` has reported. One missing `unsafe` around
     /// `construct(m_data[i], v)` is one mistake, not one per operation inside it.
     unsafe_reported: Vec<Span>,
@@ -613,6 +619,7 @@ impl<'a, 'c> Body<'a, 'c> {
             self_mutable: false,
             self_local: None,
             unsafe_depth: 0,
+            reaching_into: false,
             unsafe_reported: Vec::new(),
             self_full: None,
             self_local_ty: None,
@@ -714,8 +721,8 @@ impl<'a, 'c> Body<'a, 'c> {
                 (None, Some(s)) => self.cx.self_type_of(s),
                 (None, None) => Ty::Error,
             },
-            Ty::Ptr(i) => Ty::Ptr(rc(i)),
-            Ty::OwnPtr(i) => Ty::OwnPtr(rc(i)),
+            Ty::Ptr { mutable, inner } => Ty::Ptr { mutable: *mutable, inner: rc(inner) },
+            Ty::OwnPtr { mutable, inner } => Ty::OwnPtr { mutable: *mutable, inner: rc(inner) },
             Ty::Ref { mutable, inner } => Ty::Ref { mutable: *mutable, inner: rc(inner) },
             Ty::Optional(i) => Ty::Optional(rc(i)),
             Ty::Fallible(i) => Ty::Fallible(rc(i)),
@@ -756,7 +763,7 @@ impl<'a, 'c> Body<'a, 'c> {
             return;
         }
         // `^T` → `&T` is the one conversion that can fail, so it is written out (§5.2).
-        if let (Ty::Ref { inner: want, .. }, Ty::Ptr(got) | Ty::OwnPtr(got)) =
+        if let (Ty::Ref { inner: want, .. }, Ty::Ptr { inner: got, .. } | Ty::OwnPtr { inner: got, .. }) =
             (&expected, &actual)
         {
             if assignable(want, got) {
@@ -982,7 +989,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 hir::StmtKind::While { cond: c.id, body }
             }
             StmtKind::For(f) => {
+                let reached_into = std::mem::replace(&mut self.reaching_into, true);
                 let subject = self.expr(&f.iter, None);
+                self.reaching_into = reached_into;
                 let elem = match subject.ty.element() {
                     Some(e) => e.clone(),
                     None => match self.iterate_item(&subject.ty, f.iter.span) {
@@ -1171,23 +1180,25 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
             }
             // Through a pointer, mutability comes from the pointer, not the binding.
-            ExprKind::Deref(inner) => {
-                let t = self.expr_quiet(inner);
-                Some(matches!(t, Ty::Ptr(_) | Ty::OwnPtr(_)))
-            }
+            ExprKind::Deref(inner) => match self.expr_quiet(inner) {
+                Ty::Ptr { mutable, .. } | Ty::OwnPtr { mutable, .. } => Some(mutable),
+                _ => Some(false),
+            },
             ExprKind::Field { base, .. } => {
                 let base_ty = self.expr_quiet(base);
                 match &base_ty {
-                    Ty::Ptr(_) | Ty::OwnPtr(_) => Some(true),
-                    Ty::Ref { mutable, .. } => Some(*mutable),
+                    Ty::Ptr { mutable, .. }
+                    | Ty::OwnPtr { mutable, .. }
+                    | Ty::Ref { mutable, .. } => Some(*mutable),
                     _ => self.place_mutability(base),
                 }
             }
             ExprKind::Index { base, .. } => {
                 let base_ty = self.expr_quiet(base);
                 match &base_ty {
-                    Ty::Ptr(_) | Ty::OwnPtr(_) => Some(true),
-                    Ty::Ref { mutable, .. } => Some(*mutable),
+                    Ty::Ptr { mutable, .. }
+                    | Ty::OwnPtr { mutable, .. }
+                    | Ty::Ref { mutable, .. } => Some(*mutable),
                     // A slice is a view, so its own binding says nothing about its
                     // elements: writability is in the type (spec §5.3, §18.22).
                     Ty::Slice { mutable, .. } => Some(*mutable),
@@ -1215,13 +1226,22 @@ impl<'a, 'c> Body<'a, 'c> {
                     )
                 }
             }
-            ExprKind::Field { name, .. } => (
-                format!("field `{}`", name.name),
-                "a field is mutable through `&mut self` or a `^` pointer; this method \
-                 takes `&self`, so make it take `&mut self` (spec §7.3)"
-                    .to_owned(),
-            ),
+            ExprKind::Deref(ptr) => self.through_read_only_pointer(ptr),
+            ExprKind::Field { base, name } => match self.expr_quiet(base).peeled_refs() {
+                Ty::Ptr { mutable: false, .. } | Ty::OwnPtr { mutable: false, .. } => {
+                    self.through_read_only_pointer(base)
+                }
+                _ => (
+                    format!("field `{}`", name.name),
+                    "a field is mutable through `&mut self` or a `^mut` pointer; this method \
+                     takes `&self`, so make it take `&mut self` (spec §7.3)"
+                        .to_owned(),
+                ),
+            },
             ExprKind::Index { base, .. } => match self.expr_quiet(base) {
+                Ty::Ptr { mutable: false, .. } | Ty::OwnPtr { mutable: false, .. } => {
+                    self.through_read_only_pointer(base)
+                }
                 Ty::Slice { mutable: false, elem } => {
                     let elem = self.cx.name_of(&elem);
                     (
@@ -1236,6 +1256,51 @@ impl<'a, 'c> Body<'a, 'c> {
                 _ => self.describe_place(base),
             },
             _ => ("this".to_owned(), "not a mutable place".to_owned()),
+        }
+    }
+
+    /// Is this member access a C array member of an imported struct (spec §15.2)?
+    fn is_c_array_member(&self, base_ty: &Ty, field_ty: &Ty) -> bool {
+        matches!(field_ty, Ty::Array { .. })
+            && base_ty.peeled().named().is_some_and(|sym| {
+                self.cx.ws.module(self.cx.res.symbol(sym).module).foreign.is_some()
+            })
+    }
+
+    /// The name of the imported C bit-field `e` reads, when it reads one.
+    fn bitfield_name(&mut self, e: &Expr) -> Option<String> {
+        let ExprKind::Field { base, name } = &e.kind else { return None };
+        let base_ty = self.expr_quiet(base);
+        let sym = base_ty.peeled().named()?;
+        let sig = self.cx.table.struct_sig(sym)?;
+        sig.fields
+            .iter()
+            .find(|f| f.name == name.name && f.bitfield)
+            .map(|f| f.name.clone())
+    }
+
+    /// A write through a `^T`, which promises its pointee is only read (spec §5.2, §18.37).
+    fn through_read_only_pointer(&mut self, ptr: &Expr) -> (String, String) {
+        let t = self.expr_quiet(ptr);
+        let n = self.cx.name_of(&t);
+        (
+            "memory behind a read-only pointer".to_owned(),
+            format!("`{n}` is only read through; a `^mut` pointer allows writing (spec §5.2)"),
+        )
+    }
+
+    /// `construct` and `destroy` write the place they are given (spec §14.3), so it has to
+    /// be one that may be written — `m_data[i]` through an `own ^mut T`, not through a `^T`.
+    fn require_writable(&mut self, e: &Expr, what: &str) {
+        if self.place_mutability(e) == Some(false) {
+            let (desc, help) = self.describe_place(e);
+            self.cx.error_help(
+                codes::NOT_MUTABLE,
+                e.span,
+                format!("`{what}` cannot write to {desc}"),
+                "not writable",
+                help,
+            );
         }
     }
 
@@ -1335,13 +1400,24 @@ impl<'a, 'c> Body<'a, 'c> {
                 };
                 self.mk(e, ty, hir::ExprKind::Float(parse_float_literal(text)))
             }
+            // A string literal is a `cstr` wherever a `cstr` is wanted: it already sits in
+            // static storage with a zero after its last byte, so nothing is copied and C++
+            // sees the literal itself (spec §5.3, §18.39).
             ExprKind::Str(text) => {
+                let ty = match expected.map(|t| self.subst(t)) {
+                    Some(Ty::CStr) => Ty::CStr,
+                    _ => Ty::Str,
+                };
                 let kind = hir::ExprKind::Str(decode_string_literal(text));
-                self.mk(e, Ty::Str, kind)
+                self.mk(e, ty, kind)
             }
             ExprKind::RawStr(text) => {
+                let ty = match expected.map(|t| self.subst(t)) {
+                    Some(Ty::CStr) => Ty::CStr,
+                    _ => Ty::Str,
+                };
                 let kind = hir::ExprKind::Str(decode_raw_string_literal(text));
-                self.mk(e, Ty::Str, kind)
+                self.mk(e, ty, kind)
             }
             ExprKind::Char(text) => {
                 let c = decode_string_literal(text).chars().next().unwrap_or('\0');
@@ -1350,8 +1426,8 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Bool(b) => self.mk(e, Ty::Bool, hir::ExprKind::Bool(*b)),
             ExprKind::Null => {
                 let ty = match expected.map(|t| self.subst(t)) {
-                    Some(t @ (Ty::Ptr(_) | Ty::OwnPtr(_))) => t,
-                    _ => Ty::Ptr(Rc::new(Ty::Error)),
+                    Some(t @ (Ty::Ptr { .. } | Ty::OwnPtr { .. })) => t,
+                    _ => Ty::ptr(true, Ty::Error),
                 };
                 self.mk(e, ty, hir::ExprKind::Null)
             }
@@ -1394,6 +1470,18 @@ impl<'a, 'c> Body<'a, 'c> {
                 if *mutable {
                     self.require_mutable(expr);
                 }
+                // A bit-field is a few bits inside a larger member: C++ has no pointer or
+                // reference to one, so neither has Dazzle (spec §15.2).
+                if let Some(name) = self.bitfield_name(expr) {
+                    self.cx.error_help(
+                        codes::BITFIELD_ADDRESS,
+                        e.span,
+                        format!("`{name}` is a C bit-field, so it has no address"),
+                        "cannot be referenced",
+                        "read it or assign it directly; what it names is a few bits inside \
+                         another member (spec §15.2)",
+                    );
+                }
                 let ty = Ty::Ref {
                     mutable: *mutable,
                     inner: Rc::new(inner.ty.defaulted()),
@@ -1410,9 +1498,27 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Deref(inner) => {
                 let c = self.expr(inner, None);
                 let ty = match &c.ty {
-                    Ty::Ptr(i) | Ty::OwnPtr(i) => {
+                    Ty::Ptr { inner: i, .. } | Ty::OwnPtr { inner: i, .. } => {
                         self.require_unsafe(e.span, "dereferencing a `^T`");
-                        (**i).clone()
+                        // A handle has no size here, so there is no value to read out of
+                        // the pointer (spec §15.2, §18.40).
+                        if self.cx.table.is_opaque(i) {
+                            let n = self.cx.name_of(i);
+                            self.cx.error_help(
+                                codes::OPAQUE_BY_VALUE,
+                                e.span,
+                                format!("`{n}` cannot be read out of a pointer"),
+                                "its size is unknown here",
+                                format!(
+                                    "its header only declares `{n}`, so it is a handle: pass \
+                                     the `^{n}` on, and let the library's own functions work \
+                                     on what it points at (spec §15.2)"
+                                ),
+                            );
+                            Ty::Error
+                        } else {
+                            (**i).clone()
+                        }
                     }
                     t if t.is_wildcard() => Ty::Error,
                     t => {
@@ -1482,13 +1588,18 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             ExprKind::Binary { op, lhs, rhs } => self.binary(*op, lhs, rhs, e, expected),
             ExprKind::Cast { expr, ty } => {
-                let from = self.expr(expr, None);
                 let target = self.cx.lower_type(ty);
                 let target = self.subst(&target);
+                // `"x" as cstr`: a literal is typed by what it is cast to (spec §18.39). Only
+                // for `cstr`, so a numeric literal still meets its cast as `{integer}`.
+                let hint = matches!(target, Ty::CStr).then_some(&target);
+                let from = self.expr(expr, hint);
                 self.check_cast(&from.ty, &target, e.span);
                 // Reinterpreting what a pointer points at is the whole of what makes a
                 // pointer cast dangerous (spec §5.2, §10.6).
-                if matches!(from.ty, Ty::Ptr(_) | Ty::OwnPtr(_)) && matches!(target, Ty::Ptr(_)) {
+                if matches!(from.ty, Ty::Ptr { .. } | Ty::OwnPtr { .. })
+                    && matches!(target, Ty::Ptr { .. })
+                {
                     self.require_unsafe(e.span, "a pointer cast");
                 }
                 self.mk(e, target, hir::ExprKind::Cast { operand: from.id })
@@ -1538,7 +1649,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.mk(e, Ty::Range(Rc::new(elem)), kind)
             }
             ExprKind::Index { base, index } => {
+                let reached_into = std::mem::replace(&mut self.reaching_into, true);
                 let b = self.expr(base, None);
+                self.reaching_into = reached_into;
                 let i = self.expr(index, Some(&Ty::Int(IntTy::Usize)));
                 if !i.ty.is_wildcard() && !i.ty.is_integral() {
                     let n = self.cx.name_of(&i.ty);
@@ -1554,7 +1667,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 // Kept out of `Ty::element` so that `for x in ptr` stays an error — a
                 // pointer is indexable but it is not a sequence.
                 let pointee = match b.ty.peeled_refs() {
-                    Ty::Ptr(inner) | Ty::OwnPtr(inner)
+                    Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. }
                         if !matches!(**inner, Ty::Array { .. } | Ty::Slice { .. }) =>
                     {
                         Some((**inner).clone())
@@ -1589,11 +1702,28 @@ impl<'a, 'c> Body<'a, 'c> {
                 )
             }
             ExprKind::Field { base, name } => {
+                // Whether *this* access is reached into — `s.samples.len` — or taken as a
+                // value. The base below is reached into either way (spec §15.2).
+                let reached_into = std::mem::replace(&mut self.reaching_into, true);
                 let b = self.expr(base, None);
-                if matches!(b.ty.peeled_refs(), Ty::Ptr(_) | Ty::OwnPtr(_)) {
+                self.reaching_into = reached_into;
+                if matches!(b.ty.peeled_refs(), Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
                     self.require_unsafe(e.span, "reaching through a `^T` with `.`");
                 }
                 let (ty, index) = self.field_type(&b.ty, name, base.span);
+                // An imported C array member is a raw array in C++, which cannot be copied
+                // or assigned as a whole — only indexed, iterated or pointed at (§15.2).
+                if !reached_into && self.is_c_array_member(&b.ty, &ty) {
+                    let n = self.cx.name_of(&ty);
+                    self.cx.error_help(
+                        codes::C_ARRAY_BY_VALUE,
+                        e.span,
+                        format!("`{}` is a C array member, so it is not a value here", name.name),
+                        format!("a `{n}` in C cannot be copied"),
+                        "index it, iterate it with `for`, or take `.ptr`; C has no way to \
+                         copy or assign a whole array (spec §15.2)",
+                    );
+                }
                 match index {
                     // Tuples are indexed by position, structs by field (spec §5.4).
                     Some(index) if matches!(b.ty.peeled(), Ty::Tuple(_)) => {
@@ -1606,23 +1736,17 @@ impl<'a, 'c> Body<'a, 'c> {
                     None if name.name == "len" && !ty.is_error() => {
                         self.mk(e, ty, hir::ExprKind::Len(b.id))
                     }
-                    // A `^T` may be written through, so only a view that allows writing has
-                    // one — the same rule that keeps `&T` from widening to `^T` (spec §5.2).
+                    // `.ptr` is as writable as the view it comes from: a `[]mut T` or a
+                    // writable array gives a `^mut T`, anything else a `^T` (spec §5.3).
                     None if name.name == "ptr" && !ty.is_error() => {
-                        let writable = match b.ty.peeled() {
-                            Ty::Slice { mutable, .. } => *mutable,
+                        let writable = match (b.ty.peeled(), &b.ty) {
+                            (Ty::Slice { mutable, .. }, _) | (_, Ty::Ref { mutable, .. }) => *mutable,
                             _ => self.place_mutability(base) != Some(false),
                         };
-                        if !writable {
-                            self.cx.error_help(
-                                codes::NOT_MUTABLE,
-                                e.span,
-                                "`.ptr` needs a writable view",
-                                "read-only here",
-                                "a `^T` can be written through, so only a `[]mut T` or a \
-                                 writable array has one; read elements with `xs[i]` (spec §5.3)",
-                            );
-                        }
+                        let ty = match ty {
+                            Ty::Ptr { inner, .. } => Ty::Ptr { mutable: writable, inner },
+                            other => other,
+                        };
                         self.mk(e, ty, hir::ExprKind::DataPtr(b.id))
                     }
                     None => self.mk(e, ty, hir::ExprKind::Error),
@@ -1692,8 +1816,8 @@ impl<'a, 'c> Body<'a, 'c> {
                         let subject = self.expr(&i.cond, None);
                         let bound = match &subject.ty {
                             Ty::Optional(inner) => (**inner).clone(),
-                            Ty::Ptr(inner) | Ty::OwnPtr(inner) => {
-                                Ty::Ref { mutable: true, inner: inner.clone() }
+                            Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
+                                Ty::Ref { mutable: *mutable, inner: inner.clone() }
                             }
                             t if t.is_wildcard() => Ty::Error,
                             Ty::Fallible(_) => {
@@ -2021,11 +2145,25 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             _ => matches!(
                 (from, to),
-                (Ty::Ptr(_) | Ty::OwnPtr(_), Ty::Ptr(_))
-                    | (Ty::Str, Ty::CStr)
+                (Ty::Ptr { .. } | Ty::OwnPtr { .. }, Ty::Ptr { .. })
+                    // `"x" as cstr`: the literal already became one from the `as`.
+                    | (Ty::CStr, Ty::CStr)
+                    // Measuring a C string costs nothing but a `strlen` (spec §5.3).
                     | (Ty::CStr, Ty::Str)
             ),
         };
+        if !ok && matches!((from, to), (Ty::Str, Ty::CStr)) {
+            self.cx.error_help(
+                codes::INVALID_CAST,
+                span,
+                "a runtime `str` cannot become a `cstr` yet",
+                "not a string literal",
+                "a `str` has no zero after its last byte, so a C string needs a copy of it — \
+                 an owning one, which arrives with the stdlib's `String` (spec §5.3, §19 M12). \
+                 A string literal is a `cstr` as it is",
+            );
+            return;
+        }
         if !ok {
             let (a, b) = (self.cx.name_of(from), self.cx.name_of(to));
             self.cx.error_help(
@@ -2065,8 +2203,9 @@ impl<'a, 'c> Body<'a, 'c> {
             if name.name == "len" {
                 return (Ty::Int(IntTy::Usize), None);
             }
+            // Writable or not depends on the place, which the caller sees and this does not.
             if name.name == "ptr" {
-                return (Ty::ptr((**elem).clone()), None);
+                return (Ty::ptr(false, (**elem).clone()), None);
             }
         }
         if peeled.is_wildcard() {
@@ -2557,6 +2696,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     name: p.name.clone(),
                     ty: ty::substitute(&p.ty, &map),
                     has_default: p.has_default,
+                    c_cast: p.c_cast.clone(),
                 })
                 .collect(),
             ret: ty::substitute(&sig.ret, &map),
@@ -2968,7 +3108,7 @@ impl<'a, 'c> Body<'a, 'c> {
             let recv = self.expr(base, None);
             let base_ty = recv.ty.clone();
             let peeled = base_ty.peeled().clone();
-            if matches!(base_ty.peeled_refs(), Ty::Ptr(_) | Ty::OwnPtr(_)) {
+            if matches!(base_ty.peeled_refs(), Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
                 self.require_unsafe(callee.span, "calling a method through a `^T`");
             }
 
@@ -3188,6 +3328,27 @@ impl<'a, 'c> Body<'a, 'c> {
                     self.require_unsafe(span, &format!("`{name}`"));
                 }
                 let checked: Vec<Checked> = args.iter().map(|a| self.expr(a, None)).collect();
+                // What they write has to be writable: a `^T` promises its pointee is only
+                // read (spec §5.2). `free` releases rather than writes, so any pointer does.
+                if matches!(name.as_str(), "construct" | "destroy") {
+                    if let Some(dst) = args.first() {
+                        self.require_writable(dst, &name);
+                    }
+                }
+                if name == "memcpy" {
+                    if let (Some(dst), Some(c)) = (args.first(), checked.first()) {
+                        if matches!(c.ty, Ty::Ptr { mutable: false, .. } | Ty::OwnPtr { mutable: false, .. }) {
+                            let n = self.cx.name_of(&c.ty);
+                            self.cx.error_help(
+                                codes::NOT_MUTABLE,
+                                dst.span,
+                                "`memcpy` writes through its first argument",
+                                format!("this is a read-only `{n}`"),
+                                "the destination must be a `^mut` pointer (spec §5.2, §14.3)",
+                            );
+                        }
+                    }
+                }
                 self.check_format(&name, args, &checked, span);
                 let ids = checked.iter().map(|c| c.id).collect();
                 let ty = builtin_call_type(&name);
@@ -3246,10 +3407,16 @@ impl<'a, 'c> Body<'a, 'c> {
     }
 
     fn require_mutable_receiver(&mut self, base: &Expr, base_ty: &Ty, method: &str) {
-        let ok = match base_ty {
-            Ty::Ref { mutable, .. } => *mutable,
-            Ty::Ptr(_) | Ty::OwnPtr(_) => true,
-            _ => self.place_mutability(base).unwrap_or(true),
+        let (ok, help) = match base_ty {
+            Ty::Ref { mutable, .. } => (*mutable, None),
+            Ty::Ptr { mutable, .. } | Ty::OwnPtr { mutable, .. } => (
+                *mutable,
+                Some(
+                    "the method takes `&mut self`, and a `^T` is only read through — \
+                     take a `^mut T` (spec §5.2)",
+                ),
+            ),
+            _ => (self.place_mutability(base).unwrap_or(true), None),
         };
         if !ok {
             self.cx.error_help(
@@ -3257,8 +3424,10 @@ impl<'a, 'c> Body<'a, 'c> {
                 base.span,
                 format!("`{method}` needs a mutable receiver"),
                 "this is not mutable",
-                "the method takes `&mut self` — bind with `let mut`, or take `&mut` here \
-                 (spec §7.3)",
+                help.unwrap_or(
+                    "the method takes `&mut self` — bind with `let mut`, or take `&mut` here \
+                     (spec §7.3)",
+                ),
             );
         }
     }
@@ -3451,7 +3620,8 @@ impl<'a, 'c> Body<'a, 'c> {
             };
             let Some(v) = values.get(k) else { continue };
             let t = self.subst(&v.ty).defaulted();
-            if !formattable(&t) {
+            // An argument already reported has nothing more to say about itself.
+            if !t.is_wildcard() && !formattable(&t) {
                 let shown = self.cx.name_of(&t);
                 let help = if matches!(&t, Ty::Named { sym, .. }
                     if self.cx.res.symbol(*sym).kind == SymbolKind::Enum)
@@ -3528,18 +3698,33 @@ impl<'a, 'c> Body<'a, 'c> {
     }
 
     fn path_symbol(&self, p: &Path) -> Option<SymbolId> {
+        self.path_head(p).map(|(sym, _)| sym)
+    }
+
+    /// The symbol a path leads to before its members, and how many segments reaching it
+    /// took: one for a name in scope, two through a module alias, and one more for each
+    /// C++ namespace walked through on the way (spec §15.2).
+    fn path_head(&self, p: &Path) -> Option<(SymbolId, usize)> {
         let first = p.segments.first()?;
-        if p.segments.len() > 1 {
-            if let Some(target) = self.cx.res.module_alias(self.cx.file, &first.name.name) {
-                return self.cx.res.lookup(target, &p.segments.get(1)?.name.name);
-            }
+        let (mut sym, mut used) = if p.segments.len() > 1
+            && self.cx.res.module_alias(self.cx.file, &first.name.name).is_some()
+        {
+            let target = self.cx.res.module_alias(self.cx.file, &first.name.name)?;
+            (self.cx.res.lookup(target, &p.segments.get(1)?.name.name)?, 2)
+        } else {
+            // `Layer::Ui` — the leading segment is a type in scope, not a module. Without
+            // this the path resolved to nothing and, because "nothing" types as `Ty::Error`,
+            // it was accepted in silence rather than reported (spec §3.3).
+            let id = self.cx.res.lookup_in_file(self.cx.module, self.cx.file, &first.name.name)?;
+            (id, 1)
+        };
+        while self.cx.res.symbol(sym).kind == SymbolKind::Namespace {
+            let Some(seg) = p.segments.get(used) else { break };
+            let Some(next) = self.cx.res.inner(sym, &seg.name.name) else { break };
+            sym = next;
+            used += 1;
         }
-        // `Layer::Ui` — the leading segment is a type in scope, not a module. Without
-        // this the path resolved to nothing and, because "nothing" types as `Ty::Error`,
-        // it was accepted in silence rather than reported (spec §3.3).
-        self.cx
-            .res
-            .lookup_in_file(self.cx.module, self.cx.file, &first.name.name)
+        Some((sym, used))
     }
 
     fn path_expr(&mut self, p: &Path, e: &Expr) -> Checked {
@@ -3579,25 +3764,36 @@ impl<'a, 'c> Body<'a, 'c> {
                 // Only meaningful when called; `call` handles that before reaching here.
                 return self.mk(e, Ty::Error, hir::ExprKind::Error);
             }
+            // `cstr("x")`, `i32(3)`: a builtin type is not a function, and conversion is
+            // `as` (spec §10.6). Without this the name went silently wrong, and the only
+            // message left was a later one about whatever consumed the result.
+            let name = first.name.name.as_str();
+            if crate::builtin_type(name).is_some() {
+                let help = if name == "cstr" {
+                    "a string literal is a `cstr` wherever one is wanted, or write `\"…\" as cstr` \
+                     (spec §5.3)"
+                        .to_owned()
+                } else {
+                    format!("convert with `as`: `x as {name}` (spec §10.6)")
+                };
+                self.cx.error_help(
+                    codes::NOT_CALLABLE,
+                    first.name.span,
+                    format!("`{name}` is a type, not a function or a value"),
+                    "a type",
+                    help,
+                );
+                return self.mk(e, Ty::Error, hir::ExprKind::Error);
+            }
         }
 
-        let Some(sym) = self.path_symbol(p) else {
+        let Some((sym, used)) = self.path_head(p) else {
             return self.mk(e, Ty::Error, hir::ExprKind::Error);
         };
         let symbol_kind = self.cx.res.symbol(sym).kind;
 
-        // `Type::Variant` and `module::Type::Variant`
-        let tail = if p.segments.len() > 1
-            && self
-                .cx
-                .res
-                .module_alias(self.cx.file, &first.name.name)
-                .is_some()
-        {
-            &p.segments[2..]
-        } else {
-            &p.segments[1..]
-        };
+        // `Type::Variant`, `module::Type::Variant`, `header::ns::Type::Variant`
+        let tail = &p.segments[used.min(p.segments.len())..];
 
         if let Some(seg) = tail.first() {
             let (ty, kind) = self.assoc_item(sym, seg);
@@ -3685,6 +3881,18 @@ impl<'a, 'c> Body<'a, 'c> {
             .map(|(f, t)| crate::FieldSig { ty: t, ..f.clone() })
             .collect();
         let owner = self.cx.res.symbol(sym).name.clone();
+        // An imported C union's members are one piece of memory, so writing two of them
+        // writes the same bytes twice and only the last survives (spec §15.2, §18.41).
+        if sig.is_union && fields.len() > 1 {
+            self.cx.error_help(
+                codes::UNION_LITERAL,
+                span,
+                format!("`{owner}` is a C union, so this sets {} of its members", fields.len()),
+                "they are the same memory",
+                "set the one you mean; the others are whatever those bytes then hold \
+                 (spec §15.2)",
+            );
+        }
         let values = self.field_values(&instantiated, Some(sym), &owner, fields, span);
         hir::ExprKind::StructLit { ty: sym, fields: values }
     }
@@ -3967,6 +4175,23 @@ impl<'a, 'c> Body<'a, 'c> {
         span: Span,
     ) -> hir::ExprKind {
         let Some(sym) = want.named() else {
+            // `.Variant` takes its variant from an enum or a union; an expected type that is
+            // neither leaves nothing to infer from. Saying nothing here let the mistake
+            // through in silence — `.NotAThing` where a `u32` was wanted checked clean.
+            if !want.is_wildcard() {
+                let shown = self.cx.name_of(want);
+                self.cx.error_help(
+                    codes::NO_SUCH_FIELD,
+                    name.span,
+                    format!("`{shown}` has no variants"),
+                    format!("`.{}` needs an enum or a union", name.name),
+                    format!(
+                        "what is wanted here is a `{shown}`; write the value itself, or name \
+                         the type it belongs to: `SomeEnum::{}` (spec §7.4)",
+                        name.name
+                    ),
+                );
+            }
             return hir::ExprKind::Error;
         };
         let is_enum = matches!(self.cx.table.get(sym), Some(ItemSig::Enum { .. }));
@@ -4188,12 +4413,12 @@ impl<'a, 'c> Body<'a, 'c> {
             ),
             Ty::Optional(inner) => ((**inner).clone(), None),
             // `^T or …` is the checked pointer-to-reference conversion of §5.2: the
-            // failure case is null, and the success case is the reference it becomes. A
-            // `^T` may be written through, so the reference may be too; it still passes
-            // wherever a `&T` is wanted. Safe code: the null check is the one thing that can
-            // be checked, and whether the pointee is still alive is the programmer's (§1.1).
-            Ty::Ptr(inner) | Ty::OwnPtr(inner) => {
-                (Ty::Ref { mutable: true, inner: inner.clone() }, None)
+            // failure case is null, and the success case is the reference it becomes — as
+            // writable as the pointer was, so `^mut T` gives a `&mut T` and `^T` a `&T`
+            // (§18.37). Safe code: the null check is the one thing that can be checked, and
+            // whether the pointee is still alive is the programmer's (§1.1).
+            Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
+                (Ty::Ref { mutable: *mutable, inner: inner.clone() }, None)
             }
             t if t.is_wildcard() => (Ty::Error, None),
             t => {
@@ -4385,9 +4610,10 @@ fn unify(pattern: &Ty, actual: &Ty, out: &mut HashMap<u32, Ty>) {
                 out.entry(p.id).or_insert_with(|| actual.clone());
             }
         }
-        (Ty::Ptr(a), Ty::Ptr(b) | Ty::OwnPtr(b)) | (Ty::OwnPtr(a), Ty::OwnPtr(b) | Ty::Ptr(b)) => {
-            unify(a, b, out)
-        }
+        (
+            Ty::Ptr { inner: a, .. } | Ty::OwnPtr { inner: a, .. },
+            Ty::Ptr { inner: b, .. } | Ty::OwnPtr { inner: b, .. },
+        ) => unify(a, b, out),
         // `&T` also matches a `&mut U`, since `&mut U` may be passed where `&U` is wanted.
         (Ty::Ref { inner: a, .. }, Ty::Ref { inner: b, .. }) => unify(a, b, out),
         (Ty::Optional(a), Ty::Optional(b)) => unify(a, b, out),
@@ -4437,6 +4663,7 @@ fn instantiate_self(sig: &FnSig, self_ty: &Ty) -> FnSig {
                 name: p.name.clone(),
                 ty: sub(&p.ty),
                 has_default: p.has_default,
+                    c_cast: p.c_cast.clone(),
             })
             .collect(),
         ret: sub(&sig.ret),
@@ -4459,7 +4686,7 @@ pub(crate) fn plural(n: usize, word: &str) -> String {
 fn formattable(t: &Ty) -> bool {
     match t {
         Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::CStr => true,
-        Ty::Ptr(_) | Ty::OwnPtr(_) => true,
+        Ty::Ptr { .. } | Ty::OwnPtr { .. } => true,
         Ty::Ref { inner, .. } => formattable(inner),
         _ => false,
     }
@@ -4499,8 +4726,8 @@ fn builtin_arity(name: &str) -> Option<(usize, usize)> {
 fn builtin_call_type(name: &str) -> Ty {
     match name {
         "sizeof" | "alignof" => Ty::Int(IntTy::Usize),
-        // `alloc` returns `^u8` and panics on failure rather than failing (spec §9.8).
-        "alloc" => Ty::ptr(Ty::Int(IntTy::U8)),
+        // `alloc` returns `^mut u8` and panics on failure rather than failing (spec §9.8).
+        "alloc" => Ty::ptr(true, Ty::Int(IntTy::U8)),
         // `error(...)` is the failure case of whatever `!->` signature encloses it, so its
         // payload is `Never` and unifies with any success type (spec §9.1).
         "error" => Ty::Fallible(Rc::new(Ty::Never)),

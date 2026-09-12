@@ -124,27 +124,31 @@ pub fn compile(
     };
     let exe = bin_dir.join(exe_name);
 
+    // Bounds checks are not a build setting: indexing an array or slice is safe code, and
+    // stays checked in every build (spec §5.3). Unchecked access is `unsafe { xs.ptr[i] }`.
+    let opt: &[&str] = match module.build.optimize {
+        Optimize::Debug => &["-O0", "-g"],
+        Optimize::Release => &["-O2"],
+        Optimize::Shipping => &["-O3", "-DNDEBUG"],
+    };
+
+    // Vendored libraries first: a failure there is the library's, and should be reported
+    // as such before the generated code is even tried (spec §15.1).
+    let objects =
+        crate::native::build_libraries(ws, &cxx, &bin_dir, opt, &module.build.cpp_standard)?;
+
     let mut cmd = Command::new(&cxx);
     // spec §16.5 — nothing generated may need exceptions or RTTI.
     cmd.arg(format!("-std={}", module.build.cpp_standard))
-        .args(["-fno-exceptions", "-fno-rtti", "-Wall", "-Wextra"]);
-    // Bounds checks are not a build setting: indexing an array or slice is safe code, and
-    // stays checked in every build (spec §5.3). Unchecked access is `unsafe { xs.ptr[i] }`.
-    match module.build.optimize {
-        Optimize::Debug => {
-            cmd.args(["-O0", "-g"]);
-        }
-        Optimize::Release => {
-            cmd.args(["-O2"]);
-        }
-        Optimize::Shipping => {
-            cmd.args(["-O3", "-DNDEBUG"]);
-        }
+        .args(["-fno-exceptions", "-fno-rtti", "-Wall", "-Wextra"])
+        .args(opt);
+    // Every module's generated C++ is compiled in this one command, so it gets the flags of
+    // everything the root reaches (spec §15.1).
+    let flags = ws.cpp_flags(ws.root);
+    for dir in &flags.include_dirs {
+        cmd.arg(format!("-I{}", dir.display()));
     }
-    for dir in &module.cpp.include_dirs {
-        cmd.arg(format!("-I{dir}"));
-    }
-    for define in &module.cpp.defines {
+    for define in &flags.defines {
         cmd.arg(format!("-D{define}"));
     }
 
@@ -161,8 +165,13 @@ pub fn compile(
     for s in &sources {
         cmd.arg(s);
     }
+    cmd.args(&objects);
     cmd.arg("-o").arg(&exe);
-    for lib in &module.cpp.link_libs {
+    let (lib_dirs, link_libs) = ws.link_inputs();
+    for dir in &lib_dirs {
+        cmd.arg(format!("-L{}", dir.display()));
+    }
+    for lib in &link_libs {
         cmd.arg(format!("-l{lib}"));
     }
 
@@ -179,7 +188,26 @@ pub fn compile(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        diags.push(
+        // A *compile* error in generated code is a compiler bug (invariant 7). A *link*
+        // error is almost never one: the code was accepted, and what is missing is a
+        // definition — most often a vendored library whose implementation nothing compiles.
+        // Saying "this is a bug in the Dazzle compiler" for that sends the reader to the
+        // wrong place entirely, so the two are told apart.
+        let d = if linker_failure(&stderr) {
+            Diagnostic::error(
+                codes::CPP_COMPILER_FAILED,
+                "the linker could not find something the program calls",
+            )
+            .with_note(format!("using {cxx}"))
+            .with_help(
+                "the declarations were found but nothing defines them. For a vendored \
+                 library, check its `[cpp.libs.<name>]` recipe compiles the right \
+                 `sources` — a single-header library needs one source that defines its \
+                 `*_IMPLEMENTATION` macro, since a library's `defines` build its own \
+                 sources and nothing else — and that `link_libs` names every system \
+                 library it needs (spec §15.1)",
+            )
+        } else {
             Diagnostic::error(
                 codes::CPP_COMPILER_FAILED,
                 "the C++ compiler rejected the generated code",
@@ -191,8 +219,8 @@ pub fn compile(
                 "this is a bug in the Dazzle compiler: generated code should always \
                  compile. The C++ output is in build/cpp; `dz cpp` regenerates it",
             )
-            .with_note(stderr.trim().to_owned()),
-        );
+        };
+        diags.push(d.with_note(stderr.trim().to_owned()));
         return Err(diags);
     }
 
@@ -205,4 +233,22 @@ pub fn run(exe: &Path) -> std::io::Result<std::process::ExitStatus> {
 
 fn file_stem(module: &str) -> String {
     module.replace("::", "_")
+}
+
+/// Did the C++ compiler get as far as linking, and fail there?
+///
+/// Each linker says so in its own words: MSVC's `link.exe` reports `LNK2019`/`LNK1120` for
+/// an unresolved symbol, the GNU and LLVM linkers "undefined reference" or "undefined
+/// symbol", and every driver prints a "linker command failed" line of its own.
+fn linker_failure(stderr: &str) -> bool {
+    const MARKS: &[&str] = &[
+        "LNK2001",
+        "LNK2019",
+        "LNK1120",
+        "undefined reference",
+        "undefined symbol",
+        "linker command failed",
+        "ld returned",
+    ];
+    MARKS.iter().any(|m| stderr.contains(m))
 }

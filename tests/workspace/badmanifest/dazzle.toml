@@ -11,3 +11,14 @@ type_info = "used"
 [dependencies]
 missing = { path = "../nowhere" }
 noPath  = { version = "1.0" }
+
+# spec §15.1: paths are checked, and so is every target section on every platform.
+[cpp]
+include_dirs = ["no/such/dir"]
+
+[cpp.target.amiga]
+defines = ["AMIGA"]
+
+[cpp.libs.broken]
+sources = ["missing.c", "dazzle.toml"]
+flags   = ["-O3"]

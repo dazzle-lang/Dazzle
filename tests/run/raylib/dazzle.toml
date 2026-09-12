@@ -1,0 +1,30 @@
+[module]
+name    = "raylib"
+sources = ["src/**/*.dz"]
+
+# M7b's criterion (spec §15.1, §19): **raylib compiled from its own vendored source**, with
+# no prebuilt `.a` or `.lib` anywhere and no CMake, Make or any other build system involved.
+# `dz` compiles the seven `.c` files this recipe names and links the result.
+#
+# `rglfw.c` is GLFW's whole source in one translation unit, which is why a raylib build is
+# seven files rather than seventy. It picks its own backend from the platform macros, so it
+# needs no define here.
+[cpp.libs.raylib]
+root         = "vendor/raylib/src"
+sources      = ["*.c"]
+include_dirs = [".", "external/glfw/include"]
+# `PLATFORM_DESKTOP` selects the GLFW backend (raylib 6.0 turns it into
+# `PLATFORM_DESKTOP_GLFW`); `GRAPHICS_API_OPENGL_33` is the modern desktop renderer.
+# These are the library's own, so they build its sources and no one else's (spec §15.1).
+defines      = ["PLATFORM_DESKTOP", "GRAPHICS_API_OPENGL_33"]
+
+# The system libraries raylib's Windows backend calls into. A `[cpp.libs.<name>.target.<os>]`
+# section applies only when building for that platform (spec §15.1).
+[cpp.libs.raylib.target.windows]
+link_libs = ["opengl32", "gdi32", "winmm", "user32", "shell32"]
+
+[cpp.libs.raylib.target.linux]
+link_libs = ["GL", "m", "pthread", "dl", "rt", "X11"]
+
+[cpp.libs.raylib.target.macos]
+link_libs = ["m", "pthread", "dl"]

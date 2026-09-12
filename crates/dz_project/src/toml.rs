@@ -220,13 +220,22 @@ impl<'a> Parser<'a> {
     fn entry(&mut self) -> Option<Entry> {
         self.skip_trivia(true);
         let key_start = self.pos;
-        while self.peek().is_some_and(is_bare_key_char) {
-            self.bump();
-        }
-        if self.pos == key_start {
-            return None;
-        }
-        let key = self.src[key_start..self.pos].to_owned();
+        // A quoted key, which TOML allows and `[cpp.instantiate]` needs: a C++ type name
+        // has `:` and `<` in it and is no bare key (spec §15.4).
+        let key = if self.peek() == Some('"') {
+            match self.string() {
+                Value::Str(s, _) => s,
+                _ => return None,
+            }
+        } else {
+            while self.peek().is_some_and(is_bare_key_char) {
+                self.bump();
+            }
+            if self.pos == key_start {
+                return None;
+            }
+            self.src[key_start..self.pos].to_owned()
+        };
         let key_span = Span::new(key_start, self.pos);
 
         self.skip_trivia(true);

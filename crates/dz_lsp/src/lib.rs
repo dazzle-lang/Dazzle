@@ -748,6 +748,7 @@ fn token_type(c: ide::TokenClass) -> SemanticTokenType {
         C::Function => SemanticTokenType::FUNCTION,
         C::Method => SemanticTokenType::METHOD,
         C::Macro => SemanticTokenType::MACRO,
+        C::Namespace => SemanticTokenType::NAMESPACE,
     }
 }
 

@@ -140,6 +140,19 @@ pub fn emit(
         for dep in &module.deps {
             let _ = writeln!(includes, "#include \"{}.h\"", file_stem(&ws.module(dep.module).name));
         }
+        // `import cpp` (spec §15.1): the header itself, exactly as the import wrote it.
+        for (header, _) in &module.cpp_imports {
+            // **Angle brackets, deliberately.** A quoted include is searched from the
+            // including file's own directory first, and that directory is `build/cpp` —
+            // where a module named after the library it imports has just generated
+            // `raylib.h`. The quoted form makes that file include *itself*, and its guard
+            // is already defined, so the real header expands to nothing and every
+            // declaration in it goes missing. The angle form searches only the `-I` paths,
+            // which are exactly the include dirs the importer resolved the header with
+            // (spec §15.1), so it finds the same file libclang read and can never find
+            // generated output.
+            let _ = writeln!(includes, "#include <{header}>");
+        }
 
         let guard = format!("DZ_{}_H", stem.to_uppercase());
         let header = format!(
@@ -686,8 +699,8 @@ impl<'a> Emitter<'a> {
                     && Some(*sym) != except)
                     || args.iter().any(m)
             }
-            Ty::Ptr(i) | Ty::OwnPtr(i) | Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => m(i),
-            Ty::Ref { inner, .. } => m(inner),
+            Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => m(i),
+            Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => m(inner),
             Ty::Array { elem, .. } | Ty::Slice { elem, .. } => m(elem),
             Ty::Tuple(parts) => parts.iter().any(m),
             Ty::Fn { params, ret } => params.iter().any(m) || m(ret),
@@ -857,8 +870,12 @@ impl<'a> Emitter<'a> {
             Ty::Str => "str".to_owned(),
             Ty::CStr => "cstr".to_owned(),
             Ty::Void => "void".to_owned(),
-            Ty::Ptr(i) => format!("p_{}", m(i)),
-            Ty::OwnPtr(i) => format!("op_{}", m(i)),
+            Ty::Ptr { mutable, inner } => {
+                format!("{}_{}", if *mutable { "pm" } else { "p" }, m(inner))
+            }
+            Ty::OwnPtr { mutable, inner } => {
+                format!("{}_{}", if *mutable { "opm" } else { "op" }, m(inner))
+            }
             Ty::Ref { mutable, inner } => {
                 format!("{}_{}", if *mutable { "rm" } else { "r" }, m(inner))
             }
@@ -873,7 +890,13 @@ impl<'a> Emitter<'a> {
             }
             Ty::Named { sym, args } => {
                 let s = self.res.symbol(*sym);
-                let head = format!("{}_{}", file_stem(&self.ws.module(s.module).name), s.name);
+                // An imported type is named by its C++ path, which is unique across the
+                // header however its namespaces are arranged (spec §15.2).
+                let head = if let Some(cpp) = self.res.cpp_path(*sym) {
+                    cpp.trim_start_matches("::").replace("::", "_")
+                } else {
+                    format!("{}_{}", file_stem(&self.ws.module(s.module).name), s.name)
+                };
                 if args.is_empty() {
                     head
                 } else {
@@ -1150,7 +1173,7 @@ impl<'a> Emitter<'a> {
             for (i, (fname, fty)) in fields.iter().enumerate() {
                 // A move-only member was reset by its own move constructor, and its
                 // assignment is deleted, so touching it again would not even compile.
-                if !self.table.copyable(fty) && !matches!(fty, Ty::OwnPtr(_)) {
+                if !self.table.copyable(fty) && !matches!(fty, Ty::OwnPtr { .. }) {
                     continue;
                 }
                 let _ = writeln!(self.header, "        {fname} = {};", defaults[i]);
@@ -1496,6 +1519,20 @@ impl<'a> Emitter<'a> {
 
     // --- types -------------------------------------------------------------
 
+    /// `^mut T` is `T*` and `^T` is `const T*` (spec §15.2). After a pointee that is itself
+    /// a pointer the `const` goes on the right, which is where C++ reads it as applying to
+    /// that pointer: `^^mut i32` is `int32_t* const*`.
+    fn ptr_ty(&mut self, mutable: bool, inner: &Ty) -> String {
+        let pointee = self.cpp_ty(inner);
+        if mutable {
+            format!("{pointee}*")
+        } else if pointee.ends_with('*') {
+            format!("{pointee} const*")
+        } else {
+            format!("const {pointee}*")
+        }
+    }
+
     fn cpp_ty(&mut self, t: &Ty) -> String {
         match t {
             Ty::Error | Ty::Never | Ty::Void => "void".to_owned(),
@@ -1509,7 +1546,9 @@ impl<'a> Emitter<'a> {
             // `finish()` settles every literal, so these can only be a checker bug.
             Ty::IntLit => "int32_t".to_owned(),
             Ty::FloatLit => "double".to_owned(),
-            Ty::Ptr(i) | Ty::OwnPtr(i) => format!("{}*", self.cpp_ty(i)),
+            Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
+                self.ptr_ty(*mutable, inner)
+            }
             Ty::Ref { mutable: true, inner } => format!("{}&", self.cpp_ty(inner)),
             Ty::Ref { mutable: false, inner } => format!("const {}&", self.cpp_ty(inner)),
             Ty::Optional(i) => format!("::dz::Opt<{}>", self.cpp_ty(i)),
@@ -1527,9 +1566,12 @@ impl<'a> Emitter<'a> {
                 format!("::dz::Tuple<{}>", ps.join(", "))
             }
             Ty::Range(elem) => format!("::dz::Range<{}>", self.cpp_ty(elem)),
+            // Through the shim's alias: C++'s own `R (*)(A)` puts the name inside the
+            // parentheses, so it cannot be written as `T name` the way every other type is.
             Ty::Fn { params, ret } => {
-                let ps: Vec<String> = params.iter().map(|p| self.cpp_ty(p)).collect();
-                format!("{}(*)({})", self.cpp_ty(ret), ps.join(", "))
+                let mut ps: Vec<String> = vec![self.cpp_ty(ret)];
+                ps.extend(params.iter().map(|p| self.cpp_ty(p)));
+                format!("::dz::fn<{}>", ps.join(", "))
             }
             // Both live in the shim, so they keep their `dz::` name (spec §9.2, §16.4).
             Ty::Builtin(b) => format!("::dz::{}", b.name()),
@@ -1549,8 +1591,29 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// `::dz::obj(x)` reaches through a pointer. A value or a reference already *is* the
+    /// thing, and a C array member must not go through a template at all: it would decay to
+    /// a pointer there and take its length with it (spec §15.2).
+    fn through(&self, e: ExprId, rendered: String) -> String {
+        if matches!(self.cur().ty(e).peeled_refs(), Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
+            format!("::dz::obj({rendered})")
+        } else {
+            rendered
+        }
+    }
+
+    fn is_foreign(&self, sym: SymbolId) -> bool {
+        self.ws.module(self.res.symbol(sym).module).foreign.is_some()
+    }
+
     fn qualify(&self, sym: SymbolId) -> String {
         let s = self.res.symbol(sym);
+        // An imported header's names are its own and global, spelled `::mini_add` so no
+        // Dazzle name in the enclosing namespace can hide one — and `::JPH::Body` for one a
+        // namespace holds. The importer settled the spelling; this only writes it (§15.2).
+        if let Some(cpp) = self.res.cpp_path(sym) {
+            return cpp.to_owned();
+        }
         if s.module == self.module {
             s.name.clone()
         } else {
@@ -1823,10 +1886,14 @@ impl<'a> Emitter<'a> {
             return;
         }
 
+        // A pointer subject is reached through; anything else already *is* the sequence,
+        // and a C array member must not go through a template that decays it (spec §15.2).
+        let pointer_subject =
+            matches!(self.cur().ty(subject).peeled_refs(), Ty::Ptr { .. } | Ty::OwnPtr { .. });
         let subject_text = self.expr(subject);
-        let elem_ty = body.ty(subject).element().cloned().unwrap_or(Ty::Error);
         let seq = self.fresh("seq");
         self.line(&format!("auto&& {seq} = {subject_text};"));
+        let seq_obj = if pointer_subject { format!("::dz::obj({seq})") } else { seq.clone() };
 
         if bindings.len() == 2 {
             // `for i, x in xs` — an index loop rather than a range-for, so that a
@@ -1835,7 +1902,6 @@ impl<'a> Emitter<'a> {
                 Some(l) => self.names[l.index()].clone(),
                 None => self.fresh("i"),
             };
-            let elem = self.cpp_ty(&elem_ty);
             self.line(&format!(
                 "for (size_t {idx} = 0; {idx} < ::dz::len({seq}); ++{idx}) {{"
             ));
@@ -1843,14 +1909,16 @@ impl<'a> Emitter<'a> {
             if let Some(l) = bindings[1] {
                 let name = self.names[l.index()].clone();
                 let unused = self.unused_attr(l.index());
-                self.line(&format!("{unused}{elem}& {name} = ::dz::obj({seq})[{idx}];"));
+                // `auto&`, as in the range-for below: over a read-only view — a `[]T`, or
+                // an array behind a `^T` — the element is `const`, and C++ has to say so.
+                self.line(&format!("{unused}auto& {name} = {seq_obj}[{idx}];"));
             }
         } else {
             let (name, unused) = match bindings.first().copied().flatten() {
                 Some(l) => (self.names[l.index()].clone(), self.unused_attr(l.index())),
                 None => (self.fresh("x"), "[[maybe_unused]] "),
             };
-            self.line(&format!("for ({unused}auto& {name} : ::dz::obj({seq})) {{"));
+            self.line(&format!("for ({unused}auto& {name} : {seq_obj}) {{"));
             self.indent += 1;
         }
         self.block_into(block, Dest::None);
@@ -1883,13 +1951,14 @@ impl<'a> Emitter<'a> {
                         };
                         self.line(&format!("{unused}{cpp} {name} = {value};"));
                     }
-                    Ty::Ptr(inner) | Ty::OwnPtr(inner) => {
-                        let cpp = self.cpp_ty(&inner);
+                    Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
+                        let ptr = self.ptr_ty(mutable, &inner);
+                        let reference = self.cpp_ty(&Ty::Ref { mutable, inner });
                         let tmp = self.fresh("ptr");
-                        self.line(&format!("{cpp}* {tmp} = {v};"));
+                        self.line(&format!("{ptr} {tmp} = {v};"));
                         self.line(&format!("if ({tmp} != nullptr) {{"));
                         self.indent += 1;
-                        self.line(&format!("{unused}{cpp}& {name} = *{tmp};"));
+                        self.line(&format!("{unused}{reference} {name} = *{tmp};"));
                     }
                     // The checker reported the operand; keep the braces balanced.
                     _ => {
@@ -2044,7 +2113,7 @@ impl<'a> Emitter<'a> {
                 format!("&({p})")
             }
             _ => match body.ty(e) {
-                Ty::Ptr(_) | Ty::OwnPtr(_) => self.expr(e),
+                Ty::Ptr { .. } | Ty::OwnPtr { .. } => self.expr(e),
                 _ => {
                     let v = self.expr(e);
                     format!("&({v})")
@@ -2079,6 +2148,8 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Float(v) => float_literal(*v, body.ty(e)),
             hir::ExprKind::Bool(b) => b.to_string(),
             hir::ExprKind::Char(c) => format!("U'\\U{:08X}'", *c as u32),
+            // A literal typed `cstr` is the C string literal itself (spec §5.3, §18.39).
+            hir::ExprKind::Str(s) if matches!(body.ty(e), Ty::CStr) => quote_cpp(s),
             hir::ExprKind::Str(s) => format!("::dz::str({}, {})", quote_cpp(s), s.len()),
             hir::ExprKind::Null => "nullptr".to_owned(),
             hir::ExprKind::NoneOpt => {
@@ -2087,6 +2158,12 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Local(l) => self.names[l.index()].clone(),
+            // An imported constant is an enumerator or a macro, whose C++ type is C's — an
+            // enum, an `int` — rather than the one its Dazzle context settled (spec §15.2).
+            hir::ExprKind::Const(sym) if self.is_foreign(*sym) => {
+                let t = self.cpp_ty(body.ty(e));
+                format!("static_cast<{t}>({})", self.qualify(*sym))
+            }
             hir::ExprKind::Const(sym) | hir::ExprKind::FnItem(sym) => self.qualify(*sym),
             hir::ExprKind::Field { base, index } => {
                 let name = self.field_name(*base, *index);
@@ -2113,7 +2190,7 @@ impl<'a> Emitter<'a> {
                 // arrays and slices.
                 let raw_pointer = matches!(
                     self.cur().ty(*base).peeled_refs(),
-                    Ty::Ptr(inner) | Ty::OwnPtr(inner)
+                    Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. }
                         if !matches!(**inner, Ty::Array { .. } | Ty::Slice { .. })
                 );
                 let b = self.expr(*base);
@@ -2122,7 +2199,7 @@ impl<'a> Emitter<'a> {
                     return format!("({b})[static_cast<size_t>({i})]");
                 }
                 let loc = self.source_location(node.span);
-                format!("::dz::index(::dz::obj({b}), static_cast<size_t>({i}), {loc})")
+                { let base = self.through(*base, b); format!("::dz::index({base}, static_cast<size_t>({i}), {loc})") }
             }
             hir::ExprKind::Deref(inner) => {
                 let is_ref = matches!(body.ty(*inner), Ty::Ref { .. });
@@ -2170,11 +2247,11 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::TypeQuery { ty, query } => self.type_query(ty, *query),
             hir::ExprKind::Len(base) => {
                 let b = self.expr(*base);
-                format!("::dz::len(::dz::obj({b}))")
+                { let base = self.through(*base, b); format!("::dz::len({base})") }
             }
             hir::ExprKind::DataPtr(base) => {
                 let b = self.expr(*base);
-                format!("::dz::data(::dz::obj({b}))")
+                { let base = self.through(*base, b); format!("::dz::data({base})") }
             }
             hir::ExprKind::ArrayLit(parts) => {
                 let t = self.cpp_ty(body.ty(e));
@@ -2242,11 +2319,13 @@ impl<'a> Emitter<'a> {
                 let is_ref = matches!(ty, Ty::Ref { .. });
                 let tmp = self.fresh("ok");
                 if is_ref {
-                    let inner = match &ty {
-                        Ty::Ref { inner, .. } => self.cpp_ty(inner),
-                        _ => cpp.clone(),
+                    // A reference cannot be reseated, so the result is held as a pointer
+                    // of the same writability until the clause has run.
+                    let ptr = match &ty {
+                        Ty::Ref { mutable, inner } => self.ptr_ty(*mutable, inner),
+                        _ => format!("{cpp}*"),
                     };
-                    self.line(&format!("{inner}* {tmp} = nullptr;"));
+                    self.line(&format!("{ptr} {tmp} = nullptr;"));
                     self.or_expr(e, *operand, clause, Dest::Ptr(&tmp));
                     format!("(*{tmp})")
                 } else {
@@ -2464,13 +2543,52 @@ impl<'a> Emitter<'a> {
                 format!("({f})")
             }
         };
+        // An imported function may want a C type Dazzle spells differently — `char *`
+        // against `int8_t *` — so the crossing is cast, in both directions (spec §15.2).
+        let imported = match callee {
+            hir::Callee::Fn { sym, .. } if self.is_foreign(*sym) => match self.table.get(*sym) {
+                Some(ItemSig::Fn(sig)) => Some(sig.clone()),
+                _ => None,
+            },
+            // A member function of an imported C++ class crosses the same boundary as a
+            // free one, and wants the same casts (spec §15.2). The call node carries the
+            // name, not the overload key, so this applies only where the name names one
+            // method — and an overload set's members differ in their parameter types, which
+            // is exactly when guessing would cast against the wrong one.
+            hir::Callee::Method { owner, name, .. } if self.is_foreign(*owner) => {
+                match self.table.struct_sig(*owner) {
+                    Some(s) => match s.overloads.get(name).map(Vec::as_slice) {
+                        Some([key]) => s.methods.get(key).cloned(),
+                        _ => None,
+                    },
+                    None => None,
+                }
+            }
+            hir::Callee::Ctor { owner, index } if self.is_foreign(*owner) => {
+                self.table.struct_sig(*owner).and_then(|s| s.ctors.get(*index)).cloned()
+            }
+            _ => None,
+        };
+
         let mut rendered: Vec<String> = recv_arg.into_iter().collect();
-        for a in args {
+        for (i, a) in args.iter().enumerate() {
             let moved = !self.table.copyable(self.cur().ty(*a));
             let v = self.expr(*a);
-            rendered.push(if moved { format!("::dz::mv({v})") } else { v });
+            let v = if moved { format!("::dz::mv({v})") } else { v };
+            let cast = imported.as_ref().and_then(|s| s.params.get(i)).and_then(|p| p.c_cast.clone());
+            rendered.push(match cast {
+                Some(c) => format!("({c})({v})"),
+                None => v,
+            });
         }
-        format!("{target}({})", rendered.join(", "))
+        let call = format!("{target}({})", rendered.join(", "));
+        match imported {
+            Some(sig) if sig.ret_cast => {
+                let t = self.cpp_ty(&node_ty);
+                format!("({t})({call})")
+            }
+            _ => call,
+        }
     }
 
     /// `return`, in a body whose C++ return type may not be its Dazzle one (spec §9.3).
@@ -2540,11 +2658,11 @@ impl<'a> Emitter<'a> {
                 self.line("}");
             }
             // `^T or …` is the checked pointer-to-reference conversion of §5.2.
-            Ty::Ptr(inner) | Ty::OwnPtr(inner) => {
-                let cpp = self.cpp_ty(&inner);
+            Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
+                let ptr = self.ptr_ty(mutable, &inner);
                 let tmp = self.fresh("ptr");
                 let v = self.expr(operand);
-                self.line(&format!("{cpp}* {tmp} = {v};"));
+                self.line(&format!("{ptr} {tmp} = {v};"));
                 self.line(&format!("if ({tmp} != nullptr) {{"));
                 self.indent += 1;
                 match dest {

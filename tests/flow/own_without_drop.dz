@@ -3,6 +3,6 @@
 // expect: DZ0412
 
 pub struct Leaky {
-    m_p: own ^i32
+    m_p: own ^mut i32
     pub label: str
 }

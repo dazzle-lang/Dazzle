@@ -293,7 +293,9 @@ fn doc_text(text: &str, docs: &[Span]) -> String {
 fn type_base(t: &Type) -> Option<String> {
     match &t.kind {
         TypeKind::Path(p) => p.segments.last().map(|s| s.name.name.clone()),
-        TypeKind::Ptr(inner) | TypeKind::OwnPtr(inner) | TypeKind::Ref { inner, .. } => type_base(inner),
+        TypeKind::Ptr { inner, .. } | TypeKind::OwnPtr { inner, .. } | TypeKind::Ref { inner, .. } => {
+            type_base(inner)
+        }
         _ => None,
     }
 }
@@ -335,9 +337,146 @@ fn render(d: &Decl) -> String {
     let mut s = code(&d.header);
     if !d.docs.is_empty() {
         s.push_str("\n\n---\n\n");
-        s.push_str(&d.docs);
+        s.push_str(&doxygen(&d.docs));
     }
     s
+}
+
+/// A documentation comment as Markdown, understanding Doxygen's commands.
+///
+/// Dazzle writes `///` and C and C++ headers write whatever they like, but both use Doxygen
+/// to say what a parameter is for and what a function returns — and an editor showing
+/// `@param width the window width` verbatim is showing markup, not documentation. The
+/// commands below are the ones that carry meaning worth laying out; anything else is passed
+/// through untouched, so no comment is ever made worse by being rendered.
+///
+/// Both spellings of every command are accepted (`@param` and `\param`), as Doxygen does.
+pub fn doxygen(docs: &str) -> String {
+    let mut body: Vec<String> = Vec::new();
+    let mut params: Vec<(String, String)> = Vec::new();
+    let mut returns: Vec<String> = Vec::new();
+    // Which list the following indented continuation lines belong to.
+    enum At {
+        Body,
+        Param,
+        Return,
+    }
+    let mut at = At::Body;
+    let mut in_code = false;
+
+    for line in docs.lines() {
+        let t = line.trim_start();
+        if in_code {
+            if matches!(command(t), Some(("endcode" | "endverbatim", _))) {
+                in_code = false;
+                body.push("```".to_owned());
+            } else {
+                body.push(line.to_owned());
+            }
+            continue;
+        }
+        let Some((cmd, rest)) = command(t) else {
+            // A continuation of whatever command came last.
+            match (&at, t.is_empty()) {
+                (_, true) => {
+                    at = At::Body;
+                    body.push(String::new());
+                }
+                (At::Param, _) => {
+                    if let Some(last) = params.last_mut() {
+                        last.1.push(' ');
+                        last.1.push_str(t);
+                    }
+                }
+                (At::Return, _) => {
+                    if let Some(last) = returns.last_mut() {
+                        last.push(' ');
+                        last.push_str(t);
+                    }
+                }
+                (At::Body, _) => body.push(line.to_owned()),
+            }
+            continue;
+        };
+        match cmd {
+            // `@param[in] name description` — the direction is Doxygen's own bookkeeping.
+            "param" => {
+                let rest = rest.trim_start_matches('[').trim_start();
+                let rest = match rest.find(']') {
+                    Some(i) => rest[i + 1..].trim_start(),
+                    None => rest,
+                };
+                let (name, desc) = split_word(rest);
+                params.push((name.to_owned(), desc.to_owned()));
+                at = At::Param;
+            }
+            "return" | "returns" | "result" => {
+                returns.push(rest.to_owned());
+                at = At::Return;
+            }
+            "brief" | "short" | "details" | "summary" => {
+                body.push(rest.to_owned());
+                at = At::Body;
+            }
+            "note" | "warning" | "remark" | "remarks" | "attention" | "since" | "deprecated" => {
+                let label = format!("{}{}", cmd[..1].to_uppercase(), &cmd[1..]);
+                body.push(format!("**{label}:** {rest}"));
+                at = At::Body;
+            }
+            "see" | "sa" => {
+                body.push(format!("**See:** {rest}"));
+                at = At::Body;
+            }
+            "code" | "verbatim" => {
+                in_code = true;
+                body.push("```".to_owned());
+            }
+            // `@p name`, `@c thing`, `@a arg`: this word is code.
+            "p" | "c" | "a" | "e" | "em" => {
+                let (word, tail) = split_word(rest);
+                body.push(format!("`{word}` {tail}").trim_end().to_owned());
+            }
+            _ => body.push(line.to_owned()),
+        }
+    }
+    if in_code {
+        body.push("```".to_owned());
+    }
+
+    let mut out = body.join("\n").trim().to_owned();
+    if !params.is_empty() {
+        out.push_str("\n\n**Parameters**\n");
+        for (name, desc) in &params {
+            let desc = desc.trim();
+            if desc.is_empty() {
+                out.push_str(&format!("\n- `{name}`"));
+            } else {
+                out.push_str(&format!("\n- `{name}` — {desc}"));
+            }
+        }
+    }
+    if !returns.is_empty() {
+        let text = returns.join(" ");
+        out.push_str(&format!("\n\n**Returns** {}", text.trim()));
+    }
+    out.trim().to_owned()
+}
+
+/// A Doxygen command at the start of a line, in either spelling, and what follows it.
+fn command(line: &str) -> Option<(&str, &str)> {
+    let rest = line.strip_prefix('@').or_else(|| line.strip_prefix('\\'))?;
+    let end = rest.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(rest.len());
+    if end == 0 {
+        return None;
+    }
+    Some((&rest[..end], rest[end..].trim_start()))
+}
+
+fn split_word(s: &str) -> (&str, &str) {
+    match s.find(char::is_whitespace) {
+        Some(i) => (&s[..i], s[i..].trim_start()),
+        None => (s, ""),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -384,7 +523,7 @@ fn adt_of(ty: &Ty) -> Option<Adt> {
     match ty {
         Ty::Named { sym, .. } => Some(Adt::Struct(*sym)),
         Ty::Variant(s, v) => Some(Adt::Variant(*s, *v)),
-        Ty::Ref { inner, .. } | Ty::Ptr(inner) | Ty::OwnPtr(inner) | Ty::Optional(inner) => {
+        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } | Ty::Optional(inner) => {
             adt_of(inner)
         }
         _ => None,
@@ -393,7 +532,9 @@ fn adt_of(ty: &Ty) -> Option<Adt> {
 
 fn peel(ty: &Ty) -> &Ty {
     match ty {
-        Ty::Ref { inner, .. } | Ty::Ptr(inner) | Ty::OwnPtr(inner) | Ty::Optional(inner) => peel(inner),
+        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } | Ty::Optional(inner) => {
+            peel(inner)
+        }
         _ => ty,
     }
 }
@@ -822,8 +963,79 @@ impl<'a> Query<'a> {
                 _ => format!("let {}: {ty}", local.name),
             }));
         }
+        // An imported declaration is not written in Dazzle anywhere, so there is no source
+        // to quote: its signature is rebuilt from the types the checker gave it, and its
+        // documentation comes from the header (spec §15.2).
+        if let Ref::Symbol(s) = r {
+            if let Some(h) = self.foreign_hover(*s) {
+                return Some(h);
+            }
+        }
         let (file, span) = self.definition(r)?;
         self.decl_at(file, span).map(|d| render(&d))
+    }
+
+    /// What an imported C or C++ name is, as Dazzle sees it, with the header's own comment.
+    fn foreign_hover(&self, sym: SymbolId) -> Option<String> {
+        let (head, docs, cpp, module) = self.foreign_decl(sym)?;
+        // Where it came from, since the file it is "declared" in is a C header.
+        let mut out = code(&format!("{head}\n// {cpp}, from {module}"));
+        if !docs.is_empty() {
+            out.push_str("\n\n---\n\n");
+            out.push_str(&doxygen(&docs));
+        }
+        Some(out)
+    }
+
+    /// An imported declaration written the way Dazzle would write it, its documentation, its
+    /// C++ path, and the header it came from.
+    ///
+    /// There is no Dazzle source to quote — the declaration is in a C or C++ header — so the
+    /// signature is rebuilt from the types the checker gave it. Hover and signature help both
+    /// need it, and must agree (spec §15.2).
+    fn foreign_decl(&self, sym: SymbolId) -> Option<(String, String, String, String)> {
+        let cpp = self.res.cpp_path(sym)?.to_owned();
+        let symbol = self.res.symbol(sym);
+        let module = self.a.ws.as_ref()?.module(symbol.module);
+        let decl = module.foreign.as_ref()?.header.decls.iter().find(|d| d.cpp == cpp)?;
+
+        let head = match self.table.and_then(|t| t.get(sym)) {
+            Some(ItemSig::Fn(sig)) => {
+                let params: Vec<String> = sig
+                    .params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, type_name(self.res, &p.ty)))
+                    .collect();
+                let ret = type_name(self.res, &sig.ret);
+                let arrow = if ret == "void" { String::new() } else { format!(" -> {ret}") };
+                format!("fn {}({}){arrow}", symbol.name, params.join(", "))
+            }
+            Some(ItemSig::Const(ty)) => {
+                format!("const {}: {}", symbol.name, type_name(self.res, ty))
+            }
+            Some(ItemSig::Enum { variants, .. }) => {
+                let names: Vec<&str> = variants.iter().map(|v| v.name.as_str()).collect();
+                format!("enum {} {{ {} }}", symbol.name, names.join(", "))
+            }
+            Some(ItemSig::Struct(s)) if s.opaque => {
+                format!("struct {}   // a handle: used behind ^T", symbol.name)
+            }
+            Some(ItemSig::Struct(s)) => {
+                let fields: Vec<String> = s
+                    .fields
+                    .iter()
+                    .map(|f| format!("    {}: {},", f.name, type_name(self.res, &f.ty)))
+                    .collect();
+                let word = if s.is_union { "union" } else { "struct" };
+                if fields.is_empty() {
+                    format!("{word} {}", symbol.name)
+                } else {
+                    format!("{word} {} {{\n{}\n}}", symbol.name, fields.join("\n"))
+                }
+            }
+            _ => symbol.name.clone(),
+        };
+        Some((head, decl.docs.clone(), cpp, module.name.clone()))
     }
 
     /// The methods a value of this type can call, as declarations: those written in its own
@@ -901,6 +1113,8 @@ impl<'a> Query<'a> {
             SymbolKind::Fn => CompletionKind::Function,
             SymbolKind::Const => CompletionKind::Constant,
             SymbolKind::Macro => CompletionKind::Macro,
+            // A C++ namespace is a scope to reach through, which is what a module is here.
+            SymbolKind::Namespace => CompletionKind::Module,
         };
         let detail = self.decl_at(sym.file, sym.span).map(|d| d.header);
         out.push(&sym.name, kind, detail);
@@ -1027,21 +1241,60 @@ impl<'a> Query<'a> {
     }
 
     /// After `head::` — a module's items, or a type's members and compile-time queries.
-    fn complete_path(&self, file: FileId, head: &str, out: &mut Completions) {
+    /// What can follow a `::`, given every segment written before it.
+    ///
+    /// The whole prefix, not just the last segment: `rl::MouseButton::` has to find
+    /// `MouseButton` in the module `rl` names rather than in this file's own scope, and
+    /// `shp::shapes::geom::` walks a C++ namespace per segment (spec §15.2).
+    fn complete_path(&self, file: FileId, segments: &[&str], out: &mut Completions) {
         let Some(module) = self.module_of(file) else { return };
-        if let Some(m) = self.res.module_alias(file, head) {
-            if let Some(scope) = self.res.scopes.get(&m) {
-                for &s in scope.items.values() {
-                    let sym = self.res.symbol(s);
-                    if dz_resolve::visible_from(sym.vis, sym.module, module) {
-                        self.symbol_completion(s, out);
+        let Some((head, mut rest)) = segments.split_first() else { return };
+
+        let sym = match self.res.module_alias(file, head) {
+            Some(m) => {
+                let Some((next, tail)) = rest.split_first() else {
+                    // `rl::` — everything the module exports.
+                    if let Some(scope) = self.res.scopes.get(&m) {
+                        for &s in scope.items.values() {
+                            let sym = self.res.symbol(s);
+                            if dz_resolve::visible_from(sym.vis, sym.module, module) {
+                                self.symbol_completion(s, out);
+                            }
+                        }
                     }
+                    return;
+                };
+                rest = tail;
+                self.res.lookup(m, next)
+            }
+            None => self.res.lookup_in_file(module, file, head),
+        };
+        // Each remaining segment is a step into a C++ namespace. A head that resolves to
+        // nothing still reaches the type queries below: `T::` on a generic parameter names
+        // no symbol and answers them all the same (spec §5.5).
+        let mut walked = sym;
+        for seg in rest {
+            walked = walked.and_then(|s| self.res.inner(s, seg));
+        }
+        let Some(sym) = walked else {
+            for q in TYPE_QUERIES {
+                out.push(q, CompletionKind::Constant, None);
+            }
+            return;
+        };
+        if self.res.symbol(sym).kind == SymbolKind::Namespace {
+            // A namespace holds declarations, which keep their own kinds.
+            let names: Vec<String> =
+                self.res.symbol(sym).members.iter().map(|m| m.name.clone()).collect();
+            for name in names {
+                if let Some(inner) = self.res.inner(sym, &name) {
+                    self.symbol_completion(inner, out);
                 }
             }
             return;
         }
-        if let Some(s) = self.res.lookup_in_file(module, file, head) {
-            for m in &self.res.symbol(s).members {
+        {
+            for m in &self.res.symbol(sym).members {
                 let kind = match m.sort {
                     MemberSort::Variant => CompletionKind::Variant,
                     MemberSort::Method => CompletionKind::Method,
@@ -1118,6 +1371,29 @@ fn trailing_ident(s: &str) -> &str {
     &s[s.len() - len..]
 }
 
+/// The segments of a `::` path ending at `s`, outermost first.
+///
+/// `"let c = rl::MouseButton"` gives `["rl", "MouseButton"]`. Only what is joined by `::`
+/// counts, so the code before the path is left behind at the first segment that is not.
+fn path_segments(s: &str) -> Vec<&str> {
+    let mut rest = s;
+    let mut out = Vec::new();
+    loop {
+        let seg = trailing_ident(rest);
+        if seg.is_empty() {
+            break;
+        }
+        out.push(seg);
+        rest = rest[..rest.len() - seg.len()].trim_end();
+        match rest.strip_suffix("::") {
+            Some(before) => rest = before.trim_end(),
+            None => break,
+        }
+    }
+    out.reverse();
+    out
+}
+
 fn ident_prefix(s: &str) -> &str {
     let len: usize = s.chars().take_while(|c| is_ident_char(*c)).map(char::len_utf8).sum();
     &s[..len]
@@ -1154,8 +1430,9 @@ pub fn complete(
     let mut out = Completions::default();
 
     if let Some(rest) = lead.strip_suffix("::") {
+        let segments = path_segments(rest);
         for (q, file) in &analyses {
-            q.complete_path(*file, trailing_ident(rest), &mut out);
+            q.complete_path(*file, &segments, &mut out);
         }
         return out.items;
     }
@@ -1363,6 +1640,18 @@ pub fn signature_help(a: &Analysis, file: FileId, offset: u32) -> Option<Signatu
     let decl = match q.target_at(file, &tokens, text, k)? {
         Target::Decl(_, d) => d,
         Target::Ref(r) => {
+            // An imported function has no Dazzle source to quote: its signature is the one
+            // hover shows, rebuilt from the checker's types (spec §15.2).
+            if let Ref::Symbol(s) = r {
+                if let Some((head, docs, _, _)) = q.foreign_decl(s) {
+                    return Some(Signature {
+                        params: param_ranges(&head),
+                        label: head,
+                        active: commas,
+                        docs: doxygen(&docs),
+                    });
+                }
+            }
             let (f, s) = q.definition(&r)?;
             q.decl_at(f, s)?
         }
@@ -1370,7 +1659,8 @@ pub fn signature_help(a: &Analysis, file: FileId, offset: u32) -> Option<Signatu
     if !matches!(decl.kind, DeclKind::Function | DeclKind::Method | DeclKind::Ctor) {
         return None;
     }
-    Some(Signature { params: param_ranges(&decl.header), label: decl.header, active: commas, docs: decl.docs })
+    let docs = doxygen(&decl.docs);
+    Some(Signature { params: param_ranges(&decl.header), label: decl.header, active: commas, docs })
 }
 
 /// The byte range of each parameter in a function header, without the receiver: callers
@@ -1478,10 +1768,14 @@ pub enum TokenClass {
     Function,
     Method,
     Macro,
+    /// A module named on the left of `::` — an `import`'s alias, and a C++ namespace an
+    /// imported header brought in (spec §15.2). Without this a module reads as a variable,
+    /// which is what it looks like to the grammar.
+    Namespace,
 }
 
 impl TokenClass {
-    pub const ALL: [TokenClass; 12] = [
+    pub const ALL: [TokenClass; 13] = [
         TokenClass::Type,
         TokenClass::Struct,
         TokenClass::Enum,
@@ -1494,6 +1788,7 @@ impl TokenClass {
         TokenClass::Function,
         TokenClass::Method,
         TokenClass::Macro,
+        TokenClass::Namespace,
     ];
 }
 
@@ -1523,6 +1818,22 @@ pub fn semantic_tokens(a: &Analysis, file: FileId) -> Vec<SemanticToken> {
             continue;
         }
         let Some(target) = q.target_at(file, &tokens, text, i) else {
+            // `rl::SetTargetFPS(60)` — the head of a qualified path may be a module rather
+            // than a declaration in this file, and a module has no symbol of its own. It is
+            // not a variable, which is what it would otherwise be coloured as.
+            let before_path = tokens.get(i + 1).is_some_and(|n| n.kind == TokenKind::ColonColon);
+            if before_path {
+                let name = &text[t.span.start as usize..t.span.end as usize];
+                if q.res.module_alias(file, name).is_some() {
+                    out.push(SemanticToken {
+                        span: t.span,
+                        class: TokenClass::Namespace,
+                        declaration: false,
+                        readonly: false,
+                    });
+                    continue;
+                }
+            }
             // After a `.`, a name with no declaration is still a member — of a type the
             // language provides, like `e.message` — and `.` is only ever member access.
             if i > 0 && tokens[i - 1].kind == TokenKind::Dot {
@@ -1586,5 +1897,6 @@ fn symbol_class(kind: SymbolKind) -> (TokenClass, bool) {
         SymbolKind::Fn => (TokenClass::Function, false),
         SymbolKind::Const => (TokenClass::Variable, true),
         SymbolKind::Macro => (TokenClass::Macro, false),
+        SymbolKind::Namespace => (TokenClass::Namespace, false),
     }
 }

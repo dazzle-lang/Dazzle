@@ -6,6 +6,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 mod build;
+mod native;
 
 use dz_span::{FileId, SourceMap};
 

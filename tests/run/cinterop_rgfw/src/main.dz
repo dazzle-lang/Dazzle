@@ -1,0 +1,18 @@
+import cpp "RGFW.h" as rgfw
+
+fn main() !-> void {
+	rgfw::RGFW_init("Dazzle", 0)
+
+	let win = rgfw::RGFW_createWindow("Window", 0, 0, 800, 600, rgfw::RGFW_windowCenter)
+	let mut event: rgfw::RGFW_event
+
+	while rgfw::RGFW_window_shouldClose(win) == 0 {
+		while rgfw::RGFW_window_checkEvent(win, &mut event) != 0 {
+    		if event.type == rgfw::RGFW_keyPressed {
+				rgfw::RGFW_window_close(win)
+			}
+		}
+	}
+	
+	rgfw::RGFW_window_close(win)
+}

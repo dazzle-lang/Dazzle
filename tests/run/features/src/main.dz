@@ -85,7 +85,7 @@ fn arrays() -> i32 {
     return sum
 }
 
-fn pointers(v: ^Vec3) -> f32 {
+fn pointers(v: ^mut Vec3) -> f32 {
     // `.` reaches through the pointer on its own; there is no `->` (spec §5.2). Doing so
     // is `unsafe`: nothing checks that `v` still points at something.
     unsafe {

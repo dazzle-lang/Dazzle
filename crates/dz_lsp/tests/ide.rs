@@ -419,6 +419,171 @@ fn workspace_symbols_match_fuzzily_and_name_their_container() {
     assert!(ide::workspace_symbols(&a, "Ordering").is_empty(), "the prelude is not the project's");
 }
 
+// --- imported C and C++ names (spec §15.2) -------------------------------------------------
+
+fn cppinterop() -> (Analysis, FileId) {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/cppinterop");
+    let a = analyse(&root);
+    let file = main_file(&a);
+    (a, file)
+}
+
+#[test]
+fn hover_on_an_imported_function_shows_its_signature_and_the_header_s_docs() {
+    // The M7a deferral: an imported name is not written in Dazzle anywhere, so hover has no
+    // source to quote. It is rebuilt from the types the checker gave it instead, and the
+    // header's own comment is rendered through Doxygen (spec §15.2).
+    let (a, f) = cppinterop();
+    if a.diags.has_errors() {
+        eprintln!("skipping: the fixture needs libclang");
+        return;
+    }
+    let hover = info(&a, f, "area_of(shp", 2).hover.unwrap();
+    // The signature, in Dazzle's types rather than C's.
+    assert!(hover.contains("fn area_of(kind: Kind, size: i32) -> i32"), "{hover}");
+    // Where it really comes from, since the file it is declared in is a C++ header.
+    assert!(hover.contains("::shapes::area_of"), "{hover}");
+    // The comment, with its Doxygen commands laid out.
+    assert!(hover.contains("The area of a shape of the given kind."), "{hover}");
+    assert!(hover.contains("**Parameters**"), "{hover}");
+    assert!(hover.contains("- `kind` — which shape to measure"), "{hover}");
+    assert!(hover.contains("**Returns** the area, in whole units"), "{hover}");
+    assert!(hover.contains("**Note:** This is not a real geometry library."), "{hover}");
+    // And none of the markup survives as markup.
+    assert!(!hover.contains("@param"), "{hover}");
+}
+
+#[test]
+fn hover_on_an_imported_type_shows_its_fields() {
+    let (a, f) = cppinterop();
+    if a.diags.has_errors() {
+        return;
+    }
+    let hover = info(&a, f, "Point{ x: 1", 0).hover.unwrap();
+    assert!(hover.contains("struct Point"), "{hover}");
+    assert!(hover.contains("x: i32"), "{hover}");
+}
+
+#[test]
+fn a_module_alias_is_coloured_as_a_namespace_not_a_variable() {
+    // `rl::SetTargetFPS(60)` — the head of a qualified path is a module, which has no
+    // symbol of its own, so without this it reads as a variable (spec §15.2).
+    let (a, f) = cppinterop();
+    if a.diags.has_errors() {
+        return;
+    }
+    let text = a.map.get(f).text().to_owned();
+    let tokens = ide::semantic_tokens(&a, f);
+    let head = offset_in(&text, "shp::shapes::Point{ x: 1", 0);
+    let token = tokens
+        .iter()
+        .find(|t| t.span.start == head)
+        .unwrap_or_else(|| panic!("no token at the head of the path"));
+    assert_eq!(token.class, ide::TokenClass::Namespace);
+    // And the C++ namespace after it is one too.
+    let ns = offset_in(&text, "shapes::Point{ x: 1", 0);
+    let token = tokens.iter().find(|t| t.span.start == ns).expect("no token on the namespace");
+    assert_eq!(token.class, ide::TokenClass::Namespace);
+}
+
+/// Complete at the end of `typed`, appended as a new line at the end of `main` in the
+/// cppinterop fixture.
+fn complete_in_cppinterop(typed: &str) -> Vec<String> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/cppinterop");
+    let original = std::fs::read_to_string(root.join("src").join("main.dz")).unwrap();
+    // Just before the final `}` of `main`.
+    let close = original.rfind('}').unwrap();
+    let text = format!("{}    {typed}\n{}", &original[..close], &original[close..]);
+    let offset = original[..close].len() + 4 + typed.len();
+    let main = Path::new("src").join("main.dz");
+    let overlay = |p: &Path| p.ends_with(&main).then(|| text.clone());
+    let a = analyse_with(&root, &overlay, Mode::Editor);
+    let file = main_file(&a);
+    ide::complete(Some((&a, file)), None, &text, offset).into_iter().map(|c| c.label).collect()
+}
+
+#[test]
+fn completion_after_a_path_walks_every_segment_written_before_it() {
+    // `rl::MouseButton::` — the type is in the module the path names, not in this file's
+    // own scope, so completing on the last segment alone found nothing (spec §15.2).
+    let variants = complete_in_cppinterop("let k = shp::shapes::Kind::");
+    if variants.is_empty() {
+        eprintln!("skipping: the fixture needs libclang");
+        return;
+    }
+    assert!(variants.iter().any(|l| l == "Round"), "{variants:?}");
+    assert!(variants.iter().any(|l| l == "Square"), "{variants:?}");
+
+    // A C++ namespace lists what it holds, each with its own kind.
+    let inside = complete_in_cppinterop("let x = shp::shapes::");
+    for want in ["Point", "Kind", "area_of", "Counter", "Buffer", "geom"] {
+        assert!(inside.iter().any(|l| l == want), "`{want}` missing from {inside:?}");
+    }
+    // And a nested one goes a segment deeper.
+    let nested = complete_in_cppinterop("let y = shp::shapes::geom::");
+    assert!(nested.iter().any(|l| l == "manhattan"), "{nested:?}");
+
+    // The module itself still offers what it exports at the top level.
+    let top = complete_in_cppinterop("let z = shp::");
+    assert!(top.iter().any(|l| l == "shapes"), "{top:?}");
+    assert!(top.iter().any(|l| l == "IntPair"), "{top:?}");
+}
+
+#[test]
+fn signature_help_on_an_imported_call_names_the_parameter_being_typed() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/cppinterop");
+    let a = analyse(&root);
+    if a.diags.has_errors() {
+        eprintln!("skipping: the fixture needs libclang");
+        return;
+    }
+    let f = main_file(&a);
+    let text = a.map.get(f).text();
+    // Inside the parentheses of `area_of(shp::shapes::Kind::Round, 5)`.
+    let open = text.find("area_of(shp").unwrap() + "area_of(".len();
+    let sig = ide::signature_help(&a, f, open as u32).expect("signature help on an imported call");
+    assert!(sig.label.contains("fn area_of(kind: Kind, size: i32) -> i32"), "{}", sig.label);
+    assert_eq!(sig.params.len(), 2, "{:?}", sig.params);
+    // The first parameter is the one being typed, and it is named with its type.
+    assert_eq!(sig.active, 0);
+    assert_eq!(&sig.label[sig.params[0].0..sig.params[0].1], "kind: Kind");
+    assert_eq!(&sig.label[sig.params[1].0..sig.params[1].1], "size: i32");
+    // The header's documentation comes with it, rendered.
+    assert!(sig.docs.contains("- `kind` — which shape to measure"), "{}", sig.docs);
+
+    // After the comma it is the second.
+    let comma = text[open..].find(", 5").unwrap() + open + 2;
+    let sig = ide::signature_help(&a, f, comma as u32).expect("signature help after the comma");
+    assert_eq!(sig.active, 1);
+}
+
+#[test]
+fn doxygen_commands_render_as_markdown() {
+    // Both spellings, the tags that carry layout, and a passthrough for everything else.
+    let rendered = ide::doxygen(
+        "\\brief Opens a window.\n\
+         @param width  how wide\n\
+         @param[out] out where it goes\n\
+         @returns whether it worked\n\
+         @see CloseWindow\n\
+         @warning Call this once.",
+    );
+    assert!(rendered.starts_with("Opens a window."), "{rendered}");
+    assert!(rendered.contains("- `width` — how wide"), "{rendered}");
+    // `[out]` is Doxygen's bookkeeping, not part of the name.
+    assert!(rendered.contains("- `out` — where it goes"), "{rendered}");
+    assert!(rendered.contains("**Returns** whether it worked"), "{rendered}");
+    assert!(rendered.contains("**See:** CloseWindow"), "{rendered}");
+    assert!(rendered.contains("**Warning:** Call this once."), "{rendered}");
+
+    // A comment with no commands is passed through exactly.
+    assert_eq!(ide::doxygen("Just prose.\n\nTwo paragraphs."), "Just prose.\n\nTwo paragraphs.");
+
+    // A continuation line belongs to the parameter above it.
+    let wrapped = ide::doxygen("@param n the count\n  of things");
+    assert!(wrapped.contains("- `n` — the count of things"), "{wrapped}");
+}
+
 #[test]
 fn formatting_refuses_broken_source_and_is_idempotent() {
     let path = Path::new("t.dz");
