@@ -47,6 +47,7 @@ pub(crate) struct BodyBuilder {
     exprs: Vec<hir::Expr>,
     stmts: Vec<hir::Stmt>,
     blocks: Vec<hir::Block>,
+    base_init: Option<ExprId>,
 }
 
 impl BodyBuilder {
@@ -62,7 +63,20 @@ impl BodyBuilder {
             exprs: Vec::new(),
             stmts: Vec::new(),
             blocks: Vec::new(),
+            base_init: None,
         }
+    }
+
+    /// Record a constructor's `: Base(…)` (spec §7.3, 18.32). It lives in this body's
+    /// arena so its arguments can name the constructor's parameters, but outside `root`,
+    /// because C++ runs it before the body.
+    pub(crate) fn set_base_init(&mut self, e: ExprId) {
+        self.base_init = Some(e);
+    }
+
+    /// Is this body a constructor's? Only a constructor builds its base.
+    pub(crate) fn owner_is_ctor(&self) -> bool {
+        matches!(self.owner, BodyOwner::Ctor { .. })
     }
 
     /// Push a node. The type is stored exactly as the checker concluded it, *including*
@@ -178,6 +192,7 @@ impl BodyBuilder {
             stmts: self.stmts,
             blocks: self.blocks,
             root,
+            base_init: self.base_init,
         }
     }
 }

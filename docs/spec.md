@@ -1,9 +1,10 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 29
-**Status:** M0–M6 implemented — Dazzle programs compile and run, own, move and drop their
-resources deterministically, and have generics and traits. The language is not yet usable
-for real work: there is no C++ interop and no stdlib. See `docs/PROGRESS.md`.
+**Version:** 0.1 — **unreleased**, revision 31
+**Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
+resources deterministically, have generics and traits, and call C and C++ libraries that
+`dz` builds from vendored source. The language is not yet usable for real work: there is no
+stdlib. See `docs/PROGRESS.md`.
 
 **The version number stays 0.1 until 0.1 is actually finished.** 0.1 means: an LSP good
 enough to work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop
@@ -384,14 +385,22 @@ written `f((a < b), (c > (d)))`. `[PROPOSED]`
 
 ## 4. Visibility
 
-Three levels. Default is private. `[DECIDED]`
+Four levels. Default is private. `[DECIDED]`
 
-| On | `private` (default) | `pub(module)` | `pub` |
-|---|---|---|---|
-| Top-level declaration | visible within its module | same as private | exported from the module |
-| Struct field | visible only inside the struct's own methods | visible anywhere in the module | visible to importers |
-| Method | visible only inside the struct's own methods | visible anywhere in the module | visible to importers |
-| Enum / union variant | always as visible as its type | — | — |
+| On | `private` (default) | `protected` | `pub(module)` | `pub` |
+|---|---|---|---|---|
+| Top-level declaration | visible within its module | not allowed | same as private | exported from the module |
+| Struct field | visible only inside the struct's own methods | also inside the methods of the structs that inherit it | visible anywhere in the module | visible to importers |
+| Method | visible only inside the struct's own methods | also inside the methods of the structs that inherit it | visible anywhere in the module | visible to importers |
+| Enum / union variant | always as visible as its type | — | — | — |
+
+**`protected` is a different axis from the other three**, which is why it is spelled on its
+own rather than as a `pub(…)` form. `private`, `pub(module)` and `pub` widen by *where the
+code is written* — this type, this module, anywhere. `protected` widens by *what the type
+is*: a struct that inherits from this one may reach the member wherever it is written, and
+a struct that does not may not, however close it sits. It exists because of inheritance
+(§7.3) and means nothing without it, so it is refused on a top-level declaration, where
+nothing can inherit.
 
 Note the deliberate asymmetry: at top level, `private` and `pub(module)` mean the same
 thing, because the module *is* the encapsulation boundary and there is no file-level
@@ -961,10 +970,67 @@ let v = Vec3{1, 2, 3}                          // positional, allowed when all f
 let s: ButtonState = .Transition{}             // leading-dot inference from expected type
 ```
 
+#### Inheritance
+
 **`: Base` after a struct's name names the one struct it inherits from** — `struct Button :
-UiElement`. It never lists traits; those are implemented with `impl` (§7.6). The design is
-settled in discussion and is written down with the revision that implements it.
-`[OPEN — 18.32]`
+UiElement`. One base, never more, and never a trait: those are implemented with `impl`
+(§7.6). `[DECIDED — 18.32]`
+
+```dz
+pub struct UiElement {
+    protected rect: Rect
+    pub       shown: bool = true
+
+    pub virtual fn draw(&self)               // no body: `UiElement` is abstract
+    pub virtual fn hit(&self, p: Vec2) -> bool { return rect.contains(p) }
+
+    UiElement(r: Rect) { rect = r }
+}
+
+pub struct Button : UiElement {
+    pub label: str = ""
+
+    Button(r: Rect, text: str) : UiElement(r) { label = text }
+
+    pub override fn draw(&self) { ... }
+    pub override fn hit(&self, p: Vec2) -> bool {
+        return UiElement::hit(self, p) && shown
+    }
+}
+```
+
+**The base comes first in memory**, so `&Derived` → `&Base` and `^Derived` → `^Base` are
+implicit and cost nothing. A **by-value** `Derived` where a `Base` is wanted is an error:
+copying one would silently drop everything the derived type adds, which is C++'s slicing.
+A base's fields and methods are the derived type's, in scope unqualified inside its methods
+exactly as its own are, and a base's field or method may not be redeclared — a name means
+one thing in a type, whichever declaration it came from.
+
+**Constructors.** A base with a constructor must be constructed through it, written after
+the derived constructor's parameters: `Button(r: Rect, text: str) : UiElement(r) { … }`.
+Leaving it out is an error. A base without a constructor is default-initialised (§6.2) and
+needs nothing written, though `: Base()` may be written to say so. A type that has a
+constructor — its own, or an inherited one — is **not** built with a struct literal: the
+constructor is what establishes the type's invariant, and a literal would step around it.
+
+**`virtual` and `override`.** A method is dispatched statically unless it says otherwise.
+`virtual fn` opts one into runtime dispatch; `override fn` replaces one, and must match the
+base's signature exactly. Both are checked in both directions: an `override` with nothing
+to override is an error, and so is a method that redeclares a base's without saying
+`override`. A `virtual fn` **with no body** makes its struct **abstract** — there is
+nothing to call, so no value of it can exist, by value, in a field or as a parameter. An
+abstract type behind a `&` or a `^` is exactly what it is for. A derived type becomes
+concrete by overriding every body-less `virtual` it inherits.
+
+`Base::method(self, …)` calls the base's version *without* virtual dispatch, which is how
+an override builds on what it replaces rather than discarding it. `drop` becomes virtual
+automatically as soon as a type or one of its bases has a `virtual` method, so a value
+destroyed through a base reference runs the right one.
+
+**Implementations are inherited.** A `Button` is `Inspect` if `UiElement` is, and a more
+specific `impl Inspect for Button` replaces the inherited one. Dispatch stays static
+(§7.6): through a `&UiElement` it is `UiElement`'s implementation that runs, and reaching
+the derived behaviour from there is what a `virtual` method is for.
 
 ### 7.4 Enums
 
@@ -2845,6 +2911,8 @@ be exactly what reload needs, and must stay that way:
 
 | 18.41 | What a C `union` becomes | **A type whose members overlap**, read and written as C does it — not a Dazzle `union`, which is tagged (§7.5) and would promise a discriminant the C type does not have, with an exhaustive `switch` that means nothing. So `RGFW_event` comes in with all its members, `e.type` reads the one C would, and reading a member nobody wrote is C's own bargain rather than something Dazzle can check. A literal may set **one** member, since they are the same bytes (`DZ0705`); the type is never defined by Dazzle, so its layout stays the header's (§15.2) |
 
+| 18.32 | Struct inheritance | **Single inheritance, written `struct Button : UiElement`.** The base comes first in memory, so `&Derived` → `&Base` and `^Derived` → `^Base` are implicit and free, while a by-value `Derived` where a `Base` is wanted is an error — C++'s slicing, which drops what the derived type adds. A base's fields and methods are the derived type's, unqualified inside its methods, and neither may be redeclared. A base with a constructor is constructed through it, `Button(…) : UiElement(r)`, and a type with a constructor is not built with a struct literal. Dispatch is static unless written: `virtual fn` opts one method in, `override fn` replaces one, both checked in both directions, and a body-less `virtual fn` makes the struct abstract — no value of it exists, only a `&` or a `^` to one. `Base::method(self)` calls the base's version without dispatch, and `drop` becomes virtual as soon as anything in the chain is. A fourth visibility, `protected`, opens a member to the types that inherit it (§4). Implementations are inherited and a more specific `impl` replaces the inherited one, statically. This reverses §7.3's old "there is no inheritance", which was never a decision of the language's author (§7.3, §4) |
+
 ### 18.2 Still open
 
 | # | Question | State |
@@ -2852,7 +2920,6 @@ be exactly what reload needs, and must stay that way:
 | 18.18 | `collect` | Reserved, unspecified. A fourth `or`-family clause that accumulates errors instead of acting on the first (§9.9) |
 | 18.19 | `ignore` in two positions | It is a clause (`f() or ignore`) and a bare statement (`or { ignore; return }`). Probably fine, possibly one word doing two jobs. Decide against real code after M12 |
 | 18.20 | `or unreachable` lowering | Debug: panic with `#location`. Release: does it emit `__builtin_unreachable`, or merely skip the check? The first is faster and the second is kinder. §1.1 says Dazzle does not promise safety, which argues for the first (§9.4) |
-| 18.32 | Struct inheritance | `struct Button : UiElement` is reserved for it (18.31), reversing §7.3's old "there is no inheritance", which was never a decision of the language's author. Settled in discussion, to be written down with the revision that implements it: single inheritance; `virtual fn` in the base, `override fn` in the derived, both checked, and a body-less `virtual fn` making the base abstract; `&Derived` → `&Base` and `^Derived` → `^Base` implicit, a by-value `Derived` → `Base` an error (no slicing); `drop` virtual whenever the type or a base has a `virtual` method; a base with a constructor must be constructed through it, `Button(…) : UiElement(r)`; `UiElement::draw(self)` calls the base's version; a `protected` visibility for derived types; a base's implementations inherited, and overridable by a more specific `impl` (static, so runtime dispatch goes through a `virtual` method) (§7.3) |
 
 New questions will appear as implementation continues. They belong here, with the same
 resolved/open split.
@@ -2872,14 +2939,21 @@ Each milestone ends with something you can actually run.
 | M4 ✅ | Codegen + runtime shim + `dz run` | **done — hello world runs.** C++17 emission with `#line` mapping back to `.dz`, the runtime shim, `dz cpp` / `dz build` / `dz run`, and end-to-end tests that compile and execute real programs. Output is warning-clean under `-Wall -Wextra -fno-exceptions -fno-rtti` on both clang++ and g++. Codegen covers functions, structs, enums, control flow, pointers, arrays and `defer`; `T?`, fallible returns, and tagged unions report `DZ0801` and are owed by M5 |
 | M5 ✅ | Ownership: `own`, `copy`, `drop`, `move`, flow analysis | **done for everything that is not generic.** `copy` and `drop` become C++ special members, `move` steals and resets, move-only types have their copy operations deleted, and flow analysis reports use-after-move, partial moves, moves out of a borrow, implicit copies and missing returns. Codegen moved onto the HIR, which unblocked `T?`, fallible returns, tagged unions, tuples and block-valued expressions — the `DZ0801` rows M4 left behind. `tests/run/ownership` compiles and runs clean under ASan on clang++ and g++. `Buffer<T>` and `String` themselves are **generic**, so the literal criterion moves to M6; nothing about them is blocked on ownership any more |
 | M6 ✅ | Generics + traits + monomorphization | **done.** `Buffer<T>` runs as a generic struct with an `own ^T` field, a `drop`, a folded compile-time branch on `T::is_trivially_copyable`, and `construct`/`destroy`, allocating through `alloc`/`free` — instantiated for a trivially-copyable and a resource-owning `T` in `tests/run/generics`. Generic bodies are checked once against their bounds; traits, conformance, associated types, default methods and bounds work; operators dispatch through the prelude's traits; `for` runs over a user `Iterate`; format strings are checked. `Buffer<T>` has a `copy` exactly when `T` is `Copy` (§18.26, settled in r12). **Static dispatch only:** `^Trait` fat pointers (§7.6, §18.6) and therefore a stored `^Allocator` are not in this milestone, so `Allocator` exists as a trait and a bound while `Arena` and `Allocators::Global` wait for the stdlib pass |
-| M7a | C interop: a vendored C library, built from source | a C library in `tests/` — one header and one `.c` file, never prebuilt — compiles with the program and is called from Dazzle, on clang++ and g++ |
-| M7b | Full C and C++ interop | a raylib window opens from Dazzle, raylib built from its own vendored source; C++ classes, namespaces, overloads and named template instances import (§15) |
+| M7a ✅ | C interop: a vendored C library, built from source | **done** — `tests/run/cinterop` calls a two-file C library (`mini.h` + `mini.c`) that `dz` compiles from source from a `[cpp.libs]` recipe, with no CMake and no prebuilt binary, on clang++ and g++. `import cpp` reads the header through libclang into ordinary Dazzle names; `^T`/`^mut T` (r18), recipes (r19) and the import itself (r20) got there |
+| M7b ✅ | Full C and C++ interop | **done — a raylib window opens.** `tests/run/raylib` opens one with raylib 6.0 built from its own seven `.c` files. r21–r28 added what that needed and then the C++ half: handles, C unions, array members and bit-fields, callbacks, compound-literal macros, then namespaces, classes, methods, constructors, C++-owned destructors, overloaded methods, references and `[cpp.instantiate]` template instances, covered by `tests/run/cppinterop` on both compilers. What is left is narrower than the milestone and is in `PROGRESS.md`'s deferral register: overloaded *free* functions (methods do resolve), the boundary cast for an overloaded method, and inheritance between imported C++ classes — which waits on struct inheritance (18.32) |
 | M8 | Unions, `switch`, `T?`, `!->`, the `or` clause | the `ButtonState` union sample from `example.dz` works |
 | M9 | LSP: diagnostics, hover, go-to-definition, completion | usable in VS Code for real work |
 | M10 | Macros | a user-written `#machine` expands to the `ButtonState` machine and the LSP completes inside it |
 | M11 | Reflection + type table | a 50-line generic JSON serializer works on any `#[reflect]` type |
 | M12 | Stdlib pass: `Buffer`, `String`, `HashMap`, allocators, math | you can write a small game without touching C++ |
 | M13 | Hot reload (§17.6) | `dz run --hot` swaps a rebuilt module and migrates world state without restarting the game |
+| M14 ✅ | `dz test` — tests as a language feature | **done** — `#[test] fn name() { … }` is written beside the code it tests; it passes by returning and fails by panicking. `dz test [path] [filter]` builds a separate test binary, runs **each test in its own process** — a panic aborts, so one process could report only the first failure — and prints a per-test result, the failing test's own panic message, and a count, exiting non-zero if anything failed. A `#[test]` that takes an argument, returns a value, is fallible, is generic or has no body is refused (`DZ0546`). **A normal build leaves every test out**, so a program never carries them |
+| M15 ✅ | `dz bench`, and the C++ comparison | **done** — `#[bench] fn` is timed by `dz bench`, which calibrates the iteration count until a batch lasts 50ms, runs five batches and reports the **fastest** (noise only ever adds time). It builds `--release` by default, since timing `-O0` measures a build nobody ships. `tests/bench` is the comparison: each benchmark is a **pair**, one Dazzle and one calling hand-written C++ vendored beside it, compiled at the same optimisation level into the same binary and timed by the same clock. Covers bounds-checked indexing against unchecked, `drop` against a C++ destructor, and `virtual`/`override` against C++'s own. Still to add: generic instantiation, and tracking the numbers over time |
+| M16 | Packages: dependencies that are fetched | `dependencies` accepts a git source pinned to an exact commit, resolved into a lockfile that is checked in, fetched into a local cache and built from source like any path dependency (§3.1) |
+
+**Milestone order is not release order.** M14 and M16 are tooling rather than language, and
+either may be pulled forward when it starts costing more to do without — as M7 and most of
+M9 already were.
 
 M4 is the one to aim at hard. Everything before it is invisible; the moment `dz run` prints
 something, every later milestone becomes testable end to end.
@@ -3000,6 +3074,8 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r31 | 2026-09-12 | **Tests and benchmarks are language features (§19 M14, M15).** `#[test] fn name() { … }` is a test: it passes by returning and fails by panicking. `#[bench] fn name() { … }` is a benchmark: the runner times its body over as many iterations as it takes to measure. Both take no arguments, return nothing, are not fallible, are not generic and have a body — anything else is `DZ0546` — and both are written **beside the code they cover**. A normal build contains **neither**: `dz test` and `dz bench` each build a binary of their own, so a shipped program never carries them. **New builtin `blackbox(v)`**, which returns `v` as a value the optimiser knows nothing about. It exists because a benchmark has two ways to measure nothing — its result is never read, so the work computing it may be deleted; its input is usually a literal, so the answer may be computed at compile time — and passing the value through `blackbox` stops both. It is the only new name a program can collide with. |
+| r30 | 2026-09-12 | **Struct inheritance (§7.3, §4, 18.32).** `struct Button : UiElement` inherits from one struct. The base's fields come first, so **`&Derived` → `&Base` and `^Derived` → `^Base` are implicit and free**; a by-value `Derived` where a `Base` is wanted is an error, because copying one would drop what the derived type adds. A base's fields and methods are the derived type's, in scope unqualified inside its methods, and neither may be redeclared. **A base with a constructor is constructed through it** — `Button(r: Rect, text: str) : UiElement(r) { … }` — and, as part of the same rule, **a type with a constructor is no longer built with a struct literal**: the constructor is what establishes its invariant. **Dispatch is static unless written:** `virtual fn` opts a method into runtime dispatch, `override fn` replaces one and must match its signature, both checked in both directions, and a **body-less `virtual fn` makes the struct abstract** — no value of it exists, only a `&` or a `^` to one. `Base::method(self)` calls the base's version without dispatch, so an override can build on what it replaces; `drop` becomes virtual as soon as anything in the chain has a `virtual` method. **`protected` is a fourth visibility** (§4), opening a member to the structs that inherit it and to nothing else — a different axis from the other three, which is why it is not a `pub(…)` form, and it is refused at module scope. **Implementations are inherited**: a `Button` is `Inspect` if `UiElement` is, and a more specific `impl Inspect for Button` replaces the inherited one, statically. `virtual`, `override` and `protected` are new keywords and are no longer usable as identifiers. |
 | r29 | 2026-09-12 | **`header` in a library's recipe, for a single-header library** (§15.1). `header = "RGFW.h"` replaces `sources`: `dz` writes and compiles the one translation unit that includes it with the recipe's `defines` in force, so RGFW, stb and their kind need no hand-written one-line `.c` beside the header. Forgetting that file used to produce an unresolved symbol at link time, which named nothing that was actually missing. |
 | r28 | 2026-09-12 | **C++ references import**: `const T&` is a `&T` and `T&` a `&mut T`, so a C++ API that takes a reference — which is most of them — is callable: `shapes::length_sq(&p)`, `shapes::translate(&mut p, 1, 1)`. An rvalue reference `T&&` is not imported: it is C++'s spelling of a move and §6.4 has its own (§15.2). |
 | r27 | 2026-09-12 | **C++ imports: namespaces, classes, overloaded methods, and named template instances (§15.2, §15.3, §15.4).** A `namespace` is a scope reached through, one segment per level — `shp::shapes::geom::manhattan(a, b)` — with an `inline` namespace adding none, as in C++. A `class` is a struct: its **public** fields are fields and its public member functions are methods, `const` taking `&self` and any other `&mut self`; private and protected members stay in the type as padding and cannot be named. A constructor is a constructor call, `shapes::Counter(10)`. **A destructor stays C++'s:** Dazzle emits no `drop` for an imported type, and makes it move-only instead so it is never destroyed twice — unless the class also has a public copy constructor, which makes it an ordinary value again. Two member functions of one name are an overload set, resolved at the call site by argument type (§15.3); an overloaded *free* function still imports only its first declaration. A **template** is imported only where `[cpp.instantiate]` names an instantiation — `"shapes::Pair<int>" = "IntPair"` — which becomes an ordinary concrete type whose members have the template's parameters bound to those arguments (§15.4). A macro whose value is not a number but which clang can type now keeps that type, so raylib's `RAYWHITE` is a `Color` (§18.38). `dazzle.toml` accepts a quoted key, which `[cpp.instantiate]` needs. |

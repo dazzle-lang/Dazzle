@@ -327,15 +327,53 @@ impl TypeTable {
     }
 
     /// Every implementation that applies to `ty`, with the trait as seen from `ty`.
+    ///
+    /// A base's implementations are the derived type's too — a `Button` is `Inspect` if
+    /// `UiElement` is — and a more specific `impl Inspect for Button` replaces the
+    /// inherited one, which is why the chain is walked nearest-first and a trait already
+    /// answered for is not answered again (spec §7.6, §7.3, 18.32).
+    ///
+    /// `Drop` and `Copy` are deliberately **not** inherited here. They are special
+    /// members rather than ordinary traits (spec §6.1): C++ already runs a base's
+    /// destructor as part of the derived one, and reporting the base's `impl Drop` as the
+    /// derived type's would emit a second destructor that ran the same body twice.
     pub fn impls_for(&self, ty: &Ty) -> Vec<(usize, TraitRef, HashMap<u32, Ty>)> {
-        self.impls
+        let direct: Vec<(usize, TraitRef, HashMap<u32, Ty>)> = self
+            .impls
             .iter()
             .enumerate()
             .filter_map(|(i, imp)| {
                 let map = self.impl_applies(imp, ty)?;
                 Some((i, subst_ref(&imp.trait_ref, &map, ty), map))
             })
-            .collect()
+            .collect();
+
+        let Some(sym) = ty.named() else { return direct };
+        let chain = self.with_bases(sym);
+        if chain.len() < 2 {
+            return direct;
+        }
+
+        let mut out = direct;
+        for base in chain.into_iter().skip(1) {
+            let base_ty = Ty::plain(base);
+            for (i, imp) in self.impls.iter().enumerate() {
+                if Some(imp.trait_ref.trait_sym) == self.drop_trait
+                    || Some(imp.trait_ref.trait_sym) == self.copy_trait
+                {
+                    continue;
+                }
+                let Some(map) = self.impl_applies(imp, &base_ty) else { continue };
+                let r = subst_ref(&imp.trait_ref, &map, &base_ty);
+                // A nearer implementation of the same trait at the same arguments has
+                // already been found, and it is the one that applies.
+                if out.iter().any(|(_, x, _)| x.trait_sym == r.trait_sym && x.args == r.args) {
+                    continue;
+                }
+                out.push((i, r, map));
+            }
+        }
+        out
     }
 
     /// The traits `ty` implements through an `impl`.

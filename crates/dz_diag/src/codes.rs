@@ -230,6 +230,24 @@ pub const AMBIGUOUS_CALL: &str = "DZ0538";
 pub const ORPHAN_IMPL: &str = "DZ0539";
 /// Two implementations of one trait that could both apply to the same type (spec §7.6).
 pub const OVERLAPPING_IMPL: &str = "DZ0540";
+/// `struct Button : UiElement` where `UiElement` cannot be a base: not a struct, itself,
+/// an imported type, a generic one, or a chain that comes back round (spec §7.3, 18.32).
+pub const BAD_BASE: &str = "DZ0541";
+/// A base's field or method redeclared in the derived type. Dazzle has no hiding: a name
+/// means one thing in a type, whichever of its declarations it came from (spec §7.3).
+pub const SHADOWS_BASE_MEMBER: &str = "DZ0542";
+/// A constructor that leaves out `: Base(…)` where the base has a constructor of its own,
+/// or a struct literal of a type that has one (spec §7.3, §7.2, 18.32).
+pub const MISSING_BASE_INIT: &str = "DZ0543";
+/// An `override` with nothing to override, one whose signature has drifted from the
+/// method it replaces, or one aimed at a base method that is not `virtual` (spec §7.3).
+pub const BAD_OVERRIDE: &str = "DZ0544";
+/// A value of a type with a `virtual` method that has no body. The body is missing, so
+/// there is nothing to call: only a derived type that supplies one can exist (spec §7.3).
+pub const ABSTRACT_TYPE: &str = "DZ0545";
+/// A `#[test]` on something that cannot be run as one: a function that takes an argument,
+/// returns a value, is fallible, is generic, or has no body (spec §19 M14).
+pub const BAD_TEST: &str = "DZ0546";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

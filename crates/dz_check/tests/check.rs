@@ -169,6 +169,14 @@ fn every_rule_has_a_failing_case() {
         // r13 — implementations (spec §6.1, §7.6).
         ORPHAN_IMPL,
         OVERLAPPING_IMPL,
+        // Struct inheritance (spec §7.3, 18.32).
+        BAD_BASE,
+        SHADOWS_BASE_MEMBER,
+        MISSING_BASE_INIT,
+        BAD_OVERRIDE,
+        ABSTRACT_TYPE,
+        // M14 — tests as a language feature (spec §19).
+        BAD_TEST,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

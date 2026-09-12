@@ -146,7 +146,21 @@ impl<'a> Parser<'a> {
             });
         }
 
-        let vis = self.parse_vis();
+        let vis_span = self.peek_token().span;
+        let mut vis = self.parse_vis();
+        // `protected` says "and the types that inherit from this one", which only a
+        // member of a type can mean (spec §4, §7.3, 18.32).
+        if vis == Vis::Protected {
+            self.error_help(
+                codes::EXPECTED_TOKEN,
+                vis_span,
+                "`protected` is only for a struct's members",
+                "nothing inherits from a declaration at module scope",
+                "a declaration is `private` (the default), `pub(module)` or `pub`; \
+                 `protected` belongs on a field or a method (spec §4)",
+            );
+            vis = Vis::Private;
+        }
 
         let kind = match self.peek() {
             TokenKind::Fn => ItemKind::Fn(self.parse_fn()),
@@ -184,6 +198,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_vis(&mut self) -> Vis {
+        // `protected` stands alone rather than being a `pub(...)` form: it is not a wider
+        // `pub`, it is a different axis — reachable by derived types rather than by a
+        // module or by everyone (spec §4, §7.3, 18.32).
+        if self.eat(TokenKind::Protected) {
+            return Vis::Protected;
+        }
         if !self.eat(TokenKind::Pub) {
             return Vis::Private;
         }
@@ -327,10 +347,31 @@ impl<'a> Parser<'a> {
             || (self.peek_at(1) == TokenKind::Mut && self.peek_at(2) == TokenKind::Fn)
     }
 
-    /// Called at `fn` or `unsafe fn` — or at either with the removed `mut` before `fn`; the
-    /// caller has checked that `fn` follows the modifiers.
+    /// At `virtual` or `override`, is a method what follows? Anything else leaves the
+    /// keyword to the member parser, which says what was expected instead of producing a
+    /// confusing error from halfway through a signature (spec §7.3).
+    fn at_dispatched_fn(&self) -> bool {
+        self.peek_at(1) == TokenKind::Fn
+            || (self.peek_at(1) == TokenKind::Unsafe
+                && (self.peek_at(2) == TokenKind::Fn
+                    || (self.peek_at(2) == TokenKind::Mut && self.peek_at(3) == TokenKind::Fn)))
+            || (self.peek_at(1) == TokenKind::Mut && self.peek_at(2) == TokenKind::Fn)
+    }
+
+    /// Called at `fn` or `unsafe fn`, optionally behind `virtual` or `override` — or at
+    /// any of those with the removed `mut` before `fn`; the caller has checked that `fn`
+    /// follows the modifiers.
     pub(crate) fn parse_fn(&mut self) -> FnDecl {
         let start = self.start();
+        // `virtual fn` and `override fn` (spec §7.3, 18.32), before `unsafe` so that
+        // `virtual unsafe fn` reads in the order it is written.
+        let dispatch = if self.eat(TokenKind::Virtual) {
+            Dispatch::Virtual
+        } else if self.eat(TokenKind::Override) {
+            Dispatch::Override
+        } else {
+            Dispatch::Static
+        };
         let is_unsafe = self.eat(TokenKind::Unsafe);
         // `mut fn` said what `&mut self` already says, and the two could disagree (r15,
         // spec §18.34). Reported, then parsed as if absent — the receiver decides.
@@ -362,6 +403,7 @@ impl<'a> Parser<'a> {
         FnDecl {
             span: self.span_from(start),
             is_unsafe,
+            dispatch,
             name,
             generics,
             self_param,
@@ -369,6 +411,7 @@ impl<'a> Parser<'a> {
             ret,
             fallible,
             body,
+            base_init: None,
         }
     }
 
@@ -539,6 +582,10 @@ impl<'a> Parser<'a> {
             TokenKind::Fn => MemberKind::Fn(self.parse_fn()),
             TokenKind::Mut if self.peek_at(1) == TokenKind::Fn => MemberKind::Fn(self.parse_fn()),
             TokenKind::Unsafe if self.at_unsafe_fn() => MemberKind::Fn(self.parse_fn()),
+            // `virtual fn draw(&self)` / `override fn draw(&self)` (spec §7.3, 18.32).
+            TokenKind::Virtual | TokenKind::Override if self.at_dispatched_fn() => {
+                MemberKind::Fn(self.parse_fn())
+            }
             // `type Item`, `type Item : Format`, `type Item = &T` (spec §8.5)
             TokenKind::Ident if self.token_text(self.peek_token()) == "type" => {
                 self.bump();
@@ -636,10 +683,40 @@ impl<'a> Parser<'a> {
         let start = self.start();
         let name = self.parse_ident_or_error();
         let (self_param, params) = self.parse_params();
+        // `Button(w: i32) : UiElement(w) { … }` — the base initialiser (spec §7.3, 18.32).
+        // It sits where a return type would, and a constructor has none, so nothing else
+        // can be meant by a `:` here.
+        let base_init = if self.eat(TokenKind::Colon) {
+            let bstart = self.start();
+            let path = self.parse_path_no_generics().unwrap_or(Path {
+                span: self.peek_token().span,
+                segments: Vec::new(),
+            });
+            let args = if self.at(TokenKind::LParen) {
+                self.parse_call_args()
+            } else {
+                let span = self.peek_token().span;
+                self.error_help(
+                    codes::EXPECTED_TOKEN,
+                    span,
+                    "expected the base's arguments",
+                    "a base initialiser is a call",
+                    "write the base's constructor call here, `: Base()` even when it \
+                     takes nothing (spec §7.3)",
+                );
+                Vec::new()
+            };
+            Some(BaseInit { span: self.span_from(bstart), path, args })
+        } else {
+            None
+        };
         let body = if self.at(TokenKind::LBrace) { Some(self.parse_block()) } else { None };
         FnDecl {
             span: self.span_from(start),
             is_unsafe: false,
+            // A constructor is never virtual: C++ has no such thing, and `: Base(…)` is
+            // how a derived one reaches its base (spec §7.3).
+            dispatch: Dispatch::Static,
             name,
             generics: Generics { span: Span::DUMMY, params: Vec::new() },
             self_param,
@@ -647,6 +724,7 @@ impl<'a> Parser<'a> {
             ret: None,
             fallible: false,
             body,
+            base_init,
         }
     }
 

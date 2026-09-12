@@ -77,6 +77,10 @@ pub enum TokenKind {
     While,
     Unreachable,
     Unsafe,
+    // Struct inheritance (spec §7.3, 18.32).
+    Virtual,
+    Override,
+    Protected,
 
     // --- operators and punctuation (spec §2.6) ---
     Plus,
@@ -190,6 +194,9 @@ impl TokenKind {
             While => "while",
             Unreachable => "unreachable",
             Unsafe => "unsafe",
+            Virtual => "virtual",
+            Override => "override",
+            Protected => "protected",
             Plus => "+",
             Minus => "-",
             Star => "*",
@@ -383,6 +390,9 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "while" => While,
         "unreachable" => Unreachable,
         "unsafe" => Unsafe,
+        "virtual" => Virtual,
+        "override" => Override,
+        "protected" => Protected,
         _ => return Option::None,
     })
 }

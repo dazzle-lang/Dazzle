@@ -357,6 +357,13 @@ impl Workspace {
         self.modules.iter()
     }
 
+    /// Every module, mutably — for `dz run --release`, which overrides the build settings
+    /// the manifests wrote. One command builds one program, so a dependency must not be
+    /// left at a different optimisation level than the thing that links it.
+    pub fn modules_mut(&mut self) -> impl Iterator<Item = &mut Module> {
+        self.modules.iter_mut()
+    }
+
     pub fn len(&self) -> usize {
         self.modules.len()
     }

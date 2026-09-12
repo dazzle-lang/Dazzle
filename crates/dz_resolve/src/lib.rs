@@ -121,11 +121,39 @@ pub struct Symbol {
     /// Span of the declared name, which is what diagnostics point at.
     pub span: Span,
     pub members: Vec<MemberSymbol>,
+    /// `struct Button : UiElement` — filled in between the two passes, because the base is
+    /// a path and paths are not resolvable until every declaration exists. The resolver
+    /// needs it so a derived type's methods see the base's fields unqualified, and the
+    /// editor needs it for the same reason (spec §7.3, 18.32).
+    pub base: Option<SymbolId>,
 }
 
 impl Symbol {
     pub fn member(&self, name: &str) -> Option<&MemberSymbol> {
         self.members.iter().find(|m| m.name == name)
+    }
+}
+
+impl Resolution {
+    /// A struct's own members and every base's, nearest declaration last so a walk that
+    /// takes the first match gets the most-derived one. Cycle-safe: a chain that comes
+    /// back round stops, and `dz_check` is what reports it (spec §7.3).
+    pub fn members_with_bases(&self, sym: SymbolId) -> Vec<&MemberSymbol> {
+        let mut chain = Vec::new();
+        let mut at = Some(sym);
+        while let Some(s) = at {
+            if chain.contains(&s) {
+                break;
+            }
+            chain.push(s);
+            at = self.symbol(s).base;
+        }
+        // Bases first, so a derived declaration of the same name comes later and wins.
+        chain
+            .iter()
+            .rev()
+            .flat_map(|s| self.symbol(*s).members.iter())
+            .collect()
     }
 }
 
@@ -151,6 +179,10 @@ pub struct Resolution {
     pub symbols: Vec<Symbol>,
     pub scopes: HashMap<ModuleId, ModuleScope>,
     pub imports: HashMap<FileId, FileImports>,
+    /// Which module each source file belongs to. Needed to answer "how would this type be
+    /// written *here*", which is what an editor has to show: an imported header's type is
+    /// `rl::Vector2` in the file that imported it and has no other spelling (§3.3).
+    pub file_module: HashMap<FileId, ModuleId>,
     /// What each C++ namespace symbol holds, by name — `eng::ui::draw` walks one link of
     /// this per segment (spec §15.2).
     pub inner: HashMap<(SymbolId, String), SymbolId>,
@@ -256,6 +288,9 @@ pub const BUILTIN_FNS: &[&str] = &[
     "typeid_of",
     "typeinfo",
     "memcpy",
+    // Stops the optimiser deleting work whose result nothing reads, which is every
+    // benchmark (spec §19 M15).
+    "blackbox",
 ];
 
 /// The compile-time queries every type answers through `::` (spec §5.5), so resolution can
@@ -272,6 +307,7 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
         symbols: Vec::new(),
         scopes: HashMap::new(),
         imports: HashMap::new(),
+        file_module: HashMap::new(),
         inner: HashMap::new(),
         foreign_cpp: HashMap::new(),
         foreign_path: HashMap::new(),
@@ -294,6 +330,24 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
         r.scopes.insert(module.id, scope);
     }
 
+    // Pass 1b: link each `struct X : Base` to its base's symbol. Between the passes
+    // because a base is a path — no path resolves until every declaration exists — and
+    // before pass 2, which needs *every* link already made: a derived type's methods see
+    // the base's fields unqualified, and the base may live in a file walked later, or be
+    // itself derived (spec §7.3, 18.32).
+    //
+    // Resolving a path needs the file's imports, which is pass 2's own first step, so this
+    // does that step and then discards what it reported — pass 2 reports it for real.
+    let before = r.diagnostics.len();
+    for module in ws.modules() {
+        if let Some(module_files) = files.get(&module.id) {
+            for pf in module_files {
+                walk::link_bases(&mut r, ws, module.id, pf);
+            }
+        }
+    }
+    r.diagnostics.truncate(before);
+
     // Pass 2: resolve uses.
     for module in ws.modules() {
         if let Some(module_files) = files.get(&module.id) {
@@ -308,6 +362,7 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
 }
 
 fn collect_file(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId, pf: &ParsedFile) {
+    r.file_module.insert(pf.file, module);
     for item in &pf.ast.items {
         let Some((name, kind, members)) = describe_item(item) else { continue };
         let id = SymbolId(r.symbols.len() as u32);
@@ -319,6 +374,7 @@ fn collect_file(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId, p
             file: pf.file,
             span: name.span,
             members,
+            base: None,
         };
 
         if let Some(previous) = scope.items.get(&symbol.name).copied() {
@@ -379,6 +435,7 @@ fn collect_foreign(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId
                         file,
                         span,
                         members: Vec::new(),
+                        base: None,
                     });
                     namespaces.insert(path.clone(), id);
                     match parent {
@@ -427,7 +484,7 @@ fn collect_foreign(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId
         };
         let (file, span) = at(d.loc);
         let id = SymbolId(r.symbols.len() as u32);
-        r.symbols.push(Symbol { name: d.name.clone(), kind, vis: Vis::Public, module, file, span, members });
+        r.symbols.push(Symbol { name: d.name.clone(), kind, vis: Vis::Public, module, file, span, members, base: None });
         // Inside a namespace it is reached through it, and only through it; at the
         // header's own scope it is a name of the module (spec §15.2).
         match namespaces.get(&d.scope) {

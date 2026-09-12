@@ -33,6 +33,53 @@ fn cpp_alias(header: &str) -> Option<String> {
     ok.then(|| stem.to_owned())
 }
 
+/// Pass 1b: record what each `struct X : Base` in this file inherits from.
+///
+/// A base is a path, so this needs the file's imports in scope — which is why it repeats
+/// pass 2's first step. Whatever that reports is reported again, for real, by pass 2;
+/// `resolve` discards this round's diagnostics.
+pub(crate) fn link_bases(r: &mut Resolution, ws: &Workspace, module: ModuleId, pf: &ParsedFile) {
+    if !pf.ast.items.iter().any(|i| matches!(&i.kind, ItemKind::Struct(s) if s.base.is_some())) {
+        return;
+    }
+    let mut w = Walker {
+        r: &mut *r,
+        ws,
+        module,
+        file: pf.file,
+        prelude: ws.prelude,
+        generic_spans: Vec::new(),
+        module_aliases: HashMap::new(),
+        unqualified: HashMap::new(),
+        scopes: Vec::new(),
+        used_imports: Vec::new(),
+        imports: Vec::new(),
+    };
+    w.imports(&pf.ast);
+    let links: Vec<(SymbolId, SymbolId)> = pf
+        .ast
+        .items
+        .iter()
+        .filter_map(|item| {
+            let ItemKind::Struct(s) = &item.kind else { return None };
+            let base = s.base.as_ref()?;
+            // The struct itself, and then the base: both by the same path rules the
+            // checker will use, so the two phases cannot disagree about what `: X` names.
+            let own = w.r.lookup(module, &s.name.name)?;
+            let target = w.struct_by_path(base)?;
+            Some((own, target))
+        })
+        .collect();
+    for (own, base) in links {
+        // A base that is not a struct, or is the type itself, is `dz_check`'s to report
+        // (DZ0541). Recording it here anyway would let `members_with_bases` walk into
+        // something that is not a struct, so only a real struct is linked.
+        if own != base {
+            r.symbols[own.0 as usize].base = Some(base);
+        }
+    }
+}
+
 pub(crate) fn resolve_file(
     r: &mut Resolution,
     ws: &Workspace,
@@ -310,7 +357,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                 if let Some(b) = &s.base {
                     self.path(b, PathUse::Type);
                 }
-                let fields: Vec<String> = s
+                let mut fields: Vec<String> = s
                     .members
                     .iter()
                     .filter_map(|m| match &m.kind {
@@ -318,6 +365,18 @@ impl<'a, 'w> Walker<'a, 'w> {
                         _ => None,
                     })
                     .collect();
+                // A base's fields are in scope in the derived type's methods exactly as
+                // its own are (spec §7.3). Visibility is the checker's to enforce; the
+                // resolver's job is only that the name is not "not found".
+                if let Some(sym) = self.r.lookup(self.module, &s.name.name) {
+                    if let Some(base) = self.r.symbol(sym).base {
+                        for m in self.r.members_with_bases(base) {
+                            if m.sort == crate::MemberSort::Field && !fields.contains(&m.name) {
+                                fields.push(m.name.clone());
+                            }
+                        }
+                    }
+                }
                 self.members(&s.members, Some(&fields));
                 self.pop_scope();
             }
@@ -379,6 +438,12 @@ impl<'a, 'w> Walker<'a, 'w> {
     /// a name that does not resolve; this only looks.
     fn struct_of(&self, t: &Type) -> Option<SymbolId> {
         let TypeKind::Path(p) = &t.kind else { return None };
+        self.struct_by_path(p)
+    }
+
+    /// The struct a type path names, by the same rules `struct_of` uses — the base of a
+    /// `struct X : Base` is a bare path rather than a `Type` (spec §7.3).
+    fn struct_by_path(&self, p: &Path) -> Option<SymbolId> {
         let sym = match p.segments.as_slice() {
             [one] => {
                 let name = &one.name.name;

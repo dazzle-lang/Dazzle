@@ -1,0 +1,6 @@
+[module]
+name    = "keywords"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

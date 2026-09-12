@@ -1,0 +1,149 @@
+// What Dazzle's guarantees cost, measured against hand-written C++ (spec §19 M15).
+//
+// Every benchmark here comes in a pair: a Dazzle one and a `_cpp` one calling the vendored
+// `baseline` library, which does the same work the way a C++ programmer would write it.
+// Both are compiled at the same optimisation level into the same binary and timed by the
+// same clock, so the ratio between a pair is the thing being measured.
+//
+// Read them as answers to specific design questions, not as a score:
+//
+//   * indexing  — Dazzle bounds-checks `xs[i]` in **every** build (§5.3). This is what
+//                 that decision costs, and it is a cost the language chose to pay.
+//   * raii      — `drop` lowers to a C++ destructor (§6.6). This should be ~free, and a
+//                 gap here would mean the lowering is doing something it need not.
+//   * virtual   — `virtual`/`override` lower to C++'s own (§7.3, 18.32). Also expected to
+//                 be ~free, for the same reason.
+//
+// `blackbox` is what keeps these honest: without it the optimiser deletes work whose
+// result nothing reads, and folds an argument it can see is constant.
+
+import cpp "baseline.h" as base
+
+const N: i32 = 1024
+
+// --- indexing: bounds-checked against unchecked ------------------------------
+
+fn filled() -> [1024]i32 {
+    let mut xs: [1024]i32
+    let mut i = 0
+    while i < N {
+        xs[i] = i
+        i += 1
+    }
+    return xs
+}
+
+// `n` is a parameter rather than the constant, so this side cannot specialise on a length
+// the other side receives at run time. Symmetry between a pair matters more than either
+// one being as fast as it could be.
+fn sum_indexed(xs: &[1024]i32, n: i32) -> i32 {
+    let mut total = 0
+    let mut i = 0
+    while i < n {
+        // Bounds-checked, in every build (spec §5.3).
+        total += xs[i]
+        i += 1
+    }
+    return total
+}
+
+#[bench]
+fn indexing_dazzle() {
+    let xs = filled()
+    blackbox(sum_indexed(&xs, blackbox(N)))
+}
+
+#[bench]
+fn indexing_cpp() {
+    let xs = filled()
+    blackbox(base::baseline_sum_indexed(xs.ptr, blackbox(N)))
+}
+
+// --- RAII: a Dazzle `drop` against a C++ destructor --------------------------
+
+pub struct Holder {
+    pub slot: ^mut i32
+    pub value: i32
+}
+
+impl Drop for Holder {
+    fn drop(&mut self) {
+        unsafe {
+            slot^ = slot^ + value
+        }
+    }
+}
+
+fn raii_loop(count: i32) -> i32 {
+    let mut total = 0
+    let mut i = 0
+    while i < count {
+        let h = Holder{ slot: &mut total, value: i }
+        blackbox(h.value)
+        i += 1
+    }
+    return total
+}
+
+#[bench]
+fn raii_dazzle() {
+    blackbox(raii_loop(blackbox(N)))
+}
+
+#[bench]
+fn raii_cpp() {
+    blackbox(base::baseline_raii(blackbox(N)))
+}
+
+// --- virtual dispatch --------------------------------------------------------
+
+pub struct Shape {
+    pub n: i32 = 0
+
+    pub virtual fn area(&self) -> i32 {
+        return n
+    }
+}
+
+pub struct Square : Shape {
+    pub override fn area(&self) -> i32 {
+        return n * n
+    }
+}
+
+fn virtual_loop(count: i32) -> i32 {
+    let sq = Square{ n: 3 }
+    let s = &sq
+    let mut total = 0
+    let mut i = 0
+    while i < count {
+        total += dispatch(s)
+        i += 1
+    }
+    return total
+}
+
+// Through a `&Shape`, so the call is a real virtual one rather than something the
+// optimiser can devirtualise from the concrete type at the call site.
+fn dispatch(s: &Shape) -> i32 {
+    return s.area()
+}
+
+#[bench]
+fn virtual_dazzle() {
+    blackbox(virtual_loop(blackbox(N)))
+}
+
+#[bench]
+fn virtual_cpp() {
+    blackbox(base::baseline_virtual(blackbox(N)))
+}
+
+fn main() {
+    // A benchmark project still needs an entry point; running it checks the two halves
+    // agree on what they compute, which is what makes the comparison meaningful.
+    let xs = filled()
+    println("{} {}", sum_indexed(&xs, N), base::baseline_sum_indexed(xs.ptr, N))
+    println("{} {}", raii_loop(N), base::baseline_raii(N))
+    println("{} {}", virtual_loop(N), base::baseline_virtual(N))
+}

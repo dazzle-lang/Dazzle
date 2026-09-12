@@ -224,7 +224,12 @@ impl<'a> Dumper<'a> {
             format!("{recv}, {}", params.join(", "))
         };
         self.line(format_args!(
-            "{vis}{}{} {}{}({}){}",
+            "{vis}{}{}{} {}{}({}){}",
+            match f.dispatch {
+                Dispatch::Static => "",
+                Dispatch::Virtual => "virtual ",
+                Dispatch::Override => "override ",
+            },
             if f.is_unsafe { "unsafe " } else { "" },
             what,
             f.name.name,
@@ -233,7 +238,18 @@ impl<'a> Dumper<'a> {
             f.ret
                 .as_ref()
                 .map(|t| format!(" {} {}", arrow(f.fallible), type_str(t)))
-                .unwrap_or_else(|| if f.fallible { " !->".to_owned() } else { String::new() })
+                .unwrap_or_else(|| {
+                    if f.fallible {
+                        " !->".to_owned()
+                    } else {
+                        // A constructor's `: Base(…)`, so a snapshot shows whether one was
+                        // parsed and how many arguments it took (spec §7.3, 18.32).
+                        match &f.base_init {
+                            Some(b) => format!(" : {}/{}", path_str(&b.path), b.args.len()),
+                            None => String::new(),
+                        }
+                    }
+                })
         ));
         for p in &f.params {
             if let Some(default) = &p.default {
@@ -520,6 +536,7 @@ impl<'a> Dumper<'a> {
 fn vis_str(v: Vis) -> &'static str {
     match v {
         Vis::Private => "",
+        Vis::Protected => "protected ",
         Vis::Module => "pub(module) ",
         Vis::Public => "pub ",
     }

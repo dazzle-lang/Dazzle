@@ -198,6 +198,46 @@ fn parsing_always_terminates_on_hostile_input() {
     }
 }
 
+// --- struct inheritance (spec §7.3, 18.32) -------------------------------
+
+#[test]
+fn a_base_and_its_initialiser_parse() {
+    let p = parse_str("struct Button : UiElement {\n Button(w: i32) : UiElement(w) {}\n}");
+    assert!(p.codes.is_empty(), "{:?}", p.codes);
+    assert!(p.dump.contains("struct Button : UiElement"), "{}", p.dump);
+    // The dump records the base initialiser and how many arguments it took, so a
+    // constructor that silently lost one would fail here rather than at runtime.
+    assert!(p.dump.contains("ctor Button(w: i32) : UiElement/1"), "{}", p.dump);
+}
+
+#[test]
+fn virtual_and_override_parse_and_a_bodyless_virtual_is_allowed() {
+    let p = parse_str(
+        "struct S {\n virtual fn a(&self) -> i32\n override fn b(&self) {}\n \
+         virtual unsafe fn c(&self) {}\n}",
+    );
+    assert!(p.codes.is_empty(), "{:?}", p.codes);
+    assert!(p.dump.contains("virtual fn a(&self) -> i32"), "{}", p.dump);
+    assert!(p.dump.contains("override fn b(&self)"), "{}", p.dump);
+    assert!(p.dump.contains("virtual unsafe fn c(&self)"), "{}", p.dump);
+}
+
+#[test]
+fn protected_is_a_member_visibility_only() {
+    // spec §4: it means "and the types that inherit from this one", which only a member
+    // of a type can mean — at module scope there is nothing to inherit from.
+    let ok = parse_str("struct S {\n protected n: i32\n protected fn m(&self) {}\n}");
+    assert!(ok.codes.is_empty(), "{:?}", ok.codes);
+    assert!(ok.dump.contains("protected fn m(&self)"), "{}", ok.dump);
+
+    let bad = parse_str("protected fn f() {}");
+    assert!(
+        bad.codes.contains(&dz_diag::codes::EXPECTED_TOKEN),
+        "expected a diagnostic, got {:?}",
+        bad.codes
+    );
+}
+
 #[test]
 fn every_corpus_file_that_should_be_clean_is_clean() {
     for name in ["items.dz", "expressions.dz", "statements.dz"] {

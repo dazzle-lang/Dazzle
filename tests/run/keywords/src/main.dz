@@ -1,0 +1,50 @@
+// Every declaration here is named after a C++ keyword. They are ordinary Dazzle
+// identifiers, so the generator has to rename them on the way out — a declaration and
+// every reference to it alike (spec §16.2). Before this was fixed, `fn double` reached C++
+// as `int32_t double(int32_t)`, and clang's complaint was mapped back onto this file by the
+// `#line` directives: a C++ error blamed on the user, which invariants 5 and 7 both forbid.
+
+pub enum class : u8 {
+    inline = 1
+    template
+}
+
+pub struct explicit {
+    pub double: i32 = 3
+
+    pub fn volatile(&self) -> i32 {
+        return double * 2
+    }
+}
+
+pub union operator {
+    delete { friend: i32 }
+    export { typename: f32 }
+}
+
+pub const mutable: i32 = 5
+
+fn double(a: i32) -> i32 {
+    return a * 2
+}
+
+fn register(v: &explicit) -> i32 {
+    return v.double + mutable
+}
+
+fn main() {
+    let e: class = .template
+    let s = explicit{ double: 4 }
+    let u: operator = .delete{ friend: 7 }
+
+    switch u {
+        case delete(d) {
+            println("delete {}", d.friend)
+        }
+        case export(x) {
+            println("export {}", x.typename)
+        }
+    }
+
+    println("{} {} {} {} {}", double(21), s.volatile(), register(&s), e as u8, mutable)
+}

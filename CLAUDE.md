@@ -21,7 +21,12 @@ handles, C unions, array members and bit-fields, callbacks, compound-literal mac
 the C++ half — namespaces, classes, methods, constructors, C++-owned destructors,
 overloaded methods, references, and `[cpp.instantiate]` template instances. What is left is
 narrower and listed in the deferral register (overloaded *free* functions, imported-class
-inheritance). Struct inheritance (spec 18.32, designed) is next. Spec §19 is the roadmap.
+inheritance). **Struct inheritance landed as r30** — single inheritance, `virtual`/`override`,
+`protected`, base initialisers, inherited implementations — which also unblocks that last
+M7 row. **`dz test` (M14) and `dz bench` (M15) have landed** — `#[test]` and `#[bench]`
+functions beside the code they cover, each run in its own process, and a comparison suite
+in `tests/bench` measuring Dazzle against hand-written C++. Next is CI across the three
+platforms, then fetched packages (M16). Spec §19 is the roadmap.
 
 ## Three documents
 
@@ -134,7 +139,7 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 
 ```bash
 cargo build --workspace
-cargo test --workspace           # 172 tests at M6 + M7 + M9
+cargo test --workspace           # 182 tests at M6 + M7 + M9 + M14 + M15
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens

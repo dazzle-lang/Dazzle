@@ -348,7 +348,7 @@ impl<'a> Parser<'a> {
         elems
     }
 
-    fn parse_call_args(&mut self) -> Vec<Expr> {
+    pub(crate) fn parse_call_args(&mut self) -> Vec<Expr> {
         let mut args = Vec::new();
         self.bump(); // `(`
         // Struct literals are legal again inside parentheses.
