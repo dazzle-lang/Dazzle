@@ -724,6 +724,9 @@ struct Body<'a, 'c> {
     /// nothing, so it is legal only here — and an expected type is not the signal, since
     /// `let v = f()` and a bare `f()` both arrive with no expectation.
     stmt_position: bool,
+    /// Inside a constructor's `: Base(…)`, which runs before the constructor has begun,
+    /// so there is nothing yet to `return` from (spec §7.3).
+    in_base_init: bool,
     self_mutable: bool,
     /// The `self` parameter's local, for expanding unqualified field access.
     self_local: Option<LocalId>,
@@ -776,6 +779,7 @@ impl<'a, 'c> Body<'a, 'c> {
             self_ty,
             fallible: false,
             stmt_position: false,
+            in_base_init: false,
             self_mutable: false,
             self_local: None,
             unsafe_depth: 0,
@@ -1198,7 +1202,9 @@ impl<'a, 'c> Body<'a, 'c> {
         // — several constructors on one type are not resolved by argument yet.
         let sig = ctors[0].clone();
         let bname = self.cx.res.symbol(b).name.clone();
+        self.in_base_init = true;
         let args = self.check_args(&sig, &init.args, init.span, &bname);
+        self.in_base_init = false;
         let ty = Ty::Named { sym: b, args: Vec::new() };
         let callee = hir::Callee::Ctor { owner: b, index: 0 };
         let call = self.hir.expr(init.span, ty, hir::ExprKind::Call { callee, args });
@@ -1209,6 +1215,38 @@ impl<'a, 'c> Body<'a, 'c> {
 
     /// The type a block produces: its final expression statement, or `void`.
     fn block(&mut self, b: &Block, expected: Option<&Ty>) -> CheckedBlock {
+        self.block_valued(b, expected, expected.is_some())
+    }
+
+    /// A `return` in `: Base(…)`: the base is built before the constructor body starts, so
+    /// there is no constructor yet to return from and no object to leave half-built. True
+    /// when it was reported (spec §7.3).
+    fn refuse_return_in_base_init(&mut self, span: Span) -> bool {
+        if !self.in_base_init {
+            return false;
+        }
+        self.cx.error_help(
+            codes::RETURN_IN_BASE_INIT,
+            span,
+            "a base initialiser cannot `return`",
+            "the base is built before the constructor begins",
+            "give the argument a value to fall back on — `x or 0`, `x or { … }` — or \
+             `panic` (spec §7.3)",
+        );
+        true
+    }
+
+    /// Whether the expression starting here has its value used: something expects a type
+    /// of it, or it is not a statement of its own — `let x = switch …` has no expected type
+    /// and still keeps what its arms produce. Taken on entry, before a sub-expression can
+    /// reset `stmt_position`.
+    fn value_wanted(&mut self, expected: Option<&Ty>) -> bool {
+        let statement = std::mem::replace(&mut self.stmt_position, false);
+        expected.is_some() || !statement
+    }
+
+    /// A block whose final expression is its value exactly when `wanted` says so.
+    fn block_valued(&mut self, b: &Block, expected: Option<&Ty>, wanted: bool) -> CheckedBlock {
         self.push();
         let mut result = Ty::Void;
         let mut stmts = Vec::new();
@@ -1218,10 +1256,14 @@ impl<'a, 'c> Body<'a, 'c> {
                 if let StmtKind::Expr(e) = &s.kind {
                     // The final expression is the block's value only when something wants
                     // one; otherwise it is an ordinary statement, and `or ignore` is legal.
-                    self.stmt_position = expected.is_none();
+                    self.stmt_position = !wanted;
                     let c = self.expr(e, expected);
                     self.stmt_position = false;
-                    self.check_unused(&c.ty, e);
+                    // A `T?` that is the block's value is used, not discarded; a fallible
+                    // call is unconsumed either way, having nowhere to be kept (spec §9.7).
+                    if !wanted || matches!(c.ty, Ty::Fallible(_)) {
+                        self.check_unused(&c.ty, e);
+                    }
                     result = c.ty;
                     stmts.push(self.hir.stmt(s.span, hir::StmtKind::Expr(c.id)));
                     continue;
@@ -2450,7 +2492,8 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.mk(e, want, kind)
             }
             ExprKind::Block(b) => {
-                let c = self.block(b, expected);
+                let wanted = self.value_wanted(expected);
+                let c = self.block_valued(b, expected, wanted);
                 self.mk(e, c.ty, hir::ExprKind::Block(c.id))
             }
             // Past checking, an `unsafe` block is an ordinary block: the permission it
@@ -2465,11 +2508,13 @@ impl<'a, 'c> Body<'a, 'c> {
                 // `if let name = value` (spec §9.4): `name` holds what `or` would produce
                 // from the value — the `T` of a `T?`, or the `&mut T` of a `^T` — and exists
                 // only in the `then` block.
+                // Without an `else` there is no value, however the `if` is used.
+                let wanted = self.value_wanted(expected) && i.else_branch.is_some();
                 let (head, then) = match &i.binding {
                     None => {
                         let cond = self.expr(&i.cond, Some(&Ty::Bool));
                         self.require_bool(&cond.ty, i.cond.span, "if");
-                        (Err(cond.id), self.block(&i.then, expected))
+                        (Err(cond.id), self.block_valued(&i.then, expected, wanted))
                     }
                     Some(b) => {
                         let subject = self.expr(&i.cond, None);
@@ -2511,13 +2556,15 @@ impl<'a, 'c> Body<'a, 'c> {
                             LocalKind::Binding,
                             b.name.span,
                         );
-                        let then = self.block(&i.then, expected);
+                        let then = self.block_valued(&i.then, expected, wanted);
                         self.pop();
                         (Ok((local, subject.id)), then)
                     }
                 };
                 let (ty, else_branch) = match &i.else_branch {
                     Some(else_expr) => {
+                        // Handed on to the `else` block or `else if`, which read it on entry.
+                        self.stmt_position = !wanted;
                         let other = self.expr(else_expr, expected);
                         // The parser only ever produces a block or another `if` here, and
                         // both are single expressions, so the branch is one HIR block.
@@ -2540,11 +2587,19 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Switch(s) => self.switch(s, e, expected),
             ExprKind::Or { expr, clause } => self.or_expr(expr, clause, e, expected),
             ExprKind::Return(v) => {
+                self.refuse_return_in_base_init(e.span);
                 let ret = self.ret.clone();
                 let mut value = None;
                 match v {
                     Some(expr) => {
-                        let c = self.expr(expr, Some(&ret));
+                        // `return .Default{}` from a `-> ButtonState?` returns the success
+                        // case, so the leading dot infers from the `T`, not the `T?` (spec
+                        // §7.4, §9.1).
+                        let want = match (&ret, &expr.kind) {
+                            (Ty::Optional(inner), ExprKind::DotInfer { .. }) => (**inner).clone(),
+                            _ => ret.clone(),
+                        };
+                        let c = self.expr(expr, Some(&want));
                         value = Some(c.id);
                         let t = c.ty;
                         // `return error(...)` is the failure case of a `!->` function
@@ -4582,11 +4637,16 @@ impl<'a, 'c> Body<'a, 'c> {
             Some(ItemSig::Union { variants }) => {
                 match variants.iter().position(|v| v.name == seg.name.name) {
                     Some(index) => {
+                        let carries = variants[index].carries.is_some();
                         let args = self.variant_args(path, owner, expected, None);
-                        (
-                            Ty::Named { sym: owner, args },
-                            hir::ExprKind::UnionVariant { owner, index, payload: Vec::new() },
-                        )
+                        // `ButtonState::Idle` with no braces builds a carried struct from
+                        // its defaults, so a field without one is as missing as in `Idle{}`.
+                        let kind = if carries {
+                            self.union_variant_literal(owner, &args, index, &[], seg.name.span)
+                        } else {
+                            hir::ExprKind::UnionVariant { owner, index, payload: Vec::new() }
+                        };
+                        (Ty::Named { sym: owner, args }, kind)
                     }
                     None => (Ty::Error, hir::ExprKind::Error),
                 }
@@ -4821,6 +4881,16 @@ impl<'a, 'c> Body<'a, 'c> {
             _ => None,
         };
         let Some(variant) = variant else { return hir::ExprKind::Error };
+        // A variant carrying a struct is built as that struct is: its fields, its defaults,
+        // its visibility, and none of it when it has a constructor (spec §7.5, 18.45).
+        if let Some(carried) = variant.carries {
+            return match self.struct_literal(&Ty::plain(carried), fields, span) {
+                hir::ExprKind::StructLit { fields: payload, .. } => {
+                    hir::ExprKind::UnionVariant { owner, index, payload }
+                }
+                _ => hir::ExprKind::Error,
+            };
+        }
         let name = format!("{}::{}", self.cx.res.symbol(owner).name, variant.name);
         // A `Maybe<i32>::Some{ value: 4 }` checks `value` against `i32`, not `T` (spec §8.4).
         let instantiated: Vec<crate::FieldSig> = variant
@@ -5101,6 +5171,7 @@ impl<'a, 'c> Body<'a, 'c> {
     }
 
     fn switch(&mut self, s: &SwitchExpr, e: &Expr, expected: Option<&Ty>) -> Checked {
+        let wanted = self.value_wanted(expected);
         let subject = self.expr(&s.subject, None);
         let peeled = subject.ty.peeled().clone();
         let sym = peeled.named();
@@ -5213,7 +5284,12 @@ impl<'a, 'c> Body<'a, 'c> {
                                 Ty::Named { args, .. } => args.clone(),
                                 _ => Vec::new(),
                             };
+                            // A variant carrying a struct binds that struct, methods and all
+                            // (spec §7.5, 18.45).
                             let payload = match (is_union, sym, index) {
+                                (true, Some(_), Some(i)) if variants[i].carries.is_some() => {
+                                    variants[i].carries.map_or(Ty::Error, Ty::plain)
+                                }
                                 (true, Some(owner), Some(i)) => Ty::Variant(owner, i, args),
                                 _ => Ty::Error,
                             };
@@ -5259,7 +5335,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                 }
             }
-            let body = self.block(&arm.body, expected);
+            let body = self.block_valued(&arm.body, expected, wanted);
             result = Some(match result {
                 Some(prev) => join(&prev, &body.ty).unwrap_or(Ty::Void),
                 None => body.ty.clone(),
@@ -5276,7 +5352,7 @@ impl<'a, 'c> Body<'a, 'c> {
 
         let mut default = None;
         if let Some(d) = &s.default {
-            let c = self.block(d, expected);
+            let c = self.block_valued(d, expected, wanted);
             default = Some(c.id);
             result = Some(match result {
                 Some(prev) => join(&prev, &c.ty).unwrap_or(Ty::Void),
@@ -5342,6 +5418,20 @@ impl<'a, 'c> Body<'a, 'c> {
                             ),
                         );
                     }
+                } else if payload.named().is_some() && !self.cx.table.copyable(&payload) {
+                    // A carried struct that cannot be copied (spec §7.5, 18.45).
+                    let t = self.cx.name_of(&payload);
+                    let n = pat.binding.as_ref().map_or("c".to_owned(), |b| b.name.clone());
+                    self.cx.error_help(
+                        codes::IMPLICIT_COPY,
+                        pat.span,
+                        format!("`{n}` would be a copy of a `{t}`, which cannot be copied"),
+                        "a copy of the payload",
+                        format!(
+                            "refer to the payload with `{}(&{n})` (spec §6.3, §10.3)",
+                            pat.name.name
+                        ),
+                    );
                 }
                 payload
             }
@@ -5550,7 +5640,9 @@ impl<'a, 'c> Body<'a, 'c> {
                     Ty::Fallible(_) => self.fallible,
                     _ => matches!(self.ret, Ty::Optional(_) | Ty::Void | Ty::Error),
                 };
-                if !carries {
+                if self.refuse_return_in_base_init(v.span) {
+                    // Said once, as the base initialiser's mistake (invariant 6).
+                } else if !carries {
                     let ret = self.cx.name_of(&self.ret.clone());
                     let help = if matches!(subject.ty, Ty::Fallible(_)) {
                         "mark this function `!->`, or handle the failure here with a fallback or a block (spec §9.5)"

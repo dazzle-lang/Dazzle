@@ -10,12 +10,12 @@ enum Step {
 union Shape {
     Circle { radius: f32 }
     Rect { w: f32, h: f32 }
-    Point
+    Point {}
 }
 
 union Maybe<T> {
     Some { value: T }
-    Nothing
+    Nothing {}
 }
 
 struct Pair<T> {

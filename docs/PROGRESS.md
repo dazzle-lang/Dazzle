@@ -18,12 +18,12 @@ the milestone.
 
 | | |
 |---|---|
-| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M8** is done, and r37 settled how `for` and `case` bindings hold what they name |
+| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
 | Next | **Get CI green on all three platforms** — the workflow is written and has never run — then fetched packages (M16). M14, M15 and struct inheritance have landed. Struct inheritance landed as r30, which also unblocks the last substantive M7 row — a Dazzle struct inheriting an imported C++ class, Jolt's listeners. See §4 |
-| Tests | 190, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
+| Tests | 191, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 37; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
+| Language spec | 0.1 **unreleased**, revision 38; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -940,6 +940,42 @@ not work at all and that a `case` binding could write into a value declared immu
   `for` inside a generic function, `or break` inside an arm, a move inside a loop. 48 files.
   `tests/run/loops` runs the valid combinations on both compilers, warning-clean.
 
+### r38 — M8's criterion: a union of existing structs, and base arguments built by statements
+
+M8 was marked done at r36, but its criterion had never been run. Writing the `ButtonState`
+sample as §7.5 specifies it (`tests/run/button`) showed the one thing that made it the
+sample: **a variant that is an existing struct did not exist.** `union ButtonState {
+DefaultState … }` parsed as a variant with no payload, so `case DefaultState(d) {
+d.update() }` had no `update` to find.
+
+- **Design, settled with the user as 18.45:** a bare variant always names a struct in scope
+  and carries it; a variant with no payload is `Point {}`. A bare name with nothing behind
+  it is **`DZ0551`** rather than an empty variant, so a misspelling cannot change what a
+  union holds. Every fixture with a bare no-payload variant gained `{}`; the formatter now
+  prints `Point {}` rather than `Point {  }`.
+- `VariantSig::carries` holds the struct, resolved in collection with `lookup_in_file`.
+  A variant literal is checked by `struct_literal`, so the struct's defaults, visibility
+  and constructor rule all apply, and its field values become the variant's payload; a
+  bare `S::Idle` runs the same check with no fields. A `case` binding is the struct's own
+  type, so methods resolve, and a plain binding of a move-only struct is `DZ0403`.
+- Codegen puts the struct itself in the C++ union under its qualified name, orders it
+  before the union in `sort_types`, and builds the variant by assigning a whole struct
+  literal, so field defaults run even when the variant is not the union's first member.
+  A carried struct with a constructor, `copy`, base or vtable is `DZ0801` (register, M12).
+- **Two checker gaps the sample found.** `return .DefaultState{}` from a `-> ButtonState?`
+  inferred from the `T?` and failed; a leading dot in `return` now infers from `T`. And an
+  arm whose value was a `T?` warned `DZ0510` whenever the `switch` had no *expected type*,
+  which includes `let next = switch …`: a block now asks whether its value is wanted
+  (`value_wanted`, read on entry from `stmt_position`) rather than whether a type is.
+- **The last M8 row, a base initialiser needing statements**, is closed: each argument
+  that hoists statements becomes a `[&]` lambda called in place inside the
+  member-initialiser list. `return` there has no meaning — nothing has begun to return from
+  — so it is refused by the checker as **`DZ0552`** (r38, §7.3) rather than miscompiled.
+- Tests: `tests/run/button` (in the `-Wall -Wextra` set), a `Guarded` constructor in
+  `tests/run/inherit`, `a_bare_variant_carries_the_struct_it_names`, a case each way in
+  `typed/` and `typeerrors/` for both codes, and `tests/errors/variant_names_no_struct.dz`
+  and `return_in_base_initialiser.dz`. 191 tests.
+
 ### M8, and r36 — `switch` on constants, generic unions, values built by statements
 
 Most of M8 — unions, `switch`, `T?`, `!->`, `or` — had landed with M5. What was left were
@@ -1295,7 +1331,6 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M7b** | A whole C array member is refused rather than copied (`DZ0707`), and cannot be passed as a `[]T`. Copying one needs a helper that fills a `dz::Array` element by element; the slice needs a `Slice{ptr, len}` built at the use site. Indexing, `for`, `.len` and `.ptr` all work | `dz_check/src/check.rs`, `is_c_array_member` |
 | **M7b** | libclang parses with its own default target (MSVC here), not the C++ compiler's: a header needing the C library's own headers may find MSVC's while g++ builds against mingw's | `dz_cppimport`, `arguments` |
 | **M7b** | An untyped imported integer is not range-checked against its context: `let b: u8 = rl::SOME_BIG` reaches C++ as a narrowing `static_cast`. The importer knows the value; the checker should compare it, as it does a literal's | `dz_check/src/lib.rs`, `collect_foreign` |
-| **M8** | **A base initialiser needing statements** (`: Base(x or 0)`) reports `DZ0801`. The lambda that serves a constant or a field default cannot build a base subobject, and the statements cannot run before the member-initialiser list; the arguments would have to be hoisted one by one | `dz_cpp`, `base_init` |
 | **M12** | **`indexed()` exists only in a `for` head.** It is recognised there by the checker, not declared: a real adapter is a generic struct implementing `Iterate` over another, whose `Item` needs associated-type projection (the row below). `move(xs).indexed()` is refused for the same reason | `dz_check/src/check.rs`, `for_stmt` |
 | **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
 | **M10** | The intrinsics `#module`, `#location` and `#expr_text` are typed but not emitted (`#file`, `#line`, `#column` and `#function` are) | `dz_cpp`, `intrinsic` |
@@ -1307,7 +1342,8 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M12** | `assert` is typed but not emitted; it becomes an ordinary stdlib function | `dz_cpp`, `builtin` |
 | **M12** | `alloc` panics on an alignment stricter than `malloc` guarantees, rather than honouring it | `dz_cpp/src/runtime.rs`, `alloc` |
 | **M12** | A trait default method is exercised by `tests/run/generics` only for bodies that call the trait's own methods; one that builds or returns a `Self` value has no test | `dz_mono`, `inherited_defaults` |
-| **M12** | A union variant whose payload owns a resource is refused rather than leaked. A C++ union with a non-trivial member needs special members that switch on the tag; §7.5 marks variant drops `[PROPOSED]`, so this waits for that decision | `dz_cpp/src/lib.rs`, `union_decl` |
+| **M12** | A union variant whose payload owns a resource is refused rather than leaked. A C++ union with a non-trivial member needs special members that switch on the tag; §7.5 marks variant drops `[PROPOSED]`, so this waits for that decision. The same machinery is what a **variant carrying a struct with a constructor, `copy`, base or `virtual` method** (r38) needs, refused with `DZ0801` for the same reason | `dz_cpp/src/lib.rs`, `union_decl` |
+| **M12** | **Arms of one `switch` or `if` cannot mix `T?` and `T`**: `case A { a.next() } case B { .B{} }` does not join to `ButtonState?`. A plain `T` becomes a `T?` only at `return` (§9.1), so an arm has to return or write `T?` itself. Whether a value position should convert as `return` does is a language question for the user, surfaced by the `ButtonState` sample | `dz_hir/src/ty.rs`, `join` |
 | **M12** | `error(…)` and `format(…)` write into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. §9.2 requires no allocation *and* a message that outlives the call; a real answer needs the stdlib's `String` | `dz_cpp/src/runtime.rs` |
 | **M12** | `or unreachable` panics in release as well as debug. §9.4 says release may assume the success path, and §18.20 has not settled whether that means `__builtin_unreachable` or merely skipping the check | `dz_cpp/src/lib.rs`, `clause` |
 | **M12** | **`str` has no `.len`.** §5.3 gives it `{ ptr, len }` and a slice answers `.len`, but member lookup knows only arrays and slices, so `name.len` on a `str` is `DZ0505`. Found while writing r21's tests | `dz_check/src/check.rs`, `field_type` |

@@ -1,0 +1,17 @@
+// expect: DZ0551
+//
+// A bare variant carries the struct it names, and `Idle` is misspelt. A variant with no
+// payload is written `Idle {}`, so this is never silently an empty variant.
+
+struct Idel {
+    pub t: f32 = 0
+}
+
+union State {
+    Idle
+    Running { speed: f32 }
+}
+
+fn main() {
+    let s = State::Running{ speed: 1 }
+}

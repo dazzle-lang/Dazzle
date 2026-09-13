@@ -61,6 +61,22 @@ pub struct Boxed : Sized {
     }
 }
 
+fn positive(n: i32) -> i32? {
+    if n > 0 {
+        return n
+    }
+    return none
+}
+
+// Base arguments built by statements, which C++'s member-initialiser list has no room for.
+pub struct Guarded : Sized {
+    pub label: i32 = 0
+
+    Guarded(width: i32, height: i32) : Sized(positive(width) or 1, if height > 0 { height } else { 1 }) {
+        label = width
+    }
+}
+
 fn main() {
     let mut d = Dialog{ left: 3, top: 4, title: "dialog", modal: false }
 
@@ -79,6 +95,8 @@ fn main() {
     // A constructor that builds its base.
     let b = Boxed(2, 5, 7)
     println("{} {} {} {}", b.w, b.h, b.depth, b.volume())
+    let g = Guarded(-3, 4)
+    println("{} {} {} {}", g.w, g.h, g.label, g.volume())
 
     virtual_and_protected()
 }

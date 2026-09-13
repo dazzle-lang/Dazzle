@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 37
+**Version:** 0.1 — **unreleased**, revision 38
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -63,7 +63,7 @@ impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable 
 | Handle anything fallible | `let v = f() or { e -> … }` | one clause for `T!`, `T?`, and `^T` alike |
 | Propagate | `f() or return` | only where the enclosing signature can carry the failure |
 | Fall back | `f() or Textures::Missing` | "on failure use this instead" — the common case in game code |
-| Sum type | `union S { A{…} B }` + `switch` | tagged, exhaustive, no fallthrough |
+| Sum type | `union S { A{…} B{} C }` + `switch` | tagged, exhaustive, no fallthrough; bare `C` carries `struct C` |
 | Interface | `trait X` + `impl X for Y` | bound `<T: X>` = static dispatch; `^X` = fat pointer, object stays the same size; an `impl` lives with the trait or with the type, so a module can add a trait to a type it did not write |
 | Generics | `fn f<T: Ord>(…)` | checked once at the definition, then monomorphized by Dazzle |
 | Module | one `dazzle.toml` = one module | folders mean nothing; `name = "engine::render"` for nesting |
@@ -1014,6 +1014,9 @@ Leaving it out is an error. A base without a constructor is default-initialised 
 needs nothing written, though `: Base()` may be written to say so. A type that has a
 constructor — its own, or an inherited one — is **not** built with a struct literal: the
 constructor is what establishes the type's invariant, and a literal would step around it.
+The base's arguments are ordinary expressions over the constructor's parameters, including
+ones that need statements — `: UiElement(r or Rect{})` — but not `return` or `or return`:
+the base is built before the constructor begins, so there is nothing yet to return from.
 
 **`virtual` and `override`.** A method is dispatched statically unless it says otherwise.
 `virtual fn` opts one into runtime dispatch; `override fn` replaces one, and must match the
@@ -1076,7 +1079,7 @@ A `union` is a **tagged** union — a sum type, not C's overlapping storage.
 pub union Shape {
     Circle { radius: f32 }
     Rect   { w: f32, h: f32 }
-    Point                        // no payload
+    Point {}                     // no payload
 }
 
 let s = Shape::Circle{ radius: 2 }
@@ -1088,15 +1091,39 @@ switch s {
 }
 ```
 
-Variants may also name existing structs, which is what your `state.dz` sketch does:
+A variant with no payload is written with empty braces, `Point {}`, and built as
+`Shape::Point` or `Shape::Point{}`.
+
+**A bare variant is an existing struct.** Written without braces, a variant names a struct in
+scope and carries a value of it:
 
 ```dz
+struct DefaultState {
+    pub fn update(&self, input: &Input) -> ButtonState? { … }
+}
+struct TransitionState {
+    pub t: f32 = 0
+    pub fn update(&mut self, ctx: &ButtonCtx, btn: &mut Button) -> ButtonState? { … }
+}
+
 union ButtonState {
     DefaultState
     TransitionState
-    ChangeSprite
+}
+
+let s: ButtonState = .TransitionState{}            // built as a `TransitionState` is: `t` is 0
+switch s {
+    case DefaultState(d)         { d.update(input) }         // `d` is a `DefaultState`
+    case TransitionState(&mut t) { t.update(ctx, btn) }
 }
 ```
+
+The payload is the struct itself — its fields, defaults, visibility and methods — so a variant
+literal is checked as that struct's literal and a `case` binding has the struct's type. A bare
+name with no struct of that name in scope, or one naming an enum, a union, a trait or a
+generic struct (which has nowhere to write its arguments), is an error rather than an empty
+variant: otherwise a misspelling, or a struct added or removed elsewhere, would change what
+the union holds without a word. `[DECIDED — §18.45]`
 
 A union's size is its largest variant plus a tag, aligned. `Shape::Kind` is an
 automatically generated enum of the variant names, so `s.kind()` gives you something cheap
@@ -3017,6 +3044,7 @@ be exactly what reload needs, and must stay that way:
 | 18.42 | How a `for` binding holds its element | **On the binding, as C++ does it: `e` a copy, `&e` a reference, `&mut e` a writable reference.** `e` cannot be changed, so a write meant for the element cannot silently land on a copy. A copy is a real copy, never a reference in disguise, since a `copy` or `drop` with side effects would otherwise run or not depending on the compiler. Replaces `for e in &xs` / `for e in &mut xs`, where the sequence expression said it. Several names always take a tuple element apart, with no parentheses — `for id, &btn, &mut state in query` — and a pass count comes from `xs.indexed()`, so `for i, e in xs` no longer means an index: two readings of two names was the conflict this settles. What an iterator's `Item` is decides which bindings its loops may use (§10.4) |
 | 18.43 | How a `case` binding holds the payload | **Exactly as a `for` binding (18.42).** `case Circle(c)` is a copy that cannot be changed, `&c` a read-only reference, `&mut c` a writable one that needs a `let mut`, `&mut` or `^mut` subject. One rule for both places; a binding that was always a reference would make `&mut c` the only mode worth writing. The binding had been writable always, which let a `switch` change a value declared immutable and failed in C++ behind a `&` (§10.3) |
 | 18.44 | Assigning to a `&mut T` | **Writes the `T` it refers to**, as in C++. A reference cannot be pointed elsewhere, so there was no other meaning to give it, and `for &mut n in counts { n += 1 }` needs it. Through a `&T` it is an error (§5.2) |
+| 18.45 | A union variant that is an existing struct | **A bare variant names a struct in scope and carries it; a variant with no payload is written `Point {}`.** `union ButtonState { DefaultState  TransitionState }` holds a `DefaultState` or a `TransitionState`, each built as that struct is built — its fields, defaults and visibility — and bound by `case DefaultState(d)` as that struct, methods included. A bare name that is no struct in scope, names something else, or names a generic struct is an error (DZ0551) rather than a variant with nothing in it: giving the bare spelling both meanings would let a misspelling, or a struct added or removed elsewhere, silently change what a union holds. `Point {}` is already how a variant with an empty field list was written, so nothing new is spelled; `Shape::Point`, with no braces, still names one (§7.5) |
 
 ### 18.2 Still open
 
@@ -3046,7 +3074,7 @@ Each milestone ends with something you can actually run.
 | M6 ✅ | Generics + traits + monomorphization | **done.** `Buffer<T>` runs as a generic struct with an `own ^T` field, a `drop`, a folded compile-time branch on `T::is_trivially_copyable`, and `construct`/`destroy`, allocating through `alloc`/`free` — instantiated for a trivially-copyable and a resource-owning `T` in `tests/run/generics`. Generic bodies are checked once against their bounds; traits, conformance, associated types, default methods and bounds work; operators dispatch through the prelude's traits; `for` runs over a user `Iterate`; format strings are checked. `Buffer<T>` has a `copy` exactly when `T` is `Copy` (§18.26, settled in r12). **Static dispatch only:** `^Trait` fat pointers (§7.6, §18.6) and therefore a stored `^Allocator` are not in this milestone, so `Allocator` exists as a trait and a bound while `Arena` and `Allocators::Global` wait for the stdlib pass |
 | M7a ✅ | C interop: a vendored C library, built from source | **done** — `tests/run/cinterop` calls a two-file C library (`mini.h` + `mini.c`) that `dz` compiles from source from a `[cpp.libs]` recipe, with no CMake and no prebuilt binary, on clang++ and g++. `import cpp` reads the header through libclang into ordinary Dazzle names; `^T`/`^mut T` (r18), recipes (r19) and the import itself (r20) got there |
 | M7b ✅ | Full C and C++ interop | **done — a raylib window opens.** `tests/run/raylib` opens one with raylib 6.0 built from its own seven `.c` files. r21–r28 added what that needed and then the C++ half: handles, C unions, array members and bit-fields, callbacks, compound-literal macros, then namespaces, classes, methods, constructors, C++-owned destructors, overloaded methods, references and `[cpp.instantiate]` template instances, covered by `tests/run/cppinterop` on both compilers. What is left is narrower than the milestone and is in `PROGRESS.md`'s deferral register: overloaded *free* functions (methods do resolve), the boundary cast for an overloaded method, and inheritance between imported C++ classes — which waits on struct inheritance (18.32) |
-| M8 | Unions, `switch`, `T?`, `!->`, the `or` clause | the `ButtonState` union sample from `example.dz` works |
+| M8 ✅ | Unions, `switch`, `T?`, `!->`, the `or` clause | **done** — `tests/run/button` runs the `ButtonState` sample as the language specifies it: a union whose variants are the existing structs `DefaultState`, `TransitionState` and `ChangeSprite` (r38), each state's `update` returning the next as a `ButtonState?`, dispatched by a `switch` that calls the payload's own methods, around a fallible `!->` load handled by `or return`, a fallback and `{ e -> … }`. `switch` on constants, generic unions and statement-built values landed with r36, and a base initialiser whose arguments need statements with r38. A variant carrying a struct that owns a resource or has special members waits on variant drops, with the M12 stdlib |
 | M9 | LSP: diagnostics, hover, go-to-definition, completion | usable in VS Code for real work |
 | M10 | Macros | a user-written `#machine` expands to the `ButtonState` machine and the LSP completes inside it |
 | M11 | Reflection + type table | a 50-line generic JSON serializer works on any `#[reflect]` type |
@@ -3100,7 +3128,7 @@ impl_decl     = "impl" [ generics ] path [ "<" type_list ">" ] "for" type "{" { 
 impl_item     = "type" ident "=" type TERM | fn_decl ;
 
 union_decl    = "union" ident [ generics ] "{" { variant } "}" ;
-variant       = ident [ "{" field_list "}" ] TERM ;
+variant       = ident [ "{" field_list "}" ] TERM ;   (* a bare ident carries that struct, §7.5 *)
 enum_decl     = "enum" ident [ ":" type ] "{" { ident [ "=" expr ] TERM } "}" ;
 trait_decl    = "trait" ident [ generics ] [ ":" trait_list ] "{" { trait_item } "}" ;
 trait_list    = path [ "<" type_list ">" ] { "+" path [ "<" type_list ">" ] } ;
@@ -3181,6 +3209,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r38 | 2026-09-13 | **A union variant can be an existing struct** (§7.5, 18.45). A bare variant name now always names a struct in scope and carries a value of it: `union ButtonState { DefaultState  TransitionState }` is built with `ButtonState::DefaultState{ … }` or `.DefaultState{}` exactly as a `DefaultState` is, and `case DefaultState(d)` binds a `DefaultState`, so `d.update()` calls its method. **A variant with no payload must now be written with braces, `Point {}`** — a bare `Point` with no struct of that name is DZ0551, as is one naming an enum, a union or a generic struct. `Shape::Point` without braces still builds it. Also: `return .Variant{}` from a `-> T?` function infers from `T`, as returning a plain `T` there already did (§9.1); and a base initialiser's arguments may not `return` (DZ0552) — the base is built before the constructor begins (§7.3). |
 | r37 | 2026-09-13 | **How `for` and `case` bindings hold what they name** (§10.3, §10.4, 18.42–18.44). `for e in xs` copies each element and `e` cannot be changed; `for &e in xs` refers to it; `for &mut e in xs` refers to it and writes into `xs`, which must be writable. The forms `for e in &xs` and `for e in &mut xs` are gone. A move-only element is taken with `&e`, or consumed with `for e in move(xs)`. Several names take a tuple element apart — `for id, &btn, &mut state in query` — and the pass count moves to `for i, e in xs.indexed()`, so `for i, e in xs` no longer binds an index. `case` bindings follow the same rules: `case Circle(c)` is a copy, `&c` a read-only reference, and `&mut c` changes the payload, on a writable value only. Assigning to a `&mut T` writes what it refers to. A generic union's variant infers its type arguments from its payload: `Choice::One{ value: 4 }` is a `Choice<i32>`. |
 | r36 | 2026-09-13 | **`switch` on an integer, `char`, `bool` or `str`** (§10.3). Labels are constants — literals, `const`s, and arithmetic on them — of the subject's type: `case 1, 2`, `case "quit"`, `case MAX + 1`. There is no exhaustiveness requirement, and a float cannot be a subject. A bare name in a label is a variant on an enum or union and a constant otherwise. Two related rules now stated: **the same variant or value in two labels is an error**, since the later one can never match; and **`break` and `continue` inside an arm act on the enclosing loop**, since `switch` has no fallthrough to break out of — the compiler had been leaving only the `switch`, which was a bug. |
 | r35 | 2026-09-13 | **The built program is in `build/bin/`**, not `build/` (§16.1). `build/` now holds only directories `dz` names itself — `bin`, `cpp`, `obj`, and the roots `dz test` and `dz bench` create — because the two could collide: a module named `bench` produced the *file* `build/bench`, which is exactly the directory `dz bench` wants, and the build failed with "Not a directory" on every platform whose executables have no extension. `dz run` is unaffected; `dz build` prints the path it wrote. |

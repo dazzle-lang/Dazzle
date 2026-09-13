@@ -187,6 +187,9 @@ fn every_rule_has_a_failing_case() {
         // M8 — `switch` on constants (spec §10.3).
         BAD_CASE_LABEL,
         DUPLICATE_CASE,
+        // r38 — a bare variant carries the struct it names (spec §7.5, 18.45).
+        BAD_VARIANT,
+        RETURN_IN_BASE_INIT,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }
@@ -291,9 +294,9 @@ fn mutation_requires_a_mutable_binding_or_receiver() {
 #[test]
 fn switch_must_cover_every_variant() {
     // spec §10.3
-    let missing = "union U {\n A\n B\n}\nfn f(u: U) -> i32 {\n switch u {\n  case A {\n   return 1\n  }\n }\n return 0\n}\n";
+    let missing = "union U {\n A {}\n B {}\n}\nfn f(u: U) -> i32 {\n switch u {\n  case A {\n   return 1\n  }\n }\n return 0\n}\n";
     assert!(snippet(missing).contains(&dz_diag::codes::NON_EXHAUSTIVE_SWITCH));
-    let covered = "union U {\n A\n B\n}\nfn f(u: U) -> i32 {\n switch u {\n  case A {\n   return 1\n  }\n  case B {\n   return 2\n  }\n }\n return 0\n}\n";
+    let covered = "union U {\n A {}\n B {}\n}\nfn f(u: U) -> i32 {\n switch u {\n  case A {\n   return 1\n  }\n  case B {\n   return 2\n  }\n }\n return 0\n}\n";
     assert!(snippet(covered).is_empty());
 }
 
@@ -324,9 +327,33 @@ fn switch_on_a_scalar_matches_constants() {
 }
 
 #[test]
+fn a_bare_variant_carries_the_struct_it_names() {
+    // spec §7.5, 18.45 — `Idle` carries `struct Idle`, methods and defaults included; a
+    // variant with no payload is `Off {}`, and a bare name with no struct behind it is an
+    // error rather than an empty variant.
+    use dz_diag::codes::{BAD_VARIANT, MISSING_FIELD};
+    let ok = "struct Idle {\n pub t: i32 = 1\n pub fn next(&self) -> i32 {\n  return t + 1\n }\n}\n\
+              union S {\n Idle\n Off {}\n}\n\
+              fn f() -> i32 {\n let a: S = .Idle{ t: 2 }\n let b = S::Idle\n let c: S = S::Off\n \
+              switch c {\n  case Off {}\n  default {}\n }\n switch b {\n  case Idle(i) { return i.t }\n  default {}\n }\n \
+              switch a {\n  case Idle(&i) { return i.next() }\n  case Off { return 0 }\n }\n}\n";
+    assert!(snippet(ok).is_empty(), "{:?}", snippet(ok));
+    let missing = "union S {\n Idle\n}\n";
+    assert_eq!(snippet(missing), vec![BAD_VARIANT]);
+    let not_a_struct = "enum Idle {\n A\n}\nunion S {\n Idle\n}\n";
+    assert_eq!(snippet(not_a_struct), vec![BAD_VARIANT]);
+    let generic = "struct Idle<T> {\n pub v: T\n}\nunion S {\n Idle\n}\n";
+    assert_eq!(snippet(generic), vec![BAD_VARIANT]);
+    // Built as the struct is, so a field without a default must be given.
+    let no_default =
+        "struct Idle {\n pub t: i32\n}\nunion S {\n Idle\n}\nfn f() {\n let a: S = .Idle{}\n}\n";
+    assert_eq!(snippet(no_default), vec![MISSING_FIELD]);
+}
+
+#[test]
 fn a_generic_union_is_read_through_its_arguments() {
     // spec §7.5, §8.4 — `case One(o)` on a `Choice<i32>` makes `o.value` an `i32`.
-    let base = "union Choice<T> {\n One { value: T }\n Neither\n}\n";
+    let base = "union Choice<T> {\n One { value: T }\n Neither {}\n}\n";
     let ok = format!(
         "{base}fn f() -> i32 {{\n let c = Choice<i32>::One{{ value: 1 }}\n switch c {{\n  case One(o) {{ return o.value }}\n  case Neither {{ return 0 }}\n }}\n}}\n"
     );

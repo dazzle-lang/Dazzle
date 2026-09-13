@@ -23,12 +23,12 @@ enum Step {
 
 union Shape {
     Circle { radius: f32 }
-    Point
+    Point {}
 }
 
 union Choice<T> {
     One { value: T }
-    Neither
+    Neither {}
 }
 
 // A countdown hands out values: only `for n in` fits it.

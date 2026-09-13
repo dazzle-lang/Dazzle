@@ -1,0 +1,12 @@
+fallback: no frames: 0
+0.25 0.5
+0 transition 1
+1 transition 1.25
+2 transition 1.5
+3 transition 1.75
+4 change 2
+5 default 1
+6 transition 1
+transition 1.5
+default 1
+true 1

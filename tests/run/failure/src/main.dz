@@ -10,7 +10,7 @@ pub enum Code : u32 {
 pub union Shape {
     Circle { radius: f32 }
     Rect { w: f32, h: f32 }
-    Point
+    Point {}
 }
 
 fn area(s: &Shape) -> f32 {

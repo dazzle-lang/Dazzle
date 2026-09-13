@@ -29,12 +29,12 @@ pub enum Ctx {
 
 pub union Shape {
     Circle { radius: i32 }
-    Point
+    Point {}
 }
 
 pub union Choice<T> {
     One { value: T }
-    Neither
+    Neither {}
 }
 
 pub struct Res {

@@ -549,9 +549,17 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
     // the generated special members, and `failure` the only one that exercises `or`,
     // tagged unions and tuples. A warning in generated code is a compiler bug
     // (invariant 7), so the check has to see all of it.
-    for fixture in
-        ["features", "ownership", "failure", "hello", "keywords", "inherit", "switching", "loops"]
-    {
+    for fixture in [
+        "features",
+        "ownership",
+        "failure",
+        "hello",
+        "keywords",
+        "inherit",
+        "switching",
+        "loops",
+        "button",
+    ] {
         check_warning_clean(cxx, fixture);
     }
 }

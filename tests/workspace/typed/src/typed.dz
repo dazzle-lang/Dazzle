@@ -14,7 +14,7 @@ pub enum Layer : u16 {
 pub union Shape {
     Circle { radius: f32 }
     Rect { w: f32, h: f32 }
-    Point
+    Point {}
 }
 
 pub struct Vec3 {
@@ -399,7 +399,7 @@ fn switch_on_constants(n: i32, s: str, c: char) -> i32 {
 // a `case` binding read through the instance.
 union Choice<T> {
     One { value: T }
-    Neither
+    Neither {}
 }
 
 fn generic_union(fallback: i32) -> i32 {
@@ -953,6 +953,11 @@ pub struct Boxed : Sized {
     }
 }
 
+// A base argument may be built by statements: an `or` fallback, a block-valued `if`.
+pub struct Fallback : Sized {
+    Fallback(width: i32?, wide: bool) : Sized(width or if wide { 10 } else { 1 }) {}
+}
+
 // A base with no constructor may still be named, which is default-initialisation.
 pub struct Explicitly : Widget {
     Explicitly() : Widget() {}
@@ -1038,4 +1043,38 @@ fn measure_any<T: Measured>(v: &T) -> i32 {
 
 fn inherited_and_overridden_implementations(c: &Circle, s: &Square) -> i32 {
     return measure_any(c) + measure_any(s)
+}
+
+// §7.5: a bare variant carries the struct of that name — its fields, defaults and methods —
+// beside a variant with no payload of its own.
+struct Walking {
+    pub speed: f32 = 1
+
+    pub fn faster(&self) -> Motion? {
+        if speed > 2 {
+            return none
+        }
+        return .Walking{ speed: speed * 2 }
+    }
+}
+
+union Motion {
+    Walking
+    Stopped {}
+}
+
+fn carried_struct(m: &mut Motion) -> f32 {
+    let next = switch m {
+        case Walking(&w) { w.faster() }
+        case Stopped { return 0 }
+    }
+    let n = next or return 0
+    m = n
+    return switch m {
+        case Walking(&mut w) {
+            w.speed += 1
+            w.speed
+        }
+        case Stopped { 0.0 }
+    }
 }

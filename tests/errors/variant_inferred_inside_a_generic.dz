@@ -4,7 +4,7 @@
 
 union Choice<T> {
     One { value: T }
-    Neither
+    Neither {}
 }
 
 fn wrap<T>(x: T) -> Choice<T> {

@@ -240,6 +240,10 @@ pub struct VariantSig {
     pub name: String,
     pub fields: Vec<FieldSig>,
     pub span: Span,
+    /// A bare union variant names an existing struct and carries a value of it, so its
+    /// payload is that struct — its fields, defaults and methods — rather than a field list
+    /// of the variant's own, and `fields` is empty (spec §7.5, 18.45).
+    pub carries: Option<SymbolId>,
 }
 
 #[derive(Clone, Debug)]
@@ -892,6 +896,7 @@ impl Ctx<'_> {
                                 name: v.name.clone(),
                                 fields: Vec::new(),
                                 span: span(v.loc),
+                                carries: None,
                             })
                             .collect(),
                         values: variants.iter().map(|v| Some(v.value)).collect(),
@@ -2137,6 +2142,58 @@ impl<'a> Ctx<'a> {
         self.table.type_params.insert(sym, defs);
     }
 
+    /// The struct a bare union variant carries. A bare variant always names one; a variant
+    /// with no payload is written `Point {}`, so a misspelt or missing struct is an error
+    /// rather than a silently empty variant (spec §7.5, 18.45).
+    fn carried_struct(&mut self, v: &dz_ast::Variant) -> Option<SymbolId> {
+        let name = v.name.name.as_str();
+        let found = if self.param_in_scope(name).is_some() || builtin_type(name).is_some() {
+            None
+        } else {
+            self.res.lookup_in_file(self.module, self.file, name)
+        };
+        let help = format!(
+            "a variant with no payload is written `{name} {{}}`; a bare `{name}` carries the \
+             struct of that name (spec §7.5)"
+        );
+        let Some(sym) = found else {
+            self.error_help(
+                codes::BAD_VARIANT,
+                v.name.span,
+                format!("no struct named `{name}` for this variant to carry"),
+                "not a struct in scope",
+                help,
+            );
+            return None;
+        };
+        let symbol = self.res.symbol(sym);
+        if symbol.kind != SymbolKind::Struct {
+            let what = symbol.kind.describe();
+            self.error_help(
+                codes::BAD_VARIANT,
+                v.name.span,
+                format!("`{name}` is a {what}, so a variant cannot carry it"),
+                format!("names a {what}"),
+                help,
+            );
+            return None;
+        }
+        // A bare name has nowhere to write type arguments.
+        if !self.table.type_params(sym).is_empty() {
+            self.error_help(
+                codes::BAD_VARIANT,
+                v.name.span,
+                format!("`{name}` is generic, so a bare variant cannot carry it"),
+                "needs type arguments",
+                format!(
+                    "declare the payload as fields — `{name} {{ value: {name}<…> }}` (spec §7.5)"
+                ),
+            );
+            return None;
+        }
+        Some(sym)
+    }
+
     fn collect_item(&mut self, item: &Item) {
         if let ItemKind::Impl(i) = &item.kind {
             self.impl_methods(item, i);
@@ -2168,6 +2225,7 @@ impl<'a> Ctx<'a> {
                         name: v.name.name.clone(),
                         fields: v.fields.iter().map(|f| self.field_sig(f)).collect(),
                         span: v.name.span,
+                        carries: if v.has_payload { None } else { self.carried_struct(v) },
                     })
                     .collect();
                 self.table.sigs.insert(sym, ItemSig::Union { variants });
@@ -2200,6 +2258,7 @@ impl<'a> Ctx<'a> {
                         name: v.name.name.clone(),
                         fields: Vec::new(),
                         span: v.name.span,
+                        carries: None,
                     })
                     .collect();
                 let values = e

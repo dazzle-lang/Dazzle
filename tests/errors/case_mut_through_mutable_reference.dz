@@ -4,7 +4,7 @@
 
 union Shape {
     Circle { radius: f32 }
-    Point
+    Point {}
 }
 
 fn grow(s: &mut Shape) {
