@@ -1,0 +1,27 @@
+// expect: DZ0401
+//
+// Moved on one path is moved after the `switch` (spec §6.4).
+
+struct Res {
+    pub n: i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+enum Step {
+    Go
+    Stop
+}
+
+fn take(r: Res) {}
+
+fn main() {
+    let r = Res{ n: 1 }
+    let s = Step::Go
+    switch s {
+        case Go { take(move(r)) }
+        case Stop {}
+    }
+    println("{}", r.n)
+}

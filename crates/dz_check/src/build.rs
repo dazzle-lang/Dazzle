@@ -89,6 +89,16 @@ impl BodyBuilder {
         Checked { ty, id }
     }
 
+    /// How a local was introduced.
+    pub(crate) fn local_kind(&self, id: LocalId) -> LocalKind {
+        self.locals[id.index()].kind
+    }
+
+    /// What a node already built turned out to be.
+    pub(crate) fn kind(&self, id: ExprId) -> &hir::ExprKind {
+        &self.exprs[id.index()].kind
+    }
+
     pub(crate) fn stmt(&mut self, span: Span, kind: hir::StmtKind) -> StmtId {
         let id = StmtId(self.stmts.len() as u32);
         self.stmts.push(hir::Stmt { span, kind });

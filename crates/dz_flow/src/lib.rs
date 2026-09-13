@@ -234,16 +234,19 @@ impl<'a> Flow<'a> {
                 self.read(*target) || diverges
             }
             hir::StmtKind::Expr(e) => self.value(*e),
-            hir::StmtKind::While { cond, body } => {
+            hir::StmtKind::While { cond, body, .. } => {
                 self.read(*cond);
                 self.loop_body(*body);
                 false
             }
-            hir::StmtKind::For { bindings, subject, body } => {
+            hir::StmtKind::For { bindings, subject, body, shape, .. } => {
                 // A user iterator is copied or moved into the loop's own iterator, which
                 // `advance` then mutates (spec §10.4) — so its subject is a value, and a
-                // move-only iterator needs a `move`. An array or slice is walked in place.
-                if matches!(self.body.ty(*subject).peeled(), hir::ty::Ty::Named { .. }) {
+                // move-only iterator needs a `move`. An array or slice is walked in place,
+                // unless `for e in move(xs)` consumes it.
+                if *shape == hir::ForShape::Consuming
+                    || matches!(self.body.ty(*subject).peeled(), hir::ty::Ty::Named { .. })
+                {
                     self.value(*subject);
                 } else {
                     self.read(*subject);
@@ -535,7 +538,7 @@ impl<'a> Flow<'a> {
                 }
                 true
             }
-            hir::ExprKind::Break | hir::ExprKind::Continue => true,
+            hir::ExprKind::Break(_) | hir::ExprKind::Continue(_) => true,
             // `panic(...)` never comes back, which is what its `Never` type says.
             _ => matches!(self.body.ty(e), Ty::Never),
         }

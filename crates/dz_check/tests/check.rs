@@ -184,6 +184,9 @@ fn every_rule_has_a_failing_case() {
         ABSTRACT_TYPE,
         // M14 — tests as a language feature (spec §19).
         BAD_TEST,
+        // M8 — `switch` on constants (spec §10.3).
+        BAD_CASE_LABEL,
+        DUPLICATE_CASE,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }
@@ -292,6 +295,51 @@ fn switch_must_cover_every_variant() {
     assert!(snippet(missing).contains(&dz_diag::codes::NON_EXHAUSTIVE_SWITCH));
     let covered = "union U {\n A\n B\n}\nfn f(u: U) -> i32 {\n switch u {\n  case A {\n   return 1\n  }\n  case B {\n   return 2\n  }\n }\n return 0\n}\n";
     assert!(snippet(covered).is_empty());
+}
+
+#[test]
+fn switch_on_a_scalar_matches_constants() {
+    // spec §10.3 — no exhaustiveness on an integer, but a label must be known while
+    // compiling, and each value may be matched once.
+    use dz_diag::codes::{BAD_CASE_LABEL, DUPLICATE_CASE, TYPE_MISMATCH};
+    let ok = "const N = 4\nfn f(n: i32, b: u8, s: str) {\n switch n {\n  case 1, N, N + 1 {}\n }\n switch b {\n  case 255 {}\n }\n switch s {\n  case \"a\" {}\n  default {}\n }\n}\n";
+    assert!(snippet(ok).is_empty(), "{:?}", snippet(ok));
+    let run_time = "fn f(n: i32, m: i32) {\n switch n {\n  case m {}\n }\n}\n";
+    assert_eq!(snippet(run_time), vec![BAD_CASE_LABEL]);
+    let twice = "const N = 4\nfn f(n: i32) {\n switch n {\n  case 4 {}\n  case 2 + 2 {}\n  case N {}\n }\n}\n";
+    assert_eq!(snippet(twice), vec![DUPLICATE_CASE, DUPLICATE_CASE]);
+    let binding = "fn f(n: i32) {\n switch n {\n  case X(x) {}\n }\n}\n";
+    assert_eq!(snippet(binding), vec![BAD_CASE_LABEL]);
+    let float = "fn f(x: f32) {\n switch x {\n  default {}\n }\n}\n";
+    assert_eq!(snippet(float), vec![TYPE_MISMATCH]);
+    let out_of_range = "fn f(n: u8) {\n switch n {\n  case 300 {}\n }\n}\n";
+    assert!(!snippet(out_of_range).is_empty());
+    // An enum stays exhaustive, and names its variants rather than values.
+    let enum_value =
+        "enum E {\n A\n B\n}\nfn f(e: E) {\n switch e {\n  case 0 {}\n  default {}\n }\n}\n";
+    assert_eq!(snippet(enum_value), vec![BAD_CASE_LABEL]);
+    let enum_twice =
+        "enum E {\n A\n B\n}\nfn f(e: E) {\n switch e {\n  case A, B {}\n  case A {}\n }\n}\n";
+    assert_eq!(snippet(enum_twice), vec![DUPLICATE_CASE]);
+}
+
+#[test]
+fn a_generic_union_is_read_through_its_arguments() {
+    // spec §7.5, §8.4 — `case One(o)` on a `Choice<i32>` makes `o.value` an `i32`.
+    let base = "union Choice<T> {\n One { value: T }\n Neither\n}\n";
+    let ok = format!(
+        "{base}fn f() -> i32 {{\n let c = Choice<i32>::One{{ value: 1 }}\n switch c {{\n  case One(o) {{ return o.value }}\n  case Neither {{ return 0 }}\n }}\n}}\n"
+    );
+    assert!(snippet(&ok).is_empty(), "{:?}", snippet(&ok));
+    let wrong = format!(
+        "{base}fn f() -> f32 {{\n let c = Choice<i32>::One{{ value: 1 }}\n switch c {{\n  case One(o) {{ return o.value }}\n  case Neither {{ return 0 }}\n }}\n}}\n"
+    );
+    assert_eq!(snippet(&wrong), vec![dz_diag::codes::TYPE_MISMATCH]);
+    let payload = format!("{base}fn f() {{\n let c = Choice<i32>::One{{ value: 1.5 }}\n}}\n");
+    assert_eq!(snippet(&payload), vec![dz_diag::codes::TYPE_MISMATCH]);
+    // Nothing to take the arguments from.
+    let bare = format!("{base}fn f() {{\n let c = Choice::Neither\n}}\n");
+    assert_eq!(snippet(&bare), vec![dz_diag::codes::WRONG_TYPE_ARG_COUNT]);
 }
 
 #[test]

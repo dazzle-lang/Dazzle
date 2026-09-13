@@ -1,0 +1,6 @@
+[module]
+name    = "switching"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

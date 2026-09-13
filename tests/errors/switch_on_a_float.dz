@@ -1,0 +1,10 @@
+// expect: DZ0501
+//
+// A float is never matched exactly.
+
+fn main() {
+    let x: f32 = 1
+    switch x {
+        default {}
+    }
+}

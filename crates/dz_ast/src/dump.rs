@@ -305,7 +305,7 @@ impl<'a> Dumper<'a> {
                 });
             }
             StmtKind::For(f) => {
-                let binds: Vec<String> = f.bindings.iter().map(pat_str).collect();
+                let binds: Vec<String> = f.bindings.iter().map(for_binding_str).collect();
                 self.line(format_args!(
                     "for{} {}",
                     f.label.as_ref().map(|l| format!(" '{}", l.name)).unwrap_or_default(),
@@ -465,13 +465,28 @@ impl<'a> Dumper<'a> {
                         let pats: Vec<String> = arm
                             .patterns
                             .iter()
-                            .map(|p| match &p.binding {
-                                Some(b) => format!("{}({})", p.name.name, b.name),
-                                None => p.name.name.clone(),
+                            .map(|p| match p {
+                                CasePat::Variant(VariantPat {
+                                    name,
+                                    binding: Some(b),
+                                    mode,
+                                    ..
+                                }) => {
+                                    format!("{}({}{})", name.name, mode.prefix(), b.name)
+                                }
+                                CasePat::Variant(v) => v.name.name.clone(),
+                                CasePat::Value(_) => "value".to_owned(),
                             })
                             .collect();
                         d.line(format_args!("case {}", pats.join(", ")));
-                        d.nest(|d| d.block(&arm.body));
+                        d.nest(|d| {
+                            for p in &arm.patterns {
+                                if let CasePat::Value(v) = p {
+                                    d.expr(v);
+                                }
+                            }
+                            d.block(&arm.body)
+                        });
                     }
                     if let Some(def) = &s.default {
                         d.line(format_args!("default"));
@@ -635,4 +650,9 @@ pub fn pat_str(p: &Pat) -> String {
         }
         PatKind::Error => "<error pat>".to_owned(),
     }
+}
+
+/// `e`, `&e`, `&mut e` — as written, so the formatter can reuse it.
+pub fn for_binding_str(b: &ForBinding) -> String {
+    format!("{}{}", b.mode.prefix(), pat_str(&b.pat))
 }

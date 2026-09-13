@@ -124,6 +124,12 @@ editors/vscode/       the VS Code extension: TextMate grammar, language configur
 tests/lex/*.dz        lexer snapshot corpus    (crates/dz_lex/tests/lex.rs)
 tests/parse/*.dz      parser snapshot corpus   (crates/dz_parse/tests/parse.rs)
 tests/fmt/*.dz        formatter corpus         (crates/dz_fmt/tests/fmt.rs)
+tests/errors/*.dz     one program per mistake, whole pipeline, exact // expect: codes
+                      (crates/dz_driver/tests/errors.rs) — where combinations are tested
+crates/dz_driver/tests/feature_matrix/
+                      every construct and mistake in every context, in two layouts; run
+                      by dz_driver/tests/matrix.rs (mistakes) and dz/tests/matrix.rs
+                      (constructs, compiled and executed). Add a row to extend it.
 tests/flow/*.dz       one file per ownership rule, each naming the code it must produce
                       in an `// expect:` line (crates/dz_flow/tests/flow.rs)
 tests/run/            whole programs that are compiled and executed, each with an
@@ -148,7 +154,7 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 
 ```bash
 cargo build --workspace
-cargo test --workspace           # 185 tests at M6 + M7 + M9 + M14 + M15
+cargo test --workspace           # 190 tests at M6 + M7 + M8 + M9 + M14 + M15
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens

@@ -1,0 +1,24 @@
+// expect: (none)
+//
+// Inferred from a value of a generic type, and matched in a loop over copies.
+
+union Choice<T> {
+    One { value: T }
+    Neither
+}
+
+fn wrap<T>(x: T) -> Choice<T> {
+    return Choice::One{ value: move(x) }
+}
+
+fn main() {
+    let cs = [wrap(1), wrap(2), Choice<i32>::Neither]
+    let mut total = 0
+    for c in cs {
+        switch c {
+            case One(o) { total += o.value }
+            case Neither {}
+        }
+    }
+    println("{}", total)
+}

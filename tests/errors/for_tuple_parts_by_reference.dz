@@ -1,0 +1,13 @@
+// expect: (none)
+//
+// Each part may be copied, referred to, or written, independently.
+
+fn main() {
+    let mut pairs = [(1, 2.5), (3, 4.5)]
+    for a, &mut b in pairs {
+        b += a as f64
+    }
+    for &a, b in pairs {
+        println("{} {}", a, b)
+    }
+}

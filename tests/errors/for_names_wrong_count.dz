@@ -1,0 +1,10 @@
+// expect: DZ0549
+//
+// The element is a pair, so it has two parts to name, not three.
+
+fn main() {
+    let pairs = [(1, 2.5)]
+    for a, b, c in pairs {
+        println("{} {}", a, b)
+    }
+}

@@ -1,0 +1,9 @@
+// expect: DZ0549
+//
+// A range hands out numbers that live nowhere, so there is nothing for `&i` to refer to.
+
+fn main() {
+    for &i in 0..3 {
+        println("{}", i)
+    }
+}

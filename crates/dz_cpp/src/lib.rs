@@ -100,13 +100,22 @@ pub fn emit(
     // Every struct's declaration by symbol, across all modules, so an instance of a generic
     // declared in another module can still be emitted from its own AST (spec §8.4).
     let mut struct_asts: HashMap<SymbolId, (FileId, &StructDecl)> = HashMap::new();
+    let mut union_asts: HashMap<SymbolId, (FileId, &UnionDecl)> = HashMap::new();
     for (mid, pfs) in files {
         for pf in pfs {
             for item in &pf.ast.items {
-                if let ItemKind::Struct(s) = &item.kind {
-                    if let Some(sym) = res.lookup(*mid, &s.name.name) {
-                        struct_asts.insert(sym, (pf.file, s));
+                match &item.kind {
+                    ItemKind::Struct(s) => {
+                        if let Some(sym) = res.lookup(*mid, &s.name.name) {
+                            struct_asts.insert(sym, (pf.file, s));
+                        }
                     }
+                    ItemKind::Union(u) => {
+                        if let Some(sym) = res.lookup(*mid, &u.name.name) {
+                            union_asts.insert(sym, (pf.file, u));
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -148,6 +157,7 @@ pub fn emit(
             names: Vec::new(),
             mono,
             struct_asts: &struct_asts,
+            union_asts: &union_asts,
             instance: None,
             impl_instance: None,
             chunks: Vec::new(),
@@ -397,6 +407,8 @@ struct Emitter<'a> {
     /// Every struct's declaration by symbol, so an instance of a generic declared in
     /// another module can be emitted from its AST.
     struct_asts: &'a HashMap<SymbolId, (FileId, &'a StructDecl)>,
+    /// The same for unions, whose instances are emitted the same way.
+    union_asts: &'a HashMap<SymbolId, (FileId, &'a UnionDecl)>,
     /// The instance being emitted, if any. Its concrete bodies stand in for the template's
     /// in [`Emitter::find_body`], and its arguments are what its own fields are read with.
     instance: Option<&'a dz_mono::Instance>,
@@ -483,6 +495,25 @@ impl<'a> Emitter<'a> {
         (written, value)
     }
 
+    /// A value whose hoisted statements have nowhere to go before it: a constant, a field
+    /// default, a default argument. C++ allows only an expression in each, so the work
+    /// becomes a lambda called on the spot — `[]() { …; return value; }()` — which is an
+    /// expression and runs exactly where the value is needed.
+    fn immediately_invoked(pre: &str, value: &str) -> String {
+        let mut s = "[]() {\n".to_owned();
+        for l in pre.lines() {
+            // A `#line` directive must start its line.
+            if !l.starts_with("#line ") {
+                s.push_str("    ");
+            }
+            s.push_str(l);
+            s.push('\n');
+        }
+        let _ = writeln!(s, "    return {value};");
+        s.push_str("}()");
+        s
+    }
+
     /// Write a block captured by [`Emitter::capture`] at the current indentation.
     fn write_captured(&mut self, text: &str) {
         for l in text.lines() {
@@ -507,10 +538,7 @@ impl<'a> Emitter<'a> {
                     // A generic declaration is a template: only its instances are emitted,
                     // each under its own name (spec §8.4).
                     ItemKind::Struct(s) if !s.generics.is_empty() => {}
-                    ItemKind::Union(u) if !u.generics.is_empty() => {
-                        self.file = pf.file;
-                        self.unsupported(u.name.span, "a generic union", "owed by M8");
-                    }
+                    ItemKind::Union(u) if !u.generics.is_empty() => {}
                     ItemKind::Struct(_) | ItemKind::Enum(_) | ItemKind::Union(_) => {
                         if let Some(sym) = self.symbol_of(item) {
                             own_types.push((pf.file, item, sym));
@@ -539,19 +567,48 @@ impl<'a> Emitter<'a> {
             own_types.iter().map(|(_, _, s)| (*s, Vec::new())).collect();
         nodes.extend(instances.iter().map(|i| (i.sym, i.args.clone())));
         self.forward_decls(&own_types, &instances);
+        // Enums store nothing and their values are folded integers, so they can come first.
+        // Then every constant a struct could need — a field default names one, a `switch`
+        // in a constant's own value reads an enum constant — which is any constant whose
+        // type does not itself need a struct or union to be complete. In the order they
+        // use each other, since Dazzle has no declaration order (spec §3).
+        for &(file, item, sym) in &own_types {
+            if let ItemKind::Enum(e) = &item.kind {
+                self.file = file;
+                self.enum_decl(e, sym);
+            }
+        }
+        let consts: Vec<(FileId, SymbolId)> = functions
+            .iter()
+            .filter(|(_, item)| matches!(item.kind, ItemKind::Const(_)))
+            .filter_map(|(file, item)| Some((*file, self.symbol_of(item)?)))
+            .collect();
+        let (early, late): (Vec<_>, Vec<_>) =
+            self.order_consts(consts).into_iter().partition(|(_, sym)| self.const_is_early(*sym));
+        let any_early = !early.is_empty();
+        for (file, sym) in early {
+            self.file = file;
+            self.const_decl(sym);
+        }
+        if any_early {
+            self.header.push('\n');
+        }
         for i in self.sort_types(&nodes) {
             match own_types.get(i) {
                 Some(&(file, item, sym)) => {
                     self.file = file;
                     match &item.kind {
                         ItemKind::Struct(s) => self.struct_decl(s, sym, &[]),
-                        ItemKind::Enum(e) => self.enum_decl(e, sym),
-                        ItemKind::Union(u) => self.union_decl(u, sym),
+                        ItemKind::Union(u) => self.union_decl(u, sym, &[]),
                         _ => {}
                     }
                 }
                 None => self.instance_decl(instances[i - own_types.len()]),
             }
+        }
+        for (file, sym) in late {
+            self.file = file;
+            self.const_decl(sym);
         }
         for (file, item) in &functions {
             self.file = *file;
@@ -560,7 +617,6 @@ impl<'a> Emitter<'a> {
                 // A template; its instances are emitted below.
                 ItemKind::Fn(f) if !f.generics.is_empty() => {}
                 ItemKind::Fn(f) => self.free_fn(sym, &f.name.name),
-                ItemKind::Const(_) => self.const_decl(sym),
                 _ => {}
             }
         }
@@ -574,6 +630,61 @@ impl<'a> Emitter<'a> {
         }
         self.impl_definitions();
         self.instance_definitions();
+    }
+
+    /// Can this constant be defined before the module's structs and unions? Only if its type
+    /// needs none of them complete: a primitive, a string, an enum, or a pointer.
+    fn const_is_early(&self, sym: SymbolId) -> bool {
+        fn early(table: &TypeTable, ty: &Ty) -> bool {
+            match ty {
+                Ty::Bool
+                | Ty::Char
+                | Ty::Int(_)
+                | Ty::Float(_)
+                | Ty::Str
+                | Ty::CStr
+                | Ty::Ptr { .. }
+                | Ty::Fn { .. } => true,
+                Ty::Array { elem, .. } => early(table, elem),
+                Ty::Named { sym, .. } => matches!(table.get(*sym), Some(ItemSig::Enum { .. })),
+                _ => false,
+            }
+        }
+        matches!(self.table.get(sym), Some(ItemSig::Const(t)) if early(self.table, t))
+    }
+
+    /// Constants in an order where each follows the constants its value names.
+    fn order_consts(&self, consts: Vec<(FileId, SymbolId)>) -> Vec<(FileId, SymbolId)> {
+        fn visit(
+            e: &Emitter<'_>,
+            i: usize,
+            consts: &[(FileId, SymbolId)],
+            state: &mut [u8],
+            out: &mut Vec<(FileId, SymbolId)>,
+        ) {
+            // 1: on the stack. A cycle between constants was reported by the checker.
+            if state[i] != 0 {
+                return;
+            }
+            state[i] = 1;
+            if let Some(body) = e.find_body(&BodyOwner::Const(consts[i].1)) {
+                for x in &body.exprs {
+                    if let hir::ExprKind::Const(used) = x.kind {
+                        if let Some(j) = consts.iter().position(|(_, s)| *s == used) {
+                            visit(e, j, consts, state, out);
+                        }
+                    }
+                }
+            }
+            state[i] = 2;
+            out.push(consts[i]);
+        }
+        let mut state = vec![0u8; consts.len()];
+        let mut out = Vec::with_capacity(consts.len());
+        for i in 0..consts.len() {
+            visit(self, i, &consts, &mut state, &mut out);
+        }
+        out
     }
 
     /// Declare every type before defining any. `sort_types` orders definitions by what they
@@ -604,7 +715,8 @@ impl<'a> Emitter<'a> {
             any = true;
         }
         for &inst in instances {
-            if !self.struct_asts.contains_key(&inst.sym) {
+            if !self.struct_asts.contains_key(&inst.sym) && !self.union_asts.contains_key(&inst.sym)
+            {
                 continue;
             }
             // In the generic's own namespace, where its definition will go. Repeating a
@@ -900,13 +1012,21 @@ impl<'a> Emitter<'a> {
     /// An instance's struct definition, behind an include guard so several headers can
     /// each carry it and a translation unit sees it once.
     fn instance_decl(&mut self, inst: &'a dz_mono::Instance) {
-        let Some(&(file, s)) = self.struct_asts.get(&inst.sym) else { return };
+        let decl = match (self.struct_asts.get(&inst.sym), self.union_asts.get(&inst.sym)) {
+            (Some(&(file, s)), _) => (file, Some(s), None),
+            (None, Some(&(file, u))) => (file, None, Some(u)),
+            (None, None) => return,
+        };
         self.with_instance(inst, |e| {
-            e.file = file;
+            e.file = decl.0;
             let guard = e.instance_guard(inst.sym, &inst.args, "");
             let shown = e.instance_shown(inst);
             let _ = writeln!(e.header, "// dazzle: {shown}\n#ifndef {guard}\n#define {guard}");
-            e.struct_decl(s, inst.sym, &inst.args);
+            match decl {
+                (_, Some(s), _) => e.struct_decl(s, inst.sym, &inst.args),
+                (_, _, Some(u)) => e.union_decl(u, inst.sym, &inst.args),
+                _ => {}
+            }
             let _ = writeln!(e.header, "#endif  // {guard}\n");
         });
     }
@@ -1195,9 +1315,9 @@ impl<'a> Emitter<'a> {
     fn const_decl(&mut self, sym: SymbolId) {
         let Some(body) = self.find_body(&BodyOwner::Const(sym)) else { return };
         let name = self.res.symbol(sym).name.clone();
-        let ty = match self.table.get(sym) {
-            Some(ItemSig::Const(t)) => self.cpp_ty(t),
-            _ => "auto".to_owned(),
+        let (ty, is_str) = match self.table.get(sym) {
+            Some(ItemSig::Const(t)) => (self.cpp_ty(t), matches!(t, Ty::Str)),
+            _ => ("auto".to_owned(), false),
         };
         let (pre, value) = self.in_body(body, |e| {
             let root = body.block(body.root);
@@ -1206,12 +1326,17 @@ impl<'a> Emitter<'a> {
                 _ => "0".to_owned(),
             }
         });
-        if !pre.trim().is_empty() {
-            // What hoists is an `or` clause or a block-valued `if`/`switch`, all M8's.
-            self.unsupported(body.span, "a constant needing statements to build", "owed by M8");
-            return;
-        }
-        let _ = writeln!(self.header, "inline constexpr {ty} {} = {value};", sanitize(&name));
+        // `constexpr` wherever C++ can evaluate the value while compiling, which is what
+        // lets an integer constant size an array. A `str` cannot be — its constructor
+        // casts a `const char*` — and neither can a value built by statements: an `or`
+        // clause, a block-valued `if` or `switch`. Those are `inline const`, one object
+        // for the whole program all the same.
+        let (keyword, value) = if pre.trim().is_empty() {
+            (if is_str { "const" } else { "constexpr" }, value)
+        } else {
+            ("const", Self::immediately_invoked(&pre, &value))
+        };
+        let _ = writeln!(self.header, "inline {keyword} {ty} {} = {value};", sanitize(&name));
     }
 
     fn enum_decl(&mut self, e: &EnumDecl, sym: SymbolId) {
@@ -1370,8 +1495,13 @@ impl<'a> Emitter<'a> {
         if needs_special {
             self.header.push('\n');
             // A user constructor suppresses C++'s implicit default one, and `let v: T`
-            // has to keep working (spec §6.2).
-            let _ = writeln!(self.header, "    {name}() = default;");
+            // has to keep working (spec §6.2) — unless a user constructor can already be
+            // called with no arguments, which is then what `let v: T` runs, and a defaulted
+            // one beside it would be a redeclaration.
+            let callable_with_nothing = sig.ctors.iter().any(|c| c.required() == 0);
+            if !callable_with_nothing {
+                let _ = writeln!(self.header, "    {name}() = default;");
+            }
         }
         // A polymorphic type with no `drop` of its own still needs the virtual destructor,
         // so that destroying a derived value through this type does the right thing. The
@@ -1563,7 +1693,8 @@ impl<'a> Emitter<'a> {
     }
 
     /// A field's `= expr` default, rendered. Field defaults are ordinary expressions but
-    /// live in a member initialiser, where nothing can be hoisted.
+    /// live in a member initialiser, where nothing can be hoisted — so one that needs
+    /// statements is built by a lambda called in place.
     fn field_default(&mut self, sym: SymbolId, index: usize) -> Option<String> {
         let owner = BodyOwner::FieldDefault { owner: sym, index };
         let body = self.find_body(&owner)?;
@@ -1575,17 +1706,31 @@ impl<'a> Emitter<'a> {
             }
         });
         if !pre.trim().is_empty() {
-            self.unsupported(body.span, "a field default needing statements", "owed by M8");
-            return None;
+            return Some(Self::immediately_invoked(&pre, &text));
         }
         Some(text)
     }
 
     // --- unions (spec §7.5) ------------------------------------------------
 
-    fn union_decl(&mut self, u: &UnionDecl, sym: SymbolId) {
+    /// A tagged union, or with `args` one instance of a generic one (spec §7.5, §8.4).
+    fn union_decl(&mut self, u: &UnionDecl, sym: SymbolId, args: &[Ty]) {
         let Some(ItemSig::Union { variants }) = self.table.get(sym) else { return };
-        let variants = variants.clone();
+        // Each variant's fields as this instance sees them: `value: T` is `value: i32` in
+        // `Maybe<i32>`.
+        let variants: Vec<dz_check::VariantSig> = variants
+            .iter()
+            .map(|v| {
+                let types = self.table.field_types(sym, args, &v.fields);
+                let fields = v
+                    .fields
+                    .iter()
+                    .zip(types)
+                    .map(|(f, ty)| dz_check::FieldSig { ty, ..f.clone() })
+                    .collect();
+                dz_check::VariantSig { fields, ..v.clone() }
+            })
+            .collect();
         // A C++ union with a non-trivial member needs hand-written special members that
         // switch on the tag. Spec §7.5 marks variant drops `[PROPOSED]`; until they are
         // settled, a payload that owns something is refused rather than leaked.
@@ -1597,7 +1742,8 @@ impl<'a> Emitter<'a> {
             }
         }
 
-        let name = sanitize(&u.name.name);
+        let name =
+            if args.is_empty() { sanitize(&u.name.name) } else { self.instance_name(sym, args) };
         let _ = writeln!(self.header, "struct {name} {{");
         let _ = writeln!(self.header, "    enum class Kind : uint32_t {{");
         for v in &variants {
@@ -1680,11 +1826,7 @@ impl<'a> Emitter<'a> {
                     if pre.trim().is_empty() {
                         let _ = write!(text, " = {value}");
                     } else {
-                        self.unsupported(
-                            body.expr(default).span,
-                            "a default argument needing statements",
-                            "owed by M8",
-                        );
+                        let _ = write!(text, " = {}", Self::immediately_invoked(&pre, &value));
                     }
                 }
             }
@@ -1852,9 +1994,10 @@ impl<'a> Emitter<'a> {
             // An instance has a name of its own (spec §8.4); a plain declaration keeps its.
             Ty::Named { sym, args } if !args.is_empty() => self.qualify_instance(*sym, args),
             Ty::Named { sym, .. } => self.qualify(*sym),
-            Ty::Variant(sym, index) => {
+            Ty::Variant(sym, index, args) => {
                 let name = self.variant_name(*sym, *index);
-                format!("{}::{name}_t", self.qualify(*sym))
+                let owner = self.cpp_ty(&Ty::Named { sym: *sym, args: args.clone() });
+                format!("{owner}::{name}_t")
             }
             // `Self` is substituted away by the checker; reaching here is a bug there.
             Ty::SelfTy => "void".to_owned(),
@@ -2000,7 +2143,7 @@ impl<'a> Emitter<'a> {
                 self.line(&format!("{t} {} {v};", op.as_str()));
             }
             hir::StmtKind::Expr(e) => self.stmt_expr(*e),
-            hir::StmtKind::While { cond, body: block } => {
+            hir::StmtKind::While { cond, body: block, label } => {
                 let (pre, cond_text) = self.capture(|e| e.expr(*cond));
                 if pre.trim().is_empty() {
                     self.line(&format!("while ({}) {{", unwrap_parens(&cond_text)));
@@ -2013,12 +2156,13 @@ impl<'a> Emitter<'a> {
                     self.write_captured(&pre);
                     self.line(&format!("if (!({cond_text})) {{ break; }}"));
                 }
-                self.block_into(*block, Dest::None);
+                self.loop_body_into(*block, label);
                 self.indent -= 1;
                 self.line("}");
+                self.loop_break_label(label);
             }
-            hir::StmtKind::For { bindings, subject, body: block } => {
-                self.for_loop(bindings, *subject, *block, s.span)
+            hir::StmtKind::For { bindings, subject, body: block, shape, label } => {
+                self.for_loop(bindings, *subject, *block, *shape, label, s.span)
             }
             hir::StmtKind::Defer(inner) => {
                 // Captured by reference so the deferred code sees the final values.
@@ -2061,50 +2205,75 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// `for` (spec §10.4). The loop head depends on what is iterated — a range counts, a
+    /// user `Iterate` steps an iterator, an array or slice is walked in place — and the
+    /// bindings on the shape and on each binding's own type: a reference binding is a C++
+    /// reference into the element, anything else a copy (or, consuming, a move).
     fn for_loop(
         &mut self,
         bindings: &[Option<LocalId>],
         subject: ExprId,
         block: BlockId,
+        shape: hir::ForShape,
+        label: &Option<hir::LoopLabel>,
         span: Span,
     ) {
         let body = self.cur();
-        if bindings.len() > 2 {
-            // Three bindings means destructuring a tuple `Item` (spec §10.4), which lands
-            // with the rest of M8's pattern work.
-            self.unsupported(span, "a `for` loop with three or more bindings", "owed by M8");
+        let subject_ty = body.ty(subject).clone();
+
+        // `for i in a..b` is a counting loop; nothing is materialised.
+        if let (hir::ExprKind::Range { start, end, inclusive }, hir::ForShape::Single) =
+            (&body.expr(subject).kind, shape)
+        {
+            let elem = self.cpp_ty(subject_ty.element().unwrap_or(&Ty::Int(IntTy::I32)));
+            let lo = start.map(|s| self.expr(s)).unwrap_or_else(|| "0".to_owned());
+            let hi = end.map(|s| self.expr(s)).unwrap_or_else(|| "0".to_owned());
+            let name = match bindings[0] {
+                Some(l) => self.names[l.index()].clone(),
+                None => self.fresh("i"),
+            };
+            let cmp = if *inclusive { "<=" } else { "<" };
+            self.line(&format!("for ({elem} {name} = {lo}; {name} {cmp} {hi}; ++{name}) {{"));
+            self.indent += 1;
+            self.loop_body_into(block, label);
+            self.indent -= 1;
+            self.line("}");
+            self.loop_break_label(label);
             return;
         }
 
-        // `for i in a..b` is a counting loop; nothing is materialised.
-        if let hir::ExprKind::Range { start, end, inclusive } = &body.expr(subject).kind {
-            if bindings.len() == 1 {
-                let elem = self.cpp_ty(body.ty(subject).element().unwrap_or(&Ty::Int(IntTy::I32)));
-                let lo = start.map(|s| self.expr(s)).unwrap_or_else(|| "0".to_owned());
-                let hi = end.map(|s| self.expr(s)).unwrap_or_else(|| "0".to_owned());
-                let name = match bindings[0] {
-                    Some(l) => self.names[l.index()].clone(),
-                    None => self.fresh("i"),
-                };
-                let cmp = if *inclusive { "<=" } else { "<" };
-                self.line(&format!("for ({elem} {name} = {lo}; {name} {cmp} {hi}; ++{name}) {{"));
-                self.indent += 1;
-                self.block_into(block, Dest::None);
-                self.indent -= 1;
-                self.line("}");
-                return;
-            }
+        // `indexed()` counts passes (spec §10.4).
+        let counter = (shape == hir::ForShape::Indexed).then(|| self.fresh("count"));
+        let element_bindings: Vec<Option<LocalId>> = match shape {
+            hir::ForShape::Indexed => bindings.iter().skip(1).copied().collect(),
+            _ => bindings.to_vec(),
+        };
+        self.line("{");
+        self.indent += 1;
+        if let Some(i) = &counter {
+            self.line(&format!("size_t {i} = 0;"));
         }
 
-        // `for x in it` over a user `Iterate` (spec §10.4): a C++ `for` whose increment is
-        // `advance()`, so a `continue` still advances rather than spinning forever. The
-        // iterator is the loop's own copy (or move), since `advance` mutates it.
-        if let Ty::Named { .. } = body.ty(subject) {
-            let subject_ty = body.ty(subject).peeled().clone();
+        let item = if let Ty::Range(elem) = subject_ty.peeled() {
+            // A range held in a variable, or counted with `indexed()`.
+            let elem = self.cpp_ty(elem);
+            let subject_text = self.expr(subject);
+            let r = self.fresh("r");
+            let n = self.fresh("n");
+            self.line(&format!("auto {r} = {subject_text};"));
+            self.line(&format!(
+                "for ({elem} {n} = {r}.start; {r}.inclusive ? {n} <= {r}.end : {n} < {r}.end; \
+                 ++{n}) {{"
+            ));
+            n
+        } else if let Ty::Named { .. } = subject_ty.peeled() {
+            // A user `Iterate`: the loop's own copy (or move) of the iterator, since
+            // `advance` mutates it.
+            let iterated = subject_ty.peeled().clone();
             let calls = self
                 .table
                 .prelude_trait_named("Iterate")
-                .and_then(|t| self.table.resolve_impl(t, &subject_ty, "valid", None))
+                .and_then(|t| self.table.resolve_impl(t, &iterated, "valid", None))
                 .map(|(idx, map)| {
                     (
                         self.qualify_impl_fn(idx, &map, "valid"),
@@ -2113,103 +2282,102 @@ impl<'a> Emitter<'a> {
                     )
                 });
             let Some((valid, get, advance)) = calls else {
-                self.unsupported(span, "`for` over this type", "owed by M8");
+                self.unsupported(span, "`for` over this type", "owed by M12");
+                self.indent -= 1;
+                self.line("}");
                 return;
             };
             let subject_text = self.expr(subject);
             let it = self.fresh("it");
-            let counter = match bindings {
-                [Some(i), _] => Some(self.names[i.index()].clone()),
-                [None, _] => Some(self.fresh("i")),
-                _ => None,
-            };
-            self.line("{");
-            self.indent += 1;
-            let bump = match &counter {
-                Some(i) => {
-                    self.line(&format!("size_t {i} = 0;"));
-                    format!(", ++{i}")
-                }
-                None => String::new(),
-            };
             self.line(&format!(
-                "for (auto {it} = {subject_text}; {valid}({it}); {advance}({it}){bump}) {{"
+                "for (auto {it} = {subject_text}; {valid}({it}); {advance}({it})) {{"
             ));
-            self.indent += 1;
-            if let Some(l) = bindings.last().copied().flatten() {
-                let ty = self.cpp_ty(&body.local(l).ty);
-                let name = self.names[l.index()].clone();
-                let unused = self.unused_attr(l.index());
-                self.line(&format!("{unused}{ty} {name} = {get}({it});"));
-            }
-            self.block_into(block, Dest::None);
-            self.indent -= 1;
-            self.line("}");
-            self.indent -= 1;
-            self.line("}");
-            return;
-        }
-
-        // A range held in a variable rather than written in the loop head (spec §10.4).
-        if let (Ty::Range(elem), 1) = (body.ty(subject), bindings.len()) {
-            let elem = self.cpp_ty(elem);
-            let subject_text = self.expr(subject);
-            let r = self.fresh("r");
-            let name = match bindings[0] {
-                Some(l) => self.names[l.index()].clone(),
-                None => self.fresh("i"),
-            };
-            self.line("{");
-            self.indent += 1;
-            self.line(&format!("auto {r} = {subject_text};"));
-            self.line(&format!(
-                "for ({elem} {name} = {r}.start; {r}.inclusive ? {name} <= {r}.end : {name} < {r}.end; ++{name}) {{"
-            ));
-            self.indent += 1;
-            self.block_into(block, Dest::None);
-            self.indent -= 1;
-            self.line("}");
-            self.indent -= 1;
-            self.line("}");
-            return;
-        }
-
-        // A pointer subject is reached through; anything else already *is* the sequence,
-        // and a C array member must not go through a template that decays it (spec §15.2).
-        let pointer_subject =
-            matches!(self.cur().ty(subject).peeled_refs(), Ty::Ptr { .. } | Ty::OwnPtr { .. });
-        let subject_text = self.expr(subject);
-        let seq = self.fresh("seq");
-        self.line(&format!("auto&& {seq} = {subject_text};"));
-        let seq_obj = if pointer_subject { format!("::dz::obj({seq})") } else { seq.clone() };
-
-        if bindings.len() == 2 {
-            // `for i, x in xs` — an index loop rather than a range-for, so that a
-            // `continue` cannot skip the increment (spec §10.4).
-            let idx = match bindings[0] {
-                Some(l) => self.names[l.index()].clone(),
-                None => self.fresh("i"),
-            };
-            self.line(&format!("for (size_t {idx} = 0; {idx} < ::dz::len({seq}); ++{idx}) {{"));
-            self.indent += 1;
-            if let Some(l) = bindings[1] {
-                let name = self.names[l.index()].clone();
-                let unused = self.unused_attr(l.index());
-                // `auto&`, as in the range-for below: over a read-only view — a `[]T`, or
-                // an array behind a `^T` — the element is `const`, and C++ has to say so.
-                self.line(&format!("{unused}auto& {name} = {seq_obj}[{idx}];"));
-            }
+            format!("{get}({it})")
         } else {
-            let (name, unused) = match bindings.first().copied().flatten() {
-                Some(l) => (self.names[l.index()].clone(), self.unused_attr(l.index())),
-                None => (self.fresh("x"), "[[maybe_unused]] "),
+            // An array or slice, walked in place — or, consuming, moved from. `&xs` is
+            // iterated as `xs` itself: a reference already is the sequence.
+            let pointer_subject =
+                matches!(subject_ty.peeled_refs(), Ty::Ptr { .. } | Ty::OwnPtr { .. });
+            let subject_text = match &body.expr(subject).kind {
+                hir::ExprKind::Ref { place, .. } => self.expr(*place),
+                _ => self.expr(subject),
             };
-            self.line(&format!("for ({unused}auto& {name} : {seq_obj}) {{"));
-            self.indent += 1;
+            let seq = self.fresh("seq");
+            self.line(&format!("auto&& {seq} = {subject_text};"));
+            let seq_obj = if pointer_subject { format!("::dz::obj({seq})") } else { seq };
+            let x = self.fresh("x");
+            self.line(&format!("for (auto&& {x} : {seq_obj}) {{"));
+            x
+        };
+        self.indent += 1;
+
+        // The pass count is taken at the top of each pass, so a `continue` cannot skip it.
+        if let (Some(c), Some(Some(l))) = (&counter, bindings.first()) {
+            let name = self.names[l.index()].clone();
+            let unused = self.unused_attr(l.index());
+            self.line(&format!("{unused}size_t {name} = {c}++;"));
+        } else if let Some(c) = &counter {
+            self.line(&format!("++{c};"));
         }
-        self.block_into(block, Dest::None);
+        let consuming = shape == hir::ForShape::Consuming;
+        if shape == hir::ForShape::Tuple {
+            let t = self.fresh("t");
+            self.line(&format!("auto&& {t} = {item};"));
+            for (k, l) in element_bindings.iter().enumerate() {
+                if let Some(l) = l {
+                    self.for_binding(*l, &format!("{t}.v{k}"), false);
+                }
+            }
+        } else if let Some(Some(l)) = element_bindings.first() {
+            self.for_binding(*l, &item, consuming);
+        }
+
+        self.loop_body_into(block, label);
         self.indent -= 1;
         self.line("}");
+        self.indent -= 1;
+        self.line("}");
+        self.loop_break_label(label);
+    }
+
+    /// A loop's body. When a nested loop `continue`s to this one, the body goes in a block of
+    /// its own with the label after it: the jump then leaves every body local's scope
+    /// rather than skipping past their declarations, which C++ forbids (spec §10.2).
+    fn loop_body_into(&mut self, block: BlockId, label: &Option<hir::LoopLabel>) {
+        match label {
+            Some(l) if l.continues => {
+                self.line("{");
+                self.indent += 1;
+                self.block_into(block, Dest::None);
+                self.indent -= 1;
+                self.line("}");
+                self.line(&format!("{}:;", loop_label_name("continue", l.id)));
+            }
+            _ => self.block_into(block, Dest::None),
+        }
+    }
+
+    /// The label a nested loop's `break outer` jumps to, straight after the loop.
+    fn loop_break_label(&mut self, label: &Option<hir::LoopLabel>) {
+        if let Some(l) = label.as_ref().filter(|l| l.breaks) {
+            self.line(&format!("{}:;", loop_label_name("break", l.id)));
+        }
+    }
+
+    /// Declare one `for` binding from its source. Its type says what it is: a `&T` or
+    /// `&mut T` becomes a C++ reference into the element, anything else a copy — or a move,
+    /// when the loop consumes what it iterates.
+    fn for_binding(&mut self, l: LocalId, source: &str, consuming: bool) {
+        let ty = self.cur().local(l).ty.clone();
+        let cpp = self.cpp_ty(&ty);
+        let name = self.names[l.index()].clone();
+        let unused = self.unused_attr(l.index());
+        let value = if consuming && !self.table.copyable(&ty) {
+            format!("::dz::mv({source})")
+        } else {
+            source.to_owned()
+        };
+        self.line(&format!("{unused}{cpp} {name} = {value};"));
     }
 
     /// `if` / `switch` / a bare block, with its value going to `dest`.
@@ -2320,56 +2488,105 @@ impl<'a> Emitter<'a> {
     ) {
         let body = self.cur();
         let subject_ty = body.ty(subject).peeled().clone();
-        let Some(sym) = subject_ty.named() else {
-            self.unsupported(body.expr(subject).span, "this `switch` subject", "owed by M8");
-            return;
-        };
-        let is_union = matches!(self.table.get(sym), Some(ItemSig::Union { .. }));
-        let variants: Vec<String> = match self.table.get(sym) {
-            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
-                variants.iter().map(|v| sanitize(&v.name)).collect()
-            }
-            _ => Vec::new(),
-        };
-        let owner = self.qualify(sym);
+        // An enum or union is matched by variant; an integer, `char`, `bool` or `str` by
+        // the constants in `arm.values` (spec §10.3).
+        let named = subject_ty.named().map(|sym| {
+            let is_union = matches!(self.table.get(sym), Some(ItemSig::Union { .. }));
+            let variants: Vec<String> = match self.table.get(sym) {
+                Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
+                    variants.iter().map(|v| sanitize(&v.name)).collect()
+                }
+                _ => Vec::new(),
+            };
+            // `cpp_ty`, not `qualify`: a `Maybe<i32>` subject compares against its instance.
+            (self.cpp_ty(&subject_ty), is_union, variants)
+        });
         let text = self.expr(subject);
-        // A union switches on its generated tag; an enum is already the value (§7.5).
-        let scrutinee = if is_union { format!("::dz::obj({text}).kind") } else { text.clone() };
-        let label_ty = if is_union { format!("{owner}::Kind") } else { owner };
-
-        self.line(&format!("switch ({scrutinee}) {{"));
-        for arm in arms {
-            for v in &arm.variants {
-                let Some(name) = variants.get(*v) else { continue };
-                self.line(&format!("case {label_ty}::{name}:"));
+        if arms.is_empty() {
+            match default {
+                Some(d) => {
+                    self.line(&format!("(void)({text});"));
+                    self.line("{");
+                    self.indent += 1;
+                    self.block_into(d, dest);
+                    self.indent -= 1;
+                    self.line("}");
+                }
+                None => self.line(&format!("(void)({text});")),
             }
-            self.line("{");
+            return;
+        }
+
+        // An `if` chain rather than a C++ `switch`: inside a C++ `switch`, `break` leaves
+        // the switch, while a Dazzle `break` in an arm leaves the enclosing loop — there
+        // is no fallthrough to break out of (§10.3). The subject is evaluated once, and
+        // held by reference so a payload binding writes into the union itself.
+        let subject_var = self.fresh("switch");
+        // `obj` reaches through a pointer or a reference. A value is bound directly, so a
+        // temporary — `switch next_state()` — has its lifetime extended rather than being
+        // passed through `obj` and left dangling.
+        let init = match self.cur().ty(subject) {
+            Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. } => format!("::dz::obj({text})"),
+            _ => text,
+        };
+        self.line("{");
+        self.indent += 1;
+        self.line(&format!("auto&& {subject_var} = {init};"));
+        for (i, arm) in arms.iter().enumerate() {
+            let tests: Vec<String> = match &named {
+                Some((owner, is_union, variants)) => arm
+                    .variants
+                    .iter()
+                    .filter_map(|v| variants.get(*v))
+                    .map(|name| {
+                        // A union compares its generated tag; an enum is the value (§7.5).
+                        if *is_union {
+                            format!("{subject_var}.kind == {owner}::Kind::{name}")
+                        } else {
+                            format!("{subject_var} == {owner}::{name}")
+                        }
+                    })
+                    .collect(),
+                None => arm
+                    .values
+                    .iter()
+                    .map(|v| {
+                        let value = self.expr(*v);
+                        format!("{subject_var} == {value}")
+                    })
+                    .collect(),
+            };
+            let cond = if tests.is_empty() { "false".to_owned() } else { tests.join(" || ") };
+            let keyword = if i == 0 { "if" } else { "} else if" };
+            self.line(&format!("{keyword} ({cond}) {{"));
             self.indent += 1;
-            if let (Some(local), Some(v)) = (arm.binding, arm.variants.first()) {
+            if let (Some(local), Some(v), Some((_, true, variants))) =
+                (arm.binding, arm.variants.first(), &named)
+            {
                 if let Some(name) = variants.get(*v) {
-                    // The payload binds by reference, so matching never copies (§10.3).
+                    // As a `for` binding: the local's type says copy (`c`), `const&` (`&c`)
+                    // or `&` (`&mut c`), and nothing is turned into a reference behind the
+                    // user's back (§10.3, 18.43).
                     let binding = self.names[local.index()].clone();
                     let unused = self.unused_attr(local.index());
-                    self.line(&format!("{unused}auto& {binding} = ::dz::obj({text}).{name};"));
+                    let ty = self.cur().local(local).ty.clone();
+                    let cpp = self.cpp_ty(&ty);
+                    self.line(&format!("{unused}{cpp} {binding} = {subject_var}.{name};"));
                 }
             }
             self.block_into(arm.body, dest);
-            self.line("break;");
             self.indent -= 1;
-            self.line("}");
         }
+        // Without a `default` the checker proved the arms exhaustive for an enum or union,
+        // and a switch on constants simply does nothing when none matches.
         if let Some(d) = default {
-            self.line("default: {");
+            self.line("} else {");
             self.indent += 1;
             self.block_into(d, dest);
-            self.line("break;");
             self.indent -= 1;
-            self.line("}");
-        } else {
-            // The checker proved the arms exhaustive; the label keeps `-Wswitch` quiet
-            // about the enum's other values without inventing behaviour.
-            self.line("default: break;");
         }
+        self.line("}");
+        self.indent -= 1;
         self.line("}");
     }
 
@@ -2559,7 +2776,7 @@ impl<'a> Emitter<'a> {
                 format!("{}::{name}", self.qualify(*owner))
             }
             hir::ExprKind::UnionVariant { owner, index, payload } => {
-                self.union_literal(*owner, *index, &payload.clone())
+                self.union_literal(*owner, *index, &payload.clone(), body.ty(e).clone())
             }
 
             hir::ExprKind::Call { callee, args } => self.call(callee, args, body.ty(e).clone()),
@@ -2598,6 +2815,15 @@ impl<'a> Emitter<'a> {
                     return String::new();
                 }
                 let tmp = self.fresh("val");
+                // A reference cannot be declared empty and assigned later, so a block that
+                // yields one — `let p: &P = unsafe { &xs^[i] }` — is held as a pointer, as
+                // `or` does below.
+                if let Ty::Ref { mutable, inner } = &ty {
+                    let ptr = self.ptr_ty(*mutable, inner);
+                    self.line(&format!("{ptr} {tmp} = nullptr;"));
+                    self.control_flow(e, Dest::Ptr(&tmp));
+                    return format!("(*{tmp})");
+                }
                 let cpp = self.cpp_ty(&ty);
                 self.line(&format!("{cpp} {tmp}{{}};"));
                 let dest = Dest::Var(&tmp);
@@ -2631,8 +2857,14 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Return(v) => self.return_expr(*v),
-            hir::ExprKind::Break => "break".to_owned(),
-            hir::ExprKind::Continue => "continue".to_owned(),
+            // To the innermost loop, C++'s own; further out, a jump to the label that
+            // loop placed (spec §10.2).
+            hir::ExprKind::Break(None) => "break".to_owned(),
+            hir::ExprKind::Continue(None) => "continue".to_owned(),
+            hir::ExprKind::Break(Some(id)) => format!("goto {}", loop_label_name("break", *id)),
+            hir::ExprKind::Continue(Some(id)) => {
+                format!("goto {}", loop_label_name("continue", *id))
+            }
 
             hir::ExprKind::Builtin { name, args } => self.builtin(name, args, node.span),
             hir::ExprKind::Intrinsic { name, .. } => self.intrinsic(name, node.span),
@@ -2708,7 +2940,7 @@ impl<'a> Emitter<'a> {
                 b.fields().get(index).map(|(n, _)| (*n).to_owned()).unwrap_or_else(unknown)
             }
             // A `case Circle(c)` binding reaches into the variant's own field list.
-            Ty::Variant(sym, v) => match self.table.get(*sym) {
+            Ty::Variant(sym, v, _) => match self.table.get(*sym) {
                 Some(ItemSig::Union { variants }) => variants
                     .get(*v)
                     .and_then(|x| x.fields.get(index))
@@ -2779,8 +3011,10 @@ impl<'a> Emitter<'a> {
         owner: SymbolId,
         index: usize,
         payload: &[Option<ExprId>],
+        // The literal's own type, so `Maybe<i32>::Some{…}` names its instance.
+        node_ty: Ty,
     ) -> String {
-        let ty = self.qualify(owner);
+        let ty = self.cpp_ty(&node_ty);
         let name = self.variant_name(owner, index);
         // The tag and the payload must be set together, and C++ has nowhere to write two
         // statements inside an expression, so this is the one place a lambda is right:
@@ -3373,11 +3607,11 @@ impl Namer<'_> {
                 self.expr(*value);
             }
             hir::StmtKind::Expr(e) => self.expr(*e),
-            hir::StmtKind::While { cond, body } => {
+            hir::StmtKind::While { cond, body, .. } => {
                 self.expr(*cond);
                 self.block(*body);
             }
-            hir::StmtKind::For { bindings, subject, body } => {
+            hir::StmtKind::For { bindings, subject, body, .. } => {
                 self.expr(*subject);
                 let (bindings, body) = (bindings.clone(), *body);
                 self.scoped(|n| {
@@ -3613,6 +3847,12 @@ fn unary_op(op: UnaryOp) -> &'static str {
         UnaryOp::Neg => "-",
         UnaryOp::BitNot => "~",
     }
+}
+
+/// The C++ label `break outer` or `continue outer` jumps to, by the loop's id within its
+/// body — ids, not names, since two sibling loops may carry the same Dazzle label.
+fn loop_label_name(what: &str, id: u32) -> String {
+    format!("_dz_{what}_{id}")
 }
 
 /// Drop one layer of parentheses when they wrap the whole expression, so conditions do

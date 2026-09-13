@@ -1,5 +1,6 @@
 ---
 source: crates/dz_parse/tests/parse.rs
+assertion_line: 34
 expression: "parse_report(&name, &source)"
 input_file: tests/parse/statements.dz
 ---
@@ -100,18 +101,18 @@ fn control_flow(x: i32)
             path grid
             path i
           int 0
-    for i, e
-      ref
-        path entities
+    for i, &e
+      call
+        field .indexed
+          path entities
       block
         call
           field .draw
             path e
           ref mut
             path batch
-    for e
-      ref mut
-        path entities
+    for &mut e
+      path entities
       block
         call
           field .update

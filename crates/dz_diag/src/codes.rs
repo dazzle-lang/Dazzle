@@ -248,6 +248,19 @@ pub const ABSTRACT_TYPE: &str = "DZ0545";
 /// A `#[test]` on something that cannot be run as one: a function that takes an argument,
 /// returns a value, is fallible, is generic, or has no body (spec §19 M14).
 pub const BAD_TEST: &str = "DZ0546";
+/// A `case` label that is not a constant, or not the kind of label the subject takes: a
+/// value on an enum or union, a payload binding on an integer, a `switch` on a float
+/// (spec §10.3).
+pub const BAD_CASE_LABEL: &str = "DZ0547";
+/// The same variant or constant named by two `case` labels of one `switch` (spec §10.3).
+pub const DUPLICATE_CASE: &str = "DZ0548";
+/// A `for` or `case` binding that does not fit what it names: `&e` over values nothing can
+/// refer to, a count of names that is not the element tuple's size, `&` on the pass count
+/// of `indexed()` (spec §10.4).
+pub const BAD_BINDING: &str = "DZ0549";
+/// `break` or `continue` outside any loop, or naming a label no enclosing loop has
+/// (spec §10.2).
+pub const JUMP_OUTSIDE_LOOP: &str = "DZ0550";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

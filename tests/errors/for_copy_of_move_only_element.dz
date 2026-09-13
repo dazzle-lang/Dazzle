@@ -1,0 +1,18 @@
+// expect: DZ0403
+//
+// `r` would copy a `Res`, which has a `drop` and so cannot be copied (spec §6.3).
+
+struct Res {
+    pub n: i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+
+fn main() {
+    let rs = [Res{ n: 1 }]
+    for r in rs {
+        println("{}", r.n)
+    }
+}

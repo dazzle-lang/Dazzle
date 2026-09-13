@@ -1,6 +1,6 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 210
+assertion_line: 222
 expression: r.hir
 ---
 body const MAX -> void
@@ -343,7 +343,7 @@ body fn iterating -> f32
           local _1 total: f32
           field #0: f32
             local _2 v: Vec3
-    for _3 i, _4 v
+    for _3 i, _4 v (indexed)
       local _0 items: []Vec3
       block
         assign +=
@@ -667,6 +667,104 @@ body fn inferred_variant -> Shape
           float 1: f32
     return: !
       local _0 s: Shape
+body const SWITCH_LIMIT -> void
+  block
+    int 10: i32
+body fn switch_on_constants -> i32
+  param _0 n: i32
+  param _1 s: str
+  param _2 c: char
+  block
+    let _3 a: i32
+      switch: i32
+        local _0 n: i32
+        case  bind _
+          int 0: i32
+          block
+            int 1: i32
+        case  bind _
+          int 1: i32
+          int 2: i32
+          const SWITCH_LIMIT: i32
+          binary *: i32
+            const SWITCH_LIMIT: i32
+            int 2: i32
+          block
+            int 2: i32
+        case  bind _
+          unary -: i32
+            int 1: i32
+          block
+            int 3: i32
+        default
+          block
+            int 0: i32
+    switch: !
+      local _1 s: str
+      case  bind _
+        str "idle": str
+        block
+          return: !
+            local _3 a: i32
+    switch: void
+      local _2 c: char
+      case  bind _
+        char 'x': char
+        char 'y': char
+        block
+          return: !
+            int 1: i32
+      default
+        block
+          (empty)
+    return: !
+      local _3 a: i32
+body fn generic_union -> i32
+  param _0 fallback: i32
+  block
+    let _1 a: Choice<i32>
+      union-variant Choice#0: Choice<i32>
+        #0
+          int 1: i32
+    let _2 b: Choice<i32>
+      union-variant Choice#1: Choice<i32>
+    let _3 c: Choice<i32>
+      union-variant Choice#0: Choice<i32>
+        #0
+          int 2: i32
+    let _5 total: i32
+      switch: i32
+        local _1 a: Choice<i32>
+        case #0 bind _4 o
+          block
+            field #0: i32
+              local _4 o: Choice::One
+        case #1 bind _
+          block
+            local _0 fallback: i32
+    switch: void
+      local _2 b: Choice<i32>
+      case #0 bind _6 o
+        block
+          return: !
+            binary +: i32
+              field #0: i32
+                local _6 o: Choice::One
+              local _5 total: i32
+      default
+        block
+          (empty)
+    switch: !
+      local _3 c: Choice<i32>
+      case #0 bind _7 o
+        block
+          return: !
+            field #0: i32
+              local _7 o: Choice::One
+      default
+        block
+          return: !
+            local _5 total: i32
 body fn reads_the_error -> i32
   block
     return: !

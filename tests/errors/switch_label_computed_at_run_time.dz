@@ -1,0 +1,12 @@
+// expect: DZ0547
+//
+// A label must be known while compiling; `if` compares against a variable.
+
+fn main() {
+    let n = 3
+    let m = 4
+    switch n {
+        case m {}
+        default {}
+    }
+}

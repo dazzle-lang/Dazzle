@@ -1,0 +1,27 @@
+// expect: (none)
+//
+// Referring to a payload that cannot be copied is fine.
+
+struct Res {
+    pub n: i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+union Choice<T> {
+    One { value: T }
+    Neither
+}
+
+fn count(c: &Choice<Res>) -> i32 {
+    switch c {
+        case One(&o) { return o.value.n }
+        case Neither { return 0 }
+    }
+}
+
+fn main() {
+    let c = Choice<Res>::Neither
+    println("{}", count(&c))
+}

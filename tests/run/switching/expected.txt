@@ -1,0 +1,10 @@
+1
+6
+zero few limit limit minus one many
+1 2 0
+true false
+yes
+6
+2
+stop 7 2 stop 15
+4 9 1.5 11

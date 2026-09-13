@@ -14,6 +14,8 @@ struct Holder;
 struct Shape;
 struct Square;
 
+inline constexpr int32_t N = 1024;
+
 struct Holder {
     int32_t* slot{};
     int32_t value{};
@@ -55,7 +57,6 @@ struct Square : Shape {
     Square& operator=(Square&&) = default;
 };
 
-inline constexpr int32_t N = 1024;
 ::dz::Array<int32_t, 1024> filled();
 int32_t sum_indexed(const ::dz::Array<int32_t, 1024>& xs, int32_t n);
 int32_t raii_loop(int32_t count);

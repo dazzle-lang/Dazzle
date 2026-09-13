@@ -495,10 +495,38 @@ pub struct WhileStmt {
 pub struct ForStmt {
     pub span: Span,
     pub label: Option<Ident>,
-    /// `for i, e in &entities` binds more than one name.
-    pub bindings: Vec<Pat>,
+    /// `for entity, btn, state in query` binds one name per part of a tuple element.
+    pub bindings: Vec<ForBinding>,
     pub iter: Expr,
     pub body: Block,
+}
+
+/// How a `for` or `case` binding holds what it names (spec §10.3, §10.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BindMode {
+    /// `e` — a value that cannot be changed. For a `case`, a read-only reference.
+    Value,
+    /// `&e` — a read-only reference.
+    Ref,
+    /// `&mut e` — a writable reference.
+    RefMut,
+}
+
+impl BindMode {
+    pub fn prefix(self) -> &'static str {
+        match self {
+            BindMode::Value => "",
+            BindMode::Ref => "&",
+            BindMode::RefMut => "&mut ",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ForBinding {
+    pub span: Span,
+    pub mode: BindMode,
+    pub pat: Pat,
 }
 
 // ---------------------------------------------------------------------------
@@ -658,8 +686,29 @@ pub struct SwitchExpr {
 pub struct SwitchArm {
     pub span: Span,
     /// `case A, B { ... }`
-    pub patterns: Vec<VariantPat>,
+    pub patterns: Vec<CasePat>,
     pub body: Block,
+}
+
+/// One label of a `case` (spec §10.3).
+///
+/// The parser cannot tell `case Idle` on an enum from `case MAX` on an integer — both are a
+/// bare name — so anything shaped `Name` or `Name(x)` is a [`CasePat::Variant`], and the
+/// checker reads it as a constant when the subject is not an enum or union. Everything else
+/// (`case 1`, `case "idle"`, `case -1`, `case lib::MAX`) is a [`CasePat::Value`].
+#[derive(Clone, Debug)]
+pub enum CasePat {
+    Variant(VariantPat),
+    Value(Expr),
+}
+
+impl CasePat {
+    pub fn span(&self) -> Span {
+        match self {
+            CasePat::Variant(v) => v.span,
+            CasePat::Value(e) => e.span,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -668,6 +717,8 @@ pub struct VariantPat {
     pub name: Ident,
     /// `case Circle(c)` binds the payload by reference.
     pub binding: Option<Ident>,
+    /// `case Circle(&mut c)` makes that reference writable (spec §10.3).
+    pub mode: BindMode,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

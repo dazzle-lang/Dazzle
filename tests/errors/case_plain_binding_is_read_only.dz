@@ -1,0 +1,16 @@
+// expect: DZ0507
+//
+// `c` reads the payload; `&mut c` is how it is changed.
+
+union Shape {
+    Circle { radius: f32 }
+    Point
+}
+
+fn main() {
+    let mut s = Shape::Circle{ radius: 1 }
+    switch s {
+        case Circle(c) { c.radius += 1 }
+        default {}
+    }
+}

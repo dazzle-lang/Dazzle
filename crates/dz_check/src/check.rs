@@ -687,6 +687,16 @@ struct Local {
     slot: Slot,
 }
 
+/// What one pass of a `for` hands to its bindings (spec §10.4).
+enum ForItem {
+    /// A value with no home: a range's number, what a consuming loop moves out, an
+    /// iterator's `get` that returns by value. Only `e` can take it.
+    Value(Ty),
+    /// An element that lives somewhere — in an array, a slice, or behind the reference an
+    /// iterator returns. `e` copies it, `&e` refers to it, `&mut e` also writes it.
+    Place { ty: Ty, writable: bool },
+}
+
 /// What an in-scope name denotes once it is resolved.
 ///
 /// A method body sees its own fields unqualified (spec §7.3), so not every name in scope
@@ -733,7 +743,20 @@ struct Body<'a, 'c> {
     self_full: Option<Ty>,
     /// The type `self` was bound with, for an unqualified field's base.
     self_local_ty: Option<Ty>,
+    /// The loops enclosing the expression being checked, innermost last, for `break` and
+    /// `continue` and the labels they name (spec §10.2).
+    loops: Vec<LoopFrame>,
+    next_loop: u32,
     hir: BodyBuilder,
+}
+
+/// One enclosing loop, while its body is checked.
+struct LoopFrame {
+    id: u32,
+    label: Option<String>,
+    /// A `break` or `continue` inside a nested loop names this one, so C++ needs a label.
+    breaks: bool,
+    continues: bool,
 }
 
 impl<'a, 'c> Body<'a, 'c> {
@@ -760,6 +783,8 @@ impl<'a, 'c> Body<'a, 'c> {
             unsafe_reported: Vec::new(),
             self_full: None,
             self_local_ty: None,
+            loops: Vec::new(),
+            next_loop: 0,
             hir,
         }
     }
@@ -1258,7 +1283,12 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
             }
             StmtKind::Assign { target, op, value } => {
-                let t = self.expr(target, None);
+                let mut t = self.expr(target, None);
+                // Assigning to a `&mut T` writes the `T` it refers to (spec §5.2). A `&T` is
+                // typed the same way, so the one error about it is that it is read-only.
+                if let (ExprKind::Path(_), Ty::Ref { inner, .. }) = (&target.kind, &t.ty) {
+                    t.ty = (**inner).clone();
+                }
                 let v = self.expr(value, Some(&t.ty));
                 self.require_mutable(target);
                 if *op == AssignOp::Assign {
@@ -1290,64 +1320,380 @@ impl<'a, 'c> Body<'a, 'c> {
             StmtKind::While(w) => {
                 let c = self.expr(&w.cond, Some(&Ty::Bool));
                 self.require_bool(&c.ty, w.cond.span, "while");
-                let body = self.block(&w.body, None).id;
-                hir::StmtKind::While { cond: c.id, body }
+                let (body, label) = self.loop_body(w.label.as_ref(), |b| b.block(&w.body, None).id);
+                hir::StmtKind::While { cond: c.id, body, label }
             }
-            StmtKind::For(f) => {
-                let reached_into = std::mem::replace(&mut self.reaching_into, true);
-                let subject = self.expr(&f.iter, None);
-                self.reaching_into = reached_into;
-                let elem = match subject.ty.element() {
-                    Some(e) => e.clone(),
-                    None => match self.iterate_item(&subject.ty, f.iter.span) {
-                        Some(item) => item,
-                        None => {
-                            if !subject.ty.is_wildcard() {
-                                let t = self.cx.name_of(&subject.ty);
-                                self.cx.error_help(
-                                    codes::TYPE_MISMATCH,
-                                    f.iter.span,
-                                    format!("`{t}` cannot be iterated"),
-                                    "not iterable",
-                                    "`for` works over ranges, arrays, slices, and any type \
-                                     that implements `Iterate` (spec §8.5, §10.4)",
-                                );
-                            }
-                            Ty::Error
-                        }
-                    },
-                };
-                self.push();
-                // `for i, e in &xs` binds an index alongside the element (spec §10.4).
-                let mut bindings = Vec::new();
-                if f.bindings.len() == 2 {
-                    let idx = Ty::Int(IntTy::Usize);
-                    bindings.extend(self.bind_pattern(
-                        &f.bindings[0],
-                        &idx,
-                        false,
-                        LocalKind::Binding,
-                    ));
-                    bindings.extend(self.bind_pattern(
-                        &f.bindings[1],
-                        &elem,
-                        false,
-                        LocalKind::Binding,
-                    ));
-                } else {
-                    for b in &f.bindings {
-                        bindings.extend(self.bind_pattern(b, &elem, false, LocalKind::Binding));
-                    }
-                }
-                let body = self.block(&f.body, None).id;
-                self.pop();
-                hir::StmtKind::For { bindings, subject: subject.id, body }
-            }
+            StmtKind::For(f) => self.for_stmt(f),
             StmtKind::Defer(inner) => hir::StmtKind::Defer(self.stmt(inner)),
             // Nested declarations are checked by the top-level walk.
             StmtKind::Item(_) | StmtKind::Error => hir::StmtKind::Error,
         };
         self.hir.stmt(s.span, kind)
+    }
+
+    // --- `for` (spec §10.4) ---------------------------------------------------
+
+    fn for_stmt(&mut self, f: &ForStmt) -> hir::StmtKind {
+        // `for i, e in xs.indexed()`: the adapter is the loop's, not a method on `xs`, so
+        // `xs` is what is iterated. A type with a real `indexed` method of its own keeps it.
+        let mut subject_ast = &f.iter;
+        let mut indexed = false;
+        if let ExprKind::Call { callee, args } = &f.iter.kind {
+            if let ExprKind::Field { base, name } = &callee.kind {
+                if name.name == "indexed"
+                    && args.is_empty()
+                    && !self.has_own_method(base, "indexed")
+                {
+                    subject_ast = base;
+                    indexed = true;
+                }
+            }
+        }
+        let consuming = matches!(subject_ast.kind, ExprKind::Move(_));
+        if consuming && indexed {
+            self.cx.error_help(
+                codes::CODEGEN_UNSUPPORTED,
+                f.iter.span,
+                "`move(…).indexed()` is not supported yet",
+                "a consuming loop with a pass count",
+                "count the passes yourself, or iterate by reference with `&e` — see the \
+                 deferral register in docs/PROGRESS.md",
+            );
+        }
+
+        let reached_into = std::mem::replace(&mut self.reaching_into, true);
+        let subject = self.expr(subject_ast, None);
+        self.reaching_into = reached_into;
+        let item = self.for_item(subject_ast, &subject.ty, consuming);
+
+        self.push();
+        let (shape, bindings) = if indexed {
+            (hir::ForShape::Indexed, self.bind_indexed(f, item))
+        } else if f.bindings.len() > 1 {
+            (hir::ForShape::Tuple, self.bind_tuple(f, item))
+        } else {
+            let b = &f.bindings[0];
+            let shape = if consuming { hir::ForShape::Consuming } else { hir::ForShape::Single };
+            (shape, vec![self.bind_for(b, &item)])
+        };
+        let (body, label) = self.loop_body(f.label.as_ref(), |b| b.block(&f.body, None).id);
+        self.pop();
+        hir::StmtKind::For { bindings, subject: subject.id, body, shape, label }
+    }
+
+    /// Check a loop's body with the loop on the stack `break` and `continue` resolve
+    /// against, and hand back the label C++ needs if a nested loop jumps to this one.
+    fn loop_body(
+        &mut self,
+        label: Option<&Ident>,
+        check: impl FnOnce(&mut Self) -> BlockId,
+    ) -> (BlockId, Option<hir::LoopLabel>) {
+        let id = self.next_loop;
+        self.next_loop += 1;
+        self.loops.push(LoopFrame {
+            id,
+            label: label.map(|l| l.name.clone()),
+            breaks: false,
+            continues: false,
+        });
+        let body = check(self);
+        let frame = self.loops.pop().expect("pushed above");
+        let label = (frame.breaks || frame.continues).then(|| hir::LoopLabel {
+            id,
+            name: frame.label.unwrap_or_default(),
+            breaks: frame.breaks,
+            continues: frame.continues,
+        });
+        (body, label)
+    }
+
+    /// `break` / `continue`, optionally naming a loop (spec §10.2). `None` targets the
+    /// innermost loop; `Some(id)` a loop further out, which C++ reaches with a `goto`.
+    fn loop_jump(&mut self, label: Option<&Ident>, span: Span, is_break: bool) -> Option<u32> {
+        let word = if is_break { "break" } else { "continue" };
+        if self.loops.is_empty() {
+            self.cx.error_help(
+                codes::JUMP_OUTSIDE_LOOP,
+                span,
+                format!("`{word}` outside a loop"),
+                "not inside a `for` or `while`",
+                format!("`{word}` leaves or restarts the loop it is written in (spec §10.2)"),
+            );
+            return None;
+        }
+        let label = label?;
+        let Some(depth) = self.loops.iter().rposition(|f| f.label.as_deref() == Some(&label.name))
+        else {
+            let known: Vec<String> = self
+                .loops
+                .iter()
+                .filter_map(|f| f.label.as_ref().map(|l| format!("`{l}`")))
+                .collect();
+            let help = if known.is_empty() {
+                format!("label a loop to name it: `{}: for … {{ … }}` (spec §10.2)", label.name)
+            } else {
+                format!("the enclosing loops are labelled {} (spec §10.2)", known.join(", "))
+            };
+            self.cx.error_help(
+                codes::JUMP_OUTSIDE_LOOP,
+                label.span,
+                format!("no enclosing loop is labelled `{}`", label.name),
+                "unknown label",
+                help,
+            );
+            return None;
+        };
+        if depth == self.loops.len() - 1 {
+            return None;
+        }
+        let frame = &mut self.loops[depth];
+        if is_break {
+            frame.breaks = true;
+        } else {
+            frame.continues = true;
+        }
+        Some(frame.id)
+    }
+
+    /// Does `base`'s type declare a method called `name` itself?
+    fn has_own_method(&mut self, base: &Expr, name: &str) -> bool {
+        let ty = self.expr_quiet(base);
+        match ty.peeled() {
+            Ty::Named { sym, .. } => {
+                self.cx.table.struct_sig(*sym).is_some_and(|s| s.methods.contains_key(name))
+            }
+            _ => false,
+        }
+    }
+
+    /// What one pass of `for` over `ty` yields.
+    fn for_item(&mut self, subject: &Expr, ty: &Ty, consuming: bool) -> ForItem {
+        if let Ty::Range(elem) = ty.peeled() {
+            return ForItem::Value((**elem).clone());
+        }
+        if let Some(elem) = ty.element() {
+            let elem = elem.clone();
+            if consuming {
+                return ForItem::Value(elem);
+            }
+            let writable = self.sequence_writable(subject, ty);
+            return ForItem::Place { ty: elem, writable };
+        }
+        match self.iterate_item(ty, subject.span) {
+            // An iterator that hands out references yields places; one that hands out
+            // values yields values (spec §8.5).
+            Some(Ty::Ref { mutable, inner }) => {
+                ForItem::Place { ty: (*inner).clone(), writable: mutable }
+            }
+            Some(item) => ForItem::Value(item),
+            None => {
+                if !ty.is_wildcard() {
+                    let t = self.cx.name_of(ty);
+                    self.cx.error_help(
+                        codes::TYPE_MISMATCH,
+                        subject.span,
+                        format!("`{t}` cannot be iterated"),
+                        "not iterable",
+                        "`for` works over ranges, arrays, slices, and any type that implements \
+                         `Iterate` (spec §8.5, §10.4)",
+                    );
+                }
+                ForItem::Value(Ty::Error)
+            }
+        }
+    }
+
+    /// May the elements of this array or slice be written? A slice says so in its type; an
+    /// array is written as its binding allows, or as the reference or pointer it is behind.
+    fn sequence_writable(&mut self, subject: &Expr, ty: &Ty) -> bool {
+        match ty {
+            Ty::Slice { mutable, .. } => *mutable,
+            Ty::Ref { mutable, inner }
+            | Ty::Ptr { mutable, inner }
+            | Ty::OwnPtr { mutable, inner } => {
+                *mutable
+                    && match &**inner {
+                        Ty::Slice { mutable, .. } => *mutable,
+                        _ => true,
+                    }
+            }
+            Ty::Array { .. } => self.place_mutability(subject) == Some(true),
+            _ => false,
+        }
+    }
+
+    /// One binding of a `for`: `e` copies what it names, `&e` refers to it, `&mut e` refers
+    /// to it and may write (spec §10.4).
+    fn bind_for(&mut self, b: &ForBinding, item: &ForItem) -> Option<LocalId> {
+        let name = match &b.pat.kind {
+            PatKind::Ident(i) => Some(i),
+            PatKind::Wild => None,
+            PatKind::Tuple(_) => {
+                self.cx.error_help(
+                    codes::BAD_BINDING,
+                    b.pat.span,
+                    "a `for` names the parts of a tuple element without parentheses",
+                    "parenthesised",
+                    "write `for a, b in xs` (spec §10.4)",
+                );
+                return None;
+            }
+            PatKind::Error => return None,
+        };
+        let ty = match (b.mode, item) {
+            (BindMode::Value, ForItem::Value(t)) => t.clone(),
+            (BindMode::Value, ForItem::Place { ty, .. }) => {
+                if !ty.is_wildcard() && !self.cx.table.copyable(ty) {
+                    let t = self.cx.name_of(ty);
+                    let n = name.map_or("e".to_owned(), |i| i.name.clone());
+                    self.cx.error_help(
+                        codes::IMPLICIT_COPY,
+                        b.span,
+                        format!("`{n}` would be a copy of a `{t}`, which cannot be copied"),
+                        "a copy of each element",
+                        format!(
+                            "refer to each element with `&{n}`, or consume the sequence with \
+                             `move(…)` (spec §6.3, §10.4)"
+                        ),
+                    );
+                    Ty::Error
+                } else {
+                    ty.clone()
+                }
+            }
+            (BindMode::Ref | BindMode::RefMut, ForItem::Value(t)) => {
+                if !t.is_wildcard() {
+                    let shown = self.cx.name_of(t);
+                    let n = name.map_or("e".to_owned(), |i| i.name.clone());
+                    self.cx.error_help(
+                        codes::BAD_BINDING,
+                        b.span,
+                        format!(
+                            "each pass yields a value of type `{shown}`, with nothing to refer to"
+                        ),
+                        format!("`{}` needs a place", b.mode.prefix().trim_end()),
+                        format!(
+                            "write `{n}`: a range, a consuming loop and an iterator whose `get` \
+                             returns a value all hand out values (spec §10.4)"
+                        ),
+                    );
+                }
+                Ty::Error
+            }
+            (BindMode::Ref, ForItem::Place { ty, .. }) => Ty::reference(false, ty.clone()),
+            (BindMode::RefMut, ForItem::Place { ty, writable: true }) => {
+                Ty::reference(true, ty.clone())
+            }
+            (BindMode::RefMut, ForItem::Place { ty, writable: false }) => {
+                if !ty.is_wildcard() {
+                    self.cx.error_help(
+                        codes::NOT_MUTABLE,
+                        b.span,
+                        "cannot refer to these elements with `&mut`",
+                        "the sequence is read-only here",
+                        "declare it `let mut`, pass it as `&mut` or `[]mut T`, or use an \
+                         iterator whose `get` returns `&mut` (spec §10.4)",
+                    );
+                }
+                // Bound as asked, so the writes in the body are not each reported again:
+                // the mistake is here, once (invariant 6).
+                Ty::reference(true, ty.clone())
+            }
+        };
+        name.map(|i| self.bind(&i.name, ty, false, LocalKind::Binding, b.pat.span))
+    }
+
+    /// `for a, b, c in xs`: one binding per part of a tuple element (spec §10.4). A part
+    /// that is itself a reference — an ECS query's `(Entity, &Button, &mut State)` — is a
+    /// place of its own; the rest are places only if the tuple is.
+    fn bind_tuple(&mut self, f: &ForStmt, item: ForItem) -> Vec<Option<LocalId>> {
+        let (tuple, writable) = match &item {
+            ForItem::Value(t) => (t.clone(), None),
+            ForItem::Place { ty, writable } => (ty.clone(), Some(*writable)),
+        };
+        let parts = match &tuple {
+            Ty::Tuple(parts) if parts.len() == f.bindings.len() => parts.clone(),
+            other => {
+                if !other.is_wildcard() {
+                    let shown = self.cx.name_of(other);
+                    let n = f.bindings.len();
+                    let (label, help) = match other {
+                        Ty::Tuple(parts) => (
+                            format!("{n} names for {} parts", parts.len()),
+                            format!("name each part once: the element is `{shown}` (spec §10.4)"),
+                        ),
+                        _ => (
+                            "not a tuple".to_owned(),
+                            "several names take apart a tuple element; for a pass count write \
+                             `for i, e in xs.indexed()` (spec §10.4)"
+                                .to_owned(),
+                        ),
+                    };
+                    let span = f.bindings[0].span.to(f.bindings[n - 1].span);
+                    self.cx.error_help(
+                        codes::BAD_BINDING,
+                        span,
+                        format!("cannot take a `{shown}` apart into {n} names"),
+                        label,
+                        help,
+                    );
+                }
+                return f
+                    .bindings
+                    .iter()
+                    .map(|b| self.bind_for(b, &ForItem::Value(Ty::Error)))
+                    .collect();
+            }
+        };
+        f.bindings
+            .iter()
+            .zip(parts)
+            .map(|(b, part)| {
+                let part_item = match (part, writable) {
+                    (Ty::Ref { mutable, inner }, _) => {
+                        ForItem::Place { ty: (*inner).clone(), writable: mutable }
+                    }
+                    (t, Some(w)) => ForItem::Place { ty: t, writable: w },
+                    (t, None) => ForItem::Value(t),
+                };
+                self.bind_for(b, &part_item)
+            })
+            .collect()
+    }
+
+    /// `for i, e in xs.indexed()`: a pass count, then the element (spec §10.4).
+    fn bind_indexed(&mut self, f: &ForStmt, item: ForItem) -> Vec<Option<LocalId>> {
+        if f.bindings.len() != 2 {
+            let n = f.bindings.len();
+            let span = f.bindings[0].span.to(f.bindings[n - 1].span);
+            self.cx.error_help(
+                codes::BAD_BINDING,
+                span,
+                format!("`indexed()` yields a pass count and an element, but {n} names are given"),
+                "expected two names",
+                "write `for i, e in xs.indexed()` (spec §10.4)",
+            );
+            return f
+                .bindings
+                .iter()
+                .map(|b| self.bind_for(b, &ForItem::Value(Ty::Error)))
+                .collect();
+        }
+        let counter = &f.bindings[0];
+        if counter.mode != BindMode::Value {
+            self.cx.error_help(
+                codes::BAD_BINDING,
+                counter.span,
+                "the pass count is a value",
+                "nothing to refer to",
+                "write the counter without `&` (spec §10.4)",
+            );
+        }
+        let count = self.bind_for(
+            &ForBinding { mode: BindMode::Value, ..counter.clone() },
+            &ForItem::Value(Ty::Int(IntTy::Usize)),
+        );
+        vec![count, self.bind_for(&f.bindings[1], &item)]
     }
 
     /// Bind a pattern, returning the locals it introduced in source order. `None` is a
@@ -1412,8 +1758,17 @@ impl<'a, 'c> Body<'a, 'c> {
     /// A fallible call must be consumed in the statement it appears in; discarding a `T?`
     /// is a warning (spec §9.7).
     fn check_unused(&mut self, t: &Ty, e: &Expr) {
-        // An `or` clause has already consumed it.
-        if matches!(e.kind, ExprKind::Or { .. }) {
+        // An `or` clause has already consumed it. A block, an `if` and a `switch` have
+        // already checked their own last statements, where the unconsumed call is; asking
+        // again here reported one call once per enclosing block (invariant 6).
+        if matches!(
+            e.kind,
+            ExprKind::Or { .. }
+                | ExprKind::Block(_)
+                | ExprKind::Unsafe(_)
+                | ExprKind::If(_)
+                | ExprKind::Switch(_)
+        ) {
             return;
         }
         match t {
@@ -1471,6 +1826,9 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Path(p) if p.segments.len() == 1 => {
                 let name = &p.segments[0].name.name;
                 match self.local(name) {
+                    // A `&mut T` cannot be pointed elsewhere, so assigning to one writes
+                    // through it — `for &mut e in xs { e += 1 }` (spec §5.2, §10.4).
+                    Some(Local { ty: Ty::Ref { mutable: true, .. }, .. }) => Some(true),
                     Some(l) => Some(l.mutable),
                     // A module-level `const` is never assignable.
                     None => Some(false),
@@ -1507,11 +1865,33 @@ impl<'a, 'c> Body<'a, 'c> {
         }
     }
 
+    /// The help for writing through a `for` or `case` binding that was not bound to write:
+    /// the fix is in the binding, not in a `let mut` (spec §10.3, §10.4).
+    fn binding_write_help(&self, name: &str) -> Option<String> {
+        let local = self.local(name)?;
+        let Slot::Local(id) = local.slot else { return None };
+        if self.hir.local_kind(id) != LocalKind::Binding {
+            return None;
+        }
+        Some(match local.ty.peeled() {
+            Ty::Variant(..) => format!(
+                "`{name}` is a copy of the payload, or a read-only reference to it; bind it as \
+                 `&mut {name}` to change the payload itself (spec §10.3)"
+            ),
+            _ => format!(
+                "`{name}` is a copy of the element, or a read-only reference to it; bind it as \
+                 `&mut {name}` to change the element itself (spec §10.4)"
+            ),
+        })
+    }
+
     fn describe_place(&mut self, e: &Expr) -> (String, String) {
         match &e.kind {
             ExprKind::Path(p) if p.segments.len() == 1 => {
                 let name = p.segments[0].name.name.clone();
-                if self.local(&name).is_some() {
+                if let Some(help) = self.binding_write_help(&name) {
+                    (format!("`{name}`"), help)
+                } else if self.local(&name).is_some() {
                     (
                         format!("`{name}`"),
                         format!("declare it as `let mut {name}` to allow assignment"),
@@ -1527,6 +1907,14 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Field { base, name } => match self.expr_quiet(base).peeled_refs() {
                 Ty::Ptr { mutable: false, .. } | Ty::OwnPtr { mutable: false, .. } => {
                     self.through_read_only_pointer(base)
+                }
+                _ if matches!(&base.kind, ExprKind::Path(p) if p.segments.len() == 1
+                    && self.binding_write_help(&p.segments[0].name.name).is_some()) =>
+                {
+                    let ExprKind::Path(p) = &base.kind else { unreachable!() };
+                    let help =
+                        self.binding_write_help(&p.segments[0].name.name).unwrap_or_default();
+                    (format!("field `{}`", name.name), help)
                 }
                 _ => (
                     format!("field `{}`", name.name),
@@ -1749,7 +2137,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 };
                 self.mk(e, ty, hir::ExprKind::NoneOpt)
             }
-            ExprKind::Path(p) => self.path_expr(p, e),
+            ExprKind::Path(p) => self.path_expr(p, e, expected),
             ExprKind::Tuple(elems) => {
                 let checked: Vec<Checked> = match expected.map(|t| self.subst(t)) {
                     Some(Ty::Tuple(want)) if want.len() == elems.len() => {
@@ -2025,8 +2413,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 // `Shape::Circle{ … }` is a union value, not a struct: the path names a
                 // variant, and `Shape::Circle` is not a type of its own (spec §7.5).
                 if let Some((owner, index)) = self.union_variant_path(path) {
-                    let kind = self.union_variant_literal(owner, index, fields, e.span);
-                    return self.mk(e, Ty::plain(owner), kind);
+                    let args = self.variant_args(path, owner, expected, Some((index, fields)));
+                    let kind = self.union_variant_literal(owner, &args, index, fields, e.span);
+                    return self.mk(e, Ty::Named { sym: owner, args }, kind);
                 }
                 // `lower_path_type`, not `lower_type`: this is the type a path *names*,
                 // not a type written in a declaration, and the by-value checks that
@@ -2200,8 +2589,14 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
                 self.mk(e, Ty::Never, hir::ExprKind::Return(value))
             }
-            ExprKind::Break { .. } => self.mk(e, Ty::Never, hir::ExprKind::Break),
-            ExprKind::Continue { .. } => self.mk(e, Ty::Never, hir::ExprKind::Continue),
+            ExprKind::Break { label } => {
+                let target = self.loop_jump(label.as_ref(), e.span, true);
+                self.mk(e, Ty::Never, hir::ExprKind::Break(target))
+            }
+            ExprKind::Continue { label } => {
+                let target = self.loop_jump(label.as_ref(), e.span, false);
+                self.mk(e, Ty::Never, hir::ExprKind::Continue(target))
+            }
             ExprKind::Intrinsic { name, args } => {
                 let args = args.iter().map(|a| self.expr(a, None).id).collect();
                 // spec §12.7
@@ -2496,7 +2891,7 @@ impl<'a, 'c> Body<'a, 'c> {
             };
         }
         // A `case Circle(c)` binding: `c` is the variant's own field list (spec §7.5).
-        if let Ty::Variant(owner, index) = &peeled {
+        if let Ty::Variant(owner, index, args) = &peeled {
             let variant = match self.cx.table.get(*owner) {
                 Some(ItemSig::Union { variants }) => variants.get(*index).cloned(),
                 _ => None,
@@ -2504,7 +2899,11 @@ impl<'a, 'c> Body<'a, 'c> {
             let Some(variant) = variant else { return (Ty::Error, None) };
             let found = variant.fields.iter().enumerate().find(|(_, f)| f.name == name.name);
             return match found {
-                Some((i, f)) => (f.ty.clone(), Some(i)),
+                // Read through the union's arguments: `value: T` on a `Maybe<i32>` is `i32`.
+                Some((i, _)) => {
+                    let types = self.cx.table.field_types(*owner, args, &variant.fields);
+                    (types[i].clone(), Some(i))
+                }
                 None => {
                     let owner_name = self.cx.res.symbol(*owner).name.clone();
                     let names: Vec<String> =
@@ -4073,7 +4472,7 @@ impl<'a, 'c> Body<'a, 'c> {
         Some((sym, used))
     }
 
-    fn path_expr(&mut self, p: &Path, e: &Expr) -> Checked {
+    fn path_expr(&mut self, p: &Path, e: &Expr, expected: Option<&Ty>) -> Checked {
         let Some(first) = p.segments.first() else {
             return self.mk(e, Ty::Error, hir::ExprKind::Error);
         };
@@ -4139,7 +4538,7 @@ impl<'a, 'c> Body<'a, 'c> {
         let tail = &p.segments[used.min(p.segments.len())..];
 
         if let Some(seg) = tail.first() {
-            let (ty, kind) = self.assoc_item(sym, seg);
+            let (ty, kind) = self.assoc_item(sym, seg, p, expected);
             return self.mk(e, ty, kind);
         }
 
@@ -4165,7 +4564,13 @@ impl<'a, 'c> Body<'a, 'c> {
         self.mk(e, ty, kind)
     }
 
-    fn assoc_item(&mut self, owner: SymbolId, seg: &PathSegment) -> (Ty, hir::ExprKind) {
+    fn assoc_item(
+        &mut self,
+        owner: SymbolId,
+        seg: &PathSegment,
+        path: &Path,
+        expected: Option<&Ty>,
+    ) -> (Ty, hir::ExprKind) {
         match self.cx.table.get(owner) {
             Some(ItemSig::Enum { variants, .. }) => {
                 match variants.iter().position(|v| v.name == seg.name.name) {
@@ -4176,10 +4581,13 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             Some(ItemSig::Union { variants }) => {
                 match variants.iter().position(|v| v.name == seg.name.name) {
-                    Some(index) => (
-                        Ty::plain(owner),
-                        hir::ExprKind::UnionVariant { owner, index, payload: Vec::new() },
-                    ),
+                    Some(index) => {
+                        let args = self.variant_args(path, owner, expected, None);
+                        (
+                            Ty::Named { sym: owner, args },
+                            hir::ExprKind::UnionVariant { owner, index, payload: Vec::new() },
+                        )
+                    }
                     None => (Ty::Error, hir::ExprKind::Error),
                 }
             }
@@ -4403,6 +4811,7 @@ impl<'a, 'c> Body<'a, 'c> {
     fn union_variant_literal(
         &mut self,
         owner: SymbolId,
+        args: &[Ty],
         index: usize,
         fields: &[FieldInit],
         span: Span,
@@ -4413,10 +4822,73 @@ impl<'a, 'c> Body<'a, 'c> {
         };
         let Some(variant) = variant else { return hir::ExprKind::Error };
         let name = format!("{}::{}", self.cx.res.symbol(owner).name, variant.name);
+        // A `Maybe<i32>::Some{ value: 4 }` checks `value` against `i32`, not `T` (spec §8.4).
+        let instantiated: Vec<crate::FieldSig> = variant
+            .fields
+            .iter()
+            .zip(self.cx.table.field_types(owner, args, &variant.fields))
+            .map(|(f, t)| crate::FieldSig { ty: t, ..f.clone() })
+            .collect();
         // Visibility is the union's, not a per-field thing: a variant's fields are as
         // public as the variant is, so nothing is checked per field here.
-        let payload = self.field_values(&variant.fields, None, &name, fields, span);
+        let payload = self.field_values(&instantiated, None, &name, fields, span);
         hir::ExprKind::UnionVariant { owner, index, payload }
+    }
+
+    /// The type arguments a variant path gives its union: `Maybe<i32>::Some` says them,
+    /// `let m: Maybe<i32> = Maybe::Nothing` takes them from what is expected, and inside
+    /// `Maybe<T>`'s own body a bare `Maybe` is `Maybe<T>`. Failing those, the payload says
+    /// them, as a generic call's arguments do: `Choice::One{ value: 4 }` is a `Choice<i32>`
+    /// (spec §8.1). A variant with nothing to infer from is DZ0534.
+    fn variant_args(
+        &mut self,
+        p: &Path,
+        owner: SymbolId,
+        expected: Option<&Ty>,
+        payload: Option<(usize, &[FieldInit])>,
+    ) -> Vec<Ty> {
+        let params: Vec<u32> =
+            self.cx.table.type_params(owner).iter().map(|d| d.param.id).collect();
+        if params.is_empty() || p.segments.len() < 2 {
+            return Vec::new();
+        }
+        let seg = &p.segments[p.segments.len() - 2];
+        if seg.generics.is_empty() {
+            if let Some(Ty::Named { sym, args }) = expected.map(|t| self.subst(t)) {
+                if sym == owner && !args.is_empty() && !args.iter().any(Ty::has_params) {
+                    return args;
+                }
+            }
+            if let Some(args) = self.infer_variant_args(owner, &params, payload) {
+                return args;
+            }
+        }
+        self.cx.type_args(owner, seg)
+    }
+
+    /// Solve a generic union's parameters from a variant literal's field values.
+    fn infer_variant_args(
+        &mut self,
+        owner: SymbolId,
+        params: &[u32],
+        payload: Option<(usize, &[FieldInit])>,
+    ) -> Option<Vec<Ty>> {
+        let (index, fields) = payload?;
+        let variant = match self.cx.table.get(owner) {
+            Some(ItemSig::Union { variants }) => variants.get(index)?.clone(),
+            _ => return None,
+        };
+        let mut map = HashMap::new();
+        for (i, f) in fields.iter().enumerate() {
+            let decl = match &f.name {
+                Some(n) => variant.fields.iter().find(|d| d.name == n.name),
+                None => variant.fields.get(i),
+            };
+            let Some(decl) = decl else { continue };
+            let actual = self.expr_quiet(&f.value);
+            unify(&decl.ty, &actual.defaulted(), &mut map);
+        }
+        params.iter().map(|id| map.get(id).cloned()).collect()
     }
 
     /// If `p` names a union variant, the union and the variant's position.
@@ -4612,7 +5084,13 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
                 hir::ExprKind::EnumVariant { owner: sym, index }
             }
-            Some(index) => self.union_variant_literal(sym, index, init.unwrap_or(&[]), span),
+            Some(index) => {
+                let args = match want {
+                    Ty::Named { args, .. } => args.clone(),
+                    _ => Vec::new(),
+                };
+                self.union_variant_literal(sym, &args, index, init.unwrap_or(&[]), span)
+            }
             None => {
                 for f in init.unwrap_or(&[]) {
                     self.expr(&f.value, None);
@@ -4627,21 +5105,34 @@ impl<'a, 'c> Body<'a, 'c> {
         let peeled = subject.ty.peeled().clone();
         let sym = peeled.named();
 
+        // An enum or union is matched by variant. Anything else that `==` is exact on — an
+        // integer, a `char`, a `bool`, a `str` — is matched against constants (spec §10.3).
+        let mut scalar: Option<Ty> = None;
         let variants: Vec<crate::VariantSig> = match sym.and_then(|id| self.cx.table.get(id)) {
             Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
                 variants.clone()
             }
             _ => {
-                if !peeled.is_wildcard() {
-                    let n = self.cx.name_of(&peeled);
-                    self.cx.error_help(
-                        codes::TYPE_MISMATCH,
-                        s.subject.span,
-                        format!("cannot switch on `{n}`"),
-                        "not an enum or union",
-                        "`switch` matches the variants of an enum or a tagged union \
-                         (spec §10.3)",
-                    );
+                match peeled.defaulted() {
+                    t @ (Ty::Int(_) | Ty::Char | Ty::Bool | Ty::Str) => scalar = Some(t),
+                    _ if peeled.is_wildcard() => {}
+                    _ => {
+                        let n = self.cx.name_of(&peeled);
+                        let help = if matches!(peeled, Ty::Float(_) | Ty::FloatLit) {
+                            "a float is never matched exactly; compare it with `<` and `>` \
+                             in an `if` instead (spec §10.3)"
+                        } else {
+                            "`switch` matches the variants of an enum or a tagged union, or \
+                             an integer, `char`, `bool` or `str` against constants (spec §10.3)"
+                        };
+                        self.cx.error_help(
+                            codes::TYPE_MISMATCH,
+                            s.subject.span,
+                            format!("cannot switch on `{n}`"),
+                            "not something `switch` can match",
+                            help,
+                        );
+                    }
                 }
                 Vec::new()
             }
@@ -4650,15 +5141,62 @@ impl<'a, 'c> Body<'a, 'c> {
             matches!(sym.and_then(|id| self.cx.table.get(id)), Some(ItemSig::Union { .. }));
 
         let mut covered: Vec<String> = Vec::new();
+        // Constant labels already seen, by value, for DZ0548.
+        let mut seen: Vec<String> = Vec::new();
         let mut result: Option<Ty> = None;
         let mut hir_arms: Vec<hir::Arm> = Vec::new();
 
         for arm in &s.arms {
             self.push();
             let mut indices = Vec::new();
+            let mut values = Vec::new();
             let mut binding = None;
             for pat in &arm.patterns {
+                if let Some(ty) = &scalar {
+                    if let Some(v) = self.case_value(pat, ty, &mut seen) {
+                        values.push(v);
+                    }
+                    continue;
+                }
+                let pat = match pat {
+                    CasePat::Variant(v) => v,
+                    CasePat::Value(value) => {
+                        // `case Idle` split over lines lands here as a one-name path.
+                        if let ExprKind::Path(p) = &value.kind {
+                            if p.segments.len() == 1 && !variants.is_empty() {
+                                let name = &p.segments[0].name;
+                                if let Some(i) = variants.iter().position(|v| v.name == name.name) {
+                                    self.note_duplicate_variant(
+                                        &covered,
+                                        &variants[i].name,
+                                        name.span,
+                                    );
+                                    covered.push(variants[i].name.clone());
+                                    indices.push(i);
+                                    continue;
+                                }
+                            }
+                        }
+                        if !variants.is_empty() {
+                            let owner = sym
+                                .map(|id| self.cx.res.symbol(id).name.clone())
+                                .unwrap_or_default();
+                            self.cx.error_help(
+                                codes::BAD_CASE_LABEL,
+                                value.span,
+                                format!("a `case` on `{owner}` names a variant"),
+                                "not a variant name",
+                                "an enum or union is matched by variant: `case Idle`, \
+                                 `case Walking(w)` (spec §10.3)",
+                            );
+                        }
+                        continue;
+                    }
+                };
                 let known = variants.iter().find(|v| v.name == pat.name.name).cloned();
+                if let Some(v) = &known {
+                    self.note_duplicate_variant(&covered, &v.name, pat.name.span);
+                }
                 match &known {
                     Some(v) => {
                         covered.push(v.name.clone());
@@ -4666,17 +5204,22 @@ impl<'a, 'c> Body<'a, 'c> {
                             indices.push(i);
                         }
                         if let Some(b) = &pat.binding {
-                            // The binding is a reference into the union's payload, so
-                            // matching never copies (spec §10.3). Its type is the
-                            // variant's field list, not the union — without that,
-                            // `c.radius` had nothing to resolve against.
+                            // The payload's type is the variant's field list, not the
+                            // union — without that, `c.radius` had nothing to resolve
+                            // against. `c` copies it, `&c` and `&mut c` refer to it, as a
+                            // `for` binding does (spec §10.3, §10.4).
                             let index = variants.iter().position(|x| x.name == v.name);
+                            let args = match &peeled {
+                                Ty::Named { args, .. } => args.clone(),
+                                _ => Vec::new(),
+                            };
                             let payload = match (is_union, sym, index) {
-                                (true, Some(owner), Some(i)) => Ty::Variant(owner, i),
+                                (true, Some(owner), Some(i)) => Ty::Variant(owner, i, args),
                                 _ => Ty::Error,
                             };
+                            let ty = self.case_binding_type(pat, payload, &s.subject, &subject.ty);
                             binding =
-                                Some(self.bind(&b.name, payload, true, LocalKind::Binding, b.span));
+                                Some(self.bind(&b.name, ty, false, LocalKind::Binding, b.span));
                         }
                     }
                     None => {
@@ -4721,7 +5264,13 @@ impl<'a, 'c> Body<'a, 'c> {
                 Some(prev) => join(&prev, &body.ty).unwrap_or(Ty::Void),
                 None => body.ty.clone(),
             });
-            hir_arms.push(hir::Arm { span: arm.span, variants: indices, binding, body: body.id });
+            hir_arms.push(hir::Arm {
+                span: arm.span,
+                variants: indices,
+                values,
+                binding,
+                body: body.id,
+            });
             self.pop();
         }
 
@@ -4755,6 +5304,195 @@ impl<'a, 'c> Body<'a, 'c> {
         let ty = result.unwrap_or(Ty::Void);
         let kind = hir::ExprKind::Switch { subject: subject.id, arms: hir_arms, default };
         self.mk(e, ty, kind)
+    }
+
+    /// The type of a `case` payload binding, which follows the `for` rules exactly (spec
+    /// §10.3, 18.43): `case Circle(c)` is a copy that cannot be changed, `&c` a read-only
+    /// reference, and `&mut c` a writable one — which needs the union itself to be writable.
+    fn case_binding_type(
+        &mut self,
+        pat: &VariantPat,
+        payload: Ty,
+        subject: &Expr,
+        subject_ty: &Ty,
+    ) -> Ty {
+        match pat.mode {
+            BindMode::Value => {
+                if let Ty::Variant(owner, index, args) = &payload {
+                    let fields = match self.cx.table.get(*owner) {
+                        Some(ItemSig::Union { variants }) => {
+                            variants.get(*index).map(|v| v.fields.clone()).unwrap_or_default()
+                        }
+                        _ => Vec::new(),
+                    };
+                    let types = self.cx.table.field_types(*owner, args, &fields);
+                    if let Some(t) =
+                        types.iter().find(|t| !t.is_wildcard() && !self.cx.table.copyable(t))
+                    {
+                        let t = self.cx.name_of(t);
+                        let n = pat.binding.as_ref().map_or("c".to_owned(), |b| b.name.clone());
+                        self.cx.error_help(
+                            codes::IMPLICIT_COPY,
+                            pat.span,
+                            format!("`{n}` would be a copy of a payload holding a `{t}`, which cannot be copied"),
+                            "a copy of the payload",
+                            format!(
+                                "refer to the payload with `{}(&{n})` (spec §6.3, §10.3)",
+                                pat.name.name
+                            ),
+                        );
+                    }
+                }
+                payload
+            }
+            BindMode::Ref => Ty::reference(false, payload),
+            BindMode::RefMut => {
+                let ty = subject_ty;
+                let writable = match ty {
+                    Ty::Ref { mutable, .. }
+                    | Ty::Ptr { mutable, .. }
+                    | Ty::OwnPtr { mutable, .. } => *mutable,
+                    _ if ty.is_wildcard() => true,
+                    _ => self.place_mutability(subject) == Some(true),
+                };
+                if !writable {
+                    self.cx.error_help(
+                        codes::NOT_MUTABLE,
+                        pat.span,
+                        "cannot change the payload of a read-only value",
+                        "`&mut` on something that cannot be written",
+                        "switch on a `let mut` binding, a `&mut` or a `^mut`, or read the payload \
+                         with a plain binding (spec §10.3)",
+                    );
+                }
+                // Writable as asked either way, so the writes in the arm are not each
+                // reported again: the mistake is the binding, once (invariant 6).
+                Ty::reference(true, payload)
+            }
+        }
+    }
+
+    /// `case A` twice in one `switch`. The second arm could never run.
+    fn note_duplicate_variant(&mut self, covered: &[String], name: &str, span: Span) {
+        if covered.iter().any(|c| c == name) {
+            self.cx.error_help(
+                codes::DUPLICATE_CASE,
+                span,
+                format!("`{name}` is already matched by an earlier `case`"),
+                "matched twice",
+                "an arm runs only for what no earlier arm matched, so this one never would; \
+                 remove it (spec §10.3)",
+            );
+        }
+    }
+
+    /// One label of a `switch` on an integer, `char`, `bool` or `str` (spec §10.3): a
+    /// constant of the subject's type. Returns the checked label, or `None` where it was
+    /// not one (already reported).
+    fn case_value(
+        &mut self,
+        pat: &CasePat,
+        ty: &Ty,
+        seen: &mut Vec<String>,
+    ) -> Option<hir::ExprId> {
+        let synthetic;
+        let value: &Expr = match pat {
+            CasePat::Value(v) => v,
+            CasePat::Variant(v) => {
+                if let Some(b) = &v.binding {
+                    let n = self.cx.name_of(ty);
+                    self.cx.error_help(
+                        codes::BAD_CASE_LABEL,
+                        v.span,
+                        format!("a `case` on `{n}` has no payload to bind"),
+                        format!("`{}` binds nothing here", b.name),
+                        "only a union variant carries a payload; write the constant alone \
+                         (spec §10.3)",
+                    );
+                    return None;
+                }
+                // A bare name is a constant here, not a variant.
+                synthetic = Expr {
+                    span: v.span,
+                    kind: ExprKind::Path(Path {
+                        span: v.span,
+                        segments: vec![PathSegment {
+                            span: v.name.span,
+                            name: v.name.clone(),
+                            generics: Vec::new(),
+                        }],
+                    }),
+                };
+                &synthetic
+            }
+        };
+        let checked = self.expr(value, Some(ty));
+        // A label of the wrong type is one mistake: reported as a mismatch, and not also
+        // as "not a constant" (invariant 6).
+        if checked.ty.is_error() || !assignable(&self.subst(ty), &self.subst(&checked.ty)) {
+            self.expect(ty, &checked.ty, value.span);
+            return None;
+        }
+        if !self.is_constant(checked.id) {
+            self.cx.error_help(
+                codes::BAD_CASE_LABEL,
+                value.span,
+                "a `case` label must be a constant",
+                "computed at run time",
+                "a label is a literal, a `const`, or arithmetic on those — something known \
+                 while compiling. To compare against a value only known at run time, use `if` \
+                 (spec §10.3)",
+            );
+            return None;
+        }
+        // Integer labels compare by value, so `case 4, 2 + 2` is caught; the rest by what
+        // was written, which is exact for literals and misses only two differently named
+        // constants that happen to be equal.
+        let key = match self.cx.const_int(value) {
+            Some(n) => Some(format!("int {n}")),
+            None => match self.hir.kind(checked.id) {
+                hir::ExprKind::Char(c) => Some(format!("char {c}")),
+                hir::ExprKind::Bool(b) => Some(format!("bool {b}")),
+                hir::ExprKind::Str(s) => Some(format!("str {s}")),
+                hir::ExprKind::Const(sym) => Some(format!("const {sym:?}")),
+                _ => None,
+            },
+        };
+        if let Some(key) = key {
+            if seen.contains(&key) {
+                self.cx.error_help(
+                    codes::DUPLICATE_CASE,
+                    value.span,
+                    "this value is already matched by an earlier `case`",
+                    "matched twice",
+                    "an arm runs only for what no earlier arm matched, so this label never \
+                     would; remove it (spec §10.3)",
+                );
+            } else {
+                seen.push(key);
+            }
+        }
+        Some(checked.id)
+    }
+
+    /// Is this checked expression known while compiling: a literal, a `const`, or operators
+    /// and casts over those?
+    fn is_constant(&self, id: hir::ExprId) -> bool {
+        match self.hir.kind(id) {
+            hir::ExprKind::Int(_)
+            | hir::ExprKind::Float(_)
+            | hir::ExprKind::Bool(_)
+            | hir::ExprKind::Char(_)
+            | hir::ExprKind::Str(_)
+            | hir::ExprKind::Const(_) => true,
+            hir::ExprKind::Unary { operand, .. } | hir::ExprKind::Cast { operand } => {
+                self.is_constant(*operand)
+            }
+            hir::ExprKind::Binary { lhs, rhs, .. } => {
+                self.is_constant(*lhs) && self.is_constant(*rhs)
+            }
+            _ => false,
+        }
     }
 
     // --- the `or` clause (spec §9.4) --------------------------------------

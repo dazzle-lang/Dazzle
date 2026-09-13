@@ -1,0 +1,147 @@
+// `switch` in every shape it takes (spec §10.3), generic unions (§7.5, §8.4), and values
+// built by statements where C++ allows only an expression: a constant, a field default, a
+// default argument.
+
+enum Step {
+    Go
+    Stop
+}
+
+union Shape {
+    Circle { radius: f32 }
+    Rect { w: f32, h: f32 }
+    Point
+}
+
+union Maybe<T> {
+    Some { value: T }
+    Nothing
+}
+
+struct Pair<T> {
+    pub first: T
+    pub second: T
+}
+
+struct Config {
+    pub level: i32 = switch MODE {
+        case Go { 1 }
+        case Stop { 2 }
+    }
+    pub name: str = MODE_NAME
+}
+
+fn scaled(x: i32, by: i32 = if LIMIT > 100 { 1 } else { 3 }) -> i32 {
+    return x * by
+}
+
+fn classify(n: i32) -> str {
+    return switch n {
+        case 0 { "zero" }
+        case 1, 2, 3 { "few" }
+        case LIMIT, LIMIT + 2 { "limit" }
+        case -1 { "minus one" }
+        default { "many" }
+    }
+}
+
+fn word(s: str) -> i32 {
+    switch s {
+        case "idle" { return 1 }
+        case GREETING { return 2 }
+        default { return 0 }
+    }
+}
+
+fn vowel(c: char) -> bool {
+    switch c {
+        case 'a', 'e', 'i', 'o', 'u' { return true }
+        default { return false }
+    }
+}
+
+fn make() -> Shape {
+    return Shape::Rect{ w: 2, h: 3 }
+}
+
+fn grow(s: &mut Shape) {
+    switch s {
+        case Circle(&mut c) { c.radius += 1 }
+        case Rect(&mut r) { r.w += 1 }
+        case Point {}
+    }
+}
+
+fn unwrap_or<T: Copy>(m: Maybe<T>, fallback: T) -> T {
+    return switch m {
+        case Some(s) { s.value }
+        case Nothing { fallback }
+    }
+}
+
+// Below everything that uses them, and `MODE_NAME` above the `MODE` it reads: Dazzle has no
+// declaration order (spec §3), so C++ gets them in the order they need.
+const MODE_NAME: str = switch MODE {
+    case Go { "go" }
+    case Stop { "stop" }
+}
+const LIMIT = 40
+const GREETING: str = "hello"
+const MODE: Step = Step::Stop
+const PICK: i32 = if LIMIT > 10 { 7 } else { 8 }
+
+fn main() {
+    // A `break` in an arm leaves the loop, not the `switch`: there is no fallthrough to
+    // break out of. This printed 2 while `switch` was a C++ `switch`.
+    let steps = [Step::Go, Step::Stop, Step::Go]
+    let mut gone = 0
+    for i in 0..steps.len {
+        switch steps[i] {
+            case Go { gone += 1 }
+            case Stop { break }
+        }
+    }
+    println("{}", gone)
+
+    let mut counted: u8 = 0
+    for k in 0..10 {
+        switch k {
+            case 3 { continue }
+            case 7 { break }
+            default { counted += 1 }
+        }
+    }
+    println("{}", counted)
+
+    println("{} {} {} {} {} {}", classify(0), classify(2), classify(40), classify(42), classify(-1), classify(9))
+    println("{} {} {}", word("idle"), word("hello"), word("x"))
+    println("{} {}", vowel('e'), vowel('z'))
+    let flag = true
+    switch flag {
+        case true { println("yes") }
+        case false { println("no") }
+    }
+
+    // A temporary subject, and a payload written through a `&mut`.
+    let area = switch make() {
+        case Rect(r) { r.w * r.h }
+        default { 0.0 }
+    }
+    println("{}", area)
+    let mut sh = Shape::Circle{ radius: 1 }
+    grow(&mut sh)
+    switch sh {
+        case Circle(c) { println("{}", c.radius) }
+        default {}
+    }
+
+    let cfg = Config{}
+    println("{} {} {} {} {}", MODE_NAME, PICK, cfg.level, cfg.name, scaled(5))
+
+    let some = Maybe<i32>::Some{ value: 4 }
+    let nothing: Maybe<i32> = Maybe::Nothing
+    let inferred: Maybe<f32> = .Some{ value: 1.5 }
+    let pair = Maybe<Pair<i32>>::Some{ value: Pair<i32>{ first: 5, second: 6 } }
+    let p = unwrap_or(pair, Pair<i32>{ first: 0, second: 0 })
+    println("{} {} {} {}", unwrap_or(some, 0), unwrap_or(nothing, 9), unwrap_or(inferred, 0.0), p.first + p.second)
+}

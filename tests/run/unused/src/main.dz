@@ -44,7 +44,7 @@ fn main() {
     only_set = 2
     let (first, second) = pair()
     let xs = [1, 2, 3]
-    for i, x in xs {
+    for i, x in xs.indexed() {
     }
     for y in xs {
     }

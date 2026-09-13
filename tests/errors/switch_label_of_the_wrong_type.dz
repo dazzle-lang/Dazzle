@@ -1,0 +1,11 @@
+// expect: DZ0501
+//
+// A `str` label on an integer subject.
+
+fn main() {
+    let n = 1
+    switch n {
+        case "one" {}
+        default {}
+    }
+}

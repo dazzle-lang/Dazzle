@@ -1,0 +1,12 @@
+// expect: DZ0548
+//
+// `2 + 2` is `4`, which an earlier label already matched.
+
+fn main() {
+    let n = 4
+    switch n {
+        case 4 {}
+        case 2 + 2 {}
+        default {}
+    }
+}

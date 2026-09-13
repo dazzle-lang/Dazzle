@@ -1177,7 +1177,7 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
                 format!("{name}<{args}>")
             }
         }
-        Ty::Variant(id, i) => {
+        Ty::Variant(id, i, _) => {
             let owner = res.symbol(*id);
             let variant =
                 owner.members.iter().filter(|m| m.sort == dz_resolve::MemberSort::Variant).nth(*i);

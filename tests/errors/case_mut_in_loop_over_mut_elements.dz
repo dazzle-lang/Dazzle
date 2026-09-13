@@ -1,0 +1,18 @@
+// expect: (none)
+//
+// A writable element, switched on, and its payload changed in place.
+
+union Shape {
+    Circle { radius: f32 }
+    Point
+}
+
+fn main() {
+    let mut shapes = [Shape::Circle{ radius: 1 }, Shape::Point]
+    for &mut s in shapes {
+        switch s {
+            case Circle(&mut c) { c.radius *= 2 }
+            case Point {}
+        }
+    }
+}

@@ -1,0 +1,66 @@
+---
+source: crates/dz_parse/tests/parse.rs
+assertion_line: 34
+expression: "parse_report(&name, &source)"
+input_file: tests/parse/switch_values.dz
+---
+=== AST ===
+fn labels(n: i32, s: str) -> i32
+  block
+    switch
+      path n
+      case value
+        int 0
+        block
+          return
+            int 0
+      case value, value, LIMIT
+        int 1
+        int 2
+        block
+          return
+            int 1
+      case value, value
+        unary -
+          int 1
+        binary +
+          path LIMIT
+          int 1
+        block
+          return
+            int 2
+      case value
+        path lib::MAX
+        block
+          return
+            int 3
+      case Idle, Walking(w)
+        block
+          return
+            int 4
+      default
+        block
+          return
+            int 5
+    return
+      switch
+        path s
+        case value, value
+          str "idle"
+          rawstr `raw`
+          block
+            int 1
+        case value
+          char 'c'
+          block
+            int 2
+        case value
+          bool true
+          block
+            int 3
+        default
+          block
+            int 4
+
+=== DIAGNOSTICS ===
+(none)

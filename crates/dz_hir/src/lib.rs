@@ -210,6 +210,11 @@ pub fn local_uses(body: &Body) -> Vec<LocalUse> {
     for s in &body.stmts {
         if let StmtKind::Assign { target, .. } = &s.kind {
             if let ExprKind::Local(l) = body.expr(*target).kind {
+                // Assigning to a `&mut T` writes what it refers to, which is a use of the
+                // reference rather than a value thrown away (spec §5.2).
+                if matches!(body.local(l).ty, Ty::Ref { mutable: true, .. }) {
+                    continue;
+                }
                 uses[l.index()].assigned = true;
                 targets.insert(*target);
             }
@@ -285,13 +290,17 @@ pub enum StmtKind {
     While {
         cond: ExprId,
         body: BlockId,
+        label: Option<LoopLabel>,
     },
-    /// `for x in subject`, or `for i, x in subject` — two bindings mean index and
-    /// element (spec §10.4). The subject's type decides what iteration means.
+    /// `for e in subject` (spec §10.4). The subject's type decides what iteration means,
+    /// `shape` how the element reaches the bindings, and each binding's own type whether it
+    /// holds a copy (`e`) or a reference (`&e`, `&mut e`).
     For {
         bindings: Vec<Option<LocalId>>,
         subject: ExprId,
         body: BlockId,
+        shape: ForShape,
+        label: Option<LoopLabel>,
     },
     /// Runs at scope exit in reverse order, after drops (spec §6.5).
     Defer(StmtId),
@@ -434,8 +443,11 @@ pub enum ExprKind {
         clause: OrClause,
     },
     Return(Option<ExprId>),
-    Break,
-    Continue,
+    /// reak, or reak outer naming a loop further out than the innermost, by that
+    /// loop's [LoopLabel::id] (spec §10.2).
+    Break(Option<u32>),
+    /// continue, likewise.
+    Continue(Option<u32>),
 
     /// `xs.len` on an array or slice (spec §5.3). A node of its own because it is not a
     /// field: nothing is stored under that name, and codegen asks the container itself.
@@ -563,6 +575,34 @@ impl TypeQuery {
     }
 }
 
+/// A loop's label, when a `break` or `continue` inside a nested loop names it. The innermost
+/// loop needs no label, and C++ warns about one nothing uses (spec §10.2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoopLabel {
+    /// Unique within the body, so two sibling loops may share a Dazzle label.
+    pub id: u32,
+    pub name: String,
+    /// Some `break` names it from inside a nested loop.
+    pub breaks: bool,
+    /// Some `continue` names it from inside a nested loop.
+    pub continues: bool,
+}
+
+/// How a `for` loop's element reaches its bindings (spec §10.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForShape {
+    /// `for e in xs` — one binding, the whole element.
+    Single,
+    /// `for entity, btn, state in query` — the element is a tuple, one binding per part.
+    Tuple,
+    /// `for i, e in xs.indexed()` — `subject` is `xs` itself; the first binding counts
+    /// passes from zero and the second is the element.
+    Indexed,
+    /// `for e in move(xs)` — `subject` is `xs`, which the loop consumes, moving each
+    /// element into `e`.
+    Consuming,
+}
+
 /// What a call actually calls, decided by the checker rather than re-derived downstream.
 #[derive(Clone, Debug)]
 pub enum Callee {
@@ -588,6 +628,9 @@ pub struct Arm {
     pub span: Span,
     /// Variant indices in the subject's type; `case A, B` gives two.
     pub variants: Vec<usize>,
+    /// `case 1, MAX` on an integer, `case "idle"` on a `str` (spec §10.3): the constants
+    /// the subject is compared against. Empty when the subject is an enum or union.
+    pub values: Vec<ExprId>,
     /// `case Circle(c)` binds the payload by reference.
     pub binding: Option<LocalId>,
     pub body: BlockId,

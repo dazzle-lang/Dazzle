@@ -636,7 +636,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                 self.expr(&f.iter);
                 self.push_scope();
                 for b in &f.bindings {
-                    self.bind_pattern(b);
+                    self.bind_pattern(&b.pat);
                 }
                 self.block(&f.body);
                 self.pop_scope();
@@ -740,8 +740,16 @@ impl<'a, 'w> Walker<'a, 'w> {
                 for arm in &s.arms {
                     self.push_scope();
                     for p in &arm.patterns {
-                        if let Some(b) = &p.binding {
-                            self.bind(&b.name, b.span);
+                        match p {
+                            CasePat::Variant(v) => {
+                                if let Some(b) = &v.binding {
+                                    self.bind(&b.name, b.span);
+                                }
+                            }
+                            // `case 1`, `case lib::MAX` — an ordinary expression. A bare
+                            // name is a `Variant` whatever it turns out to be, and the
+                            // checker resolves it once it knows the subject's type.
+                            CasePat::Value(e) => self.expr(e),
                         }
                     }
                     self.block(&arm.body);

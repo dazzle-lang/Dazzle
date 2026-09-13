@@ -1,0 +1,14 @@
+// expect: DZ0507
+//
+// A `[]i32` is a read-only view whatever its binding says (spec §5.3).
+
+fn clear(xs: []i32) {
+    for &mut x in xs {
+        x = 0
+    }
+}
+
+fn main() {
+    let xs = [1, 2]
+    clear(xs)
+}

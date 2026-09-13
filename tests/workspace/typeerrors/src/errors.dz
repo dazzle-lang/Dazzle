@@ -794,3 +794,27 @@ fn a_test_that_is_fallible() !-> i32 {
 
 #[test]
 fn a_test_with_type_parameters<T>() {}
+
+// --- M8: `switch` on constants (spec §10.3) ----------------------------------------------
+
+fn a_case_label_computed_at_run_time(n: i32, m: i32) -> i32 {
+    switch n {
+        case m { return 1 }
+        default { return 0 }
+    }
+}
+
+fn a_case_value_on_a_union(s: Shape) -> i32 {
+    switch s {
+        case 3 { return 1 }
+        default { return 0 }
+    }
+}
+
+fn the_same_case_twice(n: i32) -> i32 {
+    switch n {
+        case 1, 2 { return 1 }
+        case 2 { return 2 }
+        default { return 0 }
+    }
+}

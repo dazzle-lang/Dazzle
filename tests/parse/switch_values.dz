@@ -1,0 +1,18 @@
+// `case` labels that are constants rather than variants (spec §10.3). A bare name or
+// `Name(x)` is a variant shape whatever it turns out to be; anything else is a value.
+fn labels(n: i32, s: str) -> i32 {
+    switch n {
+        case 0 { return 0 }
+        case 1, 2, LIMIT { return 1 }
+        case -1, LIMIT + 1 { return 2 }
+        case lib::MAX { return 3 }
+        case Idle, Walking(w) { return 4 }
+        default { return 5 }
+    }
+    return switch s {
+        case "idle", `raw` { 1 }
+        case 'c' { 2 }
+        case true { 3 }
+        default { 4 }
+    }
+}

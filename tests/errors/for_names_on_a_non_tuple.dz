@@ -1,0 +1,10 @@
+// expect: DZ0549
+//
+// Several names take a tuple element apart; a pass count is `indexed()`.
+
+fn main() {
+    let xs = [1, 2]
+    for i, x in xs {
+        println("{} {}", i, x)
+    }
+}

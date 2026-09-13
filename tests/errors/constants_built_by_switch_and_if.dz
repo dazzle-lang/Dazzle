@@ -1,0 +1,32 @@
+// expect: (none)
+//
+// A constant, a field default and a default argument built by statements, used before they are declared.
+
+enum Step {
+    Go
+    Stop
+}
+
+struct Config {
+    pub level: i32 = switch MODE {
+        case Go { 1 }
+        case Stop { 2 }
+    }
+    pub name: str = NAME
+}
+
+fn scaled(x: i32, by: i32 = if LIMIT > 1 { 2 } else { 3 }) -> i32 {
+    return x * by
+}
+
+const NAME: str = switch MODE {
+    case Go { "go" }
+    case Stop { "stop" }
+}
+const MODE: Step = Step::Stop
+const LIMIT = 4
+
+fn main() {
+    let c = Config{}
+    println("{} {} {}", c.level, c.name, scaled(1))
+}

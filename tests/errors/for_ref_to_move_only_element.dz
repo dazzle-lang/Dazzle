@@ -1,0 +1,21 @@
+// expect: (none)
+//
+// Referring to a move-only element copies nothing, with or without a pass count.
+
+struct Res {
+    pub n: i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+
+fn main() {
+    let rs = [Res{ n: 1 }, Res{ n: 2 }]
+    for &r in rs {
+        println("{}", r.n)
+    }
+    for i, &r in rs.indexed() {
+        println("{} {}", i, r.n)
+    }
+}

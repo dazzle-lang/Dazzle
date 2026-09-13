@@ -1,0 +1,9 @@
+// expect: DZ0501
+//
+// An integer is not a sequence.
+
+fn main() {
+    for x in 5 {
+        println("{}", x)
+    }
+}

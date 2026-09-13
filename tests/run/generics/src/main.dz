@@ -257,7 +257,7 @@ fn main() {
         seen += n
     }
     println("countdown: {}", seen)
-    for i, n in Countdown(2) {
+    for i, n in Countdown(2).indexed() {
         println("step {} -> {}", i, n)
     }
 

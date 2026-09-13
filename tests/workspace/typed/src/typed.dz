@@ -177,7 +177,7 @@ fn iterating(items: []Vec3) -> f32 {
     for v in items {
         total += v.x
     }
-    for i, v in items {
+    for i, v in items.indexed() {
         total += v.y
     }
     return total
@@ -372,6 +372,52 @@ fn union_values() -> f32 {
 fn inferred_variant() -> Shape {
     let s: Shape = .Circle{ radius: 1 }
     return s
+}
+
+// §10.3: an integer, a `char`, a `bool` or a `str` is matched against constants, with no
+// exhaustiveness required.
+const SWITCH_LIMIT = 10
+
+fn switch_on_constants(n: i32, s: str, c: char) -> i32 {
+    let a = switch n {
+        case 0 { 1 }
+        case 1, 2, SWITCH_LIMIT, SWITCH_LIMIT * 2 { 2 }
+        case -1 { 3 }
+        default { 0 }
+    }
+    switch s {
+        case "idle" { return a }
+    }
+    switch c {
+        case 'x', 'y' { return 1 }
+        default {}
+    }
+    return a
+}
+
+// §7.5, §8.4: a generic union, its variants built with and without arguments written, and
+// a `case` binding read through the instance.
+union Choice<T> {
+    One { value: T }
+    Neither
+}
+
+fn generic_union(fallback: i32) -> i32 {
+    let a = Choice<i32>::One{ value: 1 }
+    let b: Choice<i32> = Choice::Neither
+    let c: Choice<i32> = .One{ value: 2 }
+    let total: i32 = switch a {
+        case One(o) { o.value }
+        case Neither { fallback }
+    }
+    switch b {
+        case One(o) { return o.value + total }
+        default {}
+    }
+    switch c {
+        case One(o) { return o.value }
+        default { return total }
+    }
 }
 
 // §9.2: the `Error` an `or` block binds is a real struct with real fields.

@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 35
+**Version:** 0.1 — **unreleased**, revision 37
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -498,6 +498,8 @@ r`, an argument, a field. Reading cannot fail, so it is not spelled out. Only a 
 can be read this way: a move-only one would have to be moved, and nothing may be moved out
 of a borrow (`DZ0402`, §6.4), and in a generic body that means `T: Copy`. Where no type is
 wanted, a reference stays a reference: `let r2 = r` is another `&T`. `[DECIDED — §18.35]`
+
+**Writing through a reference.** Assigning to a `&mut T` writes the `T` it refers to — `x = 1` and `x += 1` on an `x: &mut i32` change the caller's integer — since a reference cannot be pointed elsewhere. Through a `&T` that is an error. `[DECIDED — §18.44]`
 
 **Converting between them.** Forming a pointer changes nothing, so a reference becomes a
 pointer of the same writability for free — `&T` → `^T`, `&mut T` → `^mut T` — and anything
@@ -1342,7 +1344,7 @@ case, `i32` in the second — because `for e in xs` desugars to the three calls 
 compiler reads `Item` off whichever implementer `xs` provides (§10.4):
 
 ```dz
-for e in &entities { e.draw(&mut batch) }   // e is &Entity
+for &e in entities { e.draw(&mut batch) }   // e is &Entity
 for i in 0..count  { grid[i] = 0 }          // i is i32
 ```
 
@@ -1455,7 +1457,7 @@ there is no wrapping step. The failure case has its own literal:
 
 ```dz
 fn find_player(&mut self, id: EntityId) -> ^Player {
-    for p in &mut m_players {
+    for &mut p in m_players {
         if p.id == id { return ^p }
     }
     return null
@@ -1765,7 +1767,7 @@ No `do`/`while`. `break` and `continue` accept an optional label:
 
 ```dz
 outer: while true {
-    for e in entities {
+    for &e in entities {
         if e.id == target { break outer }
     }
 }
@@ -1782,33 +1784,94 @@ A result is assigned to a variable declared before the loop. `[DECIDED — §18.
 switch state {
     case Idle          { ... }
     case Walking(w)    { speed = w.speed }
-    case Falling(f)    { f.time += dt }        // f is &mut into the union
+    case Falling(&mut f) { f.time += dt }      // writes into the union
     default            { ... }
 }
 ```
 
 - Exhaustive over unions and enums; a missing variant is an error listing which. `default`
   silences it, and the LSP offers a "fill in missing cases" action.
-- No fallthrough. Ever.
+- No fallthrough. Ever. So `break` and `continue` inside an arm act on the enclosing loop —
+  there is nothing in a `switch` to break out of.
 - `case A, B { ... }` matches multiple variants when neither binds a payload.
-- Payload bindings are references into the union, so matching does not copy.
+- A payload binding holds the payload exactly as a `for` binding holds an element (§10.4):
+  `case Walking(w)` is a copy that cannot be changed, `case Walking(&w)` a read-only
+  reference, and `case Falling(&mut f)` a writable one, which needs the value switched on to
+  be writable — a `let mut`, a `&mut` or a `^mut`. A payload that cannot be copied is bound
+  with `&` or `&mut`. `[DECIDED — §18.43]`
 - `switch` is also an expression when every arm yields the same type.
+- Naming the same variant or value in two labels is an error: the later one could never
+  match.
+
+An integer, a `char`, a `bool` or a `str` is matched against **constants** instead of
+variants. A label is anything known while compiling — a literal, a `const`, or arithmetic
+on those — of the subject's type, and there is no exhaustiveness requirement: with no
+matching arm and no `default`, nothing runs. A float cannot be switched on, since it is never
+matched exactly.
+
+```dz
+switch key {
+    case 'w', 'k'          { move_up() }
+    case KEY_ESCAPE        { quit() }
+    case FIRST_SLOT + 1    { select(1) }
+    default                { }
+}
+
+switch command {
+    case "quit" { return }
+    case "help" { print_help() }
+}
+```
+
+A bare name in a label means a variant when the subject is an enum or union, and a
+constant otherwise, so `case Idle` and `case MAX` are written the same way.
 
 ### 10.4 `for`
 
 ```dz
-for i in 0..count      { ... }     // exclusive
-for i in 0..=count     { ... }     // inclusive
-for c in text          { ... }     // iterates chars of a str
-for e in &entities     { ... }     // shared refs
-for e in &mut entities { ... }     // mutable refs
-for i, e in &entities  { ... }     // index + element
+for i in 0..count           { ... }     // exclusive
+for i in 0..=count          { ... }     // inclusive
+for c in text               { ... }     // iterates chars of a str
+for e in entities           { ... }     // e is a copy of each element
+for &e in entities          { ... }     // e refers to each element
+for &mut e in entities      { ... }     // e refers to each element, and may change it
+for i, &e in entities.indexed() { ... } // a pass count, then the element
+for id, &btn, &mut state in query { ... } // a tuple element, taken apart
 ```
 
-Iterating a container **by value** consumes it and is written `for e in move(entities)`.
-Anything implementing `Iterate` (§8.5) works, so `for btn, state in w.query<Button, ButtonState>()`
-from your `state.dz` sketch works by giving the query result an `Iterate` impl whose `Item`
-is a tuple. `[PROPOSED]`
+**How a binding holds its element** is written on the binding, as C++ writes `auto`,
+`const auto&` and `auto&` — not on the sequence. `[DECIDED — §18.42]`
+
+- **`e`** is a copy that cannot be changed. Writing `e.hp -= 1` would change a copy and
+  nothing else, so it is an error, with a help pointing at `&mut e`. An element that cannot
+  be copied — a type with a `drop` — cannot be bound this way either (`DZ0403`); refer to it
+  with `&e`, or consume the sequence. A copy is always a real copy — its `copy` runs, and
+  its `drop` at the end of the pass — so the compiler never quietly reads through a
+  reference instead: with RAII that would change what the program does.
+- **`&e`** refers to the element, read-only. Nothing is copied.
+- **`&mut e`** refers to the element and may change it: `e.hp -= 1`, or `e = 0` for a number,
+  writes into the sequence (§5.2). The sequence must be writable — a `let mut` array, a
+  `&mut` or `^mut` to one, a `[]mut T` — and an iterator must hand out `&mut` references
+  (`DZ0507` otherwise).
+
+`&e` and `&mut e` need an element that lives somewhere. An array, a slice and an iterator
+whose `get` returns `&T` or `&mut T` provide one; a range's numbers, an iterator whose `get`
+returns a value, and a consuming loop do not, and take only `e` (`DZ0549`). What an iterator's
+`Item` is decides what its loops may ask for: a query that returns `&mut State` can be
+written through, and one that returns `&State` cannot.
+
+**A tuple element is taken apart by naming its parts**, without parentheses: `for id, &btn,
+&mut state in query` over an `Item` of `(EntityId, &Button, &mut State)`. Each part takes its
+own `&` or `&mut`. A part that is itself a reference refers to what it names; the other parts
+live where the tuple does. The number of names must be the tuple's size (`DZ0549`), so several
+names always mean the parts of one element and never anything else.
+
+**A pass count** comes from `indexed()`: `for i, e in xs.indexed()` binds a `usize` counting
+passes from zero, then the element with the same choice of `e`, `&e` or `&mut e`. It works on
+anything `for` does. For now `indexed()` is known only in a loop's head.
+
+**Consuming.** `for e in move(entities)` moves each element out into `e` and leaves
+`entities` moved-from (§6.4) — the one way to take move-only elements by value.
 
 `for e in xs` desugars to the three `Iterate` methods, with the iterator in a scope of its
 own so the loop variable may shadow anything outside it:
@@ -1824,10 +1887,9 @@ own so the loop variable may shadow anything outside it:
 }
 ```
 
-`e` has type `Item`, read off the implementer. `advance` runs after the body on every
+`e` is bound from `Item`, read off the implementer. `advance` runs after the body on every
 completed pass, and `continue` jumps to it rather than past it, so a `continue` cannot spin
-forever. `break` leaves the whole construct. A `for i, e in xs` binds the pass count to `i`
-alongside `e`. `[PROPOSED]`
+forever. `break` leaves the whole construct.
 
 ### 10.5 `defer`
 
@@ -2356,7 +2418,7 @@ fn update(&mut self, dt: f32) {
     defer Allocators::Temp.reset()
 
     let visible = self.cull(&camera, Allocators::Temp)   // freed at frame end, no bookkeeping
-    for e in visible { e.draw(&mut self.batch) }
+    for &e in visible { e.draw(&mut self.batch) }
 }
 ```
 
@@ -2952,6 +3014,9 @@ be exactly what reload needs, and must stay that way:
 | 18.41 | What a C `union` becomes | **A type whose members overlap**, read and written as C does it — not a Dazzle `union`, which is tagged (§7.5) and would promise a discriminant the C type does not have, with an exhaustive `switch` that means nothing. So `RGFW_event` comes in with all its members, `e.type` reads the one C would, and reading a member nobody wrote is C's own bargain rather than something Dazzle can check. A literal may set **one** member, since they are the same bytes (`DZ0705`); the type is never defined by Dazzle, so its layout stays the header's (§15.2) |
 
 | 18.32 | Struct inheritance | **Single inheritance, written `struct Button : UiElement`.** The base comes first in memory, so `&Derived` → `&Base` and `^Derived` → `^Base` are implicit and free, while a by-value `Derived` where a `Base` is wanted is an error — C++'s slicing, which drops what the derived type adds. A base's fields and methods are the derived type's, unqualified inside its methods, and neither may be redeclared. A base with a constructor is constructed through it, `Button(…) : UiElement(r)`, and a type with a constructor is not built with a struct literal. Dispatch is static unless written: `virtual fn` opts one method in, `override fn` replaces one, both checked in both directions, and a body-less `virtual fn` makes the struct abstract — no value of it exists, only a `&` or a `^` to one. `Base::method(self)` calls the base's version without dispatch, and `drop` becomes virtual as soon as anything in the chain is. A fourth visibility, `protected`, opens a member to the types that inherit it (§4). Implementations are inherited and a more specific `impl` replaces the inherited one, statically. This reverses §7.3's old "there is no inheritance", which was never a decision of the language's author (§7.3, §4) |
+| 18.42 | How a `for` binding holds its element | **On the binding, as C++ does it: `e` a copy, `&e` a reference, `&mut e` a writable reference.** `e` cannot be changed, so a write meant for the element cannot silently land on a copy. A copy is a real copy, never a reference in disguise, since a `copy` or `drop` with side effects would otherwise run or not depending on the compiler. Replaces `for e in &xs` / `for e in &mut xs`, where the sequence expression said it. Several names always take a tuple element apart, with no parentheses — `for id, &btn, &mut state in query` — and a pass count comes from `xs.indexed()`, so `for i, e in xs` no longer means an index: two readings of two names was the conflict this settles. What an iterator's `Item` is decides which bindings its loops may use (§10.4) |
+| 18.43 | How a `case` binding holds the payload | **Exactly as a `for` binding (18.42).** `case Circle(c)` is a copy that cannot be changed, `&c` a read-only reference, `&mut c` a writable one that needs a `let mut`, `&mut` or `^mut` subject. One rule for both places; a binding that was always a reference would make `&mut c` the only mode worth writing. The binding had been writable always, which let a `switch` change a value declared immutable and failed in C++ behind a `&` (§10.3) |
+| 18.44 | Assigning to a `&mut T` | **Writes the `T` it refers to**, as in C++. A reference cannot be pointed elsewhere, so there was no other meaning to give it, and `for &mut n in counts { n += 1 }` needs it. Through a `&T` it is an error (§5.2) |
 
 ### 18.2 Still open
 
@@ -3066,10 +3131,12 @@ assign        = place ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" ) expr TERM ;
 if_stmt       = "if" if_head block { "else" "if" if_head block } [ "else" block ] ;
 if_head       = expr | "let" [ "mut" ] ident "=" expr ;
 while_stmt    = [ ident ":" ] "while" expr block ;
-for_stmt      = [ ident ":" ] "for" pattern { "," pattern } "in" expr block ;
+for_stmt      = [ ident ":" ] "for" for_binding { "," for_binding } "in" expr block ;
+for_binding   = [ "&" [ "mut" ] ] ( ident | "_" ) ;
 switch_stmt   = "switch" expr "{" { case_arm } [ "default" block ] "}" ;
-case_arm      = "case" variant_pat { "," variant_pat } block ;
-variant_pat   = ident [ "(" ident ")" ] ;
+case_arm      = "case" case_label { "," case_label } block ;
+case_label    = ident [ "(" [ "&" [ "mut" ] ] ident ")" ]  (* a variant, or a constant's name *)
+              | expr ;                      (* a constant: `1`, `"idle"`, `lib::MAX` *)
 or_expr       = expr "or" or_clause ;
 or_clause     = "{" [ ident "->" ] { statement } "}"
               | "return" [ expr ]
@@ -3114,6 +3181,8 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r37 | 2026-09-13 | **How `for` and `case` bindings hold what they name** (§10.3, §10.4, 18.42–18.44). `for e in xs` copies each element and `e` cannot be changed; `for &e in xs` refers to it; `for &mut e in xs` refers to it and writes into `xs`, which must be writable. The forms `for e in &xs` and `for e in &mut xs` are gone. A move-only element is taken with `&e`, or consumed with `for e in move(xs)`. Several names take a tuple element apart — `for id, &btn, &mut state in query` — and the pass count moves to `for i, e in xs.indexed()`, so `for i, e in xs` no longer binds an index. `case` bindings follow the same rules: `case Circle(c)` is a copy, `&c` a read-only reference, and `&mut c` changes the payload, on a writable value only. Assigning to a `&mut T` writes what it refers to. A generic union's variant infers its type arguments from its payload: `Choice::One{ value: 4 }` is a `Choice<i32>`. |
+| r36 | 2026-09-13 | **`switch` on an integer, `char`, `bool` or `str`** (§10.3). Labels are constants — literals, `const`s, and arithmetic on them — of the subject's type: `case 1, 2`, `case "quit"`, `case MAX + 1`. There is no exhaustiveness requirement, and a float cannot be a subject. A bare name in a label is a variant on an enum or union and a constant otherwise. Two related rules now stated: **the same variant or value in two labels is an error**, since the later one can never match; and **`break` and `continue` inside an arm act on the enclosing loop**, since `switch` has no fallthrough to break out of — the compiler had been leaving only the `switch`, which was a bug. |
 | r35 | 2026-09-13 | **The built program is in `build/bin/`**, not `build/` (§16.1). `build/` now holds only directories `dz` names itself — `bin`, `cpp`, `obj`, and the roots `dz test` and `dz bench` create — because the two could collide: a module named `bench` produced the *file* `build/bench`, which is exactly the directory `dz bench` wants, and the build failed with "Not a directory" on every platform whose executables have no extension. `dz run` is unaffected; `dz build` prints the path it wrote. |
 | r34 | 2026-09-12 | **`flags` in a library's recipe** (§15.1): raw flags passed to the compiler for *that library's* sources, after the ones `dz` chooses, so the last one wins. Needed because some libraries require something no `defines` or `include_dirs` can say — raylib's `rglfw.c` includes GLFW's Cocoa backend, so on macOS it must be compiled as Objective-C despite its `.c` name, and `flags = ["-x", "objective-c"]` in a `target.macos` section is how a recipe says that. It applies to a vendored library only, never to Dazzle's own generated code: invariant 7 fixes the flags that must compile warning-clean, and a manifest does not get to weaken them. |
 | r33 | 2026-09-12 | **Which C++ compiler builds a project is configurable** (§16.5). `cxx = "g++"` in `[build]`, or in `[build.target.<os>]` for one platform, says what a project is known to build with; `--cxx <compiler>` on `run`, `build`, `cpp`, `test` and `bench` overrides it for one command, and `DZ_CXX` sits between them. With none of them `dz` still picks the first of `clang++`, `g++`, `c++` it finds. A compiler named explicitly is not probed first: if it is not there the build says so, rather than quietly using a different one. |

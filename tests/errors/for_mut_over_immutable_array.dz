@@ -1,0 +1,11 @@
+// expect: DZ0507
+//
+// `&mut x` writes into the array, which is not `let mut`.
+
+fn main() {
+    let xs = [1, 2, 3]
+    for &mut x in xs {
+        x = 0
+    }
+    println("{}", xs[0])
+}
