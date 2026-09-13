@@ -95,7 +95,13 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
     let mut impl_members: HashMap<usize, Vec<&Body>> = HashMap::new();
     for (_, b) in hir.bodies() {
         match &b.owner {
-            BodyOwner::Fn(_) | BodyOwner::Const(_) | BodyOwner::Static(_) => {}
+            // A trait's default arguments are read by the trait object's handle, never
+            // instantiated as a member.
+            BodyOwner::Fn(_)
+            | BodyOwner::Const(_)
+            | BodyOwner::Static(_)
+            | BodyOwner::TraitDefaults { .. }
+            | BodyOwner::AssocConst { .. } => {}
             BodyOwner::ImplMethod { imp, .. } => {
                 impl_members.entry(*imp as usize).or_default().push(b)
             }
@@ -198,7 +204,9 @@ pub fn owner_sym(owner: &BodyOwner) -> Option<SymbolId> {
         | BodyOwner::Static(s) => Some(*s),
         BodyOwner::Method { owner, .. }
         | BodyOwner::Ctor { owner, .. }
-        | BodyOwner::FieldDefault { owner, .. } => Some(*owner),
+        | BodyOwner::FieldDefault { owner, .. }
+        | BodyOwner::TraitDefaults { owner, .. }
+        | BodyOwner::AssocConst { owner, .. } => Some(*owner),
         BodyOwner::ImplMethod { .. } => None,
     }
 }

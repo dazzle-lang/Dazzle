@@ -514,6 +514,12 @@ impl<'a> Printer<'a> {
                 self.line(&s);
                 self.emit_trailing_comment(m.span.end);
             }
+            MemberKind::Const(c) => {
+                let ty = c.ty.as_ref().map(|t| format!(": {}", self.ty(t))).unwrap_or_default();
+                let s = format!("{vis}const {}{} = {}", c.name.name, ty, self.expr(&c.value));
+                self.line(&s);
+                self.emit_trailing_comment(m.span.end);
+            }
             MemberKind::Fn(f) => self.fn_decl(vis, f),
             MemberKind::Ctor(f) => self.special_member(vis, f),
             MemberKind::TypeAlias { name, bounds, ty } => {

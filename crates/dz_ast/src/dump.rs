@@ -171,6 +171,14 @@ impl<'a> Dumper<'a> {
         match &m.kind {
             MemberKind::CfgIf(c) => self.cfg_if(c, &mut |d, x| d.member(x)),
             MemberKind::Field(f) => self.field(f),
+            MemberKind::Const(c) => {
+                self.line(format_args!(
+                    "{vis}const {}{}",
+                    c.name.name,
+                    c.ty.as_ref().map(|t| format!(" : {}", type_str(t))).unwrap_or_default()
+                ));
+                self.nest(|d| d.expr(&c.value));
+            }
             MemberKind::Fn(f) => self.fn_decl("fn", vis, f),
             MemberKind::Ctor(f) => self.fn_decl("ctor", vis, f),
             MemberKind::TypeAlias { name, bounds, ty } => self.line(format_args!(

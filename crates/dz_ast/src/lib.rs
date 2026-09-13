@@ -283,6 +283,9 @@ pub enum MemberKind {
     },
     /// `#if FLAG { … }` around fields and methods (spec §12.10).
     CfgIf(CfgIf<Member>),
+    /// `pub const Global: ^mut Allocator = …` — a constant named through its type,
+    /// `Allocators::Global` (spec §3.3, §7.3).
+    Const(ConstDecl),
     Error,
 }
 

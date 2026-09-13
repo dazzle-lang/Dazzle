@@ -64,10 +64,16 @@ impl<'a> Dumper<'a> {
             BodyOwner::Drop(s) => format!("drop {}", self.names.name_of_symbol(*s)),
             BodyOwner::Const(s) => format!("const {}", self.names.name_of_symbol(*s)),
             BodyOwner::Static(s) => format!("static {}", self.names.name_of_symbol(*s)),
+            BodyOwner::AssocConst { owner, name } => {
+                format!("const {}::{name}", self.names.name_of_symbol(*owner))
+            }
             BodyOwner::FieldDefault { owner, index } => {
                 format!("field-default {}.{index}", self.names.name_of_symbol(*owner))
             }
             BodyOwner::ImplMethod { imp, name } => format!("impl#{imp} method {name}"),
+            BodyOwner::TraitDefaults { owner, name } => {
+                format!("defaults {}::{name}", self.names.name_of_symbol(*owner))
+            }
         };
         let ret = self.names.name_of_type(&body.ret);
         let arrow = if body.fallible { "!->" } else { "->" };
@@ -204,6 +210,10 @@ impl<'a> Dumper<'a> {
             ExprKind::Static(s) => {
                 let name = self.names.name_of_symbol(s);
                 node!("static {name}")
+            }
+            ExprKind::AssocConst { owner, name } => {
+                let o = self.names.name_of_symbol(owner);
+                node!("const {o}::{name}")
             }
             ExprKind::FnItem(s) => {
                 let name = self.names.name_of_symbol(s);

@@ -92,6 +92,8 @@ pub enum MemberSort {
     Ctor,
     Variant,
     AssocType,
+    /// `const Global` inside a type (spec §7.3).
+    Const,
 }
 
 impl MemberSort {
@@ -102,6 +104,7 @@ impl MemberSort {
             MemberSort::Ctor => "constructor",
             MemberSort::Variant => "variant",
             MemberSort::AssocType => "associated type",
+            MemberSort::Const => "constant",
         }
     }
 }
@@ -601,6 +604,7 @@ fn struct_members(members: &[Member]) -> Vec<MemberSymbol> {
                 MemberKind::Fn(f) => (&f.name, MemberSort::Method),
                 MemberKind::Ctor(f) => (&f.name, MemberSort::Ctor),
                 MemberKind::TypeAlias { name, .. } => (name, MemberSort::AssocType),
+                MemberKind::Const(c) => (&c.name, MemberSort::Const),
                 MemberKind::Error => return None,
             };
             Some(MemberSymbol { name: name.name.clone(), sort, vis: m.vis, span: name.span })

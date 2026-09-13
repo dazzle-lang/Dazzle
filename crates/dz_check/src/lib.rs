@@ -108,9 +108,29 @@ pub struct ParamSig {
     pub name: String,
     pub ty: Ty,
     pub has_default: bool,
+    /// `loc: SourceLocation = #location`: the intrinsic a default names, which is evaluated
+    /// at the caller and so is spelled wherever the function is declared — including on a
+    /// trait object's forwarding members (spec §12.7).
+    pub caller_default: Option<String>,
     /// The C spelling an imported parameter is cast to at the call: `char *` is not
     /// `int8_t *`, nor `long *` an `int32_t *`, and pointers do not convert (spec §15.2).
     pub c_cast: Option<String>,
+}
+
+/// The intrinsic a parameter's default is, when it is one the caller supplies (spec §12.7).
+pub fn caller_default(default: Option<&Expr>) -> Option<String> {
+    match &default?.kind {
+        ExprKind::Intrinsic { name, args }
+            if args.is_empty()
+                && matches!(
+                    name.name.as_str(),
+                    "location" | "line" | "column" | "file" | "function"
+                ) =>
+        {
+            Some(name.name.clone())
+        }
+        _ => None,
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -200,6 +220,17 @@ pub struct StructSig {
     /// choosing one. That is the whole distinction between the two, so one map serves both
     /// and conformance is "every `None` on the trait has a `Some` on the implementer".
     pub assoc_types: Vec<AssocType>,
+    /// `const Global: ^mut Allocator = …` declared in the type (spec §7.3).
+    pub consts: Vec<AssocConst>,
+}
+
+/// A constant named through its type: `Allocators::Global` (spec §3.3, §7.3).
+#[derive(Clone, Debug)]
+pub struct AssocConst {
+    pub name: String,
+    pub ty: Ty,
+    pub vis: Vis,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]
@@ -405,6 +436,7 @@ impl TypeTable {
                     name: p.name.clone(),
                     ty: ty::substitute_with(&p.ty, &map, Some(self_ty)),
                     has_default: p.has_default,
+                    caller_default: p.caller_default.clone(),
                     c_cast: p.c_cast.clone(),
                 })
                 .collect(),
@@ -855,6 +887,7 @@ impl Ctx<'_> {
                                 name: p.name.clone(),
                                 ty: self.foreign_ty(module.id, &p.ty),
                                 has_default: false,
+                                caller_default: None,
                                 c_cast: p.c_cast.clone(),
                             })
                             .collect(),
@@ -942,6 +975,7 @@ impl Ctx<'_> {
                         name: p.name.clone(),
                         ty: self.foreign_ty(module, &p.ty),
                         has_default: false,
+                        caller_default: None,
                         c_cast: p.c_cast.clone(),
                     })
                     .collect(),
@@ -1403,6 +1437,7 @@ impl<'a> Ctx<'a> {
                     name: p.name.clone(),
                     ty: self.instantiate(sym, args, &p.ty),
                     has_default: p.has_default,
+                    caller_default: p.caller_default.clone(),
                     c_cast: p.c_cast.clone(),
                 })
                 .collect(),
@@ -2393,6 +2428,28 @@ impl<'a> Ctx<'a> {
             match &m.kind {
                 // Removed by the driver before this phase (spec §12.10).
                 MemberKind::CfgIf(_) => {}
+                MemberKind::Const(c) => {
+                    let ty = match &c.ty {
+                        Some(t) => self.lower_type(t),
+                        None => {
+                            self.error_help(
+                                codes::NO_CONTEXT_FOR_LITERAL,
+                                c.name.span,
+                                format!("`{}` needs its type written", c.name.name),
+                                "no type",
+                                "a constant declared in a type writes its type: \
+                                 `const Global: ^mut Allocator = …` (spec §7.3)",
+                            );
+                            Ty::Error
+                        }
+                    };
+                    sig.consts.push(AssocConst {
+                        name: c.name.name.clone(),
+                        ty,
+                        vis: m.vis,
+                        span: c.name.span,
+                    });
+                }
                 MemberKind::Field(f) => {
                     let mut field = self.field_sig(f);
                     // Visibility lives on the member, not the field node.
@@ -2504,6 +2561,7 @@ impl<'a> Ctx<'a> {
                 name: p.name.name.clone(),
                 ty: self.lower_type(&p.ty),
                 has_default: p.default.is_some(),
+                caller_default: caller_default(p.default.as_ref()),
                 c_cast: None,
             })
             .collect();

@@ -101,7 +101,22 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
             });
             for (f, key) in fns.zip(keys) {
                 if f.body.is_none() {
-                    continue; // required of every implementer, and nothing to check here
+                    // Required of every implementer. Its default arguments are still the
+                    // trait's, and a trait object's handle declares them (spec §7.6).
+                    if f.params.iter().any(|p| p.default.is_some()) {
+                        let sig =
+                            cx.table.struct_sig(sym).and_then(|s| s.methods.get(&key)).cloned();
+                        if let Some(sig) = sig {
+                            let owner = BodyOwner::TraitDefaults { owner: sym, name: key };
+                            cx.push_params(&sig.generics);
+                            let mut body =
+                                Body::new(cx, Some(sym), sig.ret.clone(), owner, f.name.span);
+                            let root = body.function(f, &sig);
+                            body.finish(root);
+                            cx.pop_params();
+                        }
+                    }
+                    continue;
                 }
                 let sig = cx.table.struct_sig(sym).and_then(|s| s.methods.get(&key)).cloned();
                 if let Some(sig) = sig {
@@ -576,6 +591,37 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
         match &m.kind {
             // Removed by the driver before this phase (spec §12.10).
             MemberKind::CfgIf(_) => {}
+            MemberKind::Const(c) => {
+                let declared = cx
+                    .table
+                    .struct_sig(sym)
+                    .and_then(|s| s.consts.iter().find(|x| x.name == c.name.name))
+                    .map(|x| x.ty.clone())
+                    .unwrap_or(Ty::Error);
+                let owner = BodyOwner::AssocConst { owner: sym, name: c.name.name.clone() };
+                let mut body = Body::new(cx, None, Ty::Void, owner, c.value.span);
+                let checked = body.expr(&c.value, Some(&declared));
+                if !declared.is_error() {
+                    body.expect(&declared, &checked.ty, c.value.span);
+                    // Folded into every use, so it may not do anything a use would repeat:
+                    // constants, and the address of a static — which is what lets a
+                    // `thread_local` one be each thread's own (spec §7.3, §7.7).
+                    if !body.is_assoc_const_value(checked.id) {
+                        body.cx.error_help(
+                            codes::STATIC_INITIALISER,
+                            c.value.span,
+                            format!(
+                                "`{}` must be a constant or the address of a static",
+                                c.name.name
+                            ),
+                            "computed when it is used",
+                            "a constant in a type is a literal, a `const`, a literal built of \
+                             those, or `&STATIC` / `unsafe { &mut STATIC }` (spec §7.3)",
+                        );
+                    }
+                }
+                body.finish_value(c.value.span, checked);
+            }
             MemberKind::Field(f) => {
                 if let Some(default) = &f.default {
                     let found = cx
@@ -619,6 +665,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                             name: p.name.name.clone(),
                             ty: cx.lower_type(&p.ty),
                             has_default: p.default.is_some(),
+                            caller_default: crate::caller_default(p.default.as_ref()),
                             c_cast: None,
                         })
                         .collect(),
@@ -2821,8 +2868,10 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
                 // A user type is compared through `Eq` or `Ord`, not by the machine
                 // (spec §11.2). Without this the comparison would reach C++ and fail there
-                // for a struct with no `operator==`, which invariant 7 forbids.
-                if self.needs_operator_trait(a.ty.peeled()) {
+                // for a struct with no `operator==`, which invariant 7 forbids. Only through
+                // references: two pointers compare as addresses, which is what `p != null`
+                // asks, whatever they point at (spec §5.2).
+                if self.needs_operator_trait(a.ty.peeled_refs()) {
                     return self.comparison_through_trait(op, &a, &b, rhs, e);
                 }
                 (Ty::Bool, a, b)
@@ -2931,6 +2980,19 @@ impl<'a, 'c> Body<'a, 'c> {
             (Ty::Char, b) if b.is_integral() => true,
             (a, Ty::Char) if a.is_integral() => true,
             (Ty::Bool, b) if b.is_integral() => true,
+            // A pointer's address, and — inside `unsafe` — an address back to a pointer
+            // (spec §10.6, 18.49). Checked on `from` itself: `peeled` would see through it.
+            _ if matches!(from, Ty::Ptr { .. } | Ty::OwnPtr { .. })
+                && matches!(to, Ty::Int(IntTy::Usize)) =>
+            {
+                true
+            }
+            _ if matches!(from, Ty::Int(IntTy::Usize) | Ty::IntLit)
+                && matches!(to, Ty::Ptr { .. }) =>
+            {
+                self.require_unsafe(span, "making a pointer from an address");
+                true
+            }
             // An enum converts to its backing type (spec §7.4).
             (Ty::Named { sym: id, .. }, b) if b.is_integral() => {
                 matches!(self.cx.table.get(*id), Some(ItemSig::Enum { .. }))
@@ -3469,6 +3531,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     name: p.name.clone(),
                     ty: ty::substitute(&p.ty, &map),
                     has_default: p.has_default,
+                    caller_default: p.caller_default.clone(),
                     c_cast: p.c_cast.clone(),
                 })
                 .collect(),
@@ -4790,6 +4853,12 @@ impl<'a, 'c> Body<'a, 'c> {
                     None => (Ty::Error, hir::ExprKind::Error),
                 }
             }
+            Some(ItemSig::Struct(st)) if st.consts.iter().any(|c| c.name == seg.name.name) => {
+                let c = st.consts.iter().find(|c| c.name == seg.name.name).cloned();
+                let Some(c) = c else { return (Ty::Error, hir::ExprKind::Error) };
+                self.check_member_visible(owner, &c.name, c.vis, c.span, seg.name.span, "constant");
+                (c.ty, hir::ExprKind::AssocConst { owner, name: c.name })
+            }
             Some(ItemSig::Union { variants }) => {
                 match variants.iter().position(|v| v.name == seg.name.name) {
                     Some(index) => {
@@ -5768,6 +5837,31 @@ impl<'a, 'c> Body<'a, 'c> {
         }
     }
 
+    /// What a constant declared in a type may be: anything a `static` may start as, or the
+    /// address of a static, bare or in a block (spec §7.3).
+    fn is_assoc_const_value(&self, id: hir::ExprId) -> bool {
+        if self.is_static_initialiser(id) {
+            return true;
+        }
+        match self.hir.kind(id) {
+            hir::ExprKind::Ref { place, .. } => {
+                let mut at = *place;
+                loop {
+                    match self.hir.kind(at) {
+                        hir::ExprKind::Static(_) => return true,
+                        hir::ExprKind::Field { base, .. } => at = *base,
+                        _ => return false,
+                    }
+                }
+            }
+            hir::ExprKind::Block(b) => match self.hir.block_value(*b) {
+                Some(v) => self.is_assoc_const_value(v),
+                None => false,
+            },
+            _ => false,
+        }
+    }
+
     /// The `static` a place is rooted in, when writing the place writes the static itself:
     /// `HEAP`, `HEAP.used`, `TABLE[i]` — but not `HEAP.ptr^`, which writes through a
     /// pointer the static merely holds (spec §7.7).
@@ -6095,6 +6189,7 @@ fn instantiate_self(sig: &FnSig, self_ty: &Ty) -> FnSig {
                 name: p.name.clone(),
                 ty: sub(&p.ty),
                 has_default: p.has_default,
+                caller_default: p.caller_default.clone(),
                 c_cast: p.c_cast.clone(),
             })
             .collect(),

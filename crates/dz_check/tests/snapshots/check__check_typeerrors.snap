@@ -957,3 +957,19 @@ error[DZ0501]: expected `&Named`, found `&Factory`
     │
 866 │     return named(f)
     │                  ^ this is `&Factory`
+
+error[DZ0553]: `COMPUTED` must be a constant or the address of a static
+    ┌─ typeerrors/src/errors.dz:871:31
+    │
+871 │     pub const COMPUTED: i32 = a_runtime_value()
+    │                               ^^^^^^^^^^^^^^^^^ computed when it is used
+    │
+    = help: a constant in a type is a literal, a `const`, a literal built of those, or `&STATIC` / `unsafe { &mut STATIC }` (spec §7.3)
+
+error[DZ0528]: making a pointer from an address is unsafe
+    ┌─ typeerrors/src/errors.dz:876:12
+    │
+876 │     return n as ^mut u8
+    │            ^^^^^^^^^^^^ outside an `unsafe` block
+    │
+    = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)

@@ -493,6 +493,15 @@ impl<'a, 'w> Walker<'a, 'w> {
                         self.ty(t);
                     }
                 }
+                // Like a module's `const`: no `self`, so the type's fields are not in scope.
+                MemberKind::Const(c) => {
+                    if let Some(t) = &c.ty {
+                        self.ty(t);
+                    }
+                    self.push_scope();
+                    self.expr(&c.value);
+                    self.pop_scope();
+                }
                 MemberKind::Error => {}
             }
         }

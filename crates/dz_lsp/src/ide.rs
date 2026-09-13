@@ -287,6 +287,10 @@ fn members(text: &str, members: &[Member]) -> Vec<Decl> {
                     let header = header(text, m.span.start, m.span.end);
                     Decl::new(DeclKind::TypeAlias, name, m.span, header, docs)
                 }
+                MemberKind::Const(c) => {
+                    let header = capped(header(text, c.span.start, c.span.end));
+                    Decl::new(DeclKind::Const, &c.name, c.span, header, docs)
+                }
                 MemberKind::Error => return None,
             };
             with_vis(&mut d, m.vis);
@@ -1422,6 +1426,7 @@ impl<'a> Query<'a> {
                     MemberSort::Variant => CompletionKind::Variant,
                     MemberSort::Method => CompletionKind::Method,
                     MemberSort::AssocType => CompletionKind::Type,
+                    MemberSort::Const => CompletionKind::Constant,
                     MemberSort::Field | MemberSort::Ctor => continue,
                 };
                 out.push(&m.name, kind, None);

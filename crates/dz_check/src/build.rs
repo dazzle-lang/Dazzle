@@ -99,6 +99,17 @@ impl BodyBuilder {
         &self.exprs[id.index()].kind
     }
 
+    /// The value of a block that is nothing but one expression — `unsafe { &mut X }`.
+    pub(crate) fn block_value(&self, id: BlockId) -> Option<ExprId> {
+        match self.blocks[id.index()].stmts.as_slice() {
+            [only] => match self.stmts[only.index()].kind {
+                hir::StmtKind::Expr(e) => Some(e),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub(crate) fn stmt(&mut self, span: Span, kind: hir::StmtKind) -> StmtId {
         let id = StmtId(self.stmts.len() as u32);
         self.stmts.push(hir::Stmt { span, kind });

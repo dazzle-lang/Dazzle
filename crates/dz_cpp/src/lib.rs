@@ -1039,10 +1039,34 @@ impl<'a> Emitter<'a> {
                  {name}__dyn& operator=(const {name}__dyn& h) = default;\n    \
                  const {name}__dyn& operator*() const {{ return *this; }}"
             );
-            for (m, sig) in &methods {
+            let keys: Vec<String> = match self.table.get(sym) {
+                Some(ItemSig::Trait(t)) => {
+                    t.method_keys.iter().filter(|k| t.methods.contains_key(*k)).cloned().collect()
+                }
+                _ => Vec::new(),
+            };
+            for ((m, sig), key) in methods.iter().zip(keys) {
                 let (ret, params) = self.dyn_signature(sig);
-                let list: Vec<String> =
-                    params.iter().enumerate().map(|(i, t)| format!("{t} a{i}")).collect();
+                // The trait's default arguments go on the declaration, as on any function:
+                // `a.alloc(8)` through a handle fills in the rest, and a `#location` default
+                // still records the caller (spec §7.2, §12.7).
+                let owner = BodyOwner::TraitDefaults { owner: sym, name: key };
+                if self.find_body(&owner).is_some() {
+                    let list = self.decl_params(&owner, true);
+                    let _ = writeln!(self.header, "    {ret} {}({list}) const;", sanitize(m));
+                    continue;
+                }
+                let list: Vec<String> = params
+                    .iter()
+                    .zip(&sig.params)
+                    .enumerate()
+                    .map(|(i, (t, p))| {
+                        match p.caller_default.as_deref().and_then(caller_intrinsic) {
+                            Some(d) => format!("{t} a{i} = {d}"),
+                            None => format!("{t} a{i}"),
+                        }
+                    })
+                    .collect();
                 let _ =
                     writeln!(self.header, "    {ret} {}({}) const;", sanitize(m), list.join(", "));
             }
@@ -1564,8 +1588,16 @@ impl<'a> Emitter<'a> {
         // function. At namespace scope there is nothing to capture — the value is made of
         // constants — so the capture-default is dropped.
         let value = value.replace("[&]", "[]");
-        let tl = if thread_local { "thread_local " } else { "" };
-        let _ = writeln!(self.header, "inline {tl}{ty} {} = {value};", sanitize(&name));
+        let name = sanitize(&name);
+        if thread_local {
+            // Declared in the header and defined once in the module's own file. An `inline
+            // thread_local` with a destructor links twice on mingw g++, which emits its
+            // per-thread initialiser in every translation unit that includes the header.
+            let _ = writeln!(self.header, "extern thread_local {ty} {name};");
+            let _ = writeln!(self.out, "thread_local {ty} {name} = {value};\n");
+        } else {
+            let _ = writeln!(self.header, "inline {ty} {name} = {value};");
+        }
     }
 
     fn enum_decl(&mut self, e: &EnumDecl, sym: SymbolId) {
@@ -1669,6 +1701,18 @@ impl<'a> Emitter<'a> {
         let mut fns = 0usize;
         for m in &s.members {
             match &m.kind {
+                // `Allocators::Global` is a function evaluated where it is named, so the
+                // address of a `thread_local` static is each thread's own (spec §7.3).
+                MemberKind::Const(c) => {
+                    let ty = sig
+                        .consts
+                        .iter()
+                        .find(|x| x.name == c.name.name)
+                        .map(|x| x.ty.clone())
+                        .unwrap_or(Ty::Error);
+                    let ty = self.cpp_ty(&ty);
+                    let _ = writeln!(self.header, "    static {ty} {}();", sanitize(&c.name.name));
+                }
                 MemberKind::Ctor(_) => {
                     let owner = BodyOwner::Ctor { owner: sym, index: ctors };
                     ctors += 1;
@@ -1796,6 +1840,33 @@ impl<'a> Emitter<'a> {
         let mut fns = 0usize;
         for m in &s.members {
             match &m.kind {
+                MemberKind::Const(c) => {
+                    let owner = BodyOwner::AssocConst { owner: sym, name: c.name.name.clone() };
+                    let Some(body) = self.find_body(&owner) else { continue };
+                    let ty = self
+                        .table
+                        .struct_sig(sym)
+                        .and_then(|st| st.consts.iter().find(|x| x.name == c.name.name))
+                        .map(|x| x.ty.clone())
+                        .unwrap_or(Ty::Error);
+                    let cpp_ty = self.cpp_ty(&ty);
+                    let (pre, value) = self.in_body(body, |e| {
+                        let root = body.block(body.root);
+                        match root.stmts.first().map(|st| body.stmt(*st)) {
+                            Some(hir::Stmt { kind: hir::StmtKind::Expr(v), .. }) => {
+                                e.stored(&ty, *v)
+                            }
+                            _ => "{}".to_owned(),
+                        }
+                    });
+                    let cname = sanitize(&c.name.name);
+                    self.current_fn = format!("{name}::{cname}");
+                    let _ = writeln!(self.out, "{inline}{cpp_ty} {name}::{cname}() {{");
+                    for l in pre.lines() {
+                        let _ = writeln!(self.out, "    {l}");
+                    }
+                    let _ = writeln!(self.out, "    return {value};\n}}\n");
+                }
                 MemberKind::Ctor(_) => {
                     let owner = BodyOwner::Ctor { owner: sym, index: ctors };
                     ctors += 1;
@@ -2095,29 +2166,49 @@ impl<'a> Emitter<'a> {
             let mut text =
                 format!("{unused}{ty} {}", incoming_name(&names[p.index()], self.table, &local.ty));
             if with_defaults {
-                if let Some(default) = body.param_defaults.get(i - start).copied().flatten() {
-                    // `loc: SourceLocation = #location` is the *caller's* location (spec
-                    // §12.7). A C++ default argument is evaluated at each call, and these
-                    // builtins answer for that call — through the `#line` directives, in
-                    // Dazzle's file and line.
-                    if let hir::ExprKind::Intrinsic { name, .. } = &body.expr(default).kind {
-                        if let Some(v) = caller_intrinsic(name) {
-                            let _ = write!(text, " = {v}");
-                            parts.push(text);
-                            continue;
-                        }
-                    }
-                    let (pre, value) = self.in_body(body, |e| e.expr(default));
-                    if pre.trim().is_empty() {
-                        let _ = write!(text, " = {value}");
-                    } else {
-                        let _ = write!(text, " = {}", Self::immediately_invoked(&pre, &value));
-                    }
+                // An implementation's method takes its defaults from the trait when it does
+                // not write its own: the trait's signature is what callers were checked
+                // against (spec §7.6).
+                let own = body.param_defaults.get(i - start).copied().flatten().map(|d| (body, d));
+                let found = own.or_else(|| self.trait_default(owner, i - start));
+                if let Some((from, default)) = found {
+                    let v = self.render_default(from, default);
+                    let _ = write!(text, " = {v}");
                 }
             }
             parts.push(text);
         }
         parts.join(", ")
+    }
+
+    /// A default argument as its declaration writes it.
+    fn render_default(&mut self, body: &'a hir::Body, default: ExprId) -> String {
+        // `loc: SourceLocation = #location` is the *caller's* location (spec §12.7). A C++
+        // default argument is evaluated at each call, and these builtins answer for that
+        // call — through the `#line` directives, in Dazzle's file and line.
+        if let hir::ExprKind::Intrinsic { name, .. } = &body.expr(default).kind {
+            if let Some(v) = caller_intrinsic(name) {
+                return v.to_owned();
+            }
+        }
+        let (pre, value) = self.in_body(body, |e| e.expr(default));
+        if pre.trim().is_empty() {
+            value
+        } else {
+            Self::immediately_invoked(&pre, &value)
+        }
+    }
+
+    /// The trait's default for parameter `index` of an implementation's method, from the
+    /// trait method's body or, for one without a body, its defaults-only body.
+    fn trait_default(&self, owner: &BodyOwner, index: usize) -> Option<(&'a hir::Body, ExprId)> {
+        let BodyOwner::ImplMethod { imp, name } = owner else { return None };
+        let tsym = self.table.impls().get(*imp as usize)?.trait_ref.trait_sym;
+        let hir = self.hir;
+        let body = hir
+            .find(&BodyOwner::TraitDefaults { owner: tsym, name: name.clone() })
+            .or_else(|| hir.find(&BodyOwner::Method { owner: tsym, name: name.clone() }))?;
+        Some((body, body.param_defaults.get(index).copied().flatten()?))
     }
 
     /// Emit `head`, then the body's statements, then the closing brace.
@@ -2914,6 +3005,16 @@ impl<'a> Emitter<'a> {
     /// *store* one — the temporary behind `^T or …` — stores a pointer instead.
     fn ptr_expr(&mut self, e: ExprId) -> String {
         let body = self.cur();
+        // A trait object is the same two-word handle as a reference or a pointer, so there
+        // is nothing to take the address of (spec §7.6).
+        if let Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } = body.ty(e)
+        {
+            if self.trait_object(inner).is_some()
+                && !matches!(body.expr(e).kind, hir::ExprKind::Ref { .. })
+            {
+                return self.expr(e);
+            }
+        }
         match &body.expr(e).kind {
             hir::ExprKind::Ref { place, .. } => {
                 let p = self.expr(*place);
@@ -2986,6 +3087,9 @@ impl<'a> Emitter<'a> {
             }
             hir::ExprKind::Const(sym) | hir::ExprKind::Static(sym) | hir::ExprKind::FnItem(sym) => {
                 self.qualify(*sym)
+            }
+            hir::ExprKind::AssocConst { owner, name } => {
+                format!("{}::{}()", self.qualify(*owner), sanitize(name))
             }
             hir::ExprKind::Field { base, index } => {
                 let name = self.field_name(*base, *index);
@@ -3830,13 +3934,14 @@ impl<'a> Emitter<'a> {
 /// Dazzle one — C++ only knows its own — so a default `#location` carries column 0.
 fn caller_intrinsic(name: &str) -> Option<&'static str> {
     Some(match name {
-        "location" => {
-            "::dz::SourceLocation{__builtin_FILE(), __builtin_FUNCTION(), __builtin_LINE(), 0}"
-        }
-        "line" => "static_cast<uint32_t>(__builtin_LINE())",
+        // Each is a shim function whose own default arguments are the builtins: g++ evaluates
+        // a builtin at the call only when it is directly a default argument, and inside any
+        // larger expression evaluates it where the function is declared.
+        "location" => "::dz::caller_location()",
+        "line" => "::dz::caller_line()",
         "column" => "0u",
-        "file" => "::dz::str(__builtin_FILE())",
-        "function" => "::dz::str(__builtin_FUNCTION())",
+        "file" => "::dz::caller_file()",
+        "function" => "::dz::caller_function()",
         _ => return None,
     })
 }

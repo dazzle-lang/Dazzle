@@ -865,3 +865,13 @@ fn named(n: &Named) -> str {
 fn not_an_implementer(f: &Factory) -> str {
     return named(f)
 }
+
+// §7.3: a constant in a type is folded into its uses, so it cannot run code.
+struct Settings {
+    pub const COMPUTED: i32 = a_runtime_value()
+}
+
+// §10.6: making a pointer from an address is `unsafe`.
+fn forged(n: usize) -> ^mut u8 {
+    return n as ^mut u8
+}

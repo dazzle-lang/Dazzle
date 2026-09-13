@@ -20,10 +20,10 @@ the milestone.
 |---|---|
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
 | Next | **M12 — the stdlib**, chosen over M10/M11 by the user on 2026-09-13; M9's remaining editor rows stay open. r39 laid the language groundwork (`static`, associated functions, trait objects). Next in order: `#location` evaluated at the caller, associated constants, then `Allocators::Global`/`Temp` with opt-in tracking. See §4 |
-| Tests | 192, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
+| Tests | 193, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 40; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
+| Language spec | 0.1 **unreleased**, revision 41; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -940,6 +940,56 @@ not work at all and that a `case` binding could write into a value declared immu
   `for` inside a generic function, `or break` inside an arm, a move inside a loop. 48 files.
   `tests/run/loops` runs the valid combinations on both compilers, warning-clean.
 
+### r41 — the standard allocators, and what they needed
+
+The user asked for traits and allocators to be finished (2026-09-13), and settled one
+question the r39 tests raised: **arguments are evaluated left to right**, which is recorded
+(§7.2, 18.49) but not yet enforced by codegen — see §3.
+
+- **`Allocators::Global` and `Allocators::Temp`** in the prelude (§14.2), in Dazzle: the
+  `Allocator` trait on `&mut self` with `loc: SourceLocation = #location`; `Heap` over the
+  `alloc`/`free` builtins, over-allocating for an alignment past 8 and finding the heap's
+  pointer again from the sized free; `TempArena`, 64 KiB chunks linked through a 16-byte
+  header, bump allocation aligned by address, in-place growth of the last allocation,
+  `reset()` keeping the first chunk, `used()`, and a `Drop` that returns every chunk at
+  thread exit. Both constants are `&mut` references, so `Allocators::Temp.reset()` needs no
+  `unsafe`.
+- **Tracking**, all of it inside `#if TRACK_MEMORY`: `Tracker`, an open-addressing table in
+  memory of its own, recording address, size, alignment and `loc`; `release` panics on a
+  foreign free, a double free (naming the first free) and a size or alignment mismatch; its
+  `Drop` — the static's C++ destructor at exit — prints each leak with its allocating line;
+  `TempArena::free` panics on a pointer it does not own, and `reset()` poisons with `0xDD`.
+  Verified by `a_tracked_build_reports_leaks_and_bad_frees`.
+- **Associated constants** (§7.3). `MemberKind::Const`, `StructSig::consts`,
+  `BodyOwner::AssocConst`, `hir::ExprKind::AssocConst`. The value is a constant or a
+  static's address (**`DZ0553`** otherwise); codegen makes it a C++ `static` member function,
+  so it is evaluated where it is named and a `thread_local` static's address is per thread.
+- **Trait-object default arguments.** A trait method with no body gets a
+  `BodyOwner::TraitDefaults` body holding its parameters' defaults; the handle's forwarding
+  members declare them, and an implementation's function takes the trait's default for any
+  parameter it does not default itself — so `al.alloc(16, 8)` compiles whether `al` is a
+  `Heap` or a `^mut Allocator`, and records its caller either way. `ParamSig::caller_default`
+  carries `#location` and friends.
+- **`^T as usize`, and `usize as ^T` inside `unsafe`** (§10.6, r41) — the shim's `cast`
+  takes the C-style cast whenever a pointer is on either side.
+- **Two checker bugs.** `ptr == null` on a pointer to a struct went looking for the struct's
+  `Eq`, because the comparison peeled pointers as well as references; pointers compare as
+  addresses now. And a trait-object reference stored into a `^Trait` field took the address
+  of the handle.
+- **Two g++ failures CI found.** A `#location` default was spelled
+  `SourceLocation{__builtin_FILE(), __builtin_FUNCTION(), __builtin_LINE(), 0}`, and g++
+  evaluates a builtin at the caller only when it is *directly* a default argument — nested in
+  an initialiser it gave the declaration's line and an empty function name, while clang gave
+  the caller's. Every intrinsic default is now a shim function whose own defaults are the
+  builtins (`::dz::caller_location()`, `caller_line`, `caller_file`, `caller_function`),
+  the pattern libstdc++'s `source_location::current()` rests on. And an `inline thread_local`
+  with a destructor — the arena's `TEMP` — linked twice on mingw g++; a thread-local static is
+  now `extern` in the header and defined once in its module's file. `dz test --test run`
+  passes with `DZ_CXX=g++`.
+- Tests: `tests/run/allocators` (in the `-Wall -Wextra` set; the tracked build of it checked
+  on both compilers too), `a_tracked_build_reports_leaks_and_bad_frees`, and cases in
+  `typed/` and `typeerrors/` for associated constants and the address casts. 193 tests.
+
 ### r40 — compile-time conditionals, and `#location` at the caller
 
 Raised by the user while designing tracking: the tracker's static must not exist unless
@@ -1415,17 +1465,19 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M7b** | libclang parses with its own default target (MSVC here), not the C++ compiler's: a header needing the C library's own headers may find MSVC's while g++ builds against mingw's | `dz_cppimport`, `arguments` |
 | **M7b** | An untyped imported integer is not range-checked against its context: `let b: u8 = rl::SOME_BIG` reaches C++ as a narrowing `static_cast`. The importer knows the value; the checker should compare it, as it does a literal's | `dz_check/src/lib.rs`, `collect_foreign` |
 | **M12** | **`indexed()` exists only in a `for` head.** It is recognised there by the checker, not declared: a real adapter is a generic struct implementing `Iterate` over another, whose `Item` needs associated-type projection (the row below). `move(xs).indexed()` is refused for the same reason | `dz_check/src/check.rs`, `for_stmt` |
-| **M12** | **Format strings interpolate, and there are no variadic parameters.** The user decided `println("{touch()} {COUNT.hits}")` — expressions written in the braces, evaluated in the order they appear — which also settles the evaluation-order question two r39 tests ran into. Until then `println`/`format` stay builtins taking positional arguments, and a Dazzle function cannot take a variable number of them at all | `dz_check`, `format_string`; spec §12.9 |
+| **M12** | **Arguments are evaluated left to right** (r41, decided by the user): in `println("{} {}", touch(), COUNT.hits)` the call runs first. C++ leaves the order unspecified, so codegen has to hoist arguments where the order is observable; it does not yet, and two r39 tests bind first to avoid it | `dz_cpp`, `call` |
+| **M12** | **Memory tracking is single-threaded and prints to stdout.** `TRACKER` is one static with no lock, so two threads allocating from `Global` under `--track-memory` race — concurrency is v2 (18.11). The leak report goes through `println`, because there is no way to write to stderr from Dazzle yet | `dz_project/src/prelude.dz`, `Tracker` |
+| **M12** | **A trait method's non-constant default argument** is rendered on the handle's declaration, before the module's structs are defined, so a default like `Vec3{}` on a trait method would not compile there | `dz_cpp`, `trait_object_decls` |
+| **M12** | **No variadic parameters.** `println` and `format` take any number of arguments only because they are builtins; a Dazzle function cannot. Wanted by the user; not yet designed | spec §7.2 |
 | **M12** | **An intrinsic default uses the C++ compiler's builtins**, so its column is 0 and its function is the C++ name (`bump`, not `Counter::bump`) | `dz_cpp`, `caller_intrinsic` |
 | **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
 | **M10** | The intrinsics `#module`, `#location` and `#expr_text` are typed but not emitted (`#file`, `#line`, `#column` and `#function` are) | `dz_cpp`, `intrinsic` |
 | **M11** | `typeinfo_of`, `typeid_of` and `typeinfo` are typed but not emitted | `dz_cpp`, `builtin` |
 | **M12** | **Generic methods** — a method with type parameters of its own — report `DZ0801`. A generic *type*'s methods are instantiated; a method generic over its own arguments needs a second instance key and has no user yet | `dz_cpp/src/lib.rs`, `struct_decl` |
-| **M12** | **Trait objects that are not object-safe** — of a generic trait, one with associated types, or one whose methods mention `Self` — report `DZ0801`, and so does a trait object of a type whose `impl` is generic, which would need a vtable per instance. A trait method's default arguments are not declared on the handle's forwarding members either | `dz_cpp`, `object_safe`, `trait_object_decls`; `dz_check`, `refuse_generic_impl_object` |
+| **M12** | **Trait objects that are not object-safe** — of a generic trait, one with associated types, or one whose methods mention `Self` — report `DZ0801`, and so does a trait object of a type whose `impl` is generic, which would need a vtable per instance. | `dz_cpp`, `object_safe`; `dz_check`, `refuse_generic_impl_object` |
 | **M12** | **Associated-type projection** (`T::Item`, `T::Output`). An associated type resolves through an implementer but cannot be named off a bounded parameter, so `for` over a generic `T: Iterate` is refused by the checker (`DZ0801`), and generic arithmetic cannot name its result type | `dz_check/src/check.rs`, `iterate_item` |
 | **M12** | An open-ended range (`lo..`) held in a variable rather than written in a `for` head | `dz_cpp`, `expr` |
 | **M12** | `assert` is typed but not emitted; it becomes an ordinary stdlib function | `dz_cpp`, `builtin` |
-| **M12** | `alloc` panics on an alignment stricter than `malloc` guarantees, rather than honouring it | `dz_cpp/src/runtime.rs`, `alloc` |
 | **M12** | A trait default method is exercised by `tests/run/generics` only for bodies that call the trait's own methods; one that builds or returns a `Self` value has no test | `dz_mono`, `inherited_defaults` |
 | **M12** | A union variant whose payload owns a resource is refused rather than leaked. A C++ union with a non-trivial member needs special members that switch on the tag; §7.5 marks variant drops `[PROPOSED]`, so this waits for that decision. The same machinery is what a **variant carrying a struct with a constructor, `copy`, base or `virtual` method** (r38) needs, refused with `DZ0801` for the same reason | `dz_cpp/src/lib.rs`, `union_decl` |
 | **M12** | **Arms of one `switch` or `if` cannot mix `T?` and `T`**: `case A { a.next() } case B { .B{} }` does not join to `ButtonState?`. A plain `T` becomes a `T?` only at `return` (§9.1), so an arm has to return or write `T?` itself. Whether a value position should convert as `return` does is a language question for the user, surfaced by the `ButtonState` sample | `dz_hir/src/ty.rs`, `join` |
@@ -1449,18 +1501,12 @@ milestone's criterion is a small game written without touching C++.
 
 1. ✅ **Language groundwork (r39)** — `static`, associated functions, trait objects.
 2. ✅ **`#if` and `#location` at the caller (r40).**
-3. **Associated constants**, so `Allocators::Global` is spelled as §3.3 writes it: a `const`
-   in a type whose value may take the address of a static, folded into each use — which is
-   what makes a `thread_local` Temp correct per thread.
-4. **Allocators** in the prelude: the `Allocator` trait on `&mut self` with `loc`;
-   `Allocators::Global` over malloc; `Allocators::Temp`, a chunked per-thread arena with
-   `reset()`; tracking behind `#if TRACK_MEMORY` (on with `--track-memory` or `[build]
-   track_memory`) — a live table, leak report at exit, panics on double, foreign and
-   mismatched frees, poison on reset.
+3. ✅ **Associated constants (r41).**
+4. ✅ **Allocators and tracking (r41)**, and trait objects finished for them.
 5. **`Buffer<T>`, `String`, `HashMap<K, V>`** over `^mut Allocator`, then `str.len`,
    `error`/`format` without the four-buffer ring, and `assert` as a function.
-5b. **Interpolated format strings** — `println("{a()} {b.c}")`, evaluated in order — and
-   **variadic parameters**, both decided by the user on 2026-09-13; spec §12.9 to write.
+5b. **Left-to-right argument evaluation** in codegen (r41), and **variadic parameters**
+   (wanted by the user on 2026-09-13; to design).
 6. **Math** (`import std::math`): vectors, matrices, `lerp`, clamping, wrapping arithmetic.
 7. The criterion: a small raylib game with no C++ of its own.
 

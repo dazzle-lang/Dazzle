@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 40
+**Version:** 0.1 — **unreleased**, revision 41
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -950,6 +950,10 @@ fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
 - Constructors may be overloaded on arity and parameter types, since `Buffer(8)` and
   `Buffer(8, arena)` are genuinely the same operation.
 
+**Arguments are evaluated left to right**, each completely before the next: in
+`println("{} {}", touch(), COUNT.hits)`, `touch()` has run by the time `COUNT.hits` is
+read. The receiver of a method call is evaluated before its arguments. `[DECIDED — §18.49]`
+
 ### 7.3 Structs
 
 ```dz
@@ -974,6 +978,11 @@ value of it, and is called through the type — `Quat::identity()`, `Buffer<f32>
 It has no `self`, so the type's fields are not in scope in it, and calling one on a value
 (`q.identity()`) is an error (DZ0520). Inside the type's own body a bare `Buffer` is
 `Buffer<T>`, as everywhere else there.
+
+**A `const` declared in a type is an associated constant**, named through the type:
+`Allocators::Global`. It writes its type, and its value is a constant or the address of a
+static — `unsafe { &mut HEAP }` — and nothing that runs code (DZ0553). It is evaluated where
+it is named, so the address of a `#[thread_local]` static is the naming thread's own.
 
 Struct literals:
 
@@ -1978,6 +1987,8 @@ every exit path including `return`, `break`, and a diverging `or` clause.
 x as i64            // numeric conversion, explicit, may truncate
 p as ^u8            // pointer reinterpretation — `unsafe` (§5.2)
 e as u16            // enum to its backing type
+p as usize          // a pointer's address, for aligning or hashing
+n as ^mut u8        // an address back to a pointer — `unsafe` (§5.2)
 ```
 
 `as` never invokes user code and never fails. Fallible conversions are library functions
@@ -2488,29 +2499,34 @@ mangled C++ ones, so an inspector shows `engine.Transform`, not
 
 Dazzle has no global allocator baked into the language. Allocation is a library concern
 expressed through the `Allocator` trait (§7.6), and **the allocator is an explicit
-parameter** — as it already is in your `Buffer`. `[DECIDED — §18.10]`
+parameter**. `[DECIDED — §18.10]`
 
 ```dz
-pub struct Buffer<T> {
-    m_allocator: ^Allocator = null
+pub trait Allocator {
+    fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation = #location) -> ^mut u8
+    fn realloc(&mut self, p: ^mut u8, old_size: usize, new_size: usize, align: usize,
+               loc: SourceLocation = #location) -> ^mut u8
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation = #location)
+}
 
-    Buffer(capacity: u32, allocator: ^Allocator = Allocators::Global) { ... }
+pub struct Buffer<T> {
+    m_allocator: ^mut Allocator = Allocators::Global
+
+    Buffer(capacity: u32, allocator: ^mut Allocator = Allocators::Global) { ... }
 }
 ```
 
-`^Allocator` there is a fat trait pointer (§7.6), which is what lets one `Buffer<f32>` work
-with any allocator. That is the target shape; until `^Trait` is implemented, `Buffer<T>`
-allocates through the runtime shim directly (§19 M6), using two stand-in builtins that go
-straight to the C heap:
+- **`&mut self`**: an arena changes on every allocation. `[DECIDED — §18.47]`
+- **Sized free**: `free` is told the size and alignment the allocation was made with, so an
+  allocator needs no header to remember them, and tracking can check them.
+- **`loc`** is the caller's location (§12.7). A container forwards the one it was given, so a
+  report names the line that built the container rather than the container's own code.
+- `^mut Allocator` is a fat trait pointer (§7.6), which is what lets one `Buffer<f32>` work
+  with any allocator.
 
-```dz
-alloc(size: usize, align: usize) -> ^mut u8   // never null — exhaustion panics (§9.8)
-free(p)                                   // releases what alloc returned — `unsafe`
-```
-
-They are not the allocator design, only what a container can call before there is one. Like
-`println`, they stop being builtins when the stdlib's allocators arrive (§19 M12).
-`[PROPOSED]`
+Underneath, two builtins reach the C heap and are what `Allocators::Global` is built on:
+`alloc(size, align) -> ^mut u8`, which panics on exhaustion (§9.8), and `free(p)`, both
+`unsafe`. User code allocates through an `Allocator`.
 
 ### 14.1 Why explicit rather than an implicit context
 
@@ -2523,12 +2539,21 @@ almost all the ergonomics: `Buffer(8)` reads as cleanly as the implicit version,
 ### 14.2 Standard allocators
 
 ```dz
-Allocators::Global      // malloc/free, or the platform heap
-Allocators::Temp        // per-thread scratch arena, reset at a point you choose
-Allocators::Null        // fails every allocation; for testing OOM paths
+Allocators::Global      // &mut Allocator — the C heap
+Allocators::Temp        // &mut TempArena — this thread's scratch arena
 ```
 
-`Allocators::Temp` is the one that matters day to day:
+Both are associated constants (§7.3): references to statics (§7.7), usable directly —
+`Allocators::Temp.reset()` — and converting to the `^mut Allocator` a container stores.
+
+- **`Global`** is `malloc` and `free`, with nothing of its own in front of them: the C heap is
+  already a good general-purpose allocator, and the platform's tools understand it. An
+  alignment stricter than the C heap guarantees is over-allocated, with the heap's own
+  pointer kept just before the one handed out.
+- **`Temp`** is a pointer bump inside a chunk taken from the heap, a new chunk when one
+  fills, and **freeing does nothing**. `reset()` keeps the first chunk and returns the rest;
+  every pointer it handed out is dangling afterwards. `realloc` of the last allocation grows
+  in place. `used()` says how much of the current chunk a frame took.
 
 ```dz
 fn update(&mut self, dt: f32) {
@@ -2539,9 +2564,20 @@ fn update(&mut self, dt: f32) {
 }
 ```
 
-Additional allocators live in the stdlib and are ordinary Dazzle structs implementing the
-trait: `Arena`, `Pool<T>`, `FreeList`, `Tracking` (wraps another and records call sites
-using `#location`, §12.7, so leak reports point at real source lines).
+**Memory tracking** is off unless a build turns it on — `dz run --track-memory`, or
+`[build] track_memory = true` in the root manifest — and costs nothing when off: it is the
+prelude's `TRACK_MEMORY` flag (§12.10), and the tracker does not exist without it. With it:
+
+- every `Global` allocation is recorded with its size, alignment and `loc`;
+- **a leak** — still live when the program ends — is reported with the line that allocated it;
+- **a double free** panics, naming where it was allocated and where it was first freed;
+- **a free the allocator never handed out**, including a `Temp` pointer freed through `Global`
+  or the reverse, panics;
+- **a free whose size or alignment differs** from the allocation panics;
+- **`Temp.reset()` poisons** what it releases with `0xDD`, so a stale read shows.
+
+Additional allocators — `Arena`, `Pool<T>`, `FreeList` — are ordinary Dazzle structs
+implementing the trait, and come later.
 
 ### 14.3 Placement primitives
 
@@ -3136,6 +3172,7 @@ be exactly what reload needs, and must stay that way:
 | 18.44 | Assigning to a `&mut T` | **Writes the `T` it refers to**, as in C++. A reference cannot be pointed elsewhere, so there was no other meaning to give it, and `for &mut n in counts { n += 1 }` needs it. Through a `&T` it is an error (§5.2) |
 | 18.45 | A union variant that is an existing struct | **A bare variant names a struct in scope and carries it; a variant with no payload is written `Point {}`.** `union ButtonState { DefaultState  TransitionState }` holds a `DefaultState` or a `TransitionState`, each built as that struct is built — its fields, defaults and visibility — and bound by `case DefaultState(d)` as that struct, methods included. A bare name that is no struct in scope, names something else, or names a generic struct is an error (DZ0551) rather than a variant with nothing in it: giving the bare spelling both meanings would let a misspelling, or a struct added or removed elsewhere, silently change what a union holds. `Point {}` is already how a variant with an empty field list was written, so nothing new is spelled; `Shape::Point`, with no braces, still names one (§7.5) |
 | 18.46 | State that lives for the whole program | **`static`, declared at module scope, with a written type and a constant initialiser; `#[thread_local]` for one per thread.** Reading is safe, changing is `unsafe`, nothing moves out. Needed by the standard allocators — Temp's arena and the tracking tables are state no function owns — rather than by Global's speed: Global stays `malloc`. A static built by arbitrary code would depend on C++'s unordered initialisation across files, so the initialiser is constants only (§7.7, §14.2) |
+| 18.49 | Evaluation order, and pointers as numbers | **Arguments left to right, receiver first**, as they are written — C++'s unspecified order is not inherited, so a program means one thing on every compiler. **`^T as usize` is allowed, `usize as ^T` only inside `unsafe`**: reading an address is harmless and allocators need it to align and to hash; making a pointer from a number is how memory gets corrupted (§7.2, §10.6) |
 | 18.48 | Compile-time conditionals, and where a location comes from | **`#if FLAG { … } #else #if … { … } #else { … }` around declarations, members and statements, over registered flags only.** Built-ins `DEBUG`/`RELEASE`/`SHIPPING` and `OS_WINDOWS`/`OS_LINUX`/`OS_MACOS`; a package's own under `[flags]`; a dependency's read as `dep::FLAG` and turned on by the dependent's `flags = [...]` or `--flag`. An unknown flag is an error (DZ0309). The inactive branch is parsed but not checked. Chosen over checking both branches, which would forbid naming platform APIs absent on the host, and over free-form defines, which let a typo compile nothing. **An intrinsic default argument is the caller's**: `loc: SourceLocation = #location` records the call site, column 0 (§12.7, §12.10) |
 | 18.47 | The standard allocators | **`Allocators::Global` and `Allocators::Temp`, no `Arena` for now; memory tracking is opt-in.** Global is `malloc`/`free`; Temp is a per-thread arena reset where the program chooses. The `Allocator` trait takes `&mut self` — an arena changes on every allocation — and its methods end in `loc: SourceLocation = #location`, which containers forward, so tracking reports name user code. Tracking is off in every build mode until `[build] track_memory = true` or `--track-memory` turns it on, and then reports leaks at exit, double and foreign frees, a free whose size or alignment differs from the allocation, and poisons Temp's memory on reset so a stale read shows. The allocator types are in the prelude; larger stdlib areas are imported modules (§14) |
 
@@ -3309,6 +3346,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r41 | 2026-09-13 | **Arguments are evaluated left to right** (§7.2): `f(a(), b)` runs `a()` before it reads `b`, whatever C++ does. **A pointer converts to `usize`** with `as`, and a `usize` to a pointer inside `unsafe` (§10.6) — what an allocator needs to align and to key a table by address. **Associated constants** (§7.3): `const NAME: T = value` in a type, named `Type::NAME`, a constant or a static's address, evaluated where named. **The standard allocators** (§14): the `Allocator` trait on `&mut self` with a trailing `loc: SourceLocation = #location`; `Allocators::Global` (`&mut Allocator`, the C heap) and `Allocators::Temp` (`&mut TempArena`, `reset()` and `used()`); tracking under `--track-memory`. A trait's default arguments apply to calls through a trait object and to its implementations' methods that do not repeat them. |
 | r40 | 2026-09-13 | **Compile-time conditionals** (§12.10, 18.48). `#if FLAG { … } #else #if OTHER { … } #else { … }` around declarations, a type's members, or statements, over registered flags joined by `!`, `&&`, `\|\|`. Built in: `DEBUG`, `RELEASE`, `SHIPPING`, `OS_WINDOWS`, `OS_LINUX`, `OS_MACOS`. A package declares its own under `[flags]` in dazzle.toml, reads a dependency's as `engine::PROFILE`, and turns a dependency's on with `flags = [...]` on the dependency; `dz … --flag NAME` and `--track-memory` set them for one build. An unregistered flag is an error. The inactive branch is parsed but not checked. **`#location`** is a `SourceLocation`, and as a default argument it is the caller's location (§12.7). |
 | r39 | 2026-09-13 | **`static`** (§7.7, 18.46), and the allocator decisions M12 builds on (§14, 18.47). `static` is a keyword: `static NAME: T = value` declares one variable for the whole program, `#[thread_local]` one per thread. Its type is written, its initialiser is made of constants (DZ0553), reading it is safe, and changing it — assigning, `&mut`, a `&mut self` method, a `&mut` binding — needs `unsafe`. Nothing is moved or copied out of one. **Associated functions** (§7.3): a `fn` in a type with no receiver is called through the type, `Quat::identity()`, and never on a value; the type's fields are not in scope in it. For allocators: the `Allocator` trait's methods take `&mut self` and end in `loc: SourceLocation = #location`; the standard ones are `Allocators::Global` and `Allocators::Temp`; memory tracking is opt-in. |
 | r38 | 2026-09-13 | **A union variant can be an existing struct** (§7.5, 18.45). A bare variant name now always names a struct in scope and carries a value of it: `union ButtonState { DefaultState  TransitionState }` is built with `ButtonState::DefaultState{ … }` or `.DefaultState{}` exactly as a `DefaultState` is, and `case DefaultState(d)` binds a `DefaultState`, so `d.update()` calls its method. **A variant with no payload must now be written with braces, `Point {}`** — a bare `Point` with no struct of that name is DZ0551, as is one naming an enum, a union or a generic struct. `Shape::Point` without braces still builds it. Also: `return .Variant{}` from a `-> T?` function infers from `T`, as returning a plain `T` there already did (§9.1); and a base initialiser's arguments may not `return` (DZ0552) — the base is built before the constructor begins (§7.3). |
