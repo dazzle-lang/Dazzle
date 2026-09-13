@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 38
+**Version:** 0.1 — **unreleased**, revision 40
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -243,7 +243,7 @@ as       break     case     const    continue  defer     else     enum
 extern   false     fn       for      if        ignore    impl     import
 in       let       macro    module   move      mut       none     null
 or       own       pub      return   self      Self      struct   switch
-trait    true      unreachable       union     unsafe    while
+static   trait     true      unreachable       union     unsafe    while
 ```
 
 `copy` and `drop` are not keywords: they are the methods of the `Copy` and `Drop` traits
@@ -275,13 +275,18 @@ exclude = ["src/platform/ps5/**"]
 
 [dependencies]
 math   = { path = "../libs/math" }
-raylib = { path = "../libs/raylib" }
+raylib = { path = "../libs/raylib", flags = ["NO_AUDIO"] }   # its flags this turns on (§12.10)
+
+[flags]                            # this package's build flags, read by `#if` (§12.10)
+PROFILE = { default = false, doc = "time every frame" }
+EDITOR  = false
 
 [build]
 cpp_standard = "c++17"
 output       = "static-lib"   # "executable" | "static-lib" | "shared-lib"
 optimize     = "debug"        # "debug" | "release" | "shipping"
 type_info    = "used"         # "none" | "used" | "all"   (§13)
+track_memory = false          # the allocators' tracking (§14.2); the root's counts
 
 [cpp.libs.stb]                     # a C or C++ library, vendored as source (§15.1)
 root         = "vendor/stb"
@@ -964,6 +969,12 @@ which would say it a second time and could disagree (§18.34). Inside a
 method, fields are in scope unqualified (`position`), and `self.position` is also valid —
 and required when a local shadows a field.
 
+**A function with no receiver is an associated function**: it belongs to the type, not to a
+value of it, and is called through the type — `Quat::identity()`, `Buffer<f32>::with_capacity(8)`.
+It has no `self`, so the type's fields are not in scope in it, and calling one on a value
+(`q.identity()`) is an error (DZ0520). Inside the type's own body a bare `Buffer` is
+`Buffer<T>`, as everywhere else there.
+
 Struct literals:
 
 ```dz
@@ -1223,6 +1234,36 @@ swap (§17.6).
 
 The cost is that `^Allocator` is 16 bytes while `^Arena` is 8. The compiler will not let you
 silently confuse them, and the LSP shows the fat-pointer-ness on hover.
+
+### 7.7 Statics
+
+A `static` is a variable declared at module scope, and there is one of it for the whole
+program — or one per thread, with `#[thread_local]`:
+
+```dz
+static FRAME_COUNT: u64 = 0
+pub static PALETTE: [4]Color = [BLACK, WHITE, RED, BLUE]
+
+#[thread_local]
+static SCRATCH: TempArena = TempArena{}
+```
+
+- **The type is written.** A static is storage that every user of it relies on, so it is
+  never inferred from its initialiser.
+- **The initialiser is built from constants**: literals, `const`s, `null`, `none`, and
+  struct, array, tuple and variant literals of those (DZ0553). A static exists before `main`
+  runs, and C++ builds statics in different files in no promised order, so one static cannot
+  be allowed to run code that reads another. Anything more is filled in from `main`.
+- **Reading one is safe; changing one is `unsafe`** (DZ0528). Assigning to it or into it,
+  taking `&mut` of it, calling a `&mut self` method on it, or binding `&mut` into it with
+  `for` or `case` all need an `unsafe` block: a static is shared by every piece of code that
+  names it, and nothing checks what else is reading it or holding a reference into it.
+- **Nothing moves out of a static**, and a move-only one is not copied either (DZ0402). It
+  belongs to the program rather than to any function, exactly as a borrow does.
+- A static that owns resources is dropped when the program exits.
+
+`const` has no storage and is folded into its uses; `static` is one place in memory. The
+standard allocators (§14.2) are statics. `[DECIDED — §18.46]`
 
 ---
 
@@ -2178,12 +2219,14 @@ and become constants in the C++ output.
 #column          u32
 #function        str    the enclosing function's name
 #module          str
-#location        SourceLocation   { file, line, column, function }
+#location        SourceLocation   { file, function, line, column }
 ```
 
 Used as a **default parameter value**, an intrinsic is evaluated at the *caller's* location,
 which is exactly the `#src_code` behaviour you asked for (and the same trick as Odin's
-`#caller_location` and C++20's `std::source_location`):
+`#caller_location` and C++20's `std::source_location`). A defaulted `#location`'s
+`column` is 0: the caller's line is exact, its column is not known there.
+`[DECIDED — §18.48]`
 
 ```dz
 pub fn assert(cond: bool, msg: str, loc: SourceLocation = #location) {
@@ -2280,6 +2323,53 @@ intermediate string, so `println` in a hot loop costs what hand-written output c
 Interpolation (`"hp is {hp}"`) is deliberately absent for now: it hides a name lookup
 inside a literal, which complicates the lexer, the LSP's rename, and macro capture. It can
 be added later as pure sugar over this. `[PROPOSED]`
+
+### 12.10 Compile-time conditionals
+
+`#if` keeps code in a build or leaves it out, by **build flags**:
+
+```dz
+#if TRACK_MEMORY {
+    static TRACKER: Tracker = Tracker{}
+}
+
+pub fn alloc(size: usize, loc: SourceLocation = #location) -> ^mut u8 {
+    let p = heap_alloc(size)
+    #if TRACK_MEMORY {
+        unsafe { TRACKER.record(p, size, loc) }
+    }
+    return p
+}
+
+#if OS_WINDOWS {
+    fn open_window() { … }
+} #else #if OS_LINUX || OS_MACOS {
+    fn open_window() { … }
+} #else {
+    fn open_window() { panic("no window on this platform") }
+}
+```
+
+- **Where**: around declarations, around a type's fields and methods, and around statements.
+  A statement branch opens no scope — its statements belong to the enclosing block.
+  `#if` is never an expression: a value that depends on a flag is an ordinary `if` on a
+  `const`.
+- **Conditions** are flags joined by `!`, `&&` and `||`, with parentheses. A flag is on or
+  off; nothing is compared.
+- **Only registered flags exist.** An unknown name is an error (DZ0309), never "off", so a
+  misspelt `#if DEBUGG` cannot silently compile nothing. The compiler defines `DEBUG`,
+  `RELEASE`, `SHIPPING` (from the build mode) and `OS_WINDOWS`, `OS_LINUX`, `OS_MACOS` in
+  every package. A package registers its own under `[flags]` in its dazzle.toml (§3.1),
+  each off unless its `default` says otherwise, and may not reuse a built-in name.
+- **Whose flags**: a package reads its own flags bare, and a dependency's through the
+  dependency — `#if engine::PROFILE`. A package's flags are turned on by what depends on it
+  (`engine = { path = "…", flags = ["PROFILE"] }`) or from the command line for one build:
+  `dz run --flag CHEATS`, `--flag engine::PROFILE`. The prelude's `TRACK_MEMORY` is
+  `--track-memory` or `[build] track_memory = true`.
+- **The inactive branch is parsed, not checked.** It is formatted and shown by the editor,
+  but never resolved or type-checked, so it may name what exists only on another platform or
+  under another flag. What that costs is that a branch nobody builds can rot unnoticed; what
+  it buys is that platform code can be written at all. `[DECIDED — §18.48]`
 
 ---
 
@@ -3045,6 +3135,9 @@ be exactly what reload needs, and must stay that way:
 | 18.43 | How a `case` binding holds the payload | **Exactly as a `for` binding (18.42).** `case Circle(c)` is a copy that cannot be changed, `&c` a read-only reference, `&mut c` a writable one that needs a `let mut`, `&mut` or `^mut` subject. One rule for both places; a binding that was always a reference would make `&mut c` the only mode worth writing. The binding had been writable always, which let a `switch` change a value declared immutable and failed in C++ behind a `&` (§10.3) |
 | 18.44 | Assigning to a `&mut T` | **Writes the `T` it refers to**, as in C++. A reference cannot be pointed elsewhere, so there was no other meaning to give it, and `for &mut n in counts { n += 1 }` needs it. Through a `&T` it is an error (§5.2) |
 | 18.45 | A union variant that is an existing struct | **A bare variant names a struct in scope and carries it; a variant with no payload is written `Point {}`.** `union ButtonState { DefaultState  TransitionState }` holds a `DefaultState` or a `TransitionState`, each built as that struct is built — its fields, defaults and visibility — and bound by `case DefaultState(d)` as that struct, methods included. A bare name that is no struct in scope, names something else, or names a generic struct is an error (DZ0551) rather than a variant with nothing in it: giving the bare spelling both meanings would let a misspelling, or a struct added or removed elsewhere, silently change what a union holds. `Point {}` is already how a variant with an empty field list was written, so nothing new is spelled; `Shape::Point`, with no braces, still names one (§7.5) |
+| 18.46 | State that lives for the whole program | **`static`, declared at module scope, with a written type and a constant initialiser; `#[thread_local]` for one per thread.** Reading is safe, changing is `unsafe`, nothing moves out. Needed by the standard allocators — Temp's arena and the tracking tables are state no function owns — rather than by Global's speed: Global stays `malloc`. A static built by arbitrary code would depend on C++'s unordered initialisation across files, so the initialiser is constants only (§7.7, §14.2) |
+| 18.48 | Compile-time conditionals, and where a location comes from | **`#if FLAG { … } #else #if … { … } #else { … }` around declarations, members and statements, over registered flags only.** Built-ins `DEBUG`/`RELEASE`/`SHIPPING` and `OS_WINDOWS`/`OS_LINUX`/`OS_MACOS`; a package's own under `[flags]`; a dependency's read as `dep::FLAG` and turned on by the dependent's `flags = [...]` or `--flag`. An unknown flag is an error (DZ0309). The inactive branch is parsed but not checked. Chosen over checking both branches, which would forbid naming platform APIs absent on the host, and over free-form defines, which let a typo compile nothing. **An intrinsic default argument is the caller's**: `loc: SourceLocation = #location` records the call site, column 0 (§12.7, §12.10) |
+| 18.47 | The standard allocators | **`Allocators::Global` and `Allocators::Temp`, no `Arena` for now; memory tracking is opt-in.** Global is `malloc`/`free`; Temp is a per-thread arena reset where the program chooses. The `Allocator` trait takes `&mut self` — an arena changes on every allocation — and its methods end in `loc: SourceLocation = #location`, which containers forward, so tracking reports name user code. Tracking is off in every build mode until `[build] track_memory = true` or `--track-memory` turns it on, and then reports leaks at exit, double and foreign frees, a free whose size or alignment differs from the allocation, and poisons Temp's memory on reset so a stale read shows. The allocator types are in the prelude; larger stdlib areas are imported modules (§14) |
 
 ### 18.2 Still open
 
@@ -3109,7 +3202,14 @@ module_path   = ident { "::" ident } ;
 
 declaration   = { attribute } [ visibility ] ( fn_decl | struct_decl | union_decl
                                              | enum_decl | trait_decl | impl_decl
-                                             | const_decl | macro_decl | macro_invoke ) ;
+                                             | const_decl | static_decl | macro_decl
+                                             | macro_invoke ) ;
+static_decl   = "static" ident ":" type "=" expr TERM ;   (* §7.7 *)
+cfg_if<T>     = "#" "if" cfg_cond "{" { T } "}"                  (* §12.10: T is a declaration, *)
+                [ "#" "else" ( cfg_if<T> | "{" { T } "}" ) ] ;   (* a member or a statement    *)
+cfg_cond      = cfg_and { "||" cfg_and } ;
+cfg_and       = cfg_unary { "&&" cfg_unary } ;
+cfg_unary     = "!" cfg_unary | "(" cfg_cond ")" | ident [ "::" ident ] ;
 visibility    = "pub" [ "(" "module" ")" ] ;
 attribute     = "#" "[" ident [ "(" token_tree ")" ] "]" ;
 
@@ -3209,6 +3309,8 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r40 | 2026-09-13 | **Compile-time conditionals** (§12.10, 18.48). `#if FLAG { … } #else #if OTHER { … } #else { … }` around declarations, a type's members, or statements, over registered flags joined by `!`, `&&`, `\|\|`. Built in: `DEBUG`, `RELEASE`, `SHIPPING`, `OS_WINDOWS`, `OS_LINUX`, `OS_MACOS`. A package declares its own under `[flags]` in dazzle.toml, reads a dependency's as `engine::PROFILE`, and turns a dependency's on with `flags = [...]` on the dependency; `dz … --flag NAME` and `--track-memory` set them for one build. An unregistered flag is an error. The inactive branch is parsed but not checked. **`#location`** is a `SourceLocation`, and as a default argument it is the caller's location (§12.7). |
+| r39 | 2026-09-13 | **`static`** (§7.7, 18.46), and the allocator decisions M12 builds on (§14, 18.47). `static` is a keyword: `static NAME: T = value` declares one variable for the whole program, `#[thread_local]` one per thread. Its type is written, its initialiser is made of constants (DZ0553), reading it is safe, and changing it — assigning, `&mut`, a `&mut self` method, a `&mut` binding — needs `unsafe`. Nothing is moved or copied out of one. **Associated functions** (§7.3): a `fn` in a type with no receiver is called through the type, `Quat::identity()`, and never on a value; the type's fields are not in scope in it. For allocators: the `Allocator` trait's methods take `&mut self` and end in `loc: SourceLocation = #location`; the standard ones are `Allocators::Global` and `Allocators::Temp`; memory tracking is opt-in. |
 | r38 | 2026-09-13 | **A union variant can be an existing struct** (§7.5, 18.45). A bare variant name now always names a struct in scope and carries a value of it: `union ButtonState { DefaultState  TransitionState }` is built with `ButtonState::DefaultState{ … }` or `.DefaultState{}` exactly as a `DefaultState` is, and `case DefaultState(d)` binds a `DefaultState`, so `d.update()` calls its method. **A variant with no payload must now be written with braces, `Point {}`** — a bare `Point` with no struct of that name is DZ0551, as is one naming an enum, a union or a generic struct. `Shape::Point` without braces still builds it. Also: `return .Variant{}` from a `-> T?` function infers from `T`, as returning a plain `T` there already did (§9.1); and a base initialiser's arguments may not `return` (DZ0552) — the base is built before the constructor begins (§7.3). |
 | r37 | 2026-09-13 | **How `for` and `case` bindings hold what they name** (§10.3, §10.4, 18.42–18.44). `for e in xs` copies each element and `e` cannot be changed; `for &e in xs` refers to it; `for &mut e in xs` refers to it and writes into `xs`, which must be writable. The forms `for e in &xs` and `for e in &mut xs` are gone. A move-only element is taken with `&e`, or consumed with `for e in move(xs)`. Several names take a tuple element apart — `for id, &btn, &mut state in query` — and the pass count moves to `for i, e in xs.indexed()`, so `for i, e in xs` no longer binds an index. `case` bindings follow the same rules: `case Circle(c)` is a copy, `&c` a read-only reference, and `&mut c` changes the payload, on a writable value only. Assigning to a `&mut T` writes what it refers to. A generic union's variant infers its type arguments from its payload: `Choice::One{ value: 4 }` is a `Choice<i32>`. |
 | r36 | 2026-09-13 | **`switch` on an integer, `char`, `bool` or `str`** (§10.3). Labels are constants — literals, `const`s, and arithmetic on them — of the subject's type: `case 1, 2`, `case "quit"`, `case MAX + 1`. There is no exhaustiveness requirement, and a float cannot be a subject. A bare name in a label is a variant on an enum or union and a constant otherwise. Two related rules now stated: **the same variant or value in two labels is an error**, since the later one can never match; and **`break` and `continue` inside an arm act on the enclosing loop**, since `switch` has no fallthrough to break out of — the compiler had been leaving only the `switch`, which was a bug. |

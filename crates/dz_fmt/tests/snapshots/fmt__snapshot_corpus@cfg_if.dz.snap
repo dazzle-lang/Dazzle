@@ -1,0 +1,33 @@
+---
+source: crates/dz_fmt/tests/fmt.rs
+assertion_line: 96
+expression: fmt(&source)
+input_file: tests/fmt/cfg_if.dz
+---
+#if TRACK_MEMORY {
+    static TRACKER: i32 = 0
+
+    fn record() {}
+} #else #if DEBUG || (OS_WINDOWS && !engine::PROFILE) {
+    fn record() {}
+} #else {
+    fn record() {}
+}
+
+struct S {
+    pub a: i32 = 0
+    #if DEBUG {
+        pub checks: i32 = 0
+        fn check(&self) {}
+    }
+}
+
+fn main() {
+    let x = 1
+    #if DEBUG {
+        println("{}", x) // debug only
+    } #else {
+        record()
+    }
+    record()
+}

@@ -48,6 +48,12 @@ manifest's `[build] optimize` for that one command:
     --release                   -O2
     --shipping                  -O3 -DNDEBUG
 
+and build flags, which `#if` reads (spec §12.10):
+
+    --flag NAME                 turn on the package's flag NAME
+    --flag engine::NAME         turn on a dependency's flag
+    --track-memory              record every allocation; report leaks and bad frees
+
 They also take `--cxx <compiler>`, which is the last word on which C++ compiler
 builds the generated code. Four places may say, nearest first:
 
@@ -61,8 +67,14 @@ With none of them, `dz` uses the first of clang++, g++, c++ that it finds.";
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("check") => cmd_check(args.get(1).map(String::as_str).unwrap_or(".")),
-        Some("hir") => cmd_hir(args.get(1).map(String::as_str).unwrap_or(".")),
+        Some("check") => match build_args(&args) {
+            Ok(b) => cmd_check(&b.path, &b.options),
+            Err(code) => code,
+        },
+        Some("hir") => match build_args(&args) {
+            Ok(b) => cmd_hir(&b.path, &b.options),
+            Err(code) => code,
+        },
         Some("cpp") => with_mode(&args, Stage::Cpp),
         Some("build") => with_mode(&args, Stage::Build),
         Some("run") => with_mode(&args, Stage::Run),
@@ -135,8 +147,8 @@ fn project_root(entry: &str) -> std::path::PathBuf {
 
 /// Print the typed tree the checker built (spec §17.1). A development aid: it is how you
 /// see what the compiler actually concluded, rather than inferring it from the C++.
-fn cmd_hir(entry: &str) -> ExitCode {
-    let analysis = build::analyse(Path::new(entry));
+fn cmd_hir(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
+    let analysis = analyse_for_build(entry, options);
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
@@ -152,8 +164,8 @@ fn cmd_hir(entry: &str) -> ExitCode {
     }
 }
 
-fn cmd_check(entry: &str) -> ExitCode {
-    let analysis = build::analyse(Path::new(entry));
+fn cmd_check(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
+    let analysis = analyse_for_build(entry, options);
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
@@ -186,6 +198,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     // anyone who wants to see what the debug build costs.
     let mut mode: Option<Optimize> = if benching { Some(Optimize::Release) } else { None };
     let mut cxx: Option<String> = None;
+    let mut build_flags = dz_driver::BuildOptions::default();
     let mut positional = 0;
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
@@ -201,6 +214,15 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
             "--debug" => mode = Some(Optimize::Debug),
             "--release" => mode = Some(Optimize::Release),
             "--shipping" => mode = Some(Optimize::Shipping),
+            "--track-memory" => build_flags.track_memory = true,
+            "--flag" => match rest.next() {
+                Some(f) => build_flags.flags.push(f.clone()),
+                None => {
+                    eprintln!("error: `--flag` needs a flag name\n\n{USAGE}");
+                    return ExitCode::FAILURE;
+                }
+            },
+            other if other.starts_with("--flag=") => build_flags.flags.push(other[7..].to_owned()),
             other if other.starts_with("--") => {
                 eprintln!("error: unknown option `{other}`\n\n{USAGE}");
                 return ExitCode::FAILURE;
@@ -217,13 +239,8 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     }
     let cxx = cxx.as_deref();
 
-    let mut analysis = build::analyse(Path::new(path));
-    if let (Some(m), Some(ws)) = (mode, analysis.ws.as_mut()) {
-        for module in ws.modules_mut() {
-            module.build.optimize = m;
-        }
-    }
-    let analysis = analysis;
+    build_flags.optimize = mode;
+    let analysis = analyse_for_build(path, &build_flags);
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
@@ -339,53 +356,78 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     }
 }
 
-/// Split `run`/`build`/`cpp`'s arguments into a path and a build mode.
+/// A command's path, build options and `--cxx`, read from its arguments.
+struct BuildArgs {
+    path: String,
+    options: dz_driver::BuildOptions,
+    cxx: Option<String>,
+}
+
+/// Split `run`/`build`/`cpp`/`check`/`hir`'s arguments into a path, a build mode and flags.
 ///
 /// The mode overrides the manifest's `[build] optimize` for one command, so a project can
 /// keep `debug` as what it is worked on in while `dz run --release` measures it. Written
-/// as a flag rather than a subcommand because it is the same command either way.
-fn with_mode(args: &[String], stage: Stage) -> ExitCode {
-    let mut path = ".";
-    let mut mode: Option<Optimize> = None;
-    let mut cxx: Option<String> = None;
+/// as a flag rather than a subcommand because it is the same command either way. `check`
+/// takes the same options because the mode and the flags decide which `#if` branches are
+/// checked at all (spec §12.10).
+fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
+    let mut out =
+        BuildArgs { path: ".".to_owned(), options: dz_driver::BuildOptions::default(), cxx: None };
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
         match a.as_str() {
             // `--cxx g++` and `--cxx=g++` both, since a flag taking a value is usually
             // written either way and guessing wrong is a confusing error.
             "--cxx" => match rest.next() {
-                Some(c) => cxx = Some(c.clone()),
+                Some(c) => out.cxx = Some(c.clone()),
                 None => {
                     eprintln!("error: `--cxx` needs a compiler\n\n{USAGE}");
-                    return ExitCode::FAILURE;
+                    return Err(ExitCode::FAILURE);
                 }
             },
-            other if other.starts_with("--cxx=") => cxx = Some(other[6..].to_owned()),
-            "--debug" => mode = Some(Optimize::Debug),
-            "--release" => mode = Some(Optimize::Release),
-            "--shipping" => mode = Some(Optimize::Shipping),
+            other if other.starts_with("--cxx=") => out.cxx = Some(other[6..].to_owned()),
+            "--debug" => out.options.optimize = Some(Optimize::Debug),
+            "--release" => out.options.optimize = Some(Optimize::Release),
+            "--shipping" => out.options.optimize = Some(Optimize::Shipping),
+            "--track-memory" => out.options.track_memory = true,
+            "--flag" => match rest.next() {
+                Some(f) => out.options.flags.push(f.clone()),
+                None => {
+                    eprintln!("error: `--flag` needs a flag name\n\n{USAGE}");
+                    return Err(ExitCode::FAILURE);
+                }
+            },
+            other if other.starts_with("--flag=") => out.options.flags.push(other[7..].to_owned()),
             other if other.starts_with("--") => {
                 eprintln!("error: unknown option `{other}`\n\n{USAGE}");
-                return ExitCode::FAILURE;
+                return Err(ExitCode::FAILURE);
             }
-            other => path = other,
+            other => out.path = other.to_owned(),
         }
     }
-    cmd_pipeline(path, stage, mode, cxx.as_deref())
+    Ok(out)
+}
+
+fn with_mode(args: &[String], stage: Stage) -> ExitCode {
+    match build_args(args) {
+        Ok(b) => cmd_pipeline(&b.path, stage, &b.options, b.cxx.as_deref()),
+        Err(code) => code,
+    }
+}
+
+/// Analyse one build: its mode and flags decide which `#if` branches exist (spec §12.10).
+fn analyse_for_build(entry: &str, options: &dz_driver::BuildOptions) -> build::Analysis {
+    dz_driver::analyse_for(Path::new(entry), &|_| None, dz_driver::Mode::Build, options)
 }
 
 /// `dz cpp`, `dz build` and `dz run` share everything up to where they stop.
-fn cmd_pipeline(entry: &str, stage: Stage, mode: Option<Optimize>, cxx: Option<&str>) -> ExitCode {
-    let mut analysis = build::analyse(Path::new(entry));
-    if let (Some(m), Some(ws)) = (mode, analysis.ws.as_mut()) {
-        // Every module, not just the root: one command builds one program, and a
-        // dependency compiled at a different optimisation level is the classic way to get
-        // a binary that behaves differently from either setting.
-        for module in ws.modules_mut() {
-            module.build.optimize = m;
-        }
-    }
-    let analysis = analysis;
+fn cmd_pipeline(
+    entry: &str,
+    stage: Stage,
+    options: &dz_driver::BuildOptions,
+    cxx: Option<&str>,
+) -> ExitCode {
+    let analysis = analyse_for_build(entry, options);
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }

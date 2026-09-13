@@ -1,0 +1,9 @@
+[module]
+name    = "dynamic"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+shapes = { path = "libs/shapes" }
+
+[build]
+output = "executable"

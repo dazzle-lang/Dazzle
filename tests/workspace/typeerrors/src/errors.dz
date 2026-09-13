@@ -829,3 +829,39 @@ fn the_same_case_twice(n: i32) -> i32 {
 union Motion {
     Stopped
 }
+
+// §7.7: a static is built from constants, and changed only inside `unsafe`.
+fn a_runtime_value() -> i32 {
+    return 3
+}
+
+static STARTS_AT_RUN_TIME: i32 = a_runtime_value()
+static SHARED: i32 = 0
+
+fn changes_a_static_safely() {
+    SHARED = 1
+}
+
+// §7.3: a function with no receiver is called through its type, never on a value.
+struct Factory {
+    pub fn make() -> Factory {
+        return Factory{}
+    }
+}
+
+fn calls_an_associated_function_on_a_value(f: Factory) -> Factory {
+    return f.make()
+}
+
+// §7.6: only a type that implements the trait becomes a trait object of it.
+trait Named {
+    fn name(&self) -> str
+}
+
+fn named(n: &Named) -> str {
+    return n.name()
+}
+
+fn not_an_implementer(f: &Factory) -> str {
+    return named(f)
+}

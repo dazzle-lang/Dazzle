@@ -1,0 +1,19 @@
+// expect: DZ0402
+//
+// A static belongs to the program, not to `main`, so nothing is moved out of it — the source
+// of a move is reset, and no function has the right to reset a static behind everyone else.
+
+struct Owner {
+    pub p: own ^mut i32 = null
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {}
+}
+
+static OWNER: Owner = Owner{}
+
+fn main() {
+    let o = move(OWNER)
+    let p = o.p
+}

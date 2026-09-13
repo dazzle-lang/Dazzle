@@ -1,0 +1,5 @@
+// A type from another module. Its `Shape` implementation lives with the trait, in the
+// program: the orphan rule allows either home, and the vtable is found from both.
+pub struct Dot {
+    pub r: f32 = 0.5
+}

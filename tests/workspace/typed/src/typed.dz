@@ -1078,3 +1078,51 @@ fn carried_struct(m: &mut Motion) -> f32 {
         case Stopped { 0.0 }
     }
 }
+
+// §7.7: a static is read anywhere and changed inside `unsafe`.
+static TALLY: Walking = Walking{ speed: 2 }
+#[thread_local]
+static LIMITS: [2]i32 = [MAX_TALLY, 0]
+const MAX_TALLY = 8
+
+// §7.3: a function with no receiver is the type's, called through it.
+struct Tally {
+    pub n: i32 = 0
+
+    pub fn starting_at(n: i32) -> Tally {
+        return Tally{ n: n }
+    }
+
+    pub fn next(&self) -> Tally {
+        return Tally::starting_at(n + 1)
+    }
+}
+
+fn associated_functions() -> i32 {
+    return Tally::starting_at(MAX_TALLY).next().n
+}
+
+// §7.6: `&T` and `^mut T` become `&Trait` and `^mut Trait` when `T` implements it.
+struct Gauge {
+    pub reading: ^Measured = null
+}
+
+fn measured_through_an_object(m: &Measured) -> i32 {
+    return m.measure()
+}
+
+fn trait_objects(s: &Square) -> i32 {
+    let g = Gauge{ reading: s }
+    let r = g.reading or return 0
+    return measured_through_an_object(s) + r.measure()
+}
+
+fn statics() -> f32 {
+    let before = TALLY.speed + LIMITS[0] as f32
+    unsafe {
+        TALLY.speed = before
+        LIMITS[1] = 1
+        let _ = TALLY.faster()
+    }
+    return TALLY.speed
+}

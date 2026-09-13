@@ -1,0 +1,56 @@
+// Compile-time conditionals (spec §12.10): `#if` over built-in flags, this package's own
+// `[flags]`, and a dependency's, among declarations, members and statements. An inactive
+// branch is parsed but never resolved, so it may name what does not exist in this build.
+
+import engine
+
+#if CHEATS {
+    fn lives() -> i32 {
+        return 99
+    }
+} #else {
+    fn lives() -> i32 {
+        return 3
+    }
+}
+
+#if !FANCY {
+    static NEVER: DoesNotExist = DoesNotExist{}
+}
+
+struct Player {
+    pub hp: i32 = 10
+
+    #if FANCY {
+        pub shine: i32 = 7
+
+        pub fn sparkle(&self) -> i32 {
+            return shine * 2
+        }
+    }
+}
+
+fn main() {
+    let p = Player{}
+    println("{} {}", lives(), p.sparkle())
+
+    #if DEBUG {
+        println("debug build")
+    } #else #if RELEASE || SHIPPING {
+        println("optimised build")
+    }
+
+    // Exactly one platform flag is on.
+    #if OS_WINDOWS || OS_LINUX || OS_MACOS {
+        println("on a known platform")
+    } #else {
+        nonexistent_platform_call()
+    }
+
+    #if engine::PROFILE {
+        println("{}", engine::frame())
+    }
+    #if engine::VERBOSE {
+        println("verbose")
+    }
+}

@@ -262,6 +262,8 @@ pub enum ItemSig {
     Trait(StructSig),
     Fn(FnSig),
     Const(Ty),
+    /// A `static` and its declared type (spec §7.7).
+    Static(Ty),
 }
 
 /// Everything the body checker needs to know about declarations.
@@ -2203,6 +2205,8 @@ impl<'a> Ctx<'a> {
             return;
         };
         match &item.kind {
+            // Removed by the driver before this phase (spec §12.10).
+            ItemKind::CfgIf(_) => {}
             ItemKind::Struct(s) => {
                 // A type's parameters are in scope for every one of its members (§8.1).
                 self.push_declared_params(sym);
@@ -2284,6 +2288,10 @@ impl<'a> Ctx<'a> {
                     }
                 };
                 self.table.sigs.insert(sym, ItemSig::Const(ty));
+            }
+            ItemKind::Static(s) => {
+                let ty = self.lower_type(&s.ty);
+                self.table.sigs.insert(sym, ItemSig::Static(ty));
             }
             ItemKind::Impl(_)
             | ItemKind::Macro(_)
@@ -2383,6 +2391,8 @@ impl<'a> Ctx<'a> {
         };
         for m in members {
             match &m.kind {
+                // Removed by the driver before this phase (spec §12.10).
+                MemberKind::CfgIf(_) => {}
                 MemberKind::Field(f) => {
                     let mut field = self.field_sig(f);
                     // Visibility lives on the member, not the field node.
@@ -2518,12 +2528,15 @@ impl<'a> Ctx<'a> {
 
     pub(crate) fn symbol_of(&self, item: &Item) -> Option<SymbolId> {
         let name = match &item.kind {
+            // Removed by the driver before this phase (spec §12.10).
+            ItemKind::CfgIf(_) => return None,
             ItemKind::Fn(f) => &f.name.name,
             ItemKind::Struct(s) => &s.name.name,
             ItemKind::Union(u) => &u.name.name,
             ItemKind::Enum(e) => &e.name.name,
             ItemKind::Trait(t) => &t.name.name,
             ItemKind::Const(c) => &c.name.name,
+            ItemKind::Static(s) => &s.name.name,
             ItemKind::Macro(m) => &m.name.name,
             ItemKind::Impl(_) | ItemKind::MacroInvocation { .. } | ItemKind::Error => return None,
         };

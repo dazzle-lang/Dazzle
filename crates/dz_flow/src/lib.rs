@@ -317,12 +317,17 @@ impl<'a> Flow<'a> {
                 Denotes::Borrowed => {
                     let name = self.type_name(&ty);
                     let span = self.body.expr(e).span;
+                    let (from, label) = if self.in_static(e) {
+                        ("a `static`", "this belongs to the program, not to this function")
+                    } else {
+                        ("a reference", "this is borrowed, not owned")
+                    };
                     self.error(
                         Diagnostic::error(
                             codes::MOVE_OUT_OF_BORROW,
-                            format!("`{name}` cannot be taken out of a reference"),
+                            format!("`{name}` cannot be taken out of {from}"),
                         )
-                        .at(self.file, span, "this is borrowed, not owned")
+                        .at(self.file, span, label)
                         .with_help(
                             "a move-only value can only be moved out of something the \
                              function owns, since the source has to be reset to its \
@@ -399,12 +404,17 @@ impl<'a> Flow<'a> {
                     }
                     Denotes::Borrowed => {
                         let name = self.type_name(&ty);
+                        let (from, label) = if self.in_static(inner) {
+                            ("a `static`", "this belongs to the program, not to this function")
+                        } else {
+                            ("a reference", "this is borrowed, not owned")
+                        };
                         self.error(
                             Diagnostic::error(
                                 codes::MOVE_OUT_OF_BORROW,
-                                format!("cannot move `{name}` out of a reference"),
+                                format!("cannot move `{name}` out of {from}"),
                             )
-                            .at(self.file, span, "this is borrowed, not owned")
+                            .at(self.file, span, label)
                             .with_help(
                                 "the source of a move is reset to its defaults, and a borrow \
                                  does not give the right to do that (spec §6.4); to copy the \
@@ -698,7 +708,23 @@ impl<'a> Flow<'a> {
             }
             // An index is a runtime value, so which element moved is not knowable here.
             hir::ExprKind::Index { .. } | hir::ExprKind::Deref(_) => Denotes::Borrowed,
+            // A `static` belongs to the whole program, not to this function, so nothing may
+            // be moved or copied out of it any more than out of a borrow (spec §7.7).
+            hir::ExprKind::Static(_) => Denotes::Borrowed,
             _ => Denotes::Temporary,
+        }
+    }
+
+    /// Is this place part of a `static`, reached without going through a pointer? Only for
+    /// wording: the rules are a borrow's.
+    fn in_static(&self, e: ExprId) -> bool {
+        match self.body.expr(e).kind {
+            hir::ExprKind::Static(_) => true,
+            hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. } => {
+                !matches!(self.body.ty(base), Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. })
+                    && self.in_static(base)
+            }
+            _ => false,
         }
     }
 }

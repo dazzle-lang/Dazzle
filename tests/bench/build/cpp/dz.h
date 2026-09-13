@@ -17,9 +17,57 @@ enum class Ordering : int8_t {
     Greater = 1,
 };
 
+struct Drop__vtable {
+    void (*drop)(void*);
+};
+
+struct Drop__dyn : ::dz::Dyn<Drop__vtable> {
+    using Dyn::Dyn;
+    Drop__dyn(const Drop__dyn* h) : Dyn(*h) {}
+    Drop__dyn(const Drop__dyn& h) = default;
+    Drop__dyn& operator=(const Drop__dyn& h) = default;
+    const Drop__dyn& operator*() const { return *this; }
+    void drop() const;
+};
+
+struct Format__vtable {
+    void (*format)(const void*, Formatter&);
+};
+
+struct Format__dyn : ::dz::Dyn<Format__vtable> {
+    using Dyn::Dyn;
+    Format__dyn(const Format__dyn* h) : Dyn(*h) {}
+    Format__dyn(const Format__dyn& h) = default;
+    Format__dyn& operator=(const Format__dyn& h) = default;
+    const Format__dyn& operator*() const { return *this; }
+    void format(Formatter& a0) const;
+};
+
+struct Allocator__vtable {
+    uint8_t* (*alloc)(const void*, size_t, size_t);
+    uint8_t* (*realloc)(const void*, uint8_t*, size_t, size_t, size_t);
+    void (*free)(const void*, uint8_t*, size_t, size_t);
+};
+
+struct Allocator__dyn : ::dz::Dyn<Allocator__vtable> {
+    using Dyn::Dyn;
+    Allocator__dyn(const Allocator__dyn* h) : Dyn(*h) {}
+    Allocator__dyn(const Allocator__dyn& h) = default;
+    Allocator__dyn& operator=(const Allocator__dyn& h) = default;
+    const Allocator__dyn& operator*() const { return *this; }
+    uint8_t* alloc(size_t a0, size_t a1) const;
+    uint8_t* realloc(uint8_t* a0, size_t a1, size_t a2, size_t a3) const;
+    void free(uint8_t* a0, size_t a1, size_t a2) const;
+};
+
 struct Formatter {
 };
 
+inline void Drop__dyn::drop() const { return vt->drop(data); }
+inline void Format__dyn::format(Formatter& a0) const { return vt->format(data, a0); }
+inline uint8_t* Allocator__dyn::alloc(size_t a0, size_t a1) const { return vt->alloc(data, a0, a1); }
+inline uint8_t* Allocator__dyn::realloc(uint8_t* a0, size_t a1, size_t a2, size_t a3) const { return vt->realloc(data, a0, a1, a2, a3); }
+inline void Allocator__dyn::free(uint8_t* a0, size_t a1, size_t a2) const { return vt->free(data, a0, a1, a2); }
 
 }  // namespace dz
 }  // namespace dz

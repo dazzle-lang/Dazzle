@@ -12,6 +12,9 @@ use dz_project::{ModuleId, Workspace};
 use dz_resolve::{ParsedFile, Resolution};
 use dz_span::{FileId, SourceMap};
 
+pub mod cfg;
+pub use cfg::BuildOptions;
+
 /// How far analysis goes past a phase that failed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -64,6 +67,17 @@ pub fn analyse_with(
     overlay: &dyn Fn(&Path) -> Option<String>,
     mode: Mode,
 ) -> Analysis {
+    analyse_for(entry, overlay, mode, &BuildOptions::default())
+}
+
+/// [`analyse_with`] for one build: its mode and flags decide which `#if` branches exist
+/// (spec §12.10), so they are an input to analysis rather than something applied after it.
+pub fn analyse_for(
+    entry: &Path,
+    overlay: &dyn Fn(&Path) -> Option<String>,
+    mode: Mode,
+    options: &BuildOptions,
+) -> Analysis {
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
 
@@ -80,6 +94,15 @@ pub fn analyse_with(
             parsed_cleanly: false,
         };
     };
+
+    // Every module, not just the root: one command builds one program, and a dependency
+    // compiled at a different optimisation level is the classic way to get a binary that
+    // behaves differently from either setting.
+    if let Some(m) = options.optimize {
+        for module in ws.modules_mut() {
+            module.build.optimize = m;
+        }
+    }
 
     let mut files: HashMap<ModuleId, Vec<ParsedFile>> = HashMap::new();
     for module in ws.modules() {
@@ -122,6 +145,15 @@ pub fn analyse_with(
     }
 
     import_headers(&mut ws, &files, &mut map, &mut diags);
+
+    // Only the active branch of each `#if` goes on to resolution (spec §12.10). Skipped
+    // when parsing failed: a broken `#if` has no branches worth choosing between.
+    if !diags.has_errors() {
+        let flags = cfg::resolve_flags(&ws, options, &mut diags);
+        for (id, parsed) in files.iter_mut() {
+            cfg::strip(&ws, &flags, *id, parsed, &mut diags);
+        }
+    }
 
     // Each flag says whether the phase's diagnostics are still worth showing: true until
     // some earlier phase has reported an error.

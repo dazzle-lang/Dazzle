@@ -37,6 +37,8 @@ pub enum SymbolKind {
     Trait,
     Fn,
     Const,
+    /// A `static`: one variable for the program, or per thread (spec §7.7).
+    Static,
     Macro,
     /// A C++ namespace, which holds the declarations written inside it: Dazzle reaches
     /// them through it, `eng::ui::draw` (spec §15.2).
@@ -52,6 +54,7 @@ impl SymbolKind {
             SymbolKind::Trait => "trait",
             SymbolKind::Fn => "function",
             SymbolKind::Const => "constant",
+            SymbolKind::Static => "static",
             SymbolKind::Macro => "macro",
             SymbolKind::Namespace => "namespace",
         }
@@ -548,8 +551,11 @@ fn member_sort(kind: SymbolKind) -> MemberSort {
 
 fn describe_item(item: &Item) -> Option<(&Ident, SymbolKind, Vec<MemberSymbol>)> {
     Some(match &item.kind {
+        // Removed by the driver before resolution runs (spec §12.10).
+        ItemKind::CfgIf(_) => return None,
         ItemKind::Fn(f) => (&f.name, SymbolKind::Fn, Vec::new()),
         ItemKind::Const(c) => (&c.name, SymbolKind::Const, Vec::new()),
+        ItemKind::Static(s) => (&s.name, SymbolKind::Static, Vec::new()),
         ItemKind::Macro(m) => (&m.name, SymbolKind::Macro, Vec::new()),
         ItemKind::Struct(s) => (&s.name, SymbolKind::Struct, struct_members(&s.members)),
         ItemKind::Trait(t) => (&t.name, SymbolKind::Trait, struct_members(&t.items)),
@@ -590,6 +596,7 @@ fn struct_members(members: &[Member]) -> Vec<MemberSymbol> {
         .iter()
         .filter_map(|m| {
             let (name, sort) = match &m.kind {
+                MemberKind::CfgIf(_) => return None,
                 MemberKind::Field(f) => (&f.name, MemberSort::Field),
                 MemberKind::Fn(f) => (&f.name, MemberSort::Method),
                 MemberKind::Ctor(f) => (&f.name, MemberSort::Ctor),

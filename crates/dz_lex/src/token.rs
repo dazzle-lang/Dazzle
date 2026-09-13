@@ -81,6 +81,8 @@ pub enum TokenKind {
     Virtual,
     Override,
     Protected,
+    /// A module-level variable that lives for the whole program (spec §7.7).
+    Static,
 
     // --- operators and punctuation (spec §2.6) ---
     Plus,
@@ -197,6 +199,7 @@ impl TokenKind {
             Virtual => "virtual",
             Override => "override",
             Protected => "protected",
+            Static => "static",
             Plus => "+",
             Minus => "-",
             Star => "*",
@@ -287,6 +290,7 @@ impl TokenKind {
                 | While
                 | Unreachable
                 | Unsafe
+                | Static
         )
     }
 
@@ -393,6 +397,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "virtual" => Virtual,
         "override" => Override,
         "protected" => Protected,
+        "static" => Static,
         _ => return Option::None,
     })
 }

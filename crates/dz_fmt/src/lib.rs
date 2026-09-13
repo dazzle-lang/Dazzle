@@ -274,10 +274,61 @@ impl<'a> Printer<'a> {
         }
     }
 
+    /// `#if` and its branches, each branch's contents laid out by `each` one level in
+    /// (spec §12.10). `between` puts a blank line between two declarations, as at file scope.
+    fn cfg_if<T>(&mut self, c: &CfgIf<T>, between: bool, each: &mut dyn FnMut(&mut Self, &T)) {
+        self.cfg_chain("", c, between, each);
+    }
+
+    /// One `#if` of a chain, opened with `lead` — nothing for the first, `} #else ` for
+    /// each that follows, so `} #else #if B {` is one line.
+    fn cfg_chain<T>(
+        &mut self,
+        lead: &str,
+        c: &CfgIf<T>,
+        between: bool,
+        each: &mut dyn FnMut(&mut Self, &T),
+    ) {
+        self.line(&format!("{lead}#if {} {{", dump::cfg_cond_str(&c.cond)));
+        self.cfg_branch(&c.then, c.then_span, between, each);
+        match &c.otherwise {
+            Some(CfgElse::If(next)) => self.cfg_chain("} #else ", next, between, each),
+            Some(CfgElse::Else { span, items }) => {
+                self.line("} #else {");
+                self.cfg_branch(items, *span, between, each);
+                self.line("}");
+            }
+            None => self.line("}"),
+        }
+    }
+
+    fn cfg_branch<T>(
+        &mut self,
+        items: &[T],
+        span: Span,
+        between: bool,
+        each: &mut dyn FnMut(&mut Self, &T),
+    ) {
+        self.indent += 1;
+        for (i, x) in items.iter().enumerate() {
+            if between && i > 0 {
+                self.pending_blank = true;
+            }
+            each(self, x);
+        }
+        // A comment written last inside the branch stays inside it.
+        self.emit_comments_before(span.end.saturating_sub(1));
+        self.pending_blank = false;
+        self.indent -= 1;
+    }
+
     fn item(&mut self, item: &Item) {
         self.prologue(item.span, &item.docs, &item.attrs);
         let vis = vis_str(item.vis);
         match &item.kind {
+            ItemKind::CfgIf(c) => {
+                self.cfg_if(c, true, &mut |f, i| f.item(i));
+            }
             ItemKind::Fn(f) => self.fn_decl(vis, f),
             ItemKind::Struct(s) => {
                 let base =
@@ -378,6 +429,16 @@ impl<'a> Printer<'a> {
                 self.line(&s);
                 self.emit_trailing_comment(item.span.end);
             }
+            ItemKind::Static(st) => {
+                let s = format!(
+                    "{vis}static {}: {} = {}",
+                    st.name.name,
+                    self.ty(&st.ty),
+                    self.expr(&st.value)
+                );
+                self.line(&s);
+                self.emit_trailing_comment(item.span.end);
+            }
             // Macro bodies are not parsed until M10, so they are reproduced verbatim.
             ItemKind::Macro(m) => {
                 let body = self.text(m.body).to_owned();
@@ -440,6 +501,9 @@ impl<'a> Printer<'a> {
         self.prologue(m.span, &m.docs, &m.attrs);
         let vis = vis_str(m.vis);
         match &m.kind {
+            MemberKind::CfgIf(c) => {
+                self.cfg_if(c, false, &mut |f, x| f.member(x, 0));
+            }
             MemberKind::Field(f) => {
                 let own = if f.is_own { "own " } else { "" };
                 let lhs = format!("{own}{}", f.name.name);
@@ -571,6 +635,9 @@ impl<'a> Printer<'a> {
         }
 
         match &s.kind {
+            StmtKind::CfgIf(c) => {
+                self.cfg_if(c, false, &mut |f, x| f.stmt(x));
+            }
             StmtKind::Let(l) => {
                 let ty = l.ty.as_ref().map(|t| format!(": {}", self.ty(t))).unwrap_or_default();
                 let init =

@@ -190,6 +190,8 @@ fn every_rule_has_a_failing_case() {
         // r38 — a bare variant carries the struct it names (spec §7.5, 18.45).
         BAD_VARIANT,
         RETURN_IN_BASE_INIT,
+        // r39 — statics (spec §7.7).
+        STATIC_INITIALISER,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

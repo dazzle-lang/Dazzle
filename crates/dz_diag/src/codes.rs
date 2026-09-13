@@ -103,6 +103,9 @@ pub const PRIVATE_ITEM: &str = "DZ0304";
 pub const NO_SUCH_MEMBER: &str = "DZ0305";
 /// A local binding that shadows another in the same scope (spec §7.1).
 pub const SHADOWED_BINDING: &str = "DZ0306";
+/// A build flag in an `#if`, a dependency's `flags = [...]` or a `--flag` that no package
+/// registers: a flag is declared under `[flags]` or built in (spec §12.10).
+pub const UNKNOWN_FLAG: &str = "DZ0309";
 /// An `import` that is never used.
 pub const UNUSED_IMPORT: &str = "DZ0307";
 /// Two imports bringing the same name into scope.
@@ -268,6 +271,10 @@ pub const BAD_VARIANT: &str = "DZ0551";
 /// A `return`, or `or return`, inside a constructor's `: Base(…)`. The base is built before
 /// the constructor begins, so there is nothing to return from (spec §7.3).
 pub const RETURN_IN_BASE_INIT: &str = "DZ0552";
+/// A `static` whose initialiser runs code: a call, a read of another static, anything but
+/// constants and literals built of them. It is built before `main`, in an order C++ does not
+/// promise across files (spec §7.7).
+pub const STATIC_INITIALISER: &str = "DZ0553";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

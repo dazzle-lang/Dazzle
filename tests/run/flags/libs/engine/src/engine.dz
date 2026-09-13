@@ -1,0 +1,12 @@
+// A dependency's flags: `PROFILE` is turned on by the program that depends on this module,
+// `VERBOSE` by nobody.
+
+pub fn frame() -> str {
+    #if PROFILE && !VERBOSE {
+        return "profiled frame"
+    } #else #if VERBOSE {
+        return undefined_verbose_frame()
+    } #else {
+        return "frame"
+    }
+}

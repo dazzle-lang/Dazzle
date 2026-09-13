@@ -1,0 +1,96 @@
+// Trait objects (spec §7.6, §18.6): `^Trait` and `&Trait` are a fat pointer — the object
+// and its implementation's vtable — so one `Shape` handle can hold any implementer, and the
+// implementer carries no extra bytes.
+
+import shapes
+
+trait Shape {
+    fn area(&self) -> f32
+    fn grow(&mut self, by: f32)
+
+    // A default method reaches the implementation's own methods through the vtable too.
+    fn twice(&self) -> f32 {
+        return self.area() * 2
+    }
+}
+
+struct Square {
+    pub side: f32 = 1
+}
+
+impl Shape for Square {
+    fn area(&self) -> f32 {
+        return side * side
+    }
+
+    fn grow(&mut self, by: f32) {
+        side += by
+    }
+}
+
+impl Shape for shapes::Dot {
+    fn area(&self) -> f32 {
+        return 3 * r * r
+    }
+
+    fn grow(&mut self, by: f32) {
+        r += by
+    }
+}
+
+// The machine's own types implement traits too.
+impl Shape for f32 {
+    fn area(&self) -> f32 {
+        return self
+    }
+
+    fn grow(&mut self, by: f32) {
+        self += by
+    }
+}
+
+// A handle is a value like any other: stored, defaulted to null, replaced.
+struct Slot {
+    pub shape: ^mut Shape = null
+    pub scale: f32 = 1
+}
+
+fn measure(s: &Shape) -> f32 {
+    return s.twice()
+}
+
+fn grow_through(slot: &Slot, by: f32) -> bool {
+    if let s = slot.shape {
+        s.grow(by)
+        return true
+    }
+    return false
+}
+
+static SHARED: Square = Square{ side: 5 }
+
+fn main() {
+    let mut sq = Square{ side: 2 }
+    let mut f: f32 = 1.5
+    let mut dot = shapes::Dot{}
+
+    // `&T` and `&mut T` convert to `&Shape` and `^mut Shape` wherever one is wanted.
+    println("{} {} {}", measure(&sq), measure(&f), measure(&dot))
+
+    let mut slot = Slot{}
+    println("{}", grow_through(&slot, 1))
+    slot.shape = &mut sq
+    let grew = grow_through(&slot, 1)
+    println("{} {}", grew, sq.side)
+    slot.shape = &mut f
+    grow_through(&slot, 2)
+    slot.shape = &mut dot
+    grow_through(&slot, 3)
+    println("{} {}", f, dot.r)
+
+    // A static behind a handle: the shape of `Allocators::Global` (spec §14.2).
+    let global: ^mut Shape = unsafe { &mut SHARED }
+    let g = global or return
+    g.grow(1)
+    println("{} {}", g.area(), SHARED.side)
+}

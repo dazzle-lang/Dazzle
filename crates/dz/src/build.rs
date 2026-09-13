@@ -7,7 +7,7 @@ use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_project::{Optimize, OutputKind};
 
 // Analysis is shared with the language server, so it lives in `dz_driver` (spec §17.4).
-pub use dz_driver::{analyse, Analysis};
+pub use dz_driver::Analysis;
 
 pub struct BuildOutput {
     pub cpp_dir: PathBuf,

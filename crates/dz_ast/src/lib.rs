@@ -132,6 +132,13 @@ pub enum ItemKind {
     /// `impl Trait for Type { … }` — the only way a trait is implemented (spec §7.6).
     Impl(ImplDecl),
     Const(ConstDecl),
+    /// `static HEAP: Heap = Heap{}` — one variable for the whole program, or one per thread
+    /// under `#[thread_local]` (spec §7.7).
+    Static(StaticDecl),
+    /// `#if FLAG { … } #else { … }` around declarations (spec §12.10). Both branches are
+    /// kept here, for the formatter and the editor; the driver keeps only the active one
+    /// before resolution.
+    CfgIf(CfgIf<Item>),
     /// Parsed shallowly at M1; the body is kept as raw source for M10 (spec §12).
     Macro(MacroDecl),
     /// `#machine Foo(Bar) { ... }` — likewise deferred to M10.
@@ -274,6 +281,8 @@ pub enum MemberKind {
         bounds: Vec<Path>,
         ty: Option<Type>,
     },
+    /// `#if FLAG { … }` around fields and methods (spec §12.10).
+    CfgIf(CfgIf<Member>),
     Error,
 }
 
@@ -337,6 +346,16 @@ pub struct ConstDecl {
     pub span: Span,
     pub name: Ident,
     pub ty: Option<Type>,
+    pub value: Expr,
+}
+
+/// The type is required: a static is storage, and its type is part of what every user of it
+/// relies on, so it is never inferred from the initialiser (spec §7.7).
+#[derive(Clone, Debug)]
+pub struct StaticDecl {
+    pub span: Span,
+    pub name: Ident,
+    pub ty: Type,
     pub value: Expr,
 }
 
@@ -432,6 +451,44 @@ pub enum StmtKind {
     Defer(Box<Stmt>),
     /// A declaration nested inside a body.
     Item(Box<Item>),
+    /// `#if FLAG { … }` around statements (spec §12.10). The active branch's statements
+    /// are spliced into the enclosing block, so it opens no scope of its own.
+    CfgIf(CfgIf<Stmt>),
+    Error,
+}
+
+/// `#if cond { … } #else #if cond { … } #else { … }` (spec §12.10), over whatever a
+/// branch holds: declarations, members or statements.
+#[derive(Clone, Debug)]
+pub struct CfgIf<T> {
+    pub span: Span,
+    pub cond: CfgCond,
+    pub then: Vec<T>,
+    pub then_span: Span,
+    pub otherwise: Option<CfgElse<T>>,
+}
+
+#[derive(Clone, Debug)]
+pub enum CfgElse<T> {
+    If(Box<CfgIf<T>>),
+    Else { span: Span, items: Vec<T> },
+}
+
+/// A build-flag condition: flags, `!`, `&&`, `||` and parentheses, nothing else.
+#[derive(Clone, Debug)]
+pub struct CfgCond {
+    pub span: Span,
+    pub kind: CfgCondKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum CfgCondKind {
+    /// `DEBUG`, or a dependency's `engine::PROFILE`.
+    Flag(Path),
+    Not(Box<CfgCond>),
+    And(Box<CfgCond>, Box<CfgCond>),
+    Or(Box<CfgCond>, Box<CfgCond>),
+    Paren(Box<CfgCond>),
     Error,
 }
 

@@ -52,6 +52,12 @@ impl<'a> Parser<'a> {
         let docs = self.eat_docs();
         self.skip_terminators();
 
+        // `#if FLAG { … }` among statements (spec §12.10). Its closing `}` ends it, as a
+        // block's does.
+        if self.at_cfg_if() {
+            let c = self.parse_cfg_if("a statement", &mut |p| Some(p.parse_stmt()));
+            return Stmt { span: self.span_from(start), docs, kind: StmtKind::CfgIf(c) };
+        }
         let kind = match self.peek() {
             TokenKind::Let => StmtKind::Let(self.parse_let()),
             TokenKind::While => StmtKind::While(self.parse_while(None)),

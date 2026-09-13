@@ -146,6 +146,37 @@ fn the_windowed_interop_programs_build() {
     }
 }
 
+/// The build mode and `--flag` choose which `#if` branches exist (spec §12.10): the same
+/// `tests/run/flags` program, built `--release` with its own `CHEATS` on, takes the other
+/// branch at every level — declarations, statements, and a chain's `#else #if`.
+#[test]
+fn build_flags_choose_the_branches() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = copy_fixture("flags", "dz_build_flags");
+    let out = Command::new(dz())
+        .args(["run", dir.to_str().unwrap(), "--release", "--flag", "CHEATS"])
+        .output()
+        .expect("failed to run dz");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "dz run failed\n{stderr}");
+    assert_eq!(
+        normalise(&String::from_utf8_lossy(&out.stdout)),
+        "99 14\noptimised build\non a known platform\nprofiled frame"
+    );
+
+    // A flag nobody registered is refused, not quietly off.
+    let bad = Command::new(dz())
+        .args(["check", dir.to_str().unwrap(), "--flag", "CHEAT"])
+        .output()
+        .expect("failed to run dz");
+    assert!(!bad.status.success());
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("DZ0309"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `--release` overrides the manifest's `[build] optimize` for one command.
 ///
 /// Asserted through behaviour rather than through the command line the driver built: the
@@ -559,6 +590,11 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
         "switching",
         "loops",
         "button",
+        "statics",
+        "assoc",
+        "dynamic",
+        "flags",
+        "location",
     ] {
         check_warning_clean(cxx, fixture);
     }
@@ -568,14 +604,9 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
 fn check_warning_clean(cxx: &str, fixture: &str) {
     // Copied into a scratch project: the run test drives the same directories, and cargo
     // runs tests in parallel, so sharing a build directory would race.
-    let source = std::fs::read_to_string(run_dir(fixture).join("src/main.dz")).unwrap();
-    let manifest = format!(
-        "[module]
-name = \"{fixture}\"
-sources = [\"src/**/*.dz\"]
-"
-    );
-    let dir = scratch(&format!("dz_wall_wextra_{fixture}"), &manifest, &source);
+    // The whole fixture, dependencies included, but not its `build`: that is what the run
+    // test writes into.
+    let dir = copy_fixture(fixture, &format!("dz_wall_wextra_{fixture}"));
     let out =
         Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -619,9 +650,9 @@ fn unsupported_constructs_are_reported_not_miscompiled() {
     .unwrap();
     std::fs::write(
         dir.join("src/a.dz"),
-        // A trait object: dynamic dispatch (spec §7.6) is not in M6, and without a DZ0801
-        // it would reach C++ as a pointer to a type nobody declared.
-        "trait Shape {\n    fn area(&self) -> f32\n}\n\n\
+        // A trait object of a trait whose method returns `Self`: a vtable cannot say what
+        // that is, and without a DZ0801 it would reach C++ as a type nobody declared.
+        "trait Shape {\n    fn area(&self) -> f32\n    fn cloned(&self) -> Self\n}\n\n\
          fn total(s: ^Shape) -> f32 {\n    return 0\n}\n\n\
          fn main() {\n    println(\"{}\", 1)\n}\n",
     )

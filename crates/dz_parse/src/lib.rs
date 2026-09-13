@@ -9,6 +9,7 @@ use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_lex::{Token, TokenKind};
 use dz_span::{FileId, Span};
 
+mod cfg;
 mod expr;
 mod item;
 mod stmt;
@@ -471,6 +472,18 @@ pub(crate) fn starts_item(k: TokenKind) -> bool {
     // parser asks this question to tell a nested declaration from a statement.
     matches!(
         k,
-        Import | Pub | Fn | Mut | Struct | Union | Enum | Trait | Impl | Const | Macro | Hash
+        Import
+            | Pub
+            | Fn
+            | Mut
+            | Struct
+            | Union
+            | Enum
+            | Trait
+            | Impl
+            | Const
+            | Static
+            | Macro
+            | Hash
     )
 }
