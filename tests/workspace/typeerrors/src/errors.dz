@@ -8,7 +8,7 @@ pub enum Layer : u8 {
 pub union Shape {
     Circle { radius: f32 }
     Rect { w: f32, h: f32 }
-    Point
+    Point {}
 }
 
 pub struct Vec3 {
@@ -712,6 +712,11 @@ pub struct InitialisesTheWrongBase : Panel {
     InitialisesTheWrongBase() : Measured(1) {}
 }
 
+// The base is built before the constructor begins, so there is nothing to return from.
+pub struct ReturnsFromTheBase : Measured {
+    ReturnsFromTheBase(width: i32?) : Measured(width or return) {}
+}
+
 // A type with a constructor is built by calling it, not with a literal.
 fn literal_of_a_type_with_a_constructor() -> i32 {
     let m = Measured{ w: 2 }
@@ -817,4 +822,10 @@ fn the_same_case_twice(n: i32) -> i32 {
         case 2 { return 2 }
         default { return 0 }
     }
+}
+
+// §7.5: a bare variant carries the struct it names, and there is no `Stopped` struct. A
+// variant with no payload is written `Stopped {}`.
+union Motion {
+    Stopped
 }

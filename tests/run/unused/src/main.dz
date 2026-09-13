@@ -7,7 +7,7 @@ pub enum Code : u32 {
 
 pub union Shape {
     Circle { radius: f32 }
-    Point
+    Point {}
 }
 
 fn halve(n: i32) !-> i32 {

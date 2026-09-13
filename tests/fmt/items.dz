@@ -41,7 +41,7 @@ pub struct SpriteBatch {
 pub union Shape {
     Circle { radius: f32 }
     Rect { w: f32, h: f32 }
-    Point
+    Point {}
 }
 
 pub enum Sprite : u16 {

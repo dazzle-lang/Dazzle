@@ -302,7 +302,11 @@ impl<'a> Printer<'a> {
                         let t = self.text(*d).trim_end().to_owned();
                         self.line(&t);
                     }
-                    if v.has_payload {
+                    // `Point {}` declares a variant with no payload; a bare `Point` carries
+                    // the struct of that name (spec §7.5), so the braces are kept.
+                    if v.has_payload && v.fields.is_empty() {
+                        self.line(&format!("{} {{}}", v.name.name));
+                    } else if v.has_payload {
                         let fields: Vec<String> = v
                             .fields
                             .iter()

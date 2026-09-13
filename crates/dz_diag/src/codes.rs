@@ -261,6 +261,13 @@ pub const BAD_BINDING: &str = "DZ0549";
 /// `break` or `continue` outside any loop, or naming a label no enclosing loop has
 /// (spec §10.2).
 pub const JUMP_OUTSIDE_LOOP: &str = "DZ0550";
+/// A bare union variant that names no struct to carry: nothing of that name is in scope, or
+/// it is not a struct, or it is a generic one with nowhere to write the arguments. A variant
+/// with no payload is written `Name {}` (spec §7.5, 18.45).
+pub const BAD_VARIANT: &str = "DZ0551";
+/// A `return`, or `or return`, inside a constructor's `: Base(…)`. The base is built before
+/// the constructor begins, so there is nothing to return from (spec §7.3).
+pub const RETURN_IN_BASE_INIT: &str = "DZ0552";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

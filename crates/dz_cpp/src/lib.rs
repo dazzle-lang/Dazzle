@@ -1212,9 +1212,14 @@ impl<'a> Emitter<'a> {
             .map(|(sym, args)| {
                 let fields: Vec<Ty> = match self.table.get(*sym) {
                     Some(ItemSig::Struct(s)) => self.table.field_types(*sym, args, &s.fields),
+                    // A variant carrying a struct holds it by value (spec §7.5, 18.45).
                     Some(ItemSig::Union { variants }) => variants
                         .iter()
-                        .flat_map(|v| self.table.field_types(*sym, args, &v.fields))
+                        .flat_map(|v| {
+                            let mut types = self.table.field_types(*sym, args, &v.fields);
+                            types.extend(v.carries.map(Ty::plain));
+                            types
+                        })
                         .collect(),
                     _ => Vec::new(),
                 };
@@ -1735,9 +1740,28 @@ impl<'a> Emitter<'a> {
         // switch on the tag. Spec §7.5 marks variant drops `[PROPOSED]`; until they are
         // settled, a payload that owns something is refused rather than leaked.
         for v in &variants {
-            if v.fields.iter().any(|f| self.table.needs_drop(&f.ty)) {
+            let carried = v.carries.map(Ty::plain);
+            if v.fields.iter().any(|f| self.table.needs_drop(&f.ty))
+                || carried.as_ref().is_some_and(|t| self.table.needs_drop(t))
+            {
                 self.file = self.res.symbol(sym).file;
                 self.unsupported(v.span, "a union variant that owns a resource", "owed by M12");
+                return;
+            }
+            // A carried struct lives in a C++ union, which has room only for a type C++ can
+            // copy and build without running anything of the struct's own: no constructor,
+            // `copy`, base or vtable. Those wait on the same decision as variant drops.
+            let special = v.carries.and_then(|c| self.table.struct_sig(c)).is_some_and(|s| {
+                !s.ctors.is_empty() || s.copy.is_some() || s.base.is_some() || s.polymorphic
+            });
+            if special {
+                self.file = self.res.symbol(sym).file;
+                self.unsupported(
+                    v.span,
+                    "a union variant carrying a struct with a constructor, `copy`, base or \
+                     `virtual` method",
+                    "owed by M12",
+                );
                 return;
             }
         }
@@ -1751,7 +1775,7 @@ impl<'a> Emitter<'a> {
         }
         self.header.push_str("    };\n\n");
 
-        for v in &variants {
+        for v in variants.iter().filter(|v| v.carries.is_none()) {
             let _ = writeln!(self.header, "    struct {}_t {{", sanitize(&v.name));
             for f in &v.fields {
                 let ty = self.cpp_ty(&f.ty);
@@ -1764,7 +1788,14 @@ impl<'a> Emitter<'a> {
         let _ = writeln!(self.header, "\n    Kind kind{{Kind::{first}}};");
         self.header.push_str("    union {\n");
         for v in &variants {
-            let _ = writeln!(self.header, "        {n}_t {n};", n = sanitize(&v.name));
+            let n = sanitize(&v.name);
+            // A carried struct by its qualified name: the member has the struct's own name,
+            // and an unqualified one would change meaning inside the class.
+            let ty = match v.carries {
+                Some(c) => self.qualify(c),
+                None => format!("{n}_t"),
+            };
+            let _ = writeln!(self.header, "        {ty} {n};");
         }
         self.header.push_str("    };\n\n");
         // Every payload is trivial (checked above), so one defaulted member suffices to
@@ -1840,21 +1871,37 @@ impl<'a> Emitter<'a> {
     ///
     /// The base call lives in the constructor's own body arena but outside its root block
     /// (spec §7.3, 18.32), so it is rendered here rather than reached by `block_into`.
-    /// Nothing in a base initialiser can need a hoisted statement — it is a call, and its
-    /// arguments are expressions the constructor's parameters are already in scope for.
+    /// An argument built by statements — `: Base(x or 0)` — has nowhere before the
+    /// member-initialiser list to put them, so that argument alone becomes a lambda called in
+    /// place. It captures by reference, since the constructor's parameters are what it reads;
+    /// the checker has refused a `return`, the one statement a lambda would change the
+    /// meaning of.
     fn base_init(&mut self, owner: &BodyOwner) -> String {
         let Some(body) = self.find_body(owner) else { return String::new() };
         let Some(init) = body.base_init else { return String::new() };
         let (pre, text) = self.in_body(body, |e| e.expr(init));
-        if !pre.trim().is_empty() {
-            self.unsupported(
-                body.expr(init).span,
-                "a base initialiser needing statements to build",
-                "owed by M8",
-            );
-            return String::new();
+        if pre.trim().is_empty() {
+            return format!(" : {text}");
         }
-        format!(" : {text}")
+        let hir::ExprKind::Call { callee: hir::Callee::Ctor { owner: base, .. }, args } =
+            &body.expr(init).kind
+        else {
+            return format!(" : {text}");
+        };
+        let target = self.qualify(*base);
+        let mut rendered = Vec::new();
+        for a in args {
+            let moved = !self.table.copyable(body.ty(*a));
+            let (pre, v) = self.in_body(body, |e| e.expr(*a));
+            let v = if moved { format!("::dz::mv({v})") } else { v };
+            if pre.trim().is_empty() {
+                rendered.push(v);
+            } else {
+                let lambda = Self::immediately_invoked(&pre, &v);
+                rendered.push(lambda.replacen("[]()", "[&]()", 1));
+            }
+        }
+        format!(" : {target}({})", rendered.join(", "))
     }
 
     fn emit_body(&mut self, owner: &BodyOwner, head: &str) {
@@ -3021,6 +3068,17 @@ impl<'a> Emitter<'a> {
         // no `return` can appear inside a variant literal's field values.
         let tmp = self.fresh("var");
         let mut out = format!("[&] {{ {ty} {tmp}{{}}; {tmp}.kind = {ty}::Kind::{name}; ");
+        let carries = match self.table.get(owner) {
+            Some(ItemSig::Union { variants }) => variants.get(index).and_then(|v| v.carries),
+            _ => None,
+        };
+        // A carried struct is built whole, so its field defaults run: the union's own
+        // constructor built only its first member, and this one may not be that.
+        if let Some(carried) = carries {
+            let value = self.struct_literal(carried, payload, Ty::plain(carried));
+            let _ = write!(out, "{tmp}.{name} = {value}; return {tmp}; }}()");
+            return out;
+        }
         let fields = match self.table.get(owner) {
             Some(ItemSig::Union { variants }) => variants
                 .get(index)

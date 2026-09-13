@@ -1,0 +1,21 @@
+// expect: DZ0552
+//
+// `or return` in `: Base(…)`: the base is built before the constructor begins, so there is
+// no constructor yet to return from. Reported once, not again as a failure with nowhere
+// to go.
+
+struct Sized {
+    pub w: i32 = 0
+
+    Sized(width: i32) {
+        w = width
+    }
+}
+
+struct Boxed : Sized {
+    Boxed(width: i32?) : Sized(width or return) {}
+}
+
+fn main() {
+    let b = Boxed(none)
+}

@@ -1,6 +1,6 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 222
+assertion_line: 225
 expression: r.hir
 ---
 body const MAX -> void
@@ -1621,6 +1621,12 @@ body ctor Boxed#0 -> void
       field #1: i32
         local _0 self: Boxed
       local _2 d: i32
+body ctor Fallback#0 -> void
+  param _0 self: Fallback
+  param _1 width: i32?
+  param _2 wide: bool
+  block
+    (empty)
 body ctor Explicitly#0 -> void
   param _0 self: Explicitly
   block
@@ -1746,3 +1752,60 @@ body fn inherited_and_overridden_implementations -> i32
           local _0 c: &Circle
         call measure_any: i32
           local _1 s: &Square
+body field-default Walking.0 -> void
+  block
+    float 1: f32
+body method Walking::faster -> Motion?
+  param _0 self: Walking
+  block
+    if: void
+      binary >: bool
+        field #0: f32
+          local _0 self: Walking
+        float 2: f32
+      block
+        return: !
+          none: Motion?
+    return: !
+      union-variant Motion#0: Motion
+        #0
+          binary *: f32
+            field #0: f32
+              local _0 self: Walking
+            float 2: f32
+body fn carried_struct -> f32
+  param _0 m: &mut Motion
+  block
+    let _2 next: Motion?
+      switch: Motion?
+        local _0 m: &mut Motion
+        case #0 bind _1 w
+          block
+            call-method Walking::faster: Motion?
+              local _1 w: &Walking
+        case #1 bind _
+          block
+            return: !
+              float 0: f32
+    let _3 n: Motion
+      or: Motion
+        local _2 next: Motion?
+        return: !
+          float 0: f32
+    assign =
+      local _0 m: &mut Motion
+      local _3 n: Motion
+    return: !
+      switch: f32
+        local _0 m: &mut Motion
+        case #0 bind _4 w
+          block
+            assign +=
+              field #0: f32
+                local _4 w: &mut Walking
+              float 1: f32
+            field #0: f32
+              local _4 w: &mut Walking
+        case #1 bind _
+          block
+            float 0: f32

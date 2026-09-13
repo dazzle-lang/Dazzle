@@ -1,6 +1,6 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 210
+assertion_line: 213
 expression: body
 ---
 error[DZ0502]: `300` does not fit in `u8`
@@ -772,142 +772,158 @@ error[DZ0541]: `Measured` is not this type's base
     │
     = help: a base initialiser constructs the one base the struct declares: write `: Panel(…)` (spec §7.3)
 
-error[DZ0543]: `Measured` has a constructor, so it is not built with a literal
-    ┌─ typeerrors/src/errors.dz:717:13
+error[DZ0552]: a base initialiser cannot `return`
+    ┌─ typeerrors/src/errors.dz:717:57
     │
-717 │     let m = Measured{ w: 2 }
+717 │     ReturnsFromTheBase(width: i32?) : Measured(width or return) {}
+    │                                                         ^^^^^^ the base is built before the constructor begins
+    │
+    = help: give the argument a value to fall back on — `x or 0`, `x or { … }` — or `panic` (spec §7.3)
+
+error[DZ0543]: `Measured` has a constructor, so it is not built with a literal
+    ┌─ typeerrors/src/errors.dz:722:13
+    │
+722 │     let m = Measured{ w: 2 }
     │             ^^^^^^^^^^^^^^^^ `Measured` declares a constructor
     │
     = help: call it: `Measured(…)` (spec §7.2)
 
 error[DZ0545]: `Abstract` is abstract, so there is no value of it
-    ┌─ typeerrors/src/errors.dz:736:34
+    ┌─ typeerrors/src/errors.dz:741:34
     │
-736 │ fn holds_an_abstract_by_value(a: Abstract) -> i32 {
+741 │ fn holds_an_abstract_by_value(a: Abstract) -> i32 {
     │                                  ^^^^^^^^ abstract type by value
     │
     = help: `Abstract::area` is a `virtual fn` with no body — write `&Abstract` or `^Abstract` and pass a type that overrides it (spec §7.3)
 
 error[DZ0545]: `StillAbstract` is abstract and cannot be built
-    ┌─ typeerrors/src/errors.dz:741:13
+    ┌─ typeerrors/src/errors.dz:746:13
     │
-741 │     let a = StillAbstract{}
+746 │     let a = StillAbstract{}
     │             ^^^^^^^^^^^^^^^ `Abstract::area` has no body
     │
     = help: `StillAbstract` inherits `Abstract::area` and does not override it — add `override fn area(…) { … }` to `StillAbstract` (spec §7.3)
 
 error[DZ0544]: `OverridesNothing::missing` overrides nothing
-    ┌─ typeerrors/src/errors.dz:747:21
+    ┌─ typeerrors/src/errors.dz:752:21
     │
-747 │     pub override fn missing(&self) -> i32 { return 0 }
+752 │     pub override fn missing(&self) -> i32 { return 0 }
     │                     ^^^^^^^ no base declares this method
     │
     = help: `override` replaces a base's `virtual fn missing`; without one to replace, drop the `override` and this is an ordinary method (spec §7.3)
 
 error[DZ0544]: `Abstract::fixed` is not `virtual`
-    ┌─ typeerrors/src/errors.dz:753:21
+    ┌─ typeerrors/src/errors.dz:758:21
     │
-727 │     pub fn fixed(&self) -> i32 { return 2 }
+732 │     pub fn fixed(&self) -> i32 { return 2 }
     │            ----- declared here, without `virtual`
     ·
-753 │     pub override fn fixed(&self) -> i32 { return 3 }
+758 │     pub override fn fixed(&self) -> i32 { return 3 }
     │                     ^^^^^ cannot be overridden
     │
     = help: a method is dispatched statically unless it says otherwise — mark `Abstract`'s `virtual fn fixed` to let a derived type replace it (spec §7.3)
 
 error[DZ0544]: `DriftedSignature::label` does not match the method it overrides
-    ┌─ typeerrors/src/errors.dz:759:21
+    ┌─ typeerrors/src/errors.dz:764:21
     │
-726 │     pub virtual fn label(&self) -> i32 { return 1 }
+731 │     pub virtual fn label(&self) -> i32 { return 1 }
     │                    ----- overriding this
     ·
-759 │     pub override fn label(&self, extra: i32) -> i32 { return extra }
+764 │     pub override fn label(&self, extra: i32) -> i32 { return extra }
     │                     ^^^^^ it takes 1 argument(s) where `Abstract::label` takes 0
     │
     = help: an override is reached through a `&Base`, which is compiled against the base's signature — so the two must be the same (spec §7.3)
 
 error[DZ0542]: `label` is already inherited from `Abstract`
-    ┌─ typeerrors/src/errors.dz:765:12
+    ┌─ typeerrors/src/errors.dz:770:12
     │
-726 │     pub virtual fn label(&self) -> i32 { return 1 }
+731 │     pub virtual fn label(&self) -> i32 { return 1 }
     │                    ----- inherited from here
     ·
-765 │     pub fn label(&self) -> i32 { return 9 }
+770 │     pub fn label(&self) -> i32 { return 9 }
     │            ^^^^^ redeclared here
     │
     = help: a name means one thing in a type — write `override fn label` to replace `Abstract`'s, or rename this one (spec §7.3)
 
 error[DZ0506]: field `Abstract::inner` is not visible here
-    ┌─ typeerrors/src/errors.dz:771:18
+    ┌─ typeerrors/src/errors.dz:776:18
     │
-723 │     protected inner: i32 = 0
+728 │     protected inner: i32 = 0
     │               ----- declared here
     ·
-771 │         return a.inner
+776 │         return a.inner
     │                  ^^^^^ private field
     │
     = help: `protected` is visible to `Abstract` and the types that inherit from it, and to nothing else — inherit from `Abstract`, or mark this field `pub` (spec §4, §7.3)
 
 error[DZ0501]: `&Unrelated` does not inherit from `Abstract`
-    ┌─ typeerrors/src/errors.dz:777:28
+    ┌─ typeerrors/src/errors.dz:782:28
     │
-777 │     return Abstract::label(u)
+782 │     return Abstract::label(u)
     │                            ^ not a `Abstract`
     │
     = help: `Abstract::label` is called on a `Abstract` or on something that inherits from one (spec §7.3)
 
 error[DZ0546]: `a_test_that_takes_an_argument` cannot be a test: a test takes no arguments
-    ┌─ typeerrors/src/errors.dz:783:4
+    ┌─ typeerrors/src/errors.dz:788:4
     │
-783 │ fn a_test_that_takes_an_argument(n: i32) {}
+788 │ fn a_test_that_takes_an_argument(n: i32) {}
     │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the runner has nothing to pass
     │
     = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
 
 error[DZ0546]: `a_test_that_returns_a_value` cannot be a test: a test returns nothing
-    ┌─ typeerrors/src/errors.dz:786:4
+    ┌─ typeerrors/src/errors.dz:791:4
     │
-786 │ fn a_test_that_returns_a_value() -> i32 {
+791 │ fn a_test_that_returns_a_value() -> i32 {
     │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the runner has nothing to do with a value
     │
     = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
 
 error[DZ0546]: `a_test_that_is_fallible` cannot be a test: a test is not fallible
-    ┌─ typeerrors/src/errors.dz:791:4
+    ┌─ typeerrors/src/errors.dz:796:4
     │
-791 │ fn a_test_that_is_fallible() !-> i32 {
+796 │ fn a_test_that_is_fallible() !-> i32 {
     │    ^^^^^^^^^^^^^^^^^^^^^^^ report the failure with `panic`, which is what a failing one does
     │
     = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
 
 error[DZ0546]: `a_test_with_type_parameters` cannot be a test: a test has no type parameters
-    ┌─ typeerrors/src/errors.dz:796:4
+    ┌─ typeerrors/src/errors.dz:801:4
     │
-796 │ fn a_test_with_type_parameters<T>() {}
+801 │ fn a_test_with_type_parameters<T>() {}
     │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ there is no instance to run
     │
     = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
 
 error[DZ0547]: a `case` label must be a constant
-    ┌─ typeerrors/src/errors.dz:802:14
+    ┌─ typeerrors/src/errors.dz:807:14
     │
-802 │         case m { return 1 }
+807 │         case m { return 1 }
     │              ^ computed at run time
     │
     = help: a label is a literal, a `const`, or arithmetic on those — something known while compiling. To compare against a value only known at run time, use `if` (spec §10.3)
 
 error[DZ0547]: a `case` on `Shape` names a variant
-    ┌─ typeerrors/src/errors.dz:809:14
+    ┌─ typeerrors/src/errors.dz:814:14
     │
-809 │         case 3 { return 1 }
+814 │         case 3 { return 1 }
     │              ^ not a variant name
     │
     = help: an enum or union is matched by variant: `case Idle`, `case Walking(w)` (spec §10.3)
 
 error[DZ0548]: this value is already matched by an earlier `case`
-    ┌─ typeerrors/src/errors.dz:817:14
+    ┌─ typeerrors/src/errors.dz:822:14
     │
-817 │         case 2 { return 2 }
+822 │         case 2 { return 2 }
     │              ^ matched twice
     │
     = help: an arm runs only for what no earlier arm matched, so this label never would; remove it (spec §10.3)
+
+error[DZ0551]: no struct named `Stopped` for this variant to carry
+    ┌─ typeerrors/src/errors.dz:830:5
+    │
+830 │     Stopped
+    │     ^^^^^^^ not a struct in scope
+    │
+    = help: a variant with no payload is written `Stopped {}`; a bare `Stopped` carries the struct of that name (spec §7.5)

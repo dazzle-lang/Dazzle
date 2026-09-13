@@ -11,7 +11,7 @@ impl Drop for Res {
 }
 union Choice<T> {
     One { value: T }
-    Neither
+    Neither {}
 }
 
 fn count(c: &Choice<Res>) -> i32 {
