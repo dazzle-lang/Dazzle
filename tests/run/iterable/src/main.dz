@@ -1,0 +1,86 @@
+// `for` over a container (spec §10.4, 18.51): `List` and `HashMap` hand out iterators
+// through `Iterable` and `IterableMut`, so a loop reads with `e` or `&e`, writes with
+// `&mut e`, takes a map's entries apart as `k, &v`, counts passes with `indexed()`, and a
+// user container joins in by implementing the two traits.
+
+struct Monster {
+    pub name: str = ""
+    pub hp: i32 = 0
+}
+
+// A container of its own: the three lowest numbers it was given.
+struct Podium {
+    pub m_places: List<i32>
+}
+
+impl Iterable for Podium {
+    type Iter = SliceIter<i32>
+
+    fn iter(&self) -> SliceIter<i32> {
+        return m_places.iter()
+    }
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    for i in 1..6 {
+        xs.push(i * i)
+    }
+    let mut sum = 0
+    for x in xs {
+        sum += x
+    }
+    println("sum {}", sum)
+
+    for &mut x in xs {
+        x += 1
+    }
+    for i, &x in xs.indexed() {
+        if i == 1 {
+            continue
+        }
+        if i == 4 {
+            break
+        }
+        println("  {} -> {}", i, x)
+    }
+
+    let mut monsters = List<Monster>()
+    monsters.push(Monster{ name: "slime", hp: 3 })
+    monsters.push(Monster{ name: "bat", hp: 5 })
+    for &mut m in monsters {
+        m.hp -= 1
+    }
+    for &m in monsters {
+        println("{} has {}", m.name, m.hp)
+    }
+
+    let mut scores = HashMap<str, i32>()
+    scores.insert("ada", 10)
+    scores.insert("grace", 20)
+    scores.insert("linus", 30)
+    for _, &mut v in scores {
+        v *= 2
+    }
+    let mut total = 0
+    let mut names = 0
+    for k, &v in scores {
+        total += v
+        names += k.len as i32
+    }
+    println("total {} name bytes {}", total, names)
+
+    let empty = HashMap<i32, i32>()
+    for k, &v in empty {
+        println("unexpected {} {}", k, v)
+    }
+
+    let mut p = Podium{ m_places: List<i32>() }
+    p.m_places.push(3)
+    p.m_places.push(1)
+    let mut seen = 0
+    for &place in p {
+        seen += place
+    }
+    println("podium {}", seen)
+}

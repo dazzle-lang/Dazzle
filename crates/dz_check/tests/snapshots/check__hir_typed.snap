@@ -21,6 +21,104 @@ body fn hash_combine -> u64
           binary >>: u64
             local _0 seed: u64
             int 2: u64
+body fn assert -> void
+  param _0 cond: bool
+  param _1 msg: str
+  param _2 loc: SourceLocation
+  block
+    if: void
+      local _0 cond: bool
+      block
+        return: !
+    if: void
+      binary ==: bool
+        len: usize
+          local _1 msg: str
+        int 0: usize
+      block
+        builtin panic: !
+          str "assertion failed": str
+          local _2 loc: SourceLocation
+    builtin panic: !
+      str "assertion failed: {}": str
+      local _1 msg: str
+      local _2 loc: SourceLocation
+body field-default SliceIter.1 -> void
+  block
+    int 0: usize
+body ctor SliceIter#0 -> void
+  param _0 self: SliceIter<T>
+  param _1 slice: []T
+  block
+    assign =
+      field #0: []T
+        local _0 self: SliceIter<T>
+      local _1 slice: []T
+body impl#0 method valid -> bool
+  param _0 self: SliceIter<T>
+  block
+    return: !
+      binary <: bool
+        field #1: usize
+          local _0 self: SliceIter<T>
+        len: usize
+          field #0: []T
+            local _0 self: SliceIter<T>
+body impl#0 method get -> &T
+  param _0 self: SliceIter<T>
+  block
+    return: !
+      ref: &T
+        index: T
+          field #0: []T
+            local _0 self: SliceIter<T>
+          field #1: usize
+            local _0 self: SliceIter<T>
+body impl#0 method advance -> void
+  param _0 self: SliceIter<T>
+  block
+    assign +=
+      field #1: usize
+        local _0 self: SliceIter<T>
+      int 1: usize
+body field-default SliceIterMut.1 -> void
+  block
+    int 0: usize
+body ctor SliceIterMut#0 -> void
+  param _0 self: SliceIterMut<T>
+  param _1 slice: []mut T
+  block
+    assign =
+      field #0: []mut T
+        local _0 self: SliceIterMut<T>
+      local _1 slice: []mut T
+body impl#1 method valid -> bool
+  param _0 self: SliceIterMut<T>
+  block
+    return: !
+      binary <: bool
+        field #1: usize
+          local _0 self: SliceIterMut<T>
+        len: usize
+          field #0: []mut T
+            local _0 self: SliceIterMut<T>
+body impl#1 method get -> &mut T
+  param _0 self: SliceIterMut<T>
+  block
+    return: !
+      ref mut: &mut T
+        index: T
+          field #0: []mut T
+            local _0 self: SliceIterMut<T>
+          field #1: usize
+            local _0 self: SliceIterMut<T>
+body impl#1 method advance -> void
+  param _0 self: SliceIterMut<T>
+  block
+    assign +=
+      field #1: usize
+        local _0 self: SliceIterMut<T>
+      int 1: usize
 body defaults Allocator::alloc -> ^mut u8
   param _0 self: Allocator
   param _1 size: usize
@@ -69,7 +167,7 @@ body static TEMP -> void
 body const HEAP_ALIGN -> void
   block
     int 8: usize
-body impl#0 method alloc -> ^mut u8
+body impl#2 method alloc -> ^mut u8
   param _0 self: Heap
   param _1 size: usize
   param _2 align: usize
@@ -127,7 +225,7 @@ body impl#0 method alloc -> ^mut u8
     error
     return: !
       local _7 p: ^mut u8
-body impl#0 method realloc -> ^mut u8
+body impl#2 method realloc -> ^mut u8
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -171,7 +269,7 @@ body impl#0 method realloc -> ^mut u8
           local _5 loc: SourceLocation
     return: !
       local _6 q: ^mut u8
-body impl#0 method free -> void
+body impl#2 method free -> void
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 size: usize
@@ -419,7 +517,7 @@ body method TempArena::owns -> bool
                 int 0: usize
     return: !
       bool false: bool
-body impl#1 method alloc -> ^mut u8
+body impl#3 method alloc -> ^mut u8
   param _0 self: TempArena
   param _1 size: usize
   param _2 align: usize
@@ -467,7 +565,7 @@ body impl#1 method alloc -> ^mut u8
               local _4 start: usize
     return: !
       local _5 p: ^mut u8
-body impl#1 method realloc -> ^mut u8
+body impl#3 method realloc -> ^mut u8
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -545,7 +643,7 @@ body impl#1 method realloc -> ^mut u8
               local _8 kept: usize
     return: !
       local _7 q: ^mut u8
-body impl#1 method free -> void
+body impl#3 method free -> void
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 size: usize
@@ -1196,7 +1294,7 @@ body copy List -> void
         local _0 self: List<T>
       field #1: usize
         local _1 other: &List<T>
-body impl#5 method index -> &T
+body impl#7 method index -> &T
   param _0 self: List<T>
   param _1 i: usize
   block
@@ -1219,7 +1317,21 @@ body impl#5 method index -> &T
               field #0: own ^mut T
                 local _0 self: List<T>
               local _1 i: usize
-body impl#6 method index_mut -> &mut T
+body impl#8 method iter -> SliceIter<T>
+  param _0 self: List<T>
+  block
+    return: !
+      call-ctor SliceIter#0: SliceIter<T>
+        call-method List::as_slice: []T
+          local _0 self: List<T>
+body impl#9 method iter_mut -> SliceIterMut<T>
+  param _0 self: List<T>
+  block
+    return: !
+      call-ctor SliceIterMut#0: SliceIterMut<T>
+        call-method List::as_mut_slice: []mut T
+          local _0 self: List<T>
+body impl#10 method index_mut -> &mut T
   param _0 self: List<T>
   param _1 i: usize
   block
@@ -1424,7 +1536,7 @@ body method String::reserve -> void
         local _1 additional: usize
         int 1: usize
       local _2 loc: SourceLocation
-body impl#7 method eq -> bool
+body impl#11 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -1434,7 +1546,7 @@ body impl#7 method eq -> bool
           local _0 self: String
         call-method String::as_str: str
           local _1 rhs: &String
-body impl#8 method hash -> u64
+body impl#12 method hash -> u64
   param _0 self: String
   block
     return: !
@@ -2244,6 +2356,191 @@ body method HashMap::grow_to -> void
         type-query V::size: usize
       type-query V::align: usize
       local _2 loc: SourceLocation
+body field-default HashMapIter.0 -> void
+  block
+    null: ^HashMap<K, V>
+body field-default HashMapIter.1 -> void
+  block
+    int 0: usize
+body ctor HashMapIter#0 -> void
+  param _0 self: HashMapIter<K, V>
+  param _1 map: &HashMap<K, V>
+  block
+    assign =
+      field #0: ^HashMap<K, V>
+        local _0 self: HashMapIter<K, V>
+      local _1 map: &HashMap<K, V>
+    assign =
+      field #1: usize
+        local _0 self: HashMapIter<K, V>
+      call first_entry_from: usize
+        local _1 map: &HashMap<K, V>
+        int 0: usize
+body impl#13 method valid -> bool
+  param _0 self: HashMapIter<K, V>
+  block
+    let _1 map: &HashMap<K, V>
+      or: &HashMap<K, V>
+        field #0: ^HashMap<K, V>
+          local _0 self: HashMapIter<K, V>
+        return: !
+          bool false: bool
+    return: !
+      binary <: bool
+        field #1: usize
+          local _0 self: HashMapIter<K, V>
+        call-method HashMap::slot_count: usize
+          local _1 map: &HashMap<K, V>
+body impl#13 method get -> (&K, &V)
+  param _0 self: HashMapIter<K, V>
+  block
+    let _1 map: &HashMap<K, V>
+      or: &HashMap<K, V>
+        field #0: ^HashMap<K, V>
+          local _0 self: HashMapIter<K, V>
+        unreachable
+    return: !
+      tuple: (&K, &V)
+        or: &K
+          call-method HashMap::key_at: ^K
+            local _1 map: &HashMap<K, V>
+            field #1: usize
+              local _0 self: HashMapIter<K, V>
+          unreachable
+        or: &V
+          call-method HashMap::value_at: ^V
+            local _1 map: &HashMap<K, V>
+            field #1: usize
+              local _0 self: HashMapIter<K, V>
+          unreachable
+body impl#13 method advance -> void
+  param _0 self: HashMapIter<K, V>
+  block
+    let _1 map: &HashMap<K, V>
+      or: &HashMap<K, V>
+        field #0: ^HashMap<K, V>
+          local _0 self: HashMapIter<K, V>
+        return: !
+    assign =
+      field #1: usize
+        local _0 self: HashMapIter<K, V>
+      call first_entry_from: usize
+        local _1 map: &HashMap<K, V>
+        binary +: usize
+          field #1: usize
+            local _0 self: HashMapIter<K, V>
+          int 1: usize
+body field-default HashMapIterMut.0 -> void
+  block
+    null: ^mut HashMap<K, V>
+body field-default HashMapIterMut.1 -> void
+  block
+    int 0: usize
+body ctor HashMapIterMut#0 -> void
+  param _0 self: HashMapIterMut<K, V>
+  param _1 map: &mut HashMap<K, V>
+  block
+    assign =
+      field #1: usize
+        local _0 self: HashMapIterMut<K, V>
+      call first_entry_from: usize
+        local _1 map: &mut HashMap<K, V>
+        int 0: usize
+    assign =
+      field #0: ^mut HashMap<K, V>
+        local _0 self: HashMapIterMut<K, V>
+      local _1 map: &mut HashMap<K, V>
+body impl#14 method valid -> bool
+  param _0 self: HashMapIterMut<K, V>
+  block
+    let _1 map: &mut HashMap<K, V>
+      or: &mut HashMap<K, V>
+        field #0: ^mut HashMap<K, V>
+          local _0 self: HashMapIterMut<K, V>
+        return: !
+          bool false: bool
+    return: !
+      binary <: bool
+        field #1: usize
+          local _0 self: HashMapIterMut<K, V>
+        call-method HashMap::slot_count: usize
+          local _1 map: &mut HashMap<K, V>
+body impl#14 method get -> (&K, &mut V)
+  param _0 self: HashMapIterMut<K, V>
+  block
+    let _1 map: &mut HashMap<K, V>
+      or: &mut HashMap<K, V>
+        field #0: ^mut HashMap<K, V>
+          local _0 self: HashMapIterMut<K, V>
+        unreachable
+    return: !
+      tuple: (&K, &mut V)
+        or: &K
+          call-method HashMap::key_at: ^K
+            local _1 map: &mut HashMap<K, V>
+            field #1: usize
+              local _0 self: HashMapIterMut<K, V>
+          unreachable
+        or: &mut V
+          call-method HashMap::value_at_mut: ^mut V
+            local _1 map: &mut HashMap<K, V>
+            field #1: usize
+              local _0 self: HashMapIterMut<K, V>
+          unreachable
+body impl#14 method advance -> void
+  param _0 self: HashMapIterMut<K, V>
+  block
+    let _1 map: &mut HashMap<K, V>
+      or: &mut HashMap<K, V>
+        field #0: ^mut HashMap<K, V>
+          local _0 self: HashMapIterMut<K, V>
+        return: !
+    assign =
+      field #1: usize
+        local _0 self: HashMapIterMut<K, V>
+      call first_entry_from: usize
+        local _1 map: &mut HashMap<K, V>
+        binary +: usize
+          field #1: usize
+            local _0 self: HashMapIterMut<K, V>
+          int 1: usize
+body fn first_entry_from -> usize
+  param _0 map: &HashMap<K, V>
+  param _1 slot: usize
+  block
+    let _2 i: usize
+      local _1 slot: usize
+    while
+      binary &&: bool
+        binary <: bool
+          local _2 i: usize
+          call-method HashMap::slot_count: usize
+            local _0 map: &HashMap<K, V>
+        binary ==: bool
+          call-method HashMap::key_at: ^K
+            local _0 map: &HashMap<K, V>
+            local _2 i: usize
+          null: ^K
+      block
+        assign +=
+          local _2 i: usize
+          int 1: usize
+    return: !
+      local _2 i: usize
+body impl#15 method iter -> HashMapIter<K, V>
+  param _0 self: HashMap<K, V>
+  block
+    return: !
+      call-ctor HashMapIter#0: HashMapIter<K, V>
+        ref: &HashMap<K, V>
+          local _0 self: HashMap<K, V>
+body impl#16 method iter_mut -> HashMapIterMut<K, V>
+  param _0 self: HashMap<K, V>
+  block
+    return: !
+      call-ctor HashMapIterMut#0: HashMapIterMut<K, V>
+        ref mut: &mut HashMap<K, V>
+          local _0 self: HashMap<K, V>
 body fn key_hash -> u64
   param _0 key: &K
   block
@@ -3250,8 +3547,7 @@ body fn switch_on_constants -> i32
           block
             int 2: i32
         case  bind _
-          unary -: i32
-            int 1: i32
+          int -1: i32
           block
             int 3: i32
         default
@@ -3357,12 +3653,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#14 method describe -> str
+body impl#22 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#15 method weight -> i32
+body impl#23 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -3506,7 +3802,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#16 method eq -> bool
+body impl#24 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -3516,7 +3812,7 @@ body impl#16 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#17 method cmp -> Ordering
+body impl#25 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -3583,7 +3879,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#18 method add -> Vec2
+body impl#26 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -3601,7 +3897,7 @@ body impl#18 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#19 method mul -> Vec2
+body impl#27 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -3695,7 +3991,7 @@ body fn formatting -> void
       local _0 x: i32
       local _0 x: i32
       local _1 f: f32
-body impl#20 method valid -> bool
+body impl#28 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -3704,13 +4000,13 @@ body impl#20 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#20 method get -> i32
+body impl#28 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#20 method advance -> void
+body impl#28 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -3897,7 +4193,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#21 method mul -> Scale
+body impl#29 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -3908,7 +4204,7 @@ body impl#21 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#22 method mul -> f32
+body impl#30 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -3924,7 +4220,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#23 method label -> str
+body impl#31 method label -> str
   param _0 self: f32
   block
     return: !
@@ -3935,7 +4231,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#24 method label -> str
+body impl#32 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -3948,7 +4244,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#25 method shout -> str
+body impl#33 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -4270,7 +4566,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#28 method measure -> i32
+body impl#36 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -4288,7 +4584,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#29 method measure -> i32
+body impl#37 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -4556,13 +4852,26 @@ body fn slices_and_text -> usize
           call-method IndexMut::index_mut: &mut i32
             local _6 b: List<i32>
             int 0: usize
+body fn require -> void
+  param _0 ok: bool
+  param _1 what: str
+  param _2 loc: SourceLocation
+  block
+    if: void
+      unary !: bool
+        local _0 ok: bool
+      block
+        builtin panic: !
+          str "missing {}": str
+          local _1 what: str
+          local _2 loc: SourceLocation
 body field-default Tile.0 -> void
   block
     int 0: i32
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#30 method eq -> bool
+body impl#38 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -4578,7 +4887,7 @@ body impl#30 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#31 method hash -> u64
+body impl#39 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -4589,6 +4898,185 @@ body impl#31 method hash -> u64
         call-method Hash::hash: u64
           field #1: i32
             local _0 self: Tile
+body fn takes_optional -> i32
+  param _0 n: i32?
+  block
+    return: !
+      or: i32
+        local _0 n: i32?
+        int 0: i32
+body fn optionals -> i32
+  param _0 alive: bool
+  param _1 l: Layer
+  block
+    let _2 hp: i32?
+      if: i32?
+        local _0 alive: bool
+        block
+          int 100: i32
+        block
+          block-value: i32?
+            block
+              none: i32?
+    let _3 slot: i32?
+      int 5: i32
+    assign =
+      local _3 slot: i32?
+      int 7: i32
+    let _4 layer: Layer?
+      enum-variant Layer#1: Layer
+    let _5 picked: Layer?
+      switch: Layer?
+        local _1 l: Layer
+        case #2 bind _
+          block
+            none: Layer?
+        default
+          block
+            local _1 l: Layer
+    let _6 other: Layer?
+      if: Layer?
+        local _0 alive: bool
+        block
+          none: Layer?
+        block
+          block-value: Layer
+            block
+              enum-variant Layer#2: Layer
+    return: !
+      binary +: i32
+        binary +: i32
+          binary +: i32
+            binary +: i32
+              binary +: i32
+                or: i32
+                  local _2 hp: i32?
+                  int 0: i32
+                or: i32
+                  local _3 slot: i32?
+                  int 0: i32
+              call takes_optional: i32
+                int 3: i32
+            cast: i32
+              or: Layer
+                local _4 layer: Layer?
+                local _1 l: Layer
+          cast: i32
+            or: Layer
+              local _5 picked: Layer?
+              local _1 l: Layer
+        cast: i32
+          or: Layer
+            local _6 other: Layer?
+            local _1 l: Layer
+body field-default Heading.0 -> void
+  block
+    int 0: i32
+body impl#40 method neg -> Heading
+  param _0 self: Heading
+  block
+    return: !
+      struct-lit Heading: Heading
+        #0
+          unary -: i32
+            field #0: i32
+              local _0 self: Heading
+body impl#41 method eq -> bool
+  param _0 self: Heading
+  param _1 rhs: &Heading
+  block
+    return: !
+      binary ==: bool
+        field #0: i32
+          local _0 self: Heading
+        field #0: i32
+          local _1 rhs: &Heading
+body fn negations -> bool
+  param _0 h: Heading
+  block
+    let _1 lowest: i8
+      int -128: i8
+    let _2 back: Heading
+      call-method Neg::neg: Heading
+        local _0 h: Heading
+    return: !
+      binary &&: bool
+        call-method Eq::eq: bool
+          local _2 back: Heading
+          struct-lit Heading: Heading
+            #0
+              unary -: i32
+                field #0: i32
+                  local _0 h: Heading
+        binary <: bool
+          local _1 lowest: i8
+          int 0: i8
+body fn iterating_containers -> i32
+  param _0 names: &HashMap<str, i32>
+  block
+    let _1 xs: List<i32>
+      call-ctor List#0: List<i32>
+        int 4: usize
+    call-method List::push: void
+      local _1 xs: List<i32>
+      int 1: i32
+    for _2 x
+      call-method IterableMut::iter_mut: SliceIterMut<i32>
+        local _1 xs: List<i32>
+      block
+        assign +=
+          local _2 x: &mut i32
+          int 1: i32
+    let _3 total: i32
+      int 0: i32
+    for _4 x
+      call-method Iterable::iter: SliceIter<i32>
+        local _1 xs: List<i32>
+      block
+        assign +=
+          local _3 total: i32
+          local _4 x: i32
+    for _, _5 v (tuple)
+      call-method Iterable::iter: HashMapIter<str, i32>
+        local _0 names: &HashMap<str, i32>
+      block
+        assign +=
+          local _3 total: i32
+          deref: i32
+            local _5 v: &i32
+    return: !
+      local _3 total: i32
+body fn enum_traits -> bool
+  param _0 l: Layer
+  block
+    let _1 by_layer: HashMap<Layer, i32>
+      call-ctor HashMap#0: HashMap<Layer, i32>
+    call-method HashMap::insert: void
+      local _1 by_layer: HashMap<Layer, i32>
+      local _0 l: Layer
+      int 1: i32
+    let _2 top: Layer
+      call largest: Layer
+        local _0 l: Layer
+        enum-variant Layer#2: Layer
+    return: !
+      binary ||: bool
+        binary ||: bool
+          call-method HashMap::contains: bool
+            local _1 by_layer: HashMap<Layer, i32>
+            ref: &Layer
+              local _2 top: Layer
+          binary ==: bool
+            call-method Hash::hash: u64
+              local _0 l: Layer
+            call-method Hash::hash: u64
+              local _2 top: Layer
+        binary ==: bool
+          call-method Ord::cmp: Ordering
+            local _0 l: Layer
+            ref: &Layer
+              local _2 top: Layer
+          enum-variant Ordering#0: Ordering
 body fn hashing -> bool
   param _0 name: str
   block
@@ -4624,6 +5112,16 @@ body fn hashing -> bool
           int 1: i32
         #1
           int 2: i32
+    call assert: void
+      binary ==: bool
+        local _3 three: i32
+        int 3: i32
+    call assert: void
+      binary >: bool
+        len: usize
+          local _0 name: str
+        int 0: usize
+      str "a name": str
     let _6 found: bool
       binary &&: bool
         binary &&: bool

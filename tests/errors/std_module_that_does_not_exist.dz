@@ -1,0 +1,7 @@
+// expect: DZ0303
+//
+// Only the standard library's own modules are under `std::` (spec §14.4).
+
+import std::physics
+
+fn main() {}

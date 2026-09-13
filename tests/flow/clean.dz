@@ -80,6 +80,35 @@ fn copies_are_fine(t: Tally) -> i32 {
     return a.n + b.n
 }
 
+// A union is copyable when every variant is (spec §7.5, 18.52): `Tally` has a `copy`.
+pub union Counted {
+    Nothing {}
+    Tally
+}
+
+fn union_copies_are_fine(c: Counted) -> bool {
+    let a = c
+    let b = c
+    return switch a {
+        case Nothing { true }
+        case Tally { switch b { case Nothing { false } case Tally { true } } }
+    }
+}
+
+// A move-only union moves like any move-only value.
+pub union Owned {
+    Nothing {}
+    Res
+}
+
+fn union_moves_are_fine(o: Owned) -> bool {
+    let kept = move(o)
+    return switch kept {
+        case Nothing { false }
+        case Res(&r) { r.live() }
+    }
+}
+
 // Reading through a reference is not a move.
 fn borrowing_is_not_moving(r: &Res) -> bool {
     return r.live()

@@ -1,0 +1,6 @@
+[module]
+name    = "optionals"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

@@ -1,0 +1,31 @@
+sqrt 1.41421 floor 2 ceil 3 round -3
+clamp 3 lerp 2.5 min 1 max 2
+sin(pi/2) true atan2 true deg 180
+f64 true pow 1024 fract 0.75 sign -1
+nan true finite true
+wrapping 4 127 300
+checked 255 true
+saturating 255 -128 0
+abs 7 -128 pow 81 sign -1
+clamp 10 min 2 pot true false
+vec2 len 5 dot 3 perp -4 3
+normalized 0.6 0.8 zero 0
+rotated true true
+cross 0 0 1
+ops 1.5 1.5 0 neg -1.5
+distance 2 lerp 0.5 eq true
+reflect 1 1
+grid 2 2 manhattan 7
+quat rotate true
+quat compose true
+slerp true
+quat to mat4 true
+order 12 22
+vector ignores translation 1
+column-major 10
+inverse true true det true
+singular true
+transpose true
+look_at true true true
+perspective near plane depth true
+orthographic true true

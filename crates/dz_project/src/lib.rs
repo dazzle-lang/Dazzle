@@ -389,6 +389,64 @@ impl Workspace {
         self.modules[importer.0 as usize].cpp_imports.push((requested.to_owned(), id));
         id
     }
+
+    /// Make the standard-library module `name` part of the workspace, if it exists, and a
+    /// dependency of `importer` (spec §14.4). Loaded once however many modules import it.
+    /// Returns the module and whether it was new, so its source can be parsed; `None` for a
+    /// name the standard library does not have, which resolution then reports as it would
+    /// any unknown module.
+    pub fn add_std(
+        &mut self,
+        importer: ModuleId,
+        name: &str,
+        map: &mut SourceMap,
+    ) -> Option<(ModuleId, bool)> {
+        let (_, path, text) = STD_MODULES.iter().find(|(n, _, _)| *n == name)?;
+        let existing = self.modules.iter().find(|m| m.name == name).map(|m| m.id);
+        let (id, fresh) = match existing {
+            Some(id) => (id, false),
+            None => {
+                let id = ModuleId(self.modules.len() as u32);
+                let path = PathBuf::from(path);
+                let file = map.add(path.clone(), (*text).to_owned());
+                self.modules.push(Module {
+                    id,
+                    name: name.to_owned(),
+                    name_span: Span::DUMMY,
+                    version: env!("CARGO_PKG_VERSION").to_owned(),
+                    root_dir: PathBuf::from("<std>"),
+                    manifest: file,
+                    manifest_path: path.clone(),
+                    sources: vec![path],
+                    deps: vec![Dependency {
+                        alias: PRELUDE_MODULE.to_owned(),
+                        alias_span: Span::DUMMY,
+                        module: self.prelude,
+                        implicit: true,
+                        flags: Vec::new(),
+                    }],
+                    flags: Vec::new(),
+                    build: self.module(self.root).build.clone(),
+                    cpp: CppConfig::default(),
+                    embedded_source: Some(text),
+                    foreign: None,
+                    cpp_imports: Vec::new(),
+                });
+                (id, true)
+            }
+        };
+        let importer = &mut self.modules[importer.0 as usize];
+        if importer.id != id && !importer.deps.iter().any(|d| d.module == id) {
+            importer.deps.push(Dependency {
+                alias: name.to_owned(),
+                alias_span: Span::DUMMY,
+                module: id,
+                implicit: true,
+                flags: Vec::new(),
+            });
+        }
+        Some((id, fresh))
+    }
 }
 
 impl Module {
@@ -512,6 +570,24 @@ pub const PRELUDE_MODULE: &str = "dz";
 /// The prelude's source, compiled into the binary. Public so the language server can show
 /// it: a definition in the prelude needs a file an editor can open.
 pub const PRELUDE_SOURCE: &str = include_str!("prelude.dz");
+
+/// The namespace the standard library's modules live under (spec §14.4).
+pub const STD_ROOT: &str = "std";
+
+/// The standard library's modules beyond the prelude, carried by the compiler like it: each
+/// name, the pseudo-path its source is shown under, and the source. Unlike the prelude, a
+/// module here is loaded only when a file says `import std::…` for it (spec §14.4).
+pub const STD_MODULES: &[(&str, &str, &str)] =
+    &[("std::math", "<std>/math.dz", include_str!("std/math.dz"))];
+
+/// Every source the compiler carries rather than reads — the prelude and the standard
+/// library — as `(pseudo-path, text)`. The language server and a debugger are shown copies
+/// of these, since the pseudo-paths name nothing on disk.
+pub fn embedded_sources() -> Vec<(&'static str, &'static str)> {
+    let mut out = vec![("<prelude>/dz.dz", PRELUDE_SOURCE)];
+    out.extend(STD_MODULES.iter().map(|(_, path, text)| (*path, *text)));
+    out
+}
 
 struct Loader<'a> {
     map: &'a mut SourceMap,
@@ -691,6 +767,16 @@ impl<'a> Loader<'a> {
                     "a name is an identifier, or several joined by `::` — for example \
                      \"engine\" or \"engine::render\" (spec §3.2)",
                 ),
+            );
+        } else if name == STD_ROOT || name.starts_with(&format!("{STD_ROOT}::")) {
+            // `import std::math` must always mean the compiler's (spec §14.4).
+            self.diags.push(
+                Diagnostic::error(
+                    codes::MANIFEST_BAD_VALUE,
+                    format!("`{name}` is reserved for the standard library"),
+                )
+                .at(file, *span, "a reserved name")
+                .with_help("`std` and every name under it belong to the standard library; choose another name (spec §14.4)"),
             );
         }
         (name.clone(), *span)

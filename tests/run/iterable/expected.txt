@@ -1,0 +1,8 @@
+sum 55
+  0 -> 2
+  2 -> 10
+  3 -> 17
+slime has 2
+bat has 4
+total 120 name bytes 13
+podium 4

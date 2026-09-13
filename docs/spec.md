@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 45
+**Version:** 0.1 — **unreleased**, revision 48
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -1094,6 +1094,10 @@ Enums are named integers with an optional backing type (`i32` by default). They 
 implicitly convertible to that backing type; use `as`. A `switch` on an enum must be
 exhaustive or carry a `default` arm.
 
+Like the integers they are, enums implement **`Eq`, `Hash` and `Ord`** without an `impl`:
+`==` and `<` compare values, so an enum is a `HashMap` key and satisfies `T: Ord`.
+`[DECIDED — §18.54]`
+
 **A variant may be written `.Selected` wherever the enum is already known**, which is most
 places worth writing one:
 
@@ -1167,8 +1171,10 @@ the union holds without a word. `[DECIDED — §18.45]`
 
 A union's size is its largest variant plus a tag, aligned. `Shape::Kind` is an
 automatically generated enum of the variant names, so `s.kind()` gives you something cheap
-to store or compare. Unions drop their active variant correctly, and assigning a new
-variant drops the old one first. `[PROPOSED]`
+to store or compare. **A union owns its active payload**: a variant may hold a `String`, a
+`List` or a struct with a `drop`, and the union drops whichever variant is active when it
+dies, drops the old variant before a new one is assigned, and moves by moving the active
+payload. A union is copyable only when every variant is. `[DECIDED — §18.52]`
 
 Untagged/overlapping storage, should interop ever need it, is a separate `#[raw] union`.
 
@@ -1572,6 +1578,10 @@ fn read_header(f: &mut File) !-> Header {
 }
 ```
 
+- The same conversion happens **wherever a `T?` is expected**: `let hp: i32? = 100`, an
+  argument to a `T?` parameter, an assignment, and the arms of an `if` or `switch` whose
+  other arms are `T?` or `none` — `if alive { 100 } else { none }` is an `i32?`. A `T?` never
+  becomes a `T` without `or`. `[DECIDED — §18.53]`
 - `none` is a keyword literal, valid only where a `T?` is expected.
 - `error(...)` builds an `Error`, and is valid only in a `!->` function. It takes an
   optional code, a format string, and arguments (§12.9). **It never allocates.**
@@ -1801,6 +1811,12 @@ Most things that go wrong in a game are not recoverable and should not be modell
 errors. `panic("...")` aborts with a message, a `SourceLocation`, and a stack trace in debug
 builds.
 
+The location is the `panic`'s own line, unless a `SourceLocation` is passed as the **last
+argument**, after the format arguments: `panic("missing {}", what, loc)`. That is how a
+helper reports its caller's line — it takes `loc: SourceLocation = #location` (§12.7) and
+hands it on. A `SourceLocation` cannot be formatted, so it is never mistaken for a value.
+`assert(cond, msg = "")` is the prelude's helper of this kind. `[DECIDED]`
+
 Panics are for: out-of-bounds indexing, integer overflow in debug, failed assertions,
 exhausted fixed-size pools, and violated invariants. Errors are for: I/O, parsing,
 user-supplied data, and anything crossing a boundary you do not control.
@@ -1983,6 +1999,25 @@ own so the loop variable may shadow anything outside it:
     }
 }
 ```
+
+**`<xs as an iterator>`** is `xs` itself when it implements `Iterate`. Otherwise it is
+`xs.iter()` from **`Iterable`**, or `xs.iter_mut()` from **`IterableMut`** when a binding is
+`&mut` — the prelude traits a container implements to hand out a fresh iterator, since an
+iterator keeps its position in itself and a container must not:
+
+```dz
+pub trait Iterable {
+    type Iter : Iterate
+    fn iter(&self) -> Iter
+}
+pub trait IterableMut {
+    type IterMut : Iterate
+    fn iter_mut(&mut self) -> IterMut
+}
+```
+
+`List` and `HashMap` implement both — a `HashMap`'s `Item` is `(&K, &V)`, so `for k, &v in
+map` — and a generic function can take `C: Iterable` and loop over it. `[DECIDED — §18.51]`
 
 `e` is bound from `Item`, read off the implementer. `advance` runs after the body on every
 completed pass, and `continue` jumps to it rather than past it, so a `continue` cannot spin
@@ -2264,9 +2299,9 @@ which is exactly the `#src_code` behaviour you asked for (and the same trick as 
 `[DECIDED — §18.48]`
 
 ```dz
-pub fn assert(cond: bool, msg: str, loc: SourceLocation = #location) {
+pub fn assert(cond: bool, msg: str = "", loc: SourceLocation = #location) {
     if !cond {
-        panic("assertion failed at {}:{}: {}", loc.file, loc.line, msg)
+        panic("assertion failed: {}", msg, loc)   // reports `loc`, the caller's line (§9.8)
     }
 }
 
@@ -2621,8 +2656,10 @@ adds or replaces, dropping a replaced value; `replace(k, v)` returns it as a `V?
 A lookup takes the key by reference and follows §9.1 — `get(&k)` is a `^V` and `get_mut(&k)`
 a `^mut V`, `null` when the key is absent, so `let hp = health.get(&id) or return`.
 `remove(&k)` returns the value as a `V?`; `contains`, `len`, `is_empty`, `capacity`,
-`clear`, `reserve`. Every entry is visited by slot: `for s in 0..m.slot_count()` with
-`m.key_at(s)`, `m.value_at(s)` or `m.value_at_mut(s)`, each `null` for an empty slot. It is
+`clear`, `reserve`. A loop visits every entry: `for k, &v in m`, or `for k, &mut v in m`
+to change the values (§10.4) — keys stay read-only. By slot works too: `for s in
+0..m.slot_count()` with `m.key_at(s)`, `m.value_at(s)` or `m.value_at_mut(s)`, each `null`
+for an empty slot. It is
 move-only unless `K` and `V` are both copyable. Keys are found by linear probing, the table
 doubles at three quarters full, and removal leaves no markers behind.
 
@@ -2655,6 +2692,48 @@ one. They are the only place in the language where a value can be observed in a
 not-yet-constructed state, so all three are `unsafe` (§5.2), as are `memcpy` and `free`.
 `move_out` is how `List::pop` returns an element, and how growing a list of move-only
 elements carries them to the new memory. `[DECIDED — §18.16, §18.50]`
+
+### 14.4 The standard library: `std::math`
+
+Beyond the prelude, the standard library's modules live under **`std::`** and are carried
+by the compiler. One is part of a build only when some file imports it, and needs no
+`[dependencies]` entry:
+
+```dz
+import std::math                      // math::Vec3, math::PI
+import std::math::{ Vec3, Mat4 }      // Vec3, Mat4
+```
+
+The name `std` and every name under it are reserved: a project named `std::anything` is an
+error. `[DECIDED — §18.55]`
+
+**`std::math`** holds:
+
+- **Constants** `PI`, `TAU`, `E` (`f32`) and `PI_F64`.
+- **`Float`**, implemented by `f32` and `f64`, and **`Integer`**, implemented by every integer
+  type, both without an `impl`. Their methods are called on the number: `x.sqrt()`,
+  `angle.sin()`, `t.lerp(to, 0.5)`, `hp.clamp(0, max)`, `seed.wrapping_mul(31)`,
+  `a.checked_add(b)` (a `T?`), `n.saturating_sub(1)`. Plain integer arithmetic makes no
+  promise on overflow; these methods are how a program says what should happen. A method
+  of the wrong kind of number is an error that says which kind has it.
+- **Vectors** `Vec2`, `Vec3`, `Vec4` of `f32`, and **`Vec2i`**, **`Vec3i`** of `i32`, with
+  `+`, `-`, unary `-`, `==`, `* scalar` and `/ scalar` (component-wise `*` for the float
+  ones), and methods: `dot`, `length`, `normalized`, `distance`, `lerp`, `min`, `max`,
+  `cross` and `reflect` on `Vec3`, `perp`, `angle` and `rotated` on `Vec2`. The integer
+  vectors are `Hash`, so a grid position keys a `HashMap`.
+- **`Quat`**, a rotation, identity at its defaults: `Quat::from_axis_angle`,
+  `Quat::from_euler`, `rotate` (also `q * v`), `q * q`, `normalized`, `conjugate`, `slerp`,
+  `to_mat4`.
+- **`Mat4`**, **column-major** and acting on column vectors: `m * v`, `projection * view *
+  model`, `cols[3]` the translation — the OpenGL, GLSL and glm convention, right-handed.
+  `Mat4::identity`, `translation`, `scaling`, `rotation`, `perspective` and `orthographic`
+  (into OpenGL's clip space), `look_at`, `transform_point`, `transform_vector`, `transpose`,
+  `determinant`, and `inverse` (a `Mat4?`, `none` when singular).
+
+Methods rather than free functions throughout, since there is no overloading (§18.5) and
+one name must work across `f32`, `f64` and every vector: `a.lerp(b, t)` is the same call on
+each. A generic `Vec3<T>` waits on associated-type projection in generic code.
+`[DECIDED — §18.55]`
 
 ---
 
@@ -3239,6 +3318,11 @@ be exactly what reload needs, and must stay that way:
 | 18.49 | Evaluation order, and pointers as numbers | **Arguments left to right, receiver first**, as they are written — C++'s unspecified order is not inherited, so a program means one thing on every compiler. Since r44 the same for operands, indexing, slice and range bounds, and literal elements, with struct fields in written order; **assignment evaluates its value before its place**, as C++17 and Rust do. **`^T as usize` is allowed, `usize as ^T` only inside `unsafe`**: reading an address is harmless and allocators need it to align and to hash; making a pointer from a number is how memory gets corrupted (§7.2, §10.6) |
 | 18.48 | Compile-time conditionals, and where a location comes from | **`#if FLAG { … } #else #if … { … } #else { … }` around declarations, members and statements, over registered flags only.** Built-ins `DEBUG`/`RELEASE`/`SHIPPING` and `OS_WINDOWS`/`OS_LINUX`/`OS_MACOS`; a package's own under `[flags]`; a dependency's read as `dep::FLAG` and turned on by the dependent's `flags = [...]` or `--flag`. An unknown flag is an error (DZ0309). The inactive branch is parsed but not checked. Chosen over checking both branches, which would forbid naming platform APIs absent on the host, and over free-form defines, which let a typo compile nothing. **An intrinsic default argument is the caller's**: `loc: SourceLocation = #location` records the call site, column 0 (§12.7, §12.10) |
 | 18.47 | The standard allocators | **`Allocators::Global` and `Allocators::Temp`, no `Arena` for now; memory tracking is opt-in.** Global is `malloc`/`free`; Temp is a per-thread arena reset where the program chooses. The `Allocator` trait takes `&mut self` — an arena changes on every allocation — and its methods end in `loc: SourceLocation = #location`, which containers forward, so tracking reports name user code. Tracking is off in every build mode until `[build] track_memory = true` or `--track-memory` turns it on, and then reports leaks at exit, double and foreign frees, a free whose size or alignment differs from the allocation, and poisons Temp's memory on reset so a stale read shows. The allocator types are in the prelude; larger stdlib areas are imported modules (§14) |
+| 18.51 | How `for` gets an iterator from a container | **Two prelude traits, `Iterable` and `IterableMut`**, each naming its iterator as an associated type: `fn iter(&self) -> Iter` and `fn iter_mut(&mut self) -> IterMut`. `for` over a value that is not itself `Iterate` calls `iter()`, or `iter_mut()` when a binding is `&mut`. Chosen over finding `iter()` by name, which states no contract and cannot be a bound: `fn total<C: Iterable>(c: &C)` must be writable (§8.5, §10.4) |
+| 18.52 | A union variant that owns something | **§7.5's proposal adopted: a union owns its active payload.** It is dropped with the union, dropped before another variant is assigned, and moved by moving the active payload. A union is copyable only when every variant is. This is also what lets a variant carry a struct with a constructor, `copy`, `drop`, base or `virtual` method (§7.5) |
+| 18.53 | `T` where a `T?` is wanted | **Converts, as at `return`.** A `T` becomes a `T?` wherever a `T?` is expected — a `let` with that type, an argument, an assignment — and where `if` or `switch` arms are joined and some arm is already a `T?` or `none`. Never the other way: a `T?` to a `T` still takes `or`. Chosen over `return`-only, which made state-machine `switch`es write every arm out as an optional (§9.1) |
+| 18.55 | The standard library's math | **A compiler-carried module `std::math`, loaded by `import std::math`; the name `std` reserved.** Chosen over the prelude, which would put `Vec3` and `PI` in every file, and over a plain `math`, which a project's own module could take. `f32` vectors, `Quat` and `Mat4`, plus `Vec2i`/`Vec3i` for grids — a generic `Vec3<T>` would wait on associated-type projection. **Methods everywhere**, scalars included through `Float` and `Integer` (`x.sqrt()`, `n.wrapping_add(m)`), since without overloading a free `lerp` could not serve `f32` and `Vec3` both. **Column-major matrices** on column vectors, as OpenGL, GLSL and glm, so a `Mat4` is `projection * view * model` and its floats are in the order a shader wants (§14.4) |
+| 18.54 | Traits an enum has without an `impl` | **`Eq`, `Hash` and `Ord`, as the integers they are.** Equality and order compare values — declaration order when values are implicit — and a hash is the value's. So an enum is a `HashMap` key and satisfies `T: Ord` with nothing written (§7.4) |
 
 ### 18.2 Still open
 
@@ -3410,6 +3494,9 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r48 | 2026-09-13 | **`std::math`** (§14.4, 18.55): the first standard-library module beyond the prelude, carried by the compiler and loaded by `import std::math`; `std` and names under it are reserved for the standard library. `Float` and `Integer` methods on numbers (`x.sqrt()`, `n.wrapping_add(m)`, `checked_add`, `saturating_sub`), `Vec2`/`Vec3`/`Vec4`, `Vec2i`/`Vec3i`, `Quat` and a column-major `Mat4`. Also: **unary `-` on a struct is its `Neg`** (§11.2), **`==` accepts a temporary on its right** as well as a place, and **the most negative value of a signed type is a literal** — `let x: i8 = -128` was rejected because `128` was checked before the minus (§2.5). |
+| r47 | 2026-09-13 | Four design decisions, 18.51–18.54. **`Iterable` and `IterableMut`** (§10.4): `for` over a container calls `iter()`, or `iter_mut()` for a `&mut` binding; `List` and `HashMap` implement both, and `C: Iterable` is a bound generic code can loop over. **A union owns its active payload** (§7.5): variants may hold resources, dropped with the union or when another variant is assigned; a union is copyable only when every variant is. **`T` converts to `T?` wherever a `T?` is expected** (§9.1) — `let`, arguments, assignment, and `if`/`switch` arms joined with a `T?` or `none` — not only at `return`. **Enums implement `Eq`, `Hash` and `Ord`** without an `impl` (§7.4). Decided now, implemented in the order: enums, `T?`, unions, iteration. |
+| r46 | 2026-09-13 | **`assert` is an ordinary prelude function**, `assert(cond: bool, msg: str = "", loc: SourceLocation = #location)`, no longer a builtin; the message is optional. **`panic` takes a location as its last argument** (§9.8): `panic("missing {}", what, loc)` reports `loc` instead of its own line, which is how `assert` — and any helper taking `loc = #location` — names its caller's line. |
 | r45 | 2026-09-13 | **`HashMap<K: Hash + Eq, V>` and `Hash`** in the prelude (§14.2). `insert` adds or replaces and drops the old value; `replace` returns it as a `V?`; `get`/`get_mut` return `^V`/`^mut V`, `null` when absent (§9.1); `remove` returns a `V?`; entries are visited by slot. **`Hash`** (`fn hash(&self) -> u64`) and **`Eq`** are built in for integers, `bool`, `char` and `str` — `str` gains `Eq` — and **prelude trait methods can be called on those types directly**: `n.hash()`, `s.eq(&t)`, `a.cmp(&b)`. Floats are not `Hash`. `hash_combine(seed, h)` combines hashes for a struct's `impl Hash`. **`&` of a value that is not a place** (`&7`, `&make()`) refers to a temporary living to the end of the block, and a literal there takes its type from the reference's context. |
 | r44 | 2026-09-13 | **Evaluation order covers every operand, not only arguments** (§7.2, 18.49). Both sides of a binary operator, a container and its index, slice and range bounds, and tuple and array elements are evaluated left to right; a struct or union literal evaluates its fields in the order they are written, not the order declared. **Assignment evaluates the value first, then the place** — `xs[next()] = compute()` runs `compute()` before `next()` — for `=` and compound assignment alike. Why: `read_u8(r) << 8 \| read_u8(r)` decoded bytes backwards on some compilers, and a rule that stopped at arguments would have left that to C++. |
 | r43 | 2026-09-13 | **The prelude's growable array is `List<T>`**, renamed from `Buffer<T>` (§14, §14.2). Same type, same methods; only the name changes. "Buffer" reads as raw bytes or a fixed block, which a growable list of elements is not, and `List<T>` is what a C# or Unity programmer already calls it. A program that declares its own `List` shadows the prelude's, as before. The examples that teach how to *write* a container (§0.1, §6, §8) keep a user-defined `Buffer<T>`. |

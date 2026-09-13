@@ -337,9 +337,13 @@ pub struct TypeTable {
     /// copy constructor, so each struct has at most one of each and they are found by struct.
     drop_impls: HashMap<SymbolId, usize>,
     copy_impls: HashMap<SymbolId, usize>,
-    /// The prelude's traits by name, for the ones the primitives implement (spec §11.2).
+    /// The prelude's traits by name, for the ones the primitives implement (spec §11.2),
+    /// and `std::math`'s `Float` and `Integer` when it is part of the build (spec §14.4).
     prelude_names: HashMap<SymbolId, String>,
 }
+
+/// The standard-library module whose `Float` and `Integer` traits the numbers implement.
+pub const STD_MATH: &str = "std::math";
 
 impl TypeTable {
     pub fn get(&self, id: SymbolId) -> Option<&ItemSig> {
@@ -551,9 +555,9 @@ impl TypeTable {
                     s.drop.is_some()
                         || self.field_types(*id, args, &s.fields).iter().any(|t| self.needs_drop(t))
                 }
-                Some(ItemSig::Union { variants }) => variants.iter().any(|v| {
-                    self.field_types(*id, args, &v.fields).iter().any(|t| self.needs_drop(t))
-                }),
+                Some(ItemSig::Union { variants }) => variants
+                    .iter()
+                    .any(|v| self.payload_types(*id, args, v).iter().any(|t| self.needs_drop(t))),
                 _ => false,
             },
             // Inside a generic body `T` may be anything, so it is assumed to need dropping.
@@ -643,8 +647,9 @@ impl TypeTable {
                             })
                         }
                     }
+                    // A union is copyable only when every variant is (spec §7.5, 18.52).
                     Some(ItemSig::Union { variants }) => variants.iter().all(|v| {
-                        self.field_types(*id, args, &v.fields)
+                        self.payload_types(*id, args, v)
                             .iter()
                             .all(|t| self.copyable_guarded(t, stack))
                     }),
@@ -667,6 +672,28 @@ impl TypeTable {
         let map: HashMap<u32, Ty> =
             self.type_params(sym).iter().map(|p| p.param.id).zip(args.iter().cloned()).collect();
         fields.iter().map(|f| ty::substitute(&f.ty, &map)).collect()
+    }
+
+    /// What a union variant holds, as types: its fields as the instance `args` sees them,
+    /// or the struct a bare variant carries (spec §7.5, 18.45). A carried struct has no
+    /// field list of its own on the variant, so reading `fields` alone missed it — and with
+    /// it any `drop` it has.
+    pub fn payload_types(&self, sym: SymbolId, args: &[Ty], v: &VariantSig) -> Vec<Ty> {
+        let mut types = self.field_types(sym, args, &v.fields);
+        types.extend(v.carries.map(Ty::plain));
+        types
+    }
+
+    /// Whether a union needs special members that switch on its tag: some variant has a
+    /// payload C++ cannot copy, build or destroy without running code (spec §7.5, 18.52).
+    pub fn union_is_trivial(&self, sym: SymbolId, args: &[Ty]) -> bool {
+        let Some(ItemSig::Union { variants }) = self.get(sym) else { return true };
+        variants.iter().all(|v| {
+            let special = v.carries.and_then(|c| self.struct_sig(c)).is_some_and(|s| {
+                !s.ctors.is_empty() || s.copy.is_some() || s.base.is_some() || s.polymorphic
+            });
+            !special && self.payload_types(sym, args, v).iter().all(|t| self.trivially_copyable(t))
+        })
     }
 
     /// Spec §5.5's `is_trivially_copyable`: no `drop`, no `copy`, and every field trivially
@@ -692,9 +719,7 @@ impl TypeTable {
                             .all(|t| !matches!(t, Ty::OwnPtr { .. }) && self.trivially_copyable(t))
                 }
                 Some(ItemSig::Union { variants }) => variants.iter().all(|v| {
-                    self.field_types(*sym, args, &v.fields)
-                        .iter()
-                        .all(|t| self.trivially_copyable(t))
+                    self.payload_types(*sym, args, v).iter().all(|t| self.trivially_copyable(t))
                 }),
                 _ => true,
             },
@@ -803,7 +828,12 @@ pub fn check(
     cx.table.copy_trait = cx.prelude_trait("Copy");
     cx.table.drop_trait = cx.prelude_trait("Drop");
     for (i, s) in res.symbols.iter().enumerate() {
-        if s.module == res.prelude && s.kind == SymbolKind::Trait {
+        // `std::math`'s `Float` and `Integer` are the machine's numbers' as the prelude's
+        // operator traits are, so they are looked up the same way (spec §14.4).
+        let std_numeric = s.kind == SymbolKind::Trait
+            && matches!(s.name.as_str(), "Float" | "Integer")
+            && ws.module(s.module).name == STD_MATH;
+        if (s.module == res.prelude && s.kind == SymbolKind::Trait) || std_numeric {
             cx.table.prelude_names.insert(SymbolId(i as u32), s.name.clone());
         }
     }

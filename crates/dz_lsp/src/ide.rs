@@ -74,11 +74,21 @@ fn is_pseudo(path: &Path) -> bool {
     path.to_string_lossy().starts_with('<')
 }
 
-/// The prelude file the analysis parsed and checked. Look it up through the parsed files,
-/// not the source map: the map holds the prelude's text more than once, and only one of
-/// those ids has a tree, declarations and bodies.
+/// The prelude file the analysis parsed and checked.
 pub fn prelude_file(a: &Analysis) -> Option<FileId> {
-    a.files.values().flatten().map(|f| f.file).find(|&f| is_pseudo(a.map.get(f).path()))
+    embedded_file(a, "<prelude>/dz.dz")
+}
+
+/// The embedded file at `pseudo` (`<std>/math.dz`) that the analysis parsed and checked, if
+/// this build includes it. Looked up through the parsed files, not the source map: the map
+/// may hold an embedded text more than once, and only one of those ids has a tree,
+/// declarations and bodies.
+pub fn embedded_file(a: &Analysis, pseudo: &str) -> Option<FileId> {
+    a.files
+        .values()
+        .flatten()
+        .map(|f| f.file)
+        .find(|&f| a.map.get(f).path().to_string_lossy().replace('\\', "/") == pseudo)
 }
 
 // ---------------------------------------------------------------------------

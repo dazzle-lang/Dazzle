@@ -891,6 +891,67 @@ fn index_without_index(p: Plain) -> i32 {
     return p[0]
 }
 
+// §9.8: `panic`'s location is not a value to format, so the placeholder has no argument.
+fn located_panic(loc: SourceLocation) {
+    panic("at {}", loc)
+}
+
+// §12.7: `assert` is an ordinary function, and its condition is a `bool`.
+fn assert_needs_a_bool(n: i32) {
+    assert(n)
+}
+
+// §11.2: unary `-` on a struct needs its `Neg`. §2.5: one past the most negative `i8`.
+fn negate_without_neg(p: Plain) -> Plain {
+    return -p
+}
+
+fn below_i8() -> i8 {
+    return -129
+}
+
+// §10.4, 18.51: writing through a loop needs `IterableMut`, and a list behind `&` is
+// read-only.
+struct Readings {
+    pub values: List<i32>
+}
+
+impl Iterable for Readings {
+    type Iter = SliceIter<i32>
+
+    fn iter(&self) -> SliceIter<i32> {
+        return values.iter()
+    }
+}
+
+fn write_through_iterable(r: Readings) {
+    for &mut v in r {
+        v = 0
+    }
+}
+
+fn write_through_shared_list(xs: &List<i32>) {
+    for &mut x in xs {
+        x = 0
+    }
+}
+
+// §9.1, 18.53: a `T` becomes a `T?`, never the reverse; and arms that are all `none` say
+// nothing about which `T?` they are.
+fn optional_is_not_a_value(o: i32?) -> i32 {
+    let n: i32 = o
+    return n
+}
+
+fn only_nones(alive: bool) {
+    let x = if alive { none } else { none }
+}
+
+// §7.4, 18.54: an enum is compared and hashed as an integer, but not added as one.
+fn enum_is_not_arithmetic(l: Layer) -> bool {
+    return l + l == l
+}
+
 // §14.2: a float is not `Hash` — `NaN != NaN` — so it cannot be a `HashMap` key.
 fn float_key() -> usize {
     let m = HashMap<f32, i32>()

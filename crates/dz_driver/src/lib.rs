@@ -144,6 +144,7 @@ pub fn analyse_for(
         files.insert(module.id, parsed);
     }
 
+    import_std(&mut ws, &mut files, &mut map, &mut diags);
     import_headers(&mut ws, &files, &mut map, &mut diags);
 
     // Only the active branch of each `#if` goes on to resolution (spec §12.10). Skipped
@@ -195,6 +196,60 @@ pub fn analyse_for(
 
     diags.sort_by_position();
     Analysis { map, ws: Some(ws), files, resolution, hir, table, mono, diags, parsed_cleanly }
+}
+
+/// `import std::math` (spec §14.4): the standard library's modules are carried by the
+/// compiler, and one becomes part of the workspace — parsed like any module, and a
+/// dependency of each module that imports it — only when some file asks for it. Repeated
+/// until nothing new is added, since a standard module may import another.
+fn import_std(
+    ws: &mut Workspace,
+    files: &mut HashMap<ModuleId, Vec<ParsedFile>>,
+    map: &mut SourceMap,
+    diags: &mut Diagnostics,
+) {
+    use dz_ast::ImportKind;
+
+    let mut pending: Vec<ModuleId> = ws.modules().map(|m| m.id).collect();
+    while let Some(id) = pending.pop() {
+        let wanted: Vec<String> = files
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .flat_map(|pf| &pf.ast.imports)
+            .filter_map(|i| match &i.kind {
+                ImportKind::Module { path, .. } | ImportKind::Selective { path, .. } => Some(
+                    path.segments
+                        .iter()
+                        .map(|s| s.name.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join("::"),
+                ),
+                _ => None,
+            })
+            .filter(|name| name.starts_with(&format!("{}::", dz_project::STD_ROOT)))
+            .collect();
+        for name in wanted {
+            let Some((std_id, fresh)) = ws.add_std(id, &name, map) else { continue };
+            if !fresh {
+                continue;
+            }
+            // One source, already in the map as the module's "manifest": parsed under that
+            // same id, so the file has one identity rather than two.
+            let file = ws.module(std_id).manifest;
+            let mut parsed = Vec::new();
+            {
+                let text = map.get(file).text().to_owned();
+                let lexed = dz_lex::lex(file, &text);
+                let parsed_file = dz_parse::parse(file, &text, &lexed.tokens);
+                diags.extend(lexed.diagnostics);
+                diags.extend(parsed_file.diagnostics);
+                parsed.push(ParsedFile { file, ast: parsed_file.ast });
+            }
+            files.insert(std_id, parsed);
+            pending.push(std_id);
+        }
+    }
 }
 
 /// `import cpp` (spec §15.1): read each imported header through libclang, with the flags

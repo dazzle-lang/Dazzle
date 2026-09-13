@@ -509,6 +509,9 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
         }
 
         (Ty::Optional(a), Ty::Optional(b)) => assignable(a, b),
+        // A `T` is the success case of a `T?` wherever one is wanted, as at `return` (spec
+        // §9.1, 18.53). Never the reverse: a `T?` becomes a `T` only through `or`.
+        (Ty::Optional(a), b) => assignable(a, b),
         (Ty::Fallible(a), Ty::Fallible(b)) => assignable(a, b),
 
         (Ty::Array { len: m, elem: a }, Ty::Array { len: n, elem: b }) => {
@@ -538,6 +541,17 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
     }
 }
 
+/// The placeholder type of a `none` arm whose `T?` is not known until its `if` or
+/// `switch` joins the arms: an optional of nothing (spec §9.1, 18.53). The checker replaces
+/// it before the body is finished, or reports that the `none` has no type.
+pub fn pending_none() -> Ty {
+    Ty::Optional(Rc::new(Ty::Never))
+}
+
+pub fn is_pending_none(t: &Ty) -> bool {
+    matches!(t, Ty::Optional(inner) if matches!(**inner, Ty::Never))
+}
+
 /// The type two branches of the same expression settle on, if they agree.
 pub fn join(a: &Ty, b: &Ty) -> Option<Ty> {
     if matches!(a, Ty::Never) {
@@ -552,12 +566,34 @@ pub fn join(a: &Ty, b: &Ty) -> Option<Ty> {
     if a == b {
         return Some(a.clone());
     }
+    // A `none` arm still waiting for its type takes the other arm's (spec §9.1, 18.53).
+    for (pending, other) in [(a, b), (b, a)] {
+        if is_pending_none(pending) {
+            return match other {
+                Ty::Void => None,
+                Ty::Optional(_) => Some(other.clone()),
+                _ => Some(Ty::Optional(Rc::new(other.defaulted()))),
+            };
+        }
+    }
     // One side still untyped: take the concrete one.
     if a.is_untyped_literal() && assignable(b, a) {
         return Some(b.clone());
     }
     if b.is_untyped_literal() && assignable(a, b) {
         return Some(a.clone());
+    }
+    // `if alive { 100 } else { none }`: an arm that is a `T` joins one that is a `T?`, and
+    // the whole is a `T?` (spec §9.1, 18.53).
+    if let Ty::Optional(inner) = a {
+        if !matches!(b, Ty::Optional(_)) && assignable(inner, b) {
+            return Some(a.clone());
+        }
+    }
+    if let Ty::Optional(inner) = b {
+        if !matches!(a, Ty::Optional(_)) && assignable(inner, a) {
+            return Some(b.clone());
+        }
     }
     None
 }

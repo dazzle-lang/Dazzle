@@ -1,0 +1,25 @@
+// Spec §7.5, 18.52: a union owns its active payload, so a union with a move-only variant —
+// here one carrying a struct with a `drop` — is itself move-only, and copying it without
+// `move` is the same mistake as copying the struct.
+// expect: DZ0403
+
+pub struct Res {
+    m_p: own ^mut i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+
+pub union Slot {
+    Empty {}
+    Res
+}
+
+fn copied(s: Slot) -> bool {
+    let other = s
+    return switch other {
+        case Empty { false }
+        case Res { true }
+    }
+}

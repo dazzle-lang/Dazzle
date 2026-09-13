@@ -217,6 +217,26 @@ fn fastish_hash(s: &str) -> u64 {
     h
 }
 
+/// `std` belongs to the standard library (spec §14.4): a project cannot take the name, or
+/// `import std::math` could mean something other than the compiler's.
+#[test]
+fn a_module_cannot_be_named_under_std() {
+    for name in ["std", "std::math", "std::mine"] {
+        let dir = std::env::temp_dir().join(format!("dz_resolve_std_{}", name.replace("::", "_")));
+        let _ = std::fs::create_dir_all(dir.join("src"));
+        std::fs::write(
+            dir.join("dazzle.toml"),
+            format!("[module]\nname = \"{name}\"\nsources = [\"src/**/*.dz\"]\n"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/a.dz"), "fn f() {}\n").unwrap();
+        let r = check(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(r.codes.contains(&dz_diag::codes::MANIFEST_BAD_VALUE), "{name}:\n{}", r.rendered);
+        assert!(r.rendered.contains("reserved for the standard library"), "{}", r.rendered);
+    }
+}
+
 #[test]
 fn builtin_types_and_functions_resolve() {
     let codes = check_snippet(

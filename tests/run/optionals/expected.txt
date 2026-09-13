@@ -1,0 +1,10 @@
+100 -1 5 7
+9 0
+drop 0
+drop 0
+got 3
+busy 2
+drop 3
+drop 0
+drop 0
+drop 0
