@@ -3,6 +3,561 @@ source: crates/dz_check/tests/check.rs
 assertion_line: 227
 expression: r.hir
 ---
+body defaults Allocator::alloc -> ^mut u8
+  param _0 self: Allocator
+  param _1 size: usize
+  param _2 align: usize
+  param _3 loc: SourceLocation
+  block
+    (empty)
+body defaults Allocator::realloc -> ^mut u8
+  param _0 self: Allocator
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  param _5 loc: SourceLocation
+  block
+    (empty)
+body defaults Allocator::free -> void
+  param _0 self: Allocator
+  param _1 p: ^mut u8
+  param _2 size: usize
+  param _3 align: usize
+  param _4 loc: SourceLocation
+  block
+    (empty)
+body const Allocators::Global -> void
+  block
+    block-value: &mut Heap
+      block
+        ref mut: &mut Heap
+          static HEAP: Heap
+body const Allocators::Temp -> void
+  block
+    block-value: &mut TempArena
+      block
+        ref mut: &mut TempArena
+          static TEMP: TempArena
+body static HEAP -> void
+  block
+    struct-lit Heap: Heap
+body static TEMP -> void
+  block
+    struct-lit TempArena: TempArena
+      #0 (default)
+      #1 (default)
+      #2 (default)
+body const HEAP_ALIGN -> void
+  block
+    int 8: usize
+body impl#0 method alloc -> ^mut u8
+  param _0 self: Heap
+  param _1 size: usize
+  param _2 align: usize
+  param _3 loc: SourceLocation
+  block
+    let _7 p: ^mut u8
+      if: ^mut u8
+        binary <=: bool
+          local _2 align: usize
+          const HEAP_ALIGN: usize
+        block
+          block-value: ^mut u8
+            block
+              builtin alloc: ^mut u8
+                local _1 size: usize
+                local _2 align: usize
+        block
+          block-value: ^mut u8
+            block
+              block-value: ^mut u8
+                block
+                  let _4 raw: ^mut u8
+                    builtin alloc: ^mut u8
+                      binary +: usize
+                        binary +: usize
+                          local _1 size: usize
+                          local _2 align: usize
+                        const HEAP_ALIGN: usize
+                      const HEAP_ALIGN: usize
+                  let _5 first: usize
+                    binary +: usize
+                      cast: usize
+                        local _4 raw: ^mut u8
+                      const HEAP_ALIGN: usize
+                  let _6 at: usize
+                    binary *: usize
+                      binary /: usize
+                        binary -: usize
+                          binary +: usize
+                            local _5 first: usize
+                            local _2 align: usize
+                          int 1: usize
+                        local _2 align: usize
+                      local _2 align: usize
+                  assign =
+                    index: ^mut u8
+                      cast: ^mut ^mut u8
+                        binary -: usize
+                          local _6 at: usize
+                          const HEAP_ALIGN: usize
+                      int 0: usize
+                    local _4 raw: ^mut u8
+                  cast: ^mut u8
+                    local _6 at: usize
+    error
+    return: !
+      local _7 p: ^mut u8
+body impl#0 method realloc -> ^mut u8
+  param _0 self: Heap
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  param _5 loc: SourceLocation
+  block
+    let _6 q: ^mut u8
+      call-method Allocator::alloc: ^mut u8
+        local _0 self: Heap
+        local _3 new_size: usize
+        local _4 align: usize
+        local _5 loc: SourceLocation
+    if: void
+      binary !=: bool
+        local _1 p: ^mut u8
+        null: ^mut u8
+      block
+        let _7 kept: usize
+          if: usize
+            binary <: bool
+              local _2 old_size: usize
+              local _3 new_size: usize
+            block
+              local _2 old_size: usize
+            block
+              block-value: usize
+                block
+                  local _3 new_size: usize
+        block-value: void
+          block
+            builtin memcpy: void
+              local _6 q: ^mut u8
+              local _1 p: ^mut u8
+              local _7 kept: usize
+        call-method Allocator::free: void
+          local _0 self: Heap
+          local _1 p: ^mut u8
+          local _2 old_size: usize
+          local _4 align: usize
+          local _5 loc: SourceLocation
+    return: !
+      local _6 q: ^mut u8
+body impl#0 method free -> void
+  param _0 self: Heap
+  param _1 p: ^mut u8
+  param _2 size: usize
+  param _3 align: usize
+  param _4 loc: SourceLocation
+  block
+    if: void
+      binary ==: bool
+        local _1 p: ^mut u8
+        null: ^mut u8
+      block
+        return: !
+    error
+    if: void
+      binary <=: bool
+        local _3 align: usize
+        const HEAP_ALIGN: usize
+      block
+        block-value: void
+          block
+            builtin free: void
+              local _1 p: ^mut u8
+      block
+        block-value: void
+          block
+            block-value: void
+              block
+                builtin free: void
+                  index: ^mut u8
+                    cast: ^mut ^mut u8
+                      binary -: usize
+                        cast: usize
+                          local _1 p: ^mut u8
+                        const HEAP_ALIGN: usize
+                    int 0: usize
+body const TEMP_HEADER -> void
+  block
+    int 16: usize
+body const TEMP_CHUNK -> void
+  block
+    int 65536: usize
+body field-default TempArena.0 -> void
+  block
+    null: ^mut u8
+body field-default TempArena.1 -> void
+  block
+    int 0: usize
+body field-default TempArena.2 -> void
+  block
+    int 0: usize
+body method TempArena::reset -> void
+  param _0 self: TempArena
+  block
+    if: void
+      binary ==: bool
+        field #0: ^mut u8
+          local _0 self: TempArena
+        null: ^mut u8
+      block
+        return: !
+    block-value: void
+      block
+        let _1 chunk: ^mut u8
+          field #0: ^mut u8
+            local _0 self: TempArena
+        let _2 prev: ^mut u8
+          index: ^mut u8
+            cast: ^mut ^mut u8
+              local _1 chunk: ^mut u8
+            int 0: usize
+        while
+          binary !=: bool
+            local _2 prev: ^mut u8
+            null: ^mut u8
+          block
+            error
+            builtin free: void
+              local _1 chunk: ^mut u8
+            assign =
+              local _1 chunk: ^mut u8
+              local _2 prev: ^mut u8
+            assign =
+              local _2 prev: ^mut u8
+              index: ^mut u8
+                cast: ^mut ^mut u8
+                  local _1 chunk: ^mut u8
+                int 0: usize
+        error
+        assign =
+          field #0: ^mut u8
+            local _0 self: TempArena
+          local _1 chunk: ^mut u8
+        assign =
+          field #2: usize
+            local _0 self: TempArena
+          index: usize
+            cast: ^mut usize
+              local _1 chunk: ^mut u8
+            int 1: usize
+        assign =
+          field #1: usize
+            local _0 self: TempArena
+          const TEMP_HEADER: usize
+body method TempArena::used -> usize
+  param _0 self: TempArena
+  block
+    if: void
+      binary <: bool
+        field #1: usize
+          local _0 self: TempArena
+        const TEMP_HEADER: usize
+      block
+        return: !
+          int 0: usize
+    return: !
+      binary -: usize
+        field #1: usize
+          local _0 self: TempArena
+        const TEMP_HEADER: usize
+body method TempArena::grow -> void
+  param _0 self: TempArena
+  param _1 size: usize
+  param _2 align: usize
+  block
+    let _3 wanted: usize
+      binary +: usize
+        binary +: usize
+          const TEMP_HEADER: usize
+          local _2 align: usize
+        local _1 size: usize
+    let _4 cap: usize
+      if: usize
+        binary >: bool
+          local _3 wanted: usize
+          const TEMP_CHUNK: usize
+        block
+          local _3 wanted: usize
+        block
+          block-value: usize
+            block
+              const TEMP_CHUNK: usize
+    block-value: void
+      block
+        let _5 chunk: ^mut u8
+          builtin alloc: ^mut u8
+            local _4 cap: usize
+            type-query usize::align: usize
+        assign =
+          index: ^mut u8
+            cast: ^mut ^mut u8
+              local _5 chunk: ^mut u8
+            int 0: usize
+          field #0: ^mut u8
+            local _0 self: TempArena
+        assign =
+          index: usize
+            cast: ^mut usize
+              local _5 chunk: ^mut u8
+            int 1: usize
+          local _4 cap: usize
+        assign =
+          field #0: ^mut u8
+            local _0 self: TempArena
+          local _5 chunk: ^mut u8
+    assign =
+      field #2: usize
+        local _0 self: TempArena
+      local _4 cap: usize
+    assign =
+      field #1: usize
+        local _0 self: TempArena
+      const TEMP_HEADER: usize
+body method TempArena::aligned -> usize
+  param _0 self: TempArena
+  param _1 align: usize
+  block
+    let _2 base: usize
+      cast: usize
+        field #0: ^mut u8
+          local _0 self: TempArena
+    let _3 at: usize
+      binary +: usize
+        local _2 base: usize
+        field #1: usize
+          local _0 self: TempArena
+    return: !
+      binary -: usize
+        binary *: usize
+          binary /: usize
+            binary -: usize
+              binary +: usize
+                local _3 at: usize
+                local _1 align: usize
+              int 1: usize
+            local _1 align: usize
+          local _1 align: usize
+        local _2 base: usize
+body method TempArena::owns -> bool
+  param _0 self: TempArena
+  param _1 p: ^mut u8
+  block
+    let _2 at: usize
+      cast: usize
+        local _1 p: ^mut u8
+    let _3 chunk: ^mut u8
+      field #0: ^mut u8
+        local _0 self: TempArena
+    while
+      binary !=: bool
+        local _3 chunk: ^mut u8
+        null: ^mut u8
+      block
+        let _4 start: usize
+          cast: usize
+            local _3 chunk: ^mut u8
+        let _5 cap: usize
+          block-value: usize
+            block
+              index: usize
+                cast: ^mut usize
+                  local _3 chunk: ^mut u8
+                int 1: usize
+        if: void
+          binary &&: bool
+            binary >=: bool
+              local _2 at: usize
+              binary +: usize
+                local _4 start: usize
+                const TEMP_HEADER: usize
+            binary <: bool
+              local _2 at: usize
+              binary +: usize
+                local _4 start: usize
+                local _5 cap: usize
+          block
+            return: !
+              bool true: bool
+        assign =
+          local _3 chunk: ^mut u8
+          block-value: ^mut u8
+            block
+              index: ^mut u8
+                cast: ^mut ^mut u8
+                  local _3 chunk: ^mut u8
+                int 0: usize
+    return: !
+      bool false: bool
+body impl#1 method alloc -> ^mut u8
+  param _0 self: TempArena
+  param _1 size: usize
+  param _2 align: usize
+  param _3 _loc: SourceLocation
+  block
+    let _4 start: usize
+      call-method TempArena::aligned: usize
+        local _0 self: TempArena
+        local _2 align: usize
+    if: void
+      binary ||: bool
+        binary ==: bool
+          field #0: ^mut u8
+            local _0 self: TempArena
+          null: ^mut u8
+        binary >: bool
+          binary +: usize
+            local _4 start: usize
+            local _1 size: usize
+          field #2: usize
+            local _0 self: TempArena
+      block
+        call-method TempArena::grow: void
+          local _0 self: TempArena
+          local _1 size: usize
+          local _2 align: usize
+        assign =
+          local _4 start: usize
+          call-method TempArena::aligned: usize
+            local _0 self: TempArena
+            local _2 align: usize
+    assign =
+      field #1: usize
+        local _0 self: TempArena
+      binary +: usize
+        local _4 start: usize
+        local _1 size: usize
+    let _5 p: ^mut u8
+      block-value: &mut u8
+        block
+          ref mut: &mut u8
+            index: u8
+              field #0: ^mut u8
+                local _0 self: TempArena
+              local _4 start: usize
+    return: !
+      local _5 p: ^mut u8
+body impl#1 method realloc -> ^mut u8
+  param _0 self: TempArena
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  param _5 loc: SourceLocation
+  block
+    if: void
+      binary &&: bool
+        binary !=: bool
+          local _1 p: ^mut u8
+          null: ^mut u8
+        binary !=: bool
+          field #0: ^mut u8
+            local _0 self: TempArena
+          null: ^mut u8
+      block
+        let _6 offset: usize
+          binary -: usize
+            cast: usize
+              local _1 p: ^mut u8
+            cast: usize
+              field #0: ^mut u8
+                local _0 self: TempArena
+        if: void
+          binary &&: bool
+            binary ==: bool
+              binary +: usize
+                local _6 offset: usize
+                local _2 old_size: usize
+              field #1: usize
+                local _0 self: TempArena
+            binary <=: bool
+              binary +: usize
+                local _6 offset: usize
+                local _3 new_size: usize
+              field #2: usize
+                local _0 self: TempArena
+          block
+            assign =
+              field #1: usize
+                local _0 self: TempArena
+              binary +: usize
+                local _6 offset: usize
+                local _3 new_size: usize
+            return: !
+              local _1 p: ^mut u8
+    let _7 q: ^mut u8
+      call-method Allocator::alloc: ^mut u8
+        local _0 self: TempArena
+        local _3 new_size: usize
+        local _4 align: usize
+        local _5 loc: SourceLocation
+    if: void
+      binary !=: bool
+        local _1 p: ^mut u8
+        null: ^mut u8
+      block
+        let _8 kept: usize
+          if: usize
+            binary <: bool
+              local _2 old_size: usize
+              local _3 new_size: usize
+            block
+              local _2 old_size: usize
+            block
+              block-value: usize
+                block
+                  local _3 new_size: usize
+        block-value: void
+          block
+            builtin memcpy: void
+              local _7 q: ^mut u8
+              local _1 p: ^mut u8
+              local _8 kept: usize
+    return: !
+      local _7 q: ^mut u8
+body impl#1 method free -> void
+  param _0 self: TempArena
+  param _1 p: ^mut u8
+  param _2 size: usize
+  param _3 align: usize
+  param _4 loc: SourceLocation
+  block
+    error
+body drop TempArena -> void
+  param _0 self: TempArena
+  block
+    let _1 chunk: ^mut u8
+      field #0: ^mut u8
+        local _0 self: TempArena
+    while
+      binary !=: bool
+        local _1 chunk: ^mut u8
+        null: ^mut u8
+      block
+        block-value: void
+          block
+            let _2 prev: ^mut u8
+              index: ^mut u8
+                cast: ^mut ^mut u8
+                  local _1 chunk: ^mut u8
+                int 0: usize
+            builtin free: void
+              local _1 chunk: ^mut u8
+            assign =
+              local _1 chunk: ^mut u8
+              local _2 prev: ^mut u8
 body const MAX -> void
   block
     int 4096: i32
@@ -799,12 +1354,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#3 method describe -> str
+body impl#6 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#4 method weight -> i32
+body impl#7 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -948,7 +1503,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#5 method eq -> bool
+body impl#8 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -958,7 +1513,7 @@ body impl#5 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#6 method cmp -> Ordering
+body impl#9 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -1025,7 +1580,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#7 method add -> Vec2
+body impl#10 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -1043,7 +1598,7 @@ body impl#7 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#8 method mul -> Vec2
+body impl#11 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -1137,7 +1692,7 @@ body fn formatting -> void
       local _0 x: i32
       local _0 x: i32
       local _1 f: f32
-body impl#9 method valid -> bool
+body impl#12 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -1146,13 +1701,13 @@ body impl#9 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#9 method get -> i32
+body impl#12 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#9 method advance -> void
+body impl#12 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -1339,7 +1894,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#10 method mul -> Scale
+body impl#13 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -1350,7 +1905,7 @@ body impl#10 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#11 method mul -> f32
+body impl#14 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -1366,7 +1921,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#12 method label -> str
+body impl#15 method label -> str
   param _0 self: f32
   block
     return: !
@@ -1377,7 +1932,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#13 method label -> str
+body impl#16 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -1390,7 +1945,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#14 method shout -> str
+body impl#17 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -1712,7 +2267,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#17 method measure -> i32
+body impl#20 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -1730,7 +2285,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#18 method measure -> i32
+body impl#21 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -1903,3 +2458,37 @@ body fn statics -> f32
     return: !
       field #0: f32
         static TALLY: Walking
+body const Limits::MAX -> void
+  block
+    int 64: i32
+body const Limits::SHARED -> void
+  block
+    block-value: &mut Walking
+      block
+        ref mut: &mut Walking
+          static TALLY: Walking
+body fn addresses -> bool
+  param _0 w: ^mut Walking
+  block
+    let _1 at: usize
+      cast: usize
+        local _0 w: ^mut Walking
+    let _2 back: ^mut Walking
+      block-value: ^mut Walking
+        block
+          cast: ^mut Walking
+            local _1 at: usize
+    let _3 shared: ^mut Walking
+      const Limits::SHARED: ^mut Walking
+    return: !
+      binary &&: bool
+        binary &&: bool
+          binary ==: bool
+            local _2 back: ^mut Walking
+            local _0 w: ^mut Walking
+          binary !=: bool
+            local _3 shared: ^mut Walking
+            null: ^mut Walking
+        binary >: bool
+          const Limits::MAX: i32
+          int 0: i32

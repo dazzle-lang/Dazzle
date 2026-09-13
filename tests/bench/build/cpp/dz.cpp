@@ -4,6 +4,324 @@
 namespace dz {
 namespace dz {
 
+thread_local TempArena TEMP = TempArena{};
+
+Allocator__dyn Allocators::Global() {
+    Heap* _dz_val1 = nullptr;
+    {
+    #line 160 "<prelude>/dz.dz"
+        _dz_val1 = &(HEAP);
+    }
+    return (*_dz_val1);
+}
+
+TempArena& Allocators::Temp() {
+    TempArena* _dz_val2 = nullptr;
+    {
+    #line 163 "<prelude>/dz.dz"
+        _dz_val2 = &(TEMP);
+    }
+    return (*_dz_val2);
+}
+
+void TempArena::reset() {
+#line 251 "<prelude>/dz.dz"
+    if (::dz::obj((*this)).m_chunk == nullptr) {
+#line 252 "<prelude>/dz.dz"
+        return;
+    }
+#line 254 "<prelude>/dz.dz"
+    {
+#line 255 "<prelude>/dz.dz"
+        uint8_t* chunk = ::dz::obj((*this)).m_chunk;
+#line 256 "<prelude>/dz.dz"
+        uint8_t* prev = (::dz::cast<uint8_t**>(chunk))[static_cast<size_t>(0ull)];
+#line 257 "<prelude>/dz.dz"
+        while (prev != nullptr) {
+#line 261 "<prelude>/dz.dz"
+            ::dz::dealloc(chunk);
+#line 262 "<prelude>/dz.dz"
+            chunk = prev;
+#line 263 "<prelude>/dz.dz"
+            prev = (::dz::cast<uint8_t**>(chunk))[static_cast<size_t>(0ull)];
+        }
+#line 268 "<prelude>/dz.dz"
+        ::dz::obj((*this)).m_chunk = chunk;
+#line 269 "<prelude>/dz.dz"
+        ::dz::obj((*this)).m_cap = (::dz::cast<size_t*>(chunk))[static_cast<size_t>(1ull)];
+#line 270 "<prelude>/dz.dz"
+        ::dz::obj((*this)).m_used = TEMP_HEADER;
+    }
+}
+
+size_t TempArena::used() const {
+#line 276 "<prelude>/dz.dz"
+    if (::dz::obj((*this)).m_used < TEMP_HEADER) {
+#line 277 "<prelude>/dz.dz"
+        return 0ull;
+    }
+#line 279 "<prelude>/dz.dz"
+    return (::dz::obj((*this)).m_used - TEMP_HEADER);
+}
+
+void TempArena::grow(size_t size, size_t align) {
+#line 284 "<prelude>/dz.dz"
+    size_t wanted = ((TEMP_HEADER + align) + size);
+#line 285 "<prelude>/dz.dz"
+    size_t _dz_val3{};
+    if (wanted > TEMP_CHUNK) {
+        _dz_val3 = wanted;
+    } else {
+        size_t _dz_val4{};
+        {
+            _dz_val4 = TEMP_CHUNK;
+        }
+        _dz_val3 = _dz_val4;
+    }
+    size_t cap = _dz_val3;
+#line 286 "<prelude>/dz.dz"
+    {
+#line 287 "<prelude>/dz.dz"
+        uint8_t* chunk = ::dz::alloc(cap, alignof(size_t), ::dz::SourceLocation{"<prelude>/dz.dz", "TempArena::grow", 287, 25});
+#line 288 "<prelude>/dz.dz"
+        (::dz::cast<uint8_t**>(chunk))[static_cast<size_t>(0ull)] = ::dz::obj((*this)).m_chunk;
+#line 289 "<prelude>/dz.dz"
+        (::dz::cast<size_t*>(chunk))[static_cast<size_t>(1ull)] = cap;
+#line 290 "<prelude>/dz.dz"
+        ::dz::obj((*this)).m_chunk = chunk;
+    }
+#line 292 "<prelude>/dz.dz"
+    ::dz::obj((*this)).m_cap = cap;
+#line 293 "<prelude>/dz.dz"
+    ::dz::obj((*this)).m_used = TEMP_HEADER;
+}
+
+size_t TempArena::aligned(size_t align) const {
+#line 298 "<prelude>/dz.dz"
+    size_t base = ::dz::cast<size_t>(::dz::obj((*this)).m_chunk);
+#line 299 "<prelude>/dz.dz"
+    size_t at = (base + ::dz::obj((*this)).m_used);
+#line 300 "<prelude>/dz.dz"
+    return (((((at + align) - 1ull) / align) * align) - base);
+}
+
+bool TempArena::owns(uint8_t* p) const {
+#line 305 "<prelude>/dz.dz"
+    size_t at = ::dz::cast<size_t>(p);
+#line 306 "<prelude>/dz.dz"
+    uint8_t* chunk = ::dz::obj((*this)).m_chunk;
+#line 307 "<prelude>/dz.dz"
+    while (chunk != nullptr) {
+#line 308 "<prelude>/dz.dz"
+        size_t start = ::dz::cast<size_t>(chunk);
+#line 309 "<prelude>/dz.dz"
+        size_t _dz_val5{};
+        {
+            _dz_val5 = (::dz::cast<size_t*>(chunk))[static_cast<size_t>(1ull)];
+        }
+        size_t cap = _dz_val5;
+#line 310 "<prelude>/dz.dz"
+        if ((at >= (start + TEMP_HEADER)) && (at < (start + cap))) {
+#line 311 "<prelude>/dz.dz"
+            return true;
+        }
+#line 313 "<prelude>/dz.dz"
+        uint8_t* _dz_val6{};
+        {
+            _dz_val6 = (::dz::cast<uint8_t**>(chunk))[static_cast<size_t>(0ull)];
+        }
+        chunk = _dz_val6;
+    }
+#line 315 "<prelude>/dz.dz"
+    return false;
+}
+
+TempArena::~TempArena() {
+#line 374 "<prelude>/dz.dz"
+    uint8_t* chunk = ::dz::obj((*this)).m_chunk;
+#line 375 "<prelude>/dz.dz"
+    while (chunk != nullptr) {
+#line 376 "<prelude>/dz.dz"
+        {
+#line 377 "<prelude>/dz.dz"
+            uint8_t* prev = (::dz::cast<uint8_t**>(chunk))[static_cast<size_t>(0ull)];
+#line 378 "<prelude>/dz.dz"
+            ::dz::dealloc(chunk);
+#line 379 "<prelude>/dz.dz"
+            chunk = prev;
+        }
+    }
+}
+
+TempArena::TempArena(TempArena&& other) {
+    m_chunk = other.m_chunk;
+    m_used = other.m_used;
+    m_cap = other.m_cap;
+    other.reset_to_defaults__();
+}
+
+TempArena& TempArena::operator=(TempArena&& other) {
+    if (this == &other) { return *this; }
+    this->~TempArena();
+    new (static_cast<void*>(this)) TempArena(static_cast<TempArena&&>(other));
+    return *this;
+}
+
+uint8_t* Allocator__dz_Heap__alloc([[maybe_unused]] Heap& self, size_t size, size_t align, [[maybe_unused]] ::dz::SourceLocation loc) {
+#line 183 "<prelude>/dz.dz"
+    uint8_t* _dz_val7{};
+    if (align <= HEAP_ALIGN) {
+#line 184 "<prelude>/dz.dz"
+        uint8_t* _dz_val8{};
+        {
+            _dz_val8 = ::dz::alloc(size, align, ::dz::SourceLocation{"<prelude>/dz.dz", "Allocator__dz_Heap__alloc", 184, 22});
+        }
+        _dz_val7 = _dz_val8;
+    } else {
+#line 185 "<prelude>/dz.dz"
+        uint8_t* _dz_val9{};
+        {
+#line 186 "<prelude>/dz.dz"
+            uint8_t* _dz_val10{};
+            {
+#line 187 "<prelude>/dz.dz"
+                uint8_t* raw = ::dz::alloc(((size + align) + HEAP_ALIGN), HEAP_ALIGN, ::dz::SourceLocation{"<prelude>/dz.dz", "Allocator__dz_Heap__alloc", 187, 27});
+#line 188 "<prelude>/dz.dz"
+                size_t first = (::dz::cast<size_t>(raw) + HEAP_ALIGN);
+#line 189 "<prelude>/dz.dz"
+                size_t at = ((((first + align) - 1ull) / align) * align);
+#line 190 "<prelude>/dz.dz"
+                (::dz::cast<uint8_t**>((at - HEAP_ALIGN)))[static_cast<size_t>(0ull)] = raw;
+#line 191 "<prelude>/dz.dz"
+                _dz_val10 = ::dz::cast<uint8_t*>(at);
+            }
+            _dz_val9 = _dz_val10;
+        }
+        _dz_val7 = _dz_val9;
+    }
+    uint8_t* p = _dz_val7;
+#line 197 "<prelude>/dz.dz"
+    return p;
+}
+
+uint8_t* Allocator__dz_Heap__realloc([[maybe_unused]] Heap& self, uint8_t* p, size_t old_size, size_t new_size, size_t align, ::dz::SourceLocation loc) {
+#line 208 "<prelude>/dz.dz"
+    uint8_t* q = Allocator__dz_Heap__alloc(::dz::obj(self), new_size, align, loc);
+#line 209 "<prelude>/dz.dz"
+    if (p != nullptr) {
+#line 210 "<prelude>/dz.dz"
+        size_t _dz_val11{};
+        if (old_size < new_size) {
+            _dz_val11 = old_size;
+        } else {
+            size_t _dz_val12{};
+            {
+                _dz_val12 = new_size;
+            }
+            _dz_val11 = _dz_val12;
+        }
+        size_t kept = _dz_val11;
+#line 211 "<prelude>/dz.dz"
+        {
+            ::memcpy(q, p, kept);
+        }
+#line 212 "<prelude>/dz.dz"
+        Allocator__dz_Heap__free(::dz::obj(self), p, old_size, align, loc);
+    }
+#line 214 "<prelude>/dz.dz"
+    return q;
+}
+
+void Allocator__dz_Heap__free([[maybe_unused]] Heap& self, uint8_t* p, size_t size, size_t align, ::dz::SourceLocation loc) {
+#line 218 "<prelude>/dz.dz"
+    if (p == nullptr) {
+#line 219 "<prelude>/dz.dz"
+        return;
+    }
+#line 224 "<prelude>/dz.dz"
+    (void)((size + ::dz::cast<size_t>(::dz::obj(loc).line)));
+#line 226 "<prelude>/dz.dz"
+    if (align <= HEAP_ALIGN) {
+#line 227 "<prelude>/dz.dz"
+        {
+            ::dz::dealloc(p);
+        }
+    } else {
+#line 228 "<prelude>/dz.dz"
+        {
+#line 229 "<prelude>/dz.dz"
+            {
+                ::dz::dealloc((::dz::cast<uint8_t**>((::dz::cast<size_t>(p) - HEAP_ALIGN)))[static_cast<size_t>(0ull)]);
+            }
+        }
+    }
+}
+
+uint8_t* Allocator__dz_TempArena__alloc([[maybe_unused]] TempArena& self, size_t size, size_t align, [[maybe_unused]] ::dz::SourceLocation _loc) {
+#line 321 "<prelude>/dz.dz"
+    size_t start = ::dz::obj(self).aligned(align);
+#line 322 "<prelude>/dz.dz"
+    if ((::dz::obj(self).m_chunk == nullptr) || ((start + size) > ::dz::obj(self).m_cap)) {
+#line 323 "<prelude>/dz.dz"
+        ::dz::obj(self).grow(size, align);
+#line 324 "<prelude>/dz.dz"
+        start = ::dz::obj(self).aligned(align);
+    }
+#line 326 "<prelude>/dz.dz"
+    ::dz::obj(self).m_used = (start + size);
+#line 327 "<prelude>/dz.dz"
+    uint8_t* _dz_val13 = nullptr;
+    {
+        _dz_val13 = &((::dz::obj(self).m_chunk)[static_cast<size_t>(start)]);
+    }
+    uint8_t* p = &((*_dz_val13));
+#line 328 "<prelude>/dz.dz"
+    return p;
+}
+
+uint8_t* Allocator__dz_TempArena__realloc([[maybe_unused]] TempArena& self, uint8_t* p, size_t old_size, size_t new_size, size_t align, ::dz::SourceLocation loc) {
+#line 340 "<prelude>/dz.dz"
+    if ((p != nullptr) && (::dz::obj(self).m_chunk != nullptr)) {
+#line 341 "<prelude>/dz.dz"
+        size_t offset = (::dz::cast<size_t>(p) - ::dz::cast<size_t>(::dz::obj(self).m_chunk));
+#line 342 "<prelude>/dz.dz"
+        if (((offset + old_size) == ::dz::obj(self).m_used) && ((offset + new_size) <= ::dz::obj(self).m_cap)) {
+#line 343 "<prelude>/dz.dz"
+            ::dz::obj(self).m_used = (offset + new_size);
+#line 344 "<prelude>/dz.dz"
+            return p;
+        }
+    }
+#line 347 "<prelude>/dz.dz"
+    uint8_t* q = Allocator__dz_TempArena__alloc(::dz::obj(self), new_size, align, loc);
+#line 348 "<prelude>/dz.dz"
+    if (p != nullptr) {
+#line 349 "<prelude>/dz.dz"
+        size_t _dz_val14{};
+        if (old_size < new_size) {
+            _dz_val14 = old_size;
+        } else {
+            size_t _dz_val15{};
+            {
+                _dz_val15 = new_size;
+            }
+            _dz_val14 = _dz_val15;
+        }
+        size_t kept = _dz_val14;
+#line 350 "<prelude>/dz.dz"
+        {
+            ::memcpy(q, p, kept);
+        }
+    }
+#line 352 "<prelude>/dz.dz"
+    return q;
+}
+
+void Allocator__dz_TempArena__free([[maybe_unused]] TempArena& self, uint8_t* p, size_t size, size_t align, ::dz::SourceLocation loc) {
+#line 367 "<prelude>/dz.dz"
+    (void)((((p != nullptr) && ((size + align) > 0ull)) && (::dz::obj(loc).line > 0u)));
+}
+
 
 }  // namespace dz
 }  // namespace dz

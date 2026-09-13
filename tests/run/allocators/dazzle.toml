@@ -1,0 +1,6 @@
+[module]
+name    = "allocators"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

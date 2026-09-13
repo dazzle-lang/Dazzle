@@ -1126,3 +1126,18 @@ fn statics() -> f32 {
     }
     return TALLY.speed
 }
+
+// §7.3: a constant declared in a type, named through it — a value, or a static's address.
+struct Limits {
+    pub const MAX: i32 = 64
+    pub const SHARED: ^mut Walking = unsafe { &mut TALLY }
+}
+
+// §10.6: a pointer's address, and an address back to a pointer inside `unsafe`; §5.2: two
+// pointers compare as addresses, whatever they point at.
+fn addresses(w: ^mut Walking) -> bool {
+    let at = w as usize
+    let back: ^mut Walking = unsafe { at as ^mut Walking }
+    let shared = Limits::SHARED
+    return back == w && shared != null && Limits::MAX > 0
+}

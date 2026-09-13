@@ -308,6 +308,7 @@ impl Stripper<'_> {
                         self.expr(d);
                     }
                 }
+                MemberKind::Const(c) => self.expr(&mut c.value),
                 MemberKind::TypeAlias { .. } | MemberKind::CfgIf(_) | MemberKind::Error => {}
             }
             out.push(m);

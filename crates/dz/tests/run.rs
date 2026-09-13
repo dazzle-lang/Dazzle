@@ -177,6 +177,60 @@ fn build_flags_choose_the_branches() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Memory tracking (spec §14.2), turned on for one build with `--track-memory`: a clean
+/// program says nothing more, a leak is reported at exit with the line that allocated it,
+/// and a double free or a free of the wrong size stops the program at the free.
+#[test]
+fn a_tracked_build_reports_leaks_and_bad_frees() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let run = |dir: &Path| {
+        Command::new(dz())
+            .args(["run", dir.to_str().unwrap(), "--track-memory"])
+            .output()
+            .expect("failed to run dz")
+    };
+
+    let clean = copy_fixture("allocators", "dz_tracked_clean");
+    let out = run(&clean);
+    let expected =
+        normalise(&std::fs::read_to_string(run_dir("allocators").join("expected.txt")).unwrap());
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), expected);
+    let _ = std::fs::remove_dir_all(&clean);
+
+    let manifest = "[module]\nname = \"tracked\"\nsources = [\"src/**/*.dz\"]\n";
+    let leak = scratch(
+        "dz_tracked_leak",
+        manifest,
+        "fn main() {\n    let g = Allocators::Global\n    let kept = g.alloc(24, 8)\n    let _ = kept\n}\n",
+    );
+    let out = run(&leak);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("leak: 24 bytes allocated at"), "{stdout}");
+    assert!(stdout.contains("main.dz:3"), "the report names the allocating line:\n{stdout}");
+    let _ = std::fs::remove_dir_all(&leak);
+
+    for (name, body, message) in [
+        ("double", "    g.free(p, 8, 8)\n    g.free(p, 8, 8)\n", "double free"),
+        ("size", "    g.free(p, 16, 8)\n", "free of 16 bytes"),
+    ] {
+        let dir = scratch(
+            &format!("dz_tracked_{name}"),
+            manifest,
+            &format!("fn main() {{\n    let g = Allocators::Global\n    let p = g.alloc(8, 8)\n{body}}}\n"),
+        );
+        let out = run(&dir);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{name}: expected a panic");
+        assert!(stderr.contains(message), "{name}: {stderr}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// `--release` overrides the manifest's `[build] optimize` for one command.
 ///
 /// Asserted through behaviour rather than through the command line the driver built: the
@@ -595,6 +649,7 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
         "dynamic",
         "flags",
         "location",
+        "allocators",
     ] {
         check_warning_clean(cxx, fixture);
     }

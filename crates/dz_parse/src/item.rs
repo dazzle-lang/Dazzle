@@ -603,6 +603,7 @@ impl<'a> Parser<'a> {
         let vis = self.parse_vis();
 
         let kind = match self.peek() {
+            TokenKind::Const => MemberKind::Const(self.parse_const()),
             TokenKind::Fn => MemberKind::Fn(self.parse_fn()),
             TokenKind::Mut if self.peek_at(1) == TokenKind::Fn => MemberKind::Fn(self.parse_fn()),
             TokenKind::Unsafe if self.at_unsafe_fn() => MemberKind::Fn(self.parse_fn()),

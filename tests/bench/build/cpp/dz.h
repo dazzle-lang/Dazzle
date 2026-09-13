@@ -10,6 +10,9 @@ namespace dz {
 
 enum class Ordering : int8_t;
 struct Formatter;
+struct Allocators;
+struct Heap;
+struct TempArena;
 
 enum class Ordering : int8_t {
     Less = -1,
@@ -44,9 +47,9 @@ struct Format__dyn : ::dz::Dyn<Format__vtable> {
 };
 
 struct Allocator__vtable {
-    uint8_t* (*alloc)(const void*, size_t, size_t);
-    uint8_t* (*realloc)(const void*, uint8_t*, size_t, size_t, size_t);
-    void (*free)(const void*, uint8_t*, size_t, size_t);
+    uint8_t* (*alloc)(void*, size_t, size_t, ::dz::SourceLocation);
+    uint8_t* (*realloc)(void*, uint8_t*, size_t, size_t, size_t, ::dz::SourceLocation);
+    void (*free)(void*, uint8_t*, size_t, size_t, ::dz::SourceLocation);
 };
 
 struct Allocator__dyn : ::dz::Dyn<Allocator__vtable> {
@@ -55,19 +58,83 @@ struct Allocator__dyn : ::dz::Dyn<Allocator__vtable> {
     Allocator__dyn(const Allocator__dyn& h) = default;
     Allocator__dyn& operator=(const Allocator__dyn& h) = default;
     const Allocator__dyn& operator*() const { return *this; }
-    uint8_t* alloc(size_t a0, size_t a1) const;
-    uint8_t* realloc(uint8_t* a0, size_t a1, size_t a2, size_t a3) const;
-    void free(uint8_t* a0, size_t a1, size_t a2) const;
+    uint8_t* alloc([[maybe_unused]] size_t size, [[maybe_unused]] size_t align, [[maybe_unused]] ::dz::SourceLocation loc = ::dz::caller_location()) const;
+    uint8_t* realloc([[maybe_unused]] uint8_t* p, [[maybe_unused]] size_t old_size, [[maybe_unused]] size_t new_size, [[maybe_unused]] size_t align, [[maybe_unused]] ::dz::SourceLocation loc = ::dz::caller_location()) const;
+    void free([[maybe_unused]] uint8_t* p, [[maybe_unused]] size_t size, [[maybe_unused]] size_t align, [[maybe_unused]] ::dz::SourceLocation loc = ::dz::caller_location()) const;
 };
+
+inline constexpr size_t HEAP_ALIGN = 8ull;
+inline constexpr size_t TEMP_HEADER = 16ull;
+inline constexpr size_t TEMP_CHUNK = 65536ull;
 
 struct Formatter {
 };
 
+struct Allocators {
+    static Allocator__dyn Global();
+    static TempArena& Temp();
+};
+
+struct Heap {
+};
+
+struct TempArena {
+    uint8_t* m_chunk = nullptr;
+    size_t m_used = 0ull;
+    size_t m_cap = 0ull;
+    void reset();
+    size_t used() const;
+    void grow(size_t size, size_t align);
+    size_t aligned(size_t align) const;
+    bool owns(uint8_t* p) const;
+
+    TempArena() = default;
+    ~TempArena();
+    TempArena(const TempArena&) = delete;
+    TempArena& operator=(const TempArena&) = delete;
+    TempArena(TempArena&& other);
+    TempArena& operator=(TempArena&& other);
+
+    // Spec §6.4: the source of a move goes back to its defaults, so
+    // running its `drop` afterwards is safe and does nothing.
+    void reset_to_defaults__() {
+        m_chunk = nullptr;
+        m_used = 0ull;
+        m_cap = 0ull;
+    }
+};
+
+inline Heap HEAP = Heap{};
+extern thread_local TempArena TEMP;
 inline void Drop__dyn::drop() const { return vt->drop(data); }
 inline void Format__dyn::format(Formatter& a0) const { return vt->format(data, a0); }
-inline uint8_t* Allocator__dyn::alloc(size_t a0, size_t a1) const { return vt->alloc(data, a0, a1); }
-inline uint8_t* Allocator__dyn::realloc(uint8_t* a0, size_t a1, size_t a2, size_t a3) const { return vt->realloc(data, a0, a1, a2, a3); }
-inline void Allocator__dyn::free(uint8_t* a0, size_t a1, size_t a2) const { return vt->free(data, a0, a1, a2); }
+inline uint8_t* Allocator__dyn::alloc(size_t a0, size_t a1, ::dz::SourceLocation a2) const { return vt->alloc(data, a0, a1, a2); }
+inline uint8_t* Allocator__dyn::realloc(uint8_t* a0, size_t a1, size_t a2, size_t a3, ::dz::SourceLocation a4) const { return vt->realloc(data, a0, a1, a2, a3, a4); }
+inline void Allocator__dyn::free(uint8_t* a0, size_t a1, size_t a2, ::dz::SourceLocation a3) const { return vt->free(data, a0, a1, a2, a3); }
+uint8_t* Allocator__dz_Heap__alloc([[maybe_unused]] Heap& self, size_t size, size_t align, [[maybe_unused]] ::dz::SourceLocation loc = ::dz::caller_location());
+uint8_t* Allocator__dz_Heap__realloc([[maybe_unused]] Heap& self, uint8_t* p, size_t old_size, size_t new_size, size_t align, ::dz::SourceLocation loc = ::dz::caller_location());
+void Allocator__dz_Heap__free([[maybe_unused]] Heap& self, uint8_t* p, size_t size, size_t align, ::dz::SourceLocation loc = ::dz::caller_location());
+uint8_t* Allocator__dz_TempArena__alloc([[maybe_unused]] TempArena& self, size_t size, size_t align, [[maybe_unused]] ::dz::SourceLocation _loc = ::dz::caller_location());
+uint8_t* Allocator__dz_TempArena__realloc([[maybe_unused]] TempArena& self, uint8_t* p, size_t old_size, size_t new_size, size_t align, ::dz::SourceLocation loc = ::dz::caller_location());
+void Allocator__dz_TempArena__free([[maybe_unused]] TempArena& self, uint8_t* p, size_t size, size_t align, ::dz::SourceLocation loc = ::dz::caller_location());
+inline const Allocator__vtable* dz_vtable(const Allocator__vtable*, const Heap*) {
+    static const Allocator__vtable v{
+        +[](void* s, size_t a0, size_t a1, ::dz::SourceLocation a2) -> uint8_t* { return Allocator__dz_Heap__alloc(*static_cast<Heap*>(s), a0, a1, a2); },
+        +[](void* s, uint8_t* a0, size_t a1, size_t a2, size_t a3, ::dz::SourceLocation a4) -> uint8_t* { return Allocator__dz_Heap__realloc(*static_cast<Heap*>(s), a0, a1, a2, a3, a4); },
+        +[](void* s, uint8_t* a0, size_t a1, size_t a2, ::dz::SourceLocation a3) -> void { return Allocator__dz_Heap__free(*static_cast<Heap*>(s), a0, a1, a2, a3); },
+    };
+    return &v;
+}
+
+inline const Allocator__vtable* dz_vtable(const Allocator__vtable*, const TempArena*) {
+    static const Allocator__vtable v{
+        +[](void* s, size_t a0, size_t a1, ::dz::SourceLocation a2) -> uint8_t* { return Allocator__dz_TempArena__alloc(*static_cast<TempArena*>(s), a0, a1, a2); },
+        +[](void* s, uint8_t* a0, size_t a1, size_t a2, size_t a3, ::dz::SourceLocation a4) -> uint8_t* { return Allocator__dz_TempArena__realloc(*static_cast<TempArena*>(s), a0, a1, a2, a3, a4); },
+        +[](void* s, uint8_t* a0, size_t a1, size_t a2, ::dz::SourceLocation a3) -> void { return Allocator__dz_TempArena__free(*static_cast<TempArena*>(s), a0, a1, a2, a3); },
+    };
+    return &v;
+}
+
 
 }  // namespace dz
 }  // namespace dz

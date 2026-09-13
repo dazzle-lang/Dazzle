@@ -46,7 +46,10 @@ pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
             quiet: false,
         };
         cx.body();
-        if !prelude.contains(&body.file) {
+        // A trait method's parameters are declarations, not bindings anything could read:
+        // its body exists only to hold their defaults (spec §7.6).
+        let signature_only = matches!(body.owner, dz_hir::BodyOwner::TraitDefaults { .. });
+        if !prelude.contains(&body.file) && !signature_only {
             unused(body, &mut diags);
         }
     }

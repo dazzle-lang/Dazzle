@@ -125,10 +125,21 @@ pub enum BodyOwner {
     Const(SymbolId),
     /// A `static`'s initialiser (spec §7.7).
     Static(SymbolId),
+    /// The value of a constant declared in a type (spec §7.3).
+    AssocConst {
+        owner: SymbolId,
+        name: String,
+    },
     /// The initialiser of a field with a default (spec §7.1).
     FieldDefault {
         owner: SymbolId,
         index: usize,
+    },
+    /// A trait method with no body, kept only for its parameters' default arguments: a
+    /// trait object's forwarding members declare them (spec §7.2, §7.6).
+    TraitDefaults {
+        owner: SymbolId,
+        name: String,
     },
     /// A method of an `impl Trait for Type` (spec §7.6). An implementation has no name, so
     /// it is addressed by its position in the checker's table of them.
@@ -347,6 +358,12 @@ pub enum ExprKind {
     Const(SymbolId),
     /// A `static`, which is a place: it can be read, and written inside `unsafe` (§7.7).
     Static(SymbolId),
+    /// `Allocators::Global` — a constant declared in a type, evaluated where it is used
+    /// (spec §7.3).
+    AssocConst {
+        owner: SymbolId,
+        name: String,
+    },
     /// A function used as a value.
     FnItem(SymbolId),
     /// Field access resolved to an index into the type's declaration order.

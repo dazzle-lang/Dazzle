@@ -1,0 +1,68 @@
+// The standard allocators (spec §14.2): `Allocators::Global` over the C heap and
+// `Allocators::Temp`, this thread's scratch arena, both reached through `^mut Allocator`
+// (§7.6). Built without tracking here; `a_tracked_build_reports_leaks_and_bad_frees` in
+// crates/dz/tests/run.rs builds this same program with `--track-memory`.
+
+struct Bytes {
+    pub ptr: ^mut u8 = null
+    pub len: usize = 0
+    pub from: ^mut Allocator = null
+}
+
+fn make(a: ^mut Allocator, len: usize, fill: u8) -> Bytes {
+    let al = a or return Bytes{}
+    let p = al.alloc(len, 1)
+    let mut i: usize = 0
+    while i < len {
+        unsafe { p[i] = fill }
+        i += 1
+    }
+    return Bytes{ ptr: p, len: len, from: a }
+}
+
+fn release(b: &Bytes) {
+    let al = b.from or return
+    al.free(b.ptr, b.len, 1)
+}
+
+fn sum(b: &Bytes) -> u32 {
+    let mut total: u32 = 0
+    let mut i: usize = 0
+    while i < b.len {
+        total += unsafe { b.ptr[i] } as u32
+        i += 1
+    }
+    return total
+}
+
+fn main() {
+    // The heap: allocate, grow, free. `Allocators::Global` is a `&mut Allocator`, used
+    // directly or passed where a `^mut Allocator` is wanted.
+    let g = Allocators::Global
+    let a = make(Allocators::Global, 4, 3)
+    let grown = g.realloc(a.ptr, 4, 8, 1)
+    let b = Bytes{ ptr: grown, len: 8, from: Allocators::Global }
+    println("{}", unsafe { b.ptr[3] })
+    release(&b)
+
+    // Aligned allocations from both.
+    let t = Allocators::Temp
+    let wide = g.alloc(64, 16)
+    let scratch = t.alloc(24, 8)
+    println("{} {}", (wide as usize) % 16, (scratch as usize) % 8)
+    g.free(wide, 64, 16)
+
+    // A frame's scratch: many small allocations, one big one past the chunk size, the
+    // last one grown in place, and everything released at once.
+    let mut total: u32 = 0
+    for i in 0..100 {
+        let s = make(Allocators::Temp, 10, i as u8)
+        total += sum(&s)
+    }
+    let small = t.alloc(8, 8)
+    let bigger = t.realloc(small, 8, 32, 8)
+    let big = t.alloc(100000, 8)
+    println("{} {} {} {}", total, big != null, small == bigger, t.used() > 0)
+    t.reset()
+    println("{}", t.used())
+}
