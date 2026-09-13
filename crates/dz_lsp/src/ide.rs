@@ -20,7 +20,8 @@ use std::path::Path;
 use std::rc::Rc;
 
 use dz_ast::{
-    Field, FnDecl, Ident, Item, ItemKind, Member, MemberKind, SourceFileAst, Type, TypeKind, Vis,
+    CfgElse, CfgIf, Field, FnDecl, Ident, Item, ItemKind, Member, MemberKind, SourceFileAst, Type,
+    TypeKind, Vis,
 };
 use dz_check::{type_name, type_name_in_file, FieldSig, FnSig, ItemSig, TypeTable, VariantSig};
 use dz_diag::Diagnostics;
@@ -131,12 +132,54 @@ impl Decl {
 
 /// Every declaration in a file, members nested under their type.
 pub fn decls(text: &str, ast: &SourceFileAst) -> Vec<Decl> {
-    ast.items.iter().filter_map(|item| item_decl(text, item)).collect()
+    let mut items = Vec::new();
+    for item in &ast.items {
+        every_branch(
+            item,
+            &|i: &Item| match &i.kind {
+                ItemKind::CfgIf(c) => Some(c),
+                _ => None,
+            },
+            &mut items,
+        );
+    }
+    items.into_iter().filter_map(|item| item_decl(text, item)).collect()
+}
+
+/// A declaration, or — for an `#if` — the declarations in every one of its branches, so the
+/// outline shows what the file says whichever flags are set (spec §12.10).
+fn every_branch<'a, T>(
+    x: &'a T,
+    cfg: &dyn Fn(&'a T) -> Option<&'a CfgIf<T>>,
+    out: &mut Vec<&'a T>,
+) {
+    let Some(c) = cfg(x) else {
+        out.push(x);
+        return;
+    };
+    let mut next = Some(c);
+    while let Some(c) = next {
+        for y in &c.then {
+            every_branch(y, cfg, out);
+        }
+        next = match &c.otherwise {
+            Some(CfgElse::If(n)) => Some(n),
+            Some(CfgElse::Else { items, .. }) => {
+                for y in items {
+                    every_branch(y, cfg, out);
+                }
+                None
+            }
+            None => None,
+        };
+    }
 }
 
 fn item_decl(text: &str, item: &Item) -> Option<Decl> {
     let docs = doc_text(text, &item.docs);
     let mut d = match &item.kind {
+        // Expanded by `decls` before it gets here.
+        ItemKind::CfgIf(_) => return None,
         ItemKind::Fn(f) => fn_decl(text, f, DeclKind::Function, docs),
         ItemKind::Struct(s) => {
             let header = braced_header(text, s.span, s.name.span);
@@ -205,6 +248,10 @@ fn item_decl(text: &str, item: &Item) -> Option<Decl> {
             let header = capped(header(text, c.span.start, c.span.end));
             Decl::new(DeclKind::Const, &c.name, c.span, header, docs)
         }
+        ItemKind::Static(st) => {
+            let header = capped(header(text, st.span.start, st.span.end));
+            Decl::new(DeclKind::Const, &st.name, st.span, header, docs)
+        }
         ItemKind::Macro(m) => {
             let header = header(text, m.span.start, m.body.start);
             Decl::new(DeclKind::Macro, &m.name, m.span, header, docs)
@@ -216,11 +263,23 @@ fn item_decl(text: &str, item: &Item) -> Option<Decl> {
 }
 
 fn members(text: &str, members: &[Member]) -> Vec<Decl> {
-    members
-        .iter()
+    let mut all = Vec::new();
+    for m in members {
+        every_branch(
+            m,
+            &|x: &Member| match &x.kind {
+                MemberKind::CfgIf(c) => Some(c),
+                _ => None,
+            },
+            &mut all,
+        );
+    }
+    all.into_iter()
         .filter_map(|m| {
             let docs = doc_text(text, &m.docs);
             let mut d = match &m.kind {
+                // Expanded above.
+                MemberKind::CfgIf(_) => return None,
                 MemberKind::Field(f) => field_decl(text, f, docs),
                 MemberKind::Fn(f) => fn_decl(text, f, DeclKind::Method, docs),
                 MemberKind::Ctor(f) => fn_decl(text, f, DeclKind::Ctor, docs),
@@ -782,7 +841,7 @@ impl<'a> Query<'a> {
     fn expr_refs(&self, body: &'a Body, e: ExprId) -> Vec<Ref<'a>> {
         match &body.expr(e).kind {
             ExprKind::Local(l) => vec![Ref::Local(body, *l)],
-            ExprKind::Const(s) | ExprKind::FnItem(s) => vec![Ref::Symbol(*s)],
+            ExprKind::Const(s) | ExprKind::Static(s) | ExprKind::FnItem(s) => vec![Ref::Symbol(*s)],
             ExprKind::Field { base, index } => match self.adt_in(body, body.ty(*base)) {
                 Some(Adt::Struct(s)) => vec![Ref::Field(s, *index)],
                 Some(Adt::Variant(s, v)) => vec![Ref::VariantField(s, v, *index)],
@@ -804,7 +863,8 @@ impl<'a> Query<'a> {
                 Callee::Method { owner, name, .. }
                 // `UiElement::draw(self)` names the base's method, and that is the one
                 // hover, definition and references should all land on (spec §7.3).
-                | Callee::BaseMethod { owner, name, .. } => {
+                | Callee::BaseMethod { owner, name, .. }
+                | Callee::Assoc { owner, name, .. } => {
                     vec![Ref::Method(*owner, name.clone())]
                 }
                 // The constructor, or the type when it has none written.
@@ -1055,6 +1115,9 @@ impl<'a> Query<'a> {
             Some(ItemSig::Const(ty)) => {
                 format!("const {}: {}", symbol.name, type_name(self.res, ty))
             }
+            Some(ItemSig::Static(ty)) => {
+                format!("static {}: {}", symbol.name, type_name(self.res, ty))
+            }
             Some(ItemSig::Enum { variants, .. }) => {
                 let names: Vec<&str> = variants.iter().map(|v| v.name.as_str()).collect();
                 format!("enum {} {{ {} }}", symbol.name, names.join(", "))
@@ -1165,6 +1228,7 @@ impl<'a> Query<'a> {
             SymbolKind::Trait => CompletionKind::Trait,
             SymbolKind::Fn => CompletionKind::Function,
             SymbolKind::Const => CompletionKind::Constant,
+            SymbolKind::Static => CompletionKind::Variable,
             SymbolKind::Macro => CompletionKind::Macro,
             // A C++ namespace is a scope to reach through, which is what a module is here.
             SymbolKind::Namespace => CompletionKind::Module,
@@ -2012,6 +2076,7 @@ fn symbol_class(kind: SymbolKind) -> (TokenClass, bool) {
         SymbolKind::Trait => (TokenClass::Interface, false),
         SymbolKind::Fn => (TokenClass::Function, false),
         SymbolKind::Const => (TokenClass::Variable, true),
+        SymbolKind::Static => (TokenClass::Variable, false),
         SymbolKind::Macro => (TokenClass::Macro, false),
         SymbolKind::Namespace => (TokenClass::Namespace, false),
     }

@@ -14,6 +14,15 @@ const MAX_ENTITIES
 const GRAVITY : f32
   unary -
     float 9.81
+static FRAME : u64
+  int 0
+attr thread_local
+pub static SCRATCH : [N]u8
+  array-lit 4
+    int 0
+    int 0
+    int 0
+    int 0
 attr align
 pub struct CacheLine
   field data: [N]u8

@@ -35,6 +35,23 @@ pub struct BuildConfig {
     pub output: OutputKind,
     pub optimize: Optimize,
     pub type_info: TypeInfo,
+    /// `track_memory = true`: turn on the prelude's `TRACK_MEMORY` flag, which the
+    /// standard allocators read (spec §12.10, §14.2). Only the root manifest's counts.
+    pub track_memory: bool,
+}
+
+/// The flags the compiler defines in every package, set from the build mode and the host
+/// (spec §12.10). A package may not declare one of these itself.
+pub const BUILTIN_FLAGS: &[&str] =
+    &["DEBUG", "RELEASE", "SHIPPING", "OS_WINDOWS", "OS_LINUX", "OS_MACOS"];
+
+/// `NAME = false` or `NAME = { default = false, doc = "…" }` under `[flags]` (spec §12.10).
+#[derive(Debug, Clone)]
+pub struct FlagDecl {
+    pub name: String,
+    pub span: Span,
+    pub default: bool,
+    pub doc: Option<String>,
 }
 
 impl Default for BuildConfig {
@@ -45,6 +62,7 @@ impl Default for BuildConfig {
             output: OutputKind::Executable,
             optimize: Optimize::Debug,
             type_info: TypeInfo::Used,
+            track_memory: false,
         }
     }
 }
@@ -281,6 +299,8 @@ pub struct Dependency {
     /// True for the prelude, which every module depends on without saying so (spec §3.2).
     /// An unused-import warning would be nonsense for a dependency nobody wrote.
     pub implicit: bool,
+    /// `flags = ["PROFILE"]`: the dependency's flags this module turns on (spec §12.10).
+    pub flags: Vec<(String, Span)>,
 }
 
 #[derive(Debug)]
@@ -296,6 +316,8 @@ pub struct Module {
     /// Source files, in a deterministic order.
     pub sources: Vec<PathBuf>,
     pub deps: Vec<Dependency>,
+    /// The flags this package declares under `[flags]` (spec §12.10).
+    pub flags: Vec<FlagDecl>,
     pub build: BuildConfig,
     pub cpp: CppConfig,
     /// Set only on the **prelude** (spec §3.2, §18.23): its source is carried by the
@@ -354,6 +376,7 @@ impl Workspace {
                     manifest_path: header_path,
                     sources: Vec::new(),
                     deps: Vec::new(),
+                    flags: Vec::new(),
                     build: BuildConfig::default(),
                     cpp: CppConfig::default(),
                     embedded_source: None,
@@ -454,6 +477,7 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
                 alias_span: Span::DUMMY,
                 module: prelude,
                 implicit: true,
+                flags: Vec::new(),
             });
         }
     }
@@ -518,6 +542,13 @@ impl<'a> Loader<'a> {
             manifest_path: path.clone(),
             sources: vec![path],
             deps: Vec::new(),
+            // The stdlib's own: the allocators' memory tracking (spec §14.2).
+            flags: vec![FlagDecl {
+                name: "TRACK_MEMORY".to_owned(),
+                span: Span::DUMMY,
+                default: false,
+                doc: Some("record every allocation and report leaks and bad frees".to_owned()),
+            }],
             build: BuildConfig::default(),
             cpp: CppConfig::default(),
             embedded_source: Some(PRELUDE_SOURCE),
@@ -589,6 +620,7 @@ impl<'a> Loader<'a> {
         };
         let sources = self.expand_sources(file, &doc, &root_dir, &name);
         let build = self.build_config(file, &doc);
+        let flags = self.flag_decls(file, &doc);
         let cpp = self.cpp_config(file, &doc, &root_dir);
 
         self.modules.push(Module {
@@ -601,6 +633,7 @@ impl<'a> Loader<'a> {
             manifest_path: manifest_path.to_path_buf(),
             sources,
             deps: Vec::new(),
+            flags,
             build,
             cpp,
             embedded_source: None,
@@ -864,6 +897,7 @@ impl<'a> Loader<'a> {
                         alias_span: entry.key_span,
                         module: dep_id,
                         implicit: false,
+                        flags: self.dependency_flags(file, &entry.key, fields),
                     });
                 }
                 None => continue,
@@ -889,6 +923,131 @@ impl<'a> Loader<'a> {
             }
         }
         false
+    }
+
+    /// `[flags]`: each entry a flag this package reads with `#if` (spec §12.10).
+    fn flag_decls(&mut self, file: FileId, doc: &Document) -> Vec<FlagDecl> {
+        let Some(table) = doc.table("flags") else { return Vec::new() };
+        let mut out: Vec<FlagDecl> = Vec::new();
+        for entry in &table.entries {
+            let name = entry.key.clone();
+            let valid = name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+                && name.chars().all(|c| c.is_alphanumeric() || c == '_');
+            if !valid {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("`{name}` is not a valid flag name"),
+                    )
+                    .at(file, entry.key_span, "not an identifier")
+                    .with_help("a flag is named like a constant: `TRACK_MEMORY` (spec §12.10)"),
+                );
+                continue;
+            }
+            if BUILTIN_FLAGS.contains(&name.as_str()) {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("`{name}` is a flag the compiler already defines"),
+                    )
+                    .at(file, entry.key_span, "built in")
+                    .with_help(
+                        "`DEBUG`, `RELEASE`, `SHIPPING` and the `OS_…` flags come from the build \
+                         mode and the platform, in every package; name this one differently \
+                         (spec §12.10)",
+                    ),
+                );
+                continue;
+            }
+            let (default, doc_text) = match &entry.value {
+                Value::Bool(b, _) => (*b, None),
+                Value::InlineTable(fields, _) => {
+                    let mut default = false;
+                    let mut doc_text = None;
+                    for f in fields {
+                        match (f.key.as_str(), &f.value) {
+                            ("default", Value::Bool(b, _)) => default = *b,
+                            ("doc", Value::Str(t, _)) => doc_text = Some(t.clone()),
+                            ("default", other) => self.type_error(
+                                file,
+                                other,
+                                &format!("flags.{name}.default"),
+                                "true or false",
+                            ),
+                            ("doc", other) => self.type_error(
+                                file,
+                                other,
+                                &format!("flags.{name}.doc"),
+                                "a string",
+                            ),
+                            (key, _) => self.diags.push(
+                                Diagnostic::error(
+                                    codes::MANIFEST_BAD_VALUE,
+                                    format!("unknown key `{key}` in flag `{name}`"),
+                                )
+                                .at(file, f.key_span, "not a key of a flag")
+                                .with_help("a flag takes `default` and `doc` (spec §12.10)"),
+                            ),
+                        }
+                    }
+                    (default, doc_text)
+                }
+                other => {
+                    self.type_error(
+                        file,
+                        other,
+                        &format!("flags.{name}"),
+                        "true, false, or a table like { default = false, doc = \"…\" }",
+                    );
+                    continue;
+                }
+            };
+            if out.iter().any(|f| f.name == name) {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("flag `{name}` is declared twice"),
+                    )
+                    .at(file, entry.key_span, "declared again"),
+                );
+                continue;
+            }
+            out.push(FlagDecl { name, span: entry.key_span, default, doc: doc_text });
+        }
+        out
+    }
+
+    /// A dependency's `flags = ["PROFILE"]`. Whether each names a flag the dependency
+    /// declares is checked once every module is loaded (spec §12.10).
+    fn dependency_flags(
+        &mut self,
+        file: FileId,
+        alias: &str,
+        fields: &[toml::Entry],
+    ) -> Vec<(String, Span)> {
+        let Some(entry) = fields.iter().find(|f| f.key == "flags") else { return Vec::new() };
+        let Value::Array(items, _) = &entry.value else {
+            self.type_error(
+                file,
+                &entry.value,
+                &format!("dependencies.{alias}.flags"),
+                "an array of flag names",
+            );
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for item in items {
+            match item {
+                Value::Str(name, span) => out.push((name.clone(), *span)),
+                other => self.type_error(
+                    file,
+                    other,
+                    &format!("dependencies.{alias}.flags entry"),
+                    "a string",
+                ),
+            }
+        }
+        out
     }
 
     fn build_config(&mut self, file: FileId, doc: &Document) -> BuildConfig {
@@ -942,6 +1101,12 @@ impl<'a> Loader<'a> {
                     cfg.optimize
                 }
             };
+        }
+        if let Some(v) = table.get("track_memory") {
+            match v {
+                Value::Bool(b, _) => cfg.track_memory = *b,
+                other => self.type_error(file, other, "build.track_memory", "true or false"),
+            }
         }
         if let Some(v) = table.get("type_info") {
             cfg.type_info = match as_str(v) {

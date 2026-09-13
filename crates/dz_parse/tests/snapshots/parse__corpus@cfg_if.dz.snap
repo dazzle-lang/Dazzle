@@ -1,0 +1,46 @@
+---
+source: crates/dz_parse/tests/parse.rs
+assertion_line: 34
+expression: "parse_report(&name, &source)"
+input_file: tests/parse/cfg_if.dz
+---
+=== AST ===
+#if TRACK_MEMORY
+  static TRACKER : i32
+    int 0
+  fn record()
+    block
+#else
+  #if DEBUG || (OS_WINDOWS && !engine::PROFILE)
+    fn record()
+      block
+  #else
+    fn record()
+      block
+struct S
+  field a: i32
+    default
+      int 0
+  #if DEBUG
+    field checks: i32
+      default
+        int 0
+    fn check(&self)
+      block
+fn main()
+  block
+    let x
+      int 1
+    #if DEBUG
+      call
+        path println
+        str "{}"
+        path x
+    #else
+      call
+        path record
+    call
+      path record
+
+=== DIAGNOSTICS ===
+(none)

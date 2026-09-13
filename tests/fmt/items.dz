@@ -6,6 +6,9 @@ import cpp "raylib.h" as rl
 /// A doc comment on a constant.
 const MAX_ENTITIES = 4096
 const GRAVITY: f32 = -9.81
+static FRAME: u64 = 0
+#[thread_local]
+pub static SCRATCH: [4]u8 = [0, 0, 0, 0]
 
 #[align(64)]
 pub struct CacheLine {

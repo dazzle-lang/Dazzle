@@ -19,11 +19,11 @@ the milestone.
 | | |
 |---|---|
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
-| Next | **Get CI green on all three platforms** — the workflow is written and has never run — then fetched packages (M16). M14, M15 and struct inheritance have landed. Struct inheritance landed as r30, which also unblocks the last substantive M7 row — a Dazzle struct inheriting an imported C++ class, Jolt's listeners. See §4 |
-| Tests | 191, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
+| Next | **M12 — the stdlib**, chosen over M10/M11 by the user on 2026-09-13; M9's remaining editor rows stay open. r39 laid the language groundwork (`static`, associated functions, trait objects). Next in order: `#location` evaluated at the caller, associated constants, then `Allocators::Global`/`Temp` with opt-in tracking. See §4 |
+| Tests | 192, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 38; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
+| Language spec | 0.1 **unreleased**, revision 40; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -940,6 +940,89 @@ not work at all and that a `case` binding could write into a value declared immu
   `for` inside a generic function, `or break` inside an arm, a move inside a loop. 48 files.
   `tests/run/loops` runs the valid combinations on both compilers, warning-clean.
 
+### r40 — compile-time conditionals, and `#location` at the caller
+
+Raised by the user while designing tracking: the tracker's static must not exist unless
+tracking is on, and nothing in the language could say so. Designed with the user (18.48).
+
+- **`#if`** (§12.10). `ItemKind`, `MemberKind` and `StmtKind` each gained `CfgIf<T>` —
+  one generic node, one parser (`dz_parse/src/cfg.rs`), one formatter routine and one dump
+  routine for all three places. Every branch is parsed and formatted; `dz_driver::cfg`
+  settles each module's flags and replaces every `#if` with its active branch's contents
+  **before resolution**, so no later phase knows `#if` existed and an inactive branch may
+  name anything. The later phases' matches carry an empty arm for it; the LSP outline shows
+  every branch's declarations.
+- **Flags.** Built-ins from the build mode and the host; `[flags]` in dazzle.toml
+  (`NAME = false` or `{ default, doc }`, a built-in name refused); a dependency's turned on by
+  `flags = [...]` on the dependency; `--flag NAME`, `--flag dep::NAME` and `--track-memory`
+  on `run`, `build`, `cpp`, `check`, `hir`, `test` and `bench`, which now share one argument
+  parser; `[build] track_memory`. An unregistered flag anywhere is **`DZ0309`**, with a
+  did-you-mean over the package's flags or the built-ins. Every condition in a chain is
+  evaluated, taken or not, so a misspelling in a later `#else #if` is still reported.
+- **The build mode is an input to analysis now.** `--release` used to be applied to the
+  workspace after analysing it; `#if DEBUG` needs it before, so `dz_driver::analyse_for`
+  takes `BuildOptions`.
+- **`#location` at the caller** (§12.7). It was typed as nothing and not emitted. It is a
+  `SourceLocation`; written in an expression it is exact, and as a default argument codegen
+  writes `__builtin_FILE()`, `__builtin_LINE()` and `__builtin_FUNCTION()` into the C++
+  declaration — evaluated at each call, and through the `#line` directives already reporting
+  the Dazzle file and line. The column is 0 there. Filling defaults in the checker instead
+  was rejected: an ordinary default before `loc` (`align = 8`) would have had to be
+  re-evaluated in the caller's scope, since C++ cannot skip a positional argument.
+- **CI fix**: a union variant carrying a struct is a member named like its type, which g++ 14
+  rejects unless the type is fully qualified (`-Wchanges-meaning`); g++ 13 and clang accept
+  it, which is why it passed here and failed on Linux CI.
+- Tests: `tests/run/flags` (a dependency, flags at all three levels, inactive branches
+  naming nothing that exists), `build_flags_choose_the_branches` (`--release --flag CHEATS`,
+  and `--flag CHEAT` refused), `tests/run/location`, `tests/errors/unregistered_flag.dz`, and
+  `cfg_if.dz` in the parse and fmt corpora.
+
+### r39 — M12 groundwork: `static`, associated functions, trait objects
+
+The user put M12 ahead of M10 and M11 and settled the allocator design (spec 18.46,
+18.47): `Allocators::Global` (malloc) and `Allocators::Temp` (a per-thread arena), no
+`Arena` yet; tracking opt-in and reporting leaks, double and foreign frees, size/alignment
+mismatches and use after a Temp reset; the `Allocator` trait on `&mut self` with a trailing
+`loc: &SourceLocation = #location`; core stdlib types in the prelude. Writing that down
+showed three things the allocators need that the language did not have, and those are r39.
+
+- **`static`** (§7.7). A keyword, an item, `SymbolKind::Static`, `ItemSig::Static`,
+  `BodyOwner::Static` and `hir::ExprKind::Static` beside their `const` counterparts. The
+  initialiser must be constants (**`DZ0553`**, `is_static_initialiser`), because C++ builds
+  statics before `main` in no promised order across files. A static is a writable place, and
+  every way of changing one — assignment, `&mut`, a `&mut self` method, a `for`/`case`
+  `&mut` binding, viewing an array as `[]mut` — goes through
+  `require_unsafe_static_write` (**`DZ0528`**). Flow treats it as a borrow: nothing is moved
+  or copied out (**`DZ0402`**, worded for a static). Codegen writes `inline [thread_local] T
+  NAME = …;` after every type; a struct literal's `[&]` lambda is not legal at namespace
+  scope, so its capture-default is dropped there.
+- **Associated functions** (§7.3). `Quat::identity()` was already in the spec and parsed, but
+  a `fn` with no receiver was checked as a qualified method call with its first argument
+  taken as the receiver. It is now `hir::Callee::Assoc`, emitted as a C++ `static` member;
+  the resolver no longer puts the type's fields in its scope; calling one on a value is
+  **`DZ0520`**; `dz_mono` instantiates the owner of `Pair<i32>::both(4)`.
+- **Trait objects** (§7.6, 18.6 — decided long ago, owed since M6). `&S`/`^S` convert to
+  `&Trait`/`^Trait` in `base_convertible` when `S` implements it; a trait's methods are as
+  visible as the trait. In C++ each object-safe trait gets `Shape__vtable` and
+  `Shape__dyn : ::dz::Dyn<Shape__vtable>` — two words, forwarding members, null-comparable,
+  convertible from `T*`, `T&` and `::dz::Addr<T>`. Each implementation declares
+  `dz_vtable(const Shape__vtable*, const T*)` in its own module's namespace and the handle
+  finds it by argument-dependent lookup: the orphan rule puts every implementation in the
+  trait's module or the type's, which are exactly the namespaces ADL searches, so no
+  specialisation or namespace juggling is needed. Default methods are vtable entries like
+  any other. Not object-safe (generic trait, associated types, a method mentioning `Self`)
+  stays `DZ0801`, as does a trait object of a type whose `impl` is generic.
+- **Found on the way.** A `&T` produced by a block or an `if` and stored where a `^T` was
+  wanted emitted `(*tmp)` into a pointer and did not compile (`Emitter::stored`, applied to
+  `let`, assignment, `return` and struct-literal fields). And **C++ does not define the order
+  a call's arguments are evaluated in**, so `println("{} {}", f(), x)` where `f` changes `x`
+  printed different things under different compilers — the spec does not say what Dazzle
+  promises. Two tests hit it; they now bind first. Raised with the user.
+- Tests: `tests/run/statics`, `tests/run/assoc`, `tests/run/dynamic` (with a dependency
+  module, so the `-Wall -Wextra` harness now copies whole fixtures), a case each way in
+  `typed/` and `typeerrors/` for all three, `tests/errors/` gained five files, and the parse
+  and fmt corpora gained statics.
+
 ### r38 — M8's criterion: a union of existing structs, and base arguments built by statements
 
 M8 was marked done at r36, but its criterion had never been run. Writing the `ButtonState`
@@ -1332,11 +1415,13 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M7b** | libclang parses with its own default target (MSVC here), not the C++ compiler's: a header needing the C library's own headers may find MSVC's while g++ builds against mingw's | `dz_cppimport`, `arguments` |
 | **M7b** | An untyped imported integer is not range-checked against its context: `let b: u8 = rl::SOME_BIG` reaches C++ as a narrowing `static_cast`. The importer knows the value; the checker should compare it, as it does a literal's | `dz_check/src/lib.rs`, `collect_foreign` |
 | **M12** | **`indexed()` exists only in a `for` head.** It is recognised there by the checker, not declared: a real adapter is a generic struct implementing `Iterate` over another, whose `Item` needs associated-type projection (the row below). `move(xs).indexed()` is refused for the same reason | `dz_check/src/check.rs`, `for_stmt` |
+| **M12** | **Format strings interpolate, and there are no variadic parameters.** The user decided `println("{touch()} {COUNT.hits}")` — expressions written in the braces, evaluated in the order they appear — which also settles the evaluation-order question two r39 tests ran into. Until then `println`/`format` stay builtins taking positional arguments, and a Dazzle function cannot take a variable number of them at all | `dz_check`, `format_string`; spec §12.9 |
+| **M12** | **An intrinsic default uses the C++ compiler's builtins**, so its column is 0 and its function is the C++ name (`bump`, not `Counter::bump`) | `dz_cpp`, `caller_intrinsic` |
 | **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
 | **M10** | The intrinsics `#module`, `#location` and `#expr_text` are typed but not emitted (`#file`, `#line`, `#column` and `#function` are) | `dz_cpp`, `intrinsic` |
 | **M11** | `typeinfo_of`, `typeid_of` and `typeinfo` are typed but not emitted | `dz_cpp`, `builtin` |
 | **M12** | **Generic methods** — a method with type parameters of its own — report `DZ0801`. A generic *type*'s methods are instantiated; a method generic over its own arguments needs a second instance key and has no user yet | `dz_cpp/src/lib.rs`, `struct_decl` |
-| **M12** | **`^Trait`**, and so a stored `^Allocator`: static dispatch only, per the M6 plan (§7.6, §18.6). Refused with `DZ0801` wherever one appears | `dz_cpp`, `reject_trait_objects` |
+| **M12** | **Trait objects that are not object-safe** — of a generic trait, one with associated types, or one whose methods mention `Self` — report `DZ0801`, and so does a trait object of a type whose `impl` is generic, which would need a vtable per instance. A trait method's default arguments are not declared on the handle's forwarding members either | `dz_cpp`, `object_safe`, `trait_object_decls`; `dz_check`, `refuse_generic_impl_object` |
 | **M12** | **Associated-type projection** (`T::Item`, `T::Output`). An associated type resolves through an implementer but cannot be named off a bounded parameter, so `for` over a generic `T: Iterate` is refused by the checker (`DZ0801`), and generic arithmetic cannot name its result type | `dz_check/src/check.rs`, `iterate_item` |
 | **M12** | An open-ended range (`lo..`) held in a variable rather than written in a `for` head | `dz_cpp`, `expr` |
 | **M12** | `assert` is typed but not emitted; it becomes an ordinary stdlib function | `dz_cpp`, `builtin` |
@@ -1357,7 +1442,31 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 
 ---
 
-## 4. Next: get CI green, then fetched packages
+## 4. Next: M12, the stdlib
+
+Chosen by the user on 2026-09-13 over M10 and M11. M9's editor rows stay open in §3. The
+milestone's criterion is a small game written without touching C++.
+
+1. ✅ **Language groundwork (r39)** — `static`, associated functions, trait objects.
+2. ✅ **`#if` and `#location` at the caller (r40).**
+3. **Associated constants**, so `Allocators::Global` is spelled as §3.3 writes it: a `const`
+   in a type whose value may take the address of a static, folded into each use — which is
+   what makes a `thread_local` Temp correct per thread.
+4. **Allocators** in the prelude: the `Allocator` trait on `&mut self` with `loc`;
+   `Allocators::Global` over malloc; `Allocators::Temp`, a chunked per-thread arena with
+   `reset()`; tracking behind `#if TRACK_MEMORY` (on with `--track-memory` or `[build]
+   track_memory`) — a live table, leak report at exit, panics on double, foreign and
+   mismatched frees, poison on reset.
+5. **`Buffer<T>`, `String`, `HashMap<K, V>`** over `^mut Allocator`, then `str.len`,
+   `error`/`format` without the four-buffer ring, and `assert` as a function.
+5b. **Interpolated format strings** — `println("{a()} {b.c}")`, evaluated in order — and
+   **variadic parameters**, both decided by the user on 2026-09-13; spec §12.9 to write.
+6. **Math** (`import std::math`): vectors, matrices, `lerp`, clamping, wrapping arithmetic.
+7. The criterion: a small raylib game with no C++ of its own.
+
+The earlier plan (CI, then fetched packages) follows; CI is running.
+
+## 4a. Earlier: get CI green, then fetched packages
 
 Struct inheritance is done (r30). What follows is the tooling the language needs before it
 can be worked in seriously, raised by the user on 2026-09-12 and sized here against what

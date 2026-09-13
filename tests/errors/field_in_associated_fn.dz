@@ -1,0 +1,15 @@
+// expect: DZ0301
+//
+// A function with no receiver has no `self`, so the type's fields are not in scope in it.
+
+struct Counter {
+    pub hits: i32 = 0
+
+    pub fn describe() -> i32 {
+        return hits
+    }
+}
+
+fn main() {
+    println("{}", Counter::describe())
+}

@@ -19,6 +19,8 @@ use crate::{
 
 pub(crate) fn item(cx: &mut Ctx, it: &Item) {
     match &it.kind {
+        // Removed by the driver before this phase (spec §12.10).
+        ItemKind::CfgIf(_) => {}
         // A generic body is checked **once**, here, against its bounds and nothing else —
         // not once per instantiation (spec §8.1, §8.6). Its parameters go into scope first
         // so that `T` inside it is `Ty::Param` rather than a hole.
@@ -58,6 +60,32 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
                 body.expect(&declared, &checked.ty, c.value.span);
             }
             body.finish_value(c.value.span, checked);
+        }
+        ItemKind::Static(s) => {
+            let Some(sym) = cx.symbol_of(it) else { return };
+            let declared = match cx.table.get(sym) {
+                Some(ItemSig::Static(t)) => t.clone(),
+                _ => Ty::Error,
+            };
+            let mut body = Body::new(cx, None, Ty::Void, BodyOwner::Static(sym), s.value.span);
+            let checked = body.expr(&s.value, Some(&declared));
+            if !declared.is_error() {
+                body.expect(&declared, &checked.ty, s.value.span);
+                // Built before `main`, in an order C++ does not promise across files, so
+                // nothing in it may run code that could read another static (spec §7.7).
+                if !body.is_static_initialiser(checked.id) {
+                    body.cx.error_help(
+                        codes::STATIC_INITIALISER,
+                        s.value.span,
+                        format!("`{}` must be built from constants", s.name.name),
+                        "computed when the program starts",
+                        "a `static` starts as a literal, a `const`, `null`, `none`, or a struct, \
+                         array or variant literal of those; fill it in from `main` if it needs \
+                         more (spec §7.7)",
+                    );
+                }
+            }
+            body.finish_value(s.value.span, checked);
         }
         // A trait's default methods are checked once, here, with `Self` standing for
         // whichever type inherits them (spec §7.6, §8.1). They used to be skipped outright,
@@ -546,6 +574,8 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
     let mut fns = 0usize;
     for m in members {
         match &m.kind {
+            // Removed by the driver before this phase (spec §12.10).
+            MemberKind::CfgIf(_) => {}
             MemberKind::Field(f) => {
                 if let Some(default) = &f.default {
                     let found = cx
@@ -917,6 +947,20 @@ impl<'a, 'c> Body<'a, 'c> {
             return false;
         }
         match (want.as_ref(), have.as_ref()) {
+            // `&Square` where a `&Shape` is wanted: a fat pointer to it, when `Square`
+            // implements `Shape` (spec §7.6, §18.6). A trait object is not converted to
+            // another trait's, even a supertrait's.
+            (Ty::Named { sym, args }, have)
+                if self.cx.res.symbol(*sym).kind == SymbolKind::Trait
+                    && have.named() != Some(*sym) =>
+            {
+                let wanted = TraitRef { trait_sym: *sym, args: args.clone(), span: Span::DUMMY };
+                !have.is_wildcard()
+                    && !have
+                        .named()
+                        .is_some_and(|h| self.cx.res.symbol(h).kind == SymbolKind::Trait)
+                    && self.cx.table.implements(have, &wanted)
+            }
             (Ty::Named { sym: base, args: ba }, Ty::Named { sym: derived, args: da })
                 if ba.is_empty() && da.is_empty() =>
             {
@@ -924,6 +968,29 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             _ => false,
         }
+    }
+
+    /// A trait object needs its implementation's vtable, and only a non-generic
+    /// implementation has one yet: `impl<T> Shape for Box<T>` would need one per instance.
+    fn refuse_generic_impl_object(&mut self, expected: &Ty, actual: &Ty, span: Span) {
+        let (Some(want), Some(have)) = (pointee(expected), pointee(actual)) else { return };
+        let Ty::Named { sym, args } = want else { return };
+        if self.cx.res.symbol(*sym).kind != SymbolKind::Trait {
+            return;
+        }
+        let r = TraitRef { trait_sym: *sym, args: args.clone(), span: Span::DUMMY };
+        let Some((idx, _)) = self.cx.table.impl_of(&r, have) else { return };
+        if self.cx.table.impls()[idx].generics.is_empty() {
+            return;
+        }
+        self.cx.error_help(
+            codes::CODEGEN_UNSUPPORTED,
+            span,
+            "a trait object of a type whose implementation is generic is not supported yet",
+            "implemented by a generic `impl`",
+            "owed by M12 — pass a type with a non-generic `impl`, or use a generic parameter \
+             bounded by the trait (spec §7.6)",
+        );
     }
 
     /// Would a by-value `actual` fit `expected` if slicing were allowed? Used only to tell
@@ -942,7 +1009,11 @@ impl<'a, 'c> Body<'a, 'c> {
     fn expect(&mut self, expected: &Ty, actual: &Ty, span: Span) {
         let expected = self.subst(expected);
         let actual = self.subst(actual);
-        if assignable(&expected, &actual) || self.base_convertible(&expected, &actual) {
+        if assignable(&expected, &actual) {
+            return;
+        }
+        if self.base_convertible(&expected, &actual) {
+            self.refuse_generic_impl_object(&expected, &actual, span);
             return;
         }
         // A whole `Derived` where a `Base` is wanted: C++ would silently drop the derived
@@ -1278,6 +1349,8 @@ impl<'a, 'c> Body<'a, 'c> {
 
     fn stmt(&mut self, s: &Stmt) -> StmtId {
         let kind = match &s.kind {
+            // Removed by the driver before this phase (spec §12.10).
+            StmtKind::CfgIf(_) => hir::StmtKind::Error,
             StmtKind::Let(l) => {
                 let declared = l.ty.as_ref().map(|t| {
                     let t = self.cx.lower_type(t);
@@ -1407,6 +1480,10 @@ impl<'a, 'c> Body<'a, 'c> {
         let subject = self.expr(subject_ast, None);
         self.reaching_into = reached_into;
         let item = self.for_item(subject_ast, &subject.ty, consuming);
+        // `for &mut e in TABLE` writes the static's elements (spec §7.7).
+        if f.bindings.iter().any(|b| b.mode == BindMode::RefMut) {
+            self.require_unsafe_static_write(subject_ast);
+        }
 
         self.push();
         let (shape, bindings) = if indexed {
@@ -1840,7 +1917,7 @@ impl<'a, 'c> Body<'a, 'c> {
     /// Report if `e` is not something that can be assigned to.
     fn require_mutable(&mut self, e: &Expr) {
         match self.place_mutability(e) {
-            Some(true) => {}
+            Some(true) => self.require_unsafe_static_write(e),
             Some(false) => {
                 let (desc, help) = self.describe_place(e);
                 self.cx.error_help(
@@ -1872,10 +1949,12 @@ impl<'a, 'c> Body<'a, 'c> {
                     // through it — `for &mut e in xs { e += 1 }` (spec §5.2, §10.4).
                     Some(Local { ty: Ty::Ref { mutable: true, .. }, .. }) => Some(true),
                     Some(l) => Some(l.mutable),
-                    // A module-level `const` is never assignable.
-                    None => Some(false),
+                    // A `static` is a variable, written inside `unsafe` (§7.7); a
+                    // module-level `const` is never assignable.
+                    None => Some(self.static_root(e).is_some()),
                 }
             }
+            ExprKind::Path(_) if self.static_root(e).is_some() => Some(true),
             // Through a pointer, mutability comes from the pointer, not the binding.
             ExprKind::Deref(inner) => match self.expr_quiet(inner) {
                 Ty::Ptr { mutable, .. } | Ty::OwnPtr { mutable, .. } => Some(mutable),
@@ -2076,6 +2155,7 @@ impl<'a, 'c> Body<'a, 'c> {
             if let (Ty::Slice { mutable: true, .. }, Ty::Array { .. }) =
                 (&self.subst(exp), &self.subst(&checked.ty))
             {
+                self.require_unsafe_static_write(e);
                 if self.place_mutability(e) == Some(false) {
                     let (desc, _) = self.describe_place(e);
                     let want = self.cx.name_of(exp);
@@ -2658,6 +2738,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 let ty = match name.name.as_str() {
                     "line" | "column" => Ty::Int(IntTy::U32),
                     "file" | "function" | "module" | "expr_text" => Ty::Str,
+                    "location" => Ty::Builtin(dz_hir::ty::BuiltinTy::SourceLocation),
                     _ => Ty::Error,
                 };
                 let kind = hir::ExprKind::Intrinsic { name: name.name.clone(), args };
@@ -3611,6 +3692,46 @@ impl<'a, 'c> Body<'a, 'c> {
         self.mk(e, Ty::Error, hir::ExprKind::Error)
     }
 
+    /// Is `name` on `sym` a function with no receiver? Overloads of one name agree on it:
+    /// a receiver-less overload beside a method would make `T::name(x)` mean two things.
+    fn is_associated_fn(&self, sym: SymbolId, name: &str) -> bool {
+        let Some(s) = self.cx.table.struct_sig(sym) else { return false };
+        let Some(keys) = s.overloads.get(name) else { return false };
+        keys.iter().filter_map(|k| s.methods.get(k)).any(|m| m.takes_self.is_none())
+    }
+
+    /// `Quat::identity()`, `Buffer<f32>::with_capacity(8)` (spec §7.3).
+    fn associated_call(
+        &mut self,
+        owner: SymbolId,
+        prefix: &Path,
+        name: &Ident,
+        args: &[Expr],
+        e: &Expr,
+    ) -> Checked {
+        let span = e.span;
+        // Written on the path, or — inside the type's own body — its parameters in scope.
+        let generic = !self.cx.table.type_params(owner).is_empty();
+        let type_args = match prefix.segments.last() {
+            Some(seg) if generic => self.cx.type_args(owner, seg),
+            _ => Vec::new(),
+        };
+        let Some(sig) = self.method_by_args(owner, &type_args, &name.name, args, span) else {
+            for a in args {
+                self.expr(a, None);
+            }
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        };
+        self.check_member_visible(owner, &name.name, sig.vis, sig.span, name.span, "function");
+        if sig.is_unsafe {
+            self.require_unsafe(span, &format!("calling `unsafe fn {}`", name.name));
+        }
+        let checked_args = self.check_args(&sig, args, span, &name.name);
+        let ty = fallible_result(&sig, self.subst(&sig.ret));
+        let callee = hir::Callee::Assoc { owner, type_args, name: name.name.clone() };
+        self.mk(e, ty, hir::ExprKind::Call { callee, args: checked_args })
+    }
+
     /// `UiElement::draw(self, …)` — a base's version of a method (spec §7.3, 18.32).
     ///
     /// The receiver is the first argument, as it is for a trait's qualified call. The
@@ -3840,8 +3961,10 @@ impl<'a, 'c> Body<'a, 'c> {
         let owner_name = symbol.name.clone();
         let decl_file = symbol.file;
 
-        // Inside the struct's own methods everything is reachable (spec §4).
-        if self.self_ty == Some(owner) {
+        // Inside the struct's own methods everything is reachable (spec §4). A trait's
+        // methods are as visible as the trait: they are its whole interface, and seeing the
+        // trait is already the visibility check (spec §4, §7.6).
+        if self.self_ty == Some(owner) || symbol.kind == SymbolKind::Trait {
             return;
         }
         let ok = match vis {
@@ -3930,6 +4053,24 @@ impl<'a, 'c> Body<'a, 'c> {
                         self.check_member_visible(
                             owner, &name.name, sig.vis, sig.span, name.span, "method",
                         );
+                        // No receiver: it is the type's function, not the value's (§7.3).
+                        if sig.takes_self.is_none() {
+                            let tname = self.cx.res.symbol(owner).name.clone();
+                            self.cx.error_help(
+                                codes::NO_SUCH_METHOD,
+                                name.span,
+                                format!("`{tname}::{}` takes no `self`", name.name),
+                                "called on a value",
+                                format!(
+                                    "call it through the type: `{tname}::{}(…)` (spec §7.3)",
+                                    name.name
+                                ),
+                            );
+                            for a in args {
+                                self.expr(a, None);
+                            }
+                            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+                        }
                         if sig.is_mut {
                             self.require_mutable_receiver(base, &base_ty, &name.name);
                         }
@@ -4019,6 +4160,11 @@ impl<'a, 'c> Body<'a, 'c> {
                             .struct_sig(tsym)
                             .is_some_and(|s| s.overloads.contains_key(&method.name))
                         {
+                            // A function with no receiver is the type's own, called with
+                            // exactly its arguments (spec §7.3).
+                            if self.is_associated_fn(tsym, &method.name) {
+                                return self.associated_call(tsym, &prefix, &method, args, e);
+                            }
                             return self.qualified_base_call(tsym, &method, args, e);
                         }
                     }
@@ -4213,7 +4359,13 @@ impl<'a, 'c> Body<'a, 'c> {
                      take a `^mut T` (spec §5.2)",
                 ),
             ),
-            _ => (self.place_mutability(base).unwrap_or(true), None),
+            _ => {
+                let ok = self.place_mutability(base).unwrap_or(true);
+                if ok {
+                    self.require_unsafe_static_write(base);
+                }
+                (ok, None)
+            }
         };
         if !ok {
             self.cx.error_help(
@@ -4610,6 +4762,10 @@ impl<'a, 'c> Body<'a, 'c> {
             },
             SymbolKind::Const => match self.cx.table.get(sym) {
                 Some(ItemSig::Const(t)) => (t.clone(), hir::ExprKind::Const(sym)),
+                _ => (Ty::Error, hir::ExprKind::Error),
+            },
+            SymbolKind::Static => match self.cx.table.get(sym) {
+                Some(ItemSig::Static(t)) => (t.clone(), hir::ExprKind::Static(sym)),
                 _ => (Ty::Error, hir::ExprKind::Error),
             },
             // A bare type name in value position is only meaningful as a constructor
@@ -5445,6 +5601,9 @@ impl<'a, 'c> Body<'a, 'c> {
                     _ if ty.is_wildcard() => true,
                     _ => self.place_mutability(subject) == Some(true),
                 };
+                if writable {
+                    self.require_unsafe_static_write(subject);
+                }
                 if !writable {
                     self.cx.error_help(
                         codes::NOT_MUTABLE,
@@ -5583,6 +5742,75 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             _ => false,
         }
+    }
+
+    /// What a `static` may start as: a constant, `null`, `none`, or a struct, array, tuple or
+    /// variant literal of those (spec §7.7). A struct literal's omitted fields take their
+    /// declared defaults, which are themselves checked where they are declared.
+    fn is_static_initialiser(&self, id: hir::ExprId) -> bool {
+        if self.is_constant(id) {
+            return true;
+        }
+        match self.hir.kind(id) {
+            hir::ExprKind::Null | hir::ExprKind::NoneOpt | hir::ExprKind::EnumVariant { .. } => {
+                true
+            }
+            hir::ExprKind::StructLit { fields, .. } => {
+                fields.iter().flatten().all(|f| self.is_static_initialiser(*f))
+            }
+            hir::ExprKind::UnionVariant { payload, .. } => {
+                payload.iter().flatten().all(|f| self.is_static_initialiser(*f))
+            }
+            hir::ExprKind::ArrayLit(parts) | hir::ExprKind::Tuple(parts) => {
+                parts.iter().all(|p| self.is_static_initialiser(*p))
+            }
+            _ => false,
+        }
+    }
+
+    /// The `static` a place is rooted in, when writing the place writes the static itself:
+    /// `HEAP`, `HEAP.used`, `TABLE[i]` — but not `HEAP.ptr^`, which writes through a
+    /// pointer the static merely holds (spec §7.7).
+    fn static_root(&mut self, e: &Expr) -> Option<SymbolId> {
+        match &e.kind {
+            ExprKind::Path(p) => {
+                if p.segments.len() == 1 && self.local(&p.segments[0].name.name).is_some() {
+                    return None;
+                }
+                let sym = self.path_symbol(p)?;
+                (self.cx.res.symbol(sym).kind == SymbolKind::Static).then_some(sym)
+            }
+            ExprKind::Field { base, .. } | ExprKind::Index { base, .. } => {
+                match self.expr_quiet(base) {
+                    Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. } | Ty::Slice { .. } => None,
+                    _ => self.static_root(base),
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Changing a `static` is `unsafe`: it is one variable shared by all the program, or by
+    /// all of a thread, and nothing checks who else is using it (spec §7.7).
+    fn require_unsafe_static_write(&mut self, e: &Expr) {
+        let Some(sym) = self.static_root(e) else { return };
+        if self.unsafe_depth > 0 {
+            return;
+        }
+        let nested = |a: &Span, b: &Span| a.start <= b.start && b.end <= a.end;
+        if self.unsafe_reported.iter().any(|s| nested(s, &e.span) || nested(&e.span, s)) {
+            return;
+        }
+        self.unsafe_reported.push(e.span);
+        let name = self.cx.res.symbol(sym).name.clone();
+        self.cx.error_help(
+            codes::UNSAFE_OPERATION,
+            e.span,
+            format!("changing the static `{name}` is unsafe"),
+            "outside an `unsafe` block",
+            "wrap it in `unsafe { … }`: a `static` is shared by everything that names it, and \
+             nothing checks what else is reading or holding it (spec §7.7)",
+        );
     }
 
     // --- the `or` clause (spec §9.4) --------------------------------------
@@ -5788,6 +6016,14 @@ fn needs_context(e: &Expr) -> bool {
         ExprKind::DotInfer { .. } | ExprKind::None => true,
         ExprKind::ArrayLit(elems) => elems.is_empty(),
         _ => false,
+    }
+}
+
+/// What a pointer or reference points at.
+fn pointee(t: &Ty) -> Option<&Ty> {
+    match t {
+        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => Some(inner),
+        _ => None,
     }
 }
 

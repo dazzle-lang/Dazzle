@@ -1,0 +1,6 @@
+[module]
+name    = "shapes"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "static-lib"

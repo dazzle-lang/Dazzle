@@ -339,6 +339,8 @@ impl<'a, 'w> Walker<'a, 'w> {
 
     fn item(&mut self, item: &Item) {
         match &item.kind {
+            // Removed by the driver before resolution runs (spec §12.10).
+            ItemKind::CfgIf(_) => {}
             ItemKind::Fn(f) => self.function(f, None),
             ItemKind::Const(c) => {
                 if let Some(t) = &c.ty {
@@ -346,6 +348,12 @@ impl<'a, 'w> Walker<'a, 'w> {
                 }
                 self.push_scope();
                 self.expr(&c.value);
+                self.pop_scope();
+            }
+            ItemKind::Static(s) => {
+                self.ty(&s.ty);
+                self.push_scope();
+                self.expr(&s.value);
                 self.pop_scope();
             }
             ItemKind::Struct(s) => {
@@ -474,7 +482,11 @@ impl<'a, 'w> Walker<'a, 'w> {
     fn members(&mut self, members: &[Member], fields_in_scope: Option<&[String]>) {
         for m in members {
             match &m.kind {
+                MemberKind::CfgIf(_) => {}
                 MemberKind::Field(f) => self.field(f),
+                // A function with no receiver has no `self` whose fields it could see; a
+                // constructor is building one, so it does (spec §7.2, §7.3).
+                MemberKind::Fn(f) if f.self_param.is_none() => self.function(f, None),
                 MemberKind::Fn(f) | MemberKind::Ctor(f) => self.function(f, fields_in_scope),
                 MemberKind::TypeAlias { ty, .. } => {
                     if let Some(t) = ty {
@@ -612,6 +624,7 @@ impl<'a, 'w> Walker<'a, 'w> {
 
     fn stmt(&mut self, s: &Stmt) {
         match &s.kind {
+            StmtKind::CfgIf(_) => {}
             StmtKind::Let(l) => {
                 if let Some(t) = &l.ty {
                     self.ty(t);

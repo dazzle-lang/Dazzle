@@ -123,6 +123,8 @@ pub enum BodyOwner {
     Copy(SymbolId),
     Drop(SymbolId),
     Const(SymbolId),
+    /// A `static`'s initialiser (spec §7.7).
+    Static(SymbolId),
     /// The initialiser of a field with a default (spec §7.1).
     FieldDefault {
         owner: SymbolId,
@@ -343,6 +345,8 @@ pub enum ExprKind {
     // --- places ---
     Local(LocalId),
     Const(SymbolId),
+    /// A `static`, which is a place: it can be read, and written inside `unsafe` (§7.7).
+    Static(SymbolId),
     /// A function used as a value.
     FnItem(SymbolId),
     /// Field access resolved to an index into the type's declaration order.
@@ -513,7 +517,8 @@ pub fn map_body_types(body: &Body, f: impl Fn(&Ty) -> Ty) -> Body {
         e.ty = s(&e.ty);
         match &mut e.kind {
             ExprKind::TypeQuery { ty: queried, .. } => *queried = s(queried),
-            ExprKind::Call { callee: Callee::Fn { type_args, .. }, .. } => {
+            ExprKind::Call { callee: Callee::Fn { type_args, .. }, .. }
+            | ExprKind::Call { callee: Callee::Assoc { type_args, .. }, .. } => {
                 for t in type_args.iter_mut() {
                     *t = s(t);
                 }
@@ -617,6 +622,9 @@ pub enum Callee {
     /// what it replaces instead of discarding it (spec §7.3, 18.32). `owner` is the base
     /// the call is qualified by, and C++ writes it as `recv.UiElement::draw()`.
     BaseMethod { recv: ExprId, owner: SymbolId, name: String },
+    /// `Quat::identity()`, `Buffer<f32>::with_capacity(8)` — a function declared in a type
+    /// with no receiver (spec §7.3). `type_args` are the type's, empty unless it is generic.
+    Assoc { owner: SymbolId, type_args: Vec<Ty>, name: String },
     /// A constructor, by position in the type's declaration order (spec §7.2).
     Ctor { owner: SymbolId, index: usize },
     /// Calling a value of function type.

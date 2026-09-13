@@ -1,0 +1,4 @@
+3 14
+debug build
+on a known platform
+profiled frame

@@ -1,0 +1,51 @@
+// Associated functions (spec §7.3): a `fn` in a type with no receiver, called through the
+// type — `Vec2::zero()`, `Pair<f32>::both(1.5)` — and emitted as a C++ `static` member.
+
+struct Vec2 {
+    pub x: f32 = 0
+    pub y: f32 = 0
+
+    pub fn zero() -> Vec2 {
+        return Vec2{}
+    }
+
+    pub fn of(x: f32, y: f32) -> Vec2 {
+        return Vec2{ x: x, y: y }
+    }
+
+    // Methods and associated functions call each other through the type.
+    pub fn doubled(&self) -> Vec2 {
+        return Vec2::of(x * 2, y * 2)
+    }
+}
+
+struct Pair<T: Copy> {
+    pub a: T
+    pub b: T
+
+    pub fn both(v: T) -> Pair<T> {
+        return Pair<T>{ a: v, b: v }
+    }
+
+    // Inside the type, a bare `Pair` is `Pair<T>`.
+    pub fn swapped(&self) -> Pair<T> {
+        let p = Pair::both(b)
+        return Pair<T>{ a: p.a, b: a }
+    }
+}
+
+struct Registry {
+    pub fn count() -> i32 {
+        return 3
+    }
+}
+
+fn main() {
+    let z = Vec2::zero()
+    let v = Vec2::of(1.5, 2).doubled()
+    println("{} {} {} {}", z.x, z.y, v.x, v.y)
+
+    let p = Pair<i32>::both(4)
+    let q = Pair<f32>{ a: 1.5, b: 2.5 }.swapped()
+    println("{} {} {} {} {}", p.a, p.b, q.a, q.b, Registry::count())
+}

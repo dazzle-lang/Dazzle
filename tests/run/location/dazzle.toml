@@ -1,0 +1,6 @@
+[module]
+name    = "location"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

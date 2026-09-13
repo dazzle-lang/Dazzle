@@ -1,6 +1,6 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 213
+assertion_line: 215
 expression: body
 ---
 error[DZ0502]: `300` does not fit in `u8`
@@ -927,3 +927,33 @@ error[DZ0551]: no struct named `Stopped` for this variant to carry
     │     ^^^^^^^ not a struct in scope
     │
     = help: a variant with no payload is written `Stopped {}`; a bare `Stopped` carries the struct of that name (spec §7.5)
+
+error[DZ0553]: `STARTS_AT_RUN_TIME` must be built from constants
+    ┌─ typeerrors/src/errors.dz:838:34
+    │
+838 │ static STARTS_AT_RUN_TIME: i32 = a_runtime_value()
+    │                                  ^^^^^^^^^^^^^^^^^ computed when the program starts
+    │
+    = help: a `static` starts as a literal, a `const`, `null`, `none`, or a struct, array or variant literal of those; fill it in from `main` if it needs more (spec §7.7)
+
+error[DZ0528]: changing the static `SHARED` is unsafe
+    ┌─ typeerrors/src/errors.dz:842:5
+    │
+842 │     SHARED = 1
+    │     ^^^^^^ outside an `unsafe` block
+    │
+    = help: wrap it in `unsafe { … }`: a `static` is shared by everything that names it, and nothing checks what else is reading or holding it (spec §7.7)
+
+error[DZ0520]: `Factory::make` takes no `self`
+    ┌─ typeerrors/src/errors.dz:853:14
+    │
+853 │     return f.make()
+    │              ^^^^ called on a value
+    │
+    = help: call it through the type: `Factory::make(…)` (spec §7.3)
+
+error[DZ0501]: expected `&Named`, found `&Factory`
+    ┌─ typeerrors/src/errors.dz:866:18
+    │
+866 │     return named(f)
+    │                  ^ this is `&Factory`

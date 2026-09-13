@@ -1,0 +1,18 @@
+// expect: DZ0520
+//
+// A function with no receiver belongs to the type, so it is called through the type:
+// `Vec2::zero()`, not `v.zero()`.
+
+struct Vec2 {
+    pub x: f32 = 0
+
+    pub fn zero() -> Vec2 {
+        return Vec2{}
+    }
+}
+
+fn main() {
+    let v = Vec2{ x: 1 }
+    let z = v.zero()
+    println("{}", z.x)
+}

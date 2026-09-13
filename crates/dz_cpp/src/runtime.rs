@@ -223,6 +223,7 @@ struct Addr {
 
 template <class T> DZ_INLINE Addr<T> addr(T& x) { return Addr<T>{&x}; }
 
+
 /// `move(x)` (spec §6.4). Hand-rolled rather than `std::move`, so the shim keeps its
 /// promise of depending on nothing but the C standard library — `<utility>` is a
 /// surprisingly large include to pull into every translation unit for one cast.
@@ -307,6 +308,49 @@ template <class T, size_t N> DZ_INLINE const T* data(const T (&a)[N]) { return a
 // `__is_pointer` exists in Clang but not in GCC.
 template <class T> struct is_ptr { static constexpr bool value = false; };
 template <class T> struct is_ptr<T*> { static constexpr bool value = true; };
+
+/// `^Trait` and `&Trait`: a fat pointer, the object and its implementation's vtable
+/// (spec §7.6, §18.6). Each trait derives its own handle from this, adding one forwarding
+/// member per method. The vtable comes from `dz_vtable(const VT*, const T*)`, which each
+/// implementation declares in its own module's namespace; the call is unqualified, so
+/// argument-dependent lookup searches the trait's namespace and the type's — which is
+/// exactly where the orphan rule allows an implementation to be (spec §7.6).
+template <bool B> struct enable_if_c {};
+template <> struct enable_if_c<true> { using type = int; };
+template <class T> struct unconst { using type = T; };
+template <class T> struct unconst<const T> { using type = T; };
+template <class T> struct is_addr { static constexpr bool value = false; };
+template <class T> struct is_addr<Addr<T>> { static constexpr bool value = true; };
+
+template <class VT> struct Dyn;
+template <class VT> char dyn_probe(const Dyn<VT>*);
+long dyn_probe(...);
+template <class T> struct is_dyn {
+    static constexpr bool value = sizeof(dyn_probe(static_cast<T*>(nullptr))) == 1;
+};
+
+template <class VT>
+struct Dyn {
+    void* data = nullptr;
+    const VT* vt = nullptr;
+
+    DZ_INLINE Dyn() = default;
+    DZ_INLINE Dyn(decltype(nullptr)) {}
+    template <class T>
+    DZ_INLINE Dyn(T* p)
+        : data(const_cast<void*>(static_cast<const void*>(p))),
+          vt(p ? dz_vtable(static_cast<const VT*>(nullptr), static_cast<const T*>(p)) : nullptr) {}
+    template <class T> DZ_INLINE Dyn(const Addr<T>& a) : Dyn(a.p) {}
+    // An object named directly, which is how a Dazzle `&T` reaches C++.
+    template <class T,
+              typename enable_if_c<!is_ptr<T>::value && !is_addr<typename unconst<T>::type>::value
+                                   && !is_dyn<typename unconst<T>::type>::value>::type = 0>
+    DZ_INLINE Dyn(T& r) : Dyn(&r) {}
+
+    DZ_INLINE explicit operator bool() const { return data != nullptr; }
+    DZ_INLINE bool operator==(decltype(nullptr)) const { return data == nullptr; }
+    DZ_INLINE bool operator!=(decltype(nullptr)) const { return data != nullptr; }
+};
 
 /// `as` between numbers, pointers, and an enum and its backing type (spec §10.6).
 ///

@@ -95,7 +95,7 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
     let mut impl_members: HashMap<usize, Vec<&Body>> = HashMap::new();
     for (_, b) in hir.bodies() {
         match &b.owner {
-            BodyOwner::Fn(_) | BodyOwner::Const(_) => {}
+            BodyOwner::Fn(_) | BodyOwner::Const(_) | BodyOwner::Static(_) => {}
             BodyOwner::ImplMethod { imp, .. } => {
                 impl_members.entry(*imp as usize).or_default().push(b)
             }
@@ -191,9 +191,11 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
 /// implementation has no name.
 pub fn owner_sym(owner: &BodyOwner) -> Option<SymbolId> {
     match owner {
-        BodyOwner::Fn(s) | BodyOwner::Copy(s) | BodyOwner::Drop(s) | BodyOwner::Const(s) => {
-            Some(*s)
-        }
+        BodyOwner::Fn(s)
+        | BodyOwner::Copy(s)
+        | BodyOwner::Drop(s)
+        | BodyOwner::Const(s)
+        | BodyOwner::Static(s) => Some(*s),
         BodyOwner::Method { owner, .. }
         | BodyOwner::Ctor { owner, .. }
         | BodyOwner::FieldDefault { owner, .. } => Some(*owner),
@@ -355,6 +357,13 @@ impl Worklist<'_> {
                     if type_args.iter().all(|t| !t.has_params()) {
                         self.want(false, *sym, type_args.clone(), here);
                     }
+                }
+                // `Buffer<f32>::with_capacity(8)` needs the instance whose function it is,
+                // whatever the call returns (spec §7.3, §8.4).
+                ExprKind::Call { callee: Callee::Assoc { owner, type_args, .. }, .. }
+                    if !type_args.is_empty() =>
+                {
+                    self.visit_ty(&Ty::Named { sym: *owner, args: type_args.clone() }, here);
                 }
                 // A trait's method on a concrete receiver reaches one implementation, which
                 // may be generic (spec §7.6).

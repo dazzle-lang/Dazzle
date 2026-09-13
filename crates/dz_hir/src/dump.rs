@@ -63,6 +63,7 @@ impl<'a> Dumper<'a> {
             BodyOwner::Copy(s) => format!("copy {}", self.names.name_of_symbol(*s)),
             BodyOwner::Drop(s) => format!("drop {}", self.names.name_of_symbol(*s)),
             BodyOwner::Const(s) => format!("const {}", self.names.name_of_symbol(*s)),
+            BodyOwner::Static(s) => format!("static {}", self.names.name_of_symbol(*s)),
             BodyOwner::FieldDefault { owner, index } => {
                 format!("field-default {}.{index}", self.names.name_of_symbol(*owner))
             }
@@ -200,6 +201,10 @@ impl<'a> Dumper<'a> {
                 let name = self.names.name_of_symbol(s);
                 node!("const {name}")
             }
+            ExprKind::Static(s) => {
+                let name = self.names.name_of_symbol(s);
+                node!("static {name}")
+            }
             ExprKind::FnItem(s) => {
                 let name = self.names.name_of_symbol(s);
                 node!("fn-item {name}")
@@ -316,6 +321,10 @@ impl<'a> Dumper<'a> {
                     Callee::BaseMethod { owner, name, .. } => {
                         let o = self.names.name_of_symbol(*owner);
                         node!("call-base-method {o}::{name}")
+                    }
+                    Callee::Assoc { owner, name, .. } => {
+                        let o = self.names.name_of_symbol(*owner);
+                        node!("call-assoc {o}::{name}")
                     }
                     Callee::Ctor { owner, index } => {
                         let name = self.names.name_of_symbol(*owner);

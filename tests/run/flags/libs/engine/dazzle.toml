@@ -1,0 +1,10 @@
+[module]
+name    = "engine"
+sources = ["src/**/*.dz"]
+
+[flags]
+PROFILE = false
+VERBOSE = false
+
+[build]
+output = "static-lib"

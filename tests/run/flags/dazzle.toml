@@ -1,0 +1,13 @@
+[module]
+name    = "flags"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+engine = { path = "libs/engine", flags = ["PROFILE"] }
+
+[flags]
+CHEATS = { default = false, doc = "god mode and friends" }
+FANCY  = true
+
+[build]
+output = "executable"

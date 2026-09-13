@@ -1,0 +1,14 @@
+// expect: DZ0553
+//
+// A static exists before `main`, in an order C++ does not promise across files, so it is
+// built from constants only. A call is code that would run then.
+
+fn seven() -> i32 {
+    return 7
+}
+
+static COMPUTED: i32 = seven()
+
+fn main() {
+    println("{}", COMPUTED)
+}

@@ -125,6 +125,17 @@ impl<'a> Parser<'a> {
     /// Returns `None` when the current token cannot begin a declaration.
     pub(crate) fn parse_item(&mut self) -> Option<Item> {
         let start = self.start();
+        // `#if FLAG { … }` among declarations (spec §12.10).
+        if self.at_cfg_if() {
+            let c = self.parse_cfg_if("a declaration", &mut |p| p.parse_item());
+            return Some(Item {
+                span: self.span_from(start),
+                docs: Vec::new(),
+                attrs: Vec::new(),
+                vis: Vis::Private,
+                kind: ItemKind::CfgIf(c),
+            });
+        }
         let docs = self.eat_docs();
         let attrs = self.parse_attrs();
         self.skip_terminators();
@@ -172,6 +183,7 @@ impl<'a> Parser<'a> {
             TokenKind::Trait => ItemKind::Trait(self.parse_trait()),
             TokenKind::Impl => ItemKind::Impl(self.parse_impl()),
             TokenKind::Const => ItemKind::Const(self.parse_const()),
+            TokenKind::Static => ItemKind::Static(self.parse_static()),
             TokenKind::Macro => ItemKind::Macro(self.parse_macro_decl()),
             _ => {
                 // A visibility or attribute prefix commits us to a declaration, so report
@@ -573,6 +585,18 @@ impl<'a> Parser<'a> {
 
     fn parse_member(&mut self, struct_name: &str) -> Member {
         let start = self.start();
+        // `#if FLAG { … }` among a type's fields and methods (spec §12.10).
+        if self.at_cfg_if() {
+            let name = struct_name.to_owned();
+            let c = self.parse_cfg_if("a field or method", &mut |p| Some(p.parse_member(&name)));
+            return Member {
+                span: self.span_from(start),
+                docs: Vec::new(),
+                attrs: Vec::new(),
+                vis: Vis::Private,
+                kind: MemberKind::CfgIf(c),
+            };
+        }
         let docs = self.eat_docs();
         let attrs = self.parse_attrs();
         self.skip_terminators();
@@ -863,6 +887,22 @@ impl<'a> Parser<'a> {
         self.expect_in(TokenKind::Eq, "in a `const` declaration");
         let value = self.parse_expr();
         ConstDecl { span: self.span_from(start), name, ty, value }
+    }
+
+    /// `static NAME: T = value` (spec §7.7). A missing type is reported and parsed on as an
+    /// error type, so the rest of the declaration still reaches the tree (invariant 1).
+    fn parse_static(&mut self) -> StaticDecl {
+        let start = self.start();
+        self.bump(); // `static`
+        let name = self.parse_ident_or_error();
+        let ty = if self.expect_in(TokenKind::Colon, "a `static` needs its type written") {
+            self.parse_type()
+        } else {
+            Type { span: name.span, kind: TypeKind::Error }
+        };
+        self.expect_in(TokenKind::Eq, "in a `static` declaration");
+        let value = self.parse_expr();
+        StaticDecl { span: self.span_from(start), name, ty, value }
     }
 
     // --- macros (shallow until M10) ---------------------------------------

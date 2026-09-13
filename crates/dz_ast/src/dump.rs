@@ -72,6 +72,7 @@ impl<'a> Dumper<'a> {
         }
         let vis = vis_str(item.vis);
         match &item.kind {
+            ItemKind::CfgIf(c) => self.cfg_if(c, &mut |d, i| d.item(i)),
             ItemKind::Fn(f) => self.fn_decl("fn", vis, f),
             ItemKind::Struct(s) => {
                 self.line(format_args!(
@@ -151,6 +152,10 @@ impl<'a> Dumper<'a> {
                 ));
                 self.nest(|d| d.expr(&c.value));
             }
+            ItemKind::Static(s) => {
+                self.line(format_args!("{vis}static {} : {}", s.name.name, type_str(&s.ty)));
+                self.nest(|d| d.expr(&s.value));
+            }
             ItemKind::Macro(m) => {
                 self.line(format_args!("macro {} -> {}", m.name.name, m.kind.name))
             }
@@ -164,6 +169,7 @@ impl<'a> Dumper<'a> {
     fn member(&mut self, m: &Member) {
         let vis = vis_str(m.vis);
         match &m.kind {
+            MemberKind::CfgIf(c) => self.cfg_if(c, &mut |d, x| d.member(x)),
             MemberKind::Field(f) => self.field(f),
             MemberKind::Fn(f) => self.fn_decl("fn", vis, f),
             MemberKind::Ctor(f) => self.fn_decl("ctor", vis, f),
@@ -273,8 +279,34 @@ impl<'a> Dumper<'a> {
         });
     }
 
+    /// `#if`, its condition, and every branch (spec §12.10).
+    fn cfg_if<T>(&mut self, c: &CfgIf<T>, each: &mut dyn FnMut(&mut Self, &T)) {
+        self.line(format_args!("#if {}", cfg_cond_str(&c.cond)));
+        self.nest(|d| {
+            for x in &c.then {
+                each(d, x);
+            }
+        });
+        match &c.otherwise {
+            Some(CfgElse::If(next)) => {
+                self.line(format_args!("#else"));
+                self.nest(|d| d.cfg_if(next, each));
+            }
+            Some(CfgElse::Else { items, .. }) => {
+                self.line(format_args!("#else"));
+                self.nest(|d| {
+                    for x in items {
+                        each(d, x);
+                    }
+                });
+            }
+            None => {}
+        }
+    }
+
     fn stmt(&mut self, s: &Stmt) {
         match &s.kind {
+            StmtKind::CfgIf(c) => self.cfg_if(c, &mut |d, x| d.stmt(x)),
             StmtKind::Let(l) => {
                 self.line(format_args!(
                     "let{} {}{}",
@@ -554,6 +586,18 @@ fn vis_str(v: Vis) -> &'static str {
         Vis::Protected => "protected ",
         Vis::Module => "pub(module) ",
         Vis::Public => "pub ",
+    }
+}
+
+/// A build-flag condition as written, with the parentheses the author wrote (spec §12.10).
+pub fn cfg_cond_str(c: &CfgCond) -> String {
+    match &c.kind {
+        CfgCondKind::Flag(p) => path_str(p),
+        CfgCondKind::Not(x) => format!("!{}", cfg_cond_str(x)),
+        CfgCondKind::And(a, b) => format!("{} && {}", cfg_cond_str(a), cfg_cond_str(b)),
+        CfgCondKind::Or(a, b) => format!("{} || {}", cfg_cond_str(a), cfg_cond_str(b)),
+        CfgCondKind::Paren(x) => format!("({})", cfg_cond_str(x)),
+        CfgCondKind::Error => "<error>".to_owned(),
     }
 }
 

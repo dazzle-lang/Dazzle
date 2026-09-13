@@ -1,0 +1,23 @@
+// expect: DZ0528, DZ0528, DZ0528
+//
+// Reading a static is safe; changing one is not, however it is changed: an assignment into
+// it, a `&mut self` method, a `&mut` taken of it. One diagnostic each.
+
+struct Counter {
+    pub hits: i32 = 0
+
+    pub fn bump(&mut self) {
+        hits += 1
+    }
+}
+
+static COUNT: Counter = Counter{}
+
+fn take(c: &mut Counter) {}
+
+fn main() {
+    let before = COUNT.hits
+    COUNT.hits = before + 1
+    COUNT.bump()
+    take(&mut COUNT)
+}

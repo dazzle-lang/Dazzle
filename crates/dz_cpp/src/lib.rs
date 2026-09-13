@@ -535,6 +535,8 @@ impl<'a> Emitter<'a> {
         for pf in files {
             for item in &pf.ast.items {
                 match &item.kind {
+                    // Removed by the driver before this phase (spec §12.10).
+                    ItemKind::CfgIf(_) => {}
                     // A generic declaration is a template: only its instances are emitted,
                     // each under its own name (spec §8.4).
                     ItemKind::Struct(s) if !s.generics.is_empty() => {}
@@ -547,7 +549,9 @@ impl<'a> Emitter<'a> {
                     // A `#[test]` or `#[bench]` belongs to its own binary and to nothing
                     // else: a program must not carry them (spec §19 M14, M15).
                     ItemKind::Fn(_) if self.excluded(item) => {}
-                    ItemKind::Fn(_) | ItemKind::Const(_) => functions.push((pf.file, item)),
+                    ItemKind::Fn(_) | ItemKind::Const(_) | ItemKind::Static(_) => {
+                        functions.push((pf.file, item))
+                    }
                     // Implementations are emitted from the checker's table, below.
                     ItemKind::Trait(_)
                     | ItemKind::Impl(_)
@@ -578,6 +582,18 @@ impl<'a> Emitter<'a> {
                 self.enum_decl(e, sym);
             }
         }
+        // Trait objects are handles a struct may hold by value, so they come before types.
+        let traits: Vec<SymbolId> = files
+            .iter()
+            .flat_map(|pf| pf.ast.items.iter())
+            .filter(|item| matches!(item.kind, ItemKind::Trait(_)))
+            .filter_map(|item| match &item.kind {
+                ItemKind::Trait(t) => self.res.lookup(self.module, &t.name.name),
+                _ => None,
+            })
+            .filter(|t| self.object_safe(*t))
+            .collect();
+        self.trait_object_decls(&traits);
         let consts: Vec<(FileId, SymbolId)> = functions
             .iter()
             .filter(|(_, item)| matches!(item.kind, ItemKind::Const(_)))
@@ -610,6 +626,17 @@ impl<'a> Emitter<'a> {
             self.file = file;
             self.const_decl(sym);
         }
+        // Statics last among the declarations: every type they hold is complete by now, and
+        // their initialisers are constants, so they depend on nothing else (spec §7.7).
+        for (file, item) in &functions {
+            if let ItemKind::Static(_) = &item.kind {
+                self.file = *file;
+                let thread_local = item.attrs.iter().any(|a| a.name.name == "thread_local");
+                if let Some(sym) = self.symbol_of(item) {
+                    self.static_decl(sym, thread_local);
+                }
+            }
+        }
         for (file, item) in &functions {
             self.file = *file;
             let Some(sym) = self.symbol_of(item) else { continue };
@@ -620,7 +647,9 @@ impl<'a> Emitter<'a> {
                 _ => {}
             }
         }
+        self.trait_object_bodies(&traits);
         self.impl_prototypes();
+        self.impl_vtables();
         // Member bodies come last so they can call anything in the module.
         for &(file, item, sym) in &own_types {
             self.file = file;
@@ -922,10 +951,171 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// `^Trait` and `&Trait` are dynamic dispatch through a fat pointer (spec §7.6, §18.6),
-    /// which M6 does not implement. Without this refusal a trait object reaches C++ as a
-    /// pointer to a type that was never declared — a C++ error, which invariant 7 forbids.
-    /// Reported once per body or type, at the first place one appears.
+    // --- trait objects (spec §7.6, §18.6) ---------------------------------------
+
+    /// Can a `^Trait` of this trait exist? Its methods must be callable knowing nothing
+    /// but the vtable: no parameters of the trait's own or a method's, no associated types,
+    /// every method taking a receiver, and `Self` nowhere but the receiver.
+    fn object_safe(&self, sym: SymbolId) -> bool {
+        if !self.table.type_params(sym).is_empty() {
+            return false;
+        }
+        let Some(ItemSig::Trait(t)) = self.table.get(sym) else { return false };
+        t.assoc_types.is_empty()
+            && t.methods.values().all(|m| {
+                m.takes_self.is_some()
+                    && m.generics.is_empty()
+                    && !mentions_self(&m.ret)
+                    && !m.params.iter().any(|p| mentions_self(&p.ty))
+            })
+    }
+
+    /// The trait `inner` names, when a pointer or reference to it is a trait object.
+    fn trait_object(&self, inner: &Ty) -> Option<SymbolId> {
+        match inner {
+            Ty::Named { sym, args }
+                if args.is_empty()
+                    && self.res.symbol(*sym).kind == dz_resolve::SymbolKind::Trait =>
+            {
+                Some(*sym)
+            }
+            _ => None,
+        }
+    }
+
+    /// `Shape__dyn`, qualified from where it is written.
+    fn dyn_name(&self, sym: SymbolId) -> String {
+        format!("{}__dyn", self.qualify(sym))
+    }
+
+    /// A trait's methods in declaration order, with the name each is called by.
+    fn trait_methods(&self, sym: SymbolId) -> Vec<(String, dz_check::FnSig)> {
+        let Some(ItemSig::Trait(t)) = self.table.get(sym) else { return Vec::new() };
+        t.method_keys
+            .iter()
+            .filter_map(|k| {
+                let sig = t.methods.get(k)?.clone();
+                let name = t
+                    .overloads
+                    .iter()
+                    .find(|(_, keys)| keys.contains(k))
+                    .map_or_else(|| k.clone(), |(n, _)| n.clone());
+                Some((name, sig))
+            })
+            .collect()
+    }
+
+    /// The C++ return type and parameter list of a trait method as the vtable calls it.
+    fn dyn_signature(&mut self, sig: &dz_check::FnSig) -> (String, Vec<String>) {
+        let ret = self.cpp_ty(&sig.ret);
+        let ret = if sig.fallible { format!("::dz::Res<{ret}>") } else { ret };
+        let params = sig.params.iter().map(|p| self.cpp_ty(&p.ty)).collect();
+        (ret, params)
+    }
+
+    /// The vtable and handle of each object-safe trait this module declares, before any
+    /// type that might hold a handle by value. Members are declared here and defined by
+    /// [`Emitter::trait_object_bodies`], once every type they mention is complete.
+    fn trait_object_decls(&mut self, traits: &[SymbolId]) {
+        for &sym in traits {
+            let name = sanitize(&self.res.symbol(sym).name);
+            let methods = self.trait_methods(sym);
+            let _ = writeln!(self.header, "struct {name}__vtable {{");
+            for (m, sig) in &methods {
+                let (ret, params) = self.dyn_signature(sig);
+                let recv = if sig.takes_self == Some(true) { "void*" } else { "const void*" };
+                let mut all = vec![recv.to_owned()];
+                all.extend(params);
+                let _ = writeln!(self.header, "    {ret} (*{})({});", sanitize(m), all.join(", "));
+            }
+            self.header.push_str("};\n\n");
+            let _ = writeln!(self.header, "struct {name}__dyn : ::dz::Dyn<{name}__vtable> {{");
+            let _ = writeln!(self.header, "    using Dyn::Dyn;");
+            // `&(handle)` where a handle is wanted: the same object, not a pointer to one.
+            let _ = writeln!(
+                self.header,
+                "    {name}__dyn(const {name}__dyn* h) : Dyn(*h) {{}}\n    \
+                 {name}__dyn(const {name}__dyn& h) = default;\n    \
+                 {name}__dyn& operator=(const {name}__dyn& h) = default;\n    \
+                 const {name}__dyn& operator*() const {{ return *this; }}"
+            );
+            for (m, sig) in &methods {
+                let (ret, params) = self.dyn_signature(sig);
+                let list: Vec<String> =
+                    params.iter().enumerate().map(|(i, t)| format!("{t} a{i}")).collect();
+                let _ =
+                    writeln!(self.header, "    {ret} {}({}) const;", sanitize(m), list.join(", "));
+            }
+            self.header.push_str("};\n\n");
+        }
+    }
+
+    fn trait_object_bodies(&mut self, traits: &[SymbolId]) {
+        for &sym in traits {
+            let name = sanitize(&self.res.symbol(sym).name);
+            for (m, sig) in self.trait_methods(sym) {
+                let (ret, params) = self.dyn_signature(&sig);
+                let list: Vec<String> =
+                    params.iter().enumerate().map(|(i, t)| format!("{t} a{i}")).collect();
+                let mut args = vec!["data".to_owned()];
+                args.extend((0..params.len()).map(|i| format!("a{i}")));
+                let m = sanitize(&m);
+                let _ = writeln!(
+                    self.header,
+                    "inline {ret} {name}__dyn::{m}({}) const {{ return vt->{m}({}); }}",
+                    list.join(", "),
+                    args.join(", ")
+                );
+            }
+        }
+    }
+
+    /// Each implementation of an object-safe trait gives its vtable, found by the handle
+    /// through argument-dependent lookup (spec §7.6). `+[]` makes each entry a plain
+    /// function pointer; it calls the implementation's own function with the receiver cast
+    /// back to the type it is.
+    fn impl_vtables(&mut self) {
+        let empty = HashMap::new();
+        for (idx, _) in self.own_impls() {
+            let imp = self.table.impls()[idx].clone();
+            let tsym = imp.trait_ref.trait_sym;
+            if !self.object_safe(tsym) || imp.self_ty.has_params() {
+                continue;
+            }
+            let vt = format!("{}__vtable", self.qualify(tsym));
+            let self_cpp = self.cpp_ty(&imp.self_ty);
+            let mut entries = Vec::new();
+            for (m, sig) in self.trait_methods(tsym) {
+                let (ret, params) = self.dyn_signature(&sig);
+                let mutable = sig.takes_self == Some(true);
+                let (recv, cast) = if mutable {
+                    ("void* s".to_owned(), format!("*static_cast<{self_cpp}*>(s)"))
+                } else {
+                    ("const void* s".to_owned(), format!("*static_cast<const {self_cpp}*>(s)"))
+                };
+                let mut list = vec![recv];
+                list.extend(params.iter().enumerate().map(|(i, t)| format!("{t} a{i}")));
+                let mut args = vec![cast];
+                args.extend((0..params.len()).map(|i| format!("a{i}")));
+                let f = self.qualify_impl_fn(idx, &empty, &m);
+                entries.push(format!(
+                    "        +[]({}) -> {ret} {{ return {f}({}); }},",
+                    list.join(", "),
+                    args.join(", ")
+                ));
+            }
+            let _ = writeln!(
+                self.header,
+                "inline const {vt}* dz_vtable(const {vt}*, const {self_cpp}*) {{\n    \
+                 static const {vt} v{{\n{}\n    }};\n    return &v;\n}}\n",
+                entries.join("\n")
+            );
+        }
+    }
+
+    /// A trait object of a trait that cannot have one — generic, with associated types, or
+    /// with a method that mentions `Self` — is refused rather than reaching C++ as a type
+    /// that was never declared (invariant 7). Reported once per body or type.
     fn reject_trait_objects(&mut self) {
         let mut found: Vec<(FileId, Span)> = Vec::new();
         for (_, b) in self.hir.bodies() {
@@ -966,7 +1156,11 @@ impl<'a> Emitter<'a> {
         }
         for (file, span) in found {
             self.file = file;
-            self.unsupported(span, "a trait object (`^Trait`)", "owed by M12");
+            self.unsupported(
+                span,
+                "a trait object (`^Trait`) of a generic trait, one with associated types, or one                  whose methods mention `Self`",
+                "owed by M12",
+            );
         }
     }
 
@@ -980,7 +1174,8 @@ impl<'a> Emitter<'a> {
         match t {
             Ty::Named { sym, args } => {
                 (self.res.symbol(*sym).kind == dz_resolve::SymbolKind::Trait
-                    && Some(*sym) != except)
+                    && Some(*sym) != except
+                    && !self.object_safe(*sym))
                     || args.iter().any(m)
             }
             Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => m(i),
@@ -1312,6 +1507,7 @@ impl<'a> Emitter<'a> {
             ItemKind::Enum(e) => &e.name.name,
             ItemKind::Union(u) => &u.name.name,
             ItemKind::Const(c) => &c.name.name,
+            ItemKind::Static(s) => &s.name.name,
             _ => return None,
         };
         self.res.lookup(self.module, name)
@@ -1342,6 +1538,34 @@ impl<'a> Emitter<'a> {
             ("const", Self::immediately_invoked(&pre, &value))
         };
         let _ = writeln!(self.header, "inline {keyword} {ty} {} = {value};", sanitize(&name));
+    }
+
+    /// `inline T NAME = value;` — one object for the whole program however many translation
+    /// units include the header, and `thread_local` gives each thread its own (spec §7.7).
+    fn static_decl(&mut self, sym: SymbolId, thread_local: bool) {
+        let Some(body) = self.find_body(&BodyOwner::Static(sym)) else { return };
+        let name = self.res.symbol(sym).name.clone();
+        let ty = match self.table.get(sym) {
+            Some(ItemSig::Static(t)) => self.cpp_ty(t),
+            _ => "auto".to_owned(),
+        };
+        let (pre, value) = self.in_body(body, |e| {
+            let root = body.block(body.root);
+            match root.stmts.first().map(|s| body.stmt(*s)) {
+                Some(hir::Stmt { kind: hir::StmtKind::Expr(v), .. }) => e.expr(*v),
+                _ => "{}".to_owned(),
+            }
+        });
+        // The checker allows only constants, which never hoist; a lambda keeps a struct
+        // literal's C++17 spelling working all the same.
+        let value =
+            if pre.trim().is_empty() { value } else { Self::immediately_invoked(&pre, &value) };
+        // A struct literal is built in a `[&]` lambda, which C++ allows only inside a
+        // function. At namespace scope there is nothing to capture — the value is made of
+        // constants — so the capture-default is dropped.
+        let value = value.replace("[&]", "[]");
+        let tl = if thread_local { "thread_local " } else { "" };
+        let _ = writeln!(self.header, "inline {tl}{ty} {} = {value};", sanitize(&name));
     }
 
     fn enum_decl(&mut self, e: &EnumDecl, sym: SymbolId) {
@@ -1465,7 +1689,14 @@ impl<'a> Emitter<'a> {
                     let owner = BodyOwner::Method { owner: sym, name: key };
                     let params = self.decl_params(&owner, true);
                     let ret = self.body_ret_ty(&owner);
-                    let cst = if f.self_param.is_some_and(|s| s.is_mut) { "" } else { " const" };
+                    // A function with no receiver is C++'s `static` member, and has no
+                    // `this` to be `const` about (spec §7.3).
+                    let cst = match f.self_param {
+                        None => "",
+                        Some(s) if s.is_mut => "",
+                        Some(_) => " const",
+                    };
+                    let stat = if f.self_param.is_none() { "static " } else { "" };
                     // `virtual` / `override`, both spelled in the output because both were
                     // spelled in the source; a body-less `virtual` is C++'s `= 0`
                     // (spec §7.3, 18.32).
@@ -1477,7 +1708,7 @@ impl<'a> Emitter<'a> {
                     };
                     let _ = writeln!(
                         self.header,
-                        "    {pre}{ret} {}({params}){cst}{post};",
+                        "    {pre}{stat}{ret} {}({params}){cst}{post};",
                         sanitize(&method)
                     );
                 }
@@ -1591,7 +1822,10 @@ impl<'a> Emitter<'a> {
                     }
                     let params = self.decl_params(&owner, false);
                     let ret = self.body_ret_ty(&owner);
-                    let cst = if f.self_param.is_some_and(|s| s.is_mut) { "" } else { " const" };
+                    let cst = match f.self_param {
+                        Some(s) if !s.is_mut => " const",
+                        _ => "",
+                    };
                     self.current_fn = format!("{name}::{method}");
                     let head =
                         format!("{inline}{ret} {name}::{}({params}){cst} {{", sanitize(&method));
@@ -1789,10 +2023,19 @@ impl<'a> Emitter<'a> {
         self.header.push_str("    union {\n");
         for v in &variants {
             let n = sanitize(&v.name);
-            // A carried struct by its qualified name: the member has the struct's own name,
-            // and an unqualified one would change meaning inside the class.
+            // A carried struct by its *fully* qualified name, even from its own module: the
+            // member has the struct's own name, and g++ 14 rejects a class member whose
+            // declaration changes what an unqualified name used inside it meant
+            // (`-Wchanges-meaning`, an error by default). g++ 13 and clang accept it.
             let ty = match v.carries {
-                Some(c) => self.qualify(c),
+                Some(c) => match self.res.cpp_path(c) {
+                    Some(cpp) => cpp.to_owned(),
+                    None => format!(
+                        "{}::{}",
+                        qualified_namespace(&self.ws.module(self.res.symbol(c).module).name),
+                        sanitize(&self.res.symbol(c).name)
+                    ),
+                },
                 None => format!("{n}_t"),
             };
             let _ = writeln!(self.header, "        {ty} {n};");
@@ -1853,6 +2096,17 @@ impl<'a> Emitter<'a> {
                 format!("{unused}{ty} {}", incoming_name(&names[p.index()], self.table, &local.ty));
             if with_defaults {
                 if let Some(default) = body.param_defaults.get(i - start).copied().flatten() {
+                    // `loc: SourceLocation = #location` is the *caller's* location (spec
+                    // §12.7). A C++ default argument is evaluated at each call, and these
+                    // builtins answer for that call — through the `#line` directives, in
+                    // Dazzle's file and line.
+                    if let hir::ExprKind::Intrinsic { name, .. } = &body.expr(default).kind {
+                        if let Some(v) = caller_intrinsic(name) {
+                            let _ = write!(text, " = {v}");
+                            parts.push(text);
+                            continue;
+                        }
+                    }
                     let (pre, value) = self.in_body(body, |e| e.expr(default));
                     if pre.trim().is_empty() {
                         let _ = write!(text, " = {value}");
@@ -1986,6 +2240,9 @@ impl<'a> Emitter<'a> {
     /// a pointer the `const` goes on the right, which is where C++ reads it as applying to
     /// that pointer: `^^mut i32` is `int32_t* const*`.
     fn ptr_ty(&mut self, mutable: bool, inner: &Ty) -> String {
+        if let Some(t) = self.trait_object(inner) {
+            return self.dyn_name(t);
+        }
         let pointee = self.cpp_ty(inner);
         if mutable {
             format!("{pointee}*")
@@ -2011,6 +2268,10 @@ impl<'a> Emitter<'a> {
             Ty::FloatLit => "double".to_owned(),
             Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
                 self.ptr_ty(*mutable, inner)
+            }
+            // A trait object is a two-word handle whatever points at it (spec §7.6).
+            Ty::Ref { inner, .. } if self.trait_object(inner).is_some() => {
+                self.trait_object(inner).map(|t| self.dyn_name(t)).unwrap_or_default()
             }
             Ty::Ref { mutable: true, inner } => format!("{}&", self.cpp_ty(inner)),
             Ty::Ref { mutable: false, inner } => format!("const {}&", self.cpp_ty(inner)),
@@ -2152,7 +2413,8 @@ impl<'a> Emitter<'a> {
                 (Some(l), Some(init)) => {
                     let ty = self.cpp_ty(&body.local(*l).ty);
                     let name = self.names[l.index()].clone();
-                    let v = self.expr(*init);
+                    let local_ty = body.local(*l).ty.clone();
+                    let v = self.stored(&local_ty, *init);
                     let unused = self.unused_attr(l.index());
                     self.line(&format!("{unused}{ty} {name} = {v};"));
                 }
@@ -2185,7 +2447,8 @@ impl<'a> Emitter<'a> {
                     && !self.table.copyable(body.ty(*value))
                     && matches!(body.expr(*value).kind, hir::ExprKind::Move(_));
                 let t = self.place_expr(*target);
-                let v = self.expr(*value);
+                let target_ty = body.ty(*target).clone();
+                let v = self.stored(&target_ty, *value);
                 let v = if moved { format!("::dz::mv({v})") } else { v };
                 self.line(&format!("{t} {} {v};", op.as_str()));
             }
@@ -2666,6 +2929,19 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// A value stored where `target` is the destination's type. A `&T` built by a block, an
+    /// `if` or an `or` is held as a C++ reference, which does not become the `T*` a `^T`
+    /// destination is; a `&x` written directly is `::dz::addr`, which does (spec §5.2).
+    fn stored(&mut self, target: &Ty, e: ExprId) -> String {
+        let body = self.cur();
+        let hoisted_ref = matches!(body.ty(e), Ty::Ref { .. })
+            && !matches!(body.expr(e).kind, hir::ExprKind::Ref { .. });
+        if hoisted_ref && matches!(target, Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
+            return self.ptr_expr(e);
+        }
+        self.expr(e)
+    }
+
     fn expr(&mut self, e: ExprId) -> String {
         let body = self.cur();
         let node = body.expr(e);
@@ -2708,7 +2984,9 @@ impl<'a> Emitter<'a> {
                 let t = self.cpp_ty(body.ty(e));
                 format!("static_cast<{t}>({})", self.qualify(*sym))
             }
-            hir::ExprKind::Const(sym) | hir::ExprKind::FnItem(sym) => self.qualify(*sym),
+            hir::ExprKind::Const(sym) | hir::ExprKind::Static(sym) | hir::ExprKind::FnItem(sym) => {
+                self.qualify(*sym)
+            }
             hir::ExprKind::Field { base, index } => {
                 let name = self.field_name(*base, *index);
                 // `Error.location` is a `&SourceLocation` in Dazzle and a pointer into static
@@ -3032,7 +3310,7 @@ impl<'a> Emitter<'a> {
             let mut parts = Vec::new();
             for (i, f) in fields.iter().enumerate() {
                 let Some(f) = f else { continue };
-                let v = self.expr(*f);
+                let v = self.stored(&order[i].1, *f);
                 parts.push(format!(".{} = {v}", order[i].0));
             }
             return format!("{ty}{{ {} }}", parts.join(", "));
@@ -3045,7 +3323,7 @@ impl<'a> Emitter<'a> {
         for (i, f) in fields.iter().enumerate() {
             let Some(f) = f else { continue };
             let moved = !self.table.copyable(self.cur().ty(*f));
-            let v = self.expr(*f);
+            let v = self.stored(&order[i].1, *f);
             let v = if moved { format!("::dz::mv({v})") } else { v };
             let _ = write!(out, "{tmp}.{} = {v}; ", order[i].0);
         }
@@ -3112,6 +3390,15 @@ impl<'a> Emitter<'a> {
                 self.qualify_instance(*sym, type_args)
             }
             hir::Callee::Fn { sym, .. } => self.qualify(*sym),
+            // A C++ `static` member function (spec §7.3).
+            hir::Callee::Assoc { owner, type_args, name } => {
+                let ty = if type_args.is_empty() {
+                    self.qualify(*owner)
+                } else {
+                    self.qualify_instance(*owner, type_args)
+                };
+                format!("{ty}::{}", sanitize(name))
+            }
             hir::Callee::Ctor { owner, .. } => match &node_ty {
                 Ty::Named { args, .. } if !args.is_empty() => self.qualify_instance(*owner, args),
                 _ => self.qualify(*owner),
@@ -3201,7 +3488,8 @@ impl<'a> Emitter<'a> {
                     return format!("return ::dz::Res<{ret}>::bad({e})");
                 }
                 let moved = !self.table.copyable(body.ty(v));
-                let text = self.expr(v);
+                let ret = body.ret.clone();
+                let text = self.stored(&ret, v);
                 let text = if moved { format!("::dz::mv({text})") } else { text };
                 if body.fallible {
                     let ret = self.cpp_ty(&body.ret);
@@ -3522,6 +3810,7 @@ impl<'a> Emitter<'a> {
                 let n = self.current_fn.clone();
                 format!("::dz::str(\"{n}\", {})", n.len())
             }
+            "location" => self.source_location(span),
             _ => {
                 // `#module`, `#location` and `#expr_text` (spec §12.7) arrive with the rest of
                 // metaprogramming.
@@ -3535,6 +3824,38 @@ impl<'a> Emitter<'a> {
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+/// An intrinsic used as a default argument, spelled so C++ evaluates it at the call
+/// (spec §12.7). GCC, Clang and MSVC all provide these builtins. The column is not the
+/// Dazzle one — C++ only knows its own — so a default `#location` carries column 0.
+fn caller_intrinsic(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "location" => {
+            "::dz::SourceLocation{__builtin_FILE(), __builtin_FUNCTION(), __builtin_LINE(), 0}"
+        }
+        "line" => "static_cast<uint32_t>(__builtin_LINE())",
+        "column" => "0u",
+        "file" => "::dz::str(__builtin_FILE())",
+        "function" => "::dz::str(__builtin_FUNCTION())",
+        _ => return None,
+    })
+}
+
+/// Does `Self` appear anywhere in this type?
+fn mentions_self(t: &Ty) -> bool {
+    match t {
+        Ty::SelfTy => true,
+        Ty::Named { args, .. } => args.iter().any(mentions_self),
+        Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => mentions_self(i),
+        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
+            mentions_self(inner)
+        }
+        Ty::Array { elem, .. } | Ty::Slice { elem, .. } => mentions_self(elem),
+        Ty::Tuple(parts) => parts.iter().any(mentions_self),
+        Ty::Fn { params, ret } => params.iter().any(mentions_self) || mentions_self(ret),
+        _ => false,
+    }
+}
 
 /// The C++ name of the incoming parameter, which differs from the Dazzle binding's name
 /// only where [`Emitter::take_ownership_of_params`] rebinds it.

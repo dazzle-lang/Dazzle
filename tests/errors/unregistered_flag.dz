@@ -1,0 +1,10 @@
+// expect: DZ0309
+//
+// `#if` names registered flags only — the built-ins or a package's `[flags]` — so a
+// misspelling is an error rather than a branch that is silently never compiled.
+
+fn main() {
+    #if DEBUGG {
+        println("checks on")
+    }
+}
