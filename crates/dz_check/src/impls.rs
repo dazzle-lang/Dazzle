@@ -87,7 +87,7 @@ impl Ctx<'_> {
                 "this is any type at all",
                 format!(
                     "implement `{trait_name}` for each type that needs it, or for a generic \
-                     type such as `Buffer<T>` — an implementation for every type would overlap \
+                     type such as `List<T>` — an implementation for every type would overlap \
                      all the others (spec §7.6)"
                 ),
             );
@@ -105,7 +105,7 @@ impl Ctx<'_> {
                     format!(
                         "`{trait_name}` becomes the struct's C++ {}, so it is part of the \
                          struct's definition and covers every instance — `impl<T> {trait_name} \
-                         for Buffer<T>`, not one instance (spec §6.1)",
+                         for List<T>`, not one instance (spec §6.1)",
                         if is_drop { "destructor" } else { "copy constructor" }
                     ),
                 );
@@ -545,7 +545,10 @@ pub(crate) fn primitive_implements(t: &Ty, trait_name: &str, args: &[Ty]) -> boo
     let numeric = matches!(t, Ty::Int(_) | Ty::Float(_));
     let rhs_is_self = args.first().map_or(true, |a| a == t);
     match trait_name {
-        "Eq" => numeric || matches!(t, Ty::Bool | Ty::Char),
+        "Eq" => numeric || matches!(t, Ty::Bool | Ty::Char | Ty::Str),
+        // Not floats: `NaN != NaN` and `0.0 == -0.0` break the promise that equal keys hash
+        // equally, and a float key is almost always a mistake anyway (spec §14.2).
+        "Hash" => matches!(t, Ty::Int(_) | Ty::Bool | Ty::Char | Ty::Str),
         "Ord" => numeric || matches!(t, Ty::Char),
         "Add" | "Sub" | "Mul" | "Div" => numeric && rhs_is_self,
         "Rem" => matches!(t, Ty::Int(_)) && rhs_is_self,

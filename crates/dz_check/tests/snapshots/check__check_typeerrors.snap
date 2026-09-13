@@ -352,7 +352,7 @@ error[DZ0531]: `Plain` does not implement `Same`
 300 │     return unrelated(p, p)
     │            ^^^^^^^^^^^^^^^ `T` is bounded by `Same`
     │
-    = help: declare it as `struct Plain : Same` and implement the trait's methods (spec §7.6)
+    = help: implement it: `impl Same for Plain { … }` (spec §7.6)
 
 error[DZ0534]: cannot infer `T` in this call to `uninferrable`
     ┌─ typeerrors/src/errors.dz:313:12
@@ -622,7 +622,7 @@ error[DZ0531]: `Unique` does not implement `Copy`
 518 │     return keep_copy(move(u))
     │            ^^^^^^^^^^^^^^^^^^ `T` is bounded by `Copy`
     │
-    = help: declare it as `struct Unique : Copy` and implement the trait's methods (spec §7.6)
+    = help: implement it: `impl Copy for Unique { … }` (spec §7.6)
 
 error[DZ0537]: `Twice` has more than one method named `go`
     ┌─ typeerrors/src/errors.dz:527:12
@@ -654,7 +654,7 @@ error[DZ0539]: `Same` cannot be implemented for every type at once
 566 │ impl<T> Same for T {
     │         ^^^^ this is any type at all
     │
-    = help: implement `Same` for each type that needs it, or for a generic type such as `Buffer<T>` — an implementation for every type would overlap all the others (spec §7.6)
+    = help: implement `Same` for each type that needs it, or for a generic type such as `List<T>` — an implementation for every type would overlap all the others (spec §7.6)
 
 error[DZ0539]: `Drop` can only be implemented for a struct, in its own module
     ┌─ typeerrors/src/errors.dz:573:6
@@ -662,7 +662,7 @@ error[DZ0539]: `Drop` can only be implemented for a struct, in its own module
 573 │ impl Drop for f32 {
     │      ^^^^ not allowed for `f32` here
     │
-    = help: `Drop` becomes the struct's C++ destructor, so it is part of the struct's definition and covers every instance — `impl<T> Drop for Buffer<T>`, not one instance (spec §6.1)
+    = help: `Drop` becomes the struct's C++ destructor, so it is part of the struct's definition and covers every instance — `impl<T> Drop for List<T>`, not one instance (spec §6.1)
 
 error[DZ0540]: `Same` is implemented twice for `Twin`
     ┌─ typeerrors/src/errors.dz:587:6
@@ -973,3 +973,35 @@ error[DZ0528]: making a pointer from an address is unsafe
     │            ^^^^^^^^^^^^ outside an `unsafe` block
     │
     = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
+
+error[DZ0528]: taking bytes as a `str` without checking them is unsafe
+    ┌─ typeerrors/src/errors.dz:881:12
+    │
+881 │     return bytes as str
+    │            ^^^^^^^^^^^^ outside an `unsafe` block
+    │
+    = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
+
+error[DZ0501]: a slice of a pointer needs its end
+    ┌─ typeerrors/src/errors.dz:886:21
+    │
+886 │     return unsafe { p[1..] }
+    │                     ^^^^^^ no end
+    │
+    = help: a pointer carries no length, so write where the slice stops: `p[0..n]` (spec §5.3)
+
+error[DZ0515]: `Plain` cannot be indexed
+    ┌─ typeerrors/src/errors.dz:891:12
+    │
+891 │     return p[0]
+    │            ^ no `Index` implementation
+    │
+    = help: implement `Index` for `Plain`, and `IndexMut` to write through it (spec §11.2)
+
+error[DZ0531]: `f32` does not implement `Hash`
+    ┌─ typeerrors/src/errors.dz:896:13
+    │
+896 │     let m = HashMap<f32, i32>()
+    │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
+    │
+    = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)

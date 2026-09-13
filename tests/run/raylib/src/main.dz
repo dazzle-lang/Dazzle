@@ -1,5 +1,7 @@
 import cpp "raylib.h" as rl
 
+static a: i32 = 4
+
 fn main() {
     rl::InitWindow(1600, 900, "Window name")
     defer rl::CloseWindow()

@@ -1,0 +1,21 @@
+empty: 0 true
+len 100 capacity>=len true
+get 12 = 144
+replaced 144 now -1
+contains 12 true contains 1000 false
+get 1000 is null
+after get_mut 99
+removed 215 len 285 wrong 0 remove-again none true
+grace 85
+margaret 2 len 2
+String and str hash alike true
+x true
+cell 2,1 rock
+visited 10 sum 110
+old sprite 5
+removed sprite 500
+sprite 1 is 1
+drops 21
+a 2 b 3 shared false
+b has 2 = 20
+temp 98 true

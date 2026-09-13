@@ -74,6 +74,13 @@ fn is_pseudo(path: &Path) -> bool {
     path.to_string_lossy().starts_with('<')
 }
 
+/// The prelude file the analysis parsed and checked. Look it up through the parsed files,
+/// not the source map: the map holds the prelude's text more than once, and only one of
+/// those ids has a tree, declarations and bodies.
+pub fn prelude_file(a: &Analysis) -> Option<FileId> {
+    a.files.values().flatten().map(|f| f.file).find(|&f| is_pseudo(a.map.get(f).path()))
+}
+
 // ---------------------------------------------------------------------------
 // declarations: the outline, and what hover shows
 // ---------------------------------------------------------------------------
@@ -857,6 +864,7 @@ impl<'a> Query<'a> {
                 refs
             }
             ExprKind::EnumVariant { owner, index } => vec![Ref::Variant(*owner, *index)],
+            ExprKind::AssocConst { owner, name } => vec![Ref::Method(*owner, name.clone())],
             ExprKind::UnionVariant { owner, index, payload } => {
                 let mut refs = vec![Ref::Variant(*owner, *index)];
                 refs.extend((0..payload.len()).map(|i| Ref::VariantField(*owner, *index, i)));
@@ -1052,7 +1060,8 @@ impl<'a> Query<'a> {
             Ref::Variant(s, v) => (file_of(s), self.variants(*s)?.get(*v)?.span),
             Ref::Ctor(s, i) => (file_of(s), self.table?.struct_sig(*s)?.ctors.get(*i)?.span),
             Ref::Method(s, n) => {
-                let (file, d) = self.methods_of(*s).into_iter().find(|(_, d)| &d.name == n)?;
+                let found = self.methods_of(*s).into_iter().find(|(_, d)| &d.name == n);
+                let (file, d) = found.or_else(|| self.assoc_const(*s, n))?;
                 return Some((file, d.name_span));
             }
         };
@@ -1152,6 +1161,16 @@ impl<'a> Query<'a> {
     /// it implements (spec §7.6). Matched by name, which is exact within one program until
     /// two modules declare types of the same name; using the checker's own record of each
     /// implementation's target is owed by M9 (deferral register).
+    /// `Allocators::Temp`: a constant declared in a type (spec §7.3), reached only through
+    /// the type's name, so it is not among the members a value's `.` offers.
+    fn assoc_const(&self, owner: SymbolId, name: &str) -> Option<(FileId, Decl)> {
+        let sym = self.res.symbol(owner);
+        let own = self.decls(sym.file);
+        let d = flatten(&own).into_iter().find(|d| d.name_span == sym.span)?;
+        let c = d.children.iter().find(|c| c.kind == DeclKind::Const && c.name == name)?;
+        Some((sym.file, c.clone()))
+    }
+
     fn methods_of(&self, owner: SymbolId) -> Vec<(FileId, Decl)> {
         let sym = self.res.symbol(owner);
         let mut out = Vec::new();
@@ -1494,11 +1513,14 @@ pub const KEYWORDS: &[&str] = &[
     "none",
     "null",
     "or",
+    "override",
     "own",
+    "protected",
     "pub",
     "return",
     "self",
     "Self",
+    "static",
     "struct",
     "switch",
     "trait",
@@ -1506,6 +1528,7 @@ pub const KEYWORDS: &[&str] = &[
     "unreachable",
     "union",
     "unsafe",
+    "virtual",
     "while",
 ];
 

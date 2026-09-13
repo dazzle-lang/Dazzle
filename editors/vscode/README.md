@@ -25,9 +25,44 @@ own language server, `dz lsp` (spec §17.4), so everything it knows comes from t
 - **Run**: the ▷ button in the editor's title bar (or Ctrl+F5) saves everything and runs
   `dz run` on the file's project, the nearest folder above it holding a `dazzle.toml`. **Check
   Project**, next to it, runs `dz check`. Output appears in the terminal panel.
+- **Debug**: set breakpoints in `.dz` files and press F5 (or the **Debug Project** button).
+  See [Debugging](#debugging).
 
 Everything except rename keeps working next to a syntax error: the compiler still resolves
 and types the code around it.
+
+## Debugging
+
+There is no Dazzle debugger, and none is needed. Every generated C++ statement carries a
+`#line` pointing back at its `.dz` file and line (spec §16.3), so the debug information the
+C++ compiler writes already talks about Dazzle source. A `dazzle` launch configuration runs
+`dz build` and then starts a native debugger on the result:
+
+| The build used | Debugger | Needs |
+|---|---|---|
+| clang++ on Windows (writes a `.pdb`) | Visual Studio debugger (`cppvsdbg`) | C/C++ extension |
+| g++ | gdb (`cppdbg`) | C/C++ extension, `gdb` on `PATH` |
+| anything else | CodeLLDB | CodeLLDB extension |
+
+With no `launch.json`, F5 in a `.dz` file debugs that file's project. To customise, add a
+**Dazzle: Debug project** configuration; it takes `project`, `args`, `cwd`, `stopAtEntry`,
+and `debugger` (`auto`, `vsdbg`, `gdb` or `lldb`). The project must build in `debug` mode
+(`[build] optimize = "debug"`, the default), which compiles with `-O0 -g`.
+
+Stepping into `List`, `String` or `HashMap` opens the prelude: `dz` writes it to
+`build/cpp/prelude/dz.dz` for the debugger, since it is otherwise compiled into `dz`. With
+the Visual Studio debugger, `str` shows as text, slices and arrays as their elements, and
+`T?` as its value or `none` (`dazzle.natvis`).
+
+What still shows through:
+
+- Variables named `_dz_arg3`, `_dz_ok6` and similar are temporaries the compiler introduced;
+  they are not in your code.
+- Types appear under their C++ names: `dz::game::Player`, `dz::dz::List__i32` for
+  `List<i32>`. A `List`'s elements are behind `m_data`, with `m_len` of them.
+- Watch expressions are evaluated as C++, not Dazzle.
+- Step Into on a line that indexes or calls a small runtime helper can land in
+  `build/cpp/dz_runtime.h`; Step Out returns.
 
 ## Setup
 

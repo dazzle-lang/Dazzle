@@ -193,13 +193,17 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
             .expect("failed to run dz")
     };
 
-    let clean = copy_fixture("allocators", "dz_tracked_clean");
-    let out = run(&clean);
-    let expected =
-        normalise(&std::fs::read_to_string(run_dir("allocators").join("expected.txt")).unwrap());
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), expected);
-    let _ = std::fs::remove_dir_all(&clean);
+    // The containers too: a tracked build of a program that frees everything prints exactly
+    // what an untracked one does, so any leak report would break the comparison.
+    for fixture in ["allocators", "hashmap"] {
+        let clean = copy_fixture(fixture, &format!("dz_tracked_clean_{fixture}"));
+        let out = run(&clean);
+        let expected =
+            normalise(&std::fs::read_to_string(run_dir(fixture).join("expected.txt")).unwrap());
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), expected, "{fixture}");
+        let _ = std::fs::remove_dir_all(&clean);
+    }
 
     let manifest = "[module]\nname = \"tracked\"\nsources = [\"src/**/*.dz\"]\n";
     let leak = scratch(
@@ -319,6 +323,37 @@ fn dz_test_runs_the_projects_tests() {
         !generated.contains("addition_works"),
         "a normal build must not contain the tests:\n{generated}"
     );
+}
+
+/// Debug information names real files (spec §16.3): the prelude, which is compiled into
+/// `dz`, is written beside the generated C++, and every `#line` naming it points there —
+/// indented ones inside generated lambdas included — so a debugger can open what it steps
+/// into. A panic's location still reads `<prelude>/dz.dz`.
+#[test]
+fn line_directives_name_files_a_debugger_can_open() {
+    let dir = scratch(
+        "dz_debug_lines",
+        "[module]\nname = \"lines\"\nsources = [\"src/**/*.dz\"]\n",
+        "fn main() {\n    let mut xs = List<i32>()\n    xs.push(1)\n    println(\"{}\", xs.len())\n}\n",
+    );
+    let out =
+        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let copy = dir.join("build/cpp/prelude/dz.dz");
+    assert_eq!(
+        std::fs::read_to_string(&copy).expect("the prelude is written out"),
+        dz_project::PRELUDE_SOURCE
+    );
+    let mut rewritten = 0;
+    for entry in std::fs::read_dir(dir.join("build/cpp")).unwrap().flatten() {
+        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+        for line in text.lines().filter(|l| l.trim_start().starts_with("#line ")) {
+            assert!(!line.contains("<prelude>"), "{}: {line}", entry.path().display());
+            rewritten += usize::from(line.ends_with("/build/cpp/prelude/dz.dz\""));
+        }
+    }
+    assert!(rewritten > 0, "the prelude's own code carries `#line`s naming the copy");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A test that panics is reported as a failure, by name, with its own message — and the
@@ -650,6 +685,9 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
         "flags",
         "location",
         "allocators",
+        "containers",
+        "argorder",
+        "hashmap",
     ] {
         check_warning_clean(cxx, fixture);
     }

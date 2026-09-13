@@ -7,7 +7,7 @@
 //
 // What may go in here is limited by what the compiler can do with it. The language's traits
 // come first; then the standard allocators (§14), the first stdlib code with bodies of its
-// own. `String`, `Buffer` and `HashMap` follow in M12.
+// own. `String`, `List` and `HashMap` are below.
 
 // --- ownership (spec §6.3, §8.2) --------------------------------------------
 
@@ -21,8 +21,8 @@ pub trait Drop {
 /// A type that can be copied. Every copyable type satisfies it (§6.3): one with no `drop`
 /// and no `own` field is copyable by default and needs no implementation. Implementing it
 /// is how a type that owns something becomes copyable anyway — `copy` runs on a value at
-/// its defaults, and fills it in from `other` (§6.6). `impl<T: Copy> Copy for Buffer<T>`
-/// makes `Buffer<f32>` copyable and leaves `Buffer<File>` move-only (§8.2, §18.26).
+/// its defaults, and fills it in from `other` (§6.6). `impl<T: Copy> Copy for List<T>`
+/// makes `List<f32>` copyable and leaves `List<File>` move-only (§8.2, §18.26).
 pub trait Copy {
     fn copy(&mut self, other: &Self)
 }
@@ -48,6 +48,22 @@ pub trait Eq {
 /// implement both.
 pub trait Ord : Eq {
     fn cmp(&self, rhs: &Self) -> Ordering
+}
+
+/// A value's hash, which is what lets it be a `HashMap` key (§14.2).
+///
+/// Values that are equal must hash equally; values that differ should hash differently in
+/// as many bits as possible, since a table keeps only a few of them. Integers, `bool`,
+/// `char` and `str` implement it already — floats do not, because `NaN != NaN` and
+/// `0.0 == -0.0` break that first promise. For a struct, combine its fields':
+/// `hash_combine(x.hash(), y.hash())`.
+pub trait Hash {
+    fn hash(&self) -> u64
+}
+
+/// Two hashes as one, where the order matters: `(a, b)` and `(b, a)` hash apart.
+pub fn hash_combine(seed: u64, h: u64) -> u64 {
+    return seed ^^ (h + 0x9E3779B97F4A7C15 + (seed << 6) + (seed >> 2))
 }
 
 // --- arithmetic (spec §11.2) ------------------------------------------------
@@ -91,10 +107,18 @@ pub trait Neg {
     fn neg(&self) -> Output
 }
 
-/// `container[i]`. Returns a reference, so `a[i] = v` writes through it.
+/// `container[i]`, read. Returns a reference, so the element is not copied to be looked at.
 pub trait Index<I> {
     type Output
     fn index(&self, i: I) -> &Output
+}
+
+/// `container[i]` where the container may be written: `a[i] = v` and `a[i] += 1` write
+/// through the reference this returns. Chosen over `Index` whenever the container is a
+/// writable place.
+pub trait IndexMut<I> {
+    type Output
+    fn index_mut(&mut self, i: I) -> &mut Output
 }
 
 // --- iteration (spec §8.5, §10.4) -------------------------------------------
@@ -380,6 +404,633 @@ impl Drop for TempArena {
             }
         }
     }
+}
+
+// --- containers (spec §14) --------------------------------------------------------
+
+/// A growable array of `T`, in memory from the allocator it was built with.
+///
+/// Move-only unless `T` is copyable, in which case copying it copies every element into a
+/// new allocation from the same allocator. `b[i]` reads and writes an element, checked
+/// against the length; `as_slice()` views them all.
+pub struct List<T> {
+    m_data: own ^mut T = null
+    m_len: usize = 0
+    m_cap: usize = 0
+    m_allocator: ^mut Allocator = Allocators::Global
+
+    /// An empty list, with room for `capacity` elements already allocated when it is
+    /// given.
+    List(
+        capacity: usize = 0,
+        allocator: ^mut Allocator = Allocators::Global,
+        loc: SourceLocation = #location,
+    ) {
+        m_allocator = allocator
+        if capacity > 0 {
+            self.grow_to(capacity, loc)
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        return m_len
+    }
+
+    pub fn capacity(&self) -> usize {
+        return m_cap
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return m_len == 0
+    }
+
+    /// Every element, in order. Valid until the list next grows or is dropped.
+    pub fn as_slice(&self) -> []T {
+        return unsafe { m_data[0..m_len] }
+    }
+
+    pub fn as_mut_slice(&mut self) -> []mut T {
+        return unsafe { m_data[0..m_len] }
+    }
+
+    /// Add `v` at the end, growing when there is no room.
+    pub fn push(&mut self, v: T, loc: SourceLocation = #location) {
+        if m_len == m_cap {
+            self.grow_to(m_len + 1, loc)
+        }
+        unsafe { construct(m_data[m_len], move(v)) }
+        m_len += 1
+    }
+
+    /// Take the last element out, or `none` when there is none.
+    pub fn pop(&mut self) -> T? {
+        if m_len == 0 {
+            return none
+        }
+        m_len -= 1
+        return unsafe { move_out(m_data[m_len]) }
+    }
+
+    /// Put `v` at index `i`, moving the elements from `i` on up by one. `i` may be `len()`.
+    pub fn insert(&mut self, i: usize, v: T, loc: SourceLocation = #location) {
+        if i > m_len {
+            panic("List::insert at {} past the length {}", i, m_len)
+        }
+        if m_len == m_cap {
+            self.grow_to(m_len + 1, loc)
+        }
+        let mut j = m_len
+        while j > i {
+            unsafe { construct(m_data[j], move_out(m_data[j - 1])) }
+            j -= 1
+        }
+        unsafe { construct(m_data[i], move(v)) }
+        m_len += 1
+    }
+
+    /// Take the element at `i` out, moving the ones after it down by one.
+    pub fn remove(&mut self, i: usize) -> T {
+        if i >= m_len {
+            panic("List::remove at {} for a length of {}", i, m_len)
+        }
+        let v = unsafe { move_out(m_data[i]) }
+        let mut j = i
+        while j + 1 < m_len {
+            unsafe { construct(m_data[j], move_out(m_data[j + 1])) }
+            j += 1
+        }
+        m_len -= 1
+        return move(v)
+    }
+
+    /// Take the element at `i` out and put the last one in its place: no shifting, and the
+    /// order is not kept.
+    pub fn swap_remove(&mut self, i: usize) -> T {
+        if i >= m_len {
+            panic("List::swap_remove at {} for a length of {}", i, m_len)
+        }
+        let v = unsafe { move_out(m_data[i]) }
+        m_len -= 1
+        if i != m_len {
+            unsafe { construct(m_data[i], move_out(m_data[m_len])) }
+        }
+        return move(v)
+    }
+
+    /// Drop every element and keep the allocation.
+    pub fn clear(&mut self) {
+        self.truncate(0)
+    }
+
+    /// Drop the elements from `n` on; nothing happens when there are fewer.
+    pub fn truncate(&mut self, n: usize) {
+        while m_len > n {
+            m_len -= 1
+            unsafe { destroy(m_data[m_len]) }
+        }
+    }
+
+    /// Make the length `n`: new elements start at their defaults, extra ones are dropped.
+    pub fn resize(&mut self, n: usize, loc: SourceLocation = #location) {
+        if n > m_cap {
+            self.grow_to(n, loc)
+        }
+        while m_len < n {
+            unsafe { construct(m_data[m_len]) }
+            m_len += 1
+        }
+        self.truncate(n)
+    }
+
+    /// Room for at least `additional` more elements without growing again.
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+        if m_len + additional > m_cap {
+            self.grow_to(m_len + additional, loc)
+        }
+    }
+
+    /// A new allocation of at least `wanted` elements — doubling, so pushing one at a time
+    /// costs amortised constant time — with the elements moved into it.
+    fn grow_to(&mut self, wanted: usize, loc: SourceLocation) {
+        let doubled = if m_cap == 0 { 8 } else { m_cap * 2 }
+        let cap = if wanted > doubled { wanted } else { doubled }
+        let a = m_allocator or panic("a List with no allocator cannot grow")
+        if T::is_trivially_copyable {
+            // Bytes can move anywhere, so the allocator may grow the memory in place.
+            let old = unsafe { m_data as ^mut u8 }
+            m_data = unsafe { a.realloc(old, m_cap * sizeof(T), cap * sizeof(T), alignof(T), loc) as ^mut T }
+        } else {
+            let fresh = unsafe { a.alloc(cap * sizeof(T), alignof(T), loc) as ^mut T }
+            for i in 0..m_len {
+                unsafe { construct(fresh[i], move_out(m_data[i])) }
+            }
+            if m_data != null {
+                a.free(unsafe { m_data as ^mut u8 }, m_cap * sizeof(T), alignof(T), loc)
+            }
+            m_data = fresh
+        }
+        m_cap = cap
+    }
+}
+
+impl<T> Drop for List<T> {
+    fn drop(&mut self) {
+        if m_data == null {
+            return
+        }
+        if !T::is_trivially_copyable {
+            for i in 0..m_len {
+                unsafe { destroy(m_data[i]) }
+            }
+        }
+        let a = m_allocator or return
+        a.free(unsafe { m_data as ^mut u8 }, m_cap * sizeof(T), alignof(T))
+    }
+}
+
+impl<T: Copy> Copy for List<T> {
+    fn copy(&mut self, other: &Self) {
+        m_allocator = other.m_allocator
+        if other.m_len == 0 {
+            return
+        }
+        let a = m_allocator or panic("a List with no allocator cannot be copied")
+        m_data = unsafe { a.alloc(other.m_len * sizeof(T), alignof(T)) as ^mut T }
+        m_cap = other.m_len
+        for i in 0..other.m_len {
+            unsafe { construct(m_data[i], other.m_data[i]) }
+        }
+        m_len = other.m_len
+    }
+}
+
+impl<T> Index<usize> for List<T> {
+    type Output = T
+
+    fn index(&self, i: usize) -> &T {
+        if i >= m_len {
+            panic("index {} is out of bounds for a List of length {}", i, m_len)
+        }
+        return unsafe { &m_data[i] }
+    }
+}
+
+impl<T> IndexMut<usize> for List<T> {
+    type Output = T
+
+    fn index_mut(&mut self, i: usize) -> &mut T {
+        if i >= m_len {
+            panic("index {} is out of bounds for a List of length {}", i, m_len)
+        }
+        return unsafe { &mut m_data[i] }
+    }
+}
+
+/// Owned, growable UTF-8 text, in memory from the allocator it was built with.
+///
+/// Its bytes are always followed by a zero, so `as_cstr()` hands a C function the text
+/// without a copy. Copying a `String` copies the text.
+pub struct String {
+    m_bytes: List<u8>
+
+    /// A copy of `s`.
+    String(s: str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
+        m_bytes = List<u8>(0, allocator, loc)
+        self.push_str(s, loc)
+    }
+
+    /// A copy of `s`: `String::from("name")`.
+    pub fn from(s: str, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
+        return String(s, allocator, loc)
+    }
+
+    /// The length in bytes, not counting the zero after them.
+    pub fn len(&self) -> usize {
+        if m_bytes.len() == 0 {
+            return 0
+        }
+        return m_bytes.len() - 1
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return self.len() == 0
+    }
+
+    pub fn capacity(&self) -> usize {
+        return m_bytes.capacity()
+    }
+
+    /// The text, borrowed. Valid until the `String` next changes or is dropped.
+    pub fn as_str(&self) -> str {
+        let bytes = m_bytes.as_slice()
+        return unsafe { bytes[0..self.len()] as str }
+    }
+
+    /// The text as a C string, borrowed, for C and C++ functions that want one.
+    pub fn as_cstr(&self) -> cstr {
+        if m_bytes.len() == 0 {
+            return ""
+        }
+        return unsafe { m_bytes.as_slice().ptr as cstr }
+    }
+
+    /// Append `s`.
+    pub fn push_str(&mut self, s: str, loc: SourceLocation = #location) {
+        if s.len == 0 {
+            return
+        }
+        let _ = m_bytes.pop()
+        m_bytes.reserve(s.len + 1, loc)
+        let bytes = s as []u8
+        for b in bytes {
+            m_bytes.push(b, loc)
+        }
+        m_bytes.push(0, loc)
+    }
+
+    /// Append one character, encoded as UTF-8.
+    pub fn push(&mut self, c: char, loc: SourceLocation = #location) {
+        let mut encoded: [4]u8 = [0, 0, 0, 0]
+        let n = encode_utf8(c, &mut encoded)
+        let text = unsafe { encoded[0..n] as str }
+        self.push_str(text, loc)
+    }
+
+    /// Empty the text and keep the allocation.
+    pub fn clear(&mut self) {
+        m_bytes.clear()
+    }
+
+    /// Room for at least `additional` more bytes without growing again.
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+        m_bytes.reserve(additional + 1, loc)
+    }
+}
+
+impl Eq for String {
+    fn eq(&self, rhs: &String) -> bool {
+        return self.as_str() == rhs.as_str()
+    }
+}
+
+/// The same hash as the text as a `str`.
+impl Hash for String {
+    fn hash(&self) -> u64 {
+        return self.as_str().hash()
+    }
+}
+
+/// A map from keys to values, in memory from the allocator it was built with.
+///
+/// Open addressing with linear probing: one array each of hashes, keys and values, a slot
+/// empty when its hash is zero. It grows to twice the slots when three quarters are full,
+/// and `remove` shifts the entries after a removed one back rather than leaving a marker,
+/// so lookups never slow down with use. Move-only unless both `K` and `V` are copyable.
+///
+/// A lookup returns a pointer, `null` when the key is absent (§9.1), so it is handled with
+/// `or`: `let hp = health.get(&id) or return`.
+pub struct HashMap<K: Hash + Eq, V> {
+    m_hashes: own ^mut u64 = null
+    m_keys: own ^mut K = null
+    m_values: own ^mut V = null
+    m_len: usize = 0
+    m_slots: usize = 0
+    m_allocator: ^mut Allocator = Allocators::Global
+
+    /// An empty map, with room for `capacity` entries already allocated when it is given.
+    HashMap(
+        capacity: usize = 0,
+        allocator: ^mut Allocator = Allocators::Global,
+        loc: SourceLocation = #location,
+    ) {
+        m_allocator = allocator
+        if capacity > 0 {
+            self.grow_to(capacity, loc)
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        return m_len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return m_len == 0
+    }
+
+    /// How many entries fit before the map grows again.
+    pub fn capacity(&self) -> usize {
+        return m_slots / 4 * 3
+    }
+
+    /// Add `key` with `value`. When the key was already there its value is replaced, and
+    /// the old one dropped; `replace` hands it back instead.
+    pub fn insert(&mut self, key: K, value: V, loc: SourceLocation = #location) {
+        let _ = self.replace(move(key), move(value), loc)
+    }
+
+    /// Add `key` with `value`, returning the value it replaces, or `none` when the key is
+    /// new.
+    pub fn replace(&mut self, key: K, value: V, loc: SourceLocation = #location) -> V? {
+        let h = key_hash(&key)
+        if let slot = self.find(&key, h) {
+            let old = unsafe { move_out(m_values[slot]) }
+            unsafe { construct(m_values[slot], move(value)) }
+            return move(old)
+        }
+        if (m_len + 1) * 4 > m_slots * 3 {
+            self.grow_to(m_len + 1, loc)
+        }
+        self.place(move(key), move(value), h)
+        m_len += 1
+        return none
+    }
+
+    /// The value for `key`, or `null` when there is none.
+    pub fn get(&self, key: &K) -> ^V {
+        let slot = self.find(key, key_hash(key)) or return null
+        return unsafe { &m_values[slot] }
+    }
+
+    /// The value for `key`, to change in place, or `null` when there is none.
+    pub fn get_mut(&mut self, key: &K) -> ^mut V {
+        let slot = self.find(key, key_hash(key)) or return null
+        return unsafe { &mut m_values[slot] }
+    }
+
+    pub fn contains(&self, key: &K) -> bool {
+        return self.find(key, key_hash(key)) != none
+    }
+
+    /// Take the entry for `key` out, returning its value, or `none` when there is none.
+    pub fn remove(&mut self, key: &K) -> V? {
+        let found = self.find(key, key_hash(key)) or return none
+        let value = unsafe { move_out(m_values[found]) }
+        unsafe {
+            destroy(m_keys[found])
+            m_hashes[found] = 0
+        }
+        // Backward shift: an entry further along the run moves into the hole when the hole
+        // lies between the slot it hashes to and where it sits, so no probe that passed the
+        // removed entry can stop short at the gap.
+        let mask = m_slots - 1
+        let mut hole = found
+        let mut i = (found + 1) & mask
+        while unsafe { m_hashes[i] } != 0 {
+            let home = (unsafe { m_hashes[i] } & (mask as u64)) as usize
+            if ((i + m_slots - home) & mask) >= ((i + m_slots - hole) & mask) {
+                unsafe {
+                    m_hashes[hole] = m_hashes[i]
+                    m_hashes[i] = 0
+                    construct(m_keys[hole], move_out(m_keys[i]))
+                    construct(m_values[hole], move_out(m_values[i]))
+                }
+                hole = i
+            }
+            i = (i + 1) & mask
+        }
+        m_len -= 1
+        return move(value)
+    }
+
+    /// Drop every entry and keep the allocation.
+    pub fn clear(&mut self) {
+        for i in 0..m_slots {
+            if unsafe { m_hashes[i] } != 0 {
+                unsafe {
+                    destroy(m_keys[i])
+                    destroy(m_values[i])
+                    m_hashes[i] = 0
+                }
+            }
+        }
+        m_len = 0
+    }
+
+    /// Room for at least `additional` more entries without growing again.
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+        if (m_len + additional) * 4 > m_slots * 3 {
+            self.grow_to(m_len + additional, loc)
+        }
+    }
+
+    /// How many slots there are, for visiting every entry: slots `0..slot_count()`, each
+    /// holding an entry or not. `for` over a map itself is owed by M12, with the iterator
+    /// a `List` needs too.
+    pub fn slot_count(&self) -> usize {
+        return m_slots
+    }
+
+    /// The key in `slot`, or `null` when the slot is empty.
+    pub fn key_at(&self, slot: usize) -> ^K {
+        if self.checked_slot(slot) == 0 {
+            return null
+        }
+        return unsafe { &m_keys[slot] }
+    }
+
+    /// The value in `slot`, or `null` when the slot is empty.
+    pub fn value_at(&self, slot: usize) -> ^V {
+        if self.checked_slot(slot) == 0 {
+            return null
+        }
+        return unsafe { &m_values[slot] }
+    }
+
+    /// The value in `slot`, to change in place, or `null` when the slot is empty.
+    pub fn value_at_mut(&mut self, slot: usize) -> ^mut V {
+        if self.checked_slot(slot) == 0 {
+            return null
+        }
+        return unsafe { &mut m_values[slot] }
+    }
+
+    /// The hash stored in `slot`, after checking the slot exists.
+    fn checked_slot(&self, slot: usize) -> u64 {
+        if slot >= m_slots {
+            panic("slot {} is out of bounds for a HashMap of {} slots", slot, m_slots)
+        }
+        return unsafe { m_hashes[slot] }
+    }
+
+    /// The slot holding `key`, whose hash is `h`.
+    fn find(&self, key: &K, h: u64) -> usize? {
+        if m_len == 0 {
+            return none
+        }
+        let mask = m_slots - 1
+        let mut i = (h & (mask as u64)) as usize
+        // A quarter of the slots are always empty, so the run ends.
+        while true {
+            let stored = unsafe { m_hashes[i] }
+            if stored == 0 {
+                return none
+            }
+            if stored == h && unsafe { m_keys[i].eq(key) } {
+                return i
+            }
+            i = (i + 1) & mask
+        }
+        return none
+    }
+
+    /// Put an entry known not to be present into the first free slot of its run.
+    fn place(&mut self, key: K, value: V, h: u64) {
+        let mask = m_slots - 1
+        let mut i = (h & (mask as u64)) as usize
+        while unsafe { m_hashes[i] } != 0 {
+            i = (i + 1) & mask
+        }
+        unsafe {
+            m_hashes[i] = h
+            construct(m_keys[i], move(key))
+            construct(m_values[i], move(value))
+        }
+    }
+
+    /// Enough slots for `wanted` entries at three quarters full — a power of two, so a hash
+    /// picks its slot with a mask — with every entry moved over.
+    fn grow_to(&mut self, wanted: usize, loc: SourceLocation) {
+        let mut slots: usize = if m_slots == 0 { 8 } else { m_slots * 2 }
+        while wanted * 4 > slots * 3 {
+            slots *= 2
+        }
+        let a = m_allocator or panic("a HashMap with no allocator cannot grow")
+        let old_hashes = unsafe { m_hashes as ^mut u64 }
+        let old_keys = unsafe { m_keys as ^mut K }
+        let old_values = unsafe { m_values as ^mut V }
+        let old_slots = m_slots
+        m_hashes = unsafe { a.alloc(slots * sizeof(u64), alignof(u64), loc) as ^mut u64 }
+        m_keys = unsafe { a.alloc(slots * sizeof(K), alignof(K), loc) as ^mut K }
+        m_values = unsafe { a.alloc(slots * sizeof(V), alignof(V), loc) as ^mut V }
+        m_slots = slots
+        for i in 0..slots {
+            unsafe { m_hashes[i] = 0 }
+        }
+        if old_hashes == null {
+            return
+        }
+        for i in 0..old_slots {
+            let h = unsafe { old_hashes[i] }
+            if h != 0 {
+                unsafe { self.place(move_out(old_keys[i]), move_out(old_values[i]), h) }
+            }
+        }
+        a.free(unsafe { old_hashes as ^mut u8 }, old_slots * sizeof(u64), alignof(u64), loc)
+        a.free(unsafe { old_keys as ^mut u8 }, old_slots * sizeof(K), alignof(K), loc)
+        a.free(unsafe { old_values as ^mut u8 }, old_slots * sizeof(V), alignof(V), loc)
+    }
+}
+
+/// A key's hash, never zero: zero marks an empty slot.
+fn key_hash<K: Hash>(key: &K) -> u64 {
+    let h = key.hash()
+    if h == 0 {
+        return 1
+    }
+    return h
+}
+
+impl<K, V> Drop for HashMap<K, V> {
+    fn drop(&mut self) {
+        if m_hashes == null {
+            return
+        }
+        self.clear()
+        let a = m_allocator or return
+        a.free(unsafe { m_hashes as ^mut u8 }, m_slots * sizeof(u64), alignof(u64))
+        a.free(unsafe { m_keys as ^mut u8 }, m_slots * sizeof(K), alignof(K))
+        a.free(unsafe { m_values as ^mut u8 }, m_slots * sizeof(V), alignof(V))
+    }
+}
+
+impl<K: Hash + Eq + Copy, V: Copy> Copy for HashMap<K, V> {
+    fn copy(&mut self, other: &Self) {
+        m_allocator = other.m_allocator
+        if other.m_len == 0 {
+            return
+        }
+        let a = m_allocator or panic("a HashMap with no allocator cannot be copied")
+        m_slots = other.m_slots
+        m_hashes = unsafe { a.alloc(m_slots * sizeof(u64), alignof(u64)) as ^mut u64 }
+        m_keys = unsafe { a.alloc(m_slots * sizeof(K), alignof(K)) as ^mut K }
+        m_values = unsafe { a.alloc(m_slots * sizeof(V), alignof(V)) as ^mut V }
+        for i in 0..m_slots {
+            let h = unsafe { other.m_hashes[i] }
+            unsafe { m_hashes[i] = h }
+            if h != 0 {
+                unsafe {
+                    construct(m_keys[i], other.m_keys[i])
+                    construct(m_values[i], other.m_values[i])
+                }
+            }
+        }
+        m_len = other.m_len
+    }
+}
+
+/// `c` as UTF-8 into `out`, returning how many bytes it took.
+fn encode_utf8(c: char, out: &mut [4]u8) -> usize {
+    let cp = c as u32
+    if cp < 0x80 {
+        out[0] = cp as u8
+        return 1
+    }
+    if cp < 0x800 {
+        out[0] = (0xC0 | (cp >> 6)) as u8
+        out[1] = (0x80 | (cp & 0x3F)) as u8
+        return 2
+    }
+    if cp < 0x10000 {
+        out[0] = (0xE0 | (cp >> 12)) as u8
+        out[1] = (0x80 | ((cp >> 6) & 0x3F)) as u8
+        out[2] = (0x80 | (cp & 0x3F)) as u8
+        return 3
+    }
+    out[0] = (0xF0 | (cp >> 18)) as u8
+    out[1] = (0x80 | ((cp >> 12) & 0x3F)) as u8
+    out[2] = (0x80 | ((cp >> 6) & 0x3F)) as u8
+    out[3] = (0x80 | (cp & 0x3F)) as u8
+    return 4
 }
 
 // --- memory tracking (spec §14.2), only with `TRACK_MEMORY` -----------------------

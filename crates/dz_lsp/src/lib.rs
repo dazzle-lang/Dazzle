@@ -392,6 +392,13 @@ impl Server {
     /// answer about the text as it is.
     fn analysis_for(&mut self, uri: &Url) -> Option<(Rc<Analysis>, FileId)> {
         let key = key_of(uri)?;
+        // The prelude's copy belongs to no project and is part of every one, so any analysis
+        // answers for it — reached by going to a definition, which analysed a project first.
+        if prelude_copy().is_some_and(|p| path_key(&p) == key) {
+            let analysis = self.projects.values().find_map(|p| p.current.clone())?;
+            let file = file_in(&analysis, &key)?;
+            return Some((analysis, file));
+        }
         let manifest = match self.docs.get(&key) {
             Some(d) => d.manifest.clone(),
             None => find_manifest(&uri.to_file_path().ok()?),
@@ -421,9 +428,10 @@ impl Server {
     /// The URI to report a file under: the editor's own spelling when it has the file open,
     /// so a diagnostic lands on the buffer rather than on a differently-cased twin.
     fn uri_for(&self, path: &Path) -> Option<Url> {
-        // The prelude's pseudo-path (`<prelude>/dz.dz`) names nothing on disk.
+        // The prelude's pseudo-path (`<prelude>/dz.dz`) names nothing on disk; it is shown
+        // from a copy that does.
         if path.to_string_lossy().starts_with('<') {
-            return None;
+            return Url::from_file_path(prelude_copy()?).ok();
         }
         if let Some(doc) = self.docs.get(&path_key(path)) {
             return Some(doc.uri.clone());
@@ -780,7 +788,46 @@ fn find_manifest(path: &Path) -> Option<PathBuf> {
 }
 
 fn file_in(analysis: &Analysis, key: &str) -> Option<FileId> {
+    if prelude_copy().is_some_and(|p| path_key(&p) == key) {
+        return ide::prelude_file(analysis);
+    }
     analysis.map.iter().find(|f| path_key(f.path()) == key).map(|f| f.id())
+}
+
+/// The prelude written out where an editor can open it, so that going to the definition of
+/// `String` or `Allocators` lands on something (spec §3.2, §17.4).
+///
+/// The prelude is compiled into `dz`, so it has no file of its own. The copy is exactly its
+/// text — byte offsets and line numbers are the analysis's — in a directory named by a hash
+/// of that text, so two `dz` versions never share one, and it is marked read-only: editing
+/// it would change nothing, and should not look as though it might.
+fn prelude_copy() -> Option<PathBuf> {
+    use std::hash::{Hash, Hasher};
+    static COPY: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    COPY.get_or_init(|| {
+        let text = dz_project::PRELUDE_SOURCE;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut hasher);
+        let dir =
+            std::env::temp_dir().join("dazzle").join(format!("prelude-{:016x}", hasher.finish()));
+        let path = dir.join("dz.dz");
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(text) {
+            std::fs::create_dir_all(&dir).ok()?;
+            if let Ok(meta) = std::fs::metadata(&path) {
+                // A partial copy from an interrupted write: make it writable to replace it.
+                let mut perms = meta.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(false);
+                let _ = std::fs::set_permissions(&path, perms);
+            }
+            std::fs::write(&path, text).ok()?;
+            let mut perms = std::fs::metadata(&path).ok()?.permissions();
+            perms.set_readonly(true);
+            let _ = std::fs::set_permissions(&path, perms);
+        }
+        Some(path)
+    })
+    .clone()
 }
 
 /// Lex and parse diagnostics for a buffer that no project reads.

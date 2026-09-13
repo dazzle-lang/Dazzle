@@ -20,6 +20,7 @@
   "main": "./extension.js",
   "activationEvents": [
     "onLanguage:dazzle",
+    "onDebugResolve:dazzle",
     "workspaceContains:**/dazzle.toml"
   ],
   "contributes": {
@@ -51,6 +52,12 @@
         "icon": "$(play)"
       },
       {
+        "command": "dazzle.debug",
+        "title": "Debug Project",
+        "category": "Dazzle",
+        "icon": "$(debug-alt)"
+      },
+      {
         "command": "dazzle.check",
         "title": "Check Project",
         "category": "Dazzle",
@@ -70,14 +77,23 @@
           "group": "navigation@1"
         },
         {
-          "command": "dazzle.check",
+          "command": "dazzle.debug",
           "when": "resourceLangId == dazzle",
           "group": "navigation@2"
+        },
+        {
+          "command": "dazzle.check",
+          "when": "resourceLangId == dazzle",
+          "group": "navigation@3"
         }
       ],
       "commandPalette": [
         {
           "command": "dazzle.run",
+          "when": "editorLangId == dazzle"
+        },
+        {
+          "command": "dazzle.debug",
           "when": "editorLangId == dazzle"
         },
         {
@@ -92,6 +108,89 @@
         "key": "ctrl+f5",
         "mac": "cmd+f5",
         "when": "editorLangId == dazzle"
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "dazzle"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "dazzle",
+        "label": "Dazzle",
+        "languages": [
+          "dazzle"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "project": {
+                "type": "string",
+                "description": "The project to build and debug: the directory holding dazzle.toml, or a file inside it. Defaults to the active file's project.",
+                "default": "${workspaceFolder}"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments passed to the program.",
+                "default": []
+              },
+              "cwd": {
+                "type": "string",
+                "description": "The program's working directory. Defaults to the project directory."
+              },
+              "stopAtEntry": {
+                "type": "boolean",
+                "description": "Stop at the program's entry point.",
+                "default": false
+              },
+              "debugger": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "vsdbg",
+                  "gdb",
+                  "lldb"
+                ],
+                "enumDescriptions": [
+                  "The Visual Studio debugger when the build wrote a PDB (clang++ on Windows), gdb for DWARF (g++), CodeLLDB otherwise.",
+                  "The Visual Studio debugger, through the C/C++ extension. Needs a PDB.",
+                  "gdb, through the C/C++ extension.",
+                  "CodeLLDB."
+                ],
+                "description": "Which native debugger to hand the built program to.",
+                "default": "auto"
+              },
+              "miDebuggerPath": {
+                "type": "string",
+                "description": "The gdb to use with \"debugger\": \"gdb\". Defaults to the one on PATH."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "dazzle",
+            "request": "launch",
+            "name": "Debug Dazzle project",
+            "project": "${fileDirname}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Dazzle: Debug project",
+            "description": "Build a Dazzle project with dz build and debug it.",
+            "body": {
+              "type": "dazzle",
+              "request": "launch",
+              "name": "Debug Dazzle project",
+              "project": "^\"\\${fileDirname}\""
+            }
+          }
+        ]
       }
     ],
     "taskDefinitions": [

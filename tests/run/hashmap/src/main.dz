@@ -1,0 +1,192 @@
+// `HashMap<K, V>` and `Hash` (spec §14.2): insert, replace, lookup through `or`, removal
+// with backward shift checked against a plain list, growth, visiting every entry, keys of
+// every built-in kind and a struct's own, move-only values dropped exactly once, copying,
+// and a map in `Allocators::Temp`. Run with `--track-memory` too, which reports no leaks.
+
+struct Cell {
+    pub x: i32 = 0
+    pub y: i32 = 0
+}
+
+impl Eq for Cell {
+    fn eq(&self, rhs: &Cell) -> bool {
+        return x == rhs.x && y == rhs.y
+    }
+}
+
+impl Hash for Cell {
+    fn hash(&self) -> u64 {
+        return hash_combine(x.hash(), y.hash())
+    }
+}
+
+static DROPS: i32 = 0
+
+struct Sprite {
+    pub id: i32 = 0
+
+    Sprite(id: i32) {
+        self.id = id
+    }
+}
+
+impl Drop for Sprite {
+    fn drop(&mut self) {
+        if id != 0 {
+            unsafe {
+                DROPS += 1
+            }
+        }
+    }
+}
+
+fn integers() {
+    let mut m = HashMap<i32, i32>()
+    println("empty: {} {}", m.len(), m.is_empty())
+    for i in 0..100 {
+        let old = m.replace(i, i * i)
+        if old != none {
+            println("unexpected old value at {}", i)
+        }
+    }
+    println("len {} capacity>=len {}", m.len(), m.capacity() >= m.len())
+    let k = 12
+    let v = m.get(&k) or return
+    println("get 12 = {}", v)
+    let replaced = m.replace(12, -1) or 0
+    println("replaced {} now {}", replaced, m.get(&k) or return)
+    let missing = 1000
+    println("contains 12 {} contains 1000 {}", m.contains(&k), m.contains(&missing))
+    if m.get(&missing) == null {
+        println("get 1000 is null")
+    }
+    let p = m.get_mut(&k) or return
+    p += 100
+    println("after get_mut {}", m.get(&k) or return)
+}
+
+// Removal against a reference: every key 0..n inserted, then a spread of them removed,
+// and every key still answered correctly — which a broken backward shift does not.
+fn removal() {
+    let mut m = HashMap<u32, u32>(4)
+    let mut present = List<bool>()
+    let n: u32 = 500
+    for i in 0..n {
+        m.insert(i * 7919, i)
+        present.push(true)
+    }
+    let mut removed = 0
+    for i in 0..n {
+        if i % 3 == 0 || i % 7 == 0 {
+            let key = i * 7919
+            let v = m.remove(&key) or 9999
+            if v != i {
+                println("remove {} gave {}", key, v)
+            }
+            present[i as usize] = false
+            removed += 1
+        }
+    }
+    let mut wrong = 0
+    for i in 0..n {
+        let key = i * 7919
+        if m.contains(&key) != present[i as usize] {
+            wrong += 1
+        }
+    }
+    let again: u32 = 3 * 7919
+    println("removed {} len {} wrong {} remove-again none {}", removed, m.len(), wrong, m.remove(&again) == none)
+}
+
+fn text_keys() {
+    let mut ages = HashMap<str, i32>()
+    ages.insert("ada", 36)
+    ages.insert("grace", 85)
+    let who = "grace"
+    println("grace {}", ages.get(&who) or return)
+
+    let mut owned = HashMap<String, i32>()
+    owned.insert(String("linus"), 1)
+    owned.insert(String("margaret"), 2)
+    let key = String("margaret")
+    println("margaret {} len {}", owned.get(&key) or return, owned.len())
+    println("String and str hash alike {}", key.hash() == "margaret".hash())
+
+    let mut flags = HashMap<char, bool>()
+    flags.insert('x', true)
+    let c = 'x'
+    println("x {}", flags.get(&c) or return)
+
+    let mut grid = HashMap<Cell, str>()
+    grid.insert(Cell{ x: 1, y: 2 }, "tree")
+    grid.insert(Cell{ x: 2, y: 1 }, "rock")
+    let at = Cell{ x: 2, y: 1 }
+    println("cell 2,1 {}", grid.get(&at) or return)
+}
+
+// Visiting: every slot, skipping the empty ones.
+fn visiting() {
+    let mut m = HashMap<i32, i32>()
+    for i in 1..11 {
+        m.insert(i, i)
+    }
+    let mut sum = 0
+    let mut count = 0
+    for slot in 0..m.slot_count() {
+        let v = m.value_at_mut(slot) or continue
+        v *= 2
+        sum += v
+        count += 1
+    }
+    println("visited {} sum {}", count, sum)
+}
+
+fn ownership() {
+    {
+        let mut sprites = HashMap<i32, Sprite>()
+        for i in 1..21 {
+            sprites.insert(i, Sprite(i))
+        }
+        // Replacing hands the old value back; dropping it is the caller's.
+        let old = sprites.replace(5, Sprite(500)) or return
+        println("old sprite {}", old.id)
+        let gone = sprites.remove(&5) or return
+        println("removed sprite {}", gone.id)
+        let one = 1
+        let s = sprites.get(&one) or return
+        println("sprite 1 is {}", s.id)
+    }
+    println("drops {}", DROPS)
+}
+
+fn copying() {
+    let mut a = HashMap<i32, i32>()
+    a.insert(1, 10)
+    a.insert(2, 20)
+    let mut b = a
+    b.insert(3, 30)
+    let two = 2
+    let three = 3
+    println("a {} b {} shared {}", a.len(), b.len(), a.contains(&three))
+    println("b has 2 = {}", b.get(&two) or return)
+}
+
+fn temporary() {
+    let mut scratch = HashMap<u16, u16>(0, Allocators::Temp)
+    for i in 0..50 {
+        scratch.insert(i as u16, (i * 2) as u16)
+    }
+    let k: u16 = 49
+    println("temp {} {}", scratch.get(&k) or return, Allocators::Temp.used() > 0)
+}
+
+fn main() {
+    integers()
+    removal()
+    text_keys()
+    visiting()
+    ownership()
+    copying()
+    temporary()
+    Allocators::Temp.reset()
+}

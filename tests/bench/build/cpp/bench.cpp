@@ -83,11 +83,14 @@ void main() {
 #line 145 "D:/OdinProjects/Dazzle/tests/bench/src/main.dz"
     ::dz::Array<int32_t, 1024> xs = filled();
 #line 146 "D:/OdinProjects/Dazzle/tests/bench/src/main.dz"
-    ::dz::println(::dz::str("{} {}", 5), sum_indexed(::dz::addr(xs), N), ::baseline_sum_indexed(::dz::data(xs), N));
+    int32_t _dz_arg3 = sum_indexed(::dz::addr(xs), N);
+    ::dz::println(::dz::str("{} {}", 5), ::dz::mv(_dz_arg3), ::baseline_sum_indexed(::dz::data(xs), N));
 #line 147 "D:/OdinProjects/Dazzle/tests/bench/src/main.dz"
-    ::dz::println(::dz::str("{} {}", 5), raii_loop(N), ::baseline_raii(N));
+    int32_t _dz_arg4 = raii_loop(N);
+    ::dz::println(::dz::str("{} {}", 5), ::dz::mv(_dz_arg4), ::baseline_raii(N));
 #line 148 "D:/OdinProjects/Dazzle/tests/bench/src/main.dz"
-    ::dz::println(::dz::str("{} {}", 5), virtual_loop(N), ::baseline_virtual(N));
+    int32_t _dz_arg5 = virtual_loop(N);
+    ::dz::println(::dz::str("{} {}", 5), ::dz::mv(_dz_arg5), ::baseline_virtual(N));
 }
 
 Holder::~Holder() {

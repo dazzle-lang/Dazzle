@@ -115,6 +115,11 @@ struct Slice {
     template <class U>
     constexpr Slice(const Slice<U>& o) : ptr(o.ptr), len(o.len) {}
 
+    /// `s as []u8` and `bytes as str` (spec §5.3). Members of the template, so each is only
+    /// instantiated for the byte slices the checker allows it on.
+    explicit Slice(const str& s) : ptr(s.ptr), len(s.len) {}
+    explicit operator str() const { return str(static_cast<const uint8_t*>(ptr), len); }
+
     DZ_INLINE T& operator[](size_t i) { return ptr[i]; }
     DZ_INLINE const T& operator[](size_t i) const { return ptr[i]; }
 
@@ -155,8 +160,8 @@ struct Opt {
 
     constexpr Opt() : value(), has(false) {}
     // Not explicit: `return v` from a `?T` function is the success case (spec §9.1).
-    Opt(T v) : value(v), has(true) {}
-    static Opt some(T v) { return Opt(v); }
+    Opt(T v) : value(static_cast<T&&>(v)), has(true) {}
+    static Opt some(T v) { return Opt(static_cast<T&&>(v)); }
     static Opt none() { return Opt(); }
 };
 
@@ -168,9 +173,9 @@ struct Res {
 
     constexpr Res() : value(), error(), ok(false) {}
     // Not explicit: `return v` and `return error(...)` pick the case (spec §9.1).
-    Res(T v) : value(v), error(), ok(true) {}
+    Res(T v) : value(static_cast<T&&>(v)), error(), ok(true) {}
     Res(Error e) : value(), error(e), ok(false) {}
-    static Res good(T v) { return Res(v); }
+    static Res good(T v) { return Res(static_cast<T&&>(v)); }
     static Res bad(Error e) { return Res(e); }
 };
 
@@ -280,11 +285,43 @@ template <class T> DZ_INLINE void construct(T& dst) {
     ::new (static_cast<void*>(&dst)) T();
 }
 template <class T> DZ_INLINE void destroy(T& x) { x.~T(); }
+// `move_out(x)` (spec §14.3): the value leaves the storage, which is left raw — as after
+// `destroy` — so it may be `construct`ed again.
+template <class T> DZ_INLINE T move_out(T& x) {
+    T v(static_cast<T&&>(x));
+    x.~T();
+    return v;
+}
 
 // `Ord::cmp` on a primitive (spec §11.2): -1, 0 or 1, which is exactly the prelude's
 // `Ordering` and is cast to it by the caller. Each operand is evaluated once.
 template <class T> DZ_INLINE int compare(const T& a, const T& b) {
     return a < b ? -1 : (b < a ? 1 : 0);
+}
+
+// `Hash::hash` on a primitive (spec §14.2). A hash table keeps only the low bits of a hash,
+// so an integer is not its own hash — keys 16, 32, 48 would all land together. SplitMix64's
+// finaliser spreads every input bit over every output bit, and is cheap enough for a key
+// that is already small.
+DZ_INLINE uint64_t hash_mix(uint64_t x) {
+    x ^= x >> 30;
+    x *= 0xBF58476D1CE4E5B9ull;
+    x ^= x >> 27;
+    x *= 0x94D049BB133111EBull;
+    x ^= x >> 31;
+    return x;
+}
+template <class T> DZ_INLINE uint64_t hash(T v) {
+    return hash_mix(static_cast<uint64_t>(v));
+}
+/// Text by its bytes: FNV-1a, then mixed, since FNV's low bits are its weakest.
+inline uint64_t hash(str s) {
+    uint64_t h = 0xCBF29CE484222325ull;
+    for (size_t i = 0; i < s.len; ++i) {
+        h ^= s.ptr[i];
+        h *= 0x100000001B3ull;
+    }
+    return hash_mix(h);
 }
 
 /// Element count, for the index form of `for` (spec §10.4).
@@ -295,6 +332,7 @@ template <class T, size_t N> DZ_INLINE size_t len(const Array<T, N>&) { return N
 template <class T, size_t N> DZ_INLINE size_t len(T (&)[N]) { return N; }
 template <class T, size_t N> DZ_INLINE size_t len(const T (&)[N]) { return N; }
 DZ_INLINE size_t len(const str& s) { return s.len; }
+DZ_INLINE const uint8_t* data(const str& s) { return s.ptr; }
 template <class T> DZ_INLINE size_t len(T* p) { return len(*p); }
 
 /// `.ptr` (spec §5.3): the first element, for unchecked access inside `unsafe`. A read-only
@@ -368,6 +406,43 @@ DZ_INLINE To cast(From f) {
     } else {
         return static_cast<To>(f);
     }
+}
+
+/// `xs[lo..hi]` on an array or a slice, checked in every build as an index is (spec §5.3).
+template <class C>
+DZ_INLINE auto subslice(C&& c, size_t lo, size_t hi, SourceLocation where)
+    -> Slice<typename strip_ref<decltype(c[0])>::type> {
+    if (hi > len(c)) { panic_bounds(hi, len(c), where); }
+    if (lo > hi) { panic_bounds(lo, hi, where); }
+    return {&c[0] + lo, hi - lo};
+}
+
+/// `str::from_utf8(bytes)` (spec §5.3): the bytes as text when they are well-formed UTF-8 —
+/// shortest encodings, no surrogates, nothing past U+10FFFF — and `none` otherwise.
+inline Opt<str> str_from_utf8(Slice<const uint8_t> b) {
+    size_t i = 0;
+    while (i < b.len) {
+        uint8_t c = b.ptr[i];
+        size_t n;
+        uint32_t cp;
+        if (c < 0x80) { i += 1; continue; }
+        else if ((c & 0xE0) == 0xC0) { n = 1; cp = c & 0x1F; }
+        else if ((c & 0xF0) == 0xE0) { n = 2; cp = c & 0x0F; }
+        else if ((c & 0xF8) == 0xF0) { n = 3; cp = c & 0x07; }
+        else { return Opt<str>(); }
+        if (i + n >= b.len) { return Opt<str>(); }
+        for (size_t k = 1; k <= n; ++k) {
+            uint8_t d = b.ptr[i + k];
+            if ((d & 0xC0) != 0x80) { return Opt<str>(); }
+            cp = (cp << 6) | (d & 0x3F);
+        }
+        static const uint32_t smallest[4] = {0, 0x80, 0x800, 0x10000};
+        if (cp < smallest[n] || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+            return Opt<str>();
+        }
+        i += n + 1;
+    }
+    return Opt<str>(str(b.ptr, b.len));
 }
 
 /// Bounds-checked index, in every build (spec §5.3). In a loop over `0..xs.len` the

@@ -509,8 +509,9 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
 /// declaration of the same name shadows the unqualified spelling.
 pub const PRELUDE_MODULE: &str = "dz";
 
-/// The prelude's source, compiled into the binary.
-const PRELUDE_SOURCE: &str = include_str!("prelude.dz");
+/// The prelude's source, compiled into the binary. Public so the language server can show
+/// it: a definition in the prelude needs a file an editor can open.
+pub const PRELUDE_SOURCE: &str = include_str!("prelude.dz");
 
 struct Loader<'a> {
     map: &'a mut SourceMap,

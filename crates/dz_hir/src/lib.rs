@@ -379,6 +379,13 @@ pub enum ExprKind {
         base: ExprId,
         index: ExprId,
     },
+    /// `xs[a..b]`, `xs[a..]`, `xs[..b]` — a slice of part of an array, a slice or, inside
+    /// `unsafe`, a pointer (spec §5.3). A missing end on an array or slice is its length.
+    SliceRange {
+        base: ExprId,
+        start: Option<ExprId>,
+        end: Option<ExprId>,
+    },
     Deref(ExprId),
     Ref {
         mutable: bool,

@@ -3,6 +3,24 @@ source: crates/dz_check/tests/check.rs
 assertion_line: 227
 expression: r.hir
 ---
+body fn hash_combine -> u64
+  param _0 seed: u64
+  param _1 h: u64
+  block
+    return: !
+      binary ^^: u64
+        local _0 seed: u64
+        binary +: u64
+          binary +: u64
+            binary +: u64
+              local _1 h: u64
+              int 11400714819323198485: u64
+            binary <<: u64
+              local _0 seed: u64
+              int 6: u64
+          binary >>: u64
+            local _0 seed: u64
+            int 2: u64
 body defaults Allocator::alloc -> ^mut u8
   param _0 self: Allocator
   param _1 size: usize
@@ -558,6 +576,1991 @@ body drop TempArena -> void
             assign =
               local _1 chunk: ^mut u8
               local _2 prev: ^mut u8
+body field-default List.0 -> void
+  block
+    null: own ^mut T
+body field-default List.1 -> void
+  block
+    int 0: usize
+body field-default List.2 -> void
+  block
+    int 0: usize
+body field-default List.3 -> void
+  block
+    const Allocators::Global: &mut Allocator
+body ctor List#0 -> void
+  param _0 self: List<T>
+  param _1 capacity: usize
+  param _2 allocator: ^mut Allocator
+  param _3 loc: SourceLocation
+  block
+    assign =
+      field #3: ^mut Allocator
+        local _0 self: List<T>
+      local _2 allocator: ^mut Allocator
+    if: void
+      binary >: bool
+        local _1 capacity: usize
+        int 0: usize
+      block
+        call-method List::grow_to: void
+          local _0 self: List<T>
+          local _1 capacity: usize
+          local _3 loc: SourceLocation
+body method List::len -> usize
+  param _0 self: List<T>
+  block
+    return: !
+      field #1: usize
+        local _0 self: List<T>
+body method List::capacity -> usize
+  param _0 self: List<T>
+  block
+    return: !
+      field #2: usize
+        local _0 self: List<T>
+body method List::is_empty -> bool
+  param _0 self: List<T>
+  block
+    return: !
+      binary ==: bool
+        field #1: usize
+          local _0 self: List<T>
+        int 0: usize
+body method List::as_slice -> []T
+  param _0 self: List<T>
+  block
+    return: !
+      block-value: []mut T
+        block
+          slice: []mut T
+            field #0: own ^mut T
+              local _0 self: List<T>
+            int 0: usize
+            field #1: usize
+              local _0 self: List<T>
+body method List::as_mut_slice -> []mut T
+  param _0 self: List<T>
+  block
+    return: !
+      block-value: []mut T
+        block
+          slice: []mut T
+            field #0: own ^mut T
+              local _0 self: List<T>
+            int 0: usize
+            field #1: usize
+              local _0 self: List<T>
+body method List::push -> void
+  param _0 self: List<T>
+  param _1 v: T
+  param _2 loc: SourceLocation
+  block
+    if: void
+      binary ==: bool
+        field #1: usize
+          local _0 self: List<T>
+        field #2: usize
+          local _0 self: List<T>
+      block
+        call-method List::grow_to: void
+          local _0 self: List<T>
+          binary +: usize
+            field #1: usize
+              local _0 self: List<T>
+            int 1: usize
+          local _2 loc: SourceLocation
+    block-value: void
+      block
+        builtin construct: void
+          index: T
+            field #0: own ^mut T
+              local _0 self: List<T>
+            field #1: usize
+              local _0 self: List<T>
+          move: T
+            local _1 v: T
+    assign +=
+      field #1: usize
+        local _0 self: List<T>
+      int 1: usize
+body method List::pop -> T?
+  param _0 self: List<T>
+  block
+    if: void
+      binary ==: bool
+        field #1: usize
+          local _0 self: List<T>
+        int 0: usize
+      block
+        return: !
+          none: T?
+    assign -=
+      field #1: usize
+        local _0 self: List<T>
+      int 1: usize
+    return: !
+      block-value: T
+        block
+          builtin move_out: T
+            index: T
+              field #0: own ^mut T
+                local _0 self: List<T>
+              field #1: usize
+                local _0 self: List<T>
+body method List::insert -> void
+  param _0 self: List<T>
+  param _1 i: usize
+  param _2 v: T
+  param _3 loc: SourceLocation
+  block
+    if: void
+      binary >: bool
+        local _1 i: usize
+        field #1: usize
+          local _0 self: List<T>
+      block
+        builtin panic: !
+          str "List::insert at {} past the length {}": str
+          local _1 i: usize
+          field #1: usize
+            local _0 self: List<T>
+    if: void
+      binary ==: bool
+        field #1: usize
+          local _0 self: List<T>
+        field #2: usize
+          local _0 self: List<T>
+      block
+        call-method List::grow_to: void
+          local _0 self: List<T>
+          binary +: usize
+            field #1: usize
+              local _0 self: List<T>
+            int 1: usize
+          local _3 loc: SourceLocation
+    let _4 j: usize
+      field #1: usize
+        local _0 self: List<T>
+    while
+      binary >: bool
+        local _4 j: usize
+        local _1 i: usize
+      block
+        block-value: void
+          block
+            builtin construct: void
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                local _4 j: usize
+              builtin move_out: T
+                index: T
+                  field #0: own ^mut T
+                    local _0 self: List<T>
+                  binary -: usize
+                    local _4 j: usize
+                    int 1: usize
+        assign -=
+          local _4 j: usize
+          int 1: usize
+    block-value: void
+      block
+        builtin construct: void
+          index: T
+            field #0: own ^mut T
+              local _0 self: List<T>
+            local _1 i: usize
+          move: T
+            local _2 v: T
+    assign +=
+      field #1: usize
+        local _0 self: List<T>
+      int 1: usize
+body method List::remove -> T
+  param _0 self: List<T>
+  param _1 i: usize
+  block
+    if: void
+      binary >=: bool
+        local _1 i: usize
+        field #1: usize
+          local _0 self: List<T>
+      block
+        builtin panic: !
+          str "List::remove at {} for a length of {}": str
+          local _1 i: usize
+          field #1: usize
+            local _0 self: List<T>
+    let _2 v: T
+      block-value: T
+        block
+          builtin move_out: T
+            index: T
+              field #0: own ^mut T
+                local _0 self: List<T>
+              local _1 i: usize
+    let _3 j: usize
+      local _1 i: usize
+    while
+      binary <: bool
+        binary +: usize
+          local _3 j: usize
+          int 1: usize
+        field #1: usize
+          local _0 self: List<T>
+      block
+        block-value: void
+          block
+            builtin construct: void
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                local _3 j: usize
+              builtin move_out: T
+                index: T
+                  field #0: own ^mut T
+                    local _0 self: List<T>
+                  binary +: usize
+                    local _3 j: usize
+                    int 1: usize
+        assign +=
+          local _3 j: usize
+          int 1: usize
+    assign -=
+      field #1: usize
+        local _0 self: List<T>
+      int 1: usize
+    return: !
+      move: T
+        local _2 v: T
+body method List::swap_remove -> T
+  param _0 self: List<T>
+  param _1 i: usize
+  block
+    if: void
+      binary >=: bool
+        local _1 i: usize
+        field #1: usize
+          local _0 self: List<T>
+      block
+        builtin panic: !
+          str "List::swap_remove at {} for a length of {}": str
+          local _1 i: usize
+          field #1: usize
+            local _0 self: List<T>
+    let _2 v: T
+      block-value: T
+        block
+          builtin move_out: T
+            index: T
+              field #0: own ^mut T
+                local _0 self: List<T>
+              local _1 i: usize
+    assign -=
+      field #1: usize
+        local _0 self: List<T>
+      int 1: usize
+    if: void
+      binary !=: bool
+        local _1 i: usize
+        field #1: usize
+          local _0 self: List<T>
+      block
+        block-value: void
+          block
+            builtin construct: void
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                local _1 i: usize
+              builtin move_out: T
+                index: T
+                  field #0: own ^mut T
+                    local _0 self: List<T>
+                  field #1: usize
+                    local _0 self: List<T>
+    return: !
+      move: T
+        local _2 v: T
+body method List::clear -> void
+  param _0 self: List<T>
+  block
+    call-method List::truncate: void
+      local _0 self: List<T>
+      int 0: usize
+body method List::truncate -> void
+  param _0 self: List<T>
+  param _1 n: usize
+  block
+    while
+      binary >: bool
+        field #1: usize
+          local _0 self: List<T>
+        local _1 n: usize
+      block
+        assign -=
+          field #1: usize
+            local _0 self: List<T>
+          int 1: usize
+        block-value: void
+          block
+            builtin destroy: void
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                field #1: usize
+                  local _0 self: List<T>
+body method List::resize -> void
+  param _0 self: List<T>
+  param _1 n: usize
+  param _2 loc: SourceLocation
+  block
+    if: void
+      binary >: bool
+        local _1 n: usize
+        field #2: usize
+          local _0 self: List<T>
+      block
+        call-method List::grow_to: void
+          local _0 self: List<T>
+          local _1 n: usize
+          local _2 loc: SourceLocation
+    while
+      binary <: bool
+        field #1: usize
+          local _0 self: List<T>
+        local _1 n: usize
+      block
+        block-value: void
+          block
+            builtin construct: void
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                field #1: usize
+                  local _0 self: List<T>
+        assign +=
+          field #1: usize
+            local _0 self: List<T>
+          int 1: usize
+    call-method List::truncate: void
+      local _0 self: List<T>
+      local _1 n: usize
+body method List::reserve -> void
+  param _0 self: List<T>
+  param _1 additional: usize
+  param _2 loc: SourceLocation
+  block
+    if: void
+      binary >: bool
+        binary +: usize
+          field #1: usize
+            local _0 self: List<T>
+          local _1 additional: usize
+        field #2: usize
+          local _0 self: List<T>
+      block
+        call-method List::grow_to: void
+          local _0 self: List<T>
+          binary +: usize
+            field #1: usize
+              local _0 self: List<T>
+            local _1 additional: usize
+          local _2 loc: SourceLocation
+body method List::grow_to -> void
+  param _0 self: List<T>
+  param _1 wanted: usize
+  param _2 loc: SourceLocation
+  block
+    let _3 doubled: usize
+      if: usize
+        binary ==: bool
+          field #2: usize
+            local _0 self: List<T>
+          int 0: usize
+        block
+          int 8: i32
+        block
+          block-value: usize
+            block
+              binary *: usize
+                field #2: usize
+                  local _0 self: List<T>
+                int 2: usize
+    let _4 cap: usize
+      if: usize
+        binary >: bool
+          local _1 wanted: usize
+          local _3 doubled: usize
+        block
+          local _1 wanted: usize
+        block
+          block-value: usize
+            block
+              local _3 doubled: usize
+    let _5 a: &mut Allocator
+      or: &mut Allocator
+        field #3: ^mut Allocator
+          local _0 self: List<T>
+        builtin panic: !
+          str "a List with no allocator cannot grow": str
+    if: void
+      type-query T::is_trivially_copyable: bool
+      block
+        let _6 old: ^mut u8
+          block-value: ^mut u8
+            block
+              cast: ^mut u8
+                field #0: own ^mut T
+                  local _0 self: List<T>
+        assign =
+          field #0: own ^mut T
+            local _0 self: List<T>
+          block-value: ^mut T
+            block
+              cast: ^mut T
+                call-method Allocator::realloc: ^mut u8
+                  local _5 a: &mut Allocator
+                  local _6 old: ^mut u8
+                  binary *: usize
+                    field #2: usize
+                      local _0 self: List<T>
+                    type-query T::size: usize
+                  binary *: usize
+                    local _4 cap: usize
+                    type-query T::size: usize
+                  type-query T::align: usize
+                  local _2 loc: SourceLocation
+      block
+        block-value: void
+          block
+            let _7 fresh: ^mut T
+              block-value: ^mut T
+                block
+                  cast: ^mut T
+                    call-method Allocator::alloc: ^mut u8
+                      local _5 a: &mut Allocator
+                      binary *: usize
+                        local _4 cap: usize
+                        type-query T::size: usize
+                      type-query T::align: usize
+                      local _2 loc: SourceLocation
+            for _8 i
+              range: usize..usize
+                int 0: i32
+                field #1: usize
+                  local _0 self: List<T>
+              block
+                block-value: void
+                  block
+                    builtin construct: void
+                      index: T
+                        local _7 fresh: ^mut T
+                        local _8 i: usize
+                      builtin move_out: T
+                        index: T
+                          field #0: own ^mut T
+                            local _0 self: List<T>
+                          local _8 i: usize
+            if: void
+              binary !=: bool
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                null: own ^mut T
+              block
+                call-method Allocator::free: void
+                  local _5 a: &mut Allocator
+                  block-value: ^mut u8
+                    block
+                      cast: ^mut u8
+                        field #0: own ^mut T
+                          local _0 self: List<T>
+                  binary *: usize
+                    field #2: usize
+                      local _0 self: List<T>
+                    type-query T::size: usize
+                  type-query T::align: usize
+                  local _2 loc: SourceLocation
+            assign =
+              field #0: own ^mut T
+                local _0 self: List<T>
+              local _7 fresh: ^mut T
+    assign =
+      field #2: usize
+        local _0 self: List<T>
+      local _4 cap: usize
+body drop List -> void
+  param _0 self: List<T>
+  block
+    if: void
+      binary ==: bool
+        field #0: own ^mut T
+          local _0 self: List<T>
+        null: own ^mut T
+      block
+        return: !
+    if: void
+      unary !: bool
+        type-query T::is_trivially_copyable: bool
+      block
+        for _1 i
+          range: usize..usize
+            int 0: i32
+            field #1: usize
+              local _0 self: List<T>
+          block
+            block-value: void
+              block
+                builtin destroy: void
+                  index: T
+                    field #0: own ^mut T
+                      local _0 self: List<T>
+                    local _1 i: usize
+    let _2 a: &mut Allocator
+      or: &mut Allocator
+        field #3: ^mut Allocator
+          local _0 self: List<T>
+        return: !
+    call-method Allocator::free: void
+      local _2 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            field #0: own ^mut T
+              local _0 self: List<T>
+      binary *: usize
+        field #2: usize
+          local _0 self: List<T>
+        type-query T::size: usize
+      type-query T::align: usize
+body copy List -> void
+  param _0 self: List<T>
+  param _1 other: &List<T>
+  block
+    assign =
+      field #3: ^mut Allocator
+        local _0 self: List<T>
+      field #3: ^mut Allocator
+        local _1 other: &List<T>
+    if: void
+      binary ==: bool
+        field #1: usize
+          local _1 other: &List<T>
+        int 0: usize
+      block
+        return: !
+    let _2 a: &mut Allocator
+      or: &mut Allocator
+        field #3: ^mut Allocator
+          local _0 self: List<T>
+        builtin panic: !
+          str "a List with no allocator cannot be copied": str
+    assign =
+      field #0: own ^mut T
+        local _0 self: List<T>
+      block-value: ^mut T
+        block
+          cast: ^mut T
+            call-method Allocator::alloc: ^mut u8
+              local _2 a: &mut Allocator
+              binary *: usize
+                field #1: usize
+                  local _1 other: &List<T>
+                type-query T::size: usize
+              type-query T::align: usize
+    assign =
+      field #2: usize
+        local _0 self: List<T>
+      field #1: usize
+        local _1 other: &List<T>
+    for _3 i
+      range: usize..usize
+        int 0: i32
+        field #1: usize
+          local _1 other: &List<T>
+      block
+        block-value: void
+          block
+            builtin construct: void
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                local _3 i: usize
+              index: T
+                field #0: own ^mut T
+                  local _1 other: &List<T>
+                local _3 i: usize
+    assign =
+      field #1: usize
+        local _0 self: List<T>
+      field #1: usize
+        local _1 other: &List<T>
+body impl#5 method index -> &T
+  param _0 self: List<T>
+  param _1 i: usize
+  block
+    if: void
+      binary >=: bool
+        local _1 i: usize
+        field #1: usize
+          local _0 self: List<T>
+      block
+        builtin panic: !
+          str "index {} is out of bounds for a List of length {}": str
+          local _1 i: usize
+          field #1: usize
+            local _0 self: List<T>
+    return: !
+      block-value: &T
+        block
+          ref: &T
+            index: T
+              field #0: own ^mut T
+                local _0 self: List<T>
+              local _1 i: usize
+body impl#6 method index_mut -> &mut T
+  param _0 self: List<T>
+  param _1 i: usize
+  block
+    if: void
+      binary >=: bool
+        local _1 i: usize
+        field #1: usize
+          local _0 self: List<T>
+      block
+        builtin panic: !
+          str "index {} is out of bounds for a List of length {}": str
+          local _1 i: usize
+          field #1: usize
+            local _0 self: List<T>
+    return: !
+      block-value: &mut T
+        block
+          ref mut: &mut T
+            index: T
+              field #0: own ^mut T
+                local _0 self: List<T>
+              local _1 i: usize
+body ctor String#0 -> void
+  param _0 self: String
+  param _1 s: str
+  param _2 allocator: ^mut Allocator
+  param _3 loc: SourceLocation
+  block
+    assign =
+      field #0: List<u8>
+        local _0 self: String
+      call-ctor List#0: List<u8>
+        int 0: usize
+        local _2 allocator: ^mut Allocator
+        local _3 loc: SourceLocation
+    call-method String::push_str: void
+      local _0 self: String
+      local _1 s: str
+      local _3 loc: SourceLocation
+body method String::from -> String
+  param _0 s: str
+  param _1 allocator: ^mut Allocator
+  param _2 loc: SourceLocation
+  block
+    return: !
+      call-ctor String#0: String
+        local _0 s: str
+        local _1 allocator: ^mut Allocator
+        local _2 loc: SourceLocation
+body method String::len -> usize
+  param _0 self: String
+  block
+    if: void
+      binary ==: bool
+        call-method List::len: usize
+          field #0: List<u8>
+            local _0 self: String
+        int 0: usize
+      block
+        return: !
+          int 0: usize
+    return: !
+      binary -: usize
+        call-method List::len: usize
+          field #0: List<u8>
+            local _0 self: String
+        int 1: usize
+body method String::is_empty -> bool
+  param _0 self: String
+  block
+    return: !
+      binary ==: bool
+        call-method String::len: usize
+          local _0 self: String
+        int 0: usize
+body method String::capacity -> usize
+  param _0 self: String
+  block
+    return: !
+      call-method List::capacity: usize
+        field #0: List<u8>
+          local _0 self: String
+body method String::as_str -> str
+  param _0 self: String
+  block
+    let _1 bytes: []u8
+      call-method List::as_slice: []u8
+        field #0: List<u8>
+          local _0 self: String
+    return: !
+      block-value: str
+        block
+          cast: str
+            slice: []u8
+              local _1 bytes: []u8
+              int 0: usize
+              call-method String::len: usize
+                local _0 self: String
+body method String::as_cstr -> cstr
+  param _0 self: String
+  block
+    if: void
+      binary ==: bool
+        call-method List::len: usize
+          field #0: List<u8>
+            local _0 self: String
+        int 0: usize
+      block
+        return: !
+          str "": cstr
+    return: !
+      block-value: cstr
+        block
+          cast: cstr
+            data-ptr: ^u8
+              call-method List::as_slice: []u8
+                field #0: List<u8>
+                  local _0 self: String
+body method String::push_str -> void
+  param _0 self: String
+  param _1 s: str
+  param _2 loc: SourceLocation
+  block
+    if: void
+      binary ==: bool
+        len: usize
+          local _1 s: str
+        int 0: usize
+      block
+        return: !
+    let _: _
+      call-method List::pop: u8?
+        field #0: List<u8>
+          local _0 self: String
+    call-method List::reserve: void
+      field #0: List<u8>
+        local _0 self: String
+      binary +: usize
+        len: usize
+          local _1 s: str
+        int 1: usize
+      local _2 loc: SourceLocation
+    let _3 bytes: []u8
+      cast: []u8
+        local _1 s: str
+    for _4 b
+      local _3 bytes: []u8
+      block
+        call-method List::push: void
+          field #0: List<u8>
+            local _0 self: String
+          local _4 b: u8
+          local _2 loc: SourceLocation
+    call-method List::push: void
+      field #0: List<u8>
+        local _0 self: String
+      int 0: u8
+      local _2 loc: SourceLocation
+body method String::push -> void
+  param _0 self: String
+  param _1 c: char
+  param _2 loc: SourceLocation
+  block
+    let _3 encoded: [4]u8
+      array: [4]u8
+        int 0: u8
+        int 0: u8
+        int 0: u8
+        int 0: u8
+    let _4 n: usize
+      call encode_utf8: usize
+        local _1 c: char
+        ref mut: &mut [4]u8
+          local _3 encoded: [4]u8
+    let _5 text: str
+      block-value: str
+        block
+          cast: str
+            slice: []mut u8
+              local _3 encoded: [4]u8
+              int 0: usize
+              local _4 n: usize
+    call-method String::push_str: void
+      local _0 self: String
+      local _5 text: str
+      local _2 loc: SourceLocation
+body method String::clear -> void
+  param _0 self: String
+  block
+    call-method List::clear: void
+      field #0: List<u8>
+        local _0 self: String
+body method String::reserve -> void
+  param _0 self: String
+  param _1 additional: usize
+  param _2 loc: SourceLocation
+  block
+    call-method List::reserve: void
+      field #0: List<u8>
+        local _0 self: String
+      binary +: usize
+        local _1 additional: usize
+        int 1: usize
+      local _2 loc: SourceLocation
+body impl#7 method eq -> bool
+  param _0 self: String
+  param _1 rhs: &String
+  block
+    return: !
+      binary ==: bool
+        call-method String::as_str: str
+          local _0 self: String
+        call-method String::as_str: str
+          local _1 rhs: &String
+body impl#8 method hash -> u64
+  param _0 self: String
+  block
+    return: !
+      call-method Hash::hash: u64
+        call-method String::as_str: str
+          local _0 self: String
+body field-default HashMap.0 -> void
+  block
+    null: own ^mut u64
+body field-default HashMap.1 -> void
+  block
+    null: own ^mut K
+body field-default HashMap.2 -> void
+  block
+    null: own ^mut V
+body field-default HashMap.3 -> void
+  block
+    int 0: usize
+body field-default HashMap.4 -> void
+  block
+    int 0: usize
+body field-default HashMap.5 -> void
+  block
+    const Allocators::Global: &mut Allocator
+body ctor HashMap#0 -> void
+  param _0 self: HashMap<K, V>
+  param _1 capacity: usize
+  param _2 allocator: ^mut Allocator
+  param _3 loc: SourceLocation
+  block
+    assign =
+      field #5: ^mut Allocator
+        local _0 self: HashMap<K, V>
+      local _2 allocator: ^mut Allocator
+    if: void
+      binary >: bool
+        local _1 capacity: usize
+        int 0: usize
+      block
+        call-method HashMap::grow_to: void
+          local _0 self: HashMap<K, V>
+          local _1 capacity: usize
+          local _3 loc: SourceLocation
+body method HashMap::len -> usize
+  param _0 self: HashMap<K, V>
+  block
+    return: !
+      field #3: usize
+        local _0 self: HashMap<K, V>
+body method HashMap::is_empty -> bool
+  param _0 self: HashMap<K, V>
+  block
+    return: !
+      binary ==: bool
+        field #3: usize
+          local _0 self: HashMap<K, V>
+        int 0: usize
+body method HashMap::capacity -> usize
+  param _0 self: HashMap<K, V>
+  block
+    return: !
+      binary *: usize
+        binary /: usize
+          field #4: usize
+            local _0 self: HashMap<K, V>
+          int 4: usize
+        int 3: usize
+body method HashMap::insert -> void
+  param _0 self: HashMap<K, V>
+  param _1 key: K
+  param _2 value: V
+  param _3 loc: SourceLocation
+  block
+    let _: _
+      call-method HashMap::replace: V?
+        local _0 self: HashMap<K, V>
+        move: K
+          local _1 key: K
+        move: V
+          local _2 value: V
+        local _3 loc: SourceLocation
+body method HashMap::replace -> V?
+  param _0 self: HashMap<K, V>
+  param _1 key: K
+  param _2 value: V
+  param _3 loc: SourceLocation
+  block
+    let _4 h: u64
+      call key_hash: u64
+        ref: &K
+          local _1 key: K
+    if-let: void
+      call-method HashMap::find: usize?
+        local _0 self: HashMap<K, V>
+        ref: &K
+          local _1 key: K
+        local _4 h: u64
+      bind _5 slot
+      block
+        let _6 old: V
+          block-value: V
+            block
+              builtin move_out: V
+                index: V
+                  field #2: own ^mut V
+                    local _0 self: HashMap<K, V>
+                  local _5 slot: usize
+        block-value: void
+          block
+            builtin construct: void
+              index: V
+                field #2: own ^mut V
+                  local _0 self: HashMap<K, V>
+                local _5 slot: usize
+              move: V
+                local _2 value: V
+        return: !
+          move: V
+            local _6 old: V
+    if: void
+      binary >: bool
+        binary *: usize
+          binary +: usize
+            field #3: usize
+              local _0 self: HashMap<K, V>
+            int 1: usize
+          int 4: usize
+        binary *: usize
+          field #4: usize
+            local _0 self: HashMap<K, V>
+          int 3: usize
+      block
+        call-method HashMap::grow_to: void
+          local _0 self: HashMap<K, V>
+          binary +: usize
+            field #3: usize
+              local _0 self: HashMap<K, V>
+            int 1: usize
+          local _3 loc: SourceLocation
+    call-method HashMap::place: void
+      local _0 self: HashMap<K, V>
+      move: K
+        local _1 key: K
+      move: V
+        local _2 value: V
+      local _4 h: u64
+    assign +=
+      field #3: usize
+        local _0 self: HashMap<K, V>
+      int 1: usize
+    return: !
+      none: V?
+body method HashMap::get -> ^V
+  param _0 self: HashMap<K, V>
+  param _1 key: &K
+  block
+    let _2 slot: usize
+      or: usize
+        call-method HashMap::find: usize?
+          local _0 self: HashMap<K, V>
+          local _1 key: &K
+          call key_hash: u64
+            local _1 key: &K
+        return: !
+          null: ^V
+    return: !
+      block-value: &V
+        block
+          ref: &V
+            index: V
+              field #2: own ^mut V
+                local _0 self: HashMap<K, V>
+              local _2 slot: usize
+body method HashMap::get_mut -> ^mut V
+  param _0 self: HashMap<K, V>
+  param _1 key: &K
+  block
+    let _2 slot: usize
+      or: usize
+        call-method HashMap::find: usize?
+          local _0 self: HashMap<K, V>
+          local _1 key: &K
+          call key_hash: u64
+            local _1 key: &K
+        return: !
+          null: ^mut V
+    return: !
+      block-value: &mut V
+        block
+          ref mut: &mut V
+            index: V
+              field #2: own ^mut V
+                local _0 self: HashMap<K, V>
+              local _2 slot: usize
+body method HashMap::contains -> bool
+  param _0 self: HashMap<K, V>
+  param _1 key: &K
+  block
+    return: !
+      binary !=: bool
+        call-method HashMap::find: usize?
+          local _0 self: HashMap<K, V>
+          local _1 key: &K
+          call key_hash: u64
+            local _1 key: &K
+        none: usize?
+body method HashMap::remove -> V?
+  param _0 self: HashMap<K, V>
+  param _1 key: &K
+  block
+    let _2 found: usize
+      or: usize
+        call-method HashMap::find: usize?
+          local _0 self: HashMap<K, V>
+          local _1 key: &K
+          call key_hash: u64
+            local _1 key: &K
+        return: !
+          none: V?
+    let _3 value: V
+      block-value: V
+        block
+          builtin move_out: V
+            index: V
+              field #2: own ^mut V
+                local _0 self: HashMap<K, V>
+              local _2 found: usize
+    block-value: void
+      block
+        builtin destroy: void
+          index: K
+            field #1: own ^mut K
+              local _0 self: HashMap<K, V>
+            local _2 found: usize
+        assign =
+          index: u64
+            field #0: own ^mut u64
+              local _0 self: HashMap<K, V>
+            local _2 found: usize
+          int 0: u64
+    let _4 mask: usize
+      binary -: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
+        int 1: usize
+    let _5 hole: usize
+      local _2 found: usize
+    let _6 i: usize
+      binary &: usize
+        binary +: usize
+          local _2 found: usize
+          int 1: usize
+        local _4 mask: usize
+    while
+      binary !=: bool
+        block-value: u64
+          block
+            index: u64
+              field #0: own ^mut u64
+                local _0 self: HashMap<K, V>
+              local _6 i: usize
+        int 0: u64
+      block
+        let _7 home: usize
+          cast: usize
+            binary &: u64
+              block-value: u64
+                block
+                  index: u64
+                    field #0: own ^mut u64
+                      local _0 self: HashMap<K, V>
+                    local _6 i: usize
+              cast: u64
+                local _4 mask: usize
+        if: void
+          binary >=: bool
+            binary &: usize
+              binary -: usize
+                binary +: usize
+                  local _6 i: usize
+                  field #4: usize
+                    local _0 self: HashMap<K, V>
+                local _7 home: usize
+              local _4 mask: usize
+            binary &: usize
+              binary -: usize
+                binary +: usize
+                  local _6 i: usize
+                  field #4: usize
+                    local _0 self: HashMap<K, V>
+                local _5 hole: usize
+              local _4 mask: usize
+          block
+            block-value: void
+              block
+                assign =
+                  index: u64
+                    field #0: own ^mut u64
+                      local _0 self: HashMap<K, V>
+                    local _5 hole: usize
+                  index: u64
+                    field #0: own ^mut u64
+                      local _0 self: HashMap<K, V>
+                    local _6 i: usize
+                assign =
+                  index: u64
+                    field #0: own ^mut u64
+                      local _0 self: HashMap<K, V>
+                    local _6 i: usize
+                  int 0: u64
+                builtin construct: void
+                  index: K
+                    field #1: own ^mut K
+                      local _0 self: HashMap<K, V>
+                    local _5 hole: usize
+                  builtin move_out: K
+                    index: K
+                      field #1: own ^mut K
+                        local _0 self: HashMap<K, V>
+                      local _6 i: usize
+                builtin construct: void
+                  index: V
+                    field #2: own ^mut V
+                      local _0 self: HashMap<K, V>
+                    local _5 hole: usize
+                  builtin move_out: V
+                    index: V
+                      field #2: own ^mut V
+                        local _0 self: HashMap<K, V>
+                      local _6 i: usize
+            assign =
+              local _5 hole: usize
+              local _6 i: usize
+        assign =
+          local _6 i: usize
+          binary &: usize
+            binary +: usize
+              local _6 i: usize
+              int 1: usize
+            local _4 mask: usize
+    assign -=
+      field #3: usize
+        local _0 self: HashMap<K, V>
+      int 1: usize
+    return: !
+      move: V
+        local _3 value: V
+body method HashMap::clear -> void
+  param _0 self: HashMap<K, V>
+  block
+    for _1 i
+      range: usize..usize
+        int 0: i32
+        field #4: usize
+          local _0 self: HashMap<K, V>
+      block
+        if: void
+          binary !=: bool
+            block-value: u64
+              block
+                index: u64
+                  field #0: own ^mut u64
+                    local _0 self: HashMap<K, V>
+                  local _1 i: usize
+            int 0: u64
+          block
+            block-value: void
+              block
+                builtin destroy: void
+                  index: K
+                    field #1: own ^mut K
+                      local _0 self: HashMap<K, V>
+                    local _1 i: usize
+                builtin destroy: void
+                  index: V
+                    field #2: own ^mut V
+                      local _0 self: HashMap<K, V>
+                    local _1 i: usize
+                assign =
+                  index: u64
+                    field #0: own ^mut u64
+                      local _0 self: HashMap<K, V>
+                    local _1 i: usize
+                  int 0: u64
+    assign =
+      field #3: usize
+        local _0 self: HashMap<K, V>
+      int 0: usize
+body method HashMap::reserve -> void
+  param _0 self: HashMap<K, V>
+  param _1 additional: usize
+  param _2 loc: SourceLocation
+  block
+    if: void
+      binary >: bool
+        binary *: usize
+          binary +: usize
+            field #3: usize
+              local _0 self: HashMap<K, V>
+            local _1 additional: usize
+          int 4: usize
+        binary *: usize
+          field #4: usize
+            local _0 self: HashMap<K, V>
+          int 3: usize
+      block
+        call-method HashMap::grow_to: void
+          local _0 self: HashMap<K, V>
+          binary +: usize
+            field #3: usize
+              local _0 self: HashMap<K, V>
+            local _1 additional: usize
+          local _2 loc: SourceLocation
+body method HashMap::slot_count -> usize
+  param _0 self: HashMap<K, V>
+  block
+    return: !
+      field #4: usize
+        local _0 self: HashMap<K, V>
+body method HashMap::key_at -> ^K
+  param _0 self: HashMap<K, V>
+  param _1 slot: usize
+  block
+    if: void
+      binary ==: bool
+        call-method HashMap::checked_slot: u64
+          local _0 self: HashMap<K, V>
+          local _1 slot: usize
+        int 0: u64
+      block
+        return: !
+          null: ^K
+    return: !
+      block-value: &K
+        block
+          ref: &K
+            index: K
+              field #1: own ^mut K
+                local _0 self: HashMap<K, V>
+              local _1 slot: usize
+body method HashMap::value_at -> ^V
+  param _0 self: HashMap<K, V>
+  param _1 slot: usize
+  block
+    if: void
+      binary ==: bool
+        call-method HashMap::checked_slot: u64
+          local _0 self: HashMap<K, V>
+          local _1 slot: usize
+        int 0: u64
+      block
+        return: !
+          null: ^V
+    return: !
+      block-value: &V
+        block
+          ref: &V
+            index: V
+              field #2: own ^mut V
+                local _0 self: HashMap<K, V>
+              local _1 slot: usize
+body method HashMap::value_at_mut -> ^mut V
+  param _0 self: HashMap<K, V>
+  param _1 slot: usize
+  block
+    if: void
+      binary ==: bool
+        call-method HashMap::checked_slot: u64
+          local _0 self: HashMap<K, V>
+          local _1 slot: usize
+        int 0: u64
+      block
+        return: !
+          null: ^mut V
+    return: !
+      block-value: &mut V
+        block
+          ref mut: &mut V
+            index: V
+              field #2: own ^mut V
+                local _0 self: HashMap<K, V>
+              local _1 slot: usize
+body method HashMap::checked_slot -> u64
+  param _0 self: HashMap<K, V>
+  param _1 slot: usize
+  block
+    if: void
+      binary >=: bool
+        local _1 slot: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
+      block
+        builtin panic: !
+          str "slot {} is out of bounds for a HashMap of {} slots": str
+          local _1 slot: usize
+          field #4: usize
+            local _0 self: HashMap<K, V>
+    return: !
+      block-value: u64
+        block
+          index: u64
+            field #0: own ^mut u64
+              local _0 self: HashMap<K, V>
+            local _1 slot: usize
+body method HashMap::find -> usize?
+  param _0 self: HashMap<K, V>
+  param _1 key: &K
+  param _2 h: u64
+  block
+    if: void
+      binary ==: bool
+        field #3: usize
+          local _0 self: HashMap<K, V>
+        int 0: usize
+      block
+        return: !
+          none: usize?
+    let _3 mask: usize
+      binary -: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
+        int 1: usize
+    let _4 i: usize
+      cast: usize
+        binary &: u64
+          local _2 h: u64
+          cast: u64
+            local _3 mask: usize
+    while
+      bool true: bool
+      block
+        let _5 stored: u64
+          block-value: u64
+            block
+              index: u64
+                field #0: own ^mut u64
+                  local _0 self: HashMap<K, V>
+                local _4 i: usize
+        if: void
+          binary ==: bool
+            local _5 stored: u64
+            int 0: u64
+          block
+            return: !
+              none: usize?
+        if: void
+          binary &&: bool
+            binary ==: bool
+              local _5 stored: u64
+              local _2 h: u64
+            block-value: bool
+              block
+                call-method Eq::eq: bool
+                  index: K
+                    field #1: own ^mut K
+                      local _0 self: HashMap<K, V>
+                    local _4 i: usize
+                  local _1 key: &K
+          block
+            return: !
+              local _4 i: usize
+        assign =
+          local _4 i: usize
+          binary &: usize
+            binary +: usize
+              local _4 i: usize
+              int 1: usize
+            local _3 mask: usize
+    return: !
+      none: usize?
+body method HashMap::place -> void
+  param _0 self: HashMap<K, V>
+  param _1 key: K
+  param _2 value: V
+  param _3 h: u64
+  block
+    let _4 mask: usize
+      binary -: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
+        int 1: usize
+    let _5 i: usize
+      cast: usize
+        binary &: u64
+          local _3 h: u64
+          cast: u64
+            local _4 mask: usize
+    while
+      binary !=: bool
+        block-value: u64
+          block
+            index: u64
+              field #0: own ^mut u64
+                local _0 self: HashMap<K, V>
+              local _5 i: usize
+        int 0: u64
+      block
+        assign =
+          local _5 i: usize
+          binary &: usize
+            binary +: usize
+              local _5 i: usize
+              int 1: usize
+            local _4 mask: usize
+    block-value: void
+      block
+        assign =
+          index: u64
+            field #0: own ^mut u64
+              local _0 self: HashMap<K, V>
+            local _5 i: usize
+          local _3 h: u64
+        builtin construct: void
+          index: K
+            field #1: own ^mut K
+              local _0 self: HashMap<K, V>
+            local _5 i: usize
+          move: K
+            local _1 key: K
+        builtin construct: void
+          index: V
+            field #2: own ^mut V
+              local _0 self: HashMap<K, V>
+            local _5 i: usize
+          move: V
+            local _2 value: V
+body method HashMap::grow_to -> void
+  param _0 self: HashMap<K, V>
+  param _1 wanted: usize
+  param _2 loc: SourceLocation
+  block
+    let _3 slots: usize
+      if: usize
+        binary ==: bool
+          field #4: usize
+            local _0 self: HashMap<K, V>
+          int 0: usize
+        block
+          int 8: usize
+        block
+          block-value: usize
+            block
+              binary *: usize
+                field #4: usize
+                  local _0 self: HashMap<K, V>
+                int 2: usize
+    while
+      binary >: bool
+        binary *: usize
+          local _1 wanted: usize
+          int 4: usize
+        binary *: usize
+          local _3 slots: usize
+          int 3: usize
+      block
+        assign *=
+          local _3 slots: usize
+          int 2: usize
+    let _4 a: &mut Allocator
+      or: &mut Allocator
+        field #5: ^mut Allocator
+          local _0 self: HashMap<K, V>
+        builtin panic: !
+          str "a HashMap with no allocator cannot grow": str
+    let _5 old_hashes: ^mut u64
+      block-value: ^mut u64
+        block
+          cast: ^mut u64
+            field #0: own ^mut u64
+              local _0 self: HashMap<K, V>
+    let _6 old_keys: ^mut K
+      block-value: ^mut K
+        block
+          cast: ^mut K
+            field #1: own ^mut K
+              local _0 self: HashMap<K, V>
+    let _7 old_values: ^mut V
+      block-value: ^mut V
+        block
+          cast: ^mut V
+            field #2: own ^mut V
+              local _0 self: HashMap<K, V>
+    let _8 old_slots: usize
+      field #4: usize
+        local _0 self: HashMap<K, V>
+    assign =
+      field #0: own ^mut u64
+        local _0 self: HashMap<K, V>
+      block-value: ^mut u64
+        block
+          cast: ^mut u64
+            call-method Allocator::alloc: ^mut u8
+              local _4 a: &mut Allocator
+              binary *: usize
+                local _3 slots: usize
+                type-query u64::size: usize
+              type-query u64::align: usize
+              local _2 loc: SourceLocation
+    assign =
+      field #1: own ^mut K
+        local _0 self: HashMap<K, V>
+      block-value: ^mut K
+        block
+          cast: ^mut K
+            call-method Allocator::alloc: ^mut u8
+              local _4 a: &mut Allocator
+              binary *: usize
+                local _3 slots: usize
+                type-query K::size: usize
+              type-query K::align: usize
+              local _2 loc: SourceLocation
+    assign =
+      field #2: own ^mut V
+        local _0 self: HashMap<K, V>
+      block-value: ^mut V
+        block
+          cast: ^mut V
+            call-method Allocator::alloc: ^mut u8
+              local _4 a: &mut Allocator
+              binary *: usize
+                local _3 slots: usize
+                type-query V::size: usize
+              type-query V::align: usize
+              local _2 loc: SourceLocation
+    assign =
+      field #4: usize
+        local _0 self: HashMap<K, V>
+      local _3 slots: usize
+    for _9 i
+      range: usize..usize
+        int 0: i32
+        local _3 slots: usize
+      block
+        block-value: void
+          block
+            assign =
+              index: u64
+                field #0: own ^mut u64
+                  local _0 self: HashMap<K, V>
+                local _9 i: usize
+              int 0: u64
+    if: void
+      binary ==: bool
+        local _5 old_hashes: ^mut u64
+        null: ^mut u64
+      block
+        return: !
+    for _10 i
+      range: usize..usize
+        int 0: i32
+        local _8 old_slots: usize
+      block
+        let _11 h: u64
+          block-value: u64
+            block
+              index: u64
+                local _5 old_hashes: ^mut u64
+                local _10 i: usize
+        if: void
+          binary !=: bool
+            local _11 h: u64
+            int 0: u64
+          block
+            block-value: void
+              block
+                call-method HashMap::place: void
+                  local _0 self: HashMap<K, V>
+                  builtin move_out: K
+                    index: K
+                      local _6 old_keys: ^mut K
+                      local _10 i: usize
+                  builtin move_out: V
+                    index: V
+                      local _7 old_values: ^mut V
+                      local _10 i: usize
+                  local _11 h: u64
+    call-method Allocator::free: void
+      local _4 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            local _5 old_hashes: ^mut u64
+      binary *: usize
+        local _8 old_slots: usize
+        type-query u64::size: usize
+      type-query u64::align: usize
+      local _2 loc: SourceLocation
+    call-method Allocator::free: void
+      local _4 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            local _6 old_keys: ^mut K
+      binary *: usize
+        local _8 old_slots: usize
+        type-query K::size: usize
+      type-query K::align: usize
+      local _2 loc: SourceLocation
+    call-method Allocator::free: void
+      local _4 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            local _7 old_values: ^mut V
+      binary *: usize
+        local _8 old_slots: usize
+        type-query V::size: usize
+      type-query V::align: usize
+      local _2 loc: SourceLocation
+body fn key_hash -> u64
+  param _0 key: &K
+  block
+    let _1 h: u64
+      call-method Hash::hash: u64
+        local _0 key: &K
+    if: void
+      binary ==: bool
+        local _1 h: u64
+        int 0: u64
+      block
+        return: !
+          int 1: u64
+    return: !
+      local _1 h: u64
+body drop HashMap -> void
+  param _0 self: HashMap<K, V>
+  block
+    if: void
+      binary ==: bool
+        field #0: own ^mut u64
+          local _0 self: HashMap<K, V>
+        null: own ^mut u64
+      block
+        return: !
+    call-method HashMap::clear: void
+      local _0 self: HashMap<K, V>
+    let _1 a: &mut Allocator
+      or: &mut Allocator
+        field #5: ^mut Allocator
+          local _0 self: HashMap<K, V>
+        return: !
+    call-method Allocator::free: void
+      local _1 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            field #0: own ^mut u64
+              local _0 self: HashMap<K, V>
+      binary *: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
+        type-query u64::size: usize
+      type-query u64::align: usize
+    call-method Allocator::free: void
+      local _1 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            field #1: own ^mut K
+              local _0 self: HashMap<K, V>
+      binary *: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
+        type-query K::size: usize
+      type-query K::align: usize
+    call-method Allocator::free: void
+      local _1 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            field #2: own ^mut V
+              local _0 self: HashMap<K, V>
+      binary *: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
+        type-query V::size: usize
+      type-query V::align: usize
+body copy HashMap -> void
+  param _0 self: HashMap<K, V>
+  param _1 other: &HashMap<K, V>
+  block
+    assign =
+      field #5: ^mut Allocator
+        local _0 self: HashMap<K, V>
+      field #5: ^mut Allocator
+        local _1 other: &HashMap<K, V>
+    if: void
+      binary ==: bool
+        field #3: usize
+          local _1 other: &HashMap<K, V>
+        int 0: usize
+      block
+        return: !
+    let _2 a: &mut Allocator
+      or: &mut Allocator
+        field #5: ^mut Allocator
+          local _0 self: HashMap<K, V>
+        builtin panic: !
+          str "a HashMap with no allocator cannot be copied": str
+    assign =
+      field #4: usize
+        local _0 self: HashMap<K, V>
+      field #4: usize
+        local _1 other: &HashMap<K, V>
+    assign =
+      field #0: own ^mut u64
+        local _0 self: HashMap<K, V>
+      block-value: ^mut u64
+        block
+          cast: ^mut u64
+            call-method Allocator::alloc: ^mut u8
+              local _2 a: &mut Allocator
+              binary *: usize
+                field #4: usize
+                  local _0 self: HashMap<K, V>
+                type-query u64::size: usize
+              type-query u64::align: usize
+    assign =
+      field #1: own ^mut K
+        local _0 self: HashMap<K, V>
+      block-value: ^mut K
+        block
+          cast: ^mut K
+            call-method Allocator::alloc: ^mut u8
+              local _2 a: &mut Allocator
+              binary *: usize
+                field #4: usize
+                  local _0 self: HashMap<K, V>
+                type-query K::size: usize
+              type-query K::align: usize
+    assign =
+      field #2: own ^mut V
+        local _0 self: HashMap<K, V>
+      block-value: ^mut V
+        block
+          cast: ^mut V
+            call-method Allocator::alloc: ^mut u8
+              local _2 a: &mut Allocator
+              binary *: usize
+                field #4: usize
+                  local _0 self: HashMap<K, V>
+                type-query V::size: usize
+              type-query V::align: usize
+    for _3 i
+      range: usize..usize
+        int 0: i32
+        field #4: usize
+          local _0 self: HashMap<K, V>
+      block
+        let _4 h: u64
+          block-value: u64
+            block
+              index: u64
+                field #0: own ^mut u64
+                  local _1 other: &HashMap<K, V>
+                local _3 i: usize
+        block-value: void
+          block
+            assign =
+              index: u64
+                field #0: own ^mut u64
+                  local _0 self: HashMap<K, V>
+                local _3 i: usize
+              local _4 h: u64
+        if: void
+          binary !=: bool
+            local _4 h: u64
+            int 0: u64
+          block
+            block-value: void
+              block
+                builtin construct: void
+                  index: K
+                    field #1: own ^mut K
+                      local _0 self: HashMap<K, V>
+                    local _3 i: usize
+                  index: K
+                    field #1: own ^mut K
+                      local _1 other: &HashMap<K, V>
+                    local _3 i: usize
+                builtin construct: void
+                  index: V
+                    field #2: own ^mut V
+                      local _0 self: HashMap<K, V>
+                    local _3 i: usize
+                  index: V
+                    field #2: own ^mut V
+                      local _1 other: &HashMap<K, V>
+                    local _3 i: usize
+    assign =
+      field #3: usize
+        local _0 self: HashMap<K, V>
+      field #3: usize
+        local _1 other: &HashMap<K, V>
+body fn encode_utf8 -> usize
+  param _0 c: char
+  param _1 out: &mut [4]u8
+  block
+    let _2 cp: u32
+      cast: u32
+        local _0 c: char
+    if: void
+      binary <: bool
+        local _2 cp: u32
+        int 128: u32
+      block
+        assign =
+          index: u8
+            local _1 out: &mut [4]u8
+            int 0: usize
+          cast: u8
+            local _2 cp: u32
+        return: !
+          int 1: usize
+    if: void
+      binary <: bool
+        local _2 cp: u32
+        int 2048: u32
+      block
+        assign =
+          index: u8
+            local _1 out: &mut [4]u8
+            int 0: usize
+          cast: u8
+            binary |: u32
+              int 192: i32
+              binary >>: u32
+                local _2 cp: u32
+                int 6: u32
+        assign =
+          index: u8
+            local _1 out: &mut [4]u8
+            int 1: usize
+          cast: u8
+            binary |: u32
+              int 128: i32
+              binary &: u32
+                local _2 cp: u32
+                int 63: u32
+        return: !
+          int 2: usize
+    if: void
+      binary <: bool
+        local _2 cp: u32
+        int 65536: u32
+      block
+        assign =
+          index: u8
+            local _1 out: &mut [4]u8
+            int 0: usize
+          cast: u8
+            binary |: u32
+              int 224: i32
+              binary >>: u32
+                local _2 cp: u32
+                int 12: u32
+        assign =
+          index: u8
+            local _1 out: &mut [4]u8
+            int 1: usize
+          cast: u8
+            binary |: u32
+              int 128: i32
+              binary &: u32
+                binary >>: u32
+                  local _2 cp: u32
+                  int 6: u32
+                int 63: u32
+        assign =
+          index: u8
+            local _1 out: &mut [4]u8
+            int 2: usize
+          cast: u8
+            binary |: u32
+              int 128: i32
+              binary &: u32
+                local _2 cp: u32
+                int 63: u32
+        return: !
+          int 3: usize
+    assign =
+      index: u8
+        local _1 out: &mut [4]u8
+        int 0: usize
+      cast: u8
+        binary |: u32
+          int 240: i32
+          binary >>: u32
+            local _2 cp: u32
+            int 18: u32
+    assign =
+      index: u8
+        local _1 out: &mut [4]u8
+        int 1: usize
+      cast: u8
+        binary |: u32
+          int 128: i32
+          binary &: u32
+            binary >>: u32
+              local _2 cp: u32
+              int 12: u32
+            int 63: u32
+    assign =
+      index: u8
+        local _1 out: &mut [4]u8
+        int 2: usize
+      cast: u8
+        binary |: u32
+          int 128: i32
+          binary &: u32
+            binary >>: u32
+              local _2 cp: u32
+              int 6: u32
+            int 63: u32
+    assign =
+      index: u8
+        local _1 out: &mut [4]u8
+        int 3: usize
+      cast: u8
+        binary |: u32
+          int 128: i32
+          binary &: u32
+            local _2 cp: u32
+            int 63: u32
+    return: !
+      int 4: usize
 body const MAX -> void
   block
     int 4096: i32
@@ -1354,12 +3357,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#6 method describe -> str
+body impl#14 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#7 method weight -> i32
+body impl#15 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -1503,7 +3506,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#8 method eq -> bool
+body impl#16 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -1513,7 +3516,7 @@ body impl#8 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#9 method cmp -> Ordering
+body impl#17 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -1580,7 +3583,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#10 method add -> Vec2
+body impl#18 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -1598,7 +3601,7 @@ body impl#10 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#11 method mul -> Vec2
+body impl#19 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -1692,7 +3695,7 @@ body fn formatting -> void
       local _0 x: i32
       local _0 x: i32
       local _1 f: f32
-body impl#12 method valid -> bool
+body impl#20 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -1701,13 +3704,13 @@ body impl#12 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#12 method get -> i32
+body impl#20 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#12 method advance -> void
+body impl#20 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -1894,7 +3897,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#13 method mul -> Scale
+body impl#21 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -1905,7 +3908,7 @@ body impl#13 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#14 method mul -> f32
+body impl#22 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -1921,7 +3924,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#15 method label -> str
+body impl#23 method label -> str
   param _0 self: f32
   block
     return: !
@@ -1932,7 +3935,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#16 method label -> str
+body impl#24 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -1945,7 +3948,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#17 method shout -> str
+body impl#25 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -2267,7 +4270,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#20 method measure -> i32
+body impl#28 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -2285,7 +4288,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#21 method measure -> i32
+body impl#29 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -2492,3 +4495,161 @@ body fn addresses -> bool
         binary >: bool
           const Limits::MAX: i32
           int 0: i32
+body fn slices_and_text -> usize
+  param _0 name: str
+  block
+    let _1 arr: [4]i32
+      array: [4]i32
+        int 1: i32
+        int 2: i32
+        int 3: i32
+        int 4: i32
+    let _2 middle: []mut i32
+      slice: []mut i32
+        local _1 arr: [4]i32
+        int 1: usize
+        int 3: usize
+    let _3 writable: []mut i32
+      slice: []mut i32
+        local _1 arr: [4]i32
+        int 2: usize
+    assign =
+      index: i32
+        local _3 writable: []mut i32
+        int 0: usize
+      index: i32
+        local _2 middle: []mut i32
+        int 1: usize
+    let _4 bytes: []u8
+      cast: []u8
+        local _0 name: str
+    let _5 text: str
+      or: str
+        builtin str_from_utf8: str?
+          slice: []u8
+            local _4 bytes: []u8
+            int 0: usize
+            len: usize
+              local _0 name: str
+        str "": str
+    let _6 b: List<i32>
+      call-ctor List#0: List<i32>
+        int 4: usize
+    call-method List::push: void
+      local _6 b: List<i32>
+      index: i32
+        local _1 arr: [4]i32
+        int 0: usize
+    assign +=
+      call-method IndexMut::index_mut: &mut i32
+        local _6 b: List<i32>
+        int 0: usize
+      int 1: i32
+    return: !
+      binary +: usize
+        binary +: usize
+          len: usize
+            local _5 text: str
+          call-method List::len: usize
+            local _6 b: List<i32>
+        cast: usize
+          call-method IndexMut::index_mut: &mut i32
+            local _6 b: List<i32>
+            int 0: usize
+body field-default Tile.0 -> void
+  block
+    int 0: i32
+body field-default Tile.1 -> void
+  block
+    int 0: i32
+body impl#30 method eq -> bool
+  param _0 self: Tile
+  param _1 rhs: &Tile
+  block
+    return: !
+      binary &&: bool
+        binary ==: bool
+          field #0: i32
+            local _0 self: Tile
+          field #0: i32
+            local _1 rhs: &Tile
+        binary ==: bool
+          field #1: i32
+            local _0 self: Tile
+          field #1: i32
+            local _1 rhs: &Tile
+body impl#31 method hash -> u64
+  param _0 self: Tile
+  block
+    return: !
+      call hash_combine: u64
+        call-method Hash::hash: u64
+          field #0: i32
+            local _0 self: Tile
+        call-method Hash::hash: u64
+          field #1: i32
+            local _0 self: Tile
+body fn hashing -> bool
+  param _0 name: str
+  block
+    let _1 by_tile: HashMap<Tile, str>
+      call-ctor HashMap#0: HashMap<Tile, str>
+    call-method HashMap::insert: void
+      local _1 by_tile: HashMap<Tile, str>
+      struct-lit Tile: Tile
+        #0
+          int 1: i32
+        #1
+          int 2: i32
+      local _0 name: str
+    let _2 by_name: HashMap<str, i32>
+      call-ctor HashMap#0: HashMap<str, i32>
+        int 8: usize
+    call-method HashMap::insert: void
+      local _2 by_name: HashMap<str, i32>
+      local _0 name: str
+      int 3: i32
+    let _3 three: i32
+      or: i32
+        call-method HashMap::replace: i32?
+          local _2 by_name: HashMap<str, i32>
+          local _0 name: str
+          int 4: i32
+        int 0: i32
+    let _4 counts: HashMap<u8, bool>
+      call-ctor HashMap#0: HashMap<u8, bool>
+    let _5 at: Tile
+      struct-lit Tile: Tile
+        #0
+          int 1: i32
+        #1
+          int 2: i32
+    let _6 found: bool
+      binary &&: bool
+        binary &&: bool
+          call-method HashMap::contains: bool
+            local _1 by_tile: HashMap<Tile, str>
+            ref: &Tile
+              local _5 at: Tile
+          binary ==: bool
+            local _3 three: i32
+            int 3: i32
+        binary ==: bool
+          call-method HashMap::get: ^bool
+            local _4 counts: HashMap<u8, bool>
+            ref: &u8
+              int 7: u8
+          null: ^bool
+    return: !
+      binary &&: bool
+        binary &&: bool
+          local _6 found: bool
+          binary !=: bool
+            call-method Hash::hash: u64
+              char 'c': char
+            call-method Hash::hash: u64
+              bool true: bool
+        call-method Eq::eq: bool
+          local _0 name: str
+          ref: &str
+            local _0 name: str
