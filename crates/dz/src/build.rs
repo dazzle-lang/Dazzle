@@ -42,33 +42,35 @@ pub fn emit_cpp(
         return Err(d);
     }
 
-    // The prelude is compiled into `dz` and has no file, so its `#line` directives name a
-    // copy written beside the generated C++ — which is what a debugger opens when stepping
-    // into `List::push` (spec §16.3). Only the directives change: a panic message still
-    // says `<prelude>/dz.dz`.
-    let prelude_copy = cpp_dir.join("prelude").join("dz.dz");
-    let absolute = if prelude_copy.is_absolute() {
-        Some(prelude_copy.clone())
+    // The prelude and the standard library are compiled into `dz` and have no files, so
+    // their `#line` directives name copies written beside the generated C++ — which is what
+    // a debugger opens when stepping into `List::push` or `Vec3::length` (spec §16.3). Only
+    // the directives change: a panic message still says `<prelude>/dz.dz`.
+    let absolute_cpp_dir = if cpp_dir.is_absolute() {
+        Some(cpp_dir.clone())
     } else {
-        std::env::current_dir().ok().map(|d| d.join(&prelude_copy))
+        std::env::current_dir().ok().map(|d| d.join(&cpp_dir))
     };
-    let prelude_line =
-        absolute.map(|p| format!("\"{}\"", p.display().to_string().replace('\\', "/")));
-    if prelude_line.is_some() {
-        let _ = std::fs::create_dir_all(cpp_dir.join("prelude"));
-        let current = std::fs::read_to_string(&prelude_copy).ok();
-        if current.as_deref() != Some(dz_project::PRELUDE_SOURCE) {
-            let _ = std::fs::write(&prelude_copy, dz_project::PRELUDE_SOURCE);
+    let mut renames: Vec<(String, String)> = Vec::new();
+    if let Some(base) = &absolute_cpp_dir {
+        for (pseudo, text) in dz_project::embedded_sources() {
+            // `<prelude>/dz.dz` → `build/cpp/prelude/dz.dz`, `<std>/math.dz` → `…/std/math.dz`.
+            let copy = base.join(pseudo.replace(['<', '>'], ""));
+            if let Some(dir) = copy.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            if std::fs::read_to_string(&copy).ok().as_deref() != Some(text) {
+                let _ = std::fs::write(&copy, text);
+            }
+            let real = format!("\"{}\"", copy.display().to_string().replace('\\', "/"));
+            renames.push((format!("\"{pseudo}\""), real));
         }
     }
 
     let mut written = Vec::new();
     for file in &emitted.files {
         let path = cpp_dir.join(&file.name);
-        let contents = match &prelude_line {
-            Some(real) => with_prelude_lines(&file.contents, real),
-            None => file.contents.clone(),
-        };
+        let contents = with_embedded_lines(&file.contents, &renames);
         // Rewriting an unchanged file would defeat the C++ compiler's own incremental
         // build, which is the only incrementality that exists so far (spec §16.6).
         let unchanged =
@@ -89,22 +91,24 @@ pub fn emit_cpp(
     Ok(BuildOutput { cpp_dir, written })
 }
 
-/// `text` with every `#line N "<prelude>/dz.dz"` naming `real` instead.
-fn with_prelude_lines(text: &str, real: &str) -> String {
-    const PSEUDO: &str = "\"<prelude>/dz.dz\"";
-    if !text.contains(PSEUDO) {
+/// `text` with every `#line N "<pseudo>"` naming its real copy instead, per `renames` of
+/// quoted pseudo-path to quoted real path.
+fn with_embedded_lines(text: &str, renames: &[(String, String)]) -> String {
+    if !renames.iter().any(|(pseudo, _)| text.contains(pseudo.as_str())) {
         return text.to_owned();
     }
     let mut out = String::with_capacity(text.len());
     for line in text.split_inclusive('\n') {
-        match line.strip_suffix('\n').unwrap_or(line).strip_suffix(PSEUDO) {
-            // Indented inside an immediately-invoked lambda, which C++ allows.
-            Some(head) if line.trim_start().starts_with("#line ") => {
-                out.push_str(head);
-                out.push_str(real);
-                out.push('\n');
-            }
-            _ => out.push_str(line),
+        let bare = line.strip_suffix('\n').unwrap_or(line);
+        // Indented inside an immediately-invoked lambda, which C++ allows.
+        let renamed = line.trim_start().starts_with("#line ").then(|| {
+            renames.iter().find_map(|(pseudo, real)| {
+                bare.strip_suffix(pseudo.as_str()).map(|head| format!("{head}{real}\n"))
+            })
+        });
+        match renamed.flatten() {
+            Some(new_line) => out.push_str(&new_line),
+            None => out.push_str(line),
         }
     }
     out

@@ -146,7 +146,10 @@ impl<'a, 'w> Walker<'a, 'w> {
                         .map(|a| a.name.clone())
                         .unwrap_or_else(|| last_segment(&name).to_owned());
                     self.imports.push((local.clone(), import.span));
-                    self.used_imports.push(false);
+                    // `import std::math` may be there only for `x.sqrt()`, a `.` call that
+                    // resolution does not see (invariant 9), so it is never called unused.
+                    let std_math = dz_project::STD_MODULES.first().map(|(n, _, _)| *n);
+                    self.used_imports.push(Some(name.as_str()) == std_math);
                     self.module_aliases.insert(local, (target, index));
                 }
                 ImportKind::Selective { path, names } => {
@@ -252,6 +255,17 @@ impl<'a, 'w> Walker<'a, 'w> {
             format!("no module `{name}` in scope"),
         )
         .at(file, span, "not a dependency of this module");
+        if name.starts_with(&format!("{}::", dz_project::STD_ROOT)) {
+            // Not a dependency to add: the standard library has the modules it has.
+            let have: Vec<String> =
+                dz_project::STD_MODULES.iter().map(|(n, _, _)| format!("`{n}`")).collect();
+            d = d.with_help(format!(
+                "the standard library's modules are {} (spec §14.4)",
+                have.join(", ")
+            ));
+            self.error(d);
+            return None;
+        }
         d = match suggestion {
             Some(s) => d.with_help(format!("did you mean `{s}`?")),
             None if known.len() > 1 => d.with_help(format!(

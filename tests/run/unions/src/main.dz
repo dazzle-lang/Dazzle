@@ -1,0 +1,87 @@
+// A union owns its active payload (spec §7.5, 18.52): a variant may hold a `String`, a
+// `List` or a struct with a `drop`. The union drops the active payload when it dies, drops
+// the old one before another variant is assigned, moves by moving the payload, and copies
+// only when every variant can be copied.
+
+static DROPS: i32 = 0
+
+struct Sound {
+    pub id: i32 = 0
+}
+
+impl Drop for Sound {
+    fn drop(&mut self) {
+        if id != 0 {
+            println("  drop sound {}", id)
+            unsafe {
+                DROPS += 1
+            }
+        }
+    }
+}
+
+// Copyable: `String` copies, and so does a pair of floats.
+union Command {
+    Say { text: String }
+    Move { x: f32, y: f32 }
+}
+
+// Move-only: a `List` and a struct with a `drop` cannot be copied.
+union Asset {
+    Empty {}
+    Samples { data: List<i16> }
+    Sound
+}
+
+fn describe(c: &Command) -> str {
+    return switch c {
+        case Say(&s) { s.text.as_str() }
+        case Move { "move" }
+    }
+}
+
+fn load(n: i32) -> Asset {
+    if n == 0 {
+        return .Empty{}
+    }
+    if n == 1 {
+        let mut data = List<i16>()
+        data.push(7)
+        data.push(9)
+        return .Samples{ data: move(data) }
+    }
+    return Asset::Sound{ id: n }
+}
+
+fn main() {
+    let mut c = Command::Say{ text: String("hello") }
+    let copy = c
+    c = .Move{ x: 1, y: 2 }
+    println("{} {}", describe(&c), describe(&copy))
+
+    let mut a = load(1)
+    switch a {
+        case Samples(&s) { println("samples {} first {}", s.data.len(), s.data[0]) }
+        default { println("not samples") }
+    }
+    println("assigning a sound over the samples")
+    a = load(5)
+    println("assigning another sound")
+    a = load(6)
+    let b = move(a)
+    switch b {
+        case Sound(&s) { println("moved sound {}", s.id) }
+        default { println("not a sound") }
+    }
+    {
+        let _scoped = load(8)
+        println("leaving a scope")
+    }
+    let mut list = List<Asset>()
+    list.push(load(1))
+    list.push(load(9))
+    list.push(load(0))
+    println("list of {}", list.len())
+    list.clear()
+    println("drops so far {}", DROPS)
+}

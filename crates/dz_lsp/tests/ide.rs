@@ -94,6 +94,27 @@ fn definition_of_a_prelude_name_is_its_declaration_in_the_prelude() {
     assert_eq!(definition_text(&a, &i).1, "List");
 }
 
+/// A standard-library name leads into that module's file (spec §14.4): the type, a method on
+/// it, and a method on a number, which comes from `std::math`'s `Float`.
+#[test]
+fn definition_of_a_std_math_name_is_in_std_math() {
+    let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/math"));
+    assert!(!a.diags.has_errors(), "the fixture must check cleanly");
+    let f = main_file(&a);
+    let math = ide::embedded_file(&a, "<std>/math.dz").expect("std::math is part of the build");
+    for (needle, within, declared) in [
+        ("Vec3{ x: 1, y: 0, z: 0 }", 0, "Vec3"),
+        ("a.length()", 2, "length"),
+        ("x.sqrt()", 2, "sqrt"),
+        ("Mat4::translation", 6, "translation"),
+    ] {
+        let i = info(&a, f, needle, within);
+        let (file, _) = i.definition.unwrap_or_else(|| panic!("no definition for `{needle}`"));
+        assert_eq!(file, math, "`{needle}` did not lead into std::math");
+        assert_eq!(definition_text(&a, &i).1, declared, "at `{needle}`");
+    }
+}
+
 #[test]
 fn hover_on_a_call_shows_the_declared_signature() {
     let (a, f) = generics();

@@ -1157,6 +1157,14 @@ fn slices_and_text(name: str) -> usize {
     return text.len + b.len() + b[0] as usize
 }
 
+// §9.8, §12.7: a final `SourceLocation` is where `panic` says it happened — how a helper
+// like `assert` reports its caller's line.
+fn require(ok: bool, what: str, loc: SourceLocation = #location) {
+    if !ok {
+        panic("missing {}", what, loc)
+    }
+}
+
 // §14.2: `Hash` — built in for integers, `bool`, `char` and `str`, called as a method on
 // them, implemented by a struct, and what a `HashMap` key needs; `&` of a literal as a key.
 struct Tile {
@@ -1176,6 +1184,75 @@ impl Hash for Tile {
     }
 }
 
+// §9.1, 18.53: a `T` is a `T?` wherever one is wanted — `let`, argument, assignment, and
+// `if`/`switch` arms joined with `none` or a `T?`; `.Variant` infers through the `?`.
+fn takes_optional(n: i32?) -> i32 {
+    return n or 0
+}
+
+fn optionals(alive: bool, l: Layer) -> i32 {
+    let hp = if alive { 100 } else { none }
+    let mut slot: i32? = 5
+    slot = 7
+    let layer: Layer? = .World
+    let picked = switch l {
+        case Ui { none }
+        default { l }
+    }
+    let other = if alive { none } else { Layer::Ui }
+    return (hp or 0) + (slot or 0) + takes_optional(3) + (layer or l) as i32 + (picked or l) as i32 + (other or l) as i32
+}
+
+// §11.2: unary `-` on a struct is its `Neg`; `==` takes a temporary on the right as well as
+// a place. §2.5: the most negative value of a signed type is one literal.
+struct Heading {
+    pub degrees: i32 = 0
+}
+
+impl Neg for Heading {
+    type Output = Heading
+    fn neg(&self) -> Heading {
+        return Heading{ degrees: -degrees }
+    }
+}
+
+impl Eq for Heading {
+    fn eq(&self, rhs: &Heading) -> bool {
+        return degrees == rhs.degrees
+    }
+}
+
+fn negations(h: Heading) -> bool {
+    let lowest: i8 = -128
+    let back = -h
+    return back == Heading{ degrees: -h.degrees } && lowest < 0
+}
+
+// §10.4, 18.51: a container is looped over through `Iterable` and `IterableMut`.
+fn iterating_containers(names: &HashMap<str, i32>) -> i32 {
+    let mut xs = List<i32>(4)
+    xs.push(1)
+    for &mut x in xs {
+        x += 1
+    }
+    let mut total = 0
+    for x in xs {
+        total += x
+    }
+    for _, &v in names {
+        total += v
+    }
+    return total
+}
+
+// §7.4, 18.54: an enum is `Eq`, `Hash` and `Ord` with no `impl` — a key, and a `T: Ord`.
+fn enum_traits(l: Layer) -> bool {
+    let mut by_layer = HashMap<Layer, i32>()
+    by_layer.insert(l, 1)
+    let top = largest(l, Layer::Ui)
+    return by_layer.contains(&top) || l.hash() == top.hash() || l.cmp(&top) == Ordering::Less
+}
+
 fn hashing(name: str) -> bool {
     let mut by_tile = HashMap<Tile, str>()
     by_tile.insert(Tile{ x: 1, y: 2 }, name)
@@ -1184,6 +1261,8 @@ fn hashing(name: str) -> bool {
     let three = by_name.replace(name, 4) or 0
     let counts = HashMap<u8, bool>()
     let at = Tile{ x: 1, y: 2 }
+    assert(three == 3)
+    assert(name.len > 0, "a name")
     let found = by_tile.contains(&at) && three == 3 && counts.get(&7) == null
     return found && 'c'.hash() != true.hash() && name.eq(&name)
 }

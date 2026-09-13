@@ -1,0 +1,15 @@
+// `assert` is an ordinary prelude function (spec §12.7): a passing one does nothing, and a
+// failing one panics naming the line that called it, not the prelude's own line — because
+// its `loc = #location` is filled in at the call and handed on to `panic` (spec §9.8).
+fn check(hp: i32) {
+    assert(hp >= 0)
+    assert(hp < 100, "hp is out of range")
+}
+
+fn main() {
+    check(3)
+    println("passed")
+    let hp = 3
+    assert(hp > 10, "hp is {} too low")
+    println("unreachable")
+}

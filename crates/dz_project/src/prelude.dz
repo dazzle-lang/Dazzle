@@ -66,6 +66,20 @@ pub fn hash_combine(seed: u64, h: u64) -> u64 {
     return seed ^^ (h + 0x9E3779B97F4A7C15 + (seed << 6) + (seed >> 2))
 }
 
+// --- assertions (spec §9.8, §12.7) ------------------------------------------
+
+/// Panic when `cond` is false. The panic names the line that called `assert`, not this one:
+/// `loc` is filled in where the call is written, and handed on to `panic`.
+pub fn assert(cond: bool, msg: str = "", loc: SourceLocation = #location) {
+    if cond {
+        return
+    }
+    if msg.len == 0 {
+        panic("assertion failed", loc)
+    }
+    panic("assertion failed: {}", msg, loc)
+}
+
 // --- arithmetic (spec §11.2) ------------------------------------------------
 //
 // `Rhs` defaults to `Self`, so `struct Vec3 : Add` means `Vec3 + Vec3`, while
@@ -136,6 +150,72 @@ pub trait Iterate {
     fn valid(&self) -> bool
     fn get(&self) -> Item
     fn advance(&mut self)
+}
+
+/// A container `for` can loop over: it hands out a fresh iterator, since an iterator keeps
+/// its position in itself and the container must not (§10.4, 18.51). `for &e in xs` calls
+/// `iter()`.
+pub trait Iterable {
+    type Iter : Iterate
+    fn iter(&self) -> Iter
+}
+
+/// A container whose elements a loop may change: `for &mut e in xs` calls `iter_mut()`.
+pub trait IterableMut {
+    type IterMut : Iterate
+    fn iter_mut(&mut self) -> IterMut
+}
+
+/// Steps through a slice, handing out a reference to each element.
+pub struct SliceIter<T> {
+    m_slice: []T
+    m_index: usize = 0
+
+    SliceIter(slice: []T) {
+        m_slice = slice
+    }
+}
+
+impl<T> Iterate for SliceIter<T> {
+    type Item = &T
+
+    fn valid(&self) -> bool {
+        return m_index < m_slice.len
+    }
+
+    fn get(&self) -> &T {
+        return &m_slice[m_index]
+    }
+
+    fn advance(&mut self) {
+        m_index += 1
+    }
+}
+
+/// Steps through a writable slice, handing out a writable reference to each element.
+pub struct SliceIterMut<T> {
+    m_slice: []mut T
+    m_index: usize = 0
+
+    SliceIterMut(slice: []mut T) {
+        m_slice = slice
+    }
+}
+
+impl<T> Iterate for SliceIterMut<T> {
+    type Item = &mut T
+
+    fn valid(&self) -> bool {
+        return m_index < m_slice.len
+    }
+
+    fn get(&self) -> &mut T {
+        return &mut m_slice[m_index]
+    }
+
+    fn advance(&mut self) {
+        m_index += 1
+    }
 }
 
 // --- formatting (spec §12.9) ------------------------------------------------
@@ -615,6 +695,24 @@ impl<T> Index<usize> for List<T> {
     }
 }
 
+/// `for &e in list`, in order.
+impl<T> Iterable for List<T> {
+    type Iter = SliceIter<T>
+
+    fn iter(&self) -> SliceIter<T> {
+        return SliceIter<T>(self.as_slice())
+    }
+}
+
+/// `for &mut e in list`, in order.
+impl<T> IterableMut for List<T> {
+    type IterMut = SliceIterMut<T>
+
+    fn iter_mut(&mut self) -> SliceIterMut<T> {
+        return SliceIterMut<T>(self.as_mut_slice())
+    }
+}
+
 impl<T> IndexMut<usize> for List<T> {
     type Output = T
 
@@ -958,6 +1056,93 @@ pub struct HashMap<K: Hash + Eq, V> {
         a.free(unsafe { old_hashes as ^mut u8 }, old_slots * sizeof(u64), alignof(u64), loc)
         a.free(unsafe { old_keys as ^mut u8 }, old_slots * sizeof(K), alignof(K), loc)
         a.free(unsafe { old_values as ^mut u8 }, old_slots * sizeof(V), alignof(V), loc)
+    }
+}
+
+/// Steps through a map's entries in slot order, handing out `(&K, &V)`: `for k, &v in map`.
+pub struct HashMapIter<K: Hash + Eq, V> {
+    m_map: ^HashMap<K, V> = null
+    m_slot: usize = 0
+
+    HashMapIter(map: &HashMap<K, V>) {
+        m_map = map
+        m_slot = first_entry_from(map, 0)
+    }
+}
+
+impl<K: Hash + Eq, V> Iterate for HashMapIter<K, V> {
+    type Item = (&K, &V)
+
+    fn valid(&self) -> bool {
+        let map = m_map or return false
+        return m_slot < map.slot_count()
+    }
+
+    fn get(&self) -> (&K, &V) {
+        let map = m_map or unreachable
+        return (map.key_at(m_slot) or unreachable, map.value_at(m_slot) or unreachable)
+    }
+
+    fn advance(&mut self) {
+        let map = m_map or return
+        m_slot = first_entry_from(map, m_slot + 1)
+    }
+}
+
+/// Steps through a map's entries in slot order, handing out `(&K, &mut V)`: `for k, &mut v
+/// in map` changes the values in place. Keys stay read-only, since changing one would put
+/// it in the wrong slot.
+pub struct HashMapIterMut<K: Hash + Eq, V> {
+    m_map: ^mut HashMap<K, V> = null
+    m_slot: usize = 0
+
+    HashMapIterMut(map: &mut HashMap<K, V>) {
+        m_slot = first_entry_from(map, 0)
+        m_map = map
+    }
+}
+
+impl<K: Hash + Eq, V> Iterate for HashMapIterMut<K, V> {
+    type Item = (&K, &mut V)
+
+    fn valid(&self) -> bool {
+        let map = m_map or return false
+        return m_slot < map.slot_count()
+    }
+
+    fn get(&self) -> (&K, &mut V) {
+        let map = m_map or unreachable
+        return (map.key_at(m_slot) or unreachable, map.value_at_mut(m_slot) or unreachable)
+    }
+
+    fn advance(&mut self) {
+        let map = m_map or return
+        m_slot = first_entry_from(map, m_slot + 1)
+    }
+}
+
+/// The first slot from `slot` on that holds an entry, or the slot count when none does.
+fn first_entry_from<K: Hash + Eq, V>(map: &HashMap<K, V>, slot: usize) -> usize {
+    let mut i = slot
+    while i < map.slot_count() && map.key_at(i) == null {
+        i += 1
+    }
+    return i
+}
+
+impl<K: Hash + Eq, V> Iterable for HashMap<K, V> {
+    type Iter = HashMapIter<K, V>
+
+    fn iter(&self) -> HashMapIter<K, V> {
+        return HashMapIter<K, V>(&self)
+    }
+}
+
+impl<K: Hash + Eq, V> IterableMut for HashMap<K, V> {
+    type IterMut = HashMapIterMut<K, V>
+
+    fn iter_mut(&mut self) -> HashMapIterMut<K, V> {
+        return HashMapIterMut<K, V>(&mut self)
     }
 }
 

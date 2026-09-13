@@ -122,6 +122,19 @@ fn text_keys() {
     grid.insert(Cell{ x: 2, y: 1 }, "rock")
     let at = Cell{ x: 2, y: 1 }
     println("cell 2,1 {}", grid.get(&at) or return)
+
+    // An enum is a key with nothing written for it (§7.4).
+    let mut depth = HashMap<Layer, i32>()
+    depth.insert(.Ui, 10)
+    depth.insert(.World, 0)
+    let ui = Layer::Ui
+    println("layer ui {} ordered {}", depth.get(&ui) or return, Layer::World < Layer::Ui)
+}
+
+enum Layer : u8 {
+    Background
+    World
+    Ui
 }
 
 // Visiting: every slot, skipping the empty ones.

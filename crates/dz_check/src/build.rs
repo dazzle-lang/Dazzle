@@ -89,6 +89,12 @@ impl BodyBuilder {
         Checked { ty, id }
     }
 
+    /// Give a node the type that was only known after it was built: a `none` arm, typed by
+    /// the arms it was joined with (spec §9.1, 18.53).
+    pub(crate) fn set_expr_type(&mut self, id: ExprId, ty: Ty) {
+        self.exprs[id.index()].ty = ty;
+    }
+
     /// How a local was introduced.
     pub(crate) fn local_kind(&self, id: LocalId) -> LocalKind {
         self.locals[id.index()].kind

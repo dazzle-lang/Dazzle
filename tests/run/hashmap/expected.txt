@@ -11,6 +11,7 @@ margaret 2 len 2
 String and str hash alike true
 x true
 cell 2,1 rock
+layer ui 10 ordered true
 visited 10 sum 110
 old sprite 5
 removed sprite 500

@@ -1,0 +1,121 @@
+// `std::math` (spec §14.4): methods on the machine's numbers, vectors, integer vectors as
+// keys, quaternions and column-major matrices — each checked against a value worked out by
+// hand, or against the operation that undoes it.
+
+import std::math
+import std::math::{ Vec2, Vec3, Vec4, Vec2i, Quat, Mat4 }
+
+fn near(a: f32, b: f32) -> bool {
+    return (a - b).abs() < 0.0001
+}
+
+fn near3(a: Vec3, b: Vec3) -> bool {
+    return near(a.x, b.x) && near(a.y, b.y) && near(a.z, b.z)
+}
+
+fn near_mat(a: &Mat4, b: &Mat4) -> bool {
+    for c in 0..4 {
+        let x = a.cols[c]
+        let y = b.cols[c]
+        if !(near(x.x, y.x) && near(x.y, y.y) && near(x.z, y.z) && near(x.w, y.w)) {
+            return false
+        }
+    }
+    return true
+}
+
+fn floats() {
+    let x: f32 = 2
+    let half: f64 = 0.5
+    println("sqrt {} floor {} ceil {} round {}", x.sqrt(), (2.7 as f32).floor(), (2.2 as f32).ceil(), (-2.5 as f32).round())
+    println("clamp {} lerp {} min {} max {}", (5 as f32).clamp(0, 3), (0 as f32).lerp(10, 0.25), x.min(1), x.max(1))
+    println("sin(pi/2) {} atan2 {} deg {}", near((math::PI / 2).sin(), 1), near((1 as f32).atan2(1), math::PI / 4), math::PI.to_degrees())
+    println("f64 {} pow {} fract {} sign {}", half.sqrt() > 0.7, (2 as f32).pow(10), (3.75 as f32).fract(), (-4 as f32).sign())
+    let zero: f32 = 0
+    let nan = zero / zero
+    println("nan {} finite {}", nan.is_nan(), x.is_finite())
+}
+
+fn integers() {
+    let big: u8 = 250
+    let low: i8 = -128
+    println("wrapping {} {} {}", big.wrapping_add(10), low.wrapping_sub(1), (100 as i32).wrapping_mul(3))
+    println("checked {} {}", big.checked_add(5) or 0, (big.checked_add(6) or 0) == 0)
+    println("saturating {} {} {}", big.saturating_add(10), low.saturating_sub(1), (5 as u32).saturating_sub(9))
+    println("abs {} {} pow {} sign {}", (-7 as i32).abs(), low.abs(), (3 as i64).pow(4), (-9 as i16).sign())
+    println("clamp {} min {} pot {} {}", (15 as i32).clamp(0, 10), (4 as usize).min(2), (64 as u32).is_power_of_two(), (65 as u32).is_power_of_two())
+}
+
+fn vectors() {
+    let a = Vec2{ x: 3, y: 4 }
+    println("vec2 len {} dot {} perp {} {}", a.length(), a.dot(Vec2{ x: 1, y: 0 }), a.perp().x, a.perp().y)
+    let n = a.normalized()
+    println("normalized {} {} zero {}", n.x, n.y, Vec2{}.normalized().x)
+    let r = Vec2{ x: 1, y: 0 }.rotated(math::PI / 2)
+    println("rotated {} {}", near(r.x, 0), near(r.y, 1))
+
+    let x = Vec3{ x: 1, y: 0, z: 0 }
+    let y = Vec3{ x: 0, y: 1, z: 0 }
+    let z = x.cross(y)
+    println("cross {} {} {}", z.x, z.y, z.z)
+    let sum = (x + y) * 2 - Vec3{ x: 0.5, y: 0.5, z: 0 }
+    println("ops {} {} {} neg {}", sum.x, sum.y, sum.z, (-sum).x)
+    println("distance {} lerp {} eq {}", x.distance(y) * x.distance(y), x.lerp(y, 0.5).x, x == Vec3{ x: 1, y: 0, z: 0 })
+    let bounce = Vec3{ x: 1, y: -1, z: 0 }.reflect(y)
+    println("reflect {} {}", bounce.x, bounce.y)
+
+    let mut visits = HashMap<Vec2i, i32>()
+    let start = Vec2i{ x: 2, y: 3 }
+    visits.insert(start, 1)
+    visits.insert(start + Vec2i{ x: 1, y: 0 }, 2)
+    let right = Vec2i{ x: 3, y: 3 }
+    println("grid {} {} manhattan {}", visits.get(&right) or return, visits.len(), start.manhattan(Vec2i{ x: -1, y: 7 }))
+}
+
+fn rotations() {
+    let q = Quat::from_axis_angle(Vec3{ x: 0, y: 0, z: 1 }, math::PI / 2)
+    let v = q * Vec3{ x: 1, y: 0, z: 0 }
+    println("quat rotate {}", near3(v, Vec3{ x: 0, y: 1, z: 0 }))
+    let twice = q * q
+    println("quat compose {}", near3(twice.rotate(Vec3{ x: 1, y: 0, z: 0 }), Vec3{ x: -1, y: 0, z: 0 }))
+    let halfway = Quat{}.slerp(twice, 0.5)
+    println("slerp {}", near3(halfway.rotate(Vec3{ x: 1, y: 0, z: 0 }), Vec3{ x: 0, y: 1, z: 0 }))
+    let as_matrix = q.to_mat4().transform_vector(Vec3{ x: 1, y: 0, z: 0 })
+    println("quat to mat4 {}", near3(as_matrix, v))
+}
+
+fn matrices() {
+    let t = Mat4::translation(Vec3{ x: 10, y: 0, z: 0 })
+    let s = Mat4::scaling(Vec3{ x: 2, y: 2, z: 2 })
+    let p = Vec3{ x: 1, y: 1, z: 1 }
+    let scaled_then_moved = (t * s).transform_point(p)
+    let moved_then_scaled = (s * t).transform_point(p)
+    println("order {} {}", scaled_then_moved.x, moved_then_scaled.x)
+    println("vector ignores translation {}", t.transform_vector(p).x)
+    println("column-major {}", t.cols[3].x)
+
+    let m = Mat4::translation(Vec3{ x: 1, y: 2, z: 3 }) * Mat4::rotation(Vec3{ x: 0, y: 1, z: 0 }, 0.7) * s
+    let inv = m.inverse() or return
+    let id = Mat4::identity()
+    println("inverse {} {} det {}", near_mat(&(m * inv), &id), near_mat(&(inv * m), &id), near(m.determinant(), 8))
+    println("singular {}", Mat4{}.inverse() == none)
+    println("transpose {}", near_mat(&m.transpose().transpose(), &m))
+
+    let view = Mat4::look_at(Vec3{ x: 0, y: 0, z: 5 }, Vec3{}, Vec3{ x: 0, y: 1, z: 0 })
+    let eye_space = view.transform_point(Vec3{})
+    println("look_at {} {} {}", near(eye_space.x, 0), near(eye_space.y, 0), near(eye_space.z, -5))
+    let proj = Mat4::perspective(math::PI / 2, 1, 1, 100)
+    let clip = proj * Vec4{ x: 0, y: 0, z: -1, w: 1 }
+    println("perspective near plane depth {}", near(clip.z / clip.w, -1))
+    let ortho = Mat4::orthographic(0, 800, 600, 0, -1, 1)
+    let corner = ortho.transform_point(Vec3{ x: 800, y: 600, z: 0 })
+    println("orthographic {} {}", near(corner.x, 1), near(corner.y, -1))
+}
+
+fn main() {
+    floats()
+    integers()
+    vectors()
+    rotations()
+    matrices()
+}

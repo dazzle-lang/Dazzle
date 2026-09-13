@@ -801,6 +801,10 @@ struct Body<'a, 'c> {
     /// nothing, so it is legal only here — and an expected type is not the signal, since
     /// `let v = f()` and a bare `f()` both arrive with no expectation.
     stmt_position: bool,
+    /// For each `if` or `switch` being checked for its value with no type to go by, the
+    /// `none` arms still waiting for one: `if alive { 100 } else { none }` learns that the
+    /// `none` is an `i32?` only from its sibling (spec §9.1, 18.53).
+    pending_nones: Vec<Vec<(hir::ExprId, Span)>>,
     /// Inside a constructor's `: Base(…)`, which runs before the constructor has begun,
     /// so there is nothing yet to `return` from (spec §7.3).
     in_base_init: bool,
@@ -856,6 +860,7 @@ impl<'a, 'c> Body<'a, 'c> {
             self_ty,
             fallible: false,
             stmt_position: false,
+            pending_nones: Vec::new(),
             in_base_init: false,
             self_mutable: false,
             self_local: None,
@@ -1375,7 +1380,21 @@ impl<'a, 'c> Body<'a, 'c> {
                     // The final expression is the block's value only when something wants
                     // one; otherwise it is an ordinary statement, and `or ignore` is legal.
                     self.stmt_position = !wanted;
-                    let c = self.expr(e, expected);
+                    // A bare `none` as an arm's value, with nothing yet to say whose `none`:
+                    // the `if` or `switch` around it types it once its arms are joined.
+                    let defer_none = wanted
+                        && matches!(e.kind, ExprKind::None)
+                        && !matches!(expected.map(|t| self.subst(t)), Some(Ty::Optional(_)))
+                        && !self.pending_nones.is_empty();
+                    let c = if defer_none {
+                        let c = self.mk(e, ty::pending_none(), hir::ExprKind::NoneOpt);
+                        if let Some(scope) = self.pending_nones.last_mut() {
+                            scope.push((c.id, e.span));
+                        }
+                        c
+                    } else {
+                        self.expr(e, expected)
+                    };
                     self.stmt_position = false;
                     // A `T?` that is the block's value is used, not discarded; a fallible
                     // call is unconsumed either way, having nowhere to be kept (spec §9.7).
@@ -1527,8 +1546,15 @@ impl<'a, 'c> Body<'a, 'c> {
         }
 
         let reached_into = std::mem::replace(&mut self.reaching_into, true);
-        let subject = self.expr(subject_ast, None);
+        let mut subject = self.expr(subject_ast, None);
         self.reaching_into = reached_into;
+        // A container is looped over through the iterator it hands out (spec §10.4, 18.51).
+        if !consuming {
+            let writes = f.bindings.iter().any(|b| b.mode == BindMode::RefMut);
+            if let Some(iter) = self.container_iterator(subject_ast, &subject, writes) {
+                subject = iter;
+            }
+        }
         let item = self.for_item(subject_ast, &subject.ty, consuming);
         // `for &mut e in TABLE` writes the static's elements (spec §7.7).
         if f.bindings.iter().any(|b| b.mode == BindMode::RefMut) {
@@ -1548,6 +1574,105 @@ impl<'a, 'c> Body<'a, 'c> {
         let (body, label) = self.loop_body(f.label.as_ref(), |b| b.block(&f.body, None).id);
         self.pop();
         hir::StmtKind::For { bindings, subject: subject.id, body, shape, label }
+    }
+
+    /// `list.iter()`, or `list.iter_mut()` when a binding writes: the iterator a `for` walks
+    /// when its subject is a container rather than an iterator (spec §10.4, 18.51). `None`
+    /// for what `for` already walks itself — a range, an array or slice, an `Iterate` — and
+    /// for what is not a container at all, which `for_item` then reports.
+    fn container_iterator(
+        &mut self,
+        ast: &Expr,
+        subject: &Checked,
+        writes: bool,
+    ) -> Option<Checked> {
+        let ty = self.subst(&subject.ty);
+        let peeled = ty.peeled().clone();
+        if let Ty::Param(p) = &peeled {
+            // `C: Iterable` gives the loop the projection `C::Iter`'s `Item`, which
+            // monomorphization cannot yet trace back to the implementer — refused, as a
+            // generic `T: Iterate` is, rather than emitted as broken C++.
+            let bounded = ["Iterable", "IterableMut"].iter().any(|t| {
+                self.cx.prelude_trait(t).is_some_and(|sym| {
+                    self.satisfies(
+                        &peeled,
+                        &TraitRef { trait_sym: sym, args: Vec::new(), span: ast.span },
+                    )
+                })
+            });
+            if bounded {
+                let name = p.name.clone();
+                self.cx.error_help(
+                    codes::CODEGEN_UNSUPPORTED,
+                    ast.span,
+                    format!("`for` over a generic `{name}: Iterable` is not supported yet"),
+                    "its element type would be the projection of `Iter`'s `Item`",
+                    "loop over a concrete container, or pass a slice — see the deferral register \
+                     in docs/PROGRESS.md",
+                );
+                return Some(Checked { ty: Ty::Error, id: subject.id });
+            }
+            return None;
+        }
+        if ty.is_wildcard() || matches!(peeled, Ty::Range(_)) || ty.element().is_some() {
+            return None;
+        }
+        let iterate = self.cx.prelude_trait("Iterate")?;
+        let as_iterate = TraitRef { trait_sym: iterate, args: Vec::new(), span: ast.span };
+        if self.satisfies(&peeled, &as_iterate) {
+            return None;
+        }
+        let (trait_name, method) =
+            if writes { ("IterableMut", "iter_mut") } else { ("Iterable", "iter") };
+        let trait_sym = self.cx.prelude_trait(trait_name)?;
+        let r = TraitRef { trait_sym, args: Vec::new(), span: ast.span };
+        if !self.satisfies(&peeled, &r) {
+            // Readable but not writable: say that, rather than "cannot be iterated".
+            let readable = self.cx.prelude_trait("Iterable").is_some_and(|t| {
+                self.satisfies(
+                    &peeled,
+                    &TraitRef { trait_sym: t, args: Vec::new(), span: ast.span },
+                )
+            });
+            if writes && readable {
+                let n = self.cx.name_of(&peeled);
+                self.cx.error_help(
+                    codes::NOT_MUTABLE,
+                    ast.span,
+                    format!("`{n}` can be looped over, but not written through"),
+                    "implements `Iterable`, not `IterableMut`",
+                    "bind each element with `&e` to read it, or implement `IterableMut` \
+                     (spec §10.4)",
+                );
+                return Some(Checked { ty: Ty::Error, id: subject.id });
+            }
+            return None;
+        }
+        let sig = self.cx.table.trait_method(&r, &peeled, method)?;
+        if writes {
+            let writable = match &subject.ty {
+                Ty::Ref { mutable, .. } | Ty::Ptr { mutable, .. } | Ty::OwnPtr { mutable, .. } => {
+                    *mutable
+                }
+                _ => self.place_mutability(ast).unwrap_or(true),
+            };
+            if writable {
+                self.require_unsafe_static_write(ast);
+            } else {
+                // Said as the loop, not as the `iter_mut` call the loop stands for.
+                self.cx.error_help(
+                    codes::NOT_MUTABLE,
+                    ast.span,
+                    "cannot refer to these elements with `&mut`",
+                    "the container is read-only here",
+                    "declare it `let mut`, or pass it as `&mut` (spec §10.4)",
+                );
+            }
+        }
+        let ret = self.subst(&sig.ret);
+        let callee =
+            hir::Callee::Method { recv: subject.id, owner: trait_sym, name: method.to_owned() };
+        Some(self.hir.expr(ast.span, ret, hir::ExprKind::Call { callee, args: Vec::new() }))
     }
 
     /// Check a loop's body with the loop on the stack `break` and `continue` resolve
@@ -1746,8 +1871,12 @@ impl<'a, 'c> Body<'a, 'c> {
                              returns a value all hand out values (spec §10.4)"
                         ),
                     );
+                    Ty::Error
+                } else {
+                    // The element was already reported; bind as asked, so writes in the body
+                    // are not reported a second time (invariant 6).
+                    Ty::reference(b.mode == BindMode::RefMut, Ty::Error)
                 }
-                Ty::Error
             }
             (BindMode::Ref, ForItem::Place { ty, .. }) => Ty::reference(false, ty.clone()),
             (BindMode::RefMut, ForItem::Place { ty, writable: true }) => {
@@ -2395,8 +2524,39 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.mk(e, c.ty.clone(), hir::ExprKind::Move(c.id))
             }
             ExprKind::Unary { op, operand } => {
+                // `-128` for an `i8` is one literal, whose range is checked as a whole: the
+                // `128` alone does not fit, and checking it first rejected the most negative
+                // value of every signed type (spec §2.5).
+                if *op == UnaryOp::Neg {
+                    if let ExprKind::Int(text) = &operand.kind {
+                        let want = expected.map(|t| self.subst(t));
+                        if let (Some(Ty::Int(i)), Some(v)) = (want, parse_int_literal(text)) {
+                            let (lo, hi) = i.range();
+                            if -v < lo || -v > hi {
+                                let n = i.name();
+                                self.cx.error_help(
+                                    codes::LITERAL_OUT_OF_RANGE,
+                                    e.span,
+                                    format!("`-{v}` does not fit in `{n}`"),
+                                    format!("outside the range of `{n}`"),
+                                    format!("valid values are {lo} to {hi}"),
+                                );
+                                return self.mk(e, Ty::Error, hir::ExprKind::Int(-v));
+                            }
+                            return self.mk(e, Ty::Int(i), hir::ExprKind::Int(-v));
+                        }
+                    }
+                }
                 let c = self.expr(operand, expected);
                 let t = c.ty.clone();
+                // `-v` on a struct is its `Neg` implementation (spec §11.2).
+                if *op == UnaryOp::Neg && self.needs_operator_trait(t.peeled()) {
+                    if let Some(call) = self.operator_call("Neg", "neg", &c, None, None, e.span) {
+                        return call;
+                    }
+                    self.operator_needs_trait("-", t.peeled(), "Neg", e.span);
+                    return self.mk(e, Ty::Error, hir::ExprKind::Error);
+                }
                 let ty = match op {
                     UnaryOp::Not => {
                         self.require_bool(&t, operand.span, "`!`");
@@ -2668,13 +2828,26 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                     return self.mk(e, Ty::Error, hir::ExprKind::Error);
                 };
+                // Where a `T?` is wanted, `.Variant` is a `T`, which becomes the `T?` as any
+                // value does (spec §7.4, §9.1, 18.53).
+                let want = match want {
+                    Ty::Optional(inner) => (*inner).clone(),
+                    other => other,
+                };
                 let kind = self.dot_infer(&want, name, init.as_deref(), e.span);
                 self.mk(e, want, kind)
             }
             ExprKind::Block(b) => {
                 let wanted = self.value_wanted(expected);
                 let c = self.block_valued(b, expected, wanted);
-                self.mk(e, c.ty, hir::ExprKind::Block(c.id))
+                let block = self.mk(e, c.ty, hir::ExprKind::Block(c.id));
+                // `else { none }`: the block's value waits for its type with the `none`.
+                if ty::is_pending_none(&block.ty) {
+                    if let Some(scope) = self.pending_nones.last_mut() {
+                        scope.push((block.id, e.span));
+                    }
+                }
+                block
             }
             // Past checking, an `unsafe` block is an ordinary block: the permission it
             // grants is a compile-time fact, and nothing about it reaches C++ (spec §5.2).
@@ -2690,6 +2863,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 // only in the `then` block.
                 // Without an `else` there is no value, however the `if` is used.
                 let wanted = self.value_wanted(expected) && i.else_branch.is_some();
+                if wanted {
+                    self.pending_nones.push(Vec::new());
+                }
                 let (head, then) = match &i.binding {
                     None => {
                         let cond = self.expr(&i.cond, Some(&Ty::Bool));
@@ -2762,7 +2938,8 @@ impl<'a, 'c> Body<'a, 'c> {
                         hir::ExprKind::IfLet { binding, operand, then: then.id, else_branch }
                     }
                 };
-                self.mk(e, ty, kind)
+                let c = self.mk(e, ty, kind);
+                self.settle_pending_nones(wanted, c, e.span)
             }
             ExprKind::Switch(s) => self.switch(s, e, expected),
             ExprKind::Or { expr, clause } => self.or_expr(expr, clause, e, expected),
@@ -3427,6 +3604,8 @@ impl<'a, 'c> Body<'a, 'c> {
             // to borrow and nothing to consume, so it goes by value and C++ binds it to the
             // `const T&` parameter itself.
             let id = match (&want, self.place_mutability(e).is_some()) {
+                // `a == Vec3{…}`: a temporary goes by value, bound by C++ to the `const T&`.
+                (Ty::Ref { mutable: false, inner }, false) if assignable(inner, &a.ty) => a.id,
                 (Ty::Ref { mutable: false, .. }, true) => {
                     self.hir
                         .expr(
@@ -3524,8 +3703,8 @@ impl<'a, 'c> Body<'a, 'c> {
             format!("`{op}` cannot be applied to `{shown}`"),
             format!("`{shown}` does not implement `{trait_name}`"),
             format!(
-                "operators are traits (spec §11.2) — declare `{shown} : {trait_name}` and \
-                 implement it, or compare the fields you mean"
+                "operators are traits (spec §11.2) — implement it: `impl {trait_name} for \
+                 {shown} {{ … }}`"
             ),
         );
     }
@@ -4192,10 +4371,15 @@ impl<'a, 'c> Body<'a, 'c> {
             // `n.hash()`, `a.cmp(&b)` on a primitive: the prelude traits the machine's own
             // types implement without an `impl` (spec §11.2, §14.2). Codegen lowers the call
             // to the operator or the shim function it stands for.
-            if matches!(peeled, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str) {
-                for trait_name in ["Hash", "Eq", "Ord"] {
-                    let Some(trait_sym) = self.cx.prelude_trait(trait_name) else { continue };
-                    if !crate::impls::primitive_implements(&peeled, trait_name, &[]) {
+            let builtin_receiver =
+                matches!(peeled, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str)
+                    || self.cx.table.is_enum(&peeled);
+            if builtin_receiver {
+                for trait_name in ["Hash", "Eq", "Ord", "Float", "Integer"] {
+                    let Some(trait_sym) = self.cx.table.prelude_trait_named(trait_name) else {
+                        continue;
+                    };
+                    if !self.cx.table.builtin_implements(&peeled, trait_name, &[]) {
                         continue;
                     }
                     let Some(sig) = self
@@ -4216,6 +4400,35 @@ impl<'a, 'c> Body<'a, 'c> {
                         name: name.name.clone(),
                     };
                     return self.mk(e, ty, hir::ExprKind::Call { callee, args });
+                }
+                // `n.sqrt()` on an integer: the method exists, on the other kind of number.
+                let other = match peeled {
+                    Ty::Int(_) => Some(("Float", "`f32` and `f64`", "as f32")),
+                    Ty::Float(_) => Some(("Integer", "the integer types", "as i32")),
+                    _ => None,
+                };
+                let declared_there = other.and_then(|(trait_name, owners, cast)| {
+                    let t = self.cx.table.prelude_trait_named(trait_name)?;
+                    let sig = self.cx.table.struct_sig(t)?;
+                    sig.methods.contains_key(&name.name).then_some((owners, cast))
+                });
+                if let Some((owners, cast)) = declared_there {
+                    let shown = self.cx.name_of(&peeled);
+                    self.cx.error_help(
+                        codes::NO_SUCH_METHOD,
+                        name.span,
+                        format!("`{shown}` has no method `{}`", name.name),
+                        format!("`{}` is a method of {owners}", name.name),
+                        format!(
+                            "convert first — `(value {cast}).{}(…)` — since numbers never \
+                             convert on their own (spec §5.1, §14.4)",
+                            name.name
+                        ),
+                    );
+                    for a in args {
+                        self.expr(a, None);
+                    }
+                    return self.mk(e, Ty::Error, hir::ExprKind::Error);
                 }
             }
 
@@ -4759,7 +4972,13 @@ impl<'a, 'c> Body<'a, 'c> {
             }
         }
 
-        let values = &checked[(at + 1).min(checked.len())..];
+        let mut values = &checked[(at + 1).min(checked.len())..];
+        // `panic("…", args…, loc)`: a final `SourceLocation` is where the panic reports it
+        // happened, not something to write — which is how `assert` names its caller's line
+        // (spec §9.8, §12.7). It cannot be mistaken for a value, since it has no format.
+        if name == "panic" && values.last().is_some_and(|v| is_source_location(&v.ty)) {
+            values = &values[..values.len() - 1];
+        }
         for (k, (s, e, inner)) in holes.iter().enumerate() {
             let here = span_of(*s, *e);
             let spec = if inner.is_empty() {
@@ -5543,6 +5762,9 @@ impl<'a, 'c> Body<'a, 'c> {
 
     fn switch(&mut self, s: &SwitchExpr, e: &Expr, expected: Option<&Ty>) -> Checked {
         let wanted = self.value_wanted(expected);
+        if wanted {
+            self.pending_nones.push(Vec::new());
+        }
         let subject = self.expr(&s.subject, None);
         let peeled = subject.ty.peeled().clone();
         let sym = peeled.named();
@@ -5750,7 +5972,58 @@ impl<'a, 'c> Body<'a, 'c> {
 
         let ty = result.unwrap_or(Ty::Void);
         let kind = hir::ExprKind::Switch { subject: subject.id, arms: hir_arms, default };
-        self.mk(e, ty, kind)
+        let c = self.mk(e, ty, kind);
+        self.settle_pending_nones(wanted, c, e.span)
+    }
+
+    /// Give the `none` arms of the `if` or `switch` just built the type its arms joined to
+    /// (spec §9.1, 18.53). When they are all `none`, the enclosing arm may still decide, so
+    /// they wait there; with nothing enclosing, the function's `T?` return type decides, as
+    /// it always has for `none`, and otherwise there is nothing to go by.
+    fn settle_pending_nones(&mut self, wanted: bool, c: Checked, span: Span) -> Checked {
+        if !wanted {
+            return c;
+        }
+        let Some(scope) = self.pending_nones.pop() else { return c };
+        if scope.is_empty() {
+            return c;
+        }
+        if !ty::is_pending_none(&c.ty) && (matches!(c.ty, Ty::Optional(_)) || c.ty.is_error()) {
+            for (id, _) in scope {
+                self.hir.set_expr_type(id, c.ty.clone());
+            }
+            return c;
+        }
+        if ty::is_pending_none(&c.ty) {
+            if let Some(outer) = self.pending_nones.last_mut() {
+                outer.extend(scope);
+                outer.push((c.id, span));
+                return c;
+            }
+        }
+        let fallback = match &self.ret {
+            Ty::Optional(inner) => Ty::Optional(inner.clone()),
+            _ => Ty::Error,
+        };
+        for (id, at) in scope {
+            // A block waiting only because its value is a `none` is not a second mistake.
+            if fallback.is_error() && matches!(self.hir.kind(id), hir::ExprKind::NoneOpt) {
+                self.cx.error_help(
+                    codes::NO_CONTEXT_FOR_LITERAL,
+                    at,
+                    "`none` needs an optional type here",
+                    "nothing here expects a `T?`",
+                    "`none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, \
+                     or make another arm a value (spec §9.1)",
+                );
+            }
+            self.hir.set_expr_type(id, fallback.clone());
+        }
+        if ty::is_pending_none(&c.ty) {
+            self.hir.set_expr_type(c.id, fallback.clone());
+            return Checked { ty: fallback, id: c.id };
+        }
+        c
     }
 
     /// The type of a `case` payload binding, which follows the `for` rules exactly (spec
@@ -6445,6 +6718,11 @@ fn spec_fits(spec: &str, t: &Ty) -> Result<(), &'static str> {
         }
         _ => Err("not a format spec"),
     }
+}
+
+/// `SourceLocation`, read through a reference as `.` would.
+pub(crate) fn is_source_location(t: &Ty) -> bool {
+    matches!(t.peeled_refs(), Ty::Builtin(dz_hir::ty::BuiltinTy::SourceLocation))
 }
 
 /// How many arguments a builtin takes, where codegen depends on the count. `None` for the

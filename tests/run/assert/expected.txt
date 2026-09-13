@@ -1,0 +1,4 @@
+#panic
+passed
+panic: assertion failed: hp is {} too low
+src/main.dz:13

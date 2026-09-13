@@ -391,6 +391,19 @@ impl TypeTable {
             .map(|(i, _, m)| (i, m))
     }
 
+    /// A prelude trait `t` has without an `impl`: the machine's own types' operator traits
+    /// (spec §11.2), and `Eq`, `Hash` and `Ord` for an enum, which is a named integer
+    /// (spec §7.4, 18.54).
+    pub fn builtin_implements(&self, t: &Ty, trait_name: &str, args: &[Ty]) -> bool {
+        primitive_implements(t, trait_name, args)
+            || (matches!(trait_name, "Eq" | "Hash" | "Ord") && self.is_enum(t))
+    }
+
+    /// Whether `t` is an enum (not a union: a union's payload is not an integer).
+    pub fn is_enum(&self, t: &Ty) -> bool {
+        matches!(t, Ty::Named { sym, .. } if matches!(self.get(*sym), Some(ItemSig::Enum { .. })))
+    }
+
     /// Does `t` satisfy `r` — the question every bound asks (spec §8.1)?
     pub fn implements(&self, t: &Ty, r: &TraitRef) -> bool {
         // `Copy` is structural: every copyable type has it, declared or not (spec §8.2).
@@ -403,7 +416,7 @@ impl TypeTable {
         }
         // The machine's own types implement the prelude's operator traits (spec §11.2).
         if let Some(name) = self.prelude_names.get(&r.trait_sym) {
-            if primitive_implements(t, name, &r.args) {
+            if self.builtin_implements(t, name, &r.args) {
                 return true;
             }
         }
@@ -423,7 +436,7 @@ impl TypeTable {
             return self.copyable(t);
         }
         if let Some(name) = self.prelude_names.get(&r.trait_sym) {
-            if primitive_implements(t, name, &r.args) {
+            if self.builtin_implements(t, name, &r.args) {
                 return true;
             }
         }
@@ -549,6 +562,9 @@ pub(crate) fn primitive_implements(t: &Ty, trait_name: &str, args: &[Ty]) -> boo
         // Not floats: `NaN != NaN` and `0.0 == -0.0` break the promise that equal keys hash
         // equally, and a float key is almost always a mistake anyway (spec §14.2).
         "Hash" => matches!(t, Ty::Int(_) | Ty::Bool | Ty::Char | Ty::Str),
+        // `std::math`'s, looked up by symbol so a user trait named `Float` is not these.
+        "Float" => matches!(t, Ty::Float(_)),
+        "Integer" => matches!(t, Ty::Int(_)),
         "Ord" => numeric || matches!(t, Ty::Char),
         "Add" | "Sub" | "Mul" | "Div" => numeric && rhs_is_self,
         "Rem" => matches!(t, Ty::Int(_)) && rhs_is_self,

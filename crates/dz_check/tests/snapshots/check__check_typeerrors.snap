@@ -416,7 +416,7 @@ error[DZ0531]: `==` cannot be applied to `Plain`
 360 │     return a == b
     │            ^^^^^^ `Plain` does not implement `Eq`
     │
-    = help: operators are traits (spec §11.2) — declare `Plain : Eq` and implement it, or compare the fields you mean
+    = help: operators are traits (spec §11.2) — implement it: `impl Eq for Plain { … }`
 
 error[DZ0531]: `<` cannot be applied to `Plain`
     ┌─ typeerrors/src/errors.dz:364:12
@@ -424,7 +424,7 @@ error[DZ0531]: `<` cannot be applied to `Plain`
 364 │     return a < b
     │            ^^^^^ `Plain` does not implement `Ord`
     │
-    = help: operators are traits (spec §11.2) — declare `Plain : Ord` and implement it, or compare the fields you mean
+    = help: operators are traits (spec §11.2) — implement it: `impl Ord for Plain { … }`
 
 error[DZ0531]: `+` cannot be applied to `Plain`
     ┌─ typeerrors/src/errors.dz:369:12
@@ -432,7 +432,7 @@ error[DZ0531]: `+` cannot be applied to `Plain`
 369 │     return a + b
     │            ^^^^^ `Plain` does not implement `Add`
     │
-    = help: operators are traits (spec §11.2) — declare `Plain : Add` and implement it, or compare the fields you mean
+    = help: operators are traits (spec §11.2) — implement it: `impl Add for Plain { … }`
 
 error[DZ0501]: expected `f32`, found `Plain`
     ┌─ typeerrors/src/errors.dz:386:16
@@ -998,10 +998,84 @@ error[DZ0515]: `Plain` cannot be indexed
     │
     = help: implement `Index` for `Plain`, and `IndexMut` to write through it (spec §11.2)
 
-error[DZ0531]: `f32` does not implement `Hash`
-    ┌─ typeerrors/src/errors.dz:896:13
+error[DZ0526]: this format string has 1 placeholder but 0 arguments were given
+    ┌─ typeerrors/src/errors.dz:896:11
     │
-896 │     let m = HashMap<f32, i32>()
+896 │     panic("at {}", loc)
+    │           ^^^^^^^ 1 `{}` here
+    │
+    = help: each `{}` takes one argument, in order; write `{{` or `}}` for a literal brace (spec §12.9)
+
+error[DZ0501]: expected `bool`, found `i32`
+    ┌─ typeerrors/src/errors.dz:901:12
+    │
+901 │     assert(n)
+    │            ^ this is `i32`
+
+error[DZ0531]: `-` cannot be applied to `Plain`
+    ┌─ typeerrors/src/errors.dz:906:12
+    │
+906 │     return -p
+    │            ^^ `Plain` does not implement `Neg`
+    │
+    = help: operators are traits (spec §11.2) — implement it: `impl Neg for Plain { … }`
+
+error[DZ0502]: `-129` does not fit in `i8`
+    ┌─ typeerrors/src/errors.dz:910:12
+    │
+910 │     return -129
+    │            ^^^^ outside the range of `i8`
+    │
+    = help: valid values are -128 to 127
+
+error[DZ0507]: `Readings` can be looped over, but not written through
+    ┌─ typeerrors/src/errors.dz:928:19
+    │
+928 │     for &mut v in r {
+    │                   ^ implements `Iterable`, not `IterableMut`
+    │
+    = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
+
+error[DZ0507]: cannot refer to these elements with `&mut`
+    ┌─ typeerrors/src/errors.dz:934:19
+    │
+934 │     for &mut x in xs {
+    │                   ^^ the container is read-only here
+    │
+    = help: declare it `let mut`, or pass it as `&mut` (spec §10.4)
+
+error[DZ0501]: expected `i32`, found `i32?`
+    ┌─ typeerrors/src/errors.dz:942:18
+    │
+942 │     let n: i32 = o
+    │                  ^ this is `i32?`
+
+error[DZ0521]: `none` needs an optional type here
+    ┌─ typeerrors/src/errors.dz:947:24
+    │
+947 │     let x = if alive { none } else { none }
+    │                        ^^^^ nothing here expects a `T?`
+    │
+    = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
+
+error[DZ0521]: `none` needs an optional type here
+    ┌─ typeerrors/src/errors.dz:947:38
+    │
+947 │     let x = if alive { none } else { none }
+    │                                      ^^^^ nothing here expects a `T?`
+    │
+    = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
+
+error[DZ0514]: `+` cannot be applied to `Layer`
+    ┌─ typeerrors/src/errors.dz:952:12
+    │
+952 │     return l + l == l
+    │            ^ not a numeric type
+
+error[DZ0531]: `f32` does not implement `Hash`
+    ┌─ typeerrors/src/errors.dz:957:13
+    │
+957 │     let m = HashMap<f32, i32>()
     │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
     │
     = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)

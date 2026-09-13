@@ -1500,12 +1500,13 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M12** | **`indexed()` exists only in a `for` head.** It is recognised there by the checker, not declared: a real adapter is a generic struct implementing `Iterate` over another, whose `Item` needs associated-type projection (the row below). `move(xs).indexed()` is refused for the same reason | `dz_check/src/check.rs`, `for_stmt` |
 | **M12** | **Memory tracking is single-threaded and prints to stdout.** `TRACKER` is one static with no lock, so two threads allocating from `Global` under `--track-memory` race — concurrency is v2 (18.11). The leak report goes through `println`, because there is no way to write to stderr from Dazzle yet | `dz_project/src/prelude.dz`, `Tracker` |
 | **M12** | **A trait method's non-constant default argument** is rendered on the handle's declaration, before the module's structs are defined, so a default like `Vec3{}` on a trait method would not compile there | `dz_cpp`, `trait_object_decls` |
-| **M12** | **`for x in list`** does not work; iteration is `for x in list.as_slice()`. A `List` iterator needs `Iterate` with `Item = &T`, whose projection through a generic is the associated-type row above. `str` has no range slicing (`s[a..b]`), since a byte range can split a character | `dz_project/src/prelude.dz`, `List` |
+| **M12** | **`for` over a generic `C: Iterable`** is refused (`DZ0801`): the loop's element is the projection of `C::Iter`'s `Item`, the same associated-type projection a generic `T: Iterate` loop waits on. Concrete containers loop (r47) | `dz_check/src/check.rs`, `container_iterator` |
+| **M12** | **A union variant carrying a struct with a constructor cannot be built**: the variant literal is the struct's literal, which a type with a constructor refuses (DZ0543), and there is no spelling for building the variant through the constructor. The union itself compiles and drops correctly (r47) — how to spell `.Sound(5)` is a question for the user | `dz_check/src/check.rs`, `union_variant_literal` |
 | **M12** | `List::insert` and `remove` move elements one at a time, even for a `T` whose bytes could be moved in one `memmove`; there is no `memmove` builtin yet | `dz_project/src/prelude.dz`, `List` |
-| **M12** | **`for (k, v) in map`** does not work; entries are visited by slot (`slot_count`, `key_at`, `value_at`). It waits on the same `Iterate` projection a `List` iterator does | `dz_project/src/prelude.dz`, `HashMap` |
 | **M12** | **A `HashMap<String, V>` is looked up with a `&String`**, so finding a key you hold as a `str` builds a `String` first. Rust answers this with `Borrow<Q>`; Dazzle has no such trait yet | `dz_project/src/prelude.dz`, `HashMap` |
-| **M12** | **`hash_combine` relies on `u64` arithmetic wrapping**, which C++ guarantees and the spec does not yet say (§5 leaves unsigned overflow unstated). Should use `math::wrapping_add` once the math module exists | `dz_project/src/prelude.dz`, `hash_combine` |
-| **M12** | **An enum is neither `Hash` nor built-in `Eq`**, so an enum key needs an `impl` of each; enums are named integers (§7.4) and could have both for free | `dz_check/src/impls.rs`, `primitive_implements` |
+| **M12** | **`hash_combine` relies on `u64` arithmetic wrapping**, which C++ guarantees and the spec does not yet say (§5 leaves overflow of plain arithmetic unstated, and signed overflow is not checked in debug as §5.1 proposes). `wrapping_add` exists now, but in `std::math`, which the prelude cannot import. Deciding what plain `+` does on overflow settles both | `dz_project/src/prelude.dz`, `hash_combine` |
+| **M12** | **Methods on an untyped literal**: `2.0.sqrt()` has no type to find `Float` on until the literal meets a context; write `(2.0 as f32).sqrt()` or bind it first | `dz_check/src/check.rs`, `call` |
+| **M12** | **`Mat4` and raylib's `Matrix`** hold the same numbers, but raylib's struct declares its fields row by row (`m0, m4, m8, m12, …`), so converting is a field-by-field copy rather than a cast | `dz_project/src/std/math.dz`, `Mat4` |
 | **M12** | **No variadic parameters.** `println` and `format` take any number of arguments only because they are builtins; a Dazzle function cannot. Wanted by the user; not yet designed | spec §7.2 |
 | **M12** | **An intrinsic default uses the C++ compiler's builtins**, so its column is 0 and its function is the C++ name (`bump`, not `Counter::bump`) | `dz_cpp`, `caller_intrinsic` |
 | **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
@@ -1515,10 +1516,7 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M12** | **Trait objects that are not object-safe** — of a generic trait, one with associated types, or one whose methods mention `Self` — report `DZ0801`, and so does a trait object of a type whose `impl` is generic, which would need a vtable per instance. | `dz_cpp`, `object_safe`; `dz_check`, `refuse_generic_impl_object` |
 | **M12** | **Associated-type projection** (`T::Item`, `T::Output`). An associated type resolves through an implementer but cannot be named off a bounded parameter, so `for` over a generic `T: Iterate` is refused by the checker (`DZ0801`), and generic arithmetic cannot name its result type | `dz_check/src/check.rs`, `iterate_item` |
 | **M12** | An open-ended range (`lo..`) held in a variable rather than written in a `for` head | `dz_cpp`, `expr` |
-| **M12** | `assert` is typed but not emitted; it becomes an ordinary stdlib function | `dz_cpp`, `builtin` |
 | **M12** | A trait default method is exercised by `tests/run/generics` only for bodies that call the trait's own methods; one that builds or returns a `Self` value has no test | `dz_mono`, `inherited_defaults` |
-| **M12** | A union variant whose payload owns a resource is refused rather than leaked. A C++ union with a non-trivial member needs special members that switch on the tag; §7.5 marks variant drops `[PROPOSED]`, so this waits for that decision. The same machinery is what a **variant carrying a struct with a constructor, `copy`, base or `virtual` method** (r38) needs, refused with `DZ0801` for the same reason | `dz_cpp/src/lib.rs`, `union_decl` |
-| **M12** | **Arms of one `switch` or `if` cannot mix `T?` and `T`**: `case A { a.next() } case B { .B{} }` does not join to `ButtonState?`. A plain `T` becomes a `T?` only at `return` (§9.1), so an arm has to return or write `T?` itself. Whether a value position should convert as `return` does is a language question for the user, surfaced by the `ButtonState` sample | `dz_hir/src/ty.rs`, `join` |
 | **M12** | `error(…)` and `format(…)` write into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. §9.2 requires no allocation *and* a message that outlives the call; a real answer needs the stdlib's `String` | `dz_cpp/src/runtime.rs` |
 | **M12** | `or unreachable` panics in release as well as debug. §9.4 says release may assume the success path, and §18.20 has not settled whether that means `__builtin_unreachable` or merely skipping the check | `dz_cpp/src/lib.rs`, `clause` |
 | **M12** | **`println`/`print`/`format` are still builtins**, and a `String` is printed through `s.as_str()`: `Format` has no implementations and `Formatter` is still empty, now that `String` exists to give it a buffer. `HashMap` is still to come | `dz_cpp/src/runtime.rs`, `dz_project/src/prelude.dz` |
@@ -1594,15 +1592,80 @@ What remains, in the order the user set on 2026-09-13:
    `a_tracked_build_reports_leaks_and_bad_frees`) checks removal against a reference list
    over 500 keys, every key kind, move-only values dropped exactly once, copying and
    `Temp`; `typed/` and `typeerrors/` have a case each.
-8. **`assert` as a function.**
-9. **Math** (`import std::math`): vectors, matrices, `lerp`, clamping, wrapping arithmetic.
-   Before variadics.
+8. ✅ **`assert` as a function (r46).** Removed from `BUILTIN_FNS`; the prelude has
+   `assert(cond, msg = "", loc = #location)`. For it to report its caller's line, `panic`
+   takes a `SourceLocation` as its last argument — the user's call, "pass the location, by
+   default `#location`": `check_format` leaves a final `SourceLocation` out of the format
+   arguments and codegen passes it as the panic's location. `tests/run/assert` (a `#panic`
+   fixture) checks the report names `src/main.dz:13`; `typed/` has a `panic(…, loc)` helper
+   and `assert` calls, `typeerrors/` a location standing in for a placeholder's argument and
+   a non-`bool` condition.
+9. ✅ **Math (r48).** Design chosen by the user on 2026-09-13 (18.55): `std::math`,
+   `f32` types plus `Vec2i`/`Vec3i`, methods everywhere, column-major.
+   - **Standard-library modules.** `dz_project::STD_MODULES` lists compiler-carried modules
+     with pseudo-paths (`<std>/math.dz`); `dz_driver::import_std` adds one to the workspace,
+     parses it under the file id `Workspace::add_std` gave it, and makes it an implicit
+     dependency of each importing module — only when some file writes `import std::…`, so a
+     program that does not pays nothing. A manifest named `std` or `std::…` is an error; an
+     unknown `std::…` import lists the modules that exist; `import std::math` is never
+     "unused", since `x.sqrt()` uses it through `.`. `std` is sanitized to `std_` in C++, or
+     `dz::std` would capture every `std::` inside `namespace dz`.
+   - **Methods on numbers.** `std::math` declares `Float` and `Integer`; the checker counts
+     them among the traits the machine's types implement (`prelude_names`,
+     `primitive_implements`), and `native_trait_call` lowers each call to `::dz::num::…` in
+     the shim — `<math.h>` for floats; wrapping through the same-width unsigned type,
+     `__builtin_*_overflow` for checked and saturating. One trait per kind instead of an
+     `impl` per type: ten integer types would have been ~150 identical methods. A method of
+     the other kind of number (`n.sqrt()`) says which kind has it.
+   - **The rest is Dazzle** (`crates/dz_project/src/std/math.dz`). `Mat4::inverse` was first
+     transcribed wrong; the replacement was checked against 50 random matrices in Python and
+     generated from the verified formula.
+   - **Found by writing it**: unary `-` never reached `Neg`; `x == Vec3{…}` failed because
+     `Eq::eq` wants `&Self` and a temporary is no place; `-128: i8` was rejected; the
+     operator-trait help still spelled `struct T : Trait`. Fixed, with `typed/`/`typeerrors/`
+     cases. The editor's and debugger's copies of embedded sources now cover every one, so
+     go-to-definition and stepping reach `std/math.dz` (`embedded_copies`,
+     `with_embedded_lines`).
+   - Tests: `tests/run/math` (every value checked by hand; warning-clean on both compilers),
+     three `tests/errors` cases, `a_module_cannot_be_named_under_std`,
+     `definition_of_a_std_math_name_is_in_std_math`.
 10. **Variadic parameters** (to design).
 11. The criterion: a small raylib game with no C++ of its own.
 
 **`error(…)` keeps static storage** — decided by the user on 2026-09-13. Moving it onto
 `Allocators::Temp` was considered and refused: an allocator is itself a place that reports
 errors, and one whose message needed an allocator would be circular.
+
+**Design decisions 18.51–18.54 (r47), chosen by the user on 2026-09-13, all implemented.**
+
+- **Enums are `Eq`, `Hash` and `Ord`** (18.54). `TypeTable::builtin_implements` answers for
+  enums as `primitive_implements` does for numbers; `n.hash()`/`a.cmp(&b)` resolve on an
+  enum receiver, and `native_trait_call` lowers them. An enum key in `tests/run/hashmap`;
+  `typed/` and `typeerrors/` (an enum is not `Add`).
+- **`T` converts to `T?` wherever one is expected** (18.53). `assignable` accepts it and
+  `join` joins a `T` arm with a `T?` arm. A bare `none` arm with nothing to type it gets
+  a placeholder (`ty::pending_none`, an optional of `Never`) that `settle_pending_nones`
+  replaces once the `if`/`switch` has joined its arms — or passes to an enclosing arm, or
+  falls back to the function's `T?` return, or reports DZ0521 once per `none`.
+  `.Variant` where a `T?` is wanted now infers from `T`. Found on the way: `t or …` on a
+  move-only optional local copied the optional in C++; it is moved. `tests/run/optionals`.
+- **A union owns its active payload** (18.52). A union whose payloads are not all plain
+  data gets a destructor, copy (or deleted copy) and move members that switch on the tag,
+  and `become(kind)`, which drops the old payload and builds the new one; a variant literal
+  uses it. Plain-data unions are emitted as before. Found on the way: `copyable`,
+  `needs_drop` and `trivially_copyable` read a variant's `fields` only, so a *carried*
+  struct's `drop` was invisible — `payload_types` includes it. `tests/run/unions` (every
+  drop exactly once; leak-free under `--track-memory`; warning-clean), and flow cases for a
+  move-only union copied and for copyable and move-only unions used correctly.
+- **`Iterable` and `IterableMut`** (18.51). Prelude traits, with `SliceIter`/`SliceIterMut`
+  and `HashMapIter`/`HashMapIterMut` (whose `Item` is `(&K, &V)` or `(&K, &mut V)`), and
+  implementations for `List` and `HashMap`. The checker's `container_iterator` replaces a
+  container subject with a call to `iter()` — `iter_mut()` when a binding is `&mut` — so
+  codegen and flow see an ordinary `Iterate` loop. Diagnostics say it as the loop:
+  "`Readings` can be looped over, but not written through", "cannot refer to these elements
+  with `&mut`". A `const Slice<T>` now indexes to `T&` (the shim had tied a view's
+  writability to the view object, which `SliceIterMut::get(&self)` exposed).
+  `tests/run/iterable`. A generic `C: Iterable` loop is refused (deferral register).
 
 **Editor work alongside, asked for by the user on 2026-09-13.**
 
@@ -1621,7 +1684,8 @@ errors, and one whose message needed an allocator would be circular.
   included (`line_directives_name_files_a_debugger_can_open`); panic locations keep the
   short name. Verified with gdb from the command line (a breakpoint on a `main.dz` line,
   locals by their Dazzle names, stepping into `List::push` in the prelude copy) and with
-  `llvm-pdbutil` for clang's PDB; the VS Code launch itself can only be tried in the editor.
+  `llvm-pdbutil` for clang's PDB; F5 in VS Code confirmed working by the user on 2026-09-13,
+  including `str` values shown as text with their length.
   **Next steps**, not started: gdb pretty-printers to match the natvis; showing a
   monomorphized `List__i32` as its elements (natvis cannot match a name pattern that is not
   a template, so this needs either a common template base in the shim or generated natvis);

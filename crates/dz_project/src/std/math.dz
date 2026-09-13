@@ -1,0 +1,838 @@
+// std::math — numbers, vectors, quaternions and matrices (spec §14.4).
+//
+// Carried by the compiler and loaded by `import std::math`. The vector and matrix types are
+// `f32`, what GPUs and most game libraries use, plus `Vec2i` and `Vec3i` for grids.
+// Matrices are column-major and act on column vectors — `m * v`, `projection * view *
+// model` — the OpenGL, GLSL and glm convention, right-handed.
+//
+// The methods on the machine's own numbers — `x.sqrt()`, `n.wrapping_add(m)` — are the
+// `Float` and `Integer` traits below, which `f32`, `f64` and every integer type implement
+// without an `impl`, as they implement the prelude's `Eq` and `Ord`.
+
+// --- constants ----------------------------------------------------------------------
+
+/// Half a turn, in radians.
+pub const PI: f32 = 3.14159265358979
+/// A whole turn, in radians.
+pub const TAU: f32 = 6.28318530717959
+/// Euler's number.
+pub const E: f32 = 2.71828182845905
+/// `PI` as an `f64`, for code that needs the precision.
+pub const PI_F64: f64 = 3.14159265358979323846
+
+// --- methods on numbers -------------------------------------------------------------
+
+/// What `f32` and `f64` can do, beyond `+ - * /`. Angles are in radians.
+pub trait Float {
+    fn sqrt(&self) -> Self
+    fn abs(&self) -> Self
+    fn floor(&self) -> Self
+    fn ceil(&self) -> Self
+    /// To the nearest whole number, halves away from zero.
+    fn round(&self) -> Self
+    /// Towards zero.
+    fn trunc(&self) -> Self
+    /// What `floor` removes: always in `[0, 1)`.
+    fn fract(&self) -> Self
+    fn sin(&self) -> Self
+    fn cos(&self) -> Self
+    fn tan(&self) -> Self
+    fn asin(&self) -> Self
+    fn acos(&self) -> Self
+    fn atan(&self) -> Self
+    /// The angle of the point `(x, self)`: `y.atan2(x)`, in `(-PI, PI]`.
+    fn atan2(&self, x: Self) -> Self
+    fn pow(&self, exponent: Self) -> Self
+    fn exp(&self) -> Self
+    /// The natural logarithm.
+    fn ln(&self) -> Self
+    fn log2(&self) -> Self
+    fn log10(&self) -> Self
+    fn min(&self, rhs: Self) -> Self
+    fn max(&self, rhs: Self) -> Self
+    /// `self` held between `lo` and `hi`.
+    fn clamp(&self, lo: Self, hi: Self) -> Self
+    /// From `self` towards `to` by `t`: `self` at 0, `to` at 1, and beyond outside them.
+    fn lerp(&self, to: Self, t: Self) -> Self
+    /// -1, 0 or 1.
+    fn sign(&self) -> Self
+    fn is_nan(&self) -> bool
+    /// Neither infinite nor NaN.
+    fn is_finite(&self) -> bool
+    fn to_radians(&self) -> Self
+    fn to_degrees(&self) -> Self
+}
+
+/// What every integer type can do, beyond `+ - * / %`. Plain arithmetic does not wrap on
+/// overflow; these say what should happen instead.
+pub trait Integer {
+    fn min(&self, rhs: Self) -> Self
+    fn max(&self, rhs: Self) -> Self
+    /// `self` held between `lo` and `hi`.
+    fn clamp(&self, lo: Self, hi: Self) -> Self
+    /// The distance from zero; the most negative value wraps to itself.
+    fn abs(&self) -> Self
+    /// -1, 0 or 1.
+    fn sign(&self) -> Self
+    /// `self` multiplied by itself `exponent` times, wrapping on overflow.
+    fn pow(&self, exponent: u32) -> Self
+    /// Two's-complement arithmetic: past the largest value comes the smallest.
+    fn wrapping_add(&self, rhs: Self) -> Self
+    fn wrapping_sub(&self, rhs: Self) -> Self
+    fn wrapping_mul(&self, rhs: Self) -> Self
+    /// `none` when the result does not fit.
+    fn checked_add(&self, rhs: Self) -> Self?
+    fn checked_sub(&self, rhs: Self) -> Self?
+    fn checked_mul(&self, rhs: Self) -> Self?
+    /// Held at the largest or smallest value instead of overflowing.
+    fn saturating_add(&self, rhs: Self) -> Self
+    fn saturating_sub(&self, rhs: Self) -> Self
+    fn is_power_of_two(&self) -> bool
+}
+
+// --- Vec2 ---------------------------------------------------------------------------
+
+/// A 2D vector, or a point.
+pub struct Vec2 {
+    pub x: f32 = 0
+    pub y: f32 = 0
+
+    pub fn dot(&self, rhs: Vec2) -> f32 {
+        return x * rhs.x + y * rhs.y
+    }
+
+    pub fn length_squared(&self) -> f32 {
+        return x * x + y * y
+    }
+
+    pub fn length(&self) -> f32 {
+        return self.length_squared().sqrt()
+    }
+
+    /// The same direction with length 1; a zero vector stays zero.
+    pub fn normalized(&self) -> Vec2 {
+        let len = self.length()
+        if len == 0 {
+            return Vec2{}
+        }
+        return Vec2{ x: x / len, y: y / len }
+    }
+
+    pub fn distance(&self, to: Vec2) -> f32 {
+        return (to - self).length()
+    }
+
+    pub fn lerp(&self, to: Vec2, t: f32) -> Vec2 {
+        return Vec2{ x: x.lerp(to.x, t), y: y.lerp(to.y, t) }
+    }
+
+    pub fn min(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x.min(rhs.x), y: y.min(rhs.y) }
+    }
+
+    pub fn max(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x.max(rhs.x), y: y.max(rhs.y) }
+    }
+
+    pub fn abs(&self) -> Vec2 {
+        return Vec2{ x: x.abs(), y: y.abs() }
+    }
+
+    /// Turned a quarter counter-clockwise: `(-y, x)`.
+    pub fn perp(&self) -> Vec2 {
+        return Vec2{ x: -y, y: x }
+    }
+
+    /// The angle from the x axis, in `(-PI, PI]`.
+    pub fn angle(&self) -> f32 {
+        return y.atan2(x)
+    }
+
+    /// Turned counter-clockwise by `angle` radians.
+    pub fn rotated(&self, angle: f32) -> Vec2 {
+        let c = angle.cos()
+        let s = angle.sin()
+        return Vec2{ x: x * c - y * s, y: x * s + y * c }
+    }
+
+    pub fn extend(&self, z: f32) -> Vec3 {
+        return Vec3{ x: x, y: y, z: z }
+    }
+}
+
+impl Add for Vec2 {
+    type Output = Vec2
+    fn add(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x + rhs.x, y: y + rhs.y }
+    }
+}
+
+impl Sub for Vec2 {
+    type Output = Vec2
+    fn sub(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x - rhs.x, y: y - rhs.y }
+    }
+}
+
+/// Component by component.
+impl Mul for Vec2 {
+    type Output = Vec2
+    fn mul(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x * rhs.x, y: y * rhs.y }
+    }
+}
+
+impl Mul<f32> for Vec2 {
+    type Output = Vec2
+    fn mul(&self, rhs: f32) -> Vec2 {
+        return Vec2{ x: x * rhs, y: y * rhs }
+    }
+}
+
+impl Div<f32> for Vec2 {
+    type Output = Vec2
+    fn div(&self, rhs: f32) -> Vec2 {
+        return Vec2{ x: x / rhs, y: y / rhs }
+    }
+}
+
+impl Neg for Vec2 {
+    type Output = Vec2
+    fn neg(&self) -> Vec2 {
+        return Vec2{ x: -x, y: -y }
+    }
+}
+
+impl Eq for Vec2 {
+    fn eq(&self, rhs: &Vec2) -> bool {
+        return x == rhs.x && y == rhs.y
+    }
+}
+
+// --- Vec3 ---------------------------------------------------------------------------
+
+/// A 3D vector, or a point.
+pub struct Vec3 {
+    pub x: f32 = 0
+    pub y: f32 = 0
+    pub z: f32 = 0
+
+    pub fn dot(&self, rhs: Vec3) -> f32 {
+        return x * rhs.x + y * rhs.y + z * rhs.z
+    }
+
+    /// Perpendicular to both, by the right-hand rule.
+    pub fn cross(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: y * rhs.z - z * rhs.y, y: z * rhs.x - x * rhs.z, z: x * rhs.y - y * rhs.x }
+    }
+
+    pub fn length_squared(&self) -> f32 {
+        return x * x + y * y + z * z
+    }
+
+    pub fn length(&self) -> f32 {
+        return self.length_squared().sqrt()
+    }
+
+    /// The same direction with length 1; a zero vector stays zero.
+    pub fn normalized(&self) -> Vec3 {
+        let len = self.length()
+        if len == 0 {
+            return Vec3{}
+        }
+        return Vec3{ x: x / len, y: y / len, z: z / len }
+    }
+
+    pub fn distance(&self, to: Vec3) -> f32 {
+        return (to - self).length()
+    }
+
+    pub fn lerp(&self, to: Vec3, t: f32) -> Vec3 {
+        return Vec3{ x: x.lerp(to.x, t), y: y.lerp(to.y, t), z: z.lerp(to.z, t) }
+    }
+
+    pub fn min(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x.min(rhs.x), y: y.min(rhs.y), z: z.min(rhs.z) }
+    }
+
+    pub fn max(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x.max(rhs.x), y: y.max(rhs.y), z: z.max(rhs.z) }
+    }
+
+    pub fn abs(&self) -> Vec3 {
+        return Vec3{ x: x.abs(), y: y.abs(), z: z.abs() }
+    }
+
+    /// `self` bounced off a surface whose normal is `normal`, which must have length 1.
+    pub fn reflect(&self, normal: Vec3) -> Vec3 {
+        return self - normal * (2 * self.dot(normal))
+    }
+
+    pub fn xy(&self) -> Vec2 {
+        return Vec2{ x: x, y: y }
+    }
+
+    pub fn extend(&self, w: f32) -> Vec4 {
+        return Vec4{ x: x, y: y, z: z, w: w }
+    }
+}
+
+impl Add for Vec3 {
+    type Output = Vec3
+    fn add(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x + rhs.x, y: y + rhs.y, z: z + rhs.z }
+    }
+}
+
+impl Sub for Vec3 {
+    type Output = Vec3
+    fn sub(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x - rhs.x, y: y - rhs.y, z: z - rhs.z }
+    }
+}
+
+/// Component by component.
+impl Mul for Vec3 {
+    type Output = Vec3
+    fn mul(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x * rhs.x, y: y * rhs.y, z: z * rhs.z }
+    }
+}
+
+impl Mul<f32> for Vec3 {
+    type Output = Vec3
+    fn mul(&self, rhs: f32) -> Vec3 {
+        return Vec3{ x: x * rhs, y: y * rhs, z: z * rhs }
+    }
+}
+
+impl Div<f32> for Vec3 {
+    type Output = Vec3
+    fn div(&self, rhs: f32) -> Vec3 {
+        return Vec3{ x: x / rhs, y: y / rhs, z: z / rhs }
+    }
+}
+
+impl Neg for Vec3 {
+    type Output = Vec3
+    fn neg(&self) -> Vec3 {
+        return Vec3{ x: -x, y: -y, z: -z }
+    }
+}
+
+impl Eq for Vec3 {
+    fn eq(&self, rhs: &Vec3) -> bool {
+        return x == rhs.x && y == rhs.y && z == rhs.z
+    }
+}
+
+// --- Vec4 ---------------------------------------------------------------------------
+
+/// A 4D vector: a point or direction in homogeneous coordinates, or a colour.
+pub struct Vec4 {
+    pub x: f32 = 0
+    pub y: f32 = 0
+    pub z: f32 = 0
+    pub w: f32 = 0
+
+    pub fn dot(&self, rhs: Vec4) -> f32 {
+        return x * rhs.x + y * rhs.y + z * rhs.z + w * rhs.w
+    }
+
+    pub fn length_squared(&self) -> f32 {
+        return self.dot(self)
+    }
+
+    pub fn length(&self) -> f32 {
+        return self.length_squared().sqrt()
+    }
+
+    /// The same direction with length 1; a zero vector stays zero.
+    pub fn normalized(&self) -> Vec4 {
+        let len = self.length()
+        if len == 0 {
+            return Vec4{}
+        }
+        return Vec4{ x: x / len, y: y / len, z: z / len, w: w / len }
+    }
+
+    pub fn lerp(&self, to: Vec4, t: f32) -> Vec4 {
+        return Vec4{ x: x.lerp(to.x, t), y: y.lerp(to.y, t), z: z.lerp(to.z, t), w: w.lerp(to.w, t) }
+    }
+
+    pub fn xyz(&self) -> Vec3 {
+        return Vec3{ x: x, y: y, z: z }
+    }
+}
+
+impl Add for Vec4 {
+    type Output = Vec4
+    fn add(&self, rhs: Vec4) -> Vec4 {
+        return Vec4{ x: x + rhs.x, y: y + rhs.y, z: z + rhs.z, w: w + rhs.w }
+    }
+}
+
+impl Sub for Vec4 {
+    type Output = Vec4
+    fn sub(&self, rhs: Vec4) -> Vec4 {
+        return Vec4{ x: x - rhs.x, y: y - rhs.y, z: z - rhs.z, w: w - rhs.w }
+    }
+}
+
+impl Mul<f32> for Vec4 {
+    type Output = Vec4
+    fn mul(&self, rhs: f32) -> Vec4 {
+        return Vec4{ x: x * rhs, y: y * rhs, z: z * rhs, w: w * rhs }
+    }
+}
+
+impl Div<f32> for Vec4 {
+    type Output = Vec4
+    fn div(&self, rhs: f32) -> Vec4 {
+        return Vec4{ x: x / rhs, y: y / rhs, z: z / rhs, w: w / rhs }
+    }
+}
+
+impl Neg for Vec4 {
+    type Output = Vec4
+    fn neg(&self) -> Vec4 {
+        return Vec4{ x: -x, y: -y, z: -z, w: -w }
+    }
+}
+
+impl Eq for Vec4 {
+    fn eq(&self, rhs: &Vec4) -> bool {
+        return x == rhs.x && y == rhs.y && z == rhs.z && w == rhs.w
+    }
+}
+
+// --- integer vectors ----------------------------------------------------------------
+
+/// A 2D grid position or offset. `Hash`, so it can key a `HashMap`.
+pub struct Vec2i {
+    pub x: i32 = 0
+    pub y: i32 = 0
+
+    pub fn to_vec2(&self) -> Vec2 {
+        return Vec2{ x: x as f32, y: y as f32 }
+    }
+
+    /// Steps along the axes between the two: `|dx| + |dy|`.
+    pub fn manhattan(&self, to: Vec2i) -> i32 {
+        return (to.x - x).abs() + (to.y - y).abs()
+    }
+}
+
+impl Add for Vec2i {
+    type Output = Vec2i
+    fn add(&self, rhs: Vec2i) -> Vec2i {
+        return Vec2i{ x: x + rhs.x, y: y + rhs.y }
+    }
+}
+
+impl Sub for Vec2i {
+    type Output = Vec2i
+    fn sub(&self, rhs: Vec2i) -> Vec2i {
+        return Vec2i{ x: x - rhs.x, y: y - rhs.y }
+    }
+}
+
+impl Mul<i32> for Vec2i {
+    type Output = Vec2i
+    fn mul(&self, rhs: i32) -> Vec2i {
+        return Vec2i{ x: x * rhs, y: y * rhs }
+    }
+}
+
+impl Neg for Vec2i {
+    type Output = Vec2i
+    fn neg(&self) -> Vec2i {
+        return Vec2i{ x: -x, y: -y }
+    }
+}
+
+impl Eq for Vec2i {
+    fn eq(&self, rhs: &Vec2i) -> bool {
+        return x == rhs.x && y == rhs.y
+    }
+}
+
+impl Hash for Vec2i {
+    fn hash(&self) -> u64 {
+        return hash_combine(x.hash(), y.hash())
+    }
+}
+
+/// A 3D grid position or offset. `Hash`, so it can key a `HashMap`.
+pub struct Vec3i {
+    pub x: i32 = 0
+    pub y: i32 = 0
+    pub z: i32 = 0
+
+    pub fn to_vec3(&self) -> Vec3 {
+        return Vec3{ x: x as f32, y: y as f32, z: z as f32 }
+    }
+
+    /// Steps along the axes between the two: `|dx| + |dy| + |dz|`.
+    pub fn manhattan(&self, to: Vec3i) -> i32 {
+        return (to.x - x).abs() + (to.y - y).abs() + (to.z - z).abs()
+    }
+}
+
+impl Add for Vec3i {
+    type Output = Vec3i
+    fn add(&self, rhs: Vec3i) -> Vec3i {
+        return Vec3i{ x: x + rhs.x, y: y + rhs.y, z: z + rhs.z }
+    }
+}
+
+impl Sub for Vec3i {
+    type Output = Vec3i
+    fn sub(&self, rhs: Vec3i) -> Vec3i {
+        return Vec3i{ x: x - rhs.x, y: y - rhs.y, z: z - rhs.z }
+    }
+}
+
+impl Mul<i32> for Vec3i {
+    type Output = Vec3i
+    fn mul(&self, rhs: i32) -> Vec3i {
+        return Vec3i{ x: x * rhs, y: y * rhs, z: z * rhs }
+    }
+}
+
+impl Neg for Vec3i {
+    type Output = Vec3i
+    fn neg(&self) -> Vec3i {
+        return Vec3i{ x: -x, y: -y, z: -z }
+    }
+}
+
+impl Eq for Vec3i {
+    fn eq(&self, rhs: &Vec3i) -> bool {
+        return x == rhs.x && y == rhs.y && z == rhs.z
+    }
+}
+
+impl Hash for Vec3i {
+    fn hash(&self) -> u64 {
+        return hash_combine(hash_combine(x.hash(), y.hash()), z.hash())
+    }
+}
+
+// --- Quat ---------------------------------------------------------------------------
+
+/// A rotation. Built at its defaults it is the identity, which rotates nothing.
+pub struct Quat {
+    pub x: f32 = 0
+    pub y: f32 = 0
+    pub z: f32 = 0
+    pub w: f32 = 1
+
+    /// A rotation of `angle` radians around `axis`, counter-clockwise looking down the axis.
+    pub fn from_axis_angle(axis: Vec3, angle: f32) -> Quat {
+        let n = axis.normalized()
+        let s = (angle * 0.5).sin()
+        return Quat{ x: n.x * s, y: n.y * s, z: n.z * s, w: (angle * 0.5).cos() }
+    }
+
+    /// Yaw around y, then pitch around x, then roll around z, in radians.
+    pub fn from_euler(pitch: f32, yaw: f32, roll: f32) -> Quat {
+        let qy = Quat::from_axis_angle(Vec3{ x: 0, y: 1, z: 0 }, yaw)
+        let qx = Quat::from_axis_angle(Vec3{ x: 1, y: 0, z: 0 }, pitch)
+        let qz = Quat::from_axis_angle(Vec3{ x: 0, y: 0, z: 1 }, roll)
+        return qy * qx * qz
+    }
+
+    pub fn dot(&self, rhs: Quat) -> f32 {
+        return x * rhs.x + y * rhs.y + z * rhs.z + w * rhs.w
+    }
+
+    pub fn length(&self) -> f32 {
+        return self.dot(self).sqrt()
+    }
+
+    /// Length 1, which a rotation must have; a zero quaternion becomes the identity.
+    pub fn normalized(&self) -> Quat {
+        let len = self.length()
+        if len == 0 {
+            return Quat{}
+        }
+        return Quat{ x: x / len, y: y / len, z: z / len, w: w / len }
+    }
+
+    /// The opposite rotation, for a quaternion of length 1.
+    pub fn conjugate(&self) -> Quat {
+        return Quat{ x: -x, y: -y, z: -z, w: w }
+    }
+
+    /// `v` turned by this rotation.
+    pub fn rotate(&self, v: Vec3) -> Vec3 {
+        let u = Vec3{ x: x, y: y, z: z }
+        let t = u.cross(v) * 2
+        return v + t * w + u.cross(t)
+    }
+
+    /// Along the shortest arc from `self` to `to`, at a constant speed.
+    pub fn slerp(&self, to: Quat, t: f32) -> Quat {
+        let mut target = to
+        let mut cos_theta = self.dot(to)
+        // The same rotation, the short way round.
+        if cos_theta < 0 {
+            target = Quat{ x: -to.x, y: -to.y, z: -to.z, w: -to.w }
+            cos_theta = -cos_theta
+        }
+        if cos_theta > 0.9995 {
+            let lerped = Quat{
+                x: x.lerp(target.x, t),
+                y: y.lerp(target.y, t),
+                z: z.lerp(target.z, t),
+                w: w.lerp(target.w, t),
+            }
+            return lerped.normalized()
+        }
+        let theta = cos_theta.acos()
+        let sin_theta = theta.sin()
+        let a = ((1 - t) * theta).sin() / sin_theta
+        let b = (t * theta).sin() / sin_theta
+        return Quat{
+            x: x * a + target.x * b,
+            y: y * a + target.y * b,
+            z: z * a + target.z * b,
+            w: w * a + target.w * b,
+        }
+    }
+
+    /// The same rotation as a matrix.
+    pub fn to_mat4(&self) -> Mat4 {
+        let xx = x * x
+        let yy = y * y
+        let zz = z * z
+        let xy = x * y
+        let xz = x * z
+        let yz = y * z
+        let wx = w * x
+        let wy = w * y
+        let wz = w * z
+        return Mat4{ cols: [
+            Vec4{ x: 1 - 2 * (yy + zz), y: 2 * (xy + wz), z: 2 * (xz - wy), w: 0 },
+            Vec4{ x: 2 * (xy - wz), y: 1 - 2 * (xx + zz), z: 2 * (yz + wx), w: 0 },
+            Vec4{ x: 2 * (xz + wy), y: 2 * (yz - wx), z: 1 - 2 * (xx + yy), w: 0 },
+            Vec4{ x: 0, y: 0, z: 0, w: 1 },
+        ] }
+    }
+}
+
+/// `a * b` rotates by `b`, then by `a`.
+impl Mul for Quat {
+    type Output = Quat
+    fn mul(&self, rhs: Quat) -> Quat {
+        return Quat{
+            x: w * rhs.x + x * rhs.w + y * rhs.z - z * rhs.y,
+            y: w * rhs.y - x * rhs.z + y * rhs.w + z * rhs.x,
+            z: w * rhs.z + x * rhs.y - y * rhs.x + z * rhs.w,
+            w: w * rhs.w - x * rhs.x - y * rhs.y - z * rhs.z,
+        }
+    }
+}
+
+/// `q * v` is `q.rotate(v)`.
+impl Mul<Vec3> for Quat {
+    type Output = Vec3
+    fn mul(&self, rhs: Vec3) -> Vec3 {
+        return self.rotate(rhs)
+    }
+}
+
+// --- Mat4 ---------------------------------------------------------------------------
+
+/// A 4x4 transform, column-major: `cols[3]` is the translation, and `m * v` transforms a
+/// column vector. Built at its defaults it is all zeros; `Mat4::identity()` transforms
+/// nothing. Its 16 floats are in the order OpenGL and GLSL expect.
+pub struct Mat4 {
+    pub cols: [4]Vec4 = [Vec4{}, Vec4{}, Vec4{}, Vec4{}]
+
+    pub fn identity() -> Mat4 {
+        return Mat4{ cols: [
+            Vec4{ x: 1, y: 0, z: 0, w: 0 },
+            Vec4{ x: 0, y: 1, z: 0, w: 0 },
+            Vec4{ x: 0, y: 0, z: 1, w: 0 },
+            Vec4{ x: 0, y: 0, z: 0, w: 1 },
+        ] }
+    }
+
+    pub fn translation(v: Vec3) -> Mat4 {
+        let mut m = Mat4::identity()
+        m.cols[3] = Vec4{ x: v.x, y: v.y, z: v.z, w: 1 }
+        return m
+    }
+
+    pub fn scaling(v: Vec3) -> Mat4 {
+        let mut m = Mat4::identity()
+        m.cols[0].x = v.x
+        m.cols[1].y = v.y
+        m.cols[2].z = v.z
+        return m
+    }
+
+    /// A rotation of `angle` radians around `axis`.
+    pub fn rotation(axis: Vec3, angle: f32) -> Mat4 {
+        return Quat::from_axis_angle(axis, angle).to_mat4()
+    }
+
+    /// A perspective projection, `fov_y` in radians, into OpenGL's clip space, where depth
+    /// runs from -1 at `near` to 1 at `far`.
+    pub fn perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
+        let f = 1 / (fov_y * 0.5).tan()
+        let mut m = Mat4{}
+        m.cols[0].x = f / aspect
+        m.cols[1].y = f
+        m.cols[2].z = (far + near) / (near - far)
+        m.cols[2].w = -1
+        m.cols[3].z = (2 * far * near) / (near - far)
+        return m
+    }
+
+    /// An orthographic projection into OpenGL's clip space.
+    pub fn orthographic(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> Mat4 {
+        let mut m = Mat4::identity()
+        m.cols[0].x = 2 / (right - left)
+        m.cols[1].y = 2 / (top - bottom)
+        m.cols[2].z = -2 / (far - near)
+        m.cols[3].x = -(right + left) / (right - left)
+        m.cols[3].y = -(top + bottom) / (top - bottom)
+        m.cols[3].z = -(far + near) / (far - near)
+        return m
+    }
+
+    /// A view matrix: the camera at `eye`, looking at `target`, with `up` roughly up.
+    pub fn look_at(eye: Vec3, target: Vec3, up: Vec3) -> Mat4 {
+        let f = (target - eye).normalized()
+        let s = f.cross(up).normalized()
+        let u = s.cross(f)
+        let mut m = Mat4::identity()
+        m.cols[0].x = s.x
+        m.cols[1].x = s.y
+        m.cols[2].x = s.z
+        m.cols[0].y = u.x
+        m.cols[1].y = u.y
+        m.cols[2].y = u.z
+        m.cols[0].z = -f.x
+        m.cols[1].z = -f.y
+        m.cols[2].z = -f.z
+        m.cols[3].x = -s.dot(eye)
+        m.cols[3].y = -u.dot(eye)
+        m.cols[3].z = f.dot(eye)
+        return m
+    }
+
+    /// Row `row` of the matrix, as a vector.
+    pub fn row(&self, row: usize) -> Vec4 {
+        return switch row {
+            case 0 { Vec4{ x: cols[0].x, y: cols[1].x, z: cols[2].x, w: cols[3].x } }
+            case 1 { Vec4{ x: cols[0].y, y: cols[1].y, z: cols[2].y, w: cols[3].y } }
+            case 2 { Vec4{ x: cols[0].z, y: cols[1].z, z: cols[2].z, w: cols[3].z } }
+            case 3 { Vec4{ x: cols[0].w, y: cols[1].w, z: cols[2].w, w: cols[3].w } }
+            default { panic("row {} of a Mat4, which has 4", row) }
+        }
+    }
+
+    pub fn transpose(&self) -> Mat4 {
+        return Mat4{ cols: [self.row(0), self.row(1), self.row(2), self.row(3)] }
+    }
+
+    /// `p` as a point: translated as well as rotated and scaled.
+    pub fn transform_point(&self, p: Vec3) -> Vec3 {
+        let r = self * Vec4{ x: p.x, y: p.y, z: p.z, w: 1 }
+        return Vec3{ x: r.x, y: r.y, z: r.z }
+    }
+
+    /// `v` as a direction: rotated and scaled, never translated.
+    pub fn transform_vector(&self, v: Vec3) -> Vec3 {
+        let r = self * Vec4{ x: v.x, y: v.y, z: v.z, w: 0 }
+        return Vec3{ x: r.x, y: r.y, z: r.z }
+    }
+
+    pub fn determinant(&self) -> f32 {
+        let s0 = cols[0].x * cols[1].y - cols[0].y * cols[1].x
+        let s1 = cols[0].x * cols[2].y - cols[0].y * cols[2].x
+        let s2 = cols[0].x * cols[3].y - cols[0].y * cols[3].x
+        let s3 = cols[1].x * cols[2].y - cols[1].y * cols[2].x
+        let s4 = cols[1].x * cols[3].y - cols[1].y * cols[3].x
+        let s5 = cols[2].x * cols[3].y - cols[2].y * cols[3].x
+        let c5 = cols[2].z * cols[3].w - cols[2].w * cols[3].z
+        let c4 = cols[1].z * cols[3].w - cols[1].w * cols[3].z
+        let c3 = cols[1].z * cols[2].w - cols[1].w * cols[2].z
+        let c2 = cols[0].z * cols[3].w - cols[0].w * cols[3].z
+        let c1 = cols[0].z * cols[2].w - cols[0].w * cols[2].z
+        let c0 = cols[0].z * cols[1].w - cols[0].w * cols[1].z
+        return s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0
+    }
+
+    /// The matrix that undoes this one, or `none` when there is none: its determinant is 0.
+    pub fn inverse(&self) -> Mat4? {
+        let s0 = cols[0].x * cols[1].y - cols[0].y * cols[1].x
+        let s1 = cols[0].x * cols[2].y - cols[0].y * cols[2].x
+        let s2 = cols[0].x * cols[3].y - cols[0].y * cols[3].x
+        let s3 = cols[1].x * cols[2].y - cols[1].y * cols[2].x
+        let s4 = cols[1].x * cols[3].y - cols[1].y * cols[3].x
+        let s5 = cols[2].x * cols[3].y - cols[2].y * cols[3].x
+        let c5 = cols[2].z * cols[3].w - cols[2].w * cols[3].z
+        let c4 = cols[1].z * cols[3].w - cols[1].w * cols[3].z
+        let c3 = cols[1].z * cols[2].w - cols[1].w * cols[2].z
+        let c2 = cols[0].z * cols[3].w - cols[0].w * cols[3].z
+        let c1 = cols[0].z * cols[2].w - cols[0].w * cols[2].z
+        let c0 = cols[0].z * cols[1].w - cols[0].w * cols[1].z
+        let det = s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0
+        if det == 0 {
+            return none
+        }
+        let inv = 1 / det
+        return Mat4{ cols: [
+            Vec4{
+                x: (cols[1].y * c5 - cols[2].y * c4 + cols[3].y * c3) * inv,
+                y: (-cols[0].y * c5 + cols[2].y * c2 - cols[3].y * c1) * inv,
+                z: (cols[0].y * c4 - cols[1].y * c2 + cols[3].y * c0) * inv,
+                w: (-cols[0].y * c3 + cols[1].y * c1 - cols[2].y * c0) * inv,
+            },
+            Vec4{
+                x: (-cols[1].x * c5 + cols[2].x * c4 - cols[3].x * c3) * inv,
+                y: (cols[0].x * c5 - cols[2].x * c2 + cols[3].x * c1) * inv,
+                z: (-cols[0].x * c4 + cols[1].x * c2 - cols[3].x * c0) * inv,
+                w: (cols[0].x * c3 - cols[1].x * c1 + cols[2].x * c0) * inv,
+            },
+            Vec4{
+                x: (cols[1].w * s5 - cols[2].w * s4 + cols[3].w * s3) * inv,
+                y: (-cols[0].w * s5 + cols[2].w * s2 - cols[3].w * s1) * inv,
+                z: (cols[0].w * s4 - cols[1].w * s2 + cols[3].w * s0) * inv,
+                w: (-cols[0].w * s3 + cols[1].w * s1 - cols[2].w * s0) * inv,
+            },
+            Vec4{
+                x: (-cols[1].z * s5 + cols[2].z * s4 - cols[3].z * s3) * inv,
+                y: (cols[0].z * s5 - cols[2].z * s2 + cols[3].z * s1) * inv,
+                z: (-cols[0].z * s4 + cols[1].z * s2 - cols[3].z * s0) * inv,
+                w: (cols[0].z * s3 - cols[1].z * s1 + cols[2].z * s0) * inv,
+            },
+        ] }
+    }
+}
+
+/// `a * b` applies `b`, then `a`.
+impl Mul for Mat4 {
+    type Output = Mat4
+    fn mul(&self, rhs: Mat4) -> Mat4 {
+        return Mat4{ cols: [self * rhs.cols[0], self * rhs.cols[1], self * rhs.cols[2], self * rhs.cols[3]] }
+    }
+}
+
+impl Mul<Vec4> for Mat4 {
+    type Output = Vec4
+    fn mul(&self, v: Vec4) -> Vec4 {
+        return cols[0] * v.x + cols[1] * v.y + cols[2] * v.z + cols[3] * v.w
+    }
+}
+
+impl Eq for Mat4 {
+    fn eq(&self, rhs: &Mat4) -> bool {
+        return cols[0] == rhs.cols[0] && cols[1] == rhs.cols[1] && cols[2] == rhs.cols[2] && cols[3] == rhs.cols[3]
+    }
+}

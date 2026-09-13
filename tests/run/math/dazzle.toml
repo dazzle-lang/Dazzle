@@ -1,0 +1,6 @@
+[module]
+name    = "mathcheck"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

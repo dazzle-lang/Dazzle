@@ -185,6 +185,7 @@ struct String {
 inline Heap HEAP = Heap{};
 extern thread_local TempArena TEMP;
 uint64_t hash_combine(uint64_t seed, uint64_t h);
+void assert(bool cond, ::dz::str msg = ::dz::str("", 0), ::dz::SourceLocation loc = ::dz::caller_location());
 size_t encode_utf8(char32_t c, ::dz::Array<uint8_t, 4>& out);
 inline void Drop__dyn::drop() const { return vt->drop(data); }
 inline uint64_t Hash__dyn::hash() const { return vt->hash(data); }
@@ -228,32 +229,32 @@ inline const Hash__vtable* dz_vtable(const Hash__vtable*, const String*) {
 #ifndef DZ_INST_dz_List__u8_DEF
 #define DZ_INST_dz_List__u8_DEF
 inline List__u8::List__u8(size_t capacity, Allocator__dyn allocator, ::dz::SourceLocation loc) {
-#line 429 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 509 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_allocator = allocator;
-#line 430 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 510 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (capacity > 0ull) {
-#line 431 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 511 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         ::dz::obj((*this)).grow_to(capacity, loc);
     }
 }
 
 inline size_t List__u8::len() const {
-#line 436 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 516 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     return ::dz::obj((*this)).m_len;
 }
 
 inline size_t List__u8::capacity() const {
-#line 440 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 520 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     return ::dz::obj((*this)).m_cap;
 }
 
 inline bool List__u8::is_empty() const {
-#line 444 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 524 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     return (::dz::obj((*this)).m_len == 0ull);
 }
 
 inline ::dz::Slice<const uint8_t> List__u8::as_slice() const {
-#line 449 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 529 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::Slice<uint8_t> _dz_val23{};
     {
         _dz_val23 = ::dz::Slice<uint8_t>((::dz::obj((*this)).m_data) + static_cast<size_t>(0ull), static_cast<size_t>(::dz::obj((*this)).m_len) - static_cast<size_t>(0ull));
@@ -262,7 +263,7 @@ inline ::dz::Slice<const uint8_t> List__u8::as_slice() const {
 }
 
 inline ::dz::Slice<uint8_t> List__u8::as_mut_slice() {
-#line 453 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 533 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::Slice<uint8_t> _dz_val24{};
     {
         _dz_val24 = ::dz::Slice<uint8_t>((::dz::obj((*this)).m_data) + static_cast<size_t>(0ull), static_cast<size_t>(::dz::obj((*this)).m_len) - static_cast<size_t>(0ull));
@@ -271,28 +272,28 @@ inline ::dz::Slice<uint8_t> List__u8::as_mut_slice() {
 }
 
 inline void List__u8::push(uint8_t v, ::dz::SourceLocation loc) {
-#line 458 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 538 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (::dz::obj((*this)).m_len == ::dz::obj((*this)).m_cap) {
-#line 459 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 539 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         ::dz::obj((*this)).grow_to((::dz::obj((*this)).m_len + 1ull), loc);
     }
-#line 461 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 541 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     {
         ::dz::construct((::dz::obj((*this)).m_data)[static_cast<size_t>(::dz::obj((*this)).m_len)], ::dz::take(v));
     }
-#line 462 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 542 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_len += 1ull;
 }
 
 inline ::dz::Opt<uint8_t> List__u8::pop() {
-#line 467 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 547 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (::dz::obj((*this)).m_len == 0ull) {
-#line 468 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 548 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         return ::dz::Opt<uint8_t>();
     }
-#line 470 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 550 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_len -= 1ull;
-#line 471 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 551 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     uint8_t _dz_val25{};
     {
         _dz_val25 = ::dz::move_out((::dz::obj((*this)).m_data)[static_cast<size_t>(::dz::obj((*this)).m_len)]);
@@ -301,103 +302,103 @@ inline ::dz::Opt<uint8_t> List__u8::pop() {
 }
 
 inline void List__u8::insert(size_t i, uint8_t v, ::dz::SourceLocation loc) {
-#line 476 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 556 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (i > ::dz::obj((*this)).m_len) {
-#line 477 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
-        ::dz::panic_str(::dz::format(::dz::str("List::insert at {} past the length {}", 37), i, ::dz::obj((*this)).m_len), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::insert", 477, 13});
+#line 557 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+        ::dz::panic_str(::dz::format(::dz::str("List::insert at {} past the length {}", 37), i, ::dz::obj((*this)).m_len), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::insert", 557, 13});
     }
-#line 479 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 559 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (::dz::obj((*this)).m_len == ::dz::obj((*this)).m_cap) {
-#line 480 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 560 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         ::dz::obj((*this)).grow_to((::dz::obj((*this)).m_len + 1ull), loc);
     }
-#line 482 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 562 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     size_t j = ::dz::obj((*this)).m_len;
-#line 483 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 563 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     while (j > i) {
-#line 484 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 564 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         {
             auto&& _dz_arg26 = (::dz::obj((*this)).m_data)[static_cast<size_t>(j)];
             ::dz::construct(static_cast<decltype(_dz_arg26)>(_dz_arg26), ::dz::move_out((::dz::obj((*this)).m_data)[static_cast<size_t>((j - 1ull))]));
         }
-#line 485 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 565 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         j -= 1ull;
     }
-#line 487 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 567 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     {
         ::dz::construct((::dz::obj((*this)).m_data)[static_cast<size_t>(i)], ::dz::take(v));
     }
-#line 488 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 568 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_len += 1ull;
 }
 
 inline uint8_t List__u8::remove(size_t i) {
-#line 493 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 573 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (i >= ::dz::obj((*this)).m_len) {
-#line 494 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
-        ::dz::panic_str(::dz::format(::dz::str("List::remove at {} for a length of {}", 37), i, ::dz::obj((*this)).m_len), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::remove", 494, 13});
+#line 574 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+        ::dz::panic_str(::dz::format(::dz::str("List::remove at {} for a length of {}", 37), i, ::dz::obj((*this)).m_len), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::remove", 574, 13});
     }
-#line 496 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 576 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     uint8_t _dz_val27{};
     {
         _dz_val27 = ::dz::move_out((::dz::obj((*this)).m_data)[static_cast<size_t>(i)]);
     }
     uint8_t v = _dz_val27;
-#line 497 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 577 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     size_t j = i;
-#line 498 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 578 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     while ((j + 1ull) < ::dz::obj((*this)).m_len) {
-#line 499 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 579 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         {
             auto&& _dz_arg28 = (::dz::obj((*this)).m_data)[static_cast<size_t>(j)];
             ::dz::construct(static_cast<decltype(_dz_arg28)>(_dz_arg28), ::dz::move_out((::dz::obj((*this)).m_data)[static_cast<size_t>((j + 1ull))]));
         }
-#line 500 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 580 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         j += 1ull;
     }
-#line 502 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 582 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_len -= 1ull;
-#line 503 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 583 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     return ::dz::take(v);
 }
 
 inline uint8_t List__u8::swap_remove(size_t i) {
-#line 509 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 589 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (i >= ::dz::obj((*this)).m_len) {
-#line 510 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
-        ::dz::panic_str(::dz::format(::dz::str("List::swap_remove at {} for a length of {}", 42), i, ::dz::obj((*this)).m_len), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::swap_remove", 510, 13});
+#line 590 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+        ::dz::panic_str(::dz::format(::dz::str("List::swap_remove at {} for a length of {}", 42), i, ::dz::obj((*this)).m_len), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::swap_remove", 590, 13});
     }
-#line 512 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 592 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     uint8_t _dz_val29{};
     {
         _dz_val29 = ::dz::move_out((::dz::obj((*this)).m_data)[static_cast<size_t>(i)]);
     }
     uint8_t v = _dz_val29;
-#line 513 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 593 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_len -= 1ull;
-#line 514 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 594 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (i != ::dz::obj((*this)).m_len) {
-#line 515 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 595 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         {
             auto&& _dz_arg30 = (::dz::obj((*this)).m_data)[static_cast<size_t>(i)];
             ::dz::construct(static_cast<decltype(_dz_arg30)>(_dz_arg30), ::dz::move_out((::dz::obj((*this)).m_data)[static_cast<size_t>(::dz::obj((*this)).m_len)]));
         }
     }
-#line 517 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 597 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     return ::dz::take(v);
 }
 
 inline void List__u8::clear() {
-#line 522 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 602 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).truncate(0ull);
 }
 
 inline void List__u8::truncate(size_t n) {
-#line 527 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 607 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     while (::dz::obj((*this)).m_len > n) {
-#line 528 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 608 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         ::dz::obj((*this)).m_len -= 1ull;
-#line 529 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 609 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         {
             ::dz::destroy((::dz::obj((*this)).m_data)[static_cast<size_t>(::dz::obj((*this)).m_len)]);
         }
@@ -405,34 +406,34 @@ inline void List__u8::truncate(size_t n) {
 }
 
 inline void List__u8::resize(size_t n, ::dz::SourceLocation loc) {
-#line 535 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 615 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (n > ::dz::obj((*this)).m_cap) {
-#line 536 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 616 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         ::dz::obj((*this)).grow_to(n, loc);
     }
-#line 538 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 618 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     while (::dz::obj((*this)).m_len < n) {
-#line 539 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 619 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         {
             ::dz::construct((::dz::obj((*this)).m_data)[static_cast<size_t>(::dz::obj((*this)).m_len)]);
         }
-#line 540 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 620 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         ::dz::obj((*this)).m_len += 1ull;
     }
-#line 542 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 622 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).truncate(n);
 }
 
 inline void List__u8::reserve(size_t additional, ::dz::SourceLocation loc) {
-#line 547 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 627 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if ((::dz::obj((*this)).m_len + additional) > ::dz::obj((*this)).m_cap) {
-#line 548 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 628 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         ::dz::obj((*this)).grow_to((::dz::obj((*this)).m_len + additional), loc);
     }
 }
 
 inline void List__u8::grow_to(size_t wanted, ::dz::SourceLocation loc) {
-#line 555 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 635 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     size_t _dz_val31{};
     if (::dz::obj((*this)).m_cap == 0ull) {
         _dz_val31 = 8;
@@ -444,7 +445,7 @@ inline void List__u8::grow_to(size_t wanted, ::dz::SourceLocation loc) {
         _dz_val31 = _dz_val32;
     }
     size_t doubled = _dz_val31;
-#line 556 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 636 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     size_t _dz_val33{};
     if (wanted > doubled) {
         _dz_val33 = wanted;
@@ -456,42 +457,42 @@ inline void List__u8::grow_to(size_t wanted, ::dz::SourceLocation loc) {
         _dz_val33 = _dz_val34;
     }
     size_t cap = _dz_val33;
-#line 557 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 637 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     Allocator__dyn _dz_ok35 = nullptr;
     Allocator__dyn _dz_ptr36 = ::dz::obj((*this)).m_allocator;
     if (_dz_ptr36 != nullptr) {
         _dz_ok35 = _dz_ptr36;
     } else {
-        ::dz::panic_str(::dz::format(::dz::str("a List with no allocator cannot grow", 36)), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::grow_to", 557, 32});
+        ::dz::panic_str(::dz::format(::dz::str("a List with no allocator cannot grow", 36)), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::grow_to", 637, 32});
     }
     Allocator__dyn a = (*_dz_ok35);
-#line 558 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 638 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     {
-#line 560 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 640 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         uint8_t* _dz_val37{};
         {
             _dz_val37 = ::dz::cast<uint8_t*>(::dz::obj((*this)).m_data);
         }
         uint8_t* old = _dz_val37;
-#line 561 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 641 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         uint8_t* _dz_val38{};
         {
             _dz_val38 = ::dz::cast<uint8_t*>(::dz::obj(a).realloc(old, (::dz::obj((*this)).m_cap * sizeof(uint8_t)), (cap * sizeof(uint8_t)), alignof(uint8_t), loc));
         }
         ::dz::obj((*this)).m_data = _dz_val38;
     }
-#line 572 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 652 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_cap = cap;
 }
 
 inline List__u8::~List__u8() {
-#line 578 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 658 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (::dz::obj((*this)).m_data == nullptr) {
-#line 579 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 659 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         return;
     }
-#line 581 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
-#line 586 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 661 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 666 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     Allocator__dyn _dz_ok39 = nullptr;
     Allocator__dyn _dz_ptr40 = ::dz::obj((*this)).m_allocator;
     if (_dz_ptr40 != nullptr) {
@@ -500,7 +501,7 @@ inline List__u8::~List__u8() {
         return;
     }
     Allocator__dyn a = (*_dz_ok39);
-#line 587 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 667 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     uint8_t* _dz_val41{};
     {
         _dz_val41 = ::dz::cast<uint8_t*>(::dz::obj((*this)).m_data);
@@ -510,38 +511,38 @@ inline List__u8::~List__u8() {
 }
 
 inline List__u8::List__u8(const List__u8& other) {
-#line 593 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 673 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_allocator = ::dz::obj(other).m_allocator;
-#line 594 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 674 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     if (::dz::obj(other).m_len == 0ull) {
-#line 595 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 675 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         return;
     }
-#line 597 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 677 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     Allocator__dyn _dz_ok43 = nullptr;
     Allocator__dyn _dz_ptr44 = ::dz::obj((*this)).m_allocator;
     if (_dz_ptr44 != nullptr) {
         _dz_ok43 = _dz_ptr44;
     } else {
-        ::dz::panic_str(::dz::format(::dz::str("a List with no allocator cannot be copied", 41)), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::copy", 597, 32});
+        ::dz::panic_str(::dz::format(::dz::str("a List with no allocator cannot be copied", 41)), ::dz::SourceLocation{"<prelude>/dz.dz", "List__u8::copy", 677, 32});
     }
     Allocator__dyn a = (*_dz_ok43);
-#line 598 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 678 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     uint8_t* _dz_val45{};
     {
         _dz_val45 = ::dz::cast<uint8_t*>(::dz::obj(a).alloc((::dz::obj(other).m_len * sizeof(uint8_t)), alignof(uint8_t)));
     }
     ::dz::obj((*this)).m_data = _dz_val45;
-#line 599 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 679 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_cap = ::dz::obj(other).m_len;
-#line 600 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 680 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     for (size_t i = 0; i < ::dz::obj(other).m_len; ++i) {
-#line 601 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 681 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
         {
             ::dz::construct((::dz::obj((*this)).m_data)[static_cast<size_t>(i)], (::dz::obj(other).m_data)[static_cast<size_t>(i)]);
         }
     }
-#line 603 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
+#line 683 "D:/OdinProjects/Dazzle/crates/dz/../../tests/bench/build/cpp/prelude/dz.dz"
     ::dz::obj((*this)).m_len = ::dz::obj(other).m_len;
 }
 

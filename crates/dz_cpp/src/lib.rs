@@ -2069,35 +2069,10 @@ impl<'a> Emitter<'a> {
                 dz_check::VariantSig { fields, ..v.clone() }
             })
             .collect();
-        // A C++ union with a non-trivial member needs hand-written special members that
-        // switch on the tag. Spec §7.5 marks variant drops `[PROPOSED]`; until they are
-        // settled, a payload that owns something is refused rather than leaked.
-        for v in &variants {
-            let carried = v.carries.map(Ty::plain);
-            if v.fields.iter().any(|f| self.table.needs_drop(&f.ty))
-                || carried.as_ref().is_some_and(|t| self.table.needs_drop(t))
-            {
-                self.file = self.res.symbol(sym).file;
-                self.unsupported(v.span, "a union variant that owns a resource", "owed by M12");
-                return;
-            }
-            // A carried struct lives in a C++ union, which has room only for a type C++ can
-            // copy and build without running anything of the struct's own: no constructor,
-            // `copy`, base or vtable. Those wait on the same decision as variant drops.
-            let special = v.carries.and_then(|c| self.table.struct_sig(c)).is_some_and(|s| {
-                !s.ctors.is_empty() || s.copy.is_some() || s.base.is_some() || s.polymorphic
-            });
-            if special {
-                self.file = self.res.symbol(sym).file;
-                self.unsupported(
-                    v.span,
-                    "a union variant carrying a struct with a constructor, `copy`, base or \
-                     `virtual` method",
-                    "owed by M12",
-                );
-                return;
-            }
-        }
+        // A union owns its active payload (spec §7.5, 18.52). When every payload is plain
+        // data the C++ union needs nothing written; otherwise its special members switch on
+        // the tag, so the payload that is there is the one copied, moved and destroyed.
+        let trivial = self.table.union_is_trivial(sym, args);
 
         let name =
             if args.is_empty() { sanitize(&u.name.name) } else { self.instance_name(sym, args) };
@@ -2140,10 +2115,62 @@ impl<'a> Emitter<'a> {
             let _ = writeln!(self.header, "        {ty} {n};");
         }
         self.header.push_str("    };\n\n");
-        // Every payload is trivial (checked above), so one defaulted member suffices to
-        // make the anonymous union legal and `let s: Shape` well defined (spec §6.2).
+        // The first variant, at its defaults, is what `let s: Shape` holds (spec §6.2).
         let _ = writeln!(self.header, "    {name}() : {first}() {{}}");
-        self.header.push_str("};\n\n");
+        if trivial {
+            self.header.push_str("};\n\n");
+            return;
+        }
+
+        let copyable = self.table.copyable(&Ty::Named { sym, args: args.to_vec() });
+        let names: Vec<String> = variants.iter().map(|v| sanitize(&v.name)).collect();
+        let each = |body: &dyn Fn(&str) -> String| -> String {
+            let mut s = String::from("        switch (kind) {\n");
+            for n in &names {
+                let _ = writeln!(s, "            case Kind::{n}: {} break;", body(n));
+            }
+            s.push_str("        }\n");
+            s
+        };
+        let h = &mut self.header;
+        // Destroying runs the active payload's destructor, and only that one.
+        let _ = writeln!(h, "    ~{name}() {{ drop_active(); }}");
+        if copyable {
+            let _ = writeln!(h, "    {name}(const {name}& o) : kind(o.kind) {{ copy_from(o); }}");
+            let _ = writeln!(
+                h,
+                "    {name}& operator=(const {name}& o) {{ if (this != &o) {{ drop_active(); \
+                 kind = o.kind; copy_from(o); }} return *this; }}"
+            );
+        } else {
+            let _ = writeln!(h, "    {name}(const {name}&) = delete;");
+            let _ = writeln!(h, "    {name}& operator=(const {name}&) = delete;");
+        }
+        // A move takes the active payload and leaves the source at its defaults, as every
+        // moved-from value is (spec §6.4).
+        let _ = writeln!(
+            h,
+            "    {name}({name}&& o) : kind(o.kind) {{ move_from(o); o.become(Kind::{first}); }}"
+        );
+        let _ = writeln!(
+            h,
+            "    {name}& operator=({name}&& o) {{ if (this != &o) {{ drop_active(); kind = o.kind; \
+             move_from(o); o.become(Kind::{first}); }} return *this; }}"
+        );
+        // Switching variant drops the old payload before the new one is built (18.52).
+        h.push_str("    void become(Kind k) {\n        drop_active();\n        kind = k;\n");
+        let construct = each(&|n| format!("::dz::construct({n});"));
+        h.push_str(&construct);
+        h.push_str("    }\n");
+        let drop_body = each(&|n| format!("::dz::destroy({n});"));
+        let _ = write!(h, "    void drop_active() {{\n{drop_body}    }}\n");
+        if copyable {
+            let copy_body = each(&|n| format!("::dz::construct({n}, o.{n});"));
+            let _ = write!(h, "    void copy_from(const {name}& o) {{\n{copy_body}    }}\n");
+        }
+        let move_body = each(&|n| format!("::dz::construct({n}, ::dz::mv(o.{n}));"));
+        let _ = write!(h, "    void move_from({name}& o) {{\n{move_body}    }}\n");
+        h.push_str("};\n\n");
     }
 
     // --- function shells ---------------------------------------------------
@@ -3546,7 +3573,19 @@ impl<'a> Emitter<'a> {
         // statements inside an expression, so this is the one place a lambda is right:
         // no `return` can appear inside a variant literal's field values.
         let tmp = self.fresh("var");
-        let mut out = format!("[&] {{ {ty} {tmp}{{}}; {tmp}.kind = {ty}::Kind::{name}; ");
+        // A payload with a destructor or a constructor must be built where it goes, after
+        // the first variant's is gone: `become` does both (spec §7.5, 18.52). Plain data
+        // needs only the tag set.
+        let union_args = match &node_ty {
+            Ty::Named { args, .. } => args.clone(),
+            _ => Vec::new(),
+        };
+        let switch_to = if self.table.union_is_trivial(owner, &union_args) {
+            format!("{tmp}.kind = {ty}::Kind::{name};")
+        } else {
+            format!("{tmp}.become({ty}::Kind::{name});")
+        };
+        let mut out = format!("[&] {{ {ty} {tmp}{{}}; {switch_to} ");
         let carries = match self.table.get(owner) {
             Some(ItemSig::Union { variants }) => variants.get(index).and_then(|v| v.carries),
             _ => None,
@@ -3565,7 +3604,7 @@ impl<'a> Emitter<'a> {
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
-        for (i, text) in self.literal_fields(payload, |_| None, false) {
+        for (i, text) in self.literal_fields(payload, |_| None, true) {
             let Some(f) = fields.get(i) else { continue };
             let _ = write!(out, "{tmp}.{name}.{f} = {text}; ");
         }
@@ -3972,6 +4011,9 @@ impl<'a> Emitter<'a> {
                 let opt_ty = self.cpp_ty(&inner);
                 let tmp = self.fresh("opt");
                 let v = self.expr(operand);
+                // `t or …` on a move-only optional consumes `t`, as ownership analysis
+                // already says it does (spec §6.4); a copy would not compile.
+                let v = if self.table.copyable(&inner) { v } else { format!("::dz::mv({v})") };
                 self.line(&format!("::dz::Opt<{opt_ty}> {tmp} = {v};"));
                 self.line(&format!("if ({tmp}.has) {{"));
                 self.indent += 1;
@@ -4112,9 +4154,20 @@ impl<'a> Emitter<'a> {
             "format" => format!("::dz::format({})", rendered.join(", ")),
             // `panic` formats exactly as `println` does (spec §9.8, §12.9), so `{}` and `{{`
             // mean the same thing in both; the checker guaranteed a format string is there.
+            // A final `SourceLocation` argument is where the panic says it happened, in place
+            // of its own line: `assert` passes its caller's (spec §9.8, §12.7).
             "panic" => {
-                let loc = self.source_location(span);
-                format!("::dz::panic_str(::dz::format({}), {loc})", rendered.join(", "))
+                let given = args.last().is_some_and(|a| {
+                    matches!(
+                        self.cur().ty(*a).peeled_refs(),
+                        Ty::Builtin(dz_hir::ty::BuiltinTy::SourceLocation)
+                    )
+                });
+                let (values, loc) = match rendered.split_last() {
+                    Some((last, rest)) if given && !rest.is_empty() => (rest, last.clone()),
+                    _ => (&rendered[..], self.source_location(span)),
+                };
+                format!("::dz::panic_str(::dz::format({}), {loc})", values.join(", "))
             }
             // `error(code?, fmt, args…)` — the code is optional and comes first (§9.1).
             "error" => {
@@ -4132,9 +4185,8 @@ impl<'a> Emitter<'a> {
             }
             _ => {
                 // What reaches here is reflection (`typeinfo_of` and friends, spec §13), which
-                // is M11's, and `assert`, which becomes an ordinary stdlib function at M12.
-                let owner = if name == "assert" { "owed by M12" } else { "owed by M11" };
-                self.unsupported(span, &format!("the builtin `{name}`"), owner);
+                // is M11's.
+                self.unsupported(span, &format!("the builtin `{name}`"), "owed by M11");
                 "0".to_owned()
             }
         }
@@ -4154,8 +4206,27 @@ impl<'a> Emitter<'a> {
         args: &[ExprId],
     ) -> Option<String> {
         let recv_ty = self.cur().ty(recv).peeled().clone();
-        if !matches!(recv_ty, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str) {
+        // An enum is a named integer, and has `Eq`, `Hash` and `Ord` as one (spec §7.4).
+        let builtin = matches!(recv_ty, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str)
+            || self.table.is_enum(&recv_ty);
+        if !builtin || (self.table.is_enum(&recv_ty) && !matches!(name, "eq" | "cmp" | "hash")) {
             return None;
+        }
+        // `std::math`'s `Float` and `Integer` on a number: the shim's function of the same
+        // name, receiver first (spec §14.4). `abs` and `pow` differ for integers.
+        let owner_sym = self.res.symbol(owner);
+        if matches!(owner_sym.name.as_str(), "Float" | "Integer")
+            && self.ws.module(owner_sym.module).name == dz_check::STD_MATH
+        {
+            let f = match (&recv_ty, name) {
+                (Ty::Int(_), "abs") => "abs_int",
+                (Ty::Int(_), "pow") => "pow_int",
+                _ => name,
+            };
+            let operands: Vec<ExprId> = std::iter::once(recv).chain(args.iter().copied()).collect();
+            let places = vec![false; operands.len()];
+            let values = self.ordered_operands(&operands, &places);
+            return Some(format!("::dz::num::{f}({})", values.join(", ")));
         }
         if self.res.symbol(owner).module != self.res.prelude {
             return None;
@@ -4628,6 +4699,10 @@ fn is_cpp_reserved(name: &str) -> bool {
             | "signed"
             | "sizeof"
             | "static"
+            // Not a keyword, but a module segment named `std` would open `dz::std`, and
+            // every unqualified `std::` inside `namespace dz` would then find it rather than
+            // the C++ standard library (spec §14.4).
+            | "std"
             | "static_assert"
             | "static_cast"
             | "template"

@@ -298,7 +298,6 @@ pub const BUILTIN_FNS: &[&str] = &[
     "print",
     "println",
     "format",
-    "assert",
     "typeinfo_of",
     "typeid_of",
     "typeinfo",

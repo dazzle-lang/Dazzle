@@ -13,6 +13,8 @@
 // `memcpy` is §8.3's own example. Both headers are the C standard library.
 #include <stdlib.h>
 #include <string.h>
+// `Float`'s methods from `std::math` (spec §14.4): the C library's, not <cmath>'s overloads.
+#include <math.h>
 
 // The access helpers below must vanish even in a debug build. A game has to stay playable
 // at -O0, and without this each `xs[i]` costs three real function calls.
@@ -120,13 +122,13 @@ struct Slice {
     explicit Slice(const str& s) : ptr(s.ptr), len(s.len) {}
     explicit operator str() const { return str(static_cast<const uint8_t*>(ptr), len); }
 
-    DZ_INLINE T& operator[](size_t i) { return ptr[i]; }
-    DZ_INLINE const T& operator[](size_t i) const { return ptr[i]; }
+    // A slice is a view, and what it may write is in its element type — `Slice<const T>`
+    // for a `[]T` — never in how the slice itself is reached, just as a `^mut T` held in a
+    // `&self` still writes (spec §5.3). So a `const` slice indexes to the same element.
+    DZ_INLINE T& operator[](size_t i) const { return ptr[i]; }
 
-    T* begin() { return ptr; }
-    T* end() { return ptr + len; }
-    const T* begin() const { return ptr; }
-    const T* end() const { return ptr + len; }
+    T* begin() const { return ptr; }
+    T* end() const { return ptr + len; }
 };
 
 template <class T, size_t N>
@@ -323,6 +325,125 @@ inline uint64_t hash(str s) {
     }
     return hash_mix(h);
 }
+
+// --- `std::math`'s `Float` and `Integer` on the machine's numbers (spec §14.4) ------
+//
+// `x.sqrt()` on an `f32` and `n.wrapping_add(m)` on a `u64` are calls of these, one name
+// per method; overloads pick the width. In their own namespace so a generated module's
+// function called `sqrt` never meets them.
+namespace num {
+
+// `T` comes from the receiver alone: `big.wrapping_add(10)` passes an `int` literal beside
+// a `uint8_t`, and deducing from both would find two answers.
+template <class T> struct same_t { using type = T; };
+template <class T> using Same = typename same_t<T>::type;
+
+inline float sqrt(float x) { return ::sqrtf(x); }
+inline double sqrt(double x) { return ::sqrt(x); }
+inline float abs(float x) { return ::fabsf(x); }
+inline double abs(double x) { return ::fabs(x); }
+inline float floor(float x) { return ::floorf(x); }
+inline double floor(double x) { return ::floor(x); }
+inline float ceil(float x) { return ::ceilf(x); }
+inline double ceil(double x) { return ::ceil(x); }
+inline float round(float x) { return ::roundf(x); }
+inline double round(double x) { return ::round(x); }
+inline float trunc(float x) { return ::truncf(x); }
+inline double trunc(double x) { return ::trunc(x); }
+inline float fract(float x) { return x - ::floorf(x); }
+inline double fract(double x) { return x - ::floor(x); }
+inline float sin(float x) { return ::sinf(x); }
+inline double sin(double x) { return ::sin(x); }
+inline float cos(float x) { return ::cosf(x); }
+inline double cos(double x) { return ::cos(x); }
+inline float tan(float x) { return ::tanf(x); }
+inline double tan(double x) { return ::tan(x); }
+inline float asin(float x) { return ::asinf(x); }
+inline double asin(double x) { return ::asin(x); }
+inline float acos(float x) { return ::acosf(x); }
+inline double acos(double x) { return ::acos(x); }
+inline float atan(float x) { return ::atanf(x); }
+inline double atan(double x) { return ::atan(x); }
+inline float atan2(float y, float x) { return ::atan2f(y, x); }
+inline double atan2(double y, double x) { return ::atan2(y, x); }
+inline float pow(float x, float e) { return ::powf(x, e); }
+inline double pow(double x, double e) { return ::pow(x, e); }
+inline float exp(float x) { return ::expf(x); }
+inline double exp(double x) { return ::exp(x); }
+inline float ln(float x) { return ::logf(x); }
+inline double ln(double x) { return ::log(x); }
+inline float log2(float x) { return ::log2f(x); }
+inline double log2(double x) { return ::log2(x); }
+inline float log10(float x) { return ::log10f(x); }
+inline double log10(double x) { return ::log10(x); }
+template <class T> DZ_INLINE T lerp(T a, Same<T> b, Same<T> t) { return a + (b - a) * t; }
+inline float sign(float x) { return static_cast<float>((0.0f < x) - (x < 0.0f)); }
+inline double sign(double x) { return static_cast<double>((0.0 < x) - (x < 0.0)); }
+template <class T> DZ_INLINE bool is_nan(T x) { return x != x; }
+template <class T> DZ_INLINE bool is_finite(T x) { return x == x && x - x == x - x; }
+template <class T> DZ_INLINE T to_radians(T x) { return x * static_cast<T>(0.017453292519943295); }
+template <class T> DZ_INLINE T to_degrees(T x) { return x * static_cast<T>(57.29577951308232); }
+
+// Shared by both kinds.
+template <class T> DZ_INLINE T min(T a, Same<T> b) { return b < a ? b : a; }
+template <class T> DZ_INLINE T max(T a, Same<T> b) { return a < b ? b : a; }
+template <class T> DZ_INLINE T clamp(T x, Same<T> lo, Same<T> hi) { return x < lo ? lo : (hi < x ? hi : x); }
+
+// Integers. Wrapping goes through the unsigned type of the same width, where C++ defines
+// overflow; a signed overflow is undefined there, and so no promise at all. Chosen by size
+// rather than by name, since `usize` is `unsigned long` on one platform and `unsigned long
+// long` on another.
+template <size_t N> struct uint_of_size;
+template <> struct uint_of_size<1> { using type = uint8_t; };
+template <> struct uint_of_size<2> { using type = uint16_t; };
+template <> struct uint_of_size<4> { using type = uint32_t; };
+template <> struct uint_of_size<8> { using type = uint64_t; };
+template <class T> using U = typename uint_of_size<sizeof(T)>::type;
+// Signedness without comparing a value against zero, which -Wextra reports as always false
+// for an unsigned instantiation.
+template <class T> DZ_INLINE constexpr bool is_signed() { return static_cast<T>(~static_cast<U<T>>(0)) < static_cast<T>(1); }
+template <class T> DZ_INLINE T sign(T x) {
+    if (is_signed<T>()) { return static_cast<T>((T(0) < x) - (static_cast<U<T>>(x) >> (sizeof(T) * 8 - 1))); }
+    return static_cast<T>(T(0) < x);
+}
+
+template <class T> DZ_INLINE T wrapping_add(T a, Same<T> b) { return static_cast<T>(static_cast<U<T>>(static_cast<U<T>>(a) + static_cast<U<T>>(b))); }
+template <class T> DZ_INLINE T wrapping_sub(T a, Same<T> b) { return static_cast<T>(static_cast<U<T>>(static_cast<U<T>>(a) - static_cast<U<T>>(b))); }
+template <class T> DZ_INLINE T wrapping_mul(T a, Same<T> b) { return static_cast<T>(static_cast<U<T>>(static_cast<U<T>>(a) * static_cast<U<T>>(b))); }
+template <class T> DZ_INLINE Opt<T> checked_add(T a, Same<T> b) { T r; return __builtin_add_overflow(a, b, &r) ? Opt<T>() : Opt<T>(r); }
+template <class T> DZ_INLINE Opt<T> checked_sub(T a, Same<T> b) { T r; return __builtin_sub_overflow(a, b, &r) ? Opt<T>() : Opt<T>(r); }
+template <class T> DZ_INLINE Opt<T> checked_mul(T a, Same<T> b) { T r; return __builtin_mul_overflow(a, b, &r) ? Opt<T>() : Opt<T>(r); }
+// Every intermediate is cast back to the unsigned type: `~` on a `uint8_t` promotes it to
+// `int`, and the shift then works on -1 rather than on 0xFF.
+template <class T> DZ_INLINE U<T> all_ones() { return static_cast<U<T>>(~static_cast<U<T>>(0)); }
+template <class T> DZ_INLINE T max_of() { return static_cast<T>(static_cast<U<T>>(all_ones<T>() >> (is_signed<T>() ? 1 : 0))); }
+template <class T> DZ_INLINE T min_of() { return is_signed<T>() ? static_cast<T>(static_cast<U<T>>(~static_cast<U<T>>(all_ones<T>() >> 1))) : T(0); }
+template <class T> DZ_INLINE T saturating_add(T a, Same<T> b) {
+    T r;
+    if (!__builtin_add_overflow(a, b, &r)) { return r; }
+    return T(0) < b ? max_of<T>() : min_of<T>();
+}
+template <class T> DZ_INLINE T saturating_sub(T a, Same<T> b) {
+    T r;
+    if (!__builtin_sub_overflow(a, b, &r)) { return r; }
+    return T(0) < b ? min_of<T>() : max_of<T>();
+}
+template <class T> DZ_INLINE T abs_int(T x) {
+    if (is_signed<T>() && (static_cast<U<T>>(x) >> (sizeof(T) * 8 - 1)) != 0) { return wrapping_sub(T(0), x); }
+    return x;
+}
+template <class T> DZ_INLINE T pow_int(T base, uint32_t e) {
+    T r = 1;
+    while (e != 0) {
+        if (e & 1u) { r = wrapping_mul(r, base); }
+        base = wrapping_mul(base, base);
+        e >>= 1;
+    }
+    return r;
+}
+template <class T> DZ_INLINE bool is_power_of_two(T x) { return T(0) < x && (x & (x - 1)) == 0; }
+
+} // namespace num
 
 /// Element count, for the index form of `for` (spec §10.4).
 template <class T> DZ_INLINE size_t len(Slice<T>& s) { return s.len; }

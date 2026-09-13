@@ -1,0 +1,6 @@
+[module]
+name    = "asserting"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

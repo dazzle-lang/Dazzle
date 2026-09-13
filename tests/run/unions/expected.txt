@@ -1,0 +1,12 @@
+move hello
+samples 2 first 7
+assigning a sound over the samples
+assigning another sound
+  drop sound 5
+moved sound 6
+leaving a scope
+  drop sound 8
+list of 3
+  drop sound 9
+drops so far 3
+  drop sound 6

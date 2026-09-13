@@ -392,12 +392,15 @@ impl Server {
     /// answer about the text as it is.
     fn analysis_for(&mut self, uri: &Url) -> Option<(Rc<Analysis>, FileId)> {
         let key = key_of(uri)?;
-        // The prelude's copy belongs to no project and is part of every one, so any analysis
-        // answers for it — reached by going to a definition, which analysed a project first.
-        if prelude_copy().is_some_and(|p| path_key(&p) == key) {
-            let analysis = self.projects.values().find_map(|p| p.current.clone())?;
-            let file = file_in(&analysis, &key)?;
-            return Some((analysis, file));
+        // A copy of the prelude or of a standard module belongs to no project and may be part
+        // of any, so any analysis that has the file answers for it — reached by going to a
+        // definition, which analysed a project first.
+        if embedded_for_key(&key).is_some() {
+            return self.projects.values().find_map(|p| {
+                let analysis = p.current.clone()?;
+                let file = file_in(&analysis, &key)?;
+                Some((analysis, file))
+            });
         }
         let manifest = match self.docs.get(&key) {
             Some(d) => d.manifest.clone(),
@@ -428,10 +431,11 @@ impl Server {
     /// The URI to report a file under: the editor's own spelling when it has the file open,
     /// so a diagnostic lands on the buffer rather than on a differently-cased twin.
     fn uri_for(&self, path: &Path) -> Option<Url> {
-        // The prelude's pseudo-path (`<prelude>/dz.dz`) names nothing on disk; it is shown
-        // from a copy that does.
+        // A pseudo-path (`<prelude>/dz.dz`, `<std>/math.dz`) names nothing on disk; it is
+        // shown from a copy that does.
         if path.to_string_lossy().starts_with('<') {
-            return Url::from_file_path(prelude_copy()?).ok();
+            return Url::from_file_path(embedded_copy(&path.to_string_lossy().replace('\\', "/"))?)
+                .ok();
         }
         if let Some(doc) = self.docs.get(&path_key(path)) {
             return Some(doc.uri.clone());
@@ -788,46 +792,69 @@ fn find_manifest(path: &Path) -> Option<PathBuf> {
 }
 
 fn file_in(analysis: &Analysis, key: &str) -> Option<FileId> {
-    if prelude_copy().is_some_and(|p| path_key(&p) == key) {
-        return ide::prelude_file(analysis);
+    if let Some(pseudo) = embedded_for_key(key) {
+        return ide::embedded_file(analysis, pseudo);
     }
     analysis.map.iter().find(|f| path_key(f.path()) == key).map(|f| f.id())
 }
 
-/// The prelude written out where an editor can open it, so that going to the definition of
-/// `String` or `Allocators` lands on something (spec §3.2, §17.4).
+/// The pseudo-path of the embedded source whose editor copy has path key `key`, if any.
+fn embedded_for_key(key: &str) -> Option<&'static str> {
+    embedded_copies().iter().find(|(_, copy)| path_key(copy) == key).map(|(pseudo, _)| *pseudo)
+}
+
+/// The editor copy of the embedded source at `pseudo` (`<std>/math.dz`).
+fn embedded_copy(pseudo: &str) -> Option<PathBuf> {
+    embedded_copies().iter().find(|(p, _)| *p == pseudo).map(|(_, copy)| copy.clone())
+}
+
+/// The prelude and the standard library written out where an editor can open them, so that
+/// going to the definition of `String` or `Vec3` lands on something (spec §3.2, §14.4,
+/// §17.4).
 ///
-/// The prelude is compiled into `dz`, so it has no file of its own. The copy is exactly its
-/// text — byte offsets and line numbers are the analysis's — in a directory named by a hash
-/// of that text, so two `dz` versions never share one, and it is marked read-only: editing
-/// it would change nothing, and should not look as though it might.
-fn prelude_copy() -> Option<PathBuf> {
+/// They are compiled into `dz`, so they have no files of their own. Each copy is exactly its
+/// text — byte offsets and line numbers are the analysis's — under a directory named by a
+/// hash of all of them, so two `dz` versions never share one, and marked read-only: editing
+/// one would change nothing, and should not look as though it might.
+fn embedded_copies() -> &'static [(&'static str, PathBuf)] {
     use std::hash::{Hash, Hasher};
-    static COPY: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
-    COPY.get_or_init(|| {
-        let text = dz_project::PRELUDE_SOURCE;
+    static COPIES: std::sync::OnceLock<Vec<(&'static str, PathBuf)>> = std::sync::OnceLock::new();
+    COPIES.get_or_init(|| {
+        let sources = dz_project::embedded_sources();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        text.hash(&mut hasher);
+        sources.hash(&mut hasher);
         let dir =
-            std::env::temp_dir().join("dazzle").join(format!("prelude-{:016x}", hasher.finish()));
-        let path = dir.join("dz.dz");
-        if std::fs::read_to_string(&path).ok().as_deref() != Some(text) {
-            std::fs::create_dir_all(&dir).ok()?;
-            if let Ok(meta) = std::fs::metadata(&path) {
-                // A partial copy from an interrupted write: make it writable to replace it.
-                let mut perms = meta.permissions();
-                #[allow(clippy::permissions_set_readonly_false)]
-                perms.set_readonly(false);
-                let _ = std::fs::set_permissions(&path, perms);
+            std::env::temp_dir().join("dazzle").join(format!("stdlib-{:016x}", hasher.finish()));
+        let mut out = Vec::new();
+        for (pseudo, text) in sources {
+            // `<prelude>/dz.dz` → `prelude/dz.dz`, `<std>/math.dz` → `std/math.dz`.
+            let relative = pseudo.replace(['<', '>'], "");
+            let path = dir.join(relative);
+            if write_read_only(&path, text).is_some() {
+                out.push((pseudo, path));
             }
-            std::fs::write(&path, text).ok()?;
-            let mut perms = std::fs::metadata(&path).ok()?.permissions();
-            perms.set_readonly(true);
-            let _ = std::fs::set_permissions(&path, perms);
         }
-        Some(path)
+        out
     })
-    .clone()
+}
+
+fn write_read_only(path: &Path, text: &str) -> Option<()> {
+    if std::fs::read_to_string(path).ok().as_deref() == Some(text) {
+        return Some(());
+    }
+    std::fs::create_dir_all(path.parent()?).ok()?;
+    if let Ok(meta) = std::fs::metadata(path) {
+        // A partial copy from an interrupted write: make it writable to replace it.
+        let mut perms = meta.permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+    std::fs::write(path, text).ok()?;
+    let mut perms = std::fs::metadata(path).ok()?.permissions();
+    perms.set_readonly(true);
+    let _ = std::fs::set_permissions(path, perms);
+    Some(())
 }
 
 /// Lex and parse diagnostics for a buffer that no project reads.
