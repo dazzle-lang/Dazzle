@@ -1,0 +1,12 @@
+// expect: DZ0501
+//
+// `Choice<i32>` wants an `i32` payload.
+
+union Choice<T> {
+    One { value: T }
+    Neither
+}
+
+fn main() {
+    let c = Choice<i32>::One{ value: 1.5 }
+}

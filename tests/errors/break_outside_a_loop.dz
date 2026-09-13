@@ -1,0 +1,10 @@
+// expect: DZ0550
+//
+// `break` leaves the loop it is written in, and there is none here.
+
+fn main() {
+    let n = 1
+    if n == 1 {
+        break
+    }
+}

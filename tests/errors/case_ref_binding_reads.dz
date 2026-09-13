@@ -1,0 +1,20 @@
+// expect: (none)
+//
+// `&c` refers to the payload read-only, on any value, as `&e` does in a `for`.
+
+union Shape {
+    Circle { radius: f32 }
+    Point
+}
+
+fn show(s: &Shape) {
+    switch s {
+        case Circle(&c) { println("{}", c.radius) }
+        default {}
+    }
+}
+
+fn main() {
+    let s = Shape::Circle{ radius: 1 }
+    show(&s)
+}

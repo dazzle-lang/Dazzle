@@ -1,0 +1,20 @@
+// expect: DZ0401
+//
+// The second pass would move what the first already moved.
+
+struct Res {
+    pub n: i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+
+fn take(r: Res) {}
+
+fn main() {
+    let r = Res{ n: 1 }
+    for i in 0..2 {
+        take(move(r))
+    }
+}

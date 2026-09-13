@@ -139,16 +139,22 @@ impl<'a> Dumper<'a> {
                 });
             }
             StmtKind::Expr(e) => self.expr(e),
-            StmtKind::While { cond, body: b } => {
-                self.line(format_args!("while"));
+            StmtKind::While { cond, body: b, label } => {
+                self.line(format_args!("while{}", label_str(&label)));
                 self.nest(|d| {
                     d.expr(cond);
                     d.block(b);
                 });
             }
-            StmtKind::For { bindings, subject, body: b } => {
+            StmtKind::For { bindings, subject, body: b, shape, label } => {
                 let names: Vec<String> = bindings.iter().map(|l| self.opt_local(l)).collect();
-                self.line(format_args!("for {}", names.join(", ")));
+                let shape = match shape {
+                    ForShape::Single => "",
+                    ForShape::Tuple => " (tuple)",
+                    ForShape::Indexed => " (indexed)",
+                    ForShape::Consuming => " (consuming)",
+                };
+                self.line(format_args!("for {}{shape}{}", names.join(", "), label_str(&label)));
                 self.nest(|d| {
                     d.expr(subject);
                     d.block(b);
@@ -369,7 +375,12 @@ impl<'a> Dumper<'a> {
                             arm.variants.iter().map(|v| format!("#{v}")).collect();
                         let binding = d.opt_local(&arm.binding);
                         d.line(format_args!("case {} bind {binding}", vs.join(", ")));
-                        d.nest(|d| d.block(arm.body));
+                        d.nest(|d| {
+                            for v in &arm.values {
+                                d.expr(*v);
+                            }
+                            d.block(arm.body)
+                        });
                     }
                     if let Some(b) = default {
                         d.line(format_args!("default"));
@@ -401,10 +412,14 @@ impl<'a> Dumper<'a> {
                     }
                 });
             }
-            ExprKind::Break => {
-                node!("break");
-            }
-            ExprKind::Continue => node!("continue"),
+            ExprKind::Break(target) => match target {
+                Some(id) => node!("break to #{id}"),
+                None => node!("break"),
+            },
+            ExprKind::Continue(target) => match target {
+                Some(id) => node!("continue to #{id}"),
+                None => node!("continue"),
+            },
             ExprKind::Len(base) => {
                 node!("len");
                 self.nest(|d| d.expr(base));
@@ -434,5 +449,13 @@ impl<'a> Dumper<'a> {
                 });
             }
         }
+    }
+}
+
+/// A loop's label as the dump shows it: nothing when no nested loop jumps to it.
+fn label_str(label: &Option<LoopLabel>) -> String {
+    match label {
+        Some(l) => format!(" '{}#{}", l.name, l.id),
+        None => String::new(),
     }
 }

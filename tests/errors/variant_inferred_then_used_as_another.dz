@@ -1,0 +1,13 @@
+// expect: DZ0501
+//
+// `Choice::One{ value: 4 }` is a `Choice<i32>`, not a `Choice<f32>`.
+
+union Choice<T> {
+    One { value: T }
+    Neither
+}
+
+fn main() {
+    let c = Choice::One{ value: 4 }
+    let f: Choice<f32> = c
+}

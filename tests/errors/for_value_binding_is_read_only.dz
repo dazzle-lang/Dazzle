@@ -1,0 +1,11 @@
+// expect: DZ0507
+//
+// `x` is a copy of the element, so changing it would change nothing; `&mut x` is how.
+
+fn main() {
+    let mut xs = [1, 2, 3]
+    for x in xs {
+        x += 1
+    }
+    println("{}", xs[0])
+}

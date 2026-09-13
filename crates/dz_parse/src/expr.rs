@@ -662,16 +662,41 @@ impl<'a> Parser<'a> {
                 self.bump(); // `case`
                 let mut patterns = Vec::new();
                 loop {
+                    // `Name`, `Name(x)`: a variant, or a constant's name — which one is the
+                    // checker's call, since only the subject's type can say (spec §10.3).
+                    // Anything else is a constant expression: `1`, `"idle"`, `-1`, `lib::MAX`.
+                    // `case {` is a missing label, not a block-valued one: take the variant
+                    // path, whose "expected an identifier" points at the right token.
+                    let variant_shaped = self.at(TokenKind::LBrace)
+                        || self.at(TokenKind::Ident)
+                            && matches!(
+                                self.peek_at(1),
+                                TokenKind::Comma | TokenKind::LBrace | TokenKind::LParen
+                            );
+                    if !variant_shaped {
+                        let value = self.parse_expr_no_struct();
+                        patterns.push(CasePat::Value(value));
+                        if !self.eat(TokenKind::Comma) {
+                            break;
+                        }
+                        continue;
+                    }
                     let p_start = self.start();
                     let name = self.parse_ident_or_error();
-                    let binding = if self.eat(TokenKind::LParen) {
+                    let (binding, mode) = if self.eat(TokenKind::LParen) {
+                        let mode = self.parse_bind_mode();
                         let b = self.parse_ident();
                         self.expect_in(TokenKind::RParen, "to close a case binding");
-                        b
+                        (b, mode)
                     } else {
-                        None
+                        (None, BindMode::Value)
                     };
-                    patterns.push(VariantPat { span: self.span_from(p_start), name, binding });
+                    patterns.push(CasePat::Variant(VariantPat {
+                        span: self.span_from(p_start),
+                        name,
+                        binding,
+                        mode,
+                    }));
                     if !self.eat(TokenKind::Comma) {
                         break;
                     }

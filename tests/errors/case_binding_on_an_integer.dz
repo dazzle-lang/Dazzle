@@ -1,0 +1,11 @@
+// expect: DZ0547
+//
+// Only a union variant has a payload to bind.
+
+fn main() {
+    let n = 3
+    switch n {
+        case X(x) {}
+        default {}
+    }
+}

@@ -1,0 +1,20 @@
+// expect: DZ0507
+//
+// Behind a `&Shape` the payload is read-only, so `&mut c` cannot be had.
+
+union Shape {
+    Circle { radius: f32 }
+    Point
+}
+
+fn grow(s: &Shape) {
+    switch s {
+        case Circle(&mut c) { c.radius += 1 }
+        default {}
+    }
+}
+
+fn main() {
+    let s = Shape::Point
+    grow(&s)
+}

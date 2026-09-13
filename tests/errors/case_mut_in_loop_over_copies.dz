@@ -1,0 +1,18 @@
+// expect: DZ0507
+//
+// `s` is a copy, so its payload cannot be changed through it.
+
+union Shape {
+    Circle { radius: f32 }
+    Point
+}
+
+fn main() {
+    let mut shapes = [Shape::Circle{ radius: 1 }]
+    for s in shapes {
+        switch s {
+            case Circle(&mut c) { c.radius *= 2 }
+            default {}
+        }
+    }
+}

@@ -226,13 +226,33 @@ impl<'a> Parser<'a> {
     fn parse_for(&mut self, label: Option<Ident>) -> ForStmt {
         let start = label.as_ref().map(|l| l.span.start).unwrap_or_else(|| self.start());
         self.bump(); // `for`
-        let mut bindings = vec![self.parse_pat()];
+        let mut bindings = vec![self.parse_for_binding()];
         while self.eat(TokenKind::Comma) {
-            bindings.push(self.parse_pat());
+            bindings.push(self.parse_for_binding());
         }
         self.expect_in(TokenKind::In, "in a `for` loop");
         let iter = self.parse_expr_no_struct();
         let body = self.parse_block();
         ForStmt { span: self.span_from(start), label, bindings, iter, body }
+    }
+
+    /// `e`, `&e` or `&mut e` (spec §10.4).
+    fn parse_for_binding(&mut self) -> ForBinding {
+        let start = self.start();
+        let mode = self.parse_bind_mode();
+        let pat = self.parse_pat();
+        ForBinding { span: self.span_from(start), mode, pat }
+    }
+
+    /// The `&` or `&mut` in front of a `for` or `case` binding, if any.
+    pub(crate) fn parse_bind_mode(&mut self) -> BindMode {
+        if !self.eat(TokenKind::Amp) {
+            return BindMode::Value;
+        }
+        if self.eat(TokenKind::Mut) {
+            BindMode::RefMut
+        } else {
+            BindMode::Ref
+        }
     }
 }

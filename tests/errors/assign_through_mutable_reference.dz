@@ -1,0 +1,14 @@
+// expect: (none)
+//
+// Assigning to a `&mut i32` writes what it refers to.
+
+fn set(x: &mut i32) {
+    x = 1
+    x += 1
+}
+
+fn main() {
+    let mut n = 0
+    set(&mut n)
+    println("{}", n)
+}

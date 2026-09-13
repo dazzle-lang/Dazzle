@@ -1,0 +1,14 @@
+// expect: DZ0507
+//
+// Behind a `&` the array is read-only, so its elements are too.
+
+fn clear(xs: &[2]i32) {
+    for &mut x in xs {
+        x = 0
+    }
+}
+
+fn main() {
+    let xs = [1, 2]
+    clear(&xs)
+}

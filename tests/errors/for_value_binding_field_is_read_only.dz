@@ -1,0 +1,15 @@
+// expect: DZ0507
+//
+// The same through a field: `p` is a copy, not the element.
+
+struct P {
+    pub n: i32
+}
+
+fn main() {
+    let mut ps = [P{ n: 1 }]
+    for p in ps {
+        p.n = 2
+    }
+    println("{}", ps[0].n)
+}

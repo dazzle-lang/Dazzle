@@ -1,0 +1,16 @@
+// expect: DZ0548
+//
+// The second `Go` arm could never run.
+
+enum Step {
+    Go
+    Stop
+}
+
+fn main() {
+    let s = Step::Go
+    switch s {
+        case Go, Stop {}
+        case Go {}
+    }
+}

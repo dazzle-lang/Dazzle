@@ -1,0 +1,10 @@
+// expect: DZ0549
+//
+// The pass count is a number the loop makes up, with nothing to refer to.
+
+fn main() {
+    let xs = [1, 2]
+    for &i, x in xs.indexed() {
+        println("{} {}", i, x)
+    }
+}

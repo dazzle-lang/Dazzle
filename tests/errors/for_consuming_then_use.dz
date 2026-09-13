@@ -1,0 +1,19 @@
+// expect: DZ0401
+//
+// `move(rs)` consumes the array, so it is gone after the loop.
+
+struct Res {
+    pub n: i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+
+fn main() {
+    let rs = [Res{ n: 1 }]
+    for r in move(rs) {
+        println("{}", r.n)
+    }
+    println("{}", rs[0].n)
+}

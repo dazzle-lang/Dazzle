@@ -1,0 +1,27 @@
+// expect: DZ0403
+//
+// `o` would copy a payload holding a `Res`, which cannot be copied; `&o` refers to it.
+
+struct Res {
+    pub n: i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+union Choice<T> {
+    One { value: T }
+    Neither
+}
+
+fn count(c: &Choice<Res>) -> i32 {
+    switch c {
+        case One(o) { return o.value.n }
+        case Neither { return 0 }
+    }
+}
+
+fn main() {
+    let c = Choice<Res>::Neither
+    println("{}", count(&c))
+}

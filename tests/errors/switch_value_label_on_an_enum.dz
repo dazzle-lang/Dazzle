@@ -1,0 +1,16 @@
+// expect: DZ0547
+//
+// An enum is matched by variant, not by number.
+
+enum Step {
+    Go
+    Stop
+}
+
+fn main() {
+    let s = Step::Go
+    switch s {
+        case 0 {}
+        default {}
+    }
+}

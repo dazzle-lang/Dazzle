@@ -1,0 +1,10 @@
+// expect: DZ0549
+//
+// A tuple element is taken apart without parentheses (spec §10.4).
+
+fn main() {
+    let pairs = [(1, 2.5)]
+    for (a, b) in pairs {
+        println("{} {}", a, b)
+    }
+}

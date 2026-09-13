@@ -1,5 +1,6 @@
 ---
 source: crates/dz_fmt/tests/fmt.rs
+assertion_line: 96
 expression: fmt(&source)
 input_file: tests/fmt/statements.dz
 ---
@@ -47,11 +48,11 @@ fn control_flow(x: i32) {
         grid[i] = 0
     }
 
-    for i, e in &entities {
+    for i, &e in entities.indexed() {
         e.draw(&mut batch)
     }
 
-    for e in &mut entities {
+    for &mut e in entities {
         e.update(dt)
     }
 }

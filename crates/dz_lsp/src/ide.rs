@@ -534,7 +534,7 @@ enum Adt {
 fn adt_of(ty: &Ty) -> Option<Adt> {
     match ty {
         Ty::Named { sym, .. } => Some(Adt::Struct(*sym)),
-        Ty::Variant(s, v) => Some(Adt::Variant(*s, *v)),
+        Ty::Variant(s, v, _) => Some(Adt::Variant(*s, *v)),
         Ty::Ref { inner, .. }
         | Ty::Ptr { inner, .. }
         | Ty::OwnPtr { inner, .. }

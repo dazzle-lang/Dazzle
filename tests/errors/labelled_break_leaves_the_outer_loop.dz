@@ -1,0 +1,20 @@
+// expect: (none)
+//
+// `break outer` and `continue outer` act on the loop they name, not the innermost one.
+// Both were silently treated as unlabelled until the feature matrix caught it.
+
+fn main() {
+    let mut r = 0
+    outer: for i in 0..3 {
+        for j in 0..3 {
+            if j == 1 {
+                continue outer
+            }
+            if i == 2 {
+                break outer
+            }
+            r += 1
+        }
+    }
+    println("{}", r)
+}

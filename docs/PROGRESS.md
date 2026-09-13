@@ -18,12 +18,12 @@ the milestone.
 
 | | |
 |---|---|
-| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30 |
+| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M8** is done, and r37 settled how `for` and `case` bindings hold what they name |
 | Next | **Get CI green on all three platforms** — the workflow is written and has never run — then fetched packages (M16). M14, M15 and struct inheritance have landed. Struct inheritance landed as r30, which also unblocks the last substantive M7 row — a Dazzle struct inheriting an imported C++ class, Jolt's listeners. See §4 |
-| Tests | 185, all green |
+| Tests | 190, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 35; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
+| Language spec | 0.1 **unreleased**, revision 37; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -860,6 +860,128 @@ first, so Jolt's listeners wait for that either way.
   compilers, and its C++ is warning-clean under `-Wall -Wextra`; run tests for DZ0702 and for
   a type mismatch at a C call. 150 tests.
 
+### The feature matrix, and what it found
+
+Bugs in this compiler have mostly lived where two features meet, so the corpus stopped being
+hand-picked. `dz_driver/tests/feature_matrix/mod.rs` holds **constructs** (a statement list
+leaving a known value in `r`), **mistakes** (a statement list that must produce exactly one
+diagnostic) and **contexts** (a plain function, a method, a generic function, a loop body, a
+`while` body, a `switch` arm, an `or` block, `if let`, `unsafe`, nested blocks, a constructor,
+a trait implementation's method, a generic struct's method). Every construct and every mistake
+goes in every context, in two layouts — the shared types beside the code, and in a module of
+their own imported by name.
+
+- `dz/tests/matrix.rs` compiles all the constructs into one program per layout, runs it, checks
+  every placement's value, and requires the C++ to be warning-clean under each compiler present:
+  36 constructs × 13 contexts × 2 layouts.
+- `dz_driver/tests/matrix.rs` analyses each mistake in each placement and requires exactly its
+  one code: 26 mistakes × 13 contexts × 2 layouts.
+
+Adding a construct, a mistake or a context multiplies across the rest, which is the point. What
+it found on its first runs, all fixed:
+
+- **Loop labels were ignored.** `break outer` and `continue outer` parsed, and the checker threw
+  the label away, so both acted on the innermost loop — a nested loop that meant to `continue`
+  its outer loop ran its own remaining passes instead. The checker now resolves each label
+  against a stack of enclosing loops, and a jump to anything but the innermost carries that
+  loop's id (`hir::ExprKind::Break(Some(id))`). A loop that is jumped to records it
+  (`hir::LoopLabel`), and codegen places `_dz_continue_N:` after the body — in a block of its own,
+  so the `goto` leaves the body's locals rather than jumping past their declarations — and
+  `_dz_break_N:` after the loop. Only labels something jumps to are emitted, since C++ warns
+  about the rest. A `break` outside any loop, or naming a label no enclosing loop has, is the new
+  **`DZ0550`**.
+- **A zero-argument constructor did not compile**: codegen also emitted `S() = default;` beside
+  it. §6.2 already says such a constructor is what `let s: S` runs, so the defaulted one is left
+  out when a constructor needs no arguments.
+- **An unconsumed fallible call was reported once per enclosing block** when it ended an
+  `unsafe` block or a nested one: each block's tail was checked, and then the block itself.
+  `check_unused` no longer looks at a block, `if` or `switch` as a whole.
+- **A `case` label of the wrong type was two errors**, a mismatch and "not a constant"; now the
+  mismatch alone.
+
+### r37 — how `for` and `case` bindings hold what they name, and an error corpus
+
+Decided with the user (spec 18.42–18.44) after the M8 work showed that `for e in &mut xs` did
+not work at all and that a `case` binding could write into a value declared immutable.
+
+- **`for` bindings.** `e` copies and cannot be changed, `&e` refers, `&mut e` refers and
+  writes; the old `for e in &xs` / `&mut xs` forms are gone. `ast::ForBinding` carries a
+  `BindMode`, and the checker classifies what a pass yields as a `ForItem`: a **place** (an
+  array or slice element, or what an iterator's `&T`/`&mut T` `get` points at, with whether
+  it may be written) or a **value** (a range's number, a by-value `get`, a consuming loop).
+  Each binding's local then has the element's type or a `Ty::Ref` to it, and codegen needs
+  nothing else — `for_binding` declares `T`, `const T&` or `T&` from that type.
+- **Tuples and `indexed()`.** Several names take a tuple element apart, each part with its
+  own mode; a part that is itself a reference is a place of its own, which is exactly an
+  ECS query's `(Entity, &Button, &mut State)`. The pass count moved to `xs.indexed()`, a
+  loop-head adapter recognised by the checker (`ForShape::Indexed`) rather than a method, so
+  it works on arrays, ranges and any `Iterate` without associated-type projection, which
+  M12 still owes. `hir::ForShape` says which of `Single`, `Tuple`, `Indexed`, `Consuming`.
+- **`case` bindings follow the `for` rules exactly**: `c` a copy, `&c` a read-only
+  reference, `&mut c` a writable one on a writable subject; a payload that cannot be copied
+  needs `&` (`DZ0403`). The binding's local type says which, as for `for`. A copy is never
+  turned into a reference behind the scenes — with RAII that would decide whether a `copy`
+  and a `drop` run — so there is no such optimisation to defer.
+- **Assigning to a `&mut T`** writes through it (18.44); `local_uses` no longer calls that
+  "assigned but never read".
+- **Variant literals infer their type arguments from the payload**, the way generic calls
+  do: `Choice::One{ value: 4 }` is a `Choice<i32>`, and inside `fn wrap<T>` it is a
+  `Choice<T>`.
+- **Bugs the new tests found**, all fixed: every refused `&mut` binding also reported each
+  write in the body (six cases of one mistake, two errors — invariant 6); assigning through a
+  `&i32` added a type mismatch to the real error; a block yielding a reference (`let p: &P =
+  unsafe { &xs^[i] }`) did not compile, and is now held as a pointer the way `or` already
+  did; a C array member made `::dz::len` ambiguous once loops indexed, so sequences use a
+  range-for again and the pass count is taken at the top of each pass.
+- **`tests/errors`**, a new corpus in `dz_driver/tests/errors.rs`: one small program per
+  mistake, each naming its exact diagnostics in `// expect:` lines, or `(none)` for a
+  program that must be accepted. The match is exact, so a second diagnostic for one mistake
+  fails. It runs the whole pipeline, and it is where combinations live — a `switch` inside a
+  `for` inside a generic function, `or break` inside an arm, a move inside a loop. 48 files.
+  `tests/run/loops` runs the valid combinations on both compilers, warning-clean.
+
+### M8, and r36 — `switch` on constants, generic unions, values built by statements
+
+Most of M8 — unions, `switch`, `T?`, `!->`, `or` — had landed with M5. What was left were
+four rows in the deferral register; three are closed here.
+
+- **`switch` on an integer, `char`, `bool` or `str`** (r36, spec §10.3). Labels are
+  constants of the subject's type. The parser cannot tell `case Idle` from `case MAX`, so
+  `ast::CasePat` keeps anything shaped `Name` or `Name(x)` as a `Variant` and everything else
+  as a `Value`; the checker decides from the subject's type. Constness is read off the
+  checked HIR — a literal, a `Const`, or operators and casts over those — rather than a
+  second AST walk. Two new codes: **`DZ0547`** a label that is not a constant or not the
+  kind the subject takes (a value on an enum, a binding on an integer, a float subject), and
+  **`DZ0548`** a label matched twice, which now also covers `case A` twice on an enum.
+  Integer duplicates compare by folded value, so `case 4, 2 + 2` is caught.
+- **A `break` in an arm left only the `switch`.** Found while writing the tests: `switch`
+  was a C++ `switch`, so Dazzle's `break` — which means the loop, there being no
+  fallthrough — broke out of the C++ `switch` instead and the loop carried on. Every
+  `switch` is now an `if`/`else if` chain over a subject evaluated once into `auto&&`
+  (so a temporary subject lives, and a payload binding writes into the union), which also
+  gives `str` labels somewhere to go. A pointer or reference subject goes through
+  `dz::obj`; a value does not, since `obj` of a temporary would hand back a dangling
+  reference. r36 states the rule in the spec.
+- **Generic unions** (§7.5, §8.4). Deeper than the row said: the checker built every variant
+  as a bare `Maybe`, dropping the arguments. `Ty::Variant` now carries the union's arguments
+  so `case Some(s)` on a `Maybe<i32>` gives `s.value` the type `i32`, and a variant literal
+  takes its arguments from `Maybe<i32>::Some`, from the expected type (`let m: Maybe<i32> =
+  Maybe::Nothing`, `.Some{ … }`), or from the union's own parameters in scope; otherwise it
+  is DZ0534. Mono already walked union field types; codegen gained `union_asts` beside
+  `struct_asts`, and `union_decl` takes the instance's arguments.
+- **Values built by statements where C++ allows only an expression** — a `const`, a field
+  default, a default argument whose value is an `or` clause or a block-valued `if` or
+  `switch`. Each becomes a lambda called in place (`immediately_invoked`); a constant built
+  that way is `inline const` rather than `constexpr`. Two bugs fell out: **`const X: str =
+  "…"` did not compile** (`dz::str`'s constructor casts, so it cannot be `constexpr`; a `str`
+  constant is `inline const` now), and **constants were emitted after the structs**, so a
+  field default naming one did not compile either. Enums are now defined first, then every
+  constant whose type needs no struct, in the order they name each other, then the types.
+- Tests: `tests/run/switching` runs all of it on both compilers and is in the `-Wall
+  -Wextra` set; `switch_on_a_scalar_matches_constants` and
+  `a_generic_union_is_read_through_its_arguments` pin the rules; `typed/` and `typeerrors/`
+  gained a case each way; `tests/parse` and `tests/fmt` gained `switch_values.dz`. 187 tests.
+
 ### r30 — struct inheritance (spec 18.32)
 
 All five steps of §4's plan, and the four codegen collisions it warned about.
@@ -1173,10 +1295,8 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M7b** | A whole C array member is refused rather than copied (`DZ0707`), and cannot be passed as a `[]T`. Copying one needs a helper that fills a `dz::Array` element by element; the slice needs a `Slice{ptr, len}` built at the use site. Indexing, `for`, `.len` and `.ptr` all work | `dz_check/src/check.rs`, `is_c_array_member` |
 | **M7b** | libclang parses with its own default target (MSVC here), not the C++ compiler's: a header needing the C library's own headers may find MSVC's while g++ builds against mingw's | `dz_cppimport`, `arguments` |
 | **M7b** | An untyped imported integer is not range-checked against its context: `let b: u8 = rl::SOME_BIG` reaches C++ as a narrowing `static_cast`. The importer knows the value; the checker should compare it, as it does a literal's | `dz_check/src/lib.rs`, `collect_foreign` |
-| **M8** | **A generic union** reports `DZ0801`. Unions are M8's, and the tagged-union emission has no instance path yet | `dz_cpp/src/lib.rs`, `module` |
-| **M8** | **Hoisting in initialiser position.** A `const`, a field default or a default argument whose value needs statements — an `or` clause, a block-valued `if` or `switch` — reports `DZ0801`, because each is emitted where C++ allows only an expression | `dz_cpp`, `const_decl`, `field_default`, `decl_params` |
-| **M8** | `switch` on a subject that is neither an enum nor a union (an integer, a `str`) | `dz_cpp`, `switch` |
-| **M8** | `for` with three or more bindings, i.e. destructuring a tuple `Item` (§10.4's `for btn, state in …` with an index) | `dz_cpp`, `for_loop` |
+| **M8** | **A base initialiser needing statements** (`: Base(x or 0)`) reports `DZ0801`. The lambda that serves a constant or a field default cannot build a base subobject, and the statements cannot run before the member-initialiser list; the arguments would have to be hoisted one by one | `dz_cpp`, `base_init` |
+| **M12** | **`indexed()` exists only in a `for` head.** It is recognised there by the checker, not declared: a real adapter is a generic struct implementing `Iterate` over another, whose `Item` needs associated-type projection (the row below). `move(xs).indexed()` is refused for the same reason | `dz_check/src/check.rs`, `for_stmt` |
 | **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
 | **M10** | The intrinsics `#module`, `#location` and `#expr_text` are typed but not emitted (`#file`, `#line`, `#column` and `#function` are) | `dz_cpp`, `intrinsic` |
 | **M11** | `typeinfo_of`, `typeid_of` and `typeinfo` are typed but not emitted | `dz_cpp`, `builtin` |
@@ -1532,6 +1652,10 @@ before the work started. None is hard; all four are silent if missed:
 | `tests/bench` | `dz/tests/run.rs`, `the_benchmark_suite_agrees_with_its_cpp_baseline` | **the C++ comparison** (spec §19 M15): each `#[bench]` is one of a pair, the other calling hand-written C++ vendored in `vendor/baseline`, built at the same optimisation level into the same binary. The *numbers* are not asserted — one machine's timing is not a fact about the language — but the pairs' **results** are: `main` prints each Dazzle answer beside its C++ one and the test requires them equal, because two benchmarks computing different things measure nothing. Run it with `dz bench tests/bench` |
 | `tests/run/tests` | `dz/tests/run.rs`, `dz_test_runs_the_projects_tests` | **`#[test]` and `dz test`** (spec §19 M14): three passing tests, run by name in their own processes. Its `expected.txt` is the other half of the claim — running the *program* prints only what `main` prints, because a normal build leaves the tests out, which the test also checks by grepping the generated C++. `a_failing_test_is_reported_and_does_not_stop_the_rest` covers a panicking test: named, its own message shown, and the tests after it still run |
 | `tests/run/inherit` | " | **struct inheritance end to end** (spec §7.3, 18.32): a chain of three, inherited fields and methods, `&Derived` → `&Base` and `^Derived` → `^Base`, writing through a base reference, defaults coming from whichever type declared the field, a constructor building its base, `virtual`/`override` dispatching at runtime through a base reference, a base method calling a virtual one and landing on the override, `Base::method(self)` calling the version it replaced, `protected` reached from a derived type, and a trait implementation inherited from a base and replaced by a more specific one. Also in the `-Wall -Wextra` set |
+| `dz_driver/tests/feature_matrix/mod.rs` | `dz_driver/tests/matrix.rs`, `dz/tests/matrix.rs` | **the feature matrix**: every construct and every mistake in every context (function, method, generic function, loop and `while` bodies, `switch` arm, `or` block, `if let`, `unsafe`, nested blocks, constructor, trait method, generic struct method), with the shared types in the same module and in another. Constructs are compiled, run and value-checked, warning-clean under every compiler present; mistakes must each give exactly one code. Extend it by adding a row to any of the three lists |
+| `tests/errors/*.dz` | `dz_driver/tests/errors.rs` | **one program per mistake**, whole pipeline, each naming its exact diagnostics in `// expect:` lines (or `(none)`); exact match, so a mistake reported twice fails. The home for rules in combination: bindings inside `switch` inside `for`, moves inside loops and arms, generic unions inferred inside generics, constants built by statements |
+| `tests/run/loops` | `dz/tests/run.rs` | **r37**: `for` bindings by copy, `&` and `&mut` over arrays, slices through `&mut`, structs and tuples; `indexed()` over an array, an iterator and a range with `continue`; an ECS-shaped iterator yielding `(usize, &P, &mut i32)` written through; `case (&mut c)` inside a loop over `&mut` elements; `or break` in an arm of a generic loop; inferred generic unions; move-only elements referred to and then consumed. Also in the `-Wall -Wextra` set |
+| `tests/run/switching` | " | **M8**: `switch` on integers, `char`, `bool` and `str` against literals, constants and constant arithmetic (§10.3); `break` and `continue` in an arm acting on the loop; a temporary subject and a payload written through `&mut`; a generic union built three ways and matched inside a generic function; and a `const`, a field default and a default argument built by a `switch` or `if`, with the constants written after their users. Also in the `-Wall -Wextra` set |
 | `tests/run/keywords` | " | every declaration named after a C++ keyword — an enum, a struct, a union, a field, a method, a variant, a variant's field, a `const` and a free function all called `class`, `double`, `operator` and the like. The generator has to rename each one and every reference to it; it used to rename only locals, so `fn double` reached C++ as `int32_t double(…)` and clang's complaint was mapped back onto the user's own line. Also in the `-Wall -Wextra` set |
 | `tests/run/cinterop*`, `tests/run/cppinterop` | `dz_cppimport/tests/import.rs` | the importer against those same headers, one test per §15.2 rule: functions/structs/enums/macros, handles, unions, array members and bit-fields, callbacks, namespaces and C++ paths, public members and overloads, the move-only rule, and that a template imports only where an instantiation is named |
 

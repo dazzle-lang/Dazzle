@@ -1,0 +1,10 @@
+// expect: DZ0549
+//
+// `indexed()` yields a count and an element: two names.
+
+fn main() {
+    let xs = [1, 2]
+    for i, a, b in xs.indexed() {
+        println("{} {}", i, a)
+    }
+}

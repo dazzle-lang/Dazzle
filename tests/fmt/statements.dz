@@ -42,11 +42,11 @@ fn control_flow(x: i32) {
         grid[i] = 0
     }
 
-    for i, e in &entities {
+    for i, &e in entities.indexed() {
         e.draw(&mut batch)
     }
 
-    for e in &mut entities {
+    for &mut e in entities {
         e.update(dt)
     }
 }

@@ -601,7 +601,7 @@ impl<'a> Printer<'a> {
             }
             StmtKind::For(f) => {
                 let label = f.label.as_ref().map(|l| format!("{}: ", l.name)).unwrap_or_default();
-                let binds: Vec<String> = f.bindings.iter().map(dump::pat_str).collect();
+                let binds: Vec<String> = f.bindings.iter().map(dump::for_binding_str).collect();
                 let text = format!("{label}for {} in {} {{", binds.join(", "), self.expr(&f.iter));
                 self.line(&text);
                 self.indent += 1;
@@ -811,9 +811,14 @@ impl<'a> Printer<'a> {
                     let pats: Vec<String> = arm
                         .patterns
                         .iter()
-                        .map(|p| match &p.binding {
-                            Some(b) => format!("{}({})", p.name.name, b.name),
-                            None => p.name.name.clone(),
+                        .map(|p| match p {
+                            CasePat::Variant(VariantPat {
+                                name, binding: Some(b), mode, ..
+                            }) => {
+                                format!("{}({}{})", name.name, mode.prefix(), b.name)
+                            }
+                            CasePat::Variant(v) => v.name.name.clone(),
+                            CasePat::Value(v) => self.expr(v),
                         })
                         .collect();
                     s.push_str(&indent_lines(&format!(

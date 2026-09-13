@@ -235,8 +235,10 @@ pub enum Ty {
     Builtin(BuiltinTy),
     /// The payload of one union variant, by the union's symbol and the variant's
     /// position (spec §7.5). It is not a type anyone writes: it exists so that the
-    /// binding in `case Circle(c)` has something whose `.radius` resolves.
-    Variant(SymbolId, usize),
+    /// binding in `case Circle(c)` has something whose `.radius` resolves. The last part is
+    /// the union's type arguments, so `case Some(s)` on a `Maybe<i32>` gives `s.value` the
+    /// type `i32` (spec §8.4); empty for a union that is not generic.
+    Variant(SymbolId, usize, Vec<Ty>),
     /// `Self` inside a struct or trait body.
     SelfTy,
     /// A generic parameter inside the body that declares it (spec §8.1). Replaced by a
@@ -359,7 +361,7 @@ impl Ty {
             }
             Ty::Array { elem, .. } | Ty::Slice { elem, .. } => elem.has_params(),
             Ty::Tuple(parts) => parts.iter().any(Ty::has_params),
-            Ty::Named { args, .. } => args.iter().any(Ty::has_params),
+            Ty::Named { args, .. } | Ty::Variant(_, _, args) => args.iter().any(Ty::has_params),
             Ty::Fn { params, ret } => params.iter().any(Ty::has_params) || ret.has_params(),
             _ => false,
         }
@@ -413,6 +415,9 @@ pub fn substitute_with(
         Ty::Named { sym, args } => {
             Ty::Named { sym: *sym, args: args.iter().map(&substitute).collect() }
         }
+        Ty::Variant(sym, index, args) => {
+            Ty::Variant(*sym, *index, args.iter().map(&substitute).collect())
+        }
         Ty::Fn { params, ret } => {
             Ty::Fn { params: params.iter().map(&substitute).collect(), ret: rc(ret) }
         }
@@ -442,6 +447,7 @@ pub fn replace(t: &Ty, from: &Ty, to: &Ty) -> Ty {
         Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(r).collect()),
         Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(r).collect() },
+        Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, args.iter().map(r).collect()),
         Ty::Fn { params, ret } => Ty::Fn { params: params.iter().map(r).collect(), ret: rc(ret) },
         other => other.clone(),
     }

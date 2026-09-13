@@ -1,6 +1,6 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 200
+assertion_line: 210
 expression: body
 ---
 error[DZ0502]: `300` does not fit in `u8`
@@ -887,3 +887,27 @@ error[DZ0546]: `a_test_with_type_parameters` cannot be a test: a test has no typ
     │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ there is no instance to run
     │
     = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
+
+error[DZ0547]: a `case` label must be a constant
+    ┌─ typeerrors/src/errors.dz:802:14
+    │
+802 │         case m { return 1 }
+    │              ^ computed at run time
+    │
+    = help: a label is a literal, a `const`, or arithmetic on those — something known while compiling. To compare against a value only known at run time, use `if` (spec §10.3)
+
+error[DZ0547]: a `case` on `Shape` names a variant
+    ┌─ typeerrors/src/errors.dz:809:14
+    │
+809 │         case 3 { return 1 }
+    │              ^ not a variant name
+    │
+    = help: an enum or union is matched by variant: `case Idle`, `case Walking(w)` (spec §10.3)
+
+error[DZ0548]: this value is already matched by an earlier `case`
+    ┌─ typeerrors/src/errors.dz:817:14
+    │
+817 │         case 2 { return 2 }
+    │              ^ matched twice
+    │
+    = help: an arm runs only for what no earlier arm matched, so this label never would; remove it (spec §10.3)

@@ -1,0 +1,12 @@
+// expect: DZ0534
+//
+// `Neither` carries no value to say what `T` is.
+
+union Choice<T> {
+    One { value: T }
+    Neither
+}
+
+fn main() {
+    let c = Choice::Neither
+}

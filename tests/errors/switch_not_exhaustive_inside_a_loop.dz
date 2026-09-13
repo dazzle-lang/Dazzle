@@ -1,0 +1,17 @@
+// expect: DZ0513
+//
+// Exhaustiveness holds wherever the `switch` is.
+
+enum Step {
+    Go
+    Stop
+}
+
+fn main() {
+    let steps = [Step::Go, Step::Stop]
+    for s in steps {
+        switch s {
+            case Go {}
+        }
+    }
+}

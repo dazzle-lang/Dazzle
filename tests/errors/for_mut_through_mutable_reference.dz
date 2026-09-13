@@ -1,0 +1,15 @@
+// expect: (none)
+//
+// Behind a `&mut` the elements may be written, and the caller sees it.
+
+fn clear(xs: &mut [2]i32) {
+    for &mut x in xs {
+        x = 0
+    }
+}
+
+fn main() {
+    let mut xs = [1, 2]
+    clear(&mut xs)
+    println("{}", xs[0])
+}

@@ -1,0 +1,12 @@
+// expect: DZ0507
+//
+// A `&i32` is only read through.
+
+fn set(x: &i32) {
+    x = 1
+}
+
+fn main() {
+    let n = 0
+    set(&n)
+}

@@ -1,0 +1,18 @@
+// expect: DZ0501
+//
+// `o.value` on a `Choice<i32>` is an `i32`.
+
+union Choice<T> {
+    One { value: T }
+    Neither
+}
+
+fn main() {
+    let c = Choice::One{ value: 4 }
+    switch c {
+        case One(o) {
+            let f: f32 = o.value
+        }
+        default {}
+    }
+}

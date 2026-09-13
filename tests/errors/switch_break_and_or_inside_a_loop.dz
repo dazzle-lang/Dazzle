@@ -1,0 +1,34 @@
+// expect: (none)
+//
+// `break`, `continue` and `or break` inside arms, inside a loop, inside a generic function.
+
+enum Step {
+    Go
+    Stop
+}
+
+fn maybe(n: i32) -> i32? {
+    if n > 2 {
+        return none
+    }
+    return n
+}
+
+fn count<T: Copy>(xs: []T, stop: Step) -> i32 {
+    let mut n = 0
+    for i, &x in xs.indexed() {
+        switch stop {
+            case Go { continue }
+            case Stop {
+                let v = maybe(i as i32) or break
+                n += v
+            }
+        }
+    }
+    return n
+}
+
+fn main() {
+    let xs = [1, 2, 3, 4]
+    println("{}", count(xs, Step::Stop))
+}
