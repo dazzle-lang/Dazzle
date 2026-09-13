@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 41
+**Version:** 0.1 — **unreleased**, revision 45
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -414,7 +414,7 @@ this engine may touch this field, but nobody who imports the engine may."
 
 ```dz
 pub struct SpriteBatch {
-    m_verts:                Buffer<Vertex>   // private: only SpriteBatch's own methods
+    m_verts:                List<Vertex>     // private: only SpriteBatch's own methods
     pub(module) m_gl_handle: u32             // the rest of the engine may poke this
     pub         count:       u32             // anyone may read
 
@@ -642,6 +642,17 @@ str             a UTF-8 string slice: { ptr: ^u8, len: usize }. Never owns.
 String          stdlib: owning, growable, allocator-aware. Written in Dazzle, not builtin.
 cstr            a null-terminated ^u8, for C interop only.
 ```
+
+**A slice of part of a sequence** is written with a range: `xs[a..b]`, `xs[a..]`, `xs[..b]`.
+On an array or a slice both ends are checked when it runs, as an index is; on a pointer it is
+`unsafe` and unchecked, and the end must be written, since a pointer carries no length. The
+slice is as writable as what it views — a `[]mut T`, a `^mut T`, or an array that may be
+written gives a `[]mut T`. `[DECIDED — §18.50]`
+
+**A `str` is `{ ptr, len }`**, and `s.len` and `s.ptr` read them. Its bytes are `s as []u8`.
+The way back is `str::from_utf8(bytes)`, a `str?` that is `none` when the bytes are not
+well-formed UTF-8; `bytes as str` skips the check and is `unsafe`, as is `p as cstr` for a
+`^u8`. `[DECIDED — §18.50]`
 
 String literals live in static storage, with a zero after the last byte. **A string literal
 is a `cstr` wherever a `cstr` is wanted** — a parameter, an annotated `let`, a field — and
@@ -953,6 +964,15 @@ fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
 **Arguments are evaluated left to right**, each completely before the next: in
 `println("{} {}", touch(), COUNT.hits)`, `touch()` has run by the time `COUNT.hits` is
 read. The receiver of a method call is evaluated before its arguments. `[DECIDED — §18.49]`
+
+The same holds for **every expression with more than one operand**: both sides of a binary
+operator (`read_u8(r) << 8 | read_u8(r)` reads the high byte first), the container and the
+index of `xs[i]`, the bounds of a slice or range, and the elements of a tuple or array
+literal. A struct or union literal evaluates its fields **in the order they are written**,
+whatever order the type declares them in. `&&` and `||` still skip their right operand when
+the left decides. **Assignment is the one exception: the value is evaluated before the
+place it is stored in** — in `xs[next()] = compute()`, `compute()` runs first — for `=` and
+for every compound assignment alike. `[DECIDED — §18.49]`
 
 ### 7.3 Structs
 
@@ -1719,7 +1739,7 @@ pub fn load_level(path: str, alloc: ^Allocator) !-> Level {
         return error(ErrorCode::BadMagic, "not a level file: {}", path)
     }
 
-    let mut data = Buffer<u8>::try_new(hdr.size, alloc) or return
+    let mut data = List<u8>::try_new(hdr.size, alloc) or return
     file.read_into(&mut data) or return
 
     return Level::parse(data)
@@ -1801,7 +1821,7 @@ each one — batch validation, asset manifests, anything where you want every er
 than the first:
 
 ```dz
-let mut errs: Buffer<Error>
+let mut errs: List<Error>
 for path in manifest { load_asset(path) collect errs }
 ```
 
@@ -2042,7 +2062,11 @@ pub trait Neg              { type Output; fn neg(&self) -> Output }
 pub trait Eq               { fn eq(&self, rhs: &Self) -> bool }
 pub trait Ord : Eq         { fn cmp(&self, rhs: &Self) -> Ordering }
 pub trait Index<I>         { type Output; fn index(&self, i: I) -> &Output }
+pub trait IndexMut<I>      { type Output; fn index_mut(&mut self, i: I) -> &mut Output }
 ```
+
+`b[i]` on a user type calls `index_mut` when `b` is a writable place that implements
+`IndexMut` — so `b[i] = v` and `b[i] += 1` write through it — and `index` otherwise.
 
 A game language without `v1 + v2 * scalar` for vectors and matrices is not usable, so this
 is not optional. `[DECIDED]`
@@ -2509,10 +2533,10 @@ pub trait Allocator {
     fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation = #location)
 }
 
-pub struct Buffer<T> {
+pub struct List<T> {
     m_allocator: ^mut Allocator = Allocators::Global
 
-    Buffer(capacity: u32, allocator: ^mut Allocator = Allocators::Global) { ... }
+    List(capacity: u32, allocator: ^mut Allocator = Allocators::Global) { ... }
 }
 ```
 
@@ -2521,7 +2545,7 @@ pub struct Buffer<T> {
   allocator needs no header to remember them, and tracking can check them.
 - **`loc`** is the caller's location (§12.7). A container forwards the one it was given, so a
   report names the line that built the container rather than the container's own code.
-- `^mut Allocator` is a fat trait pointer (§7.6), which is what lets one `Buffer<f32>` work
+- `^mut Allocator` is a fat trait pointer (§7.6), which is what lets one `List<f32>` work
   with any allocator.
 
 Underneath, two builtins reach the C heap and are what `Allocators::Global` is built on:
@@ -2533,8 +2557,8 @@ Underneath, two builtins reach the C heap and are what `Allocators::Global` is b
 Odin's implicit `context.allocator` removes the parameter from every signature, and the
 price is that you cannot tell from a call whether it allocates or from where. Given
 principle 1 (§1), the parameter stays. The default-argument mechanism (§7.2) gives back
-almost all the ergonomics: `Buffer(8)` reads as cleanly as the implicit version, and
-`Buffer(8, &frame_arena)` is right there when you need it.
+almost all the ergonomics: `List(8)` reads as cleanly as the implicit version, and
+`List(8, &frame_arena)` is right there when you need it.
 
 ### 14.2 Standard allocators
 
@@ -2576,22 +2600,61 @@ prelude's `TRACK_MEMORY` flag (§12.10), and the tracker does not exist without 
 - **a free whose size or alignment differs** from the allocation panics;
 - **`Temp.reset()` poisons** what it releases with `0xDD`, so a stale read shows.
 
+**`List<T>`** is the growable array, in the prelude. `List<i32>()` is empty and allocates
+nothing; `List<T>(capacity, allocator)` takes both. It doubles when it grows; `push`,
+`pop` (a `T?`), `insert`, `remove`, `swap_remove`, `clear`, `truncate`, `resize` (new
+elements at their defaults), `reserve`, `len`, `capacity`, `is_empty`; `b[i]` reads and
+writes, checked against the length; `as_slice()` and `as_mut_slice()` view the elements.
+It is move-only unless `T` is copyable, and then a copy copies into a new allocation from the
+same allocator. Every call that may allocate takes `loc = #location`, so tracking names the
+line that pushed.
+
+**`String`** is owned UTF-8 text, in the prelude: `String("x")` or `String::from("x")` copy a
+`str`, with an allocator as a second argument. `push_str`, `push` (a `char`, encoded),
+`clear`, `reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
+`as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
+compares text, and a copy copies it.
+
+**`HashMap<K: Hash + Eq, V>`** maps keys to values, in the prelude. `HashMap<K, V>()` is
+empty and allocates nothing; `HashMap<K, V>(capacity, allocator)` takes both. `insert(k, v)`
+adds or replaces, dropping a replaced value; `replace(k, v)` returns it as a `V?` instead.
+A lookup takes the key by reference and follows §9.1 — `get(&k)` is a `^V` and `get_mut(&k)`
+a `^mut V`, `null` when the key is absent, so `let hp = health.get(&id) or return`.
+`remove(&k)` returns the value as a `V?`; `contains`, `len`, `is_empty`, `capacity`,
+`clear`, `reserve`. Every entry is visited by slot: `for s in 0..m.slot_count()` with
+`m.key_at(s)`, `m.value_at(s)` or `m.value_at_mut(s)`, each `null` for an empty slot. It is
+move-only unless `K` and `V` are both copyable. Keys are found by linear probing, the table
+doubles at three quarters full, and removal leaves no markers behind.
+
+**`Hash`** is the prelude trait a key needs: `fn hash(&self) -> u64`, equal values hashing
+equally. Integers, `bool`, `char` and `str` implement it, and `Eq`, without an `impl`, and
+the methods can be called on them directly — `id.hash()`, `name.eq(&other)`, `a.cmp(&b)`.
+Floats do not implement `Hash`, since `NaN != NaN` would break that promise. `String`
+hashes as its text. A struct combines its fields' hashes with `hash_combine(seed, h)`.
+
+A reference to a value that is not a place — `m.get(&7)`, `&make()` — refers to a
+temporary holding the value until the end of the enclosing block, and the literal takes its
+type from what the reference is wanted to point at.
+
 Additional allocators — `Arena`, `Pool<T>`, `FreeList` — are ordinary Dazzle structs
 implementing the trait, and come later.
 
 ### 14.3 Placement primitives
 
-Container authors need to construct and destroy values in raw memory. Two intrinsics,
-both of which your `Buffer` already uses:
+Container authors need to construct, destroy and move values in raw memory. Three
+intrinsics:
 
 ```dz
 construct(dst, args...)   // in-place construct dst from args (or copy-construct from a value)
 destroy(dst)              // run dst's drop, leave the storage raw
+move_out(dst)             // the value, moved out; the storage is left raw, as after destroy
 ```
 
-They compile to C++ placement `new` and an explicit destructor call. They are the only
-place in the language where a value can be observed in a not-yet-constructed state, so both
-are `unsafe` (§5.2), as are `memcpy` and `free`. `[DECIDED — §18.16]`
+They compile to C++ placement `new`, an explicit destructor call, and a move followed by
+one. They are the only place in the language where a value can be observed in a
+not-yet-constructed state, so all three are `unsafe` (§5.2), as are `memcpy` and `free`.
+`move_out` is how `List::pop` returns an element, and how growing a list of move-only
+elements carries them to the new memory. `[DECIDED — §18.16, §18.50]`
 
 ---
 
@@ -3172,7 +3235,8 @@ be exactly what reload needs, and must stay that way:
 | 18.44 | Assigning to a `&mut T` | **Writes the `T` it refers to**, as in C++. A reference cannot be pointed elsewhere, so there was no other meaning to give it, and `for &mut n in counts { n += 1 }` needs it. Through a `&T` it is an error (§5.2) |
 | 18.45 | A union variant that is an existing struct | **A bare variant names a struct in scope and carries it; a variant with no payload is written `Point {}`.** `union ButtonState { DefaultState  TransitionState }` holds a `DefaultState` or a `TransitionState`, each built as that struct is built — its fields, defaults and visibility — and bound by `case DefaultState(d)` as that struct, methods included. A bare name that is no struct in scope, names something else, or names a generic struct is an error (DZ0551) rather than a variant with nothing in it: giving the bare spelling both meanings would let a misspelling, or a struct added or removed elsewhere, silently change what a union holds. `Point {}` is already how a variant with an empty field list was written, so nothing new is spelled; `Shape::Point`, with no braces, still names one (§7.5) |
 | 18.46 | State that lives for the whole program | **`static`, declared at module scope, with a written type and a constant initialiser; `#[thread_local]` for one per thread.** Reading is safe, changing is `unsafe`, nothing moves out. Needed by the standard allocators — Temp's arena and the tracking tables are state no function owns — rather than by Global's speed: Global stays `malloc`. A static built by arbitrary code would depend on C++'s unordered initialisation across files, so the initialiser is constants only (§7.7, §14.2) |
-| 18.49 | Evaluation order, and pointers as numbers | **Arguments left to right, receiver first**, as they are written — C++'s unspecified order is not inherited, so a program means one thing on every compiler. **`^T as usize` is allowed, `usize as ^T` only inside `unsafe`**: reading an address is harmless and allocators need it to align and to hash; making a pointer from a number is how memory gets corrupted (§7.2, §10.6) |
+| 18.50 | Slices, text and bytes, and moving out of raw memory | **`xs[a..b]`** (and `xs[a..]`, `xs[..b]`) slices an array or slice with checked ends, and a pointer inside `unsafe` with its end written — chosen over an unsafe `slice(ptr, len)` builtin, since the range form also serves checked subslicing. **`s.len` and `s.ptr`** on a `str`; `s as []u8` is safe; **`str::from_utf8(bytes) -> str?`** is the checked conversion, and `bytes as str` and `p as cstr` the unsafe, unchecked ones — the user asked for the safe way to exist, not only the fast one. **`IndexMut`** beside `Index`, chosen when the container is writable. **`move_out(dst)`** completes `construct`/`destroy`: a container cannot return an element by value without it (§5.3, §11.2, §14.3) |
+| 18.49 | Evaluation order, and pointers as numbers | **Arguments left to right, receiver first**, as they are written — C++'s unspecified order is not inherited, so a program means one thing on every compiler. Since r44 the same for operands, indexing, slice and range bounds, and literal elements, with struct fields in written order; **assignment evaluates its value before its place**, as C++17 and Rust do. **`^T as usize` is allowed, `usize as ^T` only inside `unsafe`**: reading an address is harmless and allocators need it to align and to hash; making a pointer from a number is how memory gets corrupted (§7.2, §10.6) |
 | 18.48 | Compile-time conditionals, and where a location comes from | **`#if FLAG { … } #else #if … { … } #else { … }` around declarations, members and statements, over registered flags only.** Built-ins `DEBUG`/`RELEASE`/`SHIPPING` and `OS_WINDOWS`/`OS_LINUX`/`OS_MACOS`; a package's own under `[flags]`; a dependency's read as `dep::FLAG` and turned on by the dependent's `flags = [...]` or `--flag`. An unknown flag is an error (DZ0309). The inactive branch is parsed but not checked. Chosen over checking both branches, which would forbid naming platform APIs absent on the host, and over free-form defines, which let a typo compile nothing. **An intrinsic default argument is the caller's**: `loc: SourceLocation = #location` records the call site, column 0 (§12.7, §12.10) |
 | 18.47 | The standard allocators | **`Allocators::Global` and `Allocators::Temp`, no `Arena` for now; memory tracking is opt-in.** Global is `malloc`/`free`; Temp is a per-thread arena reset where the program chooses. The `Allocator` trait takes `&mut self` — an arena changes on every allocation — and its methods end in `loc: SourceLocation = #location`, which containers forward, so tracking reports name user code. Tracking is off in every build mode until `[build] track_memory = true` or `--track-memory` turns it on, and then reports leaks at exit, double and foreign frees, a free whose size or alignment differs from the allocation, and poisons Temp's memory on reset so a stale read shows. The allocator types are in the prelude; larger stdlib areas are imported modules (§14) |
 
@@ -3208,7 +3272,7 @@ Each milestone ends with something you can actually run.
 | M9 | LSP: diagnostics, hover, go-to-definition, completion | usable in VS Code for real work |
 | M10 | Macros | a user-written `#machine` expands to the `ButtonState` machine and the LSP completes inside it |
 | M11 | Reflection + type table | a 50-line generic JSON serializer works on any `#[reflect]` type |
-| M12 | Stdlib pass: `Buffer`, `String`, `HashMap`, allocators, math | you can write a small game without touching C++ |
+| M12 | Stdlib pass: `List`, `String`, `HashMap`, allocators, math | you can write a small game without touching C++ |
 | M13 | Hot reload (§17.6) | `dz run --hot` swaps a rebuilt module and migrates world state without restarting the game |
 | M14 ✅ | `dz test` — tests as a language feature | **done** — `#[test] fn name() { … }` is written beside the code it tests; it passes by returning and fails by panicking. `dz test [path] [filter]` builds a separate test binary, runs **each test in its own process** — a panic aborts, so one process could report only the first failure — and prints a per-test result, the failing test's own panic message, and a count, exiting non-zero if anything failed. A `#[test]` that takes an argument, returns a value, is fallible, is generic or has no body is refused (`DZ0546`). **A normal build leaves every test out**, so a program never carries them |
 | M15 ✅ | `dz bench`, and the C++ comparison | **done** — `#[bench] fn` is timed by `dz bench`, which calibrates the iteration count until a batch lasts 50ms, runs five batches and reports the **fastest** (noise only ever adds time). It builds `--release` by default, since timing `-O0` measures a build nobody ships. `tests/bench` is the comparison: each benchmark is a **pair**, one Dazzle and one calling hand-written C++ vendored beside it, compiled at the same optimisation level into the same binary and timed by the same clock. Covers bounds-checked indexing against unchecked, `drop` against a C++ destructor, and `virtual`/`override` against C++'s own. Still to add: generic instantiation, and tracking the numbers over time |
@@ -3346,6 +3410,10 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r45 | 2026-09-13 | **`HashMap<K: Hash + Eq, V>` and `Hash`** in the prelude (§14.2). `insert` adds or replaces and drops the old value; `replace` returns it as a `V?`; `get`/`get_mut` return `^V`/`^mut V`, `null` when absent (§9.1); `remove` returns a `V?`; entries are visited by slot. **`Hash`** (`fn hash(&self) -> u64`) and **`Eq`** are built in for integers, `bool`, `char` and `str` — `str` gains `Eq` — and **prelude trait methods can be called on those types directly**: `n.hash()`, `s.eq(&t)`, `a.cmp(&b)`. Floats are not `Hash`. `hash_combine(seed, h)` combines hashes for a struct's `impl Hash`. **`&` of a value that is not a place** (`&7`, `&make()`) refers to a temporary living to the end of the block, and a literal there takes its type from the reference's context. |
+| r44 | 2026-09-13 | **Evaluation order covers every operand, not only arguments** (§7.2, 18.49). Both sides of a binary operator, a container and its index, slice and range bounds, and tuple and array elements are evaluated left to right; a struct or union literal evaluates its fields in the order they are written, not the order declared. **Assignment evaluates the value first, then the place** — `xs[next()] = compute()` runs `compute()` before `next()` — for `=` and compound assignment alike. Why: `read_u8(r) << 8 \| read_u8(r)` decoded bytes backwards on some compilers, and a rule that stopped at arguments would have left that to C++. |
+| r43 | 2026-09-13 | **The prelude's growable array is `List<T>`**, renamed from `Buffer<T>` (§14, §14.2). Same type, same methods; only the name changes. "Buffer" reads as raw bytes or a fixed block, which a growable list of elements is not, and `List<T>` is what a C# or Unity programmer already calls it. A program that declares its own `List` shadows the prelude's, as before. The examples that teach how to *write* a container (§0.1, §6, §8) keep a user-defined `Buffer<T>`. |
+| r42 | 2026-09-13 | **`Buffer<T>` and `String`** in the prelude (§14.2), and what they needed. **Slicing** with a range: `xs[a..b]`, `xs[a..]`, `xs[..b]` — checked on arrays and slices, `unsafe` on a pointer (§5.3). **`str`** has `.len` and `.ptr`; `s as []u8` views its bytes; `str::from_utf8(bytes)` is a `str?` that checks them, and `bytes as str` and `p as cstr` are the unchecked, `unsafe` conversions. **`IndexMut`**, so `b[i] = v` writes through a user type (§11.2). **`move_out(dst)`**, the third placement primitive (§14.3). |
 | r41 | 2026-09-13 | **Arguments are evaluated left to right** (§7.2): `f(a(), b)` runs `a()` before it reads `b`, whatever C++ does. **A pointer converts to `usize`** with `as`, and a `usize` to a pointer inside `unsafe` (§10.6) — what an allocator needs to align and to key a table by address. **Associated constants** (§7.3): `const NAME: T = value` in a type, named `Type::NAME`, a constant or a static's address, evaluated where named. **The standard allocators** (§14): the `Allocator` trait on `&mut self` with a trailing `loc: SourceLocation = #location`; `Allocators::Global` (`&mut Allocator`, the C heap) and `Allocators::Temp` (`&mut TempArena`, `reset()` and `used()`); tracking under `--track-memory`. A trait's default arguments apply to calls through a trait object and to its implementations' methods that do not repeat them. |
 | r40 | 2026-09-13 | **Compile-time conditionals** (§12.10, 18.48). `#if FLAG { … } #else #if OTHER { … } #else { … }` around declarations, a type's members, or statements, over registered flags joined by `!`, `&&`, `\|\|`. Built in: `DEBUG`, `RELEASE`, `SHIPPING`, `OS_WINDOWS`, `OS_LINUX`, `OS_MACOS`. A package declares its own under `[flags]` in dazzle.toml, reads a dependency's as `engine::PROFILE`, and turns a dependency's on with `flags = [...]` on the dependency; `dz … --flag NAME` and `--track-memory` set them for one build. An unregistered flag is an error. The inactive branch is parsed but not checked. **`#location`** is a `SourceLocation`, and as a default argument it is the caller's location (§12.7). |
 | r39 | 2026-09-13 | **`static`** (§7.7, 18.46), and the allocator decisions M12 builds on (§14, 18.47). `static` is a keyword: `static NAME: T = value` declares one variable for the whole program, `#[thread_local]` one per thread. Its type is written, its initialiser is made of constants (DZ0553), reading it is safe, and changing it — assigning, `&mut`, a `&mut self` method, a `&mut` binding — needs `unsafe`. Nothing is moved or copied out of one. **Associated functions** (§7.3): a `fn` in a type with no receiver is called through the type, `Quat::identity()`, and never on a value; the type's fields are not in scope in it. For allocators: the `Allocator` trait's methods take `&mut self` and end in `loc: SourceLocation = #location`; the standard ones are `Allocators::Global` and `Allocators::Temp`; memory tracking is opt-in. |

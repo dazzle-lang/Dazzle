@@ -875,3 +875,25 @@ struct Settings {
 fn forged(n: usize) -> ^mut u8 {
     return n as ^mut u8
 }
+
+// §5.3: bytes taken as text unchecked is `unsafe`; `str::from_utf8` is the checked way.
+fn unchecked_text(bytes: []u8) -> str {
+    return bytes as str
+}
+
+// §5.3: a pointer carries no length, so its slice needs an end.
+fn pointer_slice_without_end(p: ^i32) -> []i32 {
+    return unsafe { p[1..] }
+}
+
+// §11.2: indexing a type needs its `Index`.
+fn index_without_index(p: Plain) -> i32 {
+    return p[0]
+}
+
+// §14.2: a float is not `Hash` — `NaN != NaN` — so it cannot be a `HashMap` key.
+fn float_key() -> usize {
+    let m = HashMap<f32, i32>()
+    return m.len()
+}
+

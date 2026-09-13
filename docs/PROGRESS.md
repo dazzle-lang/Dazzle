@@ -23,7 +23,7 @@ the milestone.
 | Tests | 193, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 41; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
+| Language spec | 0.1 **unreleased**, revision 42; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -940,6 +940,39 @@ not work at all and that a `case` binding could write into a value declared immu
   `for` inside a generic function, `or break` inside an arm, a move inside a loop. 48 files.
   `tests/run/loops` runs the valid combinations on both compilers, warning-clean.
 
+### r43 — `Buffer<T>` renamed to `List<T>`
+
+A rename only, chosen by the user: the prelude struct, its panic messages, spec §14 and its
+usage examples, `tests/run/containers` and the `typed/` case. Nothing in the compiler named
+it. Two help messages in `dz_check/src/impls.rs` that used `Buffer<T>` as their example
+now say `List<T>`, so the example is a type the user actually has. The r42 notes below keep
+the old name.
+
+### r42 — `Buffer<T>` and `String`
+
+Designed with the user (18.50): range slicing, `str` fields and casts with a checked
+`str::from_utf8`, and `b[i]` through `Index`/`IndexMut`.
+
+- **`Buffer<T>`** in the prelude, over `^mut Allocator`: doubling growth — through the
+  allocator's `realloc` when `T::is_trivially_copyable`, by `move_out` into a new allocation
+  otherwise — `push`, `pop -> T?`, `insert`, `remove`, `swap_remove`, `clear`, `truncate`,
+  `resize`, `reserve`, `len`, `capacity`, `is_empty`, `as_slice`, `as_mut_slice`; `Drop`,
+  `Copy` for a copyable `T`, `Index` and `IndexMut`. Every allocating call forwards `loc`.
+- **`String`** over a `Buffer<u8>` that keeps a trailing zero: `String(s)`,
+  `String::from(s)`, `push_str`, `push(char)` (UTF-8 encoded by a prelude `encode_utf8`),
+  `clear`, `reserve`, `len`, `capacity`, `is_empty`, `as_str`, `as_cstr`, `Eq`.
+- **Language pieces**: `hir::ExprKind::SliceRange` and `::dz::subslice` (checked); `.len`
+  and `.ptr` on `str`; `str as []u8`, and `bytes as str` / `p as cstr` inside `unsafe`;
+  `str::from_utf8` validating in the shim (shortest forms, no surrogates, ≤ U+10FFFF);
+  `IndexMut` in the prelude, chosen by the checker for a writable place, with an assignment
+  through the returned `&mut` checked against its referent; the `move_out` builtin.
+- **Codegen fixes the containers found**: the shim's `Opt<T>` and `Res<T>` copied their
+  value, so no optional of a move-only type compiled; a value produced by a block or an `or`
+  clause was copied out of its temporary rather than moved; `subslice` took only lvalues.
+- Tests: `tests/run/containers` (in the `-Wall -Wextra` set; verified leak-free under
+  `--track-memory` on both compilers), and cases in `typed/` and `typeerrors/` for slicing,
+  the unchecked conversion, a pointer slice with no end, and indexing without `Index`.
+
 ### r41 — the standard allocators, and what they needed
 
 The user asked for traits and allocators to be finished (2026-09-13), and settled one
@@ -1465,9 +1498,14 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M7b** | libclang parses with its own default target (MSVC here), not the C++ compiler's: a header needing the C library's own headers may find MSVC's while g++ builds against mingw's | `dz_cppimport`, `arguments` |
 | **M7b** | An untyped imported integer is not range-checked against its context: `let b: u8 = rl::SOME_BIG` reaches C++ as a narrowing `static_cast`. The importer knows the value; the checker should compare it, as it does a literal's | `dz_check/src/lib.rs`, `collect_foreign` |
 | **M12** | **`indexed()` exists only in a `for` head.** It is recognised there by the checker, not declared: a real adapter is a generic struct implementing `Iterate` over another, whose `Item` needs associated-type projection (the row below). `move(xs).indexed()` is refused for the same reason | `dz_check/src/check.rs`, `for_stmt` |
-| **M12** | **Arguments are evaluated left to right** (r41, decided by the user): in `println("{} {}", touch(), COUNT.hits)` the call runs first. C++ leaves the order unspecified, so codegen has to hoist arguments where the order is observable; it does not yet, and two r39 tests bind first to avoid it | `dz_cpp`, `call` |
 | **M12** | **Memory tracking is single-threaded and prints to stdout.** `TRACKER` is one static with no lock, so two threads allocating from `Global` under `--track-memory` race — concurrency is v2 (18.11). The leak report goes through `println`, because there is no way to write to stderr from Dazzle yet | `dz_project/src/prelude.dz`, `Tracker` |
 | **M12** | **A trait method's non-constant default argument** is rendered on the handle's declaration, before the module's structs are defined, so a default like `Vec3{}` on a trait method would not compile there | `dz_cpp`, `trait_object_decls` |
+| **M12** | **`for x in list`** does not work; iteration is `for x in list.as_slice()`. A `List` iterator needs `Iterate` with `Item = &T`, whose projection through a generic is the associated-type row above. `str` has no range slicing (`s[a..b]`), since a byte range can split a character | `dz_project/src/prelude.dz`, `List` |
+| **M12** | `List::insert` and `remove` move elements one at a time, even for a `T` whose bytes could be moved in one `memmove`; there is no `memmove` builtin yet | `dz_project/src/prelude.dz`, `List` |
+| **M12** | **`for (k, v) in map`** does not work; entries are visited by slot (`slot_count`, `key_at`, `value_at`). It waits on the same `Iterate` projection a `List` iterator does | `dz_project/src/prelude.dz`, `HashMap` |
+| **M12** | **A `HashMap<String, V>` is looked up with a `&String`**, so finding a key you hold as a `str` builds a `String` first. Rust answers this with `Borrow<Q>`; Dazzle has no such trait yet | `dz_project/src/prelude.dz`, `HashMap` |
+| **M12** | **`hash_combine` relies on `u64` arithmetic wrapping**, which C++ guarantees and the spec does not yet say (§5 leaves unsigned overflow unstated). Should use `math::wrapping_add` once the math module exists | `dz_project/src/prelude.dz`, `hash_combine` |
+| **M12** | **An enum is neither `Hash` nor built-in `Eq`**, so an enum key needs an `impl` of each; enums are named integers (§7.4) and could have both for free | `dz_check/src/impls.rs`, `primitive_implements` |
 | **M12** | **No variadic parameters.** `println` and `format` take any number of arguments only because they are builtins; a Dazzle function cannot. Wanted by the user; not yet designed | spec §7.2 |
 | **M12** | **An intrinsic default uses the C++ compiler's builtins**, so its column is 0 and its function is the C++ name (`bump`, not `Counter::bump`) | `dz_cpp`, `caller_intrinsic` |
 | **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
@@ -1483,8 +1521,7 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M12** | **Arms of one `switch` or `if` cannot mix `T?` and `T`**: `case A { a.next() } case B { .B{} }` does not join to `ButtonState?`. A plain `T` becomes a `T?` only at `return` (§9.1), so an arm has to return or write `T?` itself. Whether a value position should convert as `return` does is a language question for the user, surfaced by the `ButtonState` sample | `dz_hir/src/ty.rs`, `join` |
 | **M12** | `error(…)` and `format(…)` write into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. §9.2 requires no allocation *and* a message that outlives the call; a real answer needs the stdlib's `String` | `dz_cpp/src/runtime.rs` |
 | **M12** | `or unreachable` panics in release as well as debug. §9.4 says release may assume the success path, and §18.20 has not settled whether that means `__builtin_unreachable` or merely skipping the check | `dz_cpp/src/lib.rs`, `clause` |
-| **M12** | **`str` has no `.len`.** §5.3 gives it `{ ptr, len }` and a slice answers `.len`, but member lookup knows only arrays and slices, so `name.len` on a `str` is `DZ0505`. Found while writing r21's tests | `dz_check/src/check.rs`, `field_type` |
-| **M12** | No stdlib. `println`/`print`/`format` are still builtins and stop being so here: they become ordinary stdlib functions over `Format`. The prelude declares the traits (§18.23) but nothing implements them — `String`, `Buffer`, `HashMap`, `Arena` and `Allocators::Global` are M12 — and `Formatter` is an empty struct until `String` exists to give it a buffer | `dz_cpp/src/runtime.rs`, `dz_project/src/prelude.dz` |
+| **M12** | **`println`/`print`/`format` are still builtins**, and a `String` is printed through `s.as_str()`: `Format` has no implementations and `Formatter` is still empty, now that `String` exists to give it a buffer. `HashMap` is still to come | `dz_cpp/src/runtime.rs`, `dz_project/src/prelude.dz` |
 
 ### Not deferred — deliberately out of scope forever
 
@@ -1503,12 +1540,93 @@ milestone's criterion is a small game written without touching C++.
 2. ✅ **`#if` and `#location` at the caller (r40).**
 3. ✅ **Associated constants (r41).**
 4. ✅ **Allocators and tracking (r41)**, and trait objects finished for them.
-5. **`Buffer<T>`, `String`, `HashMap<K, V>`** over `^mut Allocator`, then `str.len`,
-   `error`/`format` without the four-buffer ring, and `assert` as a function.
-5b. **Left-to-right argument evaluation** in codegen (r41), and **variadic parameters**
-   (wanted by the user on 2026-09-13; to design).
-6. **Math** (`import std::math`): vectors, matrices, `lerp`, clamping, wrapping arithmetic.
-7. The criterion: a small raylib game with no C++ of its own.
+5. ✅ **`List<T>` (named `Buffer<T>` until r43) and `String` (r42).**
+
+What remains, in the order the user set on 2026-09-13:
+
+6. ✅ **Left-to-right argument evaluation** in codegen (r41). Before, a call went to C++ as
+   written, and g++ and clang++ on Windows both evaluated `three(say(1), say(2), say(3))`
+   right to left; a hoisted argument (`or`, a block value) also ran ahead of the arguments
+   to its left. Now `dz_cpp` renders each argument on its own (`capture_args`), then writes
+   them out in order (`emit_args`): its hoisted statements, and a temporary only where an
+   argument with effects meets one whose value could change — so a call of plain reads
+   emits exactly what it did. A value temporary is handed on with `::dz::mv`; a `&T`, and
+   the places `construct`/`destroy`/`move_out` work on, are bound by `auto&&` and
+   forwarded. A receiver is bound only when an argument has effects, since C++17 already
+   sequences the object expression first. Builtins (`println`, `error`…) take the same
+   path. `tests/run/argorder` pins calls, a builtin, an `or` clause, a local changed by a
+   later argument, a move-only argument and a trait-method receiver; it is in the
+   warning-clean set, and g++ was checked by hand too.
+
+   **r44 extended it to every operand**, at the user's request: binary operators
+   (`ordered_operands`; `&&`/`||` keep their own short-circuiting lowering), index and
+   slice operands (the container held by reference as a place), range bounds and tuple and
+   array elements (`sequenced_elements` — C++ braced initialisers are already ordered, so
+   only hoisted work needs a temporary), and struct and union literal fields in *written*
+   order (`literal_fields` recovers it from the value spans, since the HIR keeps fields in
+   declaration order). Assignment evaluates the value before the place — the user's call,
+   matching C++17 and Rust — so only hoisted statements needed reordering there. The
+   `argorder` fixture grew a case for each. Not touched: a `for` loop's range bounds, which
+   are written into the C++ `for` head.
+
+   **The editor: going to a prelude definition.** Ctrl+click on `String`, `List`,
+   `Allocators` or `Allocators::Temp` did nothing — the server dropped every location in the
+   prelude, whose `<prelude>/dz.dz` path is not a file. `dz lsp` now writes the prelude's
+   exact text, read-only, to `%TEMP%/dazzle/prelude-<hash>/dz.dz` and reports locations
+   there; a query from inside that copy is answered by any open project's analysis. Two bugs
+   found on the way: an associated constant (`Temp`) had no definition at all, and the
+   source map holds the prelude under two file ids, only one of them parsed —
+   `ide::prelude_file` finds the right one.
+7. ✅ **`HashMap<K, V>` and `Hash` (r45).** Open addressing with linear probing over three
+   parallel arrays (hashes, keys, values; a zero hash marks an empty slot, so a key whose
+   hash is zero is stored as one), doubling at 3/4 full, backward-shift deletion. The
+   compiler side: `primitive_implements` gives integers, `bool`, `char` and `str` `Hash`, and
+   `str` `Eq`; a prelude trait method called on a primitive (`n.hash()`, `a.cmp(&b)`)
+   resolves in `call` and is lowered by `native_trait_call` — `hash` to the shim's
+   `::dz::hash`, SplitMix64's finaliser for integers and FNV-1a then that for `str`. Found on
+   the way and fixed: `&` of a non-place (`get(&5)`) emitted `::dz::addr(5)`, which C++
+   refuses — it now holds the value in a temporary — and its literal ignored the context
+   (`&7` wanted as `&u8` was `&i32`); the `&&` lowering wrapped its condition in doubled
+   parentheses, which clang warns about; and the unsatisfied-bound help still suggested
+   `struct T : Trait`, the spelling r13 replaced. `insert` returns nothing and `replace`
+   returns the old value, because a discarded `V?` warns (DZ0510) and most inserts discard
+   it. `tests/run/hashmap` (warning-clean, and leak-free under `--track-memory` in
+   `a_tracked_build_reports_leaks_and_bad_frees`) checks removal against a reference list
+   over 500 keys, every key kind, move-only values dropped exactly once, copying and
+   `Temp`; `typed/` and `typeerrors/` have a case each.
+8. **`assert` as a function.**
+9. **Math** (`import std::math`): vectors, matrices, `lerp`, clamping, wrapping arithmetic.
+   Before variadics.
+10. **Variadic parameters** (to design).
+11. The criterion: a small raylib game with no C++ of its own.
+
+**`error(…)` keeps static storage** — decided by the user on 2026-09-13. Moving it onto
+`Allocators::Temp` was considered and refused: an allocator is itself a place that reports
+errors, and one whose message needed an allocator would be circular.
+
+**Editor work alongside, asked for by the user on 2026-09-13.**
+
+- **Keywords added since the grammar was written** — `static`, `virtual`, `override`,
+  `protected` — were uncoloured and missing from completion. `static` is now coloured as
+  `let` is; the other three as modifiers, with `pub`.
+- **Debugging, step one ✅.** No Dazzle debugger: the `#line` directives already make a C++
+  compiler's debug information name `.dz` files, so the VS Code extension contributes a
+  `dazzle` debug type (and breakpoints in `.dz` files, and a Debug Project button) that runs
+  `dz build` and hands the executable to a native debugger — the Visual Studio debugger when
+  the build left a fresh PDB (clang++ on Windows), gdb for g++'s DWARF, CodeLLDB otherwise.
+  `dazzle.natvis` shows `str`, slices, arrays, `T?` and ranges readably under the Visual
+  Studio debugger. On the compiler side, the prelude's `#line` directives named
+  `<prelude>/dz.dz`, which no debugger can open: `emit_cpp` now writes the prelude to
+  `build/cpp/prelude/dz.dz` and points the directives there, indented ones inside lambdas
+  included (`line_directives_name_files_a_debugger_can_open`); panic locations keep the
+  short name. Verified with gdb from the command line (a breakpoint on a `main.dz` line,
+  locals by their Dazzle names, stepping into `List::push` in the prelude copy) and with
+  `llvm-pdbutil` for clang's PDB; the VS Code launch itself can only be tried in the editor.
+  **Next steps**, not started: gdb pretty-printers to match the natvis; showing a
+  monomorphized `List__i32` as its elements (natvis cannot match a name pattern that is not
+  a template, so this needs either a common template base in the shim or generated natvis);
+  and keeping `_dz_*` temporaries out of the locals list, which would mean scoping them in
+  blocks of their own.
 
 The earlier plan (CI, then fetched packages) follows; CI is running.
 

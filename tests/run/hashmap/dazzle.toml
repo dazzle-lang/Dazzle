@@ -1,0 +1,6 @@
+[module]
+name    = "hashmap"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"

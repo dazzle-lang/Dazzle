@@ -1,0 +1,143 @@
+// Arguments are evaluated left to right, each completely before the next, and the receiver
+// of a method call before its arguments (spec §7.2, §18.49). C++ leaves the order
+// unspecified — g++ and clang++ targeting Windows both went right to left — so every line
+// below printed its steps backwards before codegen fixed the order itself.
+
+struct Counter {
+    pub hits: i32 = 0
+
+    pub fn bump(&mut self) -> i32 {
+        hits += 1
+        return hits
+    }
+}
+
+static COUNT: Counter = Counter{}
+
+fn touch() -> i32 {
+    unsafe {
+        return COUNT.bump()
+    }
+}
+
+fn say(n: i32) -> i32 {
+    println("  step {}", n)
+    return n
+}
+
+fn three(a: i32, b: i32, c: i32) -> i32 {
+    return a * 100 + b * 10 + c
+}
+
+fn maybe(n: i32) -> i32? {
+    println("  step {}", n)
+    if n < 0 {
+        return none
+    }
+    return n
+}
+
+fn bump(x: &mut i32) -> i32 {
+    x += 1
+    return x
+}
+
+fn pair(a: i32, b: i32) -> i32 {
+    return a * 10 + b
+}
+
+// A move-only argument between two with effects: still moved, still in order.
+struct Token {
+    pub id: i32 = 0
+}
+
+impl Drop for Token {
+    fn drop(&mut self) {}
+}
+
+fn make_token(n: i32) -> Token {
+    println("  step {}", n)
+    return Token{ id: n }
+}
+
+fn take(a: i32, t: Token, c: i32) -> i32 {
+    return a * 100 + t.id * 10 + c
+}
+
+// A trait method becomes a free function whose first argument is the receiver (§7.6).
+trait Describe {
+    fn weigh(&self, a: i32, b: i32) -> i32
+}
+
+struct Scale {
+    pub base: i32 = 0
+}
+
+impl Describe for Scale {
+    fn weigh(&self, a: i32, b: i32) -> i32 {
+        return base + a * 10 + b
+    }
+}
+
+fn scale(n: i32) -> Scale {
+    println("  step {}", n)
+    return Scale{ base: 1000 }
+}
+
+fn main() {
+    println("calls:")
+    println("= {}", three(say(1), say(2), say(3)))
+
+    // §7.2's own example: the call has run by the time the static is read.
+    println("builtin:")
+    println("= {} {}", touch(), COUNT.hits)
+
+    // An `or` clause writes statements before the line; they must not run first.
+    println("or clause:")
+    println("= {}", three(say(1), maybe(2) or 0, say(3)))
+
+    // A local read before a later argument changes it.
+    println("local:")
+    let mut x = 1
+    println("= {}", pair(x, bump(&mut x)))
+
+    println("move-only:")
+    println("= {}", take(say(1), make_token(2), say(3)))
+
+    println("receiver:")
+    println("= {}", scale(1).weigh(say(2), say(3)))
+
+    // Operands too: this is how a byte reader decodes backwards.
+    println("operands:")
+    println("= {}", say(1) * 10 + say(2))
+    let mut y = 1
+    println("= {}", y * 10 + bump(&mut y))
+
+    println("operand with or clause:")
+    println("= {}", say(1) * 10 + (maybe(2) or 0))
+
+    println("index:")
+    let xs = [10, 20, 30, 40]
+    println("= {}", xs[say(1)] + xs[say(2)])
+
+    // Elements in the order written, even where that is not the order declared.
+    println("literals:")
+    let p = Point{ y: say(1), x: say(2) }
+    println("= {} {}", p.x, p.y)
+    let t = (say(1), maybe(2) or 0, say(3))
+    println("= {} {} {}", t.0, t.1, t.2)
+    let arr = [say(1), maybe(2) or 0, say(3)]
+    println("= {} {} {}", arr[0], arr[1], arr[2])
+
+    // Assignment evaluates the value before the place it goes to.
+    println("assignment:")
+    let mut slots = [0, 0, 0, 0]
+    slots[say(2)] = say(1)
+    slots[maybe(3) or 0] += say(2)
+    println("= {} {} {} {}", slots[0], slots[1], slots[2], slots[3])
+}
+
+struct Point {
+    pub x: i32 = 0
+    pub y: i32 = 0
+}

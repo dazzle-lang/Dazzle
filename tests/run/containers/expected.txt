@@ -1,0 +1,8 @@
+18 19 2 100 18 181
+0 18 6
+3 1 4 2
+drops 2
+hello, world!é 15 true 1 hello, world!é
+grace 2
+999 true
+15 invalid

@@ -367,6 +367,34 @@ fn harness_entry(ws: &Workspace, res: &Resolution, table: &TypeTable, mode: Mode
 
 // ---------------------------------------------------------------------------
 
+/// A call's arguments, rendered but not yet written out (spec §7.2, 18.49).
+#[derive(Default)]
+struct CapturedArgs {
+    args: Vec<CapturedArg>,
+    /// C++ already evaluates the values in order where they are used (a braced
+    /// initialiser), so only hoisted statements can put one out of turn.
+    sequenced: bool,
+}
+
+struct CapturedArg {
+    id: ExprId,
+    /// Statements the argument needs before the line it is used on.
+    pre: String,
+    value: String,
+    effects: bool,
+    /// The same value wherever among the arguments it is evaluated.
+    stable: bool,
+    /// A place the callee works on — `construct`'s destination, an indexed container —
+    /// rather than a value, so a temporary must refer to it, not copy it.
+    place: bool,
+}
+
+impl CapturedArgs {
+    fn any_effects(&self) -> bool {
+        self.args.iter().any(|a| a.effects)
+    }
+}
+
 /// Where a construct that is a statement in C++ should leave the value it produces.
 #[derive(Clone, Copy)]
 enum Dest<'d> {
@@ -2537,10 +2565,24 @@ impl<'a> Emitter<'a> {
                 let moved = *op == AssignOp::Assign
                     && !self.table.copyable(body.ty(*value))
                     && matches!(body.expr(*value).kind, hir::ExprKind::Move(_));
-                let t = self.place_expr(*target);
+                // The value is evaluated before the place it goes to (spec §7.2, 18.49) —
+                // which C++17 already does for `=` and `op=`, so only statements hoisted out
+                // of either side need putting in order: the value's first, and the value
+                // held in a temporary if the place's would otherwise run ahead of it.
                 let target_ty = body.ty(*target).clone();
-                let v = self.stored(&target_ty, *value);
+                let (pre_t, t) = self.capture(|e| e.place_expr(*target));
+                let (pre_v, v) = self.capture(|e| e.stored(&target_ty, *value));
+                self.write_captured(&pre_v);
                 let v = if moved { format!("::dz::mv({v})") } else { v };
+                let v = if !pre_t.trim().is_empty() && !self.order_stable(*value) {
+                    let tmp = self.fresh("val");
+                    let ty = self.cpp_ty(target_ty.peeled_refs());
+                    self.line(&format!("{ty} {tmp} = {v};"));
+                    format!("::dz::mv({tmp})")
+                } else {
+                    v
+                };
+                self.write_captured(&pre_t);
                 self.line(&format!("{t} {} {v};", op.as_str()));
             }
             hir::StmtKind::Expr(e) => self.stmt_expr(*e),
@@ -3109,6 +3151,31 @@ impl<'a> Emitter<'a> {
                 let b = self.expr(*base);
                 format!("::dz::obj({b}).v{index}")
             }
+            hir::ExprKind::SliceRange { base, start, end } => {
+                let base_ty = self.cur().ty(*base).peeled_refs().clone();
+                let slice_ty = self.cpp_ty(body.ty(e));
+                let operands: Vec<ExprId> =
+                    std::iter::once(*base).chain(*start).chain(*end).collect();
+                let mut places = vec![false; operands.len()];
+                places[0] = true;
+                let mut v = self.ordered_operands(&operands, &places).into_iter();
+                let b = v.next().unwrap_or_default();
+                let lo = match start {
+                    Some(_) => format!("static_cast<size_t>({})", v.next().unwrap_or_default()),
+                    None => "0".to_owned(),
+                };
+                let hi =
+                    end.map(|_| format!("static_cast<size_t>({})", v.next().unwrap_or_default()));
+                if matches!(base_ty, Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
+                    // Unchecked, as indexing a pointer is (spec §5.3).
+                    let hi = hi.unwrap_or_else(|| lo.clone());
+                    return format!("{slice_ty}(({b}) + {lo}, {hi} - {lo})");
+                }
+                let loc = self.source_location(node.span);
+                let base = self.through(*base, b);
+                let hi = hi.unwrap_or_else(|| format!("::dz::len({base})"));
+                format!("{slice_ty}(::dz::subslice({base}, {lo}, {hi}, {loc}))")
+            }
             hir::ExprKind::Index { base, index } => {
                 // Indexing a `^T` is unchecked pointer arithmetic, as in C: a pointer has no
                 // length to check against, which is why the checker keeps it apart from
@@ -3118,8 +3185,8 @@ impl<'a> Emitter<'a> {
                     Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. }
                         if !matches!(**inner, Ty::Array { .. } | Ty::Slice { .. })
                 );
-                let b = self.expr(*base);
-                let i = self.expr(*index);
+                let v = self.ordered_operands(&[*base, *index], &[true, false]);
+                let (b, i) = (v[0].clone(), v[1].clone());
                 if raw_pointer {
                     return format!("({b})[static_cast<size_t>({i})]");
                 }
@@ -3143,6 +3210,24 @@ impl<'a> Emitter<'a> {
             // `&x` yields a proxy convertible to both `T&` and `T*` (spec §5.2).
             hir::ExprKind::Ref { place, .. } => {
                 let v = self.expr(*place);
+                // `map.get(&5)`: a reference to a value that is not a place refers to a
+                // temporary holding it, for the rest of the block — C++ will not take the
+                // address of a literal or of a call's result.
+                let is_place = matches!(
+                    body.expr(*place).kind,
+                    hir::ExprKind::Local(_)
+                        | hir::ExprKind::Static(_)
+                        | hir::ExprKind::Field { .. }
+                        | hir::ExprKind::TupleIndex { .. }
+                        | hir::ExprKind::Index { .. }
+                        | hir::ExprKind::Deref(_)
+                ) || matches!(body.ty(*place), Ty::Ref { .. });
+                if !is_place {
+                    let tmp = self.fresh("ref");
+                    let ty = self.cpp_ty(body.ty(*place));
+                    self.line(&format!("{ty} {tmp} = {v};"));
+                    return format!("::dz::addr({tmp})");
+                }
                 format!("::dz::addr({v})")
             }
 
@@ -3160,8 +3245,8 @@ impl<'a> Emitter<'a> {
             // it then counts through. It takes both ends to have a value to hold.
             hir::ExprKind::Range { start: Some(lo), end: Some(hi), inclusive } => {
                 let t = self.cpp_ty(body.ty(e).element().unwrap_or(&Ty::Int(IntTy::I32)));
-                let (lo, hi) = (self.expr(*lo), self.expr(*hi));
-                format!("::dz::Range<{t}>{{{lo}, {hi}, {inclusive}}}")
+                let v = self.sequenced_elements(&[*lo, *hi]);
+                format!("::dz::Range<{t}>{{{}, {}, {inclusive}}}", v[0], v[1])
             }
             hir::ExprKind::Range { .. } => {
                 self.unsupported(
@@ -3177,7 +3262,7 @@ impl<'a> Emitter<'a> {
             }
             hir::ExprKind::Tuple(parts) => {
                 let t = self.cpp_ty(body.ty(e));
-                let vs: Vec<String> = parts.iter().map(|p| self.expr(*p)).collect();
+                let vs = self.sequenced_elements(parts);
                 format!("{t}{{{}}}", vs.join(", "))
             }
             hir::ExprKind::TypeQuery { ty, query } => self.type_query(ty, *query),
@@ -3197,7 +3282,7 @@ impl<'a> Emitter<'a> {
             }
             hir::ExprKind::ArrayLit(parts) => {
                 let t = self.cpp_ty(body.ty(e));
-                let vs: Vec<String> = parts.iter().map(|p| self.expr(*p)).collect();
+                let vs = self.sequenced_elements(parts);
                 format!("{t}{{{{{}}}}}", vs.join(", "))
             }
             hir::ExprKind::EnumVariant { owner, index } => {
@@ -3257,7 +3342,13 @@ impl<'a> Emitter<'a> {
                 self.line(&format!("{cpp} {tmp}{{}};"));
                 let dest = Dest::Var(&tmp);
                 self.control_flow(e, dest);
-                tmp
+                // The temporary is only a way to get the value out of the statements, so a
+                // move-only value leaves it by moving (spec §6.4).
+                if self.table.copyable(&ty) {
+                    tmp
+                } else {
+                    format!("::dz::mv({tmp})")
+                }
             }
             hir::ExprKind::Or { operand, clause } => {
                 let ty = body.ty(e).clone();
@@ -3281,7 +3372,11 @@ impl<'a> Emitter<'a> {
                 } else {
                     self.line(&format!("{cpp} {tmp}{{}};"));
                     self.or_expr(e, *operand, clause, Dest::Var(&tmp));
-                    tmp
+                    if self.table.copyable(&ty) {
+                        tmp
+                    } else {
+                        format!("::dz::mv({tmp})")
+                    }
                 }
             }
 
@@ -3323,14 +3418,27 @@ impl<'a> Emitter<'a> {
                 return format!("({not}({v}).has)");
             }
         }
-        let short_circuit = matches!(op, BinaryOp::And | BinaryOp::Or);
+        let sym = match op {
+            // `^^` is Dazzle's xor; C++ spells it `^` (spec §2.6).
+            BinaryOp::BitXor => "^",
+            other => other.as_str(),
+        };
+        if !matches!(op, BinaryOp::And | BinaryOp::Or) {
+            // Left operand first (spec §7.2, 18.49): C++ fixes the order of neither.
+            let v = self.ordered_operands(&[lhs, rhs], &[false, false]);
+            return format!("({} {sym} {})", v[0], v[1]);
+        }
+        // `&&` and `||` are ordered by C++ itself; what is left is the right operand's own
+        // statements, which must run only when it does.
         let a = self.expr(lhs);
         let (pre, b) = self.capture(|e| e.expr(rhs));
-        if short_circuit && !pre.trim().is_empty() {
+        if !pre.trim().is_empty() {
             let tmp = self.fresh("sc");
             self.line(&format!("bool {tmp} = false;"));
             let (open, other) = match op {
-                BinaryOp::And => (format!("if ({a}) {{"), "true"),
+                // `a` is often parenthesised already; doubled parentheses around `==` are
+                // what clang warns about as a mistyped assignment.
+                BinaryOp::And => (format!("if ({}) {{", unwrap_parens(&a)), "true"),
                 _ => (format!("if (!({a})) {{"), "false"),
             };
             let _ = other;
@@ -3346,12 +3454,6 @@ impl<'a> Emitter<'a> {
             self.line("}");
             return tmp;
         }
-        self.write_captured(&pre);
-        let sym = match op {
-            // `^^` is Dazzle's xor; C++ spells it `^` (spec §2.6).
-            BinaryOp::BitXor => "^",
-            other => other.as_str(),
-        };
         format!("({a} {sym} {b})")
     }
 
@@ -3397,6 +3499,7 @@ impl<'a> Emitter<'a> {
             return format!("{ty}{{}}");
         }
         let order = self.field_list(sym);
+        let values = self.literal_fields(fields, |i| order.get(i).map(|f| f.1.clone()), true);
 
         // C++20 designated initialisers read far better, but they apply only to
         // aggregates — a type with a constructor or a user special member is not one, and
@@ -3412,10 +3515,8 @@ impl<'a> Emitter<'a> {
         }) && self.table.copyable(&node_ty);
         if self.standard >= 20 && aggregate {
             let mut parts = Vec::new();
-            for (i, f) in fields.iter().enumerate() {
-                let Some(f) = f else { continue };
-                let v = self.stored(&order[i].1, *f);
-                parts.push(format!(".{} = {v}", order[i].0));
+            for (i, v) in &values {
+                parts.push(format!(".{} = {v}", order[*i].0));
             }
             return format!("{ty}{{ {} }}", parts.join(", "));
         }
@@ -3424,12 +3525,8 @@ impl<'a> Emitter<'a> {
         // nothing after inlining and keeps field defaults working.
         let tmp = self.fresh("lit");
         let mut out = format!("[&] {{ {ty} {tmp}{{}}; ");
-        for (i, f) in fields.iter().enumerate() {
-            let Some(f) = f else { continue };
-            let moved = !self.table.copyable(self.cur().ty(*f));
-            let v = self.stored(&order[i].1, *f);
-            let v = if moved { format!("::dz::mv({v})") } else { v };
-            let _ = write!(out, "{tmp}.{} = {v}; ", order[i].0);
+        for (i, v) in &values {
+            let _ = write!(out, "{tmp}.{} = {v}; ", order[*i].0);
         }
         let _ = write!(out, "return {tmp}; }}()");
         out
@@ -3468,13 +3565,38 @@ impl<'a> Emitter<'a> {
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
-        for (i, v) in payload.iter().enumerate() {
-            let Some(v) = v else { continue };
+        for (i, text) in self.literal_fields(payload, |_| None, false) {
             let Some(f) = fields.get(i) else { continue };
-            let text = self.expr(*v);
             let _ = write!(out, "{tmp}.{name}.{f} = {text}; ");
         }
         let _ = write!(out, "return {tmp}; }}()");
+        out
+    }
+
+    /// A literal's field values, in declaration order, each with its field's index — but
+    /// **evaluated in the order they are written** (spec §7.2, 18.49). The HIR holds fields
+    /// in declaration order, which is what C++ must build them in; `Point{y: f(), x: g()}`
+    /// still runs `f()` first, found from where each value sits in the source.
+    fn literal_fields(
+        &mut self,
+        fields: &[Option<ExprId>],
+        target: impl Fn(usize) -> Option<Ty>,
+        consume: bool,
+    ) -> Vec<(usize, String)> {
+        let body = self.cur();
+        let mut written: Vec<(usize, ExprId)> =
+            fields.iter().enumerate().filter_map(|(i, f)| Some((i, (*f)?))).collect();
+        let declared: Vec<usize> = written.iter().map(|w| w.0).collect();
+        written.sort_by_key(|(_, f)| body.expr(*f).span.start);
+        let in_declared_order = written.iter().map(|w| w.0).eq(declared.iter().copied());
+        let mut captured =
+            self.capture_each(written.iter().map(|&(i, f)| (f, target(i))).collect(), consume);
+        // C++ builds the fields in declaration order; where that is also the written order,
+        // only hoisted statements can put a value out of turn.
+        captured.sequenced = in_declared_order;
+        let values = self.emit_args(captured);
+        let mut out: Vec<(usize, String)> = written.iter().map(|w| w.0).zip(values).collect();
+        out.sort_by_key(|(i, _)| *i);
         out
     }
 
@@ -3486,6 +3608,27 @@ impl<'a> Emitter<'a> {
                 return native;
             }
         }
+        // The receiver, or the function value, is evaluated first (spec §7.2, 18.49). C++17
+        // already sequences a call's postfix expression before its arguments, so this only
+        // has to protect it from an argument's hoisted statements, or — for a trait method,
+        // where it becomes an argument itself — from an argument's side effects.
+        let head = match callee {
+            hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. } => Some(*recv),
+            hir::Callee::Value(v) => Some(*v),
+            _ => None,
+        };
+        let head_text = head.map(|h| self.expr(h));
+        let captured = self.capture_args(args, true);
+        let head_text = match (head, head_text) {
+            (Some(h), Some(text)) if captured.any_effects() && !self.fixed_place(h) => {
+                let tmp = self.fresh("recv");
+                self.line(&format!("auto&& {tmp} = {text};"));
+                Some(tmp)
+            }
+            (_, text) => text,
+        };
+        let recv_text = || head_text.clone().expect("a method call has a receiver");
+
         // A trait's method is an implementation's free function, and the receiver its
         // first argument (spec §7.6).
         let mut recv_arg: Option<String> = None;
@@ -3509,14 +3652,14 @@ impl<'a> Emitter<'a> {
             },
             // `UiElement::draw(self)` is C++'s `recv.UiElement::draw()`, which is exactly
             // the qualified call that suppresses virtual dispatch (spec §7.3, 18.32).
-            hir::Callee::BaseMethod { recv, owner, name } => {
+            hir::Callee::BaseMethod { owner, name, .. } => {
                 let base = self.qualify(*owner);
-                let r = self.expr(*recv);
+                let r = recv_text();
                 format!("::dz::obj({r}).{base}::{}", sanitize(name))
             }
             hir::Callee::Method { recv, owner, name } => {
                 let target = self.impl_target(*recv, *owner, name, args);
-                let r = self.expr(*recv);
+                let r = recv_text();
                 match target {
                     Some(f) => {
                         recv_arg = Some(format!("::dz::obj({r})"));
@@ -3525,10 +3668,7 @@ impl<'a> Emitter<'a> {
                     None => format!("::dz::obj({r}).{}", sanitize(name)),
                 }
             }
-            hir::Callee::Value(v) => {
-                let f = self.expr(*v);
-                format!("({f})")
-            }
+            hir::Callee::Value(_) => format!("({})", recv_text()),
         };
         // An imported function may want a C type Dazzle spells differently — `char *`
         // against `int8_t *` — so the crossing is cast, in both directions (spec §15.2).
@@ -3558,10 +3698,7 @@ impl<'a> Emitter<'a> {
         };
 
         let mut rendered: Vec<String> = recv_arg.into_iter().collect();
-        for (i, a) in args.iter().enumerate() {
-            let moved = !self.table.copyable(self.cur().ty(*a));
-            let v = self.expr(*a);
-            let v = if moved { format!("::dz::mv({v})") } else { v };
+        for (i, v) in self.emit_args(captured).into_iter().enumerate() {
             let cast =
                 imported.as_ref().and_then(|s| s.params.get(i)).and_then(|p| p.c_cast.clone());
             rendered.push(match cast {
@@ -3576,6 +3713,206 @@ impl<'a> Emitter<'a> {
                 format!("({t})({call})")
             }
             _ => call,
+        }
+    }
+
+    // --- argument order (spec §7.2, 18.49) -----------------------------------
+    //
+    // Dazzle evaluates arguments left to right; C++ leaves the order unspecified, and g++ and
+    // clang++ targeting Windows both go right to left. Two things can make the order show:
+    // an argument's side effects, and an argument's hoisted statements — an `or` clause or a
+    // block value writes its work *before* the statement, ahead of every argument to its
+    // left. So each argument is rendered on its own first, and then written out in order:
+    // its hoisted statements, and — only where an earlier argument could see a later one's
+    // effects, or the other way round — its value bound to a temporary. A call whose
+    // arguments are plain reads, or that has one argument with effects and nothing else
+    // that could observe them, comes out exactly as it did before.
+
+    /// Render every argument without writing anything yet.
+    fn capture_args(&mut self, args: &[ExprId], consume: bool) -> CapturedArgs {
+        self.capture_each(args.iter().map(|&a| (a, None)).collect(), consume)
+    }
+
+    /// Operands C++ gives no order — `a() + b()`, `xs[i()]` — evaluated left to right
+    /// (spec §7.2, 18.49). `places` marks the ones that are the place itself rather than a
+    /// value, such as an indexed container: held by reference, not copied, if they must be
+    /// held at all. An arithmetic operand is a value, so a later operand's effect must not
+    /// show through it.
+    fn ordered_operands(&mut self, operands: &[ExprId], places: &[bool]) -> Vec<String> {
+        let mut captured = self.capture_args(operands, false);
+        for (a, &place) in captured.args.iter_mut().zip(places) {
+            a.place = place;
+        }
+        self.emit_args(captured)
+    }
+
+    /// Elements C++ already evaluates in order — a braced initialiser's — so only what
+    /// they hoist can run out of turn (spec §7.2, 18.49).
+    fn sequenced_elements(&mut self, elements: &[ExprId]) -> Vec<String> {
+        let mut captured = self.capture_args(elements, false);
+        captured.sequenced = true;
+        self.emit_args(captured)
+    }
+
+    /// Each argument with, where it is stored into a declared type, that type — which
+    /// decides how a `&T` built by a block is held (see [`Emitter::stored`]).
+    fn capture_each(&mut self, args: Vec<(ExprId, Option<Ty>)>, consume: bool) -> CapturedArgs {
+        let mut out = CapturedArgs::default();
+        for (a, target) in args {
+            let (pre, v) = self.capture(|e| match &target {
+                Some(t) => e.stored(t, a),
+                None => e.expr(a),
+            });
+            // A move-only value is handed over; a copyable one is copied by C++ itself.
+            let v = if consume && !self.table.copyable(self.cur().ty(a)) {
+                format!("::dz::mv({v})")
+            } else {
+                v
+            };
+            let effects = !pre.trim().is_empty() || self.has_effects(a);
+            let stable = !effects && self.order_stable(a);
+            out.args.push(CapturedArg { id: a, pre, value: v, effects, stable, place: false });
+        }
+        out
+    }
+
+    /// Write the captured arguments' hoisted work in order, binding a value to a temporary
+    /// where the order could otherwise be observed, and return what each argument is.
+    fn emit_args(&mut self, captured: CapturedArgs) -> Vec<String> {
+        let args = &captured.args;
+        let mut out = Vec::with_capacity(args.len());
+        for (i, a) in args.iter().enumerate() {
+            self.write_captured(&a.pre);
+            let later = &args[i + 1..];
+            let observable = if captured.sequenced {
+                !a.stable && later.iter().any(|b| !b.pre.trim().is_empty())
+            } else {
+                later.iter().any(|b| (a.effects && !b.stable) || (!a.stable && b.effects))
+            };
+            if !observable {
+                out.push(a.value.clone());
+                continue;
+            }
+            let tmp = self.fresh("arg");
+            let ty = self.cur().ty(a.id).clone();
+            if a.place {
+                // `construct(dst, move_out(src))` and `xs[i()]` work on the place itself:
+                // bound as it is, and forwarded as the lvalue or rvalue it was.
+                self.line(&format!("auto&& {tmp} = {};", a.value));
+                out.push(format!("static_cast<decltype({tmp})>({tmp})"));
+            } else if matches!(ty, Ty::Ref { .. }) {
+                // A reference is evaluated once it names its referent; what the referent
+                // holds may still change, as it would in any language.
+                self.line(&format!("auto&& {tmp} = {};", a.value));
+                out.push(tmp);
+            } else {
+                let t = self.cpp_ty(&ty);
+                self.line(&format!("{t} {tmp} = {};", a.value));
+                // The temporary is never read again, so it is handed over, not copied.
+                out.push(format!("::dz::mv({tmp})"));
+            }
+        }
+        out
+    }
+
+    /// Whether evaluating `e` can change what another expression reads, or reach outside
+    /// the expression at all: a call, anything that writes statements of its own, a jump.
+    /// A failed bounds check is not counted — it ends the program either way.
+    fn has_effects(&self, e: ExprId) -> bool {
+        let body = self.cur();
+        let any = |xs: &[ExprId]| xs.iter().any(|x| self.has_effects(*x));
+        let opt = |x: &Option<ExprId>| x.is_some_and(|x| self.has_effects(x));
+        match &body.expr(e).kind {
+            hir::ExprKind::Call { .. }
+            | hir::ExprKind::Builtin { .. }
+            | hir::ExprKind::Block(_)
+            | hir::ExprKind::If { .. }
+            | hir::ExprKind::IfLet { .. }
+            | hir::ExprKind::Switch { .. }
+            | hir::ExprKind::Or { .. }
+            | hir::ExprKind::Return(_)
+            | hir::ExprKind::Break(_)
+            | hir::ExprKind::Continue(_)
+            | hir::ExprKind::Error => true,
+            hir::ExprKind::Int(_)
+            | hir::ExprKind::Float(_)
+            | hir::ExprKind::Bool(_)
+            | hir::ExprKind::Char(_)
+            | hir::ExprKind::Str(_)
+            | hir::ExprKind::Null
+            | hir::ExprKind::NoneOpt
+            | hir::ExprKind::Local(_)
+            | hir::ExprKind::Const(_)
+            | hir::ExprKind::Static(_)
+            | hir::ExprKind::AssocConst { .. }
+            | hir::ExprKind::FnItem(_)
+            | hir::ExprKind::EnumVariant { .. }
+            | hir::ExprKind::TypeQuery { .. }
+            | hir::ExprKind::Intrinsic { .. } => false,
+            hir::ExprKind::Field { base, .. }
+            | hir::ExprKind::TupleIndex { base, .. }
+            | hir::ExprKind::Len(base)
+            | hir::ExprKind::DataPtr(base)
+            | hir::ExprKind::Deref(base)
+            | hir::ExprKind::Move(base)
+            | hir::ExprKind::Ref { place: base, .. }
+            | hir::ExprKind::Unary { operand: base, .. }
+            | hir::ExprKind::Cast { operand: base } => self.has_effects(*base),
+            hir::ExprKind::Index { base, index } => any(&[*base, *index]),
+            hir::ExprKind::Binary { lhs, rhs, .. } => any(&[*lhs, *rhs]),
+            hir::ExprKind::SliceRange { base, start, end } => {
+                self.has_effects(*base) || opt(start) || opt(end)
+            }
+            hir::ExprKind::Range { start, end, .. } => opt(start) || opt(end),
+            hir::ExprKind::StructLit { fields: xs, .. }
+            | hir::ExprKind::UnionVariant { payload: xs, .. } => xs.iter().any(opt),
+            hir::ExprKind::Tuple(xs) | hir::ExprKind::ArrayLit(xs) => any(xs),
+        }
+    }
+
+    /// Whether `e` means the same thing wherever among the arguments it is evaluated: a
+    /// constant, or the address of a place nothing can move.
+    fn order_stable(&self, e: ExprId) -> bool {
+        let body = self.cur();
+        match &body.expr(e).kind {
+            hir::ExprKind::Int(_)
+            | hir::ExprKind::Float(_)
+            | hir::ExprKind::Bool(_)
+            | hir::ExprKind::Char(_)
+            | hir::ExprKind::Str(_)
+            | hir::ExprKind::Null
+            | hir::ExprKind::NoneOpt
+            | hir::ExprKind::Const(_)
+            | hir::ExprKind::AssocConst { .. }
+            | hir::ExprKind::FnItem(_)
+            | hir::ExprKind::EnumVariant { .. }
+            | hir::ExprKind::TypeQuery { .. }
+            | hir::ExprKind::Intrinsic { .. } => true,
+            // A local reference cannot be re-seated, so it names the same thing throughout.
+            hir::ExprKind::Local(_) => matches!(body.ty(e), Ty::Ref { .. }),
+            hir::ExprKind::Ref { place, .. } => self.fixed_place(*place),
+            hir::ExprKind::Cast { operand } | hir::ExprKind::Unary { operand, .. } => {
+                self.order_stable(*operand)
+            }
+            hir::ExprKind::Binary { lhs, rhs, .. } => {
+                self.order_stable(*lhs) && self.order_stable(*rhs)
+            }
+            _ => false,
+        }
+    }
+
+    /// A place whose address no expression can change: a local or a static, or a field of
+    /// one held by value. Reaching through a pointer or an index is not fixed, since either
+    /// may be changed by an argument before it.
+    fn fixed_place(&self, e: ExprId) -> bool {
+        let body = self.cur();
+        match &body.expr(e).kind {
+            hir::ExprKind::Local(_) | hir::ExprKind::Static(_) => true,
+            hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. } => {
+                matches!(body.ty(*base), Ty::Named { .. } | Ty::Tuple(_) | Ty::Ref { .. })
+                    && self.fixed_place(*base)
+            }
+            _ => self.order_stable(e),
         }
     }
 
@@ -3747,7 +4084,15 @@ impl<'a> Emitter<'a> {
     // --- builtins and intrinsics -------------------------------------------
 
     fn builtin(&mut self, name: &str, args: &[ExprId], span: Span) -> String {
-        let rendered: Vec<String> = args.iter().map(|a| self.expr(*a)).collect();
+        // In order, as any call's are: `println("{} {}", touch(), COUNT.hits)` is §7.2's own
+        // example. A builtin takes its arguments as they are, so nothing is moved into it.
+        let mut captured = self.capture_args(args, false);
+        if matches!(name, "construct" | "destroy" | "move_out") {
+            for a in &mut captured.args {
+                a.place = true;
+            }
+        }
+        let rendered = self.emit_args(captured);
         match name {
             // The checker verified the argument counts of everything below (`builtin_arity`),
             // so indexing `rendered` cannot go out of range.
@@ -3758,6 +4103,8 @@ impl<'a> Emitter<'a> {
             "free" => format!("::dz::dealloc({})", rendered[0]),
             "construct" => format!("::dz::construct({})", rendered.join(", ")),
             "destroy" => format!("::dz::destroy({})", rendered[0]),
+            "move_out" => format!("::dz::move_out({})", rendered[0]),
+            "str_from_utf8" => format!("::dz::str_from_utf8({})", rendered[0]),
             "memcpy" => format!("::memcpy({}, {}, {})", rendered[0], rendered[1], rendered[2]),
             // The optimiser barrier a benchmark needs (spec §19 M15).
             "blackbox" => format!("::dz::blackbox({})", rendered[0]),
@@ -3807,7 +4154,7 @@ impl<'a> Emitter<'a> {
         args: &[ExprId],
     ) -> Option<String> {
         let recv_ty = self.cur().ty(recv).peeled().clone();
-        if !matches!(recv_ty, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char) {
+        if !matches!(recv_ty, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str) {
             return None;
         }
         if self.res.symbol(owner).module != self.res.prelude {
@@ -3820,21 +4167,29 @@ impl<'a> Emitter<'a> {
             "mul" => "*",
             "div" => "/",
             "rem" => "%",
-            "cmp" | "neg" => "",
+            "cmp" | "neg" | "hash" => "",
             _ => return None,
         };
-        let a = self.expr(recv);
-        if name == "neg" {
-            return Some(format!("(-{a})"));
+        if name == "neg" || name == "hash" {
+            let a = self.expr(recv);
+            // `hash` on a primitive is the shim's, which mixes the bits (spec §14.2).
+            return Some(if name == "neg" {
+                format!("(-{a})")
+            } else {
+                format!("::dz::hash({a})")
+            });
         }
         // `eq` and `cmp` take `&Self`, so the operand arrives as `&b`; the operator wants `b`.
         let b = match args.first() {
             Some(&x) => match self.cur().expr(x).kind {
-                hir::ExprKind::Ref { place, .. } => self.expr(place),
-                _ => self.expr(x),
+                hir::ExprKind::Ref { place, .. } => place,
+                _ => x,
             },
             None => return None,
         };
+        // In order, as the call it stands for would be (spec §7.2, 18.49).
+        let v = self.ordered_operands(&[recv, b], &[false, false]);
+        let (a, b) = (v[0].clone(), v[1].clone());
         if name == "cmp" {
             let ordering = self.res.lookup(self.res.prelude, "Ordering")?;
             let ord = self.qualify(ordering);
@@ -4167,6 +4522,12 @@ impl Namer<'_> {
             hir::ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            hir::ExprKind::SliceRange { base, start, end } => {
+                self.expr(base);
+                for x in [start, end].into_iter().flatten() {
+                    self.expr(x);
+                }
             }
             hir::ExprKind::Len(base) | hir::ExprKind::DataPtr(base) => self.expr(base),
             hir::ExprKind::Binary { lhs, rhs, .. } => {

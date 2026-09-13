@@ -292,6 +292,7 @@ pub const BUILTIN_FNS: &[&str] = &[
     "alignof",
     "construct",
     "destroy",
+    "move_out",
     "panic",
     "error",
     "print",

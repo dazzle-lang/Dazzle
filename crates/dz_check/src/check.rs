@@ -1448,7 +1448,10 @@ impl<'a, 'c> Body<'a, 'c> {
                 let mut t = self.expr(target, None);
                 // Assigning to a `&mut T` writes the `T` it refers to (spec §5.2). A `&T` is
                 // typed the same way, so the one error about it is that it is read-only.
-                if let (ExprKind::Path(_), Ty::Ref { inner, .. }) = (&target.kind, &t.ty) {
+                // `b[i] = v` through `IndexMut` is the same: its `index_mut` returns the `&mut`.
+                if let (ExprKind::Path(_) | ExprKind::Index { .. }, Ty::Ref { inner, .. }) =
+                    (&target.kind, &t.ty)
+                {
                     t.ty = (**inner).clone();
                 }
                 let v = self.expr(value, Some(&t.ty));
@@ -2319,7 +2322,15 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.mk(e, ty, hir::ExprKind::Tuple(parts))
             }
             ExprKind::Ref { mutable, expr } => {
-                let inner = self.expr(expr, None);
+                // What the reference is wanted to point at is the operand's context, so
+                // `map.get(&7)` on a `HashMap<u8, …>` settles the literal as a `u8` (§2.5).
+                let wanted = match expected {
+                    Some(Ty::Ref { inner, .. }) | Some(Ty::Ptr { inner, .. }) => {
+                        Some((**inner).clone())
+                    }
+                    _ => None,
+                };
+                let inner = self.expr(expr, wanted.as_ref());
                 if *mutable {
                     self.require_mutable(expr);
                 }
@@ -2478,6 +2489,12 @@ impl<'a, 'c> Body<'a, 'c> {
                 };
                 self.mk(e, Ty::Range(Rc::new(elem)), kind)
             }
+            ExprKind::Index { base, index }
+                if matches!(index.kind, ExprKind::Range { inclusive: false, .. }) =>
+            {
+                let ExprKind::Range { start, end, .. } = &index.kind else { unreachable!() };
+                self.slice_range(e, base, start.as_deref(), end.as_deref())
+            }
             ExprKind::Index { base, index } => {
                 let reached_into = std::mem::replace(&mut self.reaching_into, true);
                 let b = self.expr(base, None);
@@ -2491,6 +2508,42 @@ impl<'a, 'c> Body<'a, 'c> {
                         format!("an index must be an integer, found `{n}`"),
                         "not an integer",
                     );
+                }
+                // `b[i]` on a user type is its `Index` — or, where the value may be written,
+                // its `IndexMut` — which hands back a reference to the element (spec §11.2).
+                if let Ty::Named { sym, .. } = b.ty.peeled_refs() {
+                    if !matches!(self.cx.table.get(*sym), Some(ItemSig::Enum { .. })) {
+                        let writable = match &b.ty {
+                            Ty::Ref { mutable, .. } => *mutable,
+                            _ => self.place_mutability(base) == Some(true),
+                        };
+                        if writable {
+                            if let Some(c) = self.operator_call(
+                                "IndexMut",
+                                "index_mut",
+                                &b,
+                                Some(&i),
+                                Some(index),
+                                e.span,
+                            ) {
+                                return c;
+                            }
+                        }
+                        if let Some(c) =
+                            self.operator_call("Index", "index", &b, Some(&i), Some(index), e.span)
+                        {
+                            return c;
+                        }
+                        let n = self.cx.name_of(&b.ty);
+                        self.cx.error_help(
+                            codes::NOT_INDEXABLE,
+                            base.span,
+                            format!("`{n}` cannot be indexed"),
+                            "no `Index` implementation",
+                            format!("implement `Index` for `{n}`, and `IndexMut` to write through it (spec §11.2)"),
+                        );
+                        return self.mk(e, Ty::Error, hir::ExprKind::Error);
+                    }
                 }
                 // Indexing a `^T` is pointer arithmetic, as in C: unchecked, since a pointer
                 // carries no length. §8.3's own `m_data[i]` on an `own ^T` depends on it.
@@ -3006,6 +3059,26 @@ impl<'a, 'c> Body<'a, 'c> {
                     | (Ty::CStr, Ty::Str)
             ),
         };
+        // A string's bytes, viewed; and bytes or a pointer taken as text, which nothing
+        // checks is UTF-8 or terminated — `str::from_utf8` is the checked way (spec §5.3).
+        let u8_slice =
+            |t: &Ty| matches!(t, Ty::Slice { elem, .. } if matches!(**elem, Ty::Int(IntTy::U8)));
+        let u8_ptr = |t: &Ty| matches!(t, Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } if matches!(**inner, Ty::Int(IntTy::U8)));
+        let ok = ok
+            || match (from, to) {
+                (Ty::Str, t) if u8_slice(t) && !matches!(t, Ty::Slice { mutable: true, .. }) => {
+                    true
+                }
+                (f, Ty::Str) if u8_slice(f) => {
+                    self.require_unsafe(span, "taking bytes as a `str` without checking them");
+                    true
+                }
+                (f, Ty::CStr) if u8_ptr(f) => {
+                    self.require_unsafe(span, "taking a pointer as a `cstr`");
+                    true
+                }
+                _ => false,
+            };
         if !ok && matches!((from, to), (Ty::Str, Ty::CStr)) {
             self.cx.error_help(
                 codes::INVALID_CAST,
@@ -3060,6 +3133,15 @@ impl<'a, 'c> Body<'a, 'c> {
             // Writable or not depends on the place, which the caller sees and this does not.
             if name.name == "ptr" {
                 return (Ty::ptr(false, (**elem).clone()), None);
+            }
+        }
+        // A `str` is `{ ptr, len }` (spec §5.3): its length in bytes, and its first byte.
+        if matches!(peeled, Ty::Str) {
+            if name.name == "len" {
+                return (Ty::Int(IntTy::Usize), None);
+            }
+            if name.name == "ptr" {
+                return (Ty::ptr(false, Ty::Int(IntTy::U8)), None);
             }
         }
         if peeled.is_wildcard() {
@@ -3565,15 +3647,22 @@ impl<'a, 'c> Body<'a, 'c> {
             let t = self.cx.name_of(chosen);
             let shown = self.trait_ref_name(&wanted);
             let p = def.name();
+            // A type the language provides has no module for an `impl` to live in, so the
+            // way to give it a trait is a struct around it (spec §7.6).
+            let help = if chosen.named().is_some() {
+                format!("implement it: `impl {shown} for {t} {{ … }}` (spec §7.6)")
+            } else {
+                format!(
+                    "`{t}` is built in, and implements only what the language gives it; wrap \
+                     it in a struct that implements `{shown}` (spec §7.6)"
+                )
+            };
             self.cx.error_help(
                 codes::UNSATISFIED_BOUND,
                 span,
                 format!("`{t}` does not implement `{shown}`"),
                 format!("`{p}` is bounded by `{shown}`"),
-                format!(
-                    "declare it as `struct {t} : {shown}` and implement the trait's \
-                     methods (spec §7.6)"
-                ),
+                help,
             );
         }
     }
@@ -4100,6 +4189,36 @@ impl<'a, 'c> Body<'a, 'c> {
                 return self.mk(e, ty, hir::ExprKind::Call { callee, args });
             }
 
+            // `n.hash()`, `a.cmp(&b)` on a primitive: the prelude traits the machine's own
+            // types implement without an `impl` (spec §11.2, §14.2). Codegen lowers the call
+            // to the operator or the shim function it stands for.
+            if matches!(peeled, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str) {
+                for trait_name in ["Hash", "Eq", "Ord"] {
+                    let Some(trait_sym) = self.cx.prelude_trait(trait_name) else { continue };
+                    if !crate::impls::primitive_implements(&peeled, trait_name, &[]) {
+                        continue;
+                    }
+                    let Some(sig) = self
+                        .cx
+                        .table
+                        .struct_sig(trait_sym)
+                        .and_then(|s| s.methods.get(&name.name))
+                        .cloned()
+                    else {
+                        continue;
+                    };
+                    let sig = instantiate_self(&sig, &peeled);
+                    let args = self.check_args(&sig, args, span, &name.name);
+                    let ty = fallible_result(&sig, self.subst(&sig.ret));
+                    let callee = hir::Callee::Method {
+                        recv: recv.id,
+                        owner: trait_sym,
+                        name: name.name.clone(),
+                    };
+                    return self.mk(e, ty, hir::ExprKind::Call { callee, args });
+                }
+            }
+
             if let Some(sym) = peeled.named() {
                 {
                     let type_args: Vec<Ty> = match &peeled {
@@ -4293,6 +4412,31 @@ impl<'a, 'c> Body<'a, 'c> {
 
             // Builtins are untyped until the stdlib exists: arity is checked by
             // `builtin_arity`, and a formatting call's literal by `check_format` (§12.9).
+            // `str::from_utf8(bytes)`: the checked way from bytes to text — `none` when they
+            // are not valid UTF-8 (spec §5.3). `bytes as str` is the unchecked one.
+            if p.segments.len() == 2
+                && p.segments[0].name.name == "str"
+                && p.segments[1].name.name == "from_utf8"
+            {
+                let want = Ty::Slice { mutable: false, elem: Rc::new(Ty::Int(IntTy::U8)) };
+                if args.len() != 1 {
+                    self.cx.error(
+                        codes::WRONG_ARG_COUNT,
+                        span,
+                        format!("`str::from_utf8` takes 1 argument, found {}", args.len()),
+                        "wrong number of arguments",
+                    );
+                    for a in args {
+                        self.expr(a, None);
+                    }
+                    return self.mk(e, Ty::Error, hir::ExprKind::Error);
+                }
+                let c = self.expr(&args[0], Some(&want));
+                self.expect(&want, &c.ty, args[0].span);
+                let kind =
+                    hir::ExprKind::Builtin { name: "str_from_utf8".to_owned(), args: vec![c.id] };
+                return self.mk(e, Ty::Optional(Rc::new(Ty::Str)), kind);
+            }
             if p.segments.len() == 1
                 && dz_resolve::BUILTIN_FNS.contains(&p.segments[0].name.name.as_str())
             {
@@ -4327,13 +4471,14 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
                 // The placement primitives and the heap's release write memory nothing
                 // tracks (spec §5.2, §14.3). `alloc` only hands a pointer out, which is safe.
-                if matches!(name.as_str(), "construct" | "destroy" | "memcpy" | "free") {
+                if matches!(name.as_str(), "construct" | "destroy" | "move_out" | "memcpy" | "free")
+                {
                     self.require_unsafe(span, &format!("`{name}`"));
                 }
                 let checked: Vec<Checked> = args.iter().map(|a| self.expr(a, None)).collect();
                 // What they write has to be writable: a `^T` promises its pointee is only
                 // read (spec §5.2). `free` releases rather than writes, so any pointer does.
-                if matches!(name.as_str(), "construct" | "destroy") {
+                if matches!(name.as_str(), "construct" | "destroy" | "move_out") {
                     if let Some(dst) = args.first() {
                         self.require_writable(dst, &name);
                     }
@@ -4360,7 +4505,8 @@ impl<'a, 'c> Body<'a, 'c> {
                 // `blackbox` hands back exactly what it was given (spec §19 M15). Its type
                 // cannot come from the fixed table: the whole point is that the value
                 // survives, and a benchmark passes whatever it is measuring.
-                let ty = if name == "blackbox" {
+                // `move_out(p[i])` hands back the value that was in the storage (spec §14.3).
+                let ty = if name == "blackbox" || name == "move_out" {
                     checked.first().map(|c| c.ty.clone()).unwrap_or(Ty::Void)
                 } else {
                     builtin_call_type(&name)
@@ -5837,6 +5983,70 @@ impl<'a, 'c> Body<'a, 'c> {
         }
     }
 
+    /// `xs[a..b]` (spec §5.3). On an array or a slice both ends are checked when it runs;
+    /// on a pointer nothing is, so it is `unsafe` and needs its end written. The slice is as
+    /// writable as what it views: a `[]mut T`, a `^mut T`, or an array that may be written.
+    fn slice_range(
+        &mut self,
+        e: &Expr,
+        base: &Expr,
+        start: Option<&Expr>,
+        end: Option<&Expr>,
+    ) -> Checked {
+        let b = self.expr(base, None);
+        let usize_ty = Ty::Int(IntTy::Usize);
+        let mut ends = Vec::new();
+        for x in [start, end].into_iter().flatten() {
+            let c = self.expr(x, Some(&usize_ty));
+            self.expect(&usize_ty, &c.ty, x.span);
+            ends.push(c.id);
+        }
+        let start_id = start.map(|_| ends[0]);
+        let end_id = end.map(|_| ends[ends.len() - 1]);
+        let (elem, mutable) = match b.ty.peeled_refs().clone() {
+            Ty::Ptr { inner, mutable } | Ty::OwnPtr { inner, mutable }
+                if !matches!(*inner, Ty::Array { .. } | Ty::Slice { .. }) =>
+            {
+                self.require_unsafe(e.span, "slicing a `^T`");
+                if end.is_none() {
+                    self.cx.error_help(
+                        codes::TYPE_MISMATCH,
+                        e.span,
+                        "a slice of a pointer needs its end",
+                        "no end",
+                        "a pointer carries no length, so write where the slice stops: \
+                         `p[0..n]` (spec §5.3)",
+                    );
+                }
+                ((*inner).clone(), mutable)
+            }
+            Ty::Slice { elem, mutable } => ((*elem).clone(), mutable),
+            Ty::Array { elem, .. } => {
+                let writable = match &b.ty {
+                    Ty::Ref { mutable, .. }
+                    | Ty::Ptr { mutable, .. }
+                    | Ty::OwnPtr { mutable, .. } => *mutable,
+                    _ => self.place_mutability(base) == Some(true),
+                };
+                ((*elem).clone(), writable)
+            }
+            other => {
+                if !other.is_wildcard() {
+                    let n = self.cx.name_of(&b.ty);
+                    self.cx.error(
+                        codes::NOT_INDEXABLE,
+                        base.span,
+                        format!("`{n}` cannot be sliced"),
+                        "not an array, a slice or a pointer",
+                    );
+                }
+                return self.mk(e, Ty::Error, hir::ExprKind::Error);
+            }
+        };
+        let ty = Ty::Slice { mutable, elem: Rc::new(elem) };
+        self.mk(e, ty, hir::ExprKind::SliceRange { base: b.id, start: start_id, end: end_id })
+    }
+
     /// What a constant declared in a type may be: anything a `static` may start as, or the
     /// address of a static, bare or in a block (spec §7.3).
     fn is_assoc_const_value(&self, id: hir::ExprId) -> bool {
@@ -6242,7 +6452,7 @@ fn spec_fits(spec: &str, t: &Ty) -> Result<(), &'static str> {
 fn builtin_arity(name: &str) -> Option<(usize, usize)> {
     Some(match name {
         "alloc" => (2, 2),
-        "free" | "destroy" | "sizeof" | "alignof" | "blackbox" => (1, 1),
+        "free" | "destroy" | "move_out" | "sizeof" | "alignof" | "blackbox" => (1, 1),
         // `construct(dst)` default-constructs; `construct(dst, v)` copies or moves in.
         "construct" => (1, 2),
         "memcpy" => (3, 3),

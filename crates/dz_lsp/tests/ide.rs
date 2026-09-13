@@ -70,6 +70,30 @@ fn labels(items: &[ide::Completion]) -> Vec<&str> {
 
 // --- hover and definition ------------------------------------------------------------------
 
+/// A prelude name leads into the prelude: the server shows that file from a copy on disk,
+/// but the query itself must find the declaration.
+#[test]
+fn definition_of_a_prelude_name_is_its_declaration_in_the_prelude() {
+    let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/containers"));
+    assert!(!a.diags.has_errors(), "the fixture must check cleanly");
+    let f = main_file(&a);
+    for (needle, within, declared) in [
+        ("String>()", 0, "String"),
+        ("List<i32>()", 0, "List"),
+        ("(0, Allocators::Temp)", 4, "Allocators"),
+        ("Temp)", 0, "Temp"),
+    ] {
+        let i = info(&a, f, needle, within);
+        let (file, _) = i.definition.unwrap_or_else(|| panic!("no definition for `{needle}`"));
+        assert!(a.map.get(file).path().starts_with("<prelude>"), "`{needle}` left the prelude");
+        assert_eq!(definition_text(&a, &i).1, declared, "at `{needle}`");
+    }
+    // And from inside the prelude, once it is open.
+    let prelude = ide::prelude_file(&a).expect("the prelude was parsed");
+    let i = info(&a, prelude, "m_bytes: List<u8>", 9);
+    assert_eq!(definition_text(&a, &i).1, "List");
+}
+
 #[test]
 fn hover_on_a_call_shows_the_declared_signature() {
     let (a, f) = generics();

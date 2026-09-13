@@ -42,16 +42,39 @@ pub fn emit_cpp(
         return Err(d);
     }
 
+    // The prelude is compiled into `dz` and has no file, so its `#line` directives name a
+    // copy written beside the generated C++ — which is what a debugger opens when stepping
+    // into `List::push` (spec §16.3). Only the directives change: a panic message still
+    // says `<prelude>/dz.dz`.
+    let prelude_copy = cpp_dir.join("prelude").join("dz.dz");
+    let absolute = if prelude_copy.is_absolute() {
+        Some(prelude_copy.clone())
+    } else {
+        std::env::current_dir().ok().map(|d| d.join(&prelude_copy))
+    };
+    let prelude_line =
+        absolute.map(|p| format!("\"{}\"", p.display().to_string().replace('\\', "/")));
+    if prelude_line.is_some() {
+        let _ = std::fs::create_dir_all(cpp_dir.join("prelude"));
+        let current = std::fs::read_to_string(&prelude_copy).ok();
+        if current.as_deref() != Some(dz_project::PRELUDE_SOURCE) {
+            let _ = std::fs::write(&prelude_copy, dz_project::PRELUDE_SOURCE);
+        }
+    }
+
     let mut written = Vec::new();
     for file in &emitted.files {
         let path = cpp_dir.join(&file.name);
+        let contents = match &prelude_line {
+            Some(real) => with_prelude_lines(&file.contents, real),
+            None => file.contents.clone(),
+        };
         // Rewriting an unchanged file would defeat the C++ compiler's own incremental
         // build, which is the only incrementality that exists so far (spec §16.6).
-        let unchanged = std::fs::read_to_string(&path)
-            .map(|existing| existing == file.contents)
-            .unwrap_or(false);
+        let unchanged =
+            std::fs::read_to_string(&path).map(|existing| existing == contents).unwrap_or(false);
         if !unchanged {
-            if let Err(e) = std::fs::write(&path, &file.contents) {
+            if let Err(e) = std::fs::write(&path, &contents) {
                 let mut d = Diagnostics::new();
                 d.push(Diagnostic::error(
                     codes::CPP_COMPILER_FAILED,
@@ -64,6 +87,27 @@ pub fn emit_cpp(
     }
 
     Ok(BuildOutput { cpp_dir, written })
+}
+
+/// `text` with every `#line N "<prelude>/dz.dz"` naming `real` instead.
+fn with_prelude_lines(text: &str, real: &str) -> String {
+    const PSEUDO: &str = "\"<prelude>/dz.dz\"";
+    if !text.contains(PSEUDO) {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        match line.strip_suffix('\n').unwrap_or(line).strip_suffix(PSEUDO) {
+            // Indented inside an immediately-invoked lambda, which C++ allows.
+            Some(head) if line.trim_start().starts_with("#line ") => {
+                out.push_str(head);
+                out.push_str(real);
+                out.push('\n');
+            }
+            _ => out.push_str(line),
+        }
+    }
+    out
 }
 
 /// The C++ compiler to drive (spec §16.5).

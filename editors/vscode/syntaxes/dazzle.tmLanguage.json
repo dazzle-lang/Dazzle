@@ -203,9 +203,9 @@
           "match": "\\bmove\\b"
         },
         { "name": "keyword.operator.cast.dazzle", "match": "\\bas\\b" },
-        { "name": "keyword.other.dazzle", "match": "\\b(?:import|module|impl|let|unsafe|extern)\\b" },
+        { "name": "keyword.other.dazzle", "match": "\\b(?:import|module|impl|let|static|unsafe|extern)\\b" },
         { "name": "storage.type.dazzle", "match": "\\b(?:fn|struct|union|enum|trait|const|macro)\\b" },
-        { "name": "storage.modifier.dazzle", "match": "\\b(?:pub|mut|own)\\b" },
+        { "name": "storage.modifier.dazzle", "match": "\\b(?:pub|mut|own|protected|virtual|override)\\b" },
         { "name": "constant.language.dazzle", "match": "\\b(?:true|false|null|none)\\b" },
         { "name": "variable.language.self.dazzle", "match": "\\bself\\b" },
         { "name": "keyword.other.reserved.dazzle", "match": "\\b(?:async|await|where|yield|comptime)\\b" }

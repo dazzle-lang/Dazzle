@@ -489,7 +489,7 @@ impl<'a> Flow<'a> {
             // neither copied nor moved out of — the same as a method receiver. Treating it as
             // a value made `destroy(m_data[i])` a "move out of a borrow".
             hir::ExprKind::Builtin { name, args }
-                if matches!(name.as_str(), "construct" | "destroy") =>
+                if matches!(name.as_str(), "construct" | "destroy" | "move_out") =>
             {
                 let mut rest = args.into_iter();
                 if let Some(dst) = rest.next() {
@@ -552,6 +552,14 @@ impl<'a> Flow<'a> {
                 true
             }
             hir::ExprKind::Break(_) | hir::ExprKind::Continue(_) => true,
+            // A slice views its base in place; the ends are values (spec §5.3).
+            hir::ExprKind::SliceRange { base, start, end } => {
+                self.place_only(base);
+                for x in [start, end].into_iter().flatten() {
+                    self.value(x);
+                }
+                false
+            }
             // `panic(...)` never comes back, which is what its `Never` type says.
             _ => matches!(self.body.ty(e), Ty::Never),
         }

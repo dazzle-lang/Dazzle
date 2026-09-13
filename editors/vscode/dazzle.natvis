@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  How the Visual Studio debugger shows the runtime shim's types (spec §16.4): text as text,
+  slices and arrays as their elements, an optional as its value or `none`. Handed to
+  `cppvsdbg` by the Dazzle debug configuration.
+-->
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+  <Type Name="dz::str">
+    <DisplayString Condition="ptr == 0">""</DisplayString>
+    <DisplayString>{(const char*)ptr,[len]s8}</DisplayString>
+    <StringView>(const char*)ptr,[len]s8</StringView>
+    <Expand>
+      <Item Name="len">len</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="dz::Slice&lt;*&gt;">
+    <DisplayString>{{ len={len} }}</DisplayString>
+    <Expand>
+      <Item Name="len">len</Item>
+      <ArrayItems>
+        <Size>len</Size>
+        <ValuePointer>ptr</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <Type Name="dz::Array&lt;*,*&gt;">
+    <DisplayString>{{ len={$T2} }}</DisplayString>
+    <Expand>
+      <ArrayItems>
+        <Size>$T2</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <Type Name="dz::Opt&lt;*&gt;">
+    <DisplayString Condition="!has">none</DisplayString>
+    <DisplayString>{value}</DisplayString>
+    <Expand>
+      <ExpandedItem Condition="has">value</ExpandedItem>
+    </Expand>
+  </Type>
+
+  <Type Name="dz::Range&lt;*&gt;">
+    <DisplayString Condition="inclusive">{start}..={end}</DisplayString>
+    <DisplayString>{start}..{end}</DisplayString>
+  </Type>
+</AutoVisualizer>

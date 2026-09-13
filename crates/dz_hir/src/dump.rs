@@ -234,6 +234,15 @@ impl<'a> Dumper<'a> {
                     d.expr(index);
                 });
             }
+            ExprKind::SliceRange { base, start, end } => {
+                node!("slice");
+                self.nest(|d| {
+                    d.expr(base);
+                    for x in [start, end].into_iter().flatten() {
+                        d.expr(x);
+                    }
+                });
+            }
             ExprKind::Deref(inner) => {
                 node!("deref");
                 self.nest(|d| d.expr(inner));
