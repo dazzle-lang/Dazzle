@@ -1,0 +1,40 @@
+/// What `f32` and `f64` can do, beyond `+ - * /`. Angles are in radians.
+pub trait Float {
+    fn sqrt(&self) -> Self
+    fn abs(&self) -> Self
+    fn floor(&self) -> Self
+    fn ceil(&self) -> Self
+    /// To the nearest whole number, halves away from zero.
+    fn round(&self) -> Self
+    /// Towards zero.
+    fn trunc(&self) -> Self
+    /// What `floor` removes: always in `[0, 1)`.
+    fn fract(&self) -> Self
+    fn sin(&self) -> Self
+    fn cos(&self) -> Self
+    fn tan(&self) -> Self
+    fn asin(&self) -> Self
+    fn acos(&self) -> Self
+    fn atan(&self) -> Self
+    /// The angle of the point `(x, self)`: `y.atan2(x)`, in `(-PI, PI]`.
+    fn atan2(&self, x: Self) -> Self
+    fn pow(&self, exponent: Self) -> Self
+    fn exp(&self) -> Self
+    /// The natural logarithm.
+    fn ln(&self) -> Self
+    fn log2(&self) -> Self
+    fn log10(&self) -> Self
+    fn min(&self, rhs: Self) -> Self
+    fn max(&self, rhs: Self) -> Self
+    /// `self` held between `lo` and `hi`.
+    fn clamp(&self, lo: Self, hi: Self) -> Self
+    /// From `self` towards `to` by `t`: `self` at 0, `to` at 1, and beyond outside them.
+    fn lerp(&self, to: Self, t: Self) -> Self
+    /// -1, 0 or 1.
+    fn sign(&self) -> Self
+    fn is_nan(&self) -> bool
+    /// Neither infinite nor NaN.
+    fn is_finite(&self) -> bool
+    fn to_radians(&self) -> Self
+    fn to_degrees(&self) -> Self
+}

@@ -161,9 +161,23 @@ pub struct FnSig {
     /// `virtual fn` / `override fn` (spec §7.3, 18.32). A `virtual` with `has_body`
     /// false is abstract, and makes its struct not constructible.
     pub dispatch: Dispatch,
+    /// The last parameter is `..T` (spec §7.2): its `ty` is the `[]T` the body sees, and a
+    /// call gives it any number of `T`s — or one slice spread with `..xs`.
+    pub variadic: bool,
 }
 
 impl FnSig {
+    /// The element type of the variadic parameter, if there is one.
+    pub fn variadic_elem(&self) -> Option<&Ty> {
+        if !self.variadic {
+            return None;
+        }
+        match &self.params.last()?.ty {
+            Ty::Slice { elem, .. } => Some(elem),
+            _ => None,
+        }
+    }
+
     /// Parameters that must be supplied, i.e. those without a default (spec §7.2).
     pub fn required(&self) -> usize {
         self.params.iter().filter(|p| !p.has_default).count()
@@ -337,13 +351,10 @@ pub struct TypeTable {
     /// copy constructor, so each struct has at most one of each and they are found by struct.
     drop_impls: HashMap<SymbolId, usize>,
     copy_impls: HashMap<SymbolId, usize>,
-    /// The prelude's traits by name, for the ones the primitives implement (spec §11.2),
-    /// and `std::math`'s `Float` and `Integer` when it is part of the build (spec §14.4).
+    /// The standard library's traits by name, for the ones the primitives implement
+    /// (spec §11.2, §14.4).
     prelude_names: HashMap<SymbolId, String>,
 }
-
-/// The standard-library module whose `Float` and `Integer` traits the numbers implement.
-pub const STD_MATH: &str = "std::math";
 
 impl TypeTable {
     pub fn get(&self, id: SymbolId) -> Option<&ItemSig> {
@@ -827,13 +838,9 @@ pub fn check(
     };
     cx.table.copy_trait = cx.prelude_trait("Copy");
     cx.table.drop_trait = cx.prelude_trait("Drop");
+    // The standard library's traits, `Float` and `Integer` among them, by name (spec §14.4).
     for (i, s) in res.symbols.iter().enumerate() {
-        // `std::math`'s `Float` and `Integer` are the machine's numbers' as the prelude's
-        // operator traits are, so they are looked up the same way (spec §14.4).
-        let std_numeric = s.kind == SymbolKind::Trait
-            && matches!(s.name.as_str(), "Float" | "Integer")
-            && ws.module(s.module).name == STD_MATH;
-        if (s.module == res.prelude && s.kind == SymbolKind::Trait) || std_numeric {
+        if s.module == res.prelude && s.kind == SymbolKind::Trait {
             cx.table.prelude_names.insert(SymbolId(i as u32), s.name.clone());
         }
     }
@@ -911,6 +918,7 @@ impl Ctx<'_> {
                         // A C++ class's own `virtual` is its business: Dazzle calls it
                         // through C++'s dispatch and never declares one (spec §15.2).
                         dispatch: Dispatch::Static,
+                        variadic: false,
                         params: params
                             .iter()
                             .map(|p| ParamSig {
@@ -998,6 +1006,7 @@ impl Ctx<'_> {
             let span = Span::new(m.loc.start as usize, m.loc.end as usize);
             let f = FnSig {
                 dispatch: Dispatch::Static,
+                variadic: false,
                 params: m
                     .params
                     .iter()
@@ -1173,23 +1182,18 @@ pub fn type_name_in_file(res: &Resolution, file: FileId, t: &Ty) -> String {
     type_name_at(res, Some(file), t)
 }
 
-/// How a named type reaches `file`: bare when it is already in scope under that name,
-/// `alias::Name` when it arrived through an `import`.
+/// How a named type is written in `file`: bare when that name reaches it there — declared
+/// in the module, imported by `{ … }`, chosen in `[names]`, or from an opened dependency —
+/// and `key::Name` when it arrives through a dependency key (spec §3.2).
 fn qualified_for(res: &Resolution, file: FileId, sym: SymbolId) -> String {
     let symbol = res.symbol(sym);
     let name = symbol.name.clone();
-    // Declared here, or brought in by a selective `import math::{ Vec3 }`: written bare.
-    if res.file_module.get(&file) == Some(&symbol.module) || symbol.module == res.prelude {
+    let Some(&module) = res.file_module.get(&file) else { return name };
+    if module == symbol.module || res.lookup_in_file(module, file, &name) == Some(sym) {
         return name;
     }
-    let Some(imports) = res.imports.get(&file) else { return name };
-    if imports.unqualified.get(&name) == Some(&sym) {
-        return name;
-    }
-    // Reached through a module alias — which is what `import cpp … as rl` makes too, since
-    // an imported header is a module whose name is its alias (§15.1).
-    match imports.module_aliases.iter().find(|(_, m)| **m == symbol.module) {
-        Some((alias, _)) => format!("{alias}::{name}"),
+    match res.module_spelling(file, symbol.module) {
+        Some(key) => format!("{key}::{name}"),
         None => name,
     }
 }
@@ -1298,14 +1302,11 @@ impl<'a> Ctx<'a> {
     /// default means: `struct Vec3 : Mul` fills `Rhs = Self` with `Vec3` (spec §11.2).
     fn trait_bound(&mut self, path: &Path, self_ty: &Ty) -> Option<TraitRef> {
         let last = path.segments.last()?;
-        let sym = match path.segments.len() {
-            1 => self.res.lookup_in_file(self.module, self.file, &last.name.name),
-            _ => {
-                let first = &path.segments[0].name.name;
-                let target = self.res.module_alias(self.file, first)?;
-                self.res.lookup(target, &last.name.name)
-            }
-        }?;
+        let names: Vec<&str> = path.segments.iter().map(|s| s.name.name.as_str()).collect();
+        let (sym, used) = self.res.path_item(self.module, self.file, &names)?;
+        if used != names.len() {
+            return None;
+        }
         if self.res.symbol(sym).kind == SymbolKind::Trait {
             let args = self.trait_args(sym, last, self_ty);
             return Some(TraitRef { trait_sym: sym, args, span: path.span });
@@ -1369,15 +1370,11 @@ impl<'a> Ctx<'a> {
 
     /// The constant a path names, resolved from the file the path was written in.
     fn const_symbol(&self, p: &Path, module: ModuleId, file: FileId) -> Option<SymbolId> {
-        let first = &p.segments.first()?.name.name;
-        let sym = match p.segments.len() {
-            1 => self.res.lookup_in_file(module, file, first),
-            2 => {
-                let target = self.res.module_alias(file, first)?;
-                self.res.lookup(target, &p.segments[1].name.name)
-            }
-            _ => None,
-        }?;
+        let names: Vec<&str> = p.segments.iter().map(|s| s.name.name.as_str()).collect();
+        let (sym, used) = self.res.path_item(module, file, &names)?;
+        if used != names.len() {
+            return None;
+        }
         self.consts.contains_key(&sym).then_some(sym)
     }
 
@@ -1734,21 +1731,17 @@ impl<'a> Ctx<'a> {
 
         // `module::Type`, and `header::ns::Type` for a C++ namespace, which the path walks
         // through one segment at a time (spec §15.2).
-        if let Some(target) = self.res.module_alias(self.file, name) {
-            let Some(second) = p.segments.get(1) else { return Ty::Error };
-            let Some(mut sym) = self.res.lookup(target, &second.name.name) else {
+        // And `rl::shapes::Rectangle` through a public dependency (spec §3.2).
+        if self.res.module_alias(self.file, name).is_some() {
+            let names: Vec<&str> = p.segments.iter().map(|s| s.name.name.as_str()).collect();
+            let Some((sym, used)) = self.res.path_item(self.module, self.file, &names) else {
                 return Ty::Error;
             };
-            let mut at = second;
-            let mut used = 2;
-            while self.res.symbol(sym).kind == SymbolKind::Namespace {
-                let Some(seg) = p.segments.get(used) else { return Ty::Error };
-                let Some(next) = self.res.inner(sym, &seg.name.name) else { return Ty::Error };
-                sym = next;
-                at = seg;
-                used += 1;
+            // A namespace the path stopped inside is not a type.
+            if used != names.len() || self.res.symbol(sym).kind == SymbolKind::Namespace {
+                return Ty::Error;
             }
-            return self.named_or_error(sym, at, span);
+            return self.named_or_error(sym, &p.segments[used - 1], span);
         }
         Ty::Error
     }
@@ -2584,17 +2577,7 @@ impl<'a> Ctx<'a> {
     }
 
     fn fn_sig_inner(&mut self, f: &FnDecl, vis: Vis, generics: Vec<ParamDef>) -> FnSig {
-        let params = f
-            .params
-            .iter()
-            .map(|p| ParamSig {
-                name: p.name.name.clone(),
-                ty: self.lower_type(&p.ty),
-                has_default: p.default.is_some(),
-                caller_default: caller_default(p.default.as_ref()),
-                c_cast: None,
-            })
-            .collect();
+        let (params, variadic) = self.param_sigs(&f.params);
         let ret = f.ret.as_ref().map(|r| self.lower_type(r)).unwrap_or(Ty::Void);
         FnSig {
             // Only an imported function needs a cast at the boundary (spec §15.2).
@@ -2611,7 +2594,50 @@ impl<'a> Ctx<'a> {
             span: f.name.span,
             generics,
             has_body: f.body.is_some(),
+            variadic,
         }
+    }
+
+    /// A declaration's parameters as a signature sees them, and whether the last is
+    /// variadic. `xs: ..T` becomes a `[]T` — read-only, a view of the caller's arguments —
+    /// and must be last and have no default (spec §7.2). A misplaced one is reported and
+    /// then treated as the slice it would be, so the body still checks.
+    pub(crate) fn param_sigs(&mut self, params: &[dz_ast::Param]) -> (Vec<ParamSig>, bool) {
+        let mut variadic = false;
+        let mut out = Vec::with_capacity(params.len());
+        for (i, p) in params.iter().enumerate() {
+            let mut ty = self.lower_type(&p.ty);
+            if p.variadic {
+                ty = Ty::Slice { mutable: false, elem: Rc::new(ty) };
+                if i + 1 != params.len() {
+                    self.error_help(
+                        codes::BAD_VARIADIC,
+                        p.span,
+                        format!("`{}` takes any number of arguments, so it must come last", p.name.name),
+                        "a variadic parameter before others",
+                        "move it to the end: the arguments after the fixed ones are its (spec §7.2)",
+                    );
+                } else if let Some(d) = &p.default {
+                    self.error_help(
+                        codes::BAD_VARIADIC,
+                        d.span,
+                        format!("`{}` cannot have a default", p.name.name),
+                        "a default on a variadic parameter",
+                        "leaving its arguments out already gives it none (spec §7.2)",
+                    );
+                } else {
+                    variadic = true;
+                }
+            }
+            out.push(ParamSig {
+                name: p.name.name.clone(),
+                ty,
+                has_default: p.default.is_some() || (p.variadic && i + 1 == params.len()),
+                caller_default: caller_default(p.default.as_ref()),
+                c_cast: None,
+            });
+        }
+        (out, variadic)
     }
 
     pub(crate) fn symbol_of(&self, item: &Item) -> Option<SymbolId> {

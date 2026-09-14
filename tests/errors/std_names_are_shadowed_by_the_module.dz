@@ -1,0 +1,17 @@
+// expect: (none)
+//
+// The module's own declarations come before an opened dependency (spec §3.2): this `Quat`
+// is the file's, not the standard library's, and `std::Quat` still reaches the other one.
+// Opening `std` never turns a declaration of the module into a conflict.
+
+struct Quat {
+    pub turns: i32
+}
+
+fn main() {
+    let q = Quat{ turns: 2 }
+    let _ = q.turns + 1
+    let r = std::Quat{}
+    let _ = r.normalized()
+    let _ = std::Mat4::identity()
+}

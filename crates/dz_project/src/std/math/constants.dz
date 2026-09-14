@@ -1,0 +1,18 @@
+// The math (spec §14.4). The vector and matrix types are `f32`, what GPUs and most game
+// libraries use, plus `Vec2i` and `Vec3i` for grids. Matrices are column-major and act on
+// column vectors — `m * v`, `projection * view * model` — the OpenGL, GLSL and glm
+// convention, right-handed. The methods on the machine's own numbers — `x.sqrt()`,
+// `n.wrapping_add(m)` — are the `Float` and `Integer` traits, which `f32`, `f64` and every
+// integer type implement without an `impl`, as they implement `Eq` and `Ord`.
+
+/// Half a turn, in radians.
+pub const PI: f32 = 3.14159265358979
+
+/// A whole turn, in radians.
+pub const TAU: f32 = 6.28318530717959
+
+/// Euler's number.
+pub const E: f32 = 2.71828182845905
+
+/// `PI` as an `f64`, for code that needs the precision.
+pub const PI_F64: f64 = 3.14159265358979323846

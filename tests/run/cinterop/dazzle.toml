@@ -2,6 +2,10 @@
 name    = "cinterop"
 sources = ["src/**/*.dz"]
 
+[dependencies]
+mini = { cpp = "mini" }
+std = { open = true }
+
 # M7a's criterion (spec §15.1, §19): a C library vendored as source, never prebuilt, and
 # compiled by `dz` with the flags its recipe gives. `mini.c` refuses to compile without
 # the define, and cannot find its header without the include dir.
@@ -10,3 +14,4 @@ root         = "vendor/mini"
 sources      = ["*.c"]
 include_dirs = ["include"]
 defines      = ["MINI_SCALE=3"]
+import       = ["mini.h"]

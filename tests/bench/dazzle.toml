@@ -2,6 +2,10 @@
 name    = "bench"
 sources = ["src/**/*.dz"]
 
+[dependencies]
+base = { cpp = "baseline" }
+std = { open = true }
+
 [build]
 output = "executable"
 
@@ -13,3 +17,4 @@ output = "executable"
 root         = "vendor/baseline"
 sources      = ["*.cpp"]
 include_dirs = ["."]
+import       = ["baseline.h"]

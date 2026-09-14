@@ -104,8 +104,9 @@ crates/
   dz_hir/             the resolved, typed tree + `Ty`, built by the checker (spec §17.1)
   dz_parse/           recursive-descent + Pratt parser (spec §20)
   dz_fmt/             the formatter
-  dz_project/         dazzle.toml, source globs, the dependency graph (spec §3.1), and
-                      the prelude, `src/prelude.dz` — real Dazzle, module `dz` (spec §3.2)
+  dz_project/         dazzle.toml, source globs, the dependency graph (spec §3.1, §3.2), and
+                      the standard library, `src/std/**/*.dz` — real Dazzle, module `std`,
+                      one declaration to a file, listed in `STD_SOURCES` (spec §14.4)
   dz_resolve/         module symbol tables, name resolution, visibility (spec §3, §4)
   dz_check/           the type checker (spec §5, §7, §9, §10, §11)
   dz_flow/            ownership, moves, drops, definite return (spec §6)

@@ -11,7 +11,7 @@
 //! type of the receiver, which is M3's job. `::` is the compile-time operator and `.` is
 //! the runtime one (spec §3.3), and that split falls out exactly along the M2/M3 line.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use dz_ast::*;
 use dz_diag::{codes, Diagnostic, Diagnostics};
@@ -177,10 +177,36 @@ pub struct FileImports {
     pub unqualified: HashMap<String, SymbolId>,
 }
 
+/// What a module's `dazzle.toml` lets every one of its files name (spec §3.2).
+#[derive(Default, Debug)]
+pub struct ModuleNames {
+    /// Each nameable dependency by its key: `path`, `cpp` and `via` ones, and `std` when
+    /// listed.
+    pub deps: HashMap<String, ModuleId>,
+    /// The dependencies with `open = true`, whose exports are also written bare.
+    pub opened: Vec<ModuleId>,
+    /// `[names]`: a bare name, and the declaration it was chosen to mean.
+    pub picks: HashMap<String, SymbolId>,
+    /// The dependencies with `pub = true`: what a dependent reaches as `key::name`.
+    pub public: HashMap<String, ModuleId>,
+}
+
+/// What a bare name finds among a file's opened modules.
+pub enum Opened {
+    None,
+    One(SymbolId),
+    /// Two or more different declarations: the name has to be written with its module.
+    Ambiguous(Vec<SymbolId>),
+}
+
 pub struct Resolution {
     pub symbols: Vec<Symbol>,
     pub scopes: HashMap<ModuleId, ModuleScope>,
     pub imports: HashMap<FileId, FileImports>,
+    pub names: HashMap<ModuleId, ModuleNames>,
+    /// Each dependency key some part of its module went through — a path, an import, an
+    /// opened name, `[names]`, a `via` — so one nothing uses can be reported (spec §3.2).
+    pub used_deps: HashSet<(ModuleId, String)>,
     /// Which module each source file belongs to. Needed to answer "how would this type be
     /// written *here*", which is what an editor has to show: an imported header's type is
     /// `rl::Vector2` in the file that imported it and has no other spelling (§3.3).
@@ -224,7 +250,10 @@ impl Resolution {
         self.foreign_path.get(&sym).map(String::as_str)
     }
 
-    /// Resolve a leading path segment the way [`walk`] does, for later phases.
+    /// Resolve a bare name the way [`walk`] does, for later phases (spec §3.2): the module's
+    /// own declarations, the file's `{ … }` imports, the manifest's `[names]`, then the
+    /// opened dependencies. The two must agree, or the checker would type a name that
+    /// resolution pointed elsewhere.
     pub fn lookup_in_file(&self, module: ModuleId, file: FileId, name: &str) -> Option<SymbolId> {
         if let Some(id) = self.lookup(module, name) {
             return Some(id);
@@ -232,24 +261,111 @@ impl Resolution {
         if let Some(id) = self.imports.get(&file).and_then(|i| i.unqualified.get(name)) {
             return Some(*id);
         }
-        // The prelude, last, so a local declaration or an explicit import shadows it
-        // (spec §3.2, §18.23). This mirrors `resolve_head`'s order exactly: the two must
-        // agree, or the checker would type a name that resolution pointed elsewhere.
-        if module != self.prelude {
-            return self.lookup(self.prelude, name);
+        let names = self.names.get(&module)?;
+        if let Some(id) = names.picks.get(name) {
+            return Some(*id);
         }
-        None
+        match self.find_opened(module, &names.opened, name) {
+            Opened::One(id) => Some(id),
+            // Resolution reported it; typing it as nothing keeps that the only error.
+            Opened::Ambiguous(_) | Opened::None => None,
+        }
     }
 
+    /// The module a dependency key names from `file`: an `import … as` of that file first,
+    /// then the module's manifest (spec §3.2).
     pub fn module_alias(&self, file: FileId, name: &str) -> Option<ModuleId> {
         if let Some(m) = self.imports.get(&file).and_then(|i| i.module_aliases.get(name)) {
             return Some(*m);
         }
-        // `dz::Ord` needs no import line, so it is not in the alias map.
-        if name == dz_project::PRELUDE_MODULE {
-            return Some(self.prelude);
+        let module = self.file_module.get(&file)?;
+        self.names.get(module)?.deps.get(name).copied()
+    }
+
+    /// How many leading segments of a path name modules, and the last module they reach:
+    /// `rl::shapes::Rectangle` walks `rl`, then its public dependency `shapes` (spec §3.2).
+    /// A declaration of the module wins over a public dependency of the same name.
+    pub fn module_prefix(&self, file: FileId, segments: &[&str]) -> Option<(ModuleId, usize)> {
+        let mut m = self.module_alias(file, segments.first()?)?;
+        let mut used = 1;
+        while let Some(seg) = segments.get(used) {
+            if self.lookup(m, seg).is_some() {
+                break;
+            }
+            match self.names.get(&m).and_then(|n| n.public.get(*seg)) {
+                Some(next) => {
+                    m = *next;
+                    used += 1;
+                }
+                None => break,
+            }
         }
-        None
+        Some((m, used))
+    }
+
+    /// The declaration a path names before its members, and how many segments that took:
+    /// a bare name in scope, or modules then a declaration, then a C++ namespace per
+    /// segment (spec §3.2, §15.2). `None` when it names no declaration.
+    pub fn path_item(
+        &self,
+        module: ModuleId,
+        file: FileId,
+        segments: &[&str],
+    ) -> Option<(SymbolId, usize)> {
+        let (mut sym, mut used) = match self.module_prefix(file, segments) {
+            Some((m, n)) if segments.len() > n => (self.lookup(m, segments[n])?, n + 1),
+            _ => (self.lookup_in_file(module, file, segments.first()?)?, 1),
+        };
+        while self.symbol(sym).kind == SymbolKind::Namespace {
+            let Some(seg) = segments.get(used) else { break };
+            let Some(next) = self.inner(sym, seg) else { break };
+            sym = next;
+            used += 1;
+        }
+        Some((sym, used))
+    }
+
+    /// How `file` writes a module: the key or file alias it goes by, or failing that its
+    /// declared name.
+    pub fn module_spelling(&self, file: FileId, m: ModuleId) -> Option<String> {
+        if let Some((k, _)) =
+            self.imports.get(&file).and_then(|i| i.module_aliases.iter().find(|(_, v)| **v == m))
+        {
+            return Some(k.clone());
+        }
+        let module = self.file_module.get(&file)?;
+        let names = self.names.get(module)?;
+        let mut keys: Vec<&String> =
+            names.deps.iter().filter(|(_, v)| **v == m).map(|(k, _)| k).collect();
+        keys.sort();
+        keys.first().map(|k| (*k).clone())
+    }
+
+    /// A bare name in the modules a file opened with `::*`, seen from `viewer`: only what
+    /// each exports, and never a name the language itself provides (spec §3.2). The one
+    /// rule both [`walk`] and the checker use, so they cannot disagree.
+    pub fn find_opened(&self, viewer: ModuleId, opened: &[ModuleId], name: &str) -> Opened {
+        if BUILTIN_TYPES.contains(&name) || BUILTIN_FNS.contains(&name) {
+            return Opened::None;
+        }
+        let mut found: Vec<SymbolId> = Vec::new();
+        for &m in opened {
+            if m == viewer {
+                continue;
+            }
+            let Some(id) = self.lookup(m, name) else { continue };
+            let s = self.symbol(id);
+            // A typedef is a second name for the same symbol, so two paths to one
+            // declaration are not a conflict.
+            if visible_from(s.vis, s.module, viewer) && !found.contains(&id) {
+                found.push(id);
+            }
+        }
+        match found.len() {
+            0 => Opened::None,
+            1 => Opened::One(found[0]),
+            _ => Opened::Ambiguous(found),
+        }
     }
 }
 
@@ -325,6 +441,8 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
         inner: HashMap::new(),
         foreign_cpp: HashMap::new(),
         foreign_path: HashMap::new(),
+        names: HashMap::new(),
+        used_deps: HashSet::new(),
         prelude: ws.prelude,
         diagnostics: Diagnostics::new(),
     };
@@ -342,6 +460,12 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
             }
         }
         r.scopes.insert(module.id, scope);
+    }
+
+    // Pass 1a: what each manifest lets its module name (spec §3.2). After pass 1 because
+    // `[names]` names declarations.
+    for module in ws.modules() {
+        module_names(&mut r, ws, module.id);
     }
 
     // Pass 1b: link each `struct X : Base` to its base's symbol. Between the passes
@@ -371,8 +495,148 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
         }
     }
 
+    report_unused_dependencies(&mut r, ws, files);
+
     r.diagnostics.sort_by_position();
     r
+}
+
+/// A `[dependencies]` entry that nothing in its module names: not a path through its key,
+/// an import, an opened name, a `[names]` choice or a `via` (spec §3.2). A public one is
+/// part of the module's interface whether or not the module itself uses it, and `std` is
+/// what the language is written in, so neither is reported.
+fn report_unused_dependencies(
+    r: &mut Resolution,
+    ws: &Workspace,
+    files: &HashMap<ModuleId, Vec<ParsedFile>>,
+) {
+    for module in ws.modules() {
+        if module.embedded || module.foreign.is_some() || !files.contains_key(&module.id) {
+            continue;
+        }
+        let entries = module
+            .deps
+            .iter()
+            .filter(|d| !d.implicit && !d.public && d.module != ws.prelude)
+            .map(|d| (&d.alias, d.alias_span))
+            .chain(module.via_deps.iter().filter(|v| !v.public).map(|v| (&v.alias, v.alias_span)));
+        let mut unused: Vec<(String, Span)> = Vec::new();
+        for (key, span) in entries {
+            if !r.used_deps.contains(&(module.id, key.clone())) {
+                unused.push((key.clone(), span));
+            }
+        }
+        for (key, span) in unused {
+            r.diagnostics.push(
+                Diagnostic::warning(
+                    codes::UNUSED_DEPENDENCY,
+                    format!("dependency `{key}` is never used"),
+                )
+                .at(module.manifest, span, "nothing in this module names it")
+                .with_help(format!(
+                    "remove it from `[dependencies]`, or mark it `pub = true` if it is part of \
+                     `{}`'s interface (spec §3.2)",
+                    module.name
+                )),
+            );
+        }
+    }
+}
+
+/// Build `module`'s [`ModuleNames`] from its manifest, and its dependencies' first, since a
+/// `via` walks their public dependencies. Memoised: each module is built once.
+fn module_names(r: &mut Resolution, ws: &Workspace, module: ModuleId) {
+    if r.names.contains_key(&module) {
+        return;
+    }
+    let m = ws.module(module);
+    for d in &m.deps {
+        module_names(r, ws, d.module);
+    }
+    let mut names = ModuleNames::default();
+    for d in m.deps.iter().filter(|d| !d.implicit) {
+        names.deps.insert(d.alias.clone(), d.module);
+        if d.open && !names.opened.contains(&d.module) {
+            names.opened.push(d.module);
+        }
+        if d.public {
+            names.public.insert(d.alias.clone(), d.module);
+        }
+    }
+    for v in &m.via_deps {
+        // The dependency a `via` walks through is used by it.
+        if let Some(first) = v.path.first() {
+            r.used_deps.insert((module, first.clone()));
+        }
+        let target = walk_via(r, &names, &v.path);
+        let Ok(target) = target else {
+            let (seg, owner) = target.unwrap_err();
+            let mut d = Diagnostic::error(
+                codes::UNKNOWN_MODULE,
+                format!("`{}` names no dependency", v.path.join("::")),
+            )
+            .at(m.manifest, v.path_span, format!("`{seg}` is not found here"));
+            d = d.with_help(match owner {
+                Some(o) => format!(
+                    "`via` reaches only what `{o}` marks `pub = true` in its dazzle.toml (spec §3.2)"
+                ),
+                None => "the path starts at a dependency key of this module (spec §3.2)".to_owned(),
+            });
+            r.diagnostics.push(d);
+            continue;
+        };
+        names.deps.insert(v.alias.clone(), target);
+        if v.open && !names.opened.contains(&target) {
+            names.opened.push(target);
+        }
+        if v.public {
+            names.public.insert(v.alias.clone(), target);
+        }
+    }
+    for pick in &m.names {
+        let Some(&dep) = names.deps.get(&pick.dep) else { continue };
+        let sym = r.lookup(dep, &pick.name).filter(|s| {
+            let s = r.symbol(*s);
+            visible_from(s.vis, s.module, module)
+        });
+        r.used_deps.insert((module, pick.dep.clone()));
+        match sym {
+            Some(s) => {
+                names.picks.insert(pick.name.clone(), s);
+            }
+            None => r.diagnostics.push(
+                Diagnostic::error(
+                    codes::UNRESOLVED_NAME,
+                    format!("`{}` exports no `{}`", pick.dep, pick.name),
+                )
+                .at(m.manifest, pick.name_span, "not a public declaration of that dependency")
+                .with_help("`[names]` chooses a declaration a dependency exports (spec §3.2)"),
+            ),
+        }
+    }
+    r.names.insert(module, names);
+}
+
+/// `["rl", "shapes"]` from a module whose keys are `names`: the first segment a key, each
+/// further one a public dependency of the module before it. On failure, the segment not
+/// found and the module it was looked for in.
+fn walk_via(
+    r: &Resolution,
+    names: &ModuleNames,
+    path: &[String],
+) -> Result<ModuleId, (String, Option<String>)> {
+    let first = path.first().ok_or((String::new(), None))?;
+    let mut at = *names.deps.get(first).ok_or((first.clone(), None))?;
+    let mut owner = first.clone();
+    for seg in &path[1..] {
+        at = *r
+            .names
+            .get(&at)
+            .and_then(|n| n.public.get(seg))
+            .ok_or((seg.clone(), Some(owner.clone())))?;
+        owner = seg.clone();
+    }
+    Ok(at)
 }
 
 fn collect_file(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId, pf: &ParsedFile) {

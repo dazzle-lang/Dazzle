@@ -1,0 +1,15 @@
+/// What runs when a value dies (§6.5). Implementing it makes the type move-only, and it
+/// becomes the type's C++ destructor — which is why it may only be implemented for a
+/// struct, in the struct's own module, for every instance at once (§6.1).
+pub trait Drop {
+    fn drop(&mut self)
+}
+
+/// A type that can be copied. Every copyable type satisfies it (§6.3): one with no `drop`
+/// and no `own` field is copyable by default and needs no implementation. Implementing it
+/// is how a type that owns something becomes copyable anyway — `copy` runs on a value at
+/// its defaults, and fills it in from `other` (§6.6). `impl<T: Copy> Copy for List<T>`
+/// makes `List<f32>` copyable and leaves `List<File>` move-only (§8.2, §18.26).
+pub trait Copy {
+    fn copy(&mut self, other: &Self)
+}

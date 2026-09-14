@@ -1,0 +1,20 @@
+/// The result of `cmp`. Ordinary enum, so `switch` on it is exhaustive.
+pub enum Ordering : i8 {
+    Less    = -1
+    Equal   = 0
+    Greater = 1
+}
+
+/// `==` and `!=`.
+///
+/// `rhs` is a reference because comparing must not consume: a move-only type (§6.3) taken
+/// by value would be moved, and `a == b` has no business destroying `b`.
+pub trait Eq {
+    fn eq(&self, rhs: &Self) -> bool
+}
+
+/// `<`, `>`, `<=`, `>=`. Every `Ord` is an `Eq`, so a type implementing `Ord` must
+/// implement both.
+pub trait Ord : Eq {
+    fn cmp(&self, rhs: &Self) -> Ordering
+}

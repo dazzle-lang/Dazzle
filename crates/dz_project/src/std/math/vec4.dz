@@ -1,0 +1,77 @@
+/// A 4D vector: a point or direction in homogeneous coordinates, or a colour.
+pub struct Vec4 {
+    pub x: f32 = 0
+    pub y: f32 = 0
+    pub z: f32 = 0
+    pub w: f32 = 0
+
+    pub fn dot(&self, rhs: Vec4) -> f32 {
+        return x * rhs.x + y * rhs.y + z * rhs.z + w * rhs.w
+    }
+
+    pub fn length_squared(&self) -> f32 {
+        return self.dot(self)
+    }
+
+    pub fn length(&self) -> f32 {
+        return self.length_squared().sqrt()
+    }
+
+    /// The same direction with length 1; a zero vector stays zero.
+    pub fn normalized(&self) -> Vec4 {
+        let len = self.length()
+        if len == 0 {
+            return Vec4{}
+        }
+        return Vec4{ x: x / len, y: y / len, z: z / len, w: w / len }
+    }
+
+    pub fn lerp(&self, to: Vec4, t: f32) -> Vec4 {
+        return Vec4{ x: x.lerp(to.x, t), y: y.lerp(to.y, t), z: z.lerp(to.z, t), w: w.lerp(to.w, t) }
+    }
+
+    pub fn xyz(&self) -> Vec3 {
+        return Vec3{ x: x, y: y, z: z }
+    }
+}
+
+impl Add for Vec4 {
+    type Output = Vec4
+    fn add(&self, rhs: Vec4) -> Vec4 {
+        return Vec4{ x: x + rhs.x, y: y + rhs.y, z: z + rhs.z, w: w + rhs.w }
+    }
+}
+
+impl Sub for Vec4 {
+    type Output = Vec4
+    fn sub(&self, rhs: Vec4) -> Vec4 {
+        return Vec4{ x: x - rhs.x, y: y - rhs.y, z: z - rhs.z, w: w - rhs.w }
+    }
+}
+
+impl Mul<f32> for Vec4 {
+    type Output = Vec4
+    fn mul(&self, rhs: f32) -> Vec4 {
+        return Vec4{ x: x * rhs, y: y * rhs, z: z * rhs, w: w * rhs }
+    }
+}
+
+impl Div<f32> for Vec4 {
+    type Output = Vec4
+    fn div(&self, rhs: f32) -> Vec4 {
+        return Vec4{ x: x / rhs, y: y / rhs, z: z / rhs, w: w / rhs }
+    }
+}
+
+impl Neg for Vec4 {
+    type Output = Vec4
+    fn neg(&self) -> Vec4 {
+        return Vec4{ x: -x, y: -y, z: -z, w: -w }
+    }
+}
+
+impl Eq for Vec4 {
+    fn eq(&self, rhs: &Vec4) -> bool {
+        return x == rhs.x && y == rhs.y && z == rhs.z && w == rhs.w
+    }
+}

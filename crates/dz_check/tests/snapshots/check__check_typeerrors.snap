@@ -1012,70 +1012,108 @@ error[DZ0501]: expected `bool`, found `i32`
 901 │     assert(n)
     │            ^ this is `i32`
 
-error[DZ0531]: `-` cannot be applied to `Plain`
-    ┌─ typeerrors/src/errors.dz:906:12
+error[DZ0554]: `xs` takes any number of arguments, so it must come last
+    ┌─ typeerrors/src/errors.dz:906:19
     │
-906 │     return -p
+906 │ fn variadic_first(xs: ..i32, last: i32) {}
+    │                   ^^^^^^^^^ a variadic parameter before others
+    │
+    = help: move it to the end: the arguments after the fixed ones are its (spec §7.2)
+
+error[DZ0554]: `xs` cannot have a default
+    ┌─ typeerrors/src/errors.dz:908:33
+    │
+908 │ fn variadic_default(xs: ..i32 = 0) {}
+    │                                 ^ a default on a variadic parameter
+    │
+    = help: leaving its arguments out already gives it none (spec §7.2)
+
+error[DZ0554]: a spread must be the only variadic argument
+    ┌─ typeerrors/src/errors.dz:915:20
+    │
+915 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
+    │                    ^^^^ spread beside other arguments
+    │
+    = help: `adds(..xs)` passes a slice as it is; to add values, build the slice you want first (spec §7.2)
+
+error[DZ0554]: `..` spreads a slice or an array, not `i32`
+    ┌─ typeerrors/src/errors.dz:915:33
+    │
+915 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
+    │                                 ^^^ not a sequence
+    │
+    = help: pass the values one by one, or spread a `[]T` (spec §7.2)
+
+error[DZ0501]: expected `i32`, found `bool`
+    ┌─ typeerrors/src/errors.dz:915:48
+    │
+915 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
+    │                                                ^^^^ this is `bool`
+
+error[DZ0531]: `-` cannot be applied to `Plain`
+    ┌─ typeerrors/src/errors.dz:920:12
+    │
+920 │     return -p
     │            ^^ `Plain` does not implement `Neg`
     │
     = help: operators are traits (spec §11.2) — implement it: `impl Neg for Plain { … }`
 
 error[DZ0502]: `-129` does not fit in `i8`
-    ┌─ typeerrors/src/errors.dz:910:12
+    ┌─ typeerrors/src/errors.dz:924:12
     │
-910 │     return -129
+924 │     return -129
     │            ^^^^ outside the range of `i8`
     │
     = help: valid values are -128 to 127
 
 error[DZ0507]: `Readings` can be looped over, but not written through
-    ┌─ typeerrors/src/errors.dz:928:19
+    ┌─ typeerrors/src/errors.dz:942:19
     │
-928 │     for &mut v in r {
+942 │     for &mut v in r {
     │                   ^ implements `Iterable`, not `IterableMut`
     │
     = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
 
 error[DZ0507]: cannot refer to these elements with `&mut`
-    ┌─ typeerrors/src/errors.dz:934:19
+    ┌─ typeerrors/src/errors.dz:948:19
     │
-934 │     for &mut x in xs {
+948 │     for &mut x in xs {
     │                   ^^ the container is read-only here
     │
     = help: declare it `let mut`, or pass it as `&mut` (spec §10.4)
 
 error[DZ0501]: expected `i32`, found `i32?`
-    ┌─ typeerrors/src/errors.dz:942:18
+    ┌─ typeerrors/src/errors.dz:956:18
     │
-942 │     let n: i32 = o
+956 │     let n: i32 = o
     │                  ^ this is `i32?`
 
 error[DZ0521]: `none` needs an optional type here
-    ┌─ typeerrors/src/errors.dz:947:24
+    ┌─ typeerrors/src/errors.dz:961:24
     │
-947 │     let x = if alive { none } else { none }
+961 │     let x = if alive { none } else { none }
     │                        ^^^^ nothing here expects a `T?`
     │
     = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0521]: `none` needs an optional type here
-    ┌─ typeerrors/src/errors.dz:947:38
+    ┌─ typeerrors/src/errors.dz:961:38
     │
-947 │     let x = if alive { none } else { none }
+961 │     let x = if alive { none } else { none }
     │                                      ^^^^ nothing here expects a `T?`
     │
     = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0514]: `+` cannot be applied to `Layer`
-    ┌─ typeerrors/src/errors.dz:952:12
+    ┌─ typeerrors/src/errors.dz:966:12
     │
-952 │     return l + l == l
+966 │     return l + l == l
     │            ^ not a numeric type
 
 error[DZ0531]: `f32` does not implement `Hash`
-    ┌─ typeerrors/src/errors.dz:957:13
+    ┌─ typeerrors/src/errors.dz:971:13
     │
-957 │     let m = HashMap<f32, i32>()
+971 │     let m = HashMap<f32, i32>()
     │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
     │
     = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)

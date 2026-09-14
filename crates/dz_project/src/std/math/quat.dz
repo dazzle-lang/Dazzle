@@ -1,0 +1,121 @@
+/// A rotation. Built at its defaults it is the identity, which rotates nothing.
+pub struct Quat {
+    pub x: f32 = 0
+    pub y: f32 = 0
+    pub z: f32 = 0
+    pub w: f32 = 1
+
+    /// A rotation of `angle` radians around `axis`, counter-clockwise looking down the axis.
+    pub fn from_axis_angle(axis: Vec3, angle: f32) -> Quat {
+        let n = axis.normalized()
+        let s = (angle * 0.5).sin()
+        return Quat{ x: n.x * s, y: n.y * s, z: n.z * s, w: (angle * 0.5).cos() }
+    }
+
+    /// Yaw around y, then pitch around x, then roll around z, in radians.
+    pub fn from_euler(pitch: f32, yaw: f32, roll: f32) -> Quat {
+        let qy = Quat::from_axis_angle(Vec3{ x: 0, y: 1, z: 0 }, yaw)
+        let qx = Quat::from_axis_angle(Vec3{ x: 1, y: 0, z: 0 }, pitch)
+        let qz = Quat::from_axis_angle(Vec3{ x: 0, y: 0, z: 1 }, roll)
+        return qy * qx * qz
+    }
+
+    pub fn dot(&self, rhs: Quat) -> f32 {
+        return x * rhs.x + y * rhs.y + z * rhs.z + w * rhs.w
+    }
+
+    pub fn length(&self) -> f32 {
+        return self.dot(self).sqrt()
+    }
+
+    /// Length 1, which a rotation must have; a zero quaternion becomes the identity.
+    pub fn normalized(&self) -> Quat {
+        let len = self.length()
+        if len == 0 {
+            return Quat{}
+        }
+        return Quat{ x: x / len, y: y / len, z: z / len, w: w / len }
+    }
+
+    /// The opposite rotation, for a quaternion of length 1.
+    pub fn conjugate(&self) -> Quat {
+        return Quat{ x: -x, y: -y, z: -z, w: w }
+    }
+
+    /// `v` turned by this rotation.
+    pub fn rotate(&self, v: Vec3) -> Vec3 {
+        let u = Vec3{ x: x, y: y, z: z }
+        let t = u.cross(v) * 2
+        return v + t * w + u.cross(t)
+    }
+
+    /// Along the shortest arc from `self` to `to`, at a constant speed.
+    pub fn slerp(&self, to: Quat, t: f32) -> Quat {
+        let mut target = to
+        let mut cos_theta = self.dot(to)
+        // The same rotation, the short way round.
+        if cos_theta < 0 {
+            target = Quat{ x: -to.x, y: -to.y, z: -to.z, w: -to.w }
+            cos_theta = -cos_theta
+        }
+        if cos_theta > 0.9995 {
+            let lerped = Quat{
+                x: x.lerp(target.x, t),
+                y: y.lerp(target.y, t),
+                z: z.lerp(target.z, t),
+                w: w.lerp(target.w, t),
+            }
+            return lerped.normalized()
+        }
+        let theta = cos_theta.acos()
+        let sin_theta = theta.sin()
+        let a = ((1 - t) * theta).sin() / sin_theta
+        let b = (t * theta).sin() / sin_theta
+        return Quat{
+            x: x * a + target.x * b,
+            y: y * a + target.y * b,
+            z: z * a + target.z * b,
+            w: w * a + target.w * b,
+        }
+    }
+
+    /// The same rotation as a matrix.
+    pub fn to_mat4(&self) -> Mat4 {
+        let xx = x * x
+        let yy = y * y
+        let zz = z * z
+        let xy = x * y
+        let xz = x * z
+        let yz = y * z
+        let wx = w * x
+        let wy = w * y
+        let wz = w * z
+        return Mat4{ cols: [
+            Vec4{ x: 1 - 2 * (yy + zz), y: 2 * (xy + wz), z: 2 * (xz - wy), w: 0 },
+            Vec4{ x: 2 * (xy - wz), y: 1 - 2 * (xx + zz), z: 2 * (yz + wx), w: 0 },
+            Vec4{ x: 2 * (xz + wy), y: 2 * (yz - wx), z: 1 - 2 * (xx + yy), w: 0 },
+            Vec4{ x: 0, y: 0, z: 0, w: 1 },
+        ] }
+    }
+}
+
+/// `a * b` rotates by `b`, then by `a`.
+impl Mul for Quat {
+    type Output = Quat
+    fn mul(&self, rhs: Quat) -> Quat {
+        return Quat{
+            x: w * rhs.x + x * rhs.w + y * rhs.z - z * rhs.y,
+            y: w * rhs.y - x * rhs.z + y * rhs.w + z * rhs.x,
+            z: w * rhs.z + x * rhs.y - y * rhs.x + z * rhs.w,
+            w: w * rhs.w - x * rhs.x - y * rhs.y - z * rhs.z,
+        }
+    }
+}
+
+/// `q * v` is `q.rotate(v)`.
+impl Mul<Vec3> for Quat {
+    type Output = Vec3
+    fn mul(&self, rhs: Vec3) -> Vec3 {
+        return self.rotate(rhs)
+    }
+}

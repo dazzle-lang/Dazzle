@@ -1,0 +1,25 @@
+/// Steps through a slice, handing out a reference to each element.
+pub struct SliceIter<T> {
+    m_slice: []T
+    m_index: usize = 0
+
+    SliceIter(slice: []T) {
+        m_slice = slice
+    }
+}
+
+impl<T> Iterate for SliceIter<T> {
+    type Item = &T
+
+    fn valid(&self) -> bool {
+        return m_index < m_slice.len
+    }
+
+    fn get(&self) -> &T {
+        return &m_slice[m_index]
+    }
+
+    fn advance(&mut self) {
+        m_index += 1
+    }
+}

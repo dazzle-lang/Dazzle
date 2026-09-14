@@ -1,6 +1,5 @@
 ---
 source: crates/dz_parse/tests/parse.rs
-assertion_line: 34
 expression: "parse_report(&name, &source)"
 input_file: tests/parse/items.dz
 ---
@@ -183,6 +182,12 @@ impl<T: Copy> Copy for Buffer<T>
         path m_len
         field .m_len
           path other
+fn sum(xs: ..i32) -> i32
+  block
+    return
+      int 0
+fn tell(prefix: str, things: ..&Describe)
+  block
 
 === DIAGNOSTICS ===
 (none)

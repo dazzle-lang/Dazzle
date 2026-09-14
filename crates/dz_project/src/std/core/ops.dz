@@ -1,0 +1,52 @@
+//
+// `Rhs` defaults to `Self`, so `struct Vec3 : Add` means `Vec3 + Vec3`, while
+// `struct Vec3 : Mul<f32>` means `Vec3 * f32` — which is what makes `v * scalar` work.
+//
+// `rhs` is by value, unlike `Eq`'s and `Ord`'s: `Rhs` may be a scalar, and when this was
+// decided a `&f32` could not be read as an `f32` (§18.25; it can now, §18.35). By value is
+// still the right signature for the copyable math types these traits exist for — a 4-byte
+// copy beats an indirection.
+pub trait Add<Rhs = Self> {
+    type Output
+    fn add(&self, rhs: Rhs) -> Output
+}
+
+pub trait Sub<Rhs = Self> {
+    type Output
+    fn sub(&self, rhs: Rhs) -> Output
+}
+
+pub trait Mul<Rhs = Self> {
+    type Output
+    fn mul(&self, rhs: Rhs) -> Output
+}
+
+pub trait Div<Rhs = Self> {
+    type Output
+    fn div(&self, rhs: Rhs) -> Output
+}
+
+pub trait Rem<Rhs = Self> {
+    type Output
+    fn rem(&self, rhs: Rhs) -> Output
+}
+
+/// Unary `-`.
+pub trait Neg {
+    type Output
+    fn neg(&self) -> Output
+}
+
+/// `container[i]`, read. Returns a reference, so the element is not copied to be looked at.
+pub trait Index<I> {
+    type Output
+    fn index(&self, i: I) -> &Output
+}
+
+/// `container[i]` where the container may be written: `a[i] = v` and `a[i] += 1` write
+/// through the reference this returns. Chosen over `Index` whenever the container is a
+/// writable place.
+pub trait IndexMut<I> {
+    type Output
+    fn index_mut(&mut self, i: I) -> &mut Output
+}

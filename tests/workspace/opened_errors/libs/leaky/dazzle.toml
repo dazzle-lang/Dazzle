@@ -1,0 +1,11 @@
+[module]
+name    = "leaky"
+version = "0.1.0"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std    = { open = true }
+hidden = { path = "../../../opened/libs/hidden" }   # private
+
+[build]
+output = "static-lib"

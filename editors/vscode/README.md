@@ -18,7 +18,13 @@ own language server, `dz lsp` (spec §17.4), so everything it knows comes from t
   trait method together with the methods implementing it.
 - **Completion**: names in scope, keywords and builtins; after `.`, the members of whatever
   expression comes before it (`a.b().` included); after `::`, module items, variants and
-  type queries.
+  type queries. Names of a dependency your `dazzle.toml` does not open are offered too, and
+  written with its key: typing `DrawLi` inserts `rl::DrawLine`. A name two opened
+  dependencies share is offered once per key, since bare it would not compile.
+- **Links in `dazzle.toml`**: Ctrl+click a recipe's `import = ["raylib.h"]`, or a
+  dependency's `cpp = "raylib"`, to open the header the compiler found; a dependency's
+  `path` opens that project's manifest. In code, going to the definition of a key — `rl` in
+  `rl::DrawLine` — does the same, and hover says what it names.
 - **Signature help** inside a call, and **inlay hints** showing inferred types on `let`,
   `for` and `case` bindings.
 - Outline, **Go to Symbol in Workspace**, and Format Document.
@@ -49,8 +55,8 @@ With no `launch.json`, F5 in a `.dz` file debugs that file's project. To customi
 and `debugger` (`auto`, `vsdbg`, `gdb` or `lldb`). The project must build in `debug` mode
 (`[build] optimize = "debug"`, the default), which compiles with `-O0 -g`.
 
-Stepping into `List`, `String` or `HashMap` opens the prelude: `dz` writes it to
-`build/cpp/prelude/dz.dz` for the debugger, since it is otherwise compiled into `dz`. With
+Stepping into `List`, `String` or `HashMap` opens the standard library: `dz` writes it to
+`build/cpp/std/` for the debugger, since it is otherwise compiled into `dz`. With
 the Visual Studio debugger, `str` shows as text, slices and arrays as their elements, and
 `T?` as its value or `none` (`dazzle.natvis`).
 

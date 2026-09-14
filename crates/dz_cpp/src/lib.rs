@@ -183,11 +183,13 @@ pub fn emit(
         }
 
         let mut includes = String::from("#include \"dz_runtime.h\"\n#include \"dz_prelude.h\"\n");
-        for dep in &module.deps {
+        for dep in module.deps.iter().filter(|d| ws.module(d.module).foreign.is_none()) {
             let _ = writeln!(includes, "#include \"{}.h\"", file_stem(&ws.module(dep.module).name));
         }
-        // `import cpp` (spec §15.1): the header itself, exactly as the import wrote it.
-        for (header, _) in &module.cpp_imports {
+        // `rl = { cpp = "raylib" }` (spec §15.1): the header itself, exactly as the recipe's
+        // `import` names it.
+        let headers = module.deps.iter().filter_map(|d| ws.module(d.module).foreign.as_ref());
+        for header in headers.flat_map(|f| &f.header.requested) {
             // **Angle brackets, deliberately.** A quoted include is searched from the
             // including file's own directory first, and that directory is `build/cpp` —
             // where a module named after the library it imports has just generated
@@ -3307,6 +3309,13 @@ impl<'a> Emitter<'a> {
                     format!("::dz::data({base})")
                 }
             }
+            // A variadic call with no variadic arguments passes an empty slice (spec §7.2):
+            // there is no `Array<T, 0>` to view.
+            hir::ExprKind::ArrayLit(parts)
+                if parts.is_empty() && matches!(body.ty(e), Ty::Slice { .. }) =>
+            {
+                format!("{}()", self.cpp_ty(body.ty(e)))
+            }
             hir::ExprKind::ArrayLit(parts) => {
                 let t = self.cpp_ty(body.ty(e));
                 let vs = self.sequenced_elements(parts);
@@ -4212,11 +4221,11 @@ impl<'a> Emitter<'a> {
         if !builtin || (self.table.is_enum(&recv_ty) && !matches!(name, "eq" | "cmp" | "hash")) {
             return None;
         }
-        // `std::math`'s `Float` and `Integer` on a number: the shim's function of the same
-        // name, receiver first (spec §14.4). `abs` and `pow` differ for integers.
+        // The standard library's `Float` and `Integer` on a number: the shim's function of the
+        // same name, receiver first (spec §14.4). `abs` and `pow` differ for integers.
         let owner_sym = self.res.symbol(owner);
         if matches!(owner_sym.name.as_str(), "Float" | "Integer")
-            && self.ws.module(owner_sym.module).name == dz_check::STD_MATH
+            && owner_sym.module == self.res.prelude
         {
             let f = match (&recv_ty, name) {
                 (Ty::Int(_), "abs") => "abs_int",

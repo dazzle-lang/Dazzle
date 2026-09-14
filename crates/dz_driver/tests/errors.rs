@@ -37,7 +37,7 @@ fn run(path: &Path) -> (Vec<String>, String) {
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(
         dir.join("dazzle.toml"),
-        "[module]\nname = \"errors\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"errors\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
     )
     .unwrap();
     std::fs::copy(path, dir.join("src/main.dz")).unwrap();

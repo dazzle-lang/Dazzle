@@ -1,8 +1,12 @@
-import cpp "raylib.h" as rl
-
 static a: i32 = 4
 
 fn main() {
+	let s = String("b")
+	let mut p = List<i32>()
+
+	p.push(1)
+	p.push(2)
+
     rl::InitWindow(1600, 900, "Window name")
     defer rl::CloseWindow()
 

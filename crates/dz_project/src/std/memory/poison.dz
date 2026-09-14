@@ -1,0 +1,12 @@
+// Memory tracking (spec §14.2): compiled only with `TRACK_MEMORY`.
+
+#if TRACK_MEMORY {
+    /// Fill `p[from..to]` with `0xDD`, so memory read after it was released is recognisable.
+    fn poison(p: ^mut u8, from: usize, to: usize) {
+        let mut i = from
+        while i < to {
+            unsafe { p[i] = 0xDD }
+            i += 1
+        }
+    }
+}

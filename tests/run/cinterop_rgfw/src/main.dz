@@ -1,5 +1,3 @@
-import cpp "RGFW.h" as rgfw
-
 fn main() !-> void {
 	rgfw::RGFW_init("Dazzle", 0)
 

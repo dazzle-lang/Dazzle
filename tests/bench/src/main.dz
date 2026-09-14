@@ -17,8 +17,6 @@
 // `blackbox` is what keeps these honest: without it the optimiser deletes work whose
 // result nothing reads, and folds an argument it can see is constant.
 
-import cpp "baseline.h" as base
-
 const N: i32 = 1024
 
 // --- indexing: bounds-checked against unchecked ------------------------------

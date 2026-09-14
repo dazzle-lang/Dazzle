@@ -1,0 +1,16 @@
+/// The standard allocators (§14.2). Each is a reference to a static, evaluated where it is
+/// named — so `Temp` is the arena of the thread that names it — and a reference, so
+/// `Allocators::Temp.reset()` needs no `unsafe`. Either converts to the `^mut Allocator` a
+/// container stores.
+pub struct Allocators {
+    /// The C heap: `malloc` and `free`.
+    pub const Global: &mut Allocator = unsafe { &mut HEAP }
+    /// This thread's scratch arena. Freeing into it does nothing; `reset()` releases
+    /// everything at once, at a point the program chooses.
+    pub const Temp: &mut TempArena = unsafe { &mut TEMP }
+}
+
+static HEAP: Heap = Heap{}
+
+#[thread_local]
+static TEMP: TempArena = TempArena{}

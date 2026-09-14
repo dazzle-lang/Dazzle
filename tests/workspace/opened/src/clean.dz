@@ -1,0 +1,30 @@
+// Two opened libraries, and every way of settling what they share (spec §3.2).
+
+/// Names only one opened dependency exports are written bare, `std`'s among them.
+fn weigh(b: Body) -> f32 {
+    return b.mass * gravity() + area(1, 2) + std::PI
+}
+
+/// The shared name, written with each dependency's key.
+fn both(a: geo::Vec3, b: phys::Vec3) -> f64 {
+    return (a.x as f64) + b.x
+}
+
+/// `Color` is shared too, but `[names]` chose phys's for the whole module.
+fn tint() -> Color {
+    return Color{ g: 1 }
+}
+
+/// A public dependency of a dependency: through its path, and through the key `via` gave
+/// it, which also opened it.
+fn distance(t: f32) -> f32 {
+    let a: phys::units::Meters = phys::fall(t)
+    let b: meters::Meters = a
+    let c: Meters = b
+    return c.value
+}
+
+/// A dependency that is not opened is written with its key.
+fn noise() -> f32 {
+    return audio::play_sound(0.5)
+}

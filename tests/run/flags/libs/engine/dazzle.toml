@@ -2,6 +2,9 @@
 name    = "engine"
 sources = ["src/**/*.dz"]
 
+[dependencies]
+std = { open = true }
+
 [flags]
 PROFILE = false
 VERBOSE = false

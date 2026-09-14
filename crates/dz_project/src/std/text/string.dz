@@ -1,0 +1,118 @@
+/// Owned, growable UTF-8 text, in memory from the allocator it was built with.
+///
+/// Its bytes are always followed by a zero, so `as_cstr()` hands a C function the text
+/// without a copy. Copying a `String` copies the text.
+pub struct String {
+    m_bytes: List<u8>
+
+    /// A copy of `s`.
+    String(s: str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
+        m_bytes = List<u8>(0, allocator, loc)
+        self.push_str(s, loc)
+    }
+
+    /// A copy of `s`: `String::from("name")`.
+    pub fn from(s: str, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
+        return String(s, allocator, loc)
+    }
+
+    /// The length in bytes, not counting the zero after them.
+    pub fn len(&self) -> usize {
+        if m_bytes.len() == 0 {
+            return 0
+        }
+        return m_bytes.len() - 1
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return self.len() == 0
+    }
+
+    pub fn capacity(&self) -> usize {
+        return m_bytes.capacity()
+    }
+
+    /// The text, borrowed. Valid until the `String` next changes or is dropped.
+    pub fn as_str(&self) -> str {
+        let bytes = m_bytes.as_slice()
+        return unsafe { bytes[0..self.len()] as str }
+    }
+
+    /// The text as a C string, borrowed, for C and C++ functions that want one.
+    pub fn as_cstr(&self) -> cstr {
+        if m_bytes.len() == 0 {
+            return ""
+        }
+        return unsafe { m_bytes.as_slice().ptr as cstr }
+    }
+
+    /// Append `s`.
+    pub fn push_str(&mut self, s: str, loc: SourceLocation = #location) {
+        if s.len == 0 {
+            return
+        }
+        let _ = m_bytes.pop()
+        m_bytes.reserve(s.len + 1, loc)
+        let bytes = s as []u8
+        for b in bytes {
+            m_bytes.push(b, loc)
+        }
+        m_bytes.push(0, loc)
+    }
+
+    /// Append one character, encoded as UTF-8.
+    pub fn push(&mut self, c: char, loc: SourceLocation = #location) {
+        let mut encoded: [4]u8 = [0, 0, 0, 0]
+        let n = encode_utf8(c, &mut encoded)
+        let text = unsafe { encoded[0..n] as str }
+        self.push_str(text, loc)
+    }
+
+    /// Empty the text and keep the allocation.
+    pub fn clear(&mut self) {
+        m_bytes.clear()
+    }
+
+    /// Room for at least `additional` more bytes without growing again.
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+        m_bytes.reserve(additional + 1, loc)
+    }
+}
+
+impl Eq for String {
+    fn eq(&self, rhs: &String) -> bool {
+        return self.as_str() == rhs.as_str()
+    }
+}
+
+/// The same hash as the text as a `str`.
+impl Hash for String {
+    fn hash(&self) -> u64 {
+        return self.as_str().hash()
+    }
+}
+
+/// `c` as UTF-8 into `out`, returning how many bytes it took.
+fn encode_utf8(c: char, out: &mut [4]u8) -> usize {
+    let cp = c as u32
+    if cp < 0x80 {
+        out[0] = cp as u8
+        return 1
+    }
+    if cp < 0x800 {
+        out[0] = (0xC0 | (cp >> 6)) as u8
+        out[1] = (0x80 | (cp & 0x3F)) as u8
+        return 2
+    }
+    if cp < 0x10000 {
+        out[0] = (0xE0 | (cp >> 12)) as u8
+        out[1] = (0x80 | ((cp >> 6) & 0x3F)) as u8
+        out[2] = (0x80 | (cp & 0x3F)) as u8
+        return 3
+    }
+    out[0] = (0xF0 | (cp >> 18)) as u8
+    out[1] = (0x80 | ((cp >> 12) & 0x3F)) as u8
+    out[2] = (0x80 | ((cp >> 6) & 0x3F)) as u8
+    out[3] = (0x80 | (cp & 0x3F)) as u8
+    return 4
+}

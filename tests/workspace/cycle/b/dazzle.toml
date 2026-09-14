@@ -3,4 +3,5 @@ name    = "beta"
 sources = ["src/**/*.dz"]
 
 [dependencies]
+std = { open = true }
 alpha = { path = "../a" }

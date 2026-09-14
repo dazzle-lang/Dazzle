@@ -1,5 +1,3 @@
-import math
-
 pub enum Layer : u16 {
     Background = 0
     World

@@ -102,7 +102,7 @@ fn snippet(source: &str) -> Vec<&'static str> {
     let _ = std::fs::create_dir_all(dir.join("src"));
     std::fs::write(
         dir.join("dazzle.toml"),
-        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
     )
     .unwrap();
     std::fs::write(dir.join("src/a.dz"), source).unwrap();

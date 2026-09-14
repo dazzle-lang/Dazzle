@@ -121,7 +121,8 @@ fn a_three_module_workspace_resolves_cleanly() {
     assert_eq!(r.error_count, 0, "expected a clean workspace:\n{}", r.rendered);
     // Four, not three: the prelude is a real module in every workspace (spec §18.23).
     assert_eq!(r.module_count, 4, "game plus two libraries plus the prelude");
-    assert_eq!(r.file_count, 6);
+    // Five of the workspace's own, and the standard library's, one declaration to a file.
+    assert_eq!(r.file_count, 5 + dz_project::STD_SOURCES.len());
 }
 
 #[test]
@@ -199,7 +200,7 @@ fn check_snippet(source: &str) -> Vec<&'static str> {
     let _ = std::fs::create_dir_all(dir.join("src"));
     std::fs::write(
         dir.join("dazzle.toml"),
-        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
     )
     .unwrap();
     std::fs::write(dir.join("src/a.dz"), source).unwrap();
@@ -218,7 +219,7 @@ fn fastish_hash(s: &str) -> u64 {
 }
 
 /// `std` belongs to the standard library (spec §14.4): a project cannot take the name, or
-/// `import std::math` could mean something other than the compiler's.
+/// `std::Vec2` could mean something other than the compiler's.
 #[test]
 fn a_module_cannot_be_named_under_std() {
     for name in ["std", "std::math", "std::mine"] {
@@ -226,7 +227,7 @@ fn a_module_cannot_be_named_under_std() {
         let _ = std::fs::create_dir_all(dir.join("src"));
         std::fs::write(
             dir.join("dazzle.toml"),
-            format!("[module]\nname = \"{name}\"\nsources = [\"src/**/*.dz\"]\n"),
+            format!("[module]\nname = \"{name}\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = {{ open = true }}\n"),
         )
         .unwrap();
         std::fs::write(dir.join("src/a.dz"), "fn f() {}\n").unwrap();

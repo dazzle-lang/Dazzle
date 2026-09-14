@@ -55,7 +55,7 @@ clang++ -std=c++17 -fno-exceptions -fno-rtti -fsanitize=address -g -O1 *.cpp -o 
 | `dz_hir` | resolved, typed tree + `Ty` + span-free dump | §17.1 |
 | `dz_parse` | recursive descent + Pratt | §20 |
 | `dz_fmt` | formatter | §17.3 |
-| `dz_project` | `dazzle.toml`, globs, dependency graph, **the prelude** (`src/prelude.dz`) | §3.1, §3.2 |
+| `dz_project` | `dazzle.toml`, globs, dependency graph, **the standard library** (`src/std/**/*.dz`) | §3.1, §3.2 |
 | `dz_resolve` | symbol tables, name resolution, visibility | §3, §4 |
 | `dz_check` | type checker | §5, §7, §9, §10, §11 |
 | `dz_flow` | ownership, moves, definite return | §6 |
@@ -1498,16 +1498,18 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M7b** | libclang parses with its own default target (MSVC here), not the C++ compiler's: a header needing the C library's own headers may find MSVC's while g++ builds against mingw's | `dz_cppimport`, `arguments` |
 | **M7b** | An untyped imported integer is not range-checked against its context: `let b: u8 = rl::SOME_BIG` reaches C++ as a narrowing `static_cast`. The importer knows the value; the checker should compare it, as it does a literal's | `dz_check/src/lib.rs`, `collect_foreign` |
 | **M12** | **`indexed()` exists only in a `for` head.** It is recognised there by the checker, not declared: a real adapter is a generic struct implementing `Iterate` over another, whose `Item` needs associated-type projection (the row below). `move(xs).indexed()` is refused for the same reason | `dz_check/src/check.rs`, `for_stmt` |
-| **M12** | **Memory tracking is single-threaded and prints to stdout.** `TRACKER` is one static with no lock, so two threads allocating from `Global` under `--track-memory` race — concurrency is v2 (18.11). The leak report goes through `println`, because there is no way to write to stderr from Dazzle yet | `dz_project/src/prelude.dz`, `Tracker` |
+| **M12** | **Memory tracking is single-threaded and prints to stdout.** `TRACKER` is one static with no lock, so two threads allocating from `Global` under `--track-memory` race — concurrency is v2 (18.11). The leak report goes through `println`, because there is no way to write to stderr from Dazzle yet | `dz_project/src/std/memory/tracker.dz` |
 | **M12** | **A trait method's non-constant default argument** is rendered on the handle's declaration, before the module's structs are defined, so a default like `Vec3{}` on a trait method would not compile there | `dz_cpp`, `trait_object_decls` |
 | **M12** | **`for` over a generic `C: Iterable`** is refused (`DZ0801`): the loop's element is the projection of `C::Iter`'s `Item`, the same associated-type projection a generic `T: Iterate` loop waits on. Concrete containers loop (r47) | `dz_check/src/check.rs`, `container_iterator` |
 | **M12** | **A union variant carrying a struct with a constructor cannot be built**: the variant literal is the struct's literal, which a type with a constructor refuses (DZ0543), and there is no spelling for building the variant through the constructor. The union itself compiles and drops correctly (r47) — how to spell `.Sound(5)` is a question for the user | `dz_check/src/check.rs`, `union_variant_literal` |
-| **M12** | `List::insert` and `remove` move elements one at a time, even for a `T` whose bytes could be moved in one `memmove`; there is no `memmove` builtin yet | `dz_project/src/prelude.dz`, `List` |
-| **M12** | **A `HashMap<String, V>` is looked up with a `&String`**, so finding a key you hold as a `str` builds a `String` first. Rust answers this with `Borrow<Q>`; Dazzle has no such trait yet | `dz_project/src/prelude.dz`, `HashMap` |
-| **M12** | **`hash_combine` relies on `u64` arithmetic wrapping**, which C++ guarantees and the spec does not yet say (§5 leaves overflow of plain arithmetic unstated, and signed overflow is not checked in debug as §5.1 proposes). `wrapping_add` exists now, but in `std::math`, which the prelude cannot import. Deciding what plain `+` does on overflow settles both | `dz_project/src/prelude.dz`, `hash_combine` |
+| **M12** | `List::insert` and `remove` move elements one at a time, even for a `T` whose bytes could be moved in one `memmove`; there is no `memmove` builtin yet | `dz_project/src/std/collections/list.dz` |
+| **M12** | **A `HashMap<String, V>` is looked up with a `&String`**, so finding a key you hold as a `str` builds a `String` first. Rust answers this with `Borrow<Q>`; Dazzle has no such trait yet | `dz_project/src/std/collections/hash_map.dz` |
+| **M12** | **`hash_combine` relies on `u64` arithmetic wrapping**, which C++ guarantees and the spec does not yet say (§5 leaves overflow of plain arithmetic unstated, and signed overflow is not checked in debug as §5.1 proposes). `wrapping_add` exists now, and since r50 is in the same module. Deciding what plain `+` does on overflow settles both | `dz_project/src/std/core/hash.dz` |
 | **M12** | **Methods on an untyped literal**: `2.0.sqrt()` has no type to find `Float` on until the literal meets a context; write `(2.0 as f32).sqrt()` or bind it first | `dz_check/src/check.rs`, `call` |
-| **M12** | **`Mat4` and raylib's `Matrix`** hold the same numbers, but raylib's struct declares its fields row by row (`m0, m4, m8, m12, …`), so converting is a field-by-field copy rather than a cast | `dz_project/src/std/math.dz`, `Mat4` |
-| **M12** | **No variadic parameters.** `println` and `format` take any number of arguments only because they are builtins; a Dazzle function cannot. Wanted by the user; not yet designed | spec §7.2 |
+| **M12** | **`Mat4` and raylib's `Matrix`** hold the same numbers, but raylib's struct declares its fields row by row (`m0, m4, m8, m12, …`), so converting is a field-by-field copy rather than a cast | `dz_project/src/std/math/mat4.dz` |
+| **M9** | **`std` is type-checked in every analysis.** Its trees are parsed once per process (`dz_driver::std_tree`), which took a debug-build analysis of `tests/run/hello` from ~75 ms to ~61 ms (release: ~22 ms before). What remains is checking its ~2 200 lines each time, ~40 ms of the debug figure: symbols, the type table and HIR are whole-program, so reusing `std`'s needs the per-module analysis cache §17.2 already asks of M9 | `dz_driver`, `analyse_for` |
+| **M9** | **An unused-dependency warning can be wrong for a dependency used only through `.`**: a trait method it adds, called on a value whose type comes from elsewhere, is resolved by the checker, which does not mark the dependency used. Name the trait, or ignore the warning | `dz_resolve`, `report_unused_dependencies` |
+| **M9** | **A dependency's `pub` dependency inside a `[names]` value**: `[names]` takes a key of this module, so choosing `rl::shapes`'s `Rectangle` needs a `via` key first | `dz_resolve`, `module_names` |
 | **M12** | **An intrinsic default uses the C++ compiler's builtins**, so its column is 0 and its function is the C++ name (`bump`, not `Counter::bump`) | `dz_cpp`, `caller_intrinsic` |
 | **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
 | **M10** | The intrinsics `#module`, `#location` and `#expr_text` are typed but not emitted (`#file`, `#line`, `#column` and `#function` are) | `dz_cpp`, `intrinsic` |
@@ -1519,7 +1521,7 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M12** | A trait default method is exercised by `tests/run/generics` only for bodies that call the trait's own methods; one that builds or returns a `Self` value has no test | `dz_mono`, `inherited_defaults` |
 | **M12** | `error(…)` and `format(…)` write into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. §9.2 requires no allocation *and* a message that outlives the call; a real answer needs the stdlib's `String` | `dz_cpp/src/runtime.rs` |
 | **M12** | `or unreachable` panics in release as well as debug. §9.4 says release may assume the success path, and §18.20 has not settled whether that means `__builtin_unreachable` or merely skipping the check | `dz_cpp/src/lib.rs`, `clause` |
-| **M12** | **`println`/`print`/`format` are still builtins**, and a `String` is printed through `s.as_str()`: `Format` has no implementations and `Formatter` is still empty, now that `String` exists to give it a buffer. `HashMap` is still to come | `dz_cpp/src/runtime.rs`, `dz_project/src/prelude.dz` |
+| **M12** | **`println`/`print`/`format` are still builtins**, and a `String` is printed through `s.as_str()`: `Format` has no implementations and `Formatter` is still empty, now that `String` exists to give it a buffer. `HashMap` is still to come | `dz_cpp/src/runtime.rs`, `dz_project/src/std/core/format.dz` |
 
 ### Not deferred — deliberately out of scope forever
 
@@ -1629,8 +1631,71 @@ What remains, in the order the user set on 2026-09-13:
    - Tests: `tests/run/math` (every value checked by hand; warning-clean on both compilers),
      three `tests/errors` cases, `a_module_cannot_be_named_under_std`,
      `definition_of_a_std_math_name_is_in_std_math`.
-10. **Variadic parameters** (to design).
-11. The criterion: a small raylib game with no C++ of its own.
+10. ✅ **Variadic parameters (r49).** Design chosen by the user on 2026-09-14 (18.56).
+    - **Syntax**: `dz_ast::Param::variadic`, set by the parser on `name: ..T`; the formatter
+      and dump print it back. `Ctx::param_sigs` lowers it to a read-only `[]T`, sets
+      `FnSig::variadic`, and reports a variadic that is not last or has a default
+      (DZ0554, new) — once: the default is not also checked against the slice.
+    - **Calls**: `check_variadic_args` checks the fixed arguments as usual, then either
+      passes a lone spread `..xs` (parsed as a start-less range) as the slice, or gathers
+      the rest into one `ArrayLit` typed `[N]T` — an empty slice when N is 0, emitted as
+      `Slice<T>()` — so codegen, flow and monomorphization see an array passed where a
+      slice is wanted and needed nothing new. `variadic_element` borrows a value given where
+      a read-only trait reference or pointer is wanted. A generic `T` is inferred through
+      the existing array-to-slice unification.
+    - **Editor**: signature help keeps the variadic parameter active past its first argument.
+    - **Found**: `..^Trait` makes every call through an element `unsafe`; `..&Trait` is
+      allowed (a slice of references) and safe, so the spec shows that spelling.
+    - Tests: `tests/run/variadic` (order, drops, spread, generic, method, constructor,
+      mixed types; warning-clean), `typed/`/`typeerrors/`, the parse and fmt corpora,
+      `signature_help_stays_on_a_variadic_parameter`.
+    - **Next, not done**: `println`/`format` as library functions need `Format` implemented
+      for the built-in types and a real `Formatter`, plus a way to mark a parameter as a
+      format string the compiler checks against the variadic arguments.
+11. ✅ **Imports in the manifest; the prelude becomes `std` (r50).** Designed with the user
+    on 2026-09-14 (18.57, 18.58), after a first pass at file-level `import m::*` was
+    written, tested, and dropped in favour of this.
+    - **`std` is one module, one declaration to a file.** `prelude.dz` and `std/math.dz` were
+      split by a script (checked: the same non-comment lines, the same doc comments) into
+      `crates/dz_project/src/std/{core,collections,memory,text,math}/*.dz`, listed in
+      `STD_SOURCES` under `<std>/…` pseudo-paths; `tests/std_sources.rs` holds the list to
+      the directory. It is module 0 as the prelude was, always loaded — `STD_MODULES`,
+      `add_std` and the driver's `import_std` are gone, as is the name `dz`. The checker's
+      and codegen's `Float`/`Integer` test is now "a trait of module 0".
+    - **The manifest** (`dz_project`): a dependency is `path`, `cpp` (a recipe in this
+      manifest or a dependency's) or `via`, with `open` and `pub`; the key must be an
+      identifier; `std = {…}` takes no source; `[names]` picks. `CppDep`s become
+      `Dependency`s when the driver has read the header (`import_headers` now walks
+      `Module::cpp_deps`, and a recipe's `import = [...]` names the header, one for now).
+      A module that does not list `std` still depends on it, `implicit`, so its generated
+      C++ includes it and `for`/operators work.
+    - **Resolution**: `ModuleNames` per module (keys, opened, picks, public), built after
+      pass 1 so `[names]` can name declarations; `via` walks public dependencies. A bare
+      name: locals → own declarations → file `{ … }` → `[names]` → builtins → opened, where
+      two different symbols are DZ0310 (no order-based precedence, by the user's choice).
+      `Resolution::module_prefix`/`path_item` walk `key::pubdep::Item::ns…`, and the checker
+      now uses `path_item` everywhere it used to special-case two segments. File imports:
+      `{ … }` and `as` only; `import m` alone and `import cpp` are DZ0312 with the manifest
+      lines as help. Not-found help now says which dependency has the name and whether it
+      is `std` not being listed. **DZ0311**: a library's `pub` signature naming a type from
+      a module that is not itself, `std`, or publicly reachable; executables are exempt.
+    - **Codegen** includes a foreign dependency's header by the recipe's `import` name, and
+      no longer emits `#include "<recipe>.h"` for one.
+    - Tests: `tests/workspace/opened` (open, `[names]`, `via`, a file pick — must check
+      clean through the checker) and `opened_errors` (DZ0310, DZ0303 into a private
+      dependency, DZ0301 for a private name, DZ0311) in `dz_driver/tests/opened.rs`, plus a
+      module with no `std`; `tests/errors` for DZ0312 twice and a module declaration
+      shadowing `std`. Every fixture manifest gained `std = { open = true }`, every
+      `import cpp` moved into its recipe.
+    - **Afterwards, the same day**: a recipe's `import` takes several headers, parsed as one
+      unit (`Request::headers`; each header's path from the inclusions the synthetic main
+      file makes directly, and the macro and instantiation passes include them all);
+      **DZ0313** on a dependency nothing names (`Resolution::used_deps`, filled by key
+      paths, imports, opened names, `[names]` and `via`; public dependencies and `std` are
+      exempt); `std`'s trees parsed once per process; and hover and go-to-definition on a
+      dependency key — the header of a `cpp` one, the manifest of a project, through public
+      dependencies too (`ide::module_info`).
+12. The criterion: a small raylib game with no C++ of its own.
 
 **`error(…)` keeps static storage** — decided by the user on 2026-09-13. Moving it onto
 `Allocators::Temp` was considered and refused: an allocator is itself a place that reports

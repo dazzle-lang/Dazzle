@@ -1,0 +1,9 @@
+[module]
+name    = "variadic"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

@@ -1,14 +1,14 @@
 // expect: (none)
 //
-// `std::math` (spec §14.4) with its names used every way an import allows: through the
-// module alias, imported by name, methods on the machine's numbers, a struct's `Neg` and
-// `Eq` with a temporary on the right, and the most negative `i8` as a literal.
+// The standard library's math (spec §14.4) used every way the manifest and a file allow:
+// bare, since the corpus's manifest opens `std`; through its key, `std::TAU`; picked by a
+// `{ … }` import; methods on the machine's numbers; a struct's `Neg` and `Eq` with a
+// temporary on the right; and the most negative `i8` as a literal.
 
-import std::math
-import std::math::{ Vec3, Mat4 }
+import std::{ Mat4 }
 
 fn angles(t: f32) -> f32 {
-    return (t * math::TAU).sin().abs().clamp(0, 1)
+    return (t * std::TAU).sin().abs().clamp(0, 1)
 }
 
 fn counters(n: u16) -> u16 {
@@ -20,5 +20,5 @@ fn counters(n: u16) -> u16 {
 fn vectors(v: Vec3) -> bool {
     let flipped = -v
     let moved = Mat4::translation(v).transform_point(flipped)
-    return moved == Vec3{} && math::Vec2{ x: 1, y: 0 }.length() == 1
+    return moved == Vec3{} && std::Vec2{ x: 1, y: 0 }.length() == 1
 }

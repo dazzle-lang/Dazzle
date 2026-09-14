@@ -42,10 +42,10 @@ pub fn emit_cpp(
         return Err(d);
     }
 
-    // The prelude and the standard library are compiled into `dz` and have no files, so
+    // The standard library is compiled into `dz` and have no files, so
     // their `#line` directives name copies written beside the generated C++ — which is what
     // a debugger opens when stepping into `List::push` or `Vec3::length` (spec §16.3). Only
-    // the directives change: a panic message still says `<prelude>/dz.dz`.
+    // the directives change: a panic message still says `<std>/collections/list.dz`.
     let absolute_cpp_dir = if cpp_dir.is_absolute() {
         Some(cpp_dir.clone())
     } else {
@@ -54,7 +54,7 @@ pub fn emit_cpp(
     let mut renames: Vec<(String, String)> = Vec::new();
     if let Some(base) = &absolute_cpp_dir {
         for (pseudo, text) in dz_project::embedded_sources() {
-            // `<prelude>/dz.dz` → `build/cpp/prelude/dz.dz`, `<std>/math.dz` → `…/std/math.dz`.
+            // `<std>/math/vec3.dz` → `build/cpp/std/math/vec3.dz`.
             let copy = base.join(pseudo.replace(['<', '>'], ""));
             if let Some(dir) = copy.parent() {
                 let _ = std::fs::create_dir_all(dir);

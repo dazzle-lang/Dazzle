@@ -1,0 +1,8 @@
+/// Where a `Format` implementation writes.
+///
+/// Empty for now, and deliberately so: what it needs is a growable buffer, which is
+/// `String` and arrives with M12. Declaring it here means `Format` can be written and
+/// implemented today, and filling it in later adds fields rather than changing anything's
+/// shape.
+pub struct Formatter {
+}

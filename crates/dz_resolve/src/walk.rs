@@ -47,13 +47,13 @@ pub(crate) fn link_bases(r: &mut Resolution, ws: &Workspace, module: ModuleId, p
         ws,
         module,
         file: pf.file,
-        prelude: ws.prelude,
         generic_spans: Vec::new(),
         module_aliases: HashMap::new(),
         unqualified: HashMap::new(),
         scopes: Vec::new(),
         used_imports: Vec::new(),
         imports: Vec::new(),
+        exported: None,
     };
     w.imports(&pf.ast);
     let links: Vec<(SymbolId, SymbolId)> = pf
@@ -86,13 +86,13 @@ pub(crate) fn resolve_file(r: &mut Resolution, ws: &Workspace, module: ModuleId,
         ws,
         module,
         file: pf.file,
-        prelude: ws.prelude,
         generic_spans: Vec::new(),
         module_aliases: HashMap::new(),
         unqualified: HashMap::new(),
         scopes: Vec::new(),
         used_imports: Vec::new(),
         imports: Vec::new(),
+        exported: None,
     };
     w.imports(&pf.ast);
     for item in &pf.ast.items {
@@ -112,8 +112,6 @@ struct Walker<'a, 'w> {
     ws: &'w Workspace,
     module: ModuleId,
     file: FileId,
-    /// The prelude, in scope everywhere with no import (spec §3.2, §18.23).
-    prelude: ModuleId,
     /// Spans of generic-parameter bindings, so a binding found in scope can be told apart
     /// from a local value of the same name.
     generic_spans: Vec<Span>,
@@ -125,6 +123,9 @@ struct Walker<'a, 'w> {
     scopes: Vec<HashMap<String, Span>>,
     used_imports: Vec<bool>,
     imports: Vec<(String, Span)>,
+    /// Set while walking the signature of a declaration other modules can use, to its name:
+    /// a type named there must be one they can name too (spec §3.2, DZ0311).
+    exported: Option<String>,
 }
 
 impl<'a, 'w> Walker<'a, 'w> {
@@ -134,27 +135,45 @@ impl<'a, 'w> Walker<'a, 'w> {
 
     // --- imports ----------------------------------------------------------
 
+    /// A file's own imports: `import m::{ A, B }` and `import m as x`, the exceptions to
+    /// what the manifest names for every file (spec §3.2).
     fn imports(&mut self, ast: &SourceFileAst) {
         for import in &ast.imports {
             let index = self.imports.len();
             match &import.kind {
-                ImportKind::Module { path, alias } => {
-                    let name = path_text(path);
-                    let Some(target) = self.find_module(&name, path.span) else { continue };
-                    let local = alias
-                        .as_ref()
-                        .map(|a| a.name.clone())
-                        .unwrap_or_else(|| last_segment(&name).to_owned());
-                    self.imports.push((local.clone(), import.span));
-                    // `import std::math` may be there only for `x.sqrt()`, a `.` call that
-                    // resolution does not see (invariant 9), so it is never called unused.
-                    let std_math = dz_project::STD_MODULES.first().map(|(n, _, _)| *n);
-                    self.used_imports.push(Some(name.as_str()) == std_math);
-                    self.module_aliases.insert(local, (target, index));
+                ImportKind::Module { path, alias: Some(alias) } => {
+                    let Some(target) = self.find_module(path) else { continue };
+                    self.use_key(&path.segments[0].name.name);
+                    self.imports.push((alias.name.clone(), import.span));
+                    self.used_imports.push(false);
+                    self.module_aliases.insert(alias.name.clone(), (target, index));
+                }
+                ImportKind::Module { path, alias: None } => {
+                    let text = path_text(path);
+                    let file = self.file;
+                    let mut d = Diagnostic::error(
+                        codes::IMPORT_FORM_REMOVED,
+                        format!("`import {text}` names nothing new"),
+                    )
+                    .at(file, import.span, "not an import form");
+                    d = if self.find_module_quiet(path).is_some() {
+                        d.with_help(format!(
+                            "`{text}` is already reachable in every file of this module, through \
+                             dazzle.toml; remove this line, or write `import {text}::{{ Name }}` \
+                             or `import {text} as name` (spec §3.2)"
+                        ))
+                    } else {
+                        d.with_help(format!(
+                            "a module's dependencies are listed in its dazzle.toml: \
+                             `{} = {{ path = \"…\" }}` under `[dependencies]` (spec §3.2)",
+                            last_segment(&text)
+                        ))
+                    };
+                    self.error(d);
                 }
                 ImportKind::Selective { path, names } => {
-                    let mod_name = path_text(path);
-                    let Some(target) = self.find_module(&mod_name, path.span) else { continue };
+                    let Some(target) = self.find_module(path) else { continue };
+                    self.use_key(&path.segments[0].name.name);
                     for n in names {
                         let Some(sym) = self.r.lookup(target, &n.name) else {
                             self.unknown_member_of_module(target, &n.name, n.span);
@@ -185,99 +204,145 @@ impl<'a, 'w> Walker<'a, 'w> {
                         self.unqualified.insert(n.name.clone(), (sym, index));
                     }
                 }
-                // An imported header is a module of its own, added by the driver before
-                // resolution ran (spec §15.1). One that failed to import was reported there.
-                ImportKind::Cpp { header, name, alias } => {
-                    let me = self.ws.module(self.module);
-                    let Some(&(_, target)) = me.cpp_imports.iter().find(|(h, _)| h == name) else {
-                        continue;
-                    };
-                    let local = match alias {
-                        Some(a) => a.name.clone(),
-                        None => match cpp_alias(name) {
-                            Some(s) => s,
-                            None => {
-                                let file = self.file;
-                                self.error(
-                                    Diagnostic::error(
-                                        codes::UNKNOWN_MODULE,
-                                        format!("`import cpp \"{name}\"` needs a name"),
-                                    )
-                                    .at(file, *header, "its file name is not an identifier")
-                                    .with_help(format!(
-                                        "name it: `import cpp \"{name}\" as some_name` (spec §15.1)"
-                                    )),
-                                );
-                                continue;
-                            }
-                        },
-                    };
-                    self.imports.push((local.clone(), import.span));
-                    self.used_imports.push(false);
-                    self.module_aliases.insert(local, (target, index));
+                // A header is named once, in its recipe (spec §15.1).
+                ImportKind::Cpp { name, alias, .. } => {
+                    let key = alias
+                        .as_ref()
+                        .map(|a| a.name.clone())
+                        .or_else(|| cpp_alias(name))
+                        .unwrap_or_else(|| "lib".to_owned());
+                    let recipe = cpp_alias(name).unwrap_or_else(|| key.clone());
+                    let file = self.file;
+                    self.error(
+                        Diagnostic::error(
+                            codes::IMPORT_FORM_REMOVED,
+                            "a C or C++ header is imported in dazzle.toml, not in a source file",
+                        )
+                        .at(file, import.span, "`import cpp` is no longer the language")
+                        .with_help(format!(
+                            "name the header in its recipe, `import = [\"{name}\"]` under \
+                             `[cpp.libs.{recipe}]`, and depend on it: `{key} = {{ cpp = \
+                             \"{recipe}\" }}` under `[dependencies]` (spec §15.1)"
+                        )),
+                    );
                 }
                 ImportKind::Error => {}
             }
         }
     }
 
-    /// A module path names either this module's own name or one of its dependencies.
-    fn find_module(&mut self, name: &str, span: Span) -> Option<ModuleId> {
-        let me = self.ws.module(self.module);
-        if me.name == name {
-            return Some(self.module);
+    /// The module an import's path names: a dependency key of this module (or an alias an
+    /// earlier line of this file gave), then each further segment a public dependency of the
+    /// one before (spec §3.2). Reported when it names nothing.
+    fn find_module(&mut self, path: &Path) -> Option<ModuleId> {
+        if let Some(m) = self.find_module_quiet(path) {
+            return Some(m);
         }
-        // The `[dependencies]` key is the name used in `import` (spec §3.1)...
-        if let Some(dep) = me.dependency(name) {
-            return Some(dep.module);
-        }
-        // ...and so is the dependency's own declared name, so `import engine::render`
-        // works whatever the manifest called the entry.
-        for dep in &me.deps {
-            if self.ws.module(dep.module).name == name {
-                return Some(dep.module);
-            }
-        }
-
-        // The prelude is not listed: it is an implicit dependency (spec §3.2), so offering
-        // it as something to import would answer a question the user did not ask.
-        let known: Vec<String> = me
-            .deps
-            .iter()
-            .filter(|d| !d.implicit)
-            .map(|d| self.ws.module(d.module).name.clone())
-            .chain(std::iter::once(me.name.clone()))
-            .collect();
-        let suggestion = closest(name, known.iter().map(String::as_str));
+        let names: Vec<&str> = path.segments.iter().map(|s| s.name.name.as_str()).collect();
+        let text = names.join("::");
         let file = self.file;
-        let mut d = Diagnostic::error(
-            codes::UNKNOWN_MODULE,
-            format!("no module `{name}` in scope"),
-        )
-        .at(file, span, "not a dependency of this module");
-        if name.starts_with(&format!("{}::", dz_project::STD_ROOT)) {
-            // Not a dependency to add: the standard library has the modules it has.
-            let have: Vec<String> =
-                dz_project::STD_MODULES.iter().map(|(n, _, _)| format!("`{n}`")).collect();
-            d = d.with_help(format!(
-                "the standard library's modules are {} (spec §14.4)",
-                have.join(", ")
-            ));
+        // Where the walk stopped, to say which segment is wrong.
+        let head = names[0];
+        let known: Vec<String> = self.dep_keys();
+        let Some(mut at) = self.module_named(head) else {
+            let mut d =
+                Diagnostic::error(codes::UNKNOWN_MODULE, format!("no module `{head}` in scope"))
+                    .at(file, path.segments[0].name.span, "not a dependency of this module");
+            d = match closest(head, known.iter().map(String::as_str)) {
+                Some(s) => d.with_help(format!("did you mean `{s}`?")),
+                None if head == dz_project::STD_MODULE => d.with_help(
+                    "list the standard library in dazzle.toml: `std = { open = true }` under \
+                     `[dependencies]` (spec §14.4)",
+                ),
+                None => d.with_help(format!(
+                    "add it to `[dependencies]` in this module's dazzle.toml, as `{head} = {{ path \
+                     = \"…\" }}` (spec §3.2)"
+                )),
+            };
             self.error(d);
             return None;
-        }
-        d = match suggestion {
-            Some(s) => d.with_help(format!("did you mean `{s}`?")),
-            None if known.len() > 1 => d.with_help(format!(
-                "available modules are {}",
-                known.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", ")
-            )),
-            None => {
-                d.with_help("add it to `[dependencies]` in this module's dazzle.toml (spec §3.1)")
-            }
         };
-        self.error(d);
+        let mut owner = head.to_owned();
+        for seg in &path.segments[1..] {
+            let public = self.r.names.get(&at).map(|n| n.public.clone()).unwrap_or_default();
+            match public.get(&seg.name.name) {
+                Some(next) => {
+                    at = *next;
+                    owner = seg.name.name.clone();
+                }
+                None => {
+                    self.error(
+                        Diagnostic::error(
+                            codes::UNKNOWN_MODULE,
+                            format!("no module `{text}` in scope"),
+                        )
+                        .at(file, seg.name.span, format!("not a public dependency of `{owner}`"))
+                        .with_help(format!(
+                            "a path reaches only the dependencies `{owner}` marks `pub = true` \
+                             (spec §3.2)"
+                        )),
+                    );
+                    return None;
+                }
+            }
+        }
         None
+    }
+
+    /// Record that this module went through the dependency key `key`, when it is one — and
+    /// not an alias an import line of this file made (spec §3.2).
+    fn use_key(&mut self, key: &str) {
+        if self.module_aliases.contains_key(key) {
+            return;
+        }
+        if self.r.names.get(&self.module).is_some_and(|n| n.deps.contains_key(key)) {
+            self.r.used_deps.insert((self.module, key.to_owned()));
+        }
+    }
+
+    /// A bare name found in an opened dependency uses every key that opens its module.
+    fn use_opened(&mut self, sym: SymbolId) {
+        let owner = self.r.symbol(sym).module;
+        let keys: Vec<String> = self
+            .r
+            .names
+            .get(&self.module)
+            .map(|n| n.deps.iter().filter(|(_, m)| **m == owner).map(|(k, _)| k.clone()).collect())
+            .unwrap_or_default();
+        for key in keys {
+            self.r.used_deps.insert((self.module, key));
+        }
+    }
+
+    /// [`Walker::find_module`] without the report.
+    fn find_module_quiet(&self, path: &Path) -> Option<ModuleId> {
+        let first = path.segments.first()?;
+        let mut at = self.module_named(&first.name.name)?;
+        for seg in &path.segments[1..] {
+            at = *self.r.names.get(&at)?.public.get(&seg.name.name)?;
+        }
+        Some(at)
+    }
+
+    /// A module by the name this file writes it with: an alias from an earlier import line,
+    /// or a dependency key.
+    fn module_named(&self, name: &str) -> Option<ModuleId> {
+        if let Some((m, _)) = self.module_aliases.get(name) {
+            return Some(*m);
+        }
+        self.r.names.get(&self.module)?.deps.get(name).copied()
+    }
+
+    fn dep_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self
+            .r
+            .names
+            .get(&self.module)
+            .map(|n| n.deps.keys().cloned().collect())
+            .unwrap_or_default();
+        keys.extend(self.module_aliases.keys().cloned());
+        keys.sort();
+        keys
     }
 
     fn report_unused_imports(&mut self) {
@@ -355,17 +420,24 @@ impl<'a, 'w> Walker<'a, 'w> {
         match &item.kind {
             // Removed by the driver before resolution runs (spec §12.10).
             ItemKind::CfgIf(_) => {}
-            ItemKind::Fn(f) => self.function(f, None),
+            ItemKind::Fn(f) => {
+                self.exported = (item.vis == Vis::Public).then(|| f.name.name.clone());
+                self.function(f, None)
+            }
             ItemKind::Const(c) => {
                 if let Some(t) = &c.ty {
+                    self.exported = (item.vis == Vis::Public).then(|| c.name.name.clone());
                     self.ty(t);
+                    self.exported = None;
                 }
                 self.push_scope();
                 self.expr(&c.value);
                 self.pop_scope();
             }
             ItemKind::Static(s) => {
+                self.exported = (item.vis == Vis::Public).then(|| s.name.name.clone());
                 self.ty(&s.ty);
+                self.exported = None;
                 self.push_scope();
                 self.expr(&s.value);
                 self.pop_scope();
@@ -398,7 +470,8 @@ impl<'a, 'w> Walker<'a, 'w> {
                         }
                     }
                 }
-                self.members(&s.members, Some(&fields));
+                let owner = (item.vis == Vis::Public).then_some(&s.name.name);
+                self.members(&s.members, Some(&fields), owner);
                 self.pop_scope();
             }
             ItemKind::Trait(t) => {
@@ -410,7 +483,8 @@ impl<'a, 'w> Walker<'a, 'w> {
                 }
                 // A trait has no fields, but its default methods do have a `self` (spec
                 // §7.6) — the same scope that binds a struct's fields binds that.
-                self.members(&t.items, Some(&[]));
+                let owner = (item.vis == Vis::Public).then_some(&t.name.name);
+                self.members(&t.items, Some(&[]), owner);
                 self.pop_scope();
             }
             ItemKind::Impl(i) => {
@@ -425,7 +499,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                 // type's own do (spec §7.3) — all of them in the type's own module, and
                 // only the `pub` ones from anywhere else (spec §4, §7.6).
                 let fields = self.fields_of_type(&i.self_ty);
-                self.members(&i.items, Some(&fields));
+                self.members(&i.items, Some(&fields), None);
                 self.pop_scope();
             }
             ItemKind::Union(u) => {
@@ -471,13 +545,25 @@ impl<'a, 'w> Walker<'a, 'w> {
                 self.r
                     .lookup(self.module, name)
                     .or_else(|| self.unqualified.get(name).map(|(s, _)| *s))
-                    .or_else(|| self.prelude_item(name))?
+                    .or_else(|| {
+                        self.r.names.get(&self.module).and_then(|n| n.picks.get(name)).copied()
+                    })
+                    .or_else(|| {
+                        match self.r.find_opened(self.module, &self.opened_modules(), name) {
+                            crate::Opened::One(s) => Some(s),
+                            _ => None,
+                        }
+                    })?
             }
-            [m, item] => {
-                let (target, _) = self.module_aliases.get(&m.name.name).copied()?;
-                self.r.lookup(target, &item.name.name)?
+            [first, ..] => {
+                let mut at = self.module_named(&first.name.name)?;
+                let (last, middle) = p.segments[1..].split_last()?;
+                for seg in middle {
+                    at = *self.r.names.get(&at)?.public.get(&seg.name.name)?;
+                }
+                self.r.lookup(at, &last.name.name)?
             }
-            _ => return None,
+            [] => return None,
         };
         (self.r.symbol(sym).kind == crate::SymbolKind::Struct).then_some(sym)
     }
@@ -493,15 +579,37 @@ impl<'a, 'w> Walker<'a, 'w> {
             .collect()
     }
 
-    fn members(&mut self, members: &[Member], fields_in_scope: Option<&[String]>) {
+    /// A type's members. `owner` is the type's name when other modules can use it, so the
+    /// signatures of its public members are held to what they can name (spec §3.2).
+    fn members(
+        &mut self,
+        members: &[Member],
+        fields_in_scope: Option<&[String]>,
+        owner: Option<&String>,
+    ) {
+        // A trait's items are as public as the trait (spec §4); a struct's are their own.
+        let is_trait = fields_in_scope.is_some_and(|f| f.is_empty());
         for m in members {
+            let public = owner.is_some() && (is_trait || m.vis == Vis::Public);
+            let exported = |name: &str| {
+                public.then(|| format!("{}::{name}", owner.map(String::as_str).unwrap_or("")))
+            };
             match &m.kind {
                 MemberKind::CfgIf(_) => {}
-                MemberKind::Field(f) => self.field(f),
+                MemberKind::Field(f) => {
+                    self.exported = exported(&f.name.name);
+                    self.field(f)
+                }
                 // A function with no receiver has no `self` whose fields it could see; a
                 // constructor is building one, so it does (spec §7.2, §7.3).
-                MemberKind::Fn(f) if f.self_param.is_none() => self.function(f, None),
-                MemberKind::Fn(f) | MemberKind::Ctor(f) => self.function(f, fields_in_scope),
+                MemberKind::Fn(f) if f.self_param.is_none() => {
+                    self.exported = exported(&f.name.name);
+                    self.function(f, None)
+                }
+                MemberKind::Fn(f) | MemberKind::Ctor(f) => {
+                    self.exported = exported(&f.name.name);
+                    self.function(f, fields_in_scope)
+                }
                 MemberKind::TypeAlias { ty, .. } => {
                     if let Some(t) = ty {
                         self.ty(t);
@@ -558,6 +666,7 @@ impl<'a, 'w> Walker<'a, 'w> {
 
     fn field(&mut self, f: &Field) {
         self.ty(&f.ty);
+        self.exported = None;
         if let Some(d) = &f.default {
             self.push_scope();
             self.expr(d);
@@ -584,15 +693,21 @@ impl<'a, 'w> Walker<'a, 'w> {
         }
         self.push_scope();
 
+        // The signature, and only the signature, is what another module sees.
+        let exported = self.exported.take();
         for p in &f.params {
+            self.exported = exported.clone();
             self.ty(&p.ty);
+            self.exported = None;
             if let Some(d) = &p.default {
                 self.expr(d);
             }
             self.bind(&p.name.name, p.name.span);
         }
         if let Some(ret) = &f.ret {
+            self.exported = exported;
             self.ty(ret);
+            self.exported = None;
         }
         if let Some(body) = &f.body {
             self.block(body);
@@ -838,8 +953,23 @@ impl<'a, 'w> Walker<'a, 'w> {
         let head = self.resolve_head(&first.name, use_kind, p.segments.len() > 1);
         match head {
             Head::Local | Head::Builtin | Head::Unresolved => {}
-            Head::Module(target) => {
-                let Some(second) = p.segments.get(1) else {
+            Head::Module(mut target) => {
+                // Further modules first: `rl::shapes::Rectangle` walks the public dependency
+                // `shapes` of `rl` (spec §3.2). A declaration of the same name wins.
+                let mut at = 1;
+                while let Some(seg) = p.segments.get(at) {
+                    if self.r.lookup(target, &seg.name.name).is_some() {
+                        break;
+                    }
+                    match self.r.names.get(&target).and_then(|n| n.public.get(&seg.name.name)) {
+                        Some(next) => {
+                            target = *next;
+                            at += 1;
+                        }
+                        None => break,
+                    }
+                }
+                let Some(second) = p.segments.get(at) else {
                     // A bare module name is not a value; M3 reports the type error.
                     return;
                 };
@@ -850,18 +980,111 @@ impl<'a, 'w> Walker<'a, 'w> {
                 if !self.check_item_visible(sym, second.name.span) {
                     return;
                 }
-                self.check_members(sym, &p.segments[2..]);
+                if use_kind == PathUse::Type {
+                    self.check_exported(sym, p.span);
+                }
+                self.check_members(sym, &p.segments[at + 1..]);
             }
-            Head::Symbol(sym) => self.check_members(sym, &p.segments[1..]),
+            Head::Symbol(sym) => {
+                if use_kind == PathUse::Type {
+                    self.check_exported(sym, p.span);
+                }
+                self.check_members(sym, &p.segments[1..])
+            }
         }
     }
 
-    /// A public item of the prelude, which every module can name without an import.
-    fn prelude_item(&self, name: &str) -> Option<SymbolId> {
-        if self.module == self.prelude {
-            return None;
+    /// A type in the signature of something other modules can use must be one they can
+    /// name: this module's own, the standard library's, or a public dependency's
+    /// (spec §3.2, DZ0311).
+    fn check_exported(&mut self, sym: SymbolId, span: Span) {
+        let Some(decl) = self.exported.clone() else { return };
+        // An executable has no dependents, so its `pub` is no interface to keep whole.
+        if self.ws.module(self.module).build.output == dz_project::OutputKind::Executable {
+            return;
         }
-        self.r.lookup(self.prelude, name)
+        let owner = self.r.symbol(sym).module;
+        if owner == self.module || owner == self.ws.prelude {
+            return;
+        }
+        // Everything a dependent can reach: the public dependencies, and theirs.
+        let mut reachable: Vec<ModuleId> = Vec::new();
+        let mut stack = vec![self.module];
+        while let Some(m) = stack.pop() {
+            let public: Vec<ModuleId> = self
+                .r
+                .names
+                .get(&m)
+                .map(|n| n.public.values().copied().collect())
+                .unwrap_or_default();
+            for next in public {
+                if !reachable.contains(&next) {
+                    reachable.push(next);
+                    stack.push(next);
+                }
+            }
+        }
+        if reachable.contains(&owner) {
+            return;
+        }
+        let key = self
+            .ws
+            .module(self.module)
+            .deps
+            .iter()
+            .find(|d| d.module == owner)
+            .map(|d| d.alias.clone())
+            .unwrap_or_else(|| self.ws.module(owner).name.clone());
+        let ty = self.r.symbol(sym).name.clone();
+        let file = self.file;
+        self.error(
+            Diagnostic::error(
+                codes::PRIVATE_DEPENDENCY_IN_PUBLIC,
+                format!("`{decl}` is public, but `{ty}` comes from the private dependency `{key}`"),
+            )
+            .at(file, span, "modules that use this one cannot name this type")
+            .with_help(format!(
+                "mark `{key}` `pub = true` in dazzle.toml to make it part of this module's \
+                 interface, or use a type of the module's own here (spec §3.2)"
+            )),
+        );
+    }
+
+    fn opened_modules(&self) -> Vec<ModuleId> {
+        self.r.names.get(&self.module).map(|n| n.opened.clone()).unwrap_or_default()
+    }
+
+    /// A bare name two opened dependencies both export. Reported where it is used rather
+    /// than in the manifest, so a library adding a name breaks only code that writes that
+    /// name (spec §3.2).
+    fn ambiguous_opened(&mut self, name: &Ident, found: &[SymbolId]) {
+        // Each by the key this module reaches it under, so the help is code that works.
+        let keys: Vec<String> = found
+            .iter()
+            .map(|s| {
+                let m = self.r.symbol(*s).module;
+                self.r
+                    .module_spelling(self.file, m)
+                    .unwrap_or_else(|| self.ws.module(m).name.clone())
+            })
+            .collect();
+        let paths: Vec<String> = keys.iter().map(|k| format!("`{k}::{}`", name.name)).collect();
+        let quoted: Vec<String> = keys.iter().map(|k| format!("`{k}`")).collect();
+        let file = self.file;
+        self.error(
+            Diagnostic::error(
+                codes::AMBIGUOUS_NAME,
+                format!("`{}` is ambiguous: more than one opened dependency exports it", name.name),
+            )
+            .at(file, name.span, format!("could be from {}", quoted.join(" or ")))
+            .with_help(format!(
+                "write {}, or choose one for the module in dazzle.toml with `[names]` \
+                 `{} = \"{}\"` (spec §3.2)",
+                paths.join(" or "),
+                name.name,
+                keys[0]
+            )),
+        );
     }
 
     fn resolve_head(&mut self, name: &Ident, use_kind: PathUse, qualified: bool) -> Head {
@@ -872,10 +1095,12 @@ impl<'a, 'w> Walker<'a, 'w> {
             self.used_imports[idx] = true;
             return Head::Module(m);
         }
-        // `dz::Ord` — the prelude is reachable by name as well as implicitly, and needs no
-        // `import` line to be, so it is not one of the tracked aliases above.
-        if qualified && name.name == dz_project::PRELUDE_MODULE && self.module != self.prelude {
-            return Head::Module(self.prelude);
+        // A dependency key from the manifest (spec §3.2).
+        if let Some(m) =
+            self.r.names.get(&self.module).and_then(|n| n.deps.get(&name.name)).copied()
+        {
+            self.use_key(&name.name);
+            return Head::Module(m);
         }
         // `T::is_trivially_copyable` — a compile-time query on a generic parameter
         // (spec §5.5). Which queries exist is the checker's business; resolution only has
@@ -890,16 +1115,26 @@ impl<'a, 'w> Walker<'a, 'w> {
             self.used_imports[idx] = true;
             return Head::Symbol(sym);
         }
+        if let Some(sym) = self.r.names.get(&self.module).and_then(|n| n.picks.get(&name.name)) {
+            return Head::Symbol(*sym);
+        }
         if BUILTIN_TYPES.contains(&name.name.as_str())
             || (use_kind == PathUse::Value && BUILTIN_FNS.contains(&name.name.as_str()))
         {
             return Head::Builtin;
         }
-        // The prelude, last: a declaration in this module or an explicit import wins, so
-        // declaring your own `Ord` shadows `dz::Ord` rather than colliding with it
-        // (spec §3.2, §18.23).
-        if let Some(sym) = self.prelude_item(&name.name) {
-            return Head::Symbol(sym);
+        // Opened dependencies last: everything named explicitly wins, and among themselves
+        // none does — two of them exporting the name is an error here (spec §3.2).
+        match self.r.find_opened(self.module, &self.opened_modules(), &name.name) {
+            crate::Opened::None => {}
+            crate::Opened::One(sym) => {
+                self.use_opened(sym);
+                return Head::Symbol(sym);
+            }
+            crate::Opened::Ambiguous(found) => {
+                self.ambiguous_opened(name, &found);
+                return Head::Unresolved;
+            }
         }
         // A single-segment name in value position may still be a local from an outer
         // construct the walker does not model yet; anything else is a real error.
@@ -1058,6 +1293,20 @@ impl<'a, 'w> Walker<'a, 'w> {
             .unwrap_or_default();
         candidates.extend(self.module_aliases.keys().cloned());
         candidates.extend(self.unqualified.keys().cloned());
+        // An opened module's exports; a private name of the same spelling is noted instead,
+        // since suggesting the very name that was written would help nobody.
+        let mut hidden_in: Option<String> = None;
+        for m in &self.opened_modules() {
+            let Some(scope) = self.r.scopes.get(m) else { continue };
+            for (item, id) in &scope.items {
+                let s = self.r.symbol(*id);
+                if visible_from(s.vis, s.module, self.module) {
+                    candidates.push(item.clone());
+                } else if *item == name.name {
+                    hidden_in = Some(self.ws.module(*m).name.clone());
+                }
+            }
+        }
         candidates.extend(self.scopes.iter().flat_map(|s| s.keys().cloned()));
         if use_kind == PathUse::Type {
             candidates.extend(BUILTIN_TYPES.iter().map(|s| (*s).to_owned()));
@@ -1066,16 +1315,45 @@ impl<'a, 'w> Walker<'a, 'w> {
         }
         let suggestion = closest(&name.name, candidates.iter().map(String::as_str));
 
+        // A dependency that exports it, but is not opened — or, for the standard library, not
+        // listed at all — says how to reach it rather than guessing at a spelling (spec §3.2).
+        let mut in_dep: Option<(String, bool)> = None;
+        for d in &self.ws.module(self.module).deps {
+            let Some(id) = self.r.lookup(d.module, &name.name) else { continue };
+            let s = self.r.symbol(id);
+            if visible_from(s.vis, s.module, self.module) {
+                in_dep = Some((d.alias.clone(), d.implicit));
+                break;
+            }
+        }
+
         let file = self.file;
         let mut d = Diagnostic::error(
             codes::UNRESOLVED_NAME,
             format!("cannot find {what} `{}` in this scope", name.name),
         )
         .at(file, name.span, "not found");
-        d = match suggestion {
-            Some(s) => d.with_help(format!("did you mean `{s}`?")),
-            None => d.with_help(
-                "declare it in this module, or `import` the module that exports it (spec §3.2)",
+        d = match (in_dep, suggestion) {
+            (Some((_, true)), _) => d.with_help(format!(
+                "`{}` is in the standard library, which this module's dazzle.toml does not \
+                 list: add `std = {{ open = true }}` under `[dependencies]` (spec §14.4)",
+                name.name
+            )),
+            (Some((key, false)), _) => d.with_help(format!(
+                "write `{key}::{}`, or give `{key}` `open = true` in dazzle.toml to write it \
+                 bare (spec §3.2)",
+                name.name
+            )),
+            _ if hidden_in.is_some() => d.with_help(format!(
+                "module `{}` has a `{}`, but it is not `pub`, so opening the dependency does \
+                 not bring it in (spec §3.2, §4)",
+                hidden_in.unwrap_or_default(),
+                name.name
+            )),
+            (None, Some(s)) => d.with_help(format!("did you mean `{s}`?")),
+            (None, None) => d.with_help(
+                "declare it in this module, or list the module that exports it in dazzle.toml \
+                 (spec §3.2)",
             ),
         };
         self.error(d);

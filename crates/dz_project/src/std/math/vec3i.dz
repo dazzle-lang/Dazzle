@@ -1,0 +1,55 @@
+/// A 3D grid position or offset. `Hash`, so it can key a `HashMap`.
+pub struct Vec3i {
+    pub x: i32 = 0
+    pub y: i32 = 0
+    pub z: i32 = 0
+
+    pub fn to_vec3(&self) -> Vec3 {
+        return Vec3{ x: x as f32, y: y as f32, z: z as f32 }
+    }
+
+    /// Steps along the axes between the two: `|dx| + |dy| + |dz|`.
+    pub fn manhattan(&self, to: Vec3i) -> i32 {
+        return (to.x - x).abs() + (to.y - y).abs() + (to.z - z).abs()
+    }
+}
+
+impl Add for Vec3i {
+    type Output = Vec3i
+    fn add(&self, rhs: Vec3i) -> Vec3i {
+        return Vec3i{ x: x + rhs.x, y: y + rhs.y, z: z + rhs.z }
+    }
+}
+
+impl Sub for Vec3i {
+    type Output = Vec3i
+    fn sub(&self, rhs: Vec3i) -> Vec3i {
+        return Vec3i{ x: x - rhs.x, y: y - rhs.y, z: z - rhs.z }
+    }
+}
+
+impl Mul<i32> for Vec3i {
+    type Output = Vec3i
+    fn mul(&self, rhs: i32) -> Vec3i {
+        return Vec3i{ x: x * rhs, y: y * rhs, z: z * rhs }
+    }
+}
+
+impl Neg for Vec3i {
+    type Output = Vec3i
+    fn neg(&self) -> Vec3i {
+        return Vec3i{ x: -x, y: -y, z: -z }
+    }
+}
+
+impl Eq for Vec3i {
+    fn eq(&self, rhs: &Vec3i) -> bool {
+        return x == rhs.x && y == rhs.y && z == rhs.z
+    }
+}
+
+impl Hash for Vec3i {
+    fn hash(&self) -> u64 {
+        return hash_combine(hash_combine(x.hash(), y.hash()), z.hash())
+    }
+}

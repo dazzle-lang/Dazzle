@@ -1,6 +1,5 @@
 // M7a (spec §15.1, §19): a C library vendored as source, built by `dz`, and called
 // directly — each call below is emitted as the C call it names, with no wrapper.
-import cpp "mini.h" as mini
 
 // Handed to C as a callback: a C function pointer is Dazzle's `fn(i32) -> i32` (§15.2).
 fn triple(value: i32) -> i32 {

@@ -1,0 +1,3 @@
+pub fn play_sound(volume: f32) -> f32 {
+    return volume
+}

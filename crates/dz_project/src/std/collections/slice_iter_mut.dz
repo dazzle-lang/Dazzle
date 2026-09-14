@@ -1,0 +1,25 @@
+/// Steps through a writable slice, handing out a writable reference to each element.
+pub struct SliceIterMut<T> {
+    m_slice: []mut T
+    m_index: usize = 0
+
+    SliceIterMut(slice: []mut T) {
+        m_slice = slice
+    }
+}
+
+impl<T> Iterate for SliceIterMut<T> {
+    type Item = &mut T
+
+    fn valid(&self) -> bool {
+        return m_index < m_slice.len
+    }
+
+    fn get(&self) -> &mut T {
+        return &mut m_slice[m_index]
+    }
+
+    fn advance(&mut self) {
+        m_index += 1
+    }
+}

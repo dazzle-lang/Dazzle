@@ -1,9 +1,8 @@
 ---
 source: crates/dz_resolve/tests/resolve.rs
-assertion_line: 187
 expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
 ---
-modules: 2, files: 1
+modules: 2, files: 32
 
 error[DZ0004]: `not a valid name` is not a valid module name
   ┌─ badmanifest/dazzle.toml:2:11
@@ -42,57 +41,65 @@ error[DZ0004]: invalid value for `build.optimize`
   = help: valid values are "debug", "release", "shipping"
 
 error[DZ0001]: cannot read nowhere/dazzle.toml: <os error>
-   ┌─ badmanifest/dazzle.toml:12:20
+   ┌─ badmanifest/dazzle.toml:13:20
    │
-12 │ missing = { path = "../nowhere" }
+13 │ missing = { path = "../nowhere" }
    │                    ^^^^^^^^^^^^ this dependency's manifest does not exist
    │
    = help: the path is relative to the manifest that declares it
 
-error[DZ0003]: dependency `noPath` has no `path`
-   ┌─ badmanifest/dazzle.toml:13:11
+error[DZ0003]: dependency `noPath` says nothing about where it comes from
+   ┌─ badmanifest/dazzle.toml:14:11
    │
-13 │ noPath  = { version = "1.0" }
-   │           ^^^^^^^^^^^^^^^^^^^ expected `path = "..."`
+14 │ noPath  = { version = "1.0" }
+   │           ^^^^^^^^^^^^^^^^^^^ expected `path`, `cpp` or `via`
    │
-   = help: only path dependencies are supported so far
+   = help: `path = "../libs/math"` for a project, `cpp = "raylib"` for a `[cpp.libs]` recipe's header, `via = "rl::shapes"` for a public dependency of a dependency (spec §3.2)
+
+error[DZ0004]: unknown key `version` in dependency `noPath`
+   ┌─ badmanifest/dazzle.toml:14:13
+   │
+14 │ noPath  = { version = "1.0" }
+   │             ^^^^^^^ not a key of a dependency
+   │
+   = help: a dependency takes one of `path`, `cpp` or `via`, and `open`, `pub` and `flags` (spec §3.2)
 
 error[DZ0004]: directory `no/such/dir` does not exist
-   ┌─ badmanifest/dazzle.toml:17:17
+   ┌─ badmanifest/dazzle.toml:18:17
    │
-17 │ include_dirs = ["no/such/dir"]
+18 │ include_dirs = ["no/such/dir"]
    │                 ^^^^^^^^^^^^^ no such directory
    │
    = help: the path is relative to the directory holding dazzle.toml
 
 error[DZ0004]: unknown target `amiga`
-   ┌─ badmanifest/dazzle.toml:19:1
+   ┌─ badmanifest/dazzle.toml:20:1
    │
-19 │ [cpp.target.amiga]
+20 │ [cpp.target.amiga]
    │ ^^^^^^^^^^^^^^^^^^ not a target dz builds for
    │
    = help: targets are windows, linux, macos, web (spec §15.1)
 
 error[DZ0005]: source `missing.c` does not exist
-   ┌─ badmanifest/dazzle.toml:23:12
+   ┌─ badmanifest/dazzle.toml:24:12
    │
-23 │ sources = ["missing.c", "dazzle.toml"]
+24 │ sources = ["missing.c", "dazzle.toml"]
    │            ^^^^^^^^^^^ no such file
    │
    = help: the path is relative to the library's `root`, or the manifest's directory without one
 
 error[DZ0004]: `dazzle.toml` is not a C or C++ source
-   ┌─ badmanifest/dazzle.toml:23:25
+   ┌─ badmanifest/dazzle.toml:24:25
    │
-23 │ sources = ["missing.c", "dazzle.toml"]
+24 │ sources = ["missing.c", "dazzle.toml"]
    │                         ^^^^^^^^^^^^^ not compilable
    │
    = help: a library source ends in .c, .cc, .cpp or .cxx; headers are found through `include_dirs` (spec §15.1)
 
 error[DZ0004]: unknown key `optimise` in `[cpp.libs.broken]`
-   ┌─ badmanifest/dazzle.toml:26:1
+   ┌─ badmanifest/dazzle.toml:27:1
    │
-26 │ optimise = "fast"
+27 │ optimise = "fast"
    │ ^^^^^^^^ not a key of this table
    │
-   = help: the keys here are `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs`, `frameworks`, `flags` (spec §15.1)
+   = help: the keys here are `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs`, `frameworks`, `flags`, `import` (spec §15.1)

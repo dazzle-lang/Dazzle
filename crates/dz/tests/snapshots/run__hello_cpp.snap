@@ -8,7 +8,7 @@ expression: "format!(\"{header}\\n// ---\\n{cpp}\")"
 
 #include "dz_runtime.h"
 #include "dz_prelude.h"
-#include "dz.h"
+#include "std.h"
 
 namespace dz {
 namespace hello {

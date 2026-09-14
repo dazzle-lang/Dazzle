@@ -1,0 +1,114 @@
+/// A 3D vector, or a point.
+pub struct Vec3 {
+    pub x: f32 = 0
+    pub y: f32 = 0
+    pub z: f32 = 0
+
+    pub fn dot(&self, rhs: Vec3) -> f32 {
+        return x * rhs.x + y * rhs.y + z * rhs.z
+    }
+
+    /// Perpendicular to both, by the right-hand rule.
+    pub fn cross(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: y * rhs.z - z * rhs.y, y: z * rhs.x - x * rhs.z, z: x * rhs.y - y * rhs.x }
+    }
+
+    pub fn length_squared(&self) -> f32 {
+        return x * x + y * y + z * z
+    }
+
+    pub fn length(&self) -> f32 {
+        return self.length_squared().sqrt()
+    }
+
+    /// The same direction with length 1; a zero vector stays zero.
+    pub fn normalized(&self) -> Vec3 {
+        let len = self.length()
+        if len == 0 {
+            return Vec3{}
+        }
+        return Vec3{ x: x / len, y: y / len, z: z / len }
+    }
+
+    pub fn distance(&self, to: Vec3) -> f32 {
+        return (to - self).length()
+    }
+
+    pub fn lerp(&self, to: Vec3, t: f32) -> Vec3 {
+        return Vec3{ x: x.lerp(to.x, t), y: y.lerp(to.y, t), z: z.lerp(to.z, t) }
+    }
+
+    pub fn min(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x.min(rhs.x), y: y.min(rhs.y), z: z.min(rhs.z) }
+    }
+
+    pub fn max(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x.max(rhs.x), y: y.max(rhs.y), z: z.max(rhs.z) }
+    }
+
+    pub fn abs(&self) -> Vec3 {
+        return Vec3{ x: x.abs(), y: y.abs(), z: z.abs() }
+    }
+
+    /// `self` bounced off a surface whose normal is `normal`, which must have length 1.
+    pub fn reflect(&self, normal: Vec3) -> Vec3 {
+        return self - normal * (2 * self.dot(normal))
+    }
+
+    pub fn xy(&self) -> Vec2 {
+        return Vec2{ x: x, y: y }
+    }
+
+    pub fn extend(&self, w: f32) -> Vec4 {
+        return Vec4{ x: x, y: y, z: z, w: w }
+    }
+}
+
+impl Add for Vec3 {
+    type Output = Vec3
+    fn add(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x + rhs.x, y: y + rhs.y, z: z + rhs.z }
+    }
+}
+
+impl Sub for Vec3 {
+    type Output = Vec3
+    fn sub(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x - rhs.x, y: y - rhs.y, z: z - rhs.z }
+    }
+}
+
+/// Component by component.
+impl Mul for Vec3 {
+    type Output = Vec3
+    fn mul(&self, rhs: Vec3) -> Vec3 {
+        return Vec3{ x: x * rhs.x, y: y * rhs.y, z: z * rhs.z }
+    }
+}
+
+impl Mul<f32> for Vec3 {
+    type Output = Vec3
+    fn mul(&self, rhs: f32) -> Vec3 {
+        return Vec3{ x: x * rhs, y: y * rhs, z: z * rhs }
+    }
+}
+
+impl Div<f32> for Vec3 {
+    type Output = Vec3
+    fn div(&self, rhs: f32) -> Vec3 {
+        return Vec3{ x: x / rhs, y: y / rhs, z: z / rhs }
+    }
+}
+
+impl Neg for Vec3 {
+    type Output = Vec3
+    fn neg(&self) -> Vec3 {
+        return Vec3{ x: -x, y: -y, z: -z }
+    }
+}
+
+impl Eq for Vec3 {
+    fn eq(&self, rhs: &Vec3) -> bool {
+        return x == rhs.x && y == rhs.y && z == rhs.z
+    }
+}
