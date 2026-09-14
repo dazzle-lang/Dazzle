@@ -216,8 +216,9 @@ impl<'a> Dumper<'a> {
             .iter()
             .map(|p| {
                 format!(
-                    "{}: {}{}",
+                    "{}: {}{}{}",
                     p.name.name,
+                    if p.variadic { ".." } else { "" },
                     type_str(&p.ty),
                     if p.default.is_some() { " = ..." } else { "" }
                 )

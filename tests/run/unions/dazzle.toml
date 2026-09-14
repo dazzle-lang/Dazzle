@@ -2,5 +2,8 @@
 name    = "unions"
 sources = ["src/**/*.dz"]
 
+[dependencies]
+std = { open = true }
+
 [build]
 output = "executable"

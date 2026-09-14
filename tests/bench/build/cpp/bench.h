@@ -4,7 +4,7 @@
 
 #include "dz_runtime.h"
 #include "dz_prelude.h"
-#include "dz.h"
+#include "std.h"
 #include <baseline.h>
 
 namespace dz {

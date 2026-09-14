@@ -126,6 +126,32 @@ function watchForRebuild(context, source) {
   }
 }
 
+/**
+ * Links in `dazzle.toml`: a recipe's `import = ["raylib.h"]` opens the header, a
+ * dependency's `path` or `cpp` opens what it names (spec §17.4). The server answers, since
+ * only the compiler knows which file an include search finds; the manifest is not a Dazzle
+ * document, so this asks with a request of Dazzle's own rather than `textDocument/documentLink`.
+ */
+function manifestLinks() {
+  return {
+    async provideDocumentLinks(document) {
+      if (!client) return [];
+      try {
+        const links = await client.sendRequest('dazzle/manifestLinks', { uri: document.uri.toString() });
+        return (links ?? []).map((l) => {
+          const range = new vscode.Range(l.range.start.line, l.range.start.character, l.range.end.line, l.range.end.character);
+          const link = new vscode.DocumentLink(range, vscode.Uri.parse(l.target));
+          link.tooltip = l.tooltip;
+          return link;
+        });
+      } catch (e) {
+        output.appendLine(`manifest links: ${e.message ?? e}`);
+        return [];
+      }
+    },
+  };
+}
+
 /** The project a file belongs to: the nearest directory above it holding a `dazzle.toml`. */
 function projectOf(file) {
   let dir = path.dirname(file);
@@ -356,6 +382,7 @@ function activate(context) {
     vscode.debug.registerDebugConfigurationProvider('dazzle', debugProvider(context)),
     vscode.commands.registerCommand('dazzle.check', () => runProject('check')),
     vscode.commands.registerCommand('dazzle.restartServer', () => restart(context)),
+    vscode.languages.registerDocumentLinkProvider({ scheme: 'file', pattern: '**/dazzle.toml' }, manifestLinks()),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('dazzle.server')) restart(context);
     }),

@@ -1,0 +1,27 @@
+pub struct Vec3 {
+    pub x: f32
+    pub y: f32
+    pub z: f32
+}
+
+pub struct Color {
+    pub r: u8
+}
+
+pub fn area(w: f32, h: f32) -> f32 {
+    return w * h
+}
+
+/// Not exported, so opening `geo` does not bring it into scope.
+fn secret() -> i32 {
+    return 7
+}
+
+/// A private dependency's type, used where no dependent can see it.
+fn make_handle() -> hidden::Handle {
+    return hidden::Handle{ id: secret() }
+}
+
+pub fn handle_id() -> i32 {
+    return make_handle().id
+}

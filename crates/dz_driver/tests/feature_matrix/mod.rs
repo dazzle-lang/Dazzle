@@ -343,7 +343,7 @@ pub fn write_project(dir: &std::path::Path, layout: Layout, code: &str) -> std::
         Layout::SameModule => {
             std::fs::write(
                 dir.join("dazzle.toml"),
-                "[module]\nname = \"matrix\"\nsources = [\"src/**/*.dz\"]\n\n[build]\noutput = \"executable\"\n",
+                "[module]\nname = \"matrix\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n\n[build]\noutput = \"executable\"\n",
             )
             .unwrap();
             format!("{DECLS}\n{code}")
@@ -353,13 +353,13 @@ pub fn write_project(dir: &std::path::Path, layout: Layout, code: &str) -> std::
             std::fs::create_dir_all(lib.join("src")).unwrap();
             std::fs::write(
                 lib.join("dazzle.toml"),
-                "[module]\nname = \"shared\"\nsources = [\"src/**/*.dz\"]\n\n[build]\noutput = \"static-lib\"\n",
+                "[module]\nname = \"shared\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n\n[build]\noutput = \"static-lib\"\n",
             )
             .unwrap();
             std::fs::write(lib.join("src/shared.dz"), DECLS).unwrap();
             std::fs::write(
                 dir.join("dazzle.toml"),
-                "[module]\nname = \"matrix\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nshared = { path = \"libs/shared\" }\n\n[build]\noutput = \"executable\"\n",
+                "[module]\nname = \"matrix\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\nshared = { path = \"libs/shared\" }\n\n[build]\noutput = \"executable\"\n",
             )
             .unwrap();
             format!("import shared::{{{EXPORTS}}}\n\n{code}")

@@ -57,7 +57,9 @@ pub struct Import {
 
 #[derive(Clone, Debug)]
 pub enum ImportKind {
-    /// `import engine::render as gfx`
+    /// `import engine::render as gfx` (spec §3.2). Without an alias it names nothing new —
+    /// the manifest already does — and resolution says so; parsed anyway, so the tree is
+    /// whole.
     Module {
         path: Path,
         alias: Option<Ident>,
@@ -67,8 +69,9 @@ pub enum ImportKind {
         path: Path,
         names: Vec<Ident>,
     },
-    /// `import cpp "raylib.h" as rl` (spec §15.1)
-    /// `name` is the text between the quotes, which is what the header is looked up by.
+    /// `import cpp "raylib.h" as rl` — no longer the language (spec §15.1: a header is named
+    /// in its recipe), but still parsed, so resolution can say where it went.
+    /// `name` is the text between the quotes.
     Cpp {
         header: Span,
         name: String,
@@ -233,6 +236,9 @@ pub struct Param {
     pub ty: Type,
     /// Trailing default argument, evaluated at the call site (spec §7.2).
     pub default: Option<Expr>,
+    /// `args: ..T`: any number of `T`s, seen in the body as a `[]T` (spec §7.2). Only the
+    /// last parameter may be one; `ty` is the element type as written.
+    pub variadic: bool,
 }
 
 #[derive(Clone, Debug)]

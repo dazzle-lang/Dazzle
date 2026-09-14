@@ -140,6 +140,9 @@ pub struct CppLib {
     /// output must compile warning-clean under a fixed set of flags, and that is not
     /// something a manifest gets to weaken.
     pub flags: Vec<String>,
+    /// `import = ["raylib.h"]`: the header Dazzle code sees of this library, as a
+    /// `cpp = "…"` dependency names it (spec §15.1).
+    pub import: Vec<(String, Span)>,
 }
 
 /// Everything the final link needs, gathered from the whole dependency graph.
@@ -292,15 +295,60 @@ impl Workspace {
 
 #[derive(Debug, Clone)]
 pub struct Dependency {
-    /// The key in `[dependencies]`, which is how this module refers to it in `import`.
+    /// The key in `[dependencies]`: the name every file of this module reaches it by
+    /// (spec §3.2).
     pub alias: String,
     pub alias_span: Span,
     pub module: ModuleId,
-    /// True for the prelude, which every module depends on without saying so (spec §3.2).
-    /// An unused-import warning would be nonsense for a dependency nobody wrote.
+    /// True for the standard library when the manifest does not list it. The module still
+    /// depends on it — the language's own constructs are written in it — but cannot name
+    /// anything in it (spec §3.2, §14.4).
     pub implicit: bool,
     /// `flags = ["PROFILE"]`: the dependency's flags this module turns on (spec §12.10).
     pub flags: Vec<(String, Span)>,
+    /// `open = true`: its exports are also written bare (spec §3.2).
+    pub open: bool,
+    /// `pub = true`: modules depending on this one reach it as `this::alias` (spec §3.2).
+    pub public: bool,
+    /// The value that says where it comes from — `"../libs/math"`, `"raylib"` — which an
+    /// editor makes a link (spec §17.4). The key's span for `std`, a dummy for an implicit one.
+    pub source_span: Span,
+}
+
+/// `rl = { cpp = "raylib" }`: the header of this module's `[cpp.libs.raylib]` recipe, as a
+/// dependency (spec §15.1). It becomes a [`Dependency`] once the driver has read the header,
+/// which needs every module's include dirs, so the loader only records it.
+#[derive(Debug, Clone)]
+pub struct CppDep {
+    pub alias: String,
+    pub alias_span: Span,
+    pub recipe: String,
+    pub recipe_span: Span,
+    pub open: bool,
+    pub public: bool,
+}
+
+/// `shapes = { via = "rl::shapes" }`: a public dependency of a dependency, named here
+/// (spec §3.2). Resolved by name resolution, which walks the path through the keys.
+#[derive(Debug, Clone)]
+pub struct ViaDep {
+    pub alias: String,
+    pub alias_span: Span,
+    /// The path's segments: `["rl", "shapes"]`.
+    pub path: Vec<String>,
+    pub path_span: Span,
+    pub open: bool,
+    pub public: bool,
+}
+
+/// `Vec2 = "std"` under `[names]`: which opened dependency a bare name means (spec §3.2).
+#[derive(Debug, Clone)]
+pub struct NamePick {
+    pub name: String,
+    pub name_span: Span,
+    /// A dependency key of this module.
+    pub dep: String,
+    pub dep_span: Span,
 }
 
 #[derive(Debug)]
@@ -316,21 +364,23 @@ pub struct Module {
     /// Source files, in a deterministic order.
     pub sources: Vec<PathBuf>,
     pub deps: Vec<Dependency>,
+    /// `cpp = "…"` dependencies not yet read; see [`CppDep`].
+    pub cpp_deps: Vec<CppDep>,
+    pub via_deps: Vec<ViaDep>,
+    /// `[names]` (spec §3.2).
+    pub names: Vec<NamePick>,
     /// The flags this package declares under `[flags]` (spec §12.10).
     pub flags: Vec<FlagDecl>,
     pub build: BuildConfig,
     pub cpp: CppConfig,
-    /// Set only on the **prelude** (spec §3.2, §18.23): its source is carried by the
-    /// compiler rather than read from disk, and `sources` holds one pseudo-path for it so
-    /// ordering, spans and diagnostics all work exactly as they do for a real file.
-    pub embedded_source: Option<&'static str>,
+    /// Set only on the **standard library** (spec §14.4): its sources are carried by the
+    /// compiler rather than read from disk, under pseudo-paths, so ordering, spans and
+    /// diagnostics all work exactly as they do for real files.
+    pub embedded: bool,
     /// Set on a module that is an imported C or C++ header (spec §15.1). Its declarations
     /// come from libclang rather than from Dazzle source, and nothing is generated for it:
     /// its names are the header's own.
     pub foreign: Option<Foreign>,
-    /// The headers this module imports with `import cpp`, as written, each with the module
-    /// it became.
-    pub cpp_imports: Vec<(String, ModuleId)>,
 }
 
 /// What an imported header's module holds.
@@ -343,15 +393,10 @@ pub struct Foreign {
 }
 
 impl Workspace {
-    /// Make an imported header a module of the workspace, and record that `importer`
-    /// imports it as `requested`. A header two modules import with the same flags is one
-    /// module: the same C declarations, named once.
-    pub fn add_foreign(
-        &mut self,
-        importer: ModuleId,
-        requested: &str,
-        foreign: Foreign,
-    ) -> ModuleId {
+    /// Make an imported header a module of the workspace, and a dependency of `importer`
+    /// under the key `dep` gave it (spec §15.1). A header two modules import with the same
+    /// flags is one module: the same C declarations, named once.
+    pub fn add_foreign(&mut self, importer: ModuleId, dep: &CppDep, foreign: Foreign) -> ModuleId {
         let existing = self
             .modules
             .iter()
@@ -368,7 +413,7 @@ impl Workspace {
                 let header_path = foreign.header.path.clone();
                 self.modules.push(Module {
                     id,
-                    name: requested.to_owned(),
+                    name: dep.recipe.clone(),
                     name_span: Span::DUMMY,
                     version: String::new(),
                     root_dir: header_path.parent().map(Path::to_path_buf).unwrap_or_default(),
@@ -376,76 +421,29 @@ impl Workspace {
                     manifest_path: header_path,
                     sources: Vec::new(),
                     deps: Vec::new(),
+                    cpp_deps: Vec::new(),
+                    via_deps: Vec::new(),
+                    names: Vec::new(),
                     flags: Vec::new(),
                     build: BuildConfig::default(),
                     cpp: CppConfig::default(),
-                    embedded_source: None,
+                    embedded: false,
                     foreign: Some(foreign),
-                    cpp_imports: Vec::new(),
                 });
                 id
             }
         };
-        self.modules[importer.0 as usize].cpp_imports.push((requested.to_owned(), id));
+        self.modules[importer.0 as usize].deps.push(Dependency {
+            alias: dep.alias.clone(),
+            alias_span: dep.alias_span,
+            module: id,
+            implicit: false,
+            flags: Vec::new(),
+            open: dep.open,
+            public: dep.public,
+            source_span: dep.recipe_span,
+        });
         id
-    }
-
-    /// Make the standard-library module `name` part of the workspace, if it exists, and a
-    /// dependency of `importer` (spec §14.4). Loaded once however many modules import it.
-    /// Returns the module and whether it was new, so its source can be parsed; `None` for a
-    /// name the standard library does not have, which resolution then reports as it would
-    /// any unknown module.
-    pub fn add_std(
-        &mut self,
-        importer: ModuleId,
-        name: &str,
-        map: &mut SourceMap,
-    ) -> Option<(ModuleId, bool)> {
-        let (_, path, text) = STD_MODULES.iter().find(|(n, _, _)| *n == name)?;
-        let existing = self.modules.iter().find(|m| m.name == name).map(|m| m.id);
-        let (id, fresh) = match existing {
-            Some(id) => (id, false),
-            None => {
-                let id = ModuleId(self.modules.len() as u32);
-                let path = PathBuf::from(path);
-                let file = map.add(path.clone(), (*text).to_owned());
-                self.modules.push(Module {
-                    id,
-                    name: name.to_owned(),
-                    name_span: Span::DUMMY,
-                    version: env!("CARGO_PKG_VERSION").to_owned(),
-                    root_dir: PathBuf::from("<std>"),
-                    manifest: file,
-                    manifest_path: path.clone(),
-                    sources: vec![path],
-                    deps: vec![Dependency {
-                        alias: PRELUDE_MODULE.to_owned(),
-                        alias_span: Span::DUMMY,
-                        module: self.prelude,
-                        implicit: true,
-                        flags: Vec::new(),
-                    }],
-                    flags: Vec::new(),
-                    build: self.module(self.root).build.clone(),
-                    cpp: CppConfig::default(),
-                    embedded_source: Some(text),
-                    foreign: None,
-                    cpp_imports: Vec::new(),
-                });
-                (id, true)
-            }
-        };
-        let importer = &mut self.modules[importer.0 as usize];
-        if importer.id != id && !importer.deps.iter().any(|d| d.module == id) {
-            importer.deps.push(Dependency {
-                alias: name.to_owned(),
-                alias_span: Span::DUMMY,
-                module: id,
-                implicit: true,
-                flags: Vec::new(),
-            });
-        }
-        Some((id, fresh))
     }
 }
 
@@ -456,19 +454,22 @@ impl Module {
     }
 
     /// The bytes of one of this module's sources. Every phase goes through here rather
-    /// than calling `std::fs::read`, so the prelude needs no special case downstream.
+    /// than calling `std::fs::read`, so the standard library needs no special case
+    /// downstream.
     pub fn read_source(&self, path: &Path) -> std::io::Result<Vec<u8>> {
-        match self.embedded_source {
-            Some(text) => Ok(text.as_bytes().to_vec()),
-            None => std::fs::read(path),
+        if self.embedded {
+            return std_source(path).map(|t| t.as_bytes().to_vec()).ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::NotFound, "not a standard-library file")
+            });
         }
+        std::fs::read(path)
     }
 
-    /// Is this the compiler's own prelude (spec §18.23)? It is emitted like any other
-    /// module — `Ordering` and `Formatter` are real types user code can name — so this is
-    /// for diagnostics and for the "did you mean" lists, not for skipping work.
+    /// Is this the standard library (spec §14.4)? It is emitted like any other module —
+    /// `Ordering` and `String` are real types — so this is for diagnostics and for what an
+    /// editor may change, not for skipping work.
     pub fn is_prelude(&self) -> bool {
-        self.embedded_source.is_some()
+        self.embedded
     }
 }
 
@@ -523,19 +524,21 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
     let prelude = loader.add_prelude();
     let root = loader.load_module(&manifest_path, None)?;
 
-    // Every module depends on the prelude, so `Ord` and `Iterate` are in scope everywhere
-    // with no import (spec §3.2, §18.23). Recorded as an ordinary dependency rather than as
-    // a special case in name resolution, so visibility, "did you mean", and the cycle check
-    // all treat it like any other module.
+    // Every module depends on the standard library, because the language's own constructs
+    // are written in it (spec §14.4). One whose manifest does not list it gets the
+    // dependency anyway, marked implicit, which name resolution treats as not nameable.
     let mut modules = loader.modules;
     for m in &mut modules {
-        if m.id != prelude {
+        if m.id != prelude && !m.deps.iter().any(|d| d.module == prelude) {
             m.deps.push(Dependency {
-                alias: PRELUDE_MODULE.to_owned(),
+                alias: STD_MODULE.to_owned(),
                 alias_span: Span::DUMMY,
                 module: prelude,
                 implicit: true,
                 flags: Vec::new(),
+                open: false,
+                public: false,
+                source_span: Span::DUMMY,
             });
         }
     }
@@ -563,30 +566,70 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
     Some(Workspace { modules, root, prelude })
 }
 
-/// The prelude's module name (spec §3.2). `dz::Ord` always reaches it, and a local
-/// declaration of the same name shadows the unqualified spelling.
-pub const PRELUDE_MODULE: &str = "dz";
+/// The standard library's module name, and the dependency key a manifest lists it under
+/// (spec §3.2, §14.4). Reserved: no project may be called this.
+pub const STD_MODULE: &str = "std";
 
-/// The prelude's source, compiled into the binary. Public so the language server can show
-/// it: a definition in the prelude needs a file an editor can open.
-pub const PRELUDE_SOURCE: &str = include_str!("prelude.dz");
+/// The standard library (spec §14.4): one module, carried by the compiler as Dazzle source,
+/// one declaration to a file. Each entry is the pseudo-path the file is shown under — it
+/// names nothing on disk — and its text. Folders are organisation only, as in any project
+/// (§3.1). A test holds this list to the files under `src/std`.
+pub const STD_SOURCES: &[(&str, &str)] = &[
+    ("<std>/collections/hash_map.dz", include_str!("std/collections/hash_map.dz")),
+    ("<std>/collections/hash_map_iter.dz", include_str!("std/collections/hash_map_iter.dz")),
+    (
+        "<std>/collections/hash_map_iter_mut.dz",
+        include_str!("std/collections/hash_map_iter_mut.dz"),
+    ),
+    ("<std>/collections/list.dz", include_str!("std/collections/list.dz")),
+    ("<std>/collections/slice_iter.dz", include_str!("std/collections/slice_iter.dz")),
+    ("<std>/collections/slice_iter_mut.dz", include_str!("std/collections/slice_iter_mut.dz")),
+    ("<std>/core/assert.dz", include_str!("std/core/assert.dz")),
+    ("<std>/core/format.dz", include_str!("std/core/format.dz")),
+    ("<std>/core/formatter.dz", include_str!("std/core/formatter.dz")),
+    ("<std>/core/hash.dz", include_str!("std/core/hash.dz")),
+    ("<std>/core/iterate.dz", include_str!("std/core/iterate.dz")),
+    ("<std>/core/ops.dz", include_str!("std/core/ops.dz")),
+    ("<std>/core/ordering.dz", include_str!("std/core/ordering.dz")),
+    ("<std>/core/ownership.dz", include_str!("std/core/ownership.dz")),
+    ("<std>/math/constants.dz", include_str!("std/math/constants.dz")),
+    ("<std>/math/float.dz", include_str!("std/math/float.dz")),
+    ("<std>/math/integer.dz", include_str!("std/math/integer.dz")),
+    ("<std>/math/mat4.dz", include_str!("std/math/mat4.dz")),
+    ("<std>/math/quat.dz", include_str!("std/math/quat.dz")),
+    ("<std>/math/vec2.dz", include_str!("std/math/vec2.dz")),
+    ("<std>/math/vec2i.dz", include_str!("std/math/vec2i.dz")),
+    ("<std>/math/vec3.dz", include_str!("std/math/vec3.dz")),
+    ("<std>/math/vec3i.dz", include_str!("std/math/vec3i.dz")),
+    ("<std>/math/vec4.dz", include_str!("std/math/vec4.dz")),
+    ("<std>/memory/allocation.dz", include_str!("std/memory/allocation.dz")),
+    ("<std>/memory/allocator.dz", include_str!("std/memory/allocator.dz")),
+    ("<std>/memory/allocators.dz", include_str!("std/memory/allocators.dz")),
+    ("<std>/memory/heap.dz", include_str!("std/memory/heap.dz")),
+    ("<std>/memory/poison.dz", include_str!("std/memory/poison.dz")),
+    ("<std>/memory/temp_arena.dz", include_str!("std/memory/temp_arena.dz")),
+    ("<std>/memory/tracker.dz", include_str!("std/memory/tracker.dz")),
+    ("<std>/text/string.dz", include_str!("std/text/string.dz")),
+];
 
-/// The namespace the standard library's modules live under (spec §14.4).
-pub const STD_ROOT: &str = "std";
+/// The text of the standard-library file shown at `pseudo`, if it is one.
+pub fn std_source(pseudo: &Path) -> Option<&'static str> {
+    let wanted = pseudo.to_string_lossy().replace('\\', "/");
+    STD_SOURCES.iter().find(|(p, _)| *p == wanted).map(|(_, text)| *text)
+}
 
-/// The standard library's modules beyond the prelude, carried by the compiler like it: each
-/// name, the pseudo-path its source is shown under, and the source. Unlike the prelude, a
-/// module here is loaded only when a file says `import std::…` for it (spec §14.4).
-pub const STD_MODULES: &[(&str, &str, &str)] =
-    &[("std::math", "<std>/math.dz", include_str!("std/math.dz"))];
-
-/// Every source the compiler carries rather than reads — the prelude and the standard
-/// library — as `(pseudo-path, text)`. The language server and a debugger are shown copies
-/// of these, since the pseudo-paths name nothing on disk.
+/// Every source the compiler carries rather than reads, as `(pseudo-path, text)`. The
+/// language server and a debugger are shown copies of these.
 pub fn embedded_sources() -> Vec<(&'static str, &'static str)> {
-    let mut out = vec![("<prelude>/dz.dz", PRELUDE_SOURCE)];
-    out.extend(STD_MODULES.iter().map(|(_, path, text)| (*path, *text)));
-    out
+    STD_SOURCES.to_vec()
+}
+
+/// What one manifest's `[dependencies]` declared, by kind.
+#[derive(Default)]
+struct LoadedDeps {
+    deps: Vec<Dependency>,
+    cpp: Vec<CppDep>,
+    via: Vec<ViaDep>,
 }
 
 struct Loader<'a> {
@@ -607,18 +650,24 @@ impl<'a> Loader<'a> {
     /// should be as readable as a user's.
     fn add_prelude(&mut self) -> ModuleId {
         let id = ModuleId(self.modules.len() as u32);
-        let path = PathBuf::from("<prelude>").join("dz.dz");
-        let file = self.map.add(path.clone(), PRELUDE_SOURCE.to_owned());
+        let sources: Vec<PathBuf> = STD_SOURCES.iter().map(|(p, _)| PathBuf::from(p)).collect();
+        // A module needs a "manifest" file for diagnostics about it; the standard library has
+        // none, so it is the first source, under its own pseudo-path.
+        let (first, text) = STD_SOURCES[0];
+        let file = self.map.add(PathBuf::from(first), text.to_owned());
         self.modules.push(Module {
             id,
-            name: PRELUDE_MODULE.to_owned(),
+            name: STD_MODULE.to_owned(),
             name_span: Span::DUMMY,
             version: env!("CARGO_PKG_VERSION").to_owned(),
-            root_dir: PathBuf::from("<prelude>"),
+            root_dir: PathBuf::from("<std>"),
             manifest: file,
-            manifest_path: path.clone(),
-            sources: vec![path],
+            manifest_path: PathBuf::from(first),
+            sources,
             deps: Vec::new(),
+            cpp_deps: Vec::new(),
+            via_deps: Vec::new(),
+            names: Vec::new(),
             // The stdlib's own: the allocators' memory tracking (spec §14.2).
             flags: vec![FlagDecl {
                 name: "TRACK_MEMORY".to_owned(),
@@ -628,9 +677,8 @@ impl<'a> Loader<'a> {
             }],
             build: BuildConfig::default(),
             cpp: CppConfig::default(),
-            embedded_source: Some(PRELUDE_SOURCE),
+            embedded: true,
             foreign: None,
-            cpp_imports: Vec::new(),
         });
         id
     }
@@ -710,16 +758,23 @@ impl<'a> Loader<'a> {
             manifest_path: manifest_path.to_path_buf(),
             sources,
             deps: Vec::new(),
+            cpp_deps: Vec::new(),
+            via_deps: Vec::new(),
+            names: Vec::new(),
             flags,
             build,
             cpp,
-            embedded_source: None,
+            embedded: false,
             foreign: None,
-            cpp_imports: Vec::new(),
         });
 
-        let deps = self.load_dependencies(file, &doc, &root_dir, id);
-        self.modules[id.0 as usize].deps = deps;
+        let loaded = self.load_dependencies(file, &doc, &root_dir, id);
+        let names = self.name_picks(file, &doc, &loaded);
+        let module = &mut self.modules[id.0 as usize];
+        module.deps = loaded.deps;
+        module.cpp_deps = loaded.cpp;
+        module.via_deps = loaded.via;
+        module.names = names;
 
         Some(id)
     }
@@ -768,8 +823,8 @@ impl<'a> Loader<'a> {
                      \"engine\" or \"engine::render\" (spec §3.2)",
                 ),
             );
-        } else if name == STD_ROOT || name.starts_with(&format!("{STD_ROOT}::")) {
-            // `import std::math` must always mean the compiler's (spec §14.4).
+        } else if name == STD_MODULE || name.starts_with(&format!("{STD_MODULE}::")) {
+            // `std` must always mean the compiler's (spec §14.4).
             self.diags.push(
                 Diagnostic::error(
                     codes::MANIFEST_BAD_VALUE,
@@ -884,58 +939,175 @@ impl<'a> Loader<'a> {
         doc: &Document,
         root_dir: &Path,
         self_id: ModuleId,
-    ) -> Vec<Dependency> {
-        let Some(table) = doc.table("dependencies") else { return Vec::new() };
-        let mut deps: Vec<Dependency> = Vec::new();
+    ) -> LoadedDeps {
+        let mut out = LoadedDeps::default();
+        let Some(table) = doc.table("dependencies") else { return out };
+        let mut seen: Vec<(String, Span)> = Vec::new();
 
         for entry in &table.entries {
+            let key = entry.key.as_str();
             let Value::InlineTable(fields, span) = &entry.value else {
                 self.type_error(
                     file,
                     &entry.value,
-                    &format!("dependencies.{}", entry.key),
+                    &format!("dependencies.{key}"),
                     "a table like { path = \"../libs/math\" }",
                 );
                 continue;
             };
-            let path_value = fields.iter().find(|f| f.key == "path");
-            let Some(path_entry) = path_value else {
-                self.diags.push(
-                    Diagnostic::error(
-                        codes::MANIFEST_MISSING_FIELD,
-                        format!("dependency `{}` has no `path`", entry.key),
-                    )
-                    .at(file, *span, "expected `path = \"...\"`")
-                    .with_help("only path dependencies are supported so far"),
-                );
-                continue;
-            };
-            let Value::Str(rel, path_span) = &path_entry.value else {
-                self.type_error(
-                    file,
-                    &path_entry.value,
-                    &format!("dependencies.{}.path", entry.key),
-                    "a string",
-                );
-                continue;
-            };
 
-            if let Some(prev) = deps.iter().find(|d| d.alias == entry.key) {
-                let prev_span = prev.alias_span;
+            // The key is written in code, `key::Name`, so it must be an identifier.
+            let valid = key.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+                && key.chars().all(|c| c.is_alphanumeric() || c == '_');
+            if !valid {
                 self.diags.push(
                     Diagnostic::error(
                         codes::MANIFEST_BAD_VALUE,
-                        format!("duplicate dependency `{}`", entry.key),
+                        format!("`{key}` cannot name a dependency"),
+                    )
+                    .at(file, entry.key_span, "not an identifier")
+                    .with_help(
+                        "the key is how code writes the dependency, `key::Name`, so it is an \
+                         identifier: `rl`, `engine` (spec §3.2)",
+                    ),
+                );
+                continue;
+            }
+            if let Some((_, prev_span)) = seen.iter().find(|(k, _)| k == key) {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("duplicate dependency `{key}`"),
                     )
                     .at(file, entry.key_span, "declared twice")
                     .with_label(dz_diag::Label::secondary(
                         file,
-                        prev_span,
+                        *prev_span,
                         "first declared here",
                     )),
                 );
                 continue;
             }
+            seen.push((key.to_owned(), entry.key_span));
+
+            let open = self.bool_field(file, key, fields, "open");
+            let public = self.bool_field(file, key, fields, "pub");
+            const KEYS: &[&str] = &["path", "cpp", "via", "open", "pub", "flags"];
+            for f in fields {
+                if !KEYS.contains(&f.key.as_str()) {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MANIFEST_BAD_VALUE,
+                            format!("unknown key `{}` in dependency `{key}`", f.key),
+                        )
+                        .at(file, f.key_span, "not a key of a dependency")
+                        .with_help(
+                            "a dependency takes one of `path`, `cpp` or `via`, and `open`, \
+                             `pub` and `flags` (spec §3.2)",
+                        ),
+                    );
+                }
+            }
+            let source: Vec<&toml::Entry> = fields
+                .iter()
+                .filter(|f| ["path", "cpp", "via"].contains(&f.key.as_str()))
+                .collect();
+
+            // `std = { open = true }`: the compiler's own, found without a path (§14.4).
+            if key == STD_MODULE {
+                if let Some(f) = source.first() {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MANIFEST_BAD_VALUE,
+                            format!("`std` is the standard library and takes no `{}`", f.key),
+                        )
+                        .at(file, f.key_span, "the compiler carries it")
+                        .with_help("write `std = { open = true }`, or `std = {}` to write `std::Name` (spec §14.4)"),
+                    );
+                }
+                out.deps.push(Dependency {
+                    alias: key.to_owned(),
+                    alias_span: entry.key_span,
+                    module: ModuleId(0),
+                    implicit: false,
+                    flags: Vec::new(),
+                    open,
+                    public,
+                    source_span: entry.key_span,
+                });
+                continue;
+            }
+
+            let [source] = source[..] else {
+                let (msg, label) = if source.is_empty() {
+                    (
+                        format!("dependency `{key}` says nothing about where it comes from"),
+                        "expected `path`, `cpp` or `via`",
+                    )
+                } else {
+                    (
+                        format!("dependency `{key}` names more than one source"),
+                        "one of `path`, `cpp` or `via`",
+                    )
+                };
+                self.diags.push(
+                    Diagnostic::error(codes::MANIFEST_MISSING_FIELD, msg)
+                        .at(file, *span, label)
+                        .with_help(
+                            "`path = \"../libs/math\"` for a project, `cpp = \"raylib\"` for a \
+                             `[cpp.libs]` recipe's header, `via = \"rl::shapes\"` for a public \
+                             dependency of a dependency (spec §3.2)",
+                        ),
+                );
+                continue;
+            };
+            let Value::Str(value, value_span) = &source.value else {
+                self.type_error(
+                    file,
+                    &source.value,
+                    &format!("dependencies.{key}.{}", source.key),
+                    "a string",
+                );
+                continue;
+            };
+            match source.key.as_str() {
+                "cpp" => {
+                    out.cpp.push(CppDep {
+                        alias: key.to_owned(),
+                        alias_span: entry.key_span,
+                        recipe: value.clone(),
+                        recipe_span: *value_span,
+                        open,
+                        public,
+                    });
+                    continue;
+                }
+                "via" => {
+                    let path: Vec<String> = value.split("::").map(str::to_owned).collect();
+                    if path.len() < 2 || path.iter().any(|s| s.is_empty()) {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::MANIFEST_BAD_VALUE,
+                                format!("`{value}` is not a path to a dependency's dependency"),
+                            )
+                            .at(file, *value_span, "expected `key::name`")
+                            .with_help("for example `via = \"rl::shapes\"` (spec §3.2)"),
+                        );
+                        continue;
+                    }
+                    out.via.push(ViaDep {
+                        alias: key.to_owned(),
+                        alias_span: entry.key_span,
+                        path,
+                        path_span: *value_span,
+                        open,
+                        public,
+                    });
+                    continue;
+                }
+                _ => {}
+            }
+            let (rel, path_span) = (value, value_span);
 
             // A dependency path names a directory unless it points straight at a
             // manifest. Deciding by extension rather than by `is_dir` keeps the error
@@ -979,18 +1151,77 @@ impl<'a> Loader<'a> {
                         );
                         continue;
                     }
-                    deps.push(Dependency {
+                    out.deps.push(Dependency {
                         alias: entry.key.clone(),
                         alias_span: entry.key_span,
                         module: dep_id,
                         implicit: false,
                         flags: self.dependency_flags(file, &entry.key, fields),
+                        open,
+                        public,
+                        source_span: *path_span,
                     });
                 }
                 None => continue,
             }
         }
-        deps
+        out
+    }
+
+    /// `open = true` or `pub = true` in a dependency; absent is false.
+    fn bool_field(&mut self, file: FileId, dep: &str, fields: &[toml::Entry], key: &str) -> bool {
+        match fields.iter().find(|f| f.key == key).map(|f| &f.value) {
+            None => false,
+            Some(Value::Bool(b, _)) => *b,
+            Some(other) => {
+                self.type_error(file, other, &format!("dependencies.{dep}.{key}"), "true or false");
+                false
+            }
+        }
+    }
+
+    /// `[names]`: `Vec2 = "std"` — which dependency a bare name means (spec §3.2).
+    fn name_picks(&mut self, file: FileId, doc: &Document, deps: &LoadedDeps) -> Vec<NamePick> {
+        let Some(table) = doc.table("names") else { return Vec::new() };
+        let mut out: Vec<NamePick> = Vec::new();
+        for entry in &table.entries {
+            let Value::Str(dep, dep_span) = &entry.value else {
+                self.type_error(
+                    file,
+                    &entry.value,
+                    &format!("names.{}", entry.key),
+                    "a string naming a dependency, like \"std\"",
+                );
+                continue;
+            };
+            let known = deps
+                .deps
+                .iter()
+                .map(|d| d.alias.as_str())
+                .chain(deps.cpp.iter().map(|d| d.alias.as_str()))
+                .chain(deps.via.iter().map(|d| d.alias.as_str()))
+                .any(|a| a == dep);
+            if !known {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("`{dep}` is not a dependency of this module"),
+                    )
+                    .at(file, *dep_span, "not in `[dependencies]`")
+                    .with_help(
+                        "`[names]` chooses among this module's dependencies, by key (spec §3.2)",
+                    ),
+                );
+                continue;
+            }
+            out.push(NamePick {
+                name: entry.key.clone(),
+                name_span: entry.key_span,
+                dep: dep.clone(),
+                dep_span: *dep_span,
+            });
+        }
+        out
     }
 
     /// Is `target` reachable from `start` through the dependency edges loaded so far?
@@ -1226,9 +1457,18 @@ impl<'a> Loader<'a> {
             "link_libs",
             "frameworks",
             "flags",
+            "import",
         ];
-        const LIB_TARGET_KEYS: &[&str] =
-            &["sources", "include_dirs", "defines", "lib_dirs", "link_libs", "frameworks", "flags"];
+        const LIB_TARGET_KEYS: &[&str] = &[
+            "sources",
+            "include_dirs",
+            "defines",
+            "lib_dirs",
+            "link_libs",
+            "frameworks",
+            "flags",
+            "import",
+        ];
         const MANIFEST_DIR: &str = "the directory holding dazzle.toml";
         const LIB_ROOT: &str = "the library's `root`, or the manifest's directory without one";
 
@@ -1345,6 +1585,7 @@ impl<'a> Loader<'a> {
                     link_libs: l.link_libs,
                     frameworks: l.frameworks,
                     flags: l.flags,
+                    import: l.import,
                 })
                 .collect(),
         }
@@ -1434,6 +1675,9 @@ impl<'a> Loader<'a> {
                     "link_libs" => out.link_libs.push(s.clone()),
                     "frameworks" => out.frameworks.push(s.clone()),
                     "flags" => out.flags.push(s.clone()),
+                    // Found through the include dirs when the header is read, as
+                    // `#include <…>` finds it (spec §15.1), so not a path to check here.
+                    "import" => out.import.push((s.clone(), *span)),
                     "sources" => {
                         self.lib_sources(file, base, base_desc, s, *span, &mut out.sources)
                     }
@@ -1572,6 +1816,7 @@ struct Lists {
     link_libs: Vec<String>,
     frameworks: Vec<String>,
     flags: Vec<String>,
+    import: Vec<(String, Span)>,
 }
 
 fn as_str(v: &Value) -> Option<&str> {

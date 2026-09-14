@@ -39,7 +39,7 @@ fn run(source_path: &Path) -> Outcome {
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(
         dir.join("dazzle.toml"),
-        "[module]\nname = \"flow\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"flow\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
     )
     .unwrap();
     std::fs::copy(source_path, dir.join("src/main.dz")).unwrap();

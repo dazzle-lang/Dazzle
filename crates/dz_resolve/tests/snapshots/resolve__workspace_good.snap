@@ -2,6 +2,6 @@
 source: crates/dz_resolve/tests/resolve.rs
 expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
 ---
-modules: 4, files: 6
+modules: 4, files: 37
 
 (none)

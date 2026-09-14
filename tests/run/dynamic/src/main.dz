@@ -2,8 +2,6 @@
 // and its implementation's vtable — so one `Shape` handle can hold any implementer, and the
 // implementer carries no extra bytes.
 
-import shapes
-
 trait Shape {
     fn area(&self) -> f32
     fn grow(&mut self, by: f32)

@@ -1,0 +1,23 @@
+pub struct Vec3 {
+    pub x: f64
+    pub y: f64
+    pub z: f64
+}
+
+pub struct Color {
+    pub g: u8
+}
+
+pub struct Body {
+    pub mass: f32
+}
+
+pub fn gravity() -> f32 {
+    return 9.8
+}
+
+/// A public dependency's type in a `pub` signature: dependents can name it, as
+/// `phys::units::Meters`.
+pub fn fall(t: f32) -> units::Meters {
+    return units::Meters{ value: gravity() * t * t / 2 }
+}

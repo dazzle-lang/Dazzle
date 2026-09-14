@@ -1,7 +1,6 @@
 // M7b (spec §15.1, §15.2, §19): a C++ library vendored as source, built by `dz`, and
 // called directly — a namespace is a scope Dazzle reaches through, a class is a struct
 // with methods, and an overload set resolves by argument type (§15.3).
-import cpp "shapes.hpp" as shp
 
 fn main() {
     // A namespace is a nested scope: `shp` is the header, `shapes` the namespace in it.

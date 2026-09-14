@@ -70,47 +70,48 @@ fn labels(items: &[ide::Completion]) -> Vec<&str> {
 
 // --- hover and definition ------------------------------------------------------------------
 
-/// A prelude name leads into the prelude: the server shows that file from a copy on disk,
-/// but the query itself must find the declaration.
+/// A standard-library name leads into the file declaring it: the server shows that file from
+/// a copy on disk, but the query itself must find the declaration (spec §14.4).
 #[test]
-fn definition_of_a_prelude_name_is_its_declaration_in_the_prelude() {
+fn definition_of_a_std_name_is_its_declaration_in_std() {
     let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/containers"));
     assert!(!a.diags.has_errors(), "the fixture must check cleanly");
     let f = main_file(&a);
-    for (needle, within, declared) in [
-        ("String>()", 0, "String"),
-        ("List<i32>()", 0, "List"),
-        ("(0, Allocators::Temp)", 4, "Allocators"),
-        ("Temp)", 0, "Temp"),
+    for (needle, within, declared, file_name) in [
+        ("String>()", 0, "String", "<std>/text/string.dz"),
+        ("List<i32>()", 0, "List", "<std>/collections/list.dz"),
+        ("(0, Allocators::Temp)", 4, "Allocators", "<std>/memory/allocators.dz"),
+        ("Temp)", 0, "Temp", "<std>/memory/allocators.dz"),
     ] {
         let i = info(&a, f, needle, within);
         let (file, _) = i.definition.unwrap_or_else(|| panic!("no definition for `{needle}`"));
-        assert!(a.map.get(file).path().starts_with("<prelude>"), "`{needle}` left the prelude");
+        let want = ide::embedded_file(&a, file_name).expect("std was parsed");
+        assert_eq!(file, want, "`{needle}` did not lead to {file_name}");
         assert_eq!(definition_text(&a, &i).1, declared, "at `{needle}`");
     }
-    // And from inside the prelude, once it is open.
-    let prelude = ide::prelude_file(&a).expect("the prelude was parsed");
-    let i = info(&a, prelude, "m_bytes: List<u8>", 9);
+    // And from inside the standard library, once a file of it is open — across its files.
+    let string = ide::embedded_file(&a, "<std>/text/string.dz").expect("std was parsed");
+    let i = info(&a, string, "m_bytes: List<u8>", 9);
     assert_eq!(definition_text(&a, &i).1, "List");
 }
 
-/// A standard-library name leads into that module's file (spec §14.4): the type, a method on
-/// it, and a method on a number, which comes from `std::math`'s `Float`.
+/// The math leads into its own files too (spec §14.4): the type, a method on it, and a method
+/// on a number, which comes from `Float`.
 #[test]
-fn definition_of_a_std_math_name_is_in_std_math() {
+fn definition_of_a_std_math_name_is_in_its_file() {
     let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/math"));
     assert!(!a.diags.has_errors(), "the fixture must check cleanly");
     let f = main_file(&a);
-    let math = ide::embedded_file(&a, "<std>/math.dz").expect("std::math is part of the build");
-    for (needle, within, declared) in [
-        ("Vec3{ x: 1, y: 0, z: 0 }", 0, "Vec3"),
-        ("a.length()", 2, "length"),
-        ("x.sqrt()", 2, "sqrt"),
-        ("Mat4::translation", 6, "translation"),
+    for (needle, within, declared, file_name) in [
+        ("Vec3{ x: 1, y: 0, z: 0 }", 0, "Vec3", "<std>/math/vec3.dz"),
+        ("a.length()", 2, "length", "<std>/math/vec2.dz"),
+        ("x.sqrt()", 2, "sqrt", "<std>/math/float.dz"),
+        ("Mat4::translation", 6, "translation", "<std>/math/mat4.dz"),
     ] {
         let i = info(&a, f, needle, within);
         let (file, _) = i.definition.unwrap_or_else(|| panic!("no definition for `{needle}`"));
-        assert_eq!(file, math, "`{needle}` did not lead into std::math");
+        let want = ide::embedded_file(&a, file_name).expect("std was parsed");
+        assert_eq!(a.map.get(file).path(), a.map.get(want).path(), "at `{needle}`");
         assert_eq!(definition_text(&a, &i).1, declared, "at `{needle}`");
     }
 }
@@ -365,6 +366,19 @@ fn signature_help_tracks_the_argument_under_the_cursor() {
     let params: Vec<&str> = sig.params.iter().map(|&(s, e)| &sig.label[s..e]).collect();
     assert_eq!(params, ["a: T", "b: T"]);
     assert_eq!(sig.active, 1);
+}
+
+/// Every argument past the fixed ones is the variadic parameter's, however many there are
+/// (spec §7.2).
+#[test]
+fn signature_help_stays_on_a_variadic_parameter() {
+    let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/variadic"));
+    assert!(!a.diags.has_errors(), "the fixture must check cleanly");
+    let f = main_file(&a);
+    let sig = ide::signature_help(&a, f, at(&a, f, "tell(\"mixed\", c, n, Cat", 17)).unwrap();
+    let params: Vec<&str> = sig.params.iter().map(|&(s, e)| &sig.label[s..e]).collect();
+    assert_eq!(params, ["prefix: str", "things: ..&Describe"]);
+    assert_eq!(sig.active, 1, "the third argument is still `things`");
 }
 
 #[test]
@@ -670,4 +684,156 @@ fn formatting_refuses_broken_source_and_is_idempotent() {
     let once = ide::format(&ide::parse(path, a.map.get(f).text())).unwrap();
     let twice = ide::format(&ide::parse(path, &once)).unwrap();
     assert_eq!(once, twice);
+}
+
+// --- what a manifest names (spec §3.2, §17.4) ----------------------------------------------
+
+fn opened_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/workspace/opened")
+}
+
+/// Complete at the end of `typed`, added as a line at the end of `noise` in the `opened`
+/// fixture's `clean.dz`.
+fn complete_in_opened(typed: &str) -> ide::CompletionSet {
+    let root = opened_root();
+    let original = std::fs::read_to_string(root.join("src").join("clean.dz")).unwrap();
+    let close = original.rfind('}').unwrap();
+    let text = format!("{}    {typed}\n{}", &original[..close], &original[close..]);
+    let offset = original[..close].len() + 4 + typed.len();
+    let clean = Path::new("src").join("clean.dz");
+    let overlay = |p: &Path| p.ends_with(&clean).then(|| text.clone());
+    let a = analyse_with(&root, &overlay, Mode::Editor);
+    let file = a.map.iter().find(|f| f.path().ends_with("clean.dz")).expect("clean.dz").id();
+    ide::completion(Some((&a, file)), None, &text, offset)
+}
+
+#[test]
+fn completion_offers_what_opened_dependencies_export_bare() {
+    let set = complete_in_opened("let g = gra");
+    let gravity = set.items.iter().find(|c| c.label == "gravity").expect("phys's gravity, bare");
+    assert_eq!(gravity.insert, None, "an opened dependency's name is written as it is");
+    // `[names]`, a `via` key opened, and the standard library, all bare too.
+    let labels = labels(&complete_in_opened("let x = ").items).join(" ");
+    for want in ["Color", "Meters", "String", "Body", "phys", "audio"] {
+        assert!(labels.split(' ').any(|l| l == want), "`{want}` missing from {labels}");
+    }
+}
+
+#[test]
+fn completion_writes_a_name_of_a_dependency_that_is_not_opened_with_its_key() {
+    let set = complete_in_opened("let n = pla");
+    let play = set.items.iter().find(|c| c.label == "play_sound").expect("audio's play_sound");
+    assert_eq!(play.insert.as_deref(), Some("audio::play_sound"));
+    assert_eq!(play.source.as_deref(), Some("audio"));
+    // Fuzzy, the way the editor filters: the first letter, then the rest in order.
+    assert!(complete_in_opened("let n = psnd").items.iter().any(|c| c.label == "play_sound"));
+    assert!(!complete_in_opened("let n = snd").items.iter().any(|c| c.label == "play_sound"));
+    // Nothing typed yet: none of them, and the editor is told to ask again.
+    let empty = complete_in_opened("let n = ");
+    assert!(empty.incomplete);
+    assert!(!empty.items.iter().any(|c| c.insert.is_some()), "a prefix narrows them first");
+}
+
+#[test]
+fn completion_offers_a_shared_name_only_with_each_key() {
+    // `Vec3` is exported by std, geo and phys, all opened: bare it is DZ0310.
+    let set = complete_in_opened("let v = Vec");
+    let vec3: Vec<Option<&str>> =
+        set.items.iter().filter(|c| c.label == "Vec3").map(|c| c.insert.as_deref()).collect();
+    assert!(!vec3.contains(&None), "a bare `Vec3` would not compile: {vec3:?}");
+    for want in ["std::Vec3", "geo::Vec3", "phys::Vec3"] {
+        assert!(vec3.contains(&Some(want)), "`{want}` missing from {vec3:?}");
+    }
+}
+
+#[test]
+fn completion_after_a_key_walks_public_dependencies() {
+    let labels: Vec<String> =
+        complete_in_opened("let m = phys::").items.into_iter().map(|c| c.label).collect();
+    assert!(labels.iter().any(|l| l == "fall"), "{labels:?}");
+    assert!(labels.iter().any(|l| l == "units"), "a public dependency is offered: {labels:?}");
+    let inner: Vec<String> =
+        complete_in_opened("let m = phys::units::").items.into_iter().map(|c| c.label).collect();
+    assert!(inner.iter().any(|l| l == "Meters"), "{inner:?}");
+}
+
+#[test]
+fn a_manifest_links_its_dependencies() {
+    let root = opened_root();
+    let a = analyse(&root);
+    assert!(!a.diags.has_errors(), "the fixture must check cleanly");
+    let links = ide::manifest_links(&a, &root.join("dazzle.toml"));
+    let text = std::fs::read_to_string(root.join("dazzle.toml")).unwrap();
+    let geo = links
+        .iter()
+        .find(|(_, span, _, _)| &text[span.range()] == "\"libs/geo\"")
+        .expect("a link on geo's path");
+    assert!(geo.2.ends_with(Path::new("geo").join("dazzle.toml")), "{:?}", geo.2);
+    // `std` is carried by the compiler and has no manifest to open.
+    assert!(!links.iter().any(|(_, span, _, _)| &text[span.range()] == "std"));
+}
+
+/// A dependency key has no declaration, but going to it opens what it names: a project's
+/// manifest, through public dependencies too (spec §3.2, §17.4).
+#[test]
+fn definition_of_a_dependency_key_is_its_manifest() {
+    let root = opened_root();
+    let a = analyse(&root);
+    assert!(!a.diags.has_errors(), "the fixture must check cleanly");
+    let f = a.map.iter().find(|s| s.path().ends_with("clean.dz")).expect("clean.dz").id();
+    for (needle, within, manifest_dir) in [
+        ("phys::fall(t)", 0, "phys"),
+        ("phys::units::Meters", 6, "units"),
+        ("audio::play", 0, "audio"),
+    ] {
+        let i = info(&a, f, needle, within);
+        let (file, _) = i.definition.unwrap_or_else(|| panic!("no definition at `{needle}`"));
+        let path = a.map.get(file).path();
+        assert!(
+            path.ends_with(Path::new(manifest_dir).join("dazzle.toml")),
+            "`{needle}` → {path:?}"
+        );
+        assert!(i.hover.unwrap().starts_with("**dependency**"), "at `{needle}`");
+    }
+    // The standard library has no file to open, but still says what the key is.
+    let i = info(&a, f, "std::PI", 0);
+    assert!(i.definition.is_none());
+    assert!(i.hover.unwrap().contains("the standard library"));
+}
+
+/// A `cpp` dependency's key goes to its header (spec §15.1, §17.4).
+#[test]
+fn definition_of_a_cpp_dependency_key_is_its_header() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/cinterop");
+    let a = analyse(&root);
+    if a.diags.has_errors() {
+        eprintln!("skipping: the fixture needs libclang");
+        return;
+    }
+    let f = main_file(&a);
+    let i = info(&a, f, "mini::", 0);
+    let (file, _) = i.definition.expect("a definition for `mini`");
+    assert!(a.map.get(file).path().ends_with("mini.h"), "{:?}", a.map.get(file).path());
+    assert!(i.hover.unwrap().contains("`mini.h`"));
+}
+
+/// Ctrl+click on a recipe's header opens the file the include search found — and so does
+/// the `cpp = "…"` naming the recipe (spec §15.1, §17.4).
+#[test]
+fn a_manifest_links_a_recipe_header_to_the_header() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/cinterop");
+    let a = analyse(&root);
+    if a.diags.has_errors() {
+        eprintln!("skipping: the fixture needs libclang");
+        return;
+    }
+    let links = ide::manifest_links(&a, &root.join("dazzle.toml"));
+    let text = std::fs::read_to_string(root.join("dazzle.toml")).unwrap();
+    for written in ["\"mini.h\"", "\"mini\""] {
+        let (_, _, target, _) = links
+            .iter()
+            .find(|(_, span, _, _)| &text[span.range()] == written)
+            .unwrap_or_else(|| panic!("no link on {written}"));
+        assert!(target.ends_with("mini.h") && target.is_file(), "{written} → {target:?}");
+    }
 }

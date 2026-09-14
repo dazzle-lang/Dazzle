@@ -483,9 +483,12 @@ impl<'a> Parser<'a> {
                     break;
                 };
                 self.expect_in(TokenKind::Colon, "after a parameter name");
+                // `args: ..T` (spec §7.2). Whether it may be here — last, without a default —
+                // is the checker's to say, so a mistake still parses into a whole list.
+                let variadic = self.eat(TokenKind::DotDot);
                 let ty = self.parse_type();
                 let default = if self.eat(TokenKind::Eq) { Some(self.parse_expr()) } else { None };
-                params.push(Param { span: self.span_from(p_start), name, ty, default });
+                params.push(Param { span: self.span_from(p_start), name, ty, default, variadic });
             }
 
             self.skip_terminators();

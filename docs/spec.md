@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 48
+**Version:** 0.1 — **unreleased**, revision 50
 **Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
 resources deterministically, have generics and traits, and call C and C++ libraries that
 `dz` builds from vendored source. The language is not yet usable for real work: there is no
@@ -32,7 +32,7 @@ one, marked as such). They double as the compiler's first test corpus.
 If you read nothing else, read this. Everything after it is detail.
 
 ```dz
-import engine::render as gfx          // :: is the only scope separator, everywhere
+// no imports: dazzle.toml names what every file can use — `std`, `engine`, `rl` (§3.2)
 
 pub struct Buffer<T> {                // private by default; pub / pub(module) / (nothing)
     m_allocator: ^Allocator = null    // ^T  nullable pointer
@@ -273,9 +273,14 @@ version = "0.3.0"
 sources = ["src/**/*.dz"]
 exclude = ["src/platform/ps5/**"]
 
-[dependencies]
-math   = { path = "../libs/math" }
+[dependencies]                     # what every file of this module can name (§3.2)
+std    = { open = true }                                     # String, Vec2 — bare
+math   = { path = "../libs/math" }                           # math::pow
 raylib = { path = "../libs/raylib", flags = ["NO_AUDIO"] }   # its flags this turns on (§12.10)
+rl     = { cpp = "raylib" }                                  # a C library's headers (§15.1)
+
+[names]                            # a bare name two opened dependencies both export (§3.2)
+Vec2 = "std"
 
 [flags]                            # this package's build flags, read by `#if` (§12.10)
 PROFILE = { default = false, doc = "time every frame" }
@@ -288,10 +293,11 @@ optimize     = "debug"        # "debug" | "release" | "shipping"
 type_info    = "used"         # "none" | "used" | "all"   (§13)
 track_memory = false          # the allocators' tracking (§14.2); the root's counts
 
-[cpp.libs.stb]                     # a C or C++ library, vendored as source (§15.1)
-root         = "vendor/stb"
-sources      = ["stb_image.c"]
+[cpp.libs.raylib]                  # a C or C++ library, vendored as source (§15.1)
+root         = "vendor/raylib/src"
+sources      = ["rcore.c", "rshapes.c"]
 include_dirs = ["."]
+import       = ["raylib.h"]        # the headers Dazzle code sees of it
 ```
 
 A workspace has a root project depending on sibling projects, conventionally in `libs/`:
@@ -317,45 +323,108 @@ module-visible declarations without importing anything. Moving `player.dz` from
 
 ### 3.2 Imports
 
-```dz
-import math                    // math::pow(x, 2)
-import engine::render as gfx  // gfx::SpriteBatch
-import math::{ pow, sqrt, PI } // pow(x, 2) — unqualified
-```
-
-Imports are file-scoped: an `import` at the top of `player.dz` is visible only in
-`player.dz`. This keeps a file's dependencies readable at its head without making the file
-an encapsulation boundary. `[DECIDED]`
-
-**`::` is the only scope separator, everywhere.** A module path, an enum member, and an
-associated function all use it, so `engine::render::SpriteBatch` reads uniformly from the
-outside in and there is never a question of which separator applies at which level.
-
-A module *name* may itself contain `::`, which is how a nested-looking hierarchy is built
-out of flat projects:
+**What a module can name is declared once, in its `dazzle.toml`, and holds in every one of
+its files.** There is no `import` line to repeat at the top of each file, and no way for one
+file to call a library `rl` while the next calls it `raylib`. `[DECIDED — §18.57]`
 
 ```toml
-# libs/engine_render/dazzle.toml
-[module]
-name = "engine::render"
+[dependencies]
+std    = { open = true }                        # String, List, Vec2 — and std::Vec2
+engine = { path = "libs/engine", open = true }  # Transform, Mesh — and engine::Transform
+rl     = { path = "libs/myraylib" }             # rl::draw_line
+GL     = { cpp = "opengl" }                     # GL::DrawArrays
+GLES   = { cpp = "gles" }                       # GLES::DrawArrays
 ```
 
-`engine` and `engine::render` are two separate projects with two separate `dazzle.toml`
-files and no implied dependency between them — the compiler treats the name as an opaque
-path for scoping only. This is the C# assembly/namespace split: `engine::render` is a
-namespace you can reach, not a module physically nested inside `engine`. `[DECIDED]`
+- **The key is the name.** Every file of the module reaches a dependency's exports through
+  it: `rl::draw_line`, `GL::DrawArrays`. Renaming a library, or swapping one for another, is
+  one line.
+- **`open = true` also puts its exports at the root**, so they are written bare. The key
+  still works beside them. A game opens what it uses on every line — the standard library,
+  its engine — and keeps a C API or two platform backends behind a name.
+- **`std` is a dependency like any other** (§14.4). It needs no `path`, but it must be
+  listed: a module that does not list it cannot name `String` or `Vec2` at all, and one that
+  lists it without `open` writes `std::String`. The language's own constructs — `for`, `or`,
+  operators, `println` — work either way, because they reach the standard library without
+  naming it. `dz new` writes `std = { open = true }`.
+- **Only a dependency's `pub` declarations are reachable**, and never what *it* depends on,
+  unless it says so (below).
+
+**A bare name** is looked for in this order, and the first place that has it wins:
+
+1. locals and generic parameters;
+2. the module's own declarations, in any of its files;
+3. a `{ … }` import in this file (below);
+4. the module's `[names]` choices;
+5. the opened dependencies — and here, **two different declarations of the name are an
+   error** (`DZ0310`), reported on the line that writes it, not at the manifest. There is no
+   precedence among dependencies, by order or otherwise: `let a = Vec2{}` with two opened
+   dependencies exporting `Vec2` does not compile until it is written `std::Vec2`, or the
+   module chooses one:
+
+```toml
+[names]
+Vec2 = "std"      # a bare `Vec2` is std's, in every file of this module
+```
+
+A dependency that adds a name the module already declares changes nothing, since its own
+declarations come first; one that adds a name another opened dependency exports breaks only
+the lines that write that name bare. Two names for one declaration — a C `typedef` — are not
+a conflict. `[DECIDED — §18.57]`
+
+A dependency nothing in the module names — no path through its key, no import, no opened
+name, no `[names]` choice or `via` — is a warning on its manifest line (`DZ0313`). A public
+one is part of the module's interface whether or not the module uses it, and is not.
+
+**Public dependencies.** A dependency is private: the module can use it, and modules that
+depend on *this* one cannot see it. `pub = true` makes it part of the module's interface:
+
+```toml
+# libs/myraylib/dazzle.toml
+[dependencies]
+std    = { open = true }
+native = { cpp = "raylib" }                 # private: only this module writes native::
+shapes = { path = "../shapes", pub = true } # public: dependents reach it as rl::shapes
+```
+
+A public dependency stays under its own name, one level inside the module that exports it —
+`rl::shapes::Rectangle` in a module that calls `myraylib` `rl` — rather than merging into its
+names: a wrapper usually reuses the names of what it wraps, and merging would collide them.
+A dependent may give it a name of its own, and open it, like any dependency:
+
+```toml
+rlshapes = { via = "rl::shapes", open = true }
+```
+
+**A private dependency cannot appear in a library's `pub` signature** (`DZ0311`) — a `pub`
+function's parameters and return, a `pub` struct's `pub` fields and methods, a `pub`
+constant's or static's type. `pub fn bounds() -> native::Rectangle` in `myraylib` would hand
+its users a value whose type they cannot write; the fix is to mark `native` `pub`, or to
+return a type of the module's own. An executable has no dependents, so the rule does not
+apply to one. `[DECIDED — §18.58]`
+
+**`import` in a file** is the exception, for when one file wants something the manifest
+does not give it. Two forms, each visible only in the file that writes it:
+
+```dz
+import phys::{ Vec3, Body }     // a bare Vec3 is phys's in this file, even if std opens one
+import engine::render as gfx    // a shorter name for a path, in this file
+```
+
+The path starts at a name the module already has — a dependency key, or a public
+dependency inside one (`rl::shapes`). An import cannot reach a module the manifest does not
+list. `[DECIDED — §18.57]`
+
+**`::` is the only scope separator, everywhere.** A dependency, a public dependency inside
+it, an enum member, and an associated function all use it, so `rl::shapes::Rectangle::new`
+reads uniformly from the outside in and there is never a question of which separator
+applies at which level.
+
+A module's `name` in `[module]` identifies the project — in error messages, in `via`, in
+the generated C++ — and is not what code writes; code writes the key a dependent chose.
 
 Circular dependencies between modules are an error. Circular references *within* a module
 are fine — declaration order never matters inside a module. `[DECIDED]`
-
-**The prelude.** A small set of names is in scope in every file with no `import`, because
-the language itself refers to them: `Error` and `SourceLocation` (§9.2), the operator traits
-of §11.2, `Ordering`, `Iterate` (§8.5) and `Format` (§12.9). They are ordinary Dazzle
-declarations in a module named `dz`, which the compiler carries as source and injects; there
-is no second kind of declaration and no compiler-invented symbol. A name may be shadowed by
-a local declaration of the same name, and `dz::Ord` always reaches the prelude's. The
-prelude is the seed of the stdlib (§19 M12) rather than a fixture to be thrown away.
-`[DECIDED — §18.23]`
 
 ### 3.3 `::` versus `.`
 
@@ -750,7 +819,7 @@ impl<T: Copy> Copy for Buffer<T> {  // copy constructor, for the instances it co
 ```
 
 The constructor is a member, since it is how a value comes to exist. `drop` and `copy` are
-implementations of the prelude's `Drop` and `Copy` traits (§7.6): they are behaviour a type
+implementations of the standard library's `Drop` and `Copy` traits (§7.6): they are behaviour a type
 has, and a bound can then ask for it — `T: Copy`. They are stricter than other
 implementations, because they become the struct's C++ destructor and copy constructor and
 so are part of its definition: written in the struct's own module, for the struct itself —
@@ -973,6 +1042,36 @@ whatever order the type declares them in. `&&` and `||` still skip their right o
 the left decides. **Assignment is the one exception: the value is evaluated before the
 place it is stored in** — in `xs[next()] = compute()`, `compute()` runs first — for `=` and
 for every compound assignment alike. `[DECIDED — §18.49]`
+
+**Variadic parameters.** The last parameter may take any number of arguments, written
+`name: ..T`. In the body it is a read-only slice, `[]T`:
+
+```dz
+fn sum(xs: ..i32) -> i32 {
+    let mut t = 0
+    for x in xs { t += x }
+    return t
+}
+
+sum()               // an empty slice
+sum(1, 2, 3)        // the arguments, in a temporary array on the caller's stack
+sum(..numbers)      // spread: an existing slice or array, passed as it is
+```
+
+- It must be last and has no default; its arguments come after every fixed one.
+- `..xs` spreads a slice or array, and must then be the *only* variadic argument —
+  `sum(1, ..xs)` is an error; build the slice you want first. Forwarding is
+  `inner(..args)`.
+- Arguments are evaluated left to right like any others, moved into the array when they
+  are move-only, and dropped when the call's statement ends.
+- **Arguments of different types** share a slice through trait references: with
+  `things: ..&Describe`, `tell(cat, 7, Cat{})` borrows each argument as a `&Describe` for
+  the call. `..^Describe` works too, though a call through a `^T` is `unsafe` (§5.2).
+- Methods, constructors and generic functions may be variadic; `fn biggest<T: Ord>(first:
+  T, rest: ..T)` infers `T` from the arguments.
+- As a value, a variadic function is a plain `fn([]T) -> R` that takes its slice.
+
+C variadic functions (`printf`) are still not imported (§15.2). `[DECIDED — §18.56]`
 
 ### 7.3 Structs
 
@@ -1815,7 +1914,7 @@ The location is the `panic`'s own line, unless a `SourceLocation` is passed as t
 argument**, after the format arguments: `panic("missing {}", what, loc)`. That is how a
 helper reports its caller's line — it takes `loc: SourceLocation = #location` (§12.7) and
 hands it on. A `SourceLocation` cannot be formatted, so it is never mistaken for a value.
-`assert(cond, msg = "")` is the prelude's helper of this kind. `[DECIDED]`
+`assert(cond, msg = "")` is the standard library's helper of this kind. `[DECIDED]`
 
 Panics are for: out-of-bounds indexing, integer overflow in debug, failed assertions,
 exhausted fixed-size pools, and violated invariants. Errors are for: I/O, parsing,
@@ -2002,7 +2101,7 @@ own so the loop variable may shadow anything outside it:
 
 **`<xs as an iterator>`** is `xs` itself when it implements `Iterate`. Otherwise it is
 `xs.iter()` from **`Iterable`**, or `xs.iter_mut()` from **`IterableMut`** when a binding is
-`&mut` — the prelude traits a container implements to hand out a fresh iterator, since an
+`&mut` — the standard library traits a container implements to hand out a fresh iterator, since an
 iterator keeps its position in itself and a container must not:
 
 ```dz
@@ -2434,7 +2533,7 @@ pub fn alloc(size: usize, loc: SourceLocation = #location) -> ^mut u8 {
 - **Whose flags**: a package reads its own flags bare, and a dependency's through the
   dependency — `#if engine::PROFILE`. A package's flags are turned on by what depends on it
   (`engine = { path = "…", flags = ["PROFILE"] }`) or from the command line for one build:
-  `dz run --flag CHEATS`, `--flag engine::PROFILE`. The prelude's `TRACK_MEMORY` is
+  `dz run --flag CHEATS`, `--flag engine::PROFILE`. The standard library's `TRACK_MEMORY` is
   `--track-memory` or `[build] track_memory = true`.
 - **The inactive branch is parsed, not checked.** It is formatted and shown by the editor,
   but never resolved or type-checked, so it may name what exists only on another platform or
@@ -2625,7 +2724,7 @@ fn update(&mut self, dt: f32) {
 
 **Memory tracking** is off unless a build turns it on — `dz run --track-memory`, or
 `[build] track_memory = true` in the root manifest — and costs nothing when off: it is the
-prelude's `TRACK_MEMORY` flag (§12.10), and the tracker does not exist without it. With it:
+standard library's `TRACK_MEMORY` flag (§12.10), and the tracker does not exist without it. With it:
 
 - every `Global` allocation is recorded with its size, alignment and `loc`;
 - **a leak** — still live when the program ends — is reported with the line that allocated it;
@@ -2635,7 +2734,7 @@ prelude's `TRACK_MEMORY` flag (§12.10), and the tracker does not exist without 
 - **a free whose size or alignment differs** from the allocation panics;
 - **`Temp.reset()` poisons** what it releases with `0xDD`, so a stale read shows.
 
-**`List<T>`** is the growable array, in the prelude. `List<i32>()` is empty and allocates
+**`List<T>`** is the growable array, in `std`. `List<i32>()` is empty and allocates
 nothing; `List<T>(capacity, allocator)` takes both. It doubles when it grows; `push`,
 `pop` (a `T?`), `insert`, `remove`, `swap_remove`, `clear`, `truncate`, `resize` (new
 elements at their defaults), `reserve`, `len`, `capacity`, `is_empty`; `b[i]` reads and
@@ -2644,13 +2743,13 @@ It is move-only unless `T` is copyable, and then a copy copies into a new alloca
 same allocator. Every call that may allocate takes `loc = #location`, so tracking names the
 line that pushed.
 
-**`String`** is owned UTF-8 text, in the prelude: `String("x")` or `String::from("x")` copy a
+**`String`** is owned UTF-8 text, in `std`: `String("x")` or `String::from("x")` copy a
 `str`, with an allocator as a second argument. `push_str`, `push` (a `char`, encoded),
 `clear`, `reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
 `as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
 compares text, and a copy copies it.
 
-**`HashMap<K: Hash + Eq, V>`** maps keys to values, in the prelude. `HashMap<K, V>()` is
+**`HashMap<K: Hash + Eq, V>`** maps keys to values, in `std`. `HashMap<K, V>()` is
 empty and allocates nothing; `HashMap<K, V>(capacity, allocator)` takes both. `insert(k, v)`
 adds or replaces, dropping a replaced value; `replace(k, v)` returns it as a `V?` instead.
 A lookup takes the key by reference and follows §9.1 — `get(&k)` is a `^V` and `get_mut(&k)`
@@ -2663,7 +2762,7 @@ for an empty slot. It is
 move-only unless `K` and `V` are both copyable. Keys are found by linear probing, the table
 doubles at three quarters full, and removal leaves no markers behind.
 
-**`Hash`** is the prelude trait a key needs: `fn hash(&self) -> u64`, equal values hashing
+**`Hash`** is the `std` trait a key needs: `fn hash(&self) -> u64`, equal values hashing
 equally. Integers, `bool`, `char` and `str` implement it, and `Eq`, without an `impl`, and
 the methods can be called on them directly — `id.hash()`, `name.eq(&other)`, `a.cmp(&b)`.
 Floats do not implement `Hash`, since `NaN != NaN` would break that promise. `String`
@@ -2693,21 +2792,30 @@ not-yet-constructed state, so all three are `unsafe` (§5.2), as are `memcpy` an
 `move_out` is how `List::pop` returns an element, and how growing a list of move-only
 elements carries them to the new memory. `[DECIDED — §18.16, §18.50]`
 
-### 14.4 The standard library: `std::math`
+### 14.4 The standard library: `std`
 
-Beyond the prelude, the standard library's modules live under **`std::`** and are carried
-by the compiler. One is part of a build only when some file imports it, and needs no
-`[dependencies]` entry:
+The standard library is **one module, `std`**, carried by the compiler as Dazzle source:
+the language's traits (`Drop`, `Copy`, `Eq`, `Ord`, the operators, `Iterate`, `Format`),
+the allocators, the containers and the math below. Its names are flat — `std::String`,
+`std::List`, `std::Vec2` — with one declaration to a file, as any project may organise
+itself (§3.1). A module names it in its manifest like any dependency, and usually opens it
+(§3.2):
 
-```dz
-import std::math                      // math::Vec3, math::PI
-import std::math::{ Vec3, Mat4 }      // Vec3, Mat4
+```toml
+[dependencies]
+std = { open = true }       # String, Vec2, Allocators — and std::Vec2 where needed
 ```
 
-The name `std` and every name under it are reserved: a project named `std::anything` is an
-error. `[DECIDED — §18.55]`
+Every declaration the language itself relies on lives here, and the compiler reaches those
+without the program naming them: a `for` over a `List` or a `println` of a `Vec2` works in a
+module that does not list `std`, which simply cannot write `List` or `Vec2` itself. Only what
+a program uses is instantiated and emitted, so a flat, always-present library costs a
+program nothing it does not call.
 
-**`std::math`** holds:
+The name `std` is reserved: a project named `std`, or a dependency key `std` with a `path`,
+is an error. `[DECIDED — §18.57, superseding §18.23 and §18.55]`
+
+**The math** holds:
 
 - **Constants** `PI`, `TAU`, `E` (`f32`) and `PI_F64`.
 - **`Float`**, implemented by `f32` and `f64`, and **`Integer`**, implemented by every integer
@@ -2756,6 +2864,7 @@ sources      = ["src/rcore.c", "src/rshapes.c", "src/rtextures.c", "src/rtext.c"
                 "src/rmodels.c", "src/raudio.c", "src/utils.c"]
 include_dirs = ["src"]
 defines      = ["GRAPHICS_API_OPENGL_33"]
+import       = ["raylib.h"]              # what Dazzle code sees: see below
 
 [cpp.libs.raylib.target.windows]        # added to the above when building for Windows
 sources   = ["src/rglfw.c"]
@@ -2775,6 +2884,7 @@ defines      = ["RGFW_IMPLEMENTATION"]
 include_dirs = ["vendor/jolt/include"]
 lib_dirs     = ["vendor/jolt/lib"]
 link_libs    = ["Jolt"]
+import       = ["Jolt/Physics/Body/Body.h"]
 
 [cpp]                                   # for everything, not tied to one library
 defines = ["JPH_PROFILE_ENABLED=0"]
@@ -2824,10 +2934,25 @@ defines = ["JPH_PROFILE_ENABLED=0"]
   way. Ship its binaries through `lib_dirs` and `link_libs`, or generate the file once and
   vendor it. `[DECIDED]`
 
-```dz
-import cpp "raylib.h" as rl
-import cpp "Jolt/Physics/Body/Body.h" as jolt
+- **`import`** lists the headers Dazzle code sees of the library: their declarations become
+  a module of their own, which the manifest names like any dependency, `rl = { cpp =
+  "raylib" }` (§3.2). A header is found as `#include <raylib.h>` would find it, through the
+  include dirs, and the generated C++ includes it by that same name. A library whose API
+  is spread over several headers lists them all — `import = ["raylib.h", "raymath.h"]` —
+  and they are read together, as one module under one key. A library with no `import` is
+  built and linked and nothing more. A system library needs no sources, only its link names
+  and the header: `[cpp.libs.opengl]` with `import = ["GL/gl.h"]` under `target.linux`.
+  There is no `import cpp` in a source file: a header is named once, beside the recipe
+  that builds it, so renaming or replacing a library touches one table. `[DECIDED —
+  §18.57]`
 
+```toml
+[dependencies]
+rl   = { cpp = "raylib" }
+jolt = { cpp = "jolt" }
+```
+
+```dz
 fn main() {
     rl::InitWindow(1280, 720, "Dazzle")
     defer rl::CloseWindow()
@@ -2845,6 +2970,12 @@ The compiler runs **libclang** over the header with the configured include paths
 defines, walks the resulting AST, and materialises Dazzle-visible declarations. The
 generated C++ contains `#include "raylib.h"` and calls `InitWindow(1280, 720, "Dazzle")`
 directly.
+
+A header's module opens like any dependency (§3.2): `rl = { cpp = "raylib", open = true }`
+lets the same program write `InitWindow(…)` and `RAYWHITE` bare, with `rl::` still available
+where a name needs telling apart. A C library's names usually carry their own prefix, which
+is what makes this reasonable; a header like `windows.h`, with its thousands of macros, is
+better left behind a name.
 
 Import results are cached, keyed on the header's content hash plus the flags, so the
 libclang pass runs once and not on every build.
@@ -2936,9 +3067,16 @@ want, and they are imported as ordinary concrete types:
 "JPH::Array<JPH::BodyID>"      = "BodyIdArray"
 ```
 
+```toml
+[cpp.libs.stdvector]
+import = ["vector"]
+
+[dependencies]
+cppstd = { cpp = "stdvector" }
+```
+
 ```dz
-import cpp "vector" as std
-let v: std::StdVecF32
+let v: cppstd::StdVecF32
 ```
 
 The Dazzle name is a name of the header's module, whatever namespaces the C++ type sits in;
@@ -3189,7 +3327,10 @@ priority order:
    overloading — one name, one symbol).
 4. Completion: members after `.`, module members after `::`, struct-literal field names,
    `case` arms for a union, **and inside generic bodies**, which is the payoff for
-   definition-site checking (§8.1).
+   definition-site checking (§8.1). A bare name also offers the exports of dependencies
+   that are not opened, and choosing one writes it with its key: typing `DrawLi` inserts
+   `rl::DrawLine` (§3.2). In `dazzle.toml`, a header in a recipe's `import` and a
+   dependency's `path` are links to what they name.
 5. Completion inside macro invocations, using the macro's declared grammar (§12).
 6. Code actions: fill missing `switch` arms, add a missing trait method, insert `move()` on
    a use-after-move error, add a missing `impl Drop`.
@@ -3288,7 +3429,7 @@ be exactly what reload needs, and must stay that way:
 | 18.22 | Is a slice writable through an immutable binding? | **Neither — writability moves into the type.** `[]T` is a read-only view and `[]mut T` a writable one, standing to each other as `&T` and `&mut T` do. Following the binding was rejected because a slice is a view, so the binding says nothing about the elements (§5.3) |
 | 18.25 | Can a `&T` be read as a `T`? | **Not yet — and the operator traits stop needing it.** `&T` reaches through `.` for members and is otherwise not a value: `fn f(b: &f32) -> f32 { return b }` is an error, and `^` derefs a `^T` only (§5.2). That made §11.2's `fn mul(&self, rhs: &Rhs)` unimplementable for `Mul<f32>`, so `Rhs` is taken **by value** instead, which is the better signature for the copyable math types these traits exist for. `Eq`/`Ord` keep `&Self`, because comparing a move-only type must not consume it. Whether `&T` should gain a read of its own is left open — nothing needs it now. **Settled by 18.35**: it reads as a `T` where one is wanted |
 | 18.24 | Array literals, and reaching an enum variant without naming its type | **`[a, b, c]`, with the length exactly as written**: no repeat form (§6.2 already zeroes an array, and `;` is a terminator so `[0; 8]` is unavailable), no short form, and a literal may not be *stored* as a slice though it may be passed as one (§5.3). **`.Selected` works wherever the enum is already known** — the same mechanism a union variant already used — while `Sprite::Selected` always works and is what an uninferrable position needs (§7.4). `Sprite.Selected` stays invalid: `.` is the runtime operator (§3.3) |
-| 18.23 | Where do `Ord`, `Add`, `Iterate` and `Format` live before the stdlib? | **An implicit prelude written in Dazzle**, module `dz`, carried as source by the compiler and in scope everywhere with no import. Not compiler-invented symbols: the trait machinery is then exercised by real Dazzle code from the first day it exists, and at M12 the prelude grows into the stdlib instead of being deleted (§3.2) |
+| 18.23 | Where do `Ord`, `Add`, `Iterate` and `Format` live before the stdlib? | **An implicit prelude written in Dazzle**, module `dz`, carried as source by the compiler and in scope everywhere with no import. Not compiler-invented symbols: the trait machinery is then exercised by real Dazzle code from the first day it exists, and at M12 the prelude grows into the stdlib instead of being deleted (§3.2). *Superseded by 18.57:* the prelude became the module `std`, named in the manifest like any dependency |
 | 18.16 | Implicit `&T` → `^T` widening, and what a raw pointer may do | **Forming a pointer is safe; using one is `unsafe`.** `&mut T` → `^T` stays implicit; `&T` → `^T` is forbidden, since a `^T` may be written through and a `&T` promises it will not be. Reading or writing through a `^T` (`p^`, `.`, `[i]`), a pointer cast, `construct`/`destroy`/`memcpy`/`free`, and calling an `unsafe fn` are allowed only inside `unsafe { }` or an `unsafe fn`. The `or` conversion stays safe and yields a `&mut T`. `unsafe` is a marker, not a proof: it promises that raw-memory operations are findable, not that safe code is free of undefined behaviour. Array and slice indexing is therefore safe and bounds-checked in every build, with `xs.ptr` as the unchecked spelling (§5.2, §5.3). An explicit `as ^T` was rejected because it makes forming the pointer loud and leaves using it silent — the opposite of where the danger is. **Its first half is revised by 18.37**: a pointer now says whether it may be written through, so `&T` → `^T` is allowed — a `^T` is only read — and it is `&T` → `^mut T` that is refused |
 | 18.26 | Copying a `T` inside a compile-time branch | **A `copy` only where `T` is `Copy`.** Written since r13 as a bounded implementation, `impl<T: Copy> Copy for Buffer<T>`: `Buffer<f32>` copies, `Buffer<File>` is move-only, and inside the `copy` `T` is `Copy` because the implementation says so (r12 had the same effect through an implicit rule). Every copyable type satisfies `Copy`, so `fn dup<T: Copy>` can say what it needs. Bounding the container itself (`Buffer<T: Copy>`) was rejected because it would shut out every element type that owns a resource (§8.2, §8.3) |
 | 18.27 | One operator, two right-hand sides | **A type may implement one trait at several arguments**, one `impl` each, and the argument's type picks one — an exact match, then an untyped literal's default type, else an error asking for a type. The one overloading there is, and only for this; a repeated method name in a struct is still an error (§11.2) |
@@ -3321,7 +3462,10 @@ be exactly what reload needs, and must stay that way:
 | 18.51 | How `for` gets an iterator from a container | **Two prelude traits, `Iterable` and `IterableMut`**, each naming its iterator as an associated type: `fn iter(&self) -> Iter` and `fn iter_mut(&mut self) -> IterMut`. `for` over a value that is not itself `Iterate` calls `iter()`, or `iter_mut()` when a binding is `&mut`. Chosen over finding `iter()` by name, which states no contract and cannot be a bound: `fn total<C: Iterable>(c: &C)` must be writable (§8.5, §10.4) |
 | 18.52 | A union variant that owns something | **§7.5's proposal adopted: a union owns its active payload.** It is dropped with the union, dropped before another variant is assigned, and moved by moving the active payload. A union is copyable only when every variant is. This is also what lets a variant carry a struct with a constructor, `copy`, `drop`, base or `virtual` method (§7.5) |
 | 18.53 | `T` where a `T?` is wanted | **Converts, as at `return`.** A `T` becomes a `T?` wherever a `T?` is expected — a `let` with that type, an argument, an assignment — and where `if` or `switch` arms are joined and some arm is already a `T?` or `none`. Never the other way: a `T?` to a `T` still takes `or`. Chosen over `return`-only, which made state-machine `switch`es write every arm out as an optional (§9.1) |
-| 18.55 | The standard library's math | **A compiler-carried module `std::math`, loaded by `import std::math`; the name `std` reserved.** Chosen over the prelude, which would put `Vec3` and `PI` in every file, and over a plain `math`, which a project's own module could take. `f32` vectors, `Quat` and `Mat4`, plus `Vec2i`/`Vec3i` for grids — a generic `Vec3<T>` would wait on associated-type projection. **Methods everywhere**, scalars included through `Float` and `Integer` (`x.sqrt()`, `n.wrapping_add(m)`), since without overloading a free `lerp` could not serve `f32` and `Vec3` both. **Column-major matrices** on column vectors, as OpenGL, GLSL and glm, so a `Mat4` is `projection * view * model` and its floats are in the order a shader wants (§14.4) |
+| 18.56 | Variadic parameters | **`name: ..T`, last, seen as a read-only `[]T`; `f(..xs)` spreads a slice as the only variadic argument; C varargs stay unimported.** The caller builds a temporary array, so there is no allocation and nothing is instantiated per call. Arguments of different types go through a trait reference (`..&Format`), which is what a library `println` needs. Chosen over same-type-only, which leaves `println` a builtin forever, and over compile-time packs (C++ `Ts...`), which cannot be walked without macros (M10). `..` rather than `...`: it already means "a run of" and needs no new token. A spread is explicit, so a `[]T` argument is never silently one element or many (§7.2) |
+| 18.57 | Where a module's imports are declared | **In `dazzle.toml`, for the whole module; not in each file.** A dependency's key is its name in every file (`rl::DrawLine`); `open = true` also makes its exports bare; `std` is one flat module (`std::Vec2`, `std::String`) listed like any dependency, and not listed means not nameable; a C or C++ header is named once, in its recipe's `import`, and depended on as `rl = { cpp = "raylib" }`. A bare name is found in locals, then the module's own declarations, then a file's `{ … }` import, then `[names]`, then the opened dependencies — where **two different declarations are an error at the use** (DZ0310), with no precedence by manifest order, since reordering a manifest or upgrading a library must never silently change which declaration a name means. A file keeps `import m::{ … }` and `import m as x` as the exception. Chosen over per-file imports (Java, Rust `use`, the earlier Dazzle): in a game the same engine, math and container types are used in nearly every file, and a per-file alias let one file call a library `rl` and the next `raylib`. Precedent: C#'s project-level global usings, and Rust's extern prelude, which puts every Cargo dependency in scope under its manifest name. What made C++'s `using namespace` fail — names leaking transitively, and clashes settled silently — is ruled out by private dependencies (18.58) and the use-site error. The cost is that a bare name's origin is not written in the file; the editor shows it (§3.2, §14.4, §15.1) |
+| 18.58 | Whether a dependency's names reach the modules that depend on this one | **Private by default; `pub = true` re-exports it, nested under the exporting module** (`rl::shapes::Rectangle`), and a dependent may name it itself with `via = "rl::shapes"`. A private dependency's type in a `pub` signature is an error (DZ0311). Nested rather than merged into the exporter's names, because a wrapper usually reuses the names of what it wraps. Follows Java's `requires` / `requires transitive` and Swift 6's `internal import` / `public import`, which also rejects a public API naming an internally-imported type; Rust merely warns, and leaves users holding values whose type they cannot write (§3.2) |
+| 18.55 | The standard library's math | **A compiler-carried module `std::math`, loaded by `import std::math`; the name `std` reserved.** Chosen over the prelude, which would put `Vec3` and `PI` in every file, and over a plain `math`, which a project's own module could take. `f32` vectors, `Quat` and `Mat4`, plus `Vec2i`/`Vec3i` for grids — a generic `Vec3<T>` would wait on associated-type projection. **Methods everywhere**, scalars included through `Float` and `Integer` (`x.sqrt()`, `n.wrapping_add(m)`), since without overloading a free `lerp` could not serve `f32` and `Vec3` both. **Column-major matrices** on column vectors, as OpenGL, GLSL and glm, so a `Mat4` is `projection * view * model` and its floats are in the order a shader wants (§14.4). *Loading by `import std::math` superseded by 18.57:* the math is part of the one flat `std` module |
 | 18.54 | Traits an enum has without an `impl` | **`Eq`, `Hash` and `Ord`, as the integers they are.** Equality and order compare values — declaration order when values are implicit — and a hash is the value's. So an enum is a `HashMap` key and satisfies `T: Ord` with nothing written (§7.4) |
 
 ### 18.2 Still open
@@ -3380,9 +3524,8 @@ match it.
 ```ebnf
 file          = { import | declaration } ;
 
-import        = "import" ( module_path [ "as" ident ]
-                         | module_path "::" "{" ident { "," ident } "}"
-                         | "cpp" string [ "as" ident ] ) TERM ;
+import        = "import" ( module_path "as" ident
+                         | module_path "::" "{" ident { "," ident } "}" ) TERM ;
 module_path   = ident { "::" ident } ;
 
 declaration   = { attribute } [ visibility ] ( fn_decl | struct_decl | union_decl
@@ -3494,6 +3637,8 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r50 | 2026-09-14 | **Imports move into `dazzle.toml`** (§3.2, §14.4, §15.1, 18.57–18.58). A module's `[dependencies]` are what every one of its files can name, by their key — no `import` line per file. `open = true` makes a dependency's exports bare (`Vec2`, and `std::Vec2` still works); a bare name two opened dependencies both export is an error on the line that writes it (DZ0310), settled by qualifying it or by `[names] Vec2 = "std"`. **The prelude is now `std`**, one flat module holding the language traits, allocators, `String`, `List`, `HashMap` and the math: `std::Vec2`, not `std::math::Vec2`. It must be listed — `std = { open = true }` — or its names cannot be written. **`import cpp` is gone**: a recipe lists the headers Dazzle sees in `import = ["raylib.h"]`, and the module depends on it with `rl = { cpp = "raylib" }`; several headers are read together as one module. A dependency nothing names is a warning (DZ0313). **Dependencies are private**; `pub = true` re-exports one as `lib::dep`, a dependent can name it with `via`, and a private dependency's type in a `pub` signature is an error (DZ0311). In a file, `import m::{ A, B }` and `import m as x` remain, for one file's exceptions; `import m` alone and `import cpp` are errors. |
+| r49 | 2026-09-14 | **Variadic parameters** (§7.2, 18.56): `fn sum(xs: ..i32)` takes any number of `i32`s and sees a read-only `[]i32`; `sum(..xs)` spreads a slice or array, as the only variadic argument. Must be last, with no default. `..&Trait` takes arguments of different types, each borrowed for the call. Works on methods, constructors and generic functions; as a value the function takes its slice. |
 | r48 | 2026-09-13 | **`std::math`** (§14.4, 18.55): the first standard-library module beyond the prelude, carried by the compiler and loaded by `import std::math`; `std` and names under it are reserved for the standard library. `Float` and `Integer` methods on numbers (`x.sqrt()`, `n.wrapping_add(m)`, `checked_add`, `saturating_sub`), `Vec2`/`Vec3`/`Vec4`, `Vec2i`/`Vec3i`, `Quat` and a column-major `Mat4`. Also: **unary `-` on a struct is its `Neg`** (§11.2), **`==` accepts a temporary on its right** as well as a place, and **the most negative value of a signed type is a literal** — `let x: i8 = -128` was rejected because `128` was checked before the minus (§2.5). |
 | r47 | 2026-09-13 | Four design decisions, 18.51–18.54. **`Iterable` and `IterableMut`** (§10.4): `for` over a container calls `iter()`, or `iter_mut()` for a `&mut` binding; `List` and `HashMap` implement both, and `C: Iterable` is a bound generic code can loop over. **A union owns its active payload** (§7.5): variants may hold resources, dropped with the union or when another variant is assigned; a union is copyable only when every variant is. **`T` converts to `T?` wherever a `T?` is expected** (§9.1) — `let`, arguments, assignment, and `if`/`switch` arms joined with a `T?` or `none` — not only at `return`. **Enums implement `Eq`, `Hash` and `Ord`** without an `impl` (§7.4). Decided now, implemented in the order: enums, `T?`, unions, iteration. |
 | r46 | 2026-09-13 | **`assert` is an ordinary prelude function**, `assert(cond: bool, msg: str = "", loc: SourceLocation = #location)`, no longer a builtin; the message is optional. **`panic` takes a location as its last argument** (§9.8): `panic("missing {}", what, loc)` reports `loc` instead of its own line, which is how `assert` — and any helper taking `loc = #location` — names its caller's line. |

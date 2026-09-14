@@ -4,7 +4,8 @@ version = "0.1.0"
 sources = ["src/**/*.dz"]
 
 [dependencies]
-math = { path = "../math" }
+std = { open = true }
+math = { path = "../math", pub = true }   # its Vec3 is in engine's interface
 
 [build]
 output = "static-lib"

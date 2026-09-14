@@ -1,0 +1,15 @@
+/// A value's hash, which is what lets it be a `HashMap` key (§14.2).
+///
+/// Values that are equal must hash equally; values that differ should hash differently in
+/// as many bits as possible, since a table keeps only a few of them. Integers, `bool`,
+/// `char` and `str` implement it already — floats do not, because `NaN != NaN` and
+/// `0.0 == -0.0` break that first promise. For a struct, combine its fields':
+/// `hash_combine(x.hash(), y.hash())`.
+pub trait Hash {
+    fn hash(&self) -> u64
+}
+
+/// Two hashes as one, where the order matters: `(a, b)` and `(b, a)` hash apart.
+pub fn hash_combine(seed: u64, h: u64) -> u64 {
+    return seed ^^ (h + 0x9E3779B97F4A7C15 + (seed << 6) + (seed >> 2))
+}

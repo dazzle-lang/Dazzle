@@ -1,0 +1,3 @@
+pub struct Handle {
+    pub id: i32
+}

@@ -16,7 +16,7 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use dz_ast::{
@@ -69,17 +69,13 @@ pub fn format(parsed: &Parsed) -> Option<String> {
     Some(dz_fmt::format(parsed.map.get(parsed.file), &parsed.ast, &parsed.comments))
 }
 
-/// The prelude's pseudo-path (`<prelude>/dz.dz`) names nothing an editor can open or change.
+/// A standard-library pseudo-path (`<std>/text/string.dz`) names nothing an editor can open or
+/// change.
 fn is_pseudo(path: &Path) -> bool {
     path.to_string_lossy().starts_with('<')
 }
 
-/// The prelude file the analysis parsed and checked.
-pub fn prelude_file(a: &Analysis) -> Option<FileId> {
-    embedded_file(a, "<prelude>/dz.dz")
-}
-
-/// The embedded file at `pseudo` (`<std>/math.dz`) that the analysis parsed and checked, if
+/// The embedded file at `pseudo` (`<std>/math/vec3.dz`) that the analysis parsed and checked, if
 /// this build includes it. Looked up through the parsed files, not the source map: the map
 /// may hold an embedded text more than once, and only one of those ids has a tree,
 /// declarations and bodies.
@@ -89,6 +85,53 @@ pub fn embedded_file(a: &Analysis, pseudo: &str) -> Option<FileId> {
         .flatten()
         .map(|f| f.file)
         .find(|&f| a.map.get(f).path().to_string_lossy().replace('\\', "/") == pseudo)
+}
+
+/// The links in the manifest at `manifest`, in the manifest's file: a recipe's
+/// `import = ["raylib.h"]` to the header the include search found, a `cpp = "raylib"` to the
+/// same header, and a `path` to the dependency's manifest (spec §17.4). Each with a tooltip.
+pub fn manifest_links(a: &Analysis, manifest: &Path) -> Vec<(FileId, Span, PathBuf, String)> {
+    let Some(ws) = a.ws.as_ref() else { return Vec::new() };
+    let same = |p: &Path| match (p.canonicalize(), manifest.canonicalize()) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => p == manifest,
+    };
+    let header_of = |recipe: &str| {
+        ws.modules().find(|m| m.name == recipe).and_then(|m| m.foreign.as_ref()).map(|f| &f.header)
+    };
+    let mut out = Vec::new();
+    for m in ws.modules().filter(|m| m.foreign.is_none() && !m.embedded && same(&m.manifest_path)) {
+        for d in m.deps.iter().filter(|d| !d.implicit && d.source_span != Span::DUMMY) {
+            let target = ws.module(d.module);
+            if target.embedded {
+                continue;
+            }
+            match &target.foreign {
+                Some(f) => out.push((
+                    m.manifest,
+                    d.source_span,
+                    f.header.path.clone(),
+                    format!("the header `{}`", f.header.requested.join("`, `")),
+                )),
+                None => out.push((
+                    m.manifest,
+                    d.source_span,
+                    target.manifest_path.clone(),
+                    format!("module `{}`", target.name),
+                )),
+            }
+        }
+        for lib in &m.cpp.libs {
+            let Some(header) = header_of(&lib.name) else { continue };
+            for (name, span) in &lib.import {
+                // Each entry to the file the include search found for it.
+                let Some(i) = header.requested.iter().position(|r| r == name) else { continue };
+                let Some(path) = header.paths.get(i) else { continue };
+                out.push((m.manifest, *span, path.clone(), format!("the header `{name}`")));
+            }
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +699,9 @@ pub fn info_at(a: &Analysis, file: FileId, offset: u32) -> Option<Info> {
             hover: Some(code(&type_name_in_file(q.res, file, &expr.ty))),
         });
     };
+    if let Some(info) = module_info(&q, file, &tokens, text, i) {
+        return Some(info);
+    }
     let Some(target) = q.target_at(file, &tokens, text, i) else {
         // A member of a type the language provides (`e.message` on an `Error`) has no
         // declaration to show or go to, but the checker still typed it.
@@ -671,6 +717,57 @@ pub fn info_at(a: &Analysis, file: FileId, offset: u32) -> Option<Info> {
         span: tokens[i].span,
         definition: q.target_definition(&target),
         hover: q.target_hover(&target),
+    })
+}
+
+/// A dependency key, or a public dependency along a path — `rl` in `rl::DrawLine`, `units`
+/// in `phys::units::Meters` — which has no declaration of its own: it goes to the header a
+/// `cpp` dependency imports or the manifest of a project, and says which (spec §3.2, §17.4).
+fn module_info(q: &Query, file: FileId, tokens: &[Token], text: &str, i: usize) -> Option<Info> {
+    if tokens.get(i + 1).map(|t| t.kind) != Some(TokenKind::ColonColon) {
+        return None;
+    }
+    let mut start = i;
+    while start >= 2
+        && tokens[start - 1].kind == TokenKind::ColonColon
+        && is_name(tokens[start - 2].kind)
+    {
+        start -= 2;
+    }
+    let path: Vec<&str> = (start..=i).step_by(2).map(|j| tokens[j].text(text)).collect();
+    let (m, used) = q.res.module_prefix(file, &path)?;
+    if used != path.len() {
+        return None;
+    }
+    let ws = q.a.ws.as_ref()?;
+    let module = ws.module(m);
+    let key = tokens[i].text(text);
+    let (definition, what) = match &module.foreign {
+        Some(f) => {
+            // The file the first header was found at, among those the header module read.
+            let first = f.header.paths.first();
+            let id = f
+                .files
+                .iter()
+                .copied()
+                .find(|id| first.is_some_and(|p| q.a.map.get(*id).path() == p.as_path()))
+                .or_else(|| f.files.first().copied());
+            let names: Vec<String> = f.header.requested.iter().map(|h| format!("`{h}`")).collect();
+            (
+                id.map(|id| (id, Span::new(0, 0))),
+                format!("the C or C++ headers {}", names.join(", ")),
+            )
+        }
+        None if module.embedded => (None, "the standard library".to_owned()),
+        None => (
+            Some((module.manifest, Span::new(0, 0))),
+            format!("module `{}`, `{}`", module.name, module.manifest_path.display()),
+        ),
+    };
+    Some(Info {
+        span: tokens[i].span,
+        definition,
+        hover: Some(format!("**dependency** `{key}` — {what}")),
     })
 }
 
@@ -1022,11 +1119,31 @@ impl<'a> Query<'a> {
         let module = self.module_of(file)?;
         let name = tokens[i].text(text);
         if i >= 2 && tokens[i - 1].kind == TokenKind::ColonColon && is_name(tokens[i - 2].kind) {
-            let head = tokens[i - 2].text(text);
-            if let Some(m) = self.res.module_alias(file, head) {
-                return self.res.lookup(m, name).map(Ref::Symbol);
+            // Every segment before this one, so `rl::shapes::Rectangle` walks the public
+            // dependency `shapes` of `rl` (spec §3.2).
+            let mut start = i - 2;
+            while start >= 2
+                && tokens[start - 1].kind == TokenKind::ColonColon
+                && is_name(tokens[start - 2].kind)
+            {
+                start -= 2;
             }
-            let owner = self.res.lookup_in_file(module, file, head)?;
+            let before: Vec<&str> =
+                (start..i - 1).step_by(2).map(|j| tokens[j].text(text)).collect();
+            if let Some((m, used)) = self.res.module_prefix(file, &before) {
+                if used == before.len() {
+                    return self.res.lookup(m, name).map(Ref::Symbol);
+                }
+            }
+            // `rl::Color::Red`, `Layer::Ui`: whatever the segments before name, then its member —
+            // or, inside a C++ namespace, the declaration it holds.
+            let (owner, used) = self.res.path_item(module, file, &before)?;
+            if used != before.len() {
+                return None;
+            }
+            if let Some(inner) = self.res.inner(owner, name) {
+                return Some(Ref::Symbol(inner));
+            }
             return Some(self.member_ref(owner, name));
         }
         // A `.member` the checker did not resolve has no answer a name lookup could give.
@@ -1254,6 +1371,11 @@ impl<'a> Query<'a> {
     }
 
     fn symbol_completion(&self, s: SymbolId, out: &mut Completions) {
+        let (kind, detail) = self.symbol_kind_detail(s);
+        out.push(&self.res.symbol(s).name, kind, detail);
+    }
+
+    fn symbol_kind_detail(&self, s: SymbolId) -> (CompletionKind, Option<String>) {
         let sym = self.res.symbol(s);
         let kind = match sym.kind {
             SymbolKind::Struct => CompletionKind::Struct,
@@ -1267,7 +1389,7 @@ impl<'a> Query<'a> {
             SymbolKind::Namespace => CompletionKind::Module,
         };
         let detail = self.decl_at(sym.file, sym.span).map(|d| d.header);
-        out.push(&sym.name, kind, detail);
+        (kind, detail)
     }
 
     fn signature(&self, name: &str, f: &FnSig) -> String {
@@ -1374,6 +1496,8 @@ impl<'a> Query<'a> {
                 self.type_members(owner, true, out);
             }
         }
+        // In the order a bare name is looked for (spec §3.2), so the one it means takes the
+        // single slot a label gets.
         if let Some(scope) = self.res.scopes.get(&module) {
             for &s in scope.items.values() {
                 self.symbol_completion(s, out);
@@ -1387,11 +1511,72 @@ impl<'a> Query<'a> {
                 out.push(alias, CompletionKind::Module, None);
             }
         }
-        if let Some(scope) = self.res.scopes.get(&self.res.prelude) {
-            for &s in scope.items.values() {
-                if self.res.symbol(s).vis == Vis::Public {
+        let Some(names) = self.res.names.get(&module) else { return };
+        for &s in names.picks.values() {
+            self.symbol_completion(s, out);
+        }
+        for key in names.deps.keys() {
+            out.push(key, CompletionKind::Module, None);
+        }
+        for m in &names.opened {
+            for s in self.exports(*m, module) {
+                // A name two opened dependencies export means neither; offering it would
+                // offer an error (DZ0310).
+                let name = &self.res.symbol(s).name;
+                if matches!(
+                    self.res.find_opened(module, &names.opened, name),
+                    dz_resolve::Opened::One(_)
+                ) {
                     self.symbol_completion(s, out);
                 }
+            }
+        }
+    }
+
+    /// What `module` exports that `viewer` may name, in a stable order.
+    fn exports(&self, module: ModuleId, viewer: ModuleId) -> Vec<SymbolId> {
+        let Some(scope) = self.res.scopes.get(&module) else { return Vec::new() };
+        let mut out: Vec<SymbolId> = scope
+            .items
+            .values()
+            .copied()
+            .filter(|s| {
+                let sym = self.res.symbol(*s);
+                dz_resolve::visible_from(sym.vis, sym.module, viewer)
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// The names of dependencies the manifest does not open, matching `typed`, each to be
+    /// written with its key: typing `DrawLi` offers `rl::DrawLine` (spec §3.2, §17.4). A
+    /// name already in scope bare is not offered again.
+    fn complete_through_keys(&self, file: FileId, typed: &str, out: &mut Completions) {
+        let Some(module) = self.module_of(file) else { return };
+        let Some(names) = self.res.names.get(&module) else { return };
+        let mut keys: Vec<(&String, &ModuleId)> = names.deps.iter().collect();
+        keys.sort();
+        for (key, m) in keys {
+            let opened = names.opened.contains(m);
+            for s in self.exports(*m, module) {
+                let sym = self.res.symbol(s);
+                if !fuzzy_match(typed, &sym.name) || sym.kind == SymbolKind::Namespace {
+                    continue;
+                }
+                // An opened dependency's name is offered bare already — unless another opened
+                // one exports it too, when only the qualified spellings compile (DZ0310).
+                if opened
+                    && !matches!(
+                        self.res.find_opened(module, &names.opened, &sym.name),
+                        dz_resolve::Opened::Ambiguous(_)
+                    )
+                {
+                    continue;
+                }
+                let (kind, detail) = self.symbol_kind_detail(s);
+                out.push_qualified(key, &sym.name.clone(), kind, detail);
             }
         }
     }
@@ -1404,26 +1589,24 @@ impl<'a> Query<'a> {
     /// `shp::shapes::geom::` walks a C++ namespace per segment (spec §15.2).
     fn complete_path(&self, file: FileId, segments: &[&str], out: &mut Completions) {
         let Some(module) = self.module_of(file) else { return };
-        let Some((head, mut rest)) = segments.split_first() else { return };
+        let Some(head) = segments.first() else { return };
 
-        let sym = match self.res.module_alias(file, head) {
-            Some(m) => {
-                let Some((next, tail)) = rest.split_first() else {
-                    // `rl::` — everything the module exports.
-                    if let Some(scope) = self.res.scopes.get(&m) {
-                        for &s in scope.items.values() {
-                            let sym = self.res.symbol(s);
-                            if dz_resolve::visible_from(sym.vis, sym.module, module) {
-                                self.symbol_completion(s, out);
-                            }
-                        }
+        // Modules first: a dependency key, then its public dependencies (spec §3.2).
+        let (sym, rest) = match self.res.module_prefix(file, segments) {
+            Some((m, used)) if used == segments.len() => {
+                // `rl::` — everything the module exports, and what it re-exports.
+                for s in self.exports(m, module) {
+                    self.symbol_completion(s, out);
+                }
+                if let Some(names) = self.res.names.get(&m) {
+                    for key in names.public.keys() {
+                        out.push(key, CompletionKind::Module, None);
                     }
-                    return;
-                };
-                rest = tail;
-                self.res.lookup(m, next)
+                }
+                return;
             }
-            None => self.res.lookup_in_file(module, file, head),
+            Some((m, used)) => (self.res.lookup(m, segments[used]), &segments[used + 1..]),
+            None => (self.res.lookup_in_file(module, file, head), &segments[1..]),
         };
         // Each remaining segment is a step into a C++ namespace. A head that resolves to
         // nothing still reaches the type queries below: `T::` on a generic parameter names
@@ -1494,6 +1677,20 @@ pub struct Completion {
     pub label: String,
     pub kind: CompletionKind,
     pub detail: Option<String>,
+    /// What choosing it writes, when that is not the label: `rl::DrawLine` for a name of a
+    /// dependency the manifest does not open (spec §3.2, §17.4).
+    pub insert: Option<String>,
+    /// The dependency key it comes from, shown beside it, when it is not in scope bare.
+    pub source: Option<String>,
+}
+
+/// What [`completion`] offers, and whether the editor must ask again as more is typed —
+/// true when names of dependencies that are not opened were left out for want of a prefix
+/// to filter them by, since offering every one of a C library's would bury the rest.
+#[derive(Debug, Default)]
+pub struct CompletionSet {
+    pub items: Vec<Completion>,
+    pub incomplete: bool,
 }
 
 /// The keywords of spec §2.7. A test holds this to the lexer's own list.
@@ -1552,9 +1749,57 @@ struct Completions {
 impl Completions {
     fn push(&mut self, label: &str, kind: CompletionKind, detail: Option<String>) {
         if self.seen.insert(label.to_owned()) {
-            self.items.push(Completion { label: label.to_owned(), kind, detail });
+            self.items.push(Completion {
+                label: label.to_owned(),
+                kind,
+                detail,
+                insert: None,
+                source: None,
+            });
         }
     }
+
+    /// A name written through a dependency key. One slot per key and label, so two
+    /// dependencies exporting `Vec3` are both offered; never over a name already in scope.
+    fn push_qualified(
+        &mut self,
+        key: &str,
+        label: &str,
+        kind: CompletionKind,
+        detail: Option<String>,
+    ) {
+        if self.seen.contains(label) || !self.seen.insert(format!("{key}::{label}")) {
+            return;
+        }
+        self.items.push(Completion {
+            label: label.to_owned(),
+            kind,
+            detail,
+            insert: Some(format!("{key}::{label}")),
+            source: Some(key.to_owned()),
+        });
+    }
+}
+
+/// Does `label` match what has been typed, the way an editor filters: the first character
+/// the same, ignoring case, and the rest in order. `DrawLi` matches `DrawLine`, `dl` does
+/// not match `DrawLine`.
+fn fuzzy_match(typed: &str, label: &str) -> bool {
+    let mut want = typed.chars().flat_map(char::to_lowercase);
+    let mut have = label.chars().flat_map(char::to_lowercase);
+    let (Some(first), Some(label_first)) = (want.next(), have.next()) else { return false };
+    if first != label_first {
+        return false;
+    }
+    'outer: for w in want {
+        for h in have.by_ref() {
+            if h == w {
+                continue 'outer;
+            }
+        }
+        return false;
+    }
+    true
 }
 
 fn is_ident_char(c: char) -> bool {
@@ -1608,6 +1853,16 @@ pub fn complete(
     text: &str,
     offset: usize,
 ) -> Vec<Completion> {
+    completion(current, fallback, text, offset).items
+}
+
+/// [`complete`], saying also whether the editor must ask again as more is typed.
+pub fn completion(
+    current: Option<(&Analysis, FileId)>,
+    fallback: Option<(&Analysis, FileId)>,
+    text: &str,
+    offset: usize,
+) -> CompletionSet {
     let mut offset = offset.min(text.len());
     while !text.is_char_boundary(offset) {
         offset -= 1;
@@ -1616,7 +1871,7 @@ pub fn complete(
     let line = before.rsplit(['\n', '\r']).next().unwrap_or("");
     // Nothing to offer inside a comment or a string.
     if line.contains("//") || line.matches('"').count() % 2 == 1 {
-        return Vec::new();
+        return CompletionSet::default();
     }
     let lead = &before[..before.len() - trailing_ident(before).len()];
     let current = current.and_then(|(a, file)| Some((Query::new(a)?, file)));
@@ -1629,20 +1884,20 @@ pub fn complete(
         for (q, file) in &analyses {
             q.complete_path(*file, &segments, &mut out);
         }
-        return out.items;
+        return CompletionSet { items: out.items, incomplete: false };
     }
     if let Some(rest) = lead.strip_suffix('.') {
         let recv = trailing_ident(rest);
         // `0..` is a range and `1.` a float; neither has members.
         if rest.ends_with('.') || recv.starts_with(|c: char| c.is_ascii_digit()) {
-            return out.items;
+            return CompletionSet { items: out.items, incomplete: false };
         }
         let dot = (lead.len() - 1) as u32;
         if let Some((q, file)) = &current {
             if q.a.map.get(*file).text() == text {
                 if let Some((body, ty)) = q.receiver(*file, dot) {
                     q.members_of(body, &ty, &mut out);
-                    return out.items;
+                    return CompletionSet { items: out.items, incomplete: false };
                 }
             }
         }
@@ -1653,11 +1908,20 @@ pub fn complete(
                 }
             }
         }
-        return out.items;
+        return CompletionSet { items: out.items, incomplete: false };
     }
 
     for (q, file) in &analyses {
         q.complete_scope(*file, offset as u32, &mut out);
+    }
+    // Names of dependencies that are not opened, written with their key — only once
+    // something is typed to narrow them (spec §17.4).
+    let typed = before.len() - lead.len();
+    let incomplete = typed == 0;
+    if let Some((q, file)) = analyses.first() {
+        if !incomplete {
+            q.complete_through_keys(*file, &before[lead.len()..], &mut out);
+        }
     }
     for k in KEYWORDS {
         out.push(k, CompletionKind::Keyword, None);
@@ -1668,7 +1932,7 @@ pub fn complete(
     for f in BUILTIN_FNS {
         out.push(f, CompletionKind::Function, None);
     }
-    out.items
+    CompletionSet { items: out.items, incomplete }
 }
 
 // ---------------------------------------------------------------------------
@@ -1867,7 +2131,11 @@ pub fn signature_help(a: &Analysis, file: FileId, offset: u32) -> Option<Signatu
         return None;
     }
     let docs = doxygen(&decl.docs);
-    Some(Signature { params: param_ranges(&decl.header), label: decl.header, active: commas, docs })
+    let params = param_ranges(&decl.header);
+    // Every argument past the fixed ones belongs to a variadic last parameter (spec §7.2).
+    let variadic = params.last().is_some_and(|&(s, e)| decl.header[s..e].contains(": .."));
+    let active = if variadic { commas.min(params.len() - 1) } else { commas };
+    Some(Signature { params, label: decl.header, active, docs })
 }
 
 /// The byte range of each parameter in a function header, without the receiver: callers
@@ -2037,7 +2305,21 @@ pub fn semantic_tokens(a: &Analysis, file: FileId) -> Vec<SemanticToken> {
             let before_path = tokens.get(i + 1).is_some_and(|n| n.kind == TokenKind::ColonColon);
             if before_path {
                 let name = &text[t.span.start as usize..t.span.end as usize];
-                if q.res.module_alias(file, name).is_some() {
+                // Or a public dependency further along one: the `units` of `phys::units::`.
+                let mut start = i;
+                while start >= 2
+                    && tokens[start - 1].kind == TokenKind::ColonColon
+                    && tokens[start - 2].kind == TokenKind::Ident
+                {
+                    start -= 2;
+                }
+                let path: Vec<&str> = (start..=i)
+                    .step_by(2)
+                    .map(|j| &text[tokens[j].span.start as usize..tokens[j].span.end as usize])
+                    .collect();
+                let nested = start < i
+                    && q.res.module_prefix(file, &path).is_some_and(|(_, used)| used == path.len());
+                if nested || q.res.module_alias(file, name).is_some() {
                     out.push(SemanticToken {
                         span: t.span,
                         class: TokenClass::Namespace,

@@ -1,0 +1,12 @@
+[module]
+name    = "opened_errors"
+version = "0.1.0"
+sources = ["src/**/*.dz"]
+
+# The libraries of `../opened`, opened the same way, so the mistakes below are made against
+# a manifest known to be good there (spec §3.2).
+[dependencies]
+std   = { open = true }
+geo   = { path = "../opened/libs/geo", open = true }
+phys  = { path = "../opened/libs/phys", open = true }
+leaky = { path = "libs/leaky" }

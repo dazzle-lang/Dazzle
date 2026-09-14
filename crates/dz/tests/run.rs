@@ -205,7 +205,7 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
         let _ = std::fs::remove_dir_all(&clean);
     }
 
-    let manifest = "[module]\nname = \"tracked\"\nsources = [\"src/**/*.dz\"]\n";
+    let manifest = "[module]\nname = \"tracked\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n";
     let leak = scratch(
         "dz_tracked_leak",
         manifest,
@@ -250,7 +250,7 @@ fn a_build_mode_can_be_chosen_on_the_command_line() {
     // `hello_world_runs` builds that directory too, so sharing one would race in `build/`.
     let dir = scratch(
         "dz_build_modes",
-        "[module]\nname = \"hello\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"hello\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "fn main() {\n    println(\"Hello, world!\")\n}\n",
     );
     for mode in ["--debug", "--release", "--shipping"] {
@@ -325,34 +325,34 @@ fn dz_test_runs_the_projects_tests() {
     );
 }
 
-/// Debug information names real files (spec §16.3): the prelude, which is compiled into
-/// `dz`, is written beside the generated C++, and every `#line` naming it points there —
+/// Debug information names real files (spec §16.3): the standard library, which is compiled
+/// into `dz`, is written beside the generated C++, and every `#line` naming it points there —
 /// indented ones inside generated lambdas included — so a debugger can open what it steps
-/// into. A panic's location still reads `<prelude>/dz.dz`.
+/// into. A panic's location still reads `<std>/collections/list.dz`.
 #[test]
 fn line_directives_name_files_a_debugger_can_open() {
     let dir = scratch(
         "dz_debug_lines",
-        "[module]\nname = \"lines\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"lines\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "fn main() {\n    let mut xs = List<i32>()\n    xs.push(1)\n    println(\"{}\", xs.len())\n}\n",
     );
     let out =
         Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let copy = dir.join("build/cpp/prelude/dz.dz");
+    let copy = dir.join("build/cpp/std/collections/list.dz");
     assert_eq!(
-        std::fs::read_to_string(&copy).expect("the prelude is written out"),
-        dz_project::PRELUDE_SOURCE
+        std::fs::read_to_string(&copy).expect("the standard library is written out"),
+        dz_project::std_source(Path::new("<std>/collections/list.dz")).unwrap()
     );
     let mut rewritten = 0;
     for entry in std::fs::read_dir(dir.join("build/cpp")).unwrap().flatten() {
         let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
         for line in text.lines().filter(|l| l.trim_start().starts_with("#line ")) {
-            assert!(!line.contains("<prelude>"), "{}: {line}", entry.path().display());
-            rewritten += usize::from(line.ends_with("/build/cpp/prelude/dz.dz\""));
+            assert!(!line.contains("<std>"), "{}: {line}", entry.path().display());
+            rewritten += usize::from(line.ends_with("/build/cpp/std/collections/list.dz\""));
         }
     }
-    assert!(rewritten > 0, "the prelude's own code carries `#line`s naming the copy");
+    assert!(rewritten > 0, "the standard library's own code carries `#line`s naming the copy");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -369,7 +369,7 @@ fn a_failing_test_is_reported_and_does_not_stop_the_rest() {
                   #[test]\nfn also_passes() {}\n\nfn main() {}\n";
     let dir = scratch(
         "dz_test_failing",
-        "[module]\nname = \"failing\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"failing\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         source,
     );
     let out = Command::new(dz())
@@ -403,7 +403,7 @@ fn dz_bench_times_the_projects_benchmarks() {
                   #[bench]\nfn adding() {\n    blackbox(work(blackbox(64)))\n}\n\n\
                   fn main() {\n    println(\"{}\", work(4))\n}\n";
     let dir =
-        scratch("dz_bench_smoke", "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n", source);
+        scratch("dz_bench_smoke", "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n", source);
     let out = Command::new(dz())
         .args(["bench", dir.to_str().unwrap()])
         .output()
@@ -465,7 +465,7 @@ fn the_cpp_compiler_can_be_chosen_at_four_levels() {
         return;
     }
     let src = "fn main() {\n    println(\"ok\")\n}\n";
-    let plain = "[module]\nname = \"cx\"\nsources = [\"src/**/*.dz\"]\n";
+    let plain = "[module]\nname = \"cx\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n";
     let with_cxx = format!("{plain}\n[build]\ncxx = \"dz-not-a-compiler\"\n");
 
     let ran = |dir: &std::path::Path, args: &[&str]| -> (bool, String) {
@@ -573,7 +573,7 @@ fn a_module_named_after_a_build_directory_does_not_collide() {
     for name in ["bench", "test", "cpp", "bin"] {
         let dir = scratch(
             &format!("dz_collide_{name}"),
-            &format!("[module]\nname = \"{name}\"\nsources = [\"src/**/*.dz\"]\n"),
+            &format!("[module]\nname = \"{name}\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = {{ open = true }}\n"),
             src,
         );
         // Build first, so the executable exists where a harness directory would go.
@@ -692,6 +692,7 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
         "unions",
         "iterable",
         "math",
+        "variadic",
     ] {
         check_warning_clean(cxx, fixture);
     }
@@ -742,7 +743,7 @@ fn unsupported_constructs_are_reported_not_miscompiled() {
     let _ = std::fs::create_dir_all(dir.join("src"));
     std::fs::write(
         dir.join("dazzle.toml"),
-        "[module]\nname = \"u\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"u\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
     )
     .unwrap();
     std::fs::write(
@@ -770,7 +771,7 @@ fn runaway_instantiation_is_bounded_by_the_compiler() {
     // diagnostic, not one per level.
     let dir = scratch(
         "dz_mono_runaway",
-        "[module]\nname = \"r\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"r\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "struct Box<T> {\n    pub v: T\n}\n\n\
          fn deeper<T>(x: T) -> i32 {\n    let b = Box<T>{ v: move(x) }\n    \
          return deeper(move(b))\n}\n\n\
@@ -789,7 +790,7 @@ fn a_project_without_main_is_reported() {
     let _ = std::fs::create_dir_all(dir.join("src"));
     std::fs::write(
         dir.join("dazzle.toml"),
-        "[module]\nname = \"n\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"n\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
     )
     .unwrap();
     std::fs::write(dir.join("src/a.dz"), "fn helper() -> i32 {\n    return 1\n}\n").unwrap();
@@ -812,7 +813,7 @@ fn a_function_is_a_value() {
     }
     let dir = scratch(
         "dz_fn_value",
-        "[module]\nname = \"f\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"f\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "fn twice(a: i32) -> i32 {\n    return a * 2\n}\n\n\
          fn apply(f: fn(i32) -> i32, v: i32) -> i32 {\n    return f(v)\n}\n\n\
          fn main() {\n    let g = twice\n    println(\"{} {}\", apply(twice, 21), g(3))\n}\n",
@@ -900,7 +901,7 @@ fn a_library_that_fails_to_compile_is_blamed_on_the_library() {
     }
     let dir = scratch(
         "dz_vendored_broken",
-        "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n\
+        "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n\n\
          [cpp.libs.broken]\nsources = [\"broken.c\"]\n",
         "fn main() {\n    println(\"{}\", 1)\n}\n",
     );
@@ -918,8 +919,8 @@ fn a_header_that_is_not_found_is_reported_at_the_import() {
     // spec §15.1 — clang's own words, attached to the line that asked for the header.
     let dir = scratch(
         "dz_import_missing",
-        "[module]\nname = \"m\"\nsources = [\"src/**/*.dz\"]\n",
-        "import cpp \"no_such_header.h\" as nope\n\nfn main() {\n    println(\"{}\", 1)\n}\n",
+        "[module]\nname = \"m\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\nnope = { cpp = \"nope\" }\n\n[cpp.libs.nope]\nimport = [\"no_such_header.h\"]\n",
+        "fn main() {\n    println(\"{}\", 1)\n}\n",
     );
     let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -935,9 +936,8 @@ fn a_call_into_c_is_type_checked_like_any_other() {
     // and there are no implicit numeric conversions across the boundary either.
     let dir = scratch(
         "dz_import_types",
-        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
-        "import cpp \"api.h\" as api\n\n\
-         fn main() {\n    let xs: [2]i32 = [1, 2]\n    api::fill(xs.ptr, 2)\n    \
+        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
+        "fn main() {\n    let xs: [2]i32 = [1, 2]\n    api::fill(xs.ptr, 2)\n    \
          let n: i64 = 3\n    api::fill(null, n)\n}\n",
     );
     std::fs::write(dir.join("api.h"), "#pragma once\nextern \"C\" void fill(int *out, int n);\n")
@@ -957,9 +957,8 @@ fn an_imported_handle_cannot_be_held_by_value() {
     // here knows its size. Behind a pointer it is exactly what the library hands out.
     let dir = scratch(
         "dz_import_handle",
-        "[module]\nname = \"h\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
-        "import cpp \"api.h\" as api\n\n\
-         fn keep(h: ^api::Handle) -> ^api::Handle {\n    return h\n}\n\n\
+        "[module]\nname = \"h\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
+        "fn keep(h: ^api::Handle) -> ^api::Handle {\n    return h\n}\n\n\
          fn main() {\n    let h = api::api_open()\n    let _ = keep(h)\n    \
          let bad: api::Handle\n}\n",
     );
@@ -987,9 +986,8 @@ fn a_c_union_literal_sets_one_member() {
     // bytes twice and only the last survives.
     let dir = scratch(
         "dz_import_union",
-        "[module]\nname = \"u\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
-        "import cpp \"api.h\" as api\n\n\
-         fn main() {\n    let one = api::Value{ as_int: 1 }\n    \
+        "[module]\nname = \"u\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
+        "fn main() {\n    let one = api::Value{ as_int: 1 }\n    \
          let two = api::Value{ as_int: 1, as_float: 2.0 }\n    \
          println(\"{} {}\", one.as_int, two.as_int)\n}\n",
     );
@@ -1013,9 +1011,8 @@ fn a_c_bit_field_has_no_address() {
     // or reference to one. The ordinary field beside it is unaffected.
     let dir = scratch(
         "dz_import_bitfield",
-        "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
-        "import cpp \"api.h\" as api\n\n\
-         fn main() {\n    let mut bits: api::Bits\n    let on = &mut bits.on\n    \
+        "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
+        "fn main() {\n    let mut bits: api::Bits\n    let on = &mut bits.on\n    \
          let count = &mut bits.count\n    println(\"{}\", bits.count)\n}\n",
     );
     std::fs::write(
@@ -1038,9 +1035,8 @@ fn a_c_array_member_is_indexed_not_copied() {
     // value is refused here rather than emitted as code that will not compile.
     let dir = scratch(
         "dz_import_carray",
-        "[module]\nname = \"a\"\nsources = [\"src/**/*.dz\"]\n\n[cpp]\ninclude_dirs = [\".\"]\n",
-        "import cpp \"api.h\" as api\n\n\
-         fn main() {\n    let box: api::Box\n    let first = box.items[0]\n    \
+        "[module]\nname = \"a\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
+        "fn main() {\n    let box: api::Box\n    let first = box.items[0]\n    \
          let n = box.items.len\n    let copied = box.items\n    \
          println(\"{} {} {}\", first, n, copied[0])\n}\n",
     );
@@ -1085,7 +1081,7 @@ fn main() {
 fn cpp20_uses_designated_initialisers_and_cpp17_does_not() {
     for (std_name, expect_designated) in [("c++17", false), ("c++20", true)] {
         let manifest = format!(
-            "[module]\nname = \"lit\"\nsources = [\"src/**/*.dz\"]\n\n\
+            "[module]\nname = \"lit\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = {{ open = true }}\n\n\
              [build]\noutput = \"executable\"\ncpp_standard = \"{std_name}\"\n"
         );
         let dir =
@@ -1134,7 +1130,7 @@ fn the_access_helpers_cost_nothing_in_the_generated_code() {
 
     let dir = scratch(
         "dz_zero_overhead",
-        "[module]\nname = \"perf\"\nsources = [\"src/**/*.dz\"]\n",
+        "[module]\nname = \"perf\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "fn sum(xs: []i32) -> i32 {\n    let mut total = 0\n    for i in 0..xs.len {\n        \
          total += xs[i]\n    }\n    return total\n}\n\nfn main() {\n    println(\"{}\", 0)\n}\n",
     );

@@ -3,6 +3,7 @@ name    = "dynamic"
 sources = ["src/**/*.dz"]
 
 [dependencies]
+std = { open = true }
 shapes = { path = "libs/shapes" }
 
 [build]

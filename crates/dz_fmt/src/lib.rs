@@ -576,7 +576,8 @@ impl<'a> Printer<'a> {
         for p in &f.params {
             let default =
                 p.default.as_ref().map(|d| format!(" = {}", self.expr(d))).unwrap_or_default();
-            params.push(format!("{}: {}{default}", p.name.name, self.ty(&p.ty)));
+            let dots = if p.variadic { ".." } else { "" };
+            params.push(format!("{}: {dots}{}{default}", p.name.name, self.ty(&p.ty)));
         }
         // Fallibility is part of the signature, spelled on the arrow (spec §9.1): dropping
         // the `!` would change what the function means, not how it looks.

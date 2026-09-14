@@ -1,0 +1,16 @@
+[module]
+name    = "opened"
+version = "0.1.0"
+sources = ["src/**/*.dz"]
+
+# Every way a manifest names what its module's files can use (spec §3.2).
+[dependencies]
+std    = { open = true }
+geo    = { path = "libs/geo", open = true }
+phys   = { path = "libs/phys", open = true }
+meters = { via = "phys::units", open = true }
+audio  = { path = "libs/audio" }         # not opened: audio::play_sound
+
+# Both opened libraries export `Color`; this module means phys's wherever it is bare.
+[names]
+Color = "phys"

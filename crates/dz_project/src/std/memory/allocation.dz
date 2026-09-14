@@ -1,0 +1,16 @@
+// Memory tracking (spec §14.2): compiled only with `TRACK_MEMORY`.
+
+#if TRACK_MEMORY {
+    /// One allocation the heap handed out, and — once freed — where it was freed, so a
+    /// second free can say where the first one was.
+    struct Allocation {
+        pub addr: usize = 0
+        pub size: usize = 0
+        pub align: usize = 0
+        pub live: bool = false
+        pub file: cstr = ""
+        pub line: u32 = 0
+        pub freed_file: cstr = ""
+        pub freed_line: u32 = 0
+    }
+}

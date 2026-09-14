@@ -1,0 +1,113 @@
+// Variadic parameters (spec §7.2): `xs: ..T` takes any number of `T`s and sees them as a
+// `[]T`. Called with none, some, or a spread slice; generic; on a method and a
+// constructor; with move-only elements, each dropped once when the call is done; and with
+// arguments of different types through `..&Trait`, each borrowed for the call.
+
+trait Describe {
+    fn describe(&self) -> str
+}
+
+struct Cat {
+    pub name: str = "cat"
+}
+
+impl Describe for Cat {
+    fn describe(&self) -> str {
+        return name
+    }
+}
+
+impl Describe for i32 {
+    fn describe(&self) -> str {
+        return "a number"
+    }
+}
+
+fn sum(xs: ..i32) -> i32 {
+    let mut t = 0
+    for x in xs {
+        t += x
+    }
+    return t
+}
+
+fn tell(prefix: str, things: ..&Describe) {
+    println("{} {} things", prefix, things.len)
+    for &t in things {
+        println("  {}", t.describe())
+    }
+}
+
+fn biggest<T: Ord + Copy>(first: T, rest: ..T) -> T {
+    let mut best = first
+    for x in rest {
+        if x > best {
+            best = x
+        }
+    }
+    return best
+}
+
+struct Bag {
+    pub total: i32 = 0
+
+    Bag(start: i32, extra: ..i32) {
+        total = start + sum(..extra)
+    }
+
+    pub fn add(&mut self, xs: ..i32) {
+        total += sum(..xs)
+    }
+}
+
+struct Token {
+    pub id: i32 = 0
+}
+
+impl Drop for Token {
+    fn drop(&mut self) {
+        if id != 0 {
+            println("  drop token {}", id)
+        }
+    }
+}
+
+fn count(tokens: ..Token) -> usize {
+    return tokens.len
+}
+
+fn step(n: i32) -> i32 {
+    println("  step {}", n)
+    return n
+}
+
+fn main() {
+    println("sums {} {} {}", sum(), sum(4), sum(1, 2, 3))
+    let numbers = [10, 20, 30]
+    let view: []i32 = numbers[1..]
+    println("spread {} {}", sum(..numbers), sum(..view))
+
+    println("in order:")
+    println("= {}", sum(step(1), step(2), step(3)))
+
+    let c = Cat{}
+    let n: i32 = 7
+    tell("mixed", c, n, Cat{ name: "tom" })
+    tell("none")
+
+    println("biggest {} {} {}", biggest(3, 9, 4), biggest(2.5, 1.0), biggest('a'))
+
+    let mut b = Bag(1, 2, 3)
+    b.add(10, 20)
+    b.add()
+    println("bag {}", b.total)
+
+    let t = Token{ id: 1 }
+    println("counting:")
+    println("count {}", count(move(t), Token{ id: 2 }))
+    println("after")
+
+    // As a value, a variadic function takes its slice.
+    let f = sum
+    println("as a value {}", f([5, 6]))
+}

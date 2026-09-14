@@ -1,3 +1,6 @@
 [module]
 name    = "typeerrors"
 sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }

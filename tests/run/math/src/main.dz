@@ -1,9 +1,6 @@
-// `std::math` (spec §14.4): methods on the machine's numbers, vectors, integer vectors as
+// The standard library's math (spec §14.4): methods on the machine's numbers, vectors, integer vectors as
 // keys, quaternions and column-major matrices — each checked against a value worked out by
 // hand, or against the operation that undoes it.
-
-import std::math
-import std::math::{ Vec2, Vec3, Vec4, Vec2i, Quat, Mat4 }
 
 fn near(a: f32, b: f32) -> bool {
     return (a - b).abs() < 0.0001
@@ -29,7 +26,7 @@ fn floats() {
     let half: f64 = 0.5
     println("sqrt {} floor {} ceil {} round {}", x.sqrt(), (2.7 as f32).floor(), (2.2 as f32).ceil(), (-2.5 as f32).round())
     println("clamp {} lerp {} min {} max {}", (5 as f32).clamp(0, 3), (0 as f32).lerp(10, 0.25), x.min(1), x.max(1))
-    println("sin(pi/2) {} atan2 {} deg {}", near((math::PI / 2).sin(), 1), near((1 as f32).atan2(1), math::PI / 4), math::PI.to_degrees())
+    println("sin(pi/2) {} atan2 {} deg {}", near((std::PI / 2).sin(), 1), near((1 as f32).atan2(1), std::PI / 4), std::PI.to_degrees())
     println("f64 {} pow {} fract {} sign {}", half.sqrt() > 0.7, (2 as f32).pow(10), (3.75 as f32).fract(), (-4 as f32).sign())
     let zero: f32 = 0
     let nan = zero / zero
@@ -51,7 +48,7 @@ fn vectors() {
     println("vec2 len {} dot {} perp {} {}", a.length(), a.dot(Vec2{ x: 1, y: 0 }), a.perp().x, a.perp().y)
     let n = a.normalized()
     println("normalized {} {} zero {}", n.x, n.y, Vec2{}.normalized().x)
-    let r = Vec2{ x: 1, y: 0 }.rotated(math::PI / 2)
+    let r = Vec2{ x: 1, y: 0 }.rotated(std::PI / 2)
     println("rotated {} {}", near(r.x, 0), near(r.y, 1))
 
     let x = Vec3{ x: 1, y: 0, z: 0 }
@@ -73,7 +70,7 @@ fn vectors() {
 }
 
 fn rotations() {
-    let q = Quat::from_axis_angle(Vec3{ x: 0, y: 0, z: 1 }, math::PI / 2)
+    let q = Quat::from_axis_angle(Vec3{ x: 0, y: 0, z: 1 }, std::PI / 2)
     let v = q * Vec3{ x: 1, y: 0, z: 0 }
     println("quat rotate {}", near3(v, Vec3{ x: 0, y: 1, z: 0 }))
     let twice = q * q
@@ -104,7 +101,7 @@ fn matrices() {
     let view = Mat4::look_at(Vec3{ x: 0, y: 0, z: 5 }, Vec3{}, Vec3{ x: 0, y: 1, z: 0 })
     let eye_space = view.transform_point(Vec3{})
     println("look_at {} {} {}", near(eye_space.x, 0), near(eye_space.y, 0), near(eye_space.z, -5))
-    let proj = Mat4::perspective(math::PI / 2, 1, 1, 100)
+    let proj = Mat4::perspective(std::PI / 2, 1, 1, 100)
     let clip = proj * Vec4{ x: 0, y: 0, z: -1, w: 1 }
     println("perspective near plane depth {}", near(clip.z / clip.w, -1))
     let ortho = Mat4::orthographic(0, 800, 600, 0, -1, 1)

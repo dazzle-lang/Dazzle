@@ -1,0 +1,11 @@
+[module]
+name    = "geo"
+version = "0.1.0"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std    = { open = true }
+hidden = { path = "../hidden" }   # private: nothing that depends on geo can reach it
+
+[build]
+output = "static-lib"

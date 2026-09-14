@@ -901,6 +901,20 @@ fn assert_needs_a_bool(n: i32) {
     assert(n)
 }
 
+// §7.2: a variadic parameter is last and has no default; a spread is the only variadic
+// argument and is a slice; each argument is the element type.
+fn variadic_first(xs: ..i32, last: i32) {}
+
+fn variadic_default(xs: ..i32 = 0) {}
+
+fn adds(xs: ..i32) -> usize {
+    return xs.len
+}
+
+fn bad_variadic_calls(xs: []i32, n: i32) -> usize {
+    return adds(1, ..xs) + adds(..n) + adds(1, true)
+}
+
 // §11.2: unary `-` on a struct needs its `Neg`. §2.5: one past the most negative `i8`.
 fn negate_without_neg(p: Plain) -> Plain {
     return -p

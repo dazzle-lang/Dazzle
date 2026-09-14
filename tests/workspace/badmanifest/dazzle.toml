@@ -9,6 +9,7 @@ optimize  = "fastest"
 type_info = "used"
 
 [dependencies]
+std = { open = true }
 missing = { path = "../nowhere" }
 noPath  = { version = "1.0" }
 

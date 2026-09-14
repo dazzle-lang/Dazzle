@@ -1,8 +1,7 @@
 // Every line below is a deliberate violation of spec §3 or §4.
 
-import engine
-import math
-import graphics
+import graphics as gfx
+import math as never_used
 import math::{ dot }
 
 fn private_item_from_another_module() -> f32 {

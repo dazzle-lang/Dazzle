@@ -1,0 +1,20 @@
+sums 0 4 6
+spread 60 50
+in order:
+  step 1
+  step 2
+  step 3
+= 6
+mixed 3 things
+  cat
+  a number
+  tom
+none 0 things
+biggest 9 2.5 a
+bag 36
+counting:
+count 2
+  drop token 2
+  drop token 1
+after
+as a value 11

@@ -1,0 +1,16 @@
+/// Allocation is a library concern expressed through a trait, and the allocator is an
+/// explicit parameter (§14, §18.10). `&mut self`, because an arena changes on every
+/// allocation (§18.47). `loc` is the caller's line, so memory tracking names the code
+/// that allocated rather than the allocator (§12.7).
+pub trait Allocator {
+    fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation = #location) -> ^mut u8
+    fn realloc(
+        &mut self,
+        p: ^mut u8,
+        old_size: usize,
+        new_size: usize,
+        align: usize,
+        loc: SourceLocation = #location,
+    ) -> ^mut u8
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation = #location)
+}

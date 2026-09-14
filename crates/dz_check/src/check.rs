@@ -655,20 +655,12 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
             }
             MemberKind::Ctor(f) => {
                 // A constructor runs on the object, so `self` is mutable.
+                let (params, variadic) = cx.param_sigs(&f.params);
                 let sig = FnSig {
                     ret_cast: false,
                     dispatch: Dispatch::Static,
-                    params: f
-                        .params
-                        .iter()
-                        .map(|p| crate::ParamSig {
-                            name: p.name.name.clone(),
-                            ty: cx.lower_type(&p.ty),
-                            has_default: p.default.is_some(),
-                            caller_default: crate::caller_default(p.default.as_ref()),
-                            c_cast: None,
-                        })
-                        .collect(),
+                    variadic,
+                    params,
                     ret: Ty::Void,
                     fallible: false,
                     takes_self: Some(true),
@@ -1202,7 +1194,9 @@ impl<'a, 'c> Body<'a, 'c> {
         }
         for (p, ps) in f.params.iter().zip(&sig.params) {
             let ty = self.subst(&ps.ty);
-            let default = p.default.as_ref().map(|default| {
+            // A default on a variadic parameter was reported where the signature was built;
+            // checking it against the `[]T` as well would report the one mistake twice.
+            let default = p.default.as_ref().filter(|_| !p.variadic).map(|default| {
                 let c = self.expr(default, Some(&ty));
                 self.expect(&ty, &c.ty, default.span);
                 c.id
@@ -4811,6 +4805,9 @@ impl<'a, 'c> Body<'a, 'c> {
         span: Span,
         name: &str,
     ) -> Vec<hir::ExprId> {
+        if sig.variadic {
+            return self.check_variadic_args(sig, args, span, name);
+        }
         let required = sig.required();
         let total = sig.params.len();
         if args.len() < required || args.len() > total {
@@ -4838,6 +4835,147 @@ impl<'a, 'c> Body<'a, 'c> {
             ids.push(self.expr(a, None).id);
         }
         ids
+    }
+
+    /// A call of `fn f(a: A, xs: ..T)` (spec §7.2): the fixed arguments as usual, then every
+    /// remaining argument a `T`, gathered into one array on the caller's stack that the
+    /// parameter views as a `[]T`. `f(a, ..xs)` passes the slice `xs` itself instead. So the
+    /// call always has exactly one argument per parameter, and nothing past checking sees a
+    /// variadic call as anything but an array passed where a slice is wanted.
+    fn check_variadic_args(
+        &mut self,
+        sig: &FnSig,
+        args: &[Expr],
+        span: Span,
+        name: &str,
+    ) -> Vec<hir::ExprId> {
+        let fixed = sig.params.len() - 1;
+        let required = sig.params[..fixed].iter().filter(|p| !p.has_default).count();
+        let supplied_fixed = args.len().min(fixed);
+        if args.len() < required {
+            let got = args.len();
+            self.cx.error(
+                codes::WRONG_ARG_COUNT,
+                span,
+                format!(
+                    "`{name}` expects at least {required} {}, found {got}",
+                    plural(required, "argument")
+                ),
+                "wrong number of arguments",
+            );
+        }
+        let mut ids = Vec::with_capacity(sig.params.len());
+        for (a, p) in args.iter().zip(&sig.params[..fixed]) {
+            let want = self.subst(&p.ty);
+            let c = self.expr(a, Some(&want));
+            self.expect(&want, &c.ty, a.span);
+            ids.push(c.id);
+        }
+        // Defaulted fixed parameters the call left out are filled in by codegen as for any
+        // call; the variadic slice after them has to be passed, so a call that gives no
+        // variadic arguments cannot also skip a default in front of it.
+        if supplied_fixed < fixed {
+            if ids.len() < required {
+                return ids;
+            }
+            self.cx.error_help(
+                codes::BAD_VARIADIC,
+                span,
+                format!("`{name}` needs its defaulted arguments written out here"),
+                "defaults before a variadic parameter",
+                "a default in front of `..` cannot be skipped: pass it, and then the variadic \
+                 arguments (spec §7.2)",
+            );
+            return ids;
+        }
+
+        let slice_ty = self.subst(&sig.params[fixed].ty);
+        let elem = match &slice_ty {
+            Ty::Slice { elem, .. } => (**elem).clone(),
+            _ => Ty::Error,
+        };
+        let rest = &args[fixed..];
+        // `f(..xs)`: the caller's slice, passed as it is.
+        if let [only] = rest {
+            if let Some(inner) = spread(only) {
+                let c = self.expr(inner, Some(&slice_ty));
+                if !c.ty.is_wildcard()
+                    && !matches!(c.ty.peeled_refs(), Ty::Slice { .. } | Ty::Array { .. })
+                {
+                    let n = self.cx.name_of(&c.ty);
+                    self.cx.error_help(
+                        codes::BAD_VARIADIC,
+                        only.span,
+                        format!("`..` spreads a slice or an array, not `{n}`"),
+                        "not a sequence",
+                        "pass the values one by one, or spread a `[]T` (spec §7.2)",
+                    );
+                } else {
+                    self.expect(&slice_ty, c.ty.peeled_refs(), inner.span);
+                }
+                ids.push(c.id);
+                return ids;
+            }
+        }
+        let mut elems = Vec::with_capacity(rest.len());
+        for a in rest {
+            if spread(a).is_some() {
+                self.cx.error_help(
+                    codes::BAD_VARIADIC,
+                    a.span,
+                    "a spread must be the only variadic argument",
+                    "spread beside other arguments",
+                    format!(
+                        "`{name}(..xs)` passes a slice as it is; to add values, build the slice \
+                         you want first (spec §7.2)"
+                    ),
+                );
+                if let Some(inner) = spread(a) {
+                    let _ = self.expr(inner, None);
+                }
+                continue;
+            }
+            elems.push(self.variadic_element(a, &elem));
+        }
+        let array_ty = if elems.is_empty() {
+            slice_ty.clone()
+        } else {
+            Ty::Array { len: elems.len() as u64, elem: Rc::new(elem.clone()) }
+        };
+        let at = rest.first().map_or(span, |f| Span { start: f.span.start, end: span.end });
+        ids.push(self.hir.expr(at, array_ty, hir::ExprKind::ArrayLit(elems)).id);
+        ids
+    }
+
+    /// One argument of a variadic call, checked against its element type. A value given
+    /// where a read-only trait object is wanted is borrowed for the call — `log("{}", hp)`
+    /// with `args: ..^Format` refers to `hp` — since arguments of different types can only
+    /// share a slice through pointers (spec §7.2, §7.6).
+    fn variadic_element(&mut self, a: &Expr, elem: &Ty) -> hir::ExprId {
+        let object = match elem {
+            Ty::Ptr { mutable: false, inner } | Ty::Ref { mutable: false, inner } => {
+                matches!(&**inner, Ty::Named { sym, .. }
+                    if self.cx.res.symbol(*sym).kind == SymbolKind::Trait)
+            }
+            _ => false,
+        };
+        if object && !matches!(a.kind, ExprKind::Ref { .. }) {
+            let c = self.expr(a, None);
+            let is_pointer = matches!(c.ty, Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. });
+            if !is_pointer && !c.ty.is_wildcard() {
+                let borrowed = Ty::Ref { mutable: false, inner: Rc::new(c.ty.defaulted()) };
+                self.expect(elem, &borrowed, a.span);
+                return self
+                    .hir
+                    .expr(a.span, borrowed, hir::ExprKind::Ref { mutable: false, place: c.id })
+                    .id;
+            }
+            self.expect(elem, &c.ty, a.span);
+            return c.id;
+        }
+        let c = self.expr(a, Some(elem));
+        self.expect(elem, &c.ty, a.span);
+        c.id
     }
 
     /// The declaration a path's *owner* segment names: the item itself for `f`, and the
@@ -5085,26 +5223,12 @@ impl<'a, 'c> Body<'a, 'c> {
     /// took: one for a name in scope, two through a module alias, and one more for each
     /// C++ namespace walked through on the way (spec §15.2).
     fn path_head(&self, p: &Path) -> Option<(SymbolId, usize)> {
-        let first = p.segments.first()?;
-        let (mut sym, mut used) = if p.segments.len() > 1
-            && self.cx.res.module_alias(self.cx.file, &first.name.name).is_some()
-        {
-            let target = self.cx.res.module_alias(self.cx.file, &first.name.name)?;
-            (self.cx.res.lookup(target, &p.segments.get(1)?.name.name)?, 2)
-        } else {
-            // `Layer::Ui` — the leading segment is a type in scope, not a module. Without
-            // this the path resolved to nothing and, because "nothing" types as `Ty::Error`,
-            // it was accepted in silence rather than reported (spec §3.3).
-            let id = self.cx.res.lookup_in_file(self.cx.module, self.cx.file, &first.name.name)?;
-            (id, 1)
-        };
-        while self.cx.res.symbol(sym).kind == SymbolKind::Namespace {
-            let Some(seg) = p.segments.get(used) else { break };
-            let Some(next) = self.cx.res.inner(sym, &seg.name.name) else { break };
-            sym = next;
-            used += 1;
-        }
-        Some((sym, used))
+        // Modules first — `rl::shapes::Rectangle` through a public dependency (spec §3.2) —
+        // then `Layer::Ui`, whose leading segment is a type in scope. Without the second the
+        // path resolved to nothing and, because "nothing" types as `Ty::Error`, it was
+        // accepted in silence rather than reported (spec §3.3).
+        let names: Vec<&str> = p.segments.iter().map(|s| s.name.name.as_str()).collect();
+        self.cx.res.path_item(self.cx.module, self.cx.file, &names)
     }
 
     fn path_expr(&mut self, p: &Path, e: &Expr, expected: Option<&Ty>) -> Checked {
@@ -6580,6 +6704,15 @@ fn fallible_result(sig: &FnSig, ret: Ty) -> Ty {
         Ty::Fallible(Rc::new(ret))
     } else {
         ret
+    }
+}
+
+/// `..xs` as an argument: parsed as a range with no start, and a spread wherever a variadic
+/// parameter takes it (spec §7.2).
+fn spread(e: &Expr) -> Option<&Expr> {
+    match &e.kind {
+        ExprKind::Range { start: None, end: Some(inner), inclusive: false } => Some(inner),
+        _ => None,
     }
 }
 

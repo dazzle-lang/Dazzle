@@ -110,6 +110,15 @@ pub const UNKNOWN_FLAG: &str = "DZ0309";
 pub const UNUSED_IMPORT: &str = "DZ0307";
 /// Two imports bringing the same name into scope.
 pub const AMBIGUOUS_IMPORT: &str = "DZ0308";
+/// A bare name that more than one opened dependency exports (spec §3.2).
+pub const AMBIGUOUS_NAME: &str = "DZ0310";
+/// A `pub` declaration whose signature names a type from a private dependency (spec §3.2).
+pub const PRIVATE_DEPENDENCY_IN_PUBLIC: &str = "DZ0311";
+/// `import m` with no alias or list, or `import cpp`: what dazzle.toml now declares
+/// (spec §3.2, §15.1).
+pub const IMPORT_FORM_REMOVED: &str = "DZ0312";
+/// A `[dependencies]` entry nothing in the module names (spec §3.2).
+pub const UNUSED_DEPENDENCY: &str = "DZ0313";
 
 // --- DZ04xx: ownership and flow analysis (spec §6) -----------------------------
 
@@ -275,6 +284,10 @@ pub const RETURN_IN_BASE_INIT: &str = "DZ0552";
 /// constants and literals built of them. It is built before `main`, in an order C++ does not
 /// promise across files (spec §7.7).
 pub const STATIC_INITIALISER: &str = "DZ0553";
+/// A variadic parameter `xs: ..T` that is not last, has a default, or is written where a
+/// function cannot take one; or a spread `..xs` that is not the only argument for it, or
+/// not a slice (spec §7.2).
+pub const BAD_VARIADIC: &str = "DZ0554";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

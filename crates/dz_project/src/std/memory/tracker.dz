@@ -1,0 +1,144 @@
+// Memory tracking (spec §14.2): compiled only with `TRACK_MEMORY`.
+
+#if TRACK_MEMORY {
+    /// Every allocation `Allocators::Global` has made, by address: open addressing with
+    /// linear probing, in memory of its own from the C heap so tracking never tracks itself.
+    /// It reports leaks when the program ends, which is when this static is dropped.
+    struct Tracker {
+        m_slots: ^mut Allocation = null
+        m_cap: usize = 0
+        m_used: usize = 0
+
+        pub fn record(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+            if (m_used + 1) * 2 > m_cap {
+                self.rehash()
+            }
+            let i = self.slot(p as usize)
+            unsafe {
+                if m_slots[i].addr == 0 {
+                    m_used += 1
+                }
+                m_slots[i].addr = p as usize
+                m_slots[i].size = size
+                m_slots[i].align = align
+                m_slots[i].live = true
+                m_slots[i].file = loc.file
+                m_slots[i].line = loc.line
+            }
+        }
+
+        pub fn release(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+            if m_cap == 0 {
+                panic("free of a pointer Allocators::Global never allocated, at {}:{}", loc.file, loc.line)
+            }
+            let i = self.slot(p as usize)
+            unsafe {
+                if m_slots[i].addr == 0 {
+                    panic(
+                        "free of a pointer Allocators::Global never allocated, at {}:{}",
+                        loc.file,
+                        loc.line,
+                    )
+                }
+                if !m_slots[i].live {
+                    panic(
+                        "double free at {}:{}; allocated at {}:{} and already freed at {}:{}",
+                        loc.file,
+                        loc.line,
+                        m_slots[i].file,
+                        m_slots[i].line,
+                        m_slots[i].freed_file,
+                        m_slots[i].freed_line,
+                    )
+                }
+                if m_slots[i].size != size || m_slots[i].align != align {
+                    panic(
+                        "free of {} bytes (align {}) at {}:{}, but {}:{} allocated {} bytes (align {})",
+                        size,
+                        align,
+                        loc.file,
+                        loc.line,
+                        m_slots[i].file,
+                        m_slots[i].line,
+                        m_slots[i].size,
+                        m_slots[i].align,
+                    )
+                }
+                m_slots[i].live = false
+                m_slots[i].freed_file = loc.file
+                m_slots[i].freed_line = loc.line
+            }
+        }
+
+        /// The slot holding `addr`, or the empty one where it would go.
+        fn slot(&self, addr: usize) -> usize {
+            let mut i = (addr / 16) % m_cap
+            unsafe {
+                while m_slots[i].addr != 0 && m_slots[i].addr != addr {
+                    i = (i + 1) % m_cap
+                }
+            }
+            return i
+        }
+
+        /// Double the table. Live allocations move; freed ones are forgotten, which only
+        /// costs a double free of something freed long ago being reported as foreign.
+        fn rehash(&mut self) {
+            let old = m_slots
+            let old_cap = m_cap
+            m_cap = if old_cap == 0 { 1024 } else { old_cap * 2 }
+            m_used = 0
+            unsafe {
+                m_slots = alloc(m_cap * sizeof(Allocation), alignof(Allocation)) as ^mut Allocation
+                let mut i: usize = 0
+                while i < m_cap {
+                    construct(m_slots[i], Allocation{})
+                    i += 1
+                }
+                let mut j: usize = 0
+                while j < old_cap {
+                    if old[j].live {
+                        let k = self.slot(old[j].addr)
+                        m_slots[k] = old[j]
+                        m_used += 1
+                    }
+                    j += 1
+                }
+                if old != null {
+                    free(old)
+                }
+            }
+        }
+    }
+
+    impl Drop for Tracker {
+        fn drop(&mut self) {
+            let mut leaks: usize = 0
+            let mut bytes: usize = 0
+            let mut i: usize = 0
+            while i < m_cap {
+                unsafe {
+                    if m_slots[i].live {
+                        leaks += 1
+                        bytes += m_slots[i].size
+                        println(
+                            "leak: {} bytes allocated at {}:{}",
+                            m_slots[i].size,
+                            m_slots[i].file,
+                            m_slots[i].line,
+                        )
+                    }
+                }
+                i += 1
+            }
+            if leaks > 0 {
+                println("{} allocations leaked, {} bytes", leaks, bytes)
+            }
+            if m_slots != null {
+                unsafe { free(m_slots) }
+            }
+        }
+    }
+
+    static TRACKER: Tracker = Tracker{}
+}

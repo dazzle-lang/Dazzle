@@ -1,0 +1,9 @@
+// expect: DZ0312
+//
+// A dependency is named by the manifest in every file, so `import std` on its own adds
+// nothing, and is an error that says so rather than a line silently ignored (spec §3.2).
+// `{ … }` and `as` are the forms a file still has.
+
+import std
+
+fn main() {}

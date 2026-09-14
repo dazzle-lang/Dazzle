@@ -2,6 +2,10 @@
 name    = "cinterop"
 sources = ["src/**/*.dz"]
 
+[dependencies]
+rgfw = { cpp = "rgfw" }
+std = { open = true }
+
 # RGFW is a single-header library: its declarations are `RGFWDEF`, which is `inline` unless
 # told otherwise, because it expects to be included in one translation unit. Here there are
 # two — its own source and Dazzle's generated code — so `RGFWDEF=` gives them external
@@ -18,6 +22,7 @@ root         = "vendor/rgfw"
 header       = "RGFW.h"
 include_dirs = ["."]
 defines      = ["RGFW_IMPLEMENTATION"]
+import       = ["RGFW.h"]
 
 # The window system each platform's backend calls into. These were `link_libs` at the top
 # of the recipe and so applied everywhere, which meant this fixture could only ever link on

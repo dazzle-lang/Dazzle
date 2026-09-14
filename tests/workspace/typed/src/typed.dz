@@ -585,10 +585,10 @@ fn vector_arithmetic(a: Vec2, b: Vec2) -> Vec2 {
     return a + b * 3
 }
 
-// `dz::Ord` names the same trait explicitly (spec §3.2).
+// `std::Ord` names the same trait through the standard library's key (spec §3.2).
 // `T` may be move-only, so returning one is written `move` exactly as it would be for any
 // move-only type (spec §6.3, §8.2): a generic body is checked for every `T` at once.
-fn largest<T: dz::Ord>(a: T, b: T) -> T {
+fn largest<T: std::Ord>(a: T, b: T) -> T {
     if a > b {
         return move(a)
     }
@@ -1226,6 +1226,35 @@ fn negations(h: Heading) -> bool {
     let lowest: i8 = -128
     let back = -h
     return back == Heading{ degrees: -h.degrees } && lowest < 0
+}
+
+// §7.2: variadic parameters — none, several, a spread slice, a method, and a value borrowed
+// where a trait reference is wanted.
+fn total_of(first: i32, rest: ..i32) -> i32 {
+    let mut t = first
+    for x in rest {
+        t += x
+    }
+    return t
+}
+
+trait Named {
+    fn named(&self) -> str
+}
+
+impl Named for Heading {
+    fn named(&self) -> str {
+        return "heading"
+    }
+}
+
+fn names(items: ..&Named) -> usize {
+    return items.len
+}
+
+fn variadic_calls(h: Heading, xs: []i32) -> i32 {
+    let n = names(h, Heading{ degrees: 90 }) + names()
+    return total_of(1) + total_of(1, 2, 3) + total_of(0, ..xs) + n as i32
 }
 
 // §10.4, 18.51: a container is looped over through `Iterable` and `IterableMut`.

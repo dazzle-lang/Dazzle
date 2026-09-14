@@ -4,6 +4,7 @@ version = "0.1.0"
 sources = ["src/**/*.dz"]
 
 [dependencies]
+std = { open = true }
 engine = { path = "libs/engine" }
 math   = { path = "libs/math" }
 

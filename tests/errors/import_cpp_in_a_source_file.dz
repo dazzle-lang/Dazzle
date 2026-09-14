@@ -1,0 +1,8 @@
+// expect: DZ0312
+//
+// A C or C++ header is named once, in its `[cpp.libs]` recipe, and depended on in the
+// manifest (spec §15.1). `import cpp` in a file is an error whose help writes both lines.
+
+import cpp "stdio.h" as c
+
+fn main() {}

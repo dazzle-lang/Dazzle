@@ -13,7 +13,7 @@ fn mini() -> PathBuf {
 fn import_mini() -> Option<std::sync::Arc<dz_cppimport::Header>> {
     let dirs = [mini()];
     let req = Request {
-        header: "mini.h",
+        headers: &["mini.h".to_owned()],
         include_dirs: &dirs,
         defines: &[],
         cpp_standard: "c++17",
@@ -182,10 +182,56 @@ fn a_declaration_points_at_its_name_in_the_header() {
     assert_eq!(&text[d.loc.start as usize..d.loc.end as usize], "mini_add");
 }
 
+/// A library whose API is spread over several headers is one import (spec §15.1): what each
+/// declares is imported, each header's path is where the search found it, and the second
+/// passes — a macro's type, here — see every header rather than only the first.
+#[test]
+fn several_headers_are_one_import() {
+    let dir = std::env::temp_dir().join("dz_import_two_headers");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("first.h"), "#pragma once\ntypedef struct Pair { int a; int b; } Pair;\nextern \"C\" int first(int x);\n").unwrap();
+    std::fs::write(
+        dir.join("second.h"),
+        "#pragma once\n#include \"first.h\"\nextern \"C\" Pair second(Pair p);\n#define ORIGIN ((Pair){ 0, 0 })\n",
+    )
+    .unwrap();
+    let dirs = [dir.clone()];
+    let headers = ["first.h".to_owned(), "second.h".to_owned()];
+    let req = Request {
+        headers: &headers,
+        include_dirs: &dirs,
+        defines: &[],
+        cpp_standard: "c++17",
+        from_dir: &std::env::temp_dir(),
+        instantiate: &[],
+    };
+    let h = match import(&req) {
+        Ok(h) => h,
+        Err(ImportError::Unavailable(e)) => {
+            eprintln!("skipping: libclang is not available: {e}");
+            return;
+        }
+        Err(e) => panic!("the two headers did not import: {e:?}"),
+    };
+    for name in ["Pair", "first", "second"] {
+        assert!(h.decl(name).is_some(), "`{name}` was not imported: {h:#?}");
+    }
+    assert!(
+        matches!(&h.decl("ORIGIN").expect("the second header's macro").kind,
+            DeclKind::Const { value: ConstValue::Typed(CType::Named(n)), .. } if n == "::Pair"),
+        "{:?}",
+        h.decl("ORIGIN")
+    );
+    assert_eq!(h.requested, headers);
+    assert!(h.paths[0].ends_with("first.h") && h.paths[1].ends_with("second.h"), "{:?}", h.paths);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_missing_header_is_reported_with_clang_s_words() {
     let req = Request {
-        header: "no_such_header.h",
+        headers: &["no_such_header.h".to_owned()],
         include_dirs: &[],
         defines: &[],
         cpp_standard: "c++17",
@@ -212,7 +258,7 @@ fn shapes() -> PathBuf {
 fn import_shapes(instantiate: &[(String, String)]) -> Option<std::sync::Arc<dz_cppimport::Header>> {
     let dirs = [shapes()];
     let req = Request {
-        header: "shapes.hpp",
+        headers: &["shapes.hpp".to_owned()],
         include_dirs: &dirs,
         defines: &[],
         cpp_standard: "c++17",

@@ -2,6 +2,10 @@
 name    = "raylib"
 sources = ["src/**/*.dz"]
 
+[dependencies]
+rl = { cpp = "raylib" }
+std = { open = true }
+
 # M7b's criterion (spec §15.1, §19): **raylib compiled from its own vendored source**, with
 # no prebuilt `.a` or `.lib` anywhere and no CMake, Make or any other build system involved.
 # `dz` compiles the seven `.c` files this recipe names and links the result.
@@ -17,6 +21,7 @@ include_dirs = [".", "external/glfw/include"]
 # `PLATFORM_DESKTOP_GLFW`); `GRAPHICS_API_OPENGL_33` is the modern desktop renderer.
 # These are the library's own, so they build its sources and no one else's (spec §15.1).
 defines      = ["PLATFORM_DESKTOP", "GRAPHICS_API_OPENGL_33"]
+import       = ["raylib.h"]
 
 # The system libraries raylib's Windows backend calls into. A `[cpp.libs.<name>.target.<os>]`
 # section applies only when building for that platform (spec §15.1).

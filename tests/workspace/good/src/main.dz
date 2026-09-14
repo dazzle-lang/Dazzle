@@ -1,5 +1,3 @@
-import engine
-import math
 import math::{ dot, PI }
 
 fn main() {

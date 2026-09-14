@@ -2,8 +2,6 @@
 //
 // `Float`'s methods belong to `f32` and `f64` (spec §14.4): an integer has no `sqrt`.
 
-import std::math
-
 fn root(n: i32) -> i32 {
     return n.sqrt()
 }

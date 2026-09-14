@@ -1,0 +1,26 @@
+/// What every integer type can do, beyond `+ - * / %`. Plain arithmetic does not wrap on
+/// overflow; these say what should happen instead.
+pub trait Integer {
+    fn min(&self, rhs: Self) -> Self
+    fn max(&self, rhs: Self) -> Self
+    /// `self` held between `lo` and `hi`.
+    fn clamp(&self, lo: Self, hi: Self) -> Self
+    /// The distance from zero; the most negative value wraps to itself.
+    fn abs(&self) -> Self
+    /// -1, 0 or 1.
+    fn sign(&self) -> Self
+    /// `self` multiplied by itself `exponent` times, wrapping on overflow.
+    fn pow(&self, exponent: u32) -> Self
+    /// Two's-complement arithmetic: past the largest value comes the smallest.
+    fn wrapping_add(&self, rhs: Self) -> Self
+    fn wrapping_sub(&self, rhs: Self) -> Self
+    fn wrapping_mul(&self, rhs: Self) -> Self
+    /// `none` when the result does not fit.
+    fn checked_add(&self, rhs: Self) -> Self?
+    fn checked_sub(&self, rhs: Self) -> Self?
+    fn checked_mul(&self, rhs: Self) -> Self?
+    /// Held at the largest or smallest value instead of overflowing.
+    fn saturating_add(&self, rhs: Self) -> Self
+    fn saturating_sub(&self, rhs: Self) -> Self
+    fn is_power_of_two(&self) -> bool
+}

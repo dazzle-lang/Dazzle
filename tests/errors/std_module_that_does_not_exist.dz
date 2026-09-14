@@ -1,7 +1,8 @@
 // expect: DZ0303
 //
-// Only the standard library's own modules are under `std::` (spec §14.4).
+// `std` is one flat module with no public dependencies, so `std::physics` names nothing an
+// import can reach (spec §3.2, §14.4).
 
-import std::physics
+import std::physics as physics
 
 fn main() {}

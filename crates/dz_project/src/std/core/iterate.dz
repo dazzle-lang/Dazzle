@@ -1,0 +1,28 @@
+/// Something you can step through, and what `for` desugars to.
+///
+/// Three methods rather than one `next() -> Item?`: an optional return would put the
+/// end-of-iteration signal inside the item's own value domain, so an iterator over
+/// `[]^Entity` would stop at its first null element and one over `[]T?` at its first
+/// `none`. Keeping "is there one" apart from "what is it" lets `Item` be any type at all —
+/// `&T`, `&mut T`, `^T`, `T?`, a tuple. See §8.5 for the full argument.
+pub trait Iterate {
+    type Item
+
+    fn valid(&self) -> bool
+    fn get(&self) -> Item
+    fn advance(&mut self)
+}
+
+/// A container `for` can loop over: it hands out a fresh iterator, since an iterator keeps
+/// its position in itself and the container must not (§10.4, 18.51). `for &e in xs` calls
+/// `iter()`.
+pub trait Iterable {
+    type Iter : Iterate
+    fn iter(&self) -> Iter
+}
+
+/// A container whose elements a loop may change: `for &mut e in xs` calls `iter_mut()`.
+pub trait IterableMut {
+    type IterMut : Iterate
+    fn iter_mut(&mut self) -> IterMut
+}

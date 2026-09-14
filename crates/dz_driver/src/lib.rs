@@ -108,6 +108,18 @@ pub fn analyse_for(
     for module in ws.modules() {
         let mut parsed = Vec::new();
         for path in &module.sources {
+            // The standard library's text never changes within a process, so its tree is
+            // parsed once and copied into each analysis — the editor analyses on every
+            // pause in typing, and `std` is most of what a small program parses (§14.4).
+            if module.is_prelude() {
+                if let Some(ast) = std_tree(path) {
+                    let text = module.read_source(path).unwrap_or_default();
+                    if let Ok(id) = map.add_bytes(path, &text) {
+                        parsed.push(ParsedFile { file: id, ast });
+                        continue;
+                    }
+                }
+            }
             // The prelude is carried by the compiler, so no editor buffer can stand in for it.
             let buffered = if module.is_prelude() { None } else { overlay(path) };
             let bytes = match buffered {
@@ -144,8 +156,7 @@ pub fn analyse_for(
         files.insert(module.id, parsed);
     }
 
-    import_std(&mut ws, &mut files, &mut map, &mut diags);
-    import_headers(&mut ws, &files, &mut map, &mut diags);
+    import_headers(&mut ws, &mut map, &mut diags);
 
     // Only the active branch of each `#if` goes on to resolution (spec §12.10). Skipped
     // when parsing failed: a broken `#if` has no branches worth choosing between.
@@ -198,71 +209,36 @@ pub fn analyse_for(
     Analysis { map, ws: Some(ws), files, resolution, hir, table, mono, diags, parsed_cleanly }
 }
 
-/// `import std::math` (spec §14.4): the standard library's modules are carried by the
-/// compiler, and one becomes part of the workspace — parsed like any module, and a
-/// dependency of each module that imports it — only when some file asks for it. Repeated
-/// until nothing new is added, since a standard module may import another.
-fn import_std(
-    ws: &mut Workspace,
-    files: &mut HashMap<ModuleId, Vec<ParsedFile>>,
-    map: &mut SourceMap,
-    diags: &mut Diagnostics,
-) {
-    use dz_ast::ImportKind;
-
-    let mut pending: Vec<ModuleId> = ws.modules().map(|m| m.id).collect();
-    while let Some(id) = pending.pop() {
-        let wanted: Vec<String> = files
-            .get(&id)
-            .into_iter()
-            .flatten()
-            .flat_map(|pf| &pf.ast.imports)
-            .filter_map(|i| match &i.kind {
-                ImportKind::Module { path, .. } | ImportKind::Selective { path, .. } => Some(
-                    path.segments
-                        .iter()
-                        .map(|s| s.name.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join("::"),
-                ),
-                _ => None,
-            })
-            .filter(|name| name.starts_with(&format!("{}::", dz_project::STD_ROOT)))
-            .collect();
-        for name in wanted {
-            let Some((std_id, fresh)) = ws.add_std(id, &name, map) else { continue };
-            if !fresh {
-                continue;
+/// The parsed tree of the standard-library file at `pseudo`, from a process-wide cache.
+///
+/// A tree holds byte offsets and no file ids, so one parse serves every source map it is
+/// added to. A file that lexed or parsed with a diagnostic is not cached — those carry the
+/// id they were reported against — and falls back to being parsed where it is used, where
+/// the mistake is reported as usual (it would be a compiler bug either way).
+fn std_tree(pseudo: &Path) -> Option<dz_ast::SourceFileAst> {
+    use std::sync::OnceLock;
+    static TREES: OnceLock<HashMap<&'static str, dz_ast::SourceFileAst>> = OnceLock::new();
+    let trees = TREES.get_or_init(|| {
+        let mut out = HashMap::new();
+        for (path, text) in dz_project::STD_SOURCES {
+            let file = FileId(0);
+            let lexed = dz_lex::lex(file, text);
+            let parsed = dz_parse::parse(file, text, &lexed.tokens);
+            if lexed.diagnostics.is_empty() && parsed.diagnostics.is_empty() {
+                out.insert(*path, parsed.ast);
             }
-            // One source, already in the map as the module's "manifest": parsed under that
-            // same id, so the file has one identity rather than two.
-            let file = ws.module(std_id).manifest;
-            let mut parsed = Vec::new();
-            {
-                let text = map.get(file).text().to_owned();
-                let lexed = dz_lex::lex(file, &text);
-                let parsed_file = dz_parse::parse(file, &text, &lexed.tokens);
-                diags.extend(lexed.diagnostics);
-                diags.extend(parsed_file.diagnostics);
-                parsed.push(ParsedFile { file, ast: parsed_file.ast });
-            }
-            files.insert(std_id, parsed);
-            pending.push(std_id);
         }
-    }
+        out
+    });
+    let key = pseudo.to_string_lossy().replace('\\', "/");
+    trees.get(key.as_str()).cloned()
 }
 
-/// `import cpp` (spec §15.1): read each imported header through libclang, with the flags
-/// the generated C++ will be compiled with, and add it to the workspace as a module of its
-/// own before resolution needs its names. Its files go into the source map, so what points
-/// at a declaration points into the header.
-fn import_headers(
-    ws: &mut Workspace,
-    files: &HashMap<ModuleId, Vec<ParsedFile>>,
-    map: &mut SourceMap,
-    diags: &mut Diagnostics,
-) {
-    use dz_ast::ImportKind;
+/// `rl = { cpp = "raylib" }` (spec §15.1): read the header each such dependency's recipe
+/// imports through libclang, with the flags the generated C++ will be compiled with, and
+/// add it to the workspace as a module of its own before resolution needs its names. Its
+/// files go into the source map, so what points at a declaration points into the header.
+fn import_headers(ws: &mut Workspace, map: &mut SourceMap, diags: &mut Diagnostics) {
     use dz_project::cppimport::{import, ImportError, Request};
 
     let root = ws.module(ws.root);
@@ -273,19 +249,72 @@ fn import_headers(
     let ids: Vec<ModuleId> = ws.modules().map(|m| m.id).collect();
 
     for id in ids {
-        let Some(parsed) = files.get(&id) else { continue };
-        let mut done: Vec<&str> = Vec::new();
-        for pf in parsed {
-            for import_line in &pf.ast.imports {
-                let ImportKind::Cpp { header, name, .. } = &import_line.kind else { continue };
-                if name.is_empty() || done.contains(&name.as_str()) {
+        let module = ws.module(id);
+        let manifest = module.manifest;
+        let wanted = module.cpp_deps.clone();
+        for dep in wanted {
+            // The recipe is this manifest's, or a dependency's that carries it for its users
+            // (spec §15.1): the first one found, nearest first.
+            let recipe = std::iter::once(id)
+                .chain(ws.module(id).deps.iter().map(|d| d.module))
+                .find_map(|m| ws.module(m).cpp.libs.iter().find(|l| l.name == dep.recipe).cloned());
+            let Some(recipe) = recipe else {
+                diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("no `[cpp.libs.{}]` recipe for `{}`", dep.recipe, dep.alias),
+                    )
+                    .at(manifest, dep.recipe_span, "no recipe by this name")
+                    .with_help(format!(
+                        "add `[cpp.libs.{}]` with `import = [\"header.h\"]` (spec §15.1)",
+                        dep.recipe
+                    )),
+                );
+                continue;
+            };
+            let names: Vec<String> = recipe.import.iter().map(|(n, _)| n.clone()).collect();
+            let header = match &recipe.import[..] {
+                [(_, first), ..] => *first,
+                [] => {
+                    diags.push(
+                        Diagnostic::error(
+                            codes::MANIFEST_MISSING_FIELD,
+                            format!("recipe `{}` imports no header", recipe.name),
+                        )
+                        .at(manifest, dep.recipe_span, "nothing here for Dazzle code to see")
+                        .with_help(format!(
+                            "name the header in `[cpp.libs.{}]`: `import = [\"{}.h\"]` (spec §15.1)",
+                            recipe.name, recipe.name
+                        )),
+                    );
                     continue;
                 }
-                done.push(name);
+            };
+            // A failure names the header clang could not read, when its message says which.
+            let span_for = |messages: &[String]| {
+                recipe
+                    .import
+                    .iter()
+                    .find(|(n, _)| messages.iter().any(|m| m.contains(n.as_str())))
+                    .map_or(header, |(_, s)| *s)
+            };
+            // The header's span is in whichever manifest holds the recipe.
+            let header_file = ws
+                .modules()
+                .find(|m| {
+                    m.cpp
+                        .libs
+                        .iter()
+                        .any(|l| l.name == recipe.name && l.name_span == recipe.name_span)
+                })
+                .map_or(manifest, |m| m.manifest);
+            let (pf_file, header) = (header_file, header);
+            {
+                let name = names.join("`, `");
                 let flags = ws.cpp_flags(id);
                 let instantiate = ws.cpp_instantiate(id);
                 let req = Request {
-                    header: name,
+                    headers: &names,
                     include_dirs: &flags.include_dirs,
                     defines: &flags.defines,
                     cpp_standard: &cpp_standard,
@@ -315,21 +344,21 @@ fn import_headers(
                                     format!("cannot import `{name}`"),
                                 )
                                 .at(
-                                    pf.file,
-                                    *header,
+                                    pf_file,
+                                    header,
                                     "one of the files it includes could not be read",
                                 ),
                             );
                             continue;
                         }
-                        ws.add_foreign(id, name, dz_project::Foreign { header: h, files: ids });
+                        ws.add_foreign(id, &dep, dz_project::Foreign { header: h, files: ids });
                     }
                     Err(ImportError::Unavailable(why)) => diags.push(
                         Diagnostic::error(
                             codes::CPP_UNAVAILABLE,
-                            "libclang is not available, so `import cpp` cannot read headers",
+                            "libclang is not available, so a C or C++ header cannot be read",
                         )
-                        .at(pf.file, *header, "needs libclang")
+                        .at(pf_file, header, "needs libclang")
                         .with_note(why)
                         .with_help(
                             "install LLVM, or set LIBCLANG_PATH to the directory holding \
@@ -338,7 +367,7 @@ fn import_headers(
                     ),
                     Err(ImportError::Failed(messages)) => {
                         let mut d = Diagnostic::error(codes::CPP_HEADER_FAILED, format!("cannot import `{name}`"))
-                            .at(pf.file, *header, "clang could not read this header")
+                            .at(pf_file, span_for(&messages), "clang could not read this header")
                             .with_help(
                                 "headers are found through the `include_dirs` of this module's \
                                  `[cpp]` and `[cpp.libs]` tables, and its dependencies' (spec §15.1)",

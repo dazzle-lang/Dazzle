@@ -1,0 +1,31 @@
+/// Steps through a map's entries in slot order, handing out `(&K, &mut V)`: `for k, &mut v
+/// in map` changes the values in place. Keys stay read-only, since changing one would put
+/// it in the wrong slot.
+pub struct HashMapIterMut<K: Hash + Eq, V> {
+    m_map: ^mut HashMap<K, V> = null
+    m_slot: usize = 0
+
+    HashMapIterMut(map: &mut HashMap<K, V>) {
+        m_slot = first_entry_from(map, 0)
+        m_map = map
+    }
+}
+
+impl<K: Hash + Eq, V> Iterate for HashMapIterMut<K, V> {
+    type Item = (&K, &mut V)
+
+    fn valid(&self) -> bool {
+        let map = m_map or return false
+        return m_slot < map.slot_count()
+    }
+
+    fn get(&self) -> (&K, &mut V) {
+        let map = m_map or unreachable
+        return (map.key_at(m_slot) or unreachable, map.value_at_mut(m_slot) or unreachable)
+    }
+
+    fn advance(&mut self) {
+        let map = m_map or return
+        m_slot = first_entry_from(map, m_slot + 1)
+    }
+}

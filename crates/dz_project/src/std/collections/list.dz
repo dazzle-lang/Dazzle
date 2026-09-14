@@ -1,0 +1,235 @@
+/// A growable array of `T`, in memory from the allocator it was built with.
+///
+/// Move-only unless `T` is copyable, in which case copying it copies every element into a
+/// new allocation from the same allocator. `b[i]` reads and writes an element, checked
+/// against the length; `as_slice()` views them all.
+pub struct List<T> {
+    m_data: own ^mut T = null
+    m_len: usize = 0
+    m_cap: usize = 0
+    m_allocator: ^mut Allocator = Allocators::Global
+
+    /// An empty list, with room for `capacity` elements already allocated when it is
+    /// given.
+    List(
+        capacity: usize = 0,
+        allocator: ^mut Allocator = Allocators::Global,
+        loc: SourceLocation = #location,
+    ) {
+        m_allocator = allocator
+        if capacity > 0 {
+            self.grow_to(capacity, loc)
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        return m_len
+    }
+
+    pub fn capacity(&self) -> usize {
+        return m_cap
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return m_len == 0
+    }
+
+    /// Every element, in order. Valid until the list next grows or is dropped.
+    pub fn as_slice(&self) -> []T {
+        return unsafe { m_data[0..m_len] }
+    }
+
+    pub fn as_mut_slice(&mut self) -> []mut T {
+        return unsafe { m_data[0..m_len] }
+    }
+
+    /// Add `v` at the end, growing when there is no room.
+    pub fn push(&mut self, v: T, loc: SourceLocation = #location) {
+        if m_len == m_cap {
+            self.grow_to(m_len + 1, loc)
+        }
+        unsafe { construct(m_data[m_len], move(v)) }
+        m_len += 1
+    }
+
+    /// Take the last element out, or `none` when there is none.
+    pub fn pop(&mut self) -> T? {
+        if m_len == 0 {
+            return none
+        }
+        m_len -= 1
+        return unsafe { move_out(m_data[m_len]) }
+    }
+
+    /// Put `v` at index `i`, moving the elements from `i` on up by one. `i` may be `len()`.
+    pub fn insert(&mut self, i: usize, v: T, loc: SourceLocation = #location) {
+        if i > m_len {
+            panic("List::insert at {} past the length {}", i, m_len)
+        }
+        if m_len == m_cap {
+            self.grow_to(m_len + 1, loc)
+        }
+        let mut j = m_len
+        while j > i {
+            unsafe { construct(m_data[j], move_out(m_data[j - 1])) }
+            j -= 1
+        }
+        unsafe { construct(m_data[i], move(v)) }
+        m_len += 1
+    }
+
+    /// Take the element at `i` out, moving the ones after it down by one.
+    pub fn remove(&mut self, i: usize) -> T {
+        if i >= m_len {
+            panic("List::remove at {} for a length of {}", i, m_len)
+        }
+        let v = unsafe { move_out(m_data[i]) }
+        let mut j = i
+        while j + 1 < m_len {
+            unsafe { construct(m_data[j], move_out(m_data[j + 1])) }
+            j += 1
+        }
+        m_len -= 1
+        return move(v)
+    }
+
+    /// Take the element at `i` out and put the last one in its place: no shifting, and the
+    /// order is not kept.
+    pub fn swap_remove(&mut self, i: usize) -> T {
+        if i >= m_len {
+            panic("List::swap_remove at {} for a length of {}", i, m_len)
+        }
+        let v = unsafe { move_out(m_data[i]) }
+        m_len -= 1
+        if i != m_len {
+            unsafe { construct(m_data[i], move_out(m_data[m_len])) }
+        }
+        return move(v)
+    }
+
+    /// Drop every element and keep the allocation.
+    pub fn clear(&mut self) {
+        self.truncate(0)
+    }
+
+    /// Drop the elements from `n` on; nothing happens when there are fewer.
+    pub fn truncate(&mut self, n: usize) {
+        while m_len > n {
+            m_len -= 1
+            unsafe { destroy(m_data[m_len]) }
+        }
+    }
+
+    /// Make the length `n`: new elements start at their defaults, extra ones are dropped.
+    pub fn resize(&mut self, n: usize, loc: SourceLocation = #location) {
+        if n > m_cap {
+            self.grow_to(n, loc)
+        }
+        while m_len < n {
+            unsafe { construct(m_data[m_len]) }
+            m_len += 1
+        }
+        self.truncate(n)
+    }
+
+    /// Room for at least `additional` more elements without growing again.
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+        if m_len + additional > m_cap {
+            self.grow_to(m_len + additional, loc)
+        }
+    }
+
+    /// A new allocation of at least `wanted` elements — doubling, so pushing one at a time
+    /// costs amortised constant time — with the elements moved into it.
+    fn grow_to(&mut self, wanted: usize, loc: SourceLocation) {
+        let doubled = if m_cap == 0 { 8 } else { m_cap * 2 }
+        let cap = if wanted > doubled { wanted } else { doubled }
+        let a = m_allocator or panic("a List with no allocator cannot grow")
+        if T::is_trivially_copyable {
+            // Bytes can move anywhere, so the allocator may grow the memory in place.
+            let old = unsafe { m_data as ^mut u8 }
+            m_data = unsafe { a.realloc(old, m_cap * sizeof(T), cap * sizeof(T), alignof(T), loc) as ^mut T }
+        } else {
+            let fresh = unsafe { a.alloc(cap * sizeof(T), alignof(T), loc) as ^mut T }
+            for i in 0..m_len {
+                unsafe { construct(fresh[i], move_out(m_data[i])) }
+            }
+            if m_data != null {
+                a.free(unsafe { m_data as ^mut u8 }, m_cap * sizeof(T), alignof(T), loc)
+            }
+            m_data = fresh
+        }
+        m_cap = cap
+    }
+}
+
+impl<T> Drop for List<T> {
+    fn drop(&mut self) {
+        if m_data == null {
+            return
+        }
+        if !T::is_trivially_copyable {
+            for i in 0..m_len {
+                unsafe { destroy(m_data[i]) }
+            }
+        }
+        let a = m_allocator or return
+        a.free(unsafe { m_data as ^mut u8 }, m_cap * sizeof(T), alignof(T))
+    }
+}
+
+impl<T: Copy> Copy for List<T> {
+    fn copy(&mut self, other: &Self) {
+        m_allocator = other.m_allocator
+        if other.m_len == 0 {
+            return
+        }
+        let a = m_allocator or panic("a List with no allocator cannot be copied")
+        m_data = unsafe { a.alloc(other.m_len * sizeof(T), alignof(T)) as ^mut T }
+        m_cap = other.m_len
+        for i in 0..other.m_len {
+            unsafe { construct(m_data[i], other.m_data[i]) }
+        }
+        m_len = other.m_len
+    }
+}
+
+impl<T> Index<usize> for List<T> {
+    type Output = T
+
+    fn index(&self, i: usize) -> &T {
+        if i >= m_len {
+            panic("index {} is out of bounds for a List of length {}", i, m_len)
+        }
+        return unsafe { &m_data[i] }
+    }
+}
+
+/// `for &e in list`, in order.
+impl<T> Iterable for List<T> {
+    type Iter = SliceIter<T>
+
+    fn iter(&self) -> SliceIter<T> {
+        return SliceIter<T>(self.as_slice())
+    }
+}
+
+/// `for &mut e in list`, in order.
+impl<T> IterableMut for List<T> {
+    type IterMut = SliceIterMut<T>
+
+    fn iter_mut(&mut self) -> SliceIterMut<T> {
+        return SliceIterMut<T>(self.as_mut_slice())
+    }
+}
+
+impl<T> IndexMut<usize> for List<T> {
+    type Output = T
+
+    fn index_mut(&mut self, i: usize) -> &mut T {
+        if i >= m_len {
+            panic("index {} is out of bounds for a List of length {}", i, m_len)
+        }
+        return unsafe { &mut m_data[i] }
+    }
+}

@@ -59,6 +59,22 @@ const SETTLE: Duration = Duration::from_millis(150);
 /// The protocol's "the request was valid but could not be carried out" (LSP 3.17).
 const REQUEST_FAILED: i32 = -32803;
 
+/// Dazzle's own request for the links in a `dazzle.toml`, which is not a document the server
+/// is told about: the VS Code extension asks for them from a link provider of its own.
+const MANIFEST_LINKS: &str = "dazzle/manifestLinks";
+
+#[derive(serde::Deserialize)]
+struct ManifestLinksParams {
+    uri: Url,
+}
+
+#[derive(serde::Serialize)]
+struct ManifestLink {
+    range: Range,
+    target: Url,
+    tooltip: String,
+}
+
 /// Serve the protocol on stdin and stdout until the client says to stop.
 pub fn run() -> Result<(), BoxError> {
     let (connection, io_threads) = Connection::stdio();
@@ -431,7 +447,7 @@ impl Server {
     /// The URI to report a file under: the editor's own spelling when it has the file open,
     /// so a diagnostic lands on the buffer rather than on a differently-cased twin.
     fn uri_for(&self, path: &Path) -> Option<Url> {
-        // A pseudo-path (`<prelude>/dz.dz`, `<std>/math.dz`) names nothing on disk; it is
+        // A pseudo-path (`<std>/text/string.dz`) names nothing on disk; it is
         // shown from a copy that does.
         if path.to_string_lossy().starts_with('<') {
             return Url::from_file_path(embedded_copy(&path.to_string_lossy().replace('\\', "/"))?)
@@ -523,6 +539,7 @@ impl Server {
             req::SignatureHelpRequest::METHOD => call(params, |p| Ok(self.signature_help(p))),
             req::InlayHintRequest::METHOD => call(params, |p| Ok(self.inlay_hints(p))),
             req::SemanticTokensFullRequest::METHOD => call(params, |p| Ok(self.semantic_tokens(p))),
+            MANIFEST_LINKS => call(params, |p| Ok(self.manifest_links(p))),
             _ => return None,
         })
     }
@@ -664,8 +681,37 @@ impl Server {
         let clean = self.project_of(&key).and_then(|p| p.clean.clone());
         let current = current.as_ref().map(|(a, f)| (a.as_ref(), *f));
         let fallback = clean.as_ref().and_then(|a| Some((a.as_ref(), file_in(a, &key)?)));
-        let items = ide::complete(current, fallback, &text, offset);
-        Some(CompletionResponse::Array(items.into_iter().map(completion_item).collect()))
+        let set = ide::completion(current, fallback, &text, offset);
+        Some(CompletionResponse::List(lsp_types::CompletionList {
+            is_incomplete: set.incomplete,
+            items: set.items.into_iter().map(completion_item).collect(),
+        }))
+    }
+
+    /// `dazzle/manifestLinks`: the links in a `dazzle.toml` — each recipe's header, and what
+    /// each dependency names (spec §17.4). Answered from the analysis of the project the
+    /// manifest roots, which is what knows where an include search finds a header.
+    fn manifest_links(&mut self, p: ManifestLinksParams) -> Vec<ManifestLink> {
+        let Ok(path) = p.uri.to_file_path() else { return Vec::new() };
+        let key = path_key(&path);
+        if self.projects.get(&key).map_or(true, |p| p.dirty || p.current.is_none()) {
+            self.mark_project(&path);
+            self.analyse(&key);
+        }
+        let Some(analysis) = self.projects.get(&key).and_then(|p| p.current.clone()) else {
+            return Vec::new();
+        };
+        ide::manifest_links(&analysis, &path)
+            .into_iter()
+            .filter_map(|(file, span, target, tooltip)| {
+                let source = analysis.map.get(file);
+                Some(ManifestLink {
+                    range: convert::range(source, span),
+                    target: Url::from_file_path(target).ok()?,
+                    tooltip,
+                })
+            })
+            .collect()
     }
 
     fn signature_help(&mut self, p: SignatureHelpParams) -> Option<SignatureHelp> {
@@ -803,12 +849,12 @@ fn embedded_for_key(key: &str) -> Option<&'static str> {
     embedded_copies().iter().find(|(_, copy)| path_key(copy) == key).map(|(pseudo, _)| *pseudo)
 }
 
-/// The editor copy of the embedded source at `pseudo` (`<std>/math.dz`).
+/// The editor copy of the embedded source at `pseudo` (`<std>/math/vec3.dz`).
 fn embedded_copy(pseudo: &str) -> Option<PathBuf> {
     embedded_copies().iter().find(|(p, _)| *p == pseudo).map(|(_, copy)| copy.clone())
 }
 
-/// The prelude and the standard library written out where an editor can open them, so that
+/// The standard library written out where an editor can open them, so that
 /// going to the definition of `String` or `Vec3` lands on something (spec §3.2, §14.4,
 /// §17.4).
 ///
@@ -827,7 +873,7 @@ fn embedded_copies() -> &'static [(&'static str, PathBuf)] {
             std::env::temp_dir().join("dazzle").join(format!("stdlib-{:016x}", hasher.finish()));
         let mut out = Vec::new();
         for (pseudo, text) in sources {
-            // `<prelude>/dz.dz` → `prelude/dz.dz`, `<std>/math.dz` → `std/math.dz`.
+            // `<std>/math/vec3.dz` → `std/math/vec3.dz`.
             let relative = pseudo.replace(['<', '>'], "");
             let path = dir.join(relative);
             if write_read_only(&path, text).is_some() {
@@ -971,7 +1017,6 @@ fn document_symbol(file: &SourceFile, d: &ide::Decl) -> DocumentSymbol {
 fn completion_item(c: ide::Completion) -> CompletionItem {
     use ide::CompletionKind as K;
     CompletionItem {
-        label: c.label,
         kind: Some(match c.kind {
             K::Keyword => CompletionItemKind::KEYWORD,
             K::Type => CompletionItemKind::TYPE_PARAMETER,
@@ -988,6 +1033,16 @@ fn completion_item(c: ide::Completion) -> CompletionItem {
             K::Macro => CompletionItemKind::SNIPPET,
         }),
         detail: c.detail,
+        // A name reached through a dependency key says which, and sorts after the names in
+        // scope bare, which are what a bare name most likely means.
+        label_details: c.source.as_ref().map(|s| lsp_types::CompletionItemLabelDetails {
+            detail: None,
+            description: Some(format!("{s}::")),
+        }),
+        sort_text: c.source.as_ref().map(|s| format!("~{}~{s}", c.label)),
+        filter_text: c.insert.as_ref().map(|_| c.label.clone()),
+        insert_text: c.insert,
+        label: c.label,
         ..Default::default()
     }
 }

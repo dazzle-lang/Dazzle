@@ -26,12 +26,15 @@ use clang_sys::*;
 // what an import produces
 // ---------------------------------------------------------------------------
 
-/// One imported header.
+/// What one import read: a library's headers, parsed together as one unit, so what they
+/// declare is one module (spec §15.1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Header {
-    /// The header as the import wrote it: `"mini.h"`.
-    pub requested: String,
-    /// Where the include search found it.
+    /// The headers as the recipe wrote them, in order: `["raylib.h", "raymath.h"]`.
+    pub requested: Vec<String>,
+    /// Where the include search found each of `requested`, in the same order.
+    pub paths: Vec<PathBuf>,
+    /// Where the include search found the first of them.
     pub path: PathBuf,
     /// The files declarations came from, the header first; [`Decl::file`] indexes this.
     pub files: Vec<PathBuf>,
@@ -238,7 +241,8 @@ pub enum ImportError {
 /// What to import, and how the header is to be read: with exactly the flags the generated
 /// C++ is compiled with, from the directory it is compiled in (spec §15.1).
 pub struct Request<'a> {
-    pub header: &'a str,
+    /// The headers to read, as `#include <…>` names them; several are parsed as one unit.
+    pub headers: &'a [String],
     pub include_dirs: &'a [PathBuf],
     pub defines: &'a [String],
     pub cpp_standard: &'a str,
@@ -291,7 +295,12 @@ pub fn import(req: &Request<'_>) -> Result<Arc<Header>, ImportError> {
     // modules asking for different ones must not share an entry (spec §15.4).
     let wanted =
         req.instantiate.iter().map(|(c, n)| format!("{c}={n}")).collect::<Vec<_>>().join("\0");
-    let key = format!("{}\0{}\0{}\0{wanted}", req.header, req.from_dir.display(), args.join("\0"));
+    let key = format!(
+        "{}\0{}\0{}\0{wanted}",
+        req.headers.join("\u{1}"),
+        req.from_dir.display(),
+        args.join("\0")
+    );
     if let Ok(map) = cache().lock() {
         if let Some((header, stamps)) = map.get(&key) {
             if stamps.iter().all(|s| *s == Stamp::of(&s.path)) {
@@ -443,7 +452,7 @@ unsafe fn parse(req: &Request<'_>, args: &[String]) -> Result<(Header, Vec<PathB
     // `raylib.h` instead of the real one, and only once a previous build had left it there.
     // The two sides must name the same file or the compiler would check one header and
     // compile against another (spec §15.1).
-    let contents = cstring(&format!("#include <{}>\n", req.header));
+    let contents = cstring(&includes(req.headers.iter().map(|h| format!("<{h}>"))));
     let mut unsaved = CXUnsavedFile {
         Filename: c_main.as_ptr(),
         Contents: contents.as_ptr(),
@@ -466,7 +475,7 @@ unsafe fn parse(req: &Request<'_>, args: &[String]) -> Result<(Header, Vec<PathB
         clang_disposeIndex(index);
         return Err(ImportError::Failed(vec![format!(
             "libclang could not parse `{}` (error {code})",
-            req.header
+            req.headers.join("`, `")
         )]));
     }
 
@@ -474,12 +483,28 @@ unsafe fn parse(req: &Request<'_>, args: &[String]) -> Result<(Header, Vec<PathB
     let result = if errors.is_empty() {
         let mut w = Walker::default();
         w.walk(tu);
+        let (inputs, direct) = inclusions(tu);
+        // Each requested header by where it was found: the files the unsaved main file
+        // includes itself, matched by the name the include wrote.
+        let paths: Vec<PathBuf> = req
+            .headers
+            .iter()
+            .map(|h| {
+                let written = h.replace('\\', "/");
+                direct
+                    .iter()
+                    .find(|p| p.to_string_lossy().replace('\\', "/").ends_with(&written))
+                    .cloned()
+                    .unwrap_or_else(|| PathBuf::from(h))
+            })
+            .collect();
+        w.direct = paths.iter().map(|p| absolute(p)).collect();
         type_macros(&mut w, index, &c_main, &c_args);
         instantiate(&mut w, index, &c_main, &c_args, req.instantiate);
-        let inputs = inclusions(tu);
-        let path = w.files.first().cloned().unwrap_or_else(|| PathBuf::from(req.header));
+        let path = paths.first().cloned().unwrap_or_default();
         let header = Header {
-            requested: req.header.to_owned(),
+            requested: req.headers.to_vec(),
+            paths,
             path,
             files: w.files,
             decls: w.decls,
@@ -509,8 +534,7 @@ unsafe fn type_macros(w: &mut Walker, index: CXIndex, main: &CString, args: &[CS
     if candidates.is_empty() {
         return;
     }
-    let Some(header) = w.header_include() else { return };
-    let mut source = format!("#include \"{}\"\n", header.display().to_string().replace('\\', "/"));
+    let Some(mut source) = w.header_includes() else { return };
     for (name, _) in &candidates {
         source.push_str(&format!("auto __dz_macro_{name} = ({name});\n"));
     }
@@ -590,8 +614,7 @@ unsafe fn instantiate(
     if wanted.is_empty() {
         return;
     }
-    let Some(header) = w.header_include() else { return };
-    let mut source = format!("#include \"{}\"\n", header.display().to_string().replace('\\', "/"));
+    let Some(mut source) = w.header_includes() else { return };
     for (cpp, name) in wanted {
         source.push_str(&format!("using __dz_inst_{name} = {cpp};\n"));
         // An **explicit** instantiation definition, which is what puts the members in the
@@ -718,25 +741,52 @@ unsafe fn diagnostics(tu: CXTranslationUnit) -> Vec<String> {
 }
 
 /// Every file the parse read, for the cache to watch.
-unsafe fn inclusions(tu: CXTranslationUnit) -> Vec<PathBuf> {
+/// Every file the unit read, and — separately — the ones the unsaved main file includes
+/// itself, which are the requested headers as the include search found them.
+unsafe fn inclusions(tu: CXTranslationUnit) -> (Vec<PathBuf>, Vec<PathBuf>) {
     extern "C" fn visit(
         file: CXFile,
         _stack: *mut CXSourceLocation,
-        _len: c_uint,
+        len: c_uint,
         data: CXClientData,
     ) {
-        // SAFETY: `data` is the `Vec` passed below, alive for the whole visit.
-        let out = unsafe { &mut *(data as *mut Vec<PathBuf>) };
+        // SAFETY: `data` is the pair passed below, alive for the whole visit.
+        let out = unsafe { &mut *(data as *mut (Vec<PathBuf>, Vec<PathBuf>)) };
         let name = unsafe { string(clang_getFileName(file)) };
         if !name.is_empty() {
-            out.push(PathBuf::from(name));
+            // The stack holds one location per include on the way: one means the main
+            // file included it directly.
+            if len == 1 {
+                out.1.push(PathBuf::from(&name));
+            }
+            out.0.push(PathBuf::from(name));
         }
     }
-    let mut out: Vec<PathBuf> = Vec::new();
-    clang_getInclusions(tu, visit, &mut out as *mut Vec<PathBuf> as CXClientData);
+    let mut out: (Vec<PathBuf>, Vec<PathBuf>) = (Vec::new(), Vec::new());
+    clang_getInclusions(tu, visit, &mut out as *mut (Vec<PathBuf>, Vec<PathBuf>) as CXClientData);
     // The unsaved main file is not on disk and cannot change under the cache.
-    out.retain(|p| p.file_name().map_or(true, |n| n != "__dz_import__.cpp"));
+    out.0.retain(|p| p.file_name().map_or(true, |n| n != "__dz_import__.cpp"));
     out
+}
+
+/// `#include` lines for `targets`, each already bracketed or quoted.
+fn includes(targets: impl Iterator<Item = String>) -> String {
+    targets.map(|t| format!("#include {t}\n")).collect()
+}
+
+/// A path clang can be handed from anywhere.
+///
+/// **Absolute**, and deliberately so: the second unit stands where the generated C++
+/// will, and a quoted include is searched from *its* directory first. clang reports a
+/// header by whatever path the include search found it under, which is relative whenever
+/// the `-I` was — and a relative path resolved from the wrong directory finds nothing,
+/// which is how the macro pass silently imported nothing for a while.
+fn absolute(path: &Path) -> PathBuf {
+    match std::fs::canonicalize(path) {
+        // Windows' canonical form is a `\\?\` path, which clang does not take.
+        Ok(p) => PathBuf::from(p.to_string_lossy().trim_start_matches(r"\\?\").to_owned()),
+        Err(_) => std::env::current_dir().map(|d| d.join(path)).unwrap_or_else(|_| path.to_owned()),
+    }
 }
 
 #[derive(Default)]
@@ -759,6 +809,8 @@ struct Walker {
     /// template instantiation pass, whose class lives in a header the main walk passes
     /// over (spec §15.4).
     anchor: Option<Loc>,
+    /// The requested headers, absolute, for the passes that parse them again.
+    direct: Vec<PathBuf>,
     /// A class template's parameters bound to the instantiation being imported, by name:
     /// `T` to `int` while reading `Pair<int>` (spec §15.4). Empty everywhere else.
     template_args: HashMap<String, CXType>,
@@ -937,18 +989,17 @@ impl Walker {
 
     /// The header as a second translation unit must `#include` it.
     ///
-    /// **Absolute**, and deliberately so: the second unit stands where the generated C++
-    /// will, and a quoted include is searched from *its* directory first. clang reports the
-    /// header by whatever path the include search found it under, which is relative
-    /// whenever the `-I` was — and a relative path resolved from the wrong directory finds
-    /// nothing, which is how the macro pass silently imported nothing for a while.
-    fn header_include(&self) -> Option<PathBuf> {
-        let path = self.files.first()?;
-        Some(match std::fs::canonicalize(path) {
-            // Windows' canonical form is a `\\?\` path, which clang does not take.
-            Ok(p) => PathBuf::from(p.to_string_lossy().trim_start_matches(r"\\?\").to_owned()),
-            Err(_) => std::env::current_dir().ok()?.join(path),
-        })
+    /// The requested headers as `#include` lines a second unit can use, by absolute path
+    /// (see [`absolute`]). `None` when nothing was found to include.
+    fn header_includes(&self) -> Option<String> {
+        if self.direct.is_empty() {
+            return None;
+        }
+        let quoted = self
+            .direct
+            .iter()
+            .map(|p| format!("\"{}\"", p.display().to_string().replace('\\', "/")));
+        Some(includes(quoted))
     }
 
     /// [`Walker::push`] for a declaration read from a cursor, whose comment travels with it.

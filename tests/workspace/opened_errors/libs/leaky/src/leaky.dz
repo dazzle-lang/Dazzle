@@ -1,0 +1,14 @@
+/// A private dependency's type where no dependent can see it: fine.
+fn make_handle() -> hidden::Handle {
+    return hidden::Handle{ id: 1 }
+}
+
+/// A private field of a public struct may hold one too.
+pub struct Wrapper {
+    m_handle: hidden::Handle
+}
+
+/// In a `pub` signature it hands users a type they cannot name (DZ0311).
+pub fn leak() -> hidden::Handle {
+    return make_handle()
+}

@@ -2,8 +2,6 @@
 // `[flags]`, and a dependency's, among declarations, members and statements. An inactive
 // branch is parsed but never resolved, so it may name what does not exist in this build.
 
-import engine
-
 #if CHEATS {
     fn lives() -> i32 {
         return 99

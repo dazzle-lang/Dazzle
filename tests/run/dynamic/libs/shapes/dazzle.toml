@@ -2,5 +2,8 @@
 name    = "shapes"
 sources = ["src/**/*.dz"]
 
+[dependencies]
+std = { open = true }
+
 [build]
 output = "static-lib"

@@ -152,3 +152,9 @@ impl<T: Copy> Copy for Buffer<T> {
         m_len = other.m_len
     }
 }
+
+fn sum(xs: ..i32) -> i32 {
+    return 0
+}
+
+fn tell(prefix: str, things: ..&Describe) {}

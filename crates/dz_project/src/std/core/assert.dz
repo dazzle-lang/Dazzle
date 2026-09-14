@@ -1,0 +1,11 @@
+/// Panic when `cond` is false. The panic names the line that called `assert`, not this one:
+/// `loc` is filled in where the call is written, and handed on to `panic`.
+pub fn assert(cond: bool, msg: str = "", loc: SourceLocation = #location) {
+    if cond {
+        return
+    }
+    if msg.len == 0 {
+        panic("assertion failed", loc)
+    }
+    panic("assertion failed: {}", msg, loc)
+}

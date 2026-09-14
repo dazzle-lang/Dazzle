@@ -1,0 +1,116 @@
+/// A 2D vector, or a point.
+pub struct Vec2 {
+    pub x: f32 = 0
+    pub y: f32 = 0
+
+    pub fn dot(&self, rhs: Vec2) -> f32 {
+        return x * rhs.x + y * rhs.y
+    }
+
+    pub fn length_squared(&self) -> f32 {
+        return x * x + y * y
+    }
+
+    pub fn length(&self) -> f32 {
+        return self.length_squared().sqrt()
+    }
+
+    /// The same direction with length 1; a zero vector stays zero.
+    pub fn normalized(&self) -> Vec2 {
+        let len = self.length()
+        if len == 0 {
+            return Vec2{}
+        }
+        return Vec2{ x: x / len, y: y / len }
+    }
+
+    pub fn distance(&self, to: Vec2) -> f32 {
+        return (to - self).length()
+    }
+
+    pub fn lerp(&self, to: Vec2, t: f32) -> Vec2 {
+        return Vec2{ x: x.lerp(to.x, t), y: y.lerp(to.y, t) }
+    }
+
+    pub fn min(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x.min(rhs.x), y: y.min(rhs.y) }
+    }
+
+    pub fn max(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x.max(rhs.x), y: y.max(rhs.y) }
+    }
+
+    pub fn abs(&self) -> Vec2 {
+        return Vec2{ x: x.abs(), y: y.abs() }
+    }
+
+    /// Turned a quarter counter-clockwise: `(-y, x)`.
+    pub fn perp(&self) -> Vec2 {
+        return Vec2{ x: -y, y: x }
+    }
+
+    /// The angle from the x axis, in `(-PI, PI]`.
+    pub fn angle(&self) -> f32 {
+        return y.atan2(x)
+    }
+
+    /// Turned counter-clockwise by `angle` radians.
+    pub fn rotated(&self, angle: f32) -> Vec2 {
+        let c = angle.cos()
+        let s = angle.sin()
+        return Vec2{ x: x * c - y * s, y: x * s + y * c }
+    }
+
+    pub fn extend(&self, z: f32) -> Vec3 {
+        return Vec3{ x: x, y: y, z: z }
+    }
+}
+
+impl Add for Vec2 {
+    type Output = Vec2
+    fn add(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x + rhs.x, y: y + rhs.y }
+    }
+}
+
+impl Sub for Vec2 {
+    type Output = Vec2
+    fn sub(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x - rhs.x, y: y - rhs.y }
+    }
+}
+
+/// Component by component.
+impl Mul for Vec2 {
+    type Output = Vec2
+    fn mul(&self, rhs: Vec2) -> Vec2 {
+        return Vec2{ x: x * rhs.x, y: y * rhs.y }
+    }
+}
+
+impl Mul<f32> for Vec2 {
+    type Output = Vec2
+    fn mul(&self, rhs: f32) -> Vec2 {
+        return Vec2{ x: x * rhs, y: y * rhs }
+    }
+}
+
+impl Div<f32> for Vec2 {
+    type Output = Vec2
+    fn div(&self, rhs: f32) -> Vec2 {
+        return Vec2{ x: x / rhs, y: y / rhs }
+    }
+}
+
+impl Neg for Vec2 {
+    type Output = Vec2
+    fn neg(&self) -> Vec2 {
+        return Vec2{ x: -x, y: -y }
+    }
+}
+
+impl Eq for Vec2 {
+    fn eq(&self, rhs: &Vec2) -> bool {
+        return x == rhs.x && y == rhs.y
+    }
+}

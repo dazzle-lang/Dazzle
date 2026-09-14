@@ -1,0 +1,21 @@
+// Two opened dependencies export `Vec3`, and this file writes it bare: one error, on the use
+// (DZ0310). Opening both is not itself a mistake — `gravity` is fine. A private name is not
+// opened at all (DZ0301), and neither is a dependency's private dependency (DZ0303).
+
+import geo::hidden as h
+
+fn up() -> Vec3 {
+    return geo::Vec3{ x: 0, y: 1, z: 0 }
+}
+
+fn fall() -> f32 {
+    return gravity()
+}
+
+fn hidden() -> i32 {
+    return secret()
+}
+
+fn leaked() {
+    let _ = leaky::leak()
+}

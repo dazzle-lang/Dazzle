@@ -1,0 +1,150 @@
+/// Bytes at the start of every arena chunk: the previous chunk, and this one's capacity.
+const TEMP_HEADER: usize = 16
+
+/// The smallest chunk an arena asks the heap for.
+const TEMP_CHUNK: usize = 65536
+
+/// `Allocators::Temp`: allocation is a pointer bump inside the current chunk, freeing is
+/// nothing, and `reset()` keeps the first chunk and returns the rest (§14.2).
+pub struct TempArena {
+    m_chunk: ^mut u8 = null
+    m_used: usize = 0
+    m_cap: usize = 0
+
+    /// Release everything allocated since the last reset. Every pointer the arena handed
+    /// out is dangling afterwards; with `TRACK_MEMORY` the memory is overwritten, so a
+    /// stale read shows as `0xDD` bytes rather than as plausible old data.
+    pub fn reset(&mut self) {
+        if m_chunk == null {
+            return
+        }
+        unsafe {
+            let mut chunk = m_chunk
+            let mut prev = (chunk as ^mut ^mut u8)[0]
+            while prev != null {
+                #if TRACK_MEMORY {
+                    poison(chunk, TEMP_HEADER, (chunk as ^mut usize)[1])
+                }
+                free(chunk)
+                chunk = prev
+                prev = (chunk as ^mut ^mut u8)[0]
+            }
+            #if TRACK_MEMORY {
+                poison(chunk, TEMP_HEADER, if chunk == m_chunk { m_used } else { (chunk as ^mut usize)[1] })
+            }
+            m_chunk = chunk
+            m_cap = (chunk as ^mut usize)[1]
+            m_used = TEMP_HEADER
+        }
+    }
+
+    /// Bytes handed out from the current chunk, for measuring a frame's scratch use.
+    pub fn used(&self) -> usize {
+        if m_used < TEMP_HEADER {
+            return 0
+        }
+        return m_used - TEMP_HEADER
+    }
+
+    /// A new chunk big enough for `size` bytes at `align`, in front of the current one.
+    fn grow(&mut self, size: usize, align: usize) {
+        let wanted = TEMP_HEADER + align + size
+        let cap = if wanted > TEMP_CHUNK { wanted } else { TEMP_CHUNK }
+        unsafe {
+            let chunk = alloc(cap, alignof(usize))
+            (chunk as ^mut ^mut u8)[0] = m_chunk
+            (chunk as ^mut usize)[1] = cap
+            m_chunk = chunk
+        }
+        m_cap = cap
+        m_used = TEMP_HEADER
+    }
+
+    /// The first offset at or past `m_used` whose address is a multiple of `align`.
+    fn aligned(&self, align: usize) -> usize {
+        let base = m_chunk as usize
+        let at = base + m_used
+        return (at + align - 1) / align * align - base
+    }
+
+    /// Does `p` point into one of this arena's chunks?
+    fn owns(&self, p: ^mut u8) -> bool {
+        let at = p as usize
+        let mut chunk = m_chunk
+        while chunk != null {
+            let start = chunk as usize
+            let cap = unsafe { (chunk as ^mut usize)[1] }
+            if at >= start + TEMP_HEADER && at < start + cap {
+                return true
+            }
+            chunk = unsafe { (chunk as ^mut ^mut u8)[0] }
+        }
+        return false
+    }
+}
+
+impl Allocator for TempArena {
+    fn alloc(&mut self, size: usize, align: usize, _loc: SourceLocation) -> ^mut u8 {
+        let mut start = self.aligned(align)
+        if m_chunk == null || start + size > m_cap {
+            self.grow(size, align)
+            start = self.aligned(align)
+        }
+        m_used = start + size
+        let p: ^mut u8 = unsafe { &mut m_chunk[start] }
+        return p
+    }
+
+    fn realloc(
+        &mut self,
+        p: ^mut u8,
+        old_size: usize,
+        new_size: usize,
+        align: usize,
+        loc: SourceLocation,
+    ) -> ^mut u8 {
+        // The last allocation grows in place when the chunk has room.
+        if p != null && m_chunk != null {
+            let offset = (p as usize) - (m_chunk as usize)
+            if offset + old_size == m_used && offset + new_size <= m_cap {
+                m_used = offset + new_size
+                return p
+            }
+        }
+        let q = self.alloc(new_size, align, loc)
+        if p != null {
+            let kept = if old_size < new_size { old_size } else { new_size }
+            unsafe { memcpy(q, p, kept) }
+        }
+        return q
+    }
+
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+        #if TRACK_MEMORY {
+            if p != null && !self.owns(p) {
+                panic(
+                    "free of {} bytes (align {}) through Allocators::Temp, which did not allocate it, at {}:{}",
+                    size,
+                    align,
+                    loc.file,
+                    loc.line,
+                )
+            }
+        } #else {
+            let _ = p != null && size + align > 0 && loc.line > 0
+        }
+    }
+}
+
+impl Drop for TempArena {
+    fn drop(&mut self) {
+        let mut chunk = m_chunk
+        while chunk != null {
+            unsafe {
+                let prev = (chunk as ^mut ^mut u8)[0]
+                free(chunk)
+                chunk = prev
+            }
+        }
+    }
+}

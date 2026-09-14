@@ -1,0 +1,6 @@
+/// What `println("{}", x)` needs of `x`. The format string is parsed at compile time and
+/// lowers to a direct sequence of these calls, with no allocation and no intermediate
+/// string.
+pub trait Format {
+    fn format(&self, f: &mut Formatter)
+}
