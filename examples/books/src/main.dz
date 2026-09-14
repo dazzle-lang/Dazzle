@@ -107,6 +107,10 @@ fn find_movie(list: &mut List<Movie>, name: str) -> Movie? {
     return none
 }
 
+enum Test {
+    a, b, c
+}
+
 fn main() {
     let mut list: List<Movie>
 

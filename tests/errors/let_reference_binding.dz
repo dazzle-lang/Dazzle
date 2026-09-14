@@ -1,0 +1,21 @@
+// expect: DZ0207
+//
+// A `let` binds by value. `if let`, `for` and `case` take `&name` and `&mut name`
+// (§10.3, §10.4, §18.61) and a `let` does not, so there is no `or` clause that binds by
+// reference either — `or` only ever appears in a `let`.
+//
+// `p` refers to an optional `u32`, and `let c = p or return` would copy the `u32` out of
+// it, which is what §18.35 says a `&T?` does for a copyable `T`. Someone wanting the
+// reference instead reaches for `let &c`, and lands here; the help names
+// `if let &c = p { … } else { … }`, whose `else` diverges the way `or return` would.
+
+fn probe(a: ^u32?) {
+    let p = a or return
+    let &c = p or return
+    println("{}", c)
+}
+
+fn main() {
+    let mut n: u32? = 7
+    probe(&mut n)
+}

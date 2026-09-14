@@ -60,6 +60,7 @@ impl Ctx<'_> {
             module: self.module,
             file: self.file,
             span,
+            block_span: item.span,
         };
         // An implementation written where it may not be is reported and never registered:
         // one for every type would otherwise make every type satisfy the trait, and every

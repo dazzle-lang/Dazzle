@@ -80,7 +80,7 @@ fn check(entry: &Path) -> Checked {
     diags.extend(resolution.diagnostics.clone());
     let mut hir = String::new();
     if !resolve_failed {
-        let checked = dz_check::check(&ws, &resolution, &files);
+        let checked = dz_check::check(&ws, &resolution, &files, &map);
         hir = dz_hir::dump::dump(&checked.hir, &dz_check::Names { res: &resolution });
         diags.extend(checked.diagnostics);
     }

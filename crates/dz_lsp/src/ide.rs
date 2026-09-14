@@ -2389,6 +2389,27 @@ fn decl_class(kind: DeclKind) -> (TokenClass, bool) {
     }
 }
 
+/// The fixes offered for the diagnostics overlapping `range` (spec §17.4).
+///
+/// This knows nothing about any particular fix. A phase that can say exactly how to resolve
+/// a diagnostic attaches the edit to it ([`dz_diag::Fix`]), and it appears here — so a new
+/// quick fix is written once, where the compiler already worked the answer out, and needs
+/// no change to the server at all.
+///
+/// The range is what the editor has selected, which for a bare cursor is empty; a fix is
+/// offered when its diagnostic's primary span *contains or touches* that, so putting the
+/// caret anywhere in a `switch` offers to fill its arms.
+pub fn code_actions(a: &Analysis, file: FileId, range: Span) -> Vec<dz_diag::Fix> {
+    a.diags
+        .iter()
+        .filter_map(|d| {
+            let (f, span) = d.primary_span()?;
+            let touches = f == file && span.start <= range.end && range.start <= span.end;
+            touches.then(|| d.fix.clone()).flatten()
+        })
+        .collect()
+}
+
 fn symbol_class(kind: SymbolKind) -> (TokenClass, bool) {
     match kind {
         SymbolKind::Struct => (TokenClass::Struct, false),

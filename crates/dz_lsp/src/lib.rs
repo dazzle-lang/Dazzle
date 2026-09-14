@@ -24,23 +24,24 @@ use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response
 use lsp_types::notification::{self as notif, Notification as _};
 use lsp_types::request::{self as req, Request as _};
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-    DiagnosticRelatedInformation, DiagnosticSeverity, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentFormattingParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbol,
-    DocumentSymbolParams, DocumentSymbolResponse, Documentation, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, InlayHint,
-    InlayHintKind, InlayHintLabel, InlayHintParams, Location, LogMessageParams, MarkupContent,
-    MarkupKind, MessageType, NumberOrString, OneOf, ParameterInformation, ParameterLabel, Position,
-    PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams, RenameOptions,
-    RenameParams, SaveOptions, SemanticToken, SemanticTokenModifier, SemanticTokenType,
-    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, SignatureHelp, SignatureHelpOptions, SignatureHelpParams,
-    SignatureInformation, SymbolInformation, TextDocumentPositionParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    TextDocumentSyncSaveOptions, TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
-    WorkspaceSymbolResponse,
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
+    CodeActionProviderCapability, CodeActionResponse, CompletionItem, CompletionItemKind,
+    CompletionOptions, CompletionParams, CompletionResponse, DiagnosticRelatedInformation,
+    DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
+    DocumentHighlight, DocumentHighlightParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, Documentation, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    HoverContents, HoverParams, HoverProviderCapability, InlayHint, InlayHintKind, InlayHintLabel,
+    InlayHintParams, Location, LogMessageParams, MarkupContent, MarkupKind, MessageType,
+    NumberOrString, OneOf, ParameterInformation, ParameterLabel, Position, PrepareRenameResponse,
+    PublishDiagnosticsParams, Range, ReferenceParams, RenameOptions, RenameParams, SaveOptions,
+    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelp,
+    SignatureHelpOptions, SignatureHelpParams, SignatureInformation, SymbolInformation,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Url, WorkspaceEdit,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -106,6 +107,9 @@ fn capabilities() -> ServerCapabilities {
         document_symbol_provider: Some(OneOf::Left(true)),
         workspace_symbol_provider: Some(OneOf::Left(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
+        // Quick fixes (`ctrl+.`). What is offered comes from the diagnostics themselves,
+        // so this needs no options beyond being on (spec §17.4).
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         inlay_hint_provider: Some(OneOf::Left(true)),
         semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
             SemanticTokensOptions {
@@ -130,8 +134,7 @@ fn capabilities() -> ServerCapabilities {
             trigger_characters: Some(vec![".".to_owned(), ":".to_owned()]),
             ..Default::default()
         }),
-        // Code actions and implicit-drop hints (spec §17.4) are owed by M9 (deferral
-        // register).
+        // Implicit-drop hints (spec §17.4) are still owed by M9 (deferral register).
         ..Default::default()
     }
 }
@@ -538,6 +541,7 @@ impl Server {
             req::Completion::METHOD => call(params, |p| Ok(self.complete(p))),
             req::SignatureHelpRequest::METHOD => call(params, |p| Ok(self.signature_help(p))),
             req::InlayHintRequest::METHOD => call(params, |p| Ok(self.inlay_hints(p))),
+            req::CodeActionRequest::METHOD => call(params, |p| Ok(self.code_actions(p))),
             req::SemanticTokensFullRequest::METHOD => call(params, |p| Ok(self.semantic_tokens(p))),
             MANIFEST_LINKS => call(params, |p| Ok(self.manifest_links(p))),
             _ => return None,
@@ -746,6 +750,50 @@ impl Server {
             active_signature: Some(0),
             active_parameter: active,
         })
+    }
+
+    /// Quick fixes for whatever the cursor is on (spec §17.4).
+    ///
+    /// Every fix is a `quickfix` carrying a plain [`WorkspaceEdit`]: the compiler computed
+    /// the replacement, so there is nothing to resolve lazily and no command to run.
+    fn code_actions(&mut self, p: CodeActionParams) -> Option<CodeActionResponse> {
+        let (analysis, file) = self.analysis_for(&p.text_document.uri)?;
+        let source = analysis.map.get(file);
+        let (start, end) =
+            (convert::offset(source, p.range.start), convert::offset(source, p.range.end));
+        let range = Span::new(start.min(end) as usize, start.max(end) as usize);
+
+        let mut out: CodeActionResponse = Vec::new();
+        for fix in ide::code_actions(&analysis, file, range) {
+            let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+            // An edit may land in another file than the one asked about, so each is
+            // resolved through its own `FileId` rather than assumed to be this buffer.
+            let mut ok = true;
+            for e in &fix.edits {
+                let Some(target) = analysis.map.try_get(e.file) else {
+                    ok = false;
+                    break;
+                };
+                let Ok(uri) = Url::from_file_path(target.path()) else {
+                    ok = false;
+                    break;
+                };
+                changes.entry(uri).or_default().push(TextEdit {
+                    range: convert::range(target, e.span),
+                    new_text: e.text.clone(),
+                });
+            }
+            if !ok {
+                continue;
+            }
+            out.push(CodeActionOrCommand::CodeAction(CodeAction {
+                title: fix.title,
+                kind: Some(CodeActionKind::QUICKFIX),
+                edit: Some(WorkspaceEdit { changes: Some(changes), ..Default::default() }),
+                ..Default::default()
+            }));
+        }
+        Some(out)
     }
 
     fn inlay_hints(&mut self, p: InlayHintParams) -> Option<Vec<InlayHint>> {

@@ -1,0 +1,34 @@
+// expect: (none)
+//
+// The accepting half of `or_moves_out_of_a_reference_to_an_optional.dz`, which had none:
+// that file pins what a **move-only** payload refuses, and until this one there was no
+// case anywhere in the corpus pinning what a **copyable** payload does. The chain is two
+// separate rules and it is worth seeing both spelled out:
+//
+//   a: ^u32?    a pointer to an optional, not an optional pointer (§18.15)
+//   p: &u32?    `or` on a `^T` gives a `&T` (§18.37)
+//   c: u32      `or` on a `&T?` reads the optional it refers to, by copy, because `u32`
+//               is copyable (§18.35) — a `Token` here is `DZ0402` instead
+//
+// `if let &c` is the other half: it refers to the `u32` in place rather than copying it,
+// and is the only way to bind by reference, since a `let` binds by value
+// (`let_reference_binding.dz`).
+
+fn by_copy(a: ^u32?) -> u32 {
+    let p = a or return 0
+    let c = p or return 0
+    return c
+}
+
+fn by_reference(a: ^u32?) -> u32 {
+    let p = a or return 0
+    if let &c = p {
+        return c
+    }
+    return 0
+}
+
+fn main() {
+    let mut n: u32? = 7
+    println("{} {}", by_copy(&mut n), by_reference(&mut n))
+}

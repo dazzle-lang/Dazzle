@@ -23,10 +23,16 @@ pub enum Mode {
     /// Resolve and check whatever parsed, however broken, so an editor can still answer
     /// "what is this?" around a syntax error — which is most of the time while typing.
     ///
-    /// The *diagnostics* are exactly [`Mode::Build`]'s: a later phase's are dropped once an
-    /// earlier one has failed, because checking a tree whose names did not resolve — or
-    /// resolving one that did not parse — produces noise about things the compiler could
-    /// never have known. Only the tree, the symbols and the types are kept.
+    /// The *diagnostics* are exactly [`Mode::Build`]'s. A phase is dropped when an earlier
+    /// failure made its answers meaningless — everything after a parse error, since the
+    /// tree itself is then a guess, and ownership after a resolution error, since it needs
+    /// types it can trust. Only the tree, the symbols and the types are kept.
+    ///
+    /// **Type checking is not dropped for a name that did not resolve.** Such an expression
+    /// has type `Ty::Error` and the checker already declines to say anything more about it,
+    /// so suppressing the phase wholesale only threw away the diagnostics that had nothing
+    /// to do with it — in a file being typed into, which is nearly always one with a name
+    /// not yet written, that was most of them.
     Editor,
 }
 
@@ -181,10 +187,26 @@ pub fn analyse_for(
         if parsed_cleanly {
             diags.extend(r.diagnostics.clone());
         }
-        if resolved_cleanly || tolerant {
-            let checked = dz_check::check(&ws, &r, &files);
+        // The checker runs, and its diagnostics are kept, whenever the program *parsed* —
+        // a name that failed to resolve no longer silences the rest of the file.
+        //
+        // It used to take `resolved_cleanly`, which is `has_errors()` over the whole
+        // workspace, so one unresolved name anywhere discarded every type error
+        // everywhere: a `dazzle.toml` missing its `std` dependency left `Iterator`
+        // unresolved and, with it, a non-exhaustive `switch` on a locally declared enum in
+        // another function went unreported. The work was done and thrown away — `hir` and
+        // `table` were kept either way, which is why hover went on working.
+        //
+        // What that blanket gate was for is real but narrower: an expression built from a
+        // name that did not resolve has type `Ty::Error`, and anything said about it is
+        // noise. That is suppressed where it arises instead — the checker's `is_error()`
+        // guards — which leaves the diagnostics that never touched the unresolved name.
+        //
+        // A *parse* error still suppresses, and must: the tree itself is then a guess.
+        if parsed_cleanly || tolerant {
+            let checked = dz_check::check(&ws, &r, &files, &map);
             let checked_cleanly = resolved_cleanly && !checked.diagnostics.has_errors();
-            if resolved_cleanly {
+            if parsed_cleanly {
                 diags.extend(checked.diagnostics);
             }
             // Ownership runs on the typed tree (spec §17.2). Skipped when anything before
