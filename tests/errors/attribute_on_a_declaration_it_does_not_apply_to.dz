@@ -1,0 +1,11 @@
+// expect: DZ0315
+//
+// `#[thread_local]` makes a `static` one per thread; on a function it means nothing, so it
+// is refused rather than ignored (spec §12.8).
+
+#[thread_local]
+fn count() -> i32 {
+    return 1
+}
+
+fn main() {}

@@ -2369,7 +2369,6 @@ impl<'a> Ctx<'a> {
         let which =
             ["test", "bench"].into_iter().find(|w| item.attrs.iter().any(|a| a.name.name == *w));
         let Some(which) = which else { return };
-        let attr = item.attrs.iter().find(|a| a.name.name == which).expect("just found it");
         if item.attrs.iter().any(|a| a.name.name == "test")
             && item.attrs.iter().any(|a| a.name.name == "bench")
         {
@@ -2424,15 +2423,6 @@ impl<'a> Ctx<'a> {
                 how,
             );
             return;
-        }
-        if !attr.args.is_empty() {
-            self.error_help(
-                codes::BAD_TEST,
-                attr.span,
-                format!("`#[{which}]` takes no arguments"),
-                "unexpected arguments",
-                format!("write `#[{which}]` on its own"),
-            );
         }
         if which == "test" {
             self.table.tests.push(sym);

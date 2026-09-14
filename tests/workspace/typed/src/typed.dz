@@ -1296,3 +1296,15 @@ fn hashing(name: str) -> bool {
     return found && 'c'.hash() != true.hash() && name.eq(&name)
 }
 
+
+// §13: reflection is typed like any call — a static `&TypeInfo`, a `TypeId` that compares,
+// a tag looked up by key.
+fn reflect_on_a_type() -> bool {
+    let info = typeinfo_of<Vec3>()
+    let id = typeid_of<Vec3>()
+    let again = typeinfo(id)
+    for &f in info.fields {
+        let _ = f.tag_value("json") or f.name
+    }
+    return id == typeid_of<Vec3>() && again.kind == TypeKind::Struct && info.size > 0
+}

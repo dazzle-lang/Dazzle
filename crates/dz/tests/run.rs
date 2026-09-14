@@ -693,6 +693,7 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
         "iterable",
         "math",
         "variadic",
+        "reflect",
     ] {
         check_warning_clean(cxx, fixture);
     }
@@ -1055,6 +1056,57 @@ fn a_c_array_member_is_indexed_not_copied() {
 // --- code quality ---------------------------------------------------------
 
 /// Write a throwaway project and return its directory.
+/// `type_info` decides what the table holds (spec §13.2): with `"none"` a reflection call
+/// is an error; with `"all"` every declared type is described, a generic instance and an
+/// imported header's type among what that reaches, and the table still compiles
+/// warning-clean on both compilers (invariant 7).
+#[test]
+fn type_info_none_refuses_reflection_and_all_describes_everything() {
+    let source = "struct Probe {\n    pub a: i32 = 0\n}\n\n\
+                  struct Holder<T> {\n    pub item: T\n}\n\n\
+                  union Shape {\n    Circle { radius: f32 }\n    Dot {}\n}\n\n\
+                  fn main() {\n    println(\"{}\", typeinfo_of<Probe>().name)\n    \
+                  let h = Holder<List<u8>>{ item: List<u8>() }\n    println(\"{}\", h.item.len())\n    \
+                  let s = Shape::Dot{}\n    let _ = s\n}\n";
+    let none = scratch(
+        "dz_type_info_none",
+        "[module]\nname = \"n\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n\n[build]\ntype_info = \"none\"\n",
+        source,
+    );
+    let out = Command::new(dz()).args(["check", none.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success() && stderr.contains("DZ0555"), "{stderr}");
+    let _ = std::fs::remove_dir_all(&none);
+
+    let Some(cxx) = ["clang++", "g++"]
+        .iter()
+        .find(|c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()))
+    else {
+        return;
+    };
+    let all = scratch(
+        "dz_type_info_all",
+        "[module]\nname = \"a\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n\n[build]\ntype_info = \"all\"\n",
+        source,
+    );
+    let out = Command::new(dz()).args(["cpp", all.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let table = all.join("build/cpp/dz_typeinfo.cpp");
+    let text = std::fs::read_to_string(&table).expect("the table is written");
+    // Every declared type is in it, `Shape` included though nothing names it.
+    for name in ["\"Probe\"", "\"Shape\"", "\"List<u8>\"", "\"TypeInfo\""] {
+        assert!(text.contains(name), "`{name}` missing from the table");
+    }
+    let out = Command::new(cxx)
+        .args(["-std=c++17", "-fno-exceptions", "-fno-rtti", "-Wall", "-Wextra", "-fsyntax-only"])
+        .arg(&table)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success() && stderr.trim().is_empty(), "{stderr}");
+    let _ = std::fs::remove_dir_all(&all);
+}
+
 fn scratch(name: &str, manifest: &str, source: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(name);
     let _ = std::fs::remove_dir_all(&dir);

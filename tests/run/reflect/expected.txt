@@ -1,0 +1,20 @@
+{"player_name":"Aria","level":7,"class":"Mage","alive":true,"stats":{"strength":12,"agi":1.5},"scores":[10,20,30],"pet":"Ember","held":{"Sword":{"dmg":40}}}
+{"player_name":"Bram","level":7,"class":"Rogue","alive":false,"stats":{"strength":0,"agi":0},"scores":[0,0,0],"pet":null,"held":{"Potion":{"heal":5}}}
+[2,3]
+Player in reflect: 9 fields, kind 24
+  name tag `json:"player_name"` json=player_name
+  level tag `` json=-
+  class tag `` json=-
+  alive tag `` json=-
+  stats tag `` json=-
+  scores tag `` json=-
+  pet tag `` json=-
+  held tag `` json=-
+  m_session tag `` json=-
+  Warrior = 0
+  Mage = 5
+  Rogue = 6
+same id: true
+component Stats (8 bytes, 2 fields, 0 variants)
+component Item (8 bytes, 0 fields, 2 variants)
+list: List<i32>

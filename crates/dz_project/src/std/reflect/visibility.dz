@@ -1,0 +1,8 @@
+/// Who may name a field, as it was declared (spec §4). Reflection describes every field;
+/// this says which of them code outside the type could have written.
+pub enum Visibility : u8 {
+    Private
+    Protected
+    Module
+    Public
+}

@@ -53,6 +53,11 @@ constexpr uint32_t caller_line(uint32_t line = __builtin_LINE()) { return line; 
 // Never a C++ exception: the generated code builds with -fno-exceptions.
 
 [[noreturn]] void panic(const char* message, SourceLocation where);
+
+/// One entry of the type table (spec §13), which `dz_typeinfo.cpp` defines when the program
+/// reflects on anything. Untyped here: the entry is the standard library's `TypeInfo`,
+/// which this header comes before.
+const void* reflect_entry(uint32_t id);
 [[noreturn]] void panic_bounds(size_t index, size_t length, SourceLocation where);
 [[noreturn]] void panic_len(const uint8_t* message, size_t len, SourceLocation where);
 /// A place the compiler proved is not reached: the failure side of `or unreachable`

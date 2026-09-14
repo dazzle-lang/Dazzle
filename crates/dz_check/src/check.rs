@@ -4648,6 +4648,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 && dz_resolve::BUILTIN_FNS.contains(&p.segments[0].name.name.as_str())
             {
                 let name = p.segments[0].name.name.clone();
+                if matches!(name.as_str(), "typeinfo_of" | "typeid_of" | "typeinfo") {
+                    return self.reflect_call(e, &name, &p.segments[0], args, span);
+                }
                 // `sizeof(T)` and `alignof(T)` take a *type*, and are spellings of `T::size`
                 // and `T::align` (spec §5.5).
                 if matches!(name.as_str(), "sizeof" | "alignof") && args.len() == 1 {
@@ -5192,6 +5195,77 @@ impl<'a, 'c> Body<'a, 'c> {
     }
 
     /// `sizeof(T)` / `alignof(T)`: the argument is a type, so it is lowered as one.
+    /// `typeinfo_of<T>()`, `typeid_of<T>()` and `typeinfo(id)` (spec §13.1). The first two
+    /// name a type and take nothing; the third takes a `TypeId`. Each answers from the
+    /// standard library's `TypeInfo` and `TypeId`, and needs a type table to answer from.
+    fn reflect_call(
+        &mut self,
+        e: &Expr,
+        name: &str,
+        seg: &PathSegment,
+        args: &[Expr],
+        span: Span,
+    ) -> Checked {
+        let std = self.cx.res.prelude;
+        let (Some(info_sym), Some(id_sym)) =
+            (self.cx.res.lookup(std, "TypeInfo"), self.cx.res.lookup(std, "TypeId"))
+        else {
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        };
+        let info_ty = Ty::reference(false, Ty::plain(info_sym));
+        if self.cx.ws.module(self.cx.ws.root).build.type_info == dz_project::TypeInfo::None {
+            self.cx.error_help(
+                codes::REFLECTION_DISABLED,
+                span,
+                format!("`{name}` needs the type table, and this build has none"),
+                "reflection is turned off",
+                "set `type_info = \"used\"` under `[build]` in dazzle.toml (spec §13.2)",
+            );
+            for a in args {
+                self.expr(a, None);
+            }
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        }
+        if name == "typeinfo" {
+            let want = Ty::plain(id_sym);
+            if args.len() != 1 || !seg.generics.is_empty() {
+                self.cx.error(
+                    codes::WRONG_ARG_COUNT,
+                    span,
+                    format!("`typeinfo` takes one `TypeId`, found {} arguments", args.len()),
+                    "write `typeinfo(id)`, or `typeinfo_of<T>()` for a type you can name",
+                );
+                for a in args {
+                    self.expr(a, None);
+                }
+                return self.mk(e, Ty::Error, hir::ExprKind::Error);
+            }
+            let c = self.expr(&args[0], Some(&want));
+            self.expect(&want, &c.ty, args[0].span);
+            let kind = hir::ExprKind::Builtin { name: "typeinfo".to_owned(), args: vec![c.id] };
+            return self.mk(e, info_ty, kind);
+        }
+        // `typeinfo_of<T>()`: one type argument, no value arguments.
+        if seg.generics.len() != 1 || !args.is_empty() {
+            self.cx.error_help(
+                codes::WRONG_ARG_COUNT,
+                span,
+                format!("`{name}` takes one type and no arguments"),
+                "not the form this call has",
+                format!("write `{name}<T>()` (spec §13.1)"),
+            );
+            for a in args {
+                self.expr(a, None);
+            }
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        }
+        let ty = self.cx.lower_type(&seg.generics[0]);
+        let ty = self.subst(&ty);
+        let info = name == "typeinfo_of";
+        let result = if info { info_ty } else { Ty::plain(id_sym) };
+        self.mk(e, result, hir::ExprKind::Reflect { ty, info })
+    }
+
     fn type_argument_query(&mut self, name: &str, arg: &Expr) -> Option<(Ty, hir::ExprKind)> {
         let ExprKind::Path(tp) = &arg.kind else { return None };
         // A value is not a type: `sizeof(x)` for a local `x` is a mistake worth naming,

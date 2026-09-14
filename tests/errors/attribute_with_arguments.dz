@@ -1,0 +1,8 @@
+// expect: DZ0315
+//
+// `#[test]` takes no arguments (spec §12.8).
+
+#[test(fast)]
+fn quick() {}
+
+fn main() {}

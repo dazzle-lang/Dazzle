@@ -37,6 +37,7 @@ use dz_project::{ModuleId, Workspace};
 use dz_resolve::{ParsedFile, Resolution, SymbolId};
 use dz_span::{FileId, SourceMap, Span};
 
+mod reflect;
 mod runtime;
 
 pub use runtime::{PRELUDE_H, RUNTIME_CPP, RUNTIME_H};
@@ -134,6 +135,7 @@ pub fn emit(
         diagnostics: Diagnostics::new(),
         entry: None,
     };
+    let reflection: reflect::Shared = Default::default();
 
     for module in ws.modules() {
         let Some(module_files) = files.get(&module.id) else { continue };
@@ -164,6 +166,7 @@ pub fn emit(
             header_ns: module.id,
             def_prefix: "",
             mode,
+            reflect: &reflection,
         };
         e.module(module_files);
         e.finish_header();
@@ -249,6 +252,53 @@ pub fn emit(
                 );
             }
         }
+    }
+
+    // The type table, when anything reads it (spec §13). Written last, since every module's
+    // code has by now named the types it reflects on.
+    let type_info = ws.module(ws.root).build.type_info;
+    if reflection.borrow().is_needed() && type_info != dz_project::TypeInfo::None {
+        let mut e = Emitter {
+            ws,
+            res,
+            table,
+            hir,
+            map,
+            module: res.prelude,
+            file: FileId(0),
+            diags: Diagnostics::new(),
+            header: String::new(),
+            out: String::new(),
+            indent: 0,
+            temp: 0,
+            current_fn: String::new(),
+            last_line: 0,
+            standard,
+            body: None,
+            names: Vec::new(),
+            mono,
+            struct_asts: &struct_asts,
+            union_asts: &union_asts,
+            instance: None,
+            impl_instance: None,
+            chunks: Vec::new(),
+            header_ns: res.prelude,
+            def_prefix: "",
+            mode,
+            reflect: &reflection,
+        };
+        if type_info == dz_project::TypeInfo::All {
+            reflect::seed_all(&mut e, files);
+        }
+        let headers: Vec<String> = out
+            .files
+            .iter()
+            .map(|f| f.name.clone())
+            .filter(|n| n.ends_with(".h") && n != "dz_runtime.h" && n != "dz_prelude.h")
+            .collect();
+        let contents = reflect::table_file(&mut e, &headers);
+        out.files.push(GeneratedFile { name: "dz_typeinfo.cpp".into(), contents });
+        out.diagnostics.extend(e.diags);
     }
 
     out.diagnostics.sort_by_position();
@@ -455,6 +505,8 @@ struct Emitter<'a> {
     /// Program or tests (spec §19 M14). A `#[test]` function is emitted in one and left
     /// out of the other, so a program never carries its tests.
     mode: Mode,
+    /// The types reflected on, shared by every module's emitter (spec §13).
+    reflect: &'a reflect::Shared,
 }
 
 impl<'a> Emitter<'a> {
@@ -3295,6 +3347,7 @@ impl<'a> Emitter<'a> {
                 format!("{t}{{{}}}", vs.join(", "))
             }
             hir::ExprKind::TypeQuery { ty, query } => self.type_query(ty, *query),
+            hir::ExprKind::Reflect { ty, info } => self.reflect_expr(ty, *info),
             hir::ExprKind::Len(base) => {
                 let b = self.expr(*base);
                 {
@@ -3896,6 +3949,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::FnItem(_)
             | hir::ExprKind::EnumVariant { .. }
             | hir::ExprKind::TypeQuery { .. }
+            | hir::ExprKind::Reflect { .. }
             | hir::ExprKind::Intrinsic { .. } => false,
             hir::ExprKind::Field { base, .. }
             | hir::ExprKind::TupleIndex { base, .. }
@@ -3935,6 +3989,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::FnItem(_)
             | hir::ExprKind::EnumVariant { .. }
             | hir::ExprKind::TypeQuery { .. }
+            | hir::ExprKind::Reflect { .. }
             | hir::ExprKind::Intrinsic { .. } => true,
             // A local reference cannot be re-seated, so it names the same thing throughout.
             hir::ExprKind::Local(_) => matches!(body.ty(e), Ty::Ref { .. }),
@@ -4156,6 +4211,8 @@ impl<'a> Emitter<'a> {
             "destroy" => format!("::dz::destroy({})", rendered[0]),
             "move_out" => format!("::dz::move_out({})", rendered[0]),
             "str_from_utf8" => format!("::dz::str_from_utf8({})", rendered[0]),
+            // `typeinfo(id)` reads the table codegen writes (spec §13.1).
+            "typeinfo" => self.typeinfo_by_id(&rendered[0]),
             "memcpy" => format!("::memcpy({}, {}, {})", rendered[0], rendered[1], rendered[2]),
             // The optimiser barrier a benchmark needs (spec §19 M15).
             "blackbox" => format!("::dz::blackbox({})", rendered[0]),

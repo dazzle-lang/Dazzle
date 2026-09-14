@@ -1,0 +1,8 @@
+// expect: DZ0314
+//
+// Conditional compilation is `#if`, not an attribute (spec §12.8, §12.10).
+
+#[cfg(os = "windows")]
+fn platform() {}
+
+fn main() {}

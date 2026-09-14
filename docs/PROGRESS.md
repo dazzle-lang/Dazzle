@@ -18,7 +18,7 @@ the milestone.
 
 | | |
 |---|---|
-| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
+| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
 | Next | **M12 — the stdlib**, chosen over M10/M11 by the user on 2026-09-13; M9's remaining editor rows stay open. r39 laid the language groundwork (`static`, associated functions, trait objects). Next in order: `#location` evaluated at the caller, associated constants, then `Allocators::Global`/`Temp` with opt-in tracking. See §4 |
 | Tests | 193, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
@@ -1513,7 +1513,8 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M12** | **An intrinsic default uses the C++ compiler's builtins**, so its column is 0 and its function is the C++ name (`bump`, not `Counter::bump`) | `dz_cpp`, `caller_intrinsic` |
 | **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
 | **M10** | The intrinsics `#module`, `#location` and `#expr_text` are typed but not emitted (`#file`, `#line`, `#column` and `#function` are) | `dz_cpp`, `intrinsic` |
-| **M11** | `typeinfo_of`, `typeid_of` and `typeinfo` are typed but not emitted | `dz_cpp`, `builtin` |
+| **M10** | **`T::fields`**, compile-time reflection (§13.4), needs macros to iterate it; the runtime table is done | `dz_check`, `path_type_query` |
+| **M12** | **An imported C or C++ enum's variants are not in the type table**: its constants are the header's to spell, and `offsetof`-style reading of their values was not needed by anything yet. Its size, backing type and name are | `dz_cpp/src/reflect.rs`, `describe_named` |
 | **M12** | **Generic methods** — a method with type parameters of its own — report `DZ0801`. A generic *type*'s methods are instantiated; a method generic over its own arguments needs a second instance key and has no user yet | `dz_cpp/src/lib.rs`, `struct_decl` |
 | **M12** | **Trait objects that are not object-safe** — of a generic trait, one with associated types, or one whose methods mention `Self` — report `DZ0801`, and so does a trait object of a type whose `impl` is generic, which would need a vtable per instance. | `dz_cpp`, `object_safe`; `dz_check`, `refuse_generic_impl_object` |
 | **M12** | **Associated-type projection** (`T::Item`, `T::Output`). An associated type resolves through an implementer but cannot be named off a bounded parameter, so `for` over a generic `T: Iterate` is refused by the checker (`DZ0801`), and generic arithmetic cannot name its result type | `dz_check/src/check.rs`, `iterate_item` |
@@ -1530,6 +1531,44 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 - Function overloading, until a later language version (§18.5).
 
 ---
+
+## 3a. M11 — reflection (r51), done 2026-09-14
+
+Taken up by the user after the import redesign, with three decisions (18.59): the table
+describes **every kind of type**, not only structs; field metadata is an **Odin-style tag**, a
+raw string ending the field (`` hp: i32 = 100 `json:"health"` ``), not language-defined
+attributes; and M9 stays open.
+
+- **Syntax**: `dz_ast::Field::tag`, parsed after the default; the formatter and dump print it.
+- **std**: `std/reflect/` — `TypeId` (a struct around `u32`, `Eq`/`Hash`), `TypeKind`,
+  `Visibility`, `TypeInfo`, `FieldInfo` (with `tag_value(key)`, written in Dazzle over bytes)
+  and `VariantInfo`. `module`, `own` and `type` are keywords or begin members, so the fields
+  are `module_name`, `owning` and `type_id`.
+- **Checker**: `reflect_call` types `typeinfo_of<T>()` / `typeid_of<T>()` as the new HIR node
+  `ExprKind::Reflect { ty, info }` (substituted and visited by mono like `TypeQuery`) and
+  `typeinfo(id)` as a builtin; `type_info = "none"` is DZ0555.
+- **Codegen** (`dz_cpp/src/reflect.rs`): every emitter interns the types it reflects on into a
+  shared registry, keyed by their C++ spelling from `std`'s namespace, and `dz_typeinfo.cpp` is
+  written last: the closure over fields, variants and element types, filled once by a
+  function-local static's constructor (generated structs have constructors, and §16.4 forbids
+  global ones), names as `uint8_t` arrays so they stay constant, offsets by `offsetof` with
+  `-Winvalid-offsetof` off for the file. `type_info = "all"` seeds it with every declared type; there is no `#[reflect]` (the user's call: a program keeps the ids it wants listed). The shim
+  declares `::dz::reflect_entry`, which bounds-checks the id.
+- **Found**: a trait reached through a pointer field (`List`'s `^mut Allocator`) has no size —
+  described as a size-less `TraitObject`.
+- Tests: `tests/run/reflect` (the criterion; warning-clean set), `typed/` and `typeerrors/`,
+  `type_info_none_refuses_reflection_and_all_describes_everything`, and an imported C struct
+  reflected on by hand.
+
+### r52 — attributes are checked (18.60)
+
+Asked for by the user once `#[reflect]` was removed and would have been silently accepted.
+`Walker::attributes` in `dz_resolve` checks every item's and member's attributes: an
+unknown name is DZ0314 (with `did you mean`, and `#if` for `cfg`); `#[test]`/`#[bench]` off a
+module-level function, `#[thread_local]` off a `static`, arguments, or a repeat are DZ0315;
+the specified-but-unbuilt `inline`, `align`, `packed`, `deprecated`, `export`, `derive`,
+`persist` and `raw` are DZ0316. The checker's own "`#[test]` takes no arguments" moved there.
+Tests: nine `tests/errors` programs, one per mistake and one valid.
 
 ## 4. Next: M12, the stdlib
 

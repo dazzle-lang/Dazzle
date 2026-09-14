@@ -355,7 +355,9 @@ impl Worklist<'_> {
             let here = (b.file, e.span);
             self.visit_ty(&e.ty, here);
             match &e.kind {
-                ExprKind::TypeQuery { ty, .. } => self.visit_ty(ty, here),
+                ExprKind::TypeQuery { ty, .. } | ExprKind::Reflect { ty, .. } => {
+                    self.visit_ty(ty, here)
+                }
                 ExprKind::Call { callee: Callee::Fn { sym, type_args }, .. }
                     if !type_args.is_empty() =>
                 {

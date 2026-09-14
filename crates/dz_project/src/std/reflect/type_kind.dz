@@ -1,0 +1,31 @@
+/// What sort of type a `TypeInfo` describes, and so which of its fields mean something
+/// (spec §13.1).
+pub enum TypeKind : u8 {
+    Void
+    Bool
+    Char
+    I8
+    I16
+    I32
+    I64
+    Isize
+    U8
+    U16
+    U32
+    U64
+    Usize
+    F32
+    F64
+    Str
+    Cstr
+    Pointer
+    Slice
+    Array
+    Optional
+    Tuple
+    Function
+    TraitObject
+    Struct
+    Union
+    Enum
+}

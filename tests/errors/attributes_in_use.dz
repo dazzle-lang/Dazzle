@@ -1,0 +1,18 @@
+// expect: (none)
+//
+// The attributes the language has, each where it applies (spec §12.8).
+
+#[thread_local]
+static HITS: i32 = 0
+
+#[test]
+fn counts() {
+    assert(unsafe { HITS } == 0)
+}
+
+#[bench]
+fn measures() {
+    let _ = blackbox(1 + 1)
+}
+
+fn main() {}

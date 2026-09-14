@@ -1,0 +1,11 @@
+// expect: DZ0315
+//
+// A test is a module-level function: a method, which the runner has no value to call on,
+// cannot be one (spec §12.8, §19 M14).
+
+struct Suite {
+    #[test]
+    fn check(&self) {}
+}
+
+fn main() {}

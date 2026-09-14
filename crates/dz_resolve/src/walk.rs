@@ -417,6 +417,20 @@ impl<'a, 'w> Walker<'a, 'w> {
     // --- items ------------------------------------------------------------
 
     fn item(&mut self, item: &Item) {
+        // At module level when no scope is open: a declaration inside a body has one.
+        let target = match &item.kind {
+            ItemKind::Fn(_) if self.scopes.is_empty() => AttrTarget::ModuleFn,
+            ItemKind::Fn(_) => AttrTarget::Other("a function inside a body"),
+            ItemKind::Static(_) => AttrTarget::Static,
+            ItemKind::Struct(_) => AttrTarget::Other("a struct"),
+            ItemKind::Union(_) => AttrTarget::Other("a union"),
+            ItemKind::Enum(_) => AttrTarget::Other("an enum"),
+            ItemKind::Trait(_) => AttrTarget::Other("a trait"),
+            ItemKind::Impl(_) => AttrTarget::Other("an implementation"),
+            ItemKind::Const(_) => AttrTarget::Other("a constant"),
+            _ => AttrTarget::Other("this declaration"),
+        };
+        self.attributes(&item.attrs, target);
         match &item.kind {
             // Removed by the driver before resolution runs (spec §12.10).
             ItemKind::CfgIf(_) => {}
@@ -590,6 +604,14 @@ impl<'a, 'w> Walker<'a, 'w> {
         // A trait's items are as public as the trait (spec §4); a struct's are their own.
         let is_trait = fields_in_scope.is_some_and(|f| f.is_empty());
         for m in members {
+            let what = match &m.kind {
+                MemberKind::Field(_) => "a field",
+                MemberKind::Fn(_) => "a method",
+                MemberKind::Ctor(_) => "a constructor",
+                MemberKind::Const(_) => "an associated constant",
+                _ => "a member",
+            };
+            self.attributes(&m.attrs, AttrTarget::Other(what));
             let public = owner.is_some() && (is_trait || m.vis == Vis::Public);
             let exported = |name: &str| {
                 public.then(|| format!("{}::{name}", owner.map(String::as_str).unwrap_or("")))
@@ -994,6 +1016,103 @@ impl<'a, 'w> Walker<'a, 'w> {
         }
     }
 
+    /// Every attribute on a declaration must be one the language has, on a declaration it
+    /// applies to, without arguments it does not take, and once (spec §12.8, 18.60).
+    fn attributes(&mut self, attrs: &[Attr], target: AttrTarget) {
+        /// Described by the specification, not implemented by the compiler: each with where.
+        const LATER: &[(&str, &str)] = &[
+            ("inline", "§12.8"),
+            ("align", "§12.8"),
+            ("packed", "§12.8"),
+            ("deprecated", "§12.8"),
+            ("export", "§15.5"),
+            ("derive", "§12"),
+            ("persist", "§17.6"),
+            ("raw", "§7.5"),
+        ];
+        const KNOWN: &[&str] = &["test", "bench", "thread_local"];
+        let file = self.file;
+        for (i, a) in attrs.iter().enumerate() {
+            let name = a.name.name.as_str();
+            if let Some((_, section)) = LATER.iter().find(|(n, _)| *n == name) {
+                self.error(
+                    Diagnostic::error(
+                        codes::ATTRIBUTE_NOT_IMPLEMENTED,
+                        format!("`#[{name}]` is not implemented yet"),
+                    )
+                    .at(file, a.span, "the compiler does not do what this asks")
+                    .with_help(format!(
+                        "spec {section} describes it, but the compiler does not build it yet; \
+                         remove it rather than rely on it"
+                    )),
+                );
+                continue;
+            }
+            if !KNOWN.contains(&name) {
+                let mut d = Diagnostic::error(
+                    codes::UNKNOWN_ATTRIBUTE,
+                    format!("`#[{name}]` is not an attribute"),
+                )
+                .at(file, a.span, "unknown attribute");
+                d = match (name, closest(name, KNOWN.iter().copied())) {
+                    ("cfg", _) => {
+                        d.with_help("conditional compilation is `#if FLAG { … }` (spec §12.10)")
+                    }
+                    (_, Some(s)) => d.with_help(format!("did you mean `#[{s}]`?")),
+                    (_, None) => d.with_help(
+                        "the attributes are `#[test]`, `#[bench]` and `#[thread_local]` \
+                         (spec §12.8)",
+                    ),
+                };
+                self.error(d);
+                continue;
+            }
+            if attrs[..i].iter().any(|b| b.name.name == name) {
+                self.error(
+                    Diagnostic::error(
+                        codes::MISPLACED_ATTRIBUTE,
+                        format!("`#[{name}]` is written twice"),
+                    )
+                    .at(file, a.span, "again")
+                    .with_help("once says it"),
+                );
+                continue;
+            }
+            let (fits, applies_to) = match name {
+                "test" | "bench" => {
+                    (matches!(target, AttrTarget::ModuleFn), "a function at module level")
+                }
+                _ => (matches!(target, AttrTarget::Static), "a `static`"),
+            };
+            if !fits {
+                let on = match target {
+                    AttrTarget::ModuleFn => "a function",
+                    AttrTarget::Static => "a static",
+                    AttrTarget::Other(what) => what,
+                };
+                self.error(
+                    Diagnostic::error(
+                        codes::MISPLACED_ATTRIBUTE,
+                        format!("`#[{name}]` does not apply to {on}"),
+                    )
+                    .at(file, a.span, format!("`#[{name}]` goes on {applies_to}"))
+                    .with_help("see the attributes and what they apply to in spec §12.8"),
+                );
+                continue;
+            }
+            if !a.args.is_empty() {
+                self.error(
+                    Diagnostic::error(
+                        codes::MISPLACED_ATTRIBUTE,
+                        format!("`#[{name}]` takes no arguments"),
+                    )
+                    .at(file, a.span, "unexpected arguments")
+                    .with_help(format!("write `#[{name}]` on its own")),
+                );
+            }
+        }
+    }
+
     /// A type in the signature of something other modules can use must be one they can
     /// name: this module's own, the standard library's, or a public dependency's
     /// (spec §3.2, DZ0311).
@@ -1378,6 +1497,15 @@ impl<'a, 'w> Walker<'a, 'w> {
         );
         false
     }
+}
+
+/// What an attribute is written on, as far as which attributes fit (spec §12.8).
+#[derive(Clone, Copy)]
+enum AttrTarget {
+    ModuleFn,
+    Static,
+    /// Anything else, described for a message.
+    Other(&'static str),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

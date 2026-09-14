@@ -1,0 +1,9 @@
+// expect: DZ0315
+//
+// Written twice, an attribute says nothing more (spec §12.8).
+
+#[test]
+#[test]
+fn twice() {}
+
+fn main() {}
