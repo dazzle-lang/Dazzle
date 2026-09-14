@@ -1,0 +1,11 @@
+// expect: DZ0314
+//
+// An attribute the language does not have is an error, not ignored: this misspelled test
+// would otherwise never run, and nothing would say so (spec §12.8, 18.60).
+
+#[tset]
+fn adds() {
+    assert(1 + 1 == 2)
+}
+
+fn main() {}

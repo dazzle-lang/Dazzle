@@ -1,10 +1,12 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 50
-**Status:** M0–M7 implemented — Dazzle programs compile and run, own, move and drop their
-resources deterministically, have generics and traits, and call C and C++ libraries that
-`dz` builds from vendored source. The language is not yet usable for real work: there is no
-stdlib. See `docs/PROGRESS.md`.
+**Version:** 0.1 — **unreleased**, revision 52
+**Status:** M0–M8, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle programs
+compile and run, own, move and drop their resources deterministically, have generics,
+traits, unions and reflection, call C and C++ libraries that `dz` builds from vendored
+source, and are edited with a language server. Not yet 0.1: the editor still lacks code
+actions and incremental analysis (M9), and the standard library has not yet carried a game
+written without C++ (M12). See `docs/PROGRESS.md`.
 
 **The version number stays 0.1 until 0.1 is actually finished.** 0.1 means: an LSP good
 enough to work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop
@@ -2422,13 +2424,9 @@ is what lets an assertion macro print `assert(hp > 0)` rather than `assert(false
 ### 12.8 Attributes
 
 ```dz
-#[inline]              fn lerp(...) { ... }
-#[align(64)]           struct CacheLine { ... }
-#[packed]              struct Header { ... }
-#[reflect]             struct Transform { ... }
-#[deprecated("use X")] fn old(...) { ... }
-#[test]                fn test_buffer_grows() { ... }
-#[cfg(os = "windows")] fn platform_init() { ... }
+#[test]         fn test_buffer_grows() { ... }
+#[bench]        fn bench_push() { ... }
+#[thread_local] static SCRATCH: TempArena = TempArena{}
 ```
 
 Attributes deliberately share the `#` sigil with macros and intrinsics, because they are the
@@ -2448,6 +2446,24 @@ has to guess:
 
 Intrinsic names are reserved: a macro may not be called `file`, `line`, `column`,
 `function`, `module`, `location`, or `expr_text`.
+
+**Every attribute is one the language defines, written where it applies.** An attribute the
+language does not have is an error (`DZ0314`): a misspelled `#[tset]` accepted in silence
+would leave a test out of every run, and nothing would say so. So is a known attribute on a
+declaration it does not apply to, with arguments it does not take, or written twice
+(`DZ0315`). `[DECIDED — §18.60]`
+
+| Attribute | On | Meaning |
+|---|---|---|
+| `#[test]` | a function at module level | a test `dz test` runs (§19 M14) |
+| `#[bench]` | a function at module level | a benchmark `dz bench` times (§19 M15) |
+| `#[thread_local]` | a `static` | one variable per thread (§7.7) |
+
+Attributes this specification describes but the compiler does not implement yet —
+`#[inline]`, `#[align(n)]`, `#[packed]`, `#[deprecated(…)]`, `#[export]` (§15.5),
+`#[derive(…)]` (§12), `#[persist]` (§17.6) and `#[raw]` (§7.5) — are errors that say so
+(`DZ0316`), rather than being accepted and doing nothing. Conditional compilation is `#if`
+(§12.10), not an attribute.
 
 ### 12.9 Format strings
 
@@ -2549,47 +2565,107 @@ carries nothing, and the metadata lives in read-only memory beside it. `[DECIDED
 
 ### 13.1 The type table
 
-Codegen emits one static array per program:
-
-```cpp
-static const dz_TypeInfo dz_type_table[] = { /* ... */ };
-```
-
-Each entry holds the type's name, size, alignment, kind (struct / union / enum / pointer /
-slice / primitive), and for structs a slice of field records (name, type id, byte offset,
-attributes). A `TypeId` is an index into that table — a `u32`, and **nothing in your structs
-ever stores one unless you put it there yourself**.
+The compiler writes one table per program. A `TypeId` is an index into it, and **nothing in
+your structs ever stores one unless you put it there yourself**. The table's types are
+ordinary declarations of the standard library (§14.4):
 
 ```dz
+pub struct TypeId {
+    pub index: u32
+}
+
+pub enum TypeKind : u8 {
+    Void  Bool  Char  I8  I16  I32  I64  Isize  U8  U16  U32  U64  Usize  F32  F64
+    Str  Cstr  Pointer  Slice  Array  Optional  Tuple  Function  TraitObject
+    Struct  Union  Enum
+}
+
 pub struct TypeInfo {
-    pub name:   str
-    pub size:   usize
-    pub align:  usize
-    pub kind:   TypeKind
-    pub fields: []FieldInfo    // structs only
+    pub name:       str             // `Transform`, `List<i32>`, `[]u8` — as Dazzle writes it
+    pub module_name: str            // the declaring module of a named type; empty otherwise
+    pub size:       usize
+    pub align:      usize
+    pub kind:       TypeKind
+    pub fields:     []FieldInfo     // what a value is made of; see below
+    pub variants:   []VariantInfo   // an enum's or a union's
+    pub elem:       TypeId          // what a pointer, slice, array or optional holds; an enum's backing type
+    pub len:        usize           // an array's length
+    pub mutable:    bool            // a `^mut`, `&mut` or `[]mut`
+    pub tag_offset: usize           // where a union keeps which variant it holds (a `u32`)
 }
 
 pub struct FieldInfo {
-    pub name:   str
-    pub type:   TypeId
-    pub offset: usize
-    pub flags:  FieldFlags     // pub / pub(module) / private / own / attributes
+    pub name:    str
+    pub type_id: TypeId
+    pub offset:  usize              // bytes from the start of the value
+    pub vis:     Visibility         // Private, Protected, Module, Public
+    pub owning:  bool               // an `own` field
+    pub tag:     str                // the field's tag, `json:"hp"`, or empty
+
+    pub fn tag_value(&self, key: str) -> str?   // `f.tag_value("json")` → `"hp"`
 }
 
-pub fn typeinfo_of<T>() -> &TypeInfo    // compile-time resolved, returns a static ref
+pub struct VariantInfo {
+    pub name:   str
+    pub value:  i64                 // an enum variant's value; a union variant's tag
+    pub fields: []FieldInfo         // a union variant's payload, offsets from the union's start
+}
+
+pub fn typeinfo_of<T>() -> &TypeInfo    // resolved at compile time; a static reference
 pub fn typeid_of<T>()   -> TypeId
 pub fn typeinfo(id: TypeId) -> &TypeInfo
 ```
+
+**Every kind of type is described**, so generic code can walk any value it is handed
+`[DECIDED — §18.59]`:
+
+| `kind` | What else it fills in |
+|---|---|
+| the primitives, `Void` … `F64` | nothing: `size` says how many bytes to read |
+| `Str`, `Cstr` | `fields`: `ptr` and `len` for a `str`; a `cstr` is one pointer |
+| `Pointer` | `elem`, `mutable` — `^T`, `^mut T`, `&T`, `&mut T` and `own` pointers alike |
+| `Slice` | `elem`, `mutable`, and `fields`: `ptr`, `len` |
+| `Array` | `elem`, `len`: the elements are contiguous, `elem`'s size apart |
+| `Optional` | `elem`, and `fields`: `value` and `has`, a `bool` saying whether it is there |
+| `Tuple` | `fields` named `0`, `1`, … |
+| `Function`, `TraitObject` | nothing more |
+| `Struct` | `fields`: its own and every base's, bases first (§7.3) |
+| `Enum` | `variants` with their values, and `elem`, the backing integer type |
+| `Union` | `variants`, each with its payload's fields — a variant carrying an existing struct has one field, named after that struct — and `tag_offset` |
+
+Every field is described, private ones included, with the visibility it was declared with:
+the table describes memory, and what code may *name* is still §4's business. A field whose
+address C++ cannot take — an imported C bit-field (§15.2) — is left out.
+
+**Field tags.** A field may end in a raw string, its *tag*: free-form text that means
+nothing to the compiler and is carried into the table for the library that reads it.
+`key:"value"` pairs separated by spaces are the convention, as in Odin and Go, and
+`FieldInfo::tag_value` looks one up:
+
+```dz
+pub struct Player {
+    pub name:   String              `json:"player_name"`
+    pub hp:     i32 = 100           `json:"health" save:"-"`
+    m_session:  u64
+}
+```
+
+The tag comes after the type and the default. `[DECIDED — §18.59]`
 
 ### 13.2 What gets included
 
 Controlled by `type_info` in `dazzle.toml`:
 
-- `"none"` — no table at all. Smallest possible binary; reflection APIs fail to compile.
-- `"used"` *(default)* — a type is in the table if the program calls `typeinfo_of<T>()` on
-  it, tags it `#[reflect]`, or reaches it transitively from such a type's fields. This is
-  the pay-for-what-you-use setting.
-- `"all"` — every type in the program. What an editor build wants.
+- `"none"` — no table at all. Smallest possible binary; a reflection call is an error
+  (`DZ0555`).
+- `"used"` *(default)* — a type is in the table if the program calls `typeinfo_of<T>()` or
+  `typeid_of<T>()` on it, or reaches it from such a type: through its fields, variants and
+  element types. This is the pay-for-what-you-use setting. There is no attribute to opt a
+  type in: code that must find types it does not name — an editor listing every component —
+  keeps their ids itself, `let components = [typeid_of<Transform>(), typeid_of<Health>()]`,
+  which is also what puts them in the table.
+- `"all"` — every non-generic type the program declares, and every instance of a generic
+  one it uses. What an editor build wants.
 
 ### 13.3 Reading and writing fields
 
@@ -2597,20 +2673,19 @@ Because a `FieldInfo` carries a byte offset and a `TypeId`, generic code can wal
 does not know the type of:
 
 ```dz
-pub fn write_json(w: &mut Writer, value: ^void, id: TypeId) {
+pub fn write_json(out: &mut String, value: ^u8, id: TypeId) {
     let info = typeinfo(id)
-
     switch info.kind {
         case Struct {
-            w.begin_object()
-            for f in info.fields {
-                if f.flags.has(FieldFlags::Skip) { continue }
-                w.key(f.name)
-                write_json(w, (value as ^u8 + f.offset) as ^void, f.type)
+            out.push('{')
+            for &f in info.fields {
+                let key = f.tag_value("json") or f.name
+                out.push_str(format("\"{}\":", key))
+                write_json(out, unsafe { ((value as usize) + f.offset) as ^u8 }, f.type_id)
             }
-            w.end_object()
+            out.push('}')
         }
-        case I32 { w.number((value as ^i32)^ as f64) }
+        case I32 { out.push_str(format("{}", unsafe { (value as ^i32)^ })) }
         // ...
     }
 }
@@ -2641,15 +2716,15 @@ macro derive_serialize -> declaration {
 
 The two mechanisms are complementary: compile-time reflection generates fast, specialised
 code for types you know at build time; the runtime table handles types you only know by
-`TypeId`.
+`TypeId`. `T::fields` arrives with macros (§19 M10).
 
 ### 13.5 Mapping back to the C++ output
 
-Field offsets in the table are emitted as `offsetof(dz_engine_Transform, position)` rather
-than as literal numbers, so the C++ compiler computes them and the table is correct under
-any padding, packing, or ABI the target uses. Type names are the Dazzle-level names, not the
-mangled C++ ones, so an inspector shows `engine.Transform`, not
-`dz_engine_Transform__f32`.
+Field offsets in the table are computed by the C++ compiler, with `offsetof`, so the table is
+correct under any padding, packing, or ABI the target uses. It is filled in once, the first
+time it is read, rather than by a global constructor (§16.4). Type names are the
+Dazzle-level names — `Transform`, `List<i32>`, with the module in `module_name` — never the
+mangled C++ ones.
 
 ---
 
@@ -3465,6 +3540,8 @@ be exactly what reload needs, and must stay that way:
 | 18.56 | Variadic parameters | **`name: ..T`, last, seen as a read-only `[]T`; `f(..xs)` spreads a slice as the only variadic argument; C varargs stay unimported.** The caller builds a temporary array, so there is no allocation and nothing is instantiated per call. Arguments of different types go through a trait reference (`..&Format`), which is what a library `println` needs. Chosen over same-type-only, which leaves `println` a builtin forever, and over compile-time packs (C++ `Ts...`), which cannot be walked without macros (M10). `..` rather than `...`: it already means "a run of" and needs no new token. A spread is explicit, so a `[]T` argument is never silently one element or many (§7.2) |
 | 18.57 | Where a module's imports are declared | **In `dazzle.toml`, for the whole module; not in each file.** A dependency's key is its name in every file (`rl::DrawLine`); `open = true` also makes its exports bare; `std` is one flat module (`std::Vec2`, `std::String`) listed like any dependency, and not listed means not nameable; a C or C++ header is named once, in its recipe's `import`, and depended on as `rl = { cpp = "raylib" }`. A bare name is found in locals, then the module's own declarations, then a file's `{ … }` import, then `[names]`, then the opened dependencies — where **two different declarations are an error at the use** (DZ0310), with no precedence by manifest order, since reordering a manifest or upgrading a library must never silently change which declaration a name means. A file keeps `import m::{ … }` and `import m as x` as the exception. Chosen over per-file imports (Java, Rust `use`, the earlier Dazzle): in a game the same engine, math and container types are used in nearly every file, and a per-file alias let one file call a library `rl` and the next `raylib`. Precedent: C#'s project-level global usings, and Rust's extern prelude, which puts every Cargo dependency in scope under its manifest name. What made C++'s `using namespace` fail — names leaking transitively, and clashes settled silently — is ruled out by private dependencies (18.58) and the use-site error. The cost is that a bare name's origin is not written in the file; the editor shows it (§3.2, §14.4, §15.1) |
 | 18.58 | Whether a dependency's names reach the modules that depend on this one | **Private by default; `pub = true` re-exports it, nested under the exporting module** (`rl::shapes::Rectangle`), and a dependent may name it itself with `via = "rl::shapes"`. A private dependency's type in a `pub` signature is an error (DZ0311). Nested rather than merged into the exporter's names, because a wrapper usually reuses the names of what it wraps. Follows Java's `requires` / `requires transitive` and Swift 6's `internal import` / `public import`, which also rejects a public API naming an internally-imported type; Rust merely warns, and leaves users holding values whose type they cannot write (§3.2) |
+| 18.59 | What reflection describes, and how a field carries metadata | **Every kind of type, and an Odin-style tag per field.** `TypeInfo` gains `module_name`, `variants` (an enum's names and values; a union's, with each payload's fields), `elem` (a pointer's, slice's, array's or optional's element, an enum's backing type), `len`, `mutable` and `tag_offset`; a `str`, a slice and an optional expose their parts as `fields`. `FieldInfo` has `vis` and `owning` instead of a flags set, and `tag`: a raw string ending the field declaration, `name: String `json:"player_name"``, read with `tag_value(key)`. Chosen over struct-only tables, with which a serializer cannot write an enum by name or follow a slice, and over language-defined field attributes such as `#[skip]`, which a JSON or save library could not extend: a tag is text only the library reading it gives meaning to. `TypeId` is a struct around the `u32` rather than a bare `u32`, so an index is never mistaken for a number; the fields are `type_id`, `module_name` and `owning` because `type` begins a member (§8.5) and `module` and `own` are keywords. Names are Dazzle's — `List<i32>` — with the module apart, replacing §13.5's `engine.Transform`, which contradicted `::` (§13) |
+| 18.60 | An attribute the compiler does not know | **An error, as is a known one out of place.** Unknown names are DZ0314, a known attribute on the wrong declaration, with arguments it does not take, or repeated is DZ0315, and one the specification describes but the compiler does not implement is DZ0316. Chosen over accepting and ignoring what is not understood, the C++ and Rust-lint tradition, because an attribute changes what a declaration means — a misspelled `#[test]` silently drops a test, and a `#[packed]` that is not implemented silently gives a different layout than the one written (§12.8) |
 | 18.55 | The standard library's math | **A compiler-carried module `std::math`, loaded by `import std::math`; the name `std` reserved.** Chosen over the prelude, which would put `Vec3` and `PI` in every file, and over a plain `math`, which a project's own module could take. `f32` vectors, `Quat` and `Mat4`, plus `Vec2i`/`Vec3i` for grids — a generic `Vec3<T>` would wait on associated-type projection. **Methods everywhere**, scalars included through `Float` and `Integer` (`x.sqrt()`, `n.wrapping_add(m)`), since without overloading a free `lerp` could not serve `f32` and `Vec3` both. **Column-major matrices** on column vectors, as OpenGL, GLSL and glm, so a `Mat4` is `projection * view * model` and its floats are in the order a shader wants (§14.4). *Loading by `import std::math` superseded by 18.57:* the math is part of the one flat `std` module |
 | 18.54 | Traits an enum has without an `impl` | **`Eq`, `Hash` and `Ord`, as the integers they are.** Equality and order compare values — declaration order when values are implicit — and a hash is the value's. So an enum is a `HashMap` key and satisfies `T: Ord` with nothing written (§7.4) |
 
@@ -3499,7 +3576,7 @@ Each milestone ends with something you can actually run.
 | M8 ✅ | Unions, `switch`, `T?`, `!->`, the `or` clause | **done** — `tests/run/button` runs the `ButtonState` sample as the language specifies it: a union whose variants are the existing structs `DefaultState`, `TransitionState` and `ChangeSprite` (r38), each state's `update` returning the next as a `ButtonState?`, dispatched by a `switch` that calls the payload's own methods, around a fallible `!->` load handled by `or return`, a fallback and `{ e -> … }`. `switch` on constants, generic unions and statement-built values landed with r36, and a base initialiser whose arguments need statements with r38. A variant carrying a struct that owns a resource or has special members waits on variant drops, with the M12 stdlib |
 | M9 | LSP: diagnostics, hover, go-to-definition, completion | usable in VS Code for real work |
 | M10 | Macros | a user-written `#machine` expands to the `ButtonState` machine and the LSP completes inside it |
-| M11 | Reflection + type table | a 50-line generic JSON serializer works on any `#[reflect]` type |
+| M11 ✅ | Reflection + type table | **done** — `tests/run/reflect` is the criterion: a JSON serializer of about 50 lines, written once against `typeinfo(id)`, writes structs (by `json:"…"` tag), enums by name, a union's active variant, arrays, a slice and optionals, and skips private fields. The table describes every kind of type (18.59), is filled once by a function-local static rather than a global constructor, takes offsets from `offsetof`, and compiles warning-clean on clang++ and g++. Compile-time `T::fields` waits for macros (M10) |
 | M12 | Stdlib pass: `List`, `String`, `HashMap`, allocators, math | you can write a small game without touching C++ |
 | M13 | Hot reload (§17.6) | `dz run --hot` swaps a rebuilt module and migrates world state without restarting the game |
 | M14 ✅ | `dz test` — tests as a language feature | **done** — `#[test] fn name() { … }` is written beside the code it tests; it passes by returning and fails by panicking. `dz test [path] [filter]` builds a separate test binary, runs **each test in its own process** — a panic aborts, so one process could report only the first failure — and prints a per-test result, the failing test's own panic message, and a count, exiting non-zero if anything failed. A `#[test]` that takes an argument, returns a value, is fallible, is generic or has no body is refused (`DZ0546`). **A normal build leaves every test out**, so a program never carries them |
@@ -3550,7 +3627,7 @@ gparam        = ident [ ":" bound { "+" bound } ] ;
 
 struct_decl   = "struct" ident [ generics ] [ ":" path ] "{" { member } "}" ;  (* one base *)
 member        = field | fn_decl | ctor ;
-field         = { attribute } [ visibility ] [ "own" ] ident ":" type [ "=" expr ] TERM ;
+field         = { attribute } [ visibility ] [ "own" ] ident ":" type [ "=" expr ] [ raw_string ] TERM ;  (* the tag, §13.1 *)
 ctor          = ident "(" [ params ] ")" block ;
 impl_decl     = "impl" [ generics ] path [ "<" type_list ">" ] "for" type "{" { impl_item } "}" ;
 impl_item     = "type" ident "=" type TERM | fn_decl ;
@@ -3637,6 +3714,8 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r52 | 2026-09-14 | **Attributes are checked** (§12.8, 18.60). An attribute the language does not have is an error (DZ0314), and so is `#[test]`, `#[bench]` or `#[thread_local]` on a declaration it does not apply to, given arguments, or repeated (DZ0315). The attributes the specification describes but the compiler does not yet implement — `#[inline]`, `#[align]`, `#[packed]`, `#[deprecated]`, `#[export]`, `#[derive]`, `#[persist]`, `#[raw]` — are errors saying so (DZ0316) instead of being ignored. §12.8's `#[cfg(…)]` example is gone: conditional compilation is `#if` (§12.10). |
+| r51 | 2026-09-14 | **Reflection** (§13, 18.59). `typeinfo_of<T>()`, `typeid_of<T>()` and `typeinfo(id)` return the standard library's `TypeInfo`, which describes every kind of type: fields with offsets for structs, tuples, `str`, slices and optionals; variants with values for enums and with payload fields for unions; the element type of pointers, slices, arrays and optionals. **Field tags**: a field may end in a raw string, `pub hp: i32 = 100 `json:"health"``, carried into `FieldInfo::tag` and read with `f.tag_value("json")`. A type is in the table when `typeinfo_of` or `typeid_of` names it, or it is reached from one (`type_info = "used"`) — no attribute opts a type in; `type_info = "none"` makes reflection an error (DZ0555). |
 | r50 | 2026-09-14 | **Imports move into `dazzle.toml`** (§3.2, §14.4, §15.1, 18.57–18.58). A module's `[dependencies]` are what every one of its files can name, by their key — no `import` line per file. `open = true` makes a dependency's exports bare (`Vec2`, and `std::Vec2` still works); a bare name two opened dependencies both export is an error on the line that writes it (DZ0310), settled by qualifying it or by `[names] Vec2 = "std"`. **The prelude is now `std`**, one flat module holding the language traits, allocators, `String`, `List`, `HashMap` and the math: `std::Vec2`, not `std::math::Vec2`. It must be listed — `std = { open = true }` — or its names cannot be written. **`import cpp` is gone**: a recipe lists the headers Dazzle sees in `import = ["raylib.h"]`, and the module depends on it with `rl = { cpp = "raylib" }`; several headers are read together as one module. A dependency nothing names is a warning (DZ0313). **Dependencies are private**; `pub = true` re-exports one as `lib::dep`, a dependent can name it with `via`, and a private dependency's type in a `pub` signature is an error (DZ0311). In a file, `import m::{ A, B }` and `import m as x` remain, for one file's exceptions; `import m` alone and `import cpp` are errors. |
 | r49 | 2026-09-14 | **Variadic parameters** (§7.2, 18.56): `fn sum(xs: ..i32)` takes any number of `i32`s and sees a read-only `[]i32`; `sum(..xs)` spreads a slice or array, as the only variadic argument. Must be last, with no default. `..&Trait` takes arguments of different types, each borrowed for the call. Works on methods, constructors and generic functions; as a value the function takes its slice. |
 | r48 | 2026-09-13 | **`std::math`** (§14.4, 18.55): the first standard-library module beyond the prelude, carried by the compiler and loaded by `import std::math`; `std` and names under it are reserved for the standard library. `Float` and `Integer` methods on numbers (`x.sqrt()`, `n.wrapping_add(m)`, `checked_add`, `saturating_sub`), `Vec2`/`Vec3`/`Vec4`, `Vec2i`/`Vec3i`, `Quat` and a column-major `Mat4`. Also: **unary `-` on a struct is its `Neg`** (§11.2), **`==` accepts a temporary on its right** as well as a place, and **the most negative value of a signed type is a literal** — `let x: i8 = -128` was rejected because `128` was checked before the minus (§2.5). |

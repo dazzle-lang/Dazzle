@@ -972,3 +972,9 @@ fn float_key() -> usize {
     return m.len()
 }
 
+
+// §13.1: `typeinfo_of` names a type and takes nothing; `typeinfo` takes a `TypeId`.
+fn reflection_in_the_wrong_form() {
+    let a = typeinfo_of<i32>(1)
+    let b = typeinfo(3)
+}

@@ -1,0 +1,12 @@
+// expect: DZ0316
+//
+// `#[packed]` is described by the specification but not implemented: accepting it would
+// give a layout other than the one written, silently (spec §12.8, 18.60).
+
+#[packed]
+struct Header {
+    pub tag: u8 = 0
+    pub size: u32 = 0
+}
+
+fn main() {}

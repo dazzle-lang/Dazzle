@@ -6317,6 +6317,155 @@ body drop TempArena -> void
             assign =
               local _1 chunk: ^mut u8
               local _2 prev: ^mut u8
+body method FieldInfo::tag_value -> str?
+  param _0 self: FieldInfo
+  param _1 key: str
+  block
+    let _2 bytes: []u8
+      cast: []u8
+        field #5: str
+          local _0 self: FieldInfo
+    let _3 want: []u8
+      cast: []u8
+        local _1 key: str
+    let _4 i: usize
+      int 0: usize
+    while
+      binary <: bool
+        local _4 i: usize
+        len: usize
+          local _2 bytes: []u8
+      block
+        let _5 at_start: bool
+          binary ||: bool
+            binary ==: bool
+              local _4 i: usize
+              int 0: usize
+            binary ==: bool
+              index: u8
+                local _2 bytes: []u8
+                binary -: usize
+                  local _4 i: usize
+                  int 1: usize
+              int 32: u8
+        let _6 fits: bool
+          binary <: bool
+            binary +: usize
+              binary +: usize
+                local _4 i: usize
+                len: usize
+                  local _3 want: []u8
+              int 1: usize
+            len: usize
+              local _2 bytes: []u8
+        if: void
+          binary &&: bool
+            binary &&: bool
+              binary &&: bool
+                local _5 at_start: bool
+                local _6 fits: bool
+              binary ==: bool
+                index: u8
+                  local _2 bytes: []u8
+                  binary +: usize
+                    local _4 i: usize
+                    len: usize
+                      local _3 want: []u8
+                int 58: u8
+            binary ==: bool
+              index: u8
+                local _2 bytes: []u8
+                binary +: usize
+                  binary +: usize
+                    local _4 i: usize
+                    len: usize
+                      local _3 want: []u8
+                  int 1: usize
+              int 34: u8
+          block
+            let _7 same: bool
+              bool true: bool
+            let _8 k: usize
+              int 0: usize
+            while
+              binary <: bool
+                local _8 k: usize
+                len: usize
+                  local _3 want: []u8
+              block
+                if: void
+                  binary !=: bool
+                    index: u8
+                      local _2 bytes: []u8
+                      binary +: usize
+                        local _4 i: usize
+                        local _8 k: usize
+                    index: u8
+                      local _3 want: []u8
+                      local _8 k: usize
+                  block
+                    assign =
+                      local _7 same: bool
+                      bool false: bool
+                    break: !
+                assign +=
+                  local _8 k: usize
+                  int 1: usize
+            if: void
+              local _7 same: bool
+              block
+                let _9 start: usize
+                  binary +: usize
+                    binary +: usize
+                      local _4 i: usize
+                      len: usize
+                        local _3 want: []u8
+                    int 2: usize
+                let _10 end: usize
+                  local _9 start: usize
+                while
+                  binary &&: bool
+                    binary <: bool
+                      local _10 end: usize
+                      len: usize
+                        local _2 bytes: []u8
+                    binary !=: bool
+                      index: u8
+                        local _2 bytes: []u8
+                        local _10 end: usize
+                      int 34: u8
+                  block
+                    assign +=
+                      local _10 end: usize
+                      int 1: usize
+                return: !
+                  builtin str_from_utf8: str?
+                    slice: []u8
+                      local _2 bytes: []u8
+                      local _9 start: usize
+                      local _10 end: usize
+        assign +=
+          local _4 i: usize
+          int 1: usize
+    return: !
+      none: str?
+body impl#54 method eq -> bool
+  param _0 self: TypeId
+  param _1 rhs: &TypeId
+  block
+    return: !
+      binary ==: bool
+        field #0: u32
+          local _0 self: TypeId
+        field #0: u32
+          local _1 rhs: &TypeId
+body impl#55 method hash -> u64
+  param _0 self: TypeId
+  block
+    return: !
+      call-method Hash::hash: u64
+        field #0: u32
+          local _0 self: TypeId
 body ctor String#0 -> void
   param _0 self: String
   param _1 s: str
@@ -6499,7 +6648,7 @@ body method String::reserve -> void
         local _1 additional: usize
         int 1: usize
       local _2 loc: SourceLocation
-body impl#54 method eq -> bool
+body impl#56 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -6509,7 +6658,7 @@ body impl#54 method eq -> bool
           local _0 self: String
         call-method String::as_str: str
           local _1 rhs: &String
-body impl#55 method hash -> u64
+body impl#57 method hash -> u64
   param _0 self: String
   block
     return: !
@@ -7443,12 +7592,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#59 method describe -> str
+body impl#61 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#60 method weight -> i32
+body impl#62 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -7592,7 +7741,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#61 method eq -> bool
+body impl#63 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -7602,7 +7751,7 @@ body impl#61 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#62 method cmp -> Ordering
+body impl#64 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -7669,7 +7818,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#63 method add -> Vec2
+body impl#65 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -7687,7 +7836,7 @@ body impl#63 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#64 method mul -> Vec2
+body impl#66 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -7781,7 +7930,7 @@ body fn formatting -> void
       local _0 x: i32
       local _0 x: i32
       local _1 f: f32
-body impl#65 method valid -> bool
+body impl#67 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -7790,13 +7939,13 @@ body impl#65 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#65 method get -> i32
+body impl#67 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#65 method advance -> void
+body impl#67 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -7983,7 +8132,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#66 method mul -> Scale
+body impl#68 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -7994,7 +8143,7 @@ body impl#66 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#67 method mul -> f32
+body impl#69 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -8010,7 +8159,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#68 method label -> str
+body impl#70 method label -> str
   param _0 self: f32
   block
     return: !
@@ -8021,7 +8170,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#69 method label -> str
+body impl#71 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -8034,7 +8183,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#70 method shout -> str
+body impl#72 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -8356,7 +8505,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#73 method measure -> i32
+body impl#75 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -8374,7 +8523,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#74 method measure -> i32
+body impl#76 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -8661,7 +8810,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#75 method eq -> bool
+body impl#77 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -8677,7 +8826,7 @@ body impl#75 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#76 method hash -> u64
+body impl#78 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -8762,7 +8911,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#77 method neg -> Heading
+body impl#79 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -8771,7 +8920,7 @@ body impl#77 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#78 method eq -> bool
+body impl#80 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -8815,7 +8964,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#79 method named -> str
+body impl#81 method named -> str
   param _0 self: Heading
   block
     return: !
@@ -8999,3 +9148,37 @@ body fn hashing -> bool
           local _0 name: str
           ref: &str
             local _0 name: str
+body fn reflect_on_a_type -> bool
+  block
+    let _0 info: &TypeInfo
+      typeinfo-of Vec3: &TypeInfo
+    let _1 id: TypeId
+      typeid-of Vec3: TypeId
+    let _2 again: &TypeInfo
+      builtin typeinfo: &TypeInfo
+        local _1 id: TypeId
+    for _3 f
+      field #5: []FieldInfo
+        local _0 info: &TypeInfo
+      block
+        let _: _
+          or: str
+            call-method FieldInfo::tag_value: str?
+              local _3 f: &FieldInfo
+              str "json": str
+            field #0: str
+              local _3 f: &FieldInfo
+    return: !
+      binary &&: bool
+        binary &&: bool
+          call-method Eq::eq: bool
+            local _1 id: TypeId
+            typeid-of Vec3: TypeId
+          binary ==: bool
+            field #4: TypeKind
+              local _2 again: &TypeInfo
+            enum-variant TypeKind#24: TypeKind
+        binary >: bool
+          field #2: usize
+            local _0 info: &TypeInfo
+          int 0: usize

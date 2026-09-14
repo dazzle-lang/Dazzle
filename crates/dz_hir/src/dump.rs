@@ -460,6 +460,10 @@ impl<'a> Dumper<'a> {
                 let t = self.names.name_of_type(&queried);
                 node!("type-query {t}::{}", query.name())
             }
+            ExprKind::Reflect { ty: reflected, info } => {
+                let t = self.names.name_of_type(&reflected);
+                node!("{} {t}", if info { "typeinfo-of" } else { "typeid-of" })
+            }
             ExprKind::Builtin { name, args } => {
                 node!("builtin {name}");
                 self.nest(|d| {

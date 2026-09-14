@@ -1,0 +1,24 @@
+/// One type of the program, as the type table describes it (spec §13.1). Which fields mean
+/// something depends on `kind`; the rest are empty.
+pub struct TypeInfo {
+    /// As Dazzle writes it: `Transform`, `List<i32>`, `[]u8`.
+    pub name: str
+    /// The module that declares a named type; empty for the others.
+    pub module_name: str
+    pub size: usize
+    pub align: usize
+    pub kind: TypeKind
+    /// What a value is made of: a struct's fields, bases first; a tuple's elements; a `str`'s,
+    /// slice's or optional's parts.
+    pub fields: []FieldInfo
+    /// An enum's variants and their values, or a union's with their payloads.
+    pub variants: []VariantInfo
+    /// What a pointer, slice, array or optional holds; an enum's backing integer type.
+    pub elem: TypeId
+    /// An array's length.
+    pub len: usize
+    /// A `^mut`, `&mut` or `[]mut`.
+    pub mutable: bool
+    /// Where a union keeps the `u32` saying which variant it holds.
+    pub tag_offset: usize
+}

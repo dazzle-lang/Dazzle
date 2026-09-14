@@ -170,3 +170,14 @@ fn sum(xs: ..i32) -> i32 {
 }
 
 fn tell(prefix: str, things: ..&Describe) {}
+
+/// Field tags: free-form text for reflection (spec §13.1).
+pub struct Player {
+    pub name: str = "" `json:"player_name"`
+    pub hp:   i32 = 100 `json:"health" save:"-"`
+    m_id:     u64
+}
+
+union Event {
+    Hit { amount: i32 `json:"dmg"` }
+}

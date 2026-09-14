@@ -1,0 +1,8 @@
+// expect: DZ0315
+//
+// A function declared inside a body is not one the test runner can reach (spec §12.8).
+
+fn main() {
+    #[test]
+    fn inner() {}
+}

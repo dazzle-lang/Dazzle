@@ -497,6 +497,12 @@ pub enum ExprKind {
         ty: Ty,
         query: TypeQuery,
     },
+    /// `typeinfo_of<T>()` or `typeid_of<T>()` (spec §13.1): answered from the type table
+    /// codegen writes, for a type monomorphization has made concrete.
+    Reflect {
+        ty: Ty,
+        info: bool,
+    },
 
     /// `println`, `sizeof`, `panic`, … — temporary builtins that become stdlib functions
     /// at M12. Kept as a node of their own so that when they do, only this variant and its
@@ -540,7 +546,9 @@ pub fn map_body_types(body: &Body, f: impl Fn(&Ty) -> Ty) -> Body {
     for e in &mut b.exprs {
         e.ty = s(&e.ty);
         match &mut e.kind {
-            ExprKind::TypeQuery { ty: queried, .. } => *queried = s(queried),
+            ExprKind::TypeQuery { ty: queried, .. } | ExprKind::Reflect { ty: queried, .. } => {
+                *queried = s(queried)
+            }
             ExprKind::Call { callee: Callee::Fn { type_args, .. }, .. }
             | ExprKind::Call { callee: Callee::Assoc { type_args, .. }, .. } => {
                 for t in type_args.iter_mut() {

@@ -1,0 +1,111 @@
+// M11's criterion (spec §13, §19): a generic JSON serializer, written once against the type
+// table, that writes any reflected value — structs, enums, unions, arrays, slices, optionals
+// and text — honouring each field's `json:"…"` tag.
+
+/// `value` + `offset`, as a pointer to whatever lives there.
+fn at(value: ^u8, offset: usize) -> ^u8 {
+    return unsafe { ((value as usize) + offset) as ^u8 }
+}
+
+/// A number of `size` bytes at `value`, as the integer it is.
+fn integer(value: ^u8, kind: TypeKind) -> i64 {
+    return unsafe {
+        switch kind {
+            case I8 { (value as ^i8)^ as i64 }
+            case I16 { (value as ^i16)^ as i64 }
+            case I32 { (value as ^i32)^ as i64 }
+            case I64 { (value as ^i64)^ }
+            case U8 { (value as ^u8)^ as i64 }
+            case U16 { (value as ^u16)^ as i64 }
+            case U32 { (value as ^u32)^ as i64 }
+            default { (value as ^u64)^ as i64 }
+        }
+    }
+}
+
+/// Every public field, by its tag's name when it has one.
+fn fields(out: &mut String, value: ^u8, all: []FieldInfo) {
+    out.push('{')
+    let mut first = true
+    for &f in all {
+        if f.vis != Visibility::Public {
+            continue
+        }
+        if !first {
+            out.push(',')
+        }
+        first = false
+        out.push_str(format("\"{}\":", f.tag_value("json") or f.name))
+        write_json(out, at(value, f.offset), f.type_id)
+    }
+    out.push('}')
+}
+
+pub fn write_json(out: &mut String, value: ^u8, id: TypeId) {
+    let info = typeinfo(id)
+    switch info.kind {
+        case Struct { fields(out, value, info.fields) }
+        case Bool { out.push_str(if unsafe { (value as ^bool)^ } { "true" } else { "false" }) }
+        case F32 { out.push_str(format("{}", unsafe { (value as ^f32)^ })) }
+        case F64 { out.push_str(format("{}", unsafe { (value as ^f64)^ })) }
+        case Str { out.push_str(format("\"{}\"", unsafe { (value as ^str)^ })) }
+        case Enum {
+            let n = integer(value, typeinfo(info.elem).kind)
+            for &v in info.variants {
+                if v.value == n {
+                    out.push_str(format("\"{}\"", v.name))
+                }
+            }
+        }
+        case Union {
+            let tag = unsafe { (at(value, info.tag_offset) as ^u32)^ } as i64
+            for &v in info.variants {
+                if v.value == tag {
+                    out.push_str(format("{{\"{}\":", v.name))
+                    fields(out, value, v.fields)
+                    out.push('}')
+                }
+            }
+        }
+        case Array {
+            let step = typeinfo(info.elem).size
+            out.push('[')
+            for i in 0..info.len {
+                if i > 0 {
+                    out.push(',')
+                }
+                write_json(out, at(value, i * step), info.elem)
+            }
+            out.push(']')
+        }
+        case Slice {
+            let ptr = unsafe { (at(value, info.fields[0].offset) as ^usize)^ } as usize
+            let len = unsafe { (at(value, info.fields[1].offset) as ^usize)^ }
+            let step = typeinfo(info.elem).size
+            out.push('[')
+            for i in 0..len {
+                if i > 0 {
+                    out.push(',')
+                }
+                write_json(out, unsafe { (ptr + i * step) as ^u8 }, info.elem)
+            }
+            out.push(']')
+        }
+        case Optional {
+            if unsafe { (at(value, info.fields[1].offset) as ^bool)^ } {
+                write_json(out, at(value, info.fields[0].offset), info.elem)
+            } else {
+                out.push_str("null")
+            }
+        }
+        default { out.push_str(format("{}", integer(value, info.kind))) }
+    }
+}
+
+/// Any value as JSON: the one generic entry point, which is all the type table needs.
+pub fn to_json<T>(value: &T) -> String {
+    let mut out = String()
+    let p: ^T = value
+    write_json(&mut out, unsafe { p as ^u8 }, typeid_of<T>())
+    return out
+}

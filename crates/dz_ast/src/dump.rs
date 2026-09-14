@@ -197,10 +197,11 @@ impl<'a> Dumper<'a> {
 
     fn field(&mut self, f: &Field) {
         self.line(format_args!(
-            "field {}{}: {}",
+            "field {}{}: {}{}",
             if f.is_own { "own " } else { "" },
             f.name.name,
-            type_str(&f.ty)
+            type_str(&f.ty),
+            f.tag.map(|s| format!(" tag {}", self.text(s))).unwrap_or_default()
         ));
         if let Some(d) = &f.default {
             self.nest(|dd| {

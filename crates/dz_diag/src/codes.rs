@@ -119,6 +119,14 @@ pub const PRIVATE_DEPENDENCY_IN_PUBLIC: &str = "DZ0311";
 pub const IMPORT_FORM_REMOVED: &str = "DZ0312";
 /// A `[dependencies]` entry nothing in the module names (spec §3.2).
 pub const UNUSED_DEPENDENCY: &str = "DZ0313";
+/// An attribute the language does not have (spec §12.8).
+pub const UNKNOWN_ATTRIBUTE: &str = "DZ0314";
+/// A known attribute on a declaration it does not apply to, with arguments it does not take,
+/// or written twice (spec §12.8).
+pub const MISPLACED_ATTRIBUTE: &str = "DZ0315";
+/// An attribute the specification describes that the compiler does not implement yet
+/// (spec §12.8).
+pub const ATTRIBUTE_NOT_IMPLEMENTED: &str = "DZ0316";
 
 // --- DZ04xx: ownership and flow analysis (spec §6) -----------------------------
 
@@ -288,6 +296,8 @@ pub const STATIC_INITIALISER: &str = "DZ0553";
 /// function cannot take one; or a spread `..xs` that is not the only argument for it, or
 /// not a slice (spec §7.2).
 pub const BAD_VARIADIC: &str = "DZ0554";
+/// A reflection call in a build whose `type_info` is `"none"` (spec §13.2).
+pub const REFLECTION_DISABLED: &str = "DZ0555";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

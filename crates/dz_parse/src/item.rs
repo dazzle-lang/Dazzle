@@ -766,7 +766,9 @@ impl<'a> Parser<'a> {
         self.expect_in(TokenKind::Colon, "after a field name");
         let ty = self.parse_type();
         let default = if self.eat(TokenKind::Eq) { Some(self.parse_expr()) } else { None };
-        Field { span: self.span_from(start), name, is_own, ty, default }
+        // The tag: a raw string on the same line, after everything else (spec §13.1).
+        let tag = self.at(TokenKind::RawStr).then(|| self.bump().span);
+        Field { span: self.span_from(start), name, is_own, ty, default, tag }
     }
 
     // --- unions -----------------------------------------------------------

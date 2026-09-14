@@ -1,0 +1,19 @@
+// Reflection (spec §13): what the compiler's type table holds, and how to reach it.
+
+/// A type, as an index into the program's type table (spec §13.1). A struct around the
+/// index rather than a bare `u32`, so one is never mistaken for a number.
+pub struct TypeId {
+    pub index: u32
+}
+
+impl Eq for TypeId {
+    fn eq(&self, rhs: &TypeId) -> bool {
+        return index == rhs.index
+    }
+}
+
+impl Hash for TypeId {
+    fn hash(&self) -> u64 {
+        return index.hash()
+    }
+}

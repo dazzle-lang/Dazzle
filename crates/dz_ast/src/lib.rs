@@ -303,6 +303,9 @@ pub struct Field {
     pub is_own: bool,
     pub ty: Type,
     pub default: Option<Expr>,
+    /// The raw string ending the declaration, `` `json:"hp"` ``: free-form text carried into
+    /// reflection for a library to read (spec §13.1). The span includes the backticks.
+    pub tag: Option<Span>,
 }
 
 #[derive(Clone, Debug)]

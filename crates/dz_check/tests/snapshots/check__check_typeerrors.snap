@@ -1,6 +1,5 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 215
 expression: body
 ---
 error[DZ0502]: `300` does not fit in `u8`
@@ -1117,3 +1116,17 @@ error[DZ0531]: `f32` does not implement `Hash`
     │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
     │
     = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)
+
+error[DZ0504]: `typeinfo_of` takes one type and no arguments
+    ┌─ typeerrors/src/errors.dz:978:13
+    │
+978 │     let a = typeinfo_of<i32>(1)
+    │             ^^^^^^^^^^^^^^^^^^^ not the form this call has
+    │
+    = help: write `typeinfo_of<T>()` (spec §13.1)
+
+error[DZ0501]: expected `TypeId`, found `{integer}`
+    ┌─ typeerrors/src/errors.dz:979:22
+    │
+979 │     let b = typeinfo(3)
+    │                      ^ this is `{integer}`

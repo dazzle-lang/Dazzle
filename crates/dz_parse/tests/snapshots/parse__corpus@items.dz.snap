@@ -188,6 +188,17 @@ fn sum(xs: ..i32) -> i32
       int 0
 fn tell(prefix: str, things: ..&Describe)
   block
+pub struct Player
+  field name: str tag `json:"player_name"`
+    default
+      str ""
+  field hp: i32 tag `json:"health" save:"-"`
+    default
+      int 100
+  field m_id: u64
+union Event
+  variant Hit
+    field amount: i32 tag `json:"dmg"`
 
 === DIAGNOSTICS ===
 (none)

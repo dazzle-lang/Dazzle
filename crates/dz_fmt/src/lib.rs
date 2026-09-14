@@ -361,7 +361,11 @@ impl<'a> Printer<'a> {
                         let fields: Vec<String> = v
                             .fields
                             .iter()
-                            .map(|f| format!("{}: {}", f.name.name, self.ty(&f.ty)))
+                            .map(|f| {
+                                let tag =
+                                    f.tag.map(|s| format!(" {}", self.text(s))).unwrap_or_default();
+                                format!("{}: {}{tag}", f.name.name, self.ty(&f.ty))
+                            })
                             .collect();
                         self.line(&format!("{} {{ {} }}", v.name.name, fields.join(", ")));
                     } else {
@@ -510,7 +514,8 @@ impl<'a> Printer<'a> {
                 let pad = align.saturating_sub(lhs.chars().count());
                 let default =
                     f.default.as_ref().map(|d| format!(" = {}", self.expr(d))).unwrap_or_default();
-                let s = format!("{vis}{lhs}:{} {}{default}", " ".repeat(pad), self.ty(&f.ty));
+                let tag = f.tag.map(|s| format!(" {}", self.text(s))).unwrap_or_default();
+                let s = format!("{vis}{lhs}:{} {}{default}{tag}", " ".repeat(pad), self.ty(&f.ty));
                 self.line(&s);
                 self.emit_trailing_comment(m.span.end);
             }

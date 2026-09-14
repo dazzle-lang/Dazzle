@@ -609,6 +609,12 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/memory/poison.dz", include_str!("std/memory/poison.dz")),
     ("<std>/memory/temp_arena.dz", include_str!("std/memory/temp_arena.dz")),
     ("<std>/memory/tracker.dz", include_str!("std/memory/tracker.dz")),
+    ("<std>/reflect/field_info.dz", include_str!("std/reflect/field_info.dz")),
+    ("<std>/reflect/type_id.dz", include_str!("std/reflect/type_id.dz")),
+    ("<std>/reflect/type_info.dz", include_str!("std/reflect/type_info.dz")),
+    ("<std>/reflect/type_kind.dz", include_str!("std/reflect/type_kind.dz")),
+    ("<std>/reflect/variant_info.dz", include_str!("std/reflect/variant_info.dz")),
+    ("<std>/reflect/visibility.dz", include_str!("std/reflect/visibility.dz")),
     ("<std>/text/string.dz", include_str!("std/text/string.dz")),
 ];
 
