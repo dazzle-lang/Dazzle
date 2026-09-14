@@ -145,8 +145,8 @@ fn main() {
         }
     }
 
-    // On a `^mut T` the binding is the `&mut T` that `or` would give.
-    if let first = list.at(0) {
+    // On a `^mut T`, `&mut` refers to what it points at (18.61).
+    if let &mut first = list.at(0) {
         first.id = 10
     }
     println("first is now {}", (list.at(0) or unreachable).id)

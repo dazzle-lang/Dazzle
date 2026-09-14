@@ -195,7 +195,7 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
 
     // The containers too: a tracked build of a program that frees everything prints exactly
     // what an untracked one does, so any leak report would break the comparison.
-    for fixture in ["allocators", "hashmap"] {
+    for fixture in ["allocators", "hashmap", "handles"] {
         let clean = copy_fixture(fixture, &format!("dz_tracked_clean_{fixture}"));
         let out = run(&clean);
         let expected =
@@ -694,6 +694,7 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
         "math",
         "variadic",
         "reflect",
+        "handles",
     ] {
         check_warning_clean(cxx, fixture);
     }

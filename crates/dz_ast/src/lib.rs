@@ -740,7 +740,10 @@ pub struct IfExpr {
 #[derive(Clone, Debug)]
 pub struct IfBinding {
     pub name: Ident,
+    /// `if let mut v` — a copy that may be changed. Only with [`BindMode::Value`].
     pub mutable: bool,
+    /// `v`, `&v` or `&mut v`, as a `for` or `case` binding holds its element (spec §9.4).
+    pub mode: BindMode,
 }
 
 #[derive(Clone, Debug)]

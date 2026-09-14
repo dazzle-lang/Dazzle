@@ -19,7 +19,7 @@ the milestone.
 | | |
 |---|---|
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
-| Next | **M12 — the stdlib**, chosen over M10/M11 by the user on 2026-09-13; M9's remaining editor rows stay open. r39 laid the language groundwork (`static`, associated functions, trait objects). Next in order: `#location` evaluated at the caller, associated constants, then `Allocators::Global`/`Temp` with opt-in tracking. See §4 |
+| Next | **M12 — the stdlib**, chosen over M10/M11 by the user on 2026-09-13; M9's remaining editor rows stay open. r39 laid the language groundwork (`static`, associated functions, trait objects). Next in order: `#location` evaluated at the caller, associated constants, then `Allocators::Global`/`Temp` with opt-in tracking. See §4, and §4c for everything a game still needs — smart pointers (`Rc`/`Weak`/`Box`) first |
 | Tests | 193, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
@@ -1797,6 +1797,159 @@ errors, and one whose message needed an allocator would be circular.
   blocks of their own.
 
 The earlier plan (CI, then fetched packages) follows; CI is running.
+
+### r53 — handles: `Rc`, `Weak`, `Box`; `if let` bindings (18.61, 18.62)
+
+Designed with the user on 2026-09-14, over several rounds (see §4c).
+
+- **Syntax**: `dz_ast::IfBinding::mode` — `if let &v` and `if let &mut v`, parsed with the
+  `for`/`case` `parse_bind_mode`; the formatter and dump print it.
+- **Checker**: `if_let_binding` types the binding as `for_binding` and `case_binding_type`
+  do, for `T?`, `&T?`, `^T` and handles; `or` reads through a `&T?` (`MOVE_OUT_OF_BORROW`
+  for a move-only one). Handles are anything implementing the prelude trait `Nullable`
+  (`nullable`): `null` takes the handle's type, `h == null` becomes `h.is_null()`, and
+  `guarded_handle` rewrites the subject of `or`/`if let` to the new HIR node
+  `ExprKind::Guarded { guard, init: h.guard(), value: guard.ptr() }` — a pointer, so the
+  rest of `or` and `if let` is the `^T` path unchanged.
+- **Codegen**: `Guarded` emits the guard as a line of the current C++ block; an `if let` on
+  one opens a block of its own so the guard ends with it. `null` of a handle is `T{}`.
+  `if let` bindings: `auto&&` to the optional for a reference, a copy otherwise.
+- **Flow**: `Guarded` initialises its local like a `let`; a reference `if let` binding reads
+  its operand in place instead of taking it.
+- **std**: `memory/{nullable,rc_block,rc,weak,box,unguarded}.dz`. One allocation per `Rc`
+  (`RcBlock`: counts, allocator, value); the value dropped with the last `Rc`, the block
+  freed when the `Weak`s are gone too.
+- **Found on the way**: `copyable` answered `true` for every `T?` (a catch-all), so a
+  move-only optional counted as copyable; and `or` on a `&u32?` — what `^u32? or return`
+  gives — was refused as "cannot fail". Both fixed.
+- **Migrated**: `if let p = ptr` that wrote through `p` in `tests/run/dynamic`,
+  `tests/run/iterator` and `typed/`.
+- Tests: `tests/run/handles` (every form, the guard outliving `self.texture = null`, a `Weak`
+  going null, `Box`; leak-free under `--track-memory`; warning-clean), and `tests/errors`:
+  `if_let_mut_on_a_read_only_handle`, `if_let_copy_of_a_move_only_target`,
+  `if_let_mut_on_a_read_only_pointer`, `or_moves_out_of_a_reference_to_an_optional`,
+  `handles_in_use`.
+
+## 4c. To do: what a game still needs (readiness review, 2026-09-14)
+
+Asked for by the user after a review of whether Dazzle can carry a real game today. The
+deferral register (§3) lists what the *code* postpones; this is the list of what is
+**missing** for a game, grouped by area and roughly in the order a game would hit it. Rows
+marked **design** need the user's decision before implementation. Tick or delete a row
+when it lands, with a pointer to the revision.
+
+### Ownership and smart pointers
+
+Raw pointers are the escape hatch, not the everyday tool (spec §5.2). Game code that shares
+an object — a texture used by several sprites, a scene node with children, an entity
+referenced by systems — should hold a smart pointer, never a `^T` read through `unsafe`.
+Only containers and the allocators should need `unsafe` inside `std`.
+
+- [x] **`Rc<T>`, `Weak<T>`, `Box<T>`** — r53, see "r53 — handles" below. Decided with the
+  user (18.61, 18.62): each may be `null`; reached only through `== null`, `or` and `if let`
+  (so no `Deref`); `if let` takes a `Weak` directly (no `upgrade`); `or`/`if let` hold a
+  strong `Rc` while the value is used; `&mut` needs the handle in a writable place.
+- [ ] **`Arc<T>`** — atomically counted `Rc`. Waits on atomics, which wait on concurrency
+  (18.11, v2); listed so the name is reserved and `Rc`'s API is shaped to match.
+- [ ] **design — `Rc<Trait>` / `Rc<Base>`.** Whether an `Rc<Button>` converts to an
+  `Rc<UiElement>` or an `Rc` of a trait object, as `&Derived` → `&Base` does. Needs either
+  a conversion the checker knows about or trait objects that are not only `^Trait`/`&Trait`.
+- [ ] **Skip the guard's count when nothing can drop the owner.** An `if let` body with no
+  call the compiler cannot see into and no assignment to the handle cannot free the value,
+  so the count up and down could be left out. A compiler detail, not in the spec.
+- [ ] **A handle's `or` with a value fallback.** `rc or 7` is refused, as `ptr or 7` is: the
+  success side is a `&T`. `if let v = rc { v } else { 7 }` works. Worth deciding for both
+  pointers and handles together.
+- [ ] **Handles** — a generational `Pool<T>` / `Handle<T>` (index + generation) for
+  entities and resources, the other everyday alternative to pointers in game code.
+
+### I/O and the operating system
+
+`std` has no way to talk to the machine except `print`/`println` to stdout. A game can reach
+these through raylib or C today; a stdlib should not require it.
+
+- [ ] **Files**: read a whole file into a `List<u8>`/`String`, write one, open/read/write/
+  seek/close as a move-only `File` whose `drop` closes it; all fallible (`!->`).
+- [ ] **Paths and directories**: join, extension, exists, list a directory, create one.
+- [ ] **stderr**: `eprint`/`eprintln`. The memory tracker's leak report goes to stdout for
+  want of it (§3).
+- [ ] **Time**: a monotonic clock (`Instant`, `Duration`) — the shim already has
+  `now_nanos` for `dz bench` — plus wall-clock time and `sleep`.
+- [ ] **Random**: a seedable, fast, non-cryptographic generator (PCG or xoshiro) with
+  ranges for integers and floats, and `Vec2`/`Vec3` helpers.
+- [ ] **Process**: command-line arguments, environment variables, exit code.
+
+### Formatting and text
+
+- [ ] **`println`/`print`/`format` as library functions** (§3, last row): `Format`
+  implemented for the built-in types and `std` types, a real `Formatter` writing into a
+  `String` or a stream, and a way to mark a parameter as a format string the compiler
+  checks against its variadic arguments (18.56 made the arguments possible).
+- [ ] **`format` into a `String`** — `error`/`format` today share a ring of four 256-byte
+  buffers, so a fifth live message overwrites the first. `error` keeps static storage by
+  the user's decision (§4); `format` does not have to.
+- [ ] **Format specifiers**: width, precision, padding, hex (`{:.2}`, `{:08x}`).
+- [ ] **`String` operations**: split, trim, find, replace, starts/ends with, parse to
+  integer and float (fallible), and `HashMap<String, V>` looked up by `str` (§3,
+  `Borrow<Q>`).
+- [ ] **A `cstr` from a runtime `str`**: an owned, zero-terminated copy (18.39 left it for
+  `String`) — every C API taking a file name or a label needs it.
+
+### Generics
+
+- [ ] **Generic methods** — `fn map<U>(&self, …)` on a type (§3, `DZ0801`).
+- [ ] **Associated-type projection** — `T::Item`, `T::Output` off a bound. Unblocks `for`
+  over a generic `C: Iterable`, generic arithmetic, and real iterator adapters (§3).
+- [ ] **Iterator adapters** — `indexed()` as a real adapter rather than a `for`-head
+  special case, then `filter`, `map`, `rev`, `zip` (§3).
+- [ ] **Constructor chosen by argument types** — today the first declared constructor
+  wins (§3).
+- [ ] **A generic base** — `struct Button : Panel<i32>` (§3, `DZ0541`).
+- [ ] **Trait objects that are not object-safe today** — of a generic trait, or of a type
+  whose `impl` is generic (§3).
+
+### C++ interop for the libraries a game uses
+
+- [ ] **Overloaded free functions** (§3, M7b). **Dear ImGui's C++ API is built on them** —
+  `ImGui::Checkbox`, `Combo`, `BeginChild`, `TreeNode`, `PushID` and more have several
+  overloads, and today only the first declaration of each imports. Until this lands ImGui is
+  usable only through cimgui, its C wrapper. Needs the `@(...)` disambiguation suffix
+  (`[PROPOSED]`) or resolution by argument type, as methods already do.
+- [ ] **Variadic C functions** — `ImGui::Text(const char* fmt, ...)`, `printf`-style logging;
+  skipped by the importer today (§3).
+- [ ] **Inheritance between imported C++ classes** (§3, M7b) — Jolt's shapes, bodies and
+  listeners are class hierarchies.
+- [ ] **A Dazzle struct implementing an imported C++ abstract class** — Jolt's
+  `ContactListener`, `BroadPhaseLayerInterface` and ImGui backends are subclassed by the user.
+- [ ] **Proof on real libraries**: a `tests/run` fixture for Dear ImGui (over raylib or GLFW)
+  and one for Jolt, each built from vendored source, as raylib is.
+
+### Semantics still open
+
+- [ ] **design — integer overflow**: what plain `+` does (wrap, or panic in debug as §5.1
+  proposes). `hash_combine` relies on wrapping today (§3).
+- [ ] **design — 18.20**: `or unreachable` in release.
+
+### Concurrency (v2 by 18.11 — listed so it is not forgotten)
+
+- [ ] Threads, a mutex, atomics, then a job system; `Arc<T>` above; a thread-safe memory
+  tracker (§3).
+
+### Build and tooling
+
+- [ ] **Measure compile time at scale**: a generated 20k–50k-line project, cold and warm,
+  through `dz build`. Principle 6 is "compile fast" and nothing measures it yet.
+- [ ] **Incremental analysis** in the LSP, and `std` not re-checked on every keystroke (§3,
+  M9).
+- [ ] **Code actions and inlay hints** (§3, M9).
+- [ ] **A release workflow** shipping `dz` with libclang beside it (§4a).
+- [ ] **Fetched packages** (M16, §4a).
+- [ ] **Macros** (M10) and **hot reload** (M13), per the roadmap.
+
+### The criterion
+
+- [ ] **A small raylib game with no C++ of its own** (M12, item 12 above) — written as
+  soon as `Rc`, files, time, random and library `format` exist, and used to reorder this list.
 
 ## 4a. Earlier: get CI green, then fetched packages
 

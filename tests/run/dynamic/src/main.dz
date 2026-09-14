@@ -58,7 +58,7 @@ fn measure(s: &Shape) -> f32 {
 }
 
 fn grow_through(slot: &Slot, by: f32) -> bool {
-    if let s = slot.shape {
+    if let &mut s = slot.shape {
         s.grow(by)
         return true
     }

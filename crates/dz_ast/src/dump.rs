@@ -484,7 +484,8 @@ impl<'a> Dumper<'a> {
             ExprKind::If(i) => {
                 match &i.binding {
                     Some(b) => self.line(format_args!(
-                        "if let {}{}",
+                        "if let {}{}{}",
+                        b.mode.prefix(),
                         if b.mutable { "mut " } else { "" },
                         b.name.name
                     )),

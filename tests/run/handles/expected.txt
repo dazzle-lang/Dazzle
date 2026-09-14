@@ -1,0 +1,21 @@
+empty: true -1
+count 1 null false
+width 42
+shared count 2
+back to 1
+weak null false weak count 1
+target hero
+released, still 42 wide
+drop texture hero
+after the block
+weak null true
+target gone
+copy 42
+empty 7
+count 2
+box boxed 8
+moved true
+optional 6
+pointer 4
+end
+drop texture boxed

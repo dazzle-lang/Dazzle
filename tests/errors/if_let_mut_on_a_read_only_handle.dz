@@ -1,0 +1,22 @@
+// expect: DZ0507
+//
+// Behind a `&Sprite` the handle is read-only, so `&mut t` cannot be had from it.
+
+struct Texture {
+    pub width: i32 = 0
+}
+
+struct Sprite {
+    pub texture: Rc<Texture> = null
+}
+
+fn widen(s: &Sprite) {
+    if let &mut t = s.texture {
+        t.width += 1
+    }
+}
+
+fn main() {
+    let s = Sprite{ texture: Rc<Texture>(Texture{}) }
+    widen(&s)
+}

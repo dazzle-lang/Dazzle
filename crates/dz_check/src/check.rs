@@ -797,6 +797,9 @@ struct Body<'a, 'c> {
     /// `none` arms still waiting for one: `if alive { 100 } else { none }` learns that the
     /// `none` is an `i32?` only from its sibling (spec §9.1, 18.53).
     pending_nones: Vec<Vec<(hir::ExprId, Span)>>,
+    /// The locals `if let` bound, so a write to one is explained as an `if let`'s, not a
+    /// loop's (spec §9.4).
+    if_let_bindings: Vec<hir::LocalId>,
     /// Inside a constructor's `: Base(…)`, which runs before the constructor has begun,
     /// so there is nothing yet to `return` from (spec §7.3).
     in_base_init: bool,
@@ -853,6 +856,7 @@ impl<'a, 'c> Body<'a, 'c> {
             fallible: false,
             stmt_position: false,
             pending_nones: Vec::new(),
+            if_let_bindings: Vec::new(),
             in_base_init: false,
             self_mutable: false,
             self_local: None,
@@ -2167,6 +2171,12 @@ impl<'a, 'c> Body<'a, 'c> {
         if self.hir.local_kind(id) != LocalKind::Binding {
             return None;
         }
+        if self.if_let_bindings.contains(&id) {
+            return Some(format!(
+                "`{name}` is a copy of the value, or a read-only reference to it; bind it as \
+                 `if let &mut {name}` to change the value where it lives (spec §9.4)"
+            ));
+        }
         Some(match local.ty.peeled() {
             Ty::Variant(..) => format!(
                 "`{name}` is a copy of the payload, or a read-only reference to it; bind it as \
@@ -2408,6 +2418,8 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Null => {
                 let ty = match expected.map(|t| self.subst(t)) {
                     Some(t @ (Ty::Ptr { .. } | Ty::OwnPtr { .. })) => t,
+                    // An empty `Rc`, `Weak` or `Box` — the handle's default (spec §14.5).
+                    Some(t) if self.nullable(&t, e.span).is_some() => t,
                     _ => Ty::ptr(true, Ty::Error),
                 };
                 self.mk(e, ty, hir::ExprKind::Null)
@@ -2868,10 +2880,22 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                     Some(b) => {
                         let subject = self.expr(&i.cond, None);
+                        let subject = match self.guarded_handle(&subject, &i.cond) {
+                            Some((guarded, _, _)) => guarded,
+                            None => subject,
+                        };
                         let bound = match &subject.ty {
-                            Ty::Optional(inner) => (**inner).clone(),
+                            Ty::Optional(inner) => {
+                                self.if_let_binding(b, &i.cond, inner, None, false)
+                            }
+                            // A reference to an optional — what `^T? or return` gives —
+                            // reaches the optional it refers to (18.35).
+                            Ty::Ref { mutable, inner } if matches!(**inner, Ty::Optional(_)) => {
+                                let Ty::Optional(payload) = &**inner else { unreachable!() };
+                                self.if_let_binding(b, &i.cond, payload, Some(*mutable), true)
+                            }
                             Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
-                                Ty::Ref { mutable: *mutable, inner: inner.clone() }
+                                self.if_let_binding(b, &i.cond, inner, Some(*mutable), true)
                             }
                             t if t.is_wildcard() => Ty::Error,
                             Ty::Fallible(_) => {
@@ -2906,6 +2930,7 @@ impl<'a, 'c> Body<'a, 'c> {
                             LocalKind::Binding,
                             b.name.span,
                         );
+                        self.if_let_bindings.push(local);
                         let then = self.block_valued(&i.then, expected, wanted);
                         self.pop();
                         (Ok((local, subject.id)), then)
@@ -3089,6 +3114,22 @@ impl<'a, 'c> Body<'a, 'c> {
                          with `or` first (spec §9.4)",
                     );
                     return self.mk(e, Ty::Bool, hir::ExprKind::Error);
+                }
+                // `h == null` on a handle asks the handle, which for a `Weak` also means
+                // "what it referred to is gone" (spec §14.5). Nothing else compares one with
+                // `null`; two handles compare only through `Eq`, like any struct.
+                let is_null = |x: &Expr| matches!(x.kind, ExprKind::Null);
+                if matches!(op, Eq | Ne) && (is_null(lhs) || is_null(rhs)) {
+                    let (handle, handle_ast) = if is_null(rhs) { (&a, lhs) } else { (&b, rhs) };
+                    let handle_ty = handle.ty.peeled_refs().clone();
+                    if let Some(r) = self.nullable(&handle_ty, handle_ast.span) {
+                        let test = self.nullable_call(&r, handle.id, &handle_ty, "is_null", span);
+                        if op == Eq {
+                            return test;
+                        }
+                        let kind = hir::ExprKind::Unary { op: UnaryOp::Not, operand: test.id };
+                        return self.mk(e, Ty::Bool, kind);
+                    }
                 }
                 // A user type is compared through `Eq` or `Ord`, not by the machine
                 // (spec §11.2). Without this the comparison would reach C++ and fail there
@@ -6224,6 +6265,148 @@ impl<'a, 'c> Body<'a, 'c> {
         c
     }
 
+    /// The `Nullable` implementation of `t`, when it is a handle — a struct that `null`,
+    /// `== null`, `or` and `if let` treat as a pointer (spec §14.5, 18.62).
+    fn nullable(&self, t: &Ty, span: Span) -> Option<TraitRef> {
+        if !matches!(t, Ty::Named { .. }) {
+            return None;
+        }
+        let trait_sym = self.cx.prelude_trait("Nullable")?;
+        let r = TraitRef { trait_sym, args: Vec::new(), span };
+        self.satisfies(t, &r).then_some(r)
+    }
+
+    /// `recv.name()` through the handle's `Nullable` implementation, typed by it.
+    fn nullable_call(
+        &mut self,
+        r: &TraitRef,
+        recv: hir::ExprId,
+        recv_ty: &Ty,
+        name: &str,
+        span: Span,
+    ) -> Checked {
+        let ret = match self.cx.table.trait_method(r, recv_ty, name) {
+            Some(sig) => self.subst(&sig.ret),
+            None => Ty::Error,
+        };
+        let callee = hir::Callee::Method { recv, owner: r.trait_sym, name: name.to_owned() };
+        self.hir.expr(span, ret, hir::ExprKind::Call { callee, args: Vec::new() })
+    }
+
+    /// A handle reached by `or` or `if let`: its guard, held in a hidden local until the
+    /// enclosing block ends, and the target read out of that guard as a pointer — as
+    /// writable as `writable` says (spec §14.5, 18.62). What the `or` or `if let` then does
+    /// with the pointer is exactly what it does with a `^T`.
+    ///
+    /// `subject` is the handle, or a reference to one. `None` when it is not a handle.
+    fn guarded_handle(&mut self, subject: &Checked, ast: &Expr) -> Option<(Checked, Ty, bool)> {
+        let (handle_ty, via_ref) = match &subject.ty {
+            Ty::Ref { mutable, inner } => ((**inner).clone(), Some(*mutable)),
+            t => (t.clone(), None),
+        };
+        let r = self.nullable(&handle_ty, ast.span)?;
+        let span = ast.span;
+        let guard = self.nullable_call(&r, subject.id, &handle_ty, "guard", span);
+        let guard_ty = guard.ty.clone();
+        let target = match self.nullable(&guard_ty, span) {
+            Some(gr) => {
+                let local = self.hir.local("_guard", guard_ty.clone(), false, span, LocalKind::Let);
+                let read = self.hir.expr(span, guard_ty.clone(), hir::ExprKind::Local(local));
+                let ptr = self.nullable_call(&gr, read.id, &guard_ty, "ptr", span);
+                Some((local, ptr))
+            }
+            None => None,
+        };
+        let Some((local, ptr)) = target else {
+            let (h, g) = (self.cx.name_of(&handle_ty), self.cx.name_of(&guard_ty));
+            self.cx.error_help(
+                codes::NOT_FALLIBLE,
+                span,
+                format!("`{h}`'s guard `{g}` is not `Nullable`"),
+                "its target cannot be read through the guard",
+                "a `Nullable` implementation's `Guard` must itself be `Nullable` (spec §14.5)",
+            );
+            return Some((Checked { ty: Ty::Error, id: subject.id }, Ty::Error, true));
+        };
+        let target_ty = match &ptr.ty {
+            Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => (**inner).clone(),
+            _ => Ty::Error,
+        };
+        // Writable when the handle is: through a `&mut`, or a place that may be written.
+        // What the handle points at is not the handle, but a read-only handle handing out
+        // a writable target would make `&self` methods able to change what they share.
+        let writable = match via_ref {
+            Some(m) => m,
+            None => self.place_mutability(ast).unwrap_or(true),
+        };
+        let ty = Ty::ptr(writable, target_ty.clone());
+        let c = self.hir.expr(
+            span,
+            ty,
+            hir::ExprKind::Guarded { guard: local, init: guard.id, value: ptr.id },
+        );
+        Some((c, target_ty, writable))
+    }
+
+    /// The type of an `if let` binding, which holds what is inside the subject as a `for`
+    /// binding holds an element (spec §9.4, 18.61): `v` a copy that cannot be changed (`mut v`
+    /// one that can), `&v` a read-only reference, `&mut v` a writable one.
+    ///
+    /// `writable` is what the subject's own type says — a `^mut T` or a `&mut T?` — and
+    /// `None` when it is a value, whose place decides. `borrowed` is set when the payload
+    /// lives somewhere the `if let` does not own, so `v` can only copy it: an optional held
+    /// in a local is taken out of a temporary and may be moved.
+    fn if_let_binding(
+        &mut self,
+        b: &dz_ast::IfBinding,
+        subject: &Expr,
+        payload: &Ty,
+        writable: Option<bool>,
+        borrowed: bool,
+    ) -> Ty {
+        let n = &b.name.name;
+        match b.mode {
+            BindMode::Value => {
+                if borrowed && !payload.is_wildcard() && !self.cx.table.copyable(payload) {
+                    let t = self.cx.name_of(payload);
+                    self.cx.error_help(
+                        codes::IMPLICIT_COPY,
+                        b.name.span,
+                        format!("`{n}` would be a copy of a `{t}`, which cannot be copied"),
+                        "a copy of the value",
+                        format!("refer to it with `if let &{n}` or `&mut {n}` (spec §6.3, §9.4)"),
+                    );
+                    return Ty::Error;
+                }
+                payload.clone()
+            }
+            BindMode::Ref => Ty::reference(false, payload.clone()),
+            BindMode::RefMut => {
+                let ok = match writable {
+                    Some(w) => w,
+                    None if payload.is_wildcard() => true,
+                    // A temporary optional is the `if let`'s own, so it may be written.
+                    None => self.place_mutability(subject).unwrap_or(true),
+                };
+                if ok {
+                    self.require_unsafe_static_write(subject);
+                } else if !payload.is_wildcard() {
+                    self.cx.error_help(
+                        codes::NOT_MUTABLE,
+                        b.name.span,
+                        format!("cannot refer to this value with `&mut {n}`"),
+                        "it is read-only here",
+                        "take it out of a `let mut`, a `&mut` or a `^mut`, or read it with \
+                         `&` (spec §9.4)",
+                    );
+                }
+                // Writable as asked either way, so the writes in the block are not each
+                // reported again: the mistake is the binding, once (invariant 6).
+                Ty::reference(true, payload.clone())
+            }
+        }
+    }
+
     /// The type of a `case` payload binding, which follows the `for` rules exactly (spec
     /// §10.3, 18.43): `case Circle(c)` is a copy that cannot be changed, `&c` a read-only
     /// reference, and `&mut c` a writable one — which needs the union itself to be writable.
@@ -6606,7 +6789,31 @@ impl<'a, 'c> Body<'a, 'c> {
         // The clause's own position is what matters; the operand is a subexpression.
         let stmt_position = std::mem::replace(&mut self.stmt_position, false);
         let subject = self.expr(operand, None);
-        let (success, payload) = match &subject.ty {
+        // An `Rc`, `Weak` or `Box` is reached as a `^T` is, through a guard (spec §14.5).
+        let subject = match self.guarded_handle(&subject, operand) {
+            Some((guarded, _, _)) => guarded,
+            None => subject,
+        };
+        // `b or 5` with `b: &u32?` — what `^u32? or return` gives — reads the optional the
+        // reference refers to, as a reference reads as its value wherever one is wanted
+        // (18.35). Only a copy: taking a move-only payload out would move out of a borrow.
+        let subject_ty = match &subject.ty {
+            Ty::Ref { inner, .. } if matches!(**inner, Ty::Optional(_)) => {
+                if !self.cx.table.copyable(inner) {
+                    let n = self.cx.name_of(inner);
+                    self.cx.error_help(
+                        codes::MOVE_OUT_OF_BORROW,
+                        operand.span,
+                        format!("`or` would move the value out of this `&{n}`"),
+                        "a reference to an optional that cannot be copied",
+                        "refer to the value instead: `if let &v = …` (spec §9.4)",
+                    );
+                }
+                (**inner).clone()
+            }
+            t => t.clone(),
+        };
+        let (success, payload) = match &subject_ty {
             // A fallible call is the only shape that carries an `Error` to bind.
             Ty::Fallible(inner) => {
                 ((**inner).clone(), Some(Ty::Builtin(crate::ty::BuiltinTy::Error)))

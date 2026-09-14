@@ -1,0 +1,86 @@
+/// Shared ownership of one value, counted (spec §14.5).
+///
+/// Copying an `Rc` shares the value and counts one more owner; dropping one counts one
+/// fewer, and the last drops the value. An `Rc` may be `null`, referring to nothing — its
+/// default, and what a moved-from one is left as. Reach the value with `or` or `if let`,
+/// which keep it alive while it is used:
+///
+/// ```dz
+/// if let &mut t = sprite.texture { t.width = 64 }
+/// let t = sprite.texture or return
+/// ```
+///
+/// Single-threaded: the counts are plain integers.
+pub struct Rc<T> {
+    pub(module) m_block: ^mut RcBlock<T> = null
+
+    /// A new value, in one allocation with its counts, from `allocator`.
+    Rc(value: T, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
+        let a = allocator or panic("an Rc needs an allocator")
+        let size = RcBlock<T>::size
+        let align = RcBlock<T>::align
+        m_block = unsafe { a.alloc(size, align, loc) as ^mut RcBlock<T> }
+        unsafe {
+            construct(
+                m_block[0],
+                RcBlock<T>{ strong: 1, weak: 0, allocator: allocator, value: move(value) },
+            )
+        }
+    }
+
+    /// How many `Rc`s share the value; 0 for a null one.
+    pub fn count(&self) -> usize {
+        let b = m_block or return 0
+        return b.strong
+    }
+
+    /// How many `Weak`s refer to the value; 0 for a null `Rc`.
+    pub fn weak_count(&self) -> usize {
+        let b = m_block or return 0
+        return b.weak
+    }
+}
+
+impl<T> Drop for Rc<T> {
+    fn drop(&mut self) {
+        let b = m_block or return
+        b.strong -= 1
+        if b.strong > 0 {
+            return
+        }
+        // The value goes with its last owner. A `Weak` may still hold the allocation to
+        // read `strong`, so that is freed only when no `Weak` does.
+        unsafe { destroy(m_block[0].value) }
+        if b.weak == 0 {
+            let a = b.allocator or return
+            a.free(unsafe { m_block as ^mut u8 }, RcBlock<T>::size, RcBlock<T>::align)
+        }
+    }
+}
+
+impl<T> Copy for Rc<T> {
+    fn copy(&mut self, other: &Self) {
+        m_block = other.m_block
+        let b = m_block or return
+        b.strong += 1
+    }
+}
+
+impl<T> Nullable for Rc<T> {
+    type Target = T
+    type Guard = Rc<T>
+
+    fn is_null(&self) -> bool {
+        return m_block == null
+    }
+
+    /// Another owner, so the value outlives whatever happens to this one.
+    fn guard(&self) -> Rc<T> {
+        return self
+    }
+
+    fn ptr(&self) -> ^mut T {
+        let b = m_block or return null
+        return &mut b.value
+    }
+}

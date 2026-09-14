@@ -880,11 +880,35 @@ fn optional_presence(v: i32?) -> bool {
 fn if_let_forms(o: i32?, p: ^mut Vec3) -> f32 {
     if let mut n = o {
         n += 1
-    } else if let v = p {
+    } else if let &mut v = p {
         v.x = 1
     }
     let got = if let v = p { v.x } else { 0 }
     return got
+}
+
+// §9.4, §14.5, 18.61–18.62: a handle is `null`, tested with `==`, and reached by `or` and by
+// each `if let` binding; `if let` takes a `Weak` directly, and reads through a `&T?`.
+fn handle_forms(shared: &mut Rc<Vec3>, o: &i32?) -> f32 {
+    let watch = Weak<Vec3>(shared)
+    let mut spare: Box<Vec3> = null
+    if spare == null {
+        spare = Box<Vec3>(Vec3{ x: 1, y: 2 })
+    }
+    if let &mut v = shared {
+        v.x += 1
+    }
+    let mut total: f32 = 0.0
+    if let v = watch {
+        total += v.x
+    } else if let &b = spare {
+        total += b.x
+    }
+    if let n = o {
+        total += n as f32
+    }
+    let v = shared or return total
+    return v.x + total + (o or 0) as f32
 }
 
 // §7.3, 18.32: struct inheritance. The base's fields come first, so a `&Derived` is a

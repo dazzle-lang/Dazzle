@@ -1,0 +1,24 @@
+/// A handle that may refer to nothing, used the way a pointer is (spec §14.5, 18.62): `null`
+/// is its empty value, `h == null` tests it, and `h or …` and `if let v = h` reach what it
+/// refers to. `Rc`, `Weak` and `Box` implement it.
+///
+/// Reaching the target goes through a `Guard`: `or` and `if let` call `guard()` first and
+/// keep what it returns alive, then read the target out of the guard with `ptr()`. An `Rc`
+/// and a `Weak` hand out a strong `Rc`, so the target outlives anything the code using it
+/// does to the handle itself — `self.texture = null` inside `if let &t = self.texture`
+/// frees nothing until the block ends.
+pub trait Nullable {
+    /// What the handle refers to.
+    type Target
+    /// What keeps the target alive while it is used. Itself `Nullable`, with the same
+    /// `Target`.
+    type Guard
+
+    /// Whether the handle refers to nothing — for a `Weak`, also whether what it referred
+    /// to is gone.
+    fn is_null(&self) -> bool
+    /// Something holding the target for as long as it is kept.
+    fn guard(&self) -> Guard
+    /// The target, or `null` when there is none.
+    fn ptr(&self) -> ^mut Target
+}

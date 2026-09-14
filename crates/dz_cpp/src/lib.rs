@@ -2914,11 +2914,36 @@ impl<'a> Emitter<'a> {
                 let operand_ty = body.ty(*operand).clone();
                 let name = self.names[binding.index()].clone();
                 let unused = self.unused_attr(binding.index());
+                // The binding's type says how it holds the value (18.61): a `&T` or `&mut T`
+                // refers to it where it lives, anything else is a copy — or, out of an
+                // optional the `if let` owns, a move.
+                let binding_ty = body.local(*binding).ty.clone();
+                let by_ref = matches!(binding_ty, Ty::Ref { .. });
+                let binding_cpp = self.cpp_ty(&binding_ty);
+                // A handle's guard is a line of the current block; a block of its own ends it
+                // with the `if let`, which is as long as the binding can use it (spec §14.5).
+                let guarded = matches!(body.expr(*operand).kind, hir::ExprKind::Guarded { .. });
+                if guarded {
+                    self.line("{");
+                    self.indent += 1;
+                }
                 let v = self.expr(*operand);
                 match operand_ty {
+                    Ty::Optional(_) if by_ref => {
+                        // Bound to the optional itself when it is a place, so a write through
+                        // `&mut v` lands in it; a temporary lives as long as the `if`.
+                        let tmp = self.fresh("opt");
+                        self.line(&format!("auto&& {tmp} = {v};"));
+                        self.line(&format!("if ({tmp}.has) {{"));
+                        self.indent += 1;
+                        self.line(&format!("{unused}{binding_cpp} {name} = {tmp}.value;"));
+                    }
                     Ty::Optional(inner) => {
                         let cpp = self.cpp_ty(&inner);
                         let tmp = self.fresh("opt");
+                        // A move-only optional is taken, as `or` takes one (spec §9.4).
+                        let v =
+                            if self.table.copyable(&inner) { v } else { format!("::dz::mv({v})") };
                         self.line(&format!("::dz::Opt<{cpp}> {tmp} = {v};"));
                         self.line(&format!("if ({tmp}.has) {{"));
                         self.indent += 1;
@@ -2929,14 +2954,21 @@ impl<'a> Emitter<'a> {
                         };
                         self.line(&format!("{unused}{cpp} {name} = {value};"));
                     }
+                    // A `&T?`: the checker allows a plain binding only for a copyable `T`.
+                    Ty::Ref { inner, .. } if matches!(*inner, Ty::Optional(_)) => {
+                        let tmp = self.fresh("opt");
+                        self.line(&format!("auto&& {tmp} = {v};"));
+                        self.line(&format!("if ({tmp}.has) {{"));
+                        self.indent += 1;
+                        self.line(&format!("{unused}{binding_cpp} {name} = {tmp}.value;"));
+                    }
                     Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
                         let ptr = self.ptr_ty(mutable, &inner);
-                        let reference = self.cpp_ty(&Ty::Ref { mutable, inner });
                         let tmp = self.fresh("ptr");
                         self.line(&format!("{ptr} {tmp} = {v};"));
                         self.line(&format!("if ({tmp} != nullptr) {{"));
                         self.indent += 1;
-                        self.line(&format!("{unused}{reference} {name} = *{tmp};"));
+                        self.line(&format!("{unused}{binding_cpp} {name} = *{tmp};"));
                     }
                     // The checker reported the operand; keep the braces balanced.
                     _ => {
@@ -2955,6 +2987,10 @@ impl<'a> Emitter<'a> {
                         self.line("}");
                     }
                     None => self.line("}"),
+                }
+                if guarded {
+                    self.indent -= 1;
+                    self.line("}");
                 }
             }
             hir::ExprKind::If { cond, then, else_branch } => {
@@ -3195,7 +3231,11 @@ impl<'a> Emitter<'a> {
             // A literal typed `cstr` is the C string literal itself (spec §5.3, §18.39).
             hir::ExprKind::Str(s) if matches!(body.ty(e), Ty::CStr) => quote_cpp(s),
             hir::ExprKind::Str(s) => format!("::dz::str({}, {})", quote_cpp(s), s.len()),
-            hir::ExprKind::Null => "nullptr".to_owned(),
+            // `null` for an `Rc`, `Weak` or `Box` is the handle's default (spec §14.5).
+            hir::ExprKind::Null => match body.ty(e).clone() {
+                t @ Ty::Named { .. } => format!("{}{{}}", self.cpp_ty(&t)),
+                _ => "nullptr".to_owned(),
+            },
             hir::ExprKind::NoneOpt => {
                 let ty = self.cpp_ty(body.ty(e));
                 format!("{ty}()")
@@ -3438,6 +3478,16 @@ impl<'a> Emitter<'a> {
                 } else {
                     format!("::dz::mv({tmp})")
                 }
+            }
+            // The guard is a line of the current C++ block, so it lives until that block
+            // ends — past the `or` or `if let` that reads the pointer (spec §14.5).
+            hir::ExprKind::Guarded { guard, init, value } => {
+                let (guard, init, value) = (*guard, *init, *value);
+                let cpp = self.cpp_ty(&body.local(guard).ty.clone());
+                let name = self.names[guard.index()].clone();
+                let v = self.expr(init);
+                self.line(&format!("{cpp} {name} = {v};"));
+                self.expr(value)
             }
             hir::ExprKind::Or { operand, clause } => {
                 let ty = body.ty(e).clone();
@@ -3931,6 +3981,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::IfLet { .. }
             | hir::ExprKind::Switch { .. }
             | hir::ExprKind::Or { .. }
+            | hir::ExprKind::Guarded { .. }
             | hir::ExprKind::Return(_)
             | hir::ExprKind::Break(_)
             | hir::ExprKind::Continue(_)
@@ -4053,7 +4104,13 @@ impl<'a> Emitter<'a> {
     fn or_expr(&mut self, e: ExprId, operand: ExprId, clause: &hir::OrClause, dest: Dest<'_>) {
         let body = self.cur();
         let span = body.expr(e).span;
-        match body.ty(operand).clone() {
+        // A `&T?` is read as the optional it refers to, which the checker allows only for a
+        // copyable one — so the `Opt` below copies it (18.35).
+        let operand_ty = match body.ty(operand).clone() {
+            Ty::Ref { inner, .. } if matches!(*inner, Ty::Optional(_)) => (*inner).clone(),
+            t => t,
+        };
+        match operand_ty {
             Ty::Fallible(inner) => {
                 let res_ty = self.cpp_ty(&inner);
                 let tmp = self.fresh("res");
@@ -4611,6 +4668,12 @@ impl Namer<'_> {
                 if let Some(b) = else_branch {
                     self.block(b);
                 }
+            }
+            // Declared in the enclosing scope, where its C++ line lands.
+            hir::ExprKind::Guarded { guard, init, value } => {
+                self.expr(init);
+                self.declare(guard);
+                self.expr(value);
             }
             hir::ExprKind::IfLet { binding, operand, then, else_branch } => {
                 self.expr(operand);

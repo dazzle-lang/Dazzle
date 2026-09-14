@@ -1,0 +1,22 @@
+/// The guard of a handle with no second owner to offer, such as a `Box`: the target's
+/// address and nothing more, so it keeps nothing alive (spec §14.5).
+pub struct Unguarded<T> {
+    pub(module) m_ptr: ^mut T = null
+}
+
+impl<T> Nullable for Unguarded<T> {
+    type Target = T
+    type Guard = Unguarded<T>
+
+    fn is_null(&self) -> bool {
+        return m_ptr == null
+    }
+
+    fn guard(&self) -> Unguarded<T> {
+        return self
+    }
+
+    fn ptr(&self) -> ^mut T {
+        return m_ptr
+    }
+}

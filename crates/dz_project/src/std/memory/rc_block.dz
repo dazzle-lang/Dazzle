@@ -1,0 +1,12 @@
+/// The one allocation an `Rc` and its `Weak`s share: both counts, the allocator it came
+/// from, and the value.
+///
+/// The value is dropped when the last `Rc` is, and the allocation freed when the last `Rc`
+/// and the last `Weak` both are — so a `Weak` can still read `strong` after the value is
+/// gone.
+pub struct RcBlock<T> {
+    pub(module) strong: usize = 0
+    pub(module) weak: usize = 0
+    pub(module) allocator: ^mut Allocator = null
+    pub(module) value: T
+}

@@ -874,7 +874,8 @@ impl<'a> Printer<'a> {
             ExprKind::If(i) => {
                 let head = match &i.binding {
                     Some(b) => format!(
-                        "if let {}{} = {}",
+                        "if let {}{}{} = {}",
+                        b.mode.prefix(),
                         if b.mutable { "mut " } else { "" },
                         b.name.name,
                         self.expr(&i.cond)

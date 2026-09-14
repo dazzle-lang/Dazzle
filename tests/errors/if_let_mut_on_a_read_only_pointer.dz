@@ -1,0 +1,14 @@
+// expect: DZ0507
+//
+// A `^i32` is only read through, so `if let &mut x` cannot be had from one.
+
+fn bump(p: ^i32) {
+    if let &mut x = p {
+        x += 1
+    }
+}
+
+fn main() {
+    let n = 1
+    bump(&n)
+}

@@ -287,6 +287,23 @@ impl<'a> Flow<'a> {
 
     // --- expressions -------------------------------------------------------
 
+    /// The operand of `or`, or of a plain `if let` binding: a move-only optional held in a
+    /// place the function owns is taken, leaving the place moved-from, as `move` would
+    /// (spec §9.4). Anything else is an ordinary value.
+    fn consumed(&mut self, e: ExprId) -> bool {
+        let ty = self.body.ty(e).clone();
+        if matches!(ty, Ty::Optional(_)) && !self.copyable(&ty) {
+            if let Denotes::Owned(p) = self.denotes(e) {
+                let span = self.body.expr(e).span;
+                self.check_live(&p, span);
+                self.walk_place_bases(e);
+                self.moved.insert(p, span);
+                return false;
+            }
+        }
+        self.value(e)
+    }
+
     /// An expression whose *value* is wanted. Reading a move-only place here is the copy
     /// spec §6.3 forbids.
     fn value(&mut self, e: ExprId) -> bool {
@@ -516,8 +533,20 @@ impl<'a> Flow<'a> {
                 self.branches(&[Branch::Block(then)], Some(other))
             }
             // The operand is read as `or` reads it; then the two blocks are the branches.
-            hir::ExprKind::IfLet { operand, then, else_branch, .. } => {
-                self.value(operand);
+            // The guard is initialised like a `let`; the pointer is then read from it.
+            hir::ExprKind::Guarded { guard, init, value } => {
+                let diverges = self.value(init);
+                self.revive(&Place { local: guard, path: Vec::new() });
+                self.value(value) || diverges
+            }
+            // A reference binding (`&v`, `&mut v`) refers into the operand, so it is only
+            // read in place; a plain one takes the value out, as `or` does (18.61).
+            hir::ExprKind::IfLet { binding, operand, then, else_branch } => {
+                if matches!(self.body.local(binding).ty, Ty::Ref { .. }) {
+                    self.place_only(operand);
+                } else {
+                    self.consumed(operand);
+                }
                 let other = else_branch.map(Branch::Block).unwrap_or(Branch::Nothing);
                 self.branches(&[Branch::Block(then)], Some(other))
             }
@@ -533,7 +562,7 @@ impl<'a> Flow<'a> {
                 self.branches(&branches, default.map(Branch::Block))
             }
             hir::ExprKind::Or { operand, clause } => {
-                self.value(operand);
+                self.consumed(operand);
                 let fail = match &clause {
                     hir::OrClause::Value(v) => Branch::Expr(*v),
                     hir::OrClause::Block { body, .. } => Branch::Block(*body),
