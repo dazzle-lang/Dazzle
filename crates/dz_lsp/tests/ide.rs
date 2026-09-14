@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use dz_driver::{analyse, analyse_with, Analysis, Mode};
 use dz_lex::TokenKind;
 use dz_lsp::ide::{self, CompletionKind, DeclKind};
-use dz_span::FileId;
+use dz_span::{FileId, Span};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/generics")
@@ -815,6 +815,149 @@ fn definition_of_a_cpp_dependency_key_is_its_header() {
     let (file, _) = i.definition.expect("a definition for `mini`");
     assert!(a.map.get(file).path().ends_with("mini.h"), "{:?}", a.map.get(file).path());
     assert!(i.hover.unwrap().contains("`mini.h`"));
+}
+
+/// Append a declaration to the fixture's buffer, and give back the analysis and the text.
+fn with_appended(extra: &str) -> (Analysis, FileId, String) {
+    let extra = extra.to_owned();
+    edited(move |text| format!("{text}\n{extra}"))
+}
+
+/// Apply a fix's edits to `text`, rightmost first so earlier offsets stay valid.
+fn apply(text: &str, fix: &dz_diag::Fix) -> String {
+    let mut edits: Vec<_> = fix.edits.iter().collect();
+    edits.sort_by_key(|e| std::cmp::Reverse(e.span.start));
+    let mut out = text.to_owned();
+    for e in edits {
+        out.replace_range(e.span.start as usize..e.span.end as usize, &e.text);
+    }
+    out
+}
+
+/// A `switch` missing arms offers to write them, and **what it writes type-checks** — the
+/// property that matters, since an editor applies a fix without the user reading it.
+#[test]
+fn a_non_exhaustive_switch_offers_the_missing_arms() {
+    let source = "enum Colour {\n    Red\n    Green\n    Blue\n}\n\n\
+                  fn pick(c: Colour) {\n    switch c {\n        case Red {}\n    }\n}\n";
+    let (a, file, text) = with_appended(source);
+
+    let switch = text.find("switch c").expect("the switch");
+    let fixes = ide::code_actions(&a, file, Span::new(switch, switch));
+    let fix = match fixes.as_slice() {
+        [one] => one,
+        other => panic!("expected exactly one fix, got {}", other.len()),
+    };
+    assert_eq!(fix.title, "add the missing arms");
+
+    let fixed = apply(&text, fix);
+    let tail = fixed[fixed.find("enum Colour").unwrap()..].to_owned();
+    assert!(fixed.contains("case Green {}") && fixed.contains("case Blue {}"), "{tail}");
+    // Indented one step past the `switch`, which is itself indented inside `pick`.
+    assert!(fixed.contains("\n        case Green {}\n"), "wrong indent:\n{tail}");
+
+    // The real assertion: re-analysing the fixed buffer is clean.
+    let main = Path::new("src").join("main.dz");
+    let overlay = |p: &Path| p.ends_with(&main).then(|| fixed.clone());
+    let after = analyse_with(&root(), &overlay, Mode::Editor);
+    let codes: Vec<&str> = after.diags.iter().filter_map(|d| d.code).collect();
+    assert!(
+        !codes.contains(&dz_diag::codes::NON_EXHAUSTIVE_SWITCH),
+        "the fix left the switch non-exhaustive: {codes:?}"
+    );
+    assert!(!after.diags.has_errors(), "{}", dz_diag::render_to_string(&after.map, &after.diags));
+}
+
+/// A union variant carrying a payload needs a binding, and the arm written for it uses `_`
+/// so the fix does not trade one diagnostic for an unused-variable warning.
+#[test]
+fn a_fixed_union_switch_binds_its_payload_with_a_wildcard() {
+    let source = "union Shot {\n    Hit { at: i32 }\n    Miss {}\n}\n\n\
+                  fn score(s: &Shot) {\n    switch s {\n    }\n}\n";
+    let (a, file, text) = with_appended(source);
+
+    let switch = text.find("switch s").expect("the switch");
+    let fixes = ide::code_actions(&a, file, Span::new(switch, switch));
+    let fix = fixes.first().expect("a fix");
+    let fixed = apply(&text, fix);
+    let tail = &fixed[fixed.find("union Shot").unwrap()..];
+    assert!(fixed.contains("case Hit(_) {}"), "payload arm:\n{tail}");
+    assert!(fixed.contains("case Miss {}"), "payload-less arm:\n{tail}");
+
+    let main = Path::new("src").join("main.dz");
+    let overlay = |p: &Path| p.ends_with(&main).then(|| fixed.clone());
+    let after = analyse_with(&root(), &overlay, Mode::Editor);
+    assert!(!after.diags.has_errors(), "{}", dz_diag::render_to_string(&after.map, &after.diags));
+}
+
+/// An `impl` missing a method offers to write it, with the signature the trait asks for —
+/// one fix per missing method, so they can be taken one at a time.
+#[test]
+fn an_incomplete_impl_offers_each_missing_method() {
+    let source = "trait Greet {\n    fn hello(&self)\n    fn loudly(&self, times: i32)\n}\n\n\
+                  struct Host {\n    pub n: i32 = 0\n}\n\n\
+                  impl Greet for Host {\n}\n";
+    let (a, file, text) = with_appended(source);
+
+    let at = text.find("Greet for Host").expect("the trait name");
+    let fixes = ide::code_actions(&a, file, Span::new(at, at));
+    let titles: Vec<&str> = fixes.iter().map(|f| f.title.as_str()).collect();
+    assert_eq!(titles, ["implement `hello`", "implement `loudly`"], "one fix per method");
+
+    // Applying one writes that method with the declared signature, indented inside the
+    // `impl`, and leaves the other still missing.
+    let fixed = apply(&text, &fixes[1]);
+    let tail = &fixed[fixed.find("impl Greet").unwrap()..];
+    assert!(tail.contains("\n    fn loudly(&self, times: i32) {\n"), "{tail}");
+    assert!(tail.contains("\n        panic(\"not implemented\")\n"), "{tail}");
+
+    let main = Path::new("src").join("main.dz");
+    let overlay = |p: &Path| p.ends_with(&main).then(|| fixed.clone());
+    let after = analyse_with(&root(), &overlay, Mode::Editor);
+    let codes: Vec<&str> = after.diags.iter().filter_map(|d| d.code).collect();
+    // `loudly` is implemented now; `hello` is still reported, and nothing else broke — in
+    // particular the stub is not a syntax error and its signature matches the trait's.
+    assert_eq!(
+        codes.iter().filter(|c| **c == dz_diag::codes::MISSING_TRAIT_MEMBER).count(),
+        1,
+        "{codes:?}"
+    );
+    assert!(!codes.contains(&dz_diag::codes::TRAIT_MEMBER_MISMATCH), "{codes:?}");
+}
+
+/// A stub for a method that returns something leaves `DZ0405` behind: `panic` is not one of
+/// the forms that satisfy definite return (§10.5), so the fix scaffolds the method and the
+/// compiler goes on saying it is unfinished. Pinned because it is a deliberate choice —
+/// the alternative, returning a default, compiles and is silently wrong.
+#[test]
+fn a_stub_for_a_returning_method_still_asks_to_be_written() {
+    let source = "trait Measure {\n    fn size(&self) -> i32\n}\n\n\
+                  struct Crate2 {\n    pub n: i32 = 0\n}\n\n\
+                  impl Measure for Crate2 {\n}\n";
+    let (a, file, text) = with_appended(source);
+    let at = text.find("Measure for Crate2").expect("the trait name");
+    let fixes = ide::code_actions(&a, file, Span::new(at, at));
+    let fixed = apply(&text, fixes.first().expect("a fix"));
+    assert!(fixed.contains("fn size(&self) -> i32 {"), "{fixed}");
+
+    let main = Path::new("src").join("main.dz");
+    let overlay = |p: &Path| p.ends_with(&main).then(|| fixed.clone());
+    let after = analyse_with(&root(), &overlay, Mode::Editor);
+    let codes: Vec<&str> = after.diags.iter().filter_map(|d| d.code).collect();
+    assert!(!codes.contains(&dz_diag::codes::MISSING_TRAIT_MEMBER), "{codes:?}");
+    assert!(codes.contains(&dz_diag::codes::MISSING_RETURN), "{codes:?}");
+}
+
+/// A cursor nowhere near a fixable diagnostic is offered nothing.
+#[test]
+fn code_actions_are_offered_only_where_the_diagnostic_is() {
+    let source = "enum Tone {\n    Warm\n    Cool\n}\n\n\
+                  fn tint(t: Tone) {\n    switch t {\n    }\n}\n";
+    let (a, file, text) = with_appended(source);
+    assert!(ide::code_actions(&a, file, Span::new(0, 0)).is_empty(), "offered at the file start");
+    // On the `switch` itself, it is offered.
+    let switch = text.find("switch t").expect("the switch");
+    assert_eq!(ide::code_actions(&a, file, Span::new(switch, switch)).len(), 1);
 }
 
 /// Ctrl+click on a recipe's header opens the file the include search found — and so does

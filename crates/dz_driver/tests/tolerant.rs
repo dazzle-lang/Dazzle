@@ -1,6 +1,8 @@
 //! Editor mode runs resolution and checking over whatever parsed, however broken — so it
 //! must survive any half-typed program (the LSP runs it on every pause in typing, spec
-//! §17.2), and it must still hide a later phase's errors while an earlier phase has failed.
+//! §17.2), and it must still hide the phases whose answers an earlier failure made
+//! meaningless: everything after a parse error, and ownership after a resolution error.
+//! Type checking is *not* one of them — see `problems`.
 //!
 //! Every program in `tests/run` is damaged at a spread of token positions: a token deleted,
 //! the file cut off, and a stray `.`, `(` or `{` inserted — the shapes a file is in while
@@ -57,9 +59,18 @@ fn problems(a: &Analysis) -> Option<String> {
     // The first failing phase, counting lexing and parsing as one.
     let first = errors.iter().map(|&p| if p <= 2 { 2 } else { p }).min()?;
     let shown: Vec<u8> = a.diags.iter().map(|d| phase(d.code)).collect();
+    // Which phases must stay quiet, given the first one that failed. The code ranges are
+    // not in pipeline order — ownership is `DZ04xx` and type checking `DZ05xx`, but
+    // ownership runs second — so these are named rather than compared as `p > first`.
     let later = |p: u8| match first {
+        // A parse error leaves a tree that is a guess. Nothing after it means anything.
         2 => p > 2,
-        3 => p > 3,
+        // Resolution failed. **Type checking still reports**: a diagnostic about an
+        // expression built from a name that did not resolve is suppressed where it arises,
+        // by the checker's own `Ty::Error` guards, which leaves the ones that never
+        // touched it — the whole point of not gating the phase wholesale. Ownership is
+        // still silent: it needs types it can trust.
+        3 => p == 4,
         _ => false,
     };
     if shown.iter().any(|&p| later(p)) {

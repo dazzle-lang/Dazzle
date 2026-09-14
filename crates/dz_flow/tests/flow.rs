@@ -77,7 +77,7 @@ fn analyse(dir: &Path) -> Outcome {
 
     let resolution = dz_resolve::resolve(&ws, &files);
     diags.extend(resolution.diagnostics.clone());
-    let checked = dz_check::check(&ws, &resolution, &files);
+    let checked = dz_check::check(&ws, &resolution, &files, &map);
     diags.extend(checked.diagnostics.clone());
     if !checked.diagnostics.has_errors() {
         diags.extend(dz_flow::check(&checked.hir, &checked.table, &resolution));

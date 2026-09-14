@@ -35,6 +35,32 @@ impl Label {
     }
 }
 
+/// One replacement in one file. An empty span is an insertion at that offset.
+///
+/// Spans are byte offsets into the file as it is on disk (invariant 2); turning them into
+/// whatever an editor counts in is the front end's job, as it is for a [`Label`].
+#[derive(Clone, Debug)]
+pub struct Edit {
+    pub file: FileId,
+    pub span: Span,
+    pub text: String,
+}
+
+/// A change that resolves a diagnostic, when the compiler already worked out what it would
+/// be — the missing arms of a `switch`, the signature of a trait method left unwritten.
+///
+/// The point of carrying it as data rather than as prose in a `help:` line is that it is
+/// computed once, by the phase that knows: the help text and the edit can then never
+/// disagree, and the language server offers the fix without re-deriving anything (spec
+/// §17.1, §17.4). A fix must be *correct or absent*; there is no "probably right" fix,
+/// because an editor will apply it without the user reading it.
+#[derive(Clone, Debug)]
+pub struct Fix {
+    /// What the editor lists, imperative and short: "add the missing arms".
+    pub title: String,
+    pub edits: Vec<Edit>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Diagnostic {
     pub severity: Severity,
@@ -44,6 +70,10 @@ pub struct Diagnostic {
     pub labels: Vec<Label>,
     /// Trailing `= note:` / `= help:` lines.
     pub notes: Vec<String>,
+    /// The edit that resolves this, when one is known. Not rendered in the terminal —
+    /// the `help:` line is what a reader there wants — but offered by the LSP as a code
+    /// action (spec §17.4).
+    pub fix: Option<Fix>,
 }
 
 impl Diagnostic {
@@ -54,6 +84,7 @@ impl Diagnostic {
             message: message.into(),
             labels: Vec::new(),
             notes: Vec::new(),
+            fix: None,
         }
     }
 
@@ -64,6 +95,7 @@ impl Diagnostic {
             message: message.into(),
             labels: Vec::new(),
             notes: Vec::new(),
+            fix: None,
         }
     }
 
@@ -95,6 +127,13 @@ impl Diagnostic {
 
     pub fn with_help(mut self, help: impl Into<String>) -> Diagnostic {
         self.notes.push(format!("help: {}", help.into()));
+        self
+    }
+
+    /// Attach the edit that resolves this (spec §17.4). The `help:` line still says it in
+    /// words, for a reader in a terminal; this is the same answer as data.
+    pub fn with_fix(mut self, title: impl Into<String>, edits: Vec<Edit>) -> Diagnostic {
+        self.fix = Some(Fix { title: title.into(), edits });
         self
     }
 

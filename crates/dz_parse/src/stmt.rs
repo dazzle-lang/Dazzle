@@ -206,6 +206,25 @@ impl<'a> Parser<'a> {
                 self.expect_in(TokenKind::RParen, "to close a tuple pattern");
                 PatKind::Tuple(elems)
             }
+            // A `&` here is someone reaching for a reference binding, which `if let`, `for`
+            // and `case` have (§10.3, §10.4, §18.61) and a plain `let` does not. The bare
+            // "expected a name" left them with no way to find the form that does work —
+            // and there is no `or` clause that binds by reference, since `or` only ever
+            // appears in a `let`, so `if let … else` is the whole answer.
+            TokenKind::Amp => {
+                let span = self.peek_token().span;
+                self.error_help(
+                    codes::EXPECTED_PATTERN,
+                    span,
+                    "expected a binding name, found `&`",
+                    "a `let` binding is always by value",
+                    "reference bindings are written in `if let`, `for` and `case`: \
+                     `if let &name = value { … } else { … }` refers to the value where it \
+                     lives, and its `else` can diverge the way an `or` clause would \
+                     (spec §9.4, §18.61)",
+                );
+                PatKind::Error
+            }
             _ => {
                 let span = self.peek_token().span;
                 let found = self.describe_current();

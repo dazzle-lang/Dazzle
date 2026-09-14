@@ -18,11 +18,11 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use dz_ast::*;
-use dz_diag::{codes, Diagnostic, Diagnostics};
+use dz_diag::{codes, Diagnostic, Diagnostics, Edit};
 use dz_hir::Hir;
 use dz_project::{ModuleId, Workspace};
 use dz_resolve::{ParsedFile, Resolution, SymbolId, SymbolKind};
-use dz_span::{FileId, Span};
+use dz_span::{FileId, SourceMap, Span};
 
 mod build;
 mod check;
@@ -278,6 +278,9 @@ pub struct ImplSig {
     pub file: FileId,
     /// The trait as written, which is what diagnostics about the implementation point at.
     pub span: Span,
+    /// The whole `impl … { … }`, braces included. `span` points at the trait name, which is
+    /// where a reader should look; this is where a *fix* writes a method that is missing.
+    pub block_span: Span,
 }
 
 #[derive(Clone, Debug)]
@@ -805,14 +808,21 @@ pub struct CheckResult {
 }
 
 /// Check every module in the workspace.
+///
+/// `map` is here so a diagnostic can carry the **edit** that resolves it and not only a
+/// sentence describing one (spec §17.4): the missing arms of a `switch` go in at a
+/// particular offset, indented to match the code around them, and only the source text
+/// says where that is. Nothing else in checking reads it.
 pub fn check(
     ws: &Workspace,
     res: &Resolution,
     files: &HashMap<ModuleId, Vec<ParsedFile>>,
+    map: &SourceMap,
 ) -> CheckResult {
     let mut cx = Ctx {
         ws,
         res,
+        map,
         diags: Diagnostics::new(),
         table: TypeTable {
             tests: Vec::new(),
@@ -1097,6 +1107,8 @@ fn foreign_int(i: dz_project::cppimport::CInt) -> IntTy {
 pub(crate) struct Ctx<'a> {
     pub(crate) ws: &'a Workspace,
     pub(crate) res: &'a Resolution,
+    /// The source, for building fixes only — see [`check`].
+    pub(crate) map: &'a SourceMap,
     pub(crate) diags: Diagnostics,
     pub(crate) table: TypeTable,
     pub(crate) hir: Hir,
@@ -1151,6 +1163,49 @@ impl<'a> Ctx<'a> {
     /// Render a type for a diagnostic.
     pub(crate) fn name_of(&self, t: &Ty) -> String {
         type_name(self.res, t)
+    }
+
+    /// An insertion just inside the closing brace of the construct `span` covers, with
+    /// every line of `lines` indented one step past whatever line the construct opened on.
+    ///
+    /// All the layout knowledge a fix needs is here, so no caller reproduces it: read the
+    /// opening line's own indent from the source, add four spaces, and put the text on its
+    /// own lines before the brace. Returns `None` rather than guess when the span does not
+    /// end in a `}` — a `switch` recovered from a syntax error, say — because an edit that
+    /// is only probably right is worse than no fix at all.
+    pub(crate) fn insert_inside_braces(&self, span: Span, lines: &[String]) -> Option<Edit> {
+        let text = self.map.try_get(self.file)?.text();
+        let (start, end) = (span.start as usize, span.end as usize);
+        if end > text.len() || start >= end || !text[..end].ends_with('}') {
+            return None;
+        }
+        let brace = end - 1;
+        // The indent of the line the construct starts on: `switch` may itself be nested.
+        let line_start = text[..start].rfind('\n').map_or(0, |n| n + 1);
+        let outer: String =
+            text[line_start..start].chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        let inner = format!("{outer}    ");
+
+        let mut body = String::new();
+        for line in lines {
+            body.push_str(&inner);
+            body.push_str(line);
+            body.push('\n');
+        }
+        // Where the closing brace already sits on a line of its own, that line's indent is
+        // *replaced* rather than inserted before — inserting would leave a line of trailing
+        // spaces above the arms. Otherwise (`switch x {}` all on one line) the break before
+        // the brace is ours to add.
+        let line_of_brace = text[..brace].rfind('\n').map_or(0, |n| n + 1);
+        let alone = text[line_of_brace..brace].chars().all(|c| c == ' ' || c == '\t');
+        let from = if alone { line_of_brace } else { brace };
+        let mut out = String::new();
+        if !alone {
+            out.push('\n');
+        }
+        out.push_str(&body);
+        out.push_str(&outer);
+        Some(Edit { file: self.file, span: Span::new(from, brace), text: out })
     }
 }
 

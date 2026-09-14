@@ -1941,7 +1941,10 @@ these through raylib or C today; a stdlib should not require it.
   through `dz build`. Principle 6 is "compile fast" and nothing measures it yet.
 - [ ] **Incremental analysis** in the LSP, and `std` not re-checked on every keystroke (§3,
   M9).
-- [ ] **Code actions and inlay hints** (§3, M9).
+- [x] **Code actions** (§3, M9) — `ctrl+.` fills a `switch`'s missing arms and implements a
+  trait method an `impl` left out. The mechanism is general: a diagnostic carries its own
+  `Fix`, so the remaining ones below are checker work, not server work. Inlay hints for the
+  implicit `drop` are still open.
 - [ ] **A release workflow** shipping `dz` with libclang beside it (§4a).
 - [ ] **Fetched packages** (M16, §4a).
 - [ ] **Macros** (M10) and **hot reload** (M13), per the roadmap.
@@ -2208,10 +2211,12 @@ Still open:
   signature has one. Entirely extension-side: the client already runs `dz lsp`, and the
   outline query already knows every declaration's parameters, so the information is there.
   Self-contained, and the right size for a first contribution to `editors/vscode`.
-- **Quick fixes** are already a §3 row (M9, code actions). The ones worth having are the
-  ones the compiler already computes the fix for: insert `move()` where a value was
-  implicitly copied, add the missing `override`, add `: Base(…)` to a constructor that
-  needs one, fill a `switch`'s missing arms.
+- **Quick fixes** — the mechanism and the first two (fill a `switch`'s missing arms,
+  implement a missing trait method) are **done**; see "Quick fixes: the compiler computes
+  the edit" above. The rest are the ones the compiler already works the answer out for, and
+  each is now a few lines at the diagnostic's own site — attach a `Fix`, and it appears in
+  the editor: insert `move()` where a value was implicitly copied, add the missing
+  `override`, add `: Base(…)` to a constructor that needs one, add a missing `impl Drop`.
 
 ---
 
@@ -2283,14 +2288,97 @@ before the work started. None is hard; all four are silent if missed:
 | `tests/run/tests` | `dz/tests/run.rs`, `dz_test_runs_the_projects_tests` | **`#[test]` and `dz test`** (spec §19 M14): three passing tests, run by name in their own processes. Its `expected.txt` is the other half of the claim — running the *program* prints only what `main` prints, because a normal build leaves the tests out, which the test also checks by grepping the generated C++. `a_failing_test_is_reported_and_does_not_stop_the_rest` covers a panicking test: named, its own message shown, and the tests after it still run |
 | `tests/run/inherit` | " | **struct inheritance end to end** (spec §7.3, 18.32): a chain of three, inherited fields and methods, `&Derived` → `&Base` and `^Derived` → `^Base`, writing through a base reference, defaults coming from whichever type declared the field, a constructor building its base, `virtual`/`override` dispatching at runtime through a base reference, a base method calling a virtual one and landing on the override, `Base::method(self)` calling the version it replaced, `protected` reached from a derived type, and a trait implementation inherited from a base and replaced by a more specific one. Also in the `-Wall -Wextra` set |
 | `dz_driver/tests/feature_matrix/mod.rs` | `dz_driver/tests/matrix.rs`, `dz/tests/matrix.rs` | **the feature matrix**: every construct and every mistake in every context (function, method, generic function, loop and `while` bodies, `switch` arm, `or` block, `if let`, `unsafe`, nested blocks, constructor, trait method, generic struct method), with the shared types in the same module and in another. Constructs are compiled, run and value-checked, warning-clean under every compiler present; mistakes must each give exactly one code. Extend it by adding a row to any of the three lists |
-| `tests/errors/*.dz` | `dz_driver/tests/errors.rs` | **one program per mistake**, whole pipeline, each naming its exact diagnostics in `// expect:` lines (or `(none)`); exact match, so a mistake reported twice fails. The home for rules in combination: bindings inside `switch` inside `for`, moves inside loops and arms, generic unions inferred inside generics, constants built by statements |
+| `tests/errors/*.dz` | `dz_driver/tests/errors.rs` | **one program per mistake**, whole pipeline, each naming its exact diagnostics in `// expect:` lines (or `(none)`); exact match, so a mistake reported twice fails. The home for rules in combination: bindings inside `switch` inside `for`, moves inside loops and arms, generic unions inferred inside generics, constants built by statements. Also the **pointer-to-optional** trio, which is one rule seen from three sides: `or_moves_out_of_a_reference_to_an_optional` (a move-only payload is `DZ0402`), `or_through_a_pointer_to_an_optional` (a copyable one is accepted, `^u32?` → `&u32?` → `u32`, with `if let &c` as the by-reference half) and `let_reference_binding` (`let &c` is `DZ0207`, since only `if let`, `for` and `case` bind by reference) |
 | `tests/run/loops` | `dz/tests/run.rs` | **r37**: `for` bindings by copy, `&` and `&mut` over arrays, slices through `&mut`, structs and tuples; `indexed()` over an array, an iterator and a range with `continue`; an ECS-shaped iterator yielding `(usize, &P, &mut i32)` written through; `case (&mut c)` inside a loop over `&mut` elements; `or break` in an arm of a generic loop; inferred generic unions; move-only elements referred to and then consumed. Also in the `-Wall -Wextra` set |
 | `tests/run/switching` | " | **M8**: `switch` on integers, `char`, `bool` and `str` against literals, constants and constant arithmetic (§10.3); `break` and `continue` in an arm acting on the loop; a temporary subject and a payload written through `&mut`; a generic union built three ways and matched inside a generic function; and a `const`, a field default and a default argument built by a `switch` or `if`, with the constants written after their users. Also in the `-Wall -Wextra` set |
 | `tests/run/keywords` | " | every declaration named after a C++ keyword — an enum, a struct, a union, a field, a method, a variant, a variant's field, a `const` and a free function all called `class`, `double`, `operator` and the like. The generator has to rename each one and every reference to it; it used to rename only locals, so `fn double` reached C++ as `int32_t double(…)` and clang's complaint was mapped back onto the user's own line. Also in the `-Wall -Wextra` set |
 | `tests/run/cinterop*`, `tests/run/cppinterop` | `dz_cppimport/tests/import.rs` | the importer against those same headers, one test per §15.2 rule: functions/structs/enums/macros, handles, unions, array members and bit-fields, callbacks, namespaces and C++ paths, public members and overloads, the move-only rule, and that a template imports only where an instantiation is named |
 
-| `tests/run/generics` | `dz_lsp/tests/ide.rs` | the editor queries against a real program: hover and definition for every kind of name, including beside a syntax error; references counted against every token of the name, so a missed use fails; rename and what it refuses; completion in scope, on a typed receiver (`largest(…).`), by name from an older analysis, after `::`, and silence in comments and strings; signature help; inlay hints; the outline; workspace symbols; formatting refusing broken source |
-| `tests/run/*/` | `dz_driver/tests/tolerant.rs` | editor mode on about 1,200 damaged programs (a token deleted, the file cut off, a stray `.`, `(` or `{`): never a panic, never a later phase's errors while an earlier one failed, and diagnostics identical to build mode's |
+| `tests/run/generics` | `dz_lsp/tests/ide.rs` | the editor queries against a real program: hover and definition for every kind of name, including beside a syntax error; references counted against every token of the name, so a missed use fails; rename and what it refuses; completion in scope, on a typed receiver (`largest(…).`), by name from an older analysis, after `::`, and silence in comments and strings; signature help; inlay hints; the outline; workspace symbols; formatting refusing broken source. **Code actions** are tested by *applying* the edit and re-analysing: the fixed buffer must be clean, since an editor applies a fix without the user reading it. Covered: a `switch`'s arms written at the right indent, a union payload bound with `_` so the fix adds no unused-variable warning, one fix per missing trait method with the trait's own signature, the `DZ0405` a returning stub deliberately leaves, and that nothing is offered away from the diagnostic |
+| `tests/run/*/` | `dz_driver/tests/tolerant.rs` | editor mode on about 7,200 damaged programs — every program in `tests/run/` at forty token positions, each deleted, cut off, and given a stray `.`, `(` or `{`: never a panic, never a later phase's errors while an earlier one failed, and diagnostics identical to build mode's. The figure grows with the corpus; it was ~1,200 when six programs existed |
 
 `examples/*.dz` are **not** tests. They are the user's pre-spec design sketches and are not
 expected to parse.
+
+### A resolution error no longer silences type checking
+
+`analyse_for` used to keep the checker's diagnostics only when **nothing anywhere in the
+workspace** failed to resolve (`resolved_cleanly`, which is `has_errors()` over the whole
+program). One unknown name therefore discarded every type error in every file. It was found
+the way it would be: a `dazzle.toml` missing its `std` dependency left `Iterator`
+unresolved, and a `switch` with no arms at all, on an enum declared three lines above it,
+was reported nowhere.
+
+The checker had been *running* the whole time — `hir` and `table` were kept either way,
+which is why hover and completion went on working — so this was throwing away work already
+done, not saving any.
+
+The reasoning behind the gate is real but narrower than the gate was: an expression built
+from a name that did not resolve has type `Ty::Error`, and anything said about it is noise.
+That is suppressed where it arises, by the `is_error()` guards the checker already had
+(~100 of them), which leaves exactly the diagnostics that never touched the unresolved name.
+So the phase is no longer gated wholesale; it is gated on **parsing**, which must still
+suppress, because a tree recovered from a syntax error is a guess.
+
+Ownership still waits for a clean resolution: it reasons about moves of values whose types
+it has to trust. Both modes changed together — `dz check` benefits as much as the editor,
+and `editor_mode_reports_exactly_what_build_mode_reports` stays a real guarantee.
+`tolerant.rs`'s `problems` names the phases that must stay quiet rather than comparing code
+numbers, since `DZ04xx` (ownership) and `DZ05xx` (checking) are not in pipeline order.
+
+### Quick fixes: the compiler computes the edit, the editor applies it
+
+`ctrl+.` in VS Code, as §17.4 item 6 asked for. Two fixes: **fill a `switch`'s missing
+arms** and **implement a trait method an `impl` left out**.
+
+The design point is that neither fix is computed in the language server. Both diagnostics
+already worked the answer out in order to phrase themselves — the exhaustiveness check
+lists the uncovered variants, and `check_impl_conformance` renders the required signature
+through `signature_of` for its `help:` line — so `dz_diag::Diagnostic` gained a
+`fix: Option<Fix>` (a title and a list of `Edit`s), which §17.1 had described the model as
+having all along. The phase that knows attaches the edit; `ide::code_actions` returns
+whatever fixes overlap the cursor and knows nothing about any particular one. **A new quick
+fix is therefore written once, in the checker, and needs no change to the server at all**,
+and the `help:` sentence and the edit cannot drift apart because one code path produces
+both.
+
+- `dz_check::check` now takes the `SourceMap`. Fixes are source-level edits and only the
+  text says where a closing brace is or how far a line is indented; nothing else in checking
+  reads it. `Ctx::insert_inside_braces` holds all of that layout knowledge, and returns
+  `None` rather than guess when a span does not end in `}` — so a `switch` recovered from a
+  syntax error simply offers no fix.
+- `ImplSig` gained `block_span`. Its `span` is the trait name, which is where a *reader*
+  should look and where the squiggle goes; a fix needs the braces.
+- A stub body is `panic("not implemented")`, so a method that returns something **still
+  reports `DZ0405` until it is written**. That is deliberate and pinned by a test: `panic`
+  is not one of the divergent forms that satisfy definite return (§10.5), and the
+  alternative — returning a default — compiles and is silently wrong, which is worse than a
+  compiler telling you the method is unfinished. Whether `panic` should count as divergence
+  is a language question, not settled here.
+- Tests assert the *result*, not the text: the fixed buffer is re-analysed and must be
+  clean. A fix an editor applies without the user reading it has to be right.
+
+The VS Code extension needed no change — `vscode-languageclient` advertises code-action
+support by default.
+
+### The suite runs on every core
+
+`cargo test` parallelises **across** test functions, never inside one, so a test that is a
+loop over thousands of cases pins a single core however many the machine has. Four tests
+were that shape and were three quarters of the wall time: `tolerant.rs` (~7,200 analyses),
+`dz/tests/run.rs` (every project built and run, then 25 fixtures checked warning-clean),
+`dz_driver/tests/matrix.rs` (232 placements) and `dz/tests/matrix.rs`. They now spread
+their own work over the cores through `dz_driver/tests/parallel/mod.rs`, a work-stealing
+`thread::scope` shared by `#[path]` as `feature_matrix` is. A full `cargo test --workspace`
+went from **324 s to 77 s** on a 20-core machine.
+
+This is sound because every phase is a pure function of its input (invariant 3) and the two
+process-wide caches — `std_tree`'s parsed trees and `dz_cppimport`'s header cache — were
+already behind a `OnceLock` and a `Mutex`.
+
+It also exposed a race that had been latent: `hello_world_runs`, `generated_cpp_snapshot`
+and `generated_cpp_carries_line_directives_back_to_dazzle` all drove `tests/run/hello/build/`
+directly, which `every_program_produces_its_expected_output` builds too — and those already
+ran on separate harness threads. Serial timing just made the window rare. They take scratch
+copies now, for the reason `copy_fixture` had documented all along. **A test that builds a
+fixture must copy it first**; the shared directory is the failure mode, not the parallelism.

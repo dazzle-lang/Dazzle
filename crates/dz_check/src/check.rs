@@ -267,13 +267,28 @@ fn check_impl_conformance(cx: &mut Ctx, imp: &ImplSig, trait_name: &str, me: &st
             None if spec.methods[method].has_body => {}
             None => {
                 let shown = signature_of(cx, method, &want);
-                cx.error_help(
+                // The signature is already known exactly, so the diagnostic carries the
+                // stub as an edit (spec §17.4). The body panics rather than returning a
+                // default: a stub that silently answers `0` is a bug waiting to be found
+                // at run time, and one that refuses to compile is a note to finish it.
+                // A method with a return type therefore still reports `DZ0405` until it
+                // is written — `panic` is not one of the divergent forms that satisfy
+                // definite return (§10.5).
+                let stub = vec![
+                    format!("{shown} {{"),
+                    "    panic(\"not implemented\")".to_owned(),
+                    "}".to_owned(),
+                ];
+                let mut d = Diagnostic::error(
                     codes::MISSING_TRAIT_MEMBER,
-                    imp.span,
                     format!("`impl {trait_name} for {me}` does not implement `{method}`"),
-                    format!("`{trait_name}` requires `{method}`"),
-                    format!("add `{shown}` (spec §7.6)"),
-                );
+                )
+                .at(cx.file, imp.span, format!("`{trait_name}` requires `{method}`"))
+                .with_help(format!("add `{shown}` (spec §7.6)"));
+                if let Some(edit) = cx.insert_inside_braces(imp.block_span, &stub) {
+                    d = d.with_fix(format!("implement `{method}`"), vec![edit]);
+                }
+                cx.diags.push(d);
             }
             Some(got) => {
                 if let Some(why) = signature_differs(cx, &want, got) {
@@ -6191,21 +6206,45 @@ impl<'a, 'c> Body<'a, 'c> {
                 None => c.ty,
             });
         } else if !variants.is_empty() {
-            let missing: Vec<String> = variants
-                .iter()
-                .filter(|v| !covered.contains(&v.name))
-                .map(|v| format!("`{}`", v.name))
-                .collect();
-            if !missing.is_empty() {
+            let uncovered: Vec<&_> =
+                variants.iter().filter(|v| !covered.contains(&v.name)).collect();
+            if !uncovered.is_empty() {
                 let owner = sym.map(|id| self.cx.res.symbol(id).name.clone()).unwrap_or_default();
-                let list = missing.join(", ");
-                self.cx.error_help(
+                let list = uncovered
+                    .iter()
+                    .map(|v| format!("`{}`", v.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                // The arms this wants are already known exactly, so the diagnostic carries
+                // them as an edit and not only as a sentence (spec §17.4). A variant that
+                // carries a payload needs a binding, and `_` is the one that says the arm
+                // does not use it yet — a named binding would come with an unused-variable
+                // warning the moment the fix was applied.
+                let arms: Vec<String> = uncovered
+                    .iter()
+                    // A variant has a payload either by naming a struct (`carries`) or by
+                    // declaring fields of its own; an enum's variants and a union's empty
+                    // ones have neither, and take no binding (spec §7.5, 18.45).
+                    .map(|v| {
+                        if v.carries.is_some() || !v.fields.is_empty() {
+                            format!("case {}(_) {{}}", v.name)
+                        } else {
+                            format!("case {} {{}}", v.name)
+                        }
+                    })
+                    .collect();
+                let fix = self.cx.insert_inside_braces(s.span, &arms);
+                let mut d = Diagnostic::error(
                     codes::NON_EXHAUSTIVE_SWITCH,
-                    s.span,
                     format!("`switch` on `{owner}` is not exhaustive"),
-                    format!("{list} not covered"),
-                    "add the missing arms, or a `default` arm (spec §10.3)",
-                );
+                )
+                .at(self.cx.file, s.span, format!("{list} not covered"))
+                .with_help("add the missing arms, or a `default` arm (spec §10.3)");
+                if let Some(edit) = fix {
+                    let what = if arms.len() == 1 { "arm" } else { "arms" };
+                    d = d.with_fix(format!("add the missing {what}"), vec![edit]);
+                }
+                self.cx.diags.push(d);
             }
         }
 
