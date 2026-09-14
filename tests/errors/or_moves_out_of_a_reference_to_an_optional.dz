@@ -1,0 +1,23 @@
+// expect: DZ0402
+//
+// `b` refers to an optional `Token`, and `or` would take the `Token` out of it — a move out
+// of a borrow. `if let &t = b` refers to it instead.
+
+struct Token {
+    pub id: i32 = 0
+}
+
+impl Drop for Token {
+    fn drop(&mut self) {}
+}
+
+fn first(a: ^mut Token?) {
+    let b = a or return
+    let t = b or return
+    println("{}", t.id)
+}
+
+fn main() {
+    let mut t: Token? = Token{ id: 1 }
+    first(&mut t)
+}

@@ -597,10 +597,13 @@ impl<'a> Parser<'a> {
                      // `if let name = value` (spec §9.4). A missing name or `=` is reported and the
                      // rest still parses, as for any `if`.
         let binding = if self.eat(TokenKind::Let) {
-            let mutable = self.eat(TokenKind::Mut);
+            // `v`, `mut v`, `&v` or `&mut v`. `&mut` is the reference's mode, so a `mut`
+            // after a `&` is left for the name check to report.
+            let mode = self.parse_bind_mode();
+            let mutable = mode == BindMode::Value && self.eat(TokenKind::Mut);
             let name = self.parse_ident_or_error();
             self.expect_in(TokenKind::Eq, "after the `if let` binding");
-            Some(dz_ast::IfBinding { name, mutable })
+            Some(dz_ast::IfBinding { name, mutable, mode })
         } else {
             None
         };

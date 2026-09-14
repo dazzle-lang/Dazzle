@@ -5807,10 +5807,104 @@ body static TEMP -> void
       #0 (default)
       #1 (default)
       #2 (default)
+body field-default Box.0 -> void
+  block
+    null: own ^mut T
+body field-default Box.1 -> void
+  block
+    null: ^mut Allocator
+body ctor Box#0 -> void
+  param _0 self: Box<T>
+  param _1 value: T
+  param _2 allocator: ^mut Allocator
+  param _3 loc: SourceLocation
+  block
+    let _4 a: &mut Allocator
+      or: &mut Allocator
+        local _2 allocator: ^mut Allocator
+        builtin panic: !
+          str "a Box needs an allocator": str
+    assign =
+      field #1: ^mut Allocator
+        local _0 self: Box<T>
+      local _2 allocator: ^mut Allocator
+    assign =
+      field #0: own ^mut T
+        local _0 self: Box<T>
+      block-value: ^mut T
+        block
+          cast: ^mut T
+            call-method Allocator::alloc: ^mut u8
+              local _4 a: &mut Allocator
+              type-query T::size: usize
+              type-query T::align: usize
+              local _3 loc: SourceLocation
+    block-value: void
+      block
+        builtin construct: void
+          index: T
+            field #0: own ^mut T
+              local _0 self: Box<T>
+            int 0: usize
+          move: T
+            local _1 value: T
+body drop Box -> void
+  param _0 self: Box<T>
+  block
+    if: void
+      binary ==: bool
+        field #0: own ^mut T
+          local _0 self: Box<T>
+        null: own ^mut T
+      block
+        return: !
+    block-value: void
+      block
+        builtin destroy: void
+          index: T
+            field #0: own ^mut T
+              local _0 self: Box<T>
+            int 0: usize
+    let _1 a: &mut Allocator
+      or: &mut Allocator
+        field #1: ^mut Allocator
+          local _0 self: Box<T>
+        return: !
+    call-method Allocator::free: void
+      local _1 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            field #0: own ^mut T
+              local _0 self: Box<T>
+      type-query T::size: usize
+      type-query T::align: usize
+body impl#52 method is_null -> bool
+  param _0 self: Box<T>
+  block
+    return: !
+      binary ==: bool
+        field #0: own ^mut T
+          local _0 self: Box<T>
+        null: own ^mut T
+body impl#52 method guard -> Unguarded<T>
+  param _0 self: Box<T>
+  block
+    return: !
+      struct-lit Unguarded: Unguarded<T>
+        #0
+          field #0: own ^mut T
+            local _0 self: Box<T>
+body impl#52 method ptr -> ^mut T
+  param _0 self: Box<T>
+  block
+    return: !
+      field #0: own ^mut T
+        local _0 self: Box<T>
 body const HEAP_ALIGN -> void
   block
     int 8: usize
-body impl#51 method alloc -> ^mut u8
+body impl#53 method alloc -> ^mut u8
   param _0 self: Heap
   param _1 size: usize
   param _2 align: usize
@@ -5868,7 +5962,7 @@ body impl#51 method alloc -> ^mut u8
     error
     return: !
       local _7 p: ^mut u8
-body impl#51 method realloc -> ^mut u8
+body impl#53 method realloc -> ^mut u8
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -5912,7 +6006,7 @@ body impl#51 method realloc -> ^mut u8
           local _5 loc: SourceLocation
     return: !
       local _6 q: ^mut u8
-body impl#51 method free -> void
+body impl#53 method free -> void
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 size: usize
@@ -5948,6 +6042,176 @@ body impl#51 method free -> void
                           local _1 p: ^mut u8
                         const HEAP_ALIGN: usize
                     int 0: usize
+body field-default Rc.0 -> void
+  block
+    null: ^mut RcBlock<T>
+body ctor Rc#0 -> void
+  param _0 self: Rc<T>
+  param _1 value: T
+  param _2 allocator: ^mut Allocator
+  param _3 loc: SourceLocation
+  block
+    let _4 a: &mut Allocator
+      or: &mut Allocator
+        local _2 allocator: ^mut Allocator
+        builtin panic: !
+          str "an Rc needs an allocator": str
+    let _5 size: usize
+      type-query RcBlock<T>::size: usize
+    let _6 align: usize
+      type-query RcBlock<T>::align: usize
+    assign =
+      field #0: ^mut RcBlock<T>
+        local _0 self: Rc<T>
+      block-value: ^mut RcBlock<T>
+        block
+          cast: ^mut RcBlock<T>
+            call-method Allocator::alloc: ^mut u8
+              local _4 a: &mut Allocator
+              local _5 size: usize
+              local _6 align: usize
+              local _3 loc: SourceLocation
+    block-value: void
+      block
+        builtin construct: void
+          index: RcBlock<T>
+            field #0: ^mut RcBlock<T>
+              local _0 self: Rc<T>
+            int 0: usize
+          struct-lit RcBlock: RcBlock<T>
+            #0
+              int 1: usize
+            #1
+              int 0: usize
+            #2
+              local _2 allocator: ^mut Allocator
+            #3
+              move: T
+                local _1 value: T
+body method Rc::count -> usize
+  param _0 self: Rc<T>
+  block
+    let _1 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Rc<T>
+        return: !
+          int 0: usize
+    return: !
+      field #0: usize
+        local _1 b: &mut RcBlock<T>
+body method Rc::weak_count -> usize
+  param _0 self: Rc<T>
+  block
+    let _1 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Rc<T>
+        return: !
+          int 0: usize
+    return: !
+      field #1: usize
+        local _1 b: &mut RcBlock<T>
+body drop Rc -> void
+  param _0 self: Rc<T>
+  block
+    let _1 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Rc<T>
+        return: !
+    assign -=
+      field #0: usize
+        local _1 b: &mut RcBlock<T>
+      int 1: usize
+    if: void
+      binary >: bool
+        field #0: usize
+          local _1 b: &mut RcBlock<T>
+        int 0: usize
+      block
+        return: !
+    block-value: void
+      block
+        builtin destroy: void
+          field #3: T
+            index: RcBlock<T>
+              field #0: ^mut RcBlock<T>
+                local _0 self: Rc<T>
+              int 0: usize
+    if: void
+      binary ==: bool
+        field #1: usize
+          local _1 b: &mut RcBlock<T>
+        int 0: usize
+      block
+        let _2 a: &mut Allocator
+          or: &mut Allocator
+            field #2: ^mut Allocator
+              local _1 b: &mut RcBlock<T>
+            return: !
+        call-method Allocator::free: void
+          local _2 a: &mut Allocator
+          block-value: ^mut u8
+            block
+              cast: ^mut u8
+                field #0: ^mut RcBlock<T>
+                  local _0 self: Rc<T>
+          type-query RcBlock<T>::size: usize
+          type-query RcBlock<T>::align: usize
+body copy Rc -> void
+  param _0 self: Rc<T>
+  param _1 other: &Rc<T>
+  block
+    assign =
+      field #0: ^mut RcBlock<T>
+        local _0 self: Rc<T>
+      field #0: ^mut RcBlock<T>
+        local _1 other: &Rc<T>
+    let _2 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Rc<T>
+        return: !
+    assign +=
+      field #0: usize
+        local _2 b: &mut RcBlock<T>
+      int 1: usize
+body impl#56 method is_null -> bool
+  param _0 self: Rc<T>
+  block
+    return: !
+      binary ==: bool
+        field #0: ^mut RcBlock<T>
+          local _0 self: Rc<T>
+        null: ^mut RcBlock<T>
+body impl#56 method guard -> Rc<T>
+  param _0 self: Rc<T>
+  block
+    return: !
+      local _0 self: Rc<T>
+body impl#56 method ptr -> ^mut T
+  param _0 self: Rc<T>
+  block
+    let _1 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Rc<T>
+        return: !
+          null: ^mut T
+    return: !
+      ref mut: &mut T
+        field #3: T
+          local _1 b: &mut RcBlock<T>
+body field-default RcBlock.0 -> void
+  block
+    int 0: usize
+body field-default RcBlock.1 -> void
+  block
+    int 0: usize
+body field-default RcBlock.2 -> void
+  block
+    null: ^mut Allocator
 body const TEMP_HEADER -> void
   block
     int 16: usize
@@ -6160,7 +6424,7 @@ body method TempArena::owns -> bool
                 int 0: usize
     return: !
       bool false: bool
-body impl#52 method alloc -> ^mut u8
+body impl#57 method alloc -> ^mut u8
   param _0 self: TempArena
   param _1 size: usize
   param _2 align: usize
@@ -6208,7 +6472,7 @@ body impl#52 method alloc -> ^mut u8
               local _4 start: usize
     return: !
       local _5 p: ^mut u8
-body impl#52 method realloc -> ^mut u8
+body impl#57 method realloc -> ^mut u8
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -6286,7 +6550,7 @@ body impl#52 method realloc -> ^mut u8
               local _8 kept: usize
     return: !
       local _7 q: ^mut u8
-body impl#52 method free -> void
+body impl#57 method free -> void
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 size: usize
@@ -6317,6 +6581,169 @@ body drop TempArena -> void
             assign =
               local _1 chunk: ^mut u8
               local _2 prev: ^mut u8
+body field-default Unguarded.0 -> void
+  block
+    null: ^mut T
+body impl#59 method is_null -> bool
+  param _0 self: Unguarded<T>
+  block
+    return: !
+      binary ==: bool
+        field #0: ^mut T
+          local _0 self: Unguarded<T>
+        null: ^mut T
+body impl#59 method guard -> Unguarded<T>
+  param _0 self: Unguarded<T>
+  block
+    return: !
+      local _0 self: Unguarded<T>
+body impl#59 method ptr -> ^mut T
+  param _0 self: Unguarded<T>
+  block
+    return: !
+      field #0: ^mut T
+        local _0 self: Unguarded<T>
+body field-default Weak.0 -> void
+  block
+    null: ^mut RcBlock<T>
+body ctor Weak#0 -> void
+  param _0 self: Weak<T>
+  param _1 rc: &Rc<T>
+  block
+    assign =
+      field #0: ^mut RcBlock<T>
+        local _0 self: Weak<T>
+      field #0: ^mut RcBlock<T>
+        local _1 rc: &Rc<T>
+    let _2 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Weak<T>
+        return: !
+    assign +=
+      field #1: usize
+        local _2 b: &mut RcBlock<T>
+      int 1: usize
+body drop Weak -> void
+  param _0 self: Weak<T>
+  block
+    let _1 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Weak<T>
+        return: !
+    assign -=
+      field #1: usize
+        local _1 b: &mut RcBlock<T>
+      int 1: usize
+    if: void
+      binary &&: bool
+        binary ==: bool
+          field #1: usize
+            local _1 b: &mut RcBlock<T>
+          int 0: usize
+        binary ==: bool
+          field #0: usize
+            local _1 b: &mut RcBlock<T>
+          int 0: usize
+      block
+        let _2 a: &mut Allocator
+          or: &mut Allocator
+            field #2: ^mut Allocator
+              local _1 b: &mut RcBlock<T>
+            return: !
+        call-method Allocator::free: void
+          local _2 a: &mut Allocator
+          block-value: ^mut u8
+            block
+              cast: ^mut u8
+                field #0: ^mut RcBlock<T>
+                  local _0 self: Weak<T>
+          type-query RcBlock<T>::size: usize
+          type-query RcBlock<T>::align: usize
+body copy Weak -> void
+  param _0 self: Weak<T>
+  param _1 other: &Weak<T>
+  block
+    assign =
+      field #0: ^mut RcBlock<T>
+        local _0 self: Weak<T>
+      field #0: ^mut RcBlock<T>
+        local _1 other: &Weak<T>
+    let _2 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Weak<T>
+        return: !
+    assign +=
+      field #1: usize
+        local _2 b: &mut RcBlock<T>
+      int 1: usize
+body impl#62 method is_null -> bool
+  param _0 self: Weak<T>
+  block
+    let _1 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Weak<T>
+        return: !
+          bool true: bool
+    return: !
+      binary ==: bool
+        field #0: usize
+          local _1 b: &mut RcBlock<T>
+        int 0: usize
+body impl#62 method guard -> Rc<T>
+  param _0 self: Weak<T>
+  block
+    let _1 r: Rc<T>
+      null: Rc<T>
+    let _2 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Weak<T>
+        return: !
+          local _1 r: Rc<T>
+    if: void
+      binary ==: bool
+        field #0: usize
+          local _2 b: &mut RcBlock<T>
+        int 0: usize
+      block
+        return: !
+          local _1 r: Rc<T>
+    assign +=
+      field #0: usize
+        local _2 b: &mut RcBlock<T>
+      int 1: usize
+    assign =
+      field #0: ^mut RcBlock<T>
+        local _1 r: Rc<T>
+      field #0: ^mut RcBlock<T>
+        local _0 self: Weak<T>
+    return: !
+      local _1 r: Rc<T>
+body impl#62 method ptr -> ^mut T
+  param _0 self: Weak<T>
+  block
+    let _1 b: &mut RcBlock<T>
+      or: &mut RcBlock<T>
+        field #0: ^mut RcBlock<T>
+          local _0 self: Weak<T>
+        return: !
+          null: ^mut T
+    if: void
+      binary ==: bool
+        field #0: usize
+          local _1 b: &mut RcBlock<T>
+        int 0: usize
+      block
+        return: !
+          null: ^mut T
+    return: !
+      ref mut: &mut T
+        field #3: T
+          local _1 b: &mut RcBlock<T>
 body method FieldInfo::tag_value -> str?
   param _0 self: FieldInfo
   param _1 key: str
@@ -6449,7 +6876,7 @@ body method FieldInfo::tag_value -> str?
           int 1: usize
     return: !
       none: str?
-body impl#54 method eq -> bool
+body impl#63 method eq -> bool
   param _0 self: TypeId
   param _1 rhs: &TypeId
   block
@@ -6459,7 +6886,7 @@ body impl#54 method eq -> bool
           local _0 self: TypeId
         field #0: u32
           local _1 rhs: &TypeId
-body impl#55 method hash -> u64
+body impl#64 method hash -> u64
   param _0 self: TypeId
   block
     return: !
@@ -6648,7 +7075,7 @@ body method String::reserve -> void
         local _1 additional: usize
         int 1: usize
       local _2 loc: SourceLocation
-body impl#56 method eq -> bool
+body impl#65 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -6658,7 +7085,7 @@ body impl#56 method eq -> bool
           local _0 self: String
         call-method String::as_str: str
           local _1 rhs: &String
-body impl#57 method hash -> u64
+body impl#66 method hash -> u64
   param _0 self: String
   block
     return: !
@@ -7592,12 +8019,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#61 method describe -> str
+body impl#70 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#62 method weight -> i32
+body impl#71 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -7741,7 +8168,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#63 method eq -> bool
+body impl#72 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -7751,7 +8178,7 @@ body impl#63 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#64 method cmp -> Ordering
+body impl#73 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -7818,7 +8245,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#65 method add -> Vec2
+body impl#74 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -7836,7 +8263,7 @@ body impl#65 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#66 method mul -> Vec2
+body impl#75 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -7930,7 +8357,7 @@ body fn formatting -> void
       local _0 x: i32
       local _0 x: i32
       local _1 f: f32
-body impl#67 method valid -> bool
+body impl#76 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -7939,13 +8366,13 @@ body impl#67 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#67 method get -> i32
+body impl#76 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#67 method advance -> void
+body impl#76 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -8132,7 +8559,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#68 method mul -> Scale
+body impl#77 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -8143,7 +8570,7 @@ body impl#68 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#69 method mul -> f32
+body impl#78 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -8159,7 +8586,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#70 method label -> str
+body impl#79 method label -> str
   param _0 self: f32
   block
     return: !
@@ -8170,7 +8597,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#71 method label -> str
+body impl#80 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -8183,7 +8610,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#72 method shout -> str
+body impl#81 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -8306,13 +8733,105 @@ body fn if_let_forms -> f32
         bind _4 v
         block
           field #0: f32
-            local _4 v: &mut Vec3
+            local _4 v: Vec3
         block
           block-value: i32
             block
               int 0: i32
     return: !
       local _5 got: f32
+body fn handle_forms -> f32
+  param _0 shared: &mut Rc<Vec3>
+  param _1 o: &i32?
+  block
+    let _2 watch: Weak<Vec3>
+      call-ctor Weak#0: Weak<Vec3>
+        local _0 shared: &mut Rc<Vec3>
+    let _3 spare: Box<Vec3>
+      null: Box<Vec3>
+    if: void
+      call-method Nullable::is_null: bool
+        local _3 spare: Box<Vec3>
+      block
+        assign =
+          local _3 spare: Box<Vec3>
+          call-ctor Box#0: Box<Vec3>
+            struct-lit Vec3: Vec3
+              #0
+                float 1: f32
+              #1
+                float 2: f32
+              #2 (default)
+    if-let: void
+      guarded: ^mut Vec3
+        guard _4 _guard
+        call-method Nullable::guard: Rc<Vec3>
+          local _0 shared: &mut Rc<Vec3>
+        call-method Nullable::ptr: ^mut Vec3
+          local _4 _guard: Rc<Vec3>
+      bind _5 v
+      block
+        assign +=
+          field #0: f32
+            local _5 v: &mut Vec3
+          float 1: f32
+    let _6 total: f32
+      float 0: f32
+    if-let: void
+      guarded: ^Vec3
+        guard _7 _guard
+        call-method Nullable::guard: Rc<Vec3>
+          local _2 watch: Weak<Vec3>
+        call-method Nullable::ptr: ^mut Vec3
+          local _7 _guard: Rc<Vec3>
+      bind _8 v
+      block
+        assign +=
+          local _6 total: f32
+          field #0: f32
+            local _8 v: Vec3
+      block
+        if-let: void
+          guarded: ^mut Vec3
+            guard _9 _guard
+            call-method Nullable::guard: Unguarded<Vec3>
+              local _3 spare: Box<Vec3>
+            call-method Nullable::ptr: ^mut Vec3
+              local _9 _guard: Unguarded<Vec3>
+          bind _10 b
+          block
+            assign +=
+              local _6 total: f32
+              field #0: f32
+                local _10 b: &Vec3
+    if-let: void
+      local _1 o: &i32?
+      bind _11 n
+      block
+        assign +=
+          local _6 total: f32
+          cast: f32
+            local _11 n: i32
+    let _13 v: &mut Vec3
+      or: &mut Vec3
+        guarded: ^mut Vec3
+          guard _12 _guard
+          call-method Nullable::guard: Rc<Vec3>
+            local _0 shared: &mut Rc<Vec3>
+          call-method Nullable::ptr: ^mut Vec3
+            local _12 _guard: Rc<Vec3>
+        return: !
+          local _6 total: f32
+    return: !
+      binary +: f32
+        binary +: f32
+          field #0: f32
+            local _13 v: &mut Vec3
+          local _6 total: f32
+        cast: f32
+          or: i32
+            local _1 o: &i32?
+            int 0: i32
 body field-default Widget.0 -> void
   block
     int 0: i32
@@ -8505,7 +9024,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#75 method measure -> i32
+body impl#84 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -8523,7 +9042,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#76 method measure -> i32
+body impl#85 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -8810,7 +9329,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#77 method eq -> bool
+body impl#86 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -8826,7 +9345,7 @@ body impl#77 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#78 method hash -> u64
+body impl#87 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -8911,7 +9430,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#79 method neg -> Heading
+body impl#88 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -8920,7 +9439,7 @@ body impl#79 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#80 method eq -> bool
+body impl#89 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -8964,7 +9483,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#81 method named -> str
+body impl#90 method named -> str
   param _0 self: Heading
   block
     return: !

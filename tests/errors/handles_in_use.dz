@@ -1,0 +1,43 @@
+// expect: (none)
+//
+// `null`, `== null`, `or` and every `if let` binding on `Rc`, `Weak` and `Box`, and on an
+// optional and a pointer (spec §9.4, §14.5).
+
+struct Node {
+    pub value: i32 = 0
+}
+
+fn read(n: &Rc<Node>) -> i32 {
+    let node = n or return 0
+    return node.value
+}
+
+fn main() {
+    let mut a: Rc<Node> = null
+    if a == null {
+        a = Rc<Node>(Node{ value: 1 })
+    }
+    let w = Weak<Node>(&a)
+    if let &mut n = a {
+        n.value += 1
+    }
+    if let n = w {
+        println("{}", n.value)
+    } else if w != null {
+        println("unreachable")
+    }
+    let b = Box<Node>(Node{ value: read(&a) })
+    if let &n = b {
+        println("{}", n.value)
+    }
+    let mut o: i32? = 1
+    if let &mut v = o {
+        v += 1
+    }
+    let mut x = 5
+    x += 1
+    let p: ^i32 = &x
+    if let &v = p {
+        println("{}", v)
+    }
+}

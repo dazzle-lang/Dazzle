@@ -722,411 +722,435 @@ error[DZ0525]: `if let` needs a `T?` or a `^T`, found `i32`
     │
     = help: `if let` takes the value out of something that may be empty; for a `bool`, write a plain `if` (spec §9.4)
 
-error[DZ0541]: `Yell` is not a struct
-    ┌─ typeerrors/src/errors.dz:669:25
+error[DZ0507]: cannot refer to this value with `&mut x`
+    ┌─ typeerrors/src/errors.dz:661:17
     │
-669 │ pub struct NotAStruct : Yell {
+661 │     if let &mut x = p {
+    │                 ^ it is read-only here
+    │
+    = help: take it out of a `let mut`, a `&mut` or a `^mut`, or read it with `&` (spec §9.4)
+
+error[DZ0507]: cannot refer to this value with `&mut x`
+    ┌─ typeerrors/src/errors.dz:667:17
+    │
+667 │     if let &mut x = h {
+    │                 ^ it is read-only here
+    │
+    = help: take it out of a `let mut`, a `&mut` or a `^mut`, or read it with `&` (spec §9.4)
+
+error[DZ0507]: cannot assign to `x`
+    ┌─ typeerrors/src/errors.dz:674:9
+    │
+674 │         x += 1
+    │         ^ not mutable
+    │
+    = help: `x` is a copy of the value, or a read-only reference to it; bind it as `if let &mut x` to change the value where it lives (spec §9.4)
+
+error[DZ0541]: `Yell` is not a struct
+    ┌─ typeerrors/src/errors.dz:688:25
+    │
+688 │ pub struct NotAStruct : Yell {
     │                         ^^^^ not a struct
     │
     = help: a trait is implemented, not inherited from: write `impl Trait for Type { … }` (spec §7.6)
 
 error[DZ0542]: field `left` is already inherited from `Panel`
-    ┌─ typeerrors/src/errors.dz:675:9
+    ┌─ typeerrors/src/errors.dz:694:9
     │
-661 │     pub left: i32 = 0
+680 │     pub left: i32 = 0
     │         ---- inherited from here
     ·
-675 │     pub left: i32 = 5
+694 │     pub left: i32 = 5
     │         ^^^^ redeclared here
     │
     = help: a name means one thing in a type, whichever declaration it came from — rename this field, or drop it and use the base's (spec §7.3)
 
 error[DZ0501]: expected `Panel`, found `Framed`
-    ┌─ typeerrors/src/errors.dz:680:20
+    ┌─ typeerrors/src/errors.dz:699:20
     │
-680 │     let p: Panel = f
+699 │     let p: Panel = f
     │                    ^ a whole `Framed`, which is bigger than a `Panel`
     │
     = help: a `Framed` is a `Panel` only behind a reference or a pointer — write `&…` or `^…`. Copying one into a `Panel` would drop everything `Framed` adds, which Dazzle does not do silently (spec §7.3)
 
 error[DZ0501]: expected `&mut Panel`, found `&Framed`
-    ┌─ typeerrors/src/errors.dz:686:20
+    ┌─ typeerrors/src/errors.dz:705:20
     │
-686 │     writes_a_panel(f)
+705 │     writes_a_panel(f)
     │                    ^ this is `&Framed`
 
 error[DZ0543]: `ForgetsTheBase` must construct its base `Measured`
-    ┌─ typeerrors/src/errors.dz:705:5
+    ┌─ typeerrors/src/errors.dz:724:5
     │
-705 │     ForgetsTheBase(e: i32) {
+724 │     ForgetsTheBase(e: i32) {
     │     ^^^^^^^^^^^^^^ no base initialiser
     │
     = help: `Measured` has a constructor, so it cannot be left to default — write `ForgetsTheBase(…) : Measured(…) { … }` (spec §7.3)
 
 error[DZ0541]: `Measured` is not this type's base
-    ┌─ typeerrors/src/errors.dz:712:33
+    ┌─ typeerrors/src/errors.dz:731:33
     │
-712 │     InitialisesTheWrongBase() : Measured(1) {}
+731 │     InitialisesTheWrongBase() : Measured(1) {}
     │                                 ^^^^^^^^ its base is `Panel`
     │
     = help: a base initialiser constructs the one base the struct declares: write `: Panel(…)` (spec §7.3)
 
 error[DZ0552]: a base initialiser cannot `return`
-    ┌─ typeerrors/src/errors.dz:717:57
+    ┌─ typeerrors/src/errors.dz:736:57
     │
-717 │     ReturnsFromTheBase(width: i32?) : Measured(width or return) {}
+736 │     ReturnsFromTheBase(width: i32?) : Measured(width or return) {}
     │                                                         ^^^^^^ the base is built before the constructor begins
     │
     = help: give the argument a value to fall back on — `x or 0`, `x or { … }` — or `panic` (spec §7.3)
 
 error[DZ0543]: `Measured` has a constructor, so it is not built with a literal
-    ┌─ typeerrors/src/errors.dz:722:13
+    ┌─ typeerrors/src/errors.dz:741:13
     │
-722 │     let m = Measured{ w: 2 }
+741 │     let m = Measured{ w: 2 }
     │             ^^^^^^^^^^^^^^^^ `Measured` declares a constructor
     │
     = help: call it: `Measured(…)` (spec §7.2)
 
 error[DZ0545]: `Abstract` is abstract, so there is no value of it
-    ┌─ typeerrors/src/errors.dz:741:34
+    ┌─ typeerrors/src/errors.dz:760:34
     │
-741 │ fn holds_an_abstract_by_value(a: Abstract) -> i32 {
+760 │ fn holds_an_abstract_by_value(a: Abstract) -> i32 {
     │                                  ^^^^^^^^ abstract type by value
     │
     = help: `Abstract::area` is a `virtual fn` with no body — write `&Abstract` or `^Abstract` and pass a type that overrides it (spec §7.3)
 
 error[DZ0545]: `StillAbstract` is abstract and cannot be built
-    ┌─ typeerrors/src/errors.dz:746:13
+    ┌─ typeerrors/src/errors.dz:765:13
     │
-746 │     let a = StillAbstract{}
+765 │     let a = StillAbstract{}
     │             ^^^^^^^^^^^^^^^ `Abstract::area` has no body
     │
     = help: `StillAbstract` inherits `Abstract::area` and does not override it — add `override fn area(…) { … }` to `StillAbstract` (spec §7.3)
 
 error[DZ0544]: `OverridesNothing::missing` overrides nothing
-    ┌─ typeerrors/src/errors.dz:752:21
+    ┌─ typeerrors/src/errors.dz:771:21
     │
-752 │     pub override fn missing(&self) -> i32 { return 0 }
+771 │     pub override fn missing(&self) -> i32 { return 0 }
     │                     ^^^^^^^ no base declares this method
     │
     = help: `override` replaces a base's `virtual fn missing`; without one to replace, drop the `override` and this is an ordinary method (spec §7.3)
 
 error[DZ0544]: `Abstract::fixed` is not `virtual`
-    ┌─ typeerrors/src/errors.dz:758:21
+    ┌─ typeerrors/src/errors.dz:777:21
     │
-732 │     pub fn fixed(&self) -> i32 { return 2 }
+751 │     pub fn fixed(&self) -> i32 { return 2 }
     │            ----- declared here, without `virtual`
     ·
-758 │     pub override fn fixed(&self) -> i32 { return 3 }
+777 │     pub override fn fixed(&self) -> i32 { return 3 }
     │                     ^^^^^ cannot be overridden
     │
     = help: a method is dispatched statically unless it says otherwise — mark `Abstract`'s `virtual fn fixed` to let a derived type replace it (spec §7.3)
 
 error[DZ0544]: `DriftedSignature::label` does not match the method it overrides
-    ┌─ typeerrors/src/errors.dz:764:21
+    ┌─ typeerrors/src/errors.dz:783:21
     │
-731 │     pub virtual fn label(&self) -> i32 { return 1 }
+750 │     pub virtual fn label(&self) -> i32 { return 1 }
     │                    ----- overriding this
     ·
-764 │     pub override fn label(&self, extra: i32) -> i32 { return extra }
+783 │     pub override fn label(&self, extra: i32) -> i32 { return extra }
     │                     ^^^^^ it takes 1 argument(s) where `Abstract::label` takes 0
     │
     = help: an override is reached through a `&Base`, which is compiled against the base's signature — so the two must be the same (spec §7.3)
 
 error[DZ0542]: `label` is already inherited from `Abstract`
-    ┌─ typeerrors/src/errors.dz:770:12
+    ┌─ typeerrors/src/errors.dz:789:12
     │
-731 │     pub virtual fn label(&self) -> i32 { return 1 }
+750 │     pub virtual fn label(&self) -> i32 { return 1 }
     │                    ----- inherited from here
     ·
-770 │     pub fn label(&self) -> i32 { return 9 }
+789 │     pub fn label(&self) -> i32 { return 9 }
     │            ^^^^^ redeclared here
     │
     = help: a name means one thing in a type — write `override fn label` to replace `Abstract`'s, or rename this one (spec §7.3)
 
 error[DZ0506]: field `Abstract::inner` is not visible here
-    ┌─ typeerrors/src/errors.dz:776:18
+    ┌─ typeerrors/src/errors.dz:795:18
     │
-728 │     protected inner: i32 = 0
+747 │     protected inner: i32 = 0
     │               ----- declared here
     ·
-776 │         return a.inner
+795 │         return a.inner
     │                  ^^^^^ private field
     │
     = help: `protected` is visible to `Abstract` and the types that inherit from it, and to nothing else — inherit from `Abstract`, or mark this field `pub` (spec §4, §7.3)
 
 error[DZ0501]: `&Unrelated` does not inherit from `Abstract`
-    ┌─ typeerrors/src/errors.dz:782:28
+    ┌─ typeerrors/src/errors.dz:801:28
     │
-782 │     return Abstract::label(u)
+801 │     return Abstract::label(u)
     │                            ^ not a `Abstract`
     │
     = help: `Abstract::label` is called on a `Abstract` or on something that inherits from one (spec §7.3)
 
 error[DZ0546]: `a_test_that_takes_an_argument` cannot be a test: a test takes no arguments
-    ┌─ typeerrors/src/errors.dz:788:4
+    ┌─ typeerrors/src/errors.dz:807:4
     │
-788 │ fn a_test_that_takes_an_argument(n: i32) {}
+807 │ fn a_test_that_takes_an_argument(n: i32) {}
     │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the runner has nothing to pass
     │
     = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
 
 error[DZ0546]: `a_test_that_returns_a_value` cannot be a test: a test returns nothing
-    ┌─ typeerrors/src/errors.dz:791:4
+    ┌─ typeerrors/src/errors.dz:810:4
     │
-791 │ fn a_test_that_returns_a_value() -> i32 {
+810 │ fn a_test_that_returns_a_value() -> i32 {
     │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the runner has nothing to do with a value
     │
     = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
 
 error[DZ0546]: `a_test_that_is_fallible` cannot be a test: a test is not fallible
-    ┌─ typeerrors/src/errors.dz:796:4
+    ┌─ typeerrors/src/errors.dz:815:4
     │
-796 │ fn a_test_that_is_fallible() !-> i32 {
+815 │ fn a_test_that_is_fallible() !-> i32 {
     │    ^^^^^^^^^^^^^^^^^^^^^^^ report the failure with `panic`, which is what a failing one does
     │
     = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
 
 error[DZ0546]: `a_test_with_type_parameters` cannot be a test: a test has no type parameters
-    ┌─ typeerrors/src/errors.dz:801:4
+    ┌─ typeerrors/src/errors.dz:820:4
     │
-801 │ fn a_test_with_type_parameters<T>() {}
+820 │ fn a_test_with_type_parameters<T>() {}
     │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ there is no instance to run
     │
     = help: a test is `#[test] fn name() { … }`; it passes by returning and fails by panicking (spec §19 M14)
 
 error[DZ0547]: a `case` label must be a constant
-    ┌─ typeerrors/src/errors.dz:807:14
+    ┌─ typeerrors/src/errors.dz:826:14
     │
-807 │         case m { return 1 }
+826 │         case m { return 1 }
     │              ^ computed at run time
     │
     = help: a label is a literal, a `const`, or arithmetic on those — something known while compiling. To compare against a value only known at run time, use `if` (spec §10.3)
 
 error[DZ0547]: a `case` on `Shape` names a variant
-    ┌─ typeerrors/src/errors.dz:814:14
+    ┌─ typeerrors/src/errors.dz:833:14
     │
-814 │         case 3 { return 1 }
+833 │         case 3 { return 1 }
     │              ^ not a variant name
     │
     = help: an enum or union is matched by variant: `case Idle`, `case Walking(w)` (spec §10.3)
 
 error[DZ0548]: this value is already matched by an earlier `case`
-    ┌─ typeerrors/src/errors.dz:822:14
+    ┌─ typeerrors/src/errors.dz:841:14
     │
-822 │         case 2 { return 2 }
+841 │         case 2 { return 2 }
     │              ^ matched twice
     │
     = help: an arm runs only for what no earlier arm matched, so this label never would; remove it (spec §10.3)
 
 error[DZ0551]: no struct named `Stopped` for this variant to carry
-    ┌─ typeerrors/src/errors.dz:830:5
+    ┌─ typeerrors/src/errors.dz:849:5
     │
-830 │     Stopped
+849 │     Stopped
     │     ^^^^^^^ not a struct in scope
     │
     = help: a variant with no payload is written `Stopped {}`; a bare `Stopped` carries the struct of that name (spec §7.5)
 
 error[DZ0553]: `STARTS_AT_RUN_TIME` must be built from constants
-    ┌─ typeerrors/src/errors.dz:838:34
+    ┌─ typeerrors/src/errors.dz:857:34
     │
-838 │ static STARTS_AT_RUN_TIME: i32 = a_runtime_value()
+857 │ static STARTS_AT_RUN_TIME: i32 = a_runtime_value()
     │                                  ^^^^^^^^^^^^^^^^^ computed when the program starts
     │
     = help: a `static` starts as a literal, a `const`, `null`, `none`, or a struct, array or variant literal of those; fill it in from `main` if it needs more (spec §7.7)
 
 error[DZ0528]: changing the static `SHARED` is unsafe
-    ┌─ typeerrors/src/errors.dz:842:5
+    ┌─ typeerrors/src/errors.dz:861:5
     │
-842 │     SHARED = 1
+861 │     SHARED = 1
     │     ^^^^^^ outside an `unsafe` block
     │
     = help: wrap it in `unsafe { … }`: a `static` is shared by everything that names it, and nothing checks what else is reading or holding it (spec §7.7)
 
 error[DZ0520]: `Factory::make` takes no `self`
-    ┌─ typeerrors/src/errors.dz:853:14
+    ┌─ typeerrors/src/errors.dz:872:14
     │
-853 │     return f.make()
+872 │     return f.make()
     │              ^^^^ called on a value
     │
     = help: call it through the type: `Factory::make(…)` (spec §7.3)
 
 error[DZ0501]: expected `&Named`, found `&Factory`
-    ┌─ typeerrors/src/errors.dz:866:18
+    ┌─ typeerrors/src/errors.dz:885:18
     │
-866 │     return named(f)
+885 │     return named(f)
     │                  ^ this is `&Factory`
 
 error[DZ0553]: `COMPUTED` must be a constant or the address of a static
-    ┌─ typeerrors/src/errors.dz:871:31
+    ┌─ typeerrors/src/errors.dz:890:31
     │
-871 │     pub const COMPUTED: i32 = a_runtime_value()
+890 │     pub const COMPUTED: i32 = a_runtime_value()
     │                               ^^^^^^^^^^^^^^^^^ computed when it is used
     │
     = help: a constant in a type is a literal, a `const`, a literal built of those, or `&STATIC` / `unsafe { &mut STATIC }` (spec §7.3)
 
 error[DZ0528]: making a pointer from an address is unsafe
-    ┌─ typeerrors/src/errors.dz:876:12
+    ┌─ typeerrors/src/errors.dz:895:12
     │
-876 │     return n as ^mut u8
+895 │     return n as ^mut u8
     │            ^^^^^^^^^^^^ outside an `unsafe` block
     │
     = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
 
 error[DZ0528]: taking bytes as a `str` without checking them is unsafe
-    ┌─ typeerrors/src/errors.dz:881:12
+    ┌─ typeerrors/src/errors.dz:900:12
     │
-881 │     return bytes as str
+900 │     return bytes as str
     │            ^^^^^^^^^^^^ outside an `unsafe` block
     │
     = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
 
 error[DZ0501]: a slice of a pointer needs its end
-    ┌─ typeerrors/src/errors.dz:886:21
+    ┌─ typeerrors/src/errors.dz:905:21
     │
-886 │     return unsafe { p[1..] }
+905 │     return unsafe { p[1..] }
     │                     ^^^^^^ no end
     │
     = help: a pointer carries no length, so write where the slice stops: `p[0..n]` (spec §5.3)
 
 error[DZ0515]: `Plain` cannot be indexed
-    ┌─ typeerrors/src/errors.dz:891:12
+    ┌─ typeerrors/src/errors.dz:910:12
     │
-891 │     return p[0]
+910 │     return p[0]
     │            ^ no `Index` implementation
     │
     = help: implement `Index` for `Plain`, and `IndexMut` to write through it (spec §11.2)
 
 error[DZ0526]: this format string has 1 placeholder but 0 arguments were given
-    ┌─ typeerrors/src/errors.dz:896:11
+    ┌─ typeerrors/src/errors.dz:915:11
     │
-896 │     panic("at {}", loc)
+915 │     panic("at {}", loc)
     │           ^^^^^^^ 1 `{}` here
     │
     = help: each `{}` takes one argument, in order; write `{{` or `}}` for a literal brace (spec §12.9)
 
 error[DZ0501]: expected `bool`, found `i32`
-    ┌─ typeerrors/src/errors.dz:901:12
+    ┌─ typeerrors/src/errors.dz:920:12
     │
-901 │     assert(n)
+920 │     assert(n)
     │            ^ this is `i32`
 
 error[DZ0554]: `xs` takes any number of arguments, so it must come last
-    ┌─ typeerrors/src/errors.dz:906:19
+    ┌─ typeerrors/src/errors.dz:925:19
     │
-906 │ fn variadic_first(xs: ..i32, last: i32) {}
+925 │ fn variadic_first(xs: ..i32, last: i32) {}
     │                   ^^^^^^^^^ a variadic parameter before others
     │
     = help: move it to the end: the arguments after the fixed ones are its (spec §7.2)
 
 error[DZ0554]: `xs` cannot have a default
-    ┌─ typeerrors/src/errors.dz:908:33
+    ┌─ typeerrors/src/errors.dz:927:33
     │
-908 │ fn variadic_default(xs: ..i32 = 0) {}
+927 │ fn variadic_default(xs: ..i32 = 0) {}
     │                                 ^ a default on a variadic parameter
     │
     = help: leaving its arguments out already gives it none (spec §7.2)
 
 error[DZ0554]: a spread must be the only variadic argument
-    ┌─ typeerrors/src/errors.dz:915:20
+    ┌─ typeerrors/src/errors.dz:934:20
     │
-915 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
+934 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
     │                    ^^^^ spread beside other arguments
     │
     = help: `adds(..xs)` passes a slice as it is; to add values, build the slice you want first (spec §7.2)
 
 error[DZ0554]: `..` spreads a slice or an array, not `i32`
-    ┌─ typeerrors/src/errors.dz:915:33
+    ┌─ typeerrors/src/errors.dz:934:33
     │
-915 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
+934 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
     │                                 ^^^ not a sequence
     │
     = help: pass the values one by one, or spread a `[]T` (spec §7.2)
 
 error[DZ0501]: expected `i32`, found `bool`
-    ┌─ typeerrors/src/errors.dz:915:48
+    ┌─ typeerrors/src/errors.dz:934:48
     │
-915 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
+934 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
     │                                                ^^^^ this is `bool`
 
 error[DZ0531]: `-` cannot be applied to `Plain`
-    ┌─ typeerrors/src/errors.dz:920:12
+    ┌─ typeerrors/src/errors.dz:939:12
     │
-920 │     return -p
+939 │     return -p
     │            ^^ `Plain` does not implement `Neg`
     │
     = help: operators are traits (spec §11.2) — implement it: `impl Neg for Plain { … }`
 
 error[DZ0502]: `-129` does not fit in `i8`
-    ┌─ typeerrors/src/errors.dz:924:12
+    ┌─ typeerrors/src/errors.dz:943:12
     │
-924 │     return -129
+943 │     return -129
     │            ^^^^ outside the range of `i8`
     │
     = help: valid values are -128 to 127
 
 error[DZ0507]: `Readings` can be looped over, but not written through
-    ┌─ typeerrors/src/errors.dz:942:19
+    ┌─ typeerrors/src/errors.dz:961:19
     │
-942 │     for &mut v in r {
+961 │     for &mut v in r {
     │                   ^ implements `Iterable`, not `IterableMut`
     │
     = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
 
 error[DZ0507]: cannot refer to these elements with `&mut`
-    ┌─ typeerrors/src/errors.dz:948:19
+    ┌─ typeerrors/src/errors.dz:967:19
     │
-948 │     for &mut x in xs {
+967 │     for &mut x in xs {
     │                   ^^ the container is read-only here
     │
     = help: declare it `let mut`, or pass it as `&mut` (spec §10.4)
 
 error[DZ0501]: expected `i32`, found `i32?`
-    ┌─ typeerrors/src/errors.dz:956:18
+    ┌─ typeerrors/src/errors.dz:975:18
     │
-956 │     let n: i32 = o
+975 │     let n: i32 = o
     │                  ^ this is `i32?`
 
 error[DZ0521]: `none` needs an optional type here
-    ┌─ typeerrors/src/errors.dz:961:24
+    ┌─ typeerrors/src/errors.dz:980:24
     │
-961 │     let x = if alive { none } else { none }
+980 │     let x = if alive { none } else { none }
     │                        ^^^^ nothing here expects a `T?`
     │
     = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0521]: `none` needs an optional type here
-    ┌─ typeerrors/src/errors.dz:961:38
+    ┌─ typeerrors/src/errors.dz:980:38
     │
-961 │     let x = if alive { none } else { none }
+980 │     let x = if alive { none } else { none }
     │                                      ^^^^ nothing here expects a `T?`
     │
     = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0514]: `+` cannot be applied to `Layer`
-    ┌─ typeerrors/src/errors.dz:966:12
+    ┌─ typeerrors/src/errors.dz:985:12
     │
-966 │     return l + l == l
+985 │     return l + l == l
     │            ^ not a numeric type
 
 error[DZ0531]: `f32` does not implement `Hash`
-    ┌─ typeerrors/src/errors.dz:971:13
+    ┌─ typeerrors/src/errors.dz:990:13
     │
-971 │     let m = HashMap<f32, i32>()
+990 │     let m = HashMap<f32, i32>()
     │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
     │
     = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)
 
 error[DZ0504]: `typeinfo_of` takes one type and no arguments
-    ┌─ typeerrors/src/errors.dz:978:13
+    ┌─ typeerrors/src/errors.dz:997:13
     │
-978 │     let a = typeinfo_of<i32>(1)
+997 │     let a = typeinfo_of<i32>(1)
     │             ^^^^^^^^^^^^^^^^^^^ not the form this call has
     │
     = help: write `typeinfo_of<T>()` (spec §13.1)
 
 error[DZ0501]: expected `TypeId`, found `{integer}`
-    ┌─ typeerrors/src/errors.dz:979:22
+    ┌─ typeerrors/src/errors.dz:998:22
     │
-979 │     let b = typeinfo(3)
+998 │     let b = typeinfo(3)
     │                      ^ this is `{integer}`

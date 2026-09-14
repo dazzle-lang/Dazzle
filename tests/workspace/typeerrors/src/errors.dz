@@ -656,6 +656,25 @@ fn if_let_on_a_plain_value(n: i32) {
     }
 }
 
+// 18.61: `&mut` in an `if let` needs something writable, and a plain binding copies.
+fn if_let_mut_through_a_read_only_pointer(p: ^i32) {
+    if let &mut x = p {
+        x += 1
+    }
+}
+
+fn if_let_mut_on_a_read_only_handle(h: &Rc<i32>) {
+    if let &mut x = h {
+        x += 1
+    }
+}
+
+fn if_let_writes_to_a_copy(p: ^mut i32) {
+    if let x = p {
+        x += 1
+    }
+}
+
 // §7.3, 18.32: struct inheritance, one deliberate failure per rule.
 pub struct Panel {
     pub left: i32 = 0

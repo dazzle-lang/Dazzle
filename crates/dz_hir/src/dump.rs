@@ -394,6 +394,15 @@ impl<'a> Dumper<'a> {
                     }
                 });
             }
+            ExprKind::Guarded { guard, init, value } => {
+                node!("guarded");
+                self.nest(|d| {
+                    let name = d.opt_local(&Some(guard));
+                    d.line(format_args!("guard {name}"));
+                    d.expr(init);
+                    d.expr(value);
+                });
+            }
             ExprKind::Switch { subject, arms, default } => {
                 node!("switch");
                 self.nest(|d| {

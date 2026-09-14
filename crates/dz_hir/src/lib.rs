@@ -463,6 +463,16 @@ pub enum ExprKind {
         arms: Vec<Arm>,
         default: Option<BlockId>,
     },
+    /// `guard = init`, then `value` — what `or` and `if let` on a `Nullable` handle stand
+    /// for (spec §14.5, 18.62). `guard` is a local with no name anyone can write, holding
+    /// the handle's `Guard` (a strong `Rc` for an `Rc` or a `Weak`) until the end of the
+    /// block the expression sits in, so what `value` points at cannot be freed under it.
+    /// `value` is the target as a pointer, which the enclosing `or` or `if let` checks.
+    Guarded {
+        guard: LocalId,
+        init: ExprId,
+        value: ExprId,
+    },
     /// `e or clause` — the one failure eliminator (spec §9.4). `operand` is fallible: a
     /// call to a `!->` function, a `T?`, or a `^T`. The node's own type is the success
     /// type, so consumers never see the failure shape.

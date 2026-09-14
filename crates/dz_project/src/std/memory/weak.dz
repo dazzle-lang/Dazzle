@@ -1,0 +1,71 @@
+/// A reference to a value an `Rc` owns, which does not keep it alive (spec §14.5).
+///
+/// When the last `Rc` is dropped the value goes, and every `Weak` to it reads as `null` from
+/// then on. Reach the value with `or` or `if let`, which hold a strong `Rc` for as long as
+/// it is used, so it cannot be freed mid-use:
+///
+/// ```dz
+/// if let &mut e = self.target { e.health -= 10 } else { self.retarget() }
+/// ```
+///
+/// Made from an `Rc` with `Weak(&rc)`. For a parent link or a cache, where an `Rc` would
+/// keep the value alive for ever — or, with two of them, leak both.
+pub struct Weak<T> {
+    m_block: ^mut RcBlock<T> = null
+
+    /// A weak reference to what `rc` owns; null when `rc` is.
+    Weak(rc: &Rc<T>) {
+        m_block = rc.m_block
+        let b = m_block or return
+        b.weak += 1
+    }
+}
+
+impl<T> Drop for Weak<T> {
+    fn drop(&mut self) {
+        let b = m_block or return
+        b.weak -= 1
+        if b.weak == 0 && b.strong == 0 {
+            let a = b.allocator or return
+            a.free(unsafe { m_block as ^mut u8 }, RcBlock<T>::size, RcBlock<T>::align)
+        }
+    }
+}
+
+impl<T> Copy for Weak<T> {
+    fn copy(&mut self, other: &Self) {
+        m_block = other.m_block
+        let b = m_block or return
+        b.weak += 1
+    }
+}
+
+impl<T> Nullable for Weak<T> {
+    type Target = T
+    type Guard = Rc<T>
+
+    fn is_null(&self) -> bool {
+        let b = m_block or return true
+        return b.strong == 0
+    }
+
+    /// A strong `Rc` to the value, or a null one when it is gone.
+    fn guard(&self) -> Rc<T> {
+        let mut r: Rc<T> = null
+        let b = m_block or return r
+        if b.strong == 0 {
+            return r
+        }
+        b.strong += 1
+        r.m_block = m_block
+        return r
+    }
+
+    fn ptr(&self) -> ^mut T {
+        let b = m_block or return null
+        if b.strong == 0 {
+            return null
+        }
+        return &mut b.value
+    }
+}

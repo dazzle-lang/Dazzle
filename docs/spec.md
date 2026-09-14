@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 52
+**Version:** 0.1 — **unreleased**, revision 53
 **Status:** M0–M8, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle programs
 compile and run, own, move and drop their resources deterministically, have generics,
 traits, unions and reflection, call C and C++ libraries that `dz` builds from vendored
@@ -634,7 +634,8 @@ misbehave — a stale `&T` handed down a call is still your problem (§1.1) — 
 other rule: moving out of `p^` is still `DZ0402` inside `unsafe`. What it buys is that every
 place a dangling pointer can bite is marked, and that a container's raw-memory work sits
 behind the safe interface it offers. Pointers are the escape hatch, not the everyday tool:
-shared ownership is the stdlib's `Rc<T>` (§19 M12). `[DECIDED — §18.16]`
+shared ownership is the standard library's `Rc<T>`, sole ownership of a heap value `Box<T>`, and
+a reference that notices its target is gone `Weak<T>` (§14.5). `[DECIDED — §18.16]`
 
 `null` is a value of every pointer type, `^T` and `^mut T` alike. There is no null `&T`.
 
@@ -1740,8 +1741,11 @@ you write it (§9.4).
 
 ### 9.4 The `or` clause
 
-`or` is a postfix binary operator whose left side is fallible — a `!->` call, a `T?`, or a
-`^T` — and whose right side says what to do when it fails.
+`or` is a postfix binary operator whose left side is fallible — a `!->` call, a `T?`, a
+`^T`, or a handle such as an `Rc` (§14.5) — and whose right side says what to do when it
+fails. A `&T?` is read as the optional it refers to, when `T` can be copied (§18.35); a
+handle gives a reference to its target, as a pointer does, and keeps the target alive for
+the rest of the enclosing block.
 
 ```dz
 let tex  = load_texture(path) or Textures::Missing            // fall back
@@ -1817,12 +1821,27 @@ if let m = find_movie(&mut list, "Nemo") {
 }
 ```
 
-The binding holds exactly what `or` would produce: the `T` of a `T?`, or the `&mut T` of a
-`^T`, so it is also the checked pointer-to-reference conversion of §5.2. It exists in the
-first block only. `if let mut m` makes it mutable, `else if` chains as for any `if`, and
-`if let` is an expression when both blocks produce a value. It does not take a fallible
-call: its `else` has no `Error` to hand over, so the failure would be dropped unseen, which
-§9.5 exists to prevent — that is `or`'s job (`DZ0529`). `[DECIDED — §18.36]`
+**The binding holds the value as a `for` or `case` binding holds its element** (§10.3,
+§10.4), whatever the subject — a `T?`, a `&T?`, a `^T`, or a handle (§14.5):
+
+```dz
+if let v = p { … }          // v: T, a copy that cannot be changed (`mut v`: one that can)
+if let &v = p { … }         // v: &T, refers to the value where it lives
+if let &mut v = p { … }     // v: &mut T, and writes land there
+```
+
+- **`v`** is a copy, so `T` must be copyable where the value lives somewhere else — behind a
+  pointer, a reference or a handle (`DZ0403`, with `&v` as the help). Out of an optional
+  the `if let` owns, such as a call's result, it is the value itself, moved.
+- **`&v`** refers to the value in place; nothing is copied.
+- **`&mut v`** needs something writable: a `^mut T`, a `&mut T?`, or an optional or handle
+  in a place that may be written — a `let mut`, a field through `&mut self` (`DZ0507`).
+
+So `if let &mut p = ptr` is the checked pointer-to-reference conversion of §5.2. The binding
+exists in the first block only, `else if` chains as for any `if`, and `if let` is an
+expression when both blocks produce a value. It does not take a fallible call: its `else`
+has no `Error` to hand over, so the failure would be dropped unseen, which §9.5 exists to
+prevent — that is `or`'s job (`DZ0529`). `[DECIDED — §18.36, §18.61]`
 
 An optional can also be tested without taking the value out: `m == none` and `m != none`.
 Nothing else compares a `T?` — two optionals have no `==` (§18.36).
@@ -1963,7 +1982,8 @@ if x > 0 {
 
 Parentheses around the condition are not used. Braces are mandatory. The condition must be
 `bool` — there is no truthiness, and no pointer-to-bool conversion (`if p != null`).
-`if let x = v { … }` takes the value out of a `T?` or a `^T` for the first block (§9.4).
+`if let x = v { … }` takes the value out of a `T?`, a `^T` or a handle (`Rc`, `Weak`, `Box`) for
+the first block (§9.4, §14.5).
 
 ### 10.2 `while`
 
@@ -2918,6 +2938,65 @@ one name must work across `f32`, `f64` and every vector: `a.lerp(b, t)` is the s
 each. A generic `Vec3<T>` waits on associated-type projection in generic code.
 `[DECIDED — §18.55]`
 
+### 14.5 Handles: `Rc`, `Weak` and `Box`
+
+Game code shares things — a texture drawn by many sprites, an entity several systems
+track — and a raw pointer is the wrong tool for it (§5.2). The standard library has three
+**handles**, each holding a value on the heap from an allocator, as `List` does:
+
+| Handle | Owns | Copying it | The value is dropped |
+|---|---|---|---|
+| `Rc<T>` | a share | shares the value, counting one more owner | with the last `Rc` |
+| `Weak<T>` | nothing | refers to the same value | never by a `Weak` |
+| `Box<T>` | all of it | not allowed: move-only | with the `Box` |
+
+```dz
+let tex = Rc<Texture>(load("hero.png"))       // Rc(value, allocator = Allocators::Global)
+let other = tex                                // tex.count() is now 2
+let watch = Weak<Texture>(&tex)                // does not keep it alive
+let node = Box<Node>(Node{ value: 1 })
+```
+
+**A handle may be `null`**, referring to nothing, exactly as a pointer may. `null` is every
+handle's default and what a moved-from one is left as, so a field of a handle type is
+written `texture: Rc<Texture> = null`. `h = null` releases this handle — for an `Rc`, one
+share, and the value only if it was the last. A `Weak` is also `null` once no `Rc` owns
+its value: dropping the last `Rc` makes every `Weak` to it read as `null` at once, which is
+how an asset owner unloads something others still refer to.
+
+**Its value is reached as a pointer's is**, and never with a bare `.`: `h == null` and
+`h != null` test it, `h or …` gives a reference to the value (§9.4), and `if let` binds it
+with `v`, `&v` or `&mut v`. `&mut` needs the handle itself in a writable place.
+
+```dz
+if let &mut t = sprite.texture { t.width = 64 } else { use_placeholder() }
+let target = self.target or return             // a Weak: `return` if the entity is gone
+```
+
+**While the value is used, it cannot be freed.** `or` and `if let` on an `Rc` or a `Weak`
+first take a strong `Rc` of their own, held until the `if let` block ends, or for `or` until
+the enclosing block does. Whatever the code does meanwhile — sets the handle to `null`, or
+removes the last other `Rc` from a map — the value outlives the reference:
+
+```dz
+if let &mut t = self.texture {
+    self.texture = null        // releases this handle; the value is still held
+    t.width += 1               // fine
+}                              // dropped here, if that was the last owner
+```
+
+That costs one count up and one down per `or` or `if let`: plain integers, not atomics. A
+`Box` has no second owner to take, so `self.node = null` inside `if let &n = self.node`
+frees what `n` refers to, as it would through a `^T` (§1.1).
+
+**`Nullable`** is the trait behind this, and any type may implement it: `is_null`,
+`guard` — what `or` and `if let` hold for the duration, itself `Nullable` — and `ptr`, the
+value's address or `null`. `Rc` and `Weak` guard with an `Rc`; `Box` with an `Unguarded`,
+which holds nothing.
+
+Not yet: `Arc<T>`, which needs atomics (§18.11); an `Rc<Button>` used as an `Rc<UiElement>`;
+and a handle to a trait object. `[DECIDED — §18.62]`
+
 ---
 
 ## 15. C++ interoperability
@@ -3515,7 +3594,7 @@ be exactly what reload needs, and must stay that way:
 | 18.33 | `move` on a copyable value | **It moves.** The source is moved-from, a later use is an error, and it is reset to its defaults at runtime — the same as for any type. The compiler had been treating it as a copy, which §6.4 never said; one rule for every type is simpler to learn, and it keeps a generic body meaning one thing for every argument. To keep using a copyable value, leave out `move` (§6.4) |
 | 18.34 | `mut fn` | **Removed — the receiver says it.** A method mutates when it takes `&mut self` and reads when it takes `&self`; `fn resize(&mut self, n: u32)` is the one spelling. `mut fn` stated the same fact twice, and the two could disagree: `fn f(&mut self)` was accepted, and the compiler went on to treat the method as mutating in one place and as read-only in another. The parser now rejects `mut fn` with a help saying what to write (§7.3) |
 | 18.35 | Reading a `&T` as a `T` — the open half of 18.25 | **Implicit, for a copyable `T`.** A reference is accepted where its referent's type is wanted, and the value is copied: `for m in list.iter() { if m.name == name { return m } }` returns a `Movie`. Reading cannot fail, so by the rule that makes `^T` → `&T` loud and `&mut T` → `^T` quiet, it is not spelled. A move-only `T` is still refused, as a move out of a borrow; a generic body needs `T: Copy`. An explicit `r^` was considered and rejected — it would put a sigil on the most ordinary read in the language — and `^` stays the pointer dereference (§5.2) |
-| 18.36 | Using a `T?` when both outcomes continue | **`if let name = value { … } else { … }`.** The binding holds what `or` would produce — the `T` of a `T?`, the `&mut T` of a `^T` — in the first block only. Chosen over narrowing `m` after `if m != none`, which needs flow-sensitive types and works only on locals, and over "`or` only", which leaves "both branches, then carry on" with no spelling. It does not take a fallible call, whose `else` would drop the `Error` unseen (§9.5); binding the error in `else` is left for later. `m == none` / `m != none` test presence; two optionals do not compare (§9.4) |
+| 18.36 | Using a `T?` when both outcomes continue | **`if let name = value { … } else { … }`.** The binding holds what `or` would produce — the `T` of a `T?`, the `&mut T` of a `^T` — in the first block only. Chosen over narrowing `m` after `if m != none`, which needs flow-sensitive types and works only on locals, and over "`or` only", which leaves "both branches, then carry on" with no spelling. It does not take a fallible call, whose `else` would drop the `Error` unseen (§9.5); binding the error in `else` is left for later. `m == none` / `m != none` test presence; two optionals do not compare (§9.4). *How the binding holds the value is revised by 18.61:* `if let p = ptr` is now a copy, and the `&mut T` is `if let &mut p = ptr` |
 | 18.37 | Read-only pointers, and what C's `const T*` becomes | **`^T` is read-only and `^mut T` writable**, standing to each other as `&T`/`&mut T` and `[]T`/`[]mut T` do: read-only unless `mut` is written. `const T*` maps to `^T` and `T*` to `^mut T` (§15.2). `&T` → `^T` and `&mut T` → `^mut T` are implicit, anything writable serves where the read-only form is wanted, and nothing gains writability; `or` gives a `&T` from a `^T` and a `&mut T` from a `^mut T`; `.ptr` is as writable as its view; the owning pointer is `own ^mut T`. Behind a `^mut` the pointee must match exactly, for the reason C forbids `T**` → `const T**`. A `^const T` was rejected as the Rust shape, which reads against the rest of the language. Forced by M7: with one writable pointer, every read-only C parameter needed an `&mut` at the call (§5.2, §5.3) |
 | 18.38 | How C's unscoped enums and `#define`s come in | **An unscoped enumerator is also an untyped integer constant** at the header's scope, beside the enum itself: raylib's `IsKeyDown(int key)` takes `rl::KEY_A` as it is, and `.KEY_A` still names the typed variant wherever the enum is wanted. An `enum class` keeps its enumerators behind its name. **An object-like macro is a constant when its value can be typed**, emitted by its own name: at M7a a number (an integer untyped, a float `f32` with an `f` suffix and untyped without), with other expressions clang can type — `RAYWHITE`'s compound literal — to follow. Typed enumerators, which would need a cast at every raylib input call, were the alternative (§15.2) |
 | 18.39 | How is a `cstr` made? | **A string literal is one wherever a `cstr` is wanted**, typed by its context as an untyped number is, and emitted as the C literal itself: it is zero-terminated static storage already, so nothing is allocated. `"x" as cstr` is the explicit spelling; `c as str` measures a C string. A runtime `str` has no terminating zero, so making a C string from one needs an owned copy, freed by its drop — which arrives with `String` (M12) and is spelled then. This replaces §5.3's `[PROPOSED]` "conversion to `cstr` is explicit and may allocate", which contradicted §15.1's own `InitWindow(…, "Dazzle")` (§5.3) |
@@ -3544,6 +3623,8 @@ be exactly what reload needs, and must stay that way:
 | 18.60 | An attribute the compiler does not know | **An error, as is a known one out of place.** Unknown names are DZ0314, a known attribute on the wrong declaration, with arguments it does not take, or repeated is DZ0315, and one the specification describes but the compiler does not implement is DZ0316. Chosen over accepting and ignoring what is not understood, the C++ and Rust-lint tradition, because an attribute changes what a declaration means — a misspelled `#[test]` silently drops a test, and a `#[packed]` that is not implemented silently gives a different layout than the one written (§12.8) |
 | 18.55 | The standard library's math | **A compiler-carried module `std::math`, loaded by `import std::math`; the name `std` reserved.** Chosen over the prelude, which would put `Vec3` and `PI` in every file, and over a plain `math`, which a project's own module could take. `f32` vectors, `Quat` and `Mat4`, plus `Vec2i`/`Vec3i` for grids — a generic `Vec3<T>` would wait on associated-type projection. **Methods everywhere**, scalars included through `Float` and `Integer` (`x.sqrt()`, `n.wrapping_add(m)`), since without overloading a free `lerp` could not serve `f32` and `Vec3` both. **Column-major matrices** on column vectors, as OpenGL, GLSL and glm, so a `Mat4` is `projection * view * model` and its floats are in the order a shader wants (§14.4). *Loading by `import std::math` superseded by 18.57:* the math is part of the one flat `std` module |
 | 18.54 | Traits an enum has without an `impl` | **`Eq`, `Hash` and `Ord`, as the integers they are.** Equality and order compare values — declaration order when values are implicit — and a hash is the value's. So an enum is a `HashMap` key and satisfies `T: Ord` with nothing written (§7.4) |
+| 18.61 | How an `if let` binding holds the value | **As a `for` or `case` binding does (18.42, 18.43): `v` a copy that cannot be changed, `&v` a read-only reference, `&mut v` a writable one** — for an optional, a pointer and a handle alike. `&mut` needs a writable pointer, reference or place (`DZ0507`); `v` needs a copyable value wherever the `if let` does not own it (`DZ0403`). This **reverses the pointer half of 18.36**, where `if let p = ptr` gave a `&mut T`: with handles added, one rule in four places was chosen over three rules and an exception, and `p` meaning a reference on a pointer but a copy on everything else would have been that exception. A `&T?` is read as its optional by `or` and `if let` both, as 18.35 reads a `&T` as a `T` (§9.4) |
+| 18.62 | Shared ownership, and handles that may be empty | **`Rc<T>`, `Weak<T>` and `Box<T>` in `std`, each of which may be `null`**, like C++'s `shared_ptr`/`weak_ptr`/`unique_ptr` rather than Rust's never-empty `Rc`: `null` is the default and the moved-from state, so no rule for "a type without a default" is needed, and a field of one is `= null`. **`null`, not `none`**: `null` is for handles — pointers included — and `none` for a value that is absent; the two stay apart so `x = null` reads as releasing something. A handle's value is reached only through `==`/`!=` `null`, `or` and `if let` — never a bare `.` — so an empty handle is always checked. **`or` and `if let` on an `Rc` or `Weak` hold a strong `Rc` of their own** until the `if let` block, or the block enclosing the `or`, ends, so the value cannot be freed while referred to — the cost being one plain count up and down. `if let` takes a `Weak` directly, with no `upgrade()`. Forced unloading is one owner plus `Weak`s, since a value others own cannot be deleted from under them; `Rc<T?>` is a shared slot, not a nullable `Rc`. The compiler knows the prelude trait `Nullable` (`Target`, `Guard`, `is_null`, `guard`, `ptr`) rather than the three names. A `Box` guards with nothing and can dangle as a `^T` can (§1.1). Deferred: `Arc`, `Rc<Derived>` as `Rc<Base>`, handles to trait objects (§14.5) |
 
 ### 18.2 Still open
 
@@ -3714,6 +3795,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r53 | 2026-09-14 | **Handles: `Rc<T>`, `Weak<T>`, `Box<T>`** (§14.5, 18.62). Shared ownership, a reference that notices its value is gone, and sole ownership of a heap value, in `std`. Each may be `null` — the default, and the moved-from state — and its value is reached only through `h == null`, `h or …` and `if let`, as a pointer's is; `Weak<T>(&rc)` makes a weak one, and `if let` takes it directly. `or` and `if let` on an `Rc` or `Weak` keep the value alive while it is used, even if the handle is set to `null` meanwhile. Any type can be a handle by implementing `Nullable`. **`if let` bindings follow `for` and `case`** (§9.4, 18.61): `if let v` copies, `if let &v` refers, `if let &mut v` refers and writes — so **`if let p = ptr` now copies the pointee**, and code that wrote through `p` must say `if let &mut p = ptr`. `or` and `if let` also read through a `&T?`. |
 | r52 | 2026-09-14 | **Attributes are checked** (§12.8, 18.60). An attribute the language does not have is an error (DZ0314), and so is `#[test]`, `#[bench]` or `#[thread_local]` on a declaration it does not apply to, given arguments, or repeated (DZ0315). The attributes the specification describes but the compiler does not yet implement — `#[inline]`, `#[align]`, `#[packed]`, `#[deprecated]`, `#[export]`, `#[derive]`, `#[persist]`, `#[raw]` — are errors saying so (DZ0316) instead of being ignored. §12.8's `#[cfg(…)]` example is gone: conditional compilation is `#if` (§12.10). |
 | r51 | 2026-09-14 | **Reflection** (§13, 18.59). `typeinfo_of<T>()`, `typeid_of<T>()` and `typeinfo(id)` return the standard library's `TypeInfo`, which describes every kind of type: fields with offsets for structs, tuples, `str`, slices and optionals; variants with values for enums and with payload fields for unions; the element type of pointers, slices, arrays and optionals. **Field tags**: a field may end in a raw string, `pub hp: i32 = 100 `json:"health"``, carried into `FieldInfo::tag` and read with `f.tag_value("json")`. A type is in the table when `typeinfo_of` or `typeid_of` names it, or it is reached from one (`type_info = "used"`) — no attribute opts a type in; `type_info = "none"` makes reflection an error (DZ0555). |
 | r50 | 2026-09-14 | **Imports move into `dazzle.toml`** (§3.2, §14.4, §15.1, 18.57–18.58). A module's `[dependencies]` are what every one of its files can name, by their key — no `import` line per file. `open = true` makes a dependency's exports bare (`Vec2`, and `std::Vec2` still works); a bare name two opened dependencies both export is an error on the line that writes it (DZ0310), settled by qualifying it or by `[names] Vec2 = "std"`. **The prelude is now `std`**, one flat module holding the language traits, allocators, `String`, `List`, `HashMap` and the math: `std::Vec2`, not `std::math::Vec2`. It must be listed — `std = { open = true }` — or its names cannot be written. **`import cpp` is gone**: a recipe lists the headers Dazzle sees in `import = ["raylib.h"]`, and the module depends on it with `rl = { cpp = "raylib" }`; several headers are read together as one module. A dependency nothing names is a warning (DZ0313). **Dependencies are private**; `pub = true` re-exports one as `lib::dep`, a dependent can name it with `via`, and a private dependency's type in a `pub` signature is an error (DZ0311). In a file, `import m::{ A, B }` and `import m as x` remain, for one file's exceptions; `import m` alone and `import cpp` are errors. |

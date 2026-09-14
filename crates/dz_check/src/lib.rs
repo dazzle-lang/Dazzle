@@ -619,6 +619,9 @@ impl TypeTable {
             // field". Treating the pointer itself as move-only would make `if handle !=
             // null` inside the type's own `drop` a diagnostic, which is absurd.
             Ty::Array { elem, .. } => self.copyable_guarded(elem, stack),
+            // A `T?` holds a `T`, so it copies exactly when that does. It used to fall to the
+            // catch-all below, which let `or` take a move-only `T` out of a `&T?`.
+            Ty::Optional(inner) => self.copyable_guarded(inner, stack),
             Ty::Tuple(parts) => parts.iter().all(|t| self.copyable_guarded(t, stack)),
             Ty::Named { sym: id, args } => {
                 // A struct cannot contain itself by value, so a cycle here means the
