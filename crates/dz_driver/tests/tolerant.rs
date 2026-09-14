@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use dz_driver::{analyse_with, Analysis, Mode};
 use dz_span::FileId;
 
+mod parallel;
+
 /// How many positions per program to damage. Enough to hit every construct in them.
 const POSITIONS: usize = 40;
 
@@ -86,20 +88,35 @@ fn damaged(text: &str) -> Vec<(String, String)> {
 
 #[test]
 fn editor_mode_survives_every_damaged_program() {
-    let mut failures = Vec::new();
-    for (root, text) in programs() {
-        let name = root.file_name().unwrap().to_string_lossy().into_owned();
-        for (what, broken) in damaged(&text) {
-            match catch_unwind(AssertUnwindSafe(|| analyse(&root, &broken, Mode::Editor))) {
-                Err(_) => failures.push(format!("{name}, {what}: the compiler panicked")),
-                Ok(a) => {
-                    if let Some(p) = problems(&a) {
-                        failures.push(format!("{name}, {what}: {p}"));
-                    }
-                }
+    // Some seven thousand analyses, no two of which can see each other's work, so they are
+    // run on every core (`parallel`). Left as one serial loop this test alone was three
+    // quarters of `cargo test --workspace`.
+    //
+    // All the damaged text is built up front: the corpus is under 100 KB, so two hundred
+    // variants of every program is a few tens of megabytes, and having the whole list in
+    // hand is what lets a spare thread pick up the next case rather than wait for the
+    // program it was given.
+    let cases: Vec<(PathBuf, String, String, String)> = programs()
+        .into_iter()
+        .flat_map(|(root, text)| {
+            let name = root.file_name().unwrap().to_string_lossy().into_owned();
+            damaged(&text)
+                .into_iter()
+                .map(move |(what, broken)| (root.clone(), name.clone(), what, broken))
+        })
+        .collect();
+
+    let mut failures =
+        parallel::filter_map(&cases, |(root, name, what, broken)| {
+            match catch_unwind(AssertUnwindSafe(|| analyse(root, broken, Mode::Editor))) {
+                Err(_) => Some(format!("{name}, {what}: the compiler panicked")),
+                Ok(a) => problems(&a).map(|p| format!("{name}, {what}: {p}")),
             }
-        }
-    }
+        });
+    // The threads finish in whatever order the work fell out; the same break should read
+    // the same way twice.
+    failures.sort();
+
     assert!(
         failures.is_empty(),
         "{} failures, first ones:\n{}",
@@ -110,18 +127,18 @@ fn editor_mode_survives_every_damaged_program() {
 
 #[test]
 fn editor_mode_reports_exactly_what_build_mode_reports() {
-    for (root, text) in programs() {
+    parallel::for_each(&programs(), |(root, text)| {
         for broken in
             [text.clone(), text.replacen('{', "", 1), text.replacen("fn main", "fn 1main", 1)]
         {
-            let build = analyse(&root, &broken, Mode::Build);
-            let editor = analyse(&root, &broken, Mode::Editor);
+            let build = analyse(root, &broken, Mode::Build);
+            let editor = analyse(root, &broken, Mode::Editor);
             let codes = |a: &Analysis| {
                 a.diags.iter().map(|d| (d.code, d.message.clone())).collect::<Vec<_>>()
             };
             assert_eq!(codes(&build), codes(&editor), "{}", root.display());
         }
-    }
+    });
 }
 
 #[test]

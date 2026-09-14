@@ -7,6 +7,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "../../dz_driver/tests/parallel/mod.rs"]
+mod parallel;
+
 fn dz() -> &'static str {
     env!("CARGO_BIN_EXE_dz")
 }
@@ -74,7 +77,10 @@ fn every_program_produces_its_expected_output() {
     let found = projects();
     assert!(!found.is_empty(), "no runnable projects found under tests/run/");
 
-    for (name, dir) in found {
+    // Each project has a build directory of its own, so they are built and run on every
+    // core rather than one after another: the C++ compiler is what this costs, and it is
+    // one process per project either way.
+    parallel::for_each(&found, |(name, dir)| {
         // Projects that are meant to abort record their expectation on the first line.
         //
         // Normalised *before* the marker is stripped: git may check these files out with
@@ -110,7 +116,7 @@ fn every_program_produces_its_expected_output() {
             assert!(out.status.success(), "{name}: dz run failed\n{stderr}");
             assert_eq!(stdout, expected_body, "{name}: stdout differs");
         }
-    }
+    });
 }
 
 /// M7b's acceptance criterion, guarded. `tests/run/raylib` opens a window and
@@ -600,10 +606,12 @@ fn hello_world_runs() {
     if !have_compiler() {
         return;
     }
-    let out = Command::new(dz())
-        .args(["run", run_dir("hello").to_str().unwrap()])
-        .output()
-        .expect("failed to run dz");
+    // A scratch copy, for the reason `copy_fixture` gives: `tests/run/hello` is also built
+    // by `every_program_produces_its_expected_output`, and two `dz run`s sharing one
+    // `build/` overwrite each other's objects mid-link.
+    let dir = copy_fixture("hello", "dz_hello_world");
+    let out =
+        Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("failed to run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "Hello, world!");
 }
@@ -612,14 +620,13 @@ fn hello_world_runs() {
 fn generated_cpp_carries_line_directives_back_to_dazzle() {
     // spec §16.3 — this is what makes breakpoints, stack traces and any C++ error that
     // slips through point at `.dz` source.
-    let out = Command::new(dz())
-        .args(["cpp", run_dir("hello").to_str().unwrap()])
-        .output()
-        .expect("failed to run dz");
+    let dir = copy_fixture("hello", "dz_line_directives");
+    let out =
+        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 
-    let cpp = std::fs::read_to_string(run_dir("hello").join("build/cpp/hello.cpp"))
-        .expect("generated hello.cpp");
+    let cpp =
+        std::fs::read_to_string(dir.join("build/cpp/hello.cpp")).expect("generated hello.cpp");
     assert!(cpp.contains("#line "), "no #line directives:\n{cpp}");
     assert!(cpp.contains("main.dz"), "#line does not name the .dz file:\n{cpp}");
     assert!(cpp.contains("namespace dz"), "output is not in the dz namespace:\n{cpp}");
@@ -627,13 +634,14 @@ fn generated_cpp_carries_line_directives_back_to_dazzle() {
 
 #[test]
 fn generated_cpp_snapshot() {
+    let scratch = copy_fixture("hello", "dz_cpp_snapshot");
     let out = Command::new(dz())
-        .args(["cpp", run_dir("hello").to_str().unwrap()])
+        .args(["cpp", scratch.to_str().unwrap()])
         .output()
         .expect("failed to run dz");
     assert!(out.status.success());
 
-    let dir = run_dir("hello").join("build/cpp");
+    let dir = scratch.join("build/cpp");
     let cpp = std::fs::read_to_string(dir.join("hello.cpp")).unwrap();
     let header = std::fs::read_to_string(dir.join("hello.h")).unwrap();
     // `#line` names the `.dz` file by absolute path, which differs on every machine and
@@ -669,35 +677,37 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
     // the generated special members, and `failure` the only one that exercises `or`,
     // tagged unions and tuples. A warning in generated code is a compiler bug
     // (invariant 7), so the check has to see all of it.
-    for fixture in [
-        "features",
-        "ownership",
-        "failure",
-        "hello",
-        "keywords",
-        "inherit",
-        "switching",
-        "loops",
-        "button",
-        "statics",
-        "assoc",
-        "dynamic",
-        "flags",
-        "location",
-        "allocators",
-        "containers",
-        "argorder",
-        "hashmap",
-        "optionals",
-        "unions",
-        "iterable",
-        "math",
-        "variadic",
-        "reflect",
-        "handles",
-    ] {
-        check_warning_clean(cxx, fixture);
-    }
+    // A scratch copy per fixture and one `dz cpp` each, so the whole list goes at once.
+    parallel::for_each(
+        &[
+            "features",
+            "ownership",
+            "failure",
+            "hello",
+            "keywords",
+            "inherit",
+            "switching",
+            "loops",
+            "button",
+            "statics",
+            "assoc",
+            "dynamic",
+            "flags",
+            "location",
+            "allocators",
+            "containers",
+            "argorder",
+            "hashmap",
+            "optionals",
+            "unions",
+            "iterable",
+            "math",
+            "variadic",
+            "reflect",
+            "handles",
+        ],
+        |fixture| check_warning_clean(cxx, fixture),
+    );
 }
 
 /// Generate one fixture's C++ and compile every translation unit with warnings as errors.

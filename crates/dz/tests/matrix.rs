@@ -5,7 +5,10 @@
 
 #[path = "../../dz_driver/tests/feature_matrix/mod.rs"]
 mod feature_matrix;
+#[path = "../../dz_driver/tests/parallel/mod.rs"]
+mod parallel;
 
+use std::path::PathBuf;
 use std::process::Command;
 
 use feature_matrix::{place, write_project, Layout, CONSTRUCTS, CONTEXTS, LAYOUTS};
@@ -67,31 +70,39 @@ fn run_layout(layout: Layout) {
     );
     assert_eq!(got.len(), expected.len(), "{layout:?}: extra output\n{stdout}");
 
-    for cxx in compilers() {
-        for entry in std::fs::read_dir(root.join("build/cpp")).unwrap().flatten() {
-            let p = entry.path();
-            if p.extension().is_some_and(|e| e == "cpp") {
-                let out = Command::new(cxx)
-                    .args([
-                        "-std=c++17",
-                        "-fno-exceptions",
-                        "-fno-rtti",
-                        "-Wall",
-                        "-Wextra",
-                        "-fsyntax-only",
-                    ])
-                    .arg(&p)
-                    .output()
-                    .expect("failed to run the C++ compiler");
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                assert!(
-                    out.status.success() && stderr.trim().is_empty(),
-                    "{layout:?}: {} is not warning-clean under {cxx}:\n{stderr}",
-                    p.display()
-                );
-            }
-        }
-    }
+    // One `-fsyntax-only` per translation unit per compiler, and nothing they share: run
+    // them together.
+    let checks: Vec<(&'static str, PathBuf)> = compilers()
+        .into_iter()
+        .flat_map(|cxx| {
+            std::fs::read_dir(root.join("build/cpp"))
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|e| e == "cpp"))
+                .map(move |p| (cxx, p))
+        })
+        .collect();
+    parallel::for_each(&checks, |(cxx, p)| {
+        let out = Command::new(cxx)
+            .args([
+                "-std=c++17",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-Wall",
+                "-Wextra",
+                "-fsyntax-only",
+            ])
+            .arg(p)
+            .output()
+            .expect("failed to run the C++ compiler");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            out.status.success() && stderr.trim().is_empty(),
+            "{layout:?}: {} is not warning-clean under {cxx}:\n{stderr}",
+            p.display()
+        );
+    });
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -101,7 +112,5 @@ fn every_construct_runs_wherever_it_is_written() {
         eprintln!("skipping: no C++ compiler available");
         return;
     }
-    for &layout in LAYOUTS {
-        run_layout(layout);
-    }
+    parallel::for_each(LAYOUTS, |&layout| run_layout(layout));
 }

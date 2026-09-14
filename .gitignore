@@ -1,8 +1,16 @@
 *.snap.new
 *.exe
 *.pdb
+# MSVC's incremental-link database, rewritten on every link and megabytes wide. `*.exe` and
+# `*.pdb` were already here; this is the third file the Windows linker leaves beside them.
+*.ilk
 /target
 # Build output from any test fixture, at whatever depth: `tests/run/<name>/build/`
 # and `tests/bench/build/` both. The narrower `/tests/run/*/build/` missed the latter,
 # which is how build artifacts reached a commit.
 /tests/**/build/
+# The same for the examples, which `dz run` builds in place exactly as it does a fixture.
+# This rule was missing entirely, so `examples/books/build/` was tracked from the day it
+# was first built — and a rule alone never untracks: the files already in the index had to
+# be removed with `git rm --cached` before this could take effect.
+/examples/**/build/
