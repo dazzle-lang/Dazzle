@@ -1,0 +1,4 @@
+program named true
+arguments 0
+PATH set true
+unset true

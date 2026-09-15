@@ -107,6 +107,67 @@ pub struct List<T> {
         return move(v)
     }
 
+    /// Exchange the elements at `i` and `j`.
+    pub fn swap(&mut self, i: usize, j: usize) {
+        if i >= m_len || j >= m_len {
+            panic("List::swap of {} and {} for a length of {}", i, j, m_len)
+        }
+        if i == j {
+            return
+        }
+        unsafe {
+            let held = move_out(m_data[i])
+            construct(m_data[i], move_out(m_data[j]))
+            construct(m_data[j], move(held))
+        }
+    }
+
+    /// Put the elements in order: afterwards no element is `before` one ahead of it.
+    /// `before` must be a strict order — `a < b`, not `a <= b`. A heapsort, so no memory is
+    /// allocated and no input takes more than `n log n` steps; equal elements may change
+    /// places. `xs.sort()` does the same by `<` for elements that are `Ord`.
+    pub fn sort_by(&mut self, before: fn(&T, &T) -> bool) {
+        if m_len < 2 {
+            return
+        }
+        // Build a heap with the greatest element first, then move the greatest to the end
+        // one at a time.
+        let mut start = m_len / 2
+        while start > 0 {
+            start -= 1
+            self.sift_down(start, m_len, before)
+        }
+        let mut end = m_len - 1
+        while end > 0 {
+            self.swap(0, end)
+            self.sift_down(0, end, before)
+            end -= 1
+        }
+    }
+
+    /// Restore the heap below `root`, among the first `len` elements.
+    fn sift_down(&mut self, root: usize, len: usize, before: fn(&T, &T) -> bool) {
+        let mut at = root
+        while true {
+            let left = at * 2 + 1
+            if left >= len {
+                return
+            }
+            let mut larger = left
+            let right = left + 1
+            unsafe {
+                if right < len && before(&m_data[left], &m_data[right]) {
+                    larger = right
+                }
+                if !before(&m_data[at], &m_data[larger]) {
+                    return
+                }
+            }
+            self.swap(at, larger)
+            at = larger
+        }
+    }
+
     /// Drop every element and keep the allocation.
     pub fn clear(&mut self) {
         self.truncate(0)

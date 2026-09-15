@@ -1,0 +1,12 @@
+with: 0.5 7 / 0.5 true
+wrap: 1 9 / 1 200
+drop 
+drop 
+drop 
+loud a
+swap: three 3
+fold: 124
+longest: 3
+tally: 6
+compare: true
+drop a

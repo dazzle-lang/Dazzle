@@ -1,0 +1,229 @@
+/// A place in the file system, written the same way on every platform.
+///
+/// The text always uses `/`: a `\` given to `Path(…)` becomes one, so a path written for
+/// Windows works on Linux and macOS, and Windows accepts `/` itself. A trailing `/` is
+/// dropped, except where it is the root (`/`, `C:/`). Nothing is read from the disk until
+/// `exists`, `is_file` or `is_dir` is asked, or the path is given to `File` or `Directory`
+/// (spec §14.4).
+///
+/// ```dz
+/// let hero = Path("assets") / "sprites" / "hero.png"
+/// hero.file_name()          // "hero.png"
+/// hero.extension()          // "png"
+/// hero.parent().as_str()    // "assets/sprites"
+/// ```
+pub struct Path {
+    m_text: String
+
+    Path(text: str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
+        let bytes = text as []u8
+        let mut end = bytes.len
+        while end > 1 && is_separator(bytes[end - 1]) && !(end == 3 && bytes[1] == ':' as u8) {
+            end -= 1
+        }
+        m_text = String("", allocator, loc)
+        m_text.reserve(end, loc)
+        let mut from: usize = 0
+        let mut i: usize = 0
+        while i < end {
+            if bytes[i] == '\\' as u8 {
+                m_text.push_str(sub(text, from, i), loc)
+                m_text.push('/', loc)
+                from = i + 1
+            }
+            i += 1
+        }
+        m_text.push_str(sub(text, from, end), loc)
+    }
+
+    /// The text, borrowed.
+    pub fn as_str(&self) -> str {
+        return m_text.as_str()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return m_text.is_empty()
+    }
+
+    /// Starts at a root: `/` or a drive, `C:/`.
+    pub fn is_absolute(&self) -> bool {
+        let bytes = self.as_str() as []u8
+        return (bytes.len > 0 && bytes[0] == '/' as u8) || (bytes.len > 1 && bytes[1] == ':' as u8)
+    }
+
+    /// `part` under this path. An absolute `part` replaces the path, as a shell would.
+    /// Also written `path / part`.
+    pub fn join(&self, part: str) -> Path {
+        let here = self.as_str()
+        let other = Path(part)
+        if here.len == 0 || other.is_absolute() {
+            return move(other)
+        }
+        if other.is_empty() {
+            return Path(here)
+        }
+        let mut joined = String(here)
+        if !ends_with_separator(here) {
+            joined.push('/')
+        }
+        joined.push_str(other.as_str())
+        return Path(joined.as_str())
+    }
+
+    /// The last part: `"hero.png"` of `"assets/hero.png"`; empty for a root.
+    pub fn file_name(&self) -> str {
+        let text = self.as_str()
+        if let at = last_separator(text) {
+            return sub(text, at + 1, text.len)
+        }
+        if text.len == 2 && (text as []u8)[1] == ':' as u8 {
+            return ""
+        }
+        return text
+    }
+
+    /// After the last `.` of the file name: `"png"`. Empty when there is none, and for a
+    /// name that only starts with one, such as `.gitignore`.
+    pub fn extension(&self) -> str {
+        let name = self.file_name()
+        if let at = last_dot(name) {
+            return sub(name, at + 1, name.len)
+        }
+        return ""
+    }
+
+    /// The file name without its extension: `"hero"`.
+    pub fn stem(&self) -> str {
+        let name = self.file_name()
+        if let at = last_dot(name) {
+            return sub(name, 0, at)
+        }
+        return name
+    }
+
+    /// The path this one is in: `"assets"` of `"assets/hero.png"`. Empty for a single name,
+    /// and the root itself for a root.
+    pub fn parent(&self) -> Path {
+        let text = self.as_str()
+        if let at = last_separator(text) {
+            if at == 0 {
+                return Path("/")
+            }
+            if at == 2 && (text as []u8)[1] == ':' as u8 {
+                return Path(sub(text, 0, 3))
+            }
+            return Path(sub(text, 0, at))
+        }
+        return Path()
+    }
+
+    /// The same path with its extension replaced by `ext`, or removed when `ext` is empty.
+    pub fn with_extension(&self, ext: str) -> Path {
+        let text = self.as_str()
+        let name = self.file_name()
+        let mut base = text
+        if let at = last_dot(name) {
+            base = sub(text, 0, text.len - (name.len - at))
+        }
+        let mut out = String(base)
+        if ext.len > 0 {
+            out.push('.')
+            out.push_str(ext)
+        }
+        return Path(out.as_str())
+    }
+
+    /// The text as a C string, borrowed, for a C or C++ function that takes a file name —
+    /// `rl::LoadTexture(path.as_cstr())`. Valid until the path next changes or is dropped.
+    pub fn as_cstr(&self) -> cstr {
+        return m_text.as_cstr()
+    }
+
+    /// When the file or directory was last written, as a time since 1970-01-01 UTC to
+    /// compare with an earlier one: how a game notices an asset changed on disk.
+    pub fn modified(&self) !-> Duration {
+        let nanos = path_modified_nanos(self.as_str())
+        if io_last_error() != 0 {
+            return error(io_last_error(), "cannot read when {} was modified", self.as_str())
+        }
+        return Duration::from_nanos(nanos)
+    }
+
+    /// Something — a file or a directory — is at the path.
+    pub fn exists(&self) -> bool {
+        return path_exists(self.as_str())
+    }
+
+    pub fn is_file(&self) -> bool {
+        return path_is_file(self.as_str())
+    }
+
+    pub fn is_dir(&self) -> bool {
+        return path_is_dir(self.as_str())
+    }
+}
+
+impl Div<str> for Path {
+    type Output = Path
+    fn div(&self, rhs: str) -> Path {
+        return self.join(rhs)
+    }
+}
+
+impl Eq for Path {
+    fn eq(&self, rhs: &Path) -> bool {
+        return self.as_str() == rhs.as_str()
+    }
+}
+
+/// By the text's bytes, so a sorted list of paths puts a directory's entries together.
+impl Ord for Path {
+    fn cmp(&self, rhs: &Path) -> Ordering {
+        return compare_bytes(self.as_str() as []u8, rhs.as_str() as []u8)
+    }
+}
+
+impl Hash for Path {
+    fn hash(&self) -> u64 {
+        return self.as_str().hash()
+    }
+}
+
+fn is_separator(b: u8) -> bool {
+    return b == '/' as u8 || b == '\\' as u8
+}
+
+fn ends_with_separator(s: str) -> bool {
+    return s.len > 0 && (s as []u8)[s.len - 1] == '/' as u8
+}
+
+/// Bytes `from..to` of `s`. Only ever cut at an ASCII `/` or `.`, which never falls inside a
+/// UTF-8 sequence, so the result is still text.
+fn sub(s: str, from: usize, to: usize) -> str {
+    return unsafe { (s as []u8)[from..to] as str }
+}
+
+fn last_separator(s: str) -> usize? {
+    let bytes = s as []u8
+    let mut i = bytes.len
+    while i > 0 {
+        i -= 1
+        if bytes[i] == '/' as u8 {
+            return i
+        }
+    }
+    return none
+}
+
+/// The last `.` of a file name that has something before it.
+fn last_dot(name: str) -> usize? {
+    let bytes = name as []u8
+    let mut i = bytes.len
+    while i > 1 {
+        i -= 1
+        if bytes[i] == '.' as u8 {
+            return i
+        }
+    }
+    return none
+}

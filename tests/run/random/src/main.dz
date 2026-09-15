@@ -1,0 +1,84 @@
+// `Random` and `Number` (spec §14.4). A seeded generator is exact, so its first outputs are
+// pinned against SplitMix64's reference values; everything drawn from an unseeded one is
+// checked by what must hold for any draw.
+
+fn seeded() {
+    // SplitMix64 from seed 1234567: its well-known first outputs.
+    Random::seed(1234567)
+    println("{} {}", Random::next_u64(), Random::next_u64())
+
+    Random::seed(42)
+    let a = Random::next_u32()
+    let b = Random::range(0, 1000)
+    Random::seed(42)
+    println("repeats: {}", a == Random::next_u32() && b == Random::range(0, 1000))
+}
+
+/// Every draw from `range<T>` in `[lo, hi)`, and both ends reached for a small span.
+fn ranges_of<T: Number + Ord + Copy>(lo: T, hi: T) -> bool {
+    let mut ok = true
+    for _ in 0..2000 {
+        let v = Random::range(lo, hi)
+        ok = ok && v >= lo && v < hi
+    }
+    return ok
+}
+
+fn ranges() {
+    println("i32: {}", ranges_of(-5, 5))
+    println("u8: {}", ranges_of<u8>(250, 255))
+    println("i8 across zero: {}", ranges_of<i8>(-128, 127))
+    println("i64: {}", ranges_of<i64>(-9000000000, 9000000000))
+    println("f32: {}", ranges_of<f32>(-1.5, 2.5))
+    println("f64: {}", ranges_of(0.0, 0.001))
+
+    let mut seen: [6]bool
+    for _ in 0..1000 {
+        seen[Random::range<usize>(0, 6)] = true
+    }
+    println("every face of a die: {}", seen[0] && seen[1] && seen[2] && seen[3] && seen[4] && seen[5])
+
+    println("empty range gives lo: {} {}", Random::range(7, 7), Random::range(3.5, 1.0))
+}
+
+fn floats_and_chances() {
+    let mut ok = true
+    let mut hits = 0
+    for _ in 0..10000 {
+        let f = Random::next_f32()
+        let d = Random::next_f64()
+        ok = ok && f >= 0.0 && f < 1.0 && d >= 0.0 && d < 1.0
+        if Random::chance(0.25) {
+            hits += 1
+        }
+    }
+    println("unit floats: {}", ok)
+    println("chance near a quarter: {}", hits > 2200 && hits < 2800)
+    println("never and always: {} {}", Random::chance(0.0), Random::chance(1.0))
+}
+
+fn directions() {
+    let mut ok = true
+    for _ in 0..1000 {
+        let v = Random::unit_vec2()
+        let w = Random::unit_vec3()
+        ok = ok && (v.length() - 1.0).abs() < 0.001 && (w.length() - 1.0).abs() < 0.001
+    }
+    println("unit vectors: {}", ok)
+}
+
+fn number_bound<T: Number>(x: &T) -> f64 {
+    return x.to_f64()
+}
+
+fn integers_are_numbers<T: Integer>(x: &T) -> f64 {
+    return x.to_f64()
+}
+
+fn main() {
+    seeded()
+    ranges()
+    floats_and_chances()
+    directions()
+    println("to_f64: {} {} {}", number_bound(&3), number_bound(&2.5), integers_are_numbers(&7u8))
+}

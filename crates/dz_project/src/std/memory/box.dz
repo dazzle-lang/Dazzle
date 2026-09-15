@@ -10,15 +10,24 @@
 /// Nothing else owns the value, so there is no second owner to keep it alive while it is
 /// used: setting the box to `null` inside `if let &n = self.node` frees what `n` refers to,
 /// as it would through a `^T` (§1.1).
+///
+/// A `Box<Button>` is accepted where a `Box<UiElement>` is wanted, moved into it; the box
+/// remembers what it was made as, so dropping it drops the whole `Button` (18.64).
 pub struct Box<T> {
-    m_ptr: own ^mut T = null
-    m_allocator: ^mut Allocator = null
+    pub(module) m_ptr: own ^mut T = null
+    pub(module) m_allocator: ^mut Allocator = null
+    pub(module) m_size: usize = 0
+    pub(module) m_align: usize = 0
+    pub(module) m_drop: fn(^mut u8)
 
     /// `value`, moved into an allocation from `allocator`.
     Box(value: T, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
         let a = allocator or panic("a Box needs an allocator")
         m_allocator = allocator
-        m_ptr = unsafe { a.alloc(sizeof(T), alignof(T), loc) as ^mut T }
+        m_size = sizeof(T)
+        m_align = alignof(T)
+        m_drop = drop_value_as<T>
+        m_ptr = unsafe { a.alloc(m_size, m_align, loc) as ^mut T }
         unsafe { construct(m_ptr[0], move(value)) }
     }
 }
@@ -28,9 +37,10 @@ impl<T> Drop for Box<T> {
         if m_ptr == null {
             return
         }
-        unsafe { destroy(m_ptr[0]) }
+        let drop_value = m_drop
+        drop_value(unsafe { m_ptr as ^mut u8 })
         let a = m_allocator or return
-        a.free(unsafe { m_ptr as ^mut u8 }, sizeof(T), alignof(T))
+        a.free(unsafe { m_ptr as ^mut u8 }, m_size, m_align)
     }
 }
 

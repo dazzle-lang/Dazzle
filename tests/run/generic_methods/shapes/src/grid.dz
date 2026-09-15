@@ -1,0 +1,36 @@
+/// A generic type in another module, with generic methods of its own: instances are
+/// emitted in this module's namespace however many modules call them (spec §8.4).
+pub struct Grid<T> {
+    pub cells: List<T> = List<T>()
+
+    /// A method generic over something other than the element.
+    pub fn fold<A: Copy>(&self, start: A, step: fn(A, &T) -> A) -> A {
+        let mut acc = start
+        for &c in self.cells.iter() {
+            acc = step(acc, c)
+        }
+        return acc
+    }
+
+    /// No receiver: the type's own function, generic in its own right.
+    pub fn filled<V: Copy>(n: usize, value: V, make: fn(V) -> T) -> Grid<T> {
+        let mut g = Grid<T>{}
+        let mut i: usize = 0
+        while i < n {
+            g.cells.push(make(value))
+            i += 1
+        }
+        return move(g)
+    }
+}
+
+pub struct Tally {
+    pub count: i32 = 0
+
+    /// A non-generic type, mutated by a generic method.
+    pub fn add_all<N: Copy>(&mut self, xs: []N, weight: fn(N) -> i32) {
+        for x in xs {
+            count += weight(x)
+        }
+    }
+}

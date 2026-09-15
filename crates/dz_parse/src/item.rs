@@ -177,6 +177,7 @@ impl<'a> Parser<'a> {
             TokenKind::Fn => ItemKind::Fn(self.parse_fn()),
             TokenKind::Mut if self.peek_at(1) == TokenKind::Fn => ItemKind::Fn(self.parse_fn()),
             TokenKind::Unsafe if self.at_unsafe_fn() => ItemKind::Fn(self.parse_fn()),
+            TokenKind::Extern if self.peek_at(1) == TokenKind::Fn => ItemKind::Fn(self.parse_fn()),
             TokenKind::Struct => ItemKind::Struct(self.parse_struct()),
             TokenKind::Union => ItemKind::Union(self.parse_union()),
             TokenKind::Enum => ItemKind::Enum(self.parse_enum()),
@@ -375,6 +376,9 @@ impl<'a> Parser<'a> {
     /// follows the modifiers.
     pub(crate) fn parse_fn(&mut self) -> FnDecl {
         let start = self.start();
+        // `extern fn` (spec §7.2): only ever at module scope, where the item parser checked
+        // that `fn` follows.
+        let is_extern = self.eat(TokenKind::Extern);
         // `virtual fn` and `override fn` (spec §7.3, 18.32), before `unsafe` so that
         // `virtual unsafe fn` reads in the order it is written.
         let dispatch = if self.eat(TokenKind::Virtual) {
@@ -415,6 +419,7 @@ impl<'a> Parser<'a> {
         FnDecl {
             span: self.span_from(start),
             is_unsafe,
+            is_extern,
             dispatch,
             name,
             generics,
@@ -745,6 +750,7 @@ impl<'a> Parser<'a> {
         FnDecl {
             span: self.span_from(start),
             is_unsafe: false,
+            is_extern: false,
             // A constructor is never virtual: C++ has no such thing, and `: Base(…)` is
             // how a derived one reaches its base (spec §7.3).
             dispatch: Dispatch::Static,

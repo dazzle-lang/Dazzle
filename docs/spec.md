@@ -1,12 +1,13 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 53
+**Version:** 0.1 — **unreleased**, revision 61
 **Status:** M0–M8, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle programs
 compile and run, own, move and drop their resources deterministically, have generics,
 traits, unions and reflection, call C and C++ libraries that `dz` builds from vendored
 source, and are edited with a language server. Not yet 0.1: the editor still lacks code
-actions and incremental analysis (M9), and the standard library has not yet carried a game
-written without C++ (M12). See `docs/PROGRESS.md`.
+actions and incremental analysis (M9), and the standard library, though it has carried a
+game written without C++ (M12's criterion), still lacks library `format`.
+See `docs/PROGRESS.md`.
 
 **The version number stays 0.1 until 0.1 is actually finished.** 0.1 means: an LSP good
 enough to work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop
@@ -178,6 +179,9 @@ lexing a member access — this is already what the Odin lexer's `has_multiple_d
 does, and it should be preserved.
 
 **Suffixes.** `10i8`, `20u32`, `1.5f32`, `1.5f64`, plus the shorthand `1.5f` for `f32`.
+A suffix **is** the literal's type, wherever it is written: `let n = 5u8` is a `u8`,
+`300u8` does not fit, and `5u8` where a `u16` is wanted is a mismatch rather than a
+conversion. An integer with a float suffix (`2f32`) is a float. `[DECIDED]`
 
 **Default types.** An unsuffixed integer literal is `i32`; an unsuffixed float literal is
 `f64`. `[DECIDED]`
@@ -451,7 +455,9 @@ There is no `->`. `.` dereferences pointers automatically. `[DECIDED]`
 types — `Buffer<f32>::with_capacity(8)`, not `Buffer::<f32>::…`. Rust needs the extra `::`
 because `a < b > (c)` is a valid expression there; in Dazzle comparison is
 **non-associative** (§11.1), so that is already a syntax error and the ambiguity does not
-exist. `[DECIDED]`
+exist. `[DECIDED]` The same goes for a method's own arguments after `.`:
+`list.map<f32>(to_float)` (§8.1), taken as type arguments only when a call follows the `>`,
+so `n.len < max` is still a comparison.
 
 The one residual case is an argument list: `f(a<b, c>(d))` could be two comparisons or one
 generic call. The parser prefers the **generic reading**, and the comparison meaning is
@@ -515,9 +521,11 @@ char                  32-bit Unicode scalar value
 void                  the type of a function that returns nothing
 ```
 
-Signed integer overflow **panics in debug builds and wraps in release**. Explicit
-wrapping/saturating/checked operations live in the stdlib (`math::wrapping_add`,
-`math::checked_add` returning `T?`). `[PROPOSED]`
+Integer overflow **wraps, in every build**, and never panics: `+`, `-` and `*` on an `i32`
+that goes past its range come back round, as they do in C, Java and C# — for signed types
+too, where C++ would leave it undefined. A program that wants something else says so with
+the methods on `Integer` (§14.4): `a.checked_add(b)` gives a `T?`, `a.saturating_sub(b)`
+stops at the limit. `[DECIDED — §18.63]`
 
 There are no implicit numeric conversions, in either direction, ever — not even widening.
 `let a: i64 = some_i32` is an error; write `some_i32 as i64`. Untyped *literals* are the
@@ -1076,6 +1084,13 @@ sum(..numbers)      // spread: an existing slice or array, passed as it is
 
 C variadic functions (`printf`) are still not imported (§15.2). `[DECIDED — §18.56]`
 
+**`extern fn`** declares a function whose body is not Dazzle: `extern fn monotonic_nanos() ->
+u64`, with no braces. **Only the standard library may write one** (`DZ0317`), at module
+level; its body is C++ the compiler emits beside the runtime shim (§16.4), and it is how
+`std` reaches the clocks and the file system. It has no type parameters and is not
+fallible — the Dazzle function that calls it builds any `Error`. A program reaches C and
+C++ through a `cpp` dependency instead (§15.1). `[DECIDED — §18.65]`
+
 ### 7.3 Structs
 
 ```dz
@@ -1428,6 +1443,33 @@ the missing bound — not at the instantiation.
 
 This is the whole reason for the choice: **the LSP can complete inside a generic body**,
 because it knows exactly what `T` can do.
+
+**A method may have type parameters of its own**, beside its type's:
+
+```dz
+pub struct List<T> {
+    pub fn fold<A: Copy>(&self, start: A, step: fn(A, &T) -> A) -> A { ... }
+    pub fn filled<V: Copy>(n: usize, value: V, make: fn(V) -> T) -> List<T> { ... }
+}
+
+let total = scores.fold(0, add)                    // A inferred as i32
+let widest = names.fold<usize>(0, longest)         // written out
+let grid = List<Cell>::filled<u8>(64, 0, to_cell)
+```
+
+They are solved at each call exactly as a generic function's are — from the arguments, or
+written after the name — and their bounds are checked there. The type's own parameters
+come from the receiver, or from the path for a function without one. Each combination
+is its own instance (§8.4).
+
+A `virtual` or `override` method, and a trait's method, **cannot** have type parameters of
+their own (`DZ0557`): a vtable slot is one function, and a trait's method is called through
+implementations, or a `^Trait`, that do not know the arguments. Make the trait generic
+instead, `trait Show<T>`. `[DECIDED — §18.66]`
+
+**A generic function may be taken as a value**, instantiated there: `xs.sort_by(greater<i32>)`
+writes its arguments, and `let f: fn(&i32, &i32) -> bool = greater` reads them off the
+function type wanted. Its bounds are checked as at a call.
 
 ### 8.2 Unbounded parameters
 
@@ -1793,9 +1835,10 @@ visible rather than inferred from precedence. Flat chaining cannot express this 
 rejected instead of being silently misread. `[DECIDED]`
 
 **`or unreachable`** asserts that the failure cannot happen. In debug builds it panics with
-a `#location`; in release it is free, and the compiler may assume the success path.
-Reaching it in release is undefined behaviour. It is the escape hatch for hot paths where a
-null check is provably redundant, and it is spelled loudly on purpose. `[PROPOSED]`
+a `#location`; in release and shipping builds it is free, and the compiler assumes the
+success path (`__builtin_unreachable`). Reaching it there is undefined behaviour. It is the
+escape hatch for hot paths where a null check is provably redundant, and it is spelled
+loudly on purpose. `[DECIDED — §18.20]`
 
 **`or ignore`** is statement position only, because it neither produces a `T` nor diverges
 and so has nothing to bind:
@@ -1937,7 +1980,7 @@ helper reports its caller's line — it takes `loc: SourceLocation = #location` 
 hands it on. A `SourceLocation` cannot be formatted, so it is never mistaken for a value.
 `assert(cond, msg = "")` is the standard library's helper of this kind. `[DECIDED]`
 
-Panics are for: out-of-bounds indexing, integer overflow in debug, failed assertions,
+Panics are for: out-of-bounds indexing, failed assertions,
 exhausted fixed-size pools, and violated invariants. Errors are for: I/O, parsing,
 user-supplied data, and anything crossing a boundary you do not control.
 
@@ -2488,8 +2531,10 @@ Attributes this specification describes but the compiler does not implement yet 
 ### 12.9 Format strings
 
 Formatting is not string interpolation and not varargs — it is a compile-time-checked
-call. `println`, `format`, `panic`, and friends take a **string literal** as their first
-argument, and the compiler parses it during checking:
+call. `print`, `println`, `eprint`, `eprintln`, `format`, `panic`, and friends take a
+**string literal** as their first argument, and the compiler parses it during checking.
+`print` and `println` write to standard output; `eprint` and `eprintln` write the same way to
+standard error, for diagnostics that must not mix with a program's output:
 
 ```dz
 println("player {} has {} hp", name, hp)
@@ -2919,6 +2964,10 @@ is an error. `[DECIDED — §18.57, superseding §18.23 and §18.55]`
   `a.checked_add(b)` (a `T?`), `n.saturating_sub(1)`. Plain integer arithmetic makes no
   promise on overflow; these methods are how a program says what should happen. A method
   of the wrong kind of number is an error that says which kind has it.
+- **`Number`**, implemented by every integer and float type, and required by both `Integer`
+  and `Float`: the bound for code that works on either kind. `x.to_f64()`, and
+  `lo.uniform(hi, bits)`, a value in `[lo, hi)` chosen by 64 random bits — what `Random`
+  is built on, and what any other generator can use.
 - **Vectors** `Vec2`, `Vec3`, `Vec4` of `f32`, and **`Vec2i`**, **`Vec3i`** of `i32`, with
   `+`, `-`, unary `-`, `==`, `* scalar` and `/ scalar` (component-wise `*` for the float
   ones), and methods: `dot`, `length`, `normalized`, `distance`, `lerp`, `min`, `max`,
@@ -2937,6 +2986,114 @@ Methods rather than free functions throughout, since there is no overloading (§
 one name must work across `f32`, `f64` and every vector: `a.lerp(b, t)` is the same call on
 each. A generic `Vec3<T>` waits on associated-type projection in generic code.
 `[DECIDED — §18.55]`
+
+**Time** holds:
+
+- **`Duration`**, a span to the nanosecond that is never negative: `Duration::from_secs`,
+  `from_millis`, `from_micros`, `from_nanos`, `from_secs_f32`/`f64`; `as_secs`, `as_millis`,
+  `as_micros`, `as_nanos`, `as_secs_f32`/`f64`, `is_zero`; `+`, `-` (stopping at zero), `==`,
+  the comparisons, and `Hash`.
+- **`Instant`**, a point on a monotonic clock, which never goes backwards: `Instant::now()`,
+  `elapsed`, `since`, `later - earlier` giving a `Duration`, `instant + duration`, `==` and
+  the comparisons.
+- **`Time`**: `Time::sleep(d)`, at least `d` and as much longer as the operating system
+  chooses, and `Time::unix()`, the wall clock as a `Duration` since 1970-01-01 UTC.
+
+```dz
+let start = Instant::now()
+update(world)
+let dt = start.elapsed().as_secs_f32()
+```
+
+Like the math, these are associated functions and methods of types, not free functions.
+
+**Reading text.** The `Text` trait, implemented for `str` and `String`, gives both the same
+operations, literals included: `starts_with`, `ends_with`, `find` (a byte offset, `usize?`),
+`contains`, `trim`, `trim_start`, `trim_end`, `split(separator)` and `lines()` (iterators of
+`str` views), `replace(from, to)`, `to_ascii_lowercase`, `to_ascii_uppercase` (new
+`String`s), and `parse_i64`, `parse_u64`, `parse_f64`, `parse_f32` — the whole text as a
+number, or `none` for anything else, including surrounding spaces and a value that does not
+fit. Pieces are views of the text they came from, never copies.
+
+```dz
+let text = File::read_text(&config) or return
+for line in text.lines() {
+    if line.trim().starts_with("#") { continue }
+    for field in line.split("=") { … }
+}
+let volume = setting.trim().parse_f32() or 1.0
+```
+
+`[DECIDED — §18.71]`
+
+**Sorting.** `xs.sort()` orders a `List` of anything `Ord` by `<` — through the `Sort`
+trait — and `xs.sort_by(before)` by any strict order, a `fn(&T, &T) -> bool`; `xs.swap(i,
+j)` exchanges two elements. The sort is a heapsort: no allocation, `n log n` at worst, and
+not stable. `String` and `Path` are `Ord` by their bytes, which for UTF-8 is code-point
+order, not a language's alphabetical one. `[DECIDED — §18.70]`
+
+**`Random`** is one generator per thread, called through its type with no value to hold:
+`Random::next_u32()`, `next_u64()`, `next_f32()` and `next_f64()` (the floats in `[0, 1)`),
+`Random::range(lo, hi)` for any `Number` in `[lo, hi)` — `Random::range(1, 7)` is a die,
+`Random::range<f32>(-1.0, 1.0)` a float — `Random::chance(p)`, and `Random::unit_vec2()` and
+`unit_vec3()`, directions spread evenly. It seeds itself from the clocks on first use, so
+runs differ; `Random::seed(n)` makes this thread's numbers repeat exactly. The generator is
+SplitMix64: fast and well distributed, and not for cryptography. `[DECIDED — §18.67]`
+
+**Text is UTF-8.** A `str` is UTF-8 bytes and a `String` owns them; `len` counts bytes, and
+a character outside ASCII takes two to four. Characters are decoded as they are read:
+
+- `s.chars()` — or `for c in s` on a `String`, or `Chars(text)` on any `str` — steps through
+  the characters as `char`s. A byte that is not valid UTF-8, which only the unchecked
+  `bytes as str` can produce, reads as U+FFFD.
+- `char_count()`, `pop()` (the last character, a `char?`), `is_char_boundary(i)`,
+  `slice(from, to)` (a `str?`: `none` when an end falls inside a character) and
+  `truncate(len)` (a panic inside one), so text is never cut into invalid bytes.
+- `String::from_utf8(bytes)` copies bytes that are valid UTF-8, `none` otherwise.
+- A `char` formatted with `{}` is written as UTF-8, as a `str` is.
+
+A character's position is in bytes throughout; there is no indexing by character, which
+would take time in proportion to the text's length on every use. `[DECIDED — §18.69]`
+
+**Files** are reached through three types, and no free functions:
+
+- **`Path`**, a place in the file system, owning its text. `Path("assets") / "hero.png"`
+  and `join` build one; a `\` becomes `/` and a trailing `/` is dropped, so the same text
+  works on every platform, and an absolute part (`/…`, `C:/…`) replaces what it is joined
+  to. `file_name`, `stem`, `extension`, `parent`, `with_extension`, `is_absolute`, `as_str`
+  and `as_cstr` (for a C API) read it without touching the disk; `exists`, `is_file`,
+  `is_dir` and `modified` (the last write, as a `Duration` since the Unix epoch) ask the
+  disk. `==`, `<` and `Hash` compare the text.
+- **`File`**, an open file: move-only, closed when dropped. `File::open(&path, mode)` with a
+  `FileMode` of `.Read`, `.Write` (created or emptied), `.Append` or `.ReadWrite`; then
+  `read(buf)` (0 at the end), `write(data)`, `seek(position)`, `position()`, `size()`,
+  `flush()`. The whole-file functions are what most code wants: `File::read_bytes`,
+  `File::read_text` (UTF-8, checked), `File::write_bytes`, `File::write_text`, and
+  `File::remove`.
+- **`Directory`**: `Directory::create` (with any missing parents; one that exists is fine),
+  `Directory::remove` (empty), and `Directory::list`, the paths directly inside, sorted by
+  their text so the order is the same on every platform.
+
+```dz
+let save = Path("saves") / "slot1.txt"
+Directory::create(&save.parent()) or return
+File::write_text(&save, state) or { e -> eprintln("could not save: {}", e.message) }
+let text = File::read_text(&save) or { e ->
+    if e.code != IoError::NotFound as u32 {
+        eprintln("could not load: {}", e.message)
+    }
+    String()
+}
+```
+
+Every call that touches the disk is fallible (§9), and its error's `code` is an `IoError`:
+`NotFound`, `PermissionDenied`, `AlreadyExists`, `InvalidData` or `Other`. Paths are UTF-8
+everywhere, including on Windows. `[DECIDED — §18.68]`
+
+**The process**: `Process::args()`, the command line as a `List<String>` with the program
+first, in UTF-8 on every platform; `Process::env(name)`, a variable as a `String?`; and
+`Process::exit(code)`, which flushes output and ends the program at once, without dropping
+what is still alive — returning from `main` is the normal way to end.
 
 ### 14.5 Handles: `Rc`, `Weak` and `Box`
 
@@ -2994,8 +3151,12 @@ frees what `n` refers to, as it would through a `^T` (§1.1).
 value's address or `null`. `Rc` and `Weak` guard with an `Rc`; `Box` with an `Unguarded`,
 which holds nothing.
 
-Not yet: `Arc<T>`, which needs atomics (§18.11); an `Rc<Button>` used as an `Rc<UiElement>`;
-and a handle to a trait object. `[DECIDED — §18.62]`
+**A handle to a derived struct converts to a handle to its base**, as a reference does
+(§7.3): an `Rc<Button>` is accepted where an `Rc<UiElement>` is wanted, sharing the same
+count, and likewise `Weak` and `Box`. `[DECIDED — §18.64]`
+
+Not yet: `Arc<T>`, which needs atomics (§18.11); and a handle to a trait object.
+`[DECIDED — §18.62]`
 
 ---
 
@@ -3349,16 +3510,23 @@ helper, the overflow-check helpers, `SourceLocation`, the `TypeInfo` structs, sl
 There is no allocator in it, no I/O beyond writing a panic message to stderr, no threading,
 and no global constructors. `[DECIDED]`
 
+The standard library's own C++ — the bodies of its `extern fn`s, which read the
+clocks and, later, the file system (§7.2, 18.65) — is emitted beside the shim as
+`dz_native.h` / `.cpp`, and is the one file that includes the operating system's headers.
+`print` and `format` sit in `dz_prelude.h` until they become library code (§12.9).
+
 ### 16.5 Compilation flags
 
 The generated code is required to build cleanly with:
 
 ```
--std=c++17 -fno-exceptions -fno-rtti -Wall -Wextra
+-std=c++17 -fno-exceptions -fno-rtti -fwrapv -Wall -Wextra
 ```
 
 Nothing Dazzle emits may need exceptions or RTTI, because console and mobile targets
-routinely disable both.
+routinely disable both. `-fwrapv` makes signed arithmetic wrap, as §5.1 requires; an 8- or
+16-bit result is also cast back to its own type, since C++ computes it as an `int`. A
+vendored C or C++ library is built without `-fwrapv`, with the semantics it was written for.
 
 **Which compiler builds it is the project's choice, and the command's.** `dz` drives an
 ordinary C++ compiler, and any of them that takes those flags will do — a console SDK's
@@ -3624,6 +3792,16 @@ be exactly what reload needs, and must stay that way:
 | 18.55 | The standard library's math | **A compiler-carried module `std::math`, loaded by `import std::math`; the name `std` reserved.** Chosen over the prelude, which would put `Vec3` and `PI` in every file, and over a plain `math`, which a project's own module could take. `f32` vectors, `Quat` and `Mat4`, plus `Vec2i`/`Vec3i` for grids — a generic `Vec3<T>` would wait on associated-type projection. **Methods everywhere**, scalars included through `Float` and `Integer` (`x.sqrt()`, `n.wrapping_add(m)`), since without overloading a free `lerp` could not serve `f32` and `Vec3` both. **Column-major matrices** on column vectors, as OpenGL, GLSL and glm, so a `Mat4` is `projection * view * model` and its floats are in the order a shader wants (§14.4). *Loading by `import std::math` superseded by 18.57:* the math is part of the one flat `std` module |
 | 18.54 | Traits an enum has without an `impl` | **`Eq`, `Hash` and `Ord`, as the integers they are.** Equality and order compare values — declaration order when values are implicit — and a hash is the value's. So an enum is a `HashMap` key and satisfies `T: Ord` with nothing written (§7.4) |
 | 18.61 | How an `if let` binding holds the value | **As a `for` or `case` binding does (18.42, 18.43): `v` a copy that cannot be changed, `&v` a read-only reference, `&mut v` a writable one** — for an optional, a pointer and a handle alike. `&mut` needs a writable pointer, reference or place (`DZ0507`); `v` needs a copyable value wherever the `if let` does not own it (`DZ0403`). This **reverses the pointer half of 18.36**, where `if let p = ptr` gave a `&mut T`: with handles added, one rule in four places was chosen over three rules and an exception, and `p` meaning a reference on a pointer but a copy on everything else would have been that exception. A `&T?` is read as its optional by `or` and `if let` both, as 18.35 reads a `&T` as a `T` (§9.4) |
+| 18.20 | `or unreachable` in a release build | **The compiler assumes the success path** — `__builtin_unreachable`, not merely a skipped check. Debug still panics with the location. Chosen for speed: `or unreachable` is already the loud spelling of "this cannot fail", and §1.1 does not promise safety (§9.4) |
+| 18.63 | Integer overflow | **Wraps, in every build; never panics.** Replaces §5.1's proposal of a panic in debug. What every mainstream language but Rust and Swift does, and what hashing code relies on; signed overflow included, which C++ leaves undefined and Dazzle does not. The `Integer` methods say anything else (`checked_add`, `saturating_sub`) (§5.1) |
+| 18.64 | `Rc<Derived>` where an `Rc<Base>` is wanted | **Converts implicitly, as `&Derived` → `&Base` does (18.32)** and as C++'s `shared_ptr<Derived>` does: the same for `Weak` and `Box`. The count is shared, not copied. A handle to a trait object stays deferred, having no C++ counterpart to follow (§14.5) |
+| 18.65 | How `std` reaches the operating system | **`extern fn name(…) -> T` with no body, allowed only in `std`**, whose body is C++ the compiler ships beside the runtime shim — not in it, so §16.4's shim still does no I/O. Not generic and not fallible: an extern function is a plain call, and `std` builds the `Error`. A program's own way to C and C++ stays a `cpp` dependency. First written as a `#[native]` attribute (r54); a keyword was chosen instead because `extern` was already reserved and is what C, C++ and Rust readers expect for "the body is elsewhere" (§7.2, §15) |
+| 18.71 | Text operations | **One `Text` trait, implemented for `str` and `String`**, whose operations are default methods over `text()`: both get every one, a literal included, with no `Deref` and no duplicate APIs. Pieces are `str` views; only `replace` and the case changes allocate. Parsing takes the whole text and returns an optional, refusing surrounding spaces rather than skipping them, since `trim()` says that explicitly. Case changes are ASCII only — Unicode case mapping needs tables `std` does not carry (§14.4) |
+| 18.70 | Sorting | **`List::sort` (by `Ord`, through a `Sort` trait implemented for `List<T: Ord>`) and `List::sort_by(fn(&T, &T) -> bool)`; a heapsort.** A trait rather than a method, because a method cannot require more of `T` than its type does. Heapsort over quicksort or merge sort: no allocation and no quadratic input, which a frame budget cares about more than the constant factor; stability is given up, and a stable sort can come later as its own name. `String` and `Path` gain byte-order `Ord`, so `Directory::list` can return a sorted, platform-independent order (§14.4) |
+| 18.69 | Characters in UTF-8 text | **Positions are bytes; characters are decoded by iteration.** `String` keeps UTF-8 as it always did, and gains `chars()` (and `for c in s`), `char_count`, `pop`, `is_char_boundary`, `slice` and `truncate`, every cut checked against a character boundary. Rejected: indexing by character, which is a linear walk disguised as `s[i]`, and UTF-32 storage, which quadruples memory for the text a game mostly holds. Invalid bytes decode as U+FFFD rather than panicking, since only unchecked code can make them (§14.4) |
+| 18.68 | Files and paths | **`Path`, `File` and `Directory`, with no free functions**, chosen by the user: every operation belongs to the type it is about, and a `Path` type rather than bare `str` gives one place for joining, splitting and cross-platform separators. A `Path` always holds `/`; `\` is accepted and converted, since Windows accepts `/` and nothing else does `\`. `File` is move-only and closes on drop; whole-file `read_text`/`write_text` beside a streaming `open`. Failures are `!->` with an `IoError` code rather than typed errors (§9.2). Not yet: a `cstr` for a C API from a `Path` (`as_str` plus the owned-`cstr` row of the to-do list), file metadata such as modification times, and memory-mapped files (§14.4) |
+| 18.67 | Random numbers | **One generator per thread, reached as `Random::…` with no instance**, chosen by the user over a value-type generator: game code wants a number, not a generator to pass around. SplitMix64 (one `u64` of state) rather than PCG or xoshiro, for its size and simplicity; seeded from the clocks unless `Random::seed` is called. `Random::range<T: Number>` covers every number kind through the new `Number` trait, which `Integer` and `Float` both require. Integer ranges are `[lo, hi)`, as floats are. A separate seedable stream — a replay that must not share state with gameplay — can come later as a value type (§14.4) |
+| 18.66 | Generic methods | **A method may declare type parameters of its own, solved per call like a generic function's; written after `.name` as they are after a path, `xs.map<f32>(f)`, with no turbofish.** The `<…>` after a field name is read as type arguments only when `(` follows the `>`, so `n.len < max` is unaffected — the same non-associativity argument as §3.3. Not allowed on `virtual`/`override` methods or in a trait (`DZ0557`), where one function would have to serve every argument; a generic trait says the same thing and works through a `^Trait`. Each instance is emitted as a free function taking the receiver, not a C++ member template, so §8.6 still holds (§8.1) |
 | 18.62 | Shared ownership, and handles that may be empty | **`Rc<T>`, `Weak<T>` and `Box<T>` in `std`, each of which may be `null`**, like C++'s `shared_ptr`/`weak_ptr`/`unique_ptr` rather than Rust's never-empty `Rc`: `null` is the default and the moved-from state, so no rule for "a type without a default" is needed, and a field of one is `= null`. **`null`, not `none`**: `null` is for handles — pointers included — and `none` for a value that is absent; the two stay apart so `x = null` reads as releasing something. A handle's value is reached only through `==`/`!=` `null`, `or` and `if let` — never a bare `.` — so an empty handle is always checked. **`or` and `if let` on an `Rc` or `Weak` hold a strong `Rc` of their own** until the `if let` block, or the block enclosing the `or`, ends, so the value cannot be freed while referred to — the cost being one plain count up and down. `if let` takes a `Weak` directly, with no `upgrade()`. Forced unloading is one owner plus `Weak`s, since a value others own cannot be deleted from under them; `Rc<T?>` is a shared slot, not a nullable `Rc`. The compiler knows the prelude trait `Nullable` (`Target`, `Guard`, `is_null`, `guard`, `ptr`) rather than the three names. A `Box` guards with nothing and can dangle as a `^T` can (§1.1). Deferred: `Arc`, `Rc<Derived>` as `Rc<Base>`, handles to trait objects (§14.5) |
 
 ### 18.2 Still open
@@ -3632,7 +3810,6 @@ be exactly what reload needs, and must stay that way:
 |---|---|---|
 | 18.18 | `collect` | Reserved, unspecified. A fourth `or`-family clause that accumulates errors instead of acting on the first (§9.9) |
 | 18.19 | `ignore` in two positions | It is a clause (`f() or ignore`) and a bare statement (`or { ignore; return }`). Probably fine, possibly one word doing two jobs. Decide against real code after M12 |
-| 18.20 | `or unreachable` lowering | Debug: panic with `#location`. Release: does it emit `__builtin_unreachable`, or merely skip the check? The first is faster and the second is kinder. §1.1 says Dazzle does not promise safety, which argues for the first (§9.4) |
 
 New questions will appear as implementation continues. They belong here, with the same
 resolved/open split.
@@ -3795,6 +3972,14 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r61 | 2026-09-15 | **`Process`** (§14.4): `Process::args()`, `Process::env(name)`, `Process::exit(code)`. |
+| r60 | 2026-09-15 | **Text operations** (§14.4, 18.71): the `Text` trait gives `str` and `String` `starts_with`, `ends_with`, `find`, `contains`, `trim`, `trim_start`, `trim_end`, `split`, `lines`, `replace`, `to_ascii_lowercase`, `to_ascii_uppercase`, `parse_i64`, `parse_u64`, `parse_f64`, `parse_f32`. |
+| r59 | 2026-09-15 | **r54's decisions, implemented.** Integer overflow **wraps** in every build — `i32::MAX + 1` and `250u8 + 10` included, where the generated C++ had been undefined or had not wrapped at all (§5.1, 18.63). `or unreachable` **assumes success** in release and shipping builds (§9.4, 18.20). **`Rc<Derived>`, `Weak<Derived>` and `Box<Derived>` convert** to their base's, sharing one count and dropping the whole value (§14.5, 18.64). **A generic function may be a value**: `xs.sort_by(greater<i32>)`, or inferred from the function type wanted (§8.1). **Sorting** (§14.4, 18.70): `List::sort`, `sort_by`, `swap`; `String` and `Path` are `Ord`. `Directory::list` is sorted; `Path::modified` and `Path::as_cstr`. Output to a Windows console is shown as UTF-8. |
+| r58 | 2026-09-15 | **A literal's suffix is its type** (§2.5): `let n = 5u8` is a `u8` — it had been an `i32` — and `300u8` or `5u8` where a `u16` is wanted are errors. **UTF-8 text by character** (§14.4, 18.69): `String::chars`, `for c in s`, `Chars(text)`, `char_count`, `pop`, `is_char_boundary`, `slice`, `truncate`, `String::from_utf8`; a `char` printed with `{}` is UTF-8 (it had come out as one Latin-1 byte, or nothing). |
+| r57 | 2026-09-15 | **Files** (§14.4, 18.68): `Path` (`/`, `join`, `file_name`, `stem`, `extension`, `parent`, `with_extension`, `exists`, `is_file`, `is_dir`), `File` (move-only, closed on drop: `open` with a `FileMode`, `read`, `write`, `seek`, `position`, `size`, `flush`; `File::read_bytes`, `read_text`, `write_bytes`, `write_text`, `remove`) and `Directory` (`create`, `remove`, `list`), every failure an `Error` whose code is an `IoError`. **A method may be called on a number literal**: `5.hash()`, `2.25.sqrt()` — the literal takes the type `let` would give it. |
+| r56 | 2026-09-15 | **`extern fn` replaces `#[native]`** (§7.2, 18.65): the standard library's body-less functions are written `extern fn name(…) -> T`; the attribute is gone, and `extern fn` outside `std` is DZ0317. **`Random`** (§14.4, 18.67): one generator per thread — `Random::seed`, `next_u32`/`next_u64`/`next_f32`/`next_f64`, `Random::range<T: Number>(lo, hi)` in `[lo, hi)`, `chance`, `unit_vec2`, `unit_vec3`. **`Number`**, a trait every integer and float implements (`to_f64`, `uniform`), now required by `Integer` and `Float`. |
+| r55 | 2026-09-15 | **Generic methods** (§8.1, 18.66). A method may have type parameters of its own — `fn fold<A: Copy>(&self, start: A, …)`, and likewise a function without a receiver — inferred from the arguments or written out as `xs.fold<usize>(0, f)` and `List<Cell>::filled<u8>(…)`. A method's bounds are now checked, at the call and in its body; before, they were silently dropped. Not on a `virtual` or `override` method, nor in a trait (DZ0557). |
+| r54 | 2026-09-15 | **`eprint` and `eprintln`** (§12.9): `print`/`println` to standard error, formatted the same way. **Time in `std`** (§14.4): `Duration`, `Instant` and `Time::sleep`/`Time::unix`. **`#[native]`** (§12.8, 18.65): a body-less function whose body is the compiler's C++, allowed only in `std`. A function with no body that is not a trait's or a `virtual` method is now an error (DZ0556) rather than a link failure. **Decided, not yet implemented:** integer overflow wraps in every build and never panics (§5.1, 18.63), which replaces the proposed debug panic; `or unreachable` in a release build lets the compiler assume success (§9.4, 18.20, no longer open); an `Rc<Derived>`, `Weak<Derived>` or `Box<Derived>` converts to one of its base (§14.5, 18.64). |
 | r53 | 2026-09-14 | **Handles: `Rc<T>`, `Weak<T>`, `Box<T>`** (§14.5, 18.62). Shared ownership, a reference that notices its value is gone, and sole ownership of a heap value, in `std`. Each may be `null` — the default, and the moved-from state — and its value is reached only through `h == null`, `h or …` and `if let`, as a pointer's is; `Weak<T>(&rc)` makes a weak one, and `if let` takes it directly. `or` and `if let` on an `Rc` or `Weak` keep the value alive while it is used, even if the handle is set to `null` meanwhile. Any type can be a handle by implementing `Nullable`. **`if let` bindings follow `for` and `case`** (§9.4, 18.61): `if let v` copies, `if let &v` refers, `if let &mut v` refers and writes — so **`if let p = ptr` now copies the pointee**, and code that wrote through `p` must say `if let &mut p = ptr`. `or` and `if let` also read through a `&T?`. |
 | r52 | 2026-09-14 | **Attributes are checked** (§12.8, 18.60). An attribute the language does not have is an error (DZ0314), and so is `#[test]`, `#[bench]` or `#[thread_local]` on a declaration it does not apply to, given arguments, or repeated (DZ0315). The attributes the specification describes but the compiler does not yet implement — `#[inline]`, `#[align]`, `#[packed]`, `#[deprecated]`, `#[export]`, `#[derive]`, `#[persist]`, `#[raw]` — are errors saying so (DZ0316) instead of being ignored. §12.8's `#[cfg(…)]` example is gone: conditional compilation is `#if` (§12.10). |
 | r51 | 2026-09-14 | **Reflection** (§13, 18.59). `typeinfo_of<T>()`, `typeid_of<T>()` and `typeinfo(id)` return the standard library's `TypeInfo`, which describes every kind of type: fields with offsets for structs, tuples, `str`, slices and optionals; variants with values for enums and with payload fields for unions; the element type of pointers, slices, arrays and optionals. **Field tags**: a field may end in a raw string, `pub hp: i32 = 100 `json:"health"``, carried into `FieldInfo::tag` and read with `f.tag_value("json")`. A type is in the table when `typeinfo_of` or `typeid_of` names it, or it is reached from one (`type_info = "used"`) — no attribute opts a type in; `type_info = "none"` makes reflection an error (DZ0555). |

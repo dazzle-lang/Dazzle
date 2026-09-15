@@ -1,0 +1,70 @@
+/// Random numbers from one generator per thread: fast, small, and not for cryptography.
+///
+/// Seeded from the clocks the first time it is used, so each run differs; `Random::seed`
+/// makes a run repeat exactly, which is what replays and tests want. The generator is
+/// SplitMix64 — one 64-bit counter, every output a scrambled step of it — which passes the
+/// statistical tests a game could care about (spec §14.4).
+pub struct Random {
+    /// From here on, this thread's numbers are the ones `seed` gives, every run.
+    pub fn seed(seed: u64) {
+        unsafe {
+            RANDOM.state = seed
+            RANDOM.seeded = true
+        }
+    }
+
+    pub fn next_u64() -> u64 {
+        unsafe {
+            if !RANDOM.seeded {
+                // The wall clock differs between runs; the monotonic clock between threads
+                // started in the same nanosecond.
+                RANDOM.state = unix_nanos() ^^ monotonic_nanos().wrapping_mul(0x9E3779B97F4A7C15)
+                RANDOM.seeded = true
+            }
+            RANDOM.state = RANDOM.state.wrapping_add(0x9E3779B97F4A7C15)
+            let mut z = RANDOM.state
+            z = (z ^^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9)
+            z = (z ^^ (z >> 27)).wrapping_mul(0x94D049BB133111EB)
+            return z ^^ (z >> 31)
+        }
+    }
+
+    pub fn next_u32() -> u32 {
+        return (Random::next_u64() >> 32) as u32
+    }
+
+    /// In `[0, 1)`.
+    pub fn next_f32() -> f32 {
+        return (Random::next_u64() >> 40) as f32 / 16777216.0
+    }
+
+    /// In `[0, 1)`.
+    pub fn next_f64() -> f64 {
+        return (Random::next_u64() >> 11) as f64 / 9007199254740992.0
+    }
+
+    /// A number in `[lo, hi)`, of whatever kind `lo` and `hi` are: `Random::range(1, 7)` is a
+    /// die roll, `Random::range(0.0, 1.5)` a float. `lo` when `hi` is not above it.
+    pub fn range<T: Number>(lo: T, hi: T) -> T {
+        return lo.uniform(move(hi), Random::next_u64())
+    }
+
+    /// `true` with probability `p`: never at 0 or below, always at 1 or above.
+    pub fn chance(p: f32) -> bool {
+        return Random::next_f32() < p
+    }
+
+    /// A direction in the plane, every angle equally likely.
+    pub fn unit_vec2() -> Vec2 {
+        let angle = Random::next_f32() * TAU
+        return Vec2{ x: angle.cos(), y: angle.sin() }
+    }
+
+    /// A direction in space, evenly over the sphere.
+    pub fn unit_vec3() -> Vec3 {
+        let z = Random::range<f32>(-1.0, 1.0)
+        let angle = Random::next_f32() * TAU
+        let r = (1.0 - z * z).sqrt()
+        return Vec3{ x: r * angle.cos(), y: r * angle.sin(), z: z }
+    }
+}

@@ -1,0 +1,16 @@
+// expect: DZ0531
+//
+// A generic method's bound is checked at the call, as a generic function's is: `keep_two`
+// copies its argument, and a `Box` cannot be copied (spec §8.1).
+
+struct Shelf {
+    pub fn keep_two<T: Copy>(&self, v: T) -> (T, T) {
+        return (v, v)
+    }
+}
+
+fn main() {
+    let s = Shelf{}
+    let pair = s.keep_two(Box<i32>(5))
+    let _ = move(pair)
+}

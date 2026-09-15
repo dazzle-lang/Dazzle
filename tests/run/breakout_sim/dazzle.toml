@@ -1,0 +1,10 @@
+[module]
+name    = "breakout_sim"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std  = { open = true }
+game = { path = "game", open = true }
+
+[build]
+output = "executable"

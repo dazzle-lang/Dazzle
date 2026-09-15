@@ -1,0 +1,15 @@
+/// What went wrong with a file or a directory: the `code` of the `Error` a failed call
+/// returns, so `e.code == IoError::NotFound as u32` tells a missing file from the rest
+/// (spec §9.2, §14.4).
+pub enum IoError : u32 {
+    /// Nothing is at the path, or a directory on the way to it is missing.
+    NotFound = 1
+    /// The operating system refused: permissions, or a file another program has locked.
+    PermissionDenied
+    /// Something is already at the path.
+    AlreadyExists
+    /// The contents were not what was asked for: `File::read_text` on bytes that are not
+    /// UTF-8.
+    InvalidData
+    Other
+}

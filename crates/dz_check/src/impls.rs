@@ -312,6 +312,37 @@ impl TypeTable {
     /// Does `imp` apply to `ty`, and with what for its parameters? `impl<T: Copy> Copy for
     /// Buffer<T>` applies to `Buffer<f32>` with `T = f32`, and not to `Buffer<File>`,
     /// whose argument fails the bound.
+    /// An implementation that would give `ty` a method `method` but for a bound its
+    /// arguments do not meet — `impl<T: Ord> Sort for List<T>` asked about `List<Plain>` —
+    /// as the trait, the argument, and the bound it lacks. So "no method `sort`" can say why.
+    pub fn unmet_bound_for(&self, ty: &Ty, method: &str) -> Option<(SymbolId, Ty, TraitRef)> {
+        for imp in self.impls() {
+            let provides = imp.methods.contains_key(method)
+                || self
+                    .struct_sig(imp.trait_ref.trait_sym)
+                    .and_then(|s| s.methods.get(method))
+                    .is_some_and(|m| m.has_body);
+            if !provides {
+                continue;
+            }
+            let params: Vec<u32> = imp.generics.iter().map(|g| g.param.id).collect();
+            let mut map = HashMap::new();
+            if !match_ty(&imp.self_ty, ty, &params, &mut map) {
+                continue;
+            }
+            for g in &imp.generics {
+                let Some(arg) = map.get(&g.param.id).cloned() else { continue };
+                for b in &g.bounds {
+                    let wanted = subst_ref(b, &map, ty);
+                    if !self.implements(&arg, &wanted) {
+                        return Some((imp.trait_ref.trait_sym, arg, wanted));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn impl_applies(&self, imp: &ImplSig, ty: &Ty) -> Option<HashMap<u32, Ty>> {
         let params: Vec<u32> = imp.generics.iter().map(|g| g.param.id).collect();
         let mut map = HashMap::new();
@@ -566,6 +597,7 @@ pub(crate) fn primitive_implements(t: &Ty, trait_name: &str, args: &[Ty]) -> boo
         // `std::math`'s, looked up by symbol so a user trait named `Float` is not these.
         "Float" => matches!(t, Ty::Float(_)),
         "Integer" => matches!(t, Ty::Int(_)),
+        "Number" => numeric,
         "Ord" => numeric || matches!(t, Ty::Char),
         "Add" | "Sub" | "Mul" | "Div" => numeric && rhs_is_self,
         "Rem" => matches!(t, Ty::Int(_)) && rhs_is_self,

@@ -1,0 +1,66 @@
+// A handle to a derived struct used as a handle to its base (spec §14.5, 18.64): `Rc`, `Weak`
+// and `Box`. The derived type adds fields and a field with a `drop`, so dropping through the
+// base must still drop all of it and free the right size — `--track-memory` would report a
+// wrong-size free, and `a_tracked_build_reports_leaks_and_bad_frees` runs this fixture.
+
+struct Label {
+    pub text: str = ""
+}
+
+impl Drop for Label {
+    fn drop(&mut self) {
+        if text.len > 0 {
+            println("drop label {}", text)
+        }
+    }
+}
+
+struct UiElement {
+    pub x: i32 = 0
+
+    pub virtual fn draw(&self) {
+        println("element at {}", x)
+    }
+}
+
+struct Button : UiElement {
+    pub label: Label = Label{}
+    pub extra: u64 = 7
+    pub more: u64 = 9
+
+    override fn draw(&self) {
+        println("button '{}' at {} ({})", label.text, x, extra + more)
+    }
+}
+
+fn draw_all(items: &List<Rc<UiElement>>) {
+    for &item in items {
+        if let &e = item {
+            e.draw()
+        }
+    }
+}
+
+fn keep(e: Rc<UiElement>) -> usize {
+    return e.count()
+}
+
+fn main() {
+    let b = Rc<Button>(Button{ x: 1, label: Label{ text: "ok" } })
+    let mut items = List<Rc<UiElement>>()
+    items.push(b)
+    items.push(Rc<UiElement>(UiElement{ x: 5 }))
+    println("count {} passed {}", b.count(), keep(b))
+    let weak: Weak<UiElement> = Weak<Button>(&b)
+    draw_all(&items)
+
+    let boxed: Box<UiElement> = Box<Button>(Button{ x: 2, label: Label{ text: "boxed" } })
+    if let &e = boxed {
+        e.draw()
+    }
+
+    items.clear()
+    println("weak alive {}", weak != null)
+    let _ = move(b)
+    println("weak after {}", weak != null)
+}

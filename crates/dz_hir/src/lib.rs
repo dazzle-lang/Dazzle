@@ -364,8 +364,11 @@ pub enum ExprKind {
         owner: SymbolId,
         name: String,
     },
-    /// A function used as a value.
-    FnItem(SymbolId),
+    /// A function used as a value; `type_args` instantiate a generic one (spec §8.1).
+    FnItem {
+        sym: SymbolId,
+        type_args: Vec<Ty>,
+    },
     /// Field access resolved to an index into the type's declaration order.
     Field {
         base: ExprId,
@@ -560,8 +563,18 @@ pub fn map_body_types(body: &Body, f: impl Fn(&Ty) -> Ty) -> Body {
                 *queried = s(queried)
             }
             ExprKind::Call { callee: Callee::Fn { type_args, .. }, .. }
-            | ExprKind::Call { callee: Callee::Assoc { type_args, .. }, .. } => {
+            | ExprKind::FnItem { type_args, .. } => {
                 for t in type_args.iter_mut() {
+                    *t = s(t);
+                }
+            }
+            ExprKind::Call { callee: Callee::Assoc { type_args, method_args, .. }, .. } => {
+                for t in type_args.iter_mut().chain(method_args.iter_mut()) {
+                    *t = s(t);
+                }
+            }
+            ExprKind::Call { callee: Callee::Method { method_args, .. }, .. } => {
+                for t in method_args.iter_mut() {
                     *t = s(t);
                 }
             }
@@ -657,16 +670,19 @@ pub enum Callee {
     /// it is what the call solved its parameters to (spec §8.1) — inside another generic
     /// body those may themselves be `Ty::Param`, which monomorphization substitutes.
     Fn { sym: SymbolId, type_args: Vec<Ty> },
-    /// `recv.name(...)`, with the receiver evaluated once.
-    Method { recv: ExprId, owner: SymbolId, name: String },
+    /// `recv.name(...)`, with the receiver evaluated once. `method_args` are what the call
+    /// solved the method's *own* type parameters to — `fn map<U>(&self, …)` — and are empty
+    /// for a method with none; the type's parameters come from the receiver (spec §8.1).
+    Method { recv: ExprId, owner: SymbolId, name: String, method_args: Vec<Ty> },
     /// `UiElement::draw(self)` — a base's version of a method, named through the base so
     /// that it is called *without* virtual dispatch. This is how an `override` extends
     /// what it replaces instead of discarding it (spec §7.3, 18.32). `owner` is the base
     /// the call is qualified by, and C++ writes it as `recv.UiElement::draw()`.
     BaseMethod { recv: ExprId, owner: SymbolId, name: String },
     /// `Quat::identity()`, `Buffer<f32>::with_capacity(8)` — a function declared in a type
-    /// with no receiver (spec §7.3). `type_args` are the type's, empty unless it is generic.
-    Assoc { owner: SymbolId, type_args: Vec<Ty>, name: String },
+    /// with no receiver (spec §7.3). `type_args` are the type's, empty unless it is generic;
+    /// `method_args` the function's own, as for `Method`.
+    Assoc { owner: SymbolId, type_args: Vec<Ty>, name: String, method_args: Vec<Ty> },
     /// A constructor, by position in the type's declaration order (spec §7.2).
     Ctor { owner: SymbolId, index: usize },
     /// Calling a value of function type.

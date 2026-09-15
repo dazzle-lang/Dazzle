@@ -1,0 +1,87 @@
+// Breakout, drawn with raylib. Left and right move the paddle, space launches the ball,
+// and `R` starts again. The best score is kept in `saves/best.txt`.
+
+const WIDTH: i32 = 800
+const HEIGHT: i32 = 600
+
+fn to_rl(r: &Rect) -> rl::Rectangle {
+    return rl::Rectangle{ x: r.x, y: r.y, width: r.w, height: r.h }
+}
+
+/// A row's colour: warm at the top, where the bricks are worth most.
+fn brick_color(points: i32, hits: i32) -> rl::Color {
+    let shade: u8 = if hits > 1 { 255 } else { 200 }
+    return switch points {
+        case 60, 50 { rl::Color{ r: shade, g: 70, b: 60, a: 255 } }
+        case 40, 30 { rl::Color{ r: shade, g: 170, b: 50, a: 255 } }
+        default { rl::Color{ r: 70, g: 140, b: shade, a: 255 } }
+    }
+}
+
+/// `text` centred horizontally at `y`.
+fn centered(text: &String, y: i32, size: i32, color: rl::Color) {
+    let w = rl::MeasureText(text.as_cstr(), size)
+    rl::DrawText(text.as_cstr(), (WIDTH - w) / 2, y, size, color)
+}
+
+fn draw(g: &Game, best: i32) {
+    rl::BeginDrawing()
+    rl::ClearBackground(rl::Color{ r: 18, g: 18, b: 28, a: 255 })
+
+    for &b in g.bricks {
+        rl::DrawRectangleRec(to_rl(&b.rect), brick_color(b.points, b.hits))
+    }
+    rl::DrawRectangleRec(to_rl(&g.paddle), rl::RAYWHITE)
+    rl::DrawCircleV(rl::Vector2{ x: g.ball.x, y: g.ball.y }, g.radius, rl::GOLD)
+
+    let hud = String(format("Score {}   Lives {}   Best {}", g.score, g.lives, best))
+    rl::DrawText(hud.as_cstr(), 10, 12, 24, rl::LIGHTGRAY)
+
+    switch g.phase {
+        case Ready { centered(&String("Space to launch"), 400, 28, rl::LIGHTGRAY) }
+        case Won { centered(&String("You win! R to play again"), 300, 36, rl::GREEN) }
+        case Lost { centered(&String("Game over. R to play again"), 300, 36, rl::RED) }
+        case Playing {}
+    }
+    rl::EndDrawing()
+}
+
+fn main() {
+    rl::InitWindow(WIDTH, HEIGHT, "Breakout — Dazzle")
+    defer rl::CloseWindow()
+    rl::SetTargetFPS(60)
+
+    let best_path = Path("saves") / "best.txt"
+    let mut best = load_best(&best_path)
+    let mut g = Game(WIDTH as f32, HEIGHT as f32)
+
+    while !rl::WindowShouldClose() {
+        let input = Input{
+            left: rl::IsKeyDown(rl::KEY_LEFT),
+            right: rl::IsKeyDown(rl::KEY_RIGHT),
+            launch: rl::IsKeyPressed(rl::KEY_SPACE),
+        }
+        // A long frame — a dragged window — is taken in steps, so the ball cannot pass
+        // through a brick.
+        let mut left = rl::GetFrameTime().min(0.25)
+        while left > 0 {
+            let step = left.min(1.0 / 240.0)
+            g.update(step, input)
+            left -= step
+        }
+
+        if g.phase == Phase::Won || g.phase == Phase::Lost {
+            let saved = save_best(&best_path, g.score) or { e ->
+                eprintln("could not save the best score: {}", e.message)
+                false
+            }
+            if saved {
+                best = g.score
+            }
+            if rl::IsKeyPressed(rl::KEY_R) {
+                g = Game(WIDTH as f32, HEIGHT as f32)
+            }
+        }
+        draw(&g, best)
+    }
+}

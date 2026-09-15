@@ -1,0 +1,11 @@
+// expect: DZ0317
+//
+// `extern fn` is how the standard library reaches the operating system: its body is C++ the
+// compiler supplies. A program reaches C and C++ through a `cpp` dependency instead
+// (spec §7.2, §15.1).
+
+extern fn monotonic_nanos() -> u64
+
+fn main() {
+    println("{}", monotonic_nanos())
+}

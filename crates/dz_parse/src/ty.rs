@@ -283,10 +283,21 @@ impl<'a> Parser<'a> {
         };
 
         if ok && self.eat_gt() {
-            // Only these can follow generic arguments in expression position.
+            // Only these can follow generic arguments in expression position: a path or a
+            // call going on, or — for a generic function taken as a value, `sort(xs,
+            // less<i32>)` — the end of the expression. None of them can follow `a < b > c`'s
+            // `>`, which would be a chained comparison anyway (spec §3.3).
             let follows = matches!(
                 self.peek(),
-                TokenKind::ColonColon | TokenKind::LParen | TokenKind::LBrace
+                TokenKind::ColonColon
+                    | TokenKind::LParen
+                    | TokenKind::LBrace
+                    | TokenKind::RParen
+                    | TokenKind::RBracket
+                    | TokenKind::RBrace
+                    | TokenKind::Comma
+                    | TokenKind::Terminator
+                    | TokenKind::Eof
             );
             if follows {
                 self.truncate_diags(saved_diags);

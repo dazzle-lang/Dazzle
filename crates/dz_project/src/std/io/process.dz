@@ -1,0 +1,38 @@
+/// The running program: its command-line arguments, its environment, and ending it
+/// (spec §14.4).
+pub struct Process {
+    /// The arguments the program was started with, the program's own path first, as UTF-8 on
+    /// every platform.
+    pub fn args() -> List<String> {
+        let mut out = List<String>()
+        let n = process_arg_count()
+        let mut i: usize = 0
+        while i < n {
+            out.push(String(process_arg(i)))
+            i += 1
+        }
+        return move(out)
+    }
+
+    /// The environment variable `name`, or `none` when it is not set.
+    pub fn env(name: str) -> String? {
+        let value = process_env(name) or return none
+        return String(value)
+    }
+
+    /// End the program now with `code`, 0 meaning success. Output is flushed, but nothing
+    /// still alive is dropped: return from `main` to end normally.
+    pub fn exit(code: i32) {
+        process_exit(code)
+    }
+}
+
+extern fn process_arg_count() -> usize
+
+/// Valid for the whole run.
+extern fn process_arg(index: usize) -> str
+
+/// Valid until the next call.
+extern fn process_env(name: str) -> str?
+
+extern fn process_exit(code: i32)

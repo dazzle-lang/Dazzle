@@ -475,6 +475,7 @@ pub(crate) fn starts_item(k: TokenKind) -> bool {
         Import
             | Pub
             | Fn
+            | Extern
             | Mut
             | Struct
             | Union

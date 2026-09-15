@@ -1,0 +1,5 @@
+wall 60 bricks, 3 lives, ready true
+seed 1: ended true on field true lives fall true score matches true bricks broken true
+seed 2: ended true on field true lives fall true score matches true bricks broken true
+idle stays ready true paddle at wall true
+saved true kept true reads back true

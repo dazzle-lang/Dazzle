@@ -1444,8 +1444,8 @@ impl<'a> Ctx<'a> {
             return Ty::Error;
         }
         match &e.kind {
-            ExprKind::Int(_) => Ty::IntLit,
-            ExprKind::Float(_) => Ty::FloatLit,
+            ExprKind::Int(text) => literal_suffix_type(text).unwrap_or(Ty::IntLit),
+            ExprKind::Float(text) => literal_suffix_type(text).unwrap_or(Ty::FloatLit),
             ExprKind::Str(_) | ExprKind::RawStr(_) => Ty::Str,
             ExprKind::Char(_) => Ty::Char,
             ExprKind::Bool(_) => Ty::Bool,
@@ -2616,7 +2616,22 @@ impl<'a> Ctx<'a> {
     fn fn_sig(&mut self, f: &FnDecl, vis: Vis, sym: Option<SymbolId>) -> FnSig {
         let generics = match sym {
             Some(sym) => self.table.type_params.get(&sym).cloned().unwrap_or_default(),
-            None => self.declare_params(&f.generics),
+            None => {
+                // A method's parameters have no symbol of their own for pass 1 to fill in,
+                // so their bounds are resolved here — every trait exists by the time member
+                // signatures are read. Without this `fn twice<T: Copy>` lost its bound.
+                let mut defs = self.declare_params(&f.generics);
+                self.push_params(&defs);
+                for (def, p) in defs.iter_mut().zip(&f.generics.params) {
+                    let self_ty = Ty::Param(def.param.clone());
+                    def.bounds =
+                        p.bounds.iter().filter_map(|b| self.trait_bound(b, &self_ty)).collect();
+                    def.default = p.default.as_ref().map(|t| self.lower_type(t));
+                    self.table.param_bounds.insert(def.param.id, def.bounds.clone());
+                }
+                self.pop_params();
+                defs
+            }
         };
         self.push_params(&generics);
         let sig = self.fn_sig_inner(f, vis, generics);
@@ -2740,6 +2755,41 @@ pub(crate) fn const_int_literal(e: &Expr) -> Option<i128> {
 }
 
 /// Parse an integer literal's numeric value, ignoring separators and any type suffix.
+/// The type a number literal's suffix fixes — `5u8` is a `u8`, `1.5f` and `2f32` are `f32`
+/// — or `None` for a literal without one, which stays untyped until its context types it
+/// (spec §2.5). The lexer accepted only these suffixes, and only integer ones after a radix
+/// prefix, so a hex digit `f` is never mistaken for one.
+pub(crate) fn literal_suffix_type(text: &str) -> Option<Ty> {
+    let prefixed = text.len() > 1
+        && text.starts_with('0')
+        && matches!(text.as_bytes()[1], b'x' | b'X' | b'o' | b'O' | b'b' | b'B');
+    const INTS: &[(&str, IntTy)] = &[
+        ("usize", IntTy::Usize),
+        ("isize", IntTy::Isize),
+        ("i16", IntTy::I16),
+        ("i32", IntTy::I32),
+        ("i64", IntTy::I64),
+        ("u16", IntTy::U16),
+        ("u32", IntTy::U32),
+        ("u64", IntTy::U64),
+        ("i8", IntTy::I8),
+        ("u8", IntTy::U8),
+    ];
+    if let Some((_, i)) = INTS.iter().find(|(s, _)| text.ends_with(s)) {
+        return Some(Ty::Int(*i));
+    }
+    if prefixed {
+        return None;
+    }
+    if text.ends_with("f64") {
+        Some(Ty::Float(FloatTy::F64))
+    } else if text.ends_with("f32") || text.ends_with('f') {
+        Some(Ty::Float(FloatTy::F32))
+    } else {
+        None
+    }
+}
+
 pub(crate) fn parse_int_literal(text: &str) -> Option<i128> {
     let cleaned: String = text.chars().filter(|c| *c != '_').collect();
     let (digits, radix) =

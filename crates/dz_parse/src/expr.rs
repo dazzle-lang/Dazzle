@@ -280,9 +280,20 @@ impl<'a> Parser<'a> {
                     } else {
                         self.parse_ident_or_error()
                     };
+                    // `xs.map<f32>(f)`: a method's own type arguments. Taken only when a call
+                    // follows the `>`, so `n.len < max` stays a comparison (spec §8.1).
+                    let mut generics = Vec::new();
+                    if self.at(TokenKind::Lt) {
+                        let saved = self.pos_checkpoint();
+                        match self.try_parse_generic_args() {
+                            Some(args) if self.at(TokenKind::LParen) => generics = args,
+                            Some(_) => self.restore_checkpoint(saved),
+                            None => {}
+                        }
+                    }
                     lhs = Expr {
                         span: self.span_from(start),
-                        kind: ExprKind::Field { base: Box::new(lhs), name },
+                        kind: ExprKind::Field { base: Box::new(lhs), name, generics },
                     };
                 }
                 TokenKind::LParen => {

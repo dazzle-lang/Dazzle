@@ -1,0 +1,9 @@
+[module]
+name    = "time"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

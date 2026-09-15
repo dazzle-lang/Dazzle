@@ -959,7 +959,9 @@ impl<'a> Query<'a> {
     fn expr_refs(&self, body: &'a Body, e: ExprId) -> Vec<Ref<'a>> {
         match &body.expr(e).kind {
             ExprKind::Local(l) => vec![Ref::Local(body, *l)],
-            ExprKind::Const(s) | ExprKind::Static(s) | ExprKind::FnItem(s) => vec![Ref::Symbol(*s)],
+            ExprKind::Const(s) | ExprKind::Static(s) | ExprKind::FnItem { sym: s, .. } => {
+                vec![Ref::Symbol(*s)]
+            }
             ExprKind::Field { base, index } => match self.adt_in(body, body.ty(*base)) {
                 Some(Adt::Struct(s)) => vec![Ref::Field(s, *index)],
                 Some(Adt::Variant(s, v)) => vec![Ref::VariantField(s, v, *index)],

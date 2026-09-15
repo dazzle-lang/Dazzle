@@ -1,0 +1,21 @@
+/// An axis-aligned rectangle, its corner at `x, y`.
+pub struct Rect {
+    pub x: f32 = 0
+    pub y: f32 = 0
+    pub w: f32 = 0
+    pub h: f32 = 0
+
+    pub fn center(&self) -> Vec2 {
+        return Vec2{ x: x + w / 2, y: y + h / 2 }
+    }
+
+    /// The point of the rectangle nearest `p`.
+    pub fn nearest(&self, p: Vec2) -> Vec2 {
+        return Vec2{ x: p.x.clamp(x, x + w), y: p.y.clamp(y, y + h) }
+    }
+
+    /// Does a circle at `center` with `radius` touch it?
+    pub fn touches_circle(&self, center: Vec2, radius: f32) -> bool {
+        return center.distance(self.nearest(center)) <= radius
+    }
+}

@@ -1,0 +1,12 @@
+// expect: DZ0501
+//
+// A suffix is the literal's type, so `5u8` is a `u8` even where a `u16` is wanted. It was
+// ignored, and `let n = 5u8` made an `i32` (spec §2.5).
+
+fn wants(x: u16) -> u16 {
+    return x
+}
+
+fn main() {
+    println("{}", wants(5u8))
+}

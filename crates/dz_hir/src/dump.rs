@@ -37,6 +37,15 @@ struct Dumper<'a> {
 }
 
 impl<'a> Dumper<'a> {
+    /// `<f32, bool>` for a generic method's solved arguments; nothing when there are none.
+    fn type_list(&self, tys: &[Ty]) -> String {
+        if tys.is_empty() {
+            return String::new();
+        }
+        let names: Vec<String> = tys.iter().map(|t| self.names.name_of_type(t)).collect();
+        format!("<{}>", names.join(", "))
+    }
+
     fn line(&mut self, args: std::fmt::Arguments<'_>) {
         for _ in 0..self.indent {
             self.out.push_str("  ");
@@ -215,9 +224,10 @@ impl<'a> Dumper<'a> {
                 let o = self.names.name_of_symbol(owner);
                 node!("const {o}::{name}")
             }
-            ExprKind::FnItem(s) => {
+            ExprKind::FnItem { sym: s, type_args } => {
                 let name = self.names.name_of_symbol(s);
-                node!("fn-item {name}")
+                let t = self.type_list(&type_args);
+                node!("fn-item {name}{t}")
             }
             ExprKind::Field { base, index } => {
                 node!("field #{index}");
@@ -333,17 +343,19 @@ impl<'a> Dumper<'a> {
                         let name = self.names.name_of_symbol(*s);
                         node!("call {name}")
                     }
-                    Callee::Method { owner, name, .. } => {
+                    Callee::Method { owner, name, method_args, .. } => {
                         let o = self.names.name_of_symbol(*owner);
-                        node!("call-method {o}::{name}")
+                        let m = self.type_list(method_args);
+                        node!("call-method {o}::{name}{m}")
                     }
                     Callee::BaseMethod { owner, name, .. } => {
                         let o = self.names.name_of_symbol(*owner);
                         node!("call-base-method {o}::{name}")
                     }
-                    Callee::Assoc { owner, name, .. } => {
+                    Callee::Assoc { owner, name, method_args, .. } => {
                         let o = self.names.name_of_symbol(*owner);
-                        node!("call-assoc {o}::{name}")
+                        let m = self.type_list(method_args);
+                        node!("call-assoc {o}::{name}{m}")
                     }
                     Callee::Ctor { owner, index } => {
                         let name = self.names.name_of_symbol(*owner);

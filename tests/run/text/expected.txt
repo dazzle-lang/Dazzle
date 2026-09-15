@@ -1,0 +1,25 @@
+trim 'player=Ada;score=42;zone=été'
+start 'x ' end '  x'
+starts true ends true contains true false
+find score at 11
+find missing true
+split [player:Ada][score:42][zone:été]
+pieces 4 empty 2
+lines 4 one|two||four|
+replace a + b + c
+replace none abc
+case HéLLO WORLD player=ada;score=42;zone=été
+int 42
+negative -9223372036854775808
+too big none
+spaces none
+sign only none
+trimmed 7
+u64 max 18446744073709551615
+u64 over true
+float 0.0025
+point 0.5
+int as float -3
+bad exponent none
+inf none
+f32 0.1

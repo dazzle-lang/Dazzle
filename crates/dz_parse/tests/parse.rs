@@ -91,6 +91,17 @@ fn bitwise_precedence_is_or_xor_and() {
     assert_eq!(expr_shape("1 | 2 ^^ 3 & 4"), "binary | int 1 binary ^^ int 2 binary & int 3 int 4");
 }
 
+/// Spec §8.1: `xs.map<f32>(f)` writes a method's own type arguments, and is taken only when
+/// a call follows the `>` — so a comparison after a field is still a comparison.
+#[test]
+fn a_method_call_may_write_type_arguments() {
+    let call = expr_shape("xs.map<f32, Vec2>(f)");
+    assert!(call.starts_with("call field .map<f32, Vec2> path xs"), "{call}");
+    assert_eq!(expr_shape("n.len < max"), "binary < field .len path n path max");
+    assert_eq!(expr_shape("(n.len < max)"), expr_shape("n.len < max"));
+    assert_eq!(expr_shape("n.len < max.len"), "binary < field .len path n field .len path max");
+}
+
 #[test]
 fn chained_comparison_is_rejected() {
     let p = parse_str("fn f() { let x = a < b < c }");

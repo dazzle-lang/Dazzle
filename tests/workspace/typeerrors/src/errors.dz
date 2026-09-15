@@ -934,6 +934,88 @@ fn bad_variadic_calls(xs: []i32, n: i32) -> usize {
     return adds(1, ..xs) + adds(..n) + adds(1, true)
 }
 
+// §8.1: a generic method's bound, a parameter no argument decides, type arguments on a
+// method with none; DZ0557 a `virtual` or trait method with parameters of its own.
+struct Crate2 {
+    pub fn both<T: Copy>(&self, v: T) -> (T, T) {
+        return (v, v)
+    }
+
+    pub fn fresh<T>() -> T {
+        let t: T
+        return move(t)
+    }
+
+    pub fn plain(&self) -> i32 {
+        return 1
+    }
+
+    virtual fn shout<T>(&self, v: T) {
+        let _ = move(v)
+    }
+}
+
+trait ShowAny {
+    fn show<T>(&self, v: T)
+}
+
+fn bad_generic_methods(c: &Crate2, owned: Box<i32>) -> i32 {
+    let _ = c.both(move(owned))
+    let _: i32 = Crate2::fresh()
+    return c.plain<i32>()
+}
+
+// §14.5, 18.64: a handle converts only from a derived type to its base — not back down.
+fn handle_downcast(base: Rc<Panel>, framed: Rc<Framed>) -> Rc<Framed> {
+    let _ = move(framed)
+    return base
+}
+
+// §14.4: parsing may find no number, so the result is an optional that must be unwrapped.
+fn parse_without_or(s: str) -> i64 {
+    return s.parse_i64()
+}
+
+// §14.4: `sort` needs elements that are `Ord`; a comparison must take two references.
+fn sorts_the_unordered(xs: &mut List<Plain>, ys: &mut List<i32>) {
+    xs.sort()
+    ys.sort_by(by_value)
+}
+
+fn by_value(a: i32, b: i32) -> bool {
+    return a < b
+}
+
+// §14.4: a `String`'s characters are decoded, not stored, so a loop cannot write them.
+fn write_through_chars(s: &mut String) {
+    for &mut c in s {
+        c = 'x'
+    }
+}
+
+// §2.5: a suffix fixes the type — out of range for it, or not the type wanted.
+fn suffix_out_of_range() -> u8 {
+    return 300u8
+}
+
+fn suffix_against_context() -> u16 {
+    return 5u8
+}
+
+// §14.4: a `bool` is not a `Number`, so there is no random one in a range.
+fn random_bool_range() -> bool {
+    return Random::range(false, true)
+}
+
+// §14.4: a file call fails, so its result must be consumed; and `read` writes into its
+// buffer, which must be writable.
+fn file_mistakes(p: &Path) !-> void {
+    File::remove(p)
+    let mut f = File::open(p, .Read) or return
+    let buf: [4]u8
+    let _ = f.read(buf[..]) or return
+}
+
 // §11.2: unary `-` on a struct needs its `Neg`. §2.5: one past the most negative `i8`.
 fn negate_without_neg(p: Plain) -> Plain {
     return -p

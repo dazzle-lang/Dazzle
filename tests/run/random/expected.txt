@@ -1,0 +1,15 @@
+6457827717110365317 3203168211198807973
+repeats: true
+i32: true
+u8: true
+i8 across zero: true
+i64: true
+f32: true
+f64: true
+every face of a die: true
+empty range gives lo: 7 3.5
+unit floats: true
+chance near a quarter: true
+never and always: false true
+unit vectors: true
+to_f64: 3 2.5 7

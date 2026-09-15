@@ -10,59 +10,72 @@
 /// let t = sprite.texture or return
 /// ```
 ///
+/// An `Rc<Button>` is accepted where an `Rc<UiElement>` is wanted, when `Button` inherits
+/// `UiElement`: both share one count, and the last drops the whole `Button` (18.64).
+///
 /// Single-threaded: the counts are plain integers.
 pub struct Rc<T> {
-    pub(module) m_block: ^mut RcBlock<T> = null
+    pub(module) m_header: ^mut RcHeader = null
+    pub(module) m_value: ^mut T = null
 
     /// A new value, in one allocation with its counts, from `allocator`.
     Rc(value: T, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
         let a = allocator or panic("an Rc needs an allocator")
         let size = RcBlock<T>::size
         let align = RcBlock<T>::align
-        m_block = unsafe { a.alloc(size, align, loc) as ^mut RcBlock<T> }
+        let block = unsafe { a.alloc(size, align, loc) as ^mut RcBlock<T> }
+        let header = RcHeader{
+            strong: 1,
+            weak: 0,
+            allocator: allocator,
+            size: size,
+            align: align,
+            drop_value: drop_value_as<T>,
+        }
         unsafe {
-            construct(
-                m_block[0],
-                RcBlock<T>{ strong: 1, weak: 0, allocator: allocator, value: move(value) },
-            )
+            construct(block[0], RcBlock<T>{ header: header, value: move(value) })
+            m_header = &mut block[0].header
+            m_value = &mut block[0].value
         }
     }
 
     /// How many `Rc`s share the value; 0 for a null one.
     pub fn count(&self) -> usize {
-        let b = m_block or return 0
-        return b.strong
+        let h = m_header or return 0
+        return h.strong
     }
 
     /// How many `Weak`s refer to the value; 0 for a null `Rc`.
     pub fn weak_count(&self) -> usize {
-        let b = m_block or return 0
-        return b.weak
+        let h = m_header or return 0
+        return h.weak
     }
 }
 
 impl<T> Drop for Rc<T> {
     fn drop(&mut self) {
-        let b = m_block or return
-        b.strong -= 1
-        if b.strong > 0 {
+        let h = m_header or return
+        h.strong -= 1
+        if h.strong > 0 {
             return
         }
-        // The value goes with its last owner. A `Weak` may still hold the allocation to
-        // read `strong`, so that is freed only when no `Weak` does.
-        unsafe { destroy(m_block[0].value) }
-        if b.weak == 0 {
-            let a = b.allocator or return
-            a.free(unsafe { m_block as ^mut u8 }, RcBlock<T>::size, RcBlock<T>::align)
+        // The value goes with its last owner, as the type it was made as. A `Weak` may still
+        // hold the allocation to read `strong`, so that is freed only when no `Weak` does.
+        let drop_value = h.drop_value
+        drop_value(unsafe { m_value as ^mut u8 })
+        if h.weak == 0 {
+            let a = h.allocator or return
+            a.free(unsafe { m_header as ^mut u8 }, h.size, h.align)
         }
     }
 }
 
 impl<T> Copy for Rc<T> {
     fn copy(&mut self, other: &Self) {
-        m_block = other.m_block
-        let b = m_block or return
-        b.strong += 1
+        m_header = other.m_header
+        m_value = other.m_value
+        let h = m_header or return
+        h.strong += 1
     }
 }
 
@@ -71,7 +84,7 @@ impl<T> Nullable for Rc<T> {
     type Guard = Rc<T>
 
     fn is_null(&self) -> bool {
-        return m_block == null
+        return m_header == null
     }
 
     /// Another owner, so the value outlives whatever happens to this one.
@@ -80,7 +93,6 @@ impl<T> Nullable for Rc<T> {
     }
 
     fn ptr(&self) -> ^mut T {
-        let b = m_block or return null
-        return &mut b.value
+        return m_value
     }
 }
