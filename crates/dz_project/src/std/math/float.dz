@@ -1,5 +1,5 @@
 /// What `f32` and `f64` can do, beyond `+ - * /`. Angles are in radians.
-pub trait Float {
+pub trait Float : Number {
     fn sqrt(&self) -> Self
     fn abs(&self) -> Self
     fn floor(&self) -> Self

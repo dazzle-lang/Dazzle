@@ -192,6 +192,8 @@ fn every_rule_has_a_failing_case() {
         RETURN_IN_BASE_INIT,
         // r39 — statics (spec §7.7).
         STATIC_INITIALISER,
+        // r55 — generic methods (spec §8.1).
+        GENERIC_METHOD_NOT_ALLOWED,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

@@ -1,0 +1,11 @@
+/// The state behind `Random`: SplitMix64's one counter, and whether it has been seeded.
+/// Seeding is tracked apart from the counter so `Random::seed(0)` is an ordinary seed.
+struct RandomState {
+    pub state: u64 = 0
+    pub seeded: bool = false
+}
+
+/// One generator per thread, so two threads never race on it and each is as fast as a
+/// local (spec §7.7).
+#[thread_local]
+static RANDOM: RandomState = RandomState{}

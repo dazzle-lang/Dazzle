@@ -1,0 +1,14 @@
+/// The machine's clocks, beyond the monotonic one `Instant` reads.
+pub struct Time {
+    /// Blocks this thread for at least `d`. The operating system decides how much longer:
+    /// on Windows a sleep is rounded up to whole milliseconds, and may overshoot by a few.
+    pub fn sleep(d: Duration) {
+        sleep_nanos(d.as_nanos())
+    }
+
+    /// The wall clock: the time since 1970-01-01 00:00 UTC. It can jump, backwards too,
+    /// when the machine's clock is set, so measure intervals with `Instant` instead.
+    pub fn unix() -> Duration {
+        return Duration::from_nanos(unix_nanos())
+    }
+}

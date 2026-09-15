@@ -1,0 +1,22 @@
+join assets/sprites/hero.png
+name hero.png stem hero ext png
+parent assets/sprites / assets
+with_extension assets/sprites/hero.json assets/sprites/hero
+backslashes C:/games/save absolute true
+drive parent C:/ name ''
+root / parent /
+absolute part replaces /c
+dotfile ext '' stem .gitignore
+empty parent '' join x
+eq true false
+created true true
+text 22 bytes, exists true is_file true is_dir false
+bytes 5 250 255
+append size 8 read 4 'defg' at 7
+missing: not found true
+binary as text: invalid data true
+listed in order: data.bin log.txt saves 
+modified is recent true and not earlier true
+as_cstr length true
+cleaned false false
+remove twice: not found true

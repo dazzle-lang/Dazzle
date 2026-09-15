@@ -1,0 +1,95 @@
+/// A span of time, to the nanosecond, up to about 584 years. Never negative: taking a
+/// longer duration from a shorter one gives zero, as does a negative number of seconds.
+pub struct Duration {
+    m_nanos: u64 = 0
+
+    pub fn from_nanos(nanos: u64) -> Duration {
+        return Duration{ m_nanos: nanos }
+    }
+
+    pub fn from_micros(micros: u64) -> Duration {
+        return Duration{ m_nanos: micros * 1_000 }
+    }
+
+    pub fn from_millis(millis: u64) -> Duration {
+        return Duration{ m_nanos: millis * 1_000_000 }
+    }
+
+    pub fn from_secs(secs: u64) -> Duration {
+        return Duration{ m_nanos: secs * 1_000_000_000 }
+    }
+
+    /// `Duration::from_secs_f32(1.0 / 60.0)` is one frame at 60 Hz.
+    pub fn from_secs_f32(secs: f32) -> Duration {
+        return Duration::from_secs_f64(secs as f64)
+    }
+
+    pub fn from_secs_f64(secs: f64) -> Duration {
+        if secs <= 0.0 {
+            return Duration{}
+        }
+        return Duration{ m_nanos: (secs * 1_000_000_000.0) as u64 }
+    }
+
+    pub fn as_nanos(&self) -> u64 {
+        return m_nanos
+    }
+
+    pub fn as_micros(&self) -> u64 {
+        return m_nanos / 1_000
+    }
+
+    pub fn as_millis(&self) -> u64 {
+        return m_nanos / 1_000_000
+    }
+
+    /// Whole seconds; the fraction is dropped.
+    pub fn as_secs(&self) -> u64 {
+        return m_nanos / 1_000_000_000
+    }
+
+    /// What a frame's `dt` usually is.
+    pub fn as_secs_f32(&self) -> f32 {
+        return self.as_secs_f64() as f32
+    }
+
+    pub fn as_secs_f64(&self) -> f64 {
+        return m_nanos as f64 / 1_000_000_000.0
+    }
+
+    pub fn is_zero(&self) -> bool {
+        return m_nanos == 0
+    }
+}
+
+impl Add for Duration {
+    type Output = Duration
+    fn add(&self, rhs: Duration) -> Duration {
+        return Duration{ m_nanos: m_nanos.saturating_add(rhs.m_nanos) }
+    }
+}
+
+impl Sub for Duration {
+    type Output = Duration
+    fn sub(&self, rhs: Duration) -> Duration {
+        return Duration{ m_nanos: m_nanos.saturating_sub(rhs.m_nanos) }
+    }
+}
+
+impl Eq for Duration {
+    fn eq(&self, rhs: &Duration) -> bool {
+        return m_nanos == rhs.m_nanos
+    }
+}
+
+impl Ord for Duration {
+    fn cmp(&self, rhs: &Duration) -> Ordering {
+        return m_nanos.cmp(&rhs.m_nanos)
+    }
+}
+
+impl Hash for Duration {
+    fn hash(&self) -> u64 {
+        return m_nanos.hash()
+    }
+}

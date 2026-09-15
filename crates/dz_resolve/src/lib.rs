@@ -413,6 +413,8 @@ pub const BUILTIN_FNS: &[&str] = &[
     "error",
     "print",
     "println",
+    "eprint",
+    "eprintln",
     "format",
     "typeinfo_of",
     "typeid_of",

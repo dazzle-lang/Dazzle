@@ -1,0 +1,9 @@
+// The clocks, from the compiler's C++ (spec §7.2, §16.4).
+
+/// Nanoseconds on a clock that never goes backwards, from an arbitrary start.
+extern fn monotonic_nanos() -> u64
+
+/// Nanoseconds since the Unix epoch, by the wall clock.
+extern fn unix_nanos() -> u64
+
+extern fn sleep_nanos(nanos: u64)

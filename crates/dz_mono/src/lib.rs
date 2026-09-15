@@ -16,9 +16,10 @@
 //! list it, and codegen emits it once per header under an include guard in the generic's
 //! own namespace, so the two agree on one type.
 //!
-//! Three things are instantiated: generic types, generic functions, and generic
-//! implementations (`impl<T: Inspect> Inspect for Buffer<T>`, spec §7.6) — the last because
-//! an implementation's methods are free functions of their own in the output.
+//! Four things are instantiated: generic types, generic functions, generic implementations
+//! (`impl<T: Inspect> Inspect for Buffer<T>`, spec §7.6) — because an implementation's
+//! methods are free functions of their own in the output — and methods with type parameters
+//! of their own (`fn fold<A>(&self, …)`, §8.1), one per call's arguments.
 
 use std::collections::HashMap;
 
@@ -65,12 +66,24 @@ impl ImplInstance {
     }
 }
 
+/// A method with type parameters of its own, `fn map<U>(&self, …)`, applied to concrete
+/// arguments: the type's (`owner_args`, empty unless the type is generic) and the method's
+/// (`args`). One body, owned by the method as the template is (spec §8.1, §8.4).
+pub struct MethodInstance {
+    pub owner: SymbolId,
+    pub owner_args: Vec<Ty>,
+    pub name: String,
+    pub args: Vec<Ty>,
+    pub body: Body,
+}
+
 #[derive(Default)]
 pub struct ModuleInstances {
     /// Generic structs, in discovery order. Codegen orders them by layout dependency.
     pub types: Vec<Instance>,
     pub fns: Vec<Instance>,
     pub impls: Vec<ImplInstance>,
+    pub methods: Vec<MethodInstance>,
     /// The trait defaults each of the module's non-generic implementations inherits rather
     /// than writing (spec §7.6), one concrete body each, owned by the implementation.
     pub defaults: Vec<Body>,
@@ -132,6 +145,7 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
             out: ModuleInstances::default(),
             requested: Vec::new(),
             requested_impls: Vec::new(),
+            requested_methods: Vec::new(),
             queue: Vec::new(),
             diags: Diagnostics::new(),
             too_deep: false,
@@ -184,7 +198,11 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
         w.drain();
         diagnostics.extend(w.diags);
         let o = &w.out;
-        if !o.types.is_empty() || !o.fns.is_empty() || !o.impls.is_empty() || !o.defaults.is_empty()
+        if !o.types.is_empty()
+            || !o.fns.is_empty()
+            || !o.impls.is_empty()
+            || !o.methods.is_empty()
+            || !o.defaults.is_empty()
         {
             by_module.insert(m, w.out);
         }
@@ -231,21 +249,21 @@ pub fn is_template(table: &TypeTable, owner: &BodyOwner) -> bool {
     if table.is_generic(sym) {
         return true;
     }
-    // A method with parameters of its own inside a non-generic type. Not instantiated
-    // yet; codegen reports it rather than emitting something wrong.
-    if let BodyOwner::Method { owner, name } = owner {
-        return table
-            .struct_sig(*owner)
-            .and_then(|s| s.methods.get(name))
-            .is_some_and(|m| m.is_generic());
-    }
-    false
+    is_generic_method(table, owner)
+}
+
+/// A type's method with type parameters of its own (spec §8.1): a template even in a
+/// non-generic type, and instantiated per call rather than with its type.
+pub fn is_generic_method(table: &TypeTable, owner: &BodyOwner) -> bool {
+    let BodyOwner::Method { owner, name } = owner else { return false };
+    table.struct_sig(*owner).and_then(|s| s.methods.get(name)).is_some_and(|m| m.is_generic())
 }
 
 enum Pending {
     Type(SymbolId, Vec<Ty>),
     Fn(SymbolId, Vec<Ty>),
     Impl(usize, Vec<Ty>),
+    Method { owner: SymbolId, owner_args: Vec<Ty>, name: String, args: Vec<Ty> },
 }
 
 struct Worklist<'a> {
@@ -259,6 +277,7 @@ struct Worklist<'a> {
     /// and a module has few instances, so a list is the simple answer.
     requested: Vec<(bool, SymbolId, Vec<Ty>)>,
     requested_impls: Vec<(usize, Vec<Ty>)>,
+    requested_methods: Vec<(SymbolId, Vec<Ty>, String, Vec<Ty>)>,
     queue: Vec<Pending>,
     diags: Diagnostics,
     /// Set after the first DZ0536, so one runaway instantiation is one diagnostic.
@@ -272,8 +291,58 @@ impl Worklist<'_> {
                 Pending::Type(sym, args) => self.instantiate_type(sym, args),
                 Pending::Fn(sym, args) => self.instantiate_fn(sym, args),
                 Pending::Impl(idx, args) => self.instantiate_impl(idx, args),
+                Pending::Method { owner, owner_args, name, args } => {
+                    self.instantiate_method(owner, owner_args, name, args)
+                }
             }
         }
+    }
+
+    fn instantiate_method(
+        &mut self,
+        owner: SymbolId,
+        owner_args: Vec<Ty>,
+        name: String,
+        args: Vec<Ty>,
+    ) {
+        let key = BodyOwner::Method { owner, name: name.clone() };
+        let Some(template) = self.hir.find(&key) else { return };
+        let Some(sig) = self.table.struct_sig(owner).and_then(|s| s.methods.get(&name)) else {
+            return;
+        };
+        let mut map = self.params_map(owner, &owner_args);
+        map.extend(sig.generics.iter().map(|g| g.param.id).zip(args.iter().cloned()));
+        let body = dz_hir::substitute_body(template, &map);
+        self.visit_body(&body);
+        self.out.methods.push(MethodInstance { owner, owner_args, name, args, body });
+    }
+
+    /// A call of a generic method with concrete arguments (spec §8.4).
+    fn want_method(
+        &mut self,
+        owner: SymbolId,
+        owner_args: Vec<Ty>,
+        name: &str,
+        args: &[Ty],
+        at: (FileId, Span),
+    ) {
+        if owner_args.iter().chain(args).any(Ty::has_params) {
+            return; // reached again, concretely, through each instance
+        }
+        let wanted = (owner, owner_args, name.to_owned(), args.to_vec());
+        if self.requested_methods.contains(&wanted) {
+            return;
+        }
+        if wanted.1.iter().chain(args).map(depth).max().unwrap_or(0) >= MAX_DEPTH {
+            self.too_deep(format!("{}::{name}", self.res.symbol(owner).name), at);
+            return;
+        }
+        for a in wanted.1.iter().chain(args) {
+            self.visit_ty(a, at);
+        }
+        self.requested_methods.push(wanted.clone());
+        let (owner, owner_args, name, args) = wanted;
+        self.queue.push(Pending::Method { owner, owner_args, name, args });
     }
 
     fn params_map(&self, sym: SymbolId, args: &[Ty]) -> HashMap<u32, Ty> {
@@ -287,6 +356,11 @@ impl Worklist<'_> {
         let mut bodies = Vec::new();
         let members: Vec<&Body> = self.members.get(&sym).cloned().unwrap_or_default();
         for b in members {
+            // A method with parameters of its own is instantiated per call, with this
+            // instance's arguments and the call's (`instantiate_method`).
+            if is_generic_method(self.table, &b.owner) {
+                continue;
+            }
             // `Drop` and `Copy` are implementations, written in terms of the implementation's
             // own parameters, so they are read through it rather than through the struct's
             // (spec §6.1). An instance its `impl Copy` does not cover has no `copy` at all.
@@ -358,7 +432,9 @@ impl Worklist<'_> {
                 ExprKind::TypeQuery { ty, .. } | ExprKind::Reflect { ty, .. } => {
                     self.visit_ty(ty, here)
                 }
+                // Called, or taken as a value: either way the instance must exist (§8.4).
                 ExprKind::Call { callee: Callee::Fn { sym, type_args }, .. }
+                | ExprKind::FnItem { sym, type_args }
                     if !type_args.is_empty() =>
                 {
                     for t in type_args {
@@ -370,19 +446,37 @@ impl Worklist<'_> {
                 }
                 // `Buffer<f32>::with_capacity(8)` needs the instance whose function it is,
                 // whatever the call returns (spec §7.3, §8.4).
-                ExprKind::Call { callee: Callee::Assoc { owner, type_args, .. }, .. }
-                    if !type_args.is_empty() =>
-                {
-                    self.visit_ty(&Ty::Named { sym: *owner, args: type_args.clone() }, here);
+                ExprKind::Call {
+                    callee: Callee::Assoc { owner, type_args, name, method_args },
+                    ..
+                } => {
+                    if !type_args.is_empty() {
+                        self.visit_ty(&Ty::Named { sym: *owner, args: type_args.clone() }, here);
+                    }
+                    if !method_args.is_empty() {
+                        self.want_method(*owner, type_args.clone(), name, method_args, here);
+                    }
                 }
                 // A trait's method on a concrete receiver reaches one implementation, which
                 // may be generic (spec §7.6).
-                ExprKind::Call { callee: Callee::Method { recv, owner, name }, args }
+                ExprKind::Call { callee: Callee::Method { recv, owner, name, .. }, args }
                     if self.res.symbol(*owner).kind == SymbolKind::Trait =>
                 {
                     let recv_ty = b.ty(*recv).peeled().clone();
                     let arg = args.first().map(|a| b.ty(*a).clone());
                     self.want_impl(*owner, &recv_ty, name, arg.as_ref(), here);
+                }
+                // A type's own generic method: the type's arguments come from the receiver,
+                // unless the method is a base's, which is never generic (DZ0541).
+                ExprKind::Call {
+                    callee: Callee::Method { recv, owner, name, method_args },
+                    ..
+                } if !method_args.is_empty() => {
+                    let owner_args = match b.ty(*recv).peeled() {
+                        Ty::Named { sym, args } if sym == owner => args.clone(),
+                        _ => Vec::new(),
+                    };
+                    self.want_method(*owner, owner_args, name, method_args, here);
                 }
                 _ => {}
             }

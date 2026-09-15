@@ -1,0 +1,9 @@
+[module]
+name    = "utf8"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

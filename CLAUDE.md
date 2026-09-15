@@ -28,9 +28,9 @@ functions beside the code they cover, each run in its own process, and a compari
 in `tests/bench` measuring Dazzle against hand-written C++. **CI runs on three platforms**
 (`.github/workflows/ci.yml`) and has already earned its keep: its first runs found a shim
 bug that broke `println("{}", xs.len)` on macOS, an `import cpp` that could not find the
-SDK headers there, and two test bugs that had been passing vacuously. Next: a release
-workflow that ships libclang beside `dz`, so a released compiler needs nothing installed
-but a C++ compiler — then fetched packages (M16). Spec §19 is the roadmap.
+SDK headers there, and two test bugs that had been passing vacuously. **Now: M12, the
+stdlib** — see the "Next" row of `docs/PROGRESS.md` §1 for the current order. Later: an
+installer that bundles libclang, then fetched packages (M16). Spec §19 is the roadmap.
 
 **Formatting is rustfmt's**, configured by `rustfmt.toml` (`use_small_heuristics = "Max"`,
 which is what keeps it close to how this repository was written by hand). Run `cargo fmt

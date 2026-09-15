@@ -550,7 +550,8 @@ impl<'a> Printer<'a> {
 
     fn fn_decl(&mut self, vis: &str, f: &FnDecl) {
         let head = format!(
-            "{vis}{}{}fn {}{}",
+            "{vis}{}{}{}fn {}{}",
+            if f.is_extern { "extern " } else { "" },
             dispatch_str(f.dispatch),
             if f.is_unsafe { "unsafe " } else { "" },
             f.name.name,
@@ -833,8 +834,12 @@ impl<'a> Printer<'a> {
             ExprKind::Index { base, index } => {
                 format!("{}[{}]", self.expr_prec(base, 14), self.expr(index))
             }
-            ExprKind::Field { base, name } => {
+            ExprKind::Field { base, name, generics } if generics.is_empty() => {
                 format!("{}.{}", self.expr_prec(base, 14), name.name)
+            }
+            ExprKind::Field { base, name, generics } => {
+                let args: Vec<String> = generics.iter().map(|g| self.ty(g)).collect();
+                format!("{}.{}<{}>", self.expr_prec(base, 14), name.name, args.join(", "))
             }
             ExprKind::Unary { op, operand } => {
                 format!("{}{}", op.as_str(), self.expr_prec(operand, 13))

@@ -944,6 +944,18 @@ fn reads_a_widget(w: &Widget) -> i32 {
     return w.origin()
 }
 
+// §14.5, 18.64: a handle to a derived struct is a handle to its base, through any depth.
+fn handles_to_a_base(d: Rc<Dialog>, owned: Box<Panel>) -> usize {
+    let shared: Rc<Widget> = d
+    let watcher: Weak<Widget> = Weak<Dialog>(&d)
+    let mut widgets = List<Rc<Widget>>()
+    widgets.push(d)
+    let boxed: Box<Widget> = move(owned)
+    let _ = move(boxed)
+    let _ = watcher
+    return shared.count() + widgets.len()
+}
+
 fn base_pointer_from_a_derived_one(d: ^mut Dialog) -> ^Widget {
     return d
 }
@@ -1279,6 +1291,116 @@ fn names(items: ..&Named) -> usize {
 fn variadic_calls(h: Heading, xs: []i32) -> i32 {
     let n = names(h, Heading{ degrees: 90 }) + names()
     return total_of(1) + total_of(1, 2, 3) + total_of(0, ..xs) + n as i32
+}
+
+// §8.1: generic methods — inferred and written, with and without a receiver, on a generic
+// type beside the type's own parameter, and a method's bound used in its body.
+struct Shelf<T> {
+    pub item: T
+
+    pub fn paired<U: Copy>(&self, other: U) -> (U, U) {
+        return (other, other)
+    }
+
+    pub fn take<U>(first: U, second: U) -> U {
+        let _ = move(second)
+        return move(first)
+    }
+}
+
+fn generic_methods(s: &Shelf<bool>) -> i32 {
+    let a = s.paired(3)
+    let b = s.paired<u8>(4)
+    let c = Shelf<bool>::take(5, 6)
+    let d = Shelf<str>::take<i64>(7, 8)
+    let less = s.item < true
+    return a.0 + b.1 as i32 + c + d as i32 + (if less { 1 } else { 0 })
+}
+
+// §14.4: `Text` on a `str`, a `String` and a literal.
+fn reading_text(line: &String, raw: str) -> i64 {
+    let mut total: i64 = 0
+    for field in line.trim().split(",") {
+        total += field.parse_i64() or 0
+    }
+    for l in raw.lines() {
+        if l.starts_with("#") || !l.contains("=") {
+            continue
+        }
+        total += 1
+    }
+    let loud = "quiet".to_ascii_uppercase()
+    let scale = "1.5".parse_f64() or 1.0
+    return total + loud.replace("Q", "").len() as i64 + scale as i64
+}
+
+// §14.4: a `List` of anything `Ord` sorts; any `List` sorts by a comparison.
+fn later_first(a: &f32, b: &f32) -> bool {
+    return a > b
+}
+
+fn sorting(names: &mut List<String>, times: &mut List<f32>) -> usize {
+    names.sort()
+    times.sort_by(later_first)
+    times.swap(0, 0)
+    return names.len()
+}
+
+// §14.4: text is UTF-8 — stepped through by character, and cut only on a boundary.
+fn text_by_character(name: &String) -> usize {
+    let mut wide: usize = 0
+    for c in name.chars() {
+        if c as u32 > 127 {
+            wide += 1
+        }
+    }
+    for c in name {
+        let _ = c
+    }
+    let head = name.slice(0, 1) or ""
+    return wide + name.char_count() + head.len
+}
+
+// §2.5: a suffix types the literal, with no context or in a matching one.
+const SUFFIXED_LIMIT = 250u8
+
+fn suffixed_literals() -> u64 {
+    let small = 5u8
+    let wrapped: u8 = small.wrapping_add(SUFFIXED_LIMIT)
+    let big = 3_000_000_000u64
+    let lowest = -128i8
+    let half: f32 = 0.5f
+    let two = 2f32
+    return big + wrapped as u64 + (lowest as i64 + 128) as u64 + (half * two) as u64 + 0xFFu64
+}
+
+// §14.4: `Number` bounds either kind of number; `Integer` and `Float` include it.
+fn as_wide<T: Number>(x: &T) -> f64 {
+    return x.to_f64()
+}
+
+fn float_is_a_number<T: Float>(x: &T) -> f64 {
+    return x.to_f64()
+}
+
+fn numbers() -> f64 {
+    let die = Random::range(1, 7)
+    let unit = Random::range<f32>(0.0, 1.0)
+    let three = 3
+    return as_wide(&die) + as_wide(&unit) + float_is_a_number(&2.5) + three.uniform(9, 42).to_f64()
+}
+
+// §14.4: paths, files and directories, each failure carried as an `Error`.
+fn file_system(dir: &Path) !-> usize {
+    let config = dir / "config.txt"
+    Directory::create(dir) or return
+    File::write_text(&config, "hello") or return
+    let text = File::read_text(&config) or return
+    let mut f = File::open(&config, .ReadWrite) or return
+    let mut buf: [8]u8
+    let n = f.read(buf[..]) or return
+    let entries = Directory::list(dir) or return
+    return text.len() + n + entries.len() + config.extension().len
 }
 
 // §10.4, 18.51: a container is looped over through `Iterable` and `IterableMut`.

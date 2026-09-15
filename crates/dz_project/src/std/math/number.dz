@@ -1,0 +1,12 @@
+/// What every number can do, integer or float: the bound for code that works on either,
+/// such as `Random::range<T: Number>`. Implemented by every integer and float type without
+/// an `impl`; `Integer` and `Float` add what only one kind has (spec §14.4).
+pub trait Number {
+    /// The value as an `f64`, rounded where an integer is too large to be exact.
+    fn to_f64(&self) -> f64
+
+    /// A value in `[self, hi)` chosen by 64 random bits, evenly for any bits drawn
+    /// uniformly: how a random generator makes a number of any kind. `self` when `hi` is
+    /// not above it.
+    fn uniform(&self, hi: Self, bits: u64) -> Self
+}

@@ -1,0 +1,6 @@
+[module]
+name    = "game"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }

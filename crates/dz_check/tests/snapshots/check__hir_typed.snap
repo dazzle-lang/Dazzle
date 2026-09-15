@@ -1482,6 +1482,186 @@ body method List::swap_remove -> T
     return: !
       move: T
         local _2 v: T
+body method List::swap -> void
+  param _0 self: List<T>
+  param _1 i: usize
+  param _2 j: usize
+  block
+    if: void
+      binary ||: bool
+        binary >=: bool
+          local _1 i: usize
+          field #1: usize
+            local _0 self: List<T>
+        binary >=: bool
+          local _2 j: usize
+          field #1: usize
+            local _0 self: List<T>
+      block
+        builtin panic: !
+          str "List::swap of {} and {} for a length of {}": str
+          local _1 i: usize
+          local _2 j: usize
+          field #1: usize
+            local _0 self: List<T>
+    if: void
+      binary ==: bool
+        local _1 i: usize
+        local _2 j: usize
+      block
+        return: !
+    block-value: void
+      block
+        let _3 held: T
+          builtin move_out: T
+            index: T
+              field #0: own ^mut T
+                local _0 self: List<T>
+              local _1 i: usize
+        builtin construct: void
+          index: T
+            field #0: own ^mut T
+              local _0 self: List<T>
+            local _1 i: usize
+          builtin move_out: T
+            index: T
+              field #0: own ^mut T
+                local _0 self: List<T>
+              local _2 j: usize
+        builtin construct: void
+          index: T
+            field #0: own ^mut T
+              local _0 self: List<T>
+            local _2 j: usize
+          move: T
+            local _3 held: T
+body method List::sort_by -> void
+  param _0 self: List<T>
+  param _1 before: fn(&T, &T) -> bool
+  block
+    if: void
+      binary <: bool
+        field #1: usize
+          local _0 self: List<T>
+        int 2: usize
+      block
+        return: !
+    let _2 start: usize
+      binary /: usize
+        field #1: usize
+          local _0 self: List<T>
+        int 2: usize
+    while
+      binary >: bool
+        local _2 start: usize
+        int 0: usize
+      block
+        assign -=
+          local _2 start: usize
+          int 1: usize
+        call-method List::sift_down: void
+          local _0 self: List<T>
+          local _2 start: usize
+          field #1: usize
+            local _0 self: List<T>
+          local _1 before: fn(&T, &T) -> bool
+    let _3 end: usize
+      binary -: usize
+        field #1: usize
+          local _0 self: List<T>
+        int 1: usize
+    while
+      binary >: bool
+        local _3 end: usize
+        int 0: usize
+      block
+        call-method List::swap: void
+          local _0 self: List<T>
+          int 0: usize
+          local _3 end: usize
+        call-method List::sift_down: void
+          local _0 self: List<T>
+          int 0: usize
+          local _3 end: usize
+          local _1 before: fn(&T, &T) -> bool
+        assign -=
+          local _3 end: usize
+          int 1: usize
+body method List::sift_down -> void
+  param _0 self: List<T>
+  param _1 root: usize
+  param _2 len: usize
+  param _3 before: fn(&T, &T) -> bool
+  block
+    let _4 at: usize
+      local _1 root: usize
+    while
+      bool true: bool
+      block
+        let _5 left: usize
+          binary +: usize
+            binary *: usize
+              local _4 at: usize
+              int 2: usize
+            int 1: usize
+        if: void
+          binary >=: bool
+            local _5 left: usize
+            local _2 len: usize
+          block
+            return: !
+        let _6 larger: usize
+          local _5 left: usize
+        let _7 right: usize
+          binary +: usize
+            local _5 left: usize
+            int 1: usize
+        block-value: void
+          block
+            if: void
+              binary &&: bool
+                binary <: bool
+                  local _7 right: usize
+                  local _2 len: usize
+                call-value: bool
+                  local _3 before: fn(&T, &T) -> bool
+                  ref: &T
+                    index: T
+                      field #0: own ^mut T
+                        local _0 self: List<T>
+                      local _5 left: usize
+                  ref: &T
+                    index: T
+                      field #0: own ^mut T
+                        local _0 self: List<T>
+                      local _7 right: usize
+              block
+                assign =
+                  local _6 larger: usize
+                  local _7 right: usize
+            if: void
+              unary !: bool
+                call-value: bool
+                  local _3 before: fn(&T, &T) -> bool
+                  ref: &T
+                    index: T
+                      field #0: own ^mut T
+                        local _0 self: List<T>
+                      local _4 at: usize
+                  ref: &T
+                    index: T
+                      field #0: own ^mut T
+                        local _0 self: List<T>
+                      local _6 larger: usize
+              block
+                return: !
+        call-method List::swap: void
+          local _0 self: List<T>
+          local _4 at: usize
+          local _6 larger: usize
+        assign =
+          local _4 at: usize
+          local _6 larger: usize
 body method List::clear -> void
   param _0 self: List<T>
   block
@@ -1893,6 +2073,97 @@ body impl#12 method advance -> void
       field #1: usize
         local _0 self: SliceIter<T>
       int 1: usize
+body impl#13 method sort -> void
+  param _0 self: List<T>
+  block
+    call-method List::sort_by: void
+      local _0 self: List<T>
+      fn-item ord_before<T>: fn(&T, &T) -> bool
+body fn ord_before -> bool
+  param _0 a: &T
+  param _1 b: &T
+  block
+    return: !
+      binary ==: bool
+        call-method Ord::cmp: Ordering
+          local _0 a: &T
+          local _1 b: &T
+        enum-variant Ordering#0: Ordering
+body fn compare_bytes -> Ordering
+  param _0 a: []u8
+  param _1 b: []u8
+  block
+    let _2 n: usize
+      if: usize
+        binary <: bool
+          len: usize
+            local _0 a: []u8
+          len: usize
+            local _1 b: []u8
+        block
+          len: usize
+            local _0 a: []u8
+        block
+          block-value: usize
+            block
+              len: usize
+                local _1 b: []u8
+    let _3 i: usize
+      int 0: usize
+    while
+      binary <: bool
+        local _3 i: usize
+        local _2 n: usize
+      block
+        if: void
+          binary !=: bool
+            index: u8
+              local _0 a: []u8
+              local _3 i: usize
+            index: u8
+              local _1 b: []u8
+              local _3 i: usize
+          block
+            return: !
+              if: Ordering
+                binary <: bool
+                  index: u8
+                    local _0 a: []u8
+                    local _3 i: usize
+                  index: u8
+                    local _1 b: []u8
+                    local _3 i: usize
+                block
+                  enum-variant Ordering#0: Ordering
+                block
+                  block-value: Ordering
+                    block
+                      enum-variant Ordering#2: Ordering
+        assign +=
+          local _3 i: usize
+          int 1: usize
+    if: void
+      binary ==: bool
+        len: usize
+          local _0 a: []u8
+        len: usize
+          local _1 b: []u8
+      block
+        return: !
+          enum-variant Ordering#1: Ordering
+    return: !
+      if: Ordering
+        binary <: bool
+          len: usize
+            local _0 a: []u8
+          len: usize
+            local _1 b: []u8
+        block
+          enum-variant Ordering#0: Ordering
+        block
+          block-value: Ordering
+            block
+              enum-variant Ordering#2: Ordering
 body field-default SliceIterMut.1 -> void
   block
     int 0: usize
@@ -1904,7 +2175,7 @@ body ctor SliceIterMut#0 -> void
       field #0: []mut T
         local _0 self: SliceIterMut<T>
       local _1 slice: []mut T
-body impl#13 method valid -> bool
+body impl#14 method valid -> bool
   param _0 self: SliceIterMut<T>
   block
     return: !
@@ -1914,7 +2185,7 @@ body impl#13 method valid -> bool
         len: usize
           field #0: []mut T
             local _0 self: SliceIterMut<T>
-body impl#13 method get -> &mut T
+body impl#14 method get -> &mut T
   param _0 self: SliceIterMut<T>
   block
     return: !
@@ -1924,7 +2195,7 @@ body impl#13 method get -> &mut T
             local _0 self: SliceIterMut<T>
           field #1: usize
             local _0 self: SliceIterMut<T>
-body impl#13 method advance -> void
+body impl#14 method advance -> void
   param _0 self: SliceIterMut<T>
   block
     assign +=
@@ -1971,6 +2242,1067 @@ body fn hash_combine -> u64
           binary >>: u64
             local _0 seed: u64
             int 2: u64
+body method Directory::create !-> void
+  param _0 path: &Path
+  block
+    if: void
+      call-method Path::is_dir: bool
+        local _0 path: &Path
+      block
+        return: !
+    let _1 parent: Path
+      call-method Path::parent: Path
+        local _0 path: &Path
+    if: void
+      binary &&: bool
+        binary &&: bool
+          unary !: bool
+            call-method Path::is_empty: bool
+              local _1 parent: Path
+          unary !: bool
+            call-method Eq::eq: bool
+              local _1 parent: Path
+              ref: &Path
+                deref: Path
+                  local _0 path: &Path
+        unary !: bool
+          call-method Path::is_dir: bool
+            local _1 parent: Path
+      block
+        or: void
+          call-assoc Directory::create: !-> void
+            ref: &Path
+              local _1 parent: Path
+          return: !
+    if: void
+      binary &&: bool
+        unary !: bool
+          call dir_create: bool
+            call-method Path::as_str: str
+              local _0 path: &Path
+        unary !: bool
+          call-method Path::is_dir: bool
+            local _0 path: &Path
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot create the directory {}": str
+            call-method Path::as_str: str
+              local _0 path: &Path
+body method Directory::remove !-> void
+  param _0 path: &Path
+  block
+    if: void
+      unary !: bool
+        call dir_remove: bool
+          call-method Path::as_str: str
+            local _0 path: &Path
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot remove the directory {}": str
+            call-method Path::as_str: str
+              local _0 path: &Path
+body method Directory::list !-> List<Path>
+  param _0 path: &Path
+  block
+    let _1 handle: usize
+      call dir_open: usize
+        call-method Path::as_str: str
+          local _0 path: &Path
+    if: void
+      binary ==: bool
+        local _1 handle: usize
+        int 0: usize
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot list the directory {}": str
+            call-method Path::as_str: str
+              local _0 path: &Path
+    let _2 entries: List<Path>
+      call-ctor List#0: List<Path>
+    while
+      bool true: bool
+      block
+        let _3 name: str
+          call dir_next: str
+            local _1 handle: usize
+        if: void
+          binary ==: bool
+            len: usize
+              local _3 name: str
+            int 0: usize
+          block
+            break: !
+        call-method List::push: void
+          local _2 entries: List<Path>
+          call-method Path::join: Path
+            local _0 path: &Path
+            local _3 name: str
+    call dir_close: void
+      local _1 handle: usize
+    call-method Sort::sort: void
+      local _2 entries: List<Path>
+    return: !
+      move: List<Path>
+        local _2 entries: List<Path>
+body field-default File.0 -> void
+  block
+    int 0: usize
+body method File::open !-> File
+  param _0 path: &Path
+  param _1 mode: FileMode
+  block
+    let _2 handle: usize
+      call file_open: usize
+        call-method Path::as_str: str
+          local _0 path: &Path
+        cast: u32
+          local _1 mode: FileMode
+    if: void
+      binary ==: bool
+        local _2 handle: usize
+        int 0: usize
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot open {}": str
+            call-method Path::as_str: str
+              local _0 path: &Path
+    return: !
+      struct-lit File: File
+        #0
+          local _2 handle: usize
+body method File::read !-> usize
+  param _0 self: File
+  param _1 buf: []mut u8
+  block
+    let _2 n: usize
+      call file_read: usize
+        field #0: usize
+          local _0 self: File
+        local _1 buf: []mut u8
+    if: void
+      binary &&: bool
+        binary <: bool
+          local _2 n: usize
+          len: usize
+            local _1 buf: []mut u8
+        binary !=: bool
+          call io_last_error: u32
+          int 0: u32
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot read from the file": str
+    return: !
+      local _2 n: usize
+body method File::write !-> void
+  param _0 self: File
+  param _1 data: []u8
+  block
+    if: void
+      binary !=: bool
+        call file_write: usize
+          field #0: usize
+            local _0 self: File
+          local _1 data: []u8
+        len: usize
+          local _1 data: []u8
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot write to the file": str
+body method File::seek !-> void
+  param _0 self: File
+  param _1 position: u64
+  block
+    if: void
+      unary !: bool
+        call file_seek: bool
+          field #0: usize
+            local _0 self: File
+          local _1 position: u64
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot seek in the file": str
+body method File::position !-> u64
+  param _0 self: File
+  block
+    let _1 at: u64
+      call file_position: u64
+        field #0: usize
+          local _0 self: File
+    if: void
+      binary !=: bool
+        call io_last_error: u32
+        int 0: u32
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot tell the position in the file": str
+    return: !
+      local _1 at: u64
+body method File::size !-> u64
+  param _0 self: File
+  block
+    let _1 n: u64
+      call file_size: u64
+        field #0: usize
+          local _0 self: File
+    if: void
+      binary !=: bool
+        call io_last_error: u32
+        int 0: u32
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot tell the size of the file": str
+    return: !
+      local _1 n: u64
+body method File::flush !-> void
+  param _0 self: File
+  block
+    if: void
+      unary !: bool
+        call file_flush: bool
+          field #0: usize
+            local _0 self: File
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot flush the file": str
+body method File::read_bytes !-> List<u8>
+  param _0 path: &Path
+  block
+    let _1 f: File
+      or: File
+        call-assoc File::open: !-> File
+          local _0 path: &Path
+          enum-variant FileMode#0: FileMode
+        return: !
+    let _2 size: u64
+      or: u64
+        call-method File::size: !-> u64
+          local _1 f: File
+        return: !
+    let _3 bytes: List<u8>
+      call-ctor List#0: List<u8>
+        cast: usize
+          local _2 size: u64
+    call-method List::resize: void
+      local _3 bytes: List<u8>
+      cast: usize
+        local _2 size: u64
+    let _4 got: usize
+      int 0: usize
+    while
+      binary <: bool
+        local _4 got: usize
+        call-method List::len: usize
+          local _3 bytes: List<u8>
+      block
+        let _5 n: usize
+          or: usize
+            call-method File::read: !-> usize
+              local _1 f: File
+              slice: []mut u8
+                call-method List::as_mut_slice: []mut u8
+                  local _3 bytes: List<u8>
+                local _4 got: usize
+            return: !
+        if: void
+          binary ==: bool
+            local _5 n: usize
+            int 0: usize
+          block
+            break: !
+        assign +=
+          local _4 got: usize
+          local _5 n: usize
+    call-method List::truncate: void
+      local _3 bytes: List<u8>
+      local _4 got: usize
+    return: !
+      move: List<u8>
+        local _3 bytes: List<u8>
+body method File::read_text !-> String
+  param _0 path: &Path
+  block
+    let _1 bytes: List<u8>
+      or: List<u8>
+        call-assoc File::read_bytes: !-> List<u8>
+          local _0 path: &Path
+        return: !
+    let _2 text: str
+      or: str
+        builtin str_from_utf8: str?
+          call-method List::as_slice: []u8
+            local _1 bytes: List<u8>
+        clause _
+          block
+            return: !
+              builtin error: !-> !
+                enum-variant IoError#3: IoError
+                str "{} is not UTF-8 text": str
+                call-method Path::as_str: str
+                  local _0 path: &Path
+    return: !
+      call-assoc String::from: String
+        local _2 text: str
+body method File::write_bytes !-> void
+  param _0 path: &Path
+  param _1 data: []u8
+  block
+    let _2 f: File
+      or: File
+        call-assoc File::open: !-> File
+          local _0 path: &Path
+          enum-variant FileMode#1: FileMode
+        return: !
+    or: void
+      call-method File::write: !-> void
+        local _2 f: File
+        local _1 data: []u8
+      return: !
+    or: void
+      call-method File::flush: !-> void
+        local _2 f: File
+      return: !
+body method File::write_text !-> void
+  param _0 path: &Path
+  param _1 text: str
+  block
+    or: void
+      call-assoc File::write_bytes: !-> void
+        local _0 path: &Path
+        cast: []u8
+          local _1 text: str
+      return: !
+body method File::remove !-> void
+  param _0 path: &Path
+  block
+    if: void
+      unary !: bool
+        call file_remove: bool
+          call-method Path::as_str: str
+            local _0 path: &Path
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot remove {}": str
+            call-method Path::as_str: str
+              local _0 path: &Path
+body drop File -> void
+  param _0 self: File
+  block
+    if: void
+      binary !=: bool
+        field #0: usize
+          local _0 self: File
+        int 0: usize
+      block
+        call file_close: void
+          field #0: usize
+            local _0 self: File
+body fn io_last_error -> u32
+  block
+    (empty)
+body fn file_open -> usize
+  param _0 path: str
+  param _1 mode: u32
+  block
+    (empty)
+body fn file_close -> void
+  param _0 handle: usize
+  block
+    (empty)
+body fn file_read -> usize
+  param _0 handle: usize
+  param _1 buf: []mut u8
+  block
+    (empty)
+body fn file_write -> usize
+  param _0 handle: usize
+  param _1 data: []u8
+  block
+    (empty)
+body fn file_seek -> bool
+  param _0 handle: usize
+  param _1 position: u64
+  block
+    (empty)
+body fn file_position -> u64
+  param _0 handle: usize
+  block
+    (empty)
+body fn file_size -> u64
+  param _0 handle: usize
+  block
+    (empty)
+body fn file_flush -> bool
+  param _0 handle: usize
+  block
+    (empty)
+body fn file_remove -> bool
+  param _0 path: str
+  block
+    (empty)
+body fn path_exists -> bool
+  param _0 path: str
+  block
+    (empty)
+body fn path_is_file -> bool
+  param _0 path: str
+  block
+    (empty)
+body fn path_is_dir -> bool
+  param _0 path: str
+  block
+    (empty)
+body fn path_modified_nanos -> u64
+  param _0 path: str
+  block
+    (empty)
+body fn dir_create -> bool
+  param _0 path: str
+  block
+    (empty)
+body fn dir_remove -> bool
+  param _0 path: str
+  block
+    (empty)
+body fn dir_open -> usize
+  param _0 path: str
+  block
+    (empty)
+body fn dir_next -> str
+  param _0 handle: usize
+  block
+    (empty)
+body fn dir_close -> void
+  param _0 handle: usize
+  block
+    (empty)
+body ctor Path#0 -> void
+  param _0 self: Path
+  param _1 text: str
+  param _2 allocator: ^mut Allocator
+  param _3 loc: SourceLocation
+  block
+    let _4 bytes: []u8
+      cast: []u8
+        local _1 text: str
+    let _5 end: usize
+      len: usize
+        local _4 bytes: []u8
+    while
+      binary &&: bool
+        binary &&: bool
+          binary >: bool
+            local _5 end: usize
+            int 1: usize
+          call is_separator: bool
+            index: u8
+              local _4 bytes: []u8
+              binary -: usize
+                local _5 end: usize
+                int 1: usize
+        unary !: bool
+          binary &&: bool
+            binary ==: bool
+              local _5 end: usize
+              int 3: usize
+            binary ==: bool
+              index: u8
+                local _4 bytes: []u8
+                int 1: usize
+              cast: u8
+                char ':': char
+      block
+        assign -=
+          local _5 end: usize
+          int 1: usize
+    assign =
+      field #0: String
+        local _0 self: Path
+      call-ctor String#0: String
+        str "": str
+        local _2 allocator: ^mut Allocator
+        local _3 loc: SourceLocation
+    call-method String::reserve: void
+      field #0: String
+        local _0 self: Path
+      local _5 end: usize
+      local _3 loc: SourceLocation
+    let _6 from: usize
+      int 0: usize
+    let _7 i: usize
+      int 0: usize
+    while
+      binary <: bool
+        local _7 i: usize
+        local _5 end: usize
+      block
+        if: void
+          binary ==: bool
+            index: u8
+              local _4 bytes: []u8
+              local _7 i: usize
+            cast: u8
+              char '\\': char
+          block
+            call-method String::push_str: void
+              field #0: String
+                local _0 self: Path
+              call sub: str
+                local _1 text: str
+                local _6 from: usize
+                local _7 i: usize
+              local _3 loc: SourceLocation
+            call-method String::push: void
+              field #0: String
+                local _0 self: Path
+              char '/': char
+              local _3 loc: SourceLocation
+            assign =
+              local _6 from: usize
+              binary +: usize
+                local _7 i: usize
+                int 1: usize
+        assign +=
+          local _7 i: usize
+          int 1: usize
+    call-method String::push_str: void
+      field #0: String
+        local _0 self: Path
+      call sub: str
+        local _1 text: str
+        local _6 from: usize
+        local _5 end: usize
+      local _3 loc: SourceLocation
+body method Path::as_str -> str
+  param _0 self: Path
+  block
+    return: !
+      call-method String::as_str: str
+        field #0: String
+          local _0 self: Path
+body method Path::is_empty -> bool
+  param _0 self: Path
+  block
+    return: !
+      call-method String::is_empty: bool
+        field #0: String
+          local _0 self: Path
+body method Path::is_absolute -> bool
+  param _0 self: Path
+  block
+    let _1 bytes: []u8
+      cast: []u8
+        call-method Path::as_str: str
+          local _0 self: Path
+    return: !
+      binary ||: bool
+        binary &&: bool
+          binary >: bool
+            len: usize
+              local _1 bytes: []u8
+            int 0: usize
+          binary ==: bool
+            index: u8
+              local _1 bytes: []u8
+              int 0: usize
+            cast: u8
+              char '/': char
+        binary &&: bool
+          binary >: bool
+            len: usize
+              local _1 bytes: []u8
+            int 1: usize
+          binary ==: bool
+            index: u8
+              local _1 bytes: []u8
+              int 1: usize
+            cast: u8
+              char ':': char
+body method Path::join -> Path
+  param _0 self: Path
+  param _1 part: str
+  block
+    let _2 here: str
+      call-method Path::as_str: str
+        local _0 self: Path
+    let _3 other: Path
+      call-ctor Path#0: Path
+        local _1 part: str
+    if: void
+      binary ||: bool
+        binary ==: bool
+          len: usize
+            local _2 here: str
+          int 0: usize
+        call-method Path::is_absolute: bool
+          local _3 other: Path
+      block
+        return: !
+          move: Path
+            local _3 other: Path
+    if: void
+      call-method Path::is_empty: bool
+        local _3 other: Path
+      block
+        return: !
+          call-ctor Path#0: Path
+            local _2 here: str
+    let _4 joined: String
+      call-ctor String#0: String
+        local _2 here: str
+    if: void
+      unary !: bool
+        call ends_with_separator: bool
+          local _2 here: str
+      block
+        call-method String::push: void
+          local _4 joined: String
+          char '/': char
+    call-method String::push_str: void
+      local _4 joined: String
+      call-method Path::as_str: str
+        local _3 other: Path
+    return: !
+      call-ctor Path#0: Path
+        call-method String::as_str: str
+          local _4 joined: String
+body method Path::file_name -> str
+  param _0 self: Path
+  block
+    let _1 text: str
+      call-method Path::as_str: str
+        local _0 self: Path
+    if-let: void
+      call last_separator: usize?
+        local _1 text: str
+      bind _2 at
+      block
+        return: !
+          call sub: str
+            local _1 text: str
+            binary +: usize
+              local _2 at: usize
+              int 1: usize
+            len: usize
+              local _1 text: str
+    if: void
+      binary &&: bool
+        binary ==: bool
+          len: usize
+            local _1 text: str
+          int 2: usize
+        binary ==: bool
+          index: u8
+            cast: []u8
+              local _1 text: str
+            int 1: usize
+          cast: u8
+            char ':': char
+      block
+        return: !
+          str "": str
+    return: !
+      local _1 text: str
+body method Path::extension -> str
+  param _0 self: Path
+  block
+    let _1 name: str
+      call-method Path::file_name: str
+        local _0 self: Path
+    if-let: void
+      call last_dot: usize?
+        local _1 name: str
+      bind _2 at
+      block
+        return: !
+          call sub: str
+            local _1 name: str
+            binary +: usize
+              local _2 at: usize
+              int 1: usize
+            len: usize
+              local _1 name: str
+    return: !
+      str "": str
+body method Path::stem -> str
+  param _0 self: Path
+  block
+    let _1 name: str
+      call-method Path::file_name: str
+        local _0 self: Path
+    if-let: void
+      call last_dot: usize?
+        local _1 name: str
+      bind _2 at
+      block
+        return: !
+          call sub: str
+            local _1 name: str
+            int 0: usize
+            local _2 at: usize
+    return: !
+      local _1 name: str
+body method Path::parent -> Path
+  param _0 self: Path
+  block
+    let _1 text: str
+      call-method Path::as_str: str
+        local _0 self: Path
+    if-let: void
+      call last_separator: usize?
+        local _1 text: str
+      bind _2 at
+      block
+        if: void
+          binary ==: bool
+            local _2 at: usize
+            int 0: usize
+          block
+            return: !
+              call-ctor Path#0: Path
+                str "/": str
+        if: void
+          binary &&: bool
+            binary ==: bool
+              local _2 at: usize
+              int 2: usize
+            binary ==: bool
+              index: u8
+                cast: []u8
+                  local _1 text: str
+                int 1: usize
+              cast: u8
+                char ':': char
+          block
+            return: !
+              call-ctor Path#0: Path
+                call sub: str
+                  local _1 text: str
+                  int 0: usize
+                  int 3: usize
+        return: !
+          call-ctor Path#0: Path
+            call sub: str
+              local _1 text: str
+              int 0: usize
+              local _2 at: usize
+    return: !
+      call-ctor Path#0: Path
+body method Path::with_extension -> Path
+  param _0 self: Path
+  param _1 ext: str
+  block
+    let _2 text: str
+      call-method Path::as_str: str
+        local _0 self: Path
+    let _3 name: str
+      call-method Path::file_name: str
+        local _0 self: Path
+    let _4 base: str
+      local _2 text: str
+    if-let: void
+      call last_dot: usize?
+        local _3 name: str
+      bind _5 at
+      block
+        assign =
+          local _4 base: str
+          call sub: str
+            local _2 text: str
+            int 0: usize
+            binary -: usize
+              len: usize
+                local _2 text: str
+              binary -: usize
+                len: usize
+                  local _3 name: str
+                local _5 at: usize
+    let _6 out: String
+      call-ctor String#0: String
+        local _4 base: str
+    if: void
+      binary >: bool
+        len: usize
+          local _1 ext: str
+        int 0: usize
+      block
+        call-method String::push: void
+          local _6 out: String
+          char '.': char
+        call-method String::push_str: void
+          local _6 out: String
+          local _1 ext: str
+    return: !
+      call-ctor Path#0: Path
+        call-method String::as_str: str
+          local _6 out: String
+body method Path::as_cstr -> cstr
+  param _0 self: Path
+  block
+    return: !
+      call-method String::as_cstr: cstr
+        field #0: String
+          local _0 self: Path
+body method Path::modified !-> Duration
+  param _0 self: Path
+  block
+    let _1 nanos: u64
+      call path_modified_nanos: u64
+        call-method Path::as_str: str
+          local _0 self: Path
+    if: void
+      binary !=: bool
+        call io_last_error: u32
+        int 0: u32
+      block
+        return: !
+          builtin error: !-> !
+            call io_last_error: u32
+            str "cannot read when {} was modified": str
+            call-method Path::as_str: str
+              local _0 self: Path
+    return: !
+      call-assoc Duration::from_nanos: Duration
+        local _1 nanos: u64
+body method Path::exists -> bool
+  param _0 self: Path
+  block
+    return: !
+      call path_exists: bool
+        call-method Path::as_str: str
+          local _0 self: Path
+body method Path::is_file -> bool
+  param _0 self: Path
+  block
+    return: !
+      call path_is_file: bool
+        call-method Path::as_str: str
+          local _0 self: Path
+body method Path::is_dir -> bool
+  param _0 self: Path
+  block
+    return: !
+      call path_is_dir: bool
+        call-method Path::as_str: str
+          local _0 self: Path
+body impl#16 method div -> Path
+  param _0 self: Path
+  param _1 rhs: str
+  block
+    return: !
+      call-method Path::join: Path
+        local _0 self: Path
+        local _1 rhs: str
+body impl#17 method eq -> bool
+  param _0 self: Path
+  param _1 rhs: &Path
+  block
+    return: !
+      binary ==: bool
+        call-method Path::as_str: str
+          local _0 self: Path
+        call-method Path::as_str: str
+          local _1 rhs: &Path
+body impl#18 method cmp -> Ordering
+  param _0 self: Path
+  param _1 rhs: &Path
+  block
+    return: !
+      call compare_bytes: Ordering
+        cast: []u8
+          call-method Path::as_str: str
+            local _0 self: Path
+        cast: []u8
+          call-method Path::as_str: str
+            local _1 rhs: &Path
+body impl#19 method hash -> u64
+  param _0 self: Path
+  block
+    return: !
+      call-method Hash::hash: u64
+        call-method Path::as_str: str
+          local _0 self: Path
+body fn is_separator -> bool
+  param _0 b: u8
+  block
+    return: !
+      binary ||: bool
+        binary ==: bool
+          local _0 b: u8
+          cast: u8
+            char '/': char
+        binary ==: bool
+          local _0 b: u8
+          cast: u8
+            char '\\': char
+body fn ends_with_separator -> bool
+  param _0 s: str
+  block
+    return: !
+      binary &&: bool
+        binary >: bool
+          len: usize
+            local _0 s: str
+          int 0: usize
+        binary ==: bool
+          index: u8
+            cast: []u8
+              local _0 s: str
+            binary -: usize
+              len: usize
+                local _0 s: str
+              int 1: usize
+          cast: u8
+            char '/': char
+body fn sub -> str
+  param _0 s: str
+  param _1 from: usize
+  param _2 to: usize
+  block
+    return: !
+      block-value: str
+        block
+          cast: str
+            slice: []u8
+              cast: []u8
+                local _0 s: str
+              local _1 from: usize
+              local _2 to: usize
+body fn last_separator -> usize?
+  param _0 s: str
+  block
+    let _1 bytes: []u8
+      cast: []u8
+        local _0 s: str
+    let _2 i: usize
+      len: usize
+        local _1 bytes: []u8
+    while
+      binary >: bool
+        local _2 i: usize
+        int 0: usize
+      block
+        assign -=
+          local _2 i: usize
+          int 1: usize
+        if: void
+          binary ==: bool
+            index: u8
+              local _1 bytes: []u8
+              local _2 i: usize
+            cast: u8
+              char '/': char
+          block
+            return: !
+              local _2 i: usize
+    return: !
+      none: usize?
+body fn last_dot -> usize?
+  param _0 name: str
+  block
+    let _1 bytes: []u8
+      cast: []u8
+        local _0 name: str
+    let _2 i: usize
+      len: usize
+        local _1 bytes: []u8
+    while
+      binary >: bool
+        local _2 i: usize
+        int 1: usize
+      block
+        assign -=
+          local _2 i: usize
+          int 1: usize
+        if: void
+          binary ==: bool
+            index: u8
+              local _1 bytes: []u8
+              local _2 i: usize
+            cast: u8
+              char '.': char
+          block
+            return: !
+              local _2 i: usize
+    return: !
+      none: usize?
+body method Process::args -> List<String>
+  block
+    let _0 out: List<String>
+      call-ctor List#0: List<String>
+    let _1 n: usize
+      call process_arg_count: usize
+    let _2 i: usize
+      int 0: usize
+    while
+      binary <: bool
+        local _2 i: usize
+        local _1 n: usize
+      block
+        call-method List::push: void
+          local _0 out: List<String>
+          call-ctor String#0: String
+            call process_arg: str
+              local _2 i: usize
+        assign +=
+          local _2 i: usize
+          int 1: usize
+    return: !
+      move: List<String>
+        local _0 out: List<String>
+body method Process::env -> String?
+  param _0 name: str
+  block
+    let _1 value: str
+      or: str
+        call process_env: str?
+          local _0 name: str
+        return: !
+          none: String?
+    return: !
+      call-ctor String#0: String
+        local _1 value: str
+body method Process::exit -> void
+  param _0 code: i32
+  block
+    call process_exit: void
+      local _0 code: i32
+body fn process_arg_count -> usize
+  block
+    (empty)
+body fn process_arg -> str
+  param _0 index: usize
+  block
+    (empty)
+body fn process_env -> str?
+  param _0 name: str
+  block
+    (empty)
+body fn process_exit -> void
+  param _0 code: i32
+  block
+    (empty)
 body const PI -> void
   block
     float 3.14159265358979: f32
@@ -3673,7 +5005,7 @@ body method Mat4::inverse -> Mat4?
                           int 2: usize
                       local _1 s0: f32
                   local _14 inv: f32
-body impl#14 method mul -> Mat4
+body impl#20 method mul -> Mat4
   param _0 self: Mat4
   param _1 rhs: Mat4
   block
@@ -3705,7 +5037,7 @@ body impl#14 method mul -> Mat4
                 field #0: [4]Vec4
                   local _1 rhs: Mat4
                 int 3: usize
-body impl#15 method mul -> Vec4
+body impl#21 method mul -> Vec4
   param _0 self: Mat4
   param _1 v: Vec4
   block
@@ -3741,7 +5073,7 @@ body impl#15 method mul -> Vec4
             int 3: usize
           field #3: f32
             local _1 v: Vec4
-body impl#16 method eq -> bool
+body impl#22 method eq -> bool
   param _0 self: Mat4
   param _1 rhs: &Mat4
   block
@@ -4283,7 +5615,7 @@ body method Quat::to_mat4 -> Mat4
                 float 0: f32
               #3
                 float 1: f32
-body impl#17 method mul -> Quat
+body impl#23 method mul -> Quat
   param _0 self: Quat
   param _1 rhs: Quat
   block
@@ -4385,7 +5717,7 @@ body impl#17 method mul -> Quat
                 local _0 self: Quat
               field #2: f32
                 local _1 rhs: Quat
-body impl#18 method mul -> Vec3
+body impl#24 method mul -> Vec3
   param _0 self: Quat
   param _1 rhs: Vec3
   block
@@ -4610,7 +5942,7 @@ body method Vec2::extend -> Vec3
             local _0 self: Vec2
         #2
           local _1 z: f32
-body impl#19 method add -> Vec2
+body impl#25 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -4628,7 +5960,7 @@ body impl#19 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#20 method sub -> Vec2
+body impl#26 method sub -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -4646,7 +5978,7 @@ body impl#20 method sub -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#21 method mul -> Vec2
+body impl#27 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -4664,7 +5996,7 @@ body impl#21 method mul -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#22 method mul -> Vec2
+body impl#28 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -4680,7 +6012,7 @@ body impl#22 method mul -> Vec2
             field #1: f32
               local _0 self: Vec2
             local _1 rhs: f32
-body impl#23 method div -> Vec2
+body impl#29 method div -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -4696,7 +6028,7 @@ body impl#23 method div -> Vec2
             field #1: f32
               local _0 self: Vec2
             local _1 rhs: f32
-body impl#24 method neg -> Vec2
+body impl#30 method neg -> Vec2
   param _0 self: Vec2
   block
     return: !
@@ -4709,7 +6041,7 @@ body impl#24 method neg -> Vec2
           unary -: f32
             field #1: f32
               local _0 self: Vec2
-body impl#25 method eq -> bool
+body impl#31 method eq -> bool
   param _0 self: Vec2
   param _1 rhs: &Vec2
   block
@@ -4762,7 +6094,7 @@ body method Vec2i::manhattan -> i32
               local _1 to: Vec2i
             field #1: i32
               local _0 self: Vec2i
-body impl#26 method add -> Vec2i
+body impl#32 method add -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: Vec2i
   block
@@ -4780,7 +6112,7 @@ body impl#26 method add -> Vec2i
               local _0 self: Vec2i
             field #1: i32
               local _1 rhs: Vec2i
-body impl#27 method sub -> Vec2i
+body impl#33 method sub -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: Vec2i
   block
@@ -4798,7 +6130,7 @@ body impl#27 method sub -> Vec2i
               local _0 self: Vec2i
             field #1: i32
               local _1 rhs: Vec2i
-body impl#28 method mul -> Vec2i
+body impl#34 method mul -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: i32
   block
@@ -4814,7 +6146,7 @@ body impl#28 method mul -> Vec2i
             field #1: i32
               local _0 self: Vec2i
             local _1 rhs: i32
-body impl#29 method neg -> Vec2i
+body impl#35 method neg -> Vec2i
   param _0 self: Vec2i
   block
     return: !
@@ -4827,7 +6159,7 @@ body impl#29 method neg -> Vec2i
           unary -: i32
             field #1: i32
               local _0 self: Vec2i
-body impl#30 method eq -> bool
+body impl#36 method eq -> bool
   param _0 self: Vec2i
   param _1 rhs: &Vec2i
   block
@@ -4843,7 +6175,7 @@ body impl#30 method eq -> bool
             local _0 self: Vec2i
           field #1: i32
             local _1 rhs: &Vec2i
-body impl#31 method hash -> u64
+body impl#37 method hash -> u64
   param _0 self: Vec2i
   block
     return: !
@@ -5132,7 +6464,7 @@ body method Vec3::extend -> Vec4
             local _0 self: Vec3
         #3
           local _1 w: f32
-body impl#32 method add -> Vec3
+body impl#38 method add -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -5156,7 +6488,7 @@ body impl#32 method add -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#33 method sub -> Vec3
+body impl#39 method sub -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -5180,7 +6512,7 @@ body impl#33 method sub -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#34 method mul -> Vec3
+body impl#40 method mul -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -5204,7 +6536,7 @@ body impl#34 method mul -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#35 method mul -> Vec3
+body impl#41 method mul -> Vec3
   param _0 self: Vec3
   param _1 rhs: f32
   block
@@ -5225,7 +6557,7 @@ body impl#35 method mul -> Vec3
             field #2: f32
               local _0 self: Vec3
             local _1 rhs: f32
-body impl#36 method div -> Vec3
+body impl#42 method div -> Vec3
   param _0 self: Vec3
   param _1 rhs: f32
   block
@@ -5246,7 +6578,7 @@ body impl#36 method div -> Vec3
             field #2: f32
               local _0 self: Vec3
             local _1 rhs: f32
-body impl#37 method neg -> Vec3
+body impl#43 method neg -> Vec3
   param _0 self: Vec3
   block
     return: !
@@ -5263,7 +6595,7 @@ body impl#37 method neg -> Vec3
           unary -: f32
             field #2: f32
               local _0 self: Vec3
-body impl#38 method eq -> bool
+body impl#44 method eq -> bool
   param _0 self: Vec3
   param _1 rhs: &Vec3
   block
@@ -5336,7 +6668,7 @@ body method Vec3i::manhattan -> i32
               local _1 to: Vec3i
             field #2: i32
               local _0 self: Vec3i
-body impl#39 method add -> Vec3i
+body impl#45 method add -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: Vec3i
   block
@@ -5360,7 +6692,7 @@ body impl#39 method add -> Vec3i
               local _0 self: Vec3i
             field #2: i32
               local _1 rhs: Vec3i
-body impl#40 method sub -> Vec3i
+body impl#46 method sub -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: Vec3i
   block
@@ -5384,7 +6716,7 @@ body impl#40 method sub -> Vec3i
               local _0 self: Vec3i
             field #2: i32
               local _1 rhs: Vec3i
-body impl#41 method mul -> Vec3i
+body impl#47 method mul -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: i32
   block
@@ -5405,7 +6737,7 @@ body impl#41 method mul -> Vec3i
             field #2: i32
               local _0 self: Vec3i
             local _1 rhs: i32
-body impl#42 method neg -> Vec3i
+body impl#48 method neg -> Vec3i
   param _0 self: Vec3i
   block
     return: !
@@ -5422,7 +6754,7 @@ body impl#42 method neg -> Vec3i
           unary -: i32
             field #2: i32
               local _0 self: Vec3i
-body impl#43 method eq -> bool
+body impl#49 method eq -> bool
   param _0 self: Vec3i
   param _1 rhs: &Vec3i
   block
@@ -5444,7 +6776,7 @@ body impl#43 method eq -> bool
             local _0 self: Vec3i
           field #2: i32
             local _1 rhs: &Vec3i
-body impl#44 method hash -> u64
+body impl#50 method hash -> u64
   param _0 self: Vec3i
   block
     return: !
@@ -5601,7 +6933,7 @@ body method Vec4::xyz -> Vec3
         #2
           field #2: f32
             local _0 self: Vec4
-body impl#45 method add -> Vec4
+body impl#51 method add -> Vec4
   param _0 self: Vec4
   param _1 rhs: Vec4
   block
@@ -5631,7 +6963,7 @@ body impl#45 method add -> Vec4
               local _0 self: Vec4
             field #3: f32
               local _1 rhs: Vec4
-body impl#46 method sub -> Vec4
+body impl#52 method sub -> Vec4
   param _0 self: Vec4
   param _1 rhs: Vec4
   block
@@ -5661,7 +6993,7 @@ body impl#46 method sub -> Vec4
               local _0 self: Vec4
             field #3: f32
               local _1 rhs: Vec4
-body impl#47 method mul -> Vec4
+body impl#53 method mul -> Vec4
   param _0 self: Vec4
   param _1 rhs: f32
   block
@@ -5687,7 +7019,7 @@ body impl#47 method mul -> Vec4
             field #3: f32
               local _0 self: Vec4
             local _1 rhs: f32
-body impl#48 method div -> Vec4
+body impl#54 method div -> Vec4
   param _0 self: Vec4
   param _1 rhs: f32
   block
@@ -5713,7 +7045,7 @@ body impl#48 method div -> Vec4
             field #3: f32
               local _0 self: Vec4
             local _1 rhs: f32
-body impl#49 method neg -> Vec4
+body impl#55 method neg -> Vec4
   param _0 self: Vec4
   block
     return: !
@@ -5734,7 +7066,7 @@ body impl#49 method neg -> Vec4
           unary -: f32
             field #3: f32
               local _0 self: Vec4
-body impl#50 method eq -> bool
+body impl#56 method eq -> bool
   param _0 self: Vec4
   param _1 rhs: &Vec4
   block
@@ -5813,6 +7145,12 @@ body field-default Box.0 -> void
 body field-default Box.1 -> void
   block
     null: ^mut Allocator
+body field-default Box.2 -> void
+  block
+    int 0: usize
+body field-default Box.3 -> void
+  block
+    int 0: usize
 body ctor Box#0 -> void
   param _0 self: Box<T>
   param _1 value: T
@@ -5829,6 +7167,18 @@ body ctor Box#0 -> void
         local _0 self: Box<T>
       local _2 allocator: ^mut Allocator
     assign =
+      field #2: usize
+        local _0 self: Box<T>
+      type-query T::size: usize
+    assign =
+      field #3: usize
+        local _0 self: Box<T>
+      type-query T::align: usize
+    assign =
+      field #4: fn(^mut u8) -> void
+        local _0 self: Box<T>
+      fn-item drop_value_as<T>: fn(^mut u8) -> void
+    assign =
       field #0: own ^mut T
         local _0 self: Box<T>
       block-value: ^mut T
@@ -5836,8 +7186,10 @@ body ctor Box#0 -> void
           cast: ^mut T
             call-method Allocator::alloc: ^mut u8
               local _4 a: &mut Allocator
-              type-query T::size: usize
-              type-query T::align: usize
+              field #2: usize
+                local _0 self: Box<T>
+              field #3: usize
+                local _0 self: Box<T>
               local _3 loc: SourceLocation
     block-value: void
       block
@@ -5858,28 +7210,33 @@ body drop Box -> void
         null: own ^mut T
       block
         return: !
-    block-value: void
-      block
-        builtin destroy: void
-          index: T
-            field #0: own ^mut T
-              local _0 self: Box<T>
-            int 0: usize
-    let _1 a: &mut Allocator
-      or: &mut Allocator
-        field #1: ^mut Allocator
-          local _0 self: Box<T>
-        return: !
-    call-method Allocator::free: void
-      local _1 a: &mut Allocator
+    let _1 drop_value: fn(^mut u8) -> void
+      field #4: fn(^mut u8) -> void
+        local _0 self: Box<T>
+    call-value: void
+      local _1 drop_value: fn(^mut u8) -> void
       block-value: ^mut u8
         block
           cast: ^mut u8
             field #0: own ^mut T
               local _0 self: Box<T>
-      type-query T::size: usize
-      type-query T::align: usize
-body impl#52 method is_null -> bool
+    let _2 a: &mut Allocator
+      or: &mut Allocator
+        field #1: ^mut Allocator
+          local _0 self: Box<T>
+        return: !
+    call-method Allocator::free: void
+      local _2 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            field #0: own ^mut T
+              local _0 self: Box<T>
+      field #2: usize
+        local _0 self: Box<T>
+      field #3: usize
+        local _0 self: Box<T>
+body impl#58 method is_null -> bool
   param _0 self: Box<T>
   block
     return: !
@@ -5887,7 +7244,7 @@ body impl#52 method is_null -> bool
         field #0: own ^mut T
           local _0 self: Box<T>
         null: own ^mut T
-body impl#52 method guard -> Unguarded<T>
+body impl#58 method guard -> Unguarded<T>
   param _0 self: Box<T>
   block
     return: !
@@ -5895,7 +7252,7 @@ body impl#52 method guard -> Unguarded<T>
         #0
           field #0: own ^mut T
             local _0 self: Box<T>
-body impl#52 method ptr -> ^mut T
+body impl#58 method ptr -> ^mut T
   param _0 self: Box<T>
   block
     return: !
@@ -5904,7 +7261,7 @@ body impl#52 method ptr -> ^mut T
 body const HEAP_ALIGN -> void
   block
     int 8: usize
-body impl#53 method alloc -> ^mut u8
+body impl#59 method alloc -> ^mut u8
   param _0 self: Heap
   param _1 size: usize
   param _2 align: usize
@@ -5962,7 +7319,7 @@ body impl#53 method alloc -> ^mut u8
     error
     return: !
       local _7 p: ^mut u8
-body impl#53 method realloc -> ^mut u8
+body impl#59 method realloc -> ^mut u8
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -6006,7 +7363,7 @@ body impl#53 method realloc -> ^mut u8
           local _5 loc: SourceLocation
     return: !
       local _6 q: ^mut u8
-body impl#53 method free -> void
+body impl#59 method free -> void
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 size: usize
@@ -6044,7 +7401,10 @@ body impl#53 method free -> void
                     int 0: usize
 body field-default Rc.0 -> void
   block
-    null: ^mut RcBlock<T>
+    null: ^mut RcHeader
+body field-default Rc.1 -> void
+  block
+    null: ^mut T
 body ctor Rc#0 -> void
   param _0 self: Rc<T>
   param _1 value: T
@@ -6060,9 +7420,7 @@ body ctor Rc#0 -> void
       type-query RcBlock<T>::size: usize
     let _6 align: usize
       type-query RcBlock<T>::align: usize
-    assign =
-      field #0: ^mut RcBlock<T>
-        local _0 self: Rc<T>
+    let _7 block: ^mut RcBlock<T>
       block-value: ^mut RcBlock<T>
         block
           cast: ^mut RcBlock<T>
@@ -6071,147 +7429,190 @@ body ctor Rc#0 -> void
               local _5 size: usize
               local _6 align: usize
               local _3 loc: SourceLocation
+    let _8 header: RcHeader
+      struct-lit RcHeader: RcHeader
+        #0
+          int 1: usize
+        #1
+          int 0: usize
+        #2
+          local _2 allocator: ^mut Allocator
+        #3
+          local _5 size: usize
+        #4
+          local _6 align: usize
+        #5
+          fn-item drop_value_as<T>: fn(^mut u8) -> void
     block-value: void
       block
         builtin construct: void
           index: RcBlock<T>
-            field #0: ^mut RcBlock<T>
-              local _0 self: Rc<T>
+            local _7 block: ^mut RcBlock<T>
             int 0: usize
           struct-lit RcBlock: RcBlock<T>
             #0
-              int 1: usize
+              local _8 header: RcHeader
             #1
-              int 0: usize
-            #2
-              local _2 allocator: ^mut Allocator
-            #3
               move: T
                 local _1 value: T
+        assign =
+          field #0: ^mut RcHeader
+            local _0 self: Rc<T>
+          ref mut: &mut RcHeader
+            field #0: RcHeader
+              index: RcBlock<T>
+                local _7 block: ^mut RcBlock<T>
+                int 0: usize
+        assign =
+          field #1: ^mut T
+            local _0 self: Rc<T>
+          ref mut: &mut T
+            field #1: T
+              index: RcBlock<T>
+                local _7 block: ^mut RcBlock<T>
+                int 0: usize
 body method Rc::count -> usize
   param _0 self: Rc<T>
   block
-    let _1 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    let _1 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Rc<T>
         return: !
           int 0: usize
     return: !
       field #0: usize
-        local _1 b: &mut RcBlock<T>
+        local _1 h: &mut RcHeader
 body method Rc::weak_count -> usize
   param _0 self: Rc<T>
   block
-    let _1 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    let _1 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Rc<T>
         return: !
           int 0: usize
     return: !
       field #1: usize
-        local _1 b: &mut RcBlock<T>
+        local _1 h: &mut RcHeader
 body drop Rc -> void
   param _0 self: Rc<T>
   block
-    let _1 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    let _1 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Rc<T>
         return: !
     assign -=
       field #0: usize
-        local _1 b: &mut RcBlock<T>
+        local _1 h: &mut RcHeader
       int 1: usize
     if: void
       binary >: bool
         field #0: usize
-          local _1 b: &mut RcBlock<T>
+          local _1 h: &mut RcHeader
         int 0: usize
       block
         return: !
-    block-value: void
-      block
-        builtin destroy: void
-          field #3: T
-            index: RcBlock<T>
-              field #0: ^mut RcBlock<T>
-                local _0 self: Rc<T>
-              int 0: usize
+    let _2 drop_value: fn(^mut u8) -> void
+      field #5: fn(^mut u8) -> void
+        local _1 h: &mut RcHeader
+    call-value: void
+      local _2 drop_value: fn(^mut u8) -> void
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            field #1: ^mut T
+              local _0 self: Rc<T>
     if: void
       binary ==: bool
         field #1: usize
-          local _1 b: &mut RcBlock<T>
+          local _1 h: &mut RcHeader
         int 0: usize
       block
-        let _2 a: &mut Allocator
+        let _3 a: &mut Allocator
           or: &mut Allocator
             field #2: ^mut Allocator
-              local _1 b: &mut RcBlock<T>
+              local _1 h: &mut RcHeader
             return: !
         call-method Allocator::free: void
-          local _2 a: &mut Allocator
+          local _3 a: &mut Allocator
           block-value: ^mut u8
             block
               cast: ^mut u8
-                field #0: ^mut RcBlock<T>
+                field #0: ^mut RcHeader
                   local _0 self: Rc<T>
-          type-query RcBlock<T>::size: usize
-          type-query RcBlock<T>::align: usize
+          field #3: usize
+            local _1 h: &mut RcHeader
+          field #4: usize
+            local _1 h: &mut RcHeader
 body copy Rc -> void
   param _0 self: Rc<T>
   param _1 other: &Rc<T>
   block
     assign =
-      field #0: ^mut RcBlock<T>
+      field #0: ^mut RcHeader
         local _0 self: Rc<T>
-      field #0: ^mut RcBlock<T>
+      field #0: ^mut RcHeader
         local _1 other: &Rc<T>
-    let _2 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    assign =
+      field #1: ^mut T
+        local _0 self: Rc<T>
+      field #1: ^mut T
+        local _1 other: &Rc<T>
+    let _2 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Rc<T>
         return: !
     assign +=
       field #0: usize
-        local _2 b: &mut RcBlock<T>
+        local _2 h: &mut RcHeader
       int 1: usize
-body impl#56 method is_null -> bool
+body impl#62 method is_null -> bool
   param _0 self: Rc<T>
   block
     return: !
       binary ==: bool
-        field #0: ^mut RcBlock<T>
+        field #0: ^mut RcHeader
           local _0 self: Rc<T>
-        null: ^mut RcBlock<T>
-body impl#56 method guard -> Rc<T>
+        null: ^mut RcHeader
+body impl#62 method guard -> Rc<T>
   param _0 self: Rc<T>
   block
     return: !
       local _0 self: Rc<T>
-body impl#56 method ptr -> ^mut T
+body impl#62 method ptr -> ^mut T
   param _0 self: Rc<T>
   block
-    let _1 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
-          local _0 self: Rc<T>
-        return: !
-          null: ^mut T
     return: !
-      ref mut: &mut T
-        field #3: T
-          local _1 b: &mut RcBlock<T>
-body field-default RcBlock.0 -> void
+      field #1: ^mut T
+        local _0 self: Rc<T>
+body field-default RcHeader.0 -> void
   block
     int 0: usize
-body field-default RcBlock.1 -> void
+body field-default RcHeader.1 -> void
   block
     int 0: usize
-body field-default RcBlock.2 -> void
+body field-default RcHeader.2 -> void
   block
     null: ^mut Allocator
+body field-default RcHeader.3 -> void
+  block
+    int 0: usize
+body field-default RcHeader.4 -> void
+  block
+    int 0: usize
+body fn drop_value_as -> void
+  param _0 p: ^mut u8
+  block
+    block-value: void
+      block
+        builtin destroy: void
+          index: T
+            cast: ^mut T
+              local _0 p: ^mut u8
+            int 0: usize
 body const TEMP_HEADER -> void
   block
     int 16: usize
@@ -6424,7 +7825,7 @@ body method TempArena::owns -> bool
                 int 0: usize
     return: !
       bool false: bool
-body impl#57 method alloc -> ^mut u8
+body impl#63 method alloc -> ^mut u8
   param _0 self: TempArena
   param _1 size: usize
   param _2 align: usize
@@ -6472,7 +7873,7 @@ body impl#57 method alloc -> ^mut u8
               local _4 start: usize
     return: !
       local _5 p: ^mut u8
-body impl#57 method realloc -> ^mut u8
+body impl#63 method realloc -> ^mut u8
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -6550,7 +7951,7 @@ body impl#57 method realloc -> ^mut u8
               local _8 kept: usize
     return: !
       local _7 q: ^mut u8
-body impl#57 method free -> void
+body impl#63 method free -> void
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 size: usize
@@ -6584,7 +7985,7 @@ body drop TempArena -> void
 body field-default Unguarded.0 -> void
   block
     null: ^mut T
-body impl#59 method is_null -> bool
+body impl#65 method is_null -> bool
   param _0 self: Unguarded<T>
   block
     return: !
@@ -6592,12 +7993,12 @@ body impl#59 method is_null -> bool
         field #0: ^mut T
           local _0 self: Unguarded<T>
         null: ^mut T
-body impl#59 method guard -> Unguarded<T>
+body impl#65 method guard -> Unguarded<T>
   param _0 self: Unguarded<T>
   block
     return: !
       local _0 self: Unguarded<T>
-body impl#59 method ptr -> ^mut T
+body impl#65 method ptr -> ^mut T
   param _0 self: Unguarded<T>
   block
     return: !
@@ -6605,145 +8006,331 @@ body impl#59 method ptr -> ^mut T
         local _0 self: Unguarded<T>
 body field-default Weak.0 -> void
   block
-    null: ^mut RcBlock<T>
+    null: ^mut RcHeader
+body field-default Weak.1 -> void
+  block
+    null: ^mut T
 body ctor Weak#0 -> void
   param _0 self: Weak<T>
   param _1 rc: &Rc<T>
   block
     assign =
-      field #0: ^mut RcBlock<T>
+      field #0: ^mut RcHeader
         local _0 self: Weak<T>
-      field #0: ^mut RcBlock<T>
+      field #0: ^mut RcHeader
         local _1 rc: &Rc<T>
-    let _2 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    assign =
+      field #1: ^mut T
+        local _0 self: Weak<T>
+      field #1: ^mut T
+        local _1 rc: &Rc<T>
+    let _2 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Weak<T>
         return: !
     assign +=
       field #1: usize
-        local _2 b: &mut RcBlock<T>
+        local _2 h: &mut RcHeader
       int 1: usize
 body drop Weak -> void
   param _0 self: Weak<T>
   block
-    let _1 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    let _1 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Weak<T>
         return: !
     assign -=
       field #1: usize
-        local _1 b: &mut RcBlock<T>
+        local _1 h: &mut RcHeader
       int 1: usize
     if: void
       binary &&: bool
         binary ==: bool
           field #1: usize
-            local _1 b: &mut RcBlock<T>
+            local _1 h: &mut RcHeader
           int 0: usize
         binary ==: bool
           field #0: usize
-            local _1 b: &mut RcBlock<T>
+            local _1 h: &mut RcHeader
           int 0: usize
       block
         let _2 a: &mut Allocator
           or: &mut Allocator
             field #2: ^mut Allocator
-              local _1 b: &mut RcBlock<T>
+              local _1 h: &mut RcHeader
             return: !
         call-method Allocator::free: void
           local _2 a: &mut Allocator
           block-value: ^mut u8
             block
               cast: ^mut u8
-                field #0: ^mut RcBlock<T>
+                field #0: ^mut RcHeader
                   local _0 self: Weak<T>
-          type-query RcBlock<T>::size: usize
-          type-query RcBlock<T>::align: usize
+          field #3: usize
+            local _1 h: &mut RcHeader
+          field #4: usize
+            local _1 h: &mut RcHeader
 body copy Weak -> void
   param _0 self: Weak<T>
   param _1 other: &Weak<T>
   block
     assign =
-      field #0: ^mut RcBlock<T>
+      field #0: ^mut RcHeader
         local _0 self: Weak<T>
-      field #0: ^mut RcBlock<T>
+      field #0: ^mut RcHeader
         local _1 other: &Weak<T>
-    let _2 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    assign =
+      field #1: ^mut T
+        local _0 self: Weak<T>
+      field #1: ^mut T
+        local _1 other: &Weak<T>
+    let _2 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Weak<T>
         return: !
     assign +=
       field #1: usize
-        local _2 b: &mut RcBlock<T>
+        local _2 h: &mut RcHeader
       int 1: usize
-body impl#62 method is_null -> bool
+body impl#68 method is_null -> bool
   param _0 self: Weak<T>
   block
-    let _1 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    let _1 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Weak<T>
         return: !
           bool true: bool
     return: !
       binary ==: bool
         field #0: usize
-          local _1 b: &mut RcBlock<T>
+          local _1 h: &mut RcHeader
         int 0: usize
-body impl#62 method guard -> Rc<T>
+body impl#68 method guard -> Rc<T>
   param _0 self: Weak<T>
   block
     let _1 r: Rc<T>
       null: Rc<T>
-    let _2 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    let _2 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Weak<T>
         return: !
           local _1 r: Rc<T>
     if: void
       binary ==: bool
         field #0: usize
-          local _2 b: &mut RcBlock<T>
+          local _2 h: &mut RcHeader
         int 0: usize
       block
         return: !
           local _1 r: Rc<T>
     assign +=
       field #0: usize
-        local _2 b: &mut RcBlock<T>
+        local _2 h: &mut RcHeader
       int 1: usize
     assign =
-      field #0: ^mut RcBlock<T>
+      field #0: ^mut RcHeader
         local _1 r: Rc<T>
-      field #0: ^mut RcBlock<T>
+      field #0: ^mut RcHeader
+        local _0 self: Weak<T>
+    assign =
+      field #1: ^mut T
+        local _1 r: Rc<T>
+      field #1: ^mut T
         local _0 self: Weak<T>
     return: !
       local _1 r: Rc<T>
-body impl#62 method ptr -> ^mut T
+body impl#68 method ptr -> ^mut T
   param _0 self: Weak<T>
   block
-    let _1 b: &mut RcBlock<T>
-      or: &mut RcBlock<T>
-        field #0: ^mut RcBlock<T>
+    let _1 h: &mut RcHeader
+      or: &mut RcHeader
+        field #0: ^mut RcHeader
           local _0 self: Weak<T>
         return: !
           null: ^mut T
     if: void
       binary ==: bool
         field #0: usize
-          local _1 b: &mut RcBlock<T>
+          local _1 h: &mut RcHeader
         int 0: usize
       block
         return: !
           null: ^mut T
     return: !
-      ref mut: &mut T
-        field #3: T
-          local _1 b: &mut RcBlock<T>
+      field #1: ^mut T
+        local _0 self: Weak<T>
+body method Random::seed -> void
+  param _0 seed: u64
+  block
+    block-value: void
+      block
+        assign =
+          field #0: u64
+            static RANDOM: RandomState
+          local _0 seed: u64
+        assign =
+          field #1: bool
+            static RANDOM: RandomState
+          bool true: bool
+body method Random::next_u64 -> u64
+  block
+    block-value: !
+      block
+        if: void
+          unary !: bool
+            field #1: bool
+              static RANDOM: RandomState
+          block
+            assign =
+              field #0: u64
+                static RANDOM: RandomState
+              binary ^^: u64
+                call unix_nanos: u64
+                call-method Integer::wrapping_mul: u64
+                  call monotonic_nanos: u64
+                  int 11400714819323198485: u64
+            assign =
+              field #1: bool
+                static RANDOM: RandomState
+              bool true: bool
+        assign =
+          field #0: u64
+            static RANDOM: RandomState
+          call-method Integer::wrapping_add: u64
+            field #0: u64
+              static RANDOM: RandomState
+            int 11400714819323198485: u64
+        let _0 z: u64
+          field #0: u64
+            static RANDOM: RandomState
+        assign =
+          local _0 z: u64
+          call-method Integer::wrapping_mul: u64
+            binary ^^: u64
+              local _0 z: u64
+              binary >>: u64
+                local _0 z: u64
+                int 30: u64
+            int 13787848793156543929: u64
+        assign =
+          local _0 z: u64
+          call-method Integer::wrapping_mul: u64
+            binary ^^: u64
+              local _0 z: u64
+              binary >>: u64
+                local _0 z: u64
+                int 27: u64
+            int 10723151780598845931: u64
+        return: !
+          binary ^^: u64
+            local _0 z: u64
+            binary >>: u64
+              local _0 z: u64
+              int 31: u64
+body method Random::next_u32 -> u32
+  block
+    return: !
+      cast: u32
+        binary >>: u64
+          call-assoc Random::next_u64: u64
+          int 32: u64
+body method Random::next_f32 -> f32
+  block
+    return: !
+      binary /: f32
+        cast: f32
+          binary >>: u64
+            call-assoc Random::next_u64: u64
+            int 40: u64
+        float 16777216: f32
+body method Random::next_f64 -> f64
+  block
+    return: !
+      binary /: f64
+        cast: f64
+          binary >>: u64
+            call-assoc Random::next_u64: u64
+            int 11: u64
+        float 9007199254740992: f64
+body method Random::range -> T
+  param _0 lo: T
+  param _1 hi: T
+  block
+    return: !
+      call-method Number::uniform: T
+        local _0 lo: T
+        move: T
+          local _1 hi: T
+        call-assoc Random::next_u64: u64
+body method Random::chance -> bool
+  param _0 p: f32
+  block
+    return: !
+      binary <: bool
+        call-assoc Random::next_f32: f32
+        local _0 p: f32
+body method Random::unit_vec2 -> Vec2
+  block
+    let _0 angle: f32
+      binary *: f32
+        call-assoc Random::next_f32: f32
+        const TAU: f32
+    return: !
+      struct-lit Vec2: Vec2
+        #0
+          call-method Float::cos: f32
+            local _0 angle: f32
+        #1
+          call-method Float::sin: f32
+            local _0 angle: f32
+body method Random::unit_vec3 -> Vec3
+  block
+    let _0 z: f32
+      call-assoc Random::range<f32>: f32
+        unary -: f32
+          float 1: f32
+        float 1: f32
+    let _1 angle: f32
+      binary *: f32
+        call-assoc Random::next_f32: f32
+        const TAU: f32
+    let _2 r: f32
+      call-method Float::sqrt: f32
+        binary -: f32
+          float 1: f64
+          binary *: f32
+            local _0 z: f32
+            local _0 z: f32
+    return: !
+      struct-lit Vec3: Vec3
+        #0
+          binary *: f32
+            local _2 r: f32
+            call-method Float::cos: f32
+              local _1 angle: f32
+        #1
+          binary *: f32
+            local _2 r: f32
+            call-method Float::sin: f32
+              local _1 angle: f32
+        #2
+          local _0 z: f32
+body field-default RandomState.0 -> void
+  block
+    int 0: u64
+body field-default RandomState.1 -> void
+  block
+    bool false: bool
+body static RANDOM -> void
+  block
+    struct-lit RandomState: RandomState
+      #0 (default)
+      #1 (default)
 body method FieldInfo::tag_value -> str?
   param _0 self: FieldInfo
   param _1 key: str
@@ -6876,7 +8463,7 @@ body method FieldInfo::tag_value -> str?
           int 1: usize
     return: !
       none: str?
-body impl#63 method eq -> bool
+body impl#69 method eq -> bool
   param _0 self: TypeId
   param _1 rhs: &TypeId
   block
@@ -6886,13 +8473,257 @@ body impl#63 method eq -> bool
           local _0 self: TypeId
         field #0: u32
           local _1 rhs: &TypeId
-body impl#64 method hash -> u64
+body impl#70 method hash -> u64
   param _0 self: TypeId
   block
     return: !
       call-method Hash::hash: u64
         field #0: u32
           local _0 self: TypeId
+body field-default Chars.1 -> void
+  block
+    int 0: usize
+body ctor Chars#0 -> void
+  param _0 self: Chars
+  param _1 text: str
+  block
+    assign =
+      field #0: str
+        local _0 self: Chars
+      local _1 text: str
+body method Chars::offset -> usize
+  param _0 self: Chars
+  block
+    return: !
+      field #1: usize
+        local _0 self: Chars
+body impl#71 method valid -> bool
+  param _0 self: Chars
+  block
+    return: !
+      binary <: bool
+        field #1: usize
+          local _0 self: Chars
+        len: usize
+          field #0: str
+            local _0 self: Chars
+body impl#71 method get -> char
+  param _0 self: Chars
+  block
+    let (_1 c, _)
+      call decode_utf8: (char, usize)
+        cast: []u8
+          field #0: str
+            local _0 self: Chars
+        field #1: usize
+          local _0 self: Chars
+    return: !
+      local _1 c: char
+body impl#71 method advance -> void
+  param _0 self: Chars
+  block
+    let (_, _1 width)
+      call decode_utf8: (char, usize)
+        cast: []u8
+          field #0: str
+            local _0 self: Chars
+        field #1: usize
+          local _0 self: Chars
+    assign +=
+      field #1: usize
+        local _0 self: Chars
+      local _1 width: usize
+body fn decode_utf8 -> (char, usize)
+  param _0 bytes: []u8
+  param _1 at: usize
+  block
+    let _2 bad: (char, usize)
+      tuple: (char, usize)
+        cast: char
+          int 65533: i32
+        int 1: usize
+    let _3 first: u32
+      cast: u32
+        index: u8
+          local _0 bytes: []u8
+          local _1 at: usize
+    if: void
+      binary <: bool
+        local _3 first: u32
+        int 128: u32
+      block
+        return: !
+          tuple: (char, usize)
+            cast: char
+              local _3 first: u32
+            int 1: usize
+    let _4 width: usize
+      int 0: usize
+    let _5 cp: u32
+      int 0: u32
+    if: void
+      binary ==: bool
+        binary &: u32
+          local _3 first: u32
+          int 224: u32
+        int 192: u32
+      block
+        assign =
+          local _4 width: usize
+          int 2: usize
+        assign =
+          local _5 cp: u32
+          binary &: u32
+            local _3 first: u32
+            int 31: u32
+      block
+        if: void
+          binary ==: bool
+            binary &: u32
+              local _3 first: u32
+              int 240: u32
+            int 224: u32
+          block
+            assign =
+              local _4 width: usize
+              int 3: usize
+            assign =
+              local _5 cp: u32
+              binary &: u32
+                local _3 first: u32
+                int 15: u32
+          block
+            if: void
+              binary ==: bool
+                binary &: u32
+                  local _3 first: u32
+                  int 248: u32
+                int 240: u32
+              block
+                assign =
+                  local _4 width: usize
+                  int 4: usize
+                assign =
+                  local _5 cp: u32
+                  binary &: u32
+                    local _3 first: u32
+                    int 7: u32
+              block
+                block-value: !
+                  block
+                    return: !
+                      local _2 bad: (char, usize)
+    if: void
+      binary >: bool
+        binary +: usize
+          local _1 at: usize
+          local _4 width: usize
+        len: usize
+          local _0 bytes: []u8
+      block
+        return: !
+          local _2 bad: (char, usize)
+    let _6 k: usize
+      int 1: usize
+    while
+      binary <: bool
+        local _6 k: usize
+        local _4 width: usize
+      block
+        let _7 b: u32
+          cast: u32
+            index: u8
+              local _0 bytes: []u8
+              binary +: usize
+                local _1 at: usize
+                local _6 k: usize
+        if: void
+          binary !=: bool
+            binary &: u32
+              local _7 b: u32
+              int 192: u32
+            int 128: u32
+          block
+            return: !
+              local _2 bad: (char, usize)
+        assign =
+          local _5 cp: u32
+          binary |: u32
+            binary <<: u32
+              local _5 cp: u32
+              int 6: u32
+            binary &: u32
+              local _7 b: u32
+              int 63: u32
+        assign +=
+          local _6 k: usize
+          int 1: usize
+    let _8 smallest: [5]u32
+      array: [5]u32
+        int 0: u32
+        int 0: u32
+        int 128: u32
+        int 2048: u32
+        int 65536: u32
+    if: void
+      binary ||: bool
+        binary ||: bool
+          binary <: bool
+            local _5 cp: u32
+            index: u32
+              local _8 smallest: [5]u32
+              local _4 width: usize
+          binary >: bool
+            local _5 cp: u32
+            int 1114111: u32
+        binary &&: bool
+          binary >=: bool
+            local _5 cp: u32
+            int 55296: u32
+          binary <=: bool
+            local _5 cp: u32
+            int 57343: u32
+      block
+        return: !
+          local _2 bad: (char, usize)
+    return: !
+      tuple: (char, usize)
+        cast: char
+          local _5 cp: u32
+        local _4 width: usize
+body fn is_utf8_boundary -> bool
+  param _0 bytes: []u8
+  param _1 at: usize
+  block
+    if: void
+      binary ||: bool
+        binary ==: bool
+          local _1 at: usize
+          int 0: usize
+        binary ==: bool
+          local _1 at: usize
+          len: usize
+            local _0 bytes: []u8
+      block
+        return: !
+          bool true: bool
+    if: void
+      binary >: bool
+        local _1 at: usize
+        len: usize
+          local _0 bytes: []u8
+      block
+        return: !
+          bool false: bool
+    return: !
+      binary !=: bool
+        binary &: u32
+          cast: u32
+            index: u8
+              local _0 bytes: []u8
+              local _1 at: usize
+          int 192: u32
+        int 128: u32
 body ctor String#0 -> void
   param _0 self: String
   param _1 s: str
@@ -6918,6 +8749,22 @@ body method String::from -> String
     return: !
       call-ctor String#0: String
         local _0 s: str
+        local _1 allocator: ^mut Allocator
+        local _2 loc: SourceLocation
+body method String::from_utf8 -> String?
+  param _0 bytes: []u8
+  param _1 allocator: ^mut Allocator
+  param _2 loc: SourceLocation
+  block
+    let _3 text: str
+      or: str
+        builtin str_from_utf8: str?
+          local _0 bytes: []u8
+        return: !
+          none: String?
+    return: !
+      call-ctor String#0: String
+        local _3 text: str
         local _1 allocator: ^mut Allocator
         local _2 loc: SourceLocation
 body method String::len -> usize
@@ -7063,6 +8910,161 @@ body method String::clear -> void
     call-method List::clear: void
       field #0: List<u8>
         local _0 self: String
+body method String::chars -> Chars
+  param _0 self: String
+  block
+    return: !
+      call-ctor Chars#0: Chars
+        call-method String::as_str: str
+          local _0 self: String
+body method String::char_count -> usize
+  param _0 self: String
+  block
+    let _1 bytes: []u8
+      cast: []u8
+        call-method String::as_str: str
+          local _0 self: String
+    let _2 n: usize
+      int 0: usize
+    for _3 b
+      local _1 bytes: []u8
+      block
+        if: void
+          binary !=: bool
+            binary &: u32
+              cast: u32
+                local _3 b: u8
+              int 192: u32
+            int 128: u32
+          block
+            assign +=
+              local _2 n: usize
+              int 1: usize
+    return: !
+      local _2 n: usize
+body method String::pop -> char?
+  param _0 self: String
+  block
+    let _1 len: usize
+      call-method String::len: usize
+        local _0 self: String
+    if: void
+      binary ==: bool
+        local _1 len: usize
+        int 0: usize
+      block
+        return: !
+          none: char?
+    let _2 bytes: []u8
+      cast: []u8
+        call-method String::as_str: str
+          local _0 self: String
+    let _3 start: usize
+      binary -: usize
+        local _1 len: usize
+        int 1: usize
+    while
+      binary &&: bool
+        binary >: bool
+          local _3 start: usize
+          int 0: usize
+        unary !: bool
+          call is_utf8_boundary: bool
+            local _2 bytes: []u8
+            local _3 start: usize
+      block
+        assign -=
+          local _3 start: usize
+          int 1: usize
+    let (_4 c, _)
+      call decode_utf8: (char, usize)
+        local _2 bytes: []u8
+        local _3 start: usize
+    call-method String::truncate: void
+      local _0 self: String
+      local _3 start: usize
+    return: !
+      local _4 c: char
+body method String::is_char_boundary -> bool
+  param _0 self: String
+  param _1 index: usize
+  block
+    return: !
+      call is_utf8_boundary: bool
+        cast: []u8
+          call-method String::as_str: str
+            local _0 self: String
+        local _1 index: usize
+body method String::slice -> str?
+  param _0 self: String
+  param _1 from: usize
+  param _2 to: usize
+  block
+    let _3 bytes: []u8
+      cast: []u8
+        call-method String::as_str: str
+          local _0 self: String
+    if: void
+      binary ||: bool
+        binary ||: bool
+          binary ||: bool
+            binary >: bool
+              local _1 from: usize
+              local _2 to: usize
+            binary >: bool
+              local _2 to: usize
+              len: usize
+                local _3 bytes: []u8
+          unary !: bool
+            call is_utf8_boundary: bool
+              local _3 bytes: []u8
+              local _1 from: usize
+        unary !: bool
+          call is_utf8_boundary: bool
+            local _3 bytes: []u8
+            local _2 to: usize
+      block
+        return: !
+          none: str?
+    return: !
+      block-value: str
+        block
+          cast: str
+            slice: []u8
+              local _3 bytes: []u8
+              local _1 from: usize
+              local _2 to: usize
+body method String::truncate -> void
+  param _0 self: String
+  param _1 len: usize
+  param _2 loc: SourceLocation
+  block
+    if: void
+      binary >=: bool
+        local _1 len: usize
+        call-method String::len: usize
+          local _0 self: String
+      block
+        return: !
+    if: void
+      unary !: bool
+        call-method String::is_char_boundary: bool
+          local _0 self: String
+          local _1 len: usize
+      block
+        builtin panic: !
+          str "truncate at byte {}, inside a character": str
+          local _1 len: usize
+          local _2 loc: SourceLocation
+    call-method List::truncate: void
+      field #0: List<u8>
+        local _0 self: String
+      local _1 len: usize
+    call-method List::push: void
+      field #0: List<u8>
+        local _0 self: String
+      int 0: u8
+      local _2 loc: SourceLocation
 body method String::reserve -> void
   param _0 self: String
   param _1 additional: usize
@@ -7075,7 +9077,7 @@ body method String::reserve -> void
         local _1 additional: usize
         int 1: usize
       local _2 loc: SourceLocation
-body impl#65 method eq -> bool
+body impl#72 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -7085,7 +9087,25 @@ body impl#65 method eq -> bool
           local _0 self: String
         call-method String::as_str: str
           local _1 rhs: &String
-body impl#66 method hash -> u64
+body impl#73 method cmp -> Ordering
+  param _0 self: String
+  param _1 rhs: &String
+  block
+    return: !
+      call compare_bytes: Ordering
+        cast: []u8
+          call-method String::as_str: str
+            local _0 self: String
+        cast: []u8
+          call-method String::as_str: str
+            local _1 rhs: &String
+body impl#74 method iter -> Chars
+  param _0 self: String
+  block
+    return: !
+      call-method String::chars: Chars
+        local _0 self: String
+body impl#75 method hash -> u64
   param _0 self: String
   block
     return: !
@@ -7224,6 +9244,1307 @@ body fn encode_utf8 -> usize
             int 63: u32
     return: !
       int 4: usize
+body method Text::starts_with -> bool
+  param _0 self: Text
+  param _1 prefix: str
+  block
+    let _2 t: str
+      call-method Text::text: str
+        local _0 self: Text
+    return: !
+      binary &&: bool
+        binary >=: bool
+          len: usize
+            local _2 t: str
+          len: usize
+            local _1 prefix: str
+        binary ==: bool
+          call sub: str
+            local _2 t: str
+            int 0: usize
+            len: usize
+              local _1 prefix: str
+          local _1 prefix: str
+body method Text::ends_with -> bool
+  param _0 self: Text
+  param _1 suffix: str
+  block
+    let _2 t: str
+      call-method Text::text: str
+        local _0 self: Text
+    return: !
+      binary &&: bool
+        binary >=: bool
+          len: usize
+            local _2 t: str
+          len: usize
+            local _1 suffix: str
+        binary ==: bool
+          call sub: str
+            local _2 t: str
+            binary -: usize
+              len: usize
+                local _2 t: str
+              len: usize
+                local _1 suffix: str
+            len: usize
+              local _2 t: str
+          local _1 suffix: str
+body method Text::find -> usize?
+  param _0 self: Text
+  param _1 needle: str
+  block
+    return: !
+      call find_bytes: usize?
+        call-method Text::text: str
+          local _0 self: Text
+        local _1 needle: str
+        int 0: usize
+body method Text::contains -> bool
+  param _0 self: Text
+  param _1 needle: str
+  block
+    return: !
+      binary !=: bool
+        call-method Text::find: usize?
+          local _0 self: Text
+          local _1 needle: str
+        none: usize?
+body method Text::trim -> str
+  param _0 self: Text
+  block
+    let _1 t: str
+      call-method Text::text: str
+        local _0 self: Text
+    let _2 start: usize
+      call trim_start_at: usize
+        local _1 t: str
+    let _3 end: usize
+      call trim_end_at: usize
+        local _1 t: str
+    if: void
+      binary >=: bool
+        local _2 start: usize
+        local _3 end: usize
+      block
+        return: !
+          str "": str
+    return: !
+      call sub: str
+        local _1 t: str
+        local _2 start: usize
+        local _3 end: usize
+body method Text::trim_start -> str
+  param _0 self: Text
+  block
+    let _1 t: str
+      call-method Text::text: str
+        local _0 self: Text
+    return: !
+      call sub: str
+        local _1 t: str
+        call trim_start_at: usize
+          local _1 t: str
+        len: usize
+          local _1 t: str
+body method Text::trim_end -> str
+  param _0 self: Text
+  block
+    let _1 t: str
+      call-method Text::text: str
+        local _0 self: Text
+    return: !
+      call sub: str
+        local _1 t: str
+        int 0: usize
+        call trim_end_at: usize
+          local _1 t: str
+body method Text::split -> Split
+  param _0 self: Text
+  param _1 separator: str
+  block
+    return: !
+      call-ctor Split#0: Split
+        call-method Text::text: str
+          local _0 self: Text
+        local _1 separator: str
+body method Text::lines -> Lines
+  param _0 self: Text
+  block
+    return: !
+      call-ctor Lines#0: Lines
+        call-method Text::text: str
+          local _0 self: Text
+body method Text::replace -> String
+  param _0 self: Text
+  param _1 from: str
+  param _2 to: str
+  block
+    let _3 t: str
+      call-method Text::text: str
+        local _0 self: Text
+    let _4 out: String
+      call-ctor String#0: String
+    if: void
+      binary ==: bool
+        len: usize
+          local _1 from: str
+        int 0: usize
+      block
+        call-method String::push_str: void
+          local _4 out: String
+          local _3 t: str
+        return: !
+          local _4 out: String
+    let _5 at: usize
+      int 0: usize
+    while
+      bool true: bool
+      block
+        let _6 found: usize
+          or: usize
+            call find_bytes: usize?
+              local _3 t: str
+              local _1 from: str
+              local _5 at: usize
+            clause _
+              block
+                call-method String::push_str: void
+                  local _4 out: String
+                  call sub: str
+                    local _3 t: str
+                    local _5 at: usize
+                    len: usize
+                      local _3 t: str
+                return: !
+                  local _4 out: String
+        call-method String::push_str: void
+          local _4 out: String
+          call sub: str
+            local _3 t: str
+            local _5 at: usize
+            local _6 found: usize
+        call-method String::push_str: void
+          local _4 out: String
+          local _2 to: str
+        assign =
+          local _5 at: usize
+          binary +: usize
+            local _6 found: usize
+            len: usize
+              local _1 from: str
+    return: !
+      local _4 out: String
+body method Text::to_ascii_lowercase -> String
+  param _0 self: Text
+  block
+    return: !
+      call ascii_case: String
+        call-method Text::text: str
+          local _0 self: Text
+        bool true: bool
+body method Text::to_ascii_uppercase -> String
+  param _0 self: Text
+  block
+    return: !
+      call ascii_case: String
+        call-method Text::text: str
+          local _0 self: Text
+        bool false: bool
+body method Text::parse_i64 -> i64?
+  param _0 self: Text
+  block
+    let _1 bytes: []u8
+      cast: []u8
+        call-method Text::text: str
+          local _0 self: Text
+    if: void
+      binary ==: bool
+        len: usize
+          local _1 bytes: []u8
+        int 0: usize
+      block
+        return: !
+          none: i64?
+    let _2 negative: bool
+      binary ==: bool
+        index: u8
+          local _1 bytes: []u8
+          int 0: usize
+        cast: u8
+          char '-': char
+    let _3 signed: bool
+      binary ||: bool
+        local _2 negative: bool
+        binary ==: bool
+          index: u8
+            local _1 bytes: []u8
+            int 0: usize
+          cast: u8
+            char '+': char
+    let _4 digits: usize
+      if: usize
+        local _3 signed: bool
+        block
+          int 1: usize
+        block
+          block-value: usize
+            block
+              int 0: usize
+    if: void
+      binary ==: bool
+        local _4 digits: usize
+        len: usize
+          local _1 bytes: []u8
+      block
+        return: !
+          none: i64?
+    let _5 value: i64
+      int 0: i64
+    let _6 i: usize
+      local _4 digits: usize
+    while
+      binary <: bool
+        local _6 i: usize
+        len: usize
+          local _1 bytes: []u8
+      block
+        let _7 d: i64
+          binary -: i64
+            cast: i64
+              index: u8
+                local _1 bytes: []u8
+                local _6 i: usize
+            cast: i64
+              char '0': char
+        if: void
+          binary ||: bool
+            binary <: bool
+              local _7 d: i64
+              int 0: i64
+            binary >: bool
+              local _7 d: i64
+              int 9: i64
+          block
+            return: !
+              none: i64?
+        let _8 times: i64
+          or: i64
+            call-method Integer::checked_mul: i64?
+              local _5 value: i64
+              int 10: i64
+            return: !
+              none: i64?
+        assign =
+          local _5 value: i64
+          or: i64
+            call-method Integer::checked_sub: i64?
+              local _8 times: i64
+              local _7 d: i64
+            return: !
+              none: i64?
+        assign +=
+          local _6 i: usize
+          int 1: usize
+    if: void
+      local _2 negative: bool
+      block
+        return: !
+          local _5 value: i64
+    return: !
+      call-method Integer::checked_mul: i64?
+        local _5 value: i64
+        int -1: i64
+body method Text::parse_u64 -> u64?
+  param _0 self: Text
+  block
+    let _1 bytes: []u8
+      cast: []u8
+        call-method Text::text: str
+          local _0 self: Text
+    if: void
+      binary ==: bool
+        len: usize
+          local _1 bytes: []u8
+        int 0: usize
+      block
+        return: !
+          none: u64?
+    let _2 value: u64
+      int 0: u64
+    for _3 b
+      local _1 bytes: []u8
+      block
+        if: void
+          binary ||: bool
+            binary <: bool
+              local _3 b: u8
+              cast: u8
+                char '0': char
+            binary >: bool
+              local _3 b: u8
+              cast: u8
+                char '9': char
+          block
+            return: !
+              none: u64?
+        let _4 times: u64
+          or: u64
+            call-method Integer::checked_mul: u64?
+              local _2 value: u64
+              int 10: u64
+            return: !
+              none: u64?
+        assign =
+          local _2 value: u64
+          or: u64
+            call-method Integer::checked_add: u64?
+              local _4 times: u64
+              cast: u64
+                binary -: u8
+                  local _3 b: u8
+                  cast: u8
+                    char '0': char
+            return: !
+              none: u64?
+    return: !
+      local _2 value: u64
+body method Text::parse_f64 -> f64?
+  param _0 self: Text
+  block
+    let _1 t: str
+      call-method Text::text: str
+        local _0 self: Text
+    if: void
+      unary !: bool
+        call is_decimal_number: bool
+          local _1 t: str
+      block
+        return: !
+          none: f64?
+    return: !
+      call text_parse_f64: f64?
+        local _1 t: str
+body method Text::parse_f32 -> f32?
+  param _0 self: Text
+  block
+    let _1 v: f64
+      or: f64
+        call-method Text::parse_f64: f64?
+          local _0 self: Text
+        return: !
+          none: f32?
+    return: !
+      cast: f32
+        local _1 v: f64
+body impl#76 method text -> str
+  param _0 self: str
+  block
+    return: !
+      local _0 self: str
+body impl#77 method text -> str
+  param _0 self: String
+  block
+    return: !
+      call-method String::as_str: str
+        local _0 self: String
+body field-default Split.2 -> void
+  block
+    int 0: usize
+body field-default Split.3 -> void
+  block
+    int 0: usize
+body field-default Split.4 -> void
+  block
+    bool false: bool
+body ctor Split#0 -> void
+  param _0 self: Split
+  param _1 text: str
+  param _2 separator: str
+  block
+    assign =
+      field #0: str
+        local _0 self: Split
+      local _1 text: str
+    assign =
+      field #1: str
+        local _0 self: Split
+      local _2 separator: str
+    call-method Split::find_end: void
+      local _0 self: Split
+body method Split::find_end -> void
+  param _0 self: Split
+  block
+    if: void
+      binary ==: bool
+        len: usize
+          field #1: str
+            local _0 self: Split
+        int 0: usize
+      block
+        assign =
+          field #3: usize
+            local _0 self: Split
+          len: usize
+            field #0: str
+              local _0 self: Split
+        return: !
+    if-let: void
+      call find_bytes: usize?
+        field #0: str
+          local _0 self: Split
+        field #1: str
+          local _0 self: Split
+        field #2: usize
+          local _0 self: Split
+      bind _1 at
+      block
+        assign =
+          field #3: usize
+            local _0 self: Split
+          local _1 at: usize
+      block
+        block-value: void
+          block
+            assign =
+              field #3: usize
+                local _0 self: Split
+              len: usize
+                field #0: str
+                  local _0 self: Split
+body impl#78 method valid -> bool
+  param _0 self: Split
+  block
+    return: !
+      unary !: bool
+        field #4: bool
+          local _0 self: Split
+body impl#78 method get -> str
+  param _0 self: Split
+  block
+    return: !
+      call sub: str
+        field #0: str
+          local _0 self: Split
+        field #2: usize
+          local _0 self: Split
+        field #3: usize
+          local _0 self: Split
+body impl#78 method advance -> void
+  param _0 self: Split
+  block
+    if: void
+      binary ||: bool
+        binary >=: bool
+          field #3: usize
+            local _0 self: Split
+          len: usize
+            field #0: str
+              local _0 self: Split
+        binary ==: bool
+          len: usize
+            field #1: str
+              local _0 self: Split
+          int 0: usize
+      block
+        assign =
+          field #4: bool
+            local _0 self: Split
+          bool true: bool
+        return: !
+    assign =
+      field #2: usize
+        local _0 self: Split
+      binary +: usize
+        field #3: usize
+          local _0 self: Split
+        len: usize
+          field #1: str
+            local _0 self: Split
+    call-method Split::find_end: void
+      local _0 self: Split
+body field-default Lines.1 -> void
+  block
+    int 0: usize
+body field-default Lines.2 -> void
+  block
+    int 0: usize
+body ctor Lines#0 -> void
+  param _0 self: Lines
+  param _1 text: str
+  block
+    assign =
+      field #0: str
+        local _0 self: Lines
+      local _1 text: str
+    call-method Lines::find_end: void
+      local _0 self: Lines
+body method Lines::find_end -> void
+  param _0 self: Lines
+  block
+    if-let: void
+      call find_bytes: usize?
+        field #0: str
+          local _0 self: Lines
+        str "\n": str
+        field #1: usize
+          local _0 self: Lines
+      bind _1 at
+      block
+        assign =
+          field #2: usize
+            local _0 self: Lines
+          local _1 at: usize
+      block
+        block-value: void
+          block
+            assign =
+              field #2: usize
+                local _0 self: Lines
+              len: usize
+                field #0: str
+                  local _0 self: Lines
+body impl#79 method valid -> bool
+  param _0 self: Lines
+  block
+    return: !
+      binary <: bool
+        field #1: usize
+          local _0 self: Lines
+        len: usize
+          field #0: str
+            local _0 self: Lines
+body impl#79 method get -> str
+  param _0 self: Lines
+  block
+    let _1 end: usize
+      field #2: usize
+        local _0 self: Lines
+    if: void
+      binary &&: bool
+        binary >: bool
+          local _1 end: usize
+          field #1: usize
+            local _0 self: Lines
+        binary ==: bool
+          index: u8
+            cast: []u8
+              field #0: str
+                local _0 self: Lines
+            binary -: usize
+              local _1 end: usize
+              int 1: usize
+          cast: u8
+            char '\r': char
+      block
+        assign -=
+          local _1 end: usize
+          int 1: usize
+    return: !
+      call sub: str
+        field #0: str
+          local _0 self: Lines
+        field #1: usize
+          local _0 self: Lines
+        local _1 end: usize
+body impl#79 method advance -> void
+  param _0 self: Lines
+  block
+    assign =
+      field #1: usize
+        local _0 self: Lines
+      binary +: usize
+        field #2: usize
+          local _0 self: Lines
+        int 1: usize
+    call-method Lines::find_end: void
+      local _0 self: Lines
+body fn find_bytes -> usize?
+  param _0 hay: str
+  param _1 needle: str
+  param _2 from: usize
+  block
+    let _3 h: []u8
+      cast: []u8
+        local _0 hay: str
+    let _4 n: []u8
+      cast: []u8
+        local _1 needle: str
+    if: void
+      binary ==: bool
+        len: usize
+          local _4 n: []u8
+        int 0: usize
+      block
+        return: !
+          if: usize?
+            binary <=: bool
+              local _2 from: usize
+              len: usize
+                local _3 h: []u8
+            block
+              local _2 from: usize
+            block
+              block-value: usize?
+                block
+                  none: usize?
+    if: void
+      binary >: bool
+        len: usize
+          local _4 n: []u8
+        len: usize
+          local _3 h: []u8
+      block
+        return: !
+          none: usize?
+    let _5 i: usize
+      local _2 from: usize
+    while
+      binary <=: bool
+        binary +: usize
+          local _5 i: usize
+          len: usize
+            local _4 n: []u8
+        len: usize
+          local _3 h: []u8
+      block
+        let _6 k: usize
+          int 0: usize
+        while
+          binary &&: bool
+            binary <: bool
+              local _6 k: usize
+              len: usize
+                local _4 n: []u8
+            binary ==: bool
+              index: u8
+                local _3 h: []u8
+                binary +: usize
+                  local _5 i: usize
+                  local _6 k: usize
+              index: u8
+                local _4 n: []u8
+                local _6 k: usize
+          block
+            assign +=
+              local _6 k: usize
+              int 1: usize
+        if: void
+          binary ==: bool
+            local _6 k: usize
+            len: usize
+              local _4 n: []u8
+          block
+            return: !
+              local _5 i: usize
+        assign +=
+          local _5 i: usize
+          int 1: usize
+    return: !
+      none: usize?
+body fn is_space -> bool
+  param _0 b: u8
+  block
+    return: !
+      binary ||: bool
+        binary ||: bool
+          binary ||: bool
+            binary ||: bool
+              binary ||: bool
+                binary ==: bool
+                  local _0 b: u8
+                  cast: u8
+                    char ' ': char
+                binary ==: bool
+                  local _0 b: u8
+                  cast: u8
+                    char '\t': char
+              binary ==: bool
+                local _0 b: u8
+                cast: u8
+                  char '\n': char
+            binary ==: bool
+              local _0 b: u8
+              cast: u8
+                char '\r': char
+          binary ==: bool
+            local _0 b: u8
+            int 11: u8
+        binary ==: bool
+          local _0 b: u8
+          int 12: u8
+body fn trim_start_at -> usize
+  param _0 t: str
+  block
+    let _1 bytes: []u8
+      cast: []u8
+        local _0 t: str
+    let _2 i: usize
+      int 0: usize
+    while
+      binary &&: bool
+        binary <: bool
+          local _2 i: usize
+          len: usize
+            local _1 bytes: []u8
+        call is_space: bool
+          index: u8
+            local _1 bytes: []u8
+            local _2 i: usize
+      block
+        assign +=
+          local _2 i: usize
+          int 1: usize
+    return: !
+      local _2 i: usize
+body fn trim_end_at -> usize
+  param _0 t: str
+  block
+    let _1 bytes: []u8
+      cast: []u8
+        local _0 t: str
+    let _2 end: usize
+      len: usize
+        local _1 bytes: []u8
+    while
+      binary &&: bool
+        binary >: bool
+          local _2 end: usize
+          int 0: usize
+        call is_space: bool
+          index: u8
+            local _1 bytes: []u8
+            binary -: usize
+              local _2 end: usize
+              int 1: usize
+      block
+        assign -=
+          local _2 end: usize
+          int 1: usize
+    return: !
+      local _2 end: usize
+body fn ascii_case -> String
+  param _0 t: str
+  param _1 lower: bool
+  block
+    let _2 out: String
+      call-ctor String#0: String
+    call-method String::reserve: void
+      local _2 out: String
+      len: usize
+        local _0 t: str
+    for _3 c
+      call-ctor Chars#0: Chars
+        local _0 t: str
+      block
+        let _4 code: u32
+          cast: u32
+            local _3 c: char
+        if: void
+          binary &&: bool
+            binary &&: bool
+              local _1 lower: bool
+              binary >=: bool
+                local _4 code: u32
+                cast: u32
+                  char 'A': char
+            binary <=: bool
+              local _4 code: u32
+              cast: u32
+                char 'Z': char
+          block
+            call-method String::push: void
+              local _2 out: String
+              cast: char
+                binary +: u32
+                  local _4 code: u32
+                  int 32: u32
+          block
+            if: void
+              binary &&: bool
+                binary &&: bool
+                  unary !: bool
+                    local _1 lower: bool
+                  binary >=: bool
+                    local _4 code: u32
+                    cast: u32
+                      char 'a': char
+                binary <=: bool
+                  local _4 code: u32
+                  cast: u32
+                    char 'z': char
+              block
+                call-method String::push: void
+                  local _2 out: String
+                  cast: char
+                    binary -: u32
+                      local _4 code: u32
+                      int 32: u32
+              block
+                block-value: void
+                  block
+                    call-method String::push: void
+                      local _2 out: String
+                      local _3 c: char
+    return: !
+      local _2 out: String
+body fn is_decimal_number -> bool
+  param _0 t: str
+  block
+    let _1 b: []u8
+      cast: []u8
+        local _0 t: str
+    let _2 i: usize
+      int 0: usize
+    if: void
+      binary &&: bool
+        binary <: bool
+          local _2 i: usize
+          len: usize
+            local _1 b: []u8
+        binary ||: bool
+          binary ==: bool
+            index: u8
+              local _1 b: []u8
+              local _2 i: usize
+            cast: u8
+              char '+': char
+          binary ==: bool
+            index: u8
+              local _1 b: []u8
+              local _2 i: usize
+            cast: u8
+              char '-': char
+      block
+        assign +=
+          local _2 i: usize
+          int 1: usize
+    let _3 digits: i32
+      int 0: i32
+    while
+      binary &&: bool
+        binary &&: bool
+          binary <: bool
+            local _2 i: usize
+            len: usize
+              local _1 b: []u8
+          binary >=: bool
+            index: u8
+              local _1 b: []u8
+              local _2 i: usize
+            cast: u8
+              char '0': char
+        binary <=: bool
+          index: u8
+            local _1 b: []u8
+            local _2 i: usize
+          cast: u8
+            char '9': char
+      block
+        assign +=
+          local _2 i: usize
+          int 1: usize
+        assign +=
+          local _3 digits: i32
+          int 1: i32
+    if: void
+      binary &&: bool
+        binary <: bool
+          local _2 i: usize
+          len: usize
+            local _1 b: []u8
+        binary ==: bool
+          index: u8
+            local _1 b: []u8
+            local _2 i: usize
+          cast: u8
+            char '.': char
+      block
+        assign +=
+          local _2 i: usize
+          int 1: usize
+        while
+          binary &&: bool
+            binary &&: bool
+              binary <: bool
+                local _2 i: usize
+                len: usize
+                  local _1 b: []u8
+              binary >=: bool
+                index: u8
+                  local _1 b: []u8
+                  local _2 i: usize
+                cast: u8
+                  char '0': char
+            binary <=: bool
+              index: u8
+                local _1 b: []u8
+                local _2 i: usize
+              cast: u8
+                char '9': char
+          block
+            assign +=
+              local _2 i: usize
+              int 1: usize
+            assign +=
+              local _3 digits: i32
+              int 1: i32
+    if: void
+      binary ==: bool
+        local _3 digits: i32
+        int 0: i32
+      block
+        return: !
+          bool false: bool
+    if: void
+      binary &&: bool
+        binary <: bool
+          local _2 i: usize
+          len: usize
+            local _1 b: []u8
+        binary ||: bool
+          binary ==: bool
+            index: u8
+              local _1 b: []u8
+              local _2 i: usize
+            cast: u8
+              char 'e': char
+          binary ==: bool
+            index: u8
+              local _1 b: []u8
+              local _2 i: usize
+            cast: u8
+              char 'E': char
+      block
+        assign +=
+          local _2 i: usize
+          int 1: usize
+        if: void
+          binary &&: bool
+            binary <: bool
+              local _2 i: usize
+              len: usize
+                local _1 b: []u8
+            binary ||: bool
+              binary ==: bool
+                index: u8
+                  local _1 b: []u8
+                  local _2 i: usize
+                cast: u8
+                  char '+': char
+              binary ==: bool
+                index: u8
+                  local _1 b: []u8
+                  local _2 i: usize
+                cast: u8
+                  char '-': char
+          block
+            assign +=
+              local _2 i: usize
+              int 1: usize
+        let _4 exponent: i32
+          int 0: i32
+        while
+          binary &&: bool
+            binary &&: bool
+              binary <: bool
+                local _2 i: usize
+                len: usize
+                  local _1 b: []u8
+              binary >=: bool
+                index: u8
+                  local _1 b: []u8
+                  local _2 i: usize
+                cast: u8
+                  char '0': char
+            binary <=: bool
+              index: u8
+                local _1 b: []u8
+                local _2 i: usize
+              cast: u8
+                char '9': char
+          block
+            assign +=
+              local _2 i: usize
+              int 1: usize
+            assign +=
+              local _4 exponent: i32
+              int 1: i32
+        if: void
+          binary ==: bool
+            local _4 exponent: i32
+            int 0: i32
+          block
+            return: !
+              bool false: bool
+    return: !
+      binary ==: bool
+        local _2 i: usize
+        len: usize
+          local _1 b: []u8
+body fn text_parse_f64 -> f64?
+  param _0 text: str
+  block
+    (empty)
+body field-default Duration.0 -> void
+  block
+    int 0: u64
+body method Duration::from_nanos -> Duration
+  param _0 nanos: u64
+  block
+    return: !
+      struct-lit Duration: Duration
+        #0
+          local _0 nanos: u64
+body method Duration::from_micros -> Duration
+  param _0 micros: u64
+  block
+    return: !
+      struct-lit Duration: Duration
+        #0
+          binary *: u64
+            local _0 micros: u64
+            int 1000: u64
+body method Duration::from_millis -> Duration
+  param _0 millis: u64
+  block
+    return: !
+      struct-lit Duration: Duration
+        #0
+          binary *: u64
+            local _0 millis: u64
+            int 1000000: u64
+body method Duration::from_secs -> Duration
+  param _0 secs: u64
+  block
+    return: !
+      struct-lit Duration: Duration
+        #0
+          binary *: u64
+            local _0 secs: u64
+            int 1000000000: u64
+body method Duration::from_secs_f32 -> Duration
+  param _0 secs: f32
+  block
+    return: !
+      call-assoc Duration::from_secs_f64: Duration
+        cast: f64
+          local _0 secs: f32
+body method Duration::from_secs_f64 -> Duration
+  param _0 secs: f64
+  block
+    if: void
+      binary <=: bool
+        local _0 secs: f64
+        float 0: f64
+      block
+        return: !
+          struct-lit Duration: Duration
+            #0 (default)
+    return: !
+      struct-lit Duration: Duration
+        #0
+          cast: u64
+            binary *: f64
+              local _0 secs: f64
+              float 1000000000: f64
+body method Duration::as_nanos -> u64
+  param _0 self: Duration
+  block
+    return: !
+      field #0: u64
+        local _0 self: Duration
+body method Duration::as_micros -> u64
+  param _0 self: Duration
+  block
+    return: !
+      binary /: u64
+        field #0: u64
+          local _0 self: Duration
+        int 1000: u64
+body method Duration::as_millis -> u64
+  param _0 self: Duration
+  block
+    return: !
+      binary /: u64
+        field #0: u64
+          local _0 self: Duration
+        int 1000000: u64
+body method Duration::as_secs -> u64
+  param _0 self: Duration
+  block
+    return: !
+      binary /: u64
+        field #0: u64
+          local _0 self: Duration
+        int 1000000000: u64
+body method Duration::as_secs_f32 -> f32
+  param _0 self: Duration
+  block
+    return: !
+      cast: f32
+        call-method Duration::as_secs_f64: f64
+          local _0 self: Duration
+body method Duration::as_secs_f64 -> f64
+  param _0 self: Duration
+  block
+    return: !
+      binary /: f64
+        cast: f64
+          field #0: u64
+            local _0 self: Duration
+        float 1000000000: f64
+body method Duration::is_zero -> bool
+  param _0 self: Duration
+  block
+    return: !
+      binary ==: bool
+        field #0: u64
+          local _0 self: Duration
+        int 0: u64
+body impl#80 method add -> Duration
+  param _0 self: Duration
+  param _1 rhs: Duration
+  block
+    return: !
+      struct-lit Duration: Duration
+        #0
+          call-method Integer::saturating_add: u64
+            field #0: u64
+              local _0 self: Duration
+            field #0: u64
+              local _1 rhs: Duration
+body impl#81 method sub -> Duration
+  param _0 self: Duration
+  param _1 rhs: Duration
+  block
+    return: !
+      struct-lit Duration: Duration
+        #0
+          call-method Integer::saturating_sub: u64
+            field #0: u64
+              local _0 self: Duration
+            field #0: u64
+              local _1 rhs: Duration
+body impl#82 method eq -> bool
+  param _0 self: Duration
+  param _1 rhs: &Duration
+  block
+    return: !
+      binary ==: bool
+        field #0: u64
+          local _0 self: Duration
+        field #0: u64
+          local _1 rhs: &Duration
+body impl#83 method cmp -> Ordering
+  param _0 self: Duration
+  param _1 rhs: &Duration
+  block
+    return: !
+      call-method Ord::cmp: Ordering
+        field #0: u64
+          local _0 self: Duration
+        ref: &u64
+          field #0: u64
+            local _1 rhs: &Duration
+body impl#84 method hash -> u64
+  param _0 self: Duration
+  block
+    return: !
+      call-method Hash::hash: u64
+        field #0: u64
+          local _0 self: Duration
+body field-default Instant.0 -> void
+  block
+    int 0: u64
+body method Instant::now -> Instant
+  block
+    return: !
+      struct-lit Instant: Instant
+        #0
+          call monotonic_nanos: u64
+body method Instant::elapsed -> Duration
+  param _0 self: Instant
+  block
+    return: !
+      call-assoc Duration::from_nanos: Duration
+        call-method Integer::saturating_sub: u64
+          call monotonic_nanos: u64
+          field #0: u64
+            local _0 self: Instant
+body method Instant::since -> Duration
+  param _0 self: Instant
+  param _1 earlier: Instant
+  block
+    return: !
+      call-assoc Duration::from_nanos: Duration
+        call-method Integer::saturating_sub: u64
+          field #0: u64
+            local _0 self: Instant
+          field #0: u64
+            local _1 earlier: Instant
+body impl#85 method sub -> Duration
+  param _0 self: Instant
+  param _1 rhs: Instant
+  block
+    return: !
+      call-method Instant::since: Duration
+        local _0 self: Instant
+        local _1 rhs: Instant
+body impl#86 method add -> Instant
+  param _0 self: Instant
+  param _1 rhs: Duration
+  block
+    return: !
+      struct-lit Instant: Instant
+        #0
+          call-method Integer::saturating_add: u64
+            field #0: u64
+              local _0 self: Instant
+            call-method Duration::as_nanos: u64
+              local _1 rhs: Duration
+body impl#87 method eq -> bool
+  param _0 self: Instant
+  param _1 rhs: &Instant
+  block
+    return: !
+      binary ==: bool
+        field #0: u64
+          local _0 self: Instant
+        field #0: u64
+          local _1 rhs: &Instant
+body impl#88 method cmp -> Ordering
+  param _0 self: Instant
+  param _1 rhs: &Instant
+  block
+    return: !
+      call-method Ord::cmp: Ordering
+        field #0: u64
+          local _0 self: Instant
+        ref: &u64
+          field #0: u64
+            local _1 rhs: &Instant
+body fn monotonic_nanos -> u64
+  block
+    (empty)
+body fn unix_nanos -> u64
+  block
+    (empty)
+body fn sleep_nanos -> void
+  param _0 nanos: u64
+  block
+    (empty)
+body method Time::sleep -> void
+  param _0 d: Duration
+  block
+    call sleep_nanos: void
+      call-method Duration::as_nanos: u64
+        local _0 d: Duration
+body method Time::unix -> Duration
+  block
+    return: !
+      call-assoc Duration::from_nanos: Duration
+        call unix_nanos: u64
 body const MAX -> void
   block
     int 4096: i32
@@ -8019,12 +11340,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#70 method describe -> str
+body impl#92 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#71 method weight -> i32
+body impl#93 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -8168,7 +11489,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#72 method eq -> bool
+body impl#94 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -8178,7 +11499,7 @@ body impl#72 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#73 method cmp -> Ordering
+body impl#95 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -8245,7 +11566,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#74 method add -> Vec2
+body impl#96 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -8263,7 +11584,7 @@ body impl#74 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#75 method mul -> Vec2
+body impl#97 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -8357,7 +11678,7 @@ body fn formatting -> void
       local _0 x: i32
       local _0 x: i32
       local _1 f: f32
-body impl#76 method valid -> bool
+body impl#98 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -8366,13 +11687,13 @@ body impl#76 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#76 method get -> i32
+body impl#98 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#76 method advance -> void
+body impl#98 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -8559,7 +11880,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#77 method mul -> Scale
+body impl#99 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -8570,7 +11891,7 @@ body impl#77 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#78 method mul -> f32
+body impl#100 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -8586,7 +11907,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#79 method label -> str
+body impl#101 method label -> str
   param _0 self: f32
   block
     return: !
@@ -8597,7 +11918,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#80 method label -> str
+body impl#102 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -8610,7 +11931,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#81 method shout -> str
+body impl#103 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -8878,6 +12199,35 @@ body fn reads_a_widget -> i32
     return: !
       call-method Widget::origin: i32
         local _0 w: &Widget
+body fn handles_to_a_base -> usize
+  param _0 d: Rc<Dialog>
+  param _1 owned: Box<Panel>
+  block
+    let _2 shared: Rc<Widget>
+      local _0 d: Rc<Dialog>
+    let _3 watcher: Weak<Widget>
+      call-ctor Weak#0: Weak<Dialog>
+        ref: &Rc<Dialog>
+          local _0 d: Rc<Dialog>
+    let _4 widgets: List<Rc<Widget>>
+      call-ctor List#0: List<Rc<Widget>>
+    call-method List::push: void
+      local _4 widgets: List<Rc<Widget>>
+      local _0 d: Rc<Dialog>
+    let _5 boxed: Box<Widget>
+      move: Box<Panel>
+        local _1 owned: Box<Panel>
+    let _: _
+      move: Box<Widget>
+        local _5 boxed: Box<Widget>
+    let _: _
+      local _3 watcher: Weak<Widget>
+    return: !
+      binary +: usize
+        call-method Rc::count: usize
+          local _2 shared: Rc<Widget>
+        call-method List::len: usize
+          local _4 widgets: List<Rc<Widget>>
 body fn base_pointer_from_a_derived_one -> ^Widget
   param _0 d: ^mut Dialog
   block
@@ -9024,7 +12374,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#84 method measure -> i32
+body impl#106 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -9042,7 +12392,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#85 method measure -> i32
+body impl#107 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -9329,7 +12679,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#86 method eq -> bool
+body impl#108 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -9345,7 +12695,7 @@ body impl#86 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#87 method hash -> u64
+body impl#109 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -9430,7 +12780,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#88 method neg -> Heading
+body impl#110 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -9439,7 +12789,7 @@ body impl#88 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#89 method eq -> bool
+body impl#111 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -9483,7 +12833,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#90 method named -> str
+body impl#112 method named -> str
   param _0 self: Heading
   block
     return: !
@@ -9527,6 +12877,323 @@ body fn variadic_calls -> i32
             local _1 xs: []i32
         cast: i32
           local _2 n: usize
+body method Shelf::paired -> (U, U)
+  param _0 self: Shelf<T>
+  param _1 other: U
+  block
+    return: !
+      tuple: (U, U)
+        local _1 other: U
+        local _1 other: U
+body method Shelf::take -> U
+  param _0 first: U
+  param _1 second: U
+  block
+    let _: _
+      move: U
+        local _1 second: U
+    return: !
+      move: U
+        local _0 first: U
+body fn generic_methods -> i32
+  param _0 s: &Shelf<bool>
+  block
+    let _1 a: (i32, i32)
+      call-method Shelf::paired<i32>: (i32, i32)
+        local _0 s: &Shelf<bool>
+        int 3: i32
+    let _2 b: (u8, u8)
+      call-method Shelf::paired<u8>: (u8, u8)
+        local _0 s: &Shelf<bool>
+        int 4: u8
+    let _3 c: i32
+      call-assoc Shelf::take<i32>: i32
+        int 5: i32
+        int 6: i32
+    let _4 d: i64
+      call-assoc Shelf::take<i64>: i64
+        int 7: i64
+        int 8: i64
+    let _5 less: bool
+      binary <: bool
+        field #0: bool
+          local _0 s: &Shelf<bool>
+        bool true: bool
+    return: !
+      binary +: i32
+        binary +: i32
+          binary +: i32
+            binary +: i32
+              tuple-index #0: i32
+                local _1 a: (i32, i32)
+              cast: i32
+                tuple-index #1: u8
+                  local _2 b: (u8, u8)
+            local _3 c: i32
+          cast: i32
+            local _4 d: i64
+        if: i32
+          local _5 less: bool
+          block
+            int 1: i32
+          block
+            block-value: i32
+              block
+                int 0: i32
+body fn reading_text -> i64
+  param _0 line: &String
+  param _1 raw: str
+  block
+    let _2 total: i64
+      int 0: i64
+    for _3 field
+      call-method Text::split: Split
+        call-method Text::trim: str
+          local _0 line: &String
+        str ",": str
+      block
+        assign +=
+          local _2 total: i64
+          or: i64
+            call-method Text::parse_i64: i64?
+              local _3 field: str
+            int 0: i64
+    for _4 l
+      call-method Text::lines: Lines
+        local _1 raw: str
+      block
+        if: void
+          binary ||: bool
+            call-method Text::starts_with: bool
+              local _4 l: str
+              str "#": str
+            unary !: bool
+              call-method Text::contains: bool
+                local _4 l: str
+                str "=": str
+          block
+            continue: !
+        assign +=
+          local _2 total: i64
+          int 1: i64
+    let _5 loud: String
+      call-method Text::to_ascii_uppercase: String
+        str "quiet": str
+    let _6 scale: f64
+      or: f64
+        call-method Text::parse_f64: f64?
+          str "1.5": str
+        float 1: f64
+    return: !
+      binary +: i64
+        binary +: i64
+          local _2 total: i64
+          cast: i64
+            call-method String::len: usize
+              call-method Text::replace: String
+                local _5 loud: String
+                str "Q": str
+                str "": str
+        cast: i64
+          local _6 scale: f64
+body fn later_first -> bool
+  param _0 a: &f32
+  param _1 b: &f32
+  block
+    return: !
+      binary >: bool
+        local _0 a: &f32
+        local _1 b: &f32
+body fn sorting -> usize
+  param _0 names: &mut List<String>
+  param _1 times: &mut List<f32>
+  block
+    call-method Sort::sort: void
+      local _0 names: &mut List<String>
+    call-method List::sort_by: void
+      local _1 times: &mut List<f32>
+      fn-item later_first: fn(&f32, &f32) -> bool
+    call-method List::swap: void
+      local _1 times: &mut List<f32>
+      int 0: usize
+      int 0: usize
+    return: !
+      call-method List::len: usize
+        local _0 names: &mut List<String>
+body fn text_by_character -> usize
+  param _0 name: &String
+  block
+    let _1 wide: usize
+      int 0: usize
+    for _2 c
+      call-method String::chars: Chars
+        local _0 name: &String
+      block
+        if: void
+          binary >: bool
+            cast: u32
+              local _2 c: char
+            int 127: u32
+          block
+            assign +=
+              local _1 wide: usize
+              int 1: usize
+    for _3 c
+      call-method Iterable::iter: Chars
+        local _0 name: &String
+      block
+        let _: _
+          local _3 c: char
+    let _4 head: str
+      or: str
+        call-method String::slice: str?
+          local _0 name: &String
+          int 0: usize
+          int 1: usize
+        str "": str
+    return: !
+      binary +: usize
+        binary +: usize
+          local _1 wide: usize
+          call-method String::char_count: usize
+            local _0 name: &String
+        len: usize
+          local _4 head: str
+body const SUFFIXED_LIMIT -> void
+  block
+    int 250: u8
+body fn suffixed_literals -> u64
+  block
+    let _0 small: u8
+      int 5: u8
+    let _1 wrapped: u8
+      call-method Integer::wrapping_add: u8
+        local _0 small: u8
+        const SUFFIXED_LIMIT: u8
+    let _2 big: u64
+      int 3000000000: u64
+    let _3 lowest: i8
+      int -128: i8
+    let _4 half: f32
+      float 0.5: f32
+    let _5 two: f32
+      float 2: f32
+    return: !
+      binary +: u64
+        binary +: u64
+          binary +: u64
+            binary +: u64
+              local _2 big: u64
+              cast: u64
+                local _1 wrapped: u8
+            cast: u64
+              binary +: i64
+                cast: i64
+                  local _3 lowest: i8
+                int 128: i64
+          cast: u64
+            binary *: f32
+              local _4 half: f32
+              local _5 two: f32
+        int 255: u64
+body fn as_wide -> f64
+  param _0 x: &T
+  block
+    return: !
+      call-method Number::to_f64: f64
+        local _0 x: &T
+body fn float_is_a_number -> f64
+  param _0 x: &T
+  block
+    return: !
+      call-method Number::to_f64: f64
+        local _0 x: &T
+body fn numbers -> f64
+  block
+    let _0 die: i32
+      call-assoc Random::range<i32>: i32
+        int 1: i32
+        int 7: i32
+    let _1 unit: f32
+      call-assoc Random::range<f32>: f32
+        float 0: f32
+        float 1: f32
+    let _2 three: i32
+      int 3: i32
+    return: !
+      binary +: f64
+        binary +: f64
+          binary +: f64
+            call as_wide: f64
+              ref: &i32
+                local _0 die: i32
+            call as_wide: f64
+              ref: &f32
+                local _1 unit: f32
+          call float_is_a_number: f64
+            ref: &f64
+              float 2.5: f64
+        call-method Number::to_f64: f64
+          call-method Number::uniform: i32
+            local _2 three: i32
+            int 9: i32
+            int 42: u64
+body fn file_system !-> usize
+  param _0 dir: &Path
+  block
+    let _1 config: Path
+      call-method Div::div: Path
+        local _0 dir: &Path
+        str "config.txt": str
+    or: void
+      call-assoc Directory::create: !-> void
+        local _0 dir: &Path
+      return: !
+    or: void
+      call-assoc File::write_text: !-> void
+        ref: &Path
+          local _1 config: Path
+        str "hello": str
+      return: !
+    let _2 text: String
+      or: String
+        call-assoc File::read_text: !-> String
+          ref: &Path
+            local _1 config: Path
+        return: !
+    let _3 f: File
+      or: File
+        call-assoc File::open: !-> File
+          ref: &Path
+            local _1 config: Path
+          enum-variant FileMode#3: FileMode
+        return: !
+    let _4 buf: [8]u8
+      (uninitialised)
+    let _5 n: usize
+      or: usize
+        call-method File::read: !-> usize
+          local _3 f: File
+          slice: []mut u8
+            local _4 buf: [8]u8
+        return: !
+    let _6 entries: List<Path>
+      or: List<Path>
+        call-assoc Directory::list: !-> List<Path>
+          local _0 dir: &Path
+        return: !
+    return: !
+      binary +: usize
+        binary +: usize
+          binary +: usize
+            call-method String::len: usize
+              local _2 text: String
+            local _5 n: usize
+          call-method List::len: usize
+            local _6 entries: List<Path>
+        len: usize
+          call-method Path::extension: str
+            local _1 config: Path
 body fn iterating_containers -> i32
   param _0 names: &HashMap<str, i32>
   block

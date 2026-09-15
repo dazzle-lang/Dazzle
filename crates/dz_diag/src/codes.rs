@@ -127,6 +127,9 @@ pub const MISPLACED_ATTRIBUTE: &str = "DZ0315";
 /// An attribute the specification describes that the compiler does not implement yet
 /// (spec §12.8).
 pub const ATTRIBUTE_NOT_IMPLEMENTED: &str = "DZ0316";
+/// An `extern fn` outside the standard library, or inside a body: its body is C++ only the
+/// compiler supplies (spec §7.2, 18.65).
+pub const EXTERN_OUTSIDE_STD: &str = "DZ0317";
 
 // --- DZ04xx: ownership and flow analysis (spec §6) -----------------------------
 
@@ -298,6 +301,15 @@ pub const STATIC_INITIALISER: &str = "DZ0553";
 pub const BAD_VARIADIC: &str = "DZ0554";
 /// A reflection call in a build whose `type_info` is `"none"` (spec §13.2).
 pub const REFLECTION_DISABLED: &str = "DZ0555";
+/// A function with no body that is not a trait's required method, a body-less `virtual`
+/// method, or an `extern fn` of the standard library; or an `extern fn` that
+/// has a body, or is generic or fallible (spec §7.2).
+pub const MISSING_BODY: &str = "DZ0556";
+/// A method with type parameters of its own where one cannot be instantiated per call: a
+/// `virtual` or `override` method, whose one slot in the vtable cannot be many functions, or
+/// a trait's method, which a trait object would have to call without knowing them
+/// (spec §8.1, §7.6).
+pub const GENERIC_METHOD_NOT_ALLOWED: &str = "DZ0557";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

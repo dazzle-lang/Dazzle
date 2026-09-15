@@ -222,9 +222,12 @@ pub fn compile(
     let objects = crate::native::build_libraries(ws, &cxx, root, opt, &module.build.cpp_standard)?;
 
     let mut cmd = Command::new(&cxx);
-    // spec §16.5 — nothing generated may need exceptions or RTTI.
+    // spec §16.5 — nothing generated may need exceptions or RTTI. `-fwrapv`: integer
+    // arithmetic wraps in every build (spec §5.1, 18.63), where C++ leaves signed overflow
+    // undefined and an optimiser is free to assume it never happens. Only for Dazzle's own
+    // code; a vendored library keeps the semantics its authors wrote it against.
     cmd.arg(format!("-std={}", module.build.cpp_standard))
-        .args(["-fno-exceptions", "-fno-rtti", "-Wall", "-Wextra"])
+        .args(["-fno-exceptions", "-fno-rtti", "-fwrapv", "-Wall", "-Wextra"])
         .args(opt);
     // Every module's generated C++ is compiled in this one command, so it gets the flags of
     // everything the root reaches (spec §15.1).

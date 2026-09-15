@@ -1073,84 +1073,196 @@ error[DZ0501]: expected `i32`, found `bool`
 934 │     return adds(1, ..xs) + adds(..n) + adds(1, true)
     │                                                ^^^^ this is `bool`
 
-error[DZ0531]: `-` cannot be applied to `Plain`
-    ┌─ typeerrors/src/errors.dz:939:12
+error[DZ0557]: `shout` cannot have type parameters of its own
+    ┌─ typeerrors/src/errors.dz:953:22
     │
-939 │     return -p
-    │            ^^ `Plain` does not implement `Neg`
+953 │     virtual fn shout<T>(&self, v: T) {
+    │                      ^ a type parameter of the method
     │
-    = help: operators are traits (spec §11.2) — implement it: `impl Neg for Plain { … }`
+    = help: a `virtual` method has one slot in the vtable, and an instance per type argument would need one each; take the varying part as a trait reference instead (spec §7.3, §8.1)
 
-error[DZ0502]: `-129` does not fit in `i8`
-    ┌─ typeerrors/src/errors.dz:943:12
+error[DZ0557]: `show` cannot have type parameters of its own
+    ┌─ typeerrors/src/errors.dz:959:13
     │
-943 │     return -129
-    │            ^^^^ outside the range of `i8`
+959 │     fn show<T>(&self, v: T)
+    │             ^ a type parameter of the method
     │
-    = help: valid values are -128 to 127
+    = help: a trait's method is called through implementations the caller may not know, and through `^Trait` with no type at all; make the trait generic instead, `trait Show<T>` (spec §7.6, §8.1)
 
-error[DZ0507]: `Readings` can be looped over, but not written through
-    ┌─ typeerrors/src/errors.dz:961:19
+error[DZ0531]: `Box<i32>` does not implement `Copy`
+    ┌─ typeerrors/src/errors.dz:963:13
     │
-961 │     for &mut v in r {
+963 │     let _ = c.both(move(owned))
+    │             ^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Copy`
+    │
+    = help: implement it: `impl Copy for Box<i32> { … }` (spec §7.6)
+
+error[DZ0534]: cannot infer `T` in this call to `Crate2::fresh`
+    ┌─ typeerrors/src/errors.dz:964:18
+    │
+964 │     let _: i32 = Crate2::fresh()
+    │                  ^^^^^^^^^^^^^^^ `T` is not determined by any argument
+    │
+    = help: write it out: `Crate2::fresh<T>(…)` (spec §8.1)
+
+error[DZ0534]: `plain` takes no type arguments
+    ┌─ typeerrors/src/errors.dz:965:14
+    │
+965 │     return c.plain<i32>()
+    │              ^^^^^ not a generic function
+    │
+    = help: `plain` has no type parameters of its own; remove `<…>` (spec §8.1)
+
+error[DZ0501]: expected `Rc<Framed>`, found `Rc<Panel>`
+    ┌─ typeerrors/src/errors.dz:971:12
+    │
+971 │     return base
+    │            ^^^^ this is `Rc<Panel>`
+
+error[DZ0501]: expected `i64`, found `i64?`
+    ┌─ typeerrors/src/errors.dz:976:12
+    │
+976 │     return s.parse_i64()
+    │            ^^^^^^^^^^^^^ this is `i64?`
+
+error[DZ0531]: `List<Plain>` has `sort` only when `Plain` implements `Ord`
+    ┌─ typeerrors/src/errors.dz:981:8
+    │
+981 │     xs.sort()
+    │        ^^^^ `Plain` does not implement `Ord`
+    │
+    = help: `sort` comes from `Sort`, implemented for `List<Plain>` when its argument is `Ord`: implement `Ord` for `Plain` (spec §7.6)
+
+error[DZ0501]: expected `fn(&i32, &i32) -> bool`, found `fn(i32, i32) -> bool`
+    ┌─ typeerrors/src/errors.dz:982:16
+    │
+982 │     ys.sort_by(by_value)
+    │                ^^^^^^^^ this is `fn(i32, i32) -> bool`
+
+error[DZ0507]: `String` can be looped over, but not written through
+    ┌─ typeerrors/src/errors.dz:991:19
+    │
+991 │     for &mut c in s {
     │                   ^ implements `Iterable`, not `IterableMut`
     │
     = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
 
+error[DZ0502]: `300` does not fit in `u8`
+    ┌─ typeerrors/src/errors.dz:998:12
+    │
+998 │     return 300u8
+    │            ^^^^^ outside the range of `u8`
+    │
+    = help: valid values are 0 to 255
+
+error[DZ0501]: expected `u16`, found `u8`
+     ┌─ typeerrors/src/errors.dz:1002:12
+     │
+1002 │     return 5u8
+     │            ^^^ this is `u8`
+     │
+     = help: Dazzle has no implicit numeric conversions, not even widening (spec §5.1) — write `... as u16`
+
+error[DZ0531]: `bool` does not implement `Number`
+     ┌─ typeerrors/src/errors.dz:1007:12
+     │
+1007 │     return Random::range(false, true)
+     │            ^^^^^^^^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Number`
+     │
+     = help: `bool` is built in, and implements only what the language gives it; wrap it in a struct that implements `Number` (spec §7.6)
+
+error[DZ0510]: fallible call not consumed
+     ┌─ typeerrors/src/errors.dz:1013:5
+     │
+1013 │     File::remove(p)
+     │     ^^^^^^^^^^^^^^^ this may fail, and the failure is discarded
+     │
+     = help: add an `or` clause: `or return` to propagate, `or <value>` to fall back, or `or ignore` to drop it deliberately (spec §9.7)
+
+error[DZ0501]: expected `[]mut u8`, found `[]u8`
+     ┌─ typeerrors/src/errors.dz:1016:20
+     │
+1016 │     let _ = f.read(buf[..]) or return
+     │                    ^^^^^^^ this is `[]u8`
+
+error[DZ0531]: `-` cannot be applied to `Plain`
+     ┌─ typeerrors/src/errors.dz:1021:12
+     │
+1021 │     return -p
+     │            ^^ `Plain` does not implement `Neg`
+     │
+     = help: operators are traits (spec §11.2) — implement it: `impl Neg for Plain { … }`
+
+error[DZ0502]: `-129` does not fit in `i8`
+     ┌─ typeerrors/src/errors.dz:1025:12
+     │
+1025 │     return -129
+     │            ^^^^ outside the range of `i8`
+     │
+     = help: valid values are -128 to 127
+
+error[DZ0507]: `Readings` can be looped over, but not written through
+     ┌─ typeerrors/src/errors.dz:1043:19
+     │
+1043 │     for &mut v in r {
+     │                   ^ implements `Iterable`, not `IterableMut`
+     │
+     = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
+
 error[DZ0507]: cannot refer to these elements with `&mut`
-    ┌─ typeerrors/src/errors.dz:967:19
-    │
-967 │     for &mut x in xs {
-    │                   ^^ the container is read-only here
-    │
-    = help: declare it `let mut`, or pass it as `&mut` (spec §10.4)
+     ┌─ typeerrors/src/errors.dz:1049:19
+     │
+1049 │     for &mut x in xs {
+     │                   ^^ the container is read-only here
+     │
+     = help: declare it `let mut`, or pass it as `&mut` (spec §10.4)
 
 error[DZ0501]: expected `i32`, found `i32?`
-    ┌─ typeerrors/src/errors.dz:975:18
-    │
-975 │     let n: i32 = o
-    │                  ^ this is `i32?`
+     ┌─ typeerrors/src/errors.dz:1057:18
+     │
+1057 │     let n: i32 = o
+     │                  ^ this is `i32?`
 
 error[DZ0521]: `none` needs an optional type here
-    ┌─ typeerrors/src/errors.dz:980:24
-    │
-980 │     let x = if alive { none } else { none }
-    │                        ^^^^ nothing here expects a `T?`
-    │
-    = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
+     ┌─ typeerrors/src/errors.dz:1062:24
+     │
+1062 │     let x = if alive { none } else { none }
+     │                        ^^^^ nothing here expects a `T?`
+     │
+     = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0521]: `none` needs an optional type here
-    ┌─ typeerrors/src/errors.dz:980:38
-    │
-980 │     let x = if alive { none } else { none }
-    │                                      ^^^^ nothing here expects a `T?`
-    │
-    = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
+     ┌─ typeerrors/src/errors.dz:1062:38
+     │
+1062 │     let x = if alive { none } else { none }
+     │                                      ^^^^ nothing here expects a `T?`
+     │
+     = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0514]: `+` cannot be applied to `Layer`
-    ┌─ typeerrors/src/errors.dz:985:12
-    │
-985 │     return l + l == l
-    │            ^ not a numeric type
+     ┌─ typeerrors/src/errors.dz:1067:12
+     │
+1067 │     return l + l == l
+     │            ^ not a numeric type
 
 error[DZ0531]: `f32` does not implement `Hash`
-    ┌─ typeerrors/src/errors.dz:990:13
-    │
-990 │     let m = HashMap<f32, i32>()
-    │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
-    │
-    = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)
+     ┌─ typeerrors/src/errors.dz:1072:13
+     │
+1072 │     let m = HashMap<f32, i32>()
+     │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
+     │
+     = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)
 
 error[DZ0504]: `typeinfo_of` takes one type and no arguments
-    ┌─ typeerrors/src/errors.dz:997:13
-    │
-997 │     let a = typeinfo_of<i32>(1)
-    │             ^^^^^^^^^^^^^^^^^^^ not the form this call has
-    │
-    = help: write `typeinfo_of<T>()` (spec §13.1)
+     ┌─ typeerrors/src/errors.dz:1079:13
+     │
+1079 │     let a = typeinfo_of<i32>(1)
+     │             ^^^^^^^^^^^^^^^^^^^ not the form this call has
+     │
+     = help: write `typeinfo_of<T>()` (spec §13.1)
 
 error[DZ0501]: expected `TypeId`, found `{integer}`
-    ┌─ typeerrors/src/errors.dz:998:22
-    │
-998 │     let b = typeinfo(3)
-    │                      ^ this is `{integer}`
+     ┌─ typeerrors/src/errors.dz:1080:22
+     │
+1080 │     let b = typeinfo(3)
+     │                      ^ this is `{integer}`

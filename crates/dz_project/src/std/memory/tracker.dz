@@ -121,7 +121,7 @@
                     if m_slots[i].live {
                         leaks += 1
                         bytes += m_slots[i].size
-                        println(
+                        eprintln(
                             "leak: {} bytes allocated at {}:{}",
                             m_slots[i].size,
                             m_slots[i].file,
@@ -132,7 +132,7 @@
                 i += 1
             }
             if leaks > 0 {
-                println("{} allocations leaked, {} bytes", leaks, bytes)
+                eprintln("{} allocations leaked, {} bytes", leaks, bytes)
             }
             if m_slots != null {
                 unsafe { free(m_slots) }

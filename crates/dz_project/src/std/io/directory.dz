@@ -1,0 +1,44 @@
+/// Directories (spec §14.4).
+pub struct Directory {
+    /// Create the directory and any missing parents. One that already exists is not an
+    /// error; a file in the way is.
+    pub fn create(path: &Path) !-> void {
+        if path.is_dir() {
+            return
+        }
+        let parent = path.parent()
+        if !parent.is_empty() && parent != path && !parent.is_dir() {
+            Directory::create(&parent) or return
+        }
+        if !dir_create(path.as_str()) && !path.is_dir() {
+            return error(io_last_error(), "cannot create the directory {}", path.as_str())
+        }
+    }
+
+    /// Remove an empty directory.
+    pub fn remove(path: &Path) !-> void {
+        if !dir_remove(path.as_str()) {
+            return error(io_last_error(), "cannot remove the directory {}", path.as_str())
+        }
+    }
+
+    /// Everything directly in `path`, as paths under it, sorted by their text — the same order
+    /// on every platform and every run, whatever order the operating system lists them in.
+    pub fn list(path: &Path) !-> List<Path> {
+        let handle = dir_open(path.as_str())
+        if handle == 0 {
+            return error(io_last_error(), "cannot list the directory {}", path.as_str())
+        }
+        let mut entries = List<Path>()
+        while true {
+            let name = dir_next(handle)
+            if name.len == 0 {
+                break
+            }
+            entries.push(path.join(name))
+        }
+        dir_close(handle)
+        entries.sort()
+        return move(entries)
+    }
+}

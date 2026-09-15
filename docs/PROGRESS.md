@@ -19,11 +19,11 @@ the milestone.
 | | |
 |---|---|
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
-| Next | **M12 — the stdlib**, chosen over M10/M11 by the user on 2026-09-13; M9's remaining editor rows stay open. r39 laid the language groundwork (`static`, associated functions, trait objects). Next in order: `#location` evaluated at the caller, associated constants, then `Allocators::Global`/`Temp` with opt-in tracking. See §4, and §4c for everything a game still needs — smart pointers (`Rc`/`Weak`/`Box`) first |
+| Next | **M12 — the stdlib**. Order set by the user on 2026-09-15: ~~stderr~~ and ~~Time~~ (r54), ~~generic methods~~ (r55), ~~Random~~ (r56), ~~`Path` and `File`~~ (r57). The §4c list and the criterion game decide what follows |
 | Tests | 193, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 42; three open questions (§18.2) — 18.18 `collect`, 18.19 `ignore`, 18.20 `or unreachable`'s release lowering |
+| Language spec | 0.1 **unreleased**, revision 54; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -1498,7 +1498,7 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M7b** | libclang parses with its own default target (MSVC here), not the C++ compiler's: a header needing the C library's own headers may find MSVC's while g++ builds against mingw's | `dz_cppimport`, `arguments` |
 | **M7b** | An untyped imported integer is not range-checked against its context: `let b: u8 = rl::SOME_BIG` reaches C++ as a narrowing `static_cast`. The importer knows the value; the checker should compare it, as it does a literal's | `dz_check/src/lib.rs`, `collect_foreign` |
 | **M12** | **`indexed()` exists only in a `for` head.** It is recognised there by the checker, not declared: a real adapter is a generic struct implementing `Iterate` over another, whose `Item` needs associated-type projection (the row below). `move(xs).indexed()` is refused for the same reason | `dz_check/src/check.rs`, `for_stmt` |
-| **M12** | **Memory tracking is single-threaded and prints to stdout.** `TRACKER` is one static with no lock, so two threads allocating from `Global` under `--track-memory` race — concurrency is v2 (18.11). The leak report goes through `println`, because there is no way to write to stderr from Dazzle yet | `dz_project/src/std/memory/tracker.dz` |
+| **M12** | **Memory tracking is single-threaded.** `TRACKER` is one static with no lock, so two threads allocating from `Global` under `--track-memory` race — concurrency is v2 (18.11) | `dz_project/src/std/memory/tracker.dz` |
 | **M12** | **A trait method's non-constant default argument** is rendered on the handle's declaration, before the module's structs are defined, so a default like `Vec3{}` on a trait method would not compile there | `dz_cpp`, `trait_object_decls` |
 | **M12** | **`for` over a generic `C: Iterable`** is refused (`DZ0801`): the loop's element is the projection of `C::Iter`'s `Item`, the same associated-type projection a generic `T: Iterate` loop waits on. Concrete containers loop (r47) | `dz_check/src/check.rs`, `container_iterator` |
 | **M12** | **A union variant carrying a struct with a constructor cannot be built**: the variant literal is the struct's literal, which a type with a constructor refuses (DZ0543), and there is no spelling for building the variant through the constructor. The union itself compiles and drops correctly (r47) — how to spell `.Sound(5)` is a question for the user | `dz_check/src/check.rs`, `union_variant_literal` |
@@ -1515,7 +1515,6 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M10** | The intrinsics `#module`, `#location` and `#expr_text` are typed but not emitted (`#file`, `#line`, `#column` and `#function` are) | `dz_cpp`, `intrinsic` |
 | **M10** | **`T::fields`**, compile-time reflection (§13.4), needs macros to iterate it; the runtime table is done | `dz_check`, `path_type_query` |
 | **M12** | **An imported C or C++ enum's variants are not in the type table**: its constants are the header's to spell, and `offsetof`-style reading of their values was not needed by anything yet. Its size, backing type and name are | `dz_cpp/src/reflect.rs`, `describe_named` |
-| **M12** | **Generic methods** — a method with type parameters of its own — report `DZ0801`. A generic *type*'s methods are instantiated; a method generic over its own arguments needs a second instance key and has no user yet | `dz_cpp/src/lib.rs`, `struct_decl` |
 | **M12** | **Trait objects that are not object-safe** — of a generic trait, one with associated types, or one whose methods mention `Self` — report `DZ0801`, and so does a trait object of a type whose `impl` is generic, which would need a vtable per instance. | `dz_cpp`, `object_safe`; `dz_check`, `refuse_generic_impl_object` |
 | **M12** | **Associated-type projection** (`T::Item`, `T::Output`). An associated type resolves through an implementer but cannot be named off a bounded parameter, so `for` over a generic `T: Iterate` is refused by the checker (`DZ0801`), and generic arithmetic cannot name its result type | `dz_check/src/check.rs`, `iterate_item` |
 | **M12** | An open-ended range (`lo..`) held in a variable rather than written in a `for` head | `dz_cpp`, `expr` |
@@ -1734,7 +1733,8 @@ What remains, in the order the user set on 2026-09-13:
       exempt); `std`'s trees parsed once per process; and hover and go-to-definition on a
       dependency key — the header of a `cpp` one, the manifest of a project, through public
       dependencies too (`ide::module_info`).
-12. The criterion: a small raylib game with no C++ of its own.
+12. ✅ **The criterion: a small raylib game with no C++ of its own** — Breakout, see the
+    "Breakout" section below.
 
 **`error(…)` keeps static storage** — decided by the user on 2026-09-13. Moving it onto
 `Allocators::Temp` was considered and refused: an allocator is itself a place that reports
@@ -1830,6 +1830,244 @@ Designed with the user on 2026-09-14, over several rounds (see §4c).
   `if_let_mut_on_a_read_only_pointer`, `or_moves_out_of_a_reference_to_an_optional`,
   `handles_in_use`.
 
+### r54 — stderr, time, and `#[native]`
+
+Asked for by the user on 2026-09-15, with design answers recorded as 18.20, 18.63–18.65.
+
+- **`eprint`/`eprintln`**: two more names in `BUILTIN_FNS`, format-checked as `println`
+  is, lowered to `::dz::eprint{,ln}` in `dz_prelude.h` over a `StderrSink`. stdout is
+  flushed first so a terminal shows the two in the order they were written. The memory
+  tracker's leak report now goes to stderr (the §3 row saying it went to stdout for want of
+  one is resolved); `a_tracked_build_reports_leaks_and_bad_frees` asserts stdout stays
+  empty. `eprintln_writes_to_stderr` checks both streams.
+- **`#[native]`**: a known attribute, only on a module-level function and only in `std`
+  (DZ0315 otherwise, with `import cpp` as the help). The checker refuses one that has a
+  body, type parameters or `!->` (DZ0556). Codegen emits a forwarding shell to
+  `::dz::native::<name>`; the bodies are `NATIVE_H`/`NATIVE_CPP` in `dz_cpp::runtime`,
+  written as `dz_native.{h,cpp}` and included only by `std`'s translation unit — kept out of
+  `dz_runtime.*` so §16.4's "no I/O" shim stays true. **Found on the way**: a module-level
+  `fn f() -> u64` with no body was accepted by every phase and failed only at link time;
+  it is now DZ0556 (`tests/errors/fn_without_a_body.dz`).
+- **Time**: `std/time/{duration,instant,time,native}.dz`. `Duration` is `u64` nanoseconds
+  with saturating `-`; `Instant` reads the shim's existing `steady_clock`; `Time::sleep` is
+  `Sleep` (milliseconds, rounded up) on Windows and `nanosleep` elsewhere — not
+  `std::this_thread`, which MinGW's win32 thread model lacks; `Time::unix` is
+  `system_clock`. `tests/run/time` checks the arithmetic exactly and the clocks by what can
+  be promised (monotonic, sleep not short, wall clock current); warning-clean on clang++
+  and g++.
+- **Decided, not implemented** (spec r54): overflow wraps everywhere (18.63 — plain `+` is
+  emitted as C++ `+` today, so signed overflow is still UB until codegen passes `-fwrapv`
+  or wraps through the unsigned type); `or unreachable` is `__builtin_unreachable` in
+  release (18.20 — it still panics in every build); `Rc<Derived>` → `Rc<Base>` (18.64).
+
+### r61 — the process
+
+- `std/io/process.dz`: `Process::args`, `env`, `exit`, over four `extern fn`s.
+- The generated `main` (and the `dz test`/`dz bench` harness's) is now `main(int argc, char**
+  argv)` and calls `::dz::native::process_start` first. On Windows the arguments are split
+  again from `GetCommandLineW` with `CommandLineToArgvW` and kept as UTF-8, since `argv` is in
+  the ANSI code page; `shell32` is linked by MinGW by default and asked for with `#pragma
+  comment(lib)` elsewhere. `env` uses `GetEnvironmentVariableW` there, `getenv` elsewhere.
+- Tests: `tests/run/process` (no arguments, through the runner) and
+  `process_arguments_environment_and_exit_code` (the binary run directly with a non-ASCII
+  argument, a variable and exit code 7).
+
+### r60 — text operations
+
+The second thing the Breakout game needed (its `load_best` now reads `text.trim()
+.parse_i64()`).
+
+- `std/text/text.dz`: `trait Text` with `text()` required and every operation a default
+  method, `impl Text for str` and `impl Text for String`; `Split` and `Lines` iterators over
+  `str` views; private helpers `find_bytes`, `trim_start_at`/`trim_end_at`, `ascii_case`,
+  `is_decimal_number`. A trait implemented for a primitive, with defaults, needed nothing new
+  from the compiler — checked first in a scratch project, literal receivers included.
+- `parse_i64` builds the value downwards so `i64`'s most negative value parses;
+  `parse_f64` validates the grammar in Dazzle and hands the text to `strtod`
+  (`extern fn text_parse_f64 -> f64?`) for correct rounding.
+- Tests: `tests/run/text` (every operation, UTF-8 content, `\r\n` lines, empty pieces,
+  overflow at both ends, malformed floats; warning-clean), `typed/`/`typeerrors/`.
+
+### Breakout — M12's criterion
+
+A complete game, written by the assistant on 2026-09-15 with no C++ of its own:
+
+- `tests/run/breakout_sim/game` — the rules over `std` only: a paddle, a ball, a 60-brick wall
+  with two-hit rows, lives, a score, a launch angle from `Random`, and the best score kept in
+  a file through `Path`, `File` and `Directory`.
+- `tests/run/breakout` — draws it with raylib, built from the `tests/run/raylib` vendor
+  tree through a recipe root of `../raylib/vendor/raylib/src`. Left/right, space, `R`;
+  frames sub-stepped at 240 Hz so the ball cannot tunnel. Built by the windowed-programs
+  test; run here for five seconds without error, but **not played by a person yet**.
+- `tests/run/breakout_sim` — the same rules under an autopilot, printing invariants rather
+  than positions, since float results can differ across compilers and CPUs.
+
+It compiled on the first attempt, which is the result the criterion was meant to find
+out. **What the game needed that is still awkward**, in the order it came up:
+
+1. **Text with numbers in it**: the HUD is `String(format("Score {}", g.score))` — the
+   builtin's 256-byte ring buffer copied into a `String` for `as_cstr`. Library `format`
+   into a `String` (§4c) is the real answer.
+2. **Parsing a number**: `load_best` walked the characters by hand — `Text::parse_i64` since r60.
+3. **A `str` to a C function**: only a literal is a `cstr`; anything built at run time goes
+   through a `String`. Fine, but worth a line in the guide when there is one.
+
+Nothing in the language itself got in the way.
+
+### r59 — the pending decisions, and the follow-ups
+
+Asked for by the user on 2026-09-15: "finish all the pending stuff".
+
+- **Overflow wraps** (18.63). `dz build` passes `-fwrapv` for the generated code (not for
+  vendored libraries). That alone left 8- and 16-bit arithmetic wrong — C++ promotes to
+  `int`, so `250u8 + 10` was 260 wherever it was read before being stored — and codegen now
+  casts a narrow unary or binary result back (`narrow_result`). The runtime's `overflow`
+  panic helper was dead, and **collided with a module named `overflow`** (`dz::overflow` the
+  function against `dz::overflow` the namespace); removed. The other shim names (`panic`,
+  `index`, `len`, …) can collide the same way — a module-name sanitizer is owed.
+- **`or unreachable`** (18.20): `__builtin_unreachable()` when the root's `optimize` is
+  release or shipping; the function-end safety net keeps its panic.
+  `overflow_wraps_and_unreachable_is_assumed_in_release` runs a program in all three modes.
+- **Generic function values**: `try_parse_generic_args` accepts `)`, `]`, `}`, `,`, a
+  terminator or the end after `>`; `hir::ExprKind::FnItem` carries `type_args`, solved by
+  `fn_value_type_args` from what is written or from the `fn` type wanted; mono instantiates
+  them like a call. Needed by `Rc`'s drop function and `sort`.
+- **Handles to a base** (18.64). `Rc`/`Weak` now hold `m_header: ^mut RcHeader` and
+  `m_value: ^mut T`; the header records `size`, `align` and `drop_value: fn(^mut u8)`
+  (`drop_value_as<T>`, made for the created type), so a converted handle drops the whole
+  value and frees the right size. `Box` carries `m_size`, `m_align`, `m_drop` for the same
+  reason. The checker's `handle_upcast` accepts `Rc<D>` for `Rc<B>` when `D` inherits `B`;
+  codegen gives each handle instance a converting constructor template that accepts only an
+  implicit pointer conversion (`::dz::implicit_ptr`), and for `Box` never a lvalue.
+  `tests/run/handle_upcast` (tracked: no leak, no wrong-size free).
+- **Console UTF-8**: `StreamSink` buffers each `print` call (512 bytes, never cut inside a
+  UTF-8 sequence) and hands it to `native::write_stream`, which uses `WriteConsoleW` when the
+  stream is a console and `fwrite` otherwise. Only the redirected path is exercised by tests;
+  the console path was not run here.
+- **Sorting** (18.70): `List::swap`, `sort_by`, `std/collections/sort.dz` (`Sort`,
+  `impl<T: Ord> Sort for List<T>`, `compare_bytes`); `Ord` for `String` and `Path`.
+  `tests/run/sorting` (every length to 70 from seeded input, 1000 reversed, many equal,
+  move-only elements dropped once, tracked).
+- **Files**: `Directory::list` sorts; `Path::as_cstr`; `Path::modified` via
+  `GetFileAttributesExW` / `stat` (`st_mtimespec` on macOS).
+- **Rough edges, since fixed**: `xs.sort()` on a `List` of a non-`Ord` type said "`List`
+  has no method `sort`"; `TypeTable::unmet_bound_for` finds the generic implementation that
+  would have provided it and the checker names the bound (DZ0531). And a module named after
+  a runtime declaration (`panic`, `str`, `index`) is `namespace panic_` in C++:
+  `module_parts` reserves every name `runtime_names` reads off the shim's own text, so the
+  list cannot fall behind it. `a_module_may_share_a_name_with_the_runtime`.
+
+### r58 — literal suffixes, and UTF-8 by character
+
+Both raised by the user on 2026-09-15 as urgent.
+
+- **Suffixes** were lexed and then ignored: every integer literal started as `{integer}`, so
+  `let n = 5u8` was an `i32` and `5u8.wrapping_add(255)` printed 260. `literal_suffix_type`
+  (`dz_check`) reads the suffix, and the literal, a negated literal (`-128i8`) and a
+  constant's type (`const_value_type`) all start from it; range and mismatch errors follow
+  from the existing checks. `tests/errors/literal_suffix_mismatch.dz`, `typed/`/`typeerrors/`,
+  and `suffixes 4 4 127` in `tests/run/math`.
+- **UTF-8.** `String` already stored UTF-8 (`push(char)` encoded it); what was missing was
+  reading it back. `std/text/chars.dz`: `Chars` (an `Iterate` over a `str`, decoding as it
+  goes, U+FFFD for malformed bytes), `decode_utf8`, `is_utf8_boundary`. `String` gained
+  `chars`, `char_count`, `pop`, `is_char_boundary`, `slice`, `truncate`, `from_utf8`, and
+  `impl Iterable` so `for c in s` works.
+- **Found on the way**: a `char` formatted with `{}` went through `%lc`, which writes
+  through the C locale — `'é'` came out as the Latin-1 byte `0xE9` and `'🎮'` as nothing.
+  The prelude now encodes UTF-8 itself.
+- **Then not done, since r59**: the Windows console showed UTF-8 as mojibake; output to a
+  console now goes through `WriteConsoleW`.
+- Tests: `tests/run/utf8` (every character width, both iterations, boundaries, `slice`,
+  `pop`, `truncate`, `from_utf8` of cut bytes, replacement characters; warning-clean).
+
+### r57 — files, and methods on literals
+
+The design agreed with the user on 2026-09-15: `Path`, `File` and `Directory`, no free
+functions.
+
+- **std** (`std/io/`): `IoError`, `FileMode`, `Path` (owns a `String`; normalises `\` and a
+  trailing `/` in its constructor; the rest is byte work on `/` and `.`, which never split a
+  UTF-8 sequence), `File` (a `usize` handle, 0 when empty or moved from; `Drop` closes) and
+  `Directory` (`create` recurses through `parent()`).
+- **Runtime**: `dz_native.cpp` gained the file layer — `FILE*` through `_wfsopen` (not the
+  deprecated `_wfopen`, which clang targeting MSVC warns about) with UTF-16 paths on Windows,
+  `fopen` elsewhere; `GetFileAttributesW`/`stat`, `CreateDirectoryW`/`mkdir`,
+  `FindFirstFileW`/`opendir`. Errors go through a thread-local `io_last_error`, mapped from
+  `errno` or `GetLastError` to `IoError` codes, so no extern signature needs an out-pointer.
+  The POSIX branch is compiled only by CI.
+- **Method on a literal** (language, r57): `5.hash()` — the checker rolls back and re-checks
+  an untyped literal receiver with its default type. `native_trait_call` also casts a literal
+  receiver to its C++ type, so the shim instance matches once suffixes are typed (they are
+  not yet: `5u8` was `i32` — fixed in r58).
+- **Found on the way, both codegen**:
+  - `std.h` emitted the `String` and `List<u8>` instances before `Allocators`, whose
+    `Global` their default arguments name — hidden until `Path` held a `String`.
+    `sort_types` now emits field-less structs first.
+  - `(s as []u8)[i]` failed in C++: `::dz::index` took only an lvalue. A `const Slice<T>&`
+    overload takes a temporary view.
+- Tests: `tests/run/files` (every `Path` operation, including Windows and root forms; nested
+  `create`; a non-ASCII file name; bytes, text, append, seek/position/size; `NotFound`,
+  `InvalidData` and removing twice; listing; cleanup), warning-clean on both compilers and
+  leak-free under `--track-memory`; a `literal_receivers` line in `tests/run/math`;
+  `typed/`/`typeerrors/`.
+
+### r56 — `extern fn`, `Number` and `Random`
+
+Asked for by the user on 2026-09-15.
+
+- **`extern fn`** replaces r54's `#[native]`: `dz_ast::FnDecl::is_extern`, parsed at module
+  scope (and in `starts_item`, so one inside a body is reported rather than misparsed), printed
+  by the formatter and AST dump. The resolver reports DZ0317 (new) outside `std` or inside a
+  body; the checker's rules are unchanged (no body, not generic, not fallible — DZ0556).
+  Codegen's shell and `dz_native.{h,cpp}` are as before. `tests/errors/extern_outside_std.dz`.
+- **`Number`** (`std/math/number.dz`): `to_f64` and `uniform(hi, bits)`, implemented by every
+  numeric type through `primitive_implements`, lowered by `native_trait_call` to
+  `::dz::num::to_f64`/`uniform`. `Integer : Number` and `Float : Number`, so a `T: Integer`
+  has them too. `uniform` scales 53 bits for a float (never returning `hi`) and takes the
+  high half of a 128-bit product for an integer, through the unsigned type so an `i8`
+  range across zero is right.
+- **`Random`** (`std/random/`): a `#[thread_local] static RANDOM: RandomState`, SplitMix64,
+  seeded from `unix_nanos() ^^ monotonic_nanos() * φ` on first use. `range<T: Number>` is
+  the r55 generic method this was waiting on.
+- **Found on the way**: `3.uniform(…)` and `5.hash()` were refused. Not the lexer, which
+  already splits `5.hash` — the checker left the receiver an untyped `{integer}`, which no
+  method lookup matches. Fixed in r57.
+- Tests: `tests/run/random` (SplitMix64's reference outputs for seed 1234567, repeatability,
+  every integer width including `i8` across zero and `i64` past 32 bits, floats, both ends of a
+  die, empty ranges, `chance`, unit vectors, `Number` through `Integer`); warning-clean on
+  clang++ and g++. `typed/` and `typeerrors/` (`Random::range(false, true)` is DZ0531).
+
+### r55 — generic methods
+
+Asked for by the user on 2026-09-15, ahead of Random (which needs `Random::range<T>`).
+
+- **Syntax**: `dz_ast::ExprKind::Field` gained `generics`. After `.name`, `<` is parsed with
+  the existing speculative `try_parse_generic_args` and kept only if `(` follows the `>`;
+  otherwise the cursor is restored and it is a comparison. Formatter, AST dump and the
+  resolver (which now walks those types) follow. `a_method_call_may_write_type_arguments`.
+- **Checker**: `solve_method` wraps `solve_call` for a method or associated function whose
+  signature (already instantiated with the receiver's type arguments) is still generic;
+  `Callee::Method` and `Callee::Assoc` carry `method_args`. Type arguments on a method that
+  has none, or on a trait's, a bound's or a number's method, are DZ0534. DZ0557 (new) for
+  a generic `virtual`/`override` method or trait method. **Found on the way**: a method's
+  own parameters never had their bounds resolved — `declare_params` leaves that to pass 1,
+  which only visits declarations with symbols — so `fn twice<T: Copy>` was checked as an
+  unbounded `T` (flow reported DZ0403 on the copy, and a call with a move-only argument was
+  accepted). `fn_sig` now resolves them.
+- **Mono**: `MethodInstance { owner, owner_args, name, args, body }`, queued by
+  `want_method` from any concrete call whose `method_args` are non-empty (the type's
+  arguments from the receiver, or the `Assoc` path). A generic type's instance skips its
+  generic methods (`is_generic_method`).
+- **Codegen**: an instance is an `inline` free function in the owner's namespace,
+  `Holder__i32__pair__bool(const Holder__i32& self, bool other)`, behind include guards —
+  a C++ member cannot be added per call site, and there is no C++ access control to get in
+  the way. `in_body` names the receiver `self` for one (the `Namer` would say `(*this)`).
+  Prototypes go out before generic-function bodies, which may call them.
+- Tests: `tests/run/generic_methods` (two modules, inferred and written, receiver and none,
+  a generic function calling one, a generic method calling another, move-only arguments;
+  warning-clean), `typed/`/`typeerrors/`, two `tests/errors` files, a feature-matrix
+  construct and mistake, and the HIR dump prints `call-method Shelf::paired<i32>`.
+
 ## 4c. To do: what a game still needs (readiness review, 2026-09-14)
 
 Asked for by the user after a review of whether Dazzle can carry a real game today. The
@@ -1851,9 +2089,8 @@ Only containers and the allocators should need `unsafe` inside `std`.
   strong `Rc` while the value is used; `&mut` needs the handle in a writable place.
 - [ ] **`Arc<T>`** — atomically counted `Rc`. Waits on atomics, which wait on concurrency
   (18.11, v2); listed so the name is reserved and `Rc`'s API is shaped to match.
-- [ ] **design — `Rc<Trait>` / `Rc<Base>`.** Whether an `Rc<Button>` converts to an
-  `Rc<UiElement>` or an `Rc` of a trait object, as `&Derived` → `&Base` does. Needs either
-  a conversion the checker knows about or trait objects that are not only `^Trait`/`&Trait`.
+- [x] **`Rc<Derived>` → `Rc<Base>`** — r59, for `Weak` and `Box` too. `Rc` of a trait
+  object stays deferred.
 - [ ] **Skip the guard's count when nothing can drop the owner.** An `if let` body with no
   call the compiler cannot see into and no assignment to the handle cannot free the value,
   so the count up and down could be left out. A compiler detail, not in the spec.
@@ -1865,23 +2102,21 @@ Only containers and the allocators should need `unsafe` inside `std`.
 
 ### I/O and the operating system
 
-`std` has no way to talk to the machine except `print`/`println` to stdout. A game can reach
-these through raylib or C today; a stdlib should not require it.
+`std` reaches the machine through `extern fn`s (r54, spelled `#[native]` until r56). A game can reach the rest
+through raylib or C today; a stdlib should not require it.
 
-- [ ] **Files**: read a whole file into a `List<u8>`/`String`, write one, open/read/write/
-  seek/close as a move-only `File` whose `drop` closes it; all fallible (`!->`).
-- [ ] **Paths and directories**: join, extension, exists, list a directory, create one.
-- [ ] **stderr**: `eprint`/`eprintln`. The memory tracker's leak report goes to stdout for
-  want of it (§3).
-- [ ] **Time**: a monotonic clock (`Instant`, `Duration`) — the shim already has
-  `now_nanos` for `dz bench` — plus wall-clock time and `sleep`.
-- [ ] **Random**: a seedable, fast, non-cryptographic generator (PCG or xoshiro) with
-  ranges for integers and floats, and `Vec2`/`Vec3` helpers.
-- [ ] **Process**: command-line arguments, environment variables, exit code.
+- [x] **Files and paths** — r57; modification time, `as_cstr` and a sorted listing r59.
+- [x] **stderr**: `eprint`/`eprintln` — r54.
+- [x] **Time**: `Duration`, `Instant`, `Time::sleep`, `Time::unix` — r54.
+- [x] **Random** — r56. A separate seedable stream (deterministic replay) can come later as
+  a value type.
+- [x] **Process**: arguments, environment, exit code — r61.
 
 ### Formatting and text
 
-- [ ] **`println`/`print`/`format` as library functions** (§3, last row): `Format`
+- [ ] **`println`/`print`/`format` as library functions** — the user wants these as
+  **macros** (M10), so they wait for it. The builtin is already expanded at compile time,
+  so this is about extensibility, not speed. (§3, last row): `Format`
   implemented for the built-in types and `std` types, a real `Formatter` writing into a
   `String` or a stream, and a way to mark a parameter as a format string the compiler
   checks against its variadic arguments (18.56 made the arguments possible).
@@ -1889,15 +2124,16 @@ these through raylib or C today; a stdlib should not require it.
   buffers, so a fifth live message overwrites the first. `error` keeps static storage by
   the user's decision (§4); `format` does not have to.
 - [ ] **Format specifiers**: width, precision, padding, hex (`{:.2}`, `{:08x}`).
-- [ ] **`String` operations**: split, trim, find, replace, starts/ends with, parse to
-  integer and float (fallible), and `HashMap<String, V>` looked up by `str` (§3,
-  `Borrow<Q>`).
+- [x] **`String` operations** — r60, the `Text` trait, on `str` and `String`.
+- [ ] **`HashMap<String, V>` looked up by `str`** (§3, `Borrow<Q>`).
 - [ ] **A `cstr` from a runtime `str`**: an owned, zero-terminated copy (18.39 left it for
   `String`) — every C API taking a file name or a label needs it.
 
 ### Generics
 
-- [ ] **Generic methods** — `fn map<U>(&self, …)` on a type (§3, `DZ0801`).
+- [x] **Generic methods** — r55, see "r55 — generic methods" below.
+- [ ] **Generic methods in a trait** — refused (DZ0557). Would need either per-instance
+  vtables or a rule that a `^Trait` cannot call them.
 - [ ] **Associated-type projection** — `T::Item`, `T::Output` off a bound. Unblocks `for`
   over a generic `C: Iterable`, generic arithmetic, and real iterator adapters (§3).
 - [ ] **Iterator adapters** — `indexed()` as a real adapter rather than a `for`-head
@@ -1926,9 +2162,8 @@ these through raylib or C today; a stdlib should not require it.
 
 ### Semantics still open
 
-- [ ] **design — integer overflow**: what plain `+` does (wrap, or panic in debug as §5.1
-  proposes). `hash_combine` relies on wrapping today (§3).
-- [ ] **design — 18.20**: `or unreachable` in release.
+- [x] **Integer overflow wraps** — r59.
+- [x] **`or unreachable` assumes success in release** — r59.
 
 ### Concurrency (v2 by 18.11 — listed so it is not forgotten)
 
@@ -1945,14 +2180,17 @@ these through raylib or C today; a stdlib should not require it.
   trait method an `impl` left out. The mechanism is general: a diagnostic carries its own
   `Fix`, so the remaining ones below are checker work, not server work. Inlay hints for the
   implicit `drop` are still open.
-- [ ] **A release workflow** shipping `dz` with libclang beside it (§4a).
+- [ ] **A release workflow** shipping `dz` with libclang beside it (§4a) — and, per the user
+  on 2026-09-15, **an installer** that sets it up with libclang integrated.
 - [ ] **Fetched packages** (M16, §4a).
 - [ ] **Macros** (M10) and **hot reload** (M13), per the roadmap.
 
 ### The criterion
 
-- [ ] **A small raylib game with no C++ of its own** (M12, item 12 above) — written as
-  soon as `Rc`, files, time, random and library `format` exist, and used to reorder this list.
+- [x] **A small raylib game with no C++ of its own** (M12, item 12 above) — Breakout,
+  2026-09-15: `tests/run/breakout` (built by `the_windowed_interop_programs_build`, its rules
+  in `tests/run/breakout_sim/game`) and `tests/run/breakout_sim` (the rules played headless).
+  Library `format` was not waited for; see "What the game needed" below.
 
 ## 4a. Earlier: get CI green, then fetched packages
 

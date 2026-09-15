@@ -183,6 +183,123 @@ fn build_flags_choose_the_branches() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Integer overflow wraps in every build (spec §5.1, 18.63), including at `-O2`, where an
+/// optimiser assuming signed overflow never happens would fold `x + 1 > x` to `true`. And
+/// `or unreachable` panics in a debug build but lets a release build assume success (§9.4,
+/// 18.20) — checked in the generated C++, since the release behaviour is undefined when wrong.
+#[test]
+fn overflow_wraps_and_unreachable_is_assumed_in_release() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_overflow",
+        "[module]\nname = \"overflow\"\nsources = [\"src/**/*.dz\"]\n",
+        "fn grows(x: i32) -> bool {\n    return x + 1 > x\n}\n\nfn find(n: i32) -> i32? {\n    return n\n}\n\nfn main() {\n    let max: i32 = 2147483647\n    let small = 250u8\n    let v = find(3) or unreachable\n    println(\"{} {} {} {}\", max + 1, grows(max), small + 10, v)\n}\n",
+    );
+    for mode in ["--debug", "--release", "--shipping"] {
+        let out = Command::new(dz())
+            .args(["run", dir.to_str().unwrap(), mode])
+            .output()
+            .expect("failed to run dz");
+        assert!(out.status.success(), "{mode}: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(
+            normalise(&String::from_utf8_lossy(&out.stdout)),
+            "-2147483648 false 4 3",
+            "{mode}"
+        );
+        let cpp = std::fs::read_to_string(dir.join("build/cpp/overflow.cpp")).unwrap();
+        assert_eq!(
+            cpp.contains("__builtin_unreachable()"),
+            mode != "--debug",
+            "{mode}: `or unreachable` lowering\n{cpp}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `Process::args`, `Process::env` and `Process::exit` (spec §14.4), on the built binary run
+/// directly: a non-ASCII argument arrives as UTF-8 (on Windows it is re-read from the wide
+/// command line), a variable set for the child is seen, and the exit code is the program's.
+#[test]
+fn process_arguments_environment_and_exit_code() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = copy_fixture("process", "dz_process_args");
+    let built = Command::new(dz()).args(["build", dir.to_str().unwrap()]).output().expect("run dz");
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    let exe = dir.join("build/bin").join(if cfg!(windows) { "process.exe" } else { "process" });
+    let out = Command::new(&exe)
+        .args(["héllo wörld", "two", "7"])
+        .env("DZ_PROCESS_GREETING", "✓ hi")
+        .output()
+        .expect("run the program");
+    assert_eq!(out.status.code(), Some(7), "{}", String::from_utf8_lossy(&out.stderr));
+    let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+    assert_eq!(
+        stdout,
+        "program named true\narguments 3\narg 1 héllo wörld\narg 2 two\narg 3 7\nPATH set true\n\
+         unset true\ngreeting ✓ hi\nexiting with 7"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A module may be named after anything the runtime declares in `namespace dz` — `panic`,
+/// `str`, `index` — since C++ refuses a namespace and a function of one name in one scope.
+/// A module called `overflow` once failed to compile against the shim's `dz::overflow`.
+#[test]
+fn a_module_may_share_a_name_with_the_runtime() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_runtime_names",
+        "[module]\nname = \"panic\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstr = { path = \"str\" }\n",
+        "fn main() {\n    println(\"{}\", str::index(4))\n}\n",
+    );
+    std::fs::create_dir_all(dir.join("str/src")).unwrap();
+    std::fs::write(
+        dir.join("str/dazzle.toml"),
+        "[module]\nname = \"str\"\nsources = [\"src/**/*.dz\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("str/src/lib.dz"),
+        "pub fn index(n: i32) -> i32 {\n    return n * 2\n}\n",
+    )
+    .unwrap();
+    let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "8");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `eprint`/`eprintln` write to stderr and `print`/`println` to stdout, each formatting as
+/// the other does (spec §12.9). A fixture's `expected.txt` sees only stdout, so this is
+/// asserted on the two streams directly.
+#[test]
+fn eprintln_writes_to_stderr() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_stderr",
+        "[module]\nname = \"streams\"\nsources = [\"src/**/*.dz\"]\n",
+        "fn main() {\n    println(\"out {}\", 1)\n    eprintln(\"err {:x}\", 255)\n    print(\"a\")\n    eprint(\"b{{}}\")\n    println(\"\")\n}\n",
+    );
+    let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "out 1\na");
+    let stderr = normalise(&String::from_utf8_lossy(&out.stderr));
+    assert!(stderr.ends_with("err ff\nb{}"), "{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Memory tracking (spec §14.2), turned on for one build with `--track-memory`: a clean
 /// program says nothing more, a leak is reported at exit with the line that allocated it,
 /// and a double free or a free of the wrong size stops the program at the free.
@@ -201,7 +318,7 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
 
     // The containers too: a tracked build of a program that frees everything prints exactly
     // what an untracked one does, so any leak report would break the comparison.
-    for fixture in ["allocators", "hashmap", "handles"] {
+    for fixture in ["allocators", "hashmap", "handles", "files", "handle_upcast", "sorting"] {
         let clean = copy_fixture(fixture, &format!("dz_tracked_clean_{fixture}"));
         let out = run(&clean);
         let expected =
@@ -218,10 +335,12 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
         "fn main() {\n    let g = Allocators::Global\n    let kept = g.alloc(24, 8)\n    let _ = kept\n}\n",
     );
     let out = run(&leak);
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert!(stdout.contains("leak: 24 bytes allocated at"), "{stdout}");
-    assert!(stdout.contains("main.dz:3"), "the report names the allocating line:\n{stdout}");
+    // The report goes to stderr, so a leaking program's stdout is still only its own.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    assert!(out.stdout.is_empty(), "{}", String::from_utf8_lossy(&out.stdout));
+    assert!(stderr.contains("leak: 24 bytes allocated at"), "{stderr}");
+    assert!(stderr.contains("main.dz:3"), "the report names the allocating line:\n{stderr}");
     let _ = std::fs::remove_dir_all(&leak);
 
     for (name, body, message) in [
@@ -705,6 +824,16 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
             "variadic",
             "reflect",
             "handles",
+            "time",
+            "generic_methods",
+            "random",
+            "files",
+            "utf8",
+            "handle_upcast",
+            "sorting",
+            "breakout_sim",
+            "text",
+            "process",
         ],
         |fixture| check_warning_clean(cxx, fixture),
     );

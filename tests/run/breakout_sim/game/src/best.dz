@@ -1,0 +1,18 @@
+/// The best score so far, from `path`; 0 when there is none yet or it cannot be read.
+pub fn load_best(path: &Path) -> i32 {
+    let text = File::read_text(path) or { _e ->
+        return 0
+    }
+    let best = text.trim().parse_i64() or return 0
+    return best as i32
+}
+
+/// Keep `score` in `path` when it beats what is there, creating the directory it is in.
+pub fn save_best(path: &Path, score: i32) !-> bool {
+    if score <= load_best(path) {
+        return false
+    }
+    Directory::create(&path.parent()) or return
+    File::write_text(path, format("{}", score)) or return
+    return true
+}

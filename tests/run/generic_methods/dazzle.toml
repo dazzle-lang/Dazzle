@@ -1,0 +1,10 @@
+[module]
+name    = "generic_methods"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std    = { open = true }
+shapes = { path = "shapes" }
+
+[build]
+output = "executable"

@@ -435,6 +435,24 @@ impl<'a, 'w> Walker<'a, 'w> {
             // Removed by the driver before resolution runs (spec §12.10).
             ItemKind::CfgIf(_) => {}
             ItemKind::Fn(f) => {
+                // How the standard library reaches the operating system: the body is the
+                // compiler's C++ (spec §7.2, 18.65). A program's own way out is `import cpp`.
+                if f.is_extern && (self.module != self.ws.prelude || !self.scopes.is_empty()) {
+                    let file = self.file;
+                    let help = if self.module != self.ws.prelude {
+                        "to call C or C++, name the library in `dazzle.toml` (spec §15.1)"
+                    } else {
+                        "an `extern fn` is declared at module level"
+                    };
+                    self.error(
+                        Diagnostic::error(
+                            codes::EXTERN_OUTSIDE_STD,
+                            format!("`{}` cannot be `extern`", f.name.name),
+                        )
+                        .at(file, f.name.span, "`extern fn` is for the standard library")
+                        .with_help(help),
+                    );
+                }
                 self.exported = (item.vis == Vis::Public).then(|| f.name.name.clone());
                 self.function(f, None)
             }
@@ -853,7 +871,13 @@ impl<'a, 'w> Walker<'a, 'w> {
                 self.expr(index);
             }
             // The field name needs the receiver's type (M3); the receiver resolves now.
-            ExprKind::Field { base, .. } => self.expr(base),
+            ExprKind::Field { base, generics, .. } => {
+                self.expr(base);
+                // `xs.map<Vec2>(f)` names `Vec2` (spec §8.1).
+                for t in generics {
+                    self.ty(t);
+                }
+            }
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);

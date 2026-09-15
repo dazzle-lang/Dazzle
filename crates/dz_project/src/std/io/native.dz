@@ -1,0 +1,52 @@
+// Files and directories, from the compiler's C++ (spec §7.2, §16.4).
+//
+// A path is passed as the `str` a `Path` holds, and the C++ side adds the terminating zero
+// (and on Windows converts to UTF-16). A failure is reported by what the call returns — 0,
+// `false`, a short count — and its `IoError` code is then `io_last_error()`, which every
+// call below sets, to 0 when it succeeds.
+
+extern fn io_last_error() -> u32
+
+/// A handle, or 0.
+extern fn file_open(path: str, mode: u32) -> usize
+
+extern fn file_close(handle: usize)
+
+/// How many bytes were read; fewer than asked at the end of the file or on a failure.
+extern fn file_read(handle: usize, buf: []mut u8) -> usize
+
+/// How many bytes were written; fewer than asked only on a failure.
+extern fn file_write(handle: usize, data: []u8) -> usize
+
+extern fn file_seek(handle: usize, position: u64) -> bool
+
+extern fn file_position(handle: usize) -> u64
+
+extern fn file_size(handle: usize) -> u64
+
+extern fn file_flush(handle: usize) -> bool
+
+extern fn file_remove(path: str) -> bool
+
+extern fn path_exists(path: str) -> bool
+
+extern fn path_is_file(path: str) -> bool
+
+extern fn path_is_dir(path: str) -> bool
+
+/// Nanoseconds since the Unix epoch of the last write; 0, with the error set, on a failure.
+extern fn path_modified_nanos(path: str) -> u64
+
+/// One directory, not its parents; `false` when it already exists.
+extern fn dir_create(path: str) -> bool
+
+extern fn dir_remove(path: str) -> bool
+
+/// A handle, or 0.
+extern fn dir_open(path: str) -> usize
+
+/// The next entry's name, without `.` and `..`; empty at the end. Valid until the next call
+/// on the same handle.
+extern fn dir_next(handle: usize) -> str
+
+extern fn dir_close(handle: usize)

@@ -238,12 +238,13 @@ impl<'a> Dumper<'a> {
             format!("{recv}, {}", params.join(", "))
         };
         self.line(format_args!(
-            "{vis}{}{}{} {}{}({}){}",
+            "{vis}{}{}{}{} {}{}({}){}",
             match f.dispatch {
                 Dispatch::Static => "",
                 Dispatch::Virtual => "virtual ",
                 Dispatch::Override => "override ",
             },
+            if f.is_extern { "extern " } else { "" },
             if f.is_unsafe { "unsafe " } else { "" },
             what,
             f.name.name,
@@ -414,8 +415,13 @@ impl<'a> Dumper<'a> {
                     d.expr(index);
                 });
             }
-            ExprKind::Field { base, name } => {
-                self.line(format_args!("field .{}", name.name));
+            ExprKind::Field { base, name, generics } => {
+                if generics.is_empty() {
+                    self.line(format_args!("field .{}", name.name));
+                } else {
+                    let args: Vec<String> = generics.iter().map(type_str).collect();
+                    self.line(format_args!("field .{}<{}>", name.name, args.join(", ")));
+                }
                 self.nest(|d| d.expr(base));
             }
             ExprKind::Unary { op, operand } => {

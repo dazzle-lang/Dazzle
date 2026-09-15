@@ -1,0 +1,15 @@
+// expect: DZ0557
+//
+// A `virtual` method has one slot in the vtable, and a method generic in its own right would
+// need one per type argument (spec §7.3, §8.1).
+
+struct Widget {
+    pub virtual fn notify<T>(&self, event: T) {
+        let _ = move(event)
+    }
+}
+
+fn main() {
+    let w = Widget{}
+    w.notify(1)
+}

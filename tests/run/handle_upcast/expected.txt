@@ -1,0 +1,8 @@
+count 2 passed 3
+button 'ok' at 1 (16)
+element at 5
+button 'boxed' at 2 (16)
+weak alive true
+drop label ok
+weak after false
+drop label boxed

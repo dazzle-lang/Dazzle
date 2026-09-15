@@ -1,0 +1,11 @@
+/// How `File::open` opens a file (spec §14.4).
+pub enum FileMode : u32 {
+    /// An existing file, read from its start.
+    Read
+    /// A file to write from empty: created, or cut to nothing if it exists.
+    Write
+    /// Every write goes to the end; the file is created if it is missing.
+    Append
+    /// An existing file, read and written in place.
+    ReadWrite
+}

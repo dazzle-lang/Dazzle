@@ -109,7 +109,16 @@ fn matrices() {
     println("orthographic {} {}", near(corner.x, 1), near(corner.y, -1))
 }
 
+/// A method on a literal: the literal takes the type `let` would give it (spec §2.5).
+fn literal_receivers() {
+    println("literals {} {} {} {}", 2.25.sqrt(), 7.clamp(0, 3), 16.is_power_of_two(), 5.hash() == 5.hash())
+    // A suffix is the literal's type (spec §2.5): these wrap as a `u8` and an `i8`.
+    let n = 5u8
+    println("suffixes {} {} {}", n.wrapping_add(255), 5u8.wrapping_add(255), (-128i8).wrapping_sub(1))
+}
+
 fn main() {
+    literal_receivers()
     floats()
     integers()
     vectors()

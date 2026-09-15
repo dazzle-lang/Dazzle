@@ -1,0 +1,46 @@
+/// A moment on a monotonic clock. It never goes backwards, even when the machine's wall
+/// clock is changed, and means nothing on its own: only the time between two does. What to
+/// measure a frame, a timeout or a benchmark with.
+pub struct Instant {
+    m_nanos: u64 = 0
+
+    pub fn now() -> Instant {
+        return Instant{ m_nanos: monotonic_nanos() }
+    }
+
+    /// The time since this instant.
+    pub fn elapsed(&self) -> Duration {
+        return Duration::from_nanos(monotonic_nanos().saturating_sub(m_nanos))
+    }
+
+    /// The time from `earlier` to this instant; zero if `earlier` is in fact later.
+    pub fn since(&self, earlier: Instant) -> Duration {
+        return Duration::from_nanos(m_nanos.saturating_sub(earlier.m_nanos))
+    }
+}
+
+impl Sub for Instant {
+    type Output = Duration
+    fn sub(&self, rhs: Instant) -> Duration {
+        return self.since(rhs)
+    }
+}
+
+impl Add<Duration> for Instant {
+    type Output = Instant
+    fn add(&self, rhs: Duration) -> Instant {
+        return Instant{ m_nanos: m_nanos.saturating_add(rhs.as_nanos()) }
+    }
+}
+
+impl Eq for Instant {
+    fn eq(&self, rhs: &Instant) -> bool {
+        return m_nanos == rhs.m_nanos
+    }
+}
+
+impl Ord for Instant {
+    fn cmp(&self, rhs: &Instant) -> Ordering {
+        return m_nanos.cmp(&rhs.m_nanos)
+    }
+}

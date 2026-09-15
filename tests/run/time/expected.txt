@@ -1,0 +1,15 @@
+frame 250 ms, 250000 us, 250000000 ns
+0.250 s
+sum 3500 ms, 3 whole s
+saturates at zero: true
+negative seconds: 0
+from micros: 7000
+equal: true
+ordered: true false
+default is zero: true
+not backwards: true
+slept at least 20 ms: true
+elapsed agrees: true
+since a later instant: true
+instant + duration: true
+wall clock is current: true

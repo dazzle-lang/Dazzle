@@ -1,12 +1,29 @@
-/// The one allocation an `Rc` and its `Weak`s share: both counts, the allocator it came
-/// from, and the value.
+/// What every `Rc` and `Weak` to one value share, at the start of its allocation: both
+/// counts, and everything needed to drop the value and free the allocation without knowing
+/// its type — so an `Rc<Button>` can be used as an `Rc<UiElement>` and still drop the whole
+/// `Button` and free the right number of bytes (spec §14.5, 18.64).
 ///
 /// The value is dropped when the last `Rc` is, and the allocation freed when the last `Rc`
 /// and the last `Weak` both are — so a `Weak` can still read `strong` after the value is
 /// gone.
-pub struct RcBlock<T> {
+pub struct RcHeader {
     pub(module) strong: usize = 0
     pub(module) weak: usize = 0
     pub(module) allocator: ^mut Allocator = null
+    pub(module) size: usize = 0
+    pub(module) align: usize = 0
+    /// Drops the value as the type it was made as.
+    pub(module) drop_value: fn(^mut u8)
+}
+
+/// The one allocation behind an `Rc`: the header, then the value.
+pub struct RcBlock<T> {
+    pub(module) header: RcHeader
     pub(module) value: T
+}
+
+/// Drop the value at `p` as a `T`: what `RcHeader::drop_value` and a `Box` hold, made for
+/// the type the value was created as.
+fn drop_value_as<T>(p: ^mut u8) {
+    unsafe { destroy((p as ^mut T)[0]) }
 }

@@ -181,6 +181,10 @@ pub struct FnDecl {
     /// `unsafe fn` — its body may touch raw memory, and so a call to it must itself be
     /// inside `unsafe` (spec §5.2).
     pub is_unsafe: bool,
+    /// `extern fn` — declared without a body, which the compiler supplies in C++. Only the
+    /// standard library may write one; it is how `std` reaches the operating system
+    /// (spec §7.2, 18.65).
+    pub is_extern: bool,
     /// `virtual fn` / `override fn` — which one, if either (spec §7.3, 18.32). A
     /// `virtual fn` with no body makes its struct abstract and not constructible.
     pub dispatch: Dispatch,
@@ -642,6 +646,9 @@ pub enum ExprKind {
     Field {
         base: Box<Expr>,
         name: Ident,
+        /// `list.map<f32>(…)`: a method's own type arguments, written out (spec §8.1). Only
+        /// ever non-empty when the field access is the callee of a call.
+        generics: Vec<Type>,
     },
     Unary {
         op: UnaryOp,

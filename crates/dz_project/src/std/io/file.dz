@@ -1,0 +1,123 @@
+/// An open file. Move-only, and closed when dropped (spec §14.4).
+///
+/// The whole-file functions are what most code wants:
+///
+/// ```dz
+/// let config = File::read_text(&Path("settings.json")) or return
+/// File::write_text(&Path("save/slot1.txt"), text) or { e -> eprintln("{}", e.message) }
+/// ```
+///
+/// Every call that touches the disk is fallible, with an `IoError` as its error's code.
+pub struct File {
+    m_handle: usize = 0
+
+    pub fn open(path: &Path, mode: FileMode) !-> File {
+        let handle = file_open(path.as_str(), mode as u32)
+        if handle == 0 {
+            return error(io_last_error(), "cannot open {}", path.as_str())
+        }
+        return File{ m_handle: handle }
+    }
+
+    /// Up to `buf.len` bytes into `buf`: how many were read, and 0 at the end of the file.
+    pub fn read(&mut self, buf: []mut u8) !-> usize {
+        let n = file_read(m_handle, buf)
+        if n < buf.len && io_last_error() != 0 {
+            return error(io_last_error(), "cannot read from the file")
+        }
+        return n
+    }
+
+    /// All of `data`, at the current position.
+    pub fn write(&mut self, data: []u8) !-> void {
+        if file_write(m_handle, data) != data.len {
+            return error(io_last_error(), "cannot write to the file")
+        }
+    }
+
+    /// Move to `position` bytes from the start.
+    pub fn seek(&mut self, position: u64) !-> void {
+        if !file_seek(m_handle, position) {
+            return error(io_last_error(), "cannot seek in the file")
+        }
+    }
+
+    /// Bytes from the start to where the next read or write happens.
+    pub fn position(&self) !-> u64 {
+        let at = file_position(m_handle)
+        if io_last_error() != 0 {
+            return error(io_last_error(), "cannot tell the position in the file")
+        }
+        return at
+    }
+
+    /// The length in bytes.
+    pub fn size(&self) !-> u64 {
+        let n = file_size(m_handle)
+        if io_last_error() != 0 {
+            return error(io_last_error(), "cannot tell the size of the file")
+        }
+        return n
+    }
+
+    /// Hand what was written to the operating system now rather than when the file closes.
+    pub fn flush(&mut self) !-> void {
+        if !file_flush(m_handle) {
+            return error(io_last_error(), "cannot flush the file")
+        }
+    }
+
+    /// The whole file.
+    pub fn read_bytes(path: &Path) !-> List<u8> {
+        let mut f = File::open(path, .Read) or return
+        let size = f.size() or return
+        let mut bytes = List<u8>(size as usize)
+        bytes.resize(size as usize)
+        let mut got: usize = 0
+        while got < bytes.len() {
+            let n = f.read(bytes.as_mut_slice()[got..]) or return
+            if n == 0 {
+                break
+            }
+            got += n
+        }
+        bytes.truncate(got)
+        return move(bytes)
+    }
+
+    /// The whole file as text, which must be UTF-8 (`IoError::InvalidData` otherwise).
+    pub fn read_text(path: &Path) !-> String {
+        let bytes = File::read_bytes(path) or return
+        let text = str::from_utf8(bytes.as_slice()) or {
+            return error(IoError::InvalidData, "{} is not UTF-8 text", path.as_str())
+        }
+        return String::from(text)
+    }
+
+    /// Replace the file's contents with `data`, creating it if needed. The directory it is
+    /// in must exist.
+    pub fn write_bytes(path: &Path, data: []u8) !-> void {
+        let mut f = File::open(path, .Write) or return
+        f.write(data) or return
+        f.flush() or return
+    }
+
+    pub fn write_text(path: &Path, text: str) !-> void {
+        File::write_bytes(path, text as []u8) or return
+    }
+
+    /// Delete the file. A directory is `Directory::remove`'s.
+    pub fn remove(path: &Path) !-> void {
+        if !file_remove(path.as_str()) {
+            return error(io_last_error(), "cannot remove {}", path.as_str())
+        }
+    }
+}
+
+impl Drop for File {
+    fn drop(&mut self) {
+        if m_handle != 0 {
+            file_close(m_handle)
+        }
+    }
+}

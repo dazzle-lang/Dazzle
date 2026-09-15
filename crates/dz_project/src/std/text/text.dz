@@ -1,0 +1,369 @@
+/// Reading text: searching, trimming, splitting, replacing and parsing numbers, on a `str`
+/// and on a `String` alike — `"  42 ".trim().parse_i64()`, `line.split(",")`,
+/// `name.starts_with("player")` (spec §14.4).
+///
+/// Positions are byte offsets, as everywhere in UTF-8 text, and every piece handed back is
+/// cut on a character boundary. Pieces are views of the text they came from: valid for as
+/// long as it is, and never a copy — except `replace` and the case changes, which build a
+/// new `String`.
+pub trait Text {
+    /// The whole text, as a view.
+    fn text(&self) -> str
+
+    fn starts_with(&self, prefix: str) -> bool {
+        let t = self.text()
+        return t.len >= prefix.len && sub(t, 0, prefix.len) == prefix
+    }
+
+    fn ends_with(&self, suffix: str) -> bool {
+        let t = self.text()
+        return t.len >= suffix.len && sub(t, t.len - suffix.len, t.len) == suffix
+    }
+
+    /// Where `needle` first occurs, in bytes; `none` when it does not. An empty `needle` is
+    /// found at 0.
+    fn find(&self, needle: str) -> usize? {
+        return find_bytes(self.text(), needle, 0)
+    }
+
+    fn contains(&self, needle: str) -> bool {
+        return self.find(needle) != none
+    }
+
+    /// Without the spaces, tabs and line breaks at either end.
+    fn trim(&self) -> str {
+        let t = self.text()
+        let start = trim_start_at(t)
+        let end = trim_end_at(t)
+        if start >= end {
+            return ""
+        }
+        return sub(t, start, end)
+    }
+
+    fn trim_start(&self) -> str {
+        let t = self.text()
+        return sub(t, trim_start_at(t), t.len)
+    }
+
+    fn trim_end(&self) -> str {
+        let t = self.text()
+        return sub(t, 0, trim_end_at(t))
+    }
+
+    /// The pieces between each `separator`: `"a,,b".split(",")` gives `"a"`, `""`, `"b"`.
+    /// An empty separator gives the whole text as one piece.
+    fn split(&self, separator: str) -> Split {
+        return Split(self.text(), separator)
+    }
+
+    /// The lines, without their `\n` or `\r\n`. A final line break does not start an empty
+    /// last line.
+    fn lines(&self) -> Lines {
+        return Lines(self.text())
+    }
+
+    /// A copy with every `from` replaced by `to`. An empty `from` replaces nothing.
+    fn replace(&self, from: str, to: str) -> String {
+        let t = self.text()
+        let mut out = String()
+        if from.len == 0 {
+            out.push_str(t)
+            return out
+        }
+        let mut at: usize = 0
+        while true {
+            let found = find_bytes(t, from, at) or {
+                out.push_str(sub(t, at, t.len))
+                return out
+            }
+            out.push_str(sub(t, at, found))
+            out.push_str(to)
+            at = found + from.len
+        }
+        return out
+    }
+
+    /// A copy with `A`–`Z` made `a`–`z`; every other character as it was.
+    fn to_ascii_lowercase(&self) -> String {
+        return ascii_case(self.text(), true)
+    }
+
+    /// A copy with `a`–`z` made `A`–`Z`; every other character as it was.
+    fn to_ascii_uppercase(&self) -> String {
+        return ascii_case(self.text(), false)
+    }
+
+    /// The whole text as a signed integer — an optional `+` or `-`, then decimal digits —
+    /// or `none` for anything else, including spaces and a value that does not fit.
+    fn parse_i64(&self) -> i64? {
+        let bytes = self.text() as []u8
+        if bytes.len == 0 {
+            return none
+        }
+        let negative = bytes[0] == '-' as u8
+        let signed = negative || bytes[0] == '+' as u8
+        let digits: usize = if signed { 1 } else { 0 }
+        if digits == bytes.len {
+            return none
+        }
+        // Built downwards, so the most negative value, which has no positive twin, fits.
+        let mut value: i64 = 0
+        let mut i: usize = digits
+        while i < bytes.len {
+            let d = bytes[i] as i64 - '0' as i64
+            if d < 0 || d > 9 {
+                return none
+            }
+            let times = value.checked_mul(10) or return none
+            value = times.checked_sub(d) or return none
+            i += 1
+        }
+        if negative {
+            return value
+        }
+        return value.checked_mul(-1)
+    }
+
+    /// The whole text as an unsigned integer: decimal digits and nothing else, and `none`
+    /// when it does not fit.
+    fn parse_u64(&self) -> u64? {
+        let bytes = self.text() as []u8
+        if bytes.len == 0 {
+            return none
+        }
+        let mut value: u64 = 0
+        for b in bytes {
+            if b < '0' as u8 || b > '9' as u8 {
+                return none
+            }
+            let times = value.checked_mul(10) or return none
+            value = times.checked_add((b - '0' as u8) as u64) or return none
+        }
+        return value
+    }
+
+    /// The whole text as a float: `1.5`, `-3`, `2.5e-3`, `.5`. Only digits, a sign, a point
+    /// and an exponent — no spaces, no `inf` or `nan`, no hex — or `none`.
+    fn parse_f64(&self) -> f64? {
+        let t = self.text()
+        if !is_decimal_number(t) {
+            return none
+        }
+        return text_parse_f64(t)
+    }
+
+    fn parse_f32(&self) -> f32? {
+        let v = self.parse_f64() or return none
+        return v as f32
+    }
+}
+
+impl Text for str {
+    fn text(&self) -> str {
+        return self
+    }
+}
+
+impl Text for String {
+    fn text(&self) -> str {
+        return self.as_str()
+    }
+}
+
+/// The pieces of a text between each occurrence of a separator: `for field in
+/// line.split(",")`.
+pub struct Split {
+    m_text: str
+    m_separator: str
+    m_start: usize = 0
+    m_end: usize = 0
+    m_done: bool = false
+
+    Split(text: str, separator: str) {
+        m_text = text
+        m_separator = separator
+        self.find_end()
+    }
+
+    fn find_end(&mut self) {
+        if m_separator.len == 0 {
+            m_end = m_text.len
+            return
+        }
+        if let at = find_bytes(m_text, m_separator, m_start) {
+            m_end = at
+        } else {
+            m_end = m_text.len
+        }
+    }
+}
+
+impl Iterate for Split {
+    type Item = str
+
+    fn valid(&self) -> bool {
+        return !m_done
+    }
+
+    fn get(&self) -> str {
+        return sub(m_text, m_start, m_end)
+    }
+
+    fn advance(&mut self) {
+        if m_end >= m_text.len || m_separator.len == 0 {
+            m_done = true
+            return
+        }
+        m_start = m_end + m_separator.len
+        self.find_end()
+    }
+}
+
+/// A text's lines, without their line breaks: `for line in file_text.lines()`.
+pub struct Lines {
+    m_text: str
+    m_start: usize = 0
+    m_end: usize = 0
+
+    Lines(text: str) {
+        m_text = text
+        self.find_end()
+    }
+
+    fn find_end(&mut self) {
+        if let at = find_bytes(m_text, "\n", m_start) {
+            m_end = at
+        } else {
+            m_end = m_text.len
+        }
+    }
+}
+
+impl Iterate for Lines {
+    type Item = str
+
+    fn valid(&self) -> bool {
+        return m_start < m_text.len
+    }
+
+    fn get(&self) -> str {
+        let mut end = m_end
+        if end > m_start && (m_text as []u8)[end - 1] == '\r' as u8 {
+            end -= 1
+        }
+        return sub(m_text, m_start, end)
+    }
+
+    fn advance(&mut self) {
+        m_start = m_end + 1
+        self.find_end()
+    }
+}
+
+/// Where `needle` first occurs in `hay` at or after `from`. Matching whole UTF-8 sequences
+/// byte for byte, a match always starts on a character boundary.
+fn find_bytes(hay: str, needle: str, from: usize) -> usize? {
+    let h = hay as []u8
+    let n = needle as []u8
+    if n.len == 0 {
+        return if from <= h.len { from } else { none }
+    }
+    if n.len > h.len {
+        return none
+    }
+    let mut i = from
+    while i + n.len <= h.len {
+        let mut k: usize = 0
+        while k < n.len && h[i + k] == n[k] {
+            k += 1
+        }
+        if k == n.len {
+            return i
+        }
+        i += 1
+    }
+    return none
+}
+
+fn is_space(b: u8) -> bool {
+    return b == ' ' as u8 || b == '\t' as u8 || b == '\n' as u8 || b == '\r' as u8 || b == 11 || b == 12
+}
+
+fn trim_start_at(t: str) -> usize {
+    let bytes = t as []u8
+    let mut i: usize = 0
+    while i < bytes.len && is_space(bytes[i]) {
+        i += 1
+    }
+    return i
+}
+
+fn trim_end_at(t: str) -> usize {
+    let bytes = t as []u8
+    let mut end = bytes.len
+    while end > 0 && is_space(bytes[end - 1]) {
+        end -= 1
+    }
+    return end
+}
+
+fn ascii_case(t: str, lower: bool) -> String {
+    let mut out = String()
+    out.reserve(t.len)
+    for c in Chars(t) {
+        let code = c as u32
+        if lower && code >= 'A' as u32 && code <= 'Z' as u32 {
+            out.push((code + 32) as char)
+        } else if !lower && code >= 'a' as u32 && code <= 'z' as u32 {
+            out.push((code - 32) as char)
+        } else {
+            out.push(c)
+        }
+    }
+    return out
+}
+
+/// `[+-] digits [. digits] [(e|E) [+-] digits]`, with a digit on at least one side of the
+/// point.
+fn is_decimal_number(t: str) -> bool {
+    let b = t as []u8
+    let mut i: usize = 0
+    if i < b.len && (b[i] == '+' as u8 || b[i] == '-' as u8) {
+        i += 1
+    }
+    let mut digits = 0
+    while i < b.len && b[i] >= '0' as u8 && b[i] <= '9' as u8 {
+        i += 1
+        digits += 1
+    }
+    if i < b.len && b[i] == '.' as u8 {
+        i += 1
+        while i < b.len && b[i] >= '0' as u8 && b[i] <= '9' as u8 {
+            i += 1
+            digits += 1
+        }
+    }
+    if digits == 0 {
+        return false
+    }
+    if i < b.len && (b[i] == 'e' as u8 || b[i] == 'E' as u8) {
+        i += 1
+        if i < b.len && (b[i] == '+' as u8 || b[i] == '-' as u8) {
+            i += 1
+        }
+        let mut exponent = 0
+        while i < b.len && b[i] >= '0' as u8 && b[i] <= '9' as u8 {
+            i += 1
+            exponent += 1
+        }
+        if exponent == 0 {
+            return false
+        }
+    }
+    return i == b.len
+}
+
+/// The C library's conversion, which rounds correctly; the text has been checked to be a
+/// plain decimal number first.
+extern fn text_parse_f64(text: str) -> f64?

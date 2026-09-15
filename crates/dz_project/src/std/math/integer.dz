@@ -1,6 +1,6 @@
 /// What every integer type can do, beyond `+ - * / %`. Plain arithmetic does not wrap on
 /// overflow; these say what should happen instead.
-pub trait Integer {
+pub trait Integer : Number {
     fn min(&self, rhs: Self) -> Self
     fn max(&self, rhs: Self) -> Self
     /// `self` held between `lo` and `hi`.

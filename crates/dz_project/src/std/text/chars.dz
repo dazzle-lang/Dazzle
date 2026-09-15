@@ -1,0 +1,91 @@
+/// Steps through text a character at a time, decoding UTF-8 as it goes:
+/// `for c in name.chars()`, or `for c in Chars("héllo")` over any `str`.
+///
+/// A byte that does not begin valid UTF-8 — only possible in text made with the unchecked
+/// `bytes as str` — reads as U+FFFD, the replacement character, and is stepped over alone,
+/// so iteration always ends (spec §14.4).
+pub struct Chars {
+    m_text: str
+    m_at: usize = 0
+
+    Chars(text: str) {
+        m_text = text
+    }
+
+    /// Where the next character starts, in bytes.
+    pub fn offset(&self) -> usize {
+        return m_at
+    }
+}
+
+impl Iterate for Chars {
+    type Item = char
+
+    fn valid(&self) -> bool {
+        return m_at < m_text.len
+    }
+
+    fn get(&self) -> char {
+        let (c, _) = decode_utf8(m_text as []u8, m_at)
+        return c
+    }
+
+    fn advance(&mut self) {
+        let (_, width) = decode_utf8(m_text as []u8, m_at)
+        m_at += width
+    }
+}
+
+/// The character starting at byte `at`, and how many bytes it takes. U+FFFD and a width of 1
+/// for anything that is not well-formed UTF-8: a stray continuation byte, a sequence cut
+/// short, an overlong encoding, a surrogate, or a value past U+10FFFF.
+fn decode_utf8(bytes: []u8, at: usize) -> (char, usize) {
+    let bad: (char, usize) = (0xFFFD as char, 1)
+    let first = bytes[at] as u32
+    if first < 0x80 {
+        return (first as char, 1)
+    }
+    let mut width: usize = 0
+    let mut cp: u32 = 0
+    if (first & 0xE0) == 0xC0 {
+        width = 2
+        cp = first & 0x1F
+    } else if (first & 0xF0) == 0xE0 {
+        width = 3
+        cp = first & 0x0F
+    } else if (first & 0xF8) == 0xF0 {
+        width = 4
+        cp = first & 0x07
+    } else {
+        return bad
+    }
+    if at + width > bytes.len {
+        return bad
+    }
+    let mut k: usize = 1
+    while k < width {
+        let b = bytes[at + k] as u32
+        if (b & 0xC0) != 0x80 {
+            return bad
+        }
+        cp = (cp << 6) | (b & 0x3F)
+        k += 1
+    }
+    let smallest: [5]u32 = [0, 0, 0x80, 0x800, 0x10000]
+    if cp < smallest[width] || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF) {
+        return bad
+    }
+    return (cp as char, width)
+}
+
+/// Whether byte `at` begins a character: the start, the end, or anything but a
+/// continuation byte.
+fn is_utf8_boundary(bytes: []u8, at: usize) -> bool {
+    if at == 0 || at == bytes.len {
+        return true
+    }
+    if at > bytes.len {
+        return false
+    }
+    return ((bytes[at] as u32) & 0xC0) != 0x80
+}

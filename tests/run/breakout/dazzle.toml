@@ -1,0 +1,30 @@
+[module]
+name    = "breakout"
+sources = ["src/**/*.dz"]
+
+# M12's criterion (spec §19): a small game with no C++ of its own. The rules are `game`,
+# plain Dazzle over `std`; this module draws them with raylib, built from the source
+# `tests/run/raylib` vendors.
+[dependencies]
+std  = { open = true }
+game = { path = "../breakout_sim/game", open = true }
+rl   = { cpp = "raylib" }
+
+[cpp.libs.raylib]
+root         = "../raylib/vendor/raylib/src"
+sources      = ["*.c"]
+include_dirs = [".", "external/glfw/include"]
+defines      = ["PLATFORM_DESKTOP", "GRAPHICS_API_OPENGL_33"]
+import       = ["raylib.h"]
+
+[cpp.libs.raylib.target.windows]
+link_libs = ["opengl32", "gdi32", "winmm", "user32", "shell32"]
+
+[cpp.libs.raylib.target.linux]
+defines   = ["_GLFW_X11"]
+link_libs = ["GL", "m", "pthread", "dl", "rt", "X11"]
+
+[cpp.libs.raylib.target.macos]
+flags      = ["-x", "objective-c"]
+link_libs  = ["m", "pthread", "dl"]
+frameworks = ["Cocoa", "IOKit", "CoreVideo", "CoreFoundation", "OpenGL"]

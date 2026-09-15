@@ -1,0 +1,10 @@
+// expect: DZ0556
+//
+// A function that is not a trait's method has to have a body. This was accepted, and failed
+// only when the C++ linker found nothing to call (spec §7.2).
+
+fn ticks() -> u64
+
+fn main() {
+    println("{}", ticks())
+}

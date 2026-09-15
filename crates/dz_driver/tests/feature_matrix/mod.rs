@@ -95,6 +95,18 @@ pub struct Counter {
     pub fn bump(&mut self) {
         n += 1
     }
+
+    pub fn echo<T>(&self, v: T) -> T {
+        return move(v)
+    }
+
+    pub fn twice<T: Copy>(&self, v: T) -> (T, T) {
+        return (v, v)
+    }
+
+    pub fn wrap<T>(v: T) -> T {
+        return move(v)
+    }
 }
 ";
 
@@ -221,6 +233,11 @@ pub const CONSTRUCTS: &[(&str, &str, i32)] = &[
         12,
     ),
     ("tuple_destructured_let", "let (a, b) = pair()\nr = a * b", 27),
+    (
+        "generic_methods",
+        "let c = Counter{ n: 2 }\nlet a = c.echo(Res{ n: 5 })\nlet (x, y) = c.twice<i32>(c.n)\nr = a.n + x * y + Counter::wrap(1) - Counter::wrap<i32>(1)",
+        9,
+    ),
 ];
 
 /// `(name, body, the one diagnostic it must produce)`.
@@ -260,6 +277,7 @@ pub const MISTAKES: &[(&str, &str, &str)] = &[
     ("mut_reference_to_immutable", "let q = 1\nadd_to(&mut q, 1)", "DZ0507"),
     ("break_to_unknown_label", "for i in 0..2 {\n    r += i\n    break nowhere\n}", "DZ0550"),
     ("continue_to_unknown_label", "while r < 2 {\n    r += 1\n    continue nowhere\n}", "DZ0550"),
+    ("generic_method_bound", "let c = Counter{ n: 1 }\nlet (a, _) = c.twice(Res{ n: 1 })\nr = a.n", "DZ0531"),
 ];
 
 /// `(name, wrapper)`: `BODY` is replaced by the case, indented to fit, and `NAME` by a

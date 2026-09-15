@@ -1,0 +1,69 @@
+// The rules in `game`, played headless by an autopilot that follows the ball.
+// Floating-point results may differ between compilers and processors, so what is printed
+// is what must hold for any run: the ball stays on the field, the score is exactly the
+// points of the bricks broken, lives only go down, and the game ends. And the best score
+// is saved and read back.
+
+fn follow(g: &Game, aim_offset: f32) -> Input {
+    let target = g.ball.x + aim_offset
+    let middle = g.paddle.center().x
+    return Input{
+        left: target < middle - 4,
+        right: target > middle + 4,
+        launch: g.phase == Phase::Ready,
+    }
+}
+
+fn play(seed: u64, aim_offset: f32, frames: i32) -> Game {
+    Random::seed(seed)
+    let mut g = Game(800, 600)
+    let dt: f32 = 1.0 / 240.0
+    let mut on_field = true
+    let mut lives_only_fall = true
+    let mut last_lives = g.lives
+    let mut frame = 0
+    while frame < frames && (g.phase == Phase::Ready || g.phase == Phase::Playing) {
+        g.update(dt, follow(&g, aim_offset))
+        on_field = on_field && g.ball.x >= 0 && g.ball.x <= 800 && g.ball.y >= 0
+        lives_only_fall = lives_only_fall && g.lives <= last_lives
+        last_lives = g.lives
+        frame += 1
+    }
+    println(
+        "seed {}: ended {} on field {} lives fall {} score matches {} bricks broken {}",
+        seed,
+        g.phase == Phase::Won || g.phase == Phase::Lost || frame == frames,
+        on_field,
+        lives_only_fall,
+        g.score == g.broken_points,
+        g.bricks.len() < 60,
+    )
+    return move(g)
+}
+
+fn main() {
+    let fresh = Game(800, 600)
+    println("wall {} bricks, {} lives, ready {}", fresh.bricks.len(), fresh.lives, fresh.phase == Phase::Ready)
+
+    // A player who always hits the middle of the paddle, and one who aims off the edge.
+    let steady = play(1, 0, 240 * 600)
+    let wild = play(2, 45, 240 * 600)
+
+    // Nothing launches until asked, and the paddle stops at the walls.
+    let mut idle = Game(800, 600)
+    for _ in 0..240 {
+        idle.update(1.0 / 240.0, Input{ left: true })
+    }
+    println("idle stays ready {} paddle at wall {}", idle.phase == Phase::Ready, idle.paddle.x == 0)
+
+    // The best score is kept only when beaten.
+    let dir = Path("breakout_sim_saves_") / format("{}", Time::unix().as_nanos() % 1000000007)
+    let file = dir / "best.txt"
+    let high = if steady.score > wild.score { steady.score } else { wild.score }
+    let first = save_best(&file, high) or false
+    let again = save_best(&file, high) or true
+    println("saved {} kept {} reads back {}", first, !again, load_best(&file) == high)
+    File::remove(&file) or { _e -> }
+    Directory::remove(&dir) or { _e -> }
+    Directory::remove(&dir.parent()) or { _e -> }
+}
