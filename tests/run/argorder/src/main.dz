@@ -135,6 +135,43 @@ fn main() {
     slots[say(2)] = say(1)
     slots[maybe(3) or 0] += say(2)
     println("= {} {} {} {}", slots[0], slots[1], slots[2], slots[3])
+
+    // A view into a temporary, kept in order before a later argument with effects, must not
+    // outlive the temporary: `Poisoned` overwrites its text when dropped, so a view read
+    // after the drop would print `XXXXX`. It did, on Linux and macOS, until r61's fix.
+    println("views:")
+    println("= {} {}", Poisoned{}.view(), say(1))
+    println("= {} {}", say(1), Poisoned{}.view().len)
+    // And the temporary is still dropped when its statement ends — before the next one,
+    // for a plain statement and for a `let` whose value outlives it.
+    let width = measure(Poisoned{}.view(), say(2))
+    println("= width {}", width)
+}
+
+fn measure(text: str, extra: i32) -> usize {
+    return text.len + extra as usize
+}
+
+struct Poisoned {
+    pub bytes: [5]u8 = [104, 101, 108, 108, 111]
+
+    pub fn view(&self) -> str {
+        return unsafe { bytes[..] as str }
+    }
+}
+
+impl Drop for Poisoned {
+    fn drop(&mut self) {
+        // Said once per value: a second drop of the same bytes would find them overwritten.
+        if bytes[0] == 104 {
+            println("  dropped")
+        }
+        let mut i: usize = 0
+        while i < 5 {
+            bytes[i] = 88
+            i += 1
+        }
+    }
 }
 
 struct Point {

@@ -53,3 +53,13 @@ assignment:
   step 2
   step 3
 = 0 0 1 2
+views:
+  step 1
+= hello 1
+  dropped
+  step 1
+= 1 5
+  dropped
+  step 2
+  dropped
+= width 7

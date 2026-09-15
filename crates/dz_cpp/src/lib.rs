@@ -166,6 +166,9 @@ pub fn emit(
             impl_instance: None,
             method_instance: None,
             chunks: Vec::new(),
+            materialized: HashMap::new(),
+            owners_made: 0,
+            guards_made: 0,
             header_ns: module.id,
             def_prefix: "",
             mode,
@@ -291,6 +294,9 @@ pub fn emit(
             impl_instance: None,
             method_instance: None,
             chunks: Vec::new(),
+            materialized: HashMap::new(),
+            owners_made: 0,
+            guards_made: 0,
             header_ns: res.prelude,
             def_prefix: "",
             mode,
@@ -452,6 +458,25 @@ struct CapturedArg {
     /// A place the callee works on — `construct`'s destination, an indexed container —
     /// rather than a value, so a temporary must refer to it, not copy it.
     place: bool,
+    /// What it was rendered as, so it can be rendered again (`emit_args`).
+    target: Option<Ty>,
+    consume: bool,
+}
+
+impl CapturedArg {
+    /// Everything but the rendered text, which the caller supplies.
+    fn clone_shape(a: &CapturedArg) -> CapturedArg {
+        CapturedArg {
+            id: a.id,
+            pre: String::new(),
+            value: String::new(),
+            effects: a.effects,
+            stable: a.stable,
+            place: a.place,
+            target: a.target.clone(),
+            consume: a.consume,
+        }
+    }
 }
 
 impl CapturedArgs {
@@ -513,6 +538,13 @@ struct Emitter<'a> {
     method_instance: Option<&'a dz_mono::MethodInstance>,
     /// Finished header text, by the namespace it belongs in.
     chunks: Vec<(ModuleId, String)>,
+    /// Expressions already evaluated into a local of their own, by that local's name: the
+    /// owners a hoisted view borrows from (`emit_args`).
+    materialized: HashMap<ExprId, String>,
+    /// How many owner locals and handle guards have been written, so a statement can tell
+    /// whether it made one: an owner is scoped to its statement, a guard never is.
+    owners_made: usize,
+    guards_made: usize,
     /// The namespace `header` is currently being written for.
     header_ns: ModuleId,
     /// `"inline "` while an instance's out-of-class definitions are written into a header,
@@ -2812,7 +2844,49 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// A statement. One that bound an owning temporary to a local, so a view of it could be
+    /// taken in order (`emit_args`), is put in a scope of its own: the local is dropped when
+    /// the statement ends, exactly when the temporary would have been. A statement that also
+    /// took a handle's guard is not, since a guard lives to the end of the enclosing block
+    /// (spec §14.5); nor is one with a body of its own.
     fn stmt(&mut self, id: StmtId) {
+        let kind = &self.cur().stmt(id).kind;
+        let scopable = matches!(
+            kind,
+            hir::StmtKind::Expr(_)
+                | hir::StmtKind::Assign { .. }
+                | hir::StmtKind::Let { local: None, .. }
+        );
+        if !scopable {
+            return self.stmt_inner(id);
+        }
+        let (owners, guards) = (self.owners_made, self.guards_made);
+        let (text, ()) = self.capture(|e| e.stmt_inner(id));
+        if self.owners_made == owners || self.guards_made != guards {
+            self.write_captured(&text);
+            return;
+        }
+        self.line("{");
+        self.indent += 1;
+        self.write_captured(&text);
+        self.indent -= 1;
+        self.line("}");
+    }
+
+    /// Can a local of `ty` be declared first and assigned afterwards? Every Dazzle type can —
+    /// all have a default (spec §6.2) and an assignment — but a reference cannot be declared
+    /// unbound, and an imported C++ class may have neither.
+    fn declare_then_assign(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Ref { .. } => false,
+            Ty::Named { sym, .. } => !self.is_foreign(*sym),
+            Ty::Tuple(parts) => parts.iter().all(|p| self.declare_then_assign(p)),
+            Ty::Optional(inner) | Ty::Array { elem: inner, .. } => self.declare_then_assign(inner),
+            _ => true,
+        }
+    }
+
+    fn stmt_inner(&mut self, id: StmtId) {
         let body = self.cur();
         let s = body.stmt(id);
         self.line_directive(s.span);
@@ -2822,9 +2896,27 @@ impl<'a> Emitter<'a> {
                     let ty = self.cpp_ty(&body.local(*l).ty);
                     let name = self.names[l.index()].clone();
                     let local_ty = body.local(*l).ty.clone();
-                    let v = self.stored(&local_ty, *init);
+                    let (owners, guards) = (self.owners_made, self.guards_made);
+                    let (pre, v) = self.capture(|e| e.stored(&local_ty, *init));
                     let unused = self.unused_attr(l.index());
-                    self.line(&format!("{unused}{ty} {name} = {v};"));
+                    // An owner a view was taken from dies with the statement, as a temporary
+                    // would, while the binding outlives it: declared first, assigned in the
+                    // statement's own scope (see `stmt`).
+                    if self.owners_made != owners
+                        && self.guards_made == guards
+                        && self.declare_then_assign(&local_ty)
+                    {
+                        self.line(&format!("{unused}{ty} {name}{{}};"));
+                        self.line("{");
+                        self.indent += 1;
+                        self.write_captured(&pre);
+                        self.line(&format!("{name} = {v};"));
+                        self.indent -= 1;
+                        self.line("}");
+                    } else {
+                        self.write_captured(&pre);
+                        self.line(&format!("{unused}{ty} {name} = {v};"));
+                    }
                 }
                 // Declared with no value: default-initialise (spec §6.2).
                 (Some(l), None) => {
@@ -3411,6 +3503,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn expr(&mut self, e: ExprId) -> String {
+        if let Some(local) = self.materialized.get(&e) {
+            return local.clone();
+        }
         let body = self.cur();
         let node = body.expr(e);
         match &node.kind {
@@ -3701,6 +3796,7 @@ impl<'a> Emitter<'a> {
                 let name = self.names[guard.index()].clone();
                 let v = self.expr(init);
                 self.line(&format!("{cpp} {name} = {v};"));
+                self.guards_made += 1;
                 self.expr(value)
             }
             hir::ExprKind::Or { operand, clause } => {
@@ -4164,7 +4260,16 @@ impl<'a> Emitter<'a> {
             };
             let effects = !pre.trim().is_empty() || self.has_effects(a);
             let stable = !effects && self.order_stable(a);
-            out.args.push(CapturedArg { id: a, pre, value: v, effects, stable, place: false });
+            out.args.push(CapturedArg {
+                id: a,
+                pre,
+                value: v,
+                effects,
+                stable,
+                place: false,
+                target,
+                consume,
+            });
         }
         out
     }
@@ -4175,7 +4280,6 @@ impl<'a> Emitter<'a> {
         let args = &captured.args;
         let mut out = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
-            self.write_captured(&a.pre);
             let later = &args[i + 1..];
             let observable = if captured.sequenced {
                 !a.stable && later.iter().any(|b| !b.pre.trim().is_empty())
@@ -4183,11 +4287,49 @@ impl<'a> Emitter<'a> {
                 later.iter().any(|b| (a.effects && !b.stable) || (!a.stable && b.effects))
             };
             if !observable {
+                self.write_captured(&a.pre);
                 out.push(a.value.clone());
                 continue;
             }
             let tmp = self.fresh("arg");
             let ty = self.cur().ty(a.id).clone();
+            // A view — `make_name().as_str()` — bound to a statement of its own would outlive
+            // the temporary it looks into, which C++ destroys at the end of that statement.
+            // So each owning temporary inside it is evaluated into a local first, in order,
+            // and the view is taken from that. `stmt` puts the statement in a scope of its
+            // own, so the local is dropped when the statement ends, as the temporary was.
+            let owners = if !a.place && self.borrows(&ty) {
+                self.owning_temporaries(a.id)
+            } else {
+                Vec::new()
+            };
+            let value = if owners.is_empty() {
+                self.write_captured(&a.pre);
+                a.value.clone()
+            } else {
+                for owner in &owners {
+                    let (pre, v) = self.capture(|e| e.expr(*owner));
+                    self.write_captured(&pre);
+                    let local = self.fresh("owner");
+                    self.line(&format!("auto {local} = {v};"));
+                    self.materialized.insert(*owner, local);
+                    self.owners_made += 1;
+                }
+                let (pre, v) = self.capture(|e| match &a.target {
+                    Some(t) => e.stored(t, a.id),
+                    None => e.expr(a.id),
+                });
+                for owner in &owners {
+                    self.materialized.remove(owner);
+                }
+                self.write_captured(&pre);
+                if a.consume && !self.table.copyable(&ty) {
+                    format!("::dz::mv({v})")
+                } else {
+                    v
+                }
+            };
+            let a = &CapturedArg { value, ..CapturedArg::clone_shape(a) };
             if a.place {
                 // `construct(dst, move_out(src))` and `xs[i()]` work on the place itself:
                 // bound as it is, and forwarded as the lvalue or rvalue it was.
@@ -4206,6 +4348,81 @@ impl<'a> Emitter<'a> {
             }
         }
         out
+    }
+
+    /// Does a value of `ty` look into memory something else owns — a `str`, a slice, a
+    /// reference or pointer, or a struct, tuple or optional holding one? Such a value is only
+    /// as good as its owner (`emit_args`).
+    fn borrows(&self, ty: &Ty) -> bool {
+        self.borrows_within(ty, 0)
+    }
+
+    fn borrows_within(&self, ty: &Ty, depth: u32) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        match ty {
+            Ty::Str | Ty::CStr | Ty::Slice { .. } | Ty::Ref { .. } | Ty::Ptr { .. } => true,
+            Ty::Optional(inner) => self.borrows_within(inner, depth + 1),
+            Ty::Tuple(parts) => parts.iter().any(|p| self.borrows_within(p, depth + 1)),
+            Ty::Array { elem, .. } => self.borrows_within(elem, depth + 1),
+            Ty::Named { sym, args } => match self.table.struct_sig(*sym) {
+                Some(sig) => self
+                    .table
+                    .field_types(*sym, args, &sig.fields)
+                    .iter()
+                    .any(|f| self.borrows_within(f, depth + 1)),
+                None => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// The temporaries a view computed by `e` may look into: every call or literal on the
+    /// way to it whose value owns something (`needs_drop`) — a receiver, an argument, the
+    /// base of a field or an index. Not below one of them, which is evaluated whole.
+    fn owning_temporaries(&self, e: ExprId) -> Vec<ExprId> {
+        let mut out = Vec::new();
+        self.collect_owners(e, true, &mut out);
+        out
+    }
+
+    fn collect_owners(&self, e: ExprId, root: bool, out: &mut Vec<ExprId>) {
+        let body = self.cur();
+        let node = body.expr(e);
+        let produces = matches!(
+            node.kind,
+            hir::ExprKind::Call { .. }
+                | hir::ExprKind::StructLit { .. }
+                | hir::ExprKind::ArrayLit(_)
+                | hir::ExprKind::Tuple(_)
+        );
+        if !root && produces && self.table.needs_drop(&node.ty) {
+            out.push(e);
+            return;
+        }
+        match &node.kind {
+            hir::ExprKind::Call { callee, args } => {
+                if let hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. } =
+                    callee
+                {
+                    self.collect_owners(*recv, false, out);
+                }
+                for a in args {
+                    self.collect_owners(*a, false, out);
+                }
+            }
+            hir::ExprKind::Field { base, .. }
+            | hir::ExprKind::TupleIndex { base, .. }
+            | hir::ExprKind::Index { base, .. }
+            | hir::ExprKind::SliceRange { base, .. }
+            | hir::ExprKind::Len(base)
+            | hir::ExprKind::DataPtr(base)
+            | hir::ExprKind::Deref(base)
+            | hir::ExprKind::Ref { place: base, .. }
+            | hir::ExprKind::Cast { operand: base } => self.collect_owners(*base, false, out),
+            _ => {}
+        }
     }
 
     /// Whether evaluating `e` can change what another expression reads, or reach outside
