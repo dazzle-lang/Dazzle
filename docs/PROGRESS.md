@@ -1860,6 +1860,33 @@ Asked for by the user on 2026-09-15, with design answers recorded as 18.20, 18.6
   or wraps through the unsigned type); `or unreachable` is `__builtin_unreachable` in
   release (18.20 — it still panics in every build); `Rc<Derived>` → `Rc<Base>` (18.64).
 
+### CI on 2026-09-15: a dangling view, and an ill-posed test
+
+Linux and macOS CI failed `files`, `text` and `math`; Windows had passed all three.
+
+- **A view outlived its temporary.** Argument ordering (r41) binds an argument to a
+  statement of its own when a later one has effects. For `println("{} {}",
+  "Héllo".to_ascii_uppercase().as_str(), line.trim())` that was `str _dz_arg =
+  to_ascii_uppercase(…).as_str();` — the `String` is a C++ temporary, destroyed at the end
+  of that statement, so `println` read freed memory. Windows's heap happened to leave it
+  intact. **Fixed**: when the value being bound `borrows` (a `str`, slice, reference,
+  pointer, or a struct/tuple/optional holding one), `emit_args` first binds each
+  `owning_temporaries` node — a call or literal on the path to the view whose type needs a
+  drop — to a local of its own (`Emitter::materialized` renders those nodes as the local), and
+  takes the view from that. At the user's suggestion the statement is then put in a scope
+  of its own (`stmt`), so the owner is dropped when the statement ends, exactly as the
+  temporary was; a `let` is declared first and assigned inside the scope
+  (`declare_then_assign`: not for a reference or an imported C++ class, which keep the owner
+  to the end of the block). A statement that also took a handle's guard is not scoped, since
+  the guard must live to the end of the enclosing block (spec §14.5).
+  The `argorder` fixture gained a deterministic case — a `Poisoned` value whose `drop`
+  prints and overwrites its bytes — which printed `XXXXX` without the fix on every
+  platform, and now pins the drop to right after its statement, `let` included; `text`
+  and `files` were run under AddressSanitizer clean.
+- **`slerp` halfway to a half turn** has two equally short answers, and which it takes
+  depends on the sign of `cos(PI / 2)` in `f32`, which `libm`s disagree on. The test now
+  slerps toward a quarter turn.
+
 ### r61 — the process
 
 - `std/io/process.dz`: `Process::args`, `env`, `exit`, over four `extern fn`s.

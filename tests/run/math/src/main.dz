@@ -75,8 +75,12 @@ fn rotations() {
     println("quat rotate {}", near3(v, Vec3{ x: 0, y: 1, z: 0 }))
     let twice = q * q
     println("quat compose {}", near3(twice.rotate(Vec3{ x: 1, y: 0, z: 0 }), Vec3{ x: -1, y: 0, z: 0 }))
-    let halfway = Quat{}.slerp(twice, 0.5)
-    println("slerp {}", near3(halfway.rotate(Vec3{ x: 1, y: 0, z: 0 }), Vec3{ x: 0, y: 1, z: 0 }))
+    // Halfway to a quarter turn is an eighth. Not halfway to `twice`: at a half turn both
+    // ways round are equally short, and which one is taken depends on the sign of
+    // `cos(PI / 2)` in `f32` — about 4e-8 either way, depending on the platform's `libm`.
+    let halfway = Quat{}.slerp(q, 0.5)
+    let eighth = Vec3{ x: 0.70710678, y: 0.70710678, z: 0 }
+    println("slerp {}", near3(halfway.rotate(Vec3{ x: 1, y: 0, z: 0 }), eighth))
     let as_matrix = q.to_mat4().transform_vector(Vec3{ x: 1, y: 0, z: 0 })
     println("quat to mat4 {}", near3(as_matrix, v))
 }
