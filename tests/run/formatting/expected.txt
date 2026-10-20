@@ -19,3 +19,12 @@ c at line 87
 5
 d at line 88
 13
+(1.5, -2) and #ff, (1.5, -2)
+cstr|true é str 255 -7 2.5 1e+20 | true é str 255 -7 2.5 1e+20
+no line break, then one
+'quoted' A1	|
+raw 2 \n
+show 42
+show (1.5, -2)
+[info] 3 of 4
+5 plain {} 2.2

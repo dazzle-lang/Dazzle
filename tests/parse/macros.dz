@@ -47,7 +47,7 @@ macro max -> expr {
 
 macro trace -> stmt {
     pattern { $what: literal $( at $level: literal )? }
-    expand { println("{}", $what) }
+    expand { #println("{}", $what) }
 }
 
 #machine Door(DoorCtx) {

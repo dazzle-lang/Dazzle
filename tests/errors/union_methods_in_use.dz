@@ -30,5 +30,5 @@ union Light {
 fn main() {
     let mut l = Light::initial()
     l.toggle()
-    println("{}", l.level())
+    #println("{}", l.level())
 }

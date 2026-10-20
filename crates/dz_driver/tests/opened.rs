@@ -149,7 +149,7 @@ fn a_module_that_does_not_list_std_cannot_name_it() {
     std::fs::write(
         dir.join("src/main.dz"),
         "fn total(xs: []i32) -> i32 {\n    let mut t = 0\n    for x in xs {\n        t += x\n    }\n    return t\n}\n\n\
-         fn main() {\n    let xs: [3]i32 = [1, 2, 3]\n    println(\"{}\", total(xs))\n    let v = Vec2{}\n}\n",
+         fn main() {\n    let xs: [3]i32 = [1, 2, 3]\n    #println(\"{}\", total(xs))\n    let v = Vec2{}\n}\n",
     )
     .unwrap();
     let a = dz_driver::analyse(&dir);

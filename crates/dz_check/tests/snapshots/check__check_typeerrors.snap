@@ -470,42 +470,42 @@ error[DZ0504]: `alloc` takes 2 arguments, found 1
     │            ^^^^^^^^^ wrong number of arguments
 
 error[DZ0526]: this format string has 2 placeholders but 1 argument was given
-    ┌─ typeerrors/src/errors.dz:414:13
+    ┌─ typeerrors/src/errors.dz:414:14
     │
-414 │     println("{} and {}", x)
-    │             ^^^^^^^^^^^ 2 `{}` here
+414 │     #println("{} and {}", x)
+    │              ^^^^^^^^^^^ 2 `{}` here
     │
     = help: each `{}` takes one argument, in order; write `{{` or `}}` for a literal brace (spec §12.9)
 
 error[DZ0526]: `{:x}` does not suit `f32`
-    ┌─ typeerrors/src/errors.dz:418:14
+    ┌─ typeerrors/src/errors.dz:418:15
     │
-418 │     println("{:x}", f)
-    │              ^^^^ hex needs an integer
+418 │     #println("{:x}", f)
+    │               ^^^^ hex needs an integer
     │
     = help: `{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals (spec §12.9)
 
 error[DZ0526]: the format string must be a string literal
-    ┌─ typeerrors/src/errors.dz:422:13
+    ┌─ typeerrors/src/errors.dz:422:14
     │
-422 │     println(s)
-    │             ^ not a literal
+422 │     #println(s)
+    │              ^ not a literal
     │
-    = help: it is parsed at compile time, which is what makes a mismatch an error rather than garbage — write `println("{}", value)` (spec §12.9)
+    = help: it is parsed at compile time, which is what makes a mismatch an error rather than garbage — write `#println("{}", value)` (spec §12.9)
 
-error[DZ0527]: `Vec3` cannot be formatted
-    ┌─ typeerrors/src/errors.dz:426:19
+error[DZ0527]: `Vec3` does not implement `Format`
+    ┌─ typeerrors/src/errors.dz:426:20
     │
-426 │     println("{}", v)
-    │                   ^ no way to write this
+426 │     #println("{}", v)
+    │                    ^ no way to write this
     │
-    = help: numbers, `bool`, `char`, `str`, `cstr` and pointers can be printed; for anything that implements `Format`, build the text with `String::format("{}", x)` and print that (spec §12.9)
+    = help: write `impl Format for Vec3` to give it a way to be written, or format the fields you mean (spec §12.9)
 
 error[DZ0526]: format strings do not interpolate names
-    ┌─ typeerrors/src/errors.dz:430:20
+    ┌─ typeerrors/src/errors.dz:430:21
     │
-430 │     println("hp is {hp}", hp)
-    │                    ^^^^ not a placeholder
+430 │     #println("hp is {hp}", hp)
+    │                     ^^^^ not a placeholder
     │
     = help: write `{}` and pass `hp` as an argument — interpolation is deliberately absent (spec §12.9)
 
@@ -1022,10 +1022,10 @@ error[DZ0515]: `Plain` cannot be indexed
     = help: implement `Index` for `Plain`, and `IndexMut` to write through it (spec §11.2)
 
 error[DZ0526]: this format string has 1 placeholder but 0 arguments were given
-    ┌─ typeerrors/src/errors.dz:915:11
+    ┌─ typeerrors/src/errors.dz:915:12
     │
-915 │     panic("at {}", loc)
-    │           ^^^^^^^ 1 `{}` here
+915 │     #panic("at {}", loc)
+    │            ^^^^^^^ 1 `{}` here
     │
     = help: each `{}` takes one argument, in order; write `{{` or `}}` for a literal brace (spec §12.9)
 
@@ -1120,257 +1120,313 @@ error[DZ0558]: `n` is passed by name, and nothing here takes it
     = help: only a parameter after a variadic one is passed by name; pass this one by position (spec §7.2)
 
 error[DZ0526]: this format string has 2 placeholders but 1 argument was given
-    ┌─ typeerrors/src/errors.dz:961:28
+    ┌─ typeerrors/src/errors.dz:961:21
     │
-961 │     let a = String::format("{} {}", 1)
-    │                            ^^^^^^^ 2 `{}` here
+961 │     let a = #format("{} {}", 1)
+    │                     ^^^^^^^ 2 `{}` here
     │
     = help: each `{}` takes one argument, in order; write `{{` or `}}` for a literal brace (spec §12.9)
 
 error[DZ0526]: the format string must be a string literal
-    ┌─ typeerrors/src/errors.dz:962:28
+    ┌─ typeerrors/src/errors.dz:962:21
     │
-962 │     let b = String::format(fmt, 1)
-    │                            ^^^ not a literal
+962 │     let b = #format(fmt, 1)
+    │                     ^^^ not a literal
     │
-    = help: it is parsed at compile time, which is what makes a mismatch an error rather than garbage — write `println("{}", value)` (spec §12.9)
+    = help: it is parsed at compile time, which is what makes a mismatch an error rather than garbage — write `#println("{}", value)` (spec §12.9)
 
 error[DZ0526]: `{:x}` does not suit `f64`
-    ┌─ typeerrors/src/errors.dz:963:29
+    ┌─ typeerrors/src/errors.dz:963:22
     │
-963 │     let c = String::format("{:x}", 1.5)
-    │                             ^^^^ hex needs an integer
+963 │     let c = #format("{:x}", 1.5)
+    │                      ^^^^ hex needs an integer
     │
     = help: `{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals (spec §12.9)
 
 error[DZ0527]: `Unwritten` does not implement `Format`
-    ┌─ typeerrors/src/errors.dz:964:34
+    ┌─ typeerrors/src/errors.dz:964:27
     │
-964 │     let d = String::format("{}", h)
-    │                                  ^ not a `Format`
+964 │     let d = #format("{}", h)
+    │                           ^ no way to write this
     │
     = help: write `impl Format for Unwritten` to give it a way to be written, or format the fields you mean (spec §12.9)
 
+error[DZ0527]: `Shade` does not implement `Format`
+    ┌─ typeerrors/src/errors.dz:977:26
+    │
+977 │     #println("{} {} {}", s, o, p)
+    │                          ^ no way to write this
+    │
+    = help: an enum is written through its backing integer: `x as i32` (spec §7.4)
+
+error[DZ0527]: `i32?` does not implement `Format`
+    ┌─ typeerrors/src/errors.dz:977:29
+    │
+977 │     #println("{} {} {}", s, o, p)
+    │                             ^ no way to write this
+    │
+    = help: take the value out first, with `or` or `if let` (spec §9.4)
+
+error[DZ0527]: `^i32` does not implement `Format`
+    ┌─ typeerrors/src/errors.dz:977:32
+    │
+977 │     #println("{} {} {}", s, o, p)
+    │                                ^ no way to write this
+    │
+    = help: a pointer is written through what it points at: `p^` (spec §5.2)
+
+error[DZ0558]: `#println` has no parameter `allocator` to pass by name
+    ┌─ typeerrors/src/errors.dz:978:23
+    │
+978 │     #println("{}", 1, allocator = Allocators::Temp)
+    │                       ^^^^^^^^^ no such parameter
+    │
+    = help: `#println` takes nothing by name (spec §12.9)
+
+error[DZ0558]: `#format` has no parameter `colour` to pass by name
+    ┌─ typeerrors/src/errors.dz:979:30
+    │
+979 │     let t = #format("{}", 1, colour = 2)
+    │                              ^^^^^^ no such parameter
+    │
+    = help: `#format` takes `allocator` by name, for where the text lives (spec §12.9)
+
+error[DZ0526]: `#print` needs a format string
+    ┌─ typeerrors/src/errors.dz:981:5
+    │
+981 │     #print()
+    │     ^^^^^^^^ no format string
+    │
+    = help: write `#print("…")` (spec §12.9)
+
+error[DZ0526]: a format string cannot be checked against a spread
+    ┌─ typeerrors/src/errors.dz:982:23
+    │
+982 │     #println("{} {}", ..xs)
+    │                       ^^^^ how many values `..` gives is not known here
+    │
+    = help: pass the values one by one, so each `{}` has its own (spec §12.9)
+
 error[DZ0557]: `shout` cannot have type parameters of its own
-    ┌─ typeerrors/src/errors.dz:984:22
-    │
-984 │     virtual fn shout<T>(&self, v: T) {
-    │                      ^ a type parameter of the method
-    │
-    = help: a `virtual` method has one slot in the vtable, and an instance per type argument would need one each; take the varying part as a trait reference instead (spec §7.3, §8.1)
+     ┌─ typeerrors/src/errors.dz:1001:22
+     │
+1001 │     virtual fn shout<T>(&self, v: T) {
+     │                      ^ a type parameter of the method
+     │
+     = help: a `virtual` method has one slot in the vtable, and an instance per type argument would need one each; take the varying part as a trait reference instead (spec §7.3, §8.1)
 
 error[DZ0557]: `show` cannot have type parameters of its own
-    ┌─ typeerrors/src/errors.dz:990:13
-    │
-990 │     fn show<T>(&self, v: T)
-    │             ^ a type parameter of the method
-    │
-    = help: a trait's method is called through implementations the caller may not know, and through `^Trait` with no type at all; make the trait generic instead, `trait Show<T>` (spec §7.6, §8.1)
+     ┌─ typeerrors/src/errors.dz:1007:13
+     │
+1007 │     fn show<T>(&self, v: T)
+     │             ^ a type parameter of the method
+     │
+     = help: a trait's method is called through implementations the caller may not know, and through `^Trait` with no type at all; make the trait generic instead, `trait Show<T>` (spec §7.6, §8.1)
 
 error[DZ0531]: `Box<i32>` does not implement `Copy`
-    ┌─ typeerrors/src/errors.dz:994:13
-    │
-994 │     let _ = c.both(move(owned))
-    │             ^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Copy`
-    │
-    = help: implement it: `impl Copy for Box<i32> { … }` (spec §7.6)
+     ┌─ typeerrors/src/errors.dz:1011:13
+     │
+1011 │     let _ = c.both(move(owned))
+     │             ^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Copy`
+     │
+     = help: implement it: `impl Copy for Box<i32> { … }` (spec §7.6)
 
 error[DZ0534]: cannot infer `T` in this call to `Crate2::fresh`
-    ┌─ typeerrors/src/errors.dz:995:18
-    │
-995 │     let _: i32 = Crate2::fresh()
-    │                  ^^^^^^^^^^^^^^^ `T` is not determined by any argument
-    │
-    = help: write it out: `Crate2::fresh<T>(…)` (spec §8.1)
+     ┌─ typeerrors/src/errors.dz:1012:18
+     │
+1012 │     let _: i32 = Crate2::fresh()
+     │                  ^^^^^^^^^^^^^^^ `T` is not determined by any argument
+     │
+     = help: write it out: `Crate2::fresh<T>(…)` (spec §8.1)
 
 error[DZ0534]: `plain` takes no type arguments
-    ┌─ typeerrors/src/errors.dz:996:14
-    │
-996 │     return c.plain<i32>()
-    │              ^^^^^ not a generic function
-    │
-    = help: `plain` has no type parameters of its own; remove `<…>` (spec §8.1)
+     ┌─ typeerrors/src/errors.dz:1013:14
+     │
+1013 │     return c.plain<i32>()
+     │              ^^^^^ not a generic function
+     │
+     = help: `plain` has no type parameters of its own; remove `<…>` (spec §8.1)
 
 error[DZ0501]: expected `Rc<Framed>`, found `Rc<Panel>`
-     ┌─ typeerrors/src/errors.dz:1002:12
+     ┌─ typeerrors/src/errors.dz:1019:12
      │
-1002 │     return base
+1019 │     return base
      │            ^^^^ this is `Rc<Panel>`
 
 error[DZ0501]: expected `i64`, found `i64?`
-     ┌─ typeerrors/src/errors.dz:1007:12
+     ┌─ typeerrors/src/errors.dz:1024:12
      │
-1007 │     return s.parse_i64()
+1024 │     return s.parse_i64()
      │            ^^^^^^^^^^^^^ this is `i64?`
 
 error[DZ0531]: `List<Plain>` has `sort` only when `Plain` implements `Ord`
-     ┌─ typeerrors/src/errors.dz:1012:8
+     ┌─ typeerrors/src/errors.dz:1029:8
      │
-1012 │     xs.sort()
+1029 │     xs.sort()
      │        ^^^^ `Plain` does not implement `Ord`
      │
      = help: `sort` comes from `Sort`, implemented for `List<Plain>` when its argument is `Ord`: implement `Ord` for `Plain` (spec §7.6)
 
 error[DZ0501]: expected `fn(&i32, &i32) -> bool`, found `fn(i32, i32) -> bool`
-     ┌─ typeerrors/src/errors.dz:1013:16
+     ┌─ typeerrors/src/errors.dz:1030:16
      │
-1013 │     ys.sort_by(by_value)
+1030 │     ys.sort_by(by_value)
      │                ^^^^^^^^ this is `fn(i32, i32) -> bool`
 
 error[DZ0507]: `String` can be looped over, but not written through
-     ┌─ typeerrors/src/errors.dz:1022:19
+     ┌─ typeerrors/src/errors.dz:1039:19
      │
-1022 │     for &mut c in s {
+1039 │     for &mut c in s {
      │                   ^ implements `Iterable`, not `IterableMut`
      │
      = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
 
 error[DZ0502]: `300` does not fit in `u8`
-     ┌─ typeerrors/src/errors.dz:1029:12
+     ┌─ typeerrors/src/errors.dz:1046:12
      │
-1029 │     return 300u8
+1046 │     return 300u8
      │            ^^^^^ outside the range of `u8`
      │
      = help: valid values are 0 to 255
 
 error[DZ0501]: expected `u16`, found `u8`
-     ┌─ typeerrors/src/errors.dz:1033:12
+     ┌─ typeerrors/src/errors.dz:1050:12
      │
-1033 │     return 5u8
+1050 │     return 5u8
      │            ^^^ this is `u8`
      │
      = help: Dazzle has no implicit numeric conversions, not even widening (spec §5.1) — write `... as u16`
 
 error[DZ0531]: `bool` does not implement `Number`
-     ┌─ typeerrors/src/errors.dz:1038:12
+     ┌─ typeerrors/src/errors.dz:1055:12
      │
-1038 │     return Random::range(false, true)
+1055 │     return Random::range(false, true)
      │            ^^^^^^^^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Number`
      │
      = help: `bool` is built in, and implements only what the language gives it; wrap it in a struct that implements `Number` (spec §7.6)
 
 error[DZ0510]: fallible call not consumed
-     ┌─ typeerrors/src/errors.dz:1044:5
+     ┌─ typeerrors/src/errors.dz:1061:5
      │
-1044 │     File::remove(p)
+1061 │     File::remove(p)
      │     ^^^^^^^^^^^^^^^ this may fail, and the failure is discarded
      │
      = help: add an `or` clause: `or return` to propagate, `or <value>` to fall back, or `or ignore` to drop it deliberately (spec §9.7)
 
 error[DZ0501]: expected `[]mut u8`, found `[]u8`
-     ┌─ typeerrors/src/errors.dz:1047:20
+     ┌─ typeerrors/src/errors.dz:1064:20
      │
-1047 │     let _ = f.read(buf[..]) or return
+1064 │     let _ = f.read(buf[..]) or return
      │                    ^^^^^^^ this is `[]u8`
 
 error[DZ0531]: `-` cannot be applied to `Plain`
-     ┌─ typeerrors/src/errors.dz:1052:12
+     ┌─ typeerrors/src/errors.dz:1069:12
      │
-1052 │     return -p
+1069 │     return -p
      │            ^^ `Plain` does not implement `Neg`
      │
      = help: operators are traits (spec §11.2) — implement it: `impl Neg for Plain { … }`
 
 error[DZ0502]: `-129` does not fit in `i8`
-     ┌─ typeerrors/src/errors.dz:1056:12
+     ┌─ typeerrors/src/errors.dz:1073:12
      │
-1056 │     return -129
+1073 │     return -129
      │            ^^^^ outside the range of `i8`
      │
      = help: valid values are -128 to 127
 
 error[DZ0507]: `Readings` can be looped over, but not written through
-     ┌─ typeerrors/src/errors.dz:1074:19
+     ┌─ typeerrors/src/errors.dz:1091:19
      │
-1074 │     for &mut v in r {
+1091 │     for &mut v in r {
      │                   ^ implements `Iterable`, not `IterableMut`
      │
      = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
 
 error[DZ0507]: cannot refer to these elements with `&mut`
-     ┌─ typeerrors/src/errors.dz:1080:19
+     ┌─ typeerrors/src/errors.dz:1097:19
      │
-1080 │     for &mut x in xs {
+1097 │     for &mut x in xs {
      │                   ^^ the container is read-only here
      │
      = help: declare it `let mut`, or pass it as `&mut` (spec §10.4)
 
 error[DZ0501]: expected `i32`, found `i32?`
-     ┌─ typeerrors/src/errors.dz:1088:18
+     ┌─ typeerrors/src/errors.dz:1105:18
      │
-1088 │     let n: i32 = o
+1105 │     let n: i32 = o
      │                  ^ this is `i32?`
 
 error[DZ0521]: `none` needs an optional type here
-     ┌─ typeerrors/src/errors.dz:1093:24
+     ┌─ typeerrors/src/errors.dz:1110:24
      │
-1093 │     let x = if alive { none } else { none }
+1110 │     let x = if alive { none } else { none }
      │                        ^^^^ nothing here expects a `T?`
      │
      = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0521]: `none` needs an optional type here
-     ┌─ typeerrors/src/errors.dz:1093:38
+     ┌─ typeerrors/src/errors.dz:1110:38
      │
-1093 │     let x = if alive { none } else { none }
+1110 │     let x = if alive { none } else { none }
      │                                      ^^^^ nothing here expects a `T?`
      │
      = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0514]: `+` cannot be applied to `Layer`
-     ┌─ typeerrors/src/errors.dz:1098:12
+     ┌─ typeerrors/src/errors.dz:1115:12
      │
-1098 │     return l + l == l
+1115 │     return l + l == l
      │            ^ not a numeric type
 
 error[DZ0531]: `f32` does not implement `Hash`
-     ┌─ typeerrors/src/errors.dz:1103:13
+     ┌─ typeerrors/src/errors.dz:1120:13
      │
-1103 │     let m = HashMap<f32, i32>()
+1120 │     let m = HashMap<f32, i32>()
      │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
      │
      = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)
 
 error[DZ0504]: `typeinfo_of` takes one type and no arguments
-     ┌─ typeerrors/src/errors.dz:1110:13
+     ┌─ typeerrors/src/errors.dz:1127:13
      │
-1110 │     let a = typeinfo_of<i32>(1)
+1127 │     let a = typeinfo_of<i32>(1)
      │             ^^^^^^^^^^^^^^^^^^^ not the form this call has
      │
      = help: write `typeinfo_of<T>()` (spec §13.1)
 
 error[DZ0501]: expected `TypeId`, found `{integer}`
-     ┌─ typeerrors/src/errors.dz:1111:22
+     ┌─ typeerrors/src/errors.dz:1128:22
      │
-1111 │     let b = typeinfo(3)
+1128 │     let b = typeinfo(3)
      │                      ^ this is `{integer}`
 
 error[DZ0559]: a union cannot declare a method named `kind`
-     ┌─ typeerrors/src/errors.dz:1120:12
+     ┌─ typeerrors/src/errors.dz:1137:12
      │
-1120 │     pub fn kind(&self) -> i32 {
+1137 │     pub fn kind(&self) -> i32 {
      │            ^^^^ every union already has `kind()`
      │
      = help: `s.kind()` names the active variant (spec §7.5); choose another name
 
 error[DZ0559]: a union's method cannot be `virtual` or `override`
-     ┌─ typeerrors/src/errors.dz:1124:16
+     ┌─ typeerrors/src/errors.dz:1141:16
      │
-1124 │     virtual fn turn(&self) {}
+1141 │     virtual fn turn(&self) {}
      │                ^^^^ nothing inherits from a union
      │
      = help: remove `virtual` / `override` (spec §7.3, §7.5)
 
 error[DZ0507]: cannot assign to `self`
-     ┌─ typeerrors/src/errors.dz:1127:9
+     ┌─ typeerrors/src/errors.dz:1144:9
      │
-1127 │         self = .Low{}
+1144 │         self = .Low{}
      │         ^^^^ not mutable
      │
      = help: declare it as `let mut self` to allow assignment
 
 error[DZ0520]: `Dial` has no method `spin`
-     ┌─ typeerrors/src/errors.dz:1132:7
+     ┌─ typeerrors/src/errors.dz:1149:7
      │
-1132 │     d.spin()
+1149 │     d.spin()
      │       ^^^^ unknown method

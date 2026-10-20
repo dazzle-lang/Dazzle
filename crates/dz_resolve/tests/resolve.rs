@@ -242,7 +242,7 @@ fn a_module_cannot_be_named_under_std() {
 fn builtin_types_and_functions_resolve() {
     let codes = check_snippet(
         "fn f(a: i32, b: f32, c: str, d: bool) -> usize {\n    \
-             println(\"{}\", a)\n    \
+             #println(\"{}\", a)\n    \
              return sizeof(i32)\n\
          }\n",
     );
@@ -275,13 +275,13 @@ fn an_or_clause_binds_the_error_only_when_it_is_named() {
 
     let named = check_snippet(
         "fn g() !-> i32 {\n    return 1\n}\n\
-         fn f() {\n    let v = g() or { e ->\n        println(\"{}\", e.message)\n        return\n    }\n}\n",
+         fn f() {\n    let v = g() or { e ->\n        #println(\"{}\", e.message)\n        return\n    }\n}\n",
     );
     assert!(named.is_empty(), "{named:?}");
 
     // `it` is not in scope: the binding must be written out.
     let implicit = check_snippet(
-        "fn f(x: i32?) {\n    let v = x or {\n        println(\"{}\", it)\n        return\n    }\n}\n",
+        "fn f(x: i32?) {\n    let v = x or {\n        #println(\"{}\", it)\n        return\n    }\n}\n",
     );
     assert!(implicit.contains(&dz_diag::codes::UNRESOLVED_NAME), "{implicit:?}");
 }

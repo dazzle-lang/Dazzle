@@ -10,5 +10,5 @@ fn main() {
     let t = engine::total()
     let len = math::scaled_length(&v)
 
-    println("{} {} {} {}", d, circumference, t, len)
+    #println("{} {} {} {}", d, circumference, t, len)
 }

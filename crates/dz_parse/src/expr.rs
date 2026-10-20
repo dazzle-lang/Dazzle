@@ -157,7 +157,7 @@ impl<'a> Parser<'a> {
 
     /// The right-hand side of an `or` (spec §9.4).
     ///
-    /// `return`, `break`, `continue` and `panic(...)` need no special handling here: they
+    /// `return`, `break`, `continue` and `#panic(...)` need no special handling here: they
     /// are already expressions, and the single rule — produce a `T` or diverge — is a type
     /// question rather than a syntactic one, so the checker enforces it, not the parser.
     fn parse_or_clause(&mut self) -> OrClause {

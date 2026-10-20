@@ -1,13 +1,12 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 63
+**Version:** 0.1 — **unreleased**, revision 64
 **Status:** M0–M8, M10, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle
 programs compile and run, own, move and drop their resources deterministically, have
 generics, traits, unions, macros and reflection, call C and C++ libraries that `dz`
 builds from vendored source, and are edited with a language server. Not yet 0.1: the
 editor still lacks code actions and incremental analysis (M9), and the standard library,
-though it has carried a game written without C++ (M12's criterion), still has `println`
-as a builtin, which macros (§12) now make possible to move into it.
+which has carried a game written without C++ (M12's criterion), is still growing.
 See `docs/PROGRESS.md`.
 
 **The version number stays 0.1 until 0.1 is actually finished.** 0.1 means: an LSP good
@@ -207,7 +206,7 @@ the line break rather than swallowing the rest of the file — that is the bug t
 Raw strings use backticks: `` `C:\path\no\escapes` ``. Multi-line raw strings are allowed.
 `[PROPOSED]`
 
-Interpolation is *not* part of the string literal. `println("Hello {}", name)` uses
+Interpolation is *not* part of the string literal. `#println("Hello {}", name)` uses
 compile-time format-string checking instead (§12.9). `[PROPOSED]`
 
 ### 2.6 Operators and punctuation
@@ -352,7 +351,7 @@ GLES   = { cpp = "gles" }                       # GLES::DrawArrays
 - **`std` is a dependency like any other** (§14.4). It needs no `path`, but it must be
   listed: a module that does not list it cannot name `String` or `Vec2` at all, and one that
   lists it without `open` writes `std::String`. The language's own constructs — `for`, `or`,
-  operators, `println` — work either way, because they reach the standard library without
+  operators, `#println` — work either way, because they reach the standard library without
   naming it. `dz new` writes `std = { open = true }`.
 - **Only a dependency's `pub` declarations are reachable**, and never what *it* depends on,
   unless it says so (below).
@@ -598,7 +597,7 @@ and a reference may not:
 
 ```dz
 let btn = ctx.btn or return                     // propagate
-let btn = ctx.btn or panic("button missing")    // assert, with a message
+let btn = ctx.btn or #panic("button missing")    // assert, with a message
 let btn = ctx.btn or unreachable                // checked in debug, free in release
 draw(ctx.btn)                                   // error[DZ0522]: expected &Button, found ^Button
 ```
@@ -915,7 +914,7 @@ compiler tracks that with flow analysis:
 ```dz
 let a = String("hello")
 let b = move(a)
-println("{}", a.length())   // error: `a` was moved on line 2 and cannot be used
+#println("{}", a.length())   // error: `a` was moved on line 2 and cannot be used
 ```
 
 The analysis is flow-sensitive and handles branches:
@@ -1043,7 +1042,7 @@ fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
   `Buffer(8, arena)` are genuinely the same operation.
 
 **Arguments are evaluated left to right**, each completely before the next: in
-`println("{} {}", touch(), COUNT.hits)`, `touch()` has run by the time `COUNT.hits` is
+`#println("{} {}", touch(), COUNT.hits)`, `touch()` has run by the time `COUNT.hits` is
 read. The receiver of a method call is evaluated before its arguments. `[DECIDED — §18.49]`
 
 The same holds for **every expression with more than one operand**: both sides of a binary
@@ -1095,7 +1094,7 @@ fn total(xs: ..i32, scale: i32 = 1, loc: SourceLocation = #location) -> i32 { �
 total(1, 2, 3)                        // scale = 1, loc = this line
 total(1, 2, scale = 10)
 total(loc = here, scale = 2)          // any order; no variadic arguments at all
-String::format("{} hp", hp, allocator = Allocators::Temp)
+#format("{} hp", hp, allocator = Allocators::Temp)
 ```
 
 - Only these parameters are passed by name, and only by name. Naming any other parameter —
@@ -1849,7 +1848,7 @@ the rest of the enclosing block.
 let tex  = load_texture(path) or Textures::Missing            // fall back
 let f    = File::open(path)   or return                       // propagate
 let hp   = find_player(id)    or continue                     // diverge
-let btn  = ctx.btn            or panic("no button")           // assert
+let btn  = ctx.btn            or #panic("no button")           // assert
 let cfg  = load_config()      or { e ->                       // handle
     log::warn("config: {} ({}:{})", e.message, e.location.file, e.location.line)
     Config{}
@@ -1867,7 +1866,7 @@ is an instance of it. The clause forms are:
 | `{ e -> … }` | the same, with the `Error` bound to `e` |
 | `return` | propagate the failure (§9.5) |
 | `return expr` / `break` / `continue` | ordinary divergence |
-| `panic("…")` | abort (§9.8) |
+| `#panic("…")` | abort (§9.8) |
 | `unreachable` | assert non-failure; see below |
 | `ignore` | statement position only; discards the value |
 
@@ -1914,9 +1913,9 @@ diverge:
 
 ```dz
 if let m = find_movie(&mut list, "Nemo") {
-    println("found {}", m.id)        // m: Movie
+    #println("found {}", m.id)        // m: Movie
 } else {
-    println("not found")
+    #println("not found")
 }
 ```
 
@@ -2027,11 +2026,12 @@ its statement is a design mistake in a language with no way to store one.
 ### 9.8 What is *not* an error: panics
 
 Most things that go wrong in a game are not recoverable and should not be modelled as
-errors. `panic("...")` aborts with a message, a `SourceLocation`, and a stack trace in debug
-builds.
+errors. `#panic("...")` aborts with a message, a `SourceLocation`, and a stack trace in debug
+builds. It formats as `#println` does (§12.9), but without allocating — the allocators
+panic too — so a message longer than a few hundred bytes is cut.
 
-The location is the `panic`'s own line, unless a `SourceLocation` is passed as the **last
-argument**, after the format arguments: `panic("missing {}", what, loc)`. That is how a
+The location is the `#panic`'s own line, unless a `SourceLocation` is passed as the **last
+argument**, after the format arguments: `#panic("missing {}", what, loc)`. That is how a
 helper reports its caller's line — it takes `loc: SourceLocation = #location` (§12.7) and
 hands it on. A `SourceLocation` cannot be formatted, so it is never mistaken for a value.
 `assert(cond, msg = "")` is the standard library's helper of this kind. `[DECIDED]`
@@ -2589,7 +2589,8 @@ level or in a body — a `stmt` macro where a statement may be, and an `expr` ma
 an expression may be.
 
 **The intrinsics are the compiler's own macros**: `#file`, `#line`, `#location` and the
-rest (§12.7) are invoked the same way, which is why their names are reserved.
+rest (§12.7) are invoked the same way, and so are the formatting macros, `#println` and its
+family (§12.9) — which is why their names are reserved.
 
 The invocation is replaced by its expansion: declarations where the invocation was,
 statements into the enclosing block (opening no scope, as a statement `#if` does), and an
@@ -2651,7 +2652,7 @@ which is exactly the `#src_code` behaviour you asked for (and the same trick as 
 ```dz
 pub fn assert(cond: bool, msg: str = "", loc: SourceLocation = #location) {
     if !cond {
-        panic("assertion failed: {}", msg, loc)   // reports `loc`, the caller's line (§9.8)
+        #panic("assertion failed: {}", msg, loc)   // reports `loc`, the caller's line (§9.8)
     }
 }
 
@@ -2693,10 +2694,11 @@ The `#` forms are distinguished by what follows, so the parser never has to gues
 | `#name …`, `#dep::name …` | declaration or statement position, to the end of the line | macro invocation (§12.5) |
 | `#name(…)`, `#name[…]`, `#name{…}` | expression position, one bracketed group | macro invocation (§12.5) |
 | `#file`, `#location(…)`, … | expression or default-argument position | intrinsic — a built-in macro (§12.7) |
+| `#println(…)`, `#format(…)`, … | expression position, which includes a statement | formatting — a built-in macro (§12.9) |
 
 Intrinsic names are reserved, and so is `error`, which `#error` (§12.6) uses: a macro may
-not be called `file`, `line`, `column`, `function`, `module`, `location`, `expr_text` or
-`error`.
+not be called `file`, `line`, `column`, `function`, `module`, `location`, `expr_text`,
+`print`, `println`, `eprint`, `eprintln`, `panic`, `format` or `error`.
 
 **Every attribute is one the language defines, written where it applies.** An attribute the
 language does not have is an error (`DZ0314`): a misspelled `#[tset]` accepted in silence
@@ -2719,22 +2721,25 @@ Attributes this specification describes but the compiler does not implement yet 
 ### 12.9 Format strings
 
 Formatting is not string interpolation and not varargs — it is a compile-time-checked
-call. `print`, `println`, `eprint`, `eprintln`, `panic`, `error` and `String::format` take a
-**string literal** as their format string, and the compiler parses it during checking. `print` and `println` write to standard output; `eprint` and
-`eprintln` write the same way to standard error, for diagnostics that must not mix with a
-program's output:
+macro. **`#print`, `#println`, `#eprint`, `#eprintln`, `#format` and `#panic` are the
+compiler's own macros** (§12.5, §12.7): each takes a **string literal** as its format string
+and the values it names, and the compiler parses the literal where it is written. `#print`
+and `#println` write to standard output; `#eprint` and `#eprintln` write the same way to
+standard error, for diagnostics that must not mix with a program's output; `#format`
+builds a `String`; `#panic` aborts with the text (§9.8):
 
 ```dz
-println("player {} has {} hp", name, hp)
-println("{:.2}", elapsed)          // 2 decimal places
-println("{:x}", flags)             // hex
-println("{{literal braces}}")
+#println("player {} has {} hp", name, hp)
+#println("{:.2}", elapsed)          // 2 decimal places
+#println("{:x}", flags)             // hex
+#println("{{literal braces}}")
 ```
 
 Because the format string is parsed at compile time, an argument-count mismatch, an
 unknown format spec, or an argument whose type has no `Format` impl are all ordinary
 compile errors pointing at the offending `{}` — not runtime garbage, and not a `printf`
-mismatch that corrupts the stack.
+mismatch that corrupts the stack. They are spelled with `#` because they are macros:
+`println("…")` without it is not a name, and the error says to write `#println`.
 
 The spec set is deliberately small, and each one names the kind of value it suits:
 
@@ -2745,17 +2750,23 @@ The spec set is deliberately small, and each one names the kind of value it suit
 | `{:.N}` | `N` digits after the point | floats |
 | `{{` / `}}` | a literal brace | — |
 
-**Text you keep is a `String`.** There is no global `format`: `String::format` builds a new
-`String`, in memory from `Allocators::Global` unless an allocator is passed by name (§7.2):
+**The arguments are evaluated as a call's are** (§7.2): left to right, all of them before
+anything is written, and a temporary one of them makes lives until the text is written. An
+argument is read, never moved: `#println("{}", name)` leaves `name` where it was.
+
+**Text you keep is a `String`.** `#format` builds a new `String`, in memory from
+`Allocators::Global` unless an allocator is passed by name (§7.2), the one argument any of
+these macros takes by name:
 
 ```dz
-let hud = String::format("Score {}   Lives {}", g.score, g.lives)
-let msg = String::format("{} took {:.1} ms", name, ms, allocator = Allocators::Temp)
+let hud = #format("Score {}   Lives {}", g.score, g.lives)
+let msg = #format("{} took {:.1} ms", name, ms, allocator = Allocators::Temp)
 ```
 
-**`Format` is how a value writes itself.** Its arguments are `..&Format`, so anything that
-implements the trait can be one — the numbers, `bool`, `char`, `str`, `cstr` and `String`
-implement it in `std`, and a type of your own implements it to be formatted too:
+**`Format` is how a value writes itself.** Anything that implements the trait can be an
+argument — the numbers, `bool`, `char`, `str`, `cstr` and `String` implement it in `std`,
+a reference is written as what it refers to, and a type of your own implements it to be
+formatted too:
 
 ```dz
 pub trait Format {
@@ -2771,36 +2782,41 @@ impl Format for Vec2 {
         f.write_str(")")
     }
 }
+
+#println("at {}", player.position)
 ```
 
-A `Formatter` appends to a `String` with `write_str` and `write_char`, and says what the
-placeholder asked for: `hex()` and `upper()` for `{:x}`/`{:X}`, `precision()` for `{:.N}`. On
-the built-in kinds a spec must suit the value, as in the table above; on a type with its own
-`Format` it is that implementation's to interpret.
+A `Formatter` takes text with `write_str` and `write_char`, and says what the placeholder
+asked for: `hex()` and `upper()` for `{:x}`/`{:X}`, `precision()` for `{:.N}`. On the
+built-in kinds a spec must suit the value, as in the table above; on a type with its own
+`Format` it is that implementation's to interpret. `Formatter::string(&mut text)` appends
+to a `String`, and `Formatter::stdout()` and `Formatter::stderr()` write to a stream, for
+code that formats a value without a format string.
 
 **A function of one's own that takes a format string is a macro** (§12): a format string is
-checked only where the compiler knows the call is formatting — `println` and its family,
-and `String::format` — so a wrapper such as a `log` with levels hands its literal on to one
-of them, where it is checked against the arguments exactly as the caller wrote them:
+checked only where it is written in one of these, so a wrapper such as a `log` with levels
+hands its literal on to one of them, where it is checked against the arguments exactly as
+the caller wrote them:
 
 ```dz
 macro log -> stmt {
     syntax Arg { $value: expr }
     pattern { $level: literal $fmt: literal $( , $args: [,]Arg )? }
     expand {
-        print("[{}] ", $level)
-        println($fmt #for a in $args { , $a.value })
+        #print("[{}] ", $level)
+        #println($fmt #for a in $args { , $a.value })
     }
 }
 
 #log "warn" "hp is {} of {}", hp, max_hp     // a missing argument is reported at this string
 ```
 
-`print`, `println`, `eprint`, `eprintln` and `panic` are still the compiler's own, and still
-take only the built-in kinds: a value with its own `Format` is printed through
-`String::format`. They are to become macros (§12) — expanded at the call, which is also when
-`{}` lowers to a direct sequence of `Format::format` calls with no intermediate string.
-`[DECIDED — §18.73]`
+Nothing of the format string is left to parse when the program runs: an invocation lowers
+to one call that hands the text between the placeholders, each placeholder's spec and the
+arguments to the standard library, which writes them in turn — straight to the stream for
+`#print`, with no intermediate `String`. `error(…)` (§9.1) checks its format string the
+same way, but keeps its message in static storage (§9.2), so it writes only the built-in
+kinds. `[DECIDED — §18.73, §18.80]`
 
 Interpolation (`"hp is {hp}"`) is deliberately absent for now: it hides a name lookup
 inside a literal, which complicates the lexer, the LSP's rename, and macro capture. It can
@@ -2828,7 +2844,7 @@ pub fn alloc(size: usize, loc: SourceLocation = #location) -> ^mut u8 {
 } #else #if OS_LINUX || OS_MACOS {
     fn open_window() { … }
 } #else {
-    fn open_window() { panic("no window on this platform") }
+    fn open_window() { #panic("no window on this platform") }
 }
 ```
 
@@ -2992,12 +3008,12 @@ pub fn write_json(out: &mut String, value: ^u8, id: TypeId) {
             out.push('{')
             for &f in info.fields {
                 let key = f.tag_value("json") or f.name
-                out.push_str(String::format("\"{}\":", key).as_str())
+                out.push_str(#format("\"{}\":", key).as_str())
                 write_json(out, unsafe { ((value as usize) + f.offset) as ^u8 }, f.type_id)
             }
             out.push('}')
         }
-        case I32 { out.push_str(String::format("{}", unsafe { (value as ^i32)^ }).as_str()) }
+        case I32 { out.push_str(#format("{}", unsafe { (value as ^i32)^ }).as_str()) }
         // ...
     }
 }
@@ -3149,8 +3165,8 @@ line that pushed.
 `str`, with an allocator as a second argument. `push_str`, `push` (a `char`, encoded),
 `clear`, `reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
 `as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
-compares text, and a copy copies it. `String::format("…", args)` builds one from a format
-string, taking `allocator = …` by name (§12.9).
+compares text, and a copy copies it. `#format("…", args)` builds one from a format string,
+taking `allocator = …` by name (§12.9).
 
 **`HashMap<K: Hash + Eq, V>`** maps keys to values, in `std`. `HashMap<K, V>()` is
 empty and allocates nothing; `HashMap<K, V>(capacity, allocator)` takes both. `insert(k, v)`
@@ -3210,7 +3226,7 @@ std = { open = true }       # String, Vec2, Allocators — and std::Vec2 where n
 ```
 
 Every declaration the language itself relies on lives here, and the compiler reaches those
-without the program naming them: a `for` over a `List` or a `println` of a `Vec2` works in a
+without the program naming them: a `for` over a `List` or a `#println` of a `Vec2` works in a
 module that does not list `std`, which simply cannot write `List` or `Vec2` itself. Only what
 a program uses is instantiated and emitted, so a flat, always-present library costs a
 program nothing it does not call.
@@ -3340,10 +3356,10 @@ would take time in proportion to the text's length on every use. `[DECIDED — �
 ```dz
 let save = Path("saves") / "slot1.txt"
 Directory::create(&save.parent()) or return
-File::write_text(&save, state) or { e -> eprintln("could not save: {}", e.message) }
+File::write_text(&save, state) or { e -> #eprintln("could not save: {}", e.message) }
 let text = File::read_text(&save) or { e ->
     if e.code != IoError::NotFound as u32 {
-        eprintln("could not load: {}", e.message)
+        #eprintln("could not load: {}", e.message)
     }
     String()
 }
@@ -3776,7 +3792,8 @@ and no global constructors. `[DECIDED]`
 The standard library's own C++ — the bodies of its `extern fn`s, which read the
 clocks and, later, the file system (§7.2, 18.65) — is emitted beside the shim as
 `dz_native.h` / `.cpp`, and is the one file that includes the operating system's headers.
-`print` and `format` sit in `dz_prelude.h` until they become library code (§12.9).
+What is left of the formatting in `dz_prelude.h` is `error(…)`'s, which writes into static
+storage (§9.2); everything else formats through the standard library's `Format` (§12.9).
 
 ### 16.5 Compilation flags
 
@@ -4060,7 +4077,7 @@ be exactly what reload needs, and must stay that way:
 | 18.64 | `Rc<Derived>` where an `Rc<Base>` is wanted | **Converts implicitly, as `&Derived` → `&Base` does (18.32)** and as C++'s `shared_ptr<Derived>` does: the same for `Weak` and `Box`. The count is shared, not copied. A handle to a trait object stays deferred, having no C++ counterpart to follow (§14.5) |
 | 18.65 | How `std` reaches the operating system | **`extern fn name(…) -> T` with no body, allowed only in `std`**, whose body is C++ the compiler ships beside the runtime shim — not in it, so §16.4's shim still does no I/O. Not generic and not fallible: an extern function is a plain call, and `std` builds the `Error`. A program's own way to C and C++ stays a `cpp` dependency. First written as a `#[native]` attribute (r54); a keyword was chosen instead because `extern` was already reserved and is what C, C++ and Rust readers expect for "the body is elsewhere" (§7.2, §15) |
 | 18.72 | Arguments passed by name | **`name = value`, for the parameters after a variadic one and for nothing else**, after the positional arguments, in any order; one with a default may be left out whatever else is given, one without must be passed. Chosen by the user for `String::format("…", x, allocator = Allocators::Temp)`: a variadic parameter takes every positional argument after the fixed ones, so an allocator or a `#location` after it was unreachable, and putting the allocator first would make every call name it. Naming is not extended to ordinary parameters, which keeps one way to pass each argument; it can be widened later without breaking a program. Revises 18.56's "last" |
-| 18.73 | Library formatting | **No global `format`: `String::format(fmt, args: ..&Format, allocator = …)` builds a `String`**, chosen by the user over a global function and over a macro, which waits for M10. **`Format` is a real trait**: `std` implements it for the numbers, `bool`, `char`, `str`, `cstr` and `String`, and a type of one's own implements it to be formatted; a `Formatter` appends to a `String` and reports the placeholder's spec, which a type's own implementation interprets. **No attribute marks a format string**: an `#[format]` was built and removed by the user, who wants formatting functions of one's own to be **macros, as in Rust** — `String::format` is the one function whose format string the compiler checks, until M10. `println` and friends stay builtins, taking only the built-in kinds, until macros (M10); `error(…)` keeps its static storage (§9.2) |
+| 18.73 | Library formatting | **No global `format`: `String::format(fmt, args: ..&Format, allocator = …)` builds a `String`**, chosen by the user over a global function and over a macro, which waits for M10. **`Format` is a real trait**: `std` implements it for the numbers, `bool`, `char`, `str`, `cstr` and `String`, and a type of one's own implements it to be formatted; a `Formatter` appends to a `String` and reports the placeholder's spec, which a type's own implementation interprets. **No attribute marks a format string**: an `#[format]` was built and removed by the user, who wants formatting functions of one's own to be **macros, as in Rust** — `String::format` is the one function whose format string the compiler checks, until M10. `println` and friends stay builtins, taking only the built-in kinds, until macros (M10); `error(…)` keeps its static storage (§9.2). *Revised by 18.80:* M10 has come, and `String::format` and the builtins are the macros `#format` and `#println` |
 | 18.71 | Text operations | **One `Text` trait, implemented for `str` and `String`**, whose operations are default methods over `text()`: both get every one, a literal included, with no `Deref` and no duplicate APIs. Pieces are `str` views; only `replace` and the case changes allocate. Parsing takes the whole text and returns an optional, refusing surrounding spaces rather than skipping them, since `trim()` says that explicitly. Case changes are ASCII only — Unicode case mapping needs tables `std` does not carry (§14.4) |
 | 18.70 | Sorting | **`List::sort` (by `Ord`, through a `Sort` trait implemented for `List<T: Ord>`) and `List::sort_by(fn(&T, &T) -> bool)`; a heapsort.** A trait rather than a method, because a method cannot require more of `T` than its type does. Heapsort over quicksort or merge sort: no allocation and no quadratic input, which a frame budget cares about more than the constant factor; stability is given up, and a stable sort can come later as its own name. `String` and `Path` gain byte-order `Ord`, so `Directory::list` can return a sorted, platform-independent order (§14.4) |
 | 18.69 | Characters in UTF-8 text | **Positions are bytes; characters are decoded by iteration.** `String` keeps UTF-8 as it always did, and gains `chars()` (and `for c in s`), `char_count`, `pop`, `is_char_boundary`, `slice` and `truncate`, every cut checked against a character boundary. Rejected: indexing by character, which is a linear walk disguised as `s[i]`, and UTF-32 storage, which quadruples memory for the text a game mostly holds. Invalid bytes decode as U+FFFD rather than panicking, since only unchecked code can make them (§14.4) |
@@ -4074,6 +4091,7 @@ be exactly what reload needs, and must stay that way:
 | 18.77 | Where macros live | **A macro is a declaration**: private by default, `pub macro` to export, invoked as `#dep::name` from a dependency, usable before its declaration. An expansion may invoke macros, to a depth of 64, but may not declare one, so the set of macros is known before any expansion runs (§12.5) |
 | 18.78 | Methods on unions | **A union may declare methods, as a struct does; `self` is the union.** No constructors, `copy` or `drop`, which its variants already define (18.52). Needed by `#machine`, whose `step` must belong to the machine it steps: as a free function two machines in one module would collide, with no overloading to tell them apart (§7.5) |
 | 18.79 | Diagnostics in an expansion | **Where the code was written:** in captured code at the user's own text; in code the macro wrote at the invocation's name, with an "in expansion of" note. A mistake in a capture copied to several places is reported once, a parameter copied to several places is unused only if every copy leaves it unused, and a warning about a macro's own local is not shown to its user (§12.6) |
+| 18.80 | Formatting as macros | **`#print`, `#println`, `#eprint`, `#eprintln`, `#format` and `#panic` are the compiler's own macros**, as the intrinsics are, chosen by the user once M10 had landed: invoked with `#` like every macro (18.75), `println!`'s Rust spelling not being Dazzle's. `#format` replaces `String::format` and takes `allocator = …` by name. **Any `Format` is an argument**, a type's own included, so printing a `Vec2` no longer goes through a `String`; an enum, an optional and a pointer have none. Their names are reserved; a bare `println(…)` is an unknown name whose help says to write `#println`. **Arguments are evaluated as a call's are** — all before anything is written, temporaries living until the text is — because the invocation lowers to one call: the text between placeholders and each spec, split at compile time, and the arguments as `&Format`, written in turn by `std`'s `Formatter`, straight to the stream with no intermediate `String`. Lowering to one statically-dispatched `Format::format` call per placeholder was tried and dropped: a sequence of statements ends each argument's temporaries before the line is written, which a call does not. `#panic` formats without allocating, since the allocators panic too. `error(…)` stays a function: `#error` is a macro's own rejection (§12.6), and an `Error`'s message keeps its static storage (§9.2) (§12.9) |
 
 ### 18.2 Still open
 
@@ -4254,6 +4272,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r64 | 2026-10-20 | **Formatting is a set of macros** (§12.5, §12.8, §12.9, §9.8, 18.80). `print(…)`, `println(…)`, `eprint(…)`, `eprintln(…)` and `panic(…)` are now written `#print(…)`, `#println(…)`, `#eprint(…)`, `#eprintln(…)` and `#panic(…)`, and **`String::format(…)` is `#format(…)`**, still taking `allocator = …` by name — the compiler's own macros, beside the intrinsics, whose names are now reserved too. The format string is checked as before; what changes is what may be formatted: **any type that implements `Format`**, where `println` used to take only the built-in kinds — so `#println("{}", v)` prints a `Vec2` with its own `Format`, and a `String` directly. The arguments are evaluated as a call's are. A pointer is no longer printable as an address; write what it points at. `#panic`'s message is cut at a few hundred bytes, since it is built without allocating. `error(…)` is unchanged. In `std`, `Formatter` is built with `Formatter::string(&mut text)`, `Formatter::stdout()` or `Formatter::stderr()`, and gains `flush` and `set_spec`. A string literal written `"'a'"` keeps its quotes, which it used to lose. |
 | r63 | 2026-10-20 | **Macros, settled for M10** (§12, 18.9, 18.74–18.79). **One invocation spelling, `#name`, everywhere** — `name!(…)` is gone: in declaration and statement position an invocation runs to the end of the line, in expression position it is one bracketed group, and a dependency's macro is `#dep::name`. The intrinsics are the compiler's own macros, and `error` joins their reserved names. **Patterns read like parameters and types**: `$name: ident`, `$t: type`, `$xs: [,]Field`, `$xs: []State`, `$d: expr?`, `$( … )?` for an optional group; kinds are `ident`, `literal`, `type`, `expr`, `stmt`, `block`, `code`, `decl` or a `syntax` rule, and a macro is `-> decl`, `-> stmt` or `-> expr` (`type` reserved). Matching never backtracks. **`expand` is shaped by `#for v in $xs[,] { $v.name }`, `#if $x { … } #else { … }` and `#error($x, "…")`**, replacing `$xs[,] { $.name }` and `$x? { … }`; an `#if` on anything but a capture is still the build-flag `#if`. **Hygiene hides an expansion's locals but not its declarations**, and other names in `expand` resolve where the macro is declared. **Macros expand on syntax, before resolution**, so `T::fields` of a type parameter is deferred and a per-field macro takes the declaration instead (§12.11, §13.4). `pub macro` exports a macro; an expansion may invoke macros but not declare one. A diagnostic in captured code points at that code, one in generated code at the invocation with an "in expansion of" note. **Unions may declare methods** (§7.5, 18.78), which `#machine`'s `step` needed. |
 | r62 | 2026-10-20 | **Arguments passed by name, and library formatting** (§7.2, §12.9, §14.4, 18.72, 18.73). The parameters after a variadic one are passed by name, `name = value`, after the other arguments and in any order; nothing else is. So "variadic last" (18.56) becomes "at most one variadic". **The global `format` is gone**: `String::format("…", args, allocator = …)` returns a `String` — no more four shared 256-byte buffers, so a long or a fifth message is no longer cut or overwritten. `Format` is implemented for the numbers, `bool`, `char`, `str`, `cstr` and `String`, and a type of your own can implement it; `Formatter` appends text and reports the placeholder's spec. A format string is checked at compile time in `String::format` as in `println`; a formatting function of one's own waits for macros (M10). `println` and friends are unchanged. |
 | r61 | 2026-09-15 | **`Process`** (§14.4): `Process::args()`, `Process::env(name)`, `Process::exit(code)`. |

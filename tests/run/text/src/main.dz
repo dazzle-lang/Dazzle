@@ -3,30 +3,30 @@
 
 fn show(label: str, v: i64?) {
     if let n = v {
-        println("{} {}", label, n)
+        #println("{} {}", label, n)
     } else {
-        println("{} none", label)
+        #println("{} none", label)
     }
 }
 
 fn show_f(label: str, v: f64?) {
     if let n = v {
-        println("{} {}", label, n)
+        #println("{} {}", label, n)
     } else {
-        println("{} none", label)
+        #println("{} none", label)
     }
 }
 
 fn main() {
     let line = String("  player=Ada;score=42;zone=été  ")
     let t = line.trim()
-    println("trim '{}'", t)
-    println("start '{}' end '{}'", "  x ".trim_start(), "  x ".trim_end())
-    println("starts {} ends {} contains {} {}", t.starts_with("player"), t.ends_with("été"), t.contains("score"), t.contains("lives"))
+    #println("trim '{}'", t)
+    #println("start '{}' end '{}'", "  x ".trim_start(), "  x ".trim_end())
+    #println("starts {} ends {} contains {} {}", t.starts_with("player"), t.ends_with("été"), t.contains("score"), t.contains("lives"))
     if let at = t.find("score") {
-        println("find score at {}", at)
+        #println("find score at {}", at)
     }
-    println("find missing {}", t.find("lives") == none)
+    #println("find missing {}", t.find("lives") == none)
 
     let mut pieces = String()
     for field in t.split(";") {
@@ -38,7 +38,7 @@ fn main() {
         pieces.push_str(kv.get())
         pieces.push(']')
     }
-    println("split {}", pieces.as_str())
+    #println("split {}", pieces.as_str())
 
     let mut empties = 0
     let mut count = 0
@@ -48,7 +48,7 @@ fn main() {
             empties += 1
         }
     }
-    println("pieces {} empty {}", count, empties)
+    #println("pieces {} empty {}", count, empties)
 
     let mut n = 0
     let mut joined = String()
@@ -57,11 +57,11 @@ fn main() {
         joined.push_str(l)
         joined.push('|')
     }
-    println("lines {} {}", n, joined.as_str())
+    #println("lines {} {}", n, joined.as_str())
 
-    println("replace {}", "a-b-c".replace("-", " + ").as_str())
-    println("replace none {}", "abc".replace("x", "y").as_str())
-    println("case {} {}", "Héllo World".to_ascii_uppercase().as_str(), line.to_ascii_lowercase().trim())
+    #println("replace {}", "a-b-c".replace("-", " + ").as_str())
+    #println("replace none {}", "abc".replace("x", "y").as_str())
+    #println("case {} {}", "Héllo World".to_ascii_uppercase().as_str(), line.to_ascii_lowercase().trim())
 
     show("int", "42".parse_i64())
     show("negative", "-9223372036854775808".parse_i64())
@@ -70,15 +70,15 @@ fn main() {
     show("sign only", "-".parse_i64())
     show("trimmed", " 7 ".trim().parse_i64())
     if let u = "18446744073709551615".parse_u64() {
-        println("u64 max {}", u)
+        #println("u64 max {}", u)
     }
-    println("u64 over {}", "18446744073709551616".parse_u64() == none)
+    #println("u64 over {}", "18446744073709551616".parse_u64() == none)
     show_f("float", "2.5e-3".parse_f64())
     show_f("point", ".5".parse_f64())
     show_f("int as float", "-3".parse_f64())
     show_f("bad exponent", "1e".parse_f64())
     show_f("inf", "inf".parse_f64())
     if let f = "0.1".parse_f32() {
-        println("f32 {}", f)
+        #println("f32 {}", f)
     }
 }

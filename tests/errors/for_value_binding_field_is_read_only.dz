@@ -11,5 +11,5 @@ fn main() {
     for p in ps {
         p.n = 2
     }
-    println("{}", ps[0].n)
+    #println("{}", ps[0].n)
 }

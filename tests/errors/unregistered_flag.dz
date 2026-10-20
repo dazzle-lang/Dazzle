@@ -5,6 +5,6 @@
 
 fn main() {
     #if DEBUGG {
-        println("checks on")
+        #println("checks on")
     }
 }

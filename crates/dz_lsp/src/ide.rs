@@ -21,7 +21,7 @@ use std::rc::Rc;
 
 use dz_ast::{
     CfgElse, CfgIf, Field, FnDecl, Ident, Item, ItemKind, Member, MemberKind, SourceFileAst, Type,
-    TypeKind, Vis,
+    TypeKind, Vis, FORMAT_MACROS, INTRINSICS,
 };
 use dz_check::{type_name, type_name_in_file, FieldSig, FnSig, ItemSig, TypeTable, VariantSig};
 use dz_diag::Diagnostics;
@@ -1775,6 +1775,20 @@ impl Completions {
         }
     }
 
+    /// A name that is written differently from how it is filtered: `println`, which
+    /// writes `#println`.
+    fn push_written(&mut self, label: &str, kind: CompletionKind, insert: &str) {
+        if self.seen.insert(label.to_owned()) {
+            self.items.push(Completion {
+                label: label.to_owned(),
+                kind,
+                detail: None,
+                insert: Some(insert.to_owned()),
+                source: None,
+            });
+        }
+    }
+
     /// A name written through a dependency key. One slot per key and label, so two
     /// dependencies exporting `Vec3` are both offered; never over a name already in scope.
     fn push_qualified(
@@ -1927,6 +1941,21 @@ pub fn completion(
         return CompletionSet { items: out.items, incomplete: false };
     }
 
+    // `#…`: the compiler's own macros and the ones in scope, and nothing else (spec §12.5).
+    if lead.ends_with('#') {
+        for m in INTRINSICS {
+            out.push(m, CompletionKind::Macro, None);
+        }
+        let mut scope = Completions::default();
+        for (q, file) in &analyses {
+            q.complete_scope(*file, offset as u32, &mut scope);
+        }
+        for c in scope.items.into_iter().filter(|c| c.kind == CompletionKind::Macro) {
+            out.push(&c.label, c.kind, c.detail);
+        }
+        return CompletionSet { items: out.items, incomplete: false };
+    }
+
     for (q, file) in &analyses {
         q.complete_scope(*file, offset as u32, &mut out);
     }
@@ -1947,6 +1976,10 @@ pub fn completion(
     }
     for f in BUILTIN_FNS {
         out.push(f, CompletionKind::Function, None);
+    }
+    // `println` is a macro, so choosing it writes `#println` (spec §12.9).
+    for m in FORMAT_MACROS {
+        out.push_written(m, CompletionKind::Macro, &format!("#{m}"));
     }
     CompletionSet { items: out.items, incomplete }
 }

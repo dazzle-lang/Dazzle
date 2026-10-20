@@ -189,16 +189,16 @@ fn comments_stay_inside_the_blocks_they_were_written_in() {
         "\
 fn f(n: i32) !-> i32 {
     let handled = halve(n) or { e ->
-        println(\"{}\", e.message)
+        #println(\"{}\", e.message)
         // inside the `or` block
         0
     }
     if n > 0 {
         // inside the `if`
-        println(\"positive\")
+        #println(\"positive\")
     } else {
         // inside the `else`
-        println(\"not\")
+        #println(\"not\")
     }
     switch n {
         case Odd {
@@ -226,7 +226,7 @@ fn a_block_holding_only_a_comment_keeps_it() {
 #[test]
 fn a_block_comment_in_a_nested_block_does_not_drift() {
     unchanged(
-        "fn f(n: i32) {\n    if n > 0 {\n        /* two\n           lines */\n        println(\"x\")\n    }\n}\n",
+        "fn f(n: i32) {\n    if n > 0 {\n        /* two\n           lines */\n        #println(\"x\")\n    }\n}\n",
     );
 }
 

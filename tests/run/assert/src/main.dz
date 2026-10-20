@@ -8,8 +8,8 @@ fn check(hp: i32) {
 
 fn main() {
     check(3)
-    println("passed")
+    #println("passed")
     let hp = 3
     assert(hp > 10, "hp is {} too low")
-    println("unreachable")
+    #println("unreachable")
 }

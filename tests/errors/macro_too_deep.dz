@@ -9,5 +9,5 @@ macro forever -> expr {
 }
 
 fn main() {
-    println("{}", #forever(0))
+    #println("{}", #forever(0))
 }

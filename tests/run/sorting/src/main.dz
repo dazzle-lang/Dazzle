@@ -54,31 +54,31 @@ fn integers() {
         }
         all_ok = all_ok && in_order(&xs) && after == sum && xs.len() == n as usize
     }
-    println("random lengths 0..70 sorted: {}", all_ok)
+    #println("random lengths 0..70 sorted: {}", all_ok)
 
     let mut rev = List<i32>()
     for i in 0..1000 {
         rev.push(1000 - i)
     }
     rev.sort()
-    println("reversed 1000: {} first {} last {}", in_order(&rev), rev[0], rev[999])
+    #println("reversed 1000: {} first {} last {}", in_order(&rev), rev[0], rev[999])
 
     let mut same = List<i32>()
     for i in 0..300 {
         same.push(i % 3)
     }
     same.sort()
-    println("many equal: {}", in_order(&same))
+    #println("many equal: {}", in_order(&same))
 
     let mut down = List<i32>()
     for v in [3, 9, 1, 7] {
         down.push(v)
     }
     down.sort_by(descending)
-    println("descending {} {} {} {}", down[0], down[1], down[2], down[3])
+    #println("descending {} {} {} {}", down[0], down[1], down[2], down[3])
 
     down.swap(0, 3)
-    println("swapped {} {}", down[0], down[3])
+    #println("swapped {} {}", down[0], down[3])
 }
 
 fn move_only() {
@@ -88,9 +88,9 @@ fn move_only() {
             tokens.push(Token{ rank: r })
         }
         tokens.sort_by(by_rank)
-        println("tokens {} {} {} {} {} {}", tokens[0].rank, tokens[1].rank, tokens[2].rank, tokens[3].rank, tokens[4].rank, tokens[5].rank)
+        #println("tokens {} {} {} {} {} {}", tokens[0].rank, tokens[1].rank, tokens[2].rank, tokens[3].rank, tokens[4].rank, tokens[5].rank)
     }
-    println("dropped exactly once: {}", DROPS == 6)
+    #println("dropped exactly once: {}", DROPS == 6)
 }
 
 fn text() {
@@ -99,14 +99,14 @@ fn text() {
         names.push(String(s))
     }
     names.sort()
-    println("strings {} {} {} {} {}", names[0].as_str(), names[1].as_str(), names[2].as_str(), names[3].as_str(), names[4].as_str())
+    #println("strings {} {} {} {} {}", names[0].as_str(), names[1].as_str(), names[2].as_str(), names[3].as_str(), names[4].as_str())
 
     let mut paths = List<Path>()
     paths.push(Path("b/a.txt"))
     paths.push(Path("a/z.txt"))
     paths.push(Path("a"))
     paths.sort()
-    println("paths {} {} {}", paths[0].as_str(), paths[1].as_str(), paths[2].as_str())
+    #println("paths {} {} {}", paths[0].as_str(), paths[1].as_str(), paths[2].as_str())
 }
 
 fn main() {

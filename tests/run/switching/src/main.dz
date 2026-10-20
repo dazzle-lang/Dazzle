@@ -101,7 +101,7 @@ fn main() {
             case Stop { break }
         }
     }
-    println("{}", gone)
+    #println("{}", gone)
 
     let mut counted: u8 = 0
     for k in 0..10 {
@@ -111,15 +111,15 @@ fn main() {
             default { counted += 1 }
         }
     }
-    println("{}", counted)
+    #println("{}", counted)
 
-    println("{} {} {} {} {} {}", classify(0), classify(2), classify(40), classify(42), classify(-1), classify(9))
-    println("{} {} {}", word("idle"), word("hello"), word("x"))
-    println("{} {}", vowel('e'), vowel('z'))
+    #println("{} {} {} {} {} {}", classify(0), classify(2), classify(40), classify(42), classify(-1), classify(9))
+    #println("{} {} {}", word("idle"), word("hello"), word("x"))
+    #println("{} {}", vowel('e'), vowel('z'))
     let flag = true
     switch flag {
-        case true { println("yes") }
-        case false { println("no") }
+        case true { #println("yes") }
+        case false { #println("no") }
     }
 
     // A temporary subject, and a payload written through a `&mut`.
@@ -127,21 +127,21 @@ fn main() {
         case Rect(r) { r.w * r.h }
         default { 0.0 }
     }
-    println("{}", area)
+    #println("{}", area)
     let mut sh = Shape::Circle{ radius: 1 }
     grow(&mut sh)
     switch sh {
-        case Circle(c) { println("{}", c.radius) }
+        case Circle(c) { #println("{}", c.radius) }
         default {}
     }
 
     let cfg = Config{}
-    println("{} {} {} {} {}", MODE_NAME, PICK, cfg.level, cfg.name, scaled(5))
+    #println("{} {} {} {} {}", MODE_NAME, PICK, cfg.level, cfg.name, scaled(5))
 
     let some = Maybe<i32>::Some{ value: 4 }
     let nothing: Maybe<i32> = Maybe::Nothing
     let inferred: Maybe<f32> = .Some{ value: 1.5 }
     let pair = Maybe<Pair<i32>>::Some{ value: Pair<i32>{ first: 5, second: 6 } }
     let p = unwrap_or(pair, Pair<i32>{ first: 0, second: 0 })
-    println("{} {} {} {}", unwrap_or(some, 0), unwrap_or(nothing, 9), unwrap_or(inferred, 0.0), p.first + p.second)
+    #println("{} {} {} {}", unwrap_or(some, 0), unwrap_or(nothing, 9), unwrap_or(inferred, 0.0), p.first + p.second)
 }

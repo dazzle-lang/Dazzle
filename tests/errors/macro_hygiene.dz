@@ -16,5 +16,5 @@ fn main() {
     let mut tmp = 1
     let mut other = 2
     #swap tmp, other
-    println("{} {}", tmp, other)
+    #println("{} {}", tmp, other)
 }

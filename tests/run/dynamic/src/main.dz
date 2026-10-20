@@ -73,22 +73,22 @@ fn main() {
     let mut dot = shapes::Dot{}
 
     // `&T` and `&mut T` convert to `&Shape` and `^mut Shape` wherever one is wanted.
-    println("{} {} {}", measure(&sq), measure(&f), measure(&dot))
+    #println("{} {} {}", measure(&sq), measure(&f), measure(&dot))
 
     let mut slot = Slot{}
-    println("{}", grow_through(&slot, 1))
+    #println("{}", grow_through(&slot, 1))
     slot.shape = &mut sq
     let grew = grow_through(&slot, 1)
-    println("{} {}", grew, sq.side)
+    #println("{} {}", grew, sq.side)
     slot.shape = &mut f
     grow_through(&slot, 2)
     slot.shape = &mut dot
     grow_through(&slot, 3)
-    println("{} {}", f, dot.r)
+    #println("{} {}", f, dot.r)
 
     // A static behind a handle: the shape of `Allocators::Global` (spec §14.2).
     let global: ^mut Shape = unsafe { &mut SHARED }
     let g = global or return
     g.grow(1)
-    println("{} {}", g.area(), SHARED.side)
+    #println("{} {}", g.area(), SHARED.side)
 }

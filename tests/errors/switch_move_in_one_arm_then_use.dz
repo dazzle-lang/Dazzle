@@ -23,5 +23,5 @@ fn main() {
         case Go { take(move(r)) }
         case Stop {}
     }
-    println("{}", r.n)
+    #println("{}", r.n)
 }

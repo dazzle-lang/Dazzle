@@ -1,8 +1,9 @@
 /// Where a `Format` implementation writes, and how the placeholder it was given asks for the
 /// value: `{:x}` and `{:X}` in hex, `{:.N}` with `N` digits after the point (spec §12.9).
 ///
-/// It appends to a `String` that outlives it — `String::format` makes one for each call —
-/// so an implementation only ever adds text, with `write_str` and `write_char`:
+/// It appends to a `String` that outlives it — what `#format` builds — or writes to
+/// standard output or standard error, for `#print` and `#eprint`. An implementation only
+/// ever adds text, with `write_str` and `write_char`:
 ///
 /// ```dz
 /// impl Format for Vec2 {
@@ -16,27 +17,147 @@
 /// }
 /// ```
 pub struct Formatter {
-    m_out: ^mut String
+    m_out: ^mut String = null
+    /// Which stream the text goes to — 0 standard output, 1 standard error — or -1 when it
+    /// goes into `m_out`, and 2 when it stays in `m_buf` as a panic's message.
+    m_stream: i32 = -1
+    /// Text for the stream not written yet, so an invocation is one write rather than one
+    /// per piece. It never ends inside a character.
+    m_buf: [512]u8
+    m_used: usize = 0
     m_loc: SourceLocation
     m_hex: bool = false
     m_upper: bool = false
     m_precision: u32? = none
 
-    /// A formatter appending to `out`, which must outlive it. `loc` is where the text's
-    /// memory is recorded as allocated, under `--track-memory`.
-    Formatter(out: &mut String, loc: SourceLocation = #location) {
-        m_out = out
-        m_loc = loc
+    /// A formatter appending to `out`, which must outlive it, as `#format` uses. `loc` is
+    /// where the text's memory is recorded as allocated, under `--track-memory`.
+    pub fn string(out: &mut String, loc: SourceLocation = #location) -> Formatter {
+        let mut f: Formatter
+        f.m_out = out
+        f.m_loc = loc
+        return move(f)
+    }
+
+    /// A formatter writing to standard output, as `#print` does. What it holds is written
+    /// when it is dropped, or by `flush`.
+    pub fn stdout() -> Formatter {
+        return Formatter::stream(0)
+    }
+
+    /// A formatter writing to standard error, as `#eprint` does. Standard output is
+    /// flushed first, so the two keep their order in a terminal.
+    pub fn stderr() -> Formatter {
+        return Formatter::stream(1)
+    }
+
+    /// A formatter on stream `which`: 0 standard output, 1 standard error, and 2 for the
+    /// one that keeps its text, `message()`.
+    fn stream(which: i32) -> Formatter {
+        let mut f: Formatter
+        f.m_stream = which
+        return move(f)
     }
 
     /// Append `s`.
     pub fn write_str(&mut self, s: str) {
-        unsafe { m_out.push_str(s, m_loc) }
+        if m_stream < 0 {
+            unsafe { m_out.push_str(s, m_loc) }
+            return
+        }
+        if m_stream == 2 {
+            self.keep(s)
+            return
+        }
+        if m_used + s.len > 512 {
+            self.flush()
+        }
+        if s.len > 512 {
+            stream_write(m_stream, s)
+            return
+        }
+        let bytes = s as []u8
+        for i in 0..bytes.len {
+            m_buf[m_used + i] = bytes[i]
+        }
+        m_used += bytes.len
     }
 
     /// Append one character, encoded as UTF-8.
     pub fn write_char(&mut self, c: char) {
-        unsafe { m_out.push(c, m_loc) }
+        let mut encoded: [4]u8 = [0, 0, 0, 0]
+        let n = encode_utf8(c, &mut encoded)
+        self.write_str(unsafe { encoded[0..n] as str })
+    }
+
+    /// What `#print`, `#println`, `#eprint` and `#eprintln` lower to (spec §12.9): `args`
+    /// written between `pieces` to standard output (`stream` 0) or standard error (1).
+    fn print(stream: i32, pieces: []str, specs: []str, args: ..&Format) {
+        let mut f = Formatter::stream(stream)
+        f.write_args(pieces, specs, ..args)
+    }
+
+    /// What `#format` lowers to (spec §12.9): `args` written between `pieces`, as a new
+    /// `String` in memory from `allocator`.
+    fn format(pieces: []str, specs: []str, args: ..&Format, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
+        let mut out = String("", allocator, loc)
+        {
+            let mut f = Formatter::string(&mut out, loc)
+            f.write_args(pieces, specs, ..args)
+        }
+        return out
+    }
+
+    /// What the formatting macros lower to (spec §12.9): `pieces[i]`, then `args[i]` as
+    /// `specs[i]` asks, for each argument, then the last piece, and on a stream the whole
+    /// of it written out before the arguments' temporaries are dropped. The format string
+    /// was split and checked against the arguments where the invocation was compiled, so
+    /// there is one more piece than there are arguments, and a spec for each.
+    fn write_args(&mut self, pieces: []str, specs: []str, args: ..&Format) {
+        for i in 0..args.len {
+            self.write_str(pieces[i])
+            self.set_spec(specs[i])
+            args[i].format(&mut self)
+        }
+        self.set_spec("")
+        self.write_str(pieces[args.len])
+        self.flush()
+    }
+
+    /// Write out what a formatter on a stream holds. Dropping it does the same.
+    pub fn flush(&mut self) {
+        if m_used > 0 && m_stream != 2 {
+            stream_write(m_stream, unsafe { m_buf[0..m_used] as str })
+            m_used = 0
+        }
+    }
+
+    /// A formatter that keeps what it is given in itself, for `#panic`'s message: a panic
+    /// must not allocate, since the allocators panic too (spec §9.8). What does not fit is
+    /// left out.
+    fn message() -> Formatter {
+        return Formatter::stream(2)
+    }
+
+    /// What a `message()` formatter holds.
+    fn message_text(&self) -> str {
+        return unsafe { m_buf[0..m_used] as str }
+    }
+
+    /// As much of `s` as still fits in the buffer, cut where a character begins.
+    fn keep(&mut self, s: str) {
+        let bytes = s as []u8
+        let mut n = bytes.len
+        if m_used + n > 512 {
+            n = 512 - m_used
+            while n > 0 && ((bytes[n] as u32) & 0xC0) == 0x80 {
+                n -= 1
+            }
+        }
+        for i in 0..n {
+            m_buf[m_used + i] = bytes[i]
+        }
+        m_used += n
     }
 
     /// Whether the placeholder was `{:x}` or `{:X}`: an integer is written in hex.
@@ -54,59 +175,27 @@ pub struct Formatter {
         return m_precision
     }
 
-    /// Writes `fmt`, replacing each `{}` or `{:spec}` with the next of `args` and each `{{`
-    /// or `}}` with one brace. `String::format` has had its string
-    /// checked against its arguments already; here a placeholder with no argument left
-    /// writes nothing, and an argument with no placeholder is not written.
-    pub fn write_format(&mut self, fmt: str, args: []&Format) {
-        let bytes = fmt as []u8
-        let mut next: usize = 0
-        let mut start: usize = 0
-        let mut i: usize = 0
-        while i < bytes.len {
-            let b = bytes[i]
-            if (b == '{' as u8 || b == '}' as u8) && i + 1 < bytes.len && bytes[i + 1] == b {
-                // `{{` or `}}`: the text so far and one brace, then on past both.
-                self.write_str(sub(fmt, start, i + 1))
-                i += 2
-                start = i
-                continue
-            }
-            if b != '{' as u8 {
-                i += 1
-                continue
-            }
-            self.write_str(sub(fmt, start, i))
-            let mut close = i + 1
-            while close < bytes.len && bytes[close] != '}' as u8 {
-                close += 1
-            }
-            self.set_spec(sub(fmt, i + 1, close))
-            if next < args.len {
-                args[next].format(&mut self)
-                next += 1
-            }
-            m_hex = false
-            m_upper = false
-            m_precision = none
-            i = if close < bytes.len { close + 1 } else { close }
-            start = i
-        }
-        self.write_str(sub(fmt, start, bytes.len))
-    }
-
-    /// What is between a placeholder's braces: empty, or `:` and a spec.
-    fn set_spec(&mut self, inside: str) {
-        if inside == ":x" {
-            m_hex = true
-        } else if inside == ":X" {
-            m_hex = true
-            m_upper = true
-        } else if inside.len > 2 && inside.starts_with(":.") {
-            let digits = sub(inside, 2, inside.len)
-            if let n = digits.parse_u64() {
+    /// Ask for what a placeholder's spec asks for, as it is written after the colon: `x`,
+    /// `X`, `.N`, or empty for `{}`. The formatting macros call this before each argument
+    /// whose spec differs from the last one's; an implementation may call it to write a
+    /// part of itself differently.
+    pub fn set_spec(&mut self, spec: str) {
+        m_hex = spec == "x" || spec == "X"
+        m_upper = spec == "X"
+        m_precision = none
+        if spec.len > 1 && spec.starts_with(".") {
+            if let n = sub(spec, 1, spec.len).parse_u64() {
                 m_precision = n as u32
             }
         }
     }
 }
+
+impl Drop for Formatter {
+    fn drop(&mut self) {
+        self.flush()
+    }
+}
+
+/// Write `text` to standard output (`which` 0) or standard error (1).
+extern fn stream_write(which: i32, text: str)

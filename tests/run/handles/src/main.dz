@@ -10,7 +10,7 @@ struct Texture {
 impl Drop for Texture {
     fn drop(&mut self) {
         if name != "" {
-            println("drop texture {}", name)
+            #println("drop texture {}", name)
         }
     }
 }
@@ -34,57 +34,57 @@ fn widen(s: &mut Sprite) {
 fn main() {
     // A field of a handle type starts `null`.
     let mut s = Sprite{}
-    println("empty: {} {}", s.texture == null, width_of(&s))
+    #println("empty: {} {}", s.texture == null, width_of(&s))
 
     s.texture = Rc<Texture>(Texture{ name: "hero", width: 32 })
-    println("count {} null {}", s.texture.count(), s.texture == null)
+    #println("count {} null {}", s.texture.count(), s.texture == null)
     widen(&mut s)
-    println("width {}", width_of(&s))
+    #println("width {}", width_of(&s))
 
     // Copying shares; dropping a copy counts down.
     {
         let other = s.texture
-        println("shared count {}", other.count())
+        #println("shared count {}", other.count())
     }
-    println("back to {}", s.texture.count())
+    #println("back to {}", s.texture.count())
 
     // A `Weak` sees the value while an `Rc` owns it, and `null` once none does.
     s.target = Weak<Texture>(&s.texture)
-    println("weak null {} weak count {}", s.target == null, s.texture.weak_count())
+    #println("weak null {} weak count {}", s.target == null, s.texture.weak_count())
     if let &t = s.target {
-        println("target {}", t.name)
+        #println("target {}", t.name)
     }
 
     // The guard: releasing the handle inside the block frees nothing until the block ends.
     if let &mut t = s.texture {
         s.texture = null
-        println("released, still {} wide", t.width)
+        #println("released, still {} wide", t.width)
     }
-    println("after the block")
-    println("weak null {}", s.target == null)
+    #println("after the block")
+    #println("weak null {}", s.target == null)
     if let &t = s.target {
-        println("unexpected {}", t.name)
+        #println("unexpected {}", t.name)
     } else {
-        println("target gone")
+        #println("target gone")
     }
 
     // A copy of the value, for a copyable target.
     let n = Rc<i32>(41)
     if let v = n {
-        println("copy {}", v + 1)
+        #println("copy {}", v + 1)
     }
     let mut empty: Rc<i32> = null
-    println("empty {}", if let v = empty { v } else { 7 })
+    #println("empty {}", if let v = empty { v } else { 7 })
     empty = n
-    println("count {}", empty.count())
+    #println("count {}", empty.count())
 
     // `Box`: one owner.
     let b = Box<Texture>(Texture{ name: "boxed", width: 8 })
     if let &t = b {
-        println("box {} {}", t.name, t.width)
+        #println("box {} {}", t.name, t.width)
     }
     let moved = move(b)
-    println("moved {}", moved != null)
+    #println("moved {}", moved != null)
 
     // `if let` on an optional and a pointer, each binding.
     let mut o: i32? = 5
@@ -92,7 +92,7 @@ fn main() {
         x += 1
     }
     if let x = o {
-        println("optional {}", x)
+        #println("optional {}", x)
     }
     let mut value = 3
     let p: ^mut i32 = &mut value
@@ -100,7 +100,7 @@ fn main() {
         x = 4
     }
     if let x = p {
-        println("pointer {}", x)
+        #println("pointer {}", x)
     }
-    println("end")
+    #println("end")
 }
