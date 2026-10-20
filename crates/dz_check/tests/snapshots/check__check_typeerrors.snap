@@ -1267,7 +1267,7 @@ error[DZ0501]: expected `TypeId`, found `{integer}`
 1080 │     let b = typeinfo(3)
      │                      ^ this is `{integer}`
 
-error[DZ0558]: a union cannot declare a method named `kind`
+error[DZ0559]: a union cannot declare a method named `kind`
      ┌─ typeerrors/src/errors.dz:1089:12
      │
 1089 │     pub fn kind(&self) -> i32 {
@@ -1275,7 +1275,7 @@ error[DZ0558]: a union cannot declare a method named `kind`
      │
      = help: `s.kind()` names the active variant (spec §7.5); choose another name
 
-error[DZ0558]: a union's method cannot be `virtual` or `override`
+error[DZ0559]: a union's method cannot be `virtual` or `override`
      ┌─ typeerrors/src/errors.dz:1093:16
      │
 1093 │     virtual fn turn(&self) {}

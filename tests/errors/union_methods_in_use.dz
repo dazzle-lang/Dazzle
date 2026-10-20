@@ -1,6 +1,6 @@
 // expect: (none)
 //
-// A union's methods (spec §7.5, 18.76): `self` is the union, a method without `self` is
+// A union's methods (spec §7.5, 18.78): `self` is the union, a method without `self` is
 // called through the union's name, and one may replace the whole union.
 
 union Light {

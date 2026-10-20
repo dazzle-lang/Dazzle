@@ -2,7 +2,7 @@
 //! its expansion, and replacing the invocation with the parsed result.
 //!
 //! Expansion runs on syntax alone, after parsing and `#if` and before name resolution
-//! (spec §12.11, 18.72). It is a pure function of the parsed workspace: the macros a module
+//! (spec §12.11, 18.74). It is a pure function of the parsed workspace: the macros a module
 //! can see are its own and its dependencies' `pub` ones, all known before any expansion
 //! runs, since an expansion may invoke a macro but never declare one (spec §12.5).
 

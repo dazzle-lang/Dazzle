@@ -1,6 +1,6 @@
 // expect: DZ0606
 //
-// A macro is `-> decl`, `-> stmt` or `-> expr` (spec §12.1, r62); the old long spelling
+// A macro is `-> decl`, `-> stmt` or `-> expr` (spec §12.1, r63); the old long spelling
 // says which short one it became.
 
 macro nothing -> declaration {

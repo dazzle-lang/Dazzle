@@ -1,7 +1,7 @@
 // expect: DZ0301
 //
 // A mistake in captured code is reported where the user wrote it, once, however many
-// places the expansion copied it to (spec §12.6, 18.77): `Buton` is in every state's
+// places the expansion copied it to (spec §12.6, 18.79): `Buton` is in every state's
 // `update`, and is one mistake.
 
 struct Button {

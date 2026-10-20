@@ -63,7 +63,7 @@ pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
 ///
 /// A macro may copy one parameter declaration into several functions — `#machine`'s
 /// parameters become every state's `update`'s. Each copy is a binding of its own, at the
-/// same span, and the declaration is unused only if every copy is (spec §12.6, 18.77).
+/// same span, and the declaration is unused only if every copy is (spec §12.6, 18.79).
 #[derive(Default)]
 struct Unread {
     /// Whether some binding at this place is read.

@@ -794,7 +794,7 @@ impl<'a> Parser<'a> {
                 let v_start = self.start();
                 let docs = self.eat_docs();
                 self.skip_terminators();
-                // A method among the variants (spec §7.5, 18.76).
+                // A method among the variants (spec §7.5, 18.78).
                 if matches!(
                     self.peek(),
                     TokenKind::Pub

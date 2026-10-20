@@ -18,13 +18,13 @@ the milestone.
 
 | | |
 |---|---|
-| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M10 — macros** landed as r62: `#machine` writes M8's `ButtonState` and the editor completes inside it. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
+| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M10 — macros** landed as r63: `#machine` writes M8's `ButtonState` and the editor completes inside it. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
 | Next | **M12 — the stdlib**. Order set by the user on 2026-09-15: ~~stderr~~ and ~~Time~~ (r54), ~~generic methods~~ (r55), ~~Random~~ (r56), ~~`Path` and `File`~~ (r57). The §4c list and the criterion game decide what follows |
 | Also open | **§4d — tooling that lets an LLM work in Dazzle**: a standing backlog beside the milestones (habit diagnostics, JSON diagnostics and fixes, `dz api`, `dz explain`, a primer, …). Mention it whenever asked what there is to work on |
 | Tests | 232, all green but `every_example_builds` where the X11 extension headers are missing — plus the `tests/errors` and `tests/expand` corpora, each run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 17, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 62; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
+| Language spec | 0.1 **unreleased**, revision 63; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -1513,7 +1513,7 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M9** | **An unused-dependency warning can be wrong for a dependency used only through `.`**: a trait method it adds, called on a value whose type comes from elsewhere, is resolved by the checker, which does not mark the dependency used. Name the trait, or ignore the warning | `dz_resolve`, `report_unused_dependencies` |
 | **M9** | **A dependency's `pub` dependency inside a `[names]` value**: `[names]` takes a key of this module, so choosing `rl::shapes`'s `Rectangle` needs a `via` key first | `dz_resolve`, `module_names` |
 | **M12** | **An intrinsic default uses the C++ compiler's builtins**, so its column is 0 and its function is the C++ name (`bump`, not `Counter::bump`) | `dz_cpp`, `caller_intrinsic` |
-| **M10** | **`T::fields` of a type parameter** at compile time. Macros expand before types exist (18.72), so a per-field macro takes the declaration (§13.4); iterating a parameter's fields is a loop unrolled per instance, not a macro | `dz_check`, `path_type_query` |
+| **M10** | **`T::fields` of a type parameter** at compile time. Macros expand before types exist (18.74), so a per-field macro takes the declaration (§13.4); iterating a parameter's fields is a loop unrolled per instance, not a macro | `dz_check`, `path_type_query` |
 | **M10** | **A `type` macro** (`-> type`) is reserved and refused (DZ0606) | `dz_macro/src/table.rs`, `macro_kind` |
 | **M10** | **User-written attribute macros** (`#[derive(…)]`): an unknown attribute is still DZ0314 (18.60). Revisit with §13.4's per-field macro as the model | `dz_resolve/src/walk.rs`, `attributes` |
 | **M10** | **A name an expansion resolves where the macro is declared must be `pub` there.** §12.4 resolves the macro's own names in its module; the expander does it by qualifying them with the caller's alias (`engine::Tally`), which reaches only what that module exports — not its private helpers, and not names it reaches through its own dependencies (`rl::…` in the engine) | `dz_macro/src/hygiene.rs`, `qualify` |
@@ -1574,11 +1574,11 @@ the specified-but-unbuilt `inline`, `align`, `packed`, `deprecated`, `export`, `
 `persist` and `raw` are DZ0316. The checker's own "`#[test]` takes no arguments" moved there.
 Tests: nine `tests/errors` programs, one per mistake and one valid.
 
-## 3b. M10 — macros (r62), done 2026-10-20
+## 3b. M10 — macros (r63), done 2026-10-20
 
 Taken up by the user ahead of the rest of M12, with the syntax still unsettled: r1's sketch
 (`$name:#name`, `name!(…)`, `$xs[,] { $.f }`) predated most of the language, and the user
-asked for it to be cohesive. The decisions, all the user's (18.9 reversed, 18.72–18.77):
+asked for it to be cohesive. The decisions, all the user's (18.9 reversed, 18.74–18.79):
 one invocation spelling, `#name`, everywhere, with the intrinsics as built-in macros;
 captures written like parameters and their shapes like types (`$xs: [,]Field`, `$d: expr?`,
 `$( … )?`); `#for` / `#if` / `#error` in `expand`; expansion on syntax, before resolution;
@@ -1617,7 +1617,7 @@ first and agreed before any of it was built.
   struct's are. In C++ the union's members are named after its variants, so inside its
   methods a variant's struct must be written in full — `qualify_all`, found by a test that
   takes a `&Walking` parameter.
-- **Unused bindings** (18.77): DZ0406 is now decided over every body at once, keyed by span,
+- **Unused bindings** (18.79): DZ0406 is now decided over every body at once, keyed by span,
   so a parameter a macro copied into several functions is unused only if every copy is.
 - **Codegen**: `·` becomes `__m` in C++ names. `#expr_text` and `#module` are emitted.
 - **Formatter**: macro bodies and invocations stay verbatim, as before, but a comment inside
@@ -1629,7 +1629,7 @@ first and agreed before any of it was built.
 - **VS Code grammar**: `#dep::name`, `#for`/`#if`/`#error`, and `syntax`/`pattern`/`expand`.
 - Tests: `tests/run/machine` (the criterion, same `expected.txt` as `button`, both
   compilers), `tests/run/macros`, `tests/run/union_methods`, `tests/expand/*.dz`
-  snapshots, 21 `tests/errors` programs (every DZ06xx code, DZ0215, DZ0216, DZ0558, a
+  snapshots, 21 `tests/errors` programs (every DZ06xx code, DZ0215, DZ0216, DZ0559, a
   mistake in captured code reported once, one in generated code with its note, the unused
   rule, hygiene), `dz_lsp/tests/macros.rs`, `tests/parse/macros.dz`, and union methods in
   `typed/` and `typeerrors/`.
@@ -2207,7 +2207,7 @@ through raylib or C today; a stdlib should not require it.
 ### Formatting and text
 
 - [ ] **`println`/`print`/`format` as library functions** — the user wants these as
-  **macros** (M10, landed in r62), so they are now unblocked. The builtin is already expanded at compile time,
+  **macros** (M10, landed in r63), so they are now unblocked. The builtin is already expanded at compile time,
   so this is about extensibility, not speed. (§3, last row): `Format`
   implemented for the built-in types and `std` types, a real `Formatter` writing into a
   `String` or a stream, and a way to mark a parameter as a format string the compiler
@@ -2275,7 +2275,7 @@ through raylib or C today; a stdlib should not require it.
 - [ ] **A release workflow** shipping `dz` with libclang beside it (§4a) — and, per the user
   on 2026-09-15, **an installer** that sets it up with libclang integrated.
 - [ ] **Fetched packages** (M16, §4a).
-- [x] **Macros** (M10) — r62. **Hot reload** (M13), per the roadmap.
+- [x] **Macros** (M10) — r63. **Hot reload** (M13), per the roadmap.
 
 ### The criterion
 

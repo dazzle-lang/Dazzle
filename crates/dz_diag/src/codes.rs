@@ -73,7 +73,7 @@ pub const SPECIAL_MEMBER_IS_A_TRAIT: &str = "DZ0213";
 /// `mut fn`, removed in r15: the receiver alone says whether a method mutates, so
 /// `fn f(&mut self)` is the one spelling (spec §7.3, §18.34).
 pub const MUT_FN_REMOVED: &str = "DZ0214";
-/// `name!(…)`, removed in r62: a macro is invoked `#name(…)` in every position (spec
+/// `name!(…)`, removed in r63: a macro is invoked `#name(…)` in every position (spec
 /// §12.5, §18.9).
 pub const BANG_MACRO_REMOVED: &str = "DZ0215";
 /// Something in a union's body that is neither a variant nor a method (spec §7.5).
@@ -316,7 +316,7 @@ pub const MISSING_BODY: &str = "DZ0556";
 /// (spec §8.1, §7.6).
 pub const GENERIC_METHOD_NOT_ALLOWED: &str = "DZ0557";
 /// A union method named `kind`, which every union already has (spec §7.5).
-pub const RESERVED_UNION_METHOD: &str = "DZ0558";
+pub const RESERVED_UNION_METHOD: &str = "DZ0559";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 
