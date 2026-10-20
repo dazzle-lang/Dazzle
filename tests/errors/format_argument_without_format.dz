@@ -1,0 +1,11 @@
+// expect: DZ0527
+//
+// An argument of `String::format` must implement `Format` (spec §12.9).
+
+struct Unwritten {
+    pub n: i32
+}
+
+fn main() {
+    let _ = String::format("{}", Unwritten{ n: 1 })
+}

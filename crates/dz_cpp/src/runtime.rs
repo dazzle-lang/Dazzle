@@ -519,6 +519,8 @@ template <class T> struct is_ptr<T*> { static constexpr bool value = true; };
 /// exactly where the orphan rule allows an implementation to be (spec §7.6).
 template <bool B> struct enable_if_c {};
 template <> struct enable_if_c<true> { using type = int; };
+template <class A, class B> struct is_same { static constexpr bool value = false; };
+template <class A> struct is_same<A, A> { static constexpr bool value = true; };
 template <class T> struct unconst { using type = T; };
 template <class T> struct unconst<const T> { using type = T; };
 template <class T> struct is_addr { static constexpr bool value = false; };
@@ -806,6 +808,8 @@ bool path_is_file(str path);
 bool path_is_dir(str path);
 uint64_t path_modified_nanos(str path);
 Opt<double> text_parse_f64(str text);
+size_t format_float(double value, int32_t precision, Slice<uint8_t> out);
+str cstr_text(const char* s);
 bool dir_create(str path);
 
 // The process. `process_start` is called first thing by the generated `main`.
@@ -1247,6 +1251,22 @@ void dir_close(size_t handle) {
 #endif
 
 // --- text (spec §14.4) ------------------------------------------------------------
+
+/// A float for `Format` (spec §12.9): `%g` as `println` writes one, or `%.*f` for `{:.N}`,
+/// so a value reads the same whichever wrote it.
+size_t format_float(double value, int32_t precision, Slice<uint8_t> out) {
+    if (out.len == 0) { return 0; }
+    char* buf = reinterpret_cast<char*>(out.ptr);
+    const int k = precision < 0 ? snprintf(buf, out.len, "%g", value)
+                                : snprintf(buf, out.len, "%.*f", static_cast<int>(precision), value);
+    if (k < 0) { return 0; }
+    return static_cast<size_t>(k) < out.len ? static_cast<size_t>(k) : out.len - 1;
+}
+
+/// The text of a C string, up to its zero, as a view of the same bytes.
+str cstr_text(const char* s) {
+    return s == nullptr ? str() : str(reinterpret_cast<const uint8_t*>(s), strlen(s));
+}
 
 /// `strtod` on text `Text::parse_f64` has already checked is a plain decimal number, so
 /// what is left to decide is only the value, which `strtod` rounds correctly. The C locale

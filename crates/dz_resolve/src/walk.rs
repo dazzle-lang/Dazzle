@@ -895,9 +895,10 @@ impl<'a, 'w> Walker<'a, 'w> {
                     self.expr(s);
                 }
             }
-            ExprKind::Ref { expr, .. } | ExprKind::Deref(expr) | ExprKind::Move(expr) => {
-                self.expr(expr)
-            }
+            ExprKind::Ref { expr, .. }
+            | ExprKind::Deref(expr)
+            | ExprKind::Move(expr)
+            | ExprKind::Named { value: expr, .. } => self.expr(expr),
             ExprKind::Or { expr, clause } => {
                 self.expr(expr);
                 match clause.as_ref() {

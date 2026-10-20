@@ -2067,6 +2067,8 @@ pub fn signature_help(a: &Analysis, file: FileId, offset: u32) -> Option<Signatu
     let mut depth = 0usize;
     let mut commas = 0;
     let mut open = None;
+    // Where the argument the cursor is in begins: after the nearest comma, or the `(`.
+    let mut arg_start = None;
     for (j, t) in tokens.iter().enumerate().rev() {
         if t.span.end > offset || t.kind == TokenKind::Eof {
             continue;
@@ -2075,6 +2077,7 @@ pub fn signature_help(a: &Analysis, file: FileId, offset: u32) -> Option<Signatu
             TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => depth += 1,
             TokenKind::LParen if depth == 0 => {
                 open = Some(j);
+                arg_start.get_or_insert(j + 1);
                 break;
             }
             TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
@@ -2084,10 +2087,20 @@ pub fn signature_help(a: &Analysis, file: FileId, offset: u32) -> Option<Signatu
                 }
                 depth -= 1;
             }
-            TokenKind::Comma if depth == 0 => commas += 1,
+            TokenKind::Comma if depth == 0 => {
+                commas += 1;
+                arg_start.get_or_insert(j + 1);
+            }
             _ => {}
         }
     }
+    // `name = …`: an argument passed by name, which is that parameter wherever it is.
+    let named = arg_start.and_then(|i| match (tokens.get(i), tokens.get(i + 1)) {
+        (Some(n), Some(eq)) if n.kind == TokenKind::Ident && eq.kind == TokenKind::Eq => {
+            Some(text[n.span.start as usize..n.span.end as usize].to_owned())
+        }
+        _ => None,
+    });
 
     // The callee is the name before `(`, stepping back over `<...>` type arguments.
     let mut k = open?.checked_sub(1)?;
@@ -2134,9 +2147,17 @@ pub fn signature_help(a: &Analysis, file: FileId, offset: u32) -> Option<Signatu
     }
     let docs = doxygen(&decl.docs);
     let params = param_ranges(&decl.header);
-    // Every argument past the fixed ones belongs to a variadic last parameter (spec §7.2).
-    let variadic = params.last().is_some_and(|&(s, e)| decl.header[s..e].contains(": .."));
-    let active = if variadic { commas.min(params.len() - 1) } else { commas };
+    // Every positional argument past the fixed ones belongs to the variadic parameter, and
+    // the parameters after it are reached by name (spec §7.2).
+    let name_of =
+        |&(s, e): &(usize, usize)| decl.header[s..e].split(':').next().unwrap_or("").trim();
+    let variadic = params.iter().position(|&(s, e)| decl.header[s..e].contains(": .."));
+    let by_name = named.and_then(|n| params.iter().position(|p| name_of(p) == n));
+    let active = match (by_name, variadic) {
+        (Some(i), _) => i,
+        (None, Some(v)) => commas.min(v),
+        (None, None) => commas,
+    };
     Some(Signature { params, label: decl.header, active, docs })
 }
 
