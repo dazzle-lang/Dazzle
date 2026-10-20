@@ -43,7 +43,9 @@ Rust release cannot turn the build red on its own.
 - **`docs/PROGRESS.md`** — the build log: what each milestone built and decided, the
   **deferral register** (everything knowingly postponed, and to which milestone), and the
   plan for the next milestone. Read it before starting work; update it when you finish a
-  milestone.
+  milestone. **When asked what there is to work on**, answer from it in two parts: the
+  compiler and milestone work (§1 "Next", §4c, the §3 deferral register), and the tooling
+  that would make Dazzle easy for an LLM to work in (§4d) — say both.
 - **`CLAUDE.md`** (this file) — how to work in this repo.
 
 ## The spec is the contract
