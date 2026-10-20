@@ -1,0 +1,13 @@
+// expect: DZ0605
+//
+// A macro that always invokes itself never finishes; expansion stops at depth 64 with one
+// error rather than overflowing (spec §12.5).
+
+macro forever -> expr {
+    pattern { ( $e: expr ) }
+    expand { #forever($e + 1) }
+}
+
+fn main() {
+    println("{}", #forever(0))
+}

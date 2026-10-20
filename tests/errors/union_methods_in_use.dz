@@ -1,0 +1,34 @@
+// expect: (none)
+//
+// A union's methods (spec §7.5, 18.78): `self` is the union, a method without `self` is
+// called through the union's name, and one may replace the whole union.
+
+union Light {
+    Off {}
+    On { level: i32 }
+
+    pub fn initial() -> Light {
+        return .Off{}
+    }
+
+    pub fn level(&self) -> i32 {
+        return switch self {
+            case Off { 0 }
+            case On(o) { o.level }
+        }
+    }
+
+    pub fn toggle(&mut self) {
+        let next: Light = switch self {
+            case Off { .On{ level: 3 } }
+            case On { .Off{} }
+        }
+        self = next
+    }
+}
+
+fn main() {
+    let mut l = Light::initial()
+    l.toggle()
+    println("{}", l.level())
+}

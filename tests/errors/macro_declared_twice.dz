@@ -1,0 +1,15 @@
+// expect: DZ0609
+//
+// Two macros of one name in one module.
+
+macro twice -> expr {
+    pattern { ( $e: expr ) }
+    expand { $e * 2 }
+}
+
+macro twice -> expr {
+    pattern { ( $e: expr ) }
+    expand { $e + $e }
+}
+
+fn main() {}

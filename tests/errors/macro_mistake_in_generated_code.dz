@@ -1,0 +1,13 @@
+// expect: DZ0301
+//
+// A mistake in code the macro wrote is reported at the invocation's name, with a note
+// naming the macro (spec §12.6): the user did not write `halve`, and cannot fix it there.
+
+macro quarter -> expr {
+    pattern { ( $e: expr ) }
+    expand { halve(halve($e)) }
+}
+
+fn main() {
+    println("{}", #quarter(8))
+}

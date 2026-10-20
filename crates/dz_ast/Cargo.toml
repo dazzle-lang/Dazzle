@@ -8,3 +8,4 @@ description = "Untyped syntax tree for the Dazzle language"
 
 [dependencies]
 dz_span.workspace = true
+dz_lex.workspace = true

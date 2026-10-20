@@ -1,0 +1,38 @@
+---
+source: crates/dz_macro/tests/expand.rs
+expression: out
+---
+// An invocation in an expansion expands in turn (spec §12.5), and an expression capture
+// followed by `.name` keeps Dazzle's own `.` (spec §12.3).
+
+macro max -> expr {
+    pattern { ( $a: expr , $b: expr ) }
+    expand { if $a > $b { $a } else { $b } }
+}
+
+macro max3 -> expr {
+    pattern { ( $a: expr , $b: expr , $c: expr ) }
+    expand { #max(#max($a, $b), $c) }
+}
+
+macro count -> expr {
+    pattern { [ $xs: expr ] }
+    expand { $xs.len as i32 }
+}
+
+fn main() {
+    let xs = [5, 6]
+    println("{} {}", if if 1 > 7 {
+        1
+    } else {
+        7
+    } > 3 {
+        if 1 > 7 {
+            1
+        } else {
+            7
+        }
+    } else {
+        3
+    }, xs.len as i32)
+}

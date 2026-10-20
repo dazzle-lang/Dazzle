@@ -1,0 +1,87 @@
+// A union may declare methods (spec §7.5, 18.78): `self` is the union, its payload is
+// reached with `switch self`, and a method without `self` is the type's own function. In
+// C++ a union's members are named after its variants, so inside its methods a variant's
+// struct must be named in full — which a method taking or building one exercises.
+
+struct Idle {}
+
+struct Walking {
+    pub speed: f32 = 1
+}
+
+union Gait {
+    Idle
+    Walking
+    Running { speed: f32 }
+
+    pub fn initial() -> Gait {
+        return .Walking{ speed: 2 }
+    }
+
+    pub fn name(&self) -> str {
+        return switch self {
+            case Idle { "idle" }
+            case Walking { "walking" }
+            case Running { "running" }
+        }
+    }
+
+    pub fn speed(&self) -> f32 {
+        return switch self {
+            case Idle { 0 }
+            case Walking(w) { w.speed }
+            case Running(r) { r.speed }
+        }
+    }
+
+    // Takes a variant's struct by name: the parameter's type is `Walking`, not the
+    // union's member of that name.
+    pub fn is_like(&self, w: &Walking) -> bool {
+        return self.speed() == w.speed
+    }
+
+    // Replaces the whole union, through `self`.
+    pub fn faster(&mut self) {
+        let next: Gait = switch self {
+            case Idle { .Walking{} }
+            case Walking(w) { .Running{ speed: w.speed * 2 } }
+            case Running(r) { .Running{ speed: r.speed + 1 } }
+        }
+        self = next
+    }
+
+    pub fn stop(&mut self) {
+        self = .Idle{}
+    }
+}
+
+// A generic union's methods are instantiated with it (spec §8.4).
+union Slot<T: Copy> {
+    Empty {}
+    Full { value: T }
+
+    pub fn or_else(&self, fallback: T) -> T {
+        return switch self {
+            case Empty { fallback }
+            case Full(&f) { f.value }
+        }
+    }
+}
+
+fn main() {
+    let mut g = Gait::initial()
+    println("{} {}", g.name(), g.speed())
+    println("{}", g.is_like(&Walking{ speed: 2 }))
+    g.faster()
+    println("{} {}", g.name(), g.speed())
+    g.faster()
+    println("{} {}", g.name(), g.speed())
+    g.stop()
+    println("{} {}", g.name(), g.speed())
+    g.faster()
+    println("{} {}", g.name(), g.speed())
+
+    let a: Slot<i32> = .Empty{}
+    let b: Slot<i32> = .Full{ value: 7 }
+    println("{} {}", a.or_else(3), b.or_else(3))
+}

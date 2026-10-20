@@ -839,6 +839,8 @@ fn describe_item(item: &Item) -> Option<(&Ident, SymbolKind, Vec<MemberSymbol>)>
                     vis: Vis::Public,
                     span: v.name.span,
                 })
+                // A union's methods are named through it too, `State::initial()` (§7.5).
+                .chain(struct_members(&u.methods))
                 .collect(),
         ),
         ItemKind::Enum(e) => (
@@ -855,7 +857,7 @@ fn describe_item(item: &Item) -> Option<(&Ident, SymbolKind, Vec<MemberSymbol>)>
                 .collect(),
         ),
         // An `impl` declares nothing nameable: it attaches a trait to a type (spec §7.6).
-        ItemKind::Impl(_) | ItemKind::MacroInvocation { .. } | ItemKind::Error => return None,
+        ItemKind::Impl(_) | ItemKind::MacroInvocation(_) | ItemKind::Error => return None,
     })
 }
 

@@ -73,6 +73,11 @@ pub const SPECIAL_MEMBER_IS_A_TRAIT: &str = "DZ0213";
 /// `mut fn`, removed in r15: the receiver alone says whether a method mutates, so
 /// `fn f(&mut self)` is the one spelling (spec §7.3, §18.34).
 pub const MUT_FN_REMOVED: &str = "DZ0214";
+/// `name!(…)`, removed in r63: a macro is invoked `#name(…)` in every position (spec
+/// §12.5, §18.9).
+pub const BANG_MACRO_REMOVED: &str = "DZ0215";
+/// Something in a union's body that is neither a variant nor a method (spec §7.5).
+pub const BAD_UNION_MEMBER: &str = "DZ0216";
 
 // --- DZ00xx: projects and manifests --------------------------------------------
 
@@ -315,6 +320,31 @@ pub const GENERIC_METHOD_NOT_ALLOWED: &str = "DZ0557";
 /// positional argument follows it, or the call is not to a function at all (spec §7.2).
 /// Also a parameter after a variadic one that a call leaves out with no default.
 pub const BAD_NAMED_ARG: &str = "DZ0558";
+/// A union method named `kind`, which every union already has (spec §7.5).
+pub const RESERVED_UNION_METHOD: &str = "DZ0559";
+
+// --- DZ06xx: macros (spec §12) -------------------------------------------------
+
+/// `#name` names no macro in scope (spec §12.5).
+pub const UNKNOWN_MACRO: &str = "DZ0601";
+/// An invocation that does not fit the macro's pattern (spec §12.3, §12.6).
+pub const MACRO_NO_MATCH: &str = "DZ0602";
+/// A macro invoked where its kind cannot go: a `decl` macro in an expression, say
+/// (spec §12.5).
+pub const MACRO_WRONG_POSITION: &str = "DZ0603";
+/// `#error(…)` in a macro's `expand` (spec §12.6).
+pub const MACRO_ERROR: &str = "DZ0604";
+/// Expansions invoking macros more than 64 deep (spec §12.5).
+pub const MACRO_TOO_DEEP: &str = "DZ0605";
+/// A malformed macro declaration: an unknown kind, an unknown `syntax` rule, a `$x` that
+/// nothing captured, a `#for` over what is not a repetition (spec §12.1–§12.3).
+pub const BAD_MACRO: &str = "DZ0606";
+/// A macro named like an intrinsic, or `error` (spec §12.8).
+pub const RESERVED_MACRO_NAME: &str = "DZ0607";
+/// An expansion that declares a macro (spec §12.5).
+pub const MACRO_IN_EXPANSION: &str = "DZ0608";
+/// Two macros of one name in one module.
+pub const DUPLICATE_MACRO: &str = "DZ0609";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

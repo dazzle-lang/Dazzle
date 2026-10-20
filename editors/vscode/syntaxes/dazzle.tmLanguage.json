@@ -179,9 +179,19 @@
           }
         },
         {
-          "comment": "An intrinsic or macro invocation: #location, #machine (spec §12).",
+          "comment": "Build-flag conditionals (spec §12.10), and inside a macro's `expand` its `#for`, `#if` and `#error` (spec §12.3, §12.6).",
+          "name": "keyword.control.directive.dazzle",
+          "match": "#(?:if|else|for|error)\\b"
+        },
+        {
+          "comment": "A macro's parts (spec §12.1), each at the start of its line.",
+          "match": "^\\s*(syntax|pattern|expand)\\b",
+          "captures": { "1": { "name": "storage.type.macro.dazzle" } }
+        },
+        {
+          "comment": "An intrinsic or macro invocation: #location, #machine, #engine::machine (spec §12.5).",
           "name": "entity.name.function.macro.dazzle",
-          "match": "#[A-Za-z_][A-Za-z0-9_]*"
+          "match": "#[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*"
         },
         { "name": "variable.other.macro.dazzle", "match": "\\$[A-Za-z_][A-Za-z0-9_]*" }
       ]

@@ -194,6 +194,8 @@ fn every_rule_has_a_failing_case() {
         STATIC_INITIALISER,
         // r55 — generic methods (spec §8.1).
         GENERIC_METHOD_NOT_ALLOWED,
+        // r63 — a union's methods (spec §7.5, 18.78).
+        RESERVED_UNION_METHOD,
         // r62 — arguments passed by name (spec §7.2).
         BAD_NAMED_ARG,
     ] {

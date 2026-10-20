@@ -11,6 +11,7 @@ dz_span.workspace = true
 dz_diag.workspace = true
 dz_lex.workspace = true
 dz_parse.workspace = true
+dz_macro.workspace = true
 dz_project.workspace = true
 dz_resolve.workspace = true
 dz_hir.workspace = true

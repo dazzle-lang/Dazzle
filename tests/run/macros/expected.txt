@@ -1,0 +1,13 @@
+9 4
+4
+2 1
+trace start at line 111
+failed: a > b in macros
+[info] 3 and 9
+[warn] nothing to say
+3.5
+1
+2
+0.5
+3
+1

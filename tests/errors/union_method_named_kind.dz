@@ -1,0 +1,14 @@
+// expect: DZ0559
+//
+// Every union already has `kind()` (spec §7.5), so a method may not take the name.
+
+union Shape {
+    Circle { r: f32 }
+    Point {}
+
+    pub fn kind(&self) -> i32 {
+        return 0
+    }
+}
+
+fn main() {}

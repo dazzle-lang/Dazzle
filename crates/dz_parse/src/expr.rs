@@ -276,7 +276,7 @@ impl<'a> Parser<'a> {
                     let name = if self.at(TokenKind::Int) {
                         // Tuple access: `t.0`
                         let t = self.bump();
-                        Ident::new(t.span, self.token_text(t))
+                        Ident::new(t.span, self.prev_text())
                     } else {
                         self.parse_ident_or_error()
                     };
@@ -403,24 +403,24 @@ impl<'a> Parser<'a> {
         let start = self.start();
         let kind = match self.peek() {
             TokenKind::Int => {
-                let t = self.bump();
-                ExprKind::Int(self.token_text(t).to_owned())
+                self.bump();
+                ExprKind::Int(self.prev_text().to_owned())
             }
             TokenKind::Float => {
-                let t = self.bump();
-                ExprKind::Float(self.token_text(t).to_owned())
+                self.bump();
+                ExprKind::Float(self.prev_text().to_owned())
             }
             TokenKind::Str => {
-                let t = self.bump();
-                ExprKind::Str(self.token_text(t).to_owned())
+                self.bump();
+                ExprKind::Str(self.prev_text().to_owned())
             }
             TokenKind::RawStr => {
-                let t = self.bump();
-                ExprKind::RawStr(self.token_text(t).to_owned())
+                self.bump();
+                ExprKind::RawStr(self.prev_text().to_owned())
             }
             TokenKind::Char => {
-                let t = self.bump();
-                ExprKind::Char(self.token_text(t).to_owned())
+                self.bump();
+                ExprKind::Char(self.prev_text().to_owned())
             }
             TokenKind::True => {
                 self.bump();
@@ -458,7 +458,20 @@ impl<'a> Parser<'a> {
                 };
                 ExprKind::DotInfer { name, init }
             }
-            // `#location`, `#file` (spec §12.7)
+            // `#max(a, b)` — an invocation in expression position (spec §12.5).
+            TokenKind::Hash if self.at_macro_call() => {
+                return Expr {
+                    span: self.span_from(start),
+                    kind: ExprKind::MacroCall(self.parse_macro_call(true)),
+                };
+            }
+            // `#location`, `#file` (spec §12.7). `module` is a keyword, so `#module` is
+            // the one intrinsic whose name is not an identifier token.
+            TokenKind::Hash if self.peek_at(1) == TokenKind::Module => {
+                self.bump();
+                let name = Ident::new(self.bump().span, "module");
+                ExprKind::Intrinsic { name, args: Vec::new() }
+            }
             TokenKind::Hash if self.peek_at(1) == TokenKind::Ident => {
                 self.bump();
                 let name = self.parse_ident_or_error();
@@ -501,17 +514,62 @@ impl<'a> Parser<'a> {
                 ExprKind::Tuple(elems)
             }
             TokenKind::SelfValue | TokenKind::SelfType | TokenKind::Ident => {
-                // `name!(...)` — an expression macro (spec §12.5), raw until M10.
+                // `name!(…)`, the spelling r63 removed: report it, and read it as the
+                // `#name(…)` it now is so the tree stays whole (spec §12.5, 18.9).
                 if self.at(TokenKind::Ident)
                     && self.peek_at(1) == TokenKind::Bang
                     && self.peek_at(2) == TokenKind::LParen
                 {
                     let name = self.parse_ident_or_error();
-                    self.bump(); // `!`
-                    let body = self.consume_paren_group();
+                    let bang = self.bump().span;
+                    self.error_help(
+                        codes::BANG_MACRO_REMOVED,
+                        name.span.to(bang),
+                        format!("`{}!(…)` is not how a macro is invoked", name.name),
+                        "invoked with `!`",
+                        format!(
+                            "write `#{}(…)`: every macro is invoked with `#` (spec §12.5)",
+                            name.name
+                        ),
+                    );
+                    let mut tokens = Vec::new();
+                    let mut depth = 0i32;
+                    loop {
+                        let k = self.peek();
+                        if k == TokenKind::Eof {
+                            break;
+                        }
+                        match k {
+                            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                                depth += 1
+                            }
+                            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                                depth -= 1
+                            }
+                            _ => {}
+                        }
+                        tokens.push(self.macro_token());
+                        self.bump();
+                        if depth <= 0 {
+                            break;
+                        }
+                    }
+                    let path = Path {
+                        span: name.span,
+                        segments: vec![PathSegment {
+                            span: name.span,
+                            name: name.clone(),
+                            generics: Vec::new(),
+                        }],
+                    };
                     return Expr {
                         span: self.span_from(start),
-                        kind: ExprKind::MacroCall { name, body },
+                        kind: ExprKind::MacroCall(MacroCall {
+                            span: self.span_from(start),
+                            name_span: name.span,
+                            path,
+                            tokens,
+                        }),
                     };
                 }
 
@@ -667,7 +725,7 @@ impl<'a> Parser<'a> {
                 if self.stalled() {
                     continue;
                 }
-                if self.at(TokenKind::Ident) && self.token_text(self.peek_token()) == "default" {
+                if self.at(TokenKind::Ident) && self.cur_text() == "default" {
                     self.bump();
                     default = Some(self.parse_block());
                     continue;

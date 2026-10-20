@@ -1,0 +1,40 @@
+---
+source: crates/dz_parse/tests/parse.rs
+expression: "parse_report(&name, &source)"
+input_file: tests/parse/macros.dz
+---
+=== AST ===
+pub macro machine -> decl
+  syntax Field { $name: ident : $type: type $( = $default: expr )? }
+  syntax State { state $name: ident $( ( $fields: [,]Field ) )? { $body: code } }
+  pattern { $name: ident ( $ctx: type ) { $states: []State } }
+  expand { #if !$states { #error($name, "a state machine needs at least one state") ⏎ } ⏎ #for s in $states { struct $s.name { #for f in $s.fields { $f.name : $f.type #if $f.default { = $f.default } ⏎ } ⏎ } ⏎ } ⏎ union $name { #for s in $states { $s.name ⏎ } ⏎ } ⏎ # if DEBUG { fn debug_only ( ) { } ⏎ } ⏎ }
+macro max -> expr
+  pattern { ( $a: expr , $b: expr ) }
+  expand { if $a > $b { $a } else { $b } }
+macro trace -> stmt
+  pattern { $what: literal $( at $level: literal )? }
+  expand { println ( "{}" , $what ) }
+macro-call #machine Door ( DoorCtx ) { state Closed ⏎ state Opening ( t : f32 = 0 ) { t += 1 ⏎ } ⏎ }
+macro-call #engine::machine Gate ( GateCtx ) { state Shut ⏎ }
+union Light
+  variant Off
+  variant On
+    field level: i32
+  pub fn level(&self) -> i32
+    block
+      return
+        int 0
+fn uses()
+  block
+    let m
+      macro-call #max ( 1 , 2 )
+    let n
+      macro-call #engine::max [ 3 , 4 ]
+    macro-call #trace "here"
+    macro-call #trace "there" at 2
+    let at
+      intrinsic #location
+
+=== DIAGNOSTICS ===
+(none)
