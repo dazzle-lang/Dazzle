@@ -1524,7 +1524,7 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M10** | **`println`/`print`/`eprint`/`eprintln`/`panic` are still builtins** that take only the built-in kinds: a value with its own `Format`, or a `String`, is printed through `String::format` or `as_str()`. They become library functions with macros, which is also when `{}` can lower to direct `Format::format` calls with no intermediate `String` (18.73) | `dz_cpp/src/runtime.rs`, `dz_check/src/check.rs`, `check_format` |
 | **M12** | **A pointer has no `Format`**: `println` writes one, `String::format` cannot take one, since a generic `impl<T> Format for ^T` has no vtable (the trait-object row above). Cast it: `p as usize` with `{:x}` | `dz_project/src/std/core/format.dz` |
 | **M12** | **A default argument that calls a function declared later in the module does not compile**: C++ reads a default where the function is declared, and functions are declared in source order. Found by `tests/run/formatting`. Free functions could be declared twice — without defaults first, then with them, which C++ allows; a method's defaults cannot be added later | `dz_cpp/src/lib.rs`, `decl_params` |
-| **M12** | **A spread into a `#[format]` call needs the caller's own format string**: `String::format("{}", ..xs)` is refused, since how many arguments the slice holds is not known when the string is checked. Only a `#[format]` function forwarding its own `fmt` and `..args` may spread | `dz_check/src/check.rs`, `check_format_call` |
+| **M10** | **A formatting function of one's own** — a `log(fmt, args…)` — cannot have its format string checked, so `String::format(fmt, ..args)` from one is refused: only a literal is checked, and how many arguments a spread holds is not known. The user's call (2026-10-20): such functions are macros, as in Rust, not an attribute; `#[format]` was built and removed | `dz_check/src/check.rs`, `check_format_call` |
 
 ### Not deferred — deliberately out of scope forever
 
@@ -1887,13 +1887,13 @@ Allocators::Temp)`, and a real `Format` trait rather than a compiler-lowered cal
   was given, carries the placeholder's `hex`/`upper`/`precision`, and parses a format string
   at run time in `write_format`. `String::format` makes the `String` from the allocator,
   wraps it in a `Formatter` and returns it.
-- **`#[format]`** marks the `str` parameter directly before an `args: ..&Format` one
-  (`FnSig::format`; DZ0315 when there is none). Each call's string is checked by the same
-  code as `println`'s — `check_format` was split into `format_holes` and
-  `check_format_values` — against the element types of the variadic array. A literal is
-  required unless a `#[format]` function passes on its own `fmt` with `..args`
-  (`Body::format_params`). On the built-in kinds a spec must suit the value; on a type with
-  its own `Format` the implementation reads it.
+- **`String::format`'s string is checked at compile time** (`FnSig::format`, set only on
+  `std`'s `String::format` by `std_format_string`), by the same code as `println`'s —
+  `check_format` was split into `format_holes` and `check_format_values` — against the
+  element types of the variadic array. On the built-in kinds a spec must suit the value; on
+  a type with its own `Format` the implementation reads it. A `#[format]` attribute that let
+  any function take a checked format string was built first and **removed at the user's
+  request**: functions of one's own that format are to be macros, as in Rust (M10).
 - **The global `format` is gone**: out of `BUILTIN_FNS`, the checker and codegen. The shim's
   `::dz::format` stays, for `error(…)`. Eleven call sites in `tests/run` moved to
   `String::format`.
@@ -1914,9 +1914,9 @@ Allocators::Temp)`, and a real `Format` trait rather than a compiler-lowered cal
   - A value that does not implement a variadic `..&Trait` was "expected `&Format`, found
     `&Plain`"; it is now "`Plain` does not implement `Format`" (DZ0527 for `Format`).
 - Tests: `tests/run/formatting` (every kind against `println`, integer extremes, specs,
-  braces, a type's own `Format` reading `{:x}`, `allocator =`, a `#[format]` wrapper, named
+  braces, a type's own `Format` reading `{:x}`, `allocator =`, named
   arguments with a skipped default and `#location`; warning-clean on both compilers);
-  `typed/` and `typeerrors/`; six `tests/errors` programs; the parse and fmt corpora.
+  `typed/` and `typeerrors/`; five `tests/errors` programs; the parse and fmt corpora.
 
 ### CI on 2026-09-15: a dangling view, and an ill-posed test
 
@@ -2206,8 +2206,8 @@ through raylib or C today; a stdlib should not require it.
   `String` or a stream, and a way to mark a parameter as a format string the compiler
   checks against its variadic arguments (18.56 made the arguments possible).
 - [x] **`format` into a `String`** — r62: `String::format("…", args, allocator = …)`, with
-  `Format` implemented for the built-in types and by a type of one's own, and `#[format]`
-  for functions of one's own. `error` keeps static storage by the user's decision (§4).
+  `Format` implemented for the built-in types and by a type of one's own. Functions of
+  one's own that format wait for macros (M10). `error` keeps static storage by the user's decision (§4).
 - [ ] **Format specifiers**: width and padding (`{:8}`, `{:08x}`). Hex and precision have
   been there since §12.9 was written, and a type's own `Format` reads them since r62.
 - [x] **`String` operations** — r60, the `Text` trait, on `str` and `String`.

@@ -890,9 +890,6 @@ struct Body<'a, 'c> {
     /// `continue` and the labels they name (spec §10.2).
     loops: Vec<LoopFrame>,
     next_loop: u32,
-    /// In a `#[format]` function, its format-string parameter and its variadic one, by
-    /// name: passed on together, they need no checking here (spec §12.9).
-    format_params: Option<(String, String)>,
     hir: BodyBuilder,
 }
 
@@ -934,7 +931,6 @@ impl<'a, 'c> Body<'a, 'c> {
             self_local_ty: None,
             loops: Vec::new(),
             next_loop: 0,
-            format_params: None,
             hir,
         }
     }
@@ -1293,9 +1289,6 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                 }
             }
-        }
-        if let (Some(fmt), Some(v)) = (sig.format, sig.variadic) {
-            self.format_params = Some((sig.params[fmt].name.clone(), sig.params[v].name.clone()));
         }
         for (p, ps) in f.params.iter().zip(&sig.params) {
             let ty = self.subst(&ps.ty);
@@ -5593,12 +5586,9 @@ impl<'a, 'c> Body<'a, 'c> {
         self.check_format_values(&holes, &values, fmt.span, true);
     }
 
-    /// A call of a `#[format]` function (spec §12.9): its format string checked against the
+    /// A call of `String::format` (spec §12.9): its format string checked against the
     /// variadic arguments after it, as a builtin's is. Each of those has already been
-    /// checked to implement `Format`; what is left is the count and each `{:spec}`. Inside
-    /// another `#[format]` function, its own format string may be passed on with its own
-    /// arguments spread after it — `String::format(fmt, ..args)` — since the call that
-    /// reached it was checked.
+    /// checked to implement `Format`; what is left is the count and each `{:spec}`.
     fn check_format_call(
         &mut self,
         sig: &FnSig,
@@ -5609,11 +5599,7 @@ impl<'a, 'c> Body<'a, 'c> {
         let Some(fmt) = args.get(fmt_at) else { return };
         let rest = &args[fmt_at + 1..];
         let Some(raw) = format_literal(fmt) else {
-            let forwarded = self.own_format_param(fmt)
-                && matches!(rest, [only] if spread(only).is_some_and(|s| self.own_variadic_param(s)));
-            if !forwarded {
-                self.not_a_format_literal(fmt);
-            }
+            self.not_a_format_literal(fmt);
             return;
         };
         let Some(holes) = self.format_holes(fmt, raw) else { return };
@@ -5636,28 +5622,6 @@ impl<'a, 'c> Body<'a, 'c> {
         let values: Vec<(Span, Ty)> =
             elems.iter().zip(rest).map(|(e, a)| (a.span, self.hir.ty(*e).clone())).collect();
         self.check_format_values(&holes, &values, fmt.span, false);
-    }
-
-    /// Whether `e` names the format-string parameter of the `#[format]` function being
-    /// checked.
-    fn own_format_param(&self, e: &Expr) -> bool {
-        self.format_params.as_ref().is_some_and(|(fmt, _)| self.names_param(e, fmt))
-    }
-
-    /// Whether `e` names the variadic parameter of the `#[format]` function being checked.
-    fn own_variadic_param(&self, e: &Expr) -> bool {
-        self.format_params.as_ref().is_some_and(|(_, args)| self.names_param(e, args))
-    }
-
-    /// Whether `e` is a bare name that is a parameter of the function being checked, and
-    /// not a local of the same name declared since.
-    fn names_param(&self, e: &Expr, name: &str) -> bool {
-        let ExprKind::Path(p) = &e.kind else { return false };
-        if p.segments.len() != 1 || p.segments[0].name.name != name {
-            return false;
-        }
-        matches!(self.local(name), Some(Local { slot: Slot::Local(id), .. })
-            if self.hir.local_kind(*id) == LocalKind::Param)
     }
 
     fn not_a_format_literal(&mut self, fmt: &Expr) {
@@ -5738,7 +5702,7 @@ impl<'a, 'c> Body<'a, 'c> {
 
     /// Each placeholder against the argument it takes, then the count. `builtin` says the
     /// call is `println` and friends, whose arguments are formattable only if they are one
-    /// of the built-in kinds; a `#[format]` call's are held to `Format` by its signature.
+    /// of the built-in kinds; `String::format`'s are held to `Format` by its signature.
     fn check_format_values(
         &mut self,
         holes: &[(Span, Option<String>)],

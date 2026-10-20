@@ -1310,8 +1310,8 @@ fn named_calls(xs: []i32) -> i32 {
     return a + b + c + weighted(..xs, offset = 2, scale = 3, label = "d")
 }
 
-// §12.9: `Format` implemented by a type of its own, `String::format` with and without
-// another allocator, and a `#[format]` function passing its string and arguments on.
+// §12.9: `Format` implemented by a type of its own, and `String::format` with and
+// without another allocator.
 impl Format for Heading {
     fn format(&self, f: &mut Formatter) {
         self.degrees.format(f)
@@ -1319,16 +1319,10 @@ impl Format for Heading {
     }
 }
 
-#[format]
-fn headline(fmt: str, args: ..&Format, prefix: str = "") -> String {
-    let body = String::format(fmt, ..args)
-    return String::format("{}{}", prefix, body)
-}
-
 fn formatted(h: Heading) -> usize {
     let a = String::format("{} at {:.1} {:x} {}", h, 1.5, 255, true)
     let b = String::format("{{}}", allocator = Allocators::Temp)
-    let c = headline("{} and {}", a, h, prefix = "> ")
+    let c = String::format("{} and {}", a, h)
     return a.len() + b.len() + c.len()
 }
 

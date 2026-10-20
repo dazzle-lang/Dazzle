@@ -13582,23 +13582,6 @@ body impl#130 method format -> void
     call-method Formatter::write_str: void
       local _1 f: &mut Formatter
       str " degrees": str
-body fn headline -> String
-  param _0 fmt: str
-  param _1 args: []&Format
-  param _2 prefix: str
-  block
-    let _3 body: String
-      call-assoc String::format: String
-        local _0 fmt: str
-        local _1 args: []&Format
-    return: !
-      call-assoc String::format: String
-        str "{}{}": str
-        array: [2]&Format
-          ref: &str
-            local _2 prefix: str
-          ref: &String
-            local _3 body: String
 body fn formatted -> usize
   param _0 h: Heading
   block
@@ -13620,14 +13603,13 @@ body fn formatted -> usize
         array: []&Format
         const Allocators::Temp: &mut TempArena
     let _3 c: String
-      call headline: String
+      call-assoc String::format: String
         str "{} and {}": str
         array: [2]&Format
           ref: &String
             local _1 a: String
           ref: &Heading
             local _0 h: Heading
-        str "> ": str
     return: !
       binary +: usize
         binary +: usize

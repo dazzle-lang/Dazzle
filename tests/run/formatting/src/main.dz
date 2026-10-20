@@ -1,5 +1,5 @@
-// `String::format`, `Format` implemented by a type of its own, `#[format]` on a wrapper,
-// and arguments passed by name after a variadic one (spec §7.2, §12.9).
+// `String::format`, `Format` implemented by a type of its own, and arguments passed by
+// name after a variadic one (spec §7.2, §12.9).
 
 struct Vec2 {
     pub x: f32
@@ -31,14 +31,6 @@ impl Format for Id {
             self.n.format(f)
         }
     }
-}
-
-/// A function of one's own whose format string is checked at each call, as `println`'s
-/// is; it hands the string and its arguments on to `String::format` unchanged.
-#[format]
-fn note(fmt: str, args: ..&Format, prefix: str = "note") -> String {
-    let body = String::format(fmt, ..args)
-    return String::format("{}: {}", prefix, body)
 }
 
 // Declared ahead of `total`, whose default calls it: C++ reads a default where the
@@ -88,10 +80,6 @@ fn main() {
     let t = String::format("temp {}", 1, allocator = Allocators::Temp)
     println("{}", t.as_str())
     Allocators::Temp.reset()
-
-    // A `#[format]` wrapper, with and without its own named parameter.
-    println("{}", note("{} + {} = {}", 1, 2, 3).as_str())
-    println("{}", note("done", prefix = "info").as_str())
 
     // Named arguments after a variadic one.
     println("{}", total("a", 1, 2, 3))

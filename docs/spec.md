@@ -2543,7 +2543,6 @@ declaration it does not apply to, with arguments it does not take, or written tw
 | `#[test]` | a function at module level | a test `dz test` runs (§19 M14) |
 | `#[bench]` | a function at module level | a benchmark `dz bench` times (§19 M15) |
 | `#[thread_local]` | a `static` | one variable per thread (§7.7) |
-| `#[format]` | a function, at module level or in a type, with `fmt: str, args: ..&Format` | `fmt` is a format string, checked at each call (§12.9) |
 
 Attributes this specification describes but the compiler does not implement yet —
 `#[inline]`, `#[align(n)]`, `#[packed]`, `#[deprecated(…)]`, `#[export]` (§15.5),
@@ -2554,9 +2553,8 @@ Attributes this specification describes but the compiler does not implement yet 
 ### 12.9 Format strings
 
 Formatting is not string interpolation and not varargs — it is a compile-time-checked
-call. `print`, `println`, `eprint`, `eprintln`, `panic`, `error`, `String::format` and any
-`#[format]` function take a **string literal** as their format string, and the compiler
-parses it during checking. `print` and `println` write to standard output; `eprint` and
+call. `print`, `println`, `eprint`, `eprintln`, `panic`, `error` and `String::format` take a
+**string literal** as their format string, and the compiler parses it during checking. `print` and `println` write to standard output; `eprint` and
 `eprintln` write the same way to standard error, for diagnostics that must not mix with a
 program's output:
 
@@ -2614,25 +2612,15 @@ placeholder asked for: `hex()` and `upper()` for `{:x}`/`{:X}`, `precision()` fo
 the built-in kinds a spec must suit the value, as in the table above; on a type with its own
 `Format` it is that implementation's to interpret.
 
-**`#[format]` makes a function of one's own checked the same way.** It goes on a function
-whose `str` parameter is followed directly by an `args: ..&Format` one; each call's format
-string must then be a literal that fits its arguments. Inside, the string and the arguments
-are passed on together — `String::format(fmt, ..args)` — which needs no literal, since the
-call that reached them was checked:
-
-```dz
-#[format]
-fn log(fmt: str, args: ..&Format, level: Level = Level::Info) {
-    let line = String::format(fmt, ..args)
-    …
-}
-
-log("loaded {} in {:.2}s", path, secs, level = Level::Debug)
-```
+**A function of one's own that takes a format string waits for macros** (§19 M10), as
+`println` does: a format string is checked only where the compiler knows the call is
+formatting, and `String::format` is the one library function it knows. A wrapper such as a
+`log` with levels is written as a macro once there are macros; until then, it takes the
+`String` its caller built.
 
 `print`, `println`, `eprint`, `eprintln` and `panic` are still the compiler's own, and still
 take only the built-in kinds: a value with its own `Format` is printed through
-`String::format`. They become library functions with macros (§19 M10), which is also when
+`String::format`. They become macros (§19 M10) — expanded at the call, which is also when
 `{}` lowers to a direct sequence of `Format::format` calls with no intermediate string.
 `[DECIDED — §18.73]`
 
@@ -3864,7 +3852,7 @@ be exactly what reload needs, and must stay that way:
 | 18.64 | `Rc<Derived>` where an `Rc<Base>` is wanted | **Converts implicitly, as `&Derived` → `&Base` does (18.32)** and as C++'s `shared_ptr<Derived>` does: the same for `Weak` and `Box`. The count is shared, not copied. A handle to a trait object stays deferred, having no C++ counterpart to follow (§14.5) |
 | 18.65 | How `std` reaches the operating system | **`extern fn name(…) -> T` with no body, allowed only in `std`**, whose body is C++ the compiler ships beside the runtime shim — not in it, so §16.4's shim still does no I/O. Not generic and not fallible: an extern function is a plain call, and `std` builds the `Error`. A program's own way to C and C++ stays a `cpp` dependency. First written as a `#[native]` attribute (r54); a keyword was chosen instead because `extern` was already reserved and is what C, C++ and Rust readers expect for "the body is elsewhere" (§7.2, §15) |
 | 18.72 | Arguments passed by name | **`name = value`, for the parameters after a variadic one and for nothing else**, after the positional arguments, in any order; one with a default may be left out whatever else is given, one without must be passed. Chosen by the user for `String::format("…", x, allocator = Allocators::Temp)`: a variadic parameter takes every positional argument after the fixed ones, so an allocator or a `#location` after it was unreachable, and putting the allocator first would make every call name it. Naming is not extended to ordinary parameters, which keeps one way to pass each argument; it can be widened later without breaking a program. Revises 18.56's "last" |
-| 18.73 | Library formatting | **No global `format`: `String::format(fmt, args: ..&Format, allocator = …)` builds a `String`**, chosen by the user over a global function and over a macro, which waits for M10. **`Format` is a real trait**: `std` implements it for the numbers, `bool`, `char`, `str`, `cstr` and `String`, and a type of one's own implements it to be formatted; a `Formatter` appends to a `String` and reports the placeholder's spec, which a type's own implementation interprets. **`#[format]` marks a format-string parameter** — the `str` directly before an `args: ..&Format` — so any function's calls are checked as `println`'s are; forwarding the string and a spread of the arguments needs no literal. An attribute rather than a rule on the signature's shape, because `fn join(sep: str, parts: ..&Format)` has that shape and no format string. `println` and friends stay builtins, taking only the built-in kinds, until macros (M10); `error(…)` keeps its static storage (§9.2) |
+| 18.73 | Library formatting | **No global `format`: `String::format(fmt, args: ..&Format, allocator = …)` builds a `String`**, chosen by the user over a global function and over a macro, which waits for M10. **`Format` is a real trait**: `std` implements it for the numbers, `bool`, `char`, `str`, `cstr` and `String`, and a type of one's own implements it to be formatted; a `Formatter` appends to a `String` and reports the placeholder's spec, which a type's own implementation interprets. **No attribute marks a format string**: an `#[format]` was built and removed by the user, who wants formatting functions of one's own to be **macros, as in Rust** — `String::format` is the one function whose format string the compiler checks, until M10. `println` and friends stay builtins, taking only the built-in kinds, until macros (M10); `error(…)` keeps its static storage (§9.2) |
 | 18.71 | Text operations | **One `Text` trait, implemented for `str` and `String`**, whose operations are default methods over `text()`: both get every one, a literal included, with no `Deref` and no duplicate APIs. Pieces are `str` views; only `replace` and the case changes allocate. Parsing takes the whole text and returns an optional, refusing surrounding spaces rather than skipping them, since `trim()` says that explicitly. Case changes are ASCII only — Unicode case mapping needs tables `std` does not carry (§14.4) |
 | 18.70 | Sorting | **`List::sort` (by `Ord`, through a `Sort` trait implemented for `List<T: Ord>`) and `List::sort_by(fn(&T, &T) -> bool)`; a heapsort.** A trait rather than a method, because a method cannot require more of `T` than its type does. Heapsort over quicksort or merge sort: no allocation and no quadratic input, which a frame budget cares about more than the constant factor; stability is given up, and a stable sort can come later as its own name. `String` and `Path` gain byte-order `Ord`, so `Directory::list` can return a sorted, platform-independent order (§14.4) |
 | 18.69 | Characters in UTF-8 text | **Positions are bytes; characters are decoded by iteration.** `String` keeps UTF-8 as it always did, and gains `chars()` (and `for c in s`), `char_count`, `pop`, `is_char_boundary`, `slice` and `truncate`, every cut checked against a character boundary. Rejected: indexing by character, which is a linear walk disguised as `s[i]`, and UTF-32 storage, which quadruples memory for the text a game mostly holds. Invalid bytes decode as U+FFFD rather than panicking, since only unchecked code can make them (§14.4) |
@@ -4041,7 +4029,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
-| r62 | 2026-10-20 | **Arguments passed by name, and library formatting** (§7.2, §12.8, §12.9, §14.4, 18.72, 18.73). The parameters after a variadic one are passed by name, `name = value`, after the other arguments and in any order; nothing else is. So "variadic last" (18.56) becomes "at most one variadic". **The global `format` is gone**: `String::format("…", args, allocator = …)` returns a `String` — no more four shared 256-byte buffers, so a long or a fifth message is no longer cut or overwritten. `Format` is implemented for the numbers, `bool`, `char`, `str`, `cstr` and `String`, and a type of your own can implement it; `Formatter` appends text and reports the placeholder's spec. **`#[format]`** on a function whose `str` is followed by `args: ..&Format` checks its calls' format strings as `println`'s are. `println` and friends are unchanged. |
+| r62 | 2026-10-20 | **Arguments passed by name, and library formatting** (§7.2, §12.9, §14.4, 18.72, 18.73). The parameters after a variadic one are passed by name, `name = value`, after the other arguments and in any order; nothing else is. So "variadic last" (18.56) becomes "at most one variadic". **The global `format` is gone**: `String::format("…", args, allocator = …)` returns a `String` — no more four shared 256-byte buffers, so a long or a fifth message is no longer cut or overwritten. `Format` is implemented for the numbers, `bool`, `char`, `str`, `cstr` and `String`, and a type of your own can implement it; `Formatter` appends text and reports the placeholder's spec. A format string is checked at compile time in `String::format` as in `println`; a formatting function of one's own waits for macros (M10). `println` and friends are unchanged. |
 | r61 | 2026-09-15 | **`Process`** (§14.4): `Process::args()`, `Process::env(name)`, `Process::exit(code)`. |
 | r60 | 2026-09-15 | **Text operations** (§14.4, 18.71): the `Text` trait gives `str` and `String` `starts_with`, `ends_with`, `find`, `contains`, `trim`, `trim_start`, `trim_end`, `split`, `lines`, `replace`, `to_ascii_lowercase`, `to_ascii_uppercase`, `parse_i64`, `parse_u64`, `parse_f64`, `parse_f32`. |
 | r59 | 2026-09-15 | **r54's decisions, implemented.** Integer overflow **wraps** in every build — `i32::MAX + 1` and `250u8 + 10` included, where the generated C++ had been undefined or had not wrapped at all (§5.1, 18.63). `or unreachable` **assumes success** in release and shipping builds (§9.4, 18.20). **`Rc<Derived>`, `Weak<Derived>` and `Box<Derived>` convert** to their base's, sharing one count and dropping the whole value (§14.5, 18.64). **A generic function may be a value**: `xs.sort_by(greater<i32>)`, or inferred from the function type wanted (§8.1). **Sorting** (§14.4, 18.70): `List::sort`, `sort_by`, `swap`; `String` and `Path` are `Ord`. `Directory::list` is sorted; `Path::modified` and `Path::as_cstr`. Output to a Windows console is shown as UTF-8. |

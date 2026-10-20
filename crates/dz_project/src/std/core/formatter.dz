@@ -55,7 +55,7 @@ pub struct Formatter {
     }
 
     /// Writes `fmt`, replacing each `{}` or `{:spec}` with the next of `args` and each `{{`
-    /// or `}}` with one brace. A call through a `#[format]` function has had its string
+    /// or `}}` with one brace. `String::format` has had its string
     /// checked against its arguments already; here a placeholder with no argument left
     /// writes nothing, and an argument with no placeholder is not written.
     pub fn write_format(&mut self, fmt: str, args: []&Format) {

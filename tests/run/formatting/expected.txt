@@ -9,15 +9,13 @@ ff FF ffffffff 3.14 3
 []
 v = (1.5, -2), id id 42 or #ff
 temp 1
-note: 1 + 2 = 3
-info: done
 unit()
-a at line 97
+a at line 85
 6
-b at line 98
+b at line 86
 30
 unit()
-c at line 99
+c at line 87
 5
-d at line 100
+d at line 88
 13

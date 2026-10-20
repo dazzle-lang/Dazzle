@@ -951,11 +951,8 @@ fn bad_named_calls() -> usize {
     return a + b + c + d + e
 }
 
-// §12.9: `#[format]` needs `fmt: str, args: ..&Format`; a call's format string is a literal
-// that fits its arguments, each of which implements `Format`.
-#[format]
-fn misformat(args: ..&Format) {}
-
+// §12.9: `String::format`'s format string is a literal that fits its arguments, each of
+// which implements `Format`.
 struct Unwritten {
     pub n: i32
 }
