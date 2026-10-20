@@ -19,8 +19,9 @@ the milestone.
 | | |
 |---|---|
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
-| Next | **M12 — the stdlib**. Order set by the user on 2026-09-15: ~~stderr~~ and ~~Time~~ (r54), ~~generic methods~~ (r55), ~~Random~~ (r56), ~~`Path` and `File`~~ (r57), ~~library `format`~~ (r62). Then associated-type projection (§4c, Generics) |
-| Tests | 226 — plus the `tests/errors` corpus, one file per mistake, run as one test |
+| Next | **M12 — the stdlib**. Order set by the user on 2026-09-15: ~~stderr~~ and ~~Time~~ (r54), ~~generic methods~~ (r55), ~~Random~~ (r56), ~~`Path` and `File`~~ (r57). The §4c list and the criterion game decide what follows |
+| Also open | **§4d — tooling that lets an LLM work in Dazzle**: a standing backlog beside the milestones (habit diagnostics, JSON diagnostics and fixes, `dz api`, `dz explain`, a primer, …). Mention it whenever asked what there is to work on |
+| Tests | 193, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
 | Language spec | 0.1 **unreleased**, revision 62; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
@@ -2588,6 +2589,85 @@ before the work started. None is hard; all four are silent if missed:
 - `field_list` must walk bases before the type's own fields, which is also what makes the
   layout claim in step 1 true. The LSP's `methods_of` ties methods to a type by name
   (already a §3 row) and gets one more reason to carry the real target.
+
+---
+
+## 4d. To do: tooling that lets an LLM work in Dazzle (raised 2026-10-20)
+
+Raised by the user: what would make Dazzle much easier for an LLM to write whole projects
+in? This is a standing backlog **beside** the milestone order, not part of it. When asked
+what there is to work on, name the milestone work (§1 "Next", §4c, §3) **and** this list.
+
+The premise: no model has Dazzle in its training data. It will write Rust or C++ that looks
+like Dazzle, and it learns the difference only from what the compiler says back. So the
+gains, in order, are: put the language in its context, make every error teach its own fix,
+and let it check its own work with no human looking at a window.
+
+Already right, and worth keeping: one `or` clause instead of `?`/`try`/`catch`; no
+overloading (18.5), so one name is one symbol; definition-site generics, so an error lands
+in the generic function; no implicit numeric conversions; `#[test]` beside the code;
+a canonical formatter; stable diagnostic codes (invariant 4).
+
+Rows marked **design** change the language: they need the user's decision and a §21 row.
+Everything else is compiler work. Tick or delete a row when it lands.
+
+### Compiler and tooling — highest return first
+
+- [ ] **Diagnostics for habits from Rust and C++.** A model will keep writing
+  `Result<T, E>`, `Option<T>`, `x?`, `try`/`catch`, `use std::…`, `#include`, `nullptr`,
+  `auto`, `impl Foo { … }` without a trait, `Foo::new()`, `p->x`. The parser already
+  recovers from these; it should name the habit and give the Dazzle spelling ("this is
+  Rust's `?`; in Dazzle write `f() or return`", §9.5), with a fix where it is mechanical.
+  One diagnostic per position (invariant 6). Each one gets a `tests/errors` file.
+- [ ] **Machine-readable diagnostics, and fixes to go with them.** `dz_diag` already has
+  `Fix`/`Edit`, but at 2026-10-20 only 2 of the 143 codes used it; 118 diagnostics carry a
+  prose `help:` instead. Three parts: `dz check --format=json` (code, severity, spans,
+  message, help, fix edits as byte ranges); `dz fix` to apply the fixes; and turning the
+  mechanical helps into real fixes — insert `move()`, add the missing `switch` arms, add
+  `impl Drop`, the "did you mean" renames. Exact edits beat prose for a model.
+- [ ] **An API dump: `dz api <module>`.** Prints a module's public surface as compact
+  Dazzle signatures with their `///` docs — `dz api std`, and for an `import cpp` module,
+  `dz api rl`. Guessed stdlib names are where models invent the most, and for C/C++ the
+  model knows the C API but not its Dazzle shape (`^T` versus `&T`, handles, callbacks,
+  §15.2). Showing it `rl` *as Dazzle* closes that gap. Close to the `dz doc` of §17.3.
+- [ ] **`dz explain <code>`**, as `rustc --explain`: what the rule is, the spec section,
+  one wrong program and one corrected one. `tests/errors/` already holds one program per
+  mistake and can supply or check the examples, so the text cannot drift from the compiler.
+- [ ] **Editor queries from the command line.** `dz query hover <file>:<line>:<col>`,
+  `dz query definition …`, `dz query members <Type>`. `dz_lsp/src/ide.rs` already answers
+  these from an `Analysis` and an offset with no protocol, so the CLI is a thin wrapper —
+  and an agent without an LSP client can ask "what type is this, what can I call on it".
+- [ ] **A primer, and `dz new` to ship it.** `docs/primer.md`, about 300 lines, grown from
+  spec §0.1, plus a table of false friends for Rust and C++ programmers: `^` versus `&`;
+  `!->` is on the signature, never the type; `move()` resets its source (18.33); `&` cannot
+  be stored in a field; files have no imports (`dazzle.toml` names them, §3.2); `union` is
+  tagged; a constructor is named after its struct. Every snippet in it is compiled by a
+  test so it cannot go stale. `dz new <name>` (listed in §17.3, not built) scaffolds a
+  `dazzle.toml`, a `main.dz`, one `#[test]`, and drops the primer in as `AGENTS.md` /
+  `CLAUDE.md`.
+- [ ] **Checking a game without looking at it.** A model cannot see a raylib window.
+  `tests/run/breakout_sim` already plays the Breakout rules headless; make that the
+  documented pattern, and add `dz run --frames N` (exit cleanly after N frames) and state
+  snapshot tests built on the M11 reflection JSON writer, so "move the player left" can be
+  checked against a stored snapshot.
+- [ ] **Parseable test and bench output.** `dz test` / `dz bench` with `--format=json` (or
+  TAP), and exit codes that tell a compile error from a failing test.
+- [ ] **`dz expand`**, with M10 (§12.6, §17.3): the post-expansion source is how anyone,
+  a model included, debugs a macro.
+
+### Language — **design**, the user's call
+
+- [ ] **design: doc tests.** Code blocks in `///` comments compiled and run as `#[test]`,
+  so every API carries a working example — which is what a model copies from.
+- [ ] **design: named arguments at the call site**, e.g. `DrawRectangle(x: 10, y: 20,
+  w: 50, h: 50)`. Argument order is a classic model mistake, worst against C APIs taking
+  six floats in a row. Dazzle has default arguments (§7.2) but no names; names would also
+  strengthen 18.5's case for leaving overloading out.
+- [ ] **design: distinct types**, e.g. `type Radians = distinct f32`, as in Odin. Catches
+  degrees against radians and pixels against world units at compile time; fits the rule
+  that no numeric conversion is implicit.
+- [ ] **design: one word, one job.** Settle 18.19 (`ignore` as both a clause and a
+  statement) against real code. A keyword with two meanings is a coin flip for a model.
 
 ---
 
