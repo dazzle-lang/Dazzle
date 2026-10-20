@@ -542,6 +542,9 @@ impl<'a, 'w> Walker<'a, 'w> {
                         self.field(f);
                     }
                 }
+                // A union's methods have a `self` and no fields to see bare (spec §7.5).
+                let owner = (item.vis == Vis::Public).then_some(&u.name.name);
+                self.members(&u.methods, Some(&[]), owner);
                 self.pop_scope();
             }
             ItemKind::Enum(e) => {
@@ -556,8 +559,9 @@ impl<'a, 'w> Walker<'a, 'w> {
                     }
                 }
             }
-            // Macro bodies are not expanded until M10.
-            ItemKind::Macro(_) | ItemKind::MacroInvocation { .. } | ItemKind::Error => {}
+            // A macro's body is tokens, and an invocation is expanded before resolution
+            // (spec §12.11).
+            ItemKind::Macro(_) | ItemKind::MacroInvocation(_) | ItemKind::Error => {}
         }
     }
 
@@ -802,7 +806,8 @@ impl<'a, 'w> Walker<'a, 'w> {
 
     fn stmt(&mut self, s: &Stmt) {
         match &s.kind {
-            StmtKind::CfgIf(_) => {}
+            // Expanded or stripped before resolution (spec §12.5, §12.10).
+            StmtKind::CfgIf(_) | StmtKind::Macro(_) => {}
             StmtKind::Let(l) => {
                 if let Some(t) = &l.ty {
                     self.ty(t);
@@ -981,7 +986,7 @@ impl<'a, 'w> Walker<'a, 'w> {
             | ExprKind::Null
             | ExprKind::None
             | ExprKind::Continue { .. }
-            | ExprKind::MacroCall { .. }
+            | ExprKind::MacroCall(_)
             | ExprKind::Error => {}
         }
     }

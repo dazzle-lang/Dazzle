@@ -41,7 +41,11 @@ pub struct Analysis {
     /// `None` when the root manifest could not be loaded at all, in which case `diags`
     /// says why and no later phase ran.
     pub ws: Option<Workspace>,
+    /// The files as resolution saw them: every macro invocation replaced by its expansion
+    /// (spec §12.5), and every `#if` by its active branch.
     pub files: HashMap<ModuleId, Vec<ParsedFile>>,
+    /// Every invocation that was expanded, and where its macro is declared.
+    pub expansions: Vec<dz_macro::Record>,
     pub resolution: Option<Resolution>,
     /// The typed tree, when checking ran (spec §17.1). `dz hir` prints it, and from M5 on
     /// flow analysis and codegen consume it.
@@ -92,6 +96,7 @@ pub fn analyse_for(
             map,
             ws: None,
             files: HashMap::new(),
+            expansions: Vec::new(),
             resolution: None,
             hir: None,
             table: None,
@@ -166,10 +171,28 @@ pub fn analyse_for(
 
     // Only the active branch of each `#if` goes on to resolution (spec §12.10). Skipped
     // when parsing failed: a broken `#if` has no branches worth choosing between.
-    if !diags.has_errors() {
-        let flags = cfg::resolve_flags(&ws, options, &mut diags);
+    let flags = (!diags.has_errors()).then(|| cfg::resolve_flags(&ws, options, &mut diags));
+    if let Some(flags) = &flags {
         for (id, parsed) in files.iter_mut() {
-            cfg::strip(&ws, &flags, *id, parsed, &mut diags);
+            cfg::strip(&ws, flags, *id, parsed, &mut diags);
+        }
+    }
+
+    // Macros expand after `#if`, so an invocation in a branch not built is never expanded,
+    // and before resolution, which sees only what they expanded to (spec §12.11). What an
+    // expansion wrote may hold an `#if` of its own, decided the same way.
+    // After a parse error the editor still expands, so what was typed inside an invocation
+    // can be answered for, but says nothing more than a build would (see `Mode::Editor`).
+    let expansions = if !diags.has_errors() {
+        dz_macro::expand(&ws, &mut files, &mut diags)
+    } else if mode == Mode::Editor {
+        dz_macro::expand(&ws, &mut files, &mut Diagnostics::new())
+    } else {
+        Vec::new()
+    };
+    if let Some(flags) = flags.as_ref().filter(|_| !expansions.is_empty()) {
+        for (id, parsed) in files.iter_mut() {
+            cfg::strip(&ws, flags, *id, parsed, &mut diags);
         }
     }
 
@@ -227,8 +250,20 @@ pub fn analyse_for(
         resolution = Some(r);
     }
 
+    dz_macro::annotate(&expansions, &map, &mut diags);
     diags.sort_by_position();
-    Analysis { map, ws: Some(ws), files, resolution, hir, table, mono, diags, parsed_cleanly }
+    Analysis {
+        map,
+        ws: Some(ws),
+        files,
+        expansions,
+        resolution,
+        hir,
+        table,
+        mono,
+        diags,
+        parsed_cleanly,
+    }
 }
 
 /// The parsed tree of the standard-library file at `pseudo`, from a process-wide cache.

@@ -1,0 +1,18 @@
+// expect: DZ0608
+//
+// An expansion may invoke macros but not declare one, so every macro is known before any
+// expansion runs (spec §12.5).
+
+macro maker -> decl {
+    pattern { $name: ident }
+    expand {
+        macro $name -> expr {
+            pattern { }
+            expand { 1 }
+        }
+    }
+}
+
+#maker one
+
+fn main() {}

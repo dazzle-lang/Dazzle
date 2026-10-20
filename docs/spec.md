@@ -1,9 +1,9 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 61
-**Status:** M0–M8, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle programs
-compile and run, own, move and drop their resources deterministically, have generics,
-traits, unions and reflection, call C and C++ libraries that `dz` builds from vendored
+**Version:** 0.1 — **unreleased**, revision 62
+**Status:** M0–M8, M10, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle
+programs compile and run, own, move and drop their resources deterministically, have
+generics, traits, unions, macros and reflection, call C and C++ libraries that `dz` builds from vendored
 source, and are edited with a language server. Not yet 0.1: the editor still lacks code
 actions and incremental analysis (M9), and the standard library, though it has carried a
 game written without C++ (M12's criterion), still lacks library `format`.
@@ -70,7 +70,7 @@ impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable 
 | Interface | `trait X` + `impl X for Y` | bound `<T: X>` = static dispatch; `^X` = fat pointer, object stays the same size; an `impl` lives with the trait or with the type, so a module can add a trait to a type it did not write |
 | Generics | `fn f<T: Ord>(…)` | checked once at the definition, then monomorphized by Dazzle |
 | Module | one `dazzle.toml` = one module | folders mean nothing; `name = "engine::render"` for nesting |
-| Metaprogramming | `macro m -> declaration { … }` | declarative pattern → expand, so the LSP can complete inside it |
+| Metaprogramming | `macro m -> decl { … }`, invoked `#m …` | declarative pattern → expand, so the LSP can complete inside it |
 | Reflection | `typeinfo_of<T>()` | one static table; your structs carry zero extra bytes |
 | Compiles to | C++17, `-fno-exceptions -fno-rtti` | with `#line` back to `.dz`, so debuggers and profilers show your source |
 
@@ -770,7 +770,7 @@ T::name                    str, the source-level name
 T::is_trivially_copyable   bool — no drop, no copy, all fields trivially copyable
 T::is_copyable             bool — has an implicit or explicit copy
 T::has_drop                bool
-T::fields                  a compile-time sequence, iterable in macros (§12) and reflection (§13)
+T::fields                  a compile-time sequence of the fields — deferred (§12.11, §13.4)
 ```
 
 `sizeof(T)` and `alignof(T)` are accepted as aliases for `T::size` / `T::align`, because
@@ -1292,6 +1292,39 @@ to store or compare. **A union owns its active payload**: a variant may hold a `
 `List` or a struct with a `drop`, and the union drops whichever variant is active when it
 dies, drops the old variant before a new one is assigned, and moves by moving the active
 payload. A union is copyable only when every variant is. `[DECIDED — §18.52]`
+
+**A union may declare methods**, after or among its variants, written as a struct's are:
+
+```dz
+union ButtonState {
+    DefaultState
+    TransitionState
+    ChangeSprite
+
+    pub fn name(&self) -> str {
+        return switch self {
+            case DefaultState { "default" }
+            case TransitionState { "transition" }
+            case ChangeSprite { "change" }
+        }
+    }
+
+    pub fn step(&mut self, ctx: &ButtonCtx) {
+        let next: ButtonState? = switch self {
+            case TransitionState(&mut t) { t.update(ctx) }
+            default { none }
+        }
+        self = next or return                      // replaces the whole union
+    }
+}
+```
+
+`self` is the union, and its payload is reached with `switch self`. A method has the same
+visibility rules as a struct's (§4), and a method without `self` is called through the
+union's name, `ButtonState::initial()`. A union declares methods only: its fields are its
+variants, it is built from a variant, and copying and dropping it are already defined by
+its variants (§18.52), so a union has no constructors, `copy` or `drop` of its own. `kind`
+is taken by the generated `s.kind()`. `[DECIDED — §18.76]`
 
 Untagged/overlapping storage, should interop ever need it, is a separate `#[raw] union`.
 
@@ -2327,125 +2360,255 @@ assignment `a += b` desugars to `a = a + b` and is not separately overloadable.
 
 ## 12. Metaprogramming
 
-Dazzle's metaprogramming is the **declarative macro** system you sketched: a macro declares
-the syntax it accepts and the code it expands to. `[DECIDED]`
+Dazzle's metaprogramming is the **declarative macro**: a macro declares the syntax it
+accepts and the code it expands to. `[DECIDED]`
 
 The reason for this choice over comptime code execution is tooling: because a macro
 declares its grammar up front, the LSP can parse a macro invocation, complete inside it,
 and report errors at the right span — none of which is possible when a macro is an opaque
 function that eats tokens.
 
+The notation reuses what the rest of the language already means. A capture is written
+like a parameter, `$name: kind`; repetition and absence are written like the types that
+mean them, `[]K` and `K?`; and what runs while expanding is spelled with `#`, which always
+means "the compiler does something here" (§12.8) — `#for`, `#if`, `#error`.
+`[DECIDED — §18.73]`
+
 ### 12.1 Anatomy
 
 ```dz
-macro machine -> declaration {
-    syntax Field {                                 // t: f32   or   t: f32 = 0
-        $name:#name : $type:#type ( = $default:#value )?
+macro machine -> decl {
+    syntax Param {                                    // input: &Input
+        $name: ident : $type: type
     }
 
-    syntax State {                                 // state Grow(t: f32 = 0) { ... }
-        state $name:#name ( $fields:Field[,] )? {
-            $items:#declaration[]
-            $body:#code[]
+    syntax Field {                                    // t: f32 = 0
+        $name: ident : $type: type $( = $default: expr )?
+    }
+
+    syntax State {                                    // state Grow(t: f32 = 0) { … }
+        state $name: ident $( ( $fields: [,]Field ) )? {
+            $body: code
         }
     }
 
-    pattern {                                      // ButtonState(ButtonCtx) { ... }
-        $name:#name ( $ctx:#type ) {
-            $states:State[]
+    pattern {                                         // ButtonState(ctx: &Ctx) { … }
+        $name: ident ( $params: [,]Param ) {
+            $states: []State
         }
     }
 
     expand {
-        struct $name : StateMachine<$ctx> {
-            union States {
-                $states[,] {
-                    struct $.name : State<$ctx, States> {
-                        $.fields[,] {
-                            $.name: $.type $.default? { = $.default }
-                        }
-                        $.items
-                        fn update(&mut self, ctx: &mut $ctx) -> States? { $.body }
+        #for s in $states {
+            struct $s.name {
+                #for f in $s.fields {
+                    $f.name: $f.type #if $f.default { = $f.default }
+                }
+
+                pub(module) fn update(&mut self, $params) -> $name? {
+                    $s.body
+                    return none
+                }
+            }
+        }
+
+        union $name {
+            #for s in $states {
+                $s.name
+            }
+
+            // One frame: the active state decides whether there is a next one.
+            pub fn step(&mut self, $params) {
+                let next: $name? = switch self {
+                    #for s in $states {
+                        case $s.name(&mut st) { st.update(#for p in $params[,] { $p.name }) }
                     }
                 }
+                let n = next or return
+                self = n
             }
         }
     }
 }
+
+#machine ButtonState(ctx: &ButtonCtx, input: &Input, btn: &mut Button) {
+    state DefaultState {
+        if input.mouse_down && input.over {
+            return .TransitionState{}
+        }
+    }
+
+    state TransitionState(t: f32 = 0) {
+        t += ctx.delta_time
+        btn.scale = lerp(1, 2, t)
+        if t >= 1 {
+            return .ChangeSprite{}
+        }
+    }
+
+    state ChangeSprite {
+        btn.sprite = Sprite::Selected
+        return .DefaultState{}
+    }
+}
 ```
 
-- `macro NAME -> KIND` declares where the macro may appear: `declaration`, `expression`,
-  `statement`, or `type`.
-- `syntax NAME { ... }` declares a reusable sub-grammar, which is what keeps the pattern
-  readable and is why nested repetition works.
-- `pattern { ... }` is the top-level grammar of an invocation.
-- `expand { ... }` is the output, written as Dazzle source with `$` holes.
+- `macro NAME -> KIND` declares where the macro may be invoked: `decl` (where a
+  declaration may be), `stmt` (where a statement may be) or `expr` (where an expression may
+  be, which includes a statement). A `type` macro is reserved and not yet available.
+- `syntax Name { … }` declares a reusable sub-grammar, written in `PascalCase` like a type.
+  It is what keeps a pattern readable, and a capture of one has a field per capture inside
+  it, which is how nested repetition is reached (`$s.fields`).
+- `pattern { … }` is the grammar of everything after the macro's name in an invocation.
+- `expand { … }` is the output: Dazzle source with `$` holes, and `#for`, `#if` and
+  `#error` to shape it.
+- A macro is a declaration like any other: private to its module by default, `pub macro`
+  to export it (§12.5).
 
 ### 12.2 Fragment kinds
 
+A capture is `$name: kind`. The kind is one of these, or the name of a `syntax` rule:
+
 | Kind | Matches |
 |---|---|
-| `#name` | a single identifier |
-| `#type` | a type expression |
-| `#value` | a constant expression |
-| `#expr` | any expression |
-| `#code` | a sequence of statements |
-| `#stmt` | one statement |
-| `#declaration` | one declaration (fn, struct, field, …) |
-| `#literal` | a literal token |
-| `#block` | a braced block |
+| `ident` | one identifier |
+| `literal` | one literal: a number, string, character, `true` or `false` |
+| `type` | a type |
+| `expr` | an expression |
+| `stmt` | one statement |
+| `block` | a braced block, `{ … }` |
+| `code` | statements, up to the bracket that closes the group they are in — a block's inside |
+| `decl` | one declaration |
+| `Name` | the `syntax Name` rule |
 
-Each fragment kind is parsed by the *real* parser, so a `#type` hole in a macro gets the
-same diagnostics, the same completion, and the same hover as a type written anywhere else.
+Each built-in kind is parsed by the *real* parser, so a `type` hole in a macro gets the same
+diagnostics, the same completion, and the same hover as a type written anywhere else.
 
 ### 12.3 Repetition and options
 
-- `$x:Kind[]` — zero or more, no separator.
-- `$x:Kind[,]` — zero or more, comma-separated (trailing comma allowed).
-- `( ... )?` — optional group.
-- In `expand`, `$xs[,] { ... }` iterates a captured repetition, emitting the body once per
-  element with `$.field` referring to that element's captures.
-- `$x? { ... }` in `expand` emits the body only if the optional capture matched.
+In a pattern, the shape of a capture is written the way a type is:
+
+- `$x: K?` — optional: matched if the invocation has one here.
+- `$xs: []K` — zero or more, one after another.
+- `$xs: [,]K` — zero or more separated by `,`, with a trailing `,` allowed. Any one
+  punctuation token may stand for the comma: `[;]K`, `[|]K`.
+- `$( … )?` — an optional group. Every capture inside it is absent when the group is.
+
+Every other token in a pattern matches itself, so `(`, `=`, `state` and `{` above are
+literal. Line breaks in a pattern are layout; between the parts of an invocation, line
+breaks are skipped, while inside a captured fragment they are that fragment's own.
+
+**Matching never backtracks.** An optional or repeated element is taken exactly when the
+next token can begin it, and once taken it must complete. That is what lets a mismatch be
+reported at the token that does not fit, and lets the editor know at every point of an
+invocation which part of the grammar it is in.
+
+In `expand`:
+
+- `$x` emits a capture exactly as it was written; a repeated capture emits all of its
+  elements with the separators between them, and an absent one emits nothing.
+- `$x.field` is a capture inside a `syntax` capture, and `$v` / `$v.field` inside `#for`
+  is the current element.
+- `#for v in $xs { … }` emits its body once per element of `$xs`. `#for v in $xs[,] { … }`
+  puts a `,` between the copies, which an argument list needs; a list of declarations or
+  variants needs nothing, since each copy ends its own line.
+- `#if $x { … } #else { … }` emits the first body when `$x` is present — an optional that
+  matched, or a repetition with at least one element — and `#if !$x` the opposite. An `#if`
+  whose condition does not begin with `$` or `!$` is a build-flag `#if` (§12.10), which the
+  macro emits as it is rather than deciding.
+- A line break in `expand` ends a statement, as it does anywhere else in Dazzle source.
+
+`[DECIDED — §18.73]`
 
 ### 12.4 Hygiene
 
-Identifiers *introduced by* the `expand` block are hygienic: a temporary named `tmp` inside
-a macro cannot collide with the caller's `tmp`. Identifiers *captured from* the invocation
-carry the caller's scope, which is what makes `$.body` in `machine` able to see `ctx`.
+**Locals the expansion introduces are its own.** A `let`, a parameter, a `for` or `case`
+binding, or an `or { e -> … }` name written in `expand` cannot be seen by captured code and
+cannot capture a name of the caller's: `next`, `n` and `st` in `machine` would not collide
+with a parameter of the machine named `next`.
 
-This is the standard hygiene rule and it is the one that makes macros safe to use without
-reading their bodies. `[DECIDED]`
+**Declarations the expansion introduces are ordinary declarations.** Types, functions,
+methods, fields, variants and constants written in `expand` are named by the caller like
+any other — `ButtonState`, `.step(…)` — and inside the expansion a type's members are
+reachable bare from its methods, as in any method (§7.1). That is how a state body's `t`
+reaches the field the machine declared for it.
+
+**Captured code keeps the caller's scope**, which is what makes `$s.body` able to see
+`input` and `btn`.
+
+**Other names in `expand` resolve where the macro is declared**, with that module's view of
+what is visible, so an engine's `pub macro` may use the engine's types without its users
+naming them. There is no way to build an identifier out of pieces: every name an expansion
+introduces is written in it, or captured.
+
+This is the standard hygiene rule, refined for declarations, and it is the one that makes
+macros safe to use without reading their bodies. `[DECIDED — §18.74]`
 
 ### 12.5 Invocation
 
 ```dz
-#machine ButtonState(ButtonCtx) { ... }   // declaration position
-let v = vec![1, 2, 3]                     // expression position
+#machine ButtonState(ctx: &ButtonCtx) { … }   // declaration position
+#trace "entering the loop"                    // statement position
+let v = #max(a, b)                            // expression position
 ```
 
-Declaration macros are invoked with a leading `#`; expression and statement macros with a
-trailing `!`. The two positions are lexically distinguishable, so both spellings can coexist
-without ambiguity in the parser. `[DECIDED — §18.9]`
+A macro is invoked **with `#` in every position.** The name is `#name` for a macro of the
+same module and `#dep::name` for a `pub macro` of a dependency (§3.2). The invocation is the
+name and what follows it:
+
+- in **declaration and statement position**, everything up to the end of the line,
+  outside brackets — so `#machine`'s braces run over as many lines as they need;
+- in **expression position**, one bracketed group, `( … )`, `[ … ]` or `{ … }`.
+
+The pattern is matched against everything after the name, the brackets of an expression
+invocation included. A `decl` macro is invoked only where a declaration may be — at module
+level or in a body — a `stmt` macro where a statement may be, and an `expr` macro wherever
+an expression may be.
+
+**The intrinsics are the compiler's own macros**: `#file`, `#line`, `#location` and the
+rest (§12.7) are invoked the same way, which is why their names are reserved.
+
+The invocation is replaced by its expansion: declarations where the invocation was,
+statements into the enclosing block (opening no scope, as a statement `#if` does), and an
+expression in place. An expansion may itself invoke macros, which expand in turn up to a
+depth of 64; it may not declare one. `[DECIDED — §18.9, §18.75]`
 
 ### 12.6 Errors inside macros
+
+An invocation that does not fit the pattern is an error at the first token that does not
+fit, saying what the pattern expected there.
 
 A macro may reject an invocation deliberately:
 
 ```dz
 expand {
-    #error($name, "a state machine needs at least one state")
+    #if !$states {
+        #error($name, "a state machine needs at least one state")
+    }
+    …
 }
 ```
 
-Diagnostics produced during expansion are reported at the *invocation* span by default, and
-the compiler adds an "in expansion of `#machine`" note pointing at the macro. Expanded code
-is available via `dz expand file.dz`, which prints the post-expansion source — the single
-most important debugging tool for a macro system, and cheap to build.
+`#error(message)` reports at the invocation's name, `#error($x, message)` at the tokens
+`$x` captured.
+
+**A diagnostic points where its code was written.** A mistake inside captured code —
+a state's body — is reported there, in the user's own text, as if no macro were involved.
+A mistake in code the macro wrote is reported at the invocation's name, with a note naming
+the macro: "in expansion of `#machine`". An expansion that copies a capture to several
+places reports a mistake in it once, and a parameter it copies is unused only if every copy
+leaves it unused (DZ0406). A warning about a local the macro introduced is the macro
+author's to fix and is not shown at the invocation. `[DECIDED — §18.77]`
+
+`dz expand file.dz` prints the file with every invocation replaced by its expansion — the
+single most important debugging tool for a macro system, and cheap to build.
 
 ### 12.7 Compiler intrinsics
 
-Intrinsics use `#` in expression or parameter position. They are resolved during checking
-and become constants in the C++ output.
+Intrinsics are the macros the compiler provides, invoked like any other (§12.5) in
+expression or parameter position. Unlike a user macro they are resolved during checking,
+since what they produce depends on where they end up, and become constants in the C++
+output.
 
 ```dz
 #file            str    the source file of the current call site
@@ -2498,17 +2661,19 @@ An attribute is really just a macro in attribute position — `#[derive(Serializ
 compile-time transform on the declaration that follows it, no different in kind from
 `#machine`. `[DECIDED — §18.2]`
 
-The three `#` forms are distinguished by the character that follows, so the parser never
-has to guess:
+The `#` forms are distinguished by what follows, so the parser never has to guess:
 
 | Form | Position | Meaning |
 |---|---|---|
 | `#[name]`, `#[name(...)]` | before a declaration | attribute |
-| `#name ...` | declaration position | declaration macro (§12.5) |
-| `#name`, `#name(...)` | expression or default-argument position | intrinsic (§12.7) |
+| `#if`, `#else` | around declarations, members or statements | build-flag conditional (§12.10) |
+| `#name …`, `#dep::name …` | declaration or statement position, to the end of the line | macro invocation (§12.5) |
+| `#name(…)`, `#name[…]`, `#name{…}` | expression position, one bracketed group | macro invocation (§12.5) |
+| `#file`, `#location(…)`, … | expression or default-argument position | intrinsic — a built-in macro (§12.7) |
 
-Intrinsic names are reserved: a macro may not be called `file`, `line`, `column`,
-`function`, `module`, `location`, or `expr_text`.
+Intrinsic names are reserved, and so is `error`, which `#error` (§12.6) uses: a macro may
+not be called `file`, `line`, `column`, `function`, `module`, `location`, `expr_text` or
+`error`.
 
 **Every attribute is one the language defines, written where it applies.** An attribute the
 language does not have is an error (`DZ0314`): a misspelled `#[tset]` accepted in silence
@@ -2620,6 +2785,21 @@ pub fn alloc(size: usize, loc: SourceLocation = #location) -> ^mut u8 {
   but never resolved or type-checked, so it may name what exists only on another platform or
   under another flag. What that costs is that a branch nobody builds can rot unnoticed; what
   it buys is that platform code can be written at all. `[DECIDED — §18.48]`
+
+
+### 12.11 When macros expand
+
+**Macros expand on syntax alone**: after a module is parsed and its `#if`s are decided
+(§12.10), and before any name in it is resolved. A macro sees tokens, never types, so an
+expansion depends only on the invocation and the macro — each module is expanded on its
+own, the editor can parse an invocation as it is typed, and a macro can never observe the
+order in which the compiler happens to check things.
+
+What that gives up is a macro asking questions of a type: a macro cannot be handed `T` and
+iterate `T::fields`. A macro that generates code per field — serialization, an editor
+inspector — takes the declaration itself and reads its fields from the tokens (§13.4).
+Iterating the fields of a type parameter is a compile-time loop over an instantiation, not
+a macro, and is deferred. `[DECIDED — §18.72]`
 
 ---
 
@@ -2761,27 +2941,42 @@ network replication layer, and a save system.
 
 ### 13.4 Compile-time reflection
 
-The same field information is available *during compilation* through `T::fields` (§5.5),
-which is what a `derive`-style macro iterates to generate specialised code with no runtime
-table lookup at all:
+A macro generates specialised code per field with no runtime table lookup at all. Macros
+expand before types exist (§12.11), so such a macro takes the declaration itself and reads
+its fields from what was written:
 
 ```dz
-macro derive_serialize -> declaration {
-    pattern { $T:#type }
+macro serializable -> decl {
+    syntax Field { $name: ident : $type: type $( = $default: expr )? }
+
+    pattern { struct $name: ident { $fields: []Field } }
+
     expand {
-        fn serialize(self: &$T, w: &mut Writer) {
-            $T::fields[] {
-                w.key($.name)
-                self.$.name.serialize(w)
+        struct $name {
+            #for f in $fields { pub $f.name: $f.type #if $f.default { = $f.default } }
+        }
+
+        impl Serialize for $name {
+            fn serialize(&self, w: &mut Writer) {
+                #for f in $fields {
+                    w.key(#expr_text($f.name))
+                    $f.name.serialize(w)
+                }
             }
         }
     }
 }
+
+#serializable struct Transform {
+    position: Vec3
+    scale: f32 = 1
+}
 ```
 
-The two mechanisms are complementary: compile-time reflection generates fast, specialised
-code for types you know at build time; the runtime table handles types you only know by
-`TypeId`. `T::fields` arrives with macros (§19 M10).
+The two mechanisms are complementary: a macro generates fast, specialised code for types
+you declare through it; the runtime table handles every type, including those you only know
+by `TypeId`. Iterating `T::fields` of a type *parameter* at compile time is deferred
+(§12.11).
 
 ### 13.5 Mapping back to the C++ output
 
@@ -3737,7 +3932,7 @@ be exactly what reload needs, and must stay that way:
 | 18.5 | Function overloading | **Deferred, not rejected.** Default arguments (§7.2) cover most of it, and constructors already overload. Nothing in this spec precludes adding it in a later version; the resolution machinery has to exist anyway for imported C++ overload sets (§15.3). The one exception is a trait implemented at several arguments (18.27) |
 | 18.7 | Keep the `!T` sigil? | **No — `!` moves to the signature.** `T?` is a postfix type suffix; fallibility is marked `!->` on the arrow and is never a type. `Maybe<T>` / `Result<T,E>` stay rejected: the value in a built-in is compiler-known layout and no instantiation in every signature, and that survives the notation change (§9) |
 | 18.8 | Error propagation style | **One postfix `or` clause.** `with`/`else`, `try` and `catch` are all deleted; `or` handles `T!`, `T?` and `^T` identically, and bare `or return` is reserved for propagation (§9.4–9.6) |
-| 18.9 | Macro invocation syntax | **Two spellings:** `#name …` in declaration position, `name!(…)` in expression position (§12.5) |
+| 18.9 | Macro invocation syntax | **One spelling, `#name`, in every position** (reversed in r62 by the user; it had been `#name …` for declarations and `name!(…)` for expressions). In declaration and statement position an invocation runs to the end of the line, in expression position it is one bracketed group; the intrinsics are the compiler's own macros, invoked the same way. `!` already meant "not" and "fallible" (`!->`), and `#` already meant "the compiler does something here" (§12.5, §12.8) |
 | 18.10 | Allocator passing | **Explicit parameter with a default argument.** It is the user's and the library's concern, not the language's (§14) |
 | 18.11 | Concurrency | **Deferred to v2.** Threads, atomics, and a job system go in the stdlib once the core language is stable; nothing here forecloses them |
 | 18.12 | Hot reload | **Not in v0.1, but a first-class goal.** Manual DLL plumbing per project is exactly what it should replace. Constraints that later work must not break are written down now in §17.6 |
@@ -3803,6 +3998,12 @@ be exactly what reload needs, and must stay that way:
 | 18.67 | Random numbers | **One generator per thread, reached as `Random::…` with no instance**, chosen by the user over a value-type generator: game code wants a number, not a generator to pass around. SplitMix64 (one `u64` of state) rather than PCG or xoshiro, for its size and simplicity; seeded from the clocks unless `Random::seed` is called. `Random::range<T: Number>` covers every number kind through the new `Number` trait, which `Integer` and `Float` both require. Integer ranges are `[lo, hi)`, as floats are. A separate seedable stream — a replay that must not share state with gameplay — can come later as a value type (§14.4) |
 | 18.66 | Generic methods | **A method may declare type parameters of its own, solved per call like a generic function's; written after `.name` as they are after a path, `xs.map<f32>(f)`, with no turbofish.** The `<…>` after a field name is read as type arguments only when `(` follows the `>`, so `n.len < max` is unaffected — the same non-associativity argument as §3.3. Not allowed on `virtual`/`override` methods or in a trait (`DZ0557`), where one function would have to serve every argument; a generic trait says the same thing and works through a `^Trait`. Each instance is emitted as a free function taking the receiver, not a C++ member template, so §8.6 still holds (§8.1) |
 | 18.62 | Shared ownership, and handles that may be empty | **`Rc<T>`, `Weak<T>` and `Box<T>` in `std`, each of which may be `null`**, like C++'s `shared_ptr`/`weak_ptr`/`unique_ptr` rather than Rust's never-empty `Rc`: `null` is the default and the moved-from state, so no rule for "a type without a default" is needed, and a field of one is `= null`. **`null`, not `none`**: `null` is for handles — pointers included — and `none` for a value that is absent; the two stay apart so `x = null` reads as releasing something. A handle's value is reached only through `==`/`!=` `null`, `or` and `if let` — never a bare `.` — so an empty handle is always checked. **`or` and `if let` on an `Rc` or `Weak` hold a strong `Rc` of their own** until the `if let` block, or the block enclosing the `or`, ends, so the value cannot be freed while referred to — the cost being one plain count up and down. `if let` takes a `Weak` directly, with no `upgrade()`. Forced unloading is one owner plus `Weak`s, since a value others own cannot be deleted from under them; `Rc<T?>` is a shared slot, not a nullable `Rc`. The compiler knows the prelude trait `Nullable` (`Target`, `Guard`, `is_null`, `guard`, `ptr`) rather than the three names. A `Box` guards with nothing and can dangle as a `^T` can (§1.1). Deferred: `Arc`, `Rc<Derived>` as `Rc<Base>`, handles to trait objects (§14.5) |
+| 18.72 | When macros expand | **On syntax alone: after parsing and `#if`, before name resolution.** A macro sees tokens, never types, so each module expands on its own, the editor parses an invocation as it is typed, and nothing depends on checking order. Chosen over expanding after checking, which would let a macro iterate `T::fields` but would make expansion depend on types that depend on expansion. A macro that needs a type's fields takes its declaration (§12.11, §13.4) |
+| 18.73 | How a macro is written | **Captures read like parameters and their shapes like types:** `$name: kind`, `$xs: []K`, `$xs: [,]K`, `$x: K?`, `$( … )?` for an optional group; built-in kinds lower-case (`ident`, `literal`, `type`, `expr`, `stmt`, `block`, `code`, `decl`), `syntax` rules `PascalCase`; macro kinds `decl`, `stmt`, `expr`, sharing those names. `expand` is shaped by `#for v in $xs[,] { … }`, `#if $x { … } #else { … }` and `#error`, reusing `for` and §12.10's `#if` rather than a notation of its own. Replaces r1's `$name:#name`, postfix `[]`, `(…)?` groups and `$xs[,] { $.f }`, whose `#` on a kind collided with invocations and whose bare parentheses could not be told from literal ones. Matching never backtracks (§12.1–§12.3) |
+| 18.74 | Hygiene, for declarations | **Locals an expansion introduces are hidden; declarations it introduces are not.** A `let`, parameter or binding written in `expand` cannot capture or be captured; types, functions, methods, fields, variants and constants are ordinary declarations the caller names, and a type's members are reachable bare from its methods as usual. Other names in `expand` resolve where the macro is declared. No identifier pasting. Refines §12.4's rule, which read literally hid a generated `union States` from the code it was generated for (§12.4) |
+| 18.75 | Where macros live | **A macro is a declaration**: private by default, `pub macro` to export, invoked as `#dep::name` from a dependency, usable before its declaration. An expansion may invoke macros, to a depth of 64, but may not declare one, so the set of macros is known before any expansion runs (§12.5) |
+| 18.76 | Methods on unions | **A union may declare methods, as a struct does; `self` is the union.** No constructors, `copy` or `drop`, which its variants already define (18.52). Needed by `#machine`, whose `step` must belong to the machine it steps: as a free function two machines in one module would collide, with no overloading to tell them apart (§7.5) |
+| 18.77 | Diagnostics in an expansion | **Where the code was written:** in captured code at the user's own text; in code the macro wrote at the invocation's name, with an "in expansion of" note. A mistake in a capture copied to several places is reported once, a parameter copied to several places is unused only if every copy leaves it unused, and a warning about a macro's own local is not shown to its user (§12.6) |
 
 ### 18.2 Still open
 
@@ -3833,8 +4034,8 @@ Each milestone ends with something you can actually run.
 | M7b ✅ | Full C and C++ interop | **done — a raylib window opens.** `tests/run/raylib` opens one with raylib 6.0 built from its own seven `.c` files. r21–r28 added what that needed and then the C++ half: handles, C unions, array members and bit-fields, callbacks, compound-literal macros, then namespaces, classes, methods, constructors, C++-owned destructors, overloaded methods, references and `[cpp.instantiate]` template instances, covered by `tests/run/cppinterop` on both compilers. What is left is narrower than the milestone and is in `PROGRESS.md`'s deferral register: overloaded *free* functions (methods do resolve), the boundary cast for an overloaded method, and inheritance between imported C++ classes — which waits on struct inheritance (18.32) |
 | M8 ✅ | Unions, `switch`, `T?`, `!->`, the `or` clause | **done** — `tests/run/button` runs the `ButtonState` sample as the language specifies it: a union whose variants are the existing structs `DefaultState`, `TransitionState` and `ChangeSprite` (r38), each state's `update` returning the next as a `ButtonState?`, dispatched by a `switch` that calls the payload's own methods, around a fallible `!->` load handled by `or return`, a fallback and `{ e -> … }`. `switch` on constants, generic unions and statement-built values landed with r36, and a base initialiser whose arguments need statements with r38. A variant carrying a struct that owns a resource or has special members waits on variant drops, with the M12 stdlib |
 | M9 | LSP: diagnostics, hover, go-to-definition, completion | usable in VS Code for real work |
-| M10 | Macros | a user-written `#machine` expands to the `ButtonState` machine and the LSP completes inside it |
-| M11 ✅ | Reflection + type table | **done** — `tests/run/reflect` is the criterion: a JSON serializer of about 50 lines, written once against `typeinfo(id)`, writes structs (by `json:"…"` tag), enums by name, a union's active variant, arrays, a slice and optionals, and skips private fields. The table describes every kind of type (18.59), is filled once by a function-local static rather than a global constructor, takes offsets from `offsetof`, and compiles warning-clean on clang++ and g++. Compile-time `T::fields` waits for macros (M10) |
+| M10 ✅ | Macros | **done** — `tests/run/machine` is `tests/run/button` with its machine written by a user `#machine` (§12.1), and prints exactly what `button` prints; inside the invocation the editor completes a state's parameters, fields and members, and hovers on them. r62 settled the notation: `#name` everywhere, captures like parameters, shapes like types, `#for`/`#if`/`#error`, expansion before resolution, hygiene for locals only, and methods on unions. Completion from the macro's *grammar* — offering `state` — is left in `PROGRESS.md`'s register, with `type` macros, attribute macros and `T::fields` of a parameter |
+| M11 ✅ | Reflection + type table | **done** — `tests/run/reflect` is the criterion: a JSON serializer of about 50 lines, written once against `typeinfo(id)`, writes structs (by `json:"…"` tag), enums by name, a union's active variant, arrays, a slice and optionals, and skips private fields. The table describes every kind of type (18.59), is filled once by a function-local static rather than a global constructor, takes offsets from `offsetof`, and compiles warning-clean on clang++ and g++. Compile-time `T::fields` of a type parameter is deferred (§12.11) |
 | M12 | Stdlib pass: `List`, `String`, `HashMap`, allocators, math | you can write a small game without touching C++ |
 | M13 | Hot reload (§17.6) | `dz run --hot` swaps a rebuilt module and migrates world state without restarting the game |
 | M14 ✅ | `dz test` — tests as a language feature | **done** — `#[test] fn name() { … }` is written beside the code it tests; it passes by returning and fails by panicking. `dz test [path] [filter]` builds a separate test binary, runs **each test in its own process** — a panic aborts, so one process could report only the first failure — and prints a per-test result, the failing test's own panic message, and a count, exiting non-zero if anything failed. A `#[test]` that takes an argument, returns a value, is fallible, is generic or has no body is refused (`DZ0546`). **A normal build leaves every test out**, so a program never carries them |
@@ -3890,7 +4091,7 @@ ctor          = ident "(" [ params ] ")" block ;
 impl_decl     = "impl" [ generics ] path [ "<" type_list ">" ] "for" type "{" { impl_item } "}" ;
 impl_item     = "type" ident "=" type TERM | fn_decl ;
 
-union_decl    = "union" ident [ generics ] "{" { variant } "}" ;
+union_decl    = "union" ident [ generics ] "{" { variant | fn_decl } "}" ;   (* methods, §7.5 *)
 variant       = ident [ "{" field_list "}" ] TERM ;   (* a bare ident carries that struct, §7.5 *)
 enum_decl     = "enum" ident [ ":" type ] "{" { ident [ "=" expr ] TERM } "}" ;
 trait_decl    = "trait" ident [ generics ] [ ":" trait_list ] "{" { trait_item } "}" ;
@@ -3915,6 +4116,7 @@ spell an optional function pointer.
 
 statement     = let_stmt | assign | expr_stmt | if_stmt | while_stmt | for_stmt
               | switch_stmt | return_stmt | defer_stmt | block | "unsafe" block
+              | macro_invoke
               | "break" [ ident ] | "continue" [ ident ] ;   (* no value after `break` *)
 
 let_stmt      = "let" [ "mut" ] pattern [ ":" type ] [ "=" expr ] TERM ;
@@ -3949,17 +4151,27 @@ array_lit     = "[" [ expr { "," expr } [ "," ] ] "]" ;
 struct_lit    = path struct_lit_body ;
 struct_lit_body = "{" [ field_init { "," field_init } [ "," ] ] "}" ;
 field_init    = ident ":" expr | expr ;
-intrinsic     = "#" ident [ "(" [ expr ] ")" ] ;
+intrinsic     = "#" ident [ "(" [ expr ] ")" ] ;   (* a built-in macro, §12.7 *)
 
+(* Macros, §12. A `token` is any token but an unbalanced bracket; a `token_tree` is a
+   bracket-balanced run of them. *)
 macro_decl    = "macro" ident "->" macro_kind "{" { syntax_rule } pattern_rule expand_rule "}" ;
-macro_kind    = "declaration" | "expression" | "statement" | "type" ;
-syntax_rule   = "syntax" ident "{" macro_pattern "}" ;
-pattern_rule  = "pattern" "{" macro_pattern "}" ;
-expand_rule   = "expand" "{" token_tree "}" ;
-macro_pattern = { "$" ident ":" frag_kind [ rep ] | "(" macro_pattern ")" [ "?" ] | token } ;
-frag_kind     = "#" ident | ident ;
-rep           = "[" [ "," ] "]" ;
-macro_invoke  = "#" ident token_tree | ident "!" "(" token_tree ")" ;
+macro_kind    = "decl" | "stmt" | "expr" ;                (* `type` is reserved *)
+syntax_rule   = "syntax" ident "{" pattern "}" ;
+pattern_rule  = "pattern" "{" pattern "}" ;
+pattern       = { capture | "$" "(" pattern ")" "?" | token } ;
+capture       = "$" ident ":" [ "[" [ token ] "]" ] frag_kind [ "?" ] ;   (* §12.3 *)
+frag_kind     = "ident" | "literal" | "type" | "expr" | "stmt" | "block" | "code" | "decl"
+              | ident ;                                    (* a `syntax` rule *)
+expand_rule   = "expand" "{" template "}" ;
+template      = { "$" ident { "." ident }
+              | "#" "for" ident "in" "$" ident { "." ident } [ "[" token "]" ] "{" template "}"
+              | "#" "if" [ "!" ] "$" ident { "." ident } "{" template "}"
+                [ "#" "else" "{" template "}" ]
+              | "#" "error" "(" [ "$" ident { "." ident } "," ] string ")"
+              | token } ;
+macro_invoke  = "#" path ( token_tree_to_line_end        (* declaration, statement position *)
+                         | bracket_group ) ;            (* expression position *)
 ```
 
 ---
@@ -3972,6 +4184,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r62 | 2026-10-20 | **Macros, settled for M10** (§12, 18.9, 18.72–18.77). **One invocation spelling, `#name`, everywhere** — `name!(…)` is gone: in declaration and statement position an invocation runs to the end of the line, in expression position it is one bracketed group, and a dependency's macro is `#dep::name`. The intrinsics are the compiler's own macros, and `error` joins their reserved names. **Patterns read like parameters and types**: `$name: ident`, `$t: type`, `$xs: [,]Field`, `$xs: []State`, `$d: expr?`, `$( … )?` for an optional group; kinds are `ident`, `literal`, `type`, `expr`, `stmt`, `block`, `code`, `decl` or a `syntax` rule, and a macro is `-> decl`, `-> stmt` or `-> expr` (`type` reserved). Matching never backtracks. **`expand` is shaped by `#for v in $xs[,] { $v.name }`, `#if $x { … } #else { … }` and `#error($x, "…")`**, replacing `$xs[,] { $.name }` and `$x? { … }`; an `#if` on anything but a capture is still the build-flag `#if`. **Hygiene hides an expansion's locals but not its declarations**, and other names in `expand` resolve where the macro is declared. **Macros expand on syntax, before resolution**, so `T::fields` of a type parameter is deferred and a per-field macro takes the declaration instead (§12.11, §13.4). `pub macro` exports a macro; an expansion may invoke macros but not declare one. A diagnostic in captured code points at that code, one in generated code at the invocation with an "in expansion of" note. **Unions may declare methods** (§7.5, 18.76), which `#machine`'s `step` needed. |
 | r61 | 2026-09-15 | **`Process`** (§14.4): `Process::args()`, `Process::env(name)`, `Process::exit(code)`. |
 | r60 | 2026-09-15 | **Text operations** (§14.4, 18.71): the `Text` trait gives `str` and `String` `starts_with`, `ends_with`, `find`, `contains`, `trim`, `trim_start`, `trim_end`, `split`, `lines`, `replace`, `to_ascii_lowercase`, `to_ascii_uppercase`, `parse_i64`, `parse_u64`, `parse_f64`, `parse_f32`. |
 | r59 | 2026-09-15 | **r54's decisions, implemented.** Integer overflow **wraps** in every build — `i32::MAX + 1` and `250u8 + 10` included, where the generated C++ had been undefined or had not wrapped at all (§5.1, 18.63). `or unreachable` **assumes success** in release and shipping builds (§9.4, 18.20). **`Rc<Derived>`, `Weak<Derived>` and `Box<Derived>` convert** to their base's, sharing one count and dropping the whole value (§14.5, 18.64). **A generic function may be a value**: `xs.sort_by(greater<i32>)`, or inferred from the function type wanted (§8.1). **Sorting** (§14.4, 18.70): `List::sort`, `sort_by`, `swap`; `String` and `Path` are `Ord`. `Directory::list` is sorted; `Path::modified` and `Path::as_cstr`. Output to a Windows console is shown as UTF-8. |

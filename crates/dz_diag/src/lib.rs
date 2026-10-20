@@ -8,7 +8,7 @@ use dz_span::{FileId, SourceMap, Span};
 
 pub mod codes;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Severity {
     Error,
     Warning,
@@ -168,6 +168,21 @@ impl Diagnostics {
 
     pub fn iter(&self) -> impl Iterator<Item = &Diagnostic> {
         self.items.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Diagnostic> {
+        self.items.iter_mut()
+    }
+
+    /// Keep the first of diagnostics that say the same thing about the same place. A macro
+    /// that copies a capture to several places would otherwise report one mistake in it
+    /// once per copy (spec §12.6).
+    pub fn dedup(&mut self) {
+        let mut seen = std::collections::HashSet::new();
+        self.items.retain(|d| {
+            let key = (d.severity, d.code, d.message.clone(), d.primary_span());
+            seen.insert(key)
+        });
     }
 
     pub fn is_empty(&self) -> bool {

@@ -18,13 +18,13 @@ the milestone.
 
 | | |
 |---|---|
-| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
+| Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M10 — macros** landed as r62: `#machine` writes M8's `ButtonState` and the editor completes inside it. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
 | Next | **M12 — the stdlib**. Order set by the user on 2026-09-15: ~~stderr~~ and ~~Time~~ (r54), ~~generic methods~~ (r55), ~~Random~~ (r56), ~~`Path` and `File`~~ (r57). The §4c list and the criterion game decide what follows |
 | Also open | **§4d — tooling that lets an LLM work in Dazzle**: a standing backlog beside the milestones (habit diagnostics, JSON diagnostics and fixes, `dz api`, `dz explain`, a primer, …). Mention it whenever asked what there is to work on |
-| Tests | 193, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
+| Tests | 232, all green but `the_windowed_interop_programs_build` where the X11 extension headers are missing — plus the `tests/errors` and `tests/expand` corpora, each run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
-| Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 54; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
+| Compiler crates | 17, plus the `dz` CLI |
+| Language spec | 0.1 **unreleased**, revision 62; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -63,10 +63,11 @@ clang++ -std=c++17 -fno-exceptions -fno-rtti -fsanitize=address -g -O1 *.cpp -o 
 | `dz_mono` | monomorphization: the instances each module needs, and their concrete bodies | §8.4 |
 | `dz_cpp` | C++17 emission + the runtime shim | §16 |
 | `dz_cppimport` | reads a C header through libclang (`clang-sys`, loaded at run time) into plain declarations; an in-process cache | §15 |
+| `dz_macro` | macro declarations checked, invocations matched and expanded, hygiene; runs between parsing and resolution | §12 |
 | `dz_driver` | the analysis pipeline as a library (`analyse`), with editor buffers able to stand in for files | §17.2 |
 | `dz_lsp` | the language server, `dz lsp`; the queries themselves are protocol-free, in `ide.rs` | §17.4 |
 
-Crates still to come are listed in spec §17.1: `dz_macro`. The VS Code
+Every crate spec §17.1 lists now exists. The VS Code
 extension is `editors/vscode`: plain JavaScript, a TextMate grammar, and a client that runs
 `dz lsp`.
 
@@ -1512,9 +1513,12 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M9** | **An unused-dependency warning can be wrong for a dependency used only through `.`**: a trait method it adds, called on a value whose type comes from elsewhere, is resolved by the checker, which does not mark the dependency used. Name the trait, or ignore the warning | `dz_resolve`, `report_unused_dependencies` |
 | **M9** | **A dependency's `pub` dependency inside a `[names]` value**: `[names]` takes a key of this module, so choosing `rl::shapes`'s `Rectangle` needs a `via` key first | `dz_resolve`, `module_names` |
 | **M12** | **An intrinsic default uses the C++ compiler's builtins**, so its column is 0 and its function is the C++ name (`bump`, not `Counter::bump`) | `dz_cpp`, `caller_intrinsic` |
-| **M10** | Macro declarations parse shallowly; bodies are kept as raw source and reproduced verbatim by the formatter | `dz_ast/src/lib.rs`, `dz_fmt/src/lib.rs` |
-| **M10** | The intrinsics `#module`, `#location` and `#expr_text` are typed but not emitted (`#file`, `#line`, `#column` and `#function` are) | `dz_cpp`, `intrinsic` |
-| **M10** | **`T::fields`**, compile-time reflection (§13.4), needs macros to iterate it; the runtime table is done | `dz_check`, `path_type_query` |
+| **M10** | **`T::fields` of a type parameter** at compile time. Macros expand before types exist (18.72), so a per-field macro takes the declaration (§13.4); iterating a parameter's fields is a loop unrolled per instance, not a macro | `dz_check`, `path_type_query` |
+| **M10** | **A `type` macro** (`-> type`) is reserved and refused (DZ0606) | `dz_macro/src/table.rs`, `macro_kind` |
+| **M10** | **User-written attribute macros** (`#[derive(…)]`): an unknown attribute is still DZ0314 (18.60). Revisit with §13.4's per-field macro as the model | `dz_resolve/src/walk.rs`, `attributes` |
+| **M10** | **A name an expansion resolves where the macro is declared must be `pub` there.** §12.4 resolves the macro's own names in its module; the expander does it by qualifying them with the caller's alias (`engine::Tally`), which reaches only what that module exports — not its private helpers, and not names it reaches through its own dependencies (`rl::…` in the engine) | `dz_macro/src/hygiene.rs`, `qualify` |
+| **M10** | **Hygiene renames by name within one expansion**, not by scope: a macro that writes one identifier as both a local and a module-level name sees both treated as the local | `dz_macro/src/hygiene.rs` |
+| **M9** | **Completion from a macro's grammar** (§17.4 item 5): inside an invocation the editor completes the captured code — a state's locals, `btn.` — but does not offer the pattern's own words (`state`) or say which part of the grammar the cursor is in | `dz_lsp/src/ide.rs`, `completion` |
 | **M12** | **An imported C or C++ enum's variants are not in the type table**: its constants are the header's to spell, and `offsetof`-style reading of their values was not needed by anything yet. Its size, backing type and name are | `dz_cpp/src/reflect.rs`, `describe_named` |
 | **M12** | **Trait objects that are not object-safe** — of a generic trait, one with associated types, or one whose methods mention `Self` — report `DZ0801`, and so does a trait object of a type whose `impl` is generic, which would need a vtable per instance. | `dz_cpp`, `object_safe`; `dz_check`, `refuse_generic_impl_object` |
 | **M12** | **Associated-type projection** (`T::Item`, `T::Output`). An associated type resolves through an implementer but cannot be named off a bounded parameter, so `for` over a generic `T: Iterate` is refused by the checker (`DZ0801`), and generic arithmetic cannot name its result type | `dz_check/src/check.rs`, `iterate_item` |
@@ -1569,6 +1573,66 @@ module-level function, `#[thread_local]` off a `static`, arguments, or a repeat 
 the specified-but-unbuilt `inline`, `align`, `packed`, `deprecated`, `export`, `derive`,
 `persist` and `raw` are DZ0316. The checker's own "`#[test]` takes no arguments" moved there.
 Tests: nine `tests/errors` programs, one per mistake and one valid.
+
+## 3b. M10 — macros (r62), done 2026-10-20
+
+Taken up by the user ahead of the rest of M12, with the syntax still unsettled: r1's sketch
+(`$name:#name`, `name!(…)`, `$xs[,] { $.f }`) predated most of the language, and the user
+asked for it to be cohesive. The decisions, all the user's (18.9 reversed, 18.72–18.77):
+one invocation spelling, `#name`, everywhere, with the intrinsics as built-in macros;
+captures written like parameters and their shapes like types (`$xs: [,]Field`, `$d: expr?`,
+`$( … )?`); `#for` / `#if` / `#error` in `expand`; expansion on syntax, before resolution;
+hygiene for locals but not declarations; and **methods on unions**, which `#machine`'s
+`step` needed to belong to its machine. The criterion was drafted from `tests/run/button`
+first and agreed before any of it was built.
+
+- **Parser** (`dz_parse/src/macros.rs`): a declaration into `syntax` rules, a `pattern` of
+  `PatElem`s and an `expand` of `TemplateNode`s; an invocation into the tokens after its
+  name, each a `MacroToken` carrying its own text. `#name` in declaration and statement
+  position runs to the end of the line outside brackets, in expression position takes one
+  bracketed group; an intrinsic's name keeps it an expression. `name!(…)` is DZ0215 and
+  still read, so the tree stays whole. **The parser can now run over an expansion**: its
+  tokens come from two sources, so `Parser` takes an optional per-token text table, and
+  `token_text(t)` became `cur_text()` / `prev_text()`. `parse_items`, `parse_stmts`,
+  `parse_expr` and `fragment_len` are the entry points `dz_macro` uses. Found on the way:
+  `#module` had never parsed, `module` being a keyword.
+- **`dz_macro`**: `table.rs` checks each declaration where it is written (a `$x` nothing
+  captured, an unknown kind, `#for` over what is not a repetition, a reserved name, `-> declaration`
+  with a hint) and builds the table of every module's macros; `matcher.rs` matches without
+  backtracking, a fragment's extent decided by the real parser; `template.rs` writes the
+  expansion — **a token the macro wrote gets the invocation's name as its span**, a captured
+  one keeps its own — and normalises line ends as the lexer would; `hygiene.rs` renames the
+  macro's locals to `name·N` (the span says which they are), qualifies names the macro's own
+  module declares with the caller's alias, and widens generated blocks to cover the captured
+  code in them, without which the editor could not find the function around the cursor.
+  `walk.rs` is the one AST walk both expansion and hygiene use.
+- **Driver**: expansion after `#if` and before resolution, then `#if` again over what it
+  wrote. In editor mode it still expands after a parse error, so a half-typed state body is
+  answered for, but its diagnostics are dropped as later phases' are. `annotate` adds the
+  "in expansion of `#name`" note to a diagnostic at an invocation's name and reports a
+  mistake copied to several places once (`Diagnostics::dedup`).
+- **Union methods** (§7.5): parsed among the variants, collected into a `StructSig` inside
+  `ItemSig::Union`, reached through `TypeTable::methods_sig` wherever methods are looked up
+  (`struct_sig` still says a union has no fields); checked, monomorphized and emitted as a
+  struct's are. In C++ the union's members are named after its variants, so inside its
+  methods a variant's struct must be written in full — `qualify_all`, found by a test that
+  takes a `&Walking` parameter.
+- **Unused bindings** (18.77): DZ0406 is now decided over every body at once, keyed by span,
+  so a parameter a macro copied into several functions is unused only if every copy is.
+- **Codegen**: `·` becomes `__m` in C++ names. `#expr_text` and `#module` are emitted.
+- **Formatter**: macro bodies and invocations stay verbatim, as before, but a comment inside
+  one was printed twice — once in the verbatim text and again after it — and a multi-line
+  expression invocation moved right on every pass. Both fixed, with a test.
+  `format_expanded` serves `dz expand`.
+- **Editor**: completion and hover inside an invocation work through the expansion's spans;
+  hover on `#name` shows the macro and goes to it; a union's methods complete.
+- **VS Code grammar**: `#dep::name`, `#for`/`#if`/`#error`, and `syntax`/`pattern`/`expand`.
+- Tests: `tests/run/machine` (the criterion, same `expected.txt` as `button`, both
+  compilers), `tests/run/macros`, `tests/run/union_methods`, `tests/expand/*.dz`
+  snapshots, 21 `tests/errors` programs (every DZ06xx code, DZ0215, DZ0216, DZ0558, a
+  mistake in captured code reported once, one in generated code with its note, the unused
+  rule, hygiene), `dz_lsp/tests/macros.rs`, `tests/parse/macros.dz`, and union methods in
+  `typed/` and `typeerrors/`.
 
 ## 4. Next: M12, the stdlib
 
@@ -2143,7 +2207,7 @@ through raylib or C today; a stdlib should not require it.
 ### Formatting and text
 
 - [ ] **`println`/`print`/`format` as library functions** — the user wants these as
-  **macros** (M10), so they wait for it. The builtin is already expanded at compile time,
+  **macros** (M10, landed in r62), so they are now unblocked. The builtin is already expanded at compile time,
   so this is about extensibility, not speed. (§3, last row): `Format`
   implemented for the built-in types and `std` types, a real `Formatter` writing into a
   `String` or a stream, and a way to mark a parameter as a format string the compiler
@@ -2211,7 +2275,7 @@ through raylib or C today; a stdlib should not require it.
 - [ ] **A release workflow** shipping `dz` with libclang beside it (§4a) — and, per the user
   on 2026-09-15, **an installer** that sets it up with libclang integrated.
 - [ ] **Fetched packages** (M16, §4a).
-- [ ] **Macros** (M10) and **hot reload** (M13), per the roadmap.
+- [x] **Macros** (M10) — r62. **Hot reload** (M13), per the roadmap.
 
 ### The criterion
 
@@ -2593,8 +2657,8 @@ Everything else is compiler work. Tick or delete a row when it lands.
   checked against a stored snapshot.
 - [ ] **Parseable test and bench output.** `dz test` / `dz bench` with `--format=json` (or
   TAP), and exit codes that tell a compile error from a failing test.
-- [ ] **`dz expand`**, with M10 (§12.6, §17.3): the post-expansion source is how anyone,
-  a model included, debugs a macro.
+- [x] **`dz expand`**, with M10 (§12.6, §17.3): the post-expansion source is how anyone,
+  a model included, debugs a macro. Hygienic names print with their `·N`.
 
 ### Language — **design**, the user's call
 
@@ -2633,6 +2697,9 @@ Everything else is compiler work. Tick or delete a row when it lands.
 | `tests/run/tests` | `dz/tests/run.rs`, `dz_test_runs_the_projects_tests` | **`#[test]` and `dz test`** (spec §19 M14): three passing tests, run by name in their own processes. Its `expected.txt` is the other half of the claim — running the *program* prints only what `main` prints, because a normal build leaves the tests out, which the test also checks by grepping the generated C++. `a_failing_test_is_reported_and_does_not_stop_the_rest` covers a panicking test: named, its own message shown, and the tests after it still run |
 | `tests/run/inherit` | " | **struct inheritance end to end** (spec §7.3, 18.32): a chain of three, inherited fields and methods, `&Derived` → `&Base` and `^Derived` → `^Base`, writing through a base reference, defaults coming from whichever type declared the field, a constructor building its base, `virtual`/`override` dispatching at runtime through a base reference, a base method calling a virtual one and landing on the override, `Base::method(self)` calling the version it replaced, `protected` reached from a derived type, and a trait implementation inherited from a base and replaced by a more specific one. Also in the `-Wall -Wextra` set |
 | `dz_driver/tests/feature_matrix/mod.rs` | `dz_driver/tests/matrix.rs`, `dz/tests/matrix.rs` | **the feature matrix**: every construct and every mistake in every context (function, method, generic function, loop and `while` bodies, `switch` arm, `or` block, `if let`, `unsafe`, nested blocks, constructor, trait method, generic struct method), with the shared types in the same module and in another. Constructs are compiled, run and value-checked, warning-clean under every compiler present; mistakes must each give exactly one code. Extend it by adding a row to any of the three lists |
+| `tests/expand/*.dz` | `dz_macro/tests/expand.rs` | **expansions as `dz expand` prints them**, snapshotted: hygiene (`tmp·N`, a shorthand field keeping its name), an invocation inside an expansion, `$e.len` as Dazzle's own `.`, optional captures and groups, `[,]` separators, `#if` on a capture and on a build flag. Each file must also check cleanly |
+| `tests/run/machine` | `dz/tests/run.rs`, `dz_lsp/tests/macros.rs` | **M10's criterion**: `tests/run/button` with its machine written through a user `#machine`, printing exactly button's `expected.txt`; and the editor inside the invocation — a state body's locals and fields in scope, `btn.` offering `Button`'s members, hover on a parameter, hover and definition on `#machine`, and the generated union's `step` offered after `state.` |
+| `tests/run/macros`, `tests/run/union_methods` | `dz/tests/run.rs` | every macro position end to end — expression, statement and declaration macros, hygiene, nested invocations, `#if DEBUG` and `#line` carried through an expansion, `#expr_text` and `#module`, and a `pub macro` from a dependency whose names resolve in its own module; and a union's methods, including a generic union's and one taking a variant's struct, which C++ would otherwise read as the union's member of that name |
 | `tests/errors/*.dz` | `dz_driver/tests/errors.rs` | **one program per mistake**, whole pipeline, each naming its exact diagnostics in `// expect:` lines (or `(none)`); exact match, so a mistake reported twice fails. The home for rules in combination: bindings inside `switch` inside `for`, moves inside loops and arms, generic unions inferred inside generics, constants built by statements. Also the **pointer-to-optional** trio, which is one rule seen from three sides: `or_moves_out_of_a_reference_to_an_optional` (a move-only payload is `DZ0402`), `or_through_a_pointer_to_an_optional` (a copyable one is accepted, `^u32?` → `&u32?` → `u32`, with `if let &c` as the by-reference half) and `let_reference_binding` (`let &c` is `DZ0207`, since only `if let`, `for` and `case` bind by reference) |
 | `tests/run/loops` | `dz/tests/run.rs` | **r37**: `for` bindings by copy, `&` and `&mut` over arrays, slices through `&mut`, structs and tuples; `indexed()` over an array, an iterator and a range with `continue`; an ECS-shaped iterator yielding `(usize, &P, &mut i32)` written through; `case (&mut c)` inside a loop over `&mut` elements; `or break` in an arm of a generic loop; inferred generic unions; move-only elements referred to and then consumed. Also in the `-Wall -Wextra` set |
 | `tests/run/switching` | " | **M8**: `switch` on integers, `char`, `bool` and `str` against literals, constants and constant arithmetic (§10.3); `break` and `continue` in an arm acting on the loop; a temporary subject and a payload written through `&mut`; a generic union built three ways and matched inside a generic function; and a `const`, a field default and a default argument built by a `switch` or `if`, with the constants written after their users. Also in the `-Wall -Wextra` set |

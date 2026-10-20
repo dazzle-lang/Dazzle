@@ -1,0 +1,69 @@
+---
+source: crates/dz_macro/tests/expand.rs
+expression: out
+---
+// Optional captures and groups, separators, repetition through a `syntax` rule, `#if` on a
+// capture and on a build flag (spec §12.3, §12.10).
+
+macro record -> decl {
+    syntax Field { $name: ident : $type: type $( = $default: expr )? }
+
+    pattern { $name: ident ( $fields: [,]Field ) $( : $doc: literal )? }
+
+    expand {
+        struct $name {
+            #for f in $fields {
+                pub $f.name: $f.type #if $f.default { = $f.default } #else { = 0 }
+            }
+
+            pub fn values(&self) -> [3]f32 {
+                return [#for f in $fields[,] { $f.name }]
+            }
+
+            pub fn about() -> str {
+                return #if $doc { $doc } #else { "no description" }
+            }
+
+            #if DEBUG {
+                pub fn checked(&self) -> bool {
+                    return true
+                }
+            }
+        }
+    }
+}
+
+struct Size {
+    pub w: f32 = 0
+    pub h: f32 = 2
+    pub d: f32 = 0.5
+    pub fn values(&self) -> [3]f32 {
+        return [w, h, d]
+    }
+    pub fn about() -> str {
+        return "a box"
+    }
+    pub fn checked(&self) -> bool {
+        return true
+    }
+}
+
+struct Plain {
+    pub a: f32 = 0
+    pub b: f32 = 0
+    pub c: f32 = 0
+    pub fn values(&self) -> [3]f32 {
+        return [a, b, c]
+    }
+    pub fn about() -> str {
+        return "no description"
+    }
+    pub fn checked(&self) -> bool {
+        return true
+    }
+}
+
+fn main() {
+    let s = Size{}
+    println("{} {} {}", s.values()[1], Size::about(), Plain::about())
+}

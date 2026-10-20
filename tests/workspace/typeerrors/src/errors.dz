@@ -1079,3 +1079,24 @@ fn reflection_in_the_wrong_form() {
     let a = typeinfo_of<i32>(1)
     let b = typeinfo(3)
 }
+
+// §7.5, 18.76: `kind` is every union's own, a union's method has nothing to dispatch to,
+// and one taking `&self` cannot replace the union or be called to change it.
+union Dial {
+    Low {}
+    High {}
+
+    pub fn kind(&self) -> i32 {
+        return 0
+    }
+
+    virtual fn turn(&self) {}
+
+    pub fn reset(&self) {
+        self = .Low{}
+    }
+}
+
+fn calls_a_missing_union_method(d: Dial) {
+    d.spin()
+}

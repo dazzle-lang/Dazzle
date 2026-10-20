@@ -28,7 +28,10 @@ functions beside the code they cover, each run in its own process, and a compari
 in `tests/bench` measuring Dazzle against hand-written C++. **CI runs on three platforms**
 (`.github/workflows/ci.yml`) and has already earned its keep: its first runs found a shim
 bug that broke `println("{}", xs.len)` on macOS, an `import cpp` that could not find the
-SDK headers there, and two test bugs that had been passing vacuously. **Now: M12, the
+SDK headers there, and two test bugs that had been passing vacuously. **M10 (macros) is
+done as r62**: `#machine` in `tests/run/machine` writes M8's `ButtonState` and the editor
+completes inside it; the notation is spec §12, settled with the user for cohesion with the
+rest of the language, and unions gained methods for it. **Now: M12, the
 stdlib** — see the "Next" row of `docs/PROGRESS.md` §1 for the current order. Later: an
 installer that bundles libclang, then fetched packages (M16). Spec §19 is the roadmap.
 
@@ -109,6 +112,9 @@ crates/
   dz_project/         dazzle.toml, source globs, the dependency graph (spec §3.1, §3.2), and
                       the standard library, `src/std/**/*.dz` — real Dazzle, module `std`,
                       one declaration to a file, listed in `STD_SOURCES` (spec §14.4)
+  dz_macro/           macro declarations checked, invocations matched and expanded with
+                      hygiene, between parsing and resolution (spec §12); a token the macro
+                      wrote has the invocation's `#name` as its span, a captured one its own
   dz_resolve/         module symbol tables, name resolution, visibility (spec §3, §4)
   dz_check/           the type checker (spec §5, §7, §9, §10, §11)
   dz_flow/            ownership, moves, drops, definite return (spec §6)
@@ -133,6 +139,8 @@ crates/dz_driver/tests/feature_matrix/
                       every construct and mistake in every context, in two layouts; run
                       by dz_driver/tests/matrix.rs (mistakes) and dz/tests/matrix.rs
                       (constructs, compiled and executed). Add a row to extend it.
+tests/expand/*.dz     macro expansions as `dz expand` prints them, snapshotted
+                      (crates/dz_macro/tests/expand.rs)
 tests/flow/*.dz       one file per ownership rule, each naming the code it must produce
                       in an `// expect:` line (crates/dz_flow/tests/flow.rs)
 tests/run/            whole programs that are compiled and executed, each with an
@@ -157,11 +165,12 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 
 ```bash
 cargo build --workspace
-cargo test --workspace           # 193 tests at M6 + M7 + M8 + M9 + M14 + M15
+cargo test --workspace           # 232 tests at M6–M11 + M14 + M15
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens
 cargo run -p dz -- parse <file.dz>   # syntax tree
+cargo run -p dz -- expand <file.dz>  # the file with every macro invocation expanded
 cargo run -p dz -- fmt --stdout <file.dz>
 cargo run -p dz -- check <dir>   # analyse only
 cargo run -p dz -- cpp   <dir>   # generate C++ into <dir>/build/cpp

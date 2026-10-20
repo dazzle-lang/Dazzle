@@ -44,6 +44,10 @@ impl<'a> Dumper<'a> {
         &self.src[span.range()]
     }
 
+    fn macro_call(&mut self, c: &MacroCall) {
+        self.line(format_args!("macro-call #{} {}", path_str(&c.path), tokens_str(&c.tokens)));
+    }
+
     // --- items ------------------------------------------------------------
 
     fn import(&mut self, i: &Import) {
@@ -97,6 +101,9 @@ impl<'a> Dumper<'a> {
                                 d.field(f);
                             }
                         });
+                    }
+                    for m in &u.methods {
+                        d.member(m);
                     }
                 });
             }
@@ -157,11 +164,24 @@ impl<'a> Dumper<'a> {
                 self.nest(|d| d.expr(&s.value));
             }
             ItemKind::Macro(m) => {
-                self.line(format_args!("macro {} -> {}", m.name.name, m.kind.name))
+                self.line(format_args!("{vis}macro {} -> {}", m.name.name, m.kind.name));
+                self.nest(|d| {
+                    for r in &m.rules {
+                        d.line(format_args!(
+                            "syntax {} {{ {} }}",
+                            r.name.name,
+                            pattern_str(&r.pattern)
+                        ));
+                    }
+                    if let Some(p) = &m.pattern {
+                        d.line(format_args!("pattern {{ {} }}", pattern_str(p)));
+                    }
+                    if let Some(t) = &m.expand {
+                        d.line(format_args!("expand {{ {} }}", template_str(t)));
+                    }
+                });
             }
-            ItemKind::MacroInvocation { name, .. } => {
-                self.line(format_args!("macro-invocation #{}", name.name))
-            }
+            ItemKind::MacroInvocation(c) => self.macro_call(c),
             ItemKind::Error => self.line(format_args!("<error item>")),
         }
     }
@@ -364,6 +384,7 @@ impl<'a> Dumper<'a> {
                 self.nest(|d| d.stmt(inner));
             }
             StmtKind::Item(item) => self.item(item),
+            StmtKind::Macro(c) => self.macro_call(c),
             StmtKind::Error => self.line(format_args!("<error stmt>")),
         }
     }
@@ -567,9 +588,7 @@ impl<'a> Dumper<'a> {
                     }
                 });
             }
-            ExprKind::MacroCall { name, .. } => {
-                self.line(format_args!("macro-call {}!", name.name))
-            }
+            ExprKind::MacroCall(c) => self.macro_call(c),
             ExprKind::Tuple(elems) => {
                 self.line(format_args!("tuple"));
                 self.nest(|d| {
@@ -616,6 +635,75 @@ pub fn cfg_cond_str(c: &CfgCond) -> String {
         CfgCondKind::Paren(x) => format!("({})", cfg_cond_str(x)),
         CfgCondKind::Error => "<error>".to_owned(),
     }
+}
+
+/// Tokens as their text, one space apart, with a line end shown as `⏎`.
+fn tokens_str(ts: &[MacroToken]) -> String {
+    let parts: Vec<&str> = ts
+        .iter()
+        .map(|t| if t.kind == dz_lex::TokenKind::Terminator { "⏎" } else { t.text.as_str() })
+        .collect();
+    parts.join(" ")
+}
+
+fn pattern_str(elems: &[PatElem]) -> String {
+    let parts: Vec<String> = elems
+        .iter()
+        .filter(|e| !matches!(e, PatElem::Token(t) if t.kind == dz_lex::TokenKind::Terminator))
+        .map(|e| match e {
+            PatElem::Token(t) => t.text.clone(),
+            PatElem::Capture { name, shape, kind, .. } => match shape {
+                CaptureShape::One => format!("${}: {}", name.name, kind.name),
+                CaptureShape::Optional => format!("${}: {}?", name.name, kind.name),
+                CaptureShape::Many { sep } => format!(
+                    "${}: [{}]{}",
+                    name.name,
+                    sep.as_ref().map_or("", |s| s.text.as_str()),
+                    kind.name
+                ),
+            },
+            PatElem::Group { elems, .. } => format!("$( {} )?", pattern_str(elems)),
+        })
+        .collect();
+    parts.join(" ")
+}
+
+fn var_str(v: &VarRef) -> String {
+    let names: Vec<&str> = v.path.iter().map(|i| i.name.as_str()).collect();
+    format!("${}", names.join("."))
+}
+
+fn template_str(nodes: &[TemplateNode]) -> String {
+    let parts: Vec<String> = nodes
+        .iter()
+        .map(|n| match n {
+            TemplateNode::Token(t) if t.kind == dz_lex::TokenKind::Terminator => "⏎".to_owned(),
+            TemplateNode::Token(t) => t.text.clone(),
+            TemplateNode::Var(v) => var_str(v),
+            TemplateNode::For { var, list, sep, body, .. } => format!(
+                "#for {} in {}{} {{ {} }}",
+                var.name,
+                var_str(list),
+                sep.as_ref().map(|s| format!("[{}]", s.text)).unwrap_or_default(),
+                template_str(body)
+            ),
+            TemplateNode::If { negated, cond, then, otherwise, .. } => format!(
+                "#if {}{} {{ {} }}{}",
+                if *negated { "!" } else { "" },
+                var_str(cond),
+                template_str(then),
+                otherwise
+                    .as_ref()
+                    .map(|o| format!(" #else {{ {} }}", template_str(o)))
+                    .unwrap_or_default()
+            ),
+            TemplateNode::Error { at, message, .. } => match at {
+                Some(v) => format!("#error({}, {})", var_str(v), message.text),
+                None => format!("#error({})", message.text),
+            },
+        })
+        .collect();
+    parts.join(" ")
 }
 
 pub fn path_str(p: &Path) -> String {

@@ -51,7 +51,7 @@ impl<'a> Parser<'a> {
         self.bump(); // `import`
 
         // `import cpp "raylib.h" as rl` (spec §15.1)
-        if self.at(TokenKind::Ident) && self.token_text(self.peek_token()) == "cpp" {
+        if self.at(TokenKind::Ident) && self.cur_text() == "cpp" {
             self.bump();
             let (header, name) = if self.at(TokenKind::Str) {
                 let span = self.bump().span;
@@ -140,20 +140,15 @@ impl<'a> Parser<'a> {
         let attrs = self.parse_attrs();
         self.skip_terminators();
 
-        // `#machine Foo(Bar) { ... }` — a declaration macro invocation (spec §12.5).
+        // `#machine Foo(…) { … }` — a macro invocation in declaration position (spec §12.5).
         if self.at(TokenKind::Hash) && self.peek_at(1) == TokenKind::Ident {
-            self.bump();
-            let name = self.parse_ident_or_error();
-            while !self.at(TokenKind::LBrace) && !self.at(TokenKind::Terminator) && !self.at_end() {
-                self.bump();
-            }
-            let body = self.consume_braced_group();
+            let call = self.parse_macro_call(false);
             return Some(Item {
                 span: self.span_from(start),
                 docs,
                 attrs,
                 vis: Vis::Private,
-                kind: ItemKind::MacroInvocation { name, body },
+                kind: ItemKind::MacroInvocation(call),
             });
         }
 
@@ -620,7 +615,7 @@ impl<'a> Parser<'a> {
                 MemberKind::Fn(self.parse_fn())
             }
             // `type Item`, `type Item : Format`, `type Item = &T` (spec §8.5)
-            TokenKind::Ident if self.token_text(self.peek_token()) == "type" => {
+            TokenKind::Ident if self.cur_text() == "type" => {
                 self.bump();
                 let name = self.parse_ident_or_error();
                 let mut bounds = Vec::new();
@@ -785,6 +780,7 @@ impl<'a> Parser<'a> {
         let name = self.parse_ident_or_error();
         let generics = self.parse_generics();
         let mut variants = Vec::new();
+        let mut methods = Vec::new();
 
         if self.expect_in(TokenKind::LBrace, "to begin the union body") {
             loop {
@@ -798,6 +794,37 @@ impl<'a> Parser<'a> {
                 let v_start = self.start();
                 let docs = self.eat_docs();
                 self.skip_terminators();
+                // A method among the variants (spec §7.5, 18.76).
+                if matches!(
+                    self.peek(),
+                    TokenKind::Pub
+                        | TokenKind::Protected
+                        | TokenKind::Fn
+                        | TokenKind::Unsafe
+                        | TokenKind::Mut
+                        | TokenKind::Hash
+                        | TokenKind::Virtual
+                        | TokenKind::Override
+                        | TokenKind::Const
+                ) {
+                    let mut m = self.parse_member(&name.name);
+                    if m.docs.is_empty() {
+                        m.docs = docs;
+                    }
+                    match m.kind {
+                        MemberKind::Fn(_) => methods.push(m),
+                        MemberKind::Error => {}
+                        _ => self.error_help(
+                            codes::BAD_UNION_MEMBER,
+                            m.span,
+                            "a union declares variants and methods, nothing else",
+                            "not a variant or a method",
+                            "a union's data is its variants; a constructor, a constant or a \
+                             field belongs on a variant's struct (spec §7.5)",
+                        ),
+                    }
+                    continue;
+                }
                 let v_name = self.parse_ident_or_error();
                 let mut fields = Vec::new();
                 let mut has_payload = false;
@@ -837,7 +864,7 @@ impl<'a> Parser<'a> {
             self.expect_in(TokenKind::RBrace, "to close the union body");
         }
 
-        UnionDecl { span: self.span_from(start), name, generics, variants }
+        UnionDecl { span: self.span_from(start), name, generics, variants, methods }
     }
 
     // --- enums ------------------------------------------------------------
@@ -915,18 +942,6 @@ impl<'a> Parser<'a> {
         self.expect_in(TokenKind::Eq, "in a `static` declaration");
         let value = self.parse_expr();
         StaticDecl { span: self.span_from(start), name, ty, value }
-    }
-
-    // --- macros (shallow until M10) ---------------------------------------
-
-    fn parse_macro_decl(&mut self) -> MacroDecl {
-        let start = self.start();
-        self.bump(); // `macro`
-        let name = self.parse_ident_or_error();
-        self.expect_in(TokenKind::Arrow, "before the macro's expansion kind");
-        let kind = self.parse_ident_or_error();
-        let body = self.consume_braced_group();
-        MacroDecl { span: self.span_from(start), name, kind, body }
     }
 }
 

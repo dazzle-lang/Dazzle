@@ -1,0 +1,20 @@
+// expect: (none)
+//
+// Locals a macro introduces are its own (spec §12.4): `swap`'s `tmp` does not collide with
+// the caller's `tmp`, and the caller's names in the captured expressions are the caller's.
+
+macro swap -> stmt {
+    pattern { $a: ident , $b: ident }
+    expand {
+        let tmp = $a
+        $a = $b
+        $b = tmp
+    }
+}
+
+fn main() {
+    let mut tmp = 1
+    let mut other = 2
+    #swap tmp, other
+    println("{} {}", tmp, other)
+}

@@ -1,0 +1,14 @@
+// expect: DZ0558
+//
+// Nothing inherits from a union, so its methods have nothing to dispatch to (spec §7.5).
+
+union Shape {
+    Circle { r: f32 }
+    Point {}
+
+    virtual fn area(&self) -> f32 {
+        return 0
+    }
+}
+
+fn main() {}

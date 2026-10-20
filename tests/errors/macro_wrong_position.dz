@@ -1,0 +1,15 @@
+// expect: DZ0603
+//
+// A `decl` macro goes where a declaration goes; an expression is not that (spec §12.5).
+
+macro constant -> decl {
+    pattern { $name: ident = $value: expr }
+    expand { const $name: i32 = $value }
+}
+
+#constant ANSWER = 42
+
+fn main() {
+    let x = #constant(ANSWER = 1)
+    println("{} {}", ANSWER, x)
+}

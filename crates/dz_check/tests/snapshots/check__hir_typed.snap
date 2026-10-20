@@ -13368,3 +13368,46 @@ body fn reflect_on_a_type -> bool
           field #2: usize
             local _0 info: &TypeInfo
           int 0: usize
+body method Lamp::dark -> Lamp
+  block
+    return: !
+      union-variant Lamp#0: Lamp
+body method Lamp::level -> i32
+  param _0 self: Lamp
+  block
+    return: !
+      switch: i32
+        local _0 self: Lamp
+        case #0 bind _
+          block
+            int 0: i32
+        case #1 bind _1 o
+          block
+            field #0: i32
+              local _1 o: Lamp::On
+body method Lamp::flip -> void
+  param _0 self: Lamp
+  block
+    let _1 next: Lamp
+      switch: Lamp
+        local _0 self: Lamp
+        case #0 bind _
+          block
+            union-variant Lamp#1: Lamp
+              #0
+                int 1: i32
+        case #1 bind _
+          block
+            union-variant Lamp#0: Lamp
+    assign =
+      local _0 self: Lamp
+      local _1 next: Lamp
+body fn union_methods -> i32
+  block
+    let _0 l: Lamp
+      call-assoc Lamp::dark: Lamp
+    call-method Lamp::flip: void
+      local _0 l: Lamp
+    return: !
+      call-method Lamp::level: i32
+        local _0 l: Lamp

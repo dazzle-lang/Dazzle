@@ -1,0 +1,13 @@
+// expect: DZ0602
+//
+// An invocation that does not fit the pattern is an error at the first token that does
+// not fit, saying what the pattern expected (spec §12.3, §12.6).
+
+macro pair -> expr {
+    pattern { ( $a: expr , $b: expr ) }
+    expand { $a + $b }
+}
+
+fn main() {
+    println("{}", #pair(1; 2))
+}

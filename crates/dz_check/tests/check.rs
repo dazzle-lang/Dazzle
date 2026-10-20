@@ -194,6 +194,8 @@ fn every_rule_has_a_failing_case() {
         STATIC_INITIALISER,
         // r55 — generic methods (spec §8.1).
         GENERIC_METHOD_NOT_ALLOWED,
+        // r62 — a union's methods (spec §7.5, 18.76).
+        RESERVED_UNION_METHOD,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

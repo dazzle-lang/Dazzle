@@ -445,7 +445,7 @@ fn describe_named(
                 }
             }
         }
-        Some(ItemSig::Union { variants }) => {
+        Some(ItemSig::Union { variants, .. }) => {
             row.kind = "Union";
             row.elem = e.reflect_id(&Ty::Int(IntTy::U32));
             row.tag_offset = format!("offsetof({cpp}, kind)");

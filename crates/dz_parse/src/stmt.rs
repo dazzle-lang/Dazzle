@@ -47,7 +47,7 @@ impl<'a> Parser<'a> {
         Block { span: self.span_from(start), stmts }
     }
 
-    fn parse_stmt(&mut self) -> Stmt {
+    pub(crate) fn parse_stmt(&mut self) -> Stmt {
         let start = self.start();
         let docs = self.eat_docs();
         self.skip_terminators();
@@ -93,6 +93,11 @@ impl<'a> Parser<'a> {
                     StmtKind::Error
                 }
             },
+            // `#trace "here"` — an invocation in statement position, to the end of the line
+            // (spec §12.5). `#location` is an intrinsic, and so an expression.
+            TokenKind::Hash if self.at_macro_call() => {
+                StmtKind::Macro(self.parse_macro_call(false))
+            }
             // `#[attr] fn ...` nested in a body, but `#location` is an expression.
             TokenKind::Hash if self.peek_at(1) == TokenKind::LBracket => match self.parse_item() {
                 Some(item) => StmtKind::Item(Box::new(item)),
@@ -178,8 +183,7 @@ impl<'a> Parser<'a> {
         let start = self.start();
         let kind = match self.peek() {
             TokenKind::Ident => {
-                let t = self.peek_token();
-                if self.token_text(t) == "_" {
+                if self.cur_text() == "_" {
                     self.bump();
                     PatKind::Wild
                 } else {

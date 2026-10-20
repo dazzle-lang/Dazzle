@@ -11,7 +11,8 @@
 //! Every layout decision is a pure function of the AST and the current indent, which is
 //! what makes formatting idempotent.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 
 use dz_ast::*;
 use dz_lex::{Comment, CommentKind};
@@ -22,11 +23,27 @@ const MAX_WIDTH: usize = 100;
 const INDENT: &str = "    ";
 
 pub fn format(file: &SourceFile, ast: &SourceFileAst, comments: &[Comment]) -> String {
+    format_expanded(file, ast, comments, &HashSet::new())
+}
+
+/// [`format`], for a tree in which macro invocations have been expanded (`dz expand`,
+/// spec §12.6). Every token a macro wrote is positioned at its invocation's name, so each
+/// of `synthetic` — those names' offsets — stands for many nodes. A blank line written
+/// before the invocation is kept once, before the first of them, rather than before each.
+pub fn format_expanded(
+    file: &SourceFile,
+    ast: &SourceFileAst,
+    comments: &[Comment],
+    synthetic: &HashSet<u32>,
+) -> String {
     let cursor = Cell::new(0);
+    let consumed = RefCell::new(HashSet::new());
     let mut p = Printer {
         file,
         src: file.text(),
         comments,
+        synthetic,
+        consumed: &consumed,
         next_comment: &cursor,
         out: String::new(),
         indent: 0,
@@ -44,6 +61,10 @@ struct Printer<'a> {
     /// block inside an expression — an `if` body, an `or { … }` — so a comment written in
     /// such a block is placed there, rather than left queued until after the block.
     next_comment: &'a Cell<usize>,
+    /// Offsets that stand for many nodes, and those already asked about (see
+    /// [`format_expanded`]).
+    synthetic: &'a HashSet<u32>,
+    consumed: &'a RefCell<HashSet<u32>>,
     out: String,
     indent: usize,
     pending_blank: bool,
@@ -175,6 +196,9 @@ impl<'a> Printer<'a> {
 
     /// Did the author leave a blank line immediately before `offset`?
     fn blank_line_before(&self, offset: u32) -> bool {
+        if self.synthetic.contains(&offset) && !self.consumed.borrow_mut().insert(offset) {
+            return false;
+        }
         let upto = &self.src[..offset as usize];
         let trimmed = upto.trim_end_matches([' ', '\t']);
         let mut newlines = 0;
@@ -373,6 +397,11 @@ impl<'a> Printer<'a> {
                     }
                     self.emit_trailing_comment(v.span.end);
                 }
+                // Methods follow the variants (spec §7.5), as they are in the tree.
+                if !u.methods.is_empty() {
+                    self.pending_blank = true;
+                    self.members(&u.methods);
+                }
                 self.indent -= 1;
                 self.line("}");
             }
@@ -443,22 +472,38 @@ impl<'a> Printer<'a> {
                 self.line(&s);
                 self.emit_trailing_comment(item.span.end);
             }
-            // Macro bodies are not parsed until M10, so they are reproduced verbatim.
+            // A macro's body and an invocation are token patterns whose layout is the
+            // author's — a pattern's line breaks show the grammar's shape, and an
+            // invocation's follow whatever syntax its macro invents — so both are kept as
+            // written (spec §12).
             ItemKind::Macro(m) => {
                 let body = self.text(m.body).to_owned();
-                let s = format!("macro {} -> {} {}", m.name.name, m.kind.name, body);
+                let s = format!("{vis}macro {} -> {} {}", m.name.name, m.kind.name, body);
                 self.verbatim_block(&s);
+                self.skip_comments_before(m.body.end);
             }
-            ItemKind::MacroInvocation { name, body } => {
-                let raw = self.text(Span { start: item.span.start, end: body.end }).to_owned();
+            ItemKind::MacroInvocation(c) => {
+                let raw = self.text(c.span).to_owned();
                 self.verbatim_block(&raw);
-                let _ = name;
+                self.skip_comments_before(c.span.end);
+                self.emit_trailing_comment(c.span.end);
             }
             ItemKind::Error => self.line("/* <error> */"),
         }
     }
 
     /// Emit multi-line raw source, re-indenting only its first line.
+    /// Pass over the comments before `end` without printing them: they are inside text
+    /// just reproduced as written, which already holds them.
+    fn skip_comments_before(&self, end: u32) {
+        while let Some(c) = self.comments.get(self.next_comment.get()) {
+            if c.span.start >= end {
+                break;
+            }
+            self.next_comment.set(self.next_comment.get() + 1);
+        }
+    }
+
     fn verbatim_block(&mut self, text: &str) {
         self.flush_blank();
         let mut lines = text.lines();
@@ -650,6 +695,12 @@ impl<'a> Printer<'a> {
         match &s.kind {
             StmtKind::CfgIf(c) => {
                 self.cfg_if(c, false, &mut |f, x| f.stmt(x));
+            }
+            StmtKind::Macro(c) => {
+                let raw = self.text(c.span).to_owned();
+                self.verbatim_block(&raw);
+                self.skip_comments_before(c.span.end);
+                self.emit_trailing_comment(c.span.end);
             }
             StmtKind::Let(l) => {
                 let ty = l.ty.as_ref().map(|t| format!(": {}", self.ty(t))).unwrap_or_default();
@@ -944,8 +995,25 @@ impl<'a> Printer<'a> {
                     format!("#{}({})", name.name, a.join(", "))
                 }
             }
-            ExprKind::MacroCall { name, body } => {
-                format!("{}!{}", name.name, self.text(*body))
+            ExprKind::MacroCall(c) => {
+                self.skip_comments_before(c.span.end);
+                // As written, its later lines made relative to the line it starts on: the
+                // statement around it indents every line it prints, so keeping them
+                // absolute would push them further right on each pass.
+                let start = c.span.start as usize;
+                let line_start = self.src[..start].rfind('\n').map_or(0, |n| n + 1);
+                let base: String = self.src[line_start..start]
+                    .chars()
+                    .take_while(|ch| *ch == ' ' || *ch == '\t')
+                    .collect();
+                let text = self.text(c.span);
+                let mut lines = text.split('\n');
+                let mut out = lines.next().unwrap_or("").to_owned();
+                for l in lines {
+                    out.push('\n');
+                    out.push_str(l.strip_prefix(base.as_str()).unwrap_or(l));
+                }
+                out
             }
             ExprKind::Tuple(elems) => {
                 let e: Vec<String> = elems.iter().map(|x| self.expr(x)).collect();
@@ -997,6 +1065,8 @@ impl<'a> Printer<'a> {
             file: self.file,
             src: self.src,
             comments: self.comments,
+            synthetic: self.synthetic,
+            consumed: self.consumed,
             next_comment: self.next_comment,
             out: String::new(),
             indent: 0,
