@@ -196,6 +196,8 @@ fn every_rule_has_a_failing_case() {
         GENERIC_METHOD_NOT_ALLOWED,
         // r63 — a union's methods (spec §7.5, 18.78).
         RESERVED_UNION_METHOD,
+        // r62 — arguments passed by name (spec §7.2).
+        BAD_NAMED_ARG,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

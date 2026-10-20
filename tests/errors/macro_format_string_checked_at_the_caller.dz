@@ -1,0 +1,15 @@
+// expect: DZ0526
+//
+// A format string handed on by a macro is checked where the caller wrote it, against the
+// arguments the caller wrote (spec §12.9).
+
+macro log -> stmt {
+    syntax Arg { $value: expr }
+    pattern { $fmt: literal $( , $args: [,]Arg )? }
+    expand { println($fmt #for a in $args { , $a.value }) }
+}
+
+fn main() {
+    let hp = 3
+    #log "one {} two {}", hp
+}

@@ -814,6 +814,13 @@ pub enum ExprKind {
     /// `#max(a, b)` — replaced by its expansion before resolution (spec §12.5).
     MacroCall(MacroCall),
     Tuple(Vec<Expr>),
+    /// `allocator = Allocators::Temp` — an argument passed by name. Parsed only inside a
+    /// call's argument list; only a parameter after a variadic one is passed this way
+    /// (spec §7.2).
+    Named {
+        name: Ident,
+        value: Box<Expr>,
+    },
     Error,
 }
 

@@ -831,6 +831,7 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
             "breakout_sim",
             "text",
             "process",
+            "formatting",
         ],
         |fixture| check_warning_clean(cxx, fixture),
     );
