@@ -188,6 +188,32 @@ fn sum(xs: ..i32) -> i32
       int 0
 fn tell(prefix: str, things: ..&Describe)
   block
+attr format
+fn note(fmt: str, args: ..&Format, level: i32 = ..., loc: SourceLocation = ...)
+  param-default level
+    int 0
+  param-default loc
+    intrinsic #location
+  block
+fn named()
+  block
+    call
+      path note
+      str "{} {}"
+      int 1
+      int 2
+      named level
+        int 3
+    call
+      path note
+      str "x"
+      named loc
+        call
+          path here
+      named level
+        binary +
+          int 1
+          int 2
 pub struct Player
   field name: str tag `json:"player_name"`
     default

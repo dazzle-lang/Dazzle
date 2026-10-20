@@ -629,7 +629,11 @@ impl<'a, 'w> Walker<'a, 'w> {
                 MemberKind::Const(_) => "an associated constant",
                 _ => "a member",
             };
-            self.attributes(&m.attrs, AttrTarget::Other(what));
+            let target = match &m.kind {
+                MemberKind::Fn(_) => AttrTarget::Method,
+                _ => AttrTarget::Other(what),
+            };
+            self.attributes(&m.attrs, target);
             let public = owner.is_some() && (is_trait || m.vis == Vis::Public);
             let exported = |name: &str| {
                 public.then(|| format!("{}::{name}", owner.map(String::as_str).unwrap_or("")))
@@ -895,9 +899,10 @@ impl<'a, 'w> Walker<'a, 'w> {
                     self.expr(s);
                 }
             }
-            ExprKind::Ref { expr, .. } | ExprKind::Deref(expr) | ExprKind::Move(expr) => {
-                self.expr(expr)
-            }
+            ExprKind::Ref { expr, .. }
+            | ExprKind::Deref(expr)
+            | ExprKind::Move(expr)
+            | ExprKind::Named { value: expr, .. } => self.expr(expr),
             ExprKind::Or { expr, clause } => {
                 self.expr(expr);
                 match clause.as_ref() {
@@ -1054,7 +1059,7 @@ impl<'a, 'w> Walker<'a, 'w> {
             ("persist", "§17.6"),
             ("raw", "§7.5"),
         ];
-        const KNOWN: &[&str] = &["test", "bench", "thread_local"];
+        const KNOWN: &[&str] = &["test", "bench", "thread_local", "format"];
         let file = self.file;
         for (i, a) in attrs.iter().enumerate() {
             let name = a.name.name.as_str();
@@ -1084,7 +1089,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                     }
                     (_, Some(s)) => d.with_help(format!("did you mean `#[{s}]`?")),
                     (_, None) => d.with_help(
-                        "the attributes are `#[test]`, `#[bench]` and `#[thread_local]` \
+                        "the attributes are `#[test]`, `#[bench]`, `#[thread_local]` and `#[format]` \
                          (spec §12.8)",
                     ),
                 };
@@ -1106,11 +1111,17 @@ impl<'a, 'w> Walker<'a, 'w> {
                 "test" | "bench" => {
                     (matches!(target, AttrTarget::ModuleFn), "a function at module level")
                 }
+                // Whether the function's parameters fit is the checker's to say (§12.9).
+                "format" => (
+                    matches!(target, AttrTarget::ModuleFn | AttrTarget::Method),
+                    "a function at module level or in a type",
+                ),
                 _ => (matches!(target, AttrTarget::Static), "a `static`"),
             };
             if !fits {
                 let on = match target {
                     AttrTarget::ModuleFn => "a function",
+                    AttrTarget::Method => "a method",
                     AttrTarget::Static => "a static",
                     AttrTarget::Other(what) => what,
                 };
@@ -1527,6 +1538,8 @@ impl<'a, 'w> Walker<'a, 'w> {
 #[derive(Clone, Copy)]
 enum AttrTarget {
     ModuleFn,
+    /// A function declared in a type: a method or an associated function.
+    Method,
     Static,
     /// Anything else, described for a message.
     Other(&'static str),

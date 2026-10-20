@@ -723,6 +723,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     ret_cast: false,
                     dispatch: Dispatch::Static,
                     variadic,
+                    format: None,
                     params,
                     ret: Ty::Void,
                     fallible: false,
@@ -889,6 +890,9 @@ struct Body<'a, 'c> {
     /// `continue` and the labels they name (spec §10.2).
     loops: Vec<LoopFrame>,
     next_loop: u32,
+    /// In a `#[format]` function, its format-string parameter and its variadic one, by
+    /// name: passed on together, they need no checking here (spec §12.9).
+    format_params: Option<(String, String)>,
     hir: BodyBuilder,
 }
 
@@ -930,6 +934,7 @@ impl<'a, 'c> Body<'a, 'c> {
             self_local_ty: None,
             loops: Vec::new(),
             next_loop: 0,
+            format_params: None,
             hir,
         }
     }
@@ -1288,6 +1293,9 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                 }
             }
+        }
+        if let (Some(fmt), Some(v)) = (sig.format, sig.variadic) {
+            self.format_params = Some((sig.params[fmt].name.clone(), sig.params[v].name.clone()));
         }
         for (p, ps) in f.params.iter().zip(&sig.params) {
             let ty = self.subst(&ps.ty);
@@ -2553,6 +2561,20 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.mk(e, ty, hir::ExprKind::NoneOpt)
             }
             ExprKind::Path(p) => self.path_expr(p, e, expected),
+            // Every call that takes an argument by name consumes it before getting here.
+            ExprKind::Named { name, value } => {
+                self.cx.error_help(
+                    codes::BAD_NAMED_ARG,
+                    name.span,
+                    format!("`{}` is passed by name, and nothing here takes it", name.name),
+                    "not a parameter passed by name",
+                    "only a parameter after a variadic one is passed by name; pass this one by \
+                     position (spec §7.2)",
+                );
+                // Reported once: an error type matches whatever the argument was wanted as.
+                self.expr(value, None);
+                self.mk(e, Ty::Error, hir::ExprKind::Error)
+            }
             ExprKind::Tuple(elems) => {
                 let checked: Vec<Checked> = match expected.map(|t| self.subst(t)) {
                     Some(Ty::Tuple(want)) if want.len() == elems.len() => {
@@ -5149,8 +5171,8 @@ impl<'a, 'c> Body<'a, 'c> {
         span: Span,
         name: &str,
     ) -> Vec<hir::ExprId> {
-        if sig.variadic {
-            return self.check_variadic_args(sig, args, span, name);
+        if let Some(at) = sig.variadic {
+            return self.check_variadic_args(sig, at, args, span, name);
         }
         let required = sig.required();
         let total = sig.params.len();
@@ -5189,11 +5211,34 @@ impl<'a, 'c> Body<'a, 'c> {
     fn check_variadic_args(
         &mut self,
         sig: &FnSig,
+        fixed: usize,
         args: &[Expr],
         span: Span,
         name: &str,
     ) -> Vec<hir::ExprId> {
-        let fixed = sig.params.len() - 1;
+        let split = args
+            .iter()
+            .position(|a| matches!(a.kind, ExprKind::Named { .. }))
+            .unwrap_or(args.len());
+        let (args, named) = args.split_at(split);
+        let mut ids = self.variadic_positional(sig, fixed, args, span, name);
+        // A call already reported short of its variadic slice has no place for the rest.
+        let complete = ids.len() == fixed + 1;
+        if let (Some(fmt_at), true) = (sig.format, complete) {
+            self.check_format_call(sig, fmt_at, args, &ids);
+        }
+        self.named_args(sig, fixed, named, span, name, complete.then_some(&mut ids));
+        ids
+    }
+
+    fn variadic_positional(
+        &mut self,
+        sig: &FnSig,
+        fixed: usize,
+        args: &[Expr],
+        span: Span,
+        name: &str,
+    ) -> Vec<hir::ExprId> {
         let required = sig.params[..fixed].iter().filter(|p| !p.has_default).count();
         let supplied_fixed = args.len().min(fixed);
         if args.len() < required {
@@ -5291,6 +5336,100 @@ impl<'a, 'c> Body<'a, 'c> {
         ids
     }
 
+    /// The arguments after a variadic call's own, which can only be passed by name —
+    /// `String::format("{}", n, allocator = a)` — since a positional one would be taken as
+    /// one more variadic argument (spec §7.2). Each is pushed onto `ids` in parameter order.
+    /// One left out before a later one given gets its default as a `DefaultArg`; those left
+    /// out at the end are filled in by C++, as any trailing default is.
+    fn named_args(
+        &mut self,
+        sig: &FnSig,
+        variadic: usize,
+        named: &[Expr],
+        span: Span,
+        fname: &str,
+        ids: Option<&mut Vec<hir::ExprId>>,
+    ) {
+        let kw = &sig.params[variadic + 1..];
+        let mut given: Vec<Option<hir::ExprId>> = vec![None; kw.len()];
+        for a in named {
+            let ExprKind::Named { name, value } = &a.kind else {
+                self.cx.error_help(
+                    codes::BAD_NAMED_ARG,
+                    a.span,
+                    "an argument without a name after one with a name",
+                    "positional argument after a named one",
+                    "arguments passed by name come last — pass this one before them \
+                     (spec §7.2)",
+                );
+                self.expr(a, None);
+                continue;
+            };
+            let Some(k) = kw.iter().position(|p| p.name == name.name) else {
+                let help = if sig.params[..=variadic].iter().any(|p| p.name == name.name) {
+                    format!(
+                        "`{}` comes before `{fname}`'s variadic parameter, so it is passed by \
+                         position; only the parameters after it are passed by name (spec §7.2)",
+                        name.name
+                    )
+                } else if kw.is_empty() {
+                    format!("`{fname}` takes nothing by name (spec §7.2)")
+                } else {
+                    let names: Vec<String> = kw.iter().map(|p| format!("`{}`", p.name)).collect();
+                    format!("`{fname}` takes {} by name (spec §7.2)", names.join(", "))
+                };
+                self.cx.error_help(
+                    codes::BAD_NAMED_ARG,
+                    name.span,
+                    format!("`{fname}` has no parameter `{}` to pass by name", name.name),
+                    "no such parameter",
+                    help,
+                );
+                self.expr(value, None);
+                continue;
+            };
+            let want = self.subst(&kw[k].ty);
+            let c = self.expr(value, Some(&want));
+            self.expect(&want, &c.ty, value.span);
+            if given[k].is_some() {
+                self.cx.error(
+                    codes::BAD_NAMED_ARG,
+                    name.span,
+                    format!("`{}` is passed twice", name.name),
+                    "already passed",
+                );
+                continue;
+            }
+            given[k] = Some(c.id);
+        }
+        let Some(ids) = ids else { return };
+        if let Some(k) = (0..kw.len()).find(|&k| given[k].is_none() && !kw[k].has_default) {
+            self.cx.error_help(
+                codes::BAD_NAMED_ARG,
+                span,
+                format!("`{fname}` needs `{}` passed by name", kw[k].name),
+                format!("no `{} = …`", kw[k].name),
+                format!(
+                    "it comes after the variadic parameter and has no default — add `{} = …` \
+                     (spec §7.2)",
+                    kw[k].name
+                ),
+            );
+            return;
+        }
+        let end = given.iter().rposition(Option::is_some).map_or(0, |l| l + 1);
+        for (k, g) in given.iter().enumerate().take(end) {
+            match g {
+                Some(id) => ids.push(*id),
+                None => {
+                    let ty = self.subst(&kw[k].ty);
+                    let index = variadic + 1 + k;
+                    ids.push(self.hir.expr(span, ty, hir::ExprKind::DefaultArg(index)).id);
+                }
+            }
+        }
+    }
+
     /// One argument of a variadic call, checked against its element type. A value given
     /// where a read-only trait object is wanted is borrowed for the call — `log("{}", hp)`
     /// with `args: ..^Format` refers to `hp` — since arguments of different types can only
@@ -5308,6 +5447,12 @@ impl<'a, 'c> Body<'a, 'c> {
             let is_pointer = matches!(c.ty, Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. });
             if !is_pointer && !c.ty.is_wildcard() {
                 let borrowed = Ty::Ref { mutable: false, inner: Rc::new(c.ty.defaulted()) };
+                let want = self.subst(elem);
+                let have = self.subst(&borrowed);
+                if !assignable(&want, &have) && !self.base_convertible(&want, &have) {
+                    self.not_implemented_for_variadic(&want, have.peeled_refs(), a.span);
+                    return c.id;
+                }
                 self.expect(elem, &borrowed, a.span);
                 return self
                     .hir
@@ -5320,6 +5465,35 @@ impl<'a, 'c> Body<'a, 'c> {
         let c = self.expr(a, Some(elem));
         self.expect(elem, &c.ty, a.span);
         c.id
+    }
+
+    /// A value given where a variadic `..&Trait` wants one of the trait's implementers,
+    /// said as what is missing — `Plain` does not implement `Format` — rather than as two
+    /// reference types that differ (spec §7.2, §7.6).
+    fn not_implemented_for_variadic(&mut self, want: &Ty, have: &Ty, span: Span) {
+        let tr = pointee(want).map(|t| self.cx.name_of(t)).unwrap_or_default();
+        let shown = self.cx.name_of(have);
+        let format_trait = self.cx.res.lookup(self.cx.res.prelude, "Format");
+        let is_format =
+            matches!(pointee(want), Some(Ty::Named { sym, .. }) if Some(*sym) == format_trait);
+        let (code, help) = if is_format {
+            (
+                codes::NOT_FORMATTABLE,
+                format!(
+                    "write `impl Format for {shown}` to give it a way to be written, or format \
+                     the fields you mean (spec §12.9)"
+                ),
+            )
+        } else {
+            (codes::TYPE_MISMATCH, format!("add `impl {tr} for {shown}` (spec §7.6)"))
+        };
+        self.cx.error_help(
+            code,
+            span,
+            format!("`{shown}` does not implement `{tr}`"),
+            format!("not a `{tr}`"),
+            help,
+        );
     }
 
     /// The declaration a path's *owner* segment names: the item itself for `f`, and the
@@ -5380,7 +5554,7 @@ impl<'a, 'c> Body<'a, 'c> {
     /// and not a `printf` mismatch.
     fn check_format(&mut self, name: &str, args: &[Expr], checked: &[Checked], call: Span) {
         let at = match name {
-            "println" | "print" | "eprintln" | "eprint" | "format" | "panic" => 0,
+            "println" | "print" | "eprintln" | "eprint" | "panic" => 0,
             // `error(code?, fmt, args…)`: the code is optional and comes first (§9.1).
             "error" => usize::from(
                 checked.len() > 1
@@ -5398,29 +5572,116 @@ impl<'a, 'c> Body<'a, 'c> {
             );
             return;
         };
-        let raw = match &fmt.kind {
-            ExprKind::Str(t) => t.strip_prefix('"').and_then(|t| t.strip_suffix('"')),
-            ExprKind::RawStr(t) => t.strip_prefix('`').and_then(|t| t.strip_suffix('`')),
-            _ => None,
+        let Some(raw) = format_literal(fmt) else {
+            self.not_a_format_literal(fmt);
+            return;
         };
-        let Some(raw) = raw else {
+        let Some(holes) = self.format_holes(fmt, raw) else { return };
+
+        let mut values = &checked[(at + 1).min(checked.len())..];
+        // `panic("…", args…, loc)`: a final `SourceLocation` is where the panic reports it
+        // happened, not something to write — which is how `assert` names its caller's line
+        // (spec §9.8, §12.7). It cannot be mistaken for a value, since it has no format.
+        if name == "panic" && values.last().is_some_and(|v| is_source_location(&v.ty)) {
+            values = &values[..values.len() - 1];
+        }
+        let values: Vec<(Span, Ty)> = values
+            .iter()
+            .zip(&args[at + 1..])
+            .map(|(v, a)| (a.span, self.subst(&v.ty).defaulted()))
+            .collect();
+        self.check_format_values(&holes, &values, fmt.span, true);
+    }
+
+    /// A call of a `#[format]` function (spec §12.9): its format string checked against the
+    /// variadic arguments after it, as a builtin's is. Each of those has already been
+    /// checked to implement `Format`; what is left is the count and each `{:spec}`. Inside
+    /// another `#[format]` function, its own format string may be passed on with its own
+    /// arguments spread after it — `String::format(fmt, ..args)` — since the call that
+    /// reached it was checked.
+    fn check_format_call(
+        &mut self,
+        sig: &FnSig,
+        fmt_at: usize,
+        args: &[Expr],
+        ids: &[hir::ExprId],
+    ) {
+        let Some(fmt) = args.get(fmt_at) else { return };
+        let rest = &args[fmt_at + 1..];
+        let Some(raw) = format_literal(fmt) else {
+            let forwarded = self.own_format_param(fmt)
+                && matches!(rest, [only] if spread(only).is_some_and(|s| self.own_variadic_param(s)));
+            if !forwarded {
+                self.not_a_format_literal(fmt);
+            }
+            return;
+        };
+        let Some(holes) = self.format_holes(fmt, raw) else { return };
+        // `f("{}", ..xs)` gives a slice whose length is not known until it runs.
+        if rest.iter().any(|a| spread(a).is_some()) {
             self.cx.error_help(
                 codes::BAD_FORMAT_STRING,
                 fmt.span,
-                "the format string must be a string literal",
-                "not a literal",
-                "it is parsed at compile time, which is what makes a mismatch an error rather \
-                 than garbage — write `println(\"{}\", value)` (spec §12.9)",
+                "a format string cannot be checked against a spread",
+                "how many arguments `..` gives is not known here",
+                "pass the values one by one, so each `{}` has its own (spec §12.9)",
             );
             return;
+        }
+        let Some(&array) = ids.get(sig.variadic.unwrap_or(usize::MAX)) else { return };
+        let elems: Vec<hir::ExprId> = match self.hir.kind(array) {
+            hir::ExprKind::ArrayLit(elems) => elems.clone(),
+            _ => Vec::new(),
         };
+        let values: Vec<(Span, Ty)> =
+            elems.iter().zip(rest).map(|(e, a)| (a.span, self.hir.ty(*e).clone())).collect();
+        self.check_format_values(&holes, &values, fmt.span, false);
+    }
+
+    /// Whether `e` names the format-string parameter of the `#[format]` function being
+    /// checked.
+    fn own_format_param(&self, e: &Expr) -> bool {
+        self.format_params.as_ref().is_some_and(|(fmt, _)| self.names_param(e, fmt))
+    }
+
+    /// Whether `e` names the variadic parameter of the `#[format]` function being checked.
+    fn own_variadic_param(&self, e: &Expr) -> bool {
+        self.format_params.as_ref().is_some_and(|(_, args)| self.names_param(e, args))
+    }
+
+    /// Whether `e` is a bare name that is a parameter of the function being checked, and
+    /// not a local of the same name declared since.
+    fn names_param(&self, e: &Expr, name: &str) -> bool {
+        let ExprKind::Path(p) = &e.kind else { return false };
+        if p.segments.len() != 1 || p.segments[0].name.name != name {
+            return false;
+        }
+        matches!(self.local(name), Some(Local { slot: Slot::Local(id), .. })
+            if self.hir.local_kind(*id) == LocalKind::Param)
+    }
+
+    fn not_a_format_literal(&mut self, fmt: &Expr) {
+        self.cx.error_help(
+            codes::BAD_FORMAT_STRING,
+            fmt.span,
+            "the format string must be a string literal",
+            "not a literal",
+            "it is parsed at compile time, which is what makes a mismatch an error rather \
+             than garbage — write `println(\"{}\", value)` (spec §12.9)",
+        );
+    }
+
+    /// The `{}` and `{:spec}` placeholders of a format string literal, each with where it
+    /// is in the file and its spec — `None` for a name written where a spec goes, which is
+    /// reported here. `None` altogether for an unbalanced brace, also reported.
+    fn format_holes(&mut self, fmt: &Expr, raw: &str) -> Option<Vec<(Span, Option<String>)>> {
         // Offsets inside the literal map straight onto the file: the AST keeps the exact
         // source text, and no escape sequence contains a brace.
         let base = fmt.span.start + 1;
         let span_of = |s: usize, e: usize| Span { start: base + s as u32, end: base + e as u32 };
 
         let bytes = raw.as_bytes();
-        let mut holes: Vec<(usize, usize, &str)> = Vec::new();
+        let mut holes = Vec::new();
         let mut i = 0;
         while i < bytes.len() {
             match bytes[i] {
@@ -5435,9 +5696,28 @@ impl<'a, 'c> Body<'a, 'c> {
                             "this `{` is never closed",
                             "write `{{` for a literal brace (spec §12.9)",
                         );
-                        return;
+                        return None;
                     };
-                    holes.push((i, i + 2 + rel, &raw[i + 1..i + 1 + rel]));
+                    let here = span_of(i, i + 2 + rel);
+                    let inner = &raw[i + 1..i + 1 + rel];
+                    let spec = if inner.is_empty() {
+                        Some(String::new())
+                    } else if let Some(sp) = inner.strip_prefix(':') {
+                        Some(sp.to_owned())
+                    } else {
+                        self.cx.error_help(
+                            codes::BAD_FORMAT_STRING,
+                            here,
+                            "format strings do not interpolate names",
+                            "not a placeholder",
+                            format!(
+                                "write `{{}}` and pass `{inner}` as an argument — interpolation \
+                                 is deliberately absent (spec §12.9)"
+                            ),
+                        );
+                        None
+                    };
+                    holes.push((here, spec));
                     i += 2 + rel;
                 }
                 b'}' => {
@@ -5448,68 +5728,62 @@ impl<'a, 'c> Body<'a, 'c> {
                         "nothing opened this",
                         "write `}}` for a literal brace (spec §12.9)",
                     );
-                    return;
+                    return None;
                 }
                 _ => i += 1,
             }
         }
+        Some(holes)
+    }
 
-        let mut values = &checked[(at + 1).min(checked.len())..];
-        // `panic("…", args…, loc)`: a final `SourceLocation` is where the panic reports it
-        // happened, not something to write — which is how `assert` names its caller's line
-        // (spec §9.8, §12.7). It cannot be mistaken for a value, since it has no format.
-        if name == "panic" && values.last().is_some_and(|v| is_source_location(&v.ty)) {
-            values = &values[..values.len() - 1];
-        }
-        for (k, (s, e, inner)) in holes.iter().enumerate() {
-            let here = span_of(*s, *e);
-            let spec = if inner.is_empty() {
-                ""
-            } else if let Some(sp) = inner.strip_prefix(':') {
-                sp
-            } else {
-                self.cx.error_help(
-                    codes::BAD_FORMAT_STRING,
-                    here,
-                    "format strings do not interpolate names",
-                    "not a placeholder",
-                    format!(
-                        "write `{{}}` and pass `{inner}` as an argument — interpolation is \
-                         deliberately absent (spec §12.9)"
-                    ),
-                );
-                continue;
-            };
-            let Some(v) = values.get(k) else { continue };
-            let t = self.subst(&v.ty).defaulted();
+    /// Each placeholder against the argument it takes, then the count. `builtin` says the
+    /// call is `println` and friends, whose arguments are formattable only if they are one
+    /// of the built-in kinds; a `#[format]` call's are held to `Format` by its signature.
+    fn check_format_values(
+        &mut self,
+        holes: &[(Span, Option<String>)],
+        values: &[(Span, Ty)],
+        fmt: Span,
+        builtin: bool,
+    ) {
+        for ((here, spec), (at, t)) in holes.iter().zip(values) {
+            let Some(spec) = spec else { continue };
             // An argument already reported has nothing more to say about itself.
-            if !t.is_wildcard() && !formattable(&t) {
-                let shown = self.cx.name_of(&t);
-                let help = if matches!(&t, Ty::Named { sym, .. }
+            if t.is_wildcard() {
+                continue;
+            }
+            if builtin && !formattable(t) {
+                let shown = self.cx.name_of(t);
+                let help = if matches!(t, Ty::Named { sym, .. }
                     if self.cx.res.symbol(*sym).kind == SymbolKind::Enum)
                 {
                     "an enum is written through its backing integer: `x as i32` (spec §7.4)"
-                        .to_owned()
                 } else {
-                    "numbers, `bool`, `char`, `str`, `cstr` and pointers can be formatted; a \
-                     type's own `Format` implementation arrives with the stdlib (spec §12.9, \
-                     §19 M12) — format the fields you mean"
-                        .to_owned()
+                    "numbers, `bool`, `char`, `str`, `cstr` and pointers can be printed; for \
+                     anything that implements `Format`, build the text with \
+                     `String::format(\"{}\", x)` and print that (spec §12.9)"
                 };
                 self.cx.error_help(
                     codes::NOT_FORMATTABLE,
-                    args[at + 1 + k].span,
+                    *at,
                     format!("`{shown}` cannot be formatted"),
                     "no way to write this",
                     help,
                 );
                 continue;
             }
-            if let Err(why) = spec_fits(spec, &t) {
-                let shown = self.cx.name_of(&t);
+            // A type's own `Format` reads the spec itself, through `Formatter::hex` and
+            // `precision`, so it decides what `{:x}` means for it; the built-in kinds'
+            // answers are known here.
+            let own_format = !builtin && matches!(t.peeled(), Ty::Named { .. });
+            if own_format {
+                continue;
+            }
+            if let Err(why) = spec_fits(spec, t) {
+                let shown = self.cx.name_of(t.peeled());
                 self.cx.error_help(
                     codes::BAD_FORMAT_STRING,
-                    here,
+                    *here,
                     format!("`{{:{spec}}}` does not suit `{shown}`"),
                     why,
                     "`{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N \
@@ -5522,7 +5796,7 @@ impl<'a, 'c> Body<'a, 'c> {
             let (h, v) = (holes.len(), values.len());
             self.cx.error_help(
                 codes::BAD_FORMAT_STRING,
-                fmt.span,
+                fmt,
                 format!(
                     "this format string has {h} {} but {v} {} given",
                     plural(h, "placeholder"),
@@ -7450,6 +7724,15 @@ pub(crate) fn plural(n: usize, word: &str) -> String {
 /// What the runtime shim can write today (spec §12.9). A user type's own `Format`
 /// implementation needs `Formatter` to have somewhere to write, which is the stdlib's
 /// `String` (§19 M12), so structs, enums and containers are refused rather than miswritten.
+/// The text of a format string written as a literal, between its quotes.
+fn format_literal(fmt: &Expr) -> Option<&str> {
+    match &fmt.kind {
+        ExprKind::Str(t) => t.strip_prefix('"').and_then(|t| t.strip_suffix('"')),
+        ExprKind::RawStr(t) => t.strip_prefix('`').and_then(|t| t.strip_suffix('`')),
+        _ => None,
+    }
+}
+
 fn formattable(t: &Ty) -> bool {
     match t {
         Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::CStr => true,
@@ -7503,7 +7786,6 @@ fn builtin_call_type(name: &str) -> Ty {
         // `error(...)` is the failure case of whatever `!->` signature encloses it, so its
         // payload is `Never` and unifies with any success type (spec §9.1).
         "error" => Ty::Fallible(Rc::new(Ty::Never)),
-        "format" => Ty::Str,
         "typeid_of" => Ty::Int(IntTy::U32),
         // `panic` never returns; the rest produce nothing useful yet.
         "panic" => Ty::Never,

@@ -1,0 +1,11 @@
+// expect: DZ0558
+//
+// A function with no variadic parameter takes every argument by position (spec §7.2).
+
+fn area(w: i32, h: i32) -> i32 {
+    return w * h
+}
+
+fn main() {
+    let _ = area(2, h = 3)
+}

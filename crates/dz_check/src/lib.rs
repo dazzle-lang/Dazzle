@@ -161,18 +161,19 @@ pub struct FnSig {
     /// `virtual fn` / `override fn` (spec §7.3, 18.32). A `virtual` with `has_body`
     /// false is abstract, and makes its struct not constructible.
     pub dispatch: Dispatch,
-    /// The last parameter is `..T` (spec §7.2): its `ty` is the `[]T` the body sees, and a
-    /// call gives it any number of `T`s — or one slice spread with `..xs`.
-    pub variadic: bool,
+    /// The index of the `..T` parameter, if there is one (spec §7.2): its `ty` is the `[]T`
+    /// the body sees, and a call gives it any number of `T`s — or one slice spread with
+    /// `..xs`. Any parameters after it are passed by name.
+    pub variadic: Option<usize>,
+    /// `#[format]`: the index of the `str` parameter that is a format string, checked at
+    /// each call against the `..&Format` arguments after it (spec §12.9).
+    pub format: Option<usize>,
 }
 
 impl FnSig {
     /// The element type of the variadic parameter, if there is one.
     pub fn variadic_elem(&self) -> Option<&Ty> {
-        if !self.variadic {
-            return None;
-        }
-        match &self.params.last()?.ty {
+        match &self.params.get(self.variadic?)?.ty {
             Ty::Slice { elem, .. } => Some(elem),
             _ => None,
         }
@@ -931,7 +932,8 @@ impl Ctx<'_> {
                         // A C++ class's own `virtual` is its business: Dazzle calls it
                         // through C++'s dispatch and never declares one (spec §15.2).
                         dispatch: Dispatch::Static,
-                        variadic: false,
+                        variadic: None,
+                        format: None,
                         params: params
                             .iter()
                             .map(|p| ParamSig {
@@ -1019,7 +1021,8 @@ impl Ctx<'_> {
             let span = Span::new(m.loc.start as usize, m.loc.end as usize);
             let f = FnSig {
                 dispatch: Dispatch::Static,
-                variadic: false,
+                variadic: None,
+                format: None,
                 params: m
                     .params
                     .iter()
@@ -2389,7 +2392,8 @@ impl<'a> Ctx<'a> {
                 self.table.sigs.insert(sym, ItemSig::Enum { backing, variants, values });
             }
             ItemKind::Fn(f) => {
-                let sig = self.fn_sig(f, item.vis, Some(sym));
+                let mut sig = self.fn_sig(f, item.vis, Some(sym));
+                self.format_attribute(&item.attrs, f, &mut sig);
                 self.check_test_attribute(item, f, &sig, sym);
                 self.table.sigs.insert(sym, ItemSig::Fn(sig));
             }
@@ -2423,6 +2427,34 @@ impl<'a> Ctx<'a> {
     /// the runner deciding what to pass, returning a value would leave it deciding what
     /// the value meant, and a generic one has no single instance to call — so all three
     /// are refused here, where the declaration is, rather than at some later point.
+    /// `#[format]` marks the `str` parameter just before an `args: ..&Format` one as a
+    /// format string, which each call then has checked against its arguments (spec §12.9).
+    /// The resolver has already held it to functions; the parameters are this phase's.
+    fn format_attribute(&mut self, attrs: &[dz_ast::Attr], f: &FnDecl, sig: &mut FnSig) {
+        let Some(attr) = attrs.iter().find(|a| a.name.name == "format") else { return };
+        let format_trait = self.res.lookup(self.res.prelude, "Format");
+        let takes_format = |t: &Ty| match t {
+            Ty::Slice { elem, .. } => matches!(&**elem, Ty::Ref { mutable: false, inner }
+                if matches!(&**inner, Ty::Named { sym, .. } if Some(*sym) == format_trait)),
+            _ => false,
+        };
+        let at = sig
+            .variadic
+            .filter(|&v| v > 0 && takes_format(&sig.params[v].ty))
+            .filter(|&v| matches!(sig.params[v - 1].ty, Ty::Str));
+        match at {
+            Some(v) => sig.format = Some(v - 1),
+            None => self.error_help(
+                codes::MISPLACED_ATTRIBUTE,
+                attr.span,
+                format!("`{}` has no format string for `#[format]` to mark", f.name.name),
+                "needs `fmt: str, args: ..&Format`",
+                "`#[format]` goes on a function whose `str` parameter is followed directly by \
+                 a variadic `..&Format` one: `fn log(fmt: str, args: ..&Format)` (spec §12.9)",
+            ),
+        }
+    }
+
     fn check_test_attribute(&mut self, item: &Item, f: &FnDecl, sig: &FnSig, sym: SymbolId) {
         let which =
             ["test", "bench"].into_iter().find(|w| item.attrs.iter().any(|a| a.name.name == *w));
@@ -2551,7 +2583,8 @@ impl<'a> Ctx<'a> {
                     sig.fields.push(field);
                 }
                 MemberKind::Fn(f) => {
-                    let s = self.fn_sig(f, m.vis, None);
+                    let mut s = self.fn_sig(f, m.vis, None);
+                    self.format_attribute(&m.attrs, f, &mut s);
                     // One `virtual` anywhere in the chain makes the whole type
                     // polymorphic, which decides its destructor and whether it can be
                     // memcpy'd (spec §7.3, 18.32). `flatten_bases` carries it downward.
@@ -2658,27 +2691,34 @@ impl<'a> Ctx<'a> {
             generics,
             has_body: f.body.is_some(),
             variadic,
+            format: None,
         }
     }
 
-    /// A declaration's parameters as a signature sees them, and whether the last is
-    /// variadic. `xs: ..T` becomes a `[]T` — read-only, a view of the caller's arguments —
-    /// and must be last and have no default (spec §7.2). A misplaced one is reported and
-    /// then treated as the slice it would be, so the body still checks.
-    pub(crate) fn param_sigs(&mut self, params: &[dz_ast::Param]) -> (Vec<ParamSig>, bool) {
-        let mut variadic = false;
+    /// A declaration's parameters as a signature sees them, and which one is variadic.
+    /// `xs: ..T` becomes a `[]T` — read-only, a view of the caller's arguments — and has no
+    /// default; there is at most one, and the parameters after it are passed by name
+    /// (spec §7.2). A misplaced one is reported and then treated as the slice it would be,
+    /// so the body still checks.
+    pub(crate) fn param_sigs(
+        &mut self,
+        params: &[dz_ast::Param],
+    ) -> (Vec<ParamSig>, Option<usize>) {
+        let mut variadic = None;
         let mut out = Vec::with_capacity(params.len());
         for (i, p) in params.iter().enumerate() {
             let mut ty = self.lower_type(&p.ty);
+            let mut is_variadic = false;
             if p.variadic {
                 ty = Ty::Slice { mutable: false, elem: Rc::new(ty) };
-                if i + 1 != params.len() {
+                if variadic.is_some() {
                     self.error_help(
                         codes::BAD_VARIADIC,
                         p.span,
-                        format!("`{}` takes any number of arguments, so it must come last", p.name.name),
-                        "a variadic parameter before others",
-                        "move it to the end: the arguments after the fixed ones are its (spec §7.2)",
+                        format!("`{}` is a second variadic parameter", p.name.name),
+                        "one variadic parameter already takes the rest",
+                        "a function has at most one: the arguments after the fixed ones are its \
+                         (spec §7.2)",
                     );
                 } else if let Some(d) = &p.default {
                     self.error_help(
@@ -2689,13 +2729,14 @@ impl<'a> Ctx<'a> {
                         "leaving its arguments out already gives it none (spec §7.2)",
                     );
                 } else {
-                    variadic = true;
+                    variadic = Some(i);
+                    is_variadic = true;
                 }
             }
             out.push(ParamSig {
                 name: p.name.name.clone(),
                 ty,
-                has_default: p.default.is_some() || (p.variadic && i + 1 == params.len()),
+                has_default: p.default.is_some() || is_variadic,
                 caller_default: caller_default(p.default.as_ref()),
                 c_cast: None,
             });

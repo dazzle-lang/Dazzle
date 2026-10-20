@@ -226,7 +226,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.dazzle",
-          "match": "\\b(?:println|print|format|panic|assert|sizeof|alignof|alloc|free|construct|destroy|memcpy|error|typeinfo_of|typeid_of|typeinfo)(?=\\s*\\()"
+          "match": "\\b(?:println|print|eprintln|eprint|panic|assert|sizeof|alignof|alloc|free|construct|destroy|memcpy|error|typeinfo_of|typeid_of|typeinfo)(?=\\s*\\()"
         },
         {
           "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(?=\\()",

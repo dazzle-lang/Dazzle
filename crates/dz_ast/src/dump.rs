@@ -578,6 +578,10 @@ impl<'a> Dumper<'a> {
                     }
                 });
             }
+            ExprKind::Named { name, value } => {
+                self.line(format_args!("named {}", name.name));
+                self.nest(|d| d.expr(value));
+            }
             ExprKind::Error => self.line(format_args!("<error expr>")),
         }
     }

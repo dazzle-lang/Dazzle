@@ -19,11 +19,11 @@ the milestone.
 | | |
 |---|---|
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
-| Next | **M12 — the stdlib**. Order set by the user on 2026-09-15: ~~stderr~~ and ~~Time~~ (r54), ~~generic methods~~ (r55), ~~Random~~ (r56), ~~`Path` and `File`~~ (r57). The §4c list and the criterion game decide what follows |
-| Tests | 193, all green — plus the `tests/errors` corpus, one file per mistake, run as one test |
+| Next | **M12 — the stdlib**. Order set by the user on 2026-09-15: ~~stderr~~ and ~~Time~~ (r54), ~~generic methods~~ (r55), ~~Random~~ (r56), ~~`Path` and `File`~~ (r57), ~~library `format`~~ (r62). Then associated-type projection (§4c, Generics) |
+| Tests | 226 — plus the `tests/errors` corpus, one file per mistake, run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 16, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 54; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
+| Language spec | 0.1 **unreleased**, revision 62; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -1519,9 +1519,12 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M12** | **Associated-type projection** (`T::Item`, `T::Output`). An associated type resolves through an implementer but cannot be named off a bounded parameter, so `for` over a generic `T: Iterate` is refused by the checker (`DZ0801`), and generic arithmetic cannot name its result type | `dz_check/src/check.rs`, `iterate_item` |
 | **M12** | An open-ended range (`lo..`) held in a variable rather than written in a `for` head | `dz_cpp`, `expr` |
 | **M12** | A trait default method is exercised by `tests/run/generics` only for bodies that call the trait's own methods; one that builds or returns a `Self` value has no test | `dz_mono`, `inherited_defaults` |
-| **M12** | `error(…)` and `format(…)` write into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. §9.2 requires no allocation *and* a message that outlives the call; a real answer needs the stdlib's `String` | `dz_cpp/src/runtime.rs` |
+| **M12** | `error(…)` writes into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. Kept by the user's decision (§4): §9.2 requires no allocation *and* a message that outlives the call. `format` no longer shares it — it is `String::format` since r62 | `dz_cpp/src/runtime.rs`, `message_buffer` |
 | **M12** | `or unreachable` panics in release as well as debug. §9.4 says release may assume the success path, and §18.20 has not settled whether that means `__builtin_unreachable` or merely skipping the check | `dz_cpp/src/lib.rs`, `clause` |
-| **M12** | **`println`/`print`/`format` are still builtins**, and a `String` is printed through `s.as_str()`: `Format` has no implementations and `Formatter` is still empty, now that `String` exists to give it a buffer. `HashMap` is still to come | `dz_cpp/src/runtime.rs`, `dz_project/src/std/core/format.dz` |
+| **M10** | **`println`/`print`/`eprint`/`eprintln`/`panic` are still builtins** that take only the built-in kinds: a value with its own `Format`, or a `String`, is printed through `String::format` or `as_str()`. They become library functions with macros, which is also when `{}` can lower to direct `Format::format` calls with no intermediate `String` (18.73) | `dz_cpp/src/runtime.rs`, `dz_check/src/check.rs`, `check_format` |
+| **M12** | **A pointer has no `Format`**: `println` writes one, `String::format` cannot take one, since a generic `impl<T> Format for ^T` has no vtable (the trait-object row above). Cast it: `p as usize` with `{:x}` | `dz_project/src/std/core/format.dz` |
+| **M12** | **A default argument that calls a function declared later in the module does not compile**: C++ reads a default where the function is declared, and functions are declared in source order. Found by `tests/run/formatting`. Free functions could be declared twice — without defaults first, then with them, which C++ allows; a method's defaults cannot be added later | `dz_cpp/src/lib.rs`, `decl_params` |
+| **M12** | **A spread into a `#[format]` call needs the caller's own format string**: `String::format("{}", ..xs)` is refused, since how many arguments the slice holds is not known when the string is checked. Only a `#[format]` function forwarding its own `fmt` and `..args` may spread | `dz_check/src/check.rs`, `check_format_call` |
 
 ### Not deferred — deliberately out of scope forever
 
@@ -1860,6 +1863,61 @@ Asked for by the user on 2026-09-15, with design answers recorded as 18.20, 18.6
   or wraps through the unsigned type); `or unreachable` is `__builtin_unreachable` in
   release (18.20 — it still panics in every build); `Rc<Derived>` → `Rc<Base>` (18.64).
 
+### r62 — arguments passed by name, and library formatting (18.72, 18.73)
+
+Asked for by the user on 2026-10-20, as the first of the two recommendations from the
+readiness list (library `format`, then associated-type projection). The user chose the
+spelling: no global `format`, `String::format("Score {}", score, allocator =
+Allocators::Temp)`, and a real `Format` trait rather than a compiler-lowered call.
+
+- **Arguments passed by name** (§7.2, 18.72). `dz_ast::ExprKind::Named`, parsed only in a
+  call's argument list (an identifier then a lone `=`; assignment is never an expression).
+  `FnSig::variadic` became the variadic parameter's index, and the parameters after it are
+  passed by name only: `check_variadic_args` splits positional from named, and `named_args`
+  matches each by name (DZ0558 for an unknown name, a repeat, a positional argument after a
+  named one, a missing one without a default). HIR keeps one argument per parameter in
+  order: a parameter left out *before* one given becomes `hir::ExprKind::DefaultArg(index)`,
+  which codegen renders from the callee's own default (`default_arg`, through a stack of the
+  calls whose arguments are being rendered); those left out at the end are C++'s defaults as
+  before. "A variadic parameter must be last" became "at most one".
+- **`Format` for real** (§12.9). `std/core/format.dz` implements it for every integer, both
+  floats, `bool`, `char`, `str` and `cstr` (and `string.dz` for `String`), in Dazzle: digits
+  by hand, floats through a new `format_float` native (`%g`/`%.*f`, as `println`), a `cstr`
+  through `cstr_text`. `Formatter` (`std/core/formatter.dz`) appends to a `^mut String` it
+  was given, carries the placeholder's `hex`/`upper`/`precision`, and parses a format string
+  at run time in `write_format`. `String::format` makes the `String` from the allocator,
+  wraps it in a `Formatter` and returns it.
+- **`#[format]`** marks the `str` parameter directly before an `args: ..&Format` one
+  (`FnSig::format`; DZ0315 when there is none). Each call's string is checked by the same
+  code as `println`'s — `check_format` was split into `format_holes` and
+  `check_format_values` — against the element types of the variadic array. A literal is
+  required unless a `#[format]` function passes on its own `fmt` with `..args`
+  (`Body::format_params`). On the built-in kinds a spec must suit the value; on a type with
+  its own `Format` the implementation reads it.
+- **The global `format` is gone**: out of `BUILTIN_FNS`, the checker and codegen. The shim's
+  `::dz::format` stays, for `error(…)`. Eleven call sites in `tests/run` moved to
+  `String::format`.
+- **Found on the way, all in codegen**:
+  - `#location` named the line **after** a statement whenever an argument was hoisted into
+    a temporary: the temporary's line pushed the call down one, and C++ counts from the
+    last `#line`. Every line a statement writes now repeats its directive (`Emitter::line`,
+    brace-only lines aside). This was there before r62 — `assert(f() or 0 == 1)` reported
+    the wrong line — and named arguments only made it common.
+  - `isize`/`usize` are `intptr_t`/`size_t`, the same C++ types as `int64_t`/`uint64_t` on
+    Linux but not on macOS, so a trait implemented for both had two clashing `dz_vtable`
+    overloads on one platform and needed both on the other. The pointer-sized one's is now a
+    template that stands down when the types coincide (`impl_vtables`; `::dz::is_same` in
+    the shim).
+  - `const` was written before a type that is itself a pointer: `const const char*` for a
+    `&cstr` receiver, a vtable cast or a `[]cstr`. `const_of` puts it on the right after a
+    `*`, as `ptr_ty` already did.
+  - A value that does not implement a variadic `..&Trait` was "expected `&Format`, found
+    `&Plain`"; it is now "`Plain` does not implement `Format`" (DZ0527 for `Format`).
+- Tests: `tests/run/formatting` (every kind against `println`, integer extremes, specs,
+  braces, a type's own `Format` reading `{:x}`, `allocator =`, a `#[format]` wrapper, named
+  arguments with a skipped default and `#location`; warning-clean on both compilers);
+  `typed/` and `typeerrors/`; six `tests/errors` programs; the parse and fmt corpora.
+
 ### CI on 2026-09-15: a dangling view, and an ill-posed test
 
 Linux and macOS CI failed `files`, `text` and `math`; Windows had passed all three.
@@ -2147,10 +2205,11 @@ through raylib or C today; a stdlib should not require it.
   implemented for the built-in types and `std` types, a real `Formatter` writing into a
   `String` or a stream, and a way to mark a parameter as a format string the compiler
   checks against its variadic arguments (18.56 made the arguments possible).
-- [ ] **`format` into a `String`** — `error`/`format` today share a ring of four 256-byte
-  buffers, so a fifth live message overwrites the first. `error` keeps static storage by
-  the user's decision (§4); `format` does not have to.
-- [ ] **Format specifiers**: width, precision, padding, hex (`{:.2}`, `{:08x}`).
+- [x] **`format` into a `String`** — r62: `String::format("…", args, allocator = …)`, with
+  `Format` implemented for the built-in types and by a type of one's own, and `#[format]`
+  for functions of one's own. `error` keeps static storage by the user's decision (§4).
+- [ ] **Format specifiers**: width and padding (`{:8}`, `{:08x}`). Hex and precision have
+  been there since §12.9 was written, and a type's own `Format` reads them since r62.
 - [x] **`String` operations** — r60, the `Text` trait, on `str` and `String`.
 - [ ] **`HashMap<String, V>` looked up by `str`** (§3, `Borrow<Q>`).
 - [ ] **A `cstr` from a runtime `str`**: an owned, zero-terminated copy (18.39 left it for
