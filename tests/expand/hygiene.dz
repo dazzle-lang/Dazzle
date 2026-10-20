@@ -1,0 +1,36 @@
+// Hygiene (spec §12.4): `swap`'s `tmp` is its own and is renamed `tmp·N`; the caller's
+// `tmp` and `other` are captured and keep their names. A struct literal's shorthand field
+// keeps its field name when the local behind it is renamed.
+
+struct Pair {
+    pub left: i32
+    pub right: i32
+}
+
+macro swap -> stmt {
+    pattern { $a: ident , $b: ident }
+    expand {
+        let tmp = $a
+        $a = $b
+        $b = tmp
+    }
+}
+
+macro pair -> expr {
+    pattern { ( $a: expr , $b: expr ) }
+    expand {
+        {
+            let left = $a
+            let right = $b
+            Pair{ left, right }
+        }
+    }
+}
+
+fn main() {
+    let mut tmp = 1
+    let mut other = 2
+    #swap tmp, other
+    let p = #pair(tmp, other)
+    println("{} {}", p.left, p.right)
+}

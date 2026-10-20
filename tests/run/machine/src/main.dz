@@ -1,0 +1,110 @@
+// M10's criterion (spec §19): `tests/run/button`, with its state machine written through a
+// user-written `#machine` (src/machine.dz) instead of by hand. It must print exactly what
+// `tests/run/button` prints — same expected.txt — so the expansion is checked against M8's
+// hand-written machine, not against itself.
+
+enum Sprite {
+    Normal
+    Selected
+}
+
+struct Input {
+    pub mouse_down: bool
+    pub mouse_up: bool
+    pub over: bool
+}
+
+struct Button {
+    pub scale: f32 = 1
+    pub sprite: Sprite = Sprite::Normal
+    pub presses: i32 = 0
+}
+
+struct ButtonCtx {
+    pub delta_time: f32
+}
+
+// Each state's body sees the machine's parameters and its own fields, and returns the next
+// state. Falling off the end of a body means "stay where you are".
+#machine ButtonState(ctx: &ButtonCtx, input: &Input, btn: &mut Button) {
+    state DefaultState {
+        if input.mouse_down && input.over {
+            return .TransitionState{}
+        }
+    }
+
+    state TransitionState(t: f32 = 0) {
+        if input.mouse_up {
+            btn.scale = 1
+            return .DefaultState{}
+        }
+        t += ctx.delta_time
+        btn.scale = lerp(1, 2, t)
+        if t >= 1 {
+            return .ChangeSprite{}
+        }
+    }
+
+    state ChangeSprite {
+        btn.sprite = Sprite::Selected
+        btn.presses += 1
+        btn.scale = 1
+        return .DefaultState{}
+    }
+}
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    return a + (b - a) * t
+}
+
+fn name(s: &ButtonState) -> str {
+    return switch s {
+        case DefaultState { "default" }
+        case TransitionState { "transition" }
+        case ChangeSprite { "change" }
+    }
+}
+
+fn load_delta(frames: i32) !-> f32 {
+    if frames <= 0 {
+        return error("no frames: {}", frames)
+    }
+    return 1.0 / frames as f32
+}
+
+fn ctx_for(frames: i32) !-> ButtonCtx {
+    let dt = load_delta(frames) or return
+    return ButtonCtx{ delta_time: dt }
+}
+
+fn main() {
+    let mut btn = Button{}
+    let mut state: ButtonState = .DefaultState{}
+    let ctx = ctx_for(4) or ButtonCtx{ delta_time: 0.5 }
+    let broken = ctx_for(0) or { e ->
+        println("fallback: {}", e.message)
+        ButtonCtx{ delta_time: 0.5 }
+    }
+    println("{} {}", ctx.delta_time, broken.delta_time)
+
+    // Hover, press, hold for four frames, and the sprite changes.
+    let held = Input{ mouse_down: true, mouse_up: false, over: true }
+    for frame in 0..7 {
+        state.step(&ctx, &held, &mut btn)
+        println("{} {} {}", frame, name(&state), btn.scale)
+    }
+
+    // Press and let go half way: the transition is abandoned and the scale restored.
+    let released = Input{ mouse_down: false, mouse_up: true, over: true }
+    state.step(&ctx, &held, &mut btn)
+    state.step(&ctx, &held, &mut btn)
+    println("{} {}", name(&state), btn.scale)
+    state.step(&ctx, &released, &mut btn)
+    println("{} {}", name(&state), btn.scale)
+
+    let selected = switch btn.sprite {
+        case Normal { false }
+        case Selected { true }
+    }
+    println("{} {}", selected, btn.presses)
+}

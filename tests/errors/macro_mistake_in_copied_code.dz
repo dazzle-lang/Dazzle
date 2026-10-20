@@ -1,0 +1,42 @@
+// expect: DZ0301
+//
+// A mistake in captured code is reported where the user wrote it, once, however many
+// places the expansion copied it to (spec §12.6, 18.79): `Buton` is in every state's
+// `update`, and is one mistake.
+
+struct Button {
+    pub presses: i32 = 0
+}
+
+macro machine -> decl {
+    syntax Param { $name: ident : $type: type }
+    syntax State { state $name: ident { $body: code } }
+    pattern { $name: ident ( $params: [,]Param ) { $states: []State } }
+    expand {
+        #for s in $states {
+            struct $s.name {
+                pub(module) fn update(&mut self, $params) -> $name? {
+                    $s.body
+                    return none
+                }
+            }
+        }
+        union $name {
+            #for s in $states {
+                $s.name
+            }
+        }
+    }
+}
+
+#machine Light(btn: &mut Buton) {
+    state Off {
+        btn.presses += 1
+        return .On{}
+    }
+    state On {
+        return .Off{}
+    }
+}
+
+fn main() {}

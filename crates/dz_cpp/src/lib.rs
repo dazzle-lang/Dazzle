@@ -173,6 +173,7 @@ pub fn emit(
             guards_made: 0,
             header_ns: module.id,
             def_prefix: "",
+            qualify_all: false,
             mode,
             reflect: &reflection,
         };
@@ -303,6 +304,7 @@ pub fn emit(
             guards_made: 0,
             header_ns: res.prelude,
             def_prefix: "",
+            qualify_all: false,
             mode,
             reflect: &reflection,
         };
@@ -559,6 +561,10 @@ struct Emitter<'a> {
     /// `"inline "` while an instance's out-of-class definitions are written into a header,
     /// where they may be included by several translation units.
     def_prefix: &'static str,
+    /// Name every type with its namespace, even this module's own. Set inside a union's
+    /// methods, where the union's members — one per variant, named after the variant's
+    /// struct — hide the structs of the same names (spec §7.5).
+    qualify_all: bool,
     /// Program or tests (spec §19 M14). A `#[test]` function is emitted in one and left
     /// out of the other, so a program never carries its tests.
     mode: Mode,
@@ -717,7 +723,7 @@ impl<'a> Emitter<'a> {
                     ItemKind::Trait(_)
                     | ItemKind::Impl(_)
                     | ItemKind::Macro(_)
-                    | ItemKind::MacroInvocation { .. }
+                    | ItemKind::MacroInvocation(_)
                     | ItemKind::Error => {}
                 }
             }
@@ -817,8 +823,10 @@ impl<'a> Emitter<'a> {
         // Member bodies come last so they can call anything in the module.
         for &(file, item, sym) in &own_types {
             self.file = file;
-            if let ItemKind::Struct(s) = &item.kind {
-                self.struct_bodies(s, sym, &[]);
+            match &item.kind {
+                ItemKind::Struct(s) => self.struct_bodies(s, sym, &[]),
+                ItemKind::Union(u) => self.union_bodies(u, sym, &[]),
+                _ => {}
             }
         }
         self.impl_definitions();
@@ -1366,7 +1374,7 @@ impl<'a> Emitter<'a> {
             }
             let fields: Vec<&dz_check::FieldSig> = match self.table.get(sym) {
                 Some(ItemSig::Struct(sig)) => sig.fields.iter().collect(),
-                Some(ItemSig::Union { variants }) => {
+                Some(ItemSig::Union { variants, .. }) => {
                     variants.iter().flat_map(|v| v.fields.iter()).collect()
                 }
                 _ => Vec::new(),
@@ -1594,10 +1602,17 @@ impl<'a> Emitter<'a> {
     }
 
     fn instance_struct_bodies(&mut self, inst: &dz_mono::Instance) {
-        let Some(&(file, s)) = self.struct_asts.get(&inst.sym) else { return };
-        self.file = file;
-        self.def_prefix = "inline ";
-        let (text, ()) = self.capture(|e| e.struct_bodies(s, inst.sym, &inst.args));
+        let (text, ()) = if let Some(&(file, s)) = self.struct_asts.get(&inst.sym) {
+            self.file = file;
+            self.def_prefix = "inline ";
+            self.capture(|e| e.struct_bodies(s, inst.sym, &inst.args))
+        } else if let Some(&(file, u)) = self.union_asts.get(&inst.sym) {
+            self.file = file;
+            self.def_prefix = "inline ";
+            self.capture(|e| e.union_bodies(u, inst.sym, &inst.args))
+        } else {
+            return;
+        };
         self.def_prefix = "";
         if text.trim().is_empty() {
             return;
@@ -1641,7 +1656,7 @@ impl<'a> Emitter<'a> {
     fn qualify_instance(&self, sym: SymbolId, args: &[Ty]) -> String {
         let name = self.instance_name(sym, args);
         let home = self.res.symbol(sym).module;
-        if home == self.module {
+        if home == self.module && !self.qualify_all {
             name
         } else {
             format!("{}::{name}", qualified_namespace(&self.ws.module(home).name))
@@ -1725,7 +1740,7 @@ impl<'a> Emitter<'a> {
                 let fields: Vec<Ty> = match self.table.get(*sym) {
                     Some(ItemSig::Struct(s)) => self.table.field_types(*sym, args, &s.fields),
                     // A variant carrying a struct holds it by value (spec §7.5, 18.45).
-                    Some(ItemSig::Union { variants }) => variants
+                    Some(ItemSig::Union { variants, .. }) => variants
                         .iter()
                         .flat_map(|v| {
                             let mut types = self.table.field_types(*sym, args, &v.fields);
@@ -2372,8 +2387,65 @@ impl<'a> Emitter<'a> {
     // --- unions (spec §7.5) ------------------------------------------------
 
     /// A tagged union, or with `args` one instance of a generic one (spec §7.5, §8.4).
+    /// A union's methods, declared inside it as a struct's are (spec §7.5).
+    fn union_method_decls(&mut self, u: &UnionDecl, sym: SymbolId) {
+        let keys = self.table.methods_sig(sym).map(|s| s.method_keys.clone()).unwrap_or_default();
+        let fns = u.methods.iter().filter_map(|m| match &m.kind {
+            MemberKind::Fn(f) => Some(f),
+            _ => None,
+        });
+        for (f, key) in fns.zip(keys) {
+            // One with parameters of its own is a free function per instance (§8.4).
+            if !f.generics.is_empty() {
+                continue;
+            }
+            let owner = BodyOwner::Method { owner: sym, name: key };
+            self.qualify_all = true;
+            let params = self.decl_params(&owner, true);
+            let ret = self.body_ret_ty(&owner);
+            self.qualify_all = false;
+            let (stat, cst) = match f.self_param {
+                None => ("static ", ""),
+                Some(s) if s.is_mut => ("", ""),
+                Some(_) => ("", " const"),
+            };
+            let _ =
+                writeln!(self.header, "    {stat}{ret} {}({params}){cst};", sanitize(&f.name.name));
+        }
+    }
+
+    /// The definitions of a union's methods (spec §7.5).
+    fn union_bodies(&mut self, u: &UnionDecl, sym: SymbolId, args: &[Ty]) {
+        let name =
+            if args.is_empty() { sanitize(&u.name.name) } else { self.instance_name(sym, args) };
+        let inline = self.def_prefix;
+        let keys = self.table.methods_sig(sym).map(|s| s.method_keys.clone()).unwrap_or_default();
+        let fns = u.methods.iter().filter_map(|m| match &m.kind {
+            MemberKind::Fn(f) => Some(f),
+            _ => None,
+        });
+        for (f, key) in fns.zip(keys) {
+            if !f.generics.is_empty() {
+                continue;
+            }
+            let method = f.name.name.clone();
+            let owner = BodyOwner::Method { owner: sym, name: key };
+            self.qualify_all = true;
+            let params = self.decl_params(&owner, false);
+            let ret = self.body_ret_ty(&owner);
+            let cst = match f.self_param {
+                Some(s) if !s.is_mut => " const",
+                _ => "",
+            };
+            self.current_fn = format!("{name}::{method}");
+            let head = format!("{inline}{ret} {name}::{}({params}){cst} {{", sanitize(&method));
+            self.emit_body(&owner, &head);
+            self.qualify_all = false;
+        }
+    }
+
     fn union_decl(&mut self, u: &UnionDecl, sym: SymbolId, args: &[Ty]) {
-        let Some(ItemSig::Union { variants }) = self.table.get(sym) else { return };
+        let Some(ItemSig::Union { variants, .. }) = self.table.get(sym) else { return };
         // Each variant's fields as this instance sees them: `value: T` is `value: i32` in
         // `Maybe<i32>`.
         let variants: Vec<dz_check::VariantSig> = variants
@@ -2437,6 +2509,7 @@ impl<'a> Emitter<'a> {
         self.header.push_str("    };\n\n");
         // The first variant, at its defaults, is what `let s: Shape` holds (spec §6.2).
         let _ = writeln!(self.header, "    {name}() : {first}() {{}}");
+        self.union_method_decls(u, sym);
         if trivial {
             self.header.push_str("};\n\n");
             return;
@@ -2888,7 +2961,7 @@ impl<'a> Emitter<'a> {
         if let Some(cpp) = self.res.cpp_path(sym) {
             return cpp.to_owned();
         }
-        if s.module == self.module {
+        if s.module == self.module && !self.qualify_all {
             sanitize(&s.name)
         } else {
             format!(
@@ -3450,7 +3523,7 @@ impl<'a> Emitter<'a> {
         let named = subject_ty.named().map(|sym| {
             let is_union = matches!(self.table.get(sym), Some(ItemSig::Union { .. }));
             let variants: Vec<String> = match self.table.get(sym) {
-                Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
+                Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants, .. }) => {
                     variants.iter().map(|v| sanitize(&v.name)).collect()
                 }
                 _ => Vec::new(),
@@ -3937,7 +4010,11 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Builtin { name, args } => self.builtin(name, args, node.span),
-            hir::ExprKind::Intrinsic { name, .. } => self.intrinsic(name, node.span),
+            hir::ExprKind::Intrinsic { name, args } => {
+                // `#expr_text(e)` is the source of `e` as written, not its value (§12.7).
+                let arg = args.first().map(|a| body.expr(*a).span);
+                self.intrinsic(name, node.span, arg)
+            }
             hir::ExprKind::DefaultArg(index) => self.default_arg(*index, node.span),
         }
     }
@@ -4032,7 +4109,7 @@ impl<'a> Emitter<'a> {
             }
             // A `case Circle(c)` binding reaches into the variant's own field list.
             Ty::Variant(sym, v, _) => match self.table.get(*sym) {
-                Some(ItemSig::Union { variants }) => variants
+                Some(ItemSig::Union { variants, .. }) => variants
                     .get(*v)
                     .and_then(|x| x.fields.get(index))
                     .map(|f| sanitize(&f.name))
@@ -4045,7 +4122,7 @@ impl<'a> Emitter<'a> {
 
     fn variant_name(&self, owner: SymbolId, index: usize) -> String {
         match self.table.get(owner) {
-            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
+            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants, .. }) => {
                 variants.get(index).map(|v| sanitize(&v.name)).unwrap_or_default()
             }
             _ => String::new(),
@@ -4120,7 +4197,7 @@ impl<'a> Emitter<'a> {
         };
         let mut out = format!("[&] {{ {ty} {tmp}{{}}; {switch_to} ");
         let carries = match self.table.get(owner) {
-            Some(ItemSig::Union { variants }) => variants.get(index).and_then(|v| v.carries),
+            Some(ItemSig::Union { variants, .. }) => variants.get(index).and_then(|v| v.carries),
             _ => None,
         };
         // A carried struct is built whole, so its field defaults run: the union's own
@@ -4131,7 +4208,7 @@ impl<'a> Emitter<'a> {
             return out;
         }
         let fields = match self.table.get(owner) {
-            Some(ItemSig::Union { variants }) => variants
+            Some(ItemSig::Union { variants, .. }) => variants
                 .get(index)
                 .map(|v| v.fields.iter().map(|f| sanitize(&f.name)).collect::<Vec<_>>())
                 .unwrap_or_default(),
@@ -5018,7 +5095,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn intrinsic(&mut self, name: &str, span: Span) -> String {
+    fn intrinsic(&mut self, name: &str, span: Span, arg: Option<Span>) -> String {
         match name {
             "line" => {
                 let f = self.map.get(self.file);
@@ -5037,10 +5114,21 @@ impl<'a> Emitter<'a> {
                 format!("::dz::str(\"{n}\", {})", n.len())
             }
             "location" => self.source_location(span),
+            "module" => {
+                let m = self.ws.module(self.module).name.clone();
+                format!("::dz::str({}, {})", quote_cpp(&m), m.len())
+            }
+            "expr_text" => {
+                let text = arg
+                    .and_then(|a| self.map.get(self.file).text().get(a.range()))
+                    .unwrap_or("")
+                    .to_owned();
+                format!("::dz::str({}, {})", quote_cpp(&text), text.len())
+            }
             _ => {
-                // `#module`, `#location` and `#expr_text` (spec §12.7) arrive with the rest of
-                // metaprogramming.
-                self.unsupported(span, "this intrinsic", "owed by M10");
+                // The checker types every intrinsic §12.7 lists, and the parser makes any
+                // other `#name` a macro invocation, so nothing else reaches here.
+                self.unsupported(span, "this intrinsic", "not one the language has");
                 "0".to_owned()
             }
         }
@@ -5137,6 +5225,12 @@ fn local_names(body: &hir::Body) -> Vec<String> {
 /// spellings in step. Applied unconditionally, including to imported names: a C++ header
 /// cannot declare something named after a C++ keyword, so there is nothing to special-case.
 fn sanitize(name: &str) -> String {
+    // A local a macro's hygiene renamed is `next·1`, a spelling no Dazzle source can write
+    // and so no user name can collide with (spec §12.4). C++ gets `next__m1`: a double
+    // underscore is reserved to the implementation in C++, which here is Dazzle.
+    if name.contains('·') {
+        return name.replace('·', "__m");
+    }
     if is_cpp_reserved(name) {
         format!("{name}_")
     } else {

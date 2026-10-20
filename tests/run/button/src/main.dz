@@ -1,8 +1,9 @@
-// M8's criterion (spec §19): the `ButtonState` sample from `examples/example.dz`, written in
-// the language as specified. A tagged union whose variants name existing structs (§7.5),
-// each state's `update` returning the next state as a `ButtonState?` (§9.1), a `switch`
-// that dispatches on the active variant and writes through it (§10.3), and every `or`
-// clause form a caller reaches for (§9.4–§9.6) around a fallible `!->` load.
+// M8's criterion (spec §19): the `ButtonState` sample from the user's pre-spec sketches
+// (in git history), written in the language as specified. A tagged union whose variants
+// name existing structs (§7.5), each state's `update` returning the next state as a
+// `ButtonState?` (§9.1), a `switch` in the union's own `step` method (§7.5) that
+// dispatches on the active variant and writes through it (§10.3), and every `or` clause
+// form a caller reaches for (§9.4–§9.6) around a fallible `!->` load.
 
 enum Sprite {
     Normal
@@ -64,6 +65,16 @@ union ButtonState {
     DefaultState
     TransitionState
     ChangeSprite
+
+    // One frame: the active state decides whether there is a next one (spec §7.5).
+    pub fn step(&mut self, ctx: &ButtonCtx, input: &Input, btn: &mut Button) {
+        let next: ButtonState? = switch self {
+            case DefaultState(d) { d.update(input) }
+            case TransitionState(&mut t) { t.update(ctx, input, btn) }
+            case ChangeSprite(c) { c.enter(btn) }
+        }
+        self = next or return
+    }
 }
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
@@ -76,17 +87,6 @@ fn name(s: &ButtonState) -> str {
         case TransitionState { "transition" }
         case ChangeSprite { "change" }
     }
-}
-
-// One frame: the active state decides whether there is a next one.
-fn step(state: &mut ButtonState, ctx: &ButtonCtx, input: &Input, btn: &mut Button) {
-    let next: ButtonState? = switch state {
-        case DefaultState(d) { d.update(input) }
-        case TransitionState(&mut t) { t.update(ctx, input, btn) }
-        case ChangeSprite(c) { c.enter(btn) }
-    }
-    let s = next or return
-    state = s
 }
 
 fn load_delta(frames: i32) !-> f32 {
@@ -114,16 +114,16 @@ fn main() {
     // Hover, press, hold for four frames, and the sprite changes.
     let held = Input{ mouse_down: true, mouse_up: false, over: true }
     for frame in 0..7 {
-        step(&mut state, &ctx, &held, &mut btn)
+        state.step(&ctx, &held, &mut btn)
         println("{} {} {}", frame, name(&state), btn.scale)
     }
 
     // Press and let go half way: the transition is abandoned and the scale restored.
     let released = Input{ mouse_down: false, mouse_up: true, over: true }
-    step(&mut state, &ctx, &held, &mut btn)
-    step(&mut state, &ctx, &held, &mut btn)
+    state.step(&ctx, &held, &mut btn)
+    state.step(&ctx, &held, &mut btn)
     println("{} {}", name(&state), btn.scale)
-    step(&mut state, &ctx, &released, &mut btn)
+    state.step(&ctx, &released, &mut btn)
     println("{} {}", name(&state), btn.scale)
 
     let selected = switch btn.sprite {

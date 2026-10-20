@@ -157,12 +157,18 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
             report_duplicate_methods(cx, sym);
             cx.pop_params();
         }
-        // Union payload types are checked during signature collection; macros belong to
-        // M10.
-        ItemKind::Union(_)
-        | ItemKind::Macro(_)
-        | ItemKind::MacroInvocation { .. }
-        | ItemKind::Error => {}
+        // Payload types are checked during signature collection; a union's methods are
+        // checked here, as a struct's are (spec §7.5).
+        ItemKind::Union(u) => {
+            let Some(sym) = cx.symbol_of(it) else { return };
+            cx.push_declared_params(sym);
+            check_members(cx, sym, &u.methods);
+            report_duplicate_methods(cx, sym);
+            cx.pop_params();
+        }
+        // A macro is expanded before checking, and its declaration is checked where it is
+        // collected (spec §12.11).
+        ItemKind::Macro(_) | ItemKind::MacroInvocation(_) | ItemKind::Error => {}
     }
 }
 
@@ -555,7 +561,7 @@ fn check_override_signature(
 }
 
 fn report_duplicate_methods(cx: &mut Ctx, sym: SymbolId) {
-    let Some(sig) = cx.table.struct_sig(sym).cloned() else { return };
+    let Some(sig) = cx.table.methods_sig(sym).cloned() else { return };
     let me = cx.res.symbol(sym).name.clone();
     for key in &sig.method_keys {
         if !key.contains('#') {
@@ -639,7 +645,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
     // Constructors are addressed by position in declaration order (spec §7.2), and methods
     // by key, since two may share a name (spec §18.27).
     let mut ctors = 0usize;
-    let keys = cx.table.struct_sig(sym).map(|s| s.method_keys.clone()).unwrap_or_default();
+    let keys = cx.table.methods_sig(sym).map(|s| s.method_keys.clone()).unwrap_or_default();
     let mut fns = 0usize;
     for m in members {
         match &m.kind {
@@ -704,7 +710,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                          reference instead (spec §7.3, §8.1)",
                     );
                 }
-                let sig = cx.table.struct_sig(sym).and_then(|s| s.methods.get(&key)).cloned();
+                let sig = cx.table.methods_sig(sym).and_then(|s| s.methods.get(&key)).cloned();
                 if let Some(sig) = sig {
                     let owner = BodyOwner::Method { owner: sym, name: key };
                     // The method's own parameters on top of the struct's, which the caller
@@ -1508,7 +1514,7 @@ impl<'a, 'c> Body<'a, 'c> {
     fn stmt(&mut self, s: &Stmt) -> StmtId {
         let kind = match &s.kind {
             // Removed by the driver before this phase (spec §12.10).
-            StmtKind::CfgIf(_) => hir::StmtKind::Error,
+            StmtKind::CfgIf(_) | StmtKind::Macro(_) => hir::StmtKind::Error,
             StmtKind::Let(l) => {
                 let declared = l.ty.as_ref().map(|t| {
                     let t = self.cx.lower_type(t);
@@ -3166,10 +3172,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 let kind = hir::ExprKind::Intrinsic { name: name.name.clone(), args };
                 self.mk(e, ty, kind)
             }
-            // Macro bodies are opaque until M10.
-            ExprKind::MacroCall { .. } | ExprKind::Error => {
-                self.mk(e, Ty::Error, hir::ExprKind::Error)
-            }
+            // Invocations are expanded before checking; one still here failed to expand, and
+            // its expansion said why (spec §12.11).
+            ExprKind::MacroCall(_) | ExprKind::Error => self.mk(e, Ty::Error, hir::ExprKind::Error),
         }
     }
 
@@ -3511,7 +3516,7 @@ impl<'a, 'c> Body<'a, 'c> {
         // A `case Circle(c)` binding: `c` is the variant's own field list (spec §7.5).
         if let Ty::Variant(owner, index, args) = &peeled {
             let variant = match self.cx.table.get(*owner) {
-                Some(ItemSig::Union { variants }) => variants.get(*index).cloned(),
+                Some(ItemSig::Union { variants, .. }) => variants.get(*index).cloned(),
                 _ => None,
             };
             let Some(variant) = variant else { return (Ty::Error, None) };
@@ -3692,11 +3697,11 @@ impl<'a, 'c> Body<'a, 'c> {
         args: &[Expr],
         span: Span,
     ) -> Option<FnSig> {
-        let keys = self.cx.table.struct_sig(sym)?.overloads.get(name)?.clone();
+        let keys = self.cx.table.methods_sig(sym)?.overloads.get(name)?.clone();
         // A method of `Buffer<f32>` has `f32` wherever it wrote `T`.
         let sigs: Vec<FnSig> = keys
             .iter()
-            .filter_map(|k| self.cx.table.struct_sig(sym)?.methods.get(k).cloned())
+            .filter_map(|k| self.cx.table.methods_sig(sym)?.methods.get(k).cloned())
             .map(|s| self.cx.instantiate_sig(sym, type_args, &s))
             .collect();
         if sigs.len() <= 1 {
@@ -4308,7 +4313,7 @@ impl<'a, 'c> Body<'a, 'c> {
     /// Is `name` on `sym` a function with no receiver? Overloads of one name agree on it:
     /// a receiver-less overload beside a method would make `T::name(x)` mean two things.
     fn is_associated_fn(&self, sym: SymbolId, name: &str) -> bool {
-        let Some(s) = self.cx.table.struct_sig(sym) else { return false };
+        let Some(s) = self.cx.table.methods_sig(sym) else { return false };
         let Some(keys) = s.overloads.get(name) else { return false };
         keys.iter().filter_map(|k| s.methods.get(k)).any(|m| m.takes_self.is_none())
     }
@@ -4849,7 +4854,7 @@ impl<'a, 'c> Body<'a, 'c> {
                             .table
                             .with_bases(sym)
                             .iter()
-                            .filter_map(|s| self.cx.table.struct_sig(*s))
+                            .filter_map(|s| self.cx.table.methods_sig(*s))
                             .flat_map(|s| s.overloads.keys().cloned())
                             .collect();
                         let suggestion =
@@ -4886,6 +4891,14 @@ impl<'a, 'c> Body<'a, 'c> {
                     if self.cx.res.symbol(tsym).kind == SymbolKind::Trait {
                         let method = &p.segments[p.segments.len() - 1].name;
                         return self.qualified_trait_call(tsym, method, args, e);
+                    }
+                    // `ButtonState::initial()` — a union's function with no receiver
+                    // (spec §7.5).
+                    if self.cx.res.symbol(tsym).kind == SymbolKind::Union {
+                        let seg = &p.segments[p.segments.len() - 1];
+                        if self.is_associated_fn(tsym, &seg.name.name) {
+                            return self.associated_call(tsym, &prefix, seg, args, e);
+                        }
                     }
                     // `UiElement::draw(self)` — a base's version, called without virtual
                     // dispatch, which is how an `override` builds on what it replaces
@@ -6015,7 +6028,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.check_member_visible(owner, &c.name, c.vis, c.span, seg.name.span, "constant");
                 (c.ty, hir::ExprKind::AssocConst { owner, name: c.name })
             }
-            Some(ItemSig::Union { variants }) => {
+            Some(ItemSig::Union { variants, .. }) => {
                 match variants.iter().position(|v| v.name == seg.name.name) {
                     Some(index) => {
                         let carries = variants[index].carries.is_some();
@@ -6258,7 +6271,7 @@ impl<'a, 'c> Body<'a, 'c> {
         span: Span,
     ) -> hir::ExprKind {
         let variant = match self.cx.table.get(owner) {
-            Some(ItemSig::Union { variants }) => variants.get(index).cloned(),
+            Some(ItemSig::Union { variants, .. }) => variants.get(index).cloned(),
             _ => None,
         };
         let Some(variant) = variant else { return hir::ExprKind::Error };
@@ -6326,7 +6339,7 @@ impl<'a, 'c> Body<'a, 'c> {
     ) -> Option<Vec<Ty>> {
         let (index, fields) = payload?;
         let variant = match self.cx.table.get(owner) {
-            Some(ItemSig::Union { variants }) => variants.get(index)?.clone(),
+            Some(ItemSig::Union { variants, .. }) => variants.get(index)?.clone(),
             _ => return None,
         };
         let mut map = HashMap::new();
@@ -6348,7 +6361,7 @@ impl<'a, 'c> Body<'a, 'c> {
             return None;
         }
         let sym = self.path_symbol(p)?;
-        let ItemSig::Union { variants } = self.cx.table.get(sym)? else {
+        let ItemSig::Union { variants, .. } = self.cx.table.get(sym)? else {
             return None;
         };
         let last = &p.segments.last()?.name.name;
@@ -6502,7 +6515,7 @@ impl<'a, 'c> Body<'a, 'c> {
         };
         let is_enum = matches!(self.cx.table.get(sym), Some(ItemSig::Enum { .. }));
         let found = match self.cx.table.get(sym) {
-            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
+            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants, .. }) => {
                 variants.iter().position(|v| v.name == name.name)
             }
             _ => None,
@@ -6510,7 +6523,7 @@ impl<'a, 'c> Body<'a, 'c> {
         if found.is_none() {
             let owner = self.cx.res.symbol(sym).name.clone();
             let names: Vec<String> = match self.cx.table.get(sym) {
-                Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
+                Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants, .. }) => {
                     variants.iter().map(|v| v.name.clone()).collect()
                 }
                 _ => Vec::new(),
@@ -6564,7 +6577,7 @@ impl<'a, 'c> Body<'a, 'c> {
         // integer, a `char`, a `bool`, a `str` — is matched against constants (spec §10.3).
         let mut scalar: Option<Ty> = None;
         let variants: Vec<crate::VariantSig> = match sym.and_then(|id| self.cx.table.get(id)) {
-            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants }) => {
+            Some(ItemSig::Enum { variants, .. }) | Some(ItemSig::Union { variants, .. }) => {
                 variants.clone()
             }
             _ => {
@@ -7002,7 +7015,7 @@ impl<'a, 'c> Body<'a, 'c> {
             BindMode::Value => {
                 if let Ty::Variant(owner, index, args) = &payload {
                     let fields = match self.cx.table.get(*owner) {
-                        Some(ItemSig::Union { variants }) => {
+                        Some(ItemSig::Union { variants, .. }) => {
                             variants.get(*index).map(|v| v.fields.clone()).unwrap_or_default()
                         }
                         _ => Vec::new(),

@@ -316,7 +316,7 @@ fn item_decl(text: &str, item: &Item) -> Option<Decl> {
             let header = header(text, m.span.start, m.body.start);
             Decl::new(DeclKind::Macro, &m.name, m.span, header, docs)
         }
-        ItemKind::MacroInvocation { .. } | ItemKind::Error => return None,
+        ItemKind::MacroInvocation(_) | ItemKind::Error => return None,
     };
     with_vis(&mut d, item.vis);
     Some(d)
@@ -686,6 +686,19 @@ fn name_token_at(tokens: &[Token], offset: u32) -> Option<usize> {
 
 /// Hover and definition for the name (or expression) at `offset`.
 pub fn info_at(a: &Analysis, file: FileId, offset: u32) -> Option<Info> {
+    // `#machine` is the macro, not any of the code it wrote, which all points here too
+    // (spec §12.6).
+    if let Some(r) = a
+        .expansions
+        .iter()
+        .find(|r| r.file == file && r.name_span.start <= offset && offset <= r.name_span.end)
+    {
+        return Some(Info {
+            span: r.name_span,
+            definition: Some((r.def_file, r.def_span)),
+            hover: Some(code(&format!("macro {} -> {}", r.name, r.kind.name()))),
+        });
+    }
     let q = Query::new(a)?;
     let text = a.map.get(file).text();
     let tokens = dz_lex::lex(file, text).tokens;
@@ -917,7 +930,7 @@ impl<'a> Query<'a> {
 
     fn variants(&self, s: SymbolId) -> Option<&'a [VariantSig]> {
         match self.table?.get(s)? {
-            ItemSig::Union { variants } | ItemSig::Enum { variants, .. } => Some(variants),
+            ItemSig::Union { variants, .. } | ItemSig::Enum { variants, .. } => Some(variants),
             _ => None,
         }
     }
@@ -1408,9 +1421,10 @@ impl<'a> Query<'a> {
         format!("fn {name}({params}) {arrow} {}", type_name(self.res, &f.ret))
     }
 
-    /// Fields and methods of a struct; its private ones only from inside it (spec §4).
+    /// Fields and methods of a struct, or a union's methods (spec §7.5); its private ones
+    /// only from inside it (spec §4).
     fn type_members(&self, owner: SymbolId, private: bool, out: &mut Completions) {
-        let Some(sig) = self.table.and_then(|t| t.struct_sig(owner)) else { return };
+        let Some(sig) = self.table.and_then(|t| t.methods_sig(owner)) else { return };
         for f in &sig.fields {
             if private || f.vis != Vis::Private {
                 out.push(&f.name, CompletionKind::Field, Some(type_name(self.res, &f.ty)));
@@ -2014,7 +2028,7 @@ fn field_hints(body: &Body, table: &TypeTable, text: &str, range: Span, out: &mu
                 None => continue,
             },
             ExprKind::UnionVariant { owner, index, payload } => match table.get(*owner) {
-                Some(ItemSig::Union { variants }) => match variants.get(*index) {
+                Some(ItemSig::Union { variants, .. }) => match variants.get(*index) {
                     Some(v) => (&v.fields, payload),
                     None => continue,
                 },

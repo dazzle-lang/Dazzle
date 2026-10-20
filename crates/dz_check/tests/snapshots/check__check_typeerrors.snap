@@ -1344,3 +1344,33 @@ error[DZ0501]: expected `TypeId`, found `{integer}`
      │
 1111 │     let b = typeinfo(3)
      │                      ^ this is `{integer}`
+
+error[DZ0559]: a union cannot declare a method named `kind`
+     ┌─ typeerrors/src/errors.dz:1120:12
+     │
+1120 │     pub fn kind(&self) -> i32 {
+     │            ^^^^ every union already has `kind()`
+     │
+     = help: `s.kind()` names the active variant (spec §7.5); choose another name
+
+error[DZ0559]: a union's method cannot be `virtual` or `override`
+     ┌─ typeerrors/src/errors.dz:1124:16
+     │
+1124 │     virtual fn turn(&self) {}
+     │                ^^^^ nothing inherits from a union
+     │
+     = help: remove `virtual` / `override` (spec §7.3, §7.5)
+
+error[DZ0507]: cannot assign to `self`
+     ┌─ typeerrors/src/errors.dz:1127:9
+     │
+1127 │         self = .Low{}
+     │         ^^^^ not mutable
+     │
+     = help: declare it as `let mut self` to allow assignment
+
+error[DZ0520]: `Dial` has no method `spin`
+     ┌─ typeerrors/src/errors.dz:1132:7
+     │
+1132 │     d.spin()
+     │       ^^^^ unknown method

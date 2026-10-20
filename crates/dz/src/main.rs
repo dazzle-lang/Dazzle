@@ -24,6 +24,7 @@ usage:
     dz hir   [path]             check and print the typed tree
     dz lex   <file.dz>          tokenize and print the token stream
     dz parse <file.dz>          parse and print the syntax tree
+    dz expand <file.dz>         print the file with every macro invocation expanded
     dz fmt   <file.dz>...       format in place
     dz fmt --check <file.dz>... report which files are not formatted (exit 1 if any)
     dz fmt --stdout <file.dz>   print the formatted source without writing
@@ -32,7 +33,8 @@ usage:
     dz --help
 
 `path` is a dazzle.toml or a directory containing one; it defaults to the current
-directory. `expand` is not implemented yet.
+directory. `expand` finds the project the file belongs to by looking for the
+nearest dazzle.toml above it, since a macro may come from a dependency.
 
 `test` and `bench` take a filter: `dz test . name` runs only the ones whose name
 contains `name`. Both are functions written beside the code they cover — a
@@ -82,6 +84,7 @@ fn main() -> ExitCode {
         Some("bench") => cmd_harness(&args, dz_cpp::Mode::Benches),
         Some("lex") => with_file(&args, cmd_lex),
         Some("parse") => with_file(&args, cmd_parse),
+        Some("expand") => with_file(&args, cmd_expand),
         Some("fmt") => cmd_fmt(&args[1..]),
         Some("lsp") => cmd_lsp(),
         Some("--version" | "-V") => {
@@ -544,6 +547,55 @@ fn cmd_parse(path: &str) -> ExitCode {
     diags.extend(parsed.diagnostics);
     diags.sort_by_position();
     report(&map, &diags)
+}
+
+/// `dz expand file.dz`: the file as resolution sees it, every invocation replaced by its
+/// expansion and printed by the formatter (spec §12.6). A name hygiene renamed prints with
+/// its `·N`, which is exactly how it differs from the caller's.
+fn cmd_expand(path: &str) -> ExitCode {
+    let file_path = match std::fs::canonicalize(path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: cannot read {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(manifest) =
+        file_path.ancestors().skip(1).map(|d| d.join("dazzle.toml")).find(|m| m.is_file())
+    else {
+        eprintln!("error: {path} is not inside a project: no dazzle.toml above it");
+        return ExitCode::FAILURE;
+    };
+    let analysis = dz_driver::analyse_for(
+        &manifest,
+        &|_| None,
+        dz_driver::Mode::Editor,
+        &dz_driver::BuildOptions::default(),
+    );
+    if !analysis.diags.is_empty() {
+        dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
+    }
+    let found = analysis.files.values().flatten().find(|pf| {
+        std::fs::canonicalize(analysis.map.get(pf.file).path()).is_ok_and(|p| p == file_path)
+    });
+    let Some(pf) = found else {
+        eprintln!("error: {path} is not one of its project's sources");
+        return ExitCode::FAILURE;
+    };
+    let file = analysis.map.get(pf.file);
+    let lexed = dz_lex::lex(pf.file, file.text());
+    let synthetic = analysis
+        .expansions
+        .iter()
+        .filter(|r| r.file == pf.file)
+        .map(|r| r.name_span.start)
+        .collect();
+    print!("{}", dz_fmt::format_expanded(file, &pf.ast, &lexed.comments, &synthetic));
+    if analysis.diags.has_errors() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 fn cmd_fmt(args: &[String]) -> ExitCode {

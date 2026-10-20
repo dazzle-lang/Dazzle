@@ -1,0 +1,61 @@
+// A state machine: each state is a struct, the machine is a union over them, and `step`
+// runs the active state for one frame. Written as a user macro, as spec §18.13 asks — it
+// belongs to the game, not the standard library.
+
+macro machine -> decl {
+    syntax Param {                                    // input: &Input
+        $name: ident : $type: type
+    }
+
+    syntax Field {                                    // t: f32 = 0
+        $name: ident : $type: type $( = $default: expr )?
+    }
+
+    syntax State {                                    // state Grow(t: f32 = 0) { … }
+        state $name: ident $( ( $fields: [,]Field ) )? {
+            $body: code
+        }
+    }
+
+    pattern {                                         // ButtonState(ctx: &Ctx) { … }
+        $name: ident ( $params: [,]Param ) {
+            $states: []State
+        }
+    }
+
+    expand {
+        #if !$states {
+            #error($name, "a state machine needs at least one state")
+        }
+
+        #for s in $states {
+            struct $s.name {
+                #for f in $s.fields {
+                    $f.name: $f.type #if $f.default { = $f.default }
+                }
+
+                pub(module) fn update(&mut self, $params) -> $name? {
+                    $s.body
+                    return none
+                }
+            }
+        }
+
+        union $name {
+            #for s in $states {
+                $s.name
+            }
+
+            // One frame: the active state decides whether there is a next one.
+            pub fn step(&mut self, $params) {
+                let next: $name? = switch self {
+                    #for s in $states {
+                        case $s.name(&mut st) { st.update(#for p in $params[,] { $p.name }) }
+                    }
+                }
+                let n = next or return
+                self = n
+            }
+        }
+    }
+}

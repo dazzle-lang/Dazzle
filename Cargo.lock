@@ -123,6 +123,7 @@ dependencies = [
 name = "dz_ast"
 version = "0.1.0"
 dependencies = [
+ "dz_lex",
  "dz_span",
 ]
 
@@ -180,6 +181,7 @@ dependencies = [
  "dz_flow",
  "dz_hir",
  "dz_lex",
+ "dz_macro",
  "dz_mono",
  "dz_parse",
  "dz_project",
@@ -251,6 +253,22 @@ dependencies = [
  "lsp-types",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "dz_macro"
+version = "0.1.0"
+dependencies = [
+ "dz_ast",
+ "dz_diag",
+ "dz_driver",
+ "dz_fmt",
+ "dz_lex",
+ "dz_parse",
+ "dz_project",
+ "dz_resolve",
+ "dz_span",
+ "insta",
 ]
 
 [[package]]

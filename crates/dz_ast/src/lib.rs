@@ -142,13 +142,10 @@ pub enum ItemKind {
     /// kept here, for the formatter and the editor; the driver keeps only the active one
     /// before resolution.
     CfgIf(CfgIf<Item>),
-    /// Parsed shallowly at M1; the body is kept as raw source for M10 (spec §12).
+    /// `macro machine -> decl { … }` (spec §12.1).
     Macro(MacroDecl),
-    /// `#machine Foo(Bar) { ... }` — likewise deferred to M10.
-    MacroInvocation {
-        name: Ident,
-        body: Span,
-    },
+    /// `#machine Foo(…) { … }` — replaced by its expansion before resolution (spec §12.5).
+    MacroInvocation(MacroCall),
     Error,
 }
 
@@ -318,6 +315,9 @@ pub struct UnionDecl {
     pub name: Ident,
     pub generics: Generics,
     pub variants: Vec<Variant>,
+    /// `pub fn step(&mut self) { … }` among the variants (spec §7.5, 18.78). Every one is a
+    /// `MemberKind::Fn`; anything else a union body holds is a parse error.
+    pub methods: Vec<Member>,
 }
 
 #[derive(Clone, Debug)]
@@ -375,15 +375,124 @@ pub struct StaticDecl {
     pub value: Expr,
 }
 
+/// One token of a macro's declaration or of an invocation, with its text (spec §12).
+///
+/// Macros work on tokens, and an expansion mixes tokens from two places — the macro's
+/// `expand` and the invocation — so each carries its own text rather than a span into one
+/// file's source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MacroToken {
+    pub kind: dz_lex::TokenKind,
+    pub span: Span,
+    pub text: String,
+}
+
+/// `macro machine -> decl { syntax … pattern { … } expand { … } }` (spec §12.1).
+///
+/// Parsed into its parts here; what the parts *mean* — that a kind exists, that every `$x`
+/// in `expand` was captured — is checked by `dz_macro`, which reports it against this tree.
 #[derive(Clone, Debug)]
 pub struct MacroDecl {
     pub span: Span,
     pub name: Ident,
-    /// `declaration`, `expression`, `statement` or `type`.
+    /// `decl`, `stmt` or `expr`.
     pub kind: Ident,
-    /// Raw source of the `{ ... }` body, kept verbatim until M10.
+    pub rules: Vec<SyntaxRule>,
+    /// `None` only when the declaration has no `pattern`, which is already reported.
+    pub pattern: Option<Vec<PatElem>>,
+    pub expand: Option<Vec<TemplateNode>>,
+    /// The braced body, which the formatter reproduces as written.
     pub body: Span,
 }
+
+/// `syntax Field { $name: ident : $type: type }` (spec §12.1).
+#[derive(Clone, Debug)]
+pub struct SyntaxRule {
+    pub span: Span,
+    pub name: Ident,
+    pub pattern: Vec<PatElem>,
+}
+
+/// One element of a macro pattern (spec §12.3).
+#[derive(Clone, Debug)]
+pub enum PatElem {
+    /// A token that must appear as written.
+    Token(MacroToken),
+    /// `$name: kind`, `$xs: [,]Kind`, `$x: kind?`.
+    Capture { span: Span, name: Ident, shape: CaptureShape, kind: Ident },
+    /// `$( … )?` — every capture inside is absent when the group is.
+    Group { span: Span, elems: Vec<PatElem> },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CaptureShape {
+    One,
+    /// `K?`
+    Optional,
+    /// `[]K`, or `[,]K` with the separator.
+    Many {
+        sep: Option<MacroToken>,
+    },
+}
+
+/// `$x`, `$s.name`, `$f.default` — a capture, or a field of a `syntax` capture.
+#[derive(Clone, Debug)]
+pub struct VarRef {
+    pub span: Span,
+    pub path: Vec<Ident>,
+}
+
+/// One element of a macro's `expand` (spec §12.3, §12.6).
+#[derive(Clone, Debug)]
+pub enum TemplateNode {
+    Token(MacroToken),
+    Var(VarRef),
+    /// `#for v in $xs[,] { … }`
+    For {
+        span: Span,
+        var: Ident,
+        list: VarRef,
+        sep: Option<MacroToken>,
+        body: Vec<TemplateNode>,
+    },
+    /// `#if $x { … } #else { … }`, `#if !$x { … }`
+    If {
+        span: Span,
+        negated: bool,
+        cond: VarRef,
+        then: Vec<TemplateNode>,
+        otherwise: Option<Vec<TemplateNode>>,
+    },
+    /// `#error("…")`, `#error($x, "…")`. `message` is the string literal as written.
+    Error {
+        span: Span,
+        at: Option<VarRef>,
+        message: MacroToken,
+    },
+}
+
+/// `#machine Foo(…) { … }`, `#max(a, b)` — an invocation, in any position (spec §12.5).
+#[derive(Clone, Debug)]
+pub struct MacroCall {
+    pub span: Span,
+    /// `#name` or `#dep::name`, the `#` included: where the expansion's own code points.
+    pub name_span: Span,
+    pub path: Path,
+    /// Everything after the name, which the pattern is matched against.
+    pub tokens: Vec<MacroToken>,
+}
+
+impl MacroCall {
+    /// The macro's own name, the path's last segment.
+    pub fn name(&self) -> &str {
+        self.path.segments.last().map_or("", |s| s.name.name.as_str())
+    }
+}
+
+/// The compiler's own macros (spec §12.7), which stay intrinsics rather than being looked
+/// up, and so cannot be the name of a user macro. `error` is `#error` inside `expand`.
+pub const INTRINSICS: &[&str] =
+    &["file", "line", "column", "function", "module", "location", "expr_text"];
 
 // ---------------------------------------------------------------------------
 // types
@@ -470,6 +579,9 @@ pub enum StmtKind {
     /// `#if FLAG { … }` around statements (spec §12.10). The active branch's statements
     /// are spliced into the enclosing block, so it opens no scope of its own.
     CfgIf(CfgIf<Stmt>),
+    /// `#trace "here"` — a macro invocation in statement position, replaced by its
+    /// expansion's statements before resolution (spec §12.5).
+    Macro(MacroCall),
     Error,
 }
 
@@ -699,11 +811,8 @@ pub enum ExprKind {
         name: Ident,
         args: Vec<Expr>,
     },
-    /// `vec!(...)` — body kept raw until M10.
-    MacroCall {
-        name: Ident,
-        body: Span,
-    },
+    /// `#max(a, b)` — replaced by its expansion before resolution (spec §12.5).
+    MacroCall(MacroCall),
     Tuple(Vec<Expr>),
     /// `allocator = Allocators::Temp` — an argument passed by name. Parsed only inside a
     /// call's argument list; only a parameter after a variadic one is passed this way

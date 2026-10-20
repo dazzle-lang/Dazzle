@@ -1,0 +1,13 @@
+// expect: DZ0601
+//
+// `#name` names no macro: an error at the invocation, with the nearest name when there is
+// one (spec §12.5).
+
+macro twice -> expr {
+    pattern { ( $e: expr ) }
+    expand { $e * 2 }
+}
+
+fn main() {
+    println("{}", #twise(4))
+}

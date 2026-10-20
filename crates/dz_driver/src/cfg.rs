@@ -287,7 +287,7 @@ impl Stripper<'_> {
             }
             ItemKind::Union(_)
             | ItemKind::Macro(_)
-            | ItemKind::MacroInvocation { .. }
+            | ItemKind::MacroInvocation(_)
             | ItemKind::CfgIf(_)
             | ItemKind::Error => {}
         }
@@ -375,7 +375,7 @@ impl Stripper<'_> {
                 // A nested `#if` item was spliced by the statement list; this is one item.
                 self.item(item);
             }
-            StmtKind::CfgIf(_) | StmtKind::Error => {}
+            StmtKind::CfgIf(_) | StmtKind::Macro(_) | StmtKind::Error => {}
         }
     }
 

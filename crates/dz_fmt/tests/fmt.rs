@@ -284,3 +284,14 @@ fn source_with_errors_is_reported_not_reformatted() {
     let r = run("t.dz", "fn broken( {\n}\n");
     assert!(!r.codes.is_empty());
 }
+
+/// A macro's body and an invocation are reproduced as written, comments and all — and a
+/// comment inside one is printed there once, not again after it (spec §12).
+#[test]
+fn a_comment_inside_a_macro_or_an_invocation_is_kept_once() {
+    unchanged(
+        "macro twice -> expr {\n    // doubles\n    pattern { ( $e: expr ) }\n    expand { $e * 2 }\n}\n\n\
+         #machine Door() {\n    // closed first\n    state Closed {}\n}\n\n\
+         fn main() {\n    #trace \"here\" // why\n    let x = #twice(\n        // four\n        4\n    )\n}\n",
+    );
+}

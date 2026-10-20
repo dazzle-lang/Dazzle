@@ -1,0 +1,11 @@
+// expect: DZ0607
+//
+// The intrinsics are the compiler's own macros, and `error` is `#error`: no macro may take
+// their names (spec §12.8).
+
+macro line -> expr {
+    pattern { }
+    expand { 0 }
+}
+
+fn main() {}

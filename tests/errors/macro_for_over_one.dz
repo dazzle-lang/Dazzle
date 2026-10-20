@@ -1,0 +1,10 @@
+// expect: DZ0606
+//
+// `#for` iterates a repeated capture; one captured once is not a list (spec §12.3).
+
+macro sum -> expr {
+    pattern { ( $a: expr ) }
+    expand { #for x in $a { $x } }
+}
+
+fn main() {}

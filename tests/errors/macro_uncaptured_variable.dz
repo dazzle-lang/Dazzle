@@ -1,0 +1,11 @@
+// expect: DZ0606
+//
+// Every `$name` in `expand` must be a capture; a misspelt one is the macro's own mistake,
+// reported where the macro is declared even if nothing invokes it (spec §12.3).
+
+macro twice -> expr {
+    pattern { ( $value: expr ) }
+    expand { $valeu * 2 }
+}
+
+fn main() {}

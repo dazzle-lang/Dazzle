@@ -1,0 +1,10 @@
+// expect: DZ0216
+//
+// A union's body holds variants and methods; a field belongs on a variant (spec §7.5).
+
+union Shape {
+    Circle { r: f32 }
+    pub scale: f32
+}
+
+fn main() {}

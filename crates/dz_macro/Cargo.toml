@@ -1,0 +1,21 @@
+[package]
+name = "dz_macro"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Declarative macros for Dazzle: matching, expansion and hygiene"
+
+[dependencies]
+dz_span.workspace = true
+dz_diag.workspace = true
+dz_lex.workspace = true
+dz_ast.workspace = true
+dz_parse.workspace = true
+dz_project.workspace = true
+dz_resolve.workspace = true
+
+[dev-dependencies]
+dz_driver.workspace = true
+dz_fmt.workspace = true
+insta.workspace = true
