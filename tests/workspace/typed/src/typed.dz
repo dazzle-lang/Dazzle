@@ -1455,7 +1455,7 @@ fn reflect_on_a_type() -> bool {
     return id == typeid_of<Vec3>() && again.kind == TypeKind::Struct && info.size > 0
 }
 
-// §7.5, 18.76: a union's methods — `self` is the union, a function without `self` is
+// §7.5, 18.78: a union's methods — `self` is the union, a function without `self` is
 // called through it, and a `&mut self` method may replace the whole union.
 union Lamp {
     Off {}

@@ -1,6 +1,6 @@
 // expect: DZ0215
 //
-// `name!(…)` was removed in r62: every macro is invoked with `#` (spec §12.5, 18.9).
+// `name!(…)` was removed in r63: every macro is invoked with `#` (spec §12.5, 18.9).
 
 macro twice -> expr {
     pattern { ( $e: expr ) }

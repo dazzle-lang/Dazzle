@@ -1,7 +1,7 @@
 // expect: DZ0406
 //
 // A parameter a macro copies into several functions is unused only if every copy leaves
-// it unused — and then it is reported once, where it was written (spec §12.6, 18.77).
+// it unused — and then it is reported once, where it was written (spec §12.6, 18.79).
 // `input` is read by no state; `count` by one, which is enough.
 
 struct Input {

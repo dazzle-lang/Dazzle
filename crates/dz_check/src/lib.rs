@@ -299,7 +299,7 @@ pub enum ItemSig {
     Struct(StructSig),
     Union {
         variants: Vec<VariantSig>,
-        /// Its methods (spec §7.5, 18.76), kept as a struct's are so that a method call
+        /// Its methods (spec §7.5, 18.78), kept as a struct's are so that a method call
         /// is resolved the same way on either. Nothing else in it is ever filled in.
         methods: StructSig,
     },

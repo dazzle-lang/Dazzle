@@ -501,7 +501,7 @@ impl<'a> Parser<'a> {
                 ExprKind::Tuple(elems)
             }
             TokenKind::SelfValue | TokenKind::SelfType | TokenKind::Ident => {
-                // `name!(…)`, the spelling r62 removed: report it, and read it as the
+                // `name!(…)`, the spelling r63 removed: report it, and read it as the
                 // `#name(…)` it now is so the tree stays whole (spec §12.5, 18.9).
                 if self.at(TokenKind::Ident)
                     && self.peek_at(1) == TokenKind::Bang

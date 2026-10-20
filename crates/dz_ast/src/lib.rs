@@ -315,7 +315,7 @@ pub struct UnionDecl {
     pub name: Ident,
     pub generics: Generics,
     pub variants: Vec<Variant>,
-    /// `pub fn step(&mut self) { … }` among the variants (spec §7.5, 18.76). Every one is a
+    /// `pub fn step(&mut self) { … }` among the variants (spec §7.5, 18.78). Every one is a
     /// `MemberKind::Fn`; anything else a union body holds is a parse error.
     pub methods: Vec<Member>,
 }

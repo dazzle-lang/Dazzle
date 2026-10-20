@@ -1,4 +1,4 @@
-// A union may declare methods (spec §7.5, 18.76): `self` is the union, its payload is
+// A union may declare methods (spec §7.5, 18.78): `self` is the union, its payload is
 // reached with `switch self`, and a method without `self` is the type's own function. In
 // C++ a union's members are named after its variants, so inside its methods a variant's
 // struct must be named in full — which a method taking or building one exercises.

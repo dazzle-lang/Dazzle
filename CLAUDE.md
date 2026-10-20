@@ -29,7 +29,7 @@ in `tests/bench` measuring Dazzle against hand-written C++. **CI runs on three p
 (`.github/workflows/ci.yml`) and has already earned its keep: its first runs found a shim
 bug that broke `println("{}", xs.len)` on macOS, an `import cpp` that could not find the
 SDK headers there, and two test bugs that had been passing vacuously. **M10 (macros) is
-done as r62**: `#machine` in `tests/run/machine` writes M8's `ButtonState` and the editor
+done as r63**: `#machine` in `tests/run/machine` writes M8's `ButtonState` and the editor
 completes inside it; the notation is spec §12, settled with the user for cohesion with the
 rest of the language, and unions gained methods for it. **Now: M12, the
 stdlib** — see the "Next" row of `docs/PROGRESS.md` §1 for the current order. Later: an

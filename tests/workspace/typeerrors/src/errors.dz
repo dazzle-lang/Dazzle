@@ -1080,7 +1080,7 @@ fn reflection_in_the_wrong_form() {
     let b = typeinfo(3)
 }
 
-// §7.5, 18.76: `kind` is every union's own, a union's method has nothing to dispatch to,
+// §7.5, 18.78: `kind` is every union's own, a union's method has nothing to dispatch to,
 // and one taking `&self` cannot replace the union or be called to change it.
 union Dial {
     Low {}

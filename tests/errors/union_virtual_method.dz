@@ -1,4 +1,4 @@
-// expect: DZ0558
+// expect: DZ0559
 //
 // Nothing inherits from a union, so its methods have nothing to dispatch to (spec §7.5).
 
