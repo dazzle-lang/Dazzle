@@ -166,7 +166,7 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 
 ```bash
 cargo build --workspace
-cargo test --workspace           # 232 tests at M6–M11 + M14 + M15
+cargo test --workspace           # 234 tests at M6–M11 + M14 + M15
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens

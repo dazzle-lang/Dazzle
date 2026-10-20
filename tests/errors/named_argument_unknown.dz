@@ -1,0 +1,12 @@
+// expect: DZ0558
+//
+// Only a parameter after a variadic one is passed by name, and this one has none of that
+// name (spec §7.2).
+
+fn sum(xs: ..i32, scale: i32 = 1) -> i32 {
+    return xs.len as i32 * scale
+}
+
+fn main() {
+    let _ = sum(1, 2, scael = 3)
+}

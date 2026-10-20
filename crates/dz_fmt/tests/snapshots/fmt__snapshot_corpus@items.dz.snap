@@ -167,6 +167,14 @@ fn sum(xs: ..i32) -> i32 {
 
 fn tell(prefix: str, things: ..&Describe) {}
 
+// Parameters after a variadic one, passed by name (spec §7.2).
+fn note(fmt: str, args: ..&Format, level: i32 = 0, loc: SourceLocation = #location) {}
+
+fn named() {
+    note("{} {}", 1, 2, level = 3)
+    note("x", loc = here(), level = 1 + 2)
+}
+
 /// Field tags: free-form text for reflection (spec §13.1).
 pub struct Player {
     pub name: str = "" `json:"player_name"`

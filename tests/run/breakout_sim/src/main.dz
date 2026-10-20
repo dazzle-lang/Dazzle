@@ -57,7 +57,7 @@ fn main() {
     println("idle stays ready {} paddle at wall {}", idle.phase == Phase::Ready, idle.paddle.x == 0)
 
     // The best score is kept only when beaten.
-    let dir = Path("breakout_sim_saves_") / format("{}", Time::unix().as_nanos() % 1000000007)
+    let dir = Path("breakout_sim_saves_") / String::format("{}", Time::unix().as_nanos() % 1000000007).as_str()
     let file = dir / "best.txt"
     let high = if steady.score > wild.score { steady.score } else { wild.score }
     let first = save_best(&file, high) or false

@@ -56,6 +56,18 @@ macro check -> stmt {
     }
 }
 
+// A function of one's own taking a format string is a macro handing the literal on, where
+// it is checked against the arguments as written (spec §12.9). The `,` is inside `#for`'s
+// body so no arguments leave none.
+macro log -> stmt {
+    syntax Arg { $value: expr }
+    pattern { $level: literal $fmt: literal $( , $args: [,]Arg )? }
+    expand {
+        print("[{}] ", $level)
+        println($fmt #for a in $args { , $a.value })
+    }
+}
+
 // --- declaration macros ---------------------------------------------------------------------
 
 macro record -> decl {
@@ -99,6 +111,8 @@ fn main() {
     #trace "start"
     #check a < b
     #check a > b
+    #log "info" "{} and {}", a, b
+    #log "warn" "nothing to say"
 
     let s = Size{ w: 1 }
     println("{}", s.total())

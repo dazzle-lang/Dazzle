@@ -501,6 +501,7 @@ impl<'a> Dumper<'a> {
                     }
                 });
             }
+            ExprKind::DefaultArg(index) => node!("default-arg {index}"),
         }
     }
 }

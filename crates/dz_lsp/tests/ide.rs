@@ -382,6 +382,19 @@ fn signature_help_stays_on_a_variadic_parameter() {
 }
 
 #[test]
+fn signature_help_follows_an_argument_passed_by_name() {
+    let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/formatting"));
+    assert!(!a.diags.has_errors(), "the fixture must check cleanly");
+    let f = main_file(&a);
+    let call = "total(\"d\", 4, offset = 1, scale = 3)";
+    let active = |col: usize| ide::signature_help(&a, f, at(&a, f, call, col)).unwrap().active;
+    // label, xs, scale, offset, loc
+    assert_eq!(active(12), 1, "`4` is a variadic argument");
+    assert_eq!(active(16), 3, "`offset = 1` is `offset`, though it comes first");
+    assert_eq!(active(28), 2, "`scale = 3` is `scale`");
+}
+
+#[test]
 fn signature_help_leaves_out_the_receiver() {
     let (a, f) = generics();
     let sig = ide::signature_help(&a, f, at(&a, f, "ints.push(10)", 10)).unwrap();
