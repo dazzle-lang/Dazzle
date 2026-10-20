@@ -167,8 +167,7 @@ fn sum(xs: ..i32) -> i32 {
 
 fn tell(prefix: str, things: ..&Describe) {}
 
-// Parameters after a variadic one, passed by name, and `#[format]` (spec §7.2, §12.9).
-#[format]
+// Parameters after a variadic one, passed by name (spec §7.2).
 fn note(fmt: str, args: ..&Format, level: i32 = 0, loc: SourceLocation = #location) {}
 
 fn named() {

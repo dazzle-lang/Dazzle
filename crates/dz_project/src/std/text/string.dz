@@ -21,7 +21,6 @@ pub struct String {
     /// `String::format("{} hp", hp, allocator = Allocators::Temp)`. The format string is
     /// checked against the arguments when the call is compiled, and anything that
     /// implements `Format` can be an argument.
-    #[format]
     pub fn format(fmt: str, args: ..&Format, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
         let mut out = String("", allocator, loc)
         out.reserve(fmt.len, loc)

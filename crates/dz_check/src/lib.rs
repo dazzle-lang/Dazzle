@@ -165,8 +165,8 @@ pub struct FnSig {
     /// the body sees, and a call gives it any number of `T`s — or one slice spread with
     /// `..xs`. Any parameters after it are passed by name.
     pub variadic: Option<usize>,
-    /// `#[format]`: the index of the `str` parameter that is a format string, checked at
-    /// each call against the `..&Format` arguments after it (spec §12.9).
+    /// The index of the `str` parameter that is a format string, checked at each call
+    /// against the `..&Format` arguments after it (spec §12.9). Only `String::format`'s.
     pub format: Option<usize>,
 }
 
@@ -2392,8 +2392,7 @@ impl<'a> Ctx<'a> {
                 self.table.sigs.insert(sym, ItemSig::Enum { backing, variants, values });
             }
             ItemKind::Fn(f) => {
-                let mut sig = self.fn_sig(f, item.vis, Some(sym));
-                self.format_attribute(&item.attrs, f, &mut sig);
+                let sig = self.fn_sig(f, item.vis, Some(sym));
                 self.check_test_attribute(item, f, &sig, sym);
                 self.table.sigs.insert(sym, ItemSig::Fn(sig));
             }
@@ -2427,32 +2426,16 @@ impl<'a> Ctx<'a> {
     /// the runner deciding what to pass, returning a value would leave it deciding what
     /// the value meant, and a generic one has no single instance to call — so all three
     /// are refused here, where the declaration is, rather than at some later point.
-    /// `#[format]` marks the `str` parameter just before an `args: ..&Format` one as a
-    /// format string, which each call then has checked against its arguments (spec §12.9).
-    /// The resolver has already held it to functions; the parameters are this phase's.
-    fn format_attribute(&mut self, attrs: &[dz_ast::Attr], f: &FnDecl, sig: &mut FnSig) {
-        let Some(attr) = attrs.iter().find(|a| a.name.name == "format") else { return };
-        let format_trait = self.res.lookup(self.res.prelude, "Format");
-        let takes_format = |t: &Ty| match t {
-            Ty::Slice { elem, .. } => matches!(&**elem, Ty::Ref { mutable: false, inner }
-                if matches!(&**inner, Ty::Named { sym, .. } if Some(*sym) == format_trait)),
-            _ => false,
-        };
-        let at = sig
-            .variadic
-            .filter(|&v| v > 0 && takes_format(&sig.params[v].ty))
-            .filter(|&v| matches!(sig.params[v - 1].ty, Ty::Str));
-        match at {
-            Some(v) => sig.format = Some(v - 1),
-            None => self.error_help(
-                codes::MISPLACED_ATTRIBUTE,
-                attr.span,
-                format!("`{}` has no format string for `#[format]` to mark", f.name.name),
-                "needs `fmt: str, args: ..&Format`",
-                "`#[format]` goes on a function whose `str` parameter is followed directly by \
-                 a variadic `..&Format` one: `fn log(fmt: str, args: ..&Format)` (spec §12.9)",
-            ),
+    /// The standard library's `String::format` takes a format string, checked at each call
+    /// against the `..&Format` arguments after it as `println`'s is (spec §12.9). It is the
+    /// only function that does: a function of one's own taking a format string waits for
+    /// macros (§19 M10), as `println` itself does.
+    fn std_format_string(&self, owner: SymbolId, f: &FnDecl, sig: &mut FnSig) {
+        let symbol = self.res.symbol(owner);
+        if symbol.module != self.res.prelude || symbol.name != "String" || f.name.name != "format" {
+            return;
         }
+        sig.format = sig.variadic.and_then(|v| v.checked_sub(1));
     }
 
     fn check_test_attribute(&mut self, item: &Item, f: &FnDecl, sig: &FnSig, sym: SymbolId) {
@@ -2584,7 +2567,7 @@ impl<'a> Ctx<'a> {
                 }
                 MemberKind::Fn(f) => {
                     let mut s = self.fn_sig(f, m.vis, None);
-                    self.format_attribute(&m.attrs, f, &mut s);
+                    self.std_format_string(sym, f, &mut s);
                     // One `virtual` anywhere in the chain makes the whole type
                     // polymorphic, which decides its destructor and whether it can be
                     // memcpy'd (spec §7.3, 18.32). `flatten_bases` carries it downward.

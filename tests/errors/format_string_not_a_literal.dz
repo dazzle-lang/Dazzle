@@ -1,6 +1,6 @@
 // expect: DZ0526
 //
-// A `#[format]` function's format string is checked at each call, so it must be a literal
+// `String::format`'s format string is checked at each call, so it must be a literal
 // (spec §12.9).
 
 fn main() {

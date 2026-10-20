@@ -1,8 +1,7 @@
 // expect: (none)
 //
-// `Format` implemented by a type of its own, and a `#[format]` function that passes its
-// format string and arguments on, with a parameter of its own passed by name
-// (spec §7.2, §12.9).
+// `Format` implemented by a type of its own, and `String::format` with an allocator passed
+// by name (spec §7.2, §12.9).
 
 struct Point {
     pub x: i32
@@ -19,14 +18,8 @@ impl Format for Point {
     }
 }
 
-#[format]
-fn report(fmt: str, args: ..&Format, prefix: str = "") -> String {
-    let body = String::format(fmt, ..args)
-    return String::format("{}{}", prefix, body)
-}
-
 fn main() {
     let p = Point{ x: 1, y: 2 }
-    let s = report("at {} after {:.1}s", p, 2.5, prefix = "> ")
+    let s = String::format("at {} after {:.1}s", p, 2.5, allocator = Allocators::Temp)
     println("{}", s.as_str())
 }
