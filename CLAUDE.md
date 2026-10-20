@@ -15,7 +15,7 @@ answering around syntax errors (`dz_driver::Mode::Editor`).
 
 **M7 is done.** A C or C++ library vendored as *source* is compiled by `dz` from a
 `[cpp.libs.<name>]` recipe and called through `import cpp` with no wrapper — no CMake, no
-Makefile, no prebuilt library. **`tests/run/raylib` opens a raylib window with raylib built
+Makefile, no prebuilt library. **`examples/raylib` opens a raylib window with raylib built
 from its own seven `.c` files**, which is M7b's criterion (spec §19). r21–r28 got there:
 handles, C unions, array members and bit-fields, callbacks, compound-literal macros, then
 the C++ half — namespaces, classes, methods, constructors, C++-owned destructors,
@@ -152,11 +152,12 @@ tests/workspace/      real multi-module workspaces (crates/dz_resolve/tests/reso
                         badmanifest/ manifest validation
                         typed/       must type-check with ZERO diagnostics
                         typeerrors/  one deliberate failure per type rule
-examples/*.dz         the user's design sketches. NOT valid Dazzle and NOT expected to
-                      parse — they are prototyping scratch from before the spec existed
-                      (nested `struct` in `union`, native `machine`, `def`, `@(...)`).
-                      Design input only. Do not "fix" them, and do not treat a parse
-                      failure on them as a bug.
+examples/             real projects, every one built by `every_example_builds`
+                      (crates/dz/tests/run.rs): `raylib` and `rgfw` (M7b's criterion, each
+                      opening a window), `breakout` (M12's, a raylib game whose rules are
+                      `tests/run/breakout_sim/game`, which that test plays headless) and
+                      `books`. The pre-spec sketches that used to live here were removed on
+                      2026-10-20; git history has them.
 ```
 
 Crates still to come are listed in spec §17.1. Follow that layout rather than inventing one.

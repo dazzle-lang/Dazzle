@@ -4,10 +4,10 @@ sources = ["src/**/*.dz"]
 
 # M12's criterion (spec §19): a small game with no C++ of its own. The rules are `game`,
 # plain Dazzle over `std`; this module draws them with raylib, built from the source
-# `tests/run/raylib` vendors.
+# `examples/raylib` vendors.
 [dependencies]
 std  = { open = true }
-game = { path = "../breakout_sim/game", open = true }
+game = { path = "../../tests/run/breakout_sim/game", open = true }
 rl   = { cpp = "raylib" }
 
 [cpp.libs.raylib]
