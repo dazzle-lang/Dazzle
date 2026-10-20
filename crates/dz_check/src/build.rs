@@ -105,6 +105,11 @@ impl BodyBuilder {
         &self.exprs[id.index()].kind
     }
 
+    /// The type a node already built was given.
+    pub(crate) fn ty(&self, id: ExprId) -> &Ty {
+        &self.exprs[id.index()].ty
+    }
+
     /// The value of a block that is nothing but one expression — `unsafe { &mut X }`.
     pub(crate) fn block_value(&self, id: BlockId) -> Option<ExprId> {
         match self.blocks[id.index()].stmts.as_slice() {

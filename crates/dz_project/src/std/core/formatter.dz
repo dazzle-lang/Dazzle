@@ -1,8 +1,112 @@
-/// Where a `Format` implementation writes.
+/// Where a `Format` implementation writes, and how the placeholder it was given asks for the
+/// value: `{:x}` and `{:X}` in hex, `{:.N}` with `N` digits after the point (spec §12.9).
 ///
-/// Empty for now, and deliberately so: what it needs is a growable buffer, which is
-/// `String` and arrives with M12. Declaring it here means `Format` can be written and
-/// implemented today, and filling it in later adds fields rather than changing anything's
-/// shape.
+/// It appends to a `String` that outlives it — `String::format` makes one for each call —
+/// so an implementation only ever adds text, with `write_str` and `write_char`:
+///
+/// ```dz
+/// impl Format for Vec2 {
+///     fn format(&self, f: &mut Formatter) {
+///         f.write_str("(")
+///         self.x.format(f)
+///         f.write_str(", ")
+///         self.y.format(f)
+///         f.write_str(")")
+///     }
+/// }
+/// ```
 pub struct Formatter {
+    m_out: ^mut String
+    m_loc: SourceLocation
+    m_hex: bool = false
+    m_upper: bool = false
+    m_precision: u32? = none
+
+    /// A formatter appending to `out`, which must outlive it. `loc` is where the text's
+    /// memory is recorded as allocated, under `--track-memory`.
+    Formatter(out: &mut String, loc: SourceLocation = #location) {
+        m_out = out
+        m_loc = loc
+    }
+
+    /// Append `s`.
+    pub fn write_str(&mut self, s: str) {
+        unsafe { m_out.push_str(s, m_loc) }
+    }
+
+    /// Append one character, encoded as UTF-8.
+    pub fn write_char(&mut self, c: char) {
+        unsafe { m_out.push(c, m_loc) }
+    }
+
+    /// Whether the placeholder was `{:x}` or `{:X}`: an integer is written in hex.
+    pub fn hex(&self) -> bool {
+        return m_hex
+    }
+
+    /// Whether hex digits are upper case: `{:X}`.
+    pub fn upper(&self) -> bool {
+        return m_upper
+    }
+
+    /// The `N` of `{:.N}`: how many digits a float has after the point. `none` for `{}`.
+    pub fn precision(&self) -> u32? {
+        return m_precision
+    }
+
+    /// Writes `fmt`, replacing each `{}` or `{:spec}` with the next of `args` and each `{{`
+    /// or `}}` with one brace. `String::format` has had its string
+    /// checked against its arguments already; here a placeholder with no argument left
+    /// writes nothing, and an argument with no placeholder is not written.
+    pub fn write_format(&mut self, fmt: str, args: []&Format) {
+        let bytes = fmt as []u8
+        let mut next: usize = 0
+        let mut start: usize = 0
+        let mut i: usize = 0
+        while i < bytes.len {
+            let b = bytes[i]
+            if (b == '{' as u8 || b == '}' as u8) && i + 1 < bytes.len && bytes[i + 1] == b {
+                // `{{` or `}}`: the text so far and one brace, then on past both.
+                self.write_str(sub(fmt, start, i + 1))
+                i += 2
+                start = i
+                continue
+            }
+            if b != '{' as u8 {
+                i += 1
+                continue
+            }
+            self.write_str(sub(fmt, start, i))
+            let mut close = i + 1
+            while close < bytes.len && bytes[close] != '}' as u8 {
+                close += 1
+            }
+            self.set_spec(sub(fmt, i + 1, close))
+            if next < args.len {
+                args[next].format(&mut self)
+                next += 1
+            }
+            m_hex = false
+            m_upper = false
+            m_precision = none
+            i = if close < bytes.len { close + 1 } else { close }
+            start = i
+        }
+        self.write_str(sub(fmt, start, bytes.len))
+    }
+
+    /// What is between a placeholder's braces: empty, or `:` and a spec.
+    fn set_spec(&mut self, inside: str) {
+        if inside == ":x" {
+            m_hex = true
+        } else if inside == ":X" {
+            m_hex = true
+            m_upper = true
+        } else if inside.len > 2 && inside.starts_with(":.") {
+            let digits = sub(inside, 2, inside.len)
+            if let n = digits.parse_u64() {
+                m_precision = n as u32
+            }
+        }
+    }
 }

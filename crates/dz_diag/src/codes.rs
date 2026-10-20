@@ -310,6 +310,11 @@ pub const MISSING_BODY: &str = "DZ0556";
 /// a trait's method, which a trait object would have to call without knowing them
 /// (spec §8.1, §7.6).
 pub const GENERIC_METHOD_NOT_ALLOWED: &str = "DZ0557";
+/// An argument passed by name — `allocator = a` — that does not fit: the call's function
+/// has no parameter of that name after a variadic one, the name is given twice, a
+/// positional argument follows it, or the call is not to a function at all (spec §7.2).
+/// Also a parameter after a variadic one that a call leaves out with no default.
+pub const BAD_NAMED_ARG: &str = "DZ0558";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

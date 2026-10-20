@@ -1,12 +1,12 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 61
+**Version:** 0.1 — **unreleased**, revision 62
 **Status:** M0–M8, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle programs
 compile and run, own, move and drop their resources deterministically, have generics,
 traits, unions and reflection, call C and C++ libraries that `dz` builds from vendored
 source, and are edited with a language server. Not yet 0.1: the editor still lacks code
 actions and incremental analysis (M9), and the standard library, though it has carried a
-game written without C++ (M12's criterion), still lacks library `format`.
+game written without C++ (M12's criterion), still has `println` as a builtin until macros.
 See `docs/PROGRESS.md`.
 
 **The version number stays 0.1 until 0.1 is actually finished.** 0.1 means: an LSP good
@@ -1054,7 +1054,7 @@ the left decides. **Assignment is the one exception: the value is evaluated befo
 place it is stored in** — in `xs[next()] = compute()`, `compute()` runs first — for `=` and
 for every compound assignment alike. `[DECIDED — §18.49]`
 
-**Variadic parameters.** The last parameter may take any number of arguments, written
+**Variadic parameters.** One parameter may take any number of arguments, written
 `name: ..T`. In the body it is a read-only slice, `[]T`:
 
 ```dz
@@ -1069,7 +1069,7 @@ sum(1, 2, 3)        // the arguments, in a temporary array on the caller's stack
 sum(..numbers)      // spread: an existing slice or array, passed as it is
 ```
 
-- It must be last and has no default; its arguments come after every fixed one.
+- There is at most one, and it has no default; its arguments come after every fixed one.
 - `..xs` spreads a slice or array, and must then be the *only* variadic argument —
   `sum(1, ..xs)` is an error; build the slice you want first. Forwarding is
   `inner(..args)`.
@@ -1083,6 +1083,28 @@ sum(..numbers)      // spread: an existing slice or array, passed as it is
 - As a value, a variadic function is a plain `fn([]T) -> R` that takes its slice.
 
 C variadic functions (`printf`) are still not imported (§15.2). `[DECIDED — §18.56]`
+
+**Arguments passed by name.** The parameters after a variadic one cannot be reached by
+position — every positional argument there is one more variadic argument — so they are
+passed **by name**, `name = value`, after all the others:
+
+```dz
+fn total(xs: ..i32, scale: i32 = 1, loc: SourceLocation = #location) -> i32 { … }
+
+total(1, 2, 3)                        // scale = 1, loc = this line
+total(1, 2, scale = 10)
+total(loc = here, scale = 2)          // any order; no variadic arguments at all
+String::format("{} hp", hp, allocator = Allocators::Temp)
+```
+
+- Only these parameters are passed by name, and only by name. Naming any other parameter —
+  or passing a name to a function with no variadic parameter — is an error (`DZ0558`), as
+  is a name the function does not have, a name given twice, or a positional argument after
+  a named one.
+- One with a default may be left out, whichever others are given; its default is evaluated
+  at the call, as any default is. One with no default must be passed.
+- A name is `name = value` only inside an argument list; assignment is a statement, never an
+  expression, so the two cannot be confused. `[DECIDED — §18.72]`
 
 **`extern fn`** declares a function whose body is not Dazzle: `extern fn monotonic_nanos() ->
 u64`, with no braces. **Only the standard library may write one** (`DZ0317`), at module
@@ -2531,10 +2553,10 @@ Attributes this specification describes but the compiler does not implement yet 
 ### 12.9 Format strings
 
 Formatting is not string interpolation and not varargs — it is a compile-time-checked
-call. `print`, `println`, `eprint`, `eprintln`, `format`, `panic`, and friends take a
-**string literal** as their first argument, and the compiler parses it during checking.
-`print` and `println` write to standard output; `eprint` and `eprintln` write the same way to
-standard error, for diagnostics that must not mix with a program's output:
+call. `print`, `println`, `eprint`, `eprintln`, `panic`, `error` and `String::format` take a
+**string literal** as their format string, and the compiler parses it during checking. `print` and `println` write to standard output; `eprint` and
+`eprintln` write the same way to standard error, for diagnostics that must not mix with a
+program's output:
 
 ```dz
 println("player {} has {} hp", name, hp)
@@ -2557,18 +2579,50 @@ The spec set is deliberately small, and each one names the kind of value it suit
 | `{:.N}` | `N` digits after the point | floats |
 | `{{` / `}}` | a literal brace | — |
 
-Until the stdlib (§19 M12), "formattable" means numbers, `bool`, `char`, `str`, `cstr` and
-pointers; a struct is an error rather than a guess at its layout. `[PROPOSED]`
+**Text you keep is a `String`.** There is no global `format`: `String::format` builds a new
+`String`, in memory from `Allocators::Global` unless an allocator is passed by name (§7.2):
+
+```dz
+let hud = String::format("Score {}   Lives {}", g.score, g.lives)
+let msg = String::format("{} took {:.1} ms", name, ms, allocator = Allocators::Temp)
+```
+
+**`Format` is how a value writes itself.** Its arguments are `..&Format`, so anything that
+implements the trait can be one — the numbers, `bool`, `char`, `str`, `cstr` and `String`
+implement it in `std`, and a type of your own implements it to be formatted too:
 
 ```dz
 pub trait Format {
     fn format(&self, f: &mut Formatter)
 }
+
+impl Format for Vec2 {
+    fn format(&self, f: &mut Formatter) {
+        f.write_str("(")
+        self.x.format(f)
+        f.write_str(", ")
+        self.y.format(f)
+        f.write_str(")")
+    }
+}
 ```
 
-The call lowers to a direct sequence of `Format::format` calls with no allocation and no
-intermediate string, so `println` in a hot loop costs what hand-written output costs.
-`[PROPOSED]`
+A `Formatter` appends to a `String` with `write_str` and `write_char`, and says what the
+placeholder asked for: `hex()` and `upper()` for `{:x}`/`{:X}`, `precision()` for `{:.N}`. On
+the built-in kinds a spec must suit the value, as in the table above; on a type with its own
+`Format` it is that implementation's to interpret.
+
+**A function of one's own that takes a format string waits for macros** (§19 M10), as
+`println` does: a format string is checked only where the compiler knows the call is
+formatting, and `String::format` is the one library function it knows. A wrapper such as a
+`log` with levels is written as a macro once there are macros; until then, it takes the
+`String` its caller built.
+
+`print`, `println`, `eprint`, `eprintln` and `panic` are still the compiler's own, and still
+take only the built-in kinds: a value with its own `Format` is printed through
+`String::format`. They become macros (§19 M10) — expanded at the call, which is also when
+`{}` lowers to a direct sequence of `Format::format` calls with no intermediate string.
+`[DECIDED — §18.73]`
 
 Interpolation (`"hp is {hp}"`) is deliberately absent for now: it hides a name lookup
 inside a literal, which complicates the lexer, the LSP's rename, and macro capture. It can
@@ -2745,12 +2799,12 @@ pub fn write_json(out: &mut String, value: ^u8, id: TypeId) {
             out.push('{')
             for &f in info.fields {
                 let key = f.tag_value("json") or f.name
-                out.push_str(format("\"{}\":", key))
+                out.push_str(String::format("\"{}\":", key).as_str())
                 write_json(out, unsafe { ((value as usize) + f.offset) as ^u8 }, f.type_id)
             }
             out.push('}')
         }
-        case I32 { out.push_str(format("{}", unsafe { (value as ^i32)^ })) }
+        case I32 { out.push_str(String::format("{}", unsafe { (value as ^i32)^ }).as_str()) }
         // ...
     }
 }
@@ -2887,7 +2941,8 @@ line that pushed.
 `str`, with an allocator as a second argument. `push_str`, `push` (a `char`, encoded),
 `clear`, `reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
 `as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
-compares text, and a copy copies it.
+compares text, and a copy copies it. `String::format("…", args)` builds one from a format
+string, taking `allocator = …` by name (§12.9).
 
 **`HashMap<K: Hash + Eq, V>`** maps keys to values, in `std`. `HashMap<K, V>()` is
 empty and allocates nothing; `HashMap<K, V>(capacity, allocator)` takes both. `insert(k, v)`
@@ -3784,7 +3839,7 @@ be exactly what reload needs, and must stay that way:
 | 18.51 | How `for` gets an iterator from a container | **Two prelude traits, `Iterable` and `IterableMut`**, each naming its iterator as an associated type: `fn iter(&self) -> Iter` and `fn iter_mut(&mut self) -> IterMut`. `for` over a value that is not itself `Iterate` calls `iter()`, or `iter_mut()` when a binding is `&mut`. Chosen over finding `iter()` by name, which states no contract and cannot be a bound: `fn total<C: Iterable>(c: &C)` must be writable (§8.5, §10.4) |
 | 18.52 | A union variant that owns something | **§7.5's proposal adopted: a union owns its active payload.** It is dropped with the union, dropped before another variant is assigned, and moved by moving the active payload. A union is copyable only when every variant is. This is also what lets a variant carry a struct with a constructor, `copy`, `drop`, base or `virtual` method (§7.5) |
 | 18.53 | `T` where a `T?` is wanted | **Converts, as at `return`.** A `T` becomes a `T?` wherever a `T?` is expected — a `let` with that type, an argument, an assignment — and where `if` or `switch` arms are joined and some arm is already a `T?` or `none`. Never the other way: a `T?` to a `T` still takes `or`. Chosen over `return`-only, which made state-machine `switch`es write every arm out as an optional (§9.1) |
-| 18.56 | Variadic parameters | **`name: ..T`, last, seen as a read-only `[]T`; `f(..xs)` spreads a slice as the only variadic argument; C varargs stay unimported.** The caller builds a temporary array, so there is no allocation and nothing is instantiated per call. Arguments of different types go through a trait reference (`..&Format`), which is what a library `println` needs. Chosen over same-type-only, which leaves `println` a builtin forever, and over compile-time packs (C++ `Ts...`), which cannot be walked without macros (M10). `..` rather than `...`: it already means "a run of" and needs no new token. A spread is explicit, so a `[]T` argument is never silently one element or many (§7.2) |
+| 18.56 | Variadic parameters | **`name: ..T`, last, seen as a read-only `[]T`; `f(..xs)` spreads a slice as the only variadic argument; C varargs stay unimported.** The caller builds a temporary array, so there is no allocation and nothing is instantiated per call. Arguments of different types go through a trait reference (`..&Format`), which is what a library `println` needs. Chosen over same-type-only, which leaves `println` a builtin forever, and over compile-time packs (C++ `Ts...`), which cannot be walked without macros (M10). `..` rather than `...`: it already means "a run of" and needs no new token. A spread is explicit, so a `[]T` argument is never silently one element or many (§7.2). **"Last" is revised by 18.72**: there is at most one, and the parameters after it are passed by name |
 | 18.57 | Where a module's imports are declared | **In `dazzle.toml`, for the whole module; not in each file.** A dependency's key is its name in every file (`rl::DrawLine`); `open = true` also makes its exports bare; `std` is one flat module (`std::Vec2`, `std::String`) listed like any dependency, and not listed means not nameable; a C or C++ header is named once, in its recipe's `import`, and depended on as `rl = { cpp = "raylib" }`. A bare name is found in locals, then the module's own declarations, then a file's `{ … }` import, then `[names]`, then the opened dependencies — where **two different declarations are an error at the use** (DZ0310), with no precedence by manifest order, since reordering a manifest or upgrading a library must never silently change which declaration a name means. A file keeps `import m::{ … }` and `import m as x` as the exception. Chosen over per-file imports (Java, Rust `use`, the earlier Dazzle): in a game the same engine, math and container types are used in nearly every file, and a per-file alias let one file call a library `rl` and the next `raylib`. Precedent: C#'s project-level global usings, and Rust's extern prelude, which puts every Cargo dependency in scope under its manifest name. What made C++'s `using namespace` fail — names leaking transitively, and clashes settled silently — is ruled out by private dependencies (18.58) and the use-site error. The cost is that a bare name's origin is not written in the file; the editor shows it (§3.2, §14.4, §15.1) |
 | 18.58 | Whether a dependency's names reach the modules that depend on this one | **Private by default; `pub = true` re-exports it, nested under the exporting module** (`rl::shapes::Rectangle`), and a dependent may name it itself with `via = "rl::shapes"`. A private dependency's type in a `pub` signature is an error (DZ0311). Nested rather than merged into the exporter's names, because a wrapper usually reuses the names of what it wraps. Follows Java's `requires` / `requires transitive` and Swift 6's `internal import` / `public import`, which also rejects a public API naming an internally-imported type; Rust merely warns, and leaves users holding values whose type they cannot write (§3.2) |
 | 18.59 | What reflection describes, and how a field carries metadata | **Every kind of type, and an Odin-style tag per field.** `TypeInfo` gains `module_name`, `variants` (an enum's names and values; a union's, with each payload's fields), `elem` (a pointer's, slice's, array's or optional's element, an enum's backing type), `len`, `mutable` and `tag_offset`; a `str`, a slice and an optional expose their parts as `fields`. `FieldInfo` has `vis` and `owning` instead of a flags set, and `tag`: a raw string ending the field declaration, `name: String `json:"player_name"``, read with `tag_value(key)`. Chosen over struct-only tables, with which a serializer cannot write an enum by name or follow a slice, and over language-defined field attributes such as `#[skip]`, which a JSON or save library could not extend: a tag is text only the library reading it gives meaning to. `TypeId` is a struct around the `u32` rather than a bare `u32`, so an index is never mistaken for a number; the fields are `type_id`, `module_name` and `owning` because `type` begins a member (§8.5) and `module` and `own` are keywords. Names are Dazzle's — `List<i32>` — with the module apart, replacing §13.5's `engine.Transform`, which contradicted `::` (§13) |
@@ -3796,6 +3851,8 @@ be exactly what reload needs, and must stay that way:
 | 18.63 | Integer overflow | **Wraps, in every build; never panics.** Replaces §5.1's proposal of a panic in debug. What every mainstream language but Rust and Swift does, and what hashing code relies on; signed overflow included, which C++ leaves undefined and Dazzle does not. The `Integer` methods say anything else (`checked_add`, `saturating_sub`) (§5.1) |
 | 18.64 | `Rc<Derived>` where an `Rc<Base>` is wanted | **Converts implicitly, as `&Derived` → `&Base` does (18.32)** and as C++'s `shared_ptr<Derived>` does: the same for `Weak` and `Box`. The count is shared, not copied. A handle to a trait object stays deferred, having no C++ counterpart to follow (§14.5) |
 | 18.65 | How `std` reaches the operating system | **`extern fn name(…) -> T` with no body, allowed only in `std`**, whose body is C++ the compiler ships beside the runtime shim — not in it, so §16.4's shim still does no I/O. Not generic and not fallible: an extern function is a plain call, and `std` builds the `Error`. A program's own way to C and C++ stays a `cpp` dependency. First written as a `#[native]` attribute (r54); a keyword was chosen instead because `extern` was already reserved and is what C, C++ and Rust readers expect for "the body is elsewhere" (§7.2, §15) |
+| 18.72 | Arguments passed by name | **`name = value`, for the parameters after a variadic one and for nothing else**, after the positional arguments, in any order; one with a default may be left out whatever else is given, one without must be passed. Chosen by the user for `String::format("…", x, allocator = Allocators::Temp)`: a variadic parameter takes every positional argument after the fixed ones, so an allocator or a `#location` after it was unreachable, and putting the allocator first would make every call name it. Naming is not extended to ordinary parameters, which keeps one way to pass each argument; it can be widened later without breaking a program. Revises 18.56's "last" |
+| 18.73 | Library formatting | **No global `format`: `String::format(fmt, args: ..&Format, allocator = …)` builds a `String`**, chosen by the user over a global function and over a macro, which waits for M10. **`Format` is a real trait**: `std` implements it for the numbers, `bool`, `char`, `str`, `cstr` and `String`, and a type of one's own implements it to be formatted; a `Formatter` appends to a `String` and reports the placeholder's spec, which a type's own implementation interprets. **No attribute marks a format string**: an `#[format]` was built and removed by the user, who wants formatting functions of one's own to be **macros, as in Rust** — `String::format` is the one function whose format string the compiler checks, until M10. `println` and friends stay builtins, taking only the built-in kinds, until macros (M10); `error(…)` keeps its static storage (§9.2) |
 | 18.71 | Text operations | **One `Text` trait, implemented for `str` and `String`**, whose operations are default methods over `text()`: both get every one, a literal included, with no `Deref` and no duplicate APIs. Pieces are `str` views; only `replace` and the case changes allocate. Parsing takes the whole text and returns an optional, refusing surrounding spaces rather than skipping them, since `trim()` says that explicitly. Case changes are ASCII only — Unicode case mapping needs tables `std` does not carry (§14.4) |
 | 18.70 | Sorting | **`List::sort` (by `Ord`, through a `Sort` trait implemented for `List<T: Ord>`) and `List::sort_by(fn(&T, &T) -> bool)`; a heapsort.** A trait rather than a method, because a method cannot require more of `T` than its type does. Heapsort over quicksort or merge sort: no allocation and no quadratic input, which a frame budget cares about more than the constant factor; stability is given up, and a stable sort can come later as its own name. `String` and `Path` gain byte-order `Ord`, so `Directory::list` can return a sorted, platform-independent order (§14.4) |
 | 18.69 | Characters in UTF-8 text | **Positions are bytes; characters are decoded by iteration.** `String` keeps UTF-8 as it always did, and gains `chars()` (and `for c in s`), `char_count`, `pop`, `is_char_boundary`, `slice` and `truncate`, every cut checked against a character boundary. Rejected: indexing by character, which is a linear walk disguised as `s[i]`, and UTF-32 storage, which quadruples memory for the text a game mostly holds. Invalid bytes decode as U+FFFD rather than panicking, since only unchecked code can make them (§14.4) |
@@ -3972,6 +4029,7 @@ Compiler-only work belongs in `docs/PROGRESS.md`, not here.
 
 | Revision | Date | Change |
 |---|---|---|
+| r62 | 2026-10-20 | **Arguments passed by name, and library formatting** (§7.2, §12.9, §14.4, 18.72, 18.73). The parameters after a variadic one are passed by name, `name = value`, after the other arguments and in any order; nothing else is. So "variadic last" (18.56) becomes "at most one variadic". **The global `format` is gone**: `String::format("…", args, allocator = …)` returns a `String` — no more four shared 256-byte buffers, so a long or a fifth message is no longer cut or overwritten. `Format` is implemented for the numbers, `bool`, `char`, `str`, `cstr` and `String`, and a type of your own can implement it; `Formatter` appends text and reports the placeholder's spec. A format string is checked at compile time in `String::format` as in `println`; a formatting function of one's own waits for macros (M10). `println` and friends are unchanged. |
 | r61 | 2026-09-15 | **`Process`** (§14.4): `Process::args()`, `Process::env(name)`, `Process::exit(code)`. |
 | r60 | 2026-09-15 | **Text operations** (§14.4, 18.71): the `Text` trait gives `str` and `String` `starts_with`, `ends_with`, `find`, `contains`, `trim`, `trim_start`, `trim_end`, `split`, `lines`, `replace`, `to_ascii_lowercase`, `to_ascii_uppercase`, `parse_i64`, `parse_u64`, `parse_f64`, `parse_f32`. |
 | r59 | 2026-09-15 | **r54's decisions, implemented.** Integer overflow **wraps** in every build — `i32::MAX + 1` and `250u8 + 10` included, where the generated C++ had been undefined or had not wrapped at all (§5.1, 18.63). `or unreachable` **assumes success** in release and shipping builds (§9.4, 18.20). **`Rc<Derived>`, `Weak<Derived>` and `Box<Derived>` convert** to their base's, sharing one count and dropping the whole value (§14.5, 18.64). **A generic function may be a value**: `xs.sort_by(greater<i32>)`, or inferred from the function type wanted (§8.1). **Sorting** (§14.4, 18.70): `List::sort`, `sort_by`, `swap`; `String` and `Path` are `Ord`. `Directory::list` is sorted; `Path::modified` and `Path::as_cstr`. Output to a Windows console is shown as UTF-8. |

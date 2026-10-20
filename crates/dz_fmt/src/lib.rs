@@ -955,6 +955,7 @@ impl<'a> Printer<'a> {
                     format!("({})", e.join(", "))
                 }
             }
+            ExprKind::Named { name, value } => format!("{} = {}", name.name, self.expr(value)),
             ExprKind::Error => "/* <error> */".to_owned(),
         }
     }
