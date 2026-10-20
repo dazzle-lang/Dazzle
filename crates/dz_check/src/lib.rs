@@ -299,6 +299,9 @@ pub enum ItemSig {
     Struct(StructSig),
     Union {
         variants: Vec<VariantSig>,
+        /// Its methods (spec §7.5, 18.76), kept as a struct's are so that a method call
+        /// is resolved the same way on either. Nothing else in it is ever filled in.
+        methods: StructSig,
     },
     Enum {
         backing: IntTy,
@@ -470,6 +473,17 @@ impl TypeTable {
         }
     }
 
+    /// Where a type's methods are: a struct's or trait's signature, or a union's methods
+    /// (spec §7.5). For method lookup only — a union has no fields or constructors, and
+    /// asking [`TypeTable::struct_sig`] about one rightly says so.
+    pub fn methods_sig(&self, id: SymbolId) -> Option<&StructSig> {
+        match self.sigs.get(&id)? {
+            ItemSig::Struct(s) | ItemSig::Trait(s) => Some(s),
+            ItemSig::Union { methods, .. } => Some(methods),
+            _ => None,
+        }
+    }
+
     /// `sym` and then each of its bases, nearest first. Stops at a cycle, which
     /// `flatten_bases` has already reported and broken (spec §7.3, 18.32).
     pub fn with_bases(&self, sym: SymbolId) -> Vec<SymbolId> {
@@ -491,7 +505,7 @@ impl TypeTable {
     pub fn method_owner(&self, sym: SymbolId, name: &str) -> Option<SymbolId> {
         self.with_bases(sym)
             .into_iter()
-            .find(|s| self.struct_sig(*s).is_some_and(|x| x.overloads.contains_key(name)))
+            .find(|s| self.methods_sig(*s).is_some_and(|x| x.overloads.contains_key(name)))
     }
 
     /// Does `sym` inherit from `base`, at any depth? A `&Derived` is usable as a `&Base`
@@ -569,7 +583,7 @@ impl TypeTable {
                     s.drop.is_some()
                         || self.field_types(*id, args, &s.fields).iter().any(|t| self.needs_drop(t))
                 }
-                Some(ItemSig::Union { variants }) => variants
+                Some(ItemSig::Union { variants, .. }) => variants
                     .iter()
                     .any(|v| self.payload_types(*id, args, v).iter().any(|t| self.needs_drop(t))),
                 _ => false,
@@ -665,7 +679,7 @@ impl TypeTable {
                         }
                     }
                     // A union is copyable only when every variant is (spec §7.5, 18.52).
-                    Some(ItemSig::Union { variants }) => variants.iter().all(|v| {
+                    Some(ItemSig::Union { variants, .. }) => variants.iter().all(|v| {
                         self.payload_types(*id, args, v)
                             .iter()
                             .all(|t| self.copyable_guarded(t, stack))
@@ -704,7 +718,7 @@ impl TypeTable {
     /// Whether a union needs special members that switch on its tag: some variant has a
     /// payload C++ cannot copy, build or destroy without running code (spec §7.5, 18.52).
     pub fn union_is_trivial(&self, sym: SymbolId, args: &[Ty]) -> bool {
-        let Some(ItemSig::Union { variants }) = self.get(sym) else { return true };
+        let Some(ItemSig::Union { variants, .. }) = self.get(sym) else { return true };
         variants.iter().all(|v| {
             let special = v.carries.and_then(|c| self.struct_sig(c)).is_some_and(|s| {
                 !s.ctors.is_empty() || s.copy.is_some() || s.base.is_some() || s.polymorphic
@@ -735,7 +749,7 @@ impl TypeTable {
                             .iter()
                             .all(|t| !matches!(t, Ty::OwnPtr { .. }) && self.trivially_copyable(t))
                 }
-                Some(ItemSig::Union { variants }) => variants.iter().all(|v| {
+                Some(ItemSig::Union { variants, .. }) => variants.iter().all(|v| {
                     self.payload_types(*sym, args, v).iter().all(|t| self.trivially_copyable(t))
                 }),
                 _ => true,
@@ -2348,7 +2362,9 @@ impl<'a> Ctx<'a> {
                         carries: if v.has_payload { None } else { self.carried_struct(v) },
                     })
                     .collect();
-                self.table.sigs.insert(sym, ItemSig::Union { variants });
+                let methods = self.collect_struct(sym, &u.methods);
+                self.reserved_union_method(&methods);
+                self.table.sigs.insert(sym, ItemSig::Union { variants, methods });
                 self.pop_params();
             }
             ItemKind::Enum(e) => {
@@ -2411,7 +2427,7 @@ impl<'a> Ctx<'a> {
             }
             ItemKind::Impl(_)
             | ItemKind::Macro(_)
-            | ItemKind::MacroInvocation { .. }
+            | ItemKind::MacroInvocation(_)
             | ItemKind::Error => {}
         }
     }
@@ -2486,6 +2502,29 @@ impl<'a> Ctx<'a> {
             self.table.tests.push(sym);
         } else {
             self.table.benches.push(sym);
+        }
+    }
+
+    /// `kind` is every union's own: `s.kind()` names the active variant (spec §7.5).
+    fn reserved_union_method(&mut self, methods: &StructSig) {
+        // Nothing inherits from a union, so there is nothing to dispatch to (spec §7.5).
+        for m in methods.methods.values().filter(|m| m.dispatch != Dispatch::Static) {
+            self.error_help(
+                codes::RESERVED_UNION_METHOD,
+                m.span,
+                "a union's method cannot be `virtual` or `override`",
+                "nothing inherits from a union",
+                "remove `virtual` / `override` (spec §7.3, §7.5)",
+            );
+        }
+        if let Some(m) = methods.methods.get("kind") {
+            self.error_help(
+                codes::RESERVED_UNION_METHOD,
+                m.span,
+                "a union cannot declare a method named `kind`",
+                "every union already has `kind()`",
+                "`s.kind()` names the active variant (spec §7.5); choose another name",
+            );
         }
     }
 
@@ -2715,7 +2754,7 @@ impl<'a> Ctx<'a> {
             ItemKind::Const(c) => &c.name.name,
             ItemKind::Static(s) => &s.name.name,
             ItemKind::Macro(m) => &m.name.name,
-            ItemKind::Impl(_) | ItemKind::MacroInvocation { .. } | ItemKind::Error => return None,
+            ItemKind::Impl(_) | ItemKind::MacroInvocation(_) | ItemKind::Error => return None,
         };
         self.res.lookup(self.module, name)
     }

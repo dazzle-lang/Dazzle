@@ -183,7 +183,7 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
                     }
                 }
                 SymbolKind::Union => {
-                    if let Some(dz_check::ItemSig::Union { variants }) = table.get(sym) {
+                    if let Some(dz_check::ItemSig::Union { variants, .. }) = table.get(sym) {
                         for v in variants {
                             for f in &v.fields {
                                 w.visit_ty(&f.ty, at);
@@ -256,7 +256,7 @@ pub fn is_template(table: &TypeTable, owner: &BodyOwner) -> bool {
 /// non-generic type, and instantiated per call rather than with its type.
 pub fn is_generic_method(table: &TypeTable, owner: &BodyOwner) -> bool {
     let BodyOwner::Method { owner, name } = owner else { return false };
-    table.struct_sig(*owner).and_then(|s| s.methods.get(name)).is_some_and(|m| m.is_generic())
+    table.methods_sig(*owner).and_then(|s| s.methods.get(name)).is_some_and(|m| m.is_generic())
 }
 
 enum Pending {
@@ -307,7 +307,7 @@ impl Worklist<'_> {
     ) {
         let key = BodyOwner::Method { owner, name: name.clone() };
         let Some(template) = self.hir.find(&key) else { return };
-        let Some(sig) = self.table.struct_sig(owner).and_then(|s| s.methods.get(&name)) else {
+        let Some(sig) = self.table.methods_sig(owner).and_then(|s| s.methods.get(&name)) else {
             return;
         };
         let mut map = self.params_map(owner, &owner_args);

@@ -1,0 +1,10 @@
+[module]
+name    = "macros"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+engine = { path = "libs/engine" }
+
+[build]
+output = "executable"

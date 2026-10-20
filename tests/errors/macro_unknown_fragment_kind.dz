@@ -1,0 +1,10 @@
+// expect: DZ0606
+//
+// A capture's kind is a built-in fragment or a `syntax` rule of the macro (spec §12.2).
+
+macro twice -> expr {
+    pattern { ( $value: expression ) }
+    expand { $value * 2 }
+}
+
+fn main() {}

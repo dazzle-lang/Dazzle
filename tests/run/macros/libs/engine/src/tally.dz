@@ -1,0 +1,19 @@
+// A macro exported to the modules that depend on this one (spec §12.5). The names its
+// expansion writes — `Tally`, `bump` — are this module's, and resolve here wherever the
+// macro is invoked from (spec §12.4): its users never name them.
+
+pub struct Tally {
+    pub n: i32 = 0
+}
+
+pub fn bump(t: &mut Tally, by: i32) {
+    t.n += by
+}
+
+pub macro tally -> stmt {
+    pattern { $name: ident $( by $step: expr )? }
+    expand {
+        let mut $name = Tally{}
+        bump(&mut $name, #if $step { $step } #else { 1 })
+    }
+}

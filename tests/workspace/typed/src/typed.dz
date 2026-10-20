@@ -1454,3 +1454,35 @@ fn reflect_on_a_type() -> bool {
     }
     return id == typeid_of<Vec3>() && again.kind == TypeKind::Struct && info.size > 0
 }
+
+// §7.5, 18.76: a union's methods — `self` is the union, a function without `self` is
+// called through it, and a `&mut self` method may replace the whole union.
+union Lamp {
+    Off {}
+    On { level: i32 }
+
+    pub fn dark() -> Lamp {
+        return .Off{}
+    }
+
+    pub fn level(&self) -> i32 {
+        return switch self {
+            case Off { 0 }
+            case On(o) { o.level }
+        }
+    }
+
+    pub fn flip(&mut self) {
+        let next: Lamp = switch self {
+            case Off { .On{ level: 1 } }
+            case On { .Off{} }
+        }
+        self = next
+    }
+}
+
+fn union_methods() -> i32 {
+    let mut l = Lamp::dark()
+    l.flip()
+    return l.level()
+}

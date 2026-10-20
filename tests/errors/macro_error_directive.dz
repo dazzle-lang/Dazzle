@@ -1,0 +1,23 @@
+// expect: DZ0604
+//
+// A macro may reject an invocation deliberately with `#error`, reported at what `$x`
+// captured (spec §12.6).
+
+macro machine -> decl {
+    syntax State { state $name: ident { $body: code } }
+    pattern { $name: ident { $states: []State } }
+    expand {
+        #if !$states {
+            #error($name, "a state machine needs at least one state")
+        }
+        union $name {
+            #for s in $states {
+                $s.name
+            }
+        }
+    }
+}
+
+#machine Empty {}
+
+fn main() {}

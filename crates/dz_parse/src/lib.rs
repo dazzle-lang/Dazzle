@@ -12,6 +12,7 @@ use dz_span::{FileId, Span};
 mod cfg;
 mod expr;
 mod item;
+mod macros;
 mod stmt;
 mod ty;
 
@@ -22,25 +23,212 @@ pub struct ParseResult {
 
 /// Parse a token stream produced by [`dz_lex::lex`].
 pub fn parse(file: FileId, src: &str, tokens: &[Token]) -> ParseResult {
-    let mut p = Parser {
-        file,
-        src,
-        tokens,
-        pos: 0,
-        diags: Diagnostics::new(),
-        no_struct_literal: 0,
-        pending_gt: None,
-        last_error_at: None,
-        fuel: 0,
-    };
+    let mut p = Parser::new(file, src, tokens, None);
     let ast = p.parse_file();
     ParseResult { ast, diagnostics: p.diags }
+}
+
+// --- macro expansions (spec §12) ---------------------------------------------------------
+//
+// An expansion is a run of tokens gathered from a macro's `expand` and from the invocation,
+// so it has no single source to slice: each token comes with its own text. These entry
+// points parse such a run with the same parser as a file, so expanded code gets exactly the
+// diagnostics and the tree that written code would.
+
+/// What a run of expansion tokens is parsed as.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Fragment {
+    Ident,
+    Literal,
+    Type,
+    Expr,
+    Stmt,
+    Block,
+    /// Statements up to the end of the run.
+    Code,
+    Decl,
+}
+
+impl Fragment {
+    /// The fragment kind a pattern names (spec §12.2).
+    pub fn from_name(name: &str) -> Option<Fragment> {
+        Some(match name {
+            "ident" => Fragment::Ident,
+            "literal" => Fragment::Literal,
+            "type" => Fragment::Type,
+            "expr" => Fragment::Expr,
+            "stmt" => Fragment::Stmt,
+            "block" => Fragment::Block,
+            "code" => Fragment::Code,
+            "decl" => Fragment::Decl,
+            _ => return None,
+        })
+    }
+}
+
+/// Declarations, from an expansion's tokens.
+pub fn parse_items(file: FileId, tokens: &[Token], texts: &[String]) -> (Vec<Item>, Diagnostics) {
+    let mut p = Parser::new(file, "", tokens, Some(texts));
+    let ast = p.parse_file();
+    (ast.items, p.diags)
+}
+
+/// Statements, from an expansion's tokens.
+pub fn parse_stmts(file: FileId, tokens: &[Token], texts: &[String]) -> (Vec<Stmt>, Diagnostics) {
+    let mut p = Parser::new(file, "", tokens, Some(texts));
+    let mut stmts = Vec::new();
+    loop {
+        p.skip_terminators();
+        if p.at_end() {
+            break;
+        }
+        if p.stalled() {
+            continue;
+        }
+        if p.at(TokenKind::RBrace) {
+            p.error_labeled(codes::EXPECTED_TOKEN, p.peek_token().span, "unexpected `}`", "here");
+            p.bump();
+            continue;
+        }
+        stmts.push(p.parse_stmt());
+    }
+    (stmts, p.diags)
+}
+
+/// One expression that must use every token, from an expansion's tokens.
+pub fn parse_expr(file: FileId, tokens: &[Token], texts: &[String]) -> (Expr, Diagnostics) {
+    let mut p = Parser::new(file, "", tokens, Some(texts));
+    p.skip_terminators();
+    let e = p.parse_expr();
+    p.skip_terminators();
+    if !p.at_end() {
+        let found = p.describe_current();
+        p.error_labeled(
+            codes::EXPECTED_TOKEN,
+            p.peek_token().span,
+            format!("expected the end of the expression, found {found}"),
+            "the expansion goes on past one expression",
+        );
+    }
+    (e, p.diags)
+}
+
+/// How many tokens from `start` one fragment of `kind` takes, for matching a macro pattern
+/// (spec §12.2): the real parser decides where a type or an expression ends. `Err` holds
+/// what the parser reported when the tokens there are not one.
+pub fn fragment_len(
+    file: FileId,
+    tokens: &[Token],
+    texts: &[String],
+    start: usize,
+    kind: Fragment,
+) -> Result<usize, Diagnostics> {
+    let mut p = Parser::new(file, "", tokens, Some(texts));
+    p.pos = start;
+    match kind {
+        Fragment::Ident | Fragment::Literal => {
+            let k = p.peek();
+            let ok = if kind == Fragment::Ident {
+                k == TokenKind::Ident
+            } else {
+                k.is_literal() || matches!(k, TokenKind::True | TokenKind::False)
+            };
+            if ok {
+                return Ok(1);
+            }
+            let what = if kind == Fragment::Ident { "a name" } else { "a literal" };
+            let found = p.describe_current();
+            p.error_labeled(
+                codes::EXPECTED_TOKEN,
+                p.peek_token().span,
+                format!("expected {what}, found {found}"),
+                format!("expected {what} here"),
+            );
+        }
+        Fragment::Type => {
+            p.parse_type();
+        }
+        Fragment::Expr => {
+            p.parse_expr();
+        }
+        Fragment::Stmt => {
+            p.parse_stmt();
+            // A statement takes its terminator with it; the fragment does not.
+            if p.pos > start
+                && p.tokens.get(p.pos - 1).map(|t| t.kind) == Some(TokenKind::Terminator)
+            {
+                p.pos -= 1;
+            }
+        }
+        Fragment::Block => {
+            p.parse_block();
+        }
+        Fragment::Decl => {
+            if p.parse_item().is_none() {
+                let found = p.describe_current();
+                p.error_labeled(
+                    codes::EXPECTED_ITEM,
+                    p.peek_token().span,
+                    format!("expected a declaration, found {found}"),
+                    "expected a declaration here",
+                );
+            }
+        }
+        Fragment::Code => {
+            // Everything up to the bracket that closes the enclosing group.
+            let mut depth = 0i32;
+            let mut i = start;
+            while let Some(t) = tokens.get(i) {
+                match t.kind {
+                    TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                    TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                        if depth == 0 {
+                            break;
+                        }
+                        depth -= 1;
+                    }
+                    TokenKind::Eof => break,
+                    _ => {}
+                }
+                i += 1;
+            }
+            return Ok(i - start);
+        }
+    }
+    if p.diags.has_errors() || p.pos == start {
+        if !p.diags.has_errors() {
+            let found = p.describe_current();
+            p.error_labeled(
+                codes::EXPECTED_TOKEN,
+                p.peek_token().span,
+                format!("expected {}, found {found}", fragment_name(kind)),
+                "not one here",
+            );
+        }
+        return Err(p.diags);
+    }
+    Ok(p.pos - start)
+}
+
+fn fragment_name(kind: Fragment) -> &'static str {
+    match kind {
+        Fragment::Ident => "a name",
+        Fragment::Literal => "a literal",
+        Fragment::Type => "a type",
+        Fragment::Expr => "an expression",
+        Fragment::Stmt => "a statement",
+        Fragment::Block => "a block",
+        Fragment::Code => "statements",
+        Fragment::Decl => "a declaration",
+    }
 }
 
 pub(crate) struct Parser<'a> {
     pub(crate) file: FileId,
     pub(crate) src: &'a str,
     tokens: &'a [Token],
+    /// Each token's text, when the tokens are an expansion's rather than one file's.
+    texts: Option<&'a [String]>,
     pos: usize,
     pub(crate) diags: Diagnostics,
     /// Non-zero while parsing the head of `if`/`while`/`for`/`switch`/`with`, where a `{`
@@ -55,6 +243,26 @@ pub(crate) struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    fn new(
+        file: FileId,
+        src: &'a str,
+        tokens: &'a [Token],
+        texts: Option<&'a [String]>,
+    ) -> Parser<'a> {
+        Parser {
+            file,
+            src,
+            tokens,
+            texts,
+            pos: 0,
+            diags: Diagnostics::new(),
+            no_struct_literal: 0,
+            pending_gt: None,
+            last_error_at: None,
+            fuel: 0,
+        }
+    }
+
     // --- cursor -----------------------------------------------------------
 
     pub(crate) fn peek(&self) -> TokenKind {
@@ -169,12 +377,31 @@ impl<'a> Parser<'a> {
         Span { start, end: self.prev_end().max(start) }
     }
 
-    pub(crate) fn text(&self, span: Span) -> &'a str {
-        &self.src[span.range()]
+    /// The text of the token at index `i`: from the text table when parsing an expansion,
+    /// whose tokens come from more than one source (spec §12), else from the file.
+    fn text_at(&self, i: usize) -> &'a str {
+        match self.texts {
+            Some(texts) => texts.get(i).map_or("", String::as_str),
+            None => self.tokens.get(i).map_or("", |t| &self.src[t.span.range()]),
+        }
     }
 
-    pub(crate) fn token_text(&self, t: Token) -> &'a str {
-        self.text(t.span)
+    /// The text of the token `n` places past the current one.
+    pub(crate) fn text_after(&self, n: usize) -> &'a str {
+        self.text_at(self.pos + n)
+    }
+
+    /// The text of the current token.
+    pub(crate) fn cur_text(&self) -> &'a str {
+        if self.pending_gt.is_some() {
+            return ">";
+        }
+        self.text_at(self.pos)
+    }
+
+    /// The text of the token just consumed.
+    pub(crate) fn prev_text(&self) -> &'a str {
+        self.text_at(self.pos.wrapping_sub(1))
     }
 
     // --- diagnostics ------------------------------------------------------
@@ -230,9 +457,9 @@ impl<'a> Parser<'a> {
         match t.kind {
             TokenKind::Eof => "end of file".to_owned(),
             TokenKind::Terminator => "end of line".to_owned(),
-            TokenKind::Ident => format!("`{}`", self.token_text(t)),
+            TokenKind::Ident => format!("`{}`", self.cur_text()),
             k if k.is_keyword() => format!("keyword `{}`", k.name()),
-            k if k.is_literal() => format!("`{}`", self.token_text(t)),
+            k if k.is_literal() => format!("`{}`", self.cur_text()),
             k => format!("`{}`", k.name()),
         }
     }
@@ -315,7 +542,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_ident(&mut self) -> Option<Ident> {
         if self.at(TokenKind::Ident) {
             let t = self.bump();
-            let name = self.token_text(t);
+            let name = self.prev_text();
             if dz_lex::RESERVED.contains(&name) {
                 self.error_help(
                     codes::RESERVED_KEYWORD,
@@ -391,77 +618,6 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-    }
-
-    /// Consume a balanced `{ ... }` group and return its span, for constructs whose
-    /// interior is not parsed yet (macros — spec §12, deferred to M10).
-    pub(crate) fn consume_braced_group(&mut self) -> Span {
-        let start = self.start();
-        if !self.at(TokenKind::LBrace) {
-            return self.span_from(start);
-        }
-        let open = self.bump().span;
-        let mut depth = 1i32;
-        while depth > 0 {
-            match self.peek() {
-                TokenKind::Eof => {
-                    self.error_labeled(
-                        codes::UNCLOSED_DELIMITER,
-                        open,
-                        "unclosed `{`",
-                        "this brace is never closed",
-                    );
-                    break;
-                }
-                TokenKind::LBrace => {
-                    depth += 1;
-                    self.bump();
-                }
-                TokenKind::RBrace => {
-                    depth -= 1;
-                    self.bump();
-                }
-                _ => {
-                    self.bump();
-                }
-            }
-        }
-        self.span_from(start)
-    }
-
-    /// Consume a balanced `( ... )` group and return its span.
-    pub(crate) fn consume_paren_group(&mut self) -> Span {
-        let start = self.start();
-        if !self.at(TokenKind::LParen) {
-            return self.span_from(start);
-        }
-        let open = self.bump().span;
-        let mut depth = 1i32;
-        while depth > 0 {
-            match self.peek() {
-                TokenKind::Eof => {
-                    self.error_labeled(
-                        codes::UNCLOSED_DELIMITER,
-                        open,
-                        "unclosed `(`",
-                        "this parenthesis is never closed",
-                    );
-                    break;
-                }
-                TokenKind::LParen => {
-                    depth += 1;
-                    self.bump();
-                }
-                TokenKind::RParen => {
-                    depth -= 1;
-                    self.bump();
-                }
-                _ => {
-                    self.bump();
-                }
-            }
-        }
-        self.span_from(start)
     }
 }
 

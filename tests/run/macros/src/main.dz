@@ -1,0 +1,111 @@
+// Macros in every position, run end to end (spec §12): expression, statement and
+// declaration macros; optional captures and groups, separators, repetition through a
+// `syntax` rule; hygiene; an invocation inside an expansion; a build-flag `#if` and an
+// intrinsic carried through one; and a `pub macro` from a dependency.
+
+// --- expression macros (spec §12.5) ------------------------------------------------------
+
+macro max -> expr {
+    pattern { ( $a: expr , $b: expr ) }
+    expand { if $a > $b { $a } else { $b } }
+}
+
+// An invocation inside an expansion expands in turn.
+macro max3 -> expr {
+    pattern { ( $a: expr , $b: expr , $c: expr ) }
+    expand { #max(#max($a, $b), $c) }
+}
+
+// `$xs.len` — `.len` is Dazzle's own field access on what `$xs` captured, not a capture.
+macro count -> expr {
+    pattern { [ $xs: expr ] }
+    expand { $xs.len as i32 }
+}
+
+// --- statement macros ---------------------------------------------------------------------
+
+// `tmp` is the macro's own: a caller's `tmp` is a different variable (spec §12.4).
+macro swap -> stmt {
+    pattern { $a: ident , $b: ident }
+    expand {
+        let tmp = $a
+        $a = $b
+        $b = tmp
+    }
+}
+
+// An `#if` on a build flag is emitted, and decided like any other (spec §12.10); `#line` in
+// an expansion is the invocation's line (spec §12.7).
+macro trace -> stmt {
+    pattern { $what: literal }
+    expand {
+        #if DEBUG {
+            println("trace {} at line {}", $what, #line)
+        }
+    }
+}
+
+// `#expr_text` is the condition as written, which is what lets a check say which one failed
+// (spec §12.7).
+macro check -> stmt {
+    pattern { $cond: expr }
+    expand {
+        if !($cond) {
+            println("failed: {} in {}", #expr_text($cond), #module)
+        }
+    }
+}
+
+// --- declaration macros ---------------------------------------------------------------------
+
+macro record -> decl {
+    syntax Field { $name: ident : $type: type $( = $default: expr )? }
+
+    pattern { $name: ident ( $fields: [,]Field ) }
+
+    expand {
+        struct $name {
+            #for f in $fields {
+                pub $f.name: $f.type #if $f.default { = $f.default }
+            }
+
+            pub fn total(&self) -> f32 {
+                return 0 #for f in $fields { + $f.name }
+            }
+
+            pub fn describe(&self) {
+                for v in [#for f in $fields[,] { $f.name }] {
+                    println("{}", v)
+                }
+            }
+        }
+    }
+}
+
+#record Size(w: f32, h: f32 = 2, d: f32 = 0.5)
+
+fn main() {
+    let a = 3
+    let b = 9
+    println("{} {}", #max(a, b), #max3(4, a, 2))
+    let xs = [1, 2, 3, 4]
+    println("{}", #count[xs])
+
+    let mut tmp = 1
+    let mut other = 2
+    #swap tmp, other
+    println("{} {}", tmp, other)
+
+    #trace "start"
+    #check a < b
+    #check a > b
+
+    let s = Size{ w: 1 }
+    println("{}", s.total())
+    s.describe()
+
+    #engine::tally hits by 3
+    println("{}", hits.n)
+    #engine::tally once
+    println("{}", once.n)
+}

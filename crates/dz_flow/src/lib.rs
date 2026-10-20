@@ -35,6 +35,7 @@ pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
     // The prelude is the compiler's own code: a warning there is noise in every program.
     let prelude: std::collections::HashSet<FileId> =
         res.symbols.iter().filter(|s| s.module == res.prelude).map(|s| s.file).collect();
+    let mut unread = Unread::default();
     for (_, body) in hir.bodies() {
         let mut cx = Flow {
             body,
@@ -50,24 +51,56 @@ pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
         // its body exists only to hold their defaults (spec §7.6).
         let signature_only = matches!(body.owner, dz_hir::BodyOwner::TraitDefaults { .. });
         if !prelude.contains(&body.file) && !signature_only {
-            unused(body, &mut diags);
+            unused(body, &mut unread);
         }
     }
+    unread.report(&mut diags);
     diags.sort_by_position();
     diags
+}
+
+/// Unread bindings, gathered over every body before any is reported.
+///
+/// A macro may copy one parameter declaration into several functions — `#machine`'s
+/// parameters become every state's `update`'s. Each copy is a binding of its own, at the
+/// same span, and the declaration is unused only if every copy is (spec §12.6, 18.77).
+#[derive(Default)]
+struct Unread {
+    /// Whether some binding at this place is read.
+    read: HashMap<(FileId, Span), bool>,
+    /// The warning for each place, in the order first found.
+    pending: Vec<((FileId, Span), Diagnostic)>,
+}
+
+impl Unread {
+    fn report(self, diags: &mut Diagnostics) {
+        let mut done = std::collections::HashSet::new();
+        for (key, d) in self.pending {
+            if !self.read.get(&key).copied().unwrap_or(false) && done.insert(key) {
+                diags.push(d);
+            }
+        }
+    }
 }
 
 /// A warning for each binding nothing reads (`DZ0406`). The program is still correct, so
 /// it is not an error; but an unread `let` is usually a leftover or a typo, and a parameter
 /// nothing reads is a signature worth a second look.
-fn unused(body: &hir::Body, diags: &mut Diagnostics) {
+fn unused(body: &hir::Body, unread: &mut Unread) {
     for (l, u) in body.locals.iter().zip(hir::local_uses(body)) {
-        // `self` is part of a method's shape; a leading `_` says "unused on purpose"; and a
-        // local whose span is not its own name — an implicit `it` — was written by no one.
+        // `self` is part of a method's shape; a leading `_` says "unused on purpose"; a
+        // local whose span is not its own name — an implicit `it` — was written by no one;
+        // and one a macro's hygiene renamed is the macro author's (spec §12.6).
         let written = l.span.len() as usize == l.name.len();
-        if u.read || l.name == "self" || l.name.starts_with('_') || !written {
+        let key = (body.file, l.span);
+        if u.read {
+            unread.read.insert(key, true);
             continue;
         }
+        if l.name == "self" || l.name.starts_with('_') || !written || l.name.contains('·') {
+            continue;
+        }
+        unread.read.entry(key).or_insert(false);
         let what = if l.kind == hir::LocalKind::Param { "parameter" } else { "variable" };
         let d = if u.assigned {
             Diagnostic::warning(
@@ -82,10 +115,13 @@ fn unused(body: &hir::Body, diags: &mut Diagnostics) {
             )
             .at(body.file, l.span, "nothing reads this")
         };
-        diags.push(d.with_help(format!(
-            "if that is deliberate, name it `_{}`; otherwise remove it",
-            l.name
-        )));
+        unread.pending.push((
+            key,
+            d.with_help(format!(
+                "if that is deliberate, name it `_{}`; otherwise remove it",
+                l.name
+            )),
+        ));
     }
 }
 
