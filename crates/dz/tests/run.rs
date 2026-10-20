@@ -22,16 +22,17 @@ fn run_dir(name: &str) -> PathBuf {
     repo_root().join("tests/run").join(name)
 }
 
-/// Every project under `tests/run/` that opens a window, and so has no `expected.txt` to
-/// compare against: `raylib` and `cinterop_rgfw`, which are M7b's acceptance criterion.
-/// They are built rather than run — see `the_windowed_interop_programs_build`.
-fn windowed_projects() -> Vec<(String, PathBuf)> {
-    let root = repo_root().join("tests/run");
+/// Every project under `examples/`: the programs that open a window — `raylib` and `rgfw`,
+/// M7b's acceptance criterion, and `breakout`, M12's — and so have no `expected.txt` to
+/// compare against, plus any other example. They are built rather than run; see
+/// `every_example_builds`.
+fn example_projects() -> Vec<(String, PathBuf)> {
+    let root = repo_root().join("examples");
     let Ok(entries) = std::fs::read_dir(&root) else { return Vec::new() };
     let mut out: Vec<(String, PathBuf)> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.join("dazzle.toml").exists() && !p.join("expected.txt").exists())
+        .filter(|p| p.join("dazzle.toml").exists())
         .map(|p| (p.file_name().unwrap().to_string_lossy().to_string(), p))
         .collect();
     out.sort();
@@ -119,25 +120,21 @@ fn every_program_produces_its_expected_output() {
     });
 }
 
-/// M7b's acceptance criterion, guarded. `tests/run/raylib` opens a window and
-/// `tests/run/cinterop_rgfw` opens one too, so neither can carry an `expected.txt` and
-/// neither is reached by `every_program_produces_its_expected_output`. That left the
-/// milestone's own criterion untested: a break in `import cpp`, in a `[cpp.libs]` recipe,
-/// in the single-header `header =` form, in callbacks or in `[cpp.instantiate]` would have
-/// passed green. `dz build` exercises all of it — libclang reading the headers, the
-/// library's own sources compiling, the link — and stops short of the window.
+/// The examples, guarded. `examples/raylib`, `examples/rgfw` and `examples/breakout` open a
+/// window, so none can carry an `expected.txt`; without this, M7b's own criterion would go
+/// untested — a break in `import cpp`, in a `[cpp.libs]` recipe, in the single-header
+/// `header =` form, in callbacks or in `[cpp.instantiate]` would pass green — and an
+/// example could rot unnoticed, as the pre-spec sketches once did. `dz build` exercises
+/// all of it — libclang reading the headers, the library's own sources compiling, the link
+/// — and stops short of the window.
 #[test]
-fn the_windowed_interop_programs_build() {
+fn every_example_builds() {
     if !have_compiler() {
         eprintln!("skipping: no C++ compiler available");
         return;
     }
-    let found = windowed_projects();
-    assert!(
-        !found.is_empty(),
-        "no windowed projects found under tests/run/; if one gained an `expected.txt`, \
-         point this test at whatever now covers raylib and RGFW"
-    );
+    let found = example_projects();
+    assert!(found.len() >= 3, "expected the examples under examples/, found {found:?}");
 
     for (name, dir) in found {
         let out = Command::new(dz())

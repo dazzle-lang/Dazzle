@@ -124,7 +124,7 @@ fn doc_comments_are_kept_but_plain_comments_are_not() {
 #[test]
 fn unterminated_string_recovers_at_the_line_break() {
     use TokenKind::*;
-    // The rest of the file must still lex — this is the bug in examples/main.dz.
+    // The rest of the file must still lex — this was a bug in an early design sketch.
     assert_eq!(kinds("\"oops\nlet a = 1"), vec![Str, Terminator, Let, Ident, Eq, Int, Eof]);
     assert_eq!(error_codes("\"oops\nlet a = 1"), vec![dz_diag::codes::UNTERMINATED_STRING]);
 }
