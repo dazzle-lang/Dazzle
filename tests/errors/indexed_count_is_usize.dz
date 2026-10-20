@@ -6,6 +6,6 @@ fn main() {
     let xs = [1, 2]
     for i, x in xs.indexed() {
         let n: i32 = i
-        println("{} {}", n, x)
+        #println("{} {}", n, x)
     }
 }

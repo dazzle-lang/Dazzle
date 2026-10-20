@@ -12,7 +12,7 @@ struct Sound {
 impl Drop for Sound {
     fn drop(&mut self) {
         if id != 0 {
-            println("  drop sound {}", id)
+            #println("  drop sound {}", id)
             unsafe {
                 DROPS += 1
             }
@@ -57,31 +57,31 @@ fn main() {
     let mut c = Command::Say{ text: String("hello") }
     let copy = c
     c = .Move{ x: 1, y: 2 }
-    println("{} {}", describe(&c), describe(&copy))
+    #println("{} {}", describe(&c), describe(&copy))
 
     let mut a = load(1)
     switch a {
-        case Samples(&s) { println("samples {} first {}", s.data.len(), s.data[0]) }
-        default { println("not samples") }
+        case Samples(&s) { #println("samples {} first {}", s.data.len(), s.data[0]) }
+        default { #println("not samples") }
     }
-    println("assigning a sound over the samples")
+    #println("assigning a sound over the samples")
     a = load(5)
-    println("assigning another sound")
+    #println("assigning another sound")
     a = load(6)
     let b = move(a)
     switch b {
-        case Sound(&s) { println("moved sound {}", s.id) }
-        default { println("not a sound") }
+        case Sound(&s) { #println("moved sound {}", s.id) }
+        default { #println("not a sound") }
     }
     {
         let _scoped = load(8)
-        println("leaving a scope")
+        #println("leaving a scope")
     }
     let mut list = List<Asset>()
     list.push(load(1))
     list.push(load(9))
     list.push(load(0))
-    println("list of {}", list.len())
+    #println("list of {}", list.len())
     list.clear()
-    println("drops so far {}", DROPS)
+    #println("drops so far {}", DROPS)
 }

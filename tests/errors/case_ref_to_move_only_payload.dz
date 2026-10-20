@@ -23,5 +23,5 @@ fn count(c: &Choice<Res>) -> i32 {
 
 fn main() {
     let c = Choice<Res>::Neither
-    println("{}", count(&c))
+    #println("{}", count(&c))
 }

@@ -625,7 +625,7 @@ impl<'a> Flow<'a> {
                 }
                 false
             }
-            // `panic(...)` never comes back, which is what its `Never` type says.
+            // `#panic(...)` never comes back, which is what its `Never` type says.
             _ => matches!(self.body.ty(e), Ty::Never),
         }
     }

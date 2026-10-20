@@ -204,7 +204,7 @@ fn a_local_goes_to_its_binding() {
 
 #[test]
 fn queries_still_answer_beside_a_syntax_error() {
-    let (a, f, text) = edited(typed_above("println(\"done\")", "let broken = ("));
+    let (a, f, text) = edited(typed_above("#println(\"done\")", "let broken = ("));
     assert!(!a.parsed_cleanly);
     assert!(
         a.diags
@@ -276,7 +276,7 @@ fn rename_refuses_keywords_bad_names_and_the_prelude() {
 fn completion_offers_locals_items_keywords_and_builtins() {
     let (a, f) = generics();
     let text = a.map.get(f).text();
-    let offset = at(&a, f, "println(\"done\")", 0) as usize;
+    let offset = at(&a, f, "#println(\"done\")", 0) as usize;
     let items = ide::complete(Some((&a, f)), None, text, offset);
     let got = labels(&items);
     for want in ["ints", "seen", "largest", "Buffer", "Ordering", "println", "let", "i32"] {
@@ -297,16 +297,33 @@ fn complete_after(needle: &str, typed: &str) -> Vec<String> {
     ide::complete(Some((&a, f)), None, &text, offset).into_iter().map(|c| c.label).collect()
 }
 
+/// After `#`, only macros: the compiler's own and the ones in scope. A bare `println`
+/// writes `#println`, since formatting is a macro (spec §12.5, §12.9).
+#[test]
+fn completion_after_a_hash_offers_macros_and_println_writes_its_hash() {
+    let got = complete_after("#println(\"pair", "#");
+    for want in ["println", "format", "location", "file"] {
+        assert!(got.iter().any(|l| l == want), "{want} missing from {got:?}");
+    }
+    assert!(!got.iter().any(|l| l == "let" || l == "ints"), "only macros after `#`: {got:?}");
+
+    let (a, f, text) = edited(typed_above("#println(\"pair", "prin"));
+    let offset = text[..text.find("#println(\"pair").unwrap()].rfind('\n').unwrap();
+    let items = ide::complete(Some((&a, f)), None, &text, offset);
+    let println = items.iter().find(|c| c.label == "println").expect("println offered");
+    assert_eq!(println.insert.as_deref(), Some("#println"));
+}
+
 #[test]
 fn completion_after_a_dot_offers_fields_not_keywords() {
-    let got = complete_after("println(\"pair", "p.");
+    let got = complete_after("#println(\"pair", "p.");
     assert!(got.iter().any(|l| l == "first") && got.iter().any(|l| l == "second"), "{got:?}");
     assert!(!got.iter().any(|l| l == "let"), "no keywords after a dot");
 }
 
 #[test]
 fn completion_after_a_dot_offers_methods_but_not_private_fields() {
-    let got = complete_after("println(\"ints: len", "ints.");
+    let got = complete_after("#println(\"ints: len", "ints.");
     for want in ["push", "len", "at"] {
         assert!(got.iter().any(|l| l == want), "{want} missing from {got:?}");
     }
@@ -315,11 +332,11 @@ fn completion_after_a_dot_offers_methods_but_not_private_fields() {
 
 #[test]
 fn completion_types_a_call_as_the_receiver() {
-    let got = complete_after("println(\"done", "largest(Score(12), Score(4)).");
+    let got = complete_after("#println(\"done", "largest(Score(12), Score(4)).");
     for want in ["value", "cmp", "eq"] {
         assert!(got.iter().any(|l| l == want), "{want} missing from {got:?}");
     }
-    let got = complete_after("println(\"done", "Countdown(3).");
+    let got = complete_after("#println(\"done", "Countdown(3).");
     for want in ["valid", "get", "advance"] {
         assert!(got.iter().any(|l| l == want), "{want} missing from {got:?}");
     }
@@ -330,7 +347,7 @@ fn completion_by_name_works_from_an_older_analysis() {
     // The analysis has not seen the edit: the receiver is found by name instead.
     let (a, f) = generics();
     let text = a.map.get(f).text();
-    let i = text.find("println(\"pair").unwrap();
+    let i = text.find("#println(\"pair").unwrap();
     let edit = format!("{}p.\n    {}", &text[..i], &text[i..]);
     let got = ide::complete(None, Some((&a, f)), &edit, i + 2);
     assert!(labels(&got).contains(&"first"), "{:?}", labels(&got));
@@ -338,7 +355,7 @@ fn completion_by_name_works_from_an_older_analysis() {
 
 #[test]
 fn completion_after_type_colons_offers_type_queries() {
-    let got = complete_after("println(\"done", "i32::");
+    let got = complete_after("#println(\"done", "i32::");
     assert!(got.iter().any(|l| l == "is_trivially_copyable"));
 }
 
@@ -346,7 +363,7 @@ fn completion_after_type_colons_offers_type_queries() {
 fn completion_is_quiet_inside_comments_and_strings() {
     let (a, f) = generics();
     assert!(ide::complete(Some((&a, f)), None, "// let", 6).is_empty());
-    assert!(ide::complete(Some((&a, f)), None, "println(\"le", 11).is_empty());
+    assert!(ide::complete(Some((&a, f)), None, "#println(\"le", 12).is_empty());
 }
 
 #[test]
@@ -744,7 +761,7 @@ fn completion_writes_a_name_of_a_dependency_that_is_not_opened_with_its_key() {
     // Nothing typed yet: none of them, and the editor is told to ask again.
     let empty = complete_in_opened("let n = ");
     assert!(empty.incomplete);
-    assert!(!empty.items.iter().any(|c| c.insert.is_some()), "a prefix narrows them first");
+    assert!(!empty.items.iter().any(|c| c.source.is_some()), "a prefix narrows them first");
 }
 
 #[test]
@@ -922,7 +939,7 @@ fn an_incomplete_impl_offers_each_missing_method() {
     let fixed = apply(&text, &fixes[1]);
     let tail = &fixed[fixed.find("impl Greet").unwrap()..];
     assert!(tail.contains("\n    fn loudly(&self, times: i32) {\n"), "{tail}");
-    assert!(tail.contains("\n        panic(\"not implemented\")\n"), "{tail}");
+    assert!(tail.contains("\n        #panic(\"not implemented\")\n"), "{tail}");
 
     let main = Path::new("src").join("main.dz");
     let overlay = |p: &Path| p.ends_with(&main).then(|| fixed.clone());

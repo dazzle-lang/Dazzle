@@ -488,11 +488,28 @@ body method HashMap::checked_slot -> u64
         field #4: usize
           local _0 self: HashMap<K, V>
       block
-        builtin panic: !
-          str "slot {} is out of bounds for a HashMap of {} slots": str
-          local _1 slot: usize
-          field #4: usize
-            local _0 self: HashMap<K, V>
+        block-value: !
+          block
+            let _2 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::write_args: void
+              local _2 fmt·: Formatter
+              array: [3]str
+                str "slot ": str
+                str " is out of bounds for a HashMap of ": str
+                str " slots": str
+              array: [2]str
+                str "": str
+                str "": str
+              array: [2]&Format
+                ref: &usize
+                  local _1 slot: usize
+                ref: &usize
+                  field #4: usize
+                    local _0 self: HashMap<K, V>
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _2 fmt·: Formatter
     return: !
       block-value: u64
         block
@@ -1319,11 +1336,28 @@ body method List::insert -> void
         field #1: usize
           local _0 self: List<T>
       block
-        builtin panic: !
-          str "List::insert at {} past the length {}": str
-          local _1 i: usize
-          field #1: usize
-            local _0 self: List<T>
+        block-value: !
+          block
+            let _4 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::write_args: void
+              local _4 fmt·: Formatter
+              array: [3]str
+                str "List::insert at ": str
+                str " past the length ": str
+                str "": str
+              array: [2]str
+                str "": str
+                str "": str
+              array: [2]&Format
+                ref: &usize
+                  local _1 i: usize
+                ref: &usize
+                  field #1: usize
+                    local _0 self: List<T>
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _4 fmt·: Formatter
     if: void
       binary ==: bool
         field #1: usize
@@ -1338,12 +1372,12 @@ body method List::insert -> void
               local _0 self: List<T>
             int 1: usize
           local _3 loc: SourceLocation
-    let _4 j: usize
+    let _5 j: usize
       field #1: usize
         local _0 self: List<T>
     while
       binary >: bool
-        local _4 j: usize
+        local _5 j: usize
         local _1 i: usize
       block
         block-value: void
@@ -1352,16 +1386,16 @@ body method List::insert -> void
               index: T
                 field #0: own ^mut T
                   local _0 self: List<T>
-                local _4 j: usize
+                local _5 j: usize
               builtin move_out: T
                 index: T
                   field #0: own ^mut T
                     local _0 self: List<T>
                   binary -: usize
-                    local _4 j: usize
+                    local _5 j: usize
                     int 1: usize
         assign -=
-          local _4 j: usize
+          local _5 j: usize
           int 1: usize
     block-value: void
       block
@@ -1386,12 +1420,29 @@ body method List::remove -> T
         field #1: usize
           local _0 self: List<T>
       block
-        builtin panic: !
-          str "List::remove at {} for a length of {}": str
-          local _1 i: usize
-          field #1: usize
-            local _0 self: List<T>
-    let _2 v: T
+        block-value: !
+          block
+            let _2 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::write_args: void
+              local _2 fmt·: Formatter
+              array: [3]str
+                str "List::remove at ": str
+                str " for a length of ": str
+                str "": str
+              array: [2]str
+                str "": str
+                str "": str
+              array: [2]&Format
+                ref: &usize
+                  local _1 i: usize
+                ref: &usize
+                  field #1: usize
+                    local _0 self: List<T>
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _2 fmt·: Formatter
+    let _3 v: T
       block-value: T
         block
           builtin move_out: T
@@ -1399,12 +1450,12 @@ body method List::remove -> T
               field #0: own ^mut T
                 local _0 self: List<T>
               local _1 i: usize
-    let _3 j: usize
+    let _4 j: usize
       local _1 i: usize
     while
       binary <: bool
         binary +: usize
-          local _3 j: usize
+          local _4 j: usize
           int 1: usize
         field #1: usize
           local _0 self: List<T>
@@ -1415,16 +1466,16 @@ body method List::remove -> T
               index: T
                 field #0: own ^mut T
                   local _0 self: List<T>
-                local _3 j: usize
+                local _4 j: usize
               builtin move_out: T
                 index: T
                   field #0: own ^mut T
                     local _0 self: List<T>
                   binary +: usize
-                    local _3 j: usize
+                    local _4 j: usize
                     int 1: usize
         assign +=
-          local _3 j: usize
+          local _4 j: usize
           int 1: usize
     assign -=
       field #1: usize
@@ -1432,7 +1483,7 @@ body method List::remove -> T
       int 1: usize
     return: !
       move: T
-        local _2 v: T
+        local _3 v: T
 body method List::swap_remove -> T
   param _0 self: List<T>
   param _1 i: usize
@@ -1443,12 +1494,29 @@ body method List::swap_remove -> T
         field #1: usize
           local _0 self: List<T>
       block
-        builtin panic: !
-          str "List::swap_remove at {} for a length of {}": str
-          local _1 i: usize
-          field #1: usize
-            local _0 self: List<T>
-    let _2 v: T
+        block-value: !
+          block
+            let _2 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::write_args: void
+              local _2 fmt·: Formatter
+              array: [3]str
+                str "List::swap_remove at ": str
+                str " for a length of ": str
+                str "": str
+              array: [2]str
+                str "": str
+                str "": str
+              array: [2]&Format
+                ref: &usize
+                  local _1 i: usize
+                ref: &usize
+                  field #1: usize
+                    local _0 self: List<T>
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _2 fmt·: Formatter
+    let _3 v: T
       block-value: T
         block
           builtin move_out: T
@@ -1481,7 +1549,7 @@ body method List::swap_remove -> T
                     local _0 self: List<T>
     return: !
       move: T
-        local _2 v: T
+        local _3 v: T
 body method List::swap -> void
   param _0 self: List<T>
   param _1 i: usize
@@ -1498,12 +1566,32 @@ body method List::swap -> void
           field #1: usize
             local _0 self: List<T>
       block
-        builtin panic: !
-          str "List::swap of {} and {} for a length of {}": str
-          local _1 i: usize
-          local _2 j: usize
-          field #1: usize
-            local _0 self: List<T>
+        block-value: !
+          block
+            let _3 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::write_args: void
+              local _3 fmt·: Formatter
+              array: [4]str
+                str "List::swap of ": str
+                str " and ": str
+                str " for a length of ": str
+                str "": str
+              array: [3]str
+                str "": str
+                str "": str
+                str "": str
+              array: [3]&Format
+                ref: &usize
+                  local _1 i: usize
+                ref: &usize
+                  local _2 j: usize
+                ref: &usize
+                  field #1: usize
+                    local _0 self: List<T>
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _3 fmt·: Formatter
     if: void
       binary ==: bool
         local _1 i: usize
@@ -1512,7 +1600,7 @@ body method List::swap -> void
         return: !
     block-value: void
       block
-        let _3 held: T
+        let _4 held: T
           builtin move_out: T
             index: T
               field #0: own ^mut T
@@ -1534,7 +1622,7 @@ body method List::swap -> void
               local _0 self: List<T>
             local _2 j: usize
           move: T
-            local _3 held: T
+            local _4 held: T
 body method List::sort_by -> void
   param _0 self: List<T>
   param _1 before: fn(&T, &T) -> bool
@@ -1985,11 +2073,28 @@ body impl#8 method index -> &T
         field #1: usize
           local _0 self: List<T>
       block
-        builtin panic: !
-          str "index {} is out of bounds for a List of length {}": str
-          local _1 i: usize
-          field #1: usize
-            local _0 self: List<T>
+        block-value: !
+          block
+            let _2 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::write_args: void
+              local _2 fmt·: Formatter
+              array: [3]str
+                str "index ": str
+                str " is out of bounds for a List of length ": str
+                str "": str
+              array: [2]str
+                str "": str
+                str "": str
+              array: [2]&Format
+                ref: &usize
+                  local _1 i: usize
+                ref: &usize
+                  field #1: usize
+                    local _0 self: List<T>
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _2 fmt·: Formatter
     return: !
       block-value: &T
         block
@@ -2022,11 +2127,28 @@ body impl#11 method index_mut -> &mut T
         field #1: usize
           local _0 self: List<T>
       block
-        builtin panic: !
-          str "index {} is out of bounds for a List of length {}": str
-          local _1 i: usize
-          field #1: usize
-            local _0 self: List<T>
+        block-value: !
+          block
+            let _2 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::write_args: void
+              local _2 fmt·: Formatter
+              array: [3]str
+                str "index ": str
+                str " is out of bounds for a List of length ": str
+                str "": str
+              array: [2]str
+                str "": str
+                str "": str
+              array: [2]&Format
+                ref: &usize
+                  local _1 i: usize
+                ref: &usize
+                  field #1: usize
+                    local _0 self: List<T>
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _2 fmt·: Formatter
     return: !
       block-value: &mut T
         block
@@ -2220,10 +2342,24 @@ body fn assert -> void
         builtin panic: !
           str "assertion failed": str
           local _2 loc: SourceLocation
-    builtin panic: !
-      str "assertion failed: {}": str
-      local _1 msg: str
-      local _2 loc: SourceLocation
+    block-value: !
+      block
+        let _3 fmt·: Formatter
+          call-assoc Formatter::message: Formatter
+        call-method Formatter::write_args: void
+          local _3 fmt·: Formatter
+          array: [2]str
+            str "assertion failed: ": str
+            str "": str
+          array: [1]str
+            str "": str
+          array: [1]&Format
+            ref: &str
+              local _1 msg: str
+        builtin panic: !
+          call-method Formatter::message_text: str
+            local _3 fmt·: Formatter
+          local _2 loc: SourceLocation
 body impl#15 method format -> void
   param _0 self: i8
   param _1 f: &mut Formatter
@@ -2544,285 +2680,427 @@ body fn cstr_text -> str
   param _0 s: cstr
   block
     (empty)
-body field-default Formatter.2 -> void
+body field-default Formatter.0 -> void
   block
-    bool false: bool
+    null: ^mut String
+body field-default Formatter.1 -> void
+  block
+    int -1: i32
 body field-default Formatter.3 -> void
   block
+    int 0: usize
+body field-default Formatter.5 -> void
+  block
     bool false: bool
-body field-default Formatter.4 -> void
+body field-default Formatter.6 -> void
+  block
+    bool false: bool
+body field-default Formatter.7 -> void
   block
     none: u32?
-body ctor Formatter#0 -> void
-  param _0 self: Formatter
-  param _1 out: &mut String
-  param _2 loc: SourceLocation
+body method Formatter::string -> Formatter
+  param _0 out: &mut String
+  param _1 loc: SourceLocation
   block
+    let _2 f: Formatter
+      (uninitialised)
     assign =
       field #0: ^mut String
-        local _0 self: Formatter
-      local _1 out: &mut String
+        local _2 f: Formatter
+      local _0 out: &mut String
     assign =
-      field #1: SourceLocation
-        local _0 self: Formatter
-      local _2 loc: SourceLocation
+      field #4: SourceLocation
+        local _2 f: Formatter
+      local _1 loc: SourceLocation
+    return: !
+      move: Formatter
+        local _2 f: Formatter
+body method Formatter::stdout -> Formatter
+  block
+    return: !
+      call-assoc Formatter::stream: Formatter
+        int 0: i32
+body method Formatter::stderr -> Formatter
+  block
+    return: !
+      call-assoc Formatter::stream: Formatter
+        int 1: i32
+body method Formatter::stream -> Formatter
+  param _0 which: i32
+  block
+    let _1 f: Formatter
+      (uninitialised)
+    assign =
+      field #1: i32
+        local _1 f: Formatter
+      local _0 which: i32
+    return: !
+      move: Formatter
+        local _1 f: Formatter
 body method Formatter::write_str -> void
   param _0 self: Formatter
   param _1 s: str
   block
-    block-value: void
+    if: void
+      binary <: bool
+        field #1: i32
+          local _0 self: Formatter
+        int 0: i32
       block
-        call-method String::push_str: void
-          field #0: ^mut String
+        block-value: void
+          block
+            call-method String::push_str: void
+              field #0: ^mut String
+                local _0 self: Formatter
+              local _1 s: str
+              field #4: SourceLocation
+                local _0 self: Formatter
+        return: !
+    if: void
+      binary ==: bool
+        field #1: i32
+          local _0 self: Formatter
+        int 2: i32
+      block
+        call-method Formatter::keep: void
+          local _0 self: Formatter
+          local _1 s: str
+        return: !
+    if: void
+      binary >: bool
+        binary +: usize
+          field #3: usize
+            local _0 self: Formatter
+          len: usize
+            local _1 s: str
+        int 512: usize
+      block
+        call-method Formatter::flush: void
+          local _0 self: Formatter
+    if: void
+      binary >: bool
+        len: usize
+          local _1 s: str
+        int 512: usize
+      block
+        call stream_write: void
+          field #1: i32
             local _0 self: Formatter
           local _1 s: str
-          field #1: SourceLocation
-            local _0 self: Formatter
+        return: !
+    let _2 bytes: []u8
+      cast: []u8
+        local _1 s: str
+    for _3 i
+      range: usize..usize
+        int 0: i32
+        len: usize
+          local _2 bytes: []u8
+      block
+        assign =
+          index: u8
+            field #2: [512]u8
+              local _0 self: Formatter
+            binary +: usize
+              field #3: usize
+                local _0 self: Formatter
+              local _3 i: usize
+          index: u8
+            local _2 bytes: []u8
+            local _3 i: usize
+    assign +=
+      field #3: usize
+        local _0 self: Formatter
+      len: usize
+        local _2 bytes: []u8
 body method Formatter::write_char -> void
   param _0 self: Formatter
   param _1 c: char
   block
+    let _2 encoded: [4]u8
+      array: [4]u8
+        int 0: u8
+        int 0: u8
+        int 0: u8
+        int 0: u8
+    let _3 n: usize
+      call encode_utf8: usize
+        local _1 c: char
+        ref mut: &mut [4]u8
+          local _2 encoded: [4]u8
+    call-method Formatter::write_str: void
+      local _0 self: Formatter
+      block-value: str
+        block
+          cast: str
+            slice: []mut u8
+              local _2 encoded: [4]u8
+              int 0: usize
+              local _3 n: usize
+body method Formatter::print -> void
+  param _0 stream: i32
+  param _1 pieces: []str
+  param _2 specs: []str
+  param _3 args: []&Format
+  block
+    let _4 f: Formatter
+      call-assoc Formatter::stream: Formatter
+        local _0 stream: i32
+    call-method Formatter::write_args: void
+      local _4 f: Formatter
+      local _1 pieces: []str
+      local _2 specs: []str
+      local _3 args: []&Format
+body method Formatter::format -> String
+  param _0 pieces: []str
+  param _1 specs: []str
+  param _2 args: []&Format
+  param _3 allocator: ^mut Allocator
+  param _4 loc: SourceLocation
+  block
+    let _5 out: String
+      call-ctor String#0: String
+        str "": str
+        local _3 allocator: ^mut Allocator
+        local _4 loc: SourceLocation
     block-value: void
       block
-        call-method String::push: void
-          field #0: ^mut String
+        let _6 f: Formatter
+          call-assoc Formatter::string: Formatter
+            ref mut: &mut String
+              local _5 out: String
+            local _4 loc: SourceLocation
+        call-method Formatter::write_args: void
+          local _6 f: Formatter
+          local _0 pieces: []str
+          local _1 specs: []str
+          local _2 args: []&Format
+    return: !
+      local _5 out: String
+body method Formatter::write_args -> void
+  param _0 self: Formatter
+  param _1 pieces: []str
+  param _2 specs: []str
+  param _3 args: []&Format
+  block
+    for _4 i
+      range: usize..usize
+        int 0: i32
+        len: usize
+          local _3 args: []&Format
+      block
+        call-method Formatter::write_str: void
+          local _0 self: Formatter
+          index: str
+            local _1 pieces: []str
+            local _4 i: usize
+        call-method Formatter::set_spec: void
+          local _0 self: Formatter
+          index: str
+            local _2 specs: []str
+            local _4 i: usize
+        call-method Format::format: void
+          index: &Format
+            local _3 args: []&Format
+            local _4 i: usize
+          ref mut: &mut Formatter
             local _0 self: Formatter
-          local _1 c: char
-          field #1: SourceLocation
+    call-method Formatter::set_spec: void
+      local _0 self: Formatter
+      str "": str
+    call-method Formatter::write_str: void
+      local _0 self: Formatter
+      index: str
+        local _1 pieces: []str
+        len: usize
+          local _3 args: []&Format
+    call-method Formatter::flush: void
+      local _0 self: Formatter
+body method Formatter::flush -> void
+  param _0 self: Formatter
+  block
+    if: void
+      binary &&: bool
+        binary >: bool
+          field #3: usize
             local _0 self: Formatter
+          int 0: usize
+        binary !=: bool
+          field #1: i32
+            local _0 self: Formatter
+          int 2: i32
+      block
+        call stream_write: void
+          field #1: i32
+            local _0 self: Formatter
+          block-value: str
+            block
+              cast: str
+                slice: []mut u8
+                  field #2: [512]u8
+                    local _0 self: Formatter
+                  int 0: usize
+                  field #3: usize
+                    local _0 self: Formatter
+        assign =
+          field #3: usize
+            local _0 self: Formatter
+          int 0: usize
+body method Formatter::message -> Formatter
+  block
+    return: !
+      call-assoc Formatter::stream: Formatter
+        int 2: i32
+body method Formatter::message_text -> str
+  param _0 self: Formatter
+  block
+    return: !
+      block-value: str
+        block
+          cast: str
+            slice: []u8
+              field #2: [512]u8
+                local _0 self: Formatter
+              int 0: usize
+              field #3: usize
+                local _0 self: Formatter
+body method Formatter::keep -> void
+  param _0 self: Formatter
+  param _1 s: str
+  block
+    let _2 bytes: []u8
+      cast: []u8
+        local _1 s: str
+    let _3 n: usize
+      len: usize
+        local _2 bytes: []u8
+    if: void
+      binary >: bool
+        binary +: usize
+          field #3: usize
+            local _0 self: Formatter
+          local _3 n: usize
+        int 512: usize
+      block
+        assign =
+          local _3 n: usize
+          binary -: usize
+            int 512: usize
+            field #3: usize
+              local _0 self: Formatter
+        while
+          binary &&: bool
+            binary >: bool
+              local _3 n: usize
+              int 0: usize
+            binary ==: bool
+              binary &: u32
+                cast: u32
+                  index: u8
+                    local _2 bytes: []u8
+                    local _3 n: usize
+                int 192: u32
+              int 128: u32
+          block
+            assign -=
+              local _3 n: usize
+              int 1: usize
+    for _4 i
+      range: usize..usize
+        int 0: i32
+        local _3 n: usize
+      block
+        assign =
+          index: u8
+            field #2: [512]u8
+              local _0 self: Formatter
+            binary +: usize
+              field #3: usize
+                local _0 self: Formatter
+              local _4 i: usize
+          index: u8
+            local _2 bytes: []u8
+            local _4 i: usize
+    assign +=
+      field #3: usize
+        local _0 self: Formatter
+      local _3 n: usize
 body method Formatter::hex -> bool
   param _0 self: Formatter
   block
     return: !
-      field #2: bool
+      field #5: bool
         local _0 self: Formatter
 body method Formatter::upper -> bool
   param _0 self: Formatter
   block
     return: !
-      field #3: bool
+      field #6: bool
         local _0 self: Formatter
 body method Formatter::precision -> u32?
   param _0 self: Formatter
   block
     return: !
-      field #4: u32?
+      field #7: u32?
         local _0 self: Formatter
-body method Formatter::write_format -> void
-  param _0 self: Formatter
-  param _1 fmt: str
-  param _2 args: []&Format
-  block
-    let _3 bytes: []u8
-      cast: []u8
-        local _1 fmt: str
-    let _4 next: usize
-      int 0: usize
-    let _5 start: usize
-      int 0: usize
-    let _6 i: usize
-      int 0: usize
-    while
-      binary <: bool
-        local _6 i: usize
-        len: usize
-          local _3 bytes: []u8
-      block
-        let _7 b: u8
-          index: u8
-            local _3 bytes: []u8
-            local _6 i: usize
-        if: void
-          binary &&: bool
-            binary &&: bool
-              binary ||: bool
-                binary ==: bool
-                  local _7 b: u8
-                  cast: u8
-                    char '{': char
-                binary ==: bool
-                  local _7 b: u8
-                  cast: u8
-                    char '}': char
-              binary <: bool
-                binary +: usize
-                  local _6 i: usize
-                  int 1: usize
-                len: usize
-                  local _3 bytes: []u8
-            binary ==: bool
-              index: u8
-                local _3 bytes: []u8
-                binary +: usize
-                  local _6 i: usize
-                  int 1: usize
-              local _7 b: u8
-          block
-            call-method Formatter::write_str: void
-              local _0 self: Formatter
-              call sub: str
-                local _1 fmt: str
-                local _5 start: usize
-                binary +: usize
-                  local _6 i: usize
-                  int 1: usize
-            assign +=
-              local _6 i: usize
-              int 2: usize
-            assign =
-              local _5 start: usize
-              local _6 i: usize
-            continue: !
-        if: void
-          binary !=: bool
-            local _7 b: u8
-            cast: u8
-              char '{': char
-          block
-            assign +=
-              local _6 i: usize
-              int 1: usize
-            continue: !
-        call-method Formatter::write_str: void
-          local _0 self: Formatter
-          call sub: str
-            local _1 fmt: str
-            local _5 start: usize
-            local _6 i: usize
-        let _8 close: usize
-          binary +: usize
-            local _6 i: usize
-            int 1: usize
-        while
-          binary &&: bool
-            binary <: bool
-              local _8 close: usize
-              len: usize
-                local _3 bytes: []u8
-            binary !=: bool
-              index: u8
-                local _3 bytes: []u8
-                local _8 close: usize
-              cast: u8
-                char '}': char
-          block
-            assign +=
-              local _8 close: usize
-              int 1: usize
-        call-method Formatter::set_spec: void
-          local _0 self: Formatter
-          call sub: str
-            local _1 fmt: str
-            binary +: usize
-              local _6 i: usize
-              int 1: usize
-            local _8 close: usize
-        if: void
-          binary <: bool
-            local _4 next: usize
-            len: usize
-              local _2 args: []&Format
-          block
-            call-method Format::format: void
-              index: &Format
-                local _2 args: []&Format
-                local _4 next: usize
-              ref mut: &mut Formatter
-                local _0 self: Formatter
-            assign +=
-              local _4 next: usize
-              int 1: usize
-        assign =
-          field #2: bool
-            local _0 self: Formatter
-          bool false: bool
-        assign =
-          field #3: bool
-            local _0 self: Formatter
-          bool false: bool
-        assign =
-          field #4: u32?
-            local _0 self: Formatter
-          none: u32?
-        assign =
-          local _6 i: usize
-          if: usize
-            binary <: bool
-              local _8 close: usize
-              len: usize
-                local _3 bytes: []u8
-            block
-              binary +: usize
-                local _8 close: usize
-                int 1: usize
-            block
-              block-value: usize
-                block
-                  local _8 close: usize
-        assign =
-          local _5 start: usize
-          local _6 i: usize
-    call-method Formatter::write_str: void
-      local _0 self: Formatter
-      call sub: str
-        local _1 fmt: str
-        local _5 start: usize
-        len: usize
-          local _3 bytes: []u8
 body method Formatter::set_spec -> void
   param _0 self: Formatter
-  param _1 inside: str
+  param _1 spec: str
   block
-    if: void
+    assign =
+      field #5: bool
+        local _0 self: Formatter
+      binary ||: bool
+        binary ==: bool
+          local _1 spec: str
+          str "x": str
+        binary ==: bool
+          local _1 spec: str
+          str "X": str
+    assign =
+      field #6: bool
+        local _0 self: Formatter
       binary ==: bool
-        local _1 inside: str
-        str ":x": str
+        local _1 spec: str
+        str "X": str
+    assign =
+      field #7: u32?
+        local _0 self: Formatter
+      none: u32?
+    if: void
+      binary &&: bool
+        binary >: bool
+          len: usize
+            local _1 spec: str
+          int 1: usize
+        call-method Text::starts_with: bool
+          local _1 spec: str
+          str ".": str
       block
-        assign =
-          field #2: bool
-            local _0 self: Formatter
-          bool true: bool
-      block
-        if: void
-          binary ==: bool
-            local _1 inside: str
-            str ":X": str
+        if-let: void
+          call-method Text::parse_u64: u64?
+            call sub: str
+              local _1 spec: str
+              int 1: usize
+              len: usize
+                local _1 spec: str
+          bind _2 n
           block
             assign =
-              field #2: bool
+              field #7: u32?
                 local _0 self: Formatter
-              bool true: bool
-            assign =
-              field #3: bool
-                local _0 self: Formatter
-              bool true: bool
-          block
-            if: void
-              binary &&: bool
-                binary >: bool
-                  len: usize
-                    local _1 inside: str
-                  int 2: usize
-                call-method Text::starts_with: bool
-                  local _1 inside: str
-                  str ":.": str
-              block
-                let _2 digits: str
-                  call sub: str
-                    local _1 inside: str
-                    int 2: usize
-                    len: usize
-                      local _1 inside: str
-                if-let: void
-                  call-method Text::parse_u64: u64?
-                    local _2 digits: str
-                  bind _3 n
-                  block
-                    assign =
-                      field #4: u32?
-                        local _0 self: Formatter
-                      cast: u32
-                        local _3 n: u64
+              cast: u32
+                local _2 n: u64
+body drop Formatter -> void
+  param _0 self: Formatter
+  block
+    call-method Formatter::flush: void
+      local _0 self: Formatter
+body fn stream_write -> void
+  param _0 which: i32
+  param _1 text: str
+  block
+    (empty)
 body fn hash_combine -> u64
   param _0 seed: u64
   param _1 h: u64
@@ -3705,7 +3983,7 @@ body method Path::is_dir -> bool
       call path_is_dir: bool
         call-method Path::as_str: str
           local _0 self: Path
-body impl#32 method div -> Path
+body impl#33 method div -> Path
   param _0 self: Path
   param _1 rhs: str
   block
@@ -3713,7 +3991,7 @@ body impl#32 method div -> Path
       call-method Path::join: Path
         local _0 self: Path
         local _1 rhs: str
-body impl#33 method eq -> bool
+body impl#34 method eq -> bool
   param _0 self: Path
   param _1 rhs: &Path
   block
@@ -3723,7 +4001,7 @@ body impl#33 method eq -> bool
           local _0 self: Path
         call-method Path::as_str: str
           local _1 rhs: &Path
-body impl#34 method cmp -> Ordering
+body impl#35 method cmp -> Ordering
   param _0 self: Path
   param _1 rhs: &Path
   block
@@ -3735,7 +4013,7 @@ body impl#34 method cmp -> Ordering
         cast: []u8
           call-method Path::as_str: str
             local _1 rhs: &Path
-body impl#35 method hash -> u64
+body impl#36 method hash -> u64
   param _0 self: Path
   block
     return: !
@@ -4449,9 +4727,23 @@ body method Mat4::row -> Vec4
                     int 3: usize
         default
           block
-            builtin panic: !
-              str "row {} of a Mat4, which has 4": str
-              local _1 row: usize
+            block-value: !
+              block
+                let _2 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::write_args: void
+                  local _2 fmt·: Formatter
+                  array: [2]str
+                    str "row ": str
+                    str " of a Mat4, which has 4": str
+                  array: [1]str
+                    str "": str
+                  array: [1]&Format
+                    ref: &usize
+                      local _1 row: usize
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _2 fmt·: Formatter
 body method Mat4::transpose -> Mat4
   param _0 self: Mat4
   block
@@ -5604,7 +5896,7 @@ body method Mat4::inverse -> Mat4?
                           int 2: usize
                       local _1 s0: f32
                   local _14 inv: f32
-body impl#36 method mul -> Mat4
+body impl#37 method mul -> Mat4
   param _0 self: Mat4
   param _1 rhs: Mat4
   block
@@ -5636,7 +5928,7 @@ body impl#36 method mul -> Mat4
                 field #0: [4]Vec4
                   local _1 rhs: Mat4
                 int 3: usize
-body impl#37 method mul -> Vec4
+body impl#38 method mul -> Vec4
   param _0 self: Mat4
   param _1 v: Vec4
   block
@@ -5672,7 +5964,7 @@ body impl#37 method mul -> Vec4
             int 3: usize
           field #3: f32
             local _1 v: Vec4
-body impl#38 method eq -> bool
+body impl#39 method eq -> bool
   param _0 self: Mat4
   param _1 rhs: &Mat4
   block
@@ -6214,7 +6506,7 @@ body method Quat::to_mat4 -> Mat4
                 float 0: f32
               #3
                 float 1: f32
-body impl#39 method mul -> Quat
+body impl#40 method mul -> Quat
   param _0 self: Quat
   param _1 rhs: Quat
   block
@@ -6316,7 +6608,7 @@ body impl#39 method mul -> Quat
                 local _0 self: Quat
               field #2: f32
                 local _1 rhs: Quat
-body impl#40 method mul -> Vec3
+body impl#41 method mul -> Vec3
   param _0 self: Quat
   param _1 rhs: Vec3
   block
@@ -6541,7 +6833,7 @@ body method Vec2::extend -> Vec3
             local _0 self: Vec2
         #2
           local _1 z: f32
-body impl#41 method add -> Vec2
+body impl#42 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -6559,7 +6851,7 @@ body impl#41 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#42 method sub -> Vec2
+body impl#43 method sub -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -6573,30 +6865,30 @@ body impl#42 method sub -> Vec2
               local _1 rhs: Vec2
         #1
           binary -: f32
-            field #1: f32
-              local _0 self: Vec2
-            field #1: f32
-              local _1 rhs: Vec2
-body impl#43 method mul -> Vec2
-  param _0 self: Vec2
-  param _1 rhs: Vec2
-  block
-    return: !
-      struct-lit Vec2: Vec2
-        #0
-          binary *: f32
-            field #0: f32
-              local _0 self: Vec2
-            field #0: f32
-              local _1 rhs: Vec2
-        #1
-          binary *: f32
             field #1: f32
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
 body impl#44 method mul -> Vec2
   param _0 self: Vec2
+  param _1 rhs: Vec2
+  block
+    return: !
+      struct-lit Vec2: Vec2
+        #0
+          binary *: f32
+            field #0: f32
+              local _0 self: Vec2
+            field #0: f32
+              local _1 rhs: Vec2
+        #1
+          binary *: f32
+            field #1: f32
+              local _0 self: Vec2
+            field #1: f32
+              local _1 rhs: Vec2
+body impl#45 method mul -> Vec2
+  param _0 self: Vec2
   param _1 rhs: f32
   block
     return: !
@@ -6611,7 +6903,7 @@ body impl#44 method mul -> Vec2
             field #1: f32
               local _0 self: Vec2
             local _1 rhs: f32
-body impl#45 method div -> Vec2
+body impl#46 method div -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -6627,7 +6919,7 @@ body impl#45 method div -> Vec2
             field #1: f32
               local _0 self: Vec2
             local _1 rhs: f32
-body impl#46 method neg -> Vec2
+body impl#47 method neg -> Vec2
   param _0 self: Vec2
   block
     return: !
@@ -6640,7 +6932,7 @@ body impl#46 method neg -> Vec2
           unary -: f32
             field #1: f32
               local _0 self: Vec2
-body impl#47 method eq -> bool
+body impl#48 method eq -> bool
   param _0 self: Vec2
   param _1 rhs: &Vec2
   block
@@ -6693,7 +6985,7 @@ body method Vec2i::manhattan -> i32
               local _1 to: Vec2i
             field #1: i32
               local _0 self: Vec2i
-body impl#48 method add -> Vec2i
+body impl#49 method add -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: Vec2i
   block
@@ -6711,7 +7003,7 @@ body impl#48 method add -> Vec2i
               local _0 self: Vec2i
             field #1: i32
               local _1 rhs: Vec2i
-body impl#49 method sub -> Vec2i
+body impl#50 method sub -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: Vec2i
   block
@@ -6729,7 +7021,7 @@ body impl#49 method sub -> Vec2i
               local _0 self: Vec2i
             field #1: i32
               local _1 rhs: Vec2i
-body impl#50 method mul -> Vec2i
+body impl#51 method mul -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: i32
   block
@@ -6745,7 +7037,7 @@ body impl#50 method mul -> Vec2i
             field #1: i32
               local _0 self: Vec2i
             local _1 rhs: i32
-body impl#51 method neg -> Vec2i
+body impl#52 method neg -> Vec2i
   param _0 self: Vec2i
   block
     return: !
@@ -6758,7 +7050,7 @@ body impl#51 method neg -> Vec2i
           unary -: i32
             field #1: i32
               local _0 self: Vec2i
-body impl#52 method eq -> bool
+body impl#53 method eq -> bool
   param _0 self: Vec2i
   param _1 rhs: &Vec2i
   block
@@ -6774,7 +7066,7 @@ body impl#52 method eq -> bool
             local _0 self: Vec2i
           field #1: i32
             local _1 rhs: &Vec2i
-body impl#53 method hash -> u64
+body impl#54 method hash -> u64
   param _0 self: Vec2i
   block
     return: !
@@ -7063,7 +7355,7 @@ body method Vec3::extend -> Vec4
             local _0 self: Vec3
         #3
           local _1 w: f32
-body impl#54 method add -> Vec3
+body impl#55 method add -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -7087,7 +7379,7 @@ body impl#54 method add -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#55 method sub -> Vec3
+body impl#56 method sub -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -7107,36 +7399,36 @@ body impl#55 method sub -> Vec3
               local _1 rhs: Vec3
         #2
           binary -: f32
-            field #2: f32
-              local _0 self: Vec3
-            field #2: f32
-              local _1 rhs: Vec3
-body impl#56 method mul -> Vec3
-  param _0 self: Vec3
-  param _1 rhs: Vec3
-  block
-    return: !
-      struct-lit Vec3: Vec3
-        #0
-          binary *: f32
-            field #0: f32
-              local _0 self: Vec3
-            field #0: f32
-              local _1 rhs: Vec3
-        #1
-          binary *: f32
-            field #1: f32
-              local _0 self: Vec3
-            field #1: f32
-              local _1 rhs: Vec3
-        #2
-          binary *: f32
             field #2: f32
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
 body impl#57 method mul -> Vec3
   param _0 self: Vec3
+  param _1 rhs: Vec3
+  block
+    return: !
+      struct-lit Vec3: Vec3
+        #0
+          binary *: f32
+            field #0: f32
+              local _0 self: Vec3
+            field #0: f32
+              local _1 rhs: Vec3
+        #1
+          binary *: f32
+            field #1: f32
+              local _0 self: Vec3
+            field #1: f32
+              local _1 rhs: Vec3
+        #2
+          binary *: f32
+            field #2: f32
+              local _0 self: Vec3
+            field #2: f32
+              local _1 rhs: Vec3
+body impl#58 method mul -> Vec3
+  param _0 self: Vec3
   param _1 rhs: f32
   block
     return: !
@@ -7156,7 +7448,7 @@ body impl#57 method mul -> Vec3
             field #2: f32
               local _0 self: Vec3
             local _1 rhs: f32
-body impl#58 method div -> Vec3
+body impl#59 method div -> Vec3
   param _0 self: Vec3
   param _1 rhs: f32
   block
@@ -7177,7 +7469,7 @@ body impl#58 method div -> Vec3
             field #2: f32
               local _0 self: Vec3
             local _1 rhs: f32
-body impl#59 method neg -> Vec3
+body impl#60 method neg -> Vec3
   param _0 self: Vec3
   block
     return: !
@@ -7194,7 +7486,7 @@ body impl#59 method neg -> Vec3
           unary -: f32
             field #2: f32
               local _0 self: Vec3
-body impl#60 method eq -> bool
+body impl#61 method eq -> bool
   param _0 self: Vec3
   param _1 rhs: &Vec3
   block
@@ -7267,7 +7559,7 @@ body method Vec3i::manhattan -> i32
               local _1 to: Vec3i
             field #2: i32
               local _0 self: Vec3i
-body impl#61 method add -> Vec3i
+body impl#62 method add -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: Vec3i
   block
@@ -7291,7 +7583,7 @@ body impl#61 method add -> Vec3i
               local _0 self: Vec3i
             field #2: i32
               local _1 rhs: Vec3i
-body impl#62 method sub -> Vec3i
+body impl#63 method sub -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: Vec3i
   block
@@ -7315,7 +7607,7 @@ body impl#62 method sub -> Vec3i
               local _0 self: Vec3i
             field #2: i32
               local _1 rhs: Vec3i
-body impl#63 method mul -> Vec3i
+body impl#64 method mul -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: i32
   block
@@ -7336,7 +7628,7 @@ body impl#63 method mul -> Vec3i
             field #2: i32
               local _0 self: Vec3i
             local _1 rhs: i32
-body impl#64 method neg -> Vec3i
+body impl#65 method neg -> Vec3i
   param _0 self: Vec3i
   block
     return: !
@@ -7353,7 +7645,7 @@ body impl#64 method neg -> Vec3i
           unary -: i32
             field #2: i32
               local _0 self: Vec3i
-body impl#65 method eq -> bool
+body impl#66 method eq -> bool
   param _0 self: Vec3i
   param _1 rhs: &Vec3i
   block
@@ -7375,7 +7667,7 @@ body impl#65 method eq -> bool
             local _0 self: Vec3i
           field #2: i32
             local _1 rhs: &Vec3i
-body impl#66 method hash -> u64
+body impl#67 method hash -> u64
   param _0 self: Vec3i
   block
     return: !
@@ -7532,7 +7824,7 @@ body method Vec4::xyz -> Vec3
         #2
           field #2: f32
             local _0 self: Vec4
-body impl#67 method add -> Vec4
+body impl#68 method add -> Vec4
   param _0 self: Vec4
   param _1 rhs: Vec4
   block
@@ -7562,7 +7854,7 @@ body impl#67 method add -> Vec4
               local _0 self: Vec4
             field #3: f32
               local _1 rhs: Vec4
-body impl#68 method sub -> Vec4
+body impl#69 method sub -> Vec4
   param _0 self: Vec4
   param _1 rhs: Vec4
   block
@@ -7592,7 +7884,7 @@ body impl#68 method sub -> Vec4
               local _0 self: Vec4
             field #3: f32
               local _1 rhs: Vec4
-body impl#69 method mul -> Vec4
+body impl#70 method mul -> Vec4
   param _0 self: Vec4
   param _1 rhs: f32
   block
@@ -7618,7 +7910,7 @@ body impl#69 method mul -> Vec4
             field #3: f32
               local _0 self: Vec4
             local _1 rhs: f32
-body impl#70 method div -> Vec4
+body impl#71 method div -> Vec4
   param _0 self: Vec4
   param _1 rhs: f32
   block
@@ -7644,7 +7936,7 @@ body impl#70 method div -> Vec4
             field #3: f32
               local _0 self: Vec4
             local _1 rhs: f32
-body impl#71 method neg -> Vec4
+body impl#72 method neg -> Vec4
   param _0 self: Vec4
   block
     return: !
@@ -7665,7 +7957,7 @@ body impl#71 method neg -> Vec4
           unary -: f32
             field #3: f32
               local _0 self: Vec4
-body impl#72 method eq -> bool
+body impl#73 method eq -> bool
   param _0 self: Vec4
   param _1 rhs: &Vec4
   block
@@ -7835,7 +8127,7 @@ body drop Box -> void
         local _0 self: Box<T>
       field #3: usize
         local _0 self: Box<T>
-body impl#74 method is_null -> bool
+body impl#75 method is_null -> bool
   param _0 self: Box<T>
   block
     return: !
@@ -7843,7 +8135,7 @@ body impl#74 method is_null -> bool
         field #0: own ^mut T
           local _0 self: Box<T>
         null: own ^mut T
-body impl#74 method guard -> Unguarded<T>
+body impl#75 method guard -> Unguarded<T>
   param _0 self: Box<T>
   block
     return: !
@@ -7851,7 +8143,7 @@ body impl#74 method guard -> Unguarded<T>
         #0
           field #0: own ^mut T
             local _0 self: Box<T>
-body impl#74 method ptr -> ^mut T
+body impl#75 method ptr -> ^mut T
   param _0 self: Box<T>
   block
     return: !
@@ -7860,7 +8152,7 @@ body impl#74 method ptr -> ^mut T
 body const HEAP_ALIGN -> void
   block
     int 8: usize
-body impl#75 method alloc -> ^mut u8
+body impl#76 method alloc -> ^mut u8
   param _0 self: Heap
   param _1 size: usize
   param _2 align: usize
@@ -7918,7 +8210,7 @@ body impl#75 method alloc -> ^mut u8
     error
     return: !
       local _7 p: ^mut u8
-body impl#75 method realloc -> ^mut u8
+body impl#76 method realloc -> ^mut u8
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -7962,7 +8254,7 @@ body impl#75 method realloc -> ^mut u8
           local _5 loc: SourceLocation
     return: !
       local _6 q: ^mut u8
-body impl#75 method free -> void
+body impl#76 method free -> void
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 size: usize
@@ -8168,7 +8460,7 @@ body copy Rc -> void
       field #0: usize
         local _2 h: &mut RcHeader
       int 1: usize
-body impl#78 method is_null -> bool
+body impl#79 method is_null -> bool
   param _0 self: Rc<T>
   block
     return: !
@@ -8176,12 +8468,12 @@ body impl#78 method is_null -> bool
         field #0: ^mut RcHeader
           local _0 self: Rc<T>
         null: ^mut RcHeader
-body impl#78 method guard -> Rc<T>
+body impl#79 method guard -> Rc<T>
   param _0 self: Rc<T>
   block
     return: !
       local _0 self: Rc<T>
-body impl#78 method ptr -> ^mut T
+body impl#79 method ptr -> ^mut T
   param _0 self: Rc<T>
   block
     return: !
@@ -8424,7 +8716,7 @@ body method TempArena::owns -> bool
                 int 0: usize
     return: !
       bool false: bool
-body impl#79 method alloc -> ^mut u8
+body impl#80 method alloc -> ^mut u8
   param _0 self: TempArena
   param _1 size: usize
   param _2 align: usize
@@ -8472,7 +8764,7 @@ body impl#79 method alloc -> ^mut u8
               local _4 start: usize
     return: !
       local _5 p: ^mut u8
-body impl#79 method realloc -> ^mut u8
+body impl#80 method realloc -> ^mut u8
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -8550,7 +8842,7 @@ body impl#79 method realloc -> ^mut u8
               local _8 kept: usize
     return: !
       local _7 q: ^mut u8
-body impl#79 method free -> void
+body impl#80 method free -> void
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 size: usize
@@ -8584,7 +8876,7 @@ body drop TempArena -> void
 body field-default Unguarded.0 -> void
   block
     null: ^mut T
-body impl#81 method is_null -> bool
+body impl#82 method is_null -> bool
   param _0 self: Unguarded<T>
   block
     return: !
@@ -8592,12 +8884,12 @@ body impl#81 method is_null -> bool
         field #0: ^mut T
           local _0 self: Unguarded<T>
         null: ^mut T
-body impl#81 method guard -> Unguarded<T>
+body impl#82 method guard -> Unguarded<T>
   param _0 self: Unguarded<T>
   block
     return: !
       local _0 self: Unguarded<T>
-body impl#81 method ptr -> ^mut T
+body impl#82 method ptr -> ^mut T
   param _0 self: Unguarded<T>
   block
     return: !
@@ -8694,7 +8986,7 @@ body copy Weak -> void
       field #1: usize
         local _2 h: &mut RcHeader
       int 1: usize
-body impl#84 method is_null -> bool
+body impl#85 method is_null -> bool
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -8708,7 +9000,7 @@ body impl#84 method is_null -> bool
         field #0: usize
           local _1 h: &mut RcHeader
         int 0: usize
-body impl#84 method guard -> Rc<T>
+body impl#85 method guard -> Rc<T>
   param _0 self: Weak<T>
   block
     let _1 r: Rc<T>
@@ -8743,7 +9035,7 @@ body impl#84 method guard -> Rc<T>
         local _0 self: Weak<T>
     return: !
       local _1 r: Rc<T>
-body impl#84 method ptr -> ^mut T
+body impl#85 method ptr -> ^mut T
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -9062,7 +9354,7 @@ body method FieldInfo::tag_value -> str?
           int 1: usize
     return: !
       none: str?
-body impl#85 method eq -> bool
+body impl#86 method eq -> bool
   param _0 self: TypeId
   param _1 rhs: &TypeId
   block
@@ -9072,7 +9364,7 @@ body impl#85 method eq -> bool
           local _0 self: TypeId
         field #0: u32
           local _1 rhs: &TypeId
-body impl#86 method hash -> u64
+body impl#87 method hash -> u64
   param _0 self: TypeId
   block
     return: !
@@ -9096,7 +9388,7 @@ body method Chars::offset -> usize
     return: !
       field #1: usize
         local _0 self: Chars
-body impl#87 method valid -> bool
+body impl#88 method valid -> bool
   param _0 self: Chars
   block
     return: !
@@ -9106,7 +9398,7 @@ body impl#87 method valid -> bool
         len: usize
           field #0: str
             local _0 self: Chars
-body impl#87 method get -> char
+body impl#88 method get -> char
   param _0 self: Chars
   block
     let (_1 c, _)
@@ -9118,7 +9410,7 @@ body impl#87 method get -> char
           local _0 self: Chars
     return: !
       local _1 c: char
-body impl#87 method advance -> void
+body impl#88 method advance -> void
   param _0 self: Chars
   block
     let (_, _1 width)
@@ -9350,33 +9642,6 @@ body method String::from -> String
         local _0 s: str
         local _1 allocator: ^mut Allocator
         local _2 loc: SourceLocation
-body method String::format -> String
-  param _0 fmt: str
-  param _1 args: []&Format
-  param _2 allocator: ^mut Allocator
-  param _3 loc: SourceLocation
-  block
-    let _4 out: String
-      call-ctor String#0: String
-        str "": str
-        local _2 allocator: ^mut Allocator
-        local _3 loc: SourceLocation
-    call-method String::reserve: void
-      local _4 out: String
-      len: usize
-        local _0 fmt: str
-      local _3 loc: SourceLocation
-    let _5 f: Formatter
-      call-ctor Formatter#0: Formatter
-        ref mut: &mut String
-          local _4 out: String
-        local _3 loc: SourceLocation
-    call-method Formatter::write_format: void
-      local _5 f: Formatter
-      local _0 fmt: str
-      local _1 args: []&Format
-    return: !
-      local _4 out: String
 body method String::from_utf8 -> String?
   param _0 bytes: []u8
   param _1 allocator: ^mut Allocator
@@ -9678,10 +9943,24 @@ body method String::truncate -> void
           local _0 self: String
           local _1 len: usize
       block
-        builtin panic: !
-          str "truncate at byte {}, inside a character": str
-          local _1 len: usize
-          local _2 loc: SourceLocation
+        block-value: !
+          block
+            let _3 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::write_args: void
+              local _3 fmt·: Formatter
+              array: [2]str
+                str "truncate at byte ": str
+                str ", inside a character": str
+              array: [1]str
+                str "": str
+              array: [1]&Format
+                ref: &usize
+                  local _1 len: usize
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _3 fmt·: Formatter
+              local _2 loc: SourceLocation
     call-method List::truncate: void
       field #0: List<u8>
         local _0 self: String
@@ -9703,7 +9982,7 @@ body method String::reserve -> void
         local _1 additional: usize
         int 1: usize
       local _2 loc: SourceLocation
-body impl#88 method eq -> bool
+body impl#89 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -9713,7 +9992,7 @@ body impl#88 method eq -> bool
           local _0 self: String
         call-method String::as_str: str
           local _1 rhs: &String
-body impl#89 method cmp -> Ordering
+body impl#90 method cmp -> Ordering
   param _0 self: String
   param _1 rhs: &String
   block
@@ -9725,20 +10004,20 @@ body impl#89 method cmp -> Ordering
         cast: []u8
           call-method String::as_str: str
             local _1 rhs: &String
-body impl#90 method iter -> Chars
+body impl#91 method iter -> Chars
   param _0 self: String
   block
     return: !
       call-method String::chars: Chars
         local _0 self: String
-body impl#91 method hash -> u64
+body impl#92 method hash -> u64
   param _0 self: String
   block
     return: !
       call-method Hash::hash: u64
         call-method String::as_str: str
           local _0 self: String
-body impl#92 method format -> void
+body impl#93 method format -> void
   param _0 self: String
   param _1 f: &mut Formatter
   block
@@ -10271,12 +10550,12 @@ body method Text::parse_f32 -> f32?
     return: !
       cast: f32
         local _1 v: f64
-body impl#93 method text -> str
+body impl#94 method text -> str
   param _0 self: str
   block
     return: !
       local _0 self: str
-body impl#94 method text -> str
+body impl#95 method text -> str
   param _0 self: String
   block
     return: !
@@ -10346,14 +10625,14 @@ body method Split::find_end -> void
               len: usize
                 field #0: str
                   local _0 self: Split
-body impl#95 method valid -> bool
+body impl#96 method valid -> bool
   param _0 self: Split
   block
     return: !
       unary !: bool
         field #4: bool
           local _0 self: Split
-body impl#95 method get -> str
+body impl#96 method get -> str
   param _0 self: Split
   block
     return: !
@@ -10364,7 +10643,7 @@ body impl#95 method get -> str
           local _0 self: Split
         field #3: usize
           local _0 self: Split
-body impl#95 method advance -> void
+body impl#96 method advance -> void
   param _0 self: Split
   block
     if: void
@@ -10438,7 +10717,7 @@ body method Lines::find_end -> void
               len: usize
                 field #0: str
                   local _0 self: Lines
-body impl#96 method valid -> bool
+body impl#97 method valid -> bool
   param _0 self: Lines
   block
     return: !
@@ -10448,7 +10727,7 @@ body impl#96 method valid -> bool
         len: usize
           field #0: str
             local _0 self: Lines
-body impl#96 method get -> str
+body impl#97 method get -> str
   param _0 self: Lines
   block
     let _1 end: usize
@@ -10481,7 +10760,7 @@ body impl#96 method get -> str
         field #1: usize
           local _0 self: Lines
         local _1 end: usize
-body impl#96 method advance -> void
+body impl#97 method advance -> void
   param _0 self: Lines
   block
     assign =
@@ -11036,7 +11315,7 @@ body method Duration::is_zero -> bool
         field #0: u64
           local _0 self: Duration
         int 0: u64
-body impl#97 method add -> Duration
+body impl#98 method add -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -11048,7 +11327,7 @@ body impl#97 method add -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#98 method sub -> Duration
+body impl#99 method sub -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -11060,7 +11339,7 @@ body impl#98 method sub -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#99 method eq -> bool
+body impl#100 method eq -> bool
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -11070,7 +11349,7 @@ body impl#99 method eq -> bool
           local _0 self: Duration
         field #0: u64
           local _1 rhs: &Duration
-body impl#100 method cmp -> Ordering
+body impl#101 method cmp -> Ordering
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -11081,7 +11360,7 @@ body impl#100 method cmp -> Ordering
         ref: &u64
           field #0: u64
             local _1 rhs: &Duration
-body impl#101 method hash -> u64
+body impl#102 method hash -> u64
   param _0 self: Duration
   block
     return: !
@@ -11117,7 +11396,7 @@ body method Instant::since -> Duration
             local _0 self: Instant
           field #0: u64
             local _1 earlier: Instant
-body impl#102 method sub -> Duration
+body impl#103 method sub -> Duration
   param _0 self: Instant
   param _1 rhs: Instant
   block
@@ -11125,7 +11404,7 @@ body impl#102 method sub -> Duration
       call-method Instant::since: Duration
         local _0 self: Instant
         local _1 rhs: Instant
-body impl#103 method add -> Instant
+body impl#104 method add -> Instant
   param _0 self: Instant
   param _1 rhs: Duration
   block
@@ -11137,7 +11416,7 @@ body impl#103 method add -> Instant
               local _0 self: Instant
             call-method Duration::as_nanos: u64
               local _1 rhs: Duration
-body impl#104 method eq -> bool
+body impl#105 method eq -> bool
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -11147,7 +11426,7 @@ body impl#104 method eq -> bool
           local _0 self: Instant
         field #0: u64
           local _1 rhs: &Instant
-body impl#105 method cmp -> Ordering
+body impl#106 method cmp -> Ordering
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -11974,12 +12253,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#109 method describe -> str
+body impl#110 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#110 method weight -> i32
+body impl#111 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -12123,7 +12402,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#111 method eq -> bool
+body impl#112 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -12133,7 +12412,7 @@ body impl#111 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#112 method cmp -> Ordering
+body impl#113 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -12200,7 +12479,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#113 method add -> Vec2
+body impl#114 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -12218,7 +12497,7 @@ body impl#113 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#114 method mul -> Vec2
+body impl#115 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -12306,13 +12585,29 @@ body fn formatting -> void
   param _0 x: i32
   param _1 f: f32
   block
-    builtin println: void
-      str "{} {:x} {:X} {:.3} {{literal}}": str
-      local _0 x: i32
-      local _0 x: i32
-      local _0 x: i32
-      local _1 f: f32
-body impl#115 method valid -> bool
+    call-assoc Formatter::print: void
+      int 0: i32
+      array: [5]str
+        str "": str
+        str " ": str
+        str " ": str
+        str " ": str
+        str " {literal}\n": str
+      array: [4]str
+        str "": str
+        str "x": str
+        str "X": str
+        str ".3": str
+      array: [4]&Format
+        ref: &i32
+          local _0 x: i32
+        ref: &i32
+          local _0 x: i32
+        ref: &i32
+          local _0 x: i32
+        ref: &f32
+          local _1 f: f32
+body impl#116 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -12321,13 +12616,13 @@ body impl#115 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#115 method get -> i32
+body impl#116 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#115 method advance -> void
+body impl#116 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -12514,7 +12809,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#116 method mul -> Scale
+body impl#117 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -12525,7 +12820,7 @@ body impl#116 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#117 method mul -> f32
+body impl#118 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -12541,7 +12836,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#118 method label -> str
+body impl#119 method label -> str
   param _0 self: f32
   block
     return: !
@@ -12552,7 +12847,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#119 method label -> str
+body impl#120 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -12565,7 +12860,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#120 method shout -> str
+body impl#121 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -13008,7 +13303,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#123 method measure -> i32
+body impl#124 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -13026,7 +13321,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#124 method measure -> i32
+body impl#125 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -13303,17 +13598,31 @@ body fn require -> void
       unary !: bool
         local _0 ok: bool
       block
-        builtin panic: !
-          str "missing {}": str
-          local _1 what: str
-          local _2 loc: SourceLocation
+        block-value: !
+          block
+            let _3 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::write_args: void
+              local _3 fmt·: Formatter
+              array: [2]str
+                str "missing ": str
+                str "": str
+              array: [1]str
+                str "": str
+              array: [1]&Format
+                ref: &str
+                  local _1 what: str
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _3 fmt·: Formatter
+              local _2 loc: SourceLocation
 body field-default Tile.0 -> void
   block
     int 0: i32
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#125 method eq -> bool
+body impl#126 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -13329,7 +13638,7 @@ body impl#125 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#126 method hash -> u64
+body impl#127 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -13414,7 +13723,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#127 method neg -> Heading
+body impl#128 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -13423,7 +13732,7 @@ body impl#127 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#128 method eq -> bool
+body impl#129 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -13467,7 +13776,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#129 method named -> str
+body impl#130 method named -> str
   param _0 self: Heading
   block
     return: !
@@ -13571,7 +13880,7 @@ body fn named_calls -> i32
           int 3: i32
           int 2: i32
           str "d": str
-body impl#130 method format -> void
+body impl#131 method format -> void
   param _0 self: Heading
   param _1 f: &mut Formatter
   block
@@ -13586,8 +13895,18 @@ body fn formatted -> usize
   param _0 h: Heading
   block
     let _1 a: String
-      call-assoc String::format: String
-        str "{} at {:.1} {:x} {}": str
+      call-assoc Formatter::format: String
+        array: [5]str
+          str "": str
+          str " at ": str
+          str " ": str
+          str " ": str
+          str "": str
+        array: [4]str
+          str "": str
+          str ".1": str
+          str "x": str
+          str "": str
         array: [4]&Format
           ref: &Heading
             local _0 h: Heading
@@ -13598,13 +13917,18 @@ body fn formatted -> usize
           ref: &bool
             bool true: bool
     let _2 b: String
-      call-assoc String::format: String
-        str "{{}}": str
-        array: []&Format
+      call-ctor String#0: String
+        str "{}": str
         const Allocators::Temp: &mut TempArena
     let _3 c: String
-      call-assoc String::format: String
-        str "{} and {}": str
+      call-assoc Formatter::format: String
+        array: [3]str
+          str "": str
+          str " and ": str
+          str "": str
+        array: [2]str
+          str "": str
+          str "": str
         array: [2]&Format
           ref: &String
             local _1 a: String
@@ -13619,6 +13943,66 @@ body fn formatted -> usize
             local _2 b: String
         call-method String::len: usize
           local _3 c: String
+body fn printed -> void
+  param _0 h: Heading
+  param _1 r: &Heading
+  param _2 s: String
+  param _3 t: T
+  block
+    call-assoc Formatter::print: void
+      int 0: i32
+      array: [3]str
+        str "": str
+        str " ": str
+        str " ": str
+      array: [2]str
+        str "": str
+        str "x": str
+      array: [2]&Format
+        ref: &Heading
+          local _0 h: Heading
+        ref: &Heading
+          local _0 h: Heading
+    call-assoc Formatter::print: void
+      int 0: i32
+      array: [4]str
+        str "": str
+        str " ": str
+        str " ": str
+        str "\n": str
+      array: [3]str
+        str "": str
+        str "": str
+        str "": str
+      array: [3]&Format
+        local _1 r: &Heading
+        ref: &String
+          local _2 s: String
+        ref: &T
+          local _3 t: T
+    call-assoc Formatter::print: void
+      int 1: i32
+      array: [2]str
+        str "": str
+        str "": str
+      array: [1]str
+        str "": str
+      array: [1]&Format
+        ref: &i32
+          int 1: i32
+    call stream_write: void
+      int 1: i32
+      str "\n": str
+    call-assoc Formatter::print: void
+      int 0: i32
+      array: [2]str
+        str "raw ": str
+        str "\n": str
+      array: [1]str
+        str "": str
+      array: [1]&Format
+        ref: &str
+          str "{": str
 body method Shelf::paired -> (U, U)
   param _0 self: Shelf<T>
   param _1 other: U

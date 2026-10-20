@@ -1483,6 +1483,13 @@ impl<'a, 'w> Walker<'a, 'w> {
         )
         .at(file, name.span, "not found");
         d = match (in_dep, suggestion) {
+            // `println("…")` as it was spelled before formatting became a macro.
+            _ if use_kind == PathUse::Value && FORMAT_MACROS.contains(&name.name.as_str()) => d
+                .with_help(format!(
+                    "formatting is a macro, so its string is checked where it is written: \
+                     `#{}(\"…\", …)` (spec §12.9)",
+                    name.name
+                )),
             (Some((_, true)), _) => d.with_help(format!(
                 "`{}` is in the standard library, which this module's dazzle.toml does not \
                  list: add `std = {{ open = true }}` under `[dependencies]` (spec §14.4)",

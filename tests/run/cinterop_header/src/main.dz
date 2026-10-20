@@ -3,5 +3,5 @@
 // implementation is compiled once, and the declarations this call sees can link to it.
 
 fn main() {
-    println("doubled {}", shl::shl_double(21))
+    #println("doubled {}", shl::shl_double(21))
 }

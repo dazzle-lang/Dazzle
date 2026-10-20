@@ -10,7 +10,7 @@ struct Label {
 impl Drop for Label {
     fn drop(&mut self) {
         if text.len > 0 {
-            println("drop label {}", text)
+            #println("drop label {}", text)
         }
     }
 }
@@ -19,7 +19,7 @@ struct UiElement {
     pub x: i32 = 0
 
     pub virtual fn draw(&self) {
-        println("element at {}", x)
+        #println("element at {}", x)
     }
 }
 
@@ -29,7 +29,7 @@ struct Button : UiElement {
     pub more: u64 = 9
 
     override fn draw(&self) {
-        println("button '{}' at {} ({})", label.text, x, extra + more)
+        #println("button '{}' at {} ({})", label.text, x, extra + more)
     }
 }
 
@@ -50,7 +50,7 @@ fn main() {
     let mut items = List<Rc<UiElement>>()
     items.push(b)
     items.push(Rc<UiElement>(UiElement{ x: 5 }))
-    println("count {} passed {}", b.count(), keep(b))
+    #println("count {} passed {}", b.count(), keep(b))
     let weak: Weak<UiElement> = Weak<Button>(&b)
     draw_all(&items)
 
@@ -60,7 +60,7 @@ fn main() {
     }
 
     items.clear()
-    println("weak alive {}", weak != null)
+    #println("weak alive {}", weak != null)
     let _ = move(b)
-    println("weak after {}", weak != null)
+    #println("weak after {}", weak != null)
 }

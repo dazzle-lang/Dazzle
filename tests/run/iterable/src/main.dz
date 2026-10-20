@@ -30,7 +30,7 @@ fn main() {
     for x in xs {
         sum += x
     }
-    println("sum {}", sum)
+    #println("sum {}", sum)
 
     for &mut x in xs {
         x += 1
@@ -42,7 +42,7 @@ fn main() {
         if i == 4 {
             break
         }
-        println("  {} -> {}", i, x)
+        #println("  {} -> {}", i, x)
     }
 
     let mut monsters = List<Monster>()
@@ -52,7 +52,7 @@ fn main() {
         m.hp -= 1
     }
     for &m in monsters {
-        println("{} has {}", m.name, m.hp)
+        #println("{} has {}", m.name, m.hp)
     }
 
     let mut scores = HashMap<str, i32>()
@@ -68,11 +68,11 @@ fn main() {
         total += v
         names += k.len as i32
     }
-    println("total {} name bytes {}", total, names)
+    #println("total {} name bytes {}", total, names)
 
     let empty = HashMap<i32, i32>()
     for k, &v in empty {
-        println("unexpected {} {}", k, v)
+        #println("unexpected {} {}", k, v)
     }
 
     let mut p = Podium{ m_places: List<i32>() }
@@ -82,5 +82,5 @@ fn main() {
     for &place in p {
         seen += place
     }
-    println("podium {}", seen)
+    #println("podium {}", seen)
 }

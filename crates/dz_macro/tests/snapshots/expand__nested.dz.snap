@@ -22,7 +22,7 @@ macro count -> expr {
 
 fn main() {
     let xs = [5, 6]
-    println("{} {}", if if 1 > 7 {
+    #println("{} {}", if if 1 > 7 {
         1
     } else {
         7

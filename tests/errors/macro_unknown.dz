@@ -9,5 +9,5 @@ macro twice -> expr {
 }
 
 fn main() {
-    println("{}", #twise(4))
+    #println("{}", #twise(4))
 }

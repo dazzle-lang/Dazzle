@@ -12,7 +12,7 @@ struct Res {
 
 impl Drop for Res {
     fn drop(&mut self) {
-        println("drop {}", n)
+        #println("drop {}", n)
     }
 }
 
@@ -129,13 +129,13 @@ fn main() {
     for x in xs {
         seen += x
     }
-    println("{} {}", xs[2], seen)
+    #println("{} {}", xs[2], seen)
 
     let mut pair = [5, 6]
     clear(&mut pair)
     let mut n = 0
     set(&mut n)
-    println("{} {} {}", pair[0], pair[1], n)
+    #println("{} {} {}", pair[0], pair[1], n)
 
     // Fields through `&mut`, and a struct read through `&`.
     let mut ps = [P{ n: 1 }, P{ n: 2 }]
@@ -143,7 +143,7 @@ fn main() {
         p.n += 100
     }
     for &p in ps {
-        println("p {}", p.n)
+        #println("p {}", p.n)
     }
 
     // Tuple elements: each part copied, referred to, or written.
@@ -152,21 +152,21 @@ fn main() {
         b += a as f64
     }
     for &a, b in pairs {
-        println("pair {} {}", a, b)
+        #println("pair {} {}", a, b)
     }
 
     // `indexed()` over an array, an iterator and a range, with `continue` in the middle.
     for i, x in xs.indexed() {
-        println("{}: {}", i, x)
+        #println("{}: {}", i, x)
     }
     for i, left in Countdown(3).indexed() {
         if left == 2 {
             continue
         }
-        println("countdown {} {}", i, left)
+        #println("countdown {} {}", i, left)
     }
     for i, v in (7..9).indexed() {
-        println("range {} {}", i, v)
+        #println("range {} {}", i, v)
     }
 
     // An iterator of references, taken apart: the score is written through the query.
@@ -176,7 +176,7 @@ fn main() {
     for id, &name, &mut score in query {
         score = name.n + id as i32
     }
-    println("scores {} {} {}", scores[0], scores[1], scores[2])
+    #println("scores {} {} {}", scores[0], scores[1], scores[2])
 
     // A switch in a loop, writing into each element's payload.
     let mut shapes = [Shape::Circle{ radius: 1 }, Shape::Point, Shape::Circle{ radius: 5 }]
@@ -189,14 +189,14 @@ fn main() {
     grow(&mut shapes[0])
     for &s in shapes {
         switch s {
-            case Circle(&c) { println("circle {}", c.radius) }
-            case Point { println("point") }
+            case Circle(&c) { #println("circle {}", c.radius) }
+            case Point { #println("point") }
         }
     }
 
     // `break`, `continue` and `or break` inside arms, inside a generic loop.
     let ns = [1, 2, 3, 4]
-    println("count {} {}", count(ns, Step::Stop), count(ns, Step::Go))
+    #println("count {} {}", count(ns, Step::Stop), count(ns, Step::Go))
 
     // A generic union inferred from its payload, and matched over copies.
     let cs = [wrap(1), wrap(2), Choice<i32>::Neither]
@@ -207,16 +207,16 @@ fn main() {
             case Neither {}
         }
     }
-    println("choices {}", total)
+    #println("choices {}", total)
 
     // Move-only elements: referred to, then consumed. Each is dropped once where it is
     // taken; what the loop leaves behind is dropped at the end, at its defaults.
     let rs = [Res{ n: 1 }, Res{ n: 2 }]
     for i, &r in rs.indexed() {
-        println("see {} {}", i, r.n)
+        #println("see {} {}", i, r.n)
     }
     for r in move(rs) {
-        println("took {}", r.n)
+        #println("took {}", r.n)
     }
-    println("end")
+    #println("end")
 }

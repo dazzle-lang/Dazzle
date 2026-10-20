@@ -28,5 +28,5 @@ const LIMIT = 4
 
 fn main() {
     let c = Config{}
-    println("{} {} {}", c.level, c.name, scaled(1))
+    #println("{} {} {}", c.level, c.name, scaled(1))
 }

@@ -393,6 +393,11 @@ pub enum ExprKind {
     Ref {
         mutable: bool,
         place: ExprId,
+        /// A reference to a value that is not a place, used by nothing past the statement
+        /// it is in: a formatting macro's argument (spec §12.9). The value, and whatever its
+        /// evaluation made, lives until that statement ends, as a call's arguments do —
+        /// rather than in a local for the rest of the block, as `&5` does.
+        temporary: bool,
     },
 
     // --- operators ---
@@ -711,7 +716,7 @@ pub struct Arm {
 #[derive(Clone, Debug)]
 pub enum OrClause {
     /// `or fallback`, including the diverging expressions `or return`, `or break`,
-    /// `or continue` and `or panic(...)`.
+    /// `or continue` and `or #panic(...)`.
     Value(ExprId),
     /// `or { ... }` / `or { e -> ... }`.
     Block { binding: Option<LocalId>, body: BlockId },
