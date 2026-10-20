@@ -85,7 +85,7 @@ pub struct Mat4 {
             case 1 { Vec4{ x: cols[0].y, y: cols[1].y, z: cols[2].y, w: cols[3].y } }
             case 2 { Vec4{ x: cols[0].z, y: cols[1].z, z: cols[2].z, w: cols[3].z } }
             case 3 { Vec4{ x: cols[0].w, y: cols[1].w, z: cols[2].w, w: cols[3].w } }
-            default { panic("row {} of a Mat4, which has 4", row) }
+            default { #panic("row {} of a Mat4, which has 4", row) }
         }
     }
 

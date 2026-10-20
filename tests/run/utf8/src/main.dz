@@ -5,7 +5,7 @@
 fn main() {
     let mut s = String("héllo ✓ ")
     s.push('🎮')
-    println("{} bytes, {} chars", s.len(), s.char_count())
+    #println("{} bytes, {} chars", s.len(), s.char_count())
 
     // Iterating: by `chars()` and by `for c in s`.
     let mut codes = String()
@@ -16,15 +16,15 @@ fn main() {
             codes.push(']')
         }
     }
-    println("wide: {}", codes.as_str())
+    #println("wide: {}", codes.as_str())
     let mut count = 0
     for _ in s {
         count += 1
     }
-    println("for over a String: {}", count)
+    #println("for over a String: {}", count)
 
     // Printing a char directly, every width.
-    println("chars: {} {} {} {}", 'a', 'é', '✓', '🎮')
+    #println("chars: {} {} {} {}", 'a', 'é', '✓', '🎮')
 
     // A line longer than the output buffer, of characters that do not fit its edge, comes
     // out whole: 3 + 150 × 9 bytes, every sequence intact.
@@ -32,28 +32,28 @@ fn main() {
     for _ in 0..150 {
         long.push_str("é✓🎮")
     }
-    println("{}", long.as_str())
+    #println("{}", long.as_str())
 
     // Cutting only on character boundaries.
-    println("boundary 1 {} 2 {} 3 {}", s.is_char_boundary(1), s.is_char_boundary(2), s.is_char_boundary(3))
-    println("slice {}", s.slice(0, 3) or "none")
-    println("slice inside é {}", s.slice(0, 2) or "none")
-    println("pop {} {}", s.pop() or ' ', s.pop() or ' ')
-    println("after pop '{}' {}", s.as_str(), s.char_count())
+    #println("boundary 1 {} 2 {} 3 {}", s.is_char_boundary(1), s.is_char_boundary(2), s.is_char_boundary(3))
+    #println("slice {}", s.slice(0, 3) or "none")
+    #println("slice inside é {}", s.slice(0, 2) or "none")
+    #println("pop {} {}", s.pop() or ' ', s.pop() or ' ')
+    #println("after pop '{}' {}", s.as_str(), s.char_count())
     s.truncate(3)
-    println("truncate '{}'", s.as_str())
+    #println("truncate '{}'", s.as_str())
     let mut empty = String()
-    println("pop empty {}", empty.pop() == none)
+    #println("pop empty {}", empty.pop() == none)
 
     // Bytes that are not UTF-8.
     let good: [3]u8 = [0xE2, 0x9C, 0x93]
     let cut: [2]u8 = [0xE2, 0x9C]
     let valid = String::from_utf8(good[..]) or String("none")
-    println("from_utf8 {} {}", valid.as_str(), String::from_utf8(cut[..]) == none)
+    #println("from_utf8 {} {}", valid.as_str(), String::from_utf8(cut[..]) == none)
     let broken = unsafe { cut[..] as str }
     let mut replaced = String()
     for c in Chars(broken) {
         replaced.push(c)
     }
-    println("replacement {} {}", replaced.as_str(), replaced.char_count())
+    #println("replacement {} {}", replaced.as_str(), replaced.char_count())
 }

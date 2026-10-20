@@ -32,5 +32,5 @@ fn main() {
     let mut other = 2
     #swap tmp, other
     let p = #pair(tmp, other)
-    println("{} {}", p.left, p.right)
+    #println("{} {}", p.left, p.right)
 }

@@ -70,18 +70,18 @@ union Slot<T: Copy> {
 
 fn main() {
     let mut g = Gait::initial()
-    println("{} {}", g.name(), g.speed())
-    println("{}", g.is_like(&Walking{ speed: 2 }))
+    #println("{} {}", g.name(), g.speed())
+    #println("{}", g.is_like(&Walking{ speed: 2 }))
     g.faster()
-    println("{} {}", g.name(), g.speed())
+    #println("{} {}", g.name(), g.speed())
     g.faster()
-    println("{} {}", g.name(), g.speed())
+    #println("{} {}", g.name(), g.speed())
     g.stop()
-    println("{} {}", g.name(), g.speed())
+    #println("{} {}", g.name(), g.speed())
     g.faster()
-    println("{} {}", g.name(), g.speed())
+    #println("{} {}", g.name(), g.speed())
 
     let a: Slot<i32> = .Empty{}
     let b: Slot<i32> = .Full{ value: 7 }
-    println("{} {}", a.or_else(3), b.or_else(3))
+    #println("{} {}", a.or_else(3), b.or_else(3))
 }

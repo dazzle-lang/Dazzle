@@ -6,7 +6,7 @@
 macro log -> stmt {
     syntax Arg { $value: expr }
     pattern { $fmt: literal $( , $args: [,]Arg )? }
-    expand { println($fmt #for a in $args { , $a.value }) }
+    expand { #println($fmt #for a in $args { , $a.value }) }
 }
 
 fn main() {

@@ -40,7 +40,7 @@ macro trace -> stmt {
     pattern { $what: literal }
     expand {
         #if DEBUG {
-            println("trace {} at line {}", $what, #line)
+            #println("trace {} at line {}", $what, #line)
         }
     }
 }
@@ -51,7 +51,7 @@ macro check -> stmt {
     pattern { $cond: expr }
     expand {
         if !($cond) {
-            println("failed: {} in {}", #expr_text($cond), #module)
+            #println("failed: {} in {}", #expr_text($cond), #module)
         }
     }
 }
@@ -63,8 +63,8 @@ macro log -> stmt {
     syntax Arg { $value: expr }
     pattern { $level: literal $fmt: literal $( , $args: [,]Arg )? }
     expand {
-        print("[{}] ", $level)
-        println($fmt #for a in $args { , $a.value })
+        #print("[{}] ", $level)
+        #println($fmt #for a in $args { , $a.value })
     }
 }
 
@@ -87,7 +87,7 @@ macro record -> decl {
 
             pub fn describe(&self) {
                 for v in [#for f in $fields[,] { $f.name }] {
-                    println("{}", v)
+                    #println("{}", v)
                 }
             }
         }
@@ -99,14 +99,14 @@ macro record -> decl {
 fn main() {
     let a = 3
     let b = 9
-    println("{} {}", #max(a, b), #max3(4, a, 2))
+    #println("{} {}", #max(a, b), #max3(4, a, 2))
     let xs = [1, 2, 3, 4]
-    println("{}", #count[xs])
+    #println("{}", #count[xs])
 
     let mut tmp = 1
     let mut other = 2
     #swap tmp, other
-    println("{} {}", tmp, other)
+    #println("{} {}", tmp, other)
 
     #trace "start"
     #check a < b
@@ -115,11 +115,11 @@ fn main() {
     #log "warn" "nothing to say"
 
     let s = Size{ w: 1 }
-    println("{}", s.total())
+    #println("{}", s.total())
     s.describe()
 
     #engine::tally hits by 3
-    println("{}", hits.n)
+    #println("{}", hits.n)
     #engine::tally once
-    println("{}", once.n)
+    #println("{}", once.n)
 }

@@ -489,10 +489,28 @@ impl MacroCall {
     }
 }
 
-/// The compiler's own macros (spec §12.7), which stay intrinsics rather than being looked
-/// up, and so cannot be the name of a user macro. `error` is `#error` inside `expand`.
-pub const INTRINSICS: &[&str] =
-    &["file", "line", "column", "function", "module", "location", "expr_text"];
+/// The compiler's own macros (spec §12.7, §12.9), which stay intrinsics rather than being
+/// looked up, and so cannot be the name of a user macro. `error` is `#error` inside
+/// `expand`.
+pub const INTRINSICS: &[&str] = &[
+    "file",
+    "line",
+    "column",
+    "function",
+    "module",
+    "location",
+    "expr_text",
+    "print",
+    "println",
+    "eprint",
+    "eprintln",
+    "panic",
+    "format",
+];
+
+/// The formatting macros (spec §12.9): intrinsics whose first argument is a format string,
+/// checked against the arguments after it and lowered to `Format::format` calls.
+pub const FORMAT_MACROS: &[&str] = &["print", "println", "eprint", "eprintln", "panic", "format"];
 
 // ---------------------------------------------------------------------------
 // types
@@ -829,7 +847,7 @@ pub enum ExprKind {
 #[derive(Clone, Debug)]
 pub enum OrClause {
     /// `or Textures::Missing` — the fallback value. `or return`, `or break`, `or continue`
-    /// and `or panic(...)` all arrive here too, as the diverging expressions they already
+    /// and `or #panic(...)` all arrive here too, as the diverging expressions they already
     /// are, so no clause form needs its own variant.
     Value(Expr),
     /// `or { ... }` and `or { e -> ... }`.

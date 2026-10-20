@@ -24,6 +24,6 @@ impl Iterate for Countdown {
 
 fn main() {
     for &mut n in Countdown(3) {
-        println("{}", n)
+        #println("{}", n)
     }
 }

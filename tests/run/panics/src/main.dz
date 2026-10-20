@@ -3,8 +3,8 @@
 fn main() {
     let mut xs: [3]i32
     xs[0] = 7
-    println("ok: {}", xs[0])
+    #println("ok: {}", xs[0])
     let i = 5
-    println("{}", xs[i])
-    println("unreachable")
+    #println("{}", xs[i])
+    #println("unreachable")
 }

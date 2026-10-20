@@ -11,5 +11,5 @@ struct Counter {
 }
 
 fn main() {
-    println("{}", Counter::describe())
+    #println("{}", Counter::describe())
 }

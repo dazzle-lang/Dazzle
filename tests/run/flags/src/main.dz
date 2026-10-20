@@ -30,25 +30,25 @@ struct Player {
 
 fn main() {
     let p = Player{}
-    println("{} {}", lives(), p.sparkle())
+    #println("{} {}", lives(), p.sparkle())
 
     #if DEBUG {
-        println("debug build")
+        #println("debug build")
     } #else #if RELEASE || SHIPPING {
-        println("optimised build")
+        #println("optimised build")
     }
 
     // Exactly one platform flag is on.
     #if OS_WINDOWS || OS_LINUX || OS_MACOS {
-        println("on a known platform")
+        #println("on a known platform")
     } #else {
         nonexistent_platform_call()
     }
 
     #if engine::PROFILE {
-        println("{}", engine::frame())
+        #println("{}", engine::frame())
     }
     #if engine::VERBOSE {
-        println("verbose")
+        #println("verbose")
     }
 }

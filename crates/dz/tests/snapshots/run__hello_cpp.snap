@@ -29,7 +29,7 @@ namespace hello {
 
 void main() {
 #line 2 "main.dz"
-    ::dz::println(::dz::str("Hello, world!", 13));
+    ::dz::std_::stream_write(0, ::dz::str("Hello, world!/n", 14));
 }
 
 
