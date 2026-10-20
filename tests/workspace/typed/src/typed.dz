@@ -1293,6 +1293,45 @@ fn variadic_calls(h: Heading, xs: []i32) -> i32 {
     return total_of(1) + total_of(1, 2, 3) + total_of(0, ..xs) + n as i32
 }
 
+// §7.2: parameters after a variadic one, passed by name in any order, with or without a
+// default — one left out before one given still gets its default.
+fn weighted(xs: ..i32, scale: i32 = 1, offset: i32 = 0, label: str) -> i32 {
+    let mut t = 0
+    for x in xs {
+        t += x
+    }
+    return t * scale + offset + label.len as i32
+}
+
+fn named_calls(xs: []i32) -> i32 {
+    let a = weighted(1, 2, label = "a")
+    let b = weighted(label = "b", scale = 2)
+    let c = weighted(3, offset = 1, label = "c")
+    return a + b + c + weighted(..xs, offset = 2, scale = 3, label = "d")
+}
+
+// §12.9: `Format` implemented by a type of its own, `String::format` with and without
+// another allocator, and a `#[format]` function passing its string and arguments on.
+impl Format for Heading {
+    fn format(&self, f: &mut Formatter) {
+        self.degrees.format(f)
+        f.write_str(" degrees")
+    }
+}
+
+#[format]
+fn headline(fmt: str, args: ..&Format, prefix: str = "") -> String {
+    let body = String::format(fmt, ..args)
+    return String::format("{}{}", prefix, body)
+}
+
+fn formatted(h: Heading) -> usize {
+    let a = String::format("{} at {:.1} {:x} {}", h, 1.5, 255, true)
+    let b = String::format("{{}}", allocator = Allocators::Temp)
+    let c = headline("{} and {}", a, h, prefix = "> ")
+    return a.len() + b.len() + c.len()
+}
+
 // §8.1: generic methods — inferred and written, with and without a receiver, on a generic
 // type beside the type's own parameter, and a method's bound used in its body.
 struct Shelf<T> {

@@ -529,6 +529,10 @@ pub enum ExprKind {
         name: String,
         args: Vec<ExprId>,
     },
+    /// An argument the call left out, standing for the callee's own default for parameter
+    /// `index` (not counting `self`). Only where a later parameter is passed by name — a
+    /// default at the end needs nothing, since C++ fills it in (spec §7.2).
+    DefaultArg(usize),
 }
 
 /// A concrete copy of a generic body (spec §8.4): every type in it with `map` applied.

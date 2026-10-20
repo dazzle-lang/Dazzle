@@ -1,6 +1,154 @@
-/// What `println("{}", x)` needs of `x`. The format string is parsed at compile time and
-/// lowers to a direct sequence of these calls, with no allocation and no intermediate
-/// string.
+/// What `String::format("{}", x)` needs of `x`: a way to write itself into a `Formatter`
+/// (spec §12.9). Numbers, `bool`, `char`, `str`, `cstr` and `String` implement it here; a
+/// type of your own implements it to be formatted too.
 pub trait Format {
     fn format(&self, f: &mut Formatter)
 }
+
+impl Format for i8 {
+    fn format(&self, f: &mut Formatter) {
+        write_signed(f, self as i64, (self as u8) as u64)
+    }
+}
+
+impl Format for i16 {
+    fn format(&self, f: &mut Formatter) {
+        write_signed(f, self as i64, (self as u16) as u64)
+    }
+}
+
+impl Format for i32 {
+    fn format(&self, f: &mut Formatter) {
+        write_signed(f, self as i64, (self as u32) as u64)
+    }
+}
+
+impl Format for i64 {
+    fn format(&self, f: &mut Formatter) {
+        write_signed(f, self as i64, self as u64)
+    }
+}
+
+impl Format for isize {
+    fn format(&self, f: &mut Formatter) {
+        write_signed(f, self as i64, (self as usize) as u64)
+    }
+}
+
+impl Format for u8 {
+    fn format(&self, f: &mut Formatter) {
+        write_unsigned(f, self as u64)
+    }
+}
+
+impl Format for u16 {
+    fn format(&self, f: &mut Formatter) {
+        write_unsigned(f, self as u64)
+    }
+}
+
+impl Format for u32 {
+    fn format(&self, f: &mut Formatter) {
+        write_unsigned(f, self as u64)
+    }
+}
+
+impl Format for u64 {
+    fn format(&self, f: &mut Formatter) {
+        write_unsigned(f, self as u64)
+    }
+}
+
+impl Format for usize {
+    fn format(&self, f: &mut Formatter) {
+        write_unsigned(f, self as u64)
+    }
+}
+
+impl Format for f32 {
+    fn format(&self, f: &mut Formatter) {
+        write_float(f, self as f64)
+    }
+}
+
+impl Format for f64 {
+    fn format(&self, f: &mut Formatter) {
+        write_float(f, self as f64)
+    }
+}
+
+impl Format for bool {
+    fn format(&self, f: &mut Formatter) {
+        f.write_str(if self { "true" } else { "false" })
+    }
+}
+
+impl Format for char {
+    fn format(&self, f: &mut Formatter) {
+        f.write_char(self)
+    }
+}
+
+impl Format for str {
+    fn format(&self, f: &mut Formatter) {
+        f.write_str(self)
+    }
+}
+
+impl Format for cstr {
+    fn format(&self, f: &mut Formatter) {
+        f.write_str(cstr_text(self))
+    }
+}
+
+/// An integer as `{}` writes it, or as `{:x}` does: then `bits` are its own width's bits,
+/// so a negative `i32` shows eight hex digits rather than sixteen.
+fn write_signed(f: &mut Formatter, value: i64, bits: u64) {
+    if f.hex() {
+        write_digits(f, bits, 16)
+    } else if value < 0 {
+        f.write_char('-')
+        // Wraps for `i64::MIN`, whose magnitude has no `i64` but is the right `u64`.
+        write_digits(f, 0 - (value as u64), 10)
+    } else {
+        write_digits(f, value as u64, 10)
+    }
+}
+
+fn write_unsigned(f: &mut Formatter, value: u64) {
+    write_digits(f, value, if f.hex() { 16 } else { 10 })
+}
+
+fn write_digits(f: &mut Formatter, value: u64, base: u64) {
+    // Twenty digits hold any `u64` in decimal, and sixteen in hex.
+    let mut buf: [20]u8
+    let mut at: usize = 20
+    let mut n = value
+    let ten = if f.upper() { 'A' as u8 } else { 'a' as u8 }
+    while true {
+        at -= 1
+        let d = (n % base) as u8
+        buf[at] = if d < 10 { '0' as u8 + d } else { ten + d - 10 }
+        n = n / base
+        if n == 0 {
+            break
+        }
+    }
+    f.write_str(unsafe { buf[at..20] as str })
+}
+
+/// A float as `{}` writes it — the shortest of fixed and scientific, to six significant
+/// digits, as C's `%g` — or with `{:.N}`'s digits after the point.
+fn write_float(f: &mut Formatter, value: f64) {
+    let mut buf: [64]u8
+    let precision = if let p = f.precision() { p as i32 } else { -1 }
+    let n = format_float(value, precision, buf[0..64])
+    f.write_str(unsafe { buf[0..n] as str })
+}
+
+/// `value` written by C's `snprintf` into `out`, with `%.*f` when `precision` is not
+/// negative and `%g` when it is; how many bytes it wrote, cut to fit.
+extern fn format_float(value: f64, precision: i32, out: []mut u8) -> usize
+
+/// The text of a C string, up to its zero, as a view of the same bytes.
+extern fn cstr_text(s: cstr) -> str

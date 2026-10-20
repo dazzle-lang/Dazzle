@@ -2224,6 +2224,605 @@ body fn assert -> void
       str "assertion failed: {}": str
       local _1 msg: str
       local _2 loc: SourceLocation
+body impl#15 method format -> void
+  param _0 self: i8
+  param _1 f: &mut Formatter
+  block
+    call write_signed: void
+      local _1 f: &mut Formatter
+      cast: i64
+        local _0 self: i8
+      cast: u64
+        cast: u8
+          local _0 self: i8
+body impl#16 method format -> void
+  param _0 self: i16
+  param _1 f: &mut Formatter
+  block
+    call write_signed: void
+      local _1 f: &mut Formatter
+      cast: i64
+        local _0 self: i16
+      cast: u64
+        cast: u16
+          local _0 self: i16
+body impl#17 method format -> void
+  param _0 self: i32
+  param _1 f: &mut Formatter
+  block
+    call write_signed: void
+      local _1 f: &mut Formatter
+      cast: i64
+        local _0 self: i32
+      cast: u64
+        cast: u32
+          local _0 self: i32
+body impl#18 method format -> void
+  param _0 self: i64
+  param _1 f: &mut Formatter
+  block
+    call write_signed: void
+      local _1 f: &mut Formatter
+      cast: i64
+        local _0 self: i64
+      cast: u64
+        local _0 self: i64
+body impl#19 method format -> void
+  param _0 self: isize
+  param _1 f: &mut Formatter
+  block
+    call write_signed: void
+      local _1 f: &mut Formatter
+      cast: i64
+        local _0 self: isize
+      cast: u64
+        cast: usize
+          local _0 self: isize
+body impl#20 method format -> void
+  param _0 self: u8
+  param _1 f: &mut Formatter
+  block
+    call write_unsigned: void
+      local _1 f: &mut Formatter
+      cast: u64
+        local _0 self: u8
+body impl#21 method format -> void
+  param _0 self: u16
+  param _1 f: &mut Formatter
+  block
+    call write_unsigned: void
+      local _1 f: &mut Formatter
+      cast: u64
+        local _0 self: u16
+body impl#22 method format -> void
+  param _0 self: u32
+  param _1 f: &mut Formatter
+  block
+    call write_unsigned: void
+      local _1 f: &mut Formatter
+      cast: u64
+        local _0 self: u32
+body impl#23 method format -> void
+  param _0 self: u64
+  param _1 f: &mut Formatter
+  block
+    call write_unsigned: void
+      local _1 f: &mut Formatter
+      cast: u64
+        local _0 self: u64
+body impl#24 method format -> void
+  param _0 self: usize
+  param _1 f: &mut Formatter
+  block
+    call write_unsigned: void
+      local _1 f: &mut Formatter
+      cast: u64
+        local _0 self: usize
+body impl#25 method format -> void
+  param _0 self: f32
+  param _1 f: &mut Formatter
+  block
+    call write_float: void
+      local _1 f: &mut Formatter
+      cast: f64
+        local _0 self: f32
+body impl#26 method format -> void
+  param _0 self: f64
+  param _1 f: &mut Formatter
+  block
+    call write_float: void
+      local _1 f: &mut Formatter
+      cast: f64
+        local _0 self: f64
+body impl#27 method format -> void
+  param _0 self: bool
+  param _1 f: &mut Formatter
+  block
+    call-method Formatter::write_str: void
+      local _1 f: &mut Formatter
+      if: str
+        local _0 self: bool
+        block
+          str "true": str
+        block
+          block-value: str
+            block
+              str "false": str
+body impl#28 method format -> void
+  param _0 self: char
+  param _1 f: &mut Formatter
+  block
+    call-method Formatter::write_char: void
+      local _1 f: &mut Formatter
+      local _0 self: char
+body impl#29 method format -> void
+  param _0 self: str
+  param _1 f: &mut Formatter
+  block
+    call-method Formatter::write_str: void
+      local _1 f: &mut Formatter
+      local _0 self: str
+body impl#30 method format -> void
+  param _0 self: cstr
+  param _1 f: &mut Formatter
+  block
+    call-method Formatter::write_str: void
+      local _1 f: &mut Formatter
+      call cstr_text: str
+        local _0 self: cstr
+body fn write_signed -> void
+  param _0 f: &mut Formatter
+  param _1 value: i64
+  param _2 bits: u64
+  block
+    if: void
+      call-method Formatter::hex: bool
+        local _0 f: &mut Formatter
+      block
+        call write_digits: void
+          local _0 f: &mut Formatter
+          local _2 bits: u64
+          int 16: u64
+      block
+        if: void
+          binary <: bool
+            local _1 value: i64
+            int 0: i64
+          block
+            call-method Formatter::write_char: void
+              local _0 f: &mut Formatter
+              char '-': char
+            call write_digits: void
+              local _0 f: &mut Formatter
+              binary -: u64
+                int 0: u64
+                cast: u64
+                  local _1 value: i64
+              int 10: u64
+          block
+            block-value: void
+              block
+                call write_digits: void
+                  local _0 f: &mut Formatter
+                  cast: u64
+                    local _1 value: i64
+                  int 10: u64
+body fn write_unsigned -> void
+  param _0 f: &mut Formatter
+  param _1 value: u64
+  block
+    call write_digits: void
+      local _0 f: &mut Formatter
+      local _1 value: u64
+      if: u64
+        call-method Formatter::hex: bool
+          local _0 f: &mut Formatter
+        block
+          int 16: u64
+        block
+          block-value: u64
+            block
+              int 10: u64
+body fn write_digits -> void
+  param _0 f: &mut Formatter
+  param _1 value: u64
+  param _2 base: u64
+  block
+    let _3 buf: [20]u8
+      (uninitialised)
+    let _4 at: usize
+      int 20: usize
+    let _5 n: u64
+      local _1 value: u64
+    let _6 ten: u8
+      if: u8
+        call-method Formatter::upper: bool
+          local _0 f: &mut Formatter
+        block
+          cast: u8
+            char 'A': char
+        block
+          block-value: u8
+            block
+              cast: u8
+                char 'a': char
+    while
+      bool true: bool
+      block
+        assign -=
+          local _4 at: usize
+          int 1: usize
+        let _7 d: u8
+          cast: u8
+            binary %: u64
+              local _5 n: u64
+              local _2 base: u64
+        assign =
+          index: u8
+            local _3 buf: [20]u8
+            local _4 at: usize
+          if: u8
+            binary <: bool
+              local _7 d: u8
+              int 10: u8
+            block
+              binary +: u8
+                cast: u8
+                  char '0': char
+                local _7 d: u8
+            block
+              block-value: u8
+                block
+                  binary -: u8
+                    binary +: u8
+                      local _6 ten: u8
+                      local _7 d: u8
+                    int 10: u8
+        assign =
+          local _5 n: u64
+          binary /: u64
+            local _5 n: u64
+            local _2 base: u64
+        if: void
+          binary ==: bool
+            local _5 n: u64
+            int 0: u64
+          block
+            break: !
+    call-method Formatter::write_str: void
+      local _0 f: &mut Formatter
+      block-value: str
+        block
+          cast: str
+            slice: []mut u8
+              local _3 buf: [20]u8
+              local _4 at: usize
+              int 20: usize
+body fn write_float -> void
+  param _0 f: &mut Formatter
+  param _1 value: f64
+  block
+    let _2 buf: [64]u8
+      (uninitialised)
+    let _4 precision: i32
+      if-let: i32
+        call-method Formatter::precision: u32?
+          local _0 f: &mut Formatter
+        bind _3 p
+        block
+          cast: i32
+            local _3 p: u32
+        block
+          block-value: i32
+            block
+              unary -: i32
+                int 1: i32
+    let _5 n: usize
+      call format_float: usize
+        local _1 value: f64
+        local _4 precision: i32
+        slice: []mut u8
+          local _2 buf: [64]u8
+          int 0: usize
+          int 64: usize
+    call-method Formatter::write_str: void
+      local _0 f: &mut Formatter
+      block-value: str
+        block
+          cast: str
+            slice: []mut u8
+              local _2 buf: [64]u8
+              int 0: usize
+              local _5 n: usize
+body fn format_float -> usize
+  param _0 value: f64
+  param _1 precision: i32
+  param _2 out: []mut u8
+  block
+    (empty)
+body fn cstr_text -> str
+  param _0 s: cstr
+  block
+    (empty)
+body field-default Formatter.2 -> void
+  block
+    bool false: bool
+body field-default Formatter.3 -> void
+  block
+    bool false: bool
+body field-default Formatter.4 -> void
+  block
+    none: u32?
+body ctor Formatter#0 -> void
+  param _0 self: Formatter
+  param _1 out: &mut String
+  param _2 loc: SourceLocation
+  block
+    assign =
+      field #0: ^mut String
+        local _0 self: Formatter
+      local _1 out: &mut String
+    assign =
+      field #1: SourceLocation
+        local _0 self: Formatter
+      local _2 loc: SourceLocation
+body method Formatter::write_str -> void
+  param _0 self: Formatter
+  param _1 s: str
+  block
+    block-value: void
+      block
+        call-method String::push_str: void
+          field #0: ^mut String
+            local _0 self: Formatter
+          local _1 s: str
+          field #1: SourceLocation
+            local _0 self: Formatter
+body method Formatter::write_char -> void
+  param _0 self: Formatter
+  param _1 c: char
+  block
+    block-value: void
+      block
+        call-method String::push: void
+          field #0: ^mut String
+            local _0 self: Formatter
+          local _1 c: char
+          field #1: SourceLocation
+            local _0 self: Formatter
+body method Formatter::hex -> bool
+  param _0 self: Formatter
+  block
+    return: !
+      field #2: bool
+        local _0 self: Formatter
+body method Formatter::upper -> bool
+  param _0 self: Formatter
+  block
+    return: !
+      field #3: bool
+        local _0 self: Formatter
+body method Formatter::precision -> u32?
+  param _0 self: Formatter
+  block
+    return: !
+      field #4: u32?
+        local _0 self: Formatter
+body method Formatter::write_format -> void
+  param _0 self: Formatter
+  param _1 fmt: str
+  param _2 args: []&Format
+  block
+    let _3 bytes: []u8
+      cast: []u8
+        local _1 fmt: str
+    let _4 next: usize
+      int 0: usize
+    let _5 start: usize
+      int 0: usize
+    let _6 i: usize
+      int 0: usize
+    while
+      binary <: bool
+        local _6 i: usize
+        len: usize
+          local _3 bytes: []u8
+      block
+        let _7 b: u8
+          index: u8
+            local _3 bytes: []u8
+            local _6 i: usize
+        if: void
+          binary &&: bool
+            binary &&: bool
+              binary ||: bool
+                binary ==: bool
+                  local _7 b: u8
+                  cast: u8
+                    char '{': char
+                binary ==: bool
+                  local _7 b: u8
+                  cast: u8
+                    char '}': char
+              binary <: bool
+                binary +: usize
+                  local _6 i: usize
+                  int 1: usize
+                len: usize
+                  local _3 bytes: []u8
+            binary ==: bool
+              index: u8
+                local _3 bytes: []u8
+                binary +: usize
+                  local _6 i: usize
+                  int 1: usize
+              local _7 b: u8
+          block
+            call-method Formatter::write_str: void
+              local _0 self: Formatter
+              call sub: str
+                local _1 fmt: str
+                local _5 start: usize
+                binary +: usize
+                  local _6 i: usize
+                  int 1: usize
+            assign +=
+              local _6 i: usize
+              int 2: usize
+            assign =
+              local _5 start: usize
+              local _6 i: usize
+            continue: !
+        if: void
+          binary !=: bool
+            local _7 b: u8
+            cast: u8
+              char '{': char
+          block
+            assign +=
+              local _6 i: usize
+              int 1: usize
+            continue: !
+        call-method Formatter::write_str: void
+          local _0 self: Formatter
+          call sub: str
+            local _1 fmt: str
+            local _5 start: usize
+            local _6 i: usize
+        let _8 close: usize
+          binary +: usize
+            local _6 i: usize
+            int 1: usize
+        while
+          binary &&: bool
+            binary <: bool
+              local _8 close: usize
+              len: usize
+                local _3 bytes: []u8
+            binary !=: bool
+              index: u8
+                local _3 bytes: []u8
+                local _8 close: usize
+              cast: u8
+                char '}': char
+          block
+            assign +=
+              local _8 close: usize
+              int 1: usize
+        call-method Formatter::set_spec: void
+          local _0 self: Formatter
+          call sub: str
+            local _1 fmt: str
+            binary +: usize
+              local _6 i: usize
+              int 1: usize
+            local _8 close: usize
+        if: void
+          binary <: bool
+            local _4 next: usize
+            len: usize
+              local _2 args: []&Format
+          block
+            call-method Format::format: void
+              index: &Format
+                local _2 args: []&Format
+                local _4 next: usize
+              ref mut: &mut Formatter
+                local _0 self: Formatter
+            assign +=
+              local _4 next: usize
+              int 1: usize
+        assign =
+          field #2: bool
+            local _0 self: Formatter
+          bool false: bool
+        assign =
+          field #3: bool
+            local _0 self: Formatter
+          bool false: bool
+        assign =
+          field #4: u32?
+            local _0 self: Formatter
+          none: u32?
+        assign =
+          local _6 i: usize
+          if: usize
+            binary <: bool
+              local _8 close: usize
+              len: usize
+                local _3 bytes: []u8
+            block
+              binary +: usize
+                local _8 close: usize
+                int 1: usize
+            block
+              block-value: usize
+                block
+                  local _8 close: usize
+        assign =
+          local _5 start: usize
+          local _6 i: usize
+    call-method Formatter::write_str: void
+      local _0 self: Formatter
+      call sub: str
+        local _1 fmt: str
+        local _5 start: usize
+        len: usize
+          local _3 bytes: []u8
+body method Formatter::set_spec -> void
+  param _0 self: Formatter
+  param _1 inside: str
+  block
+    if: void
+      binary ==: bool
+        local _1 inside: str
+        str ":x": str
+      block
+        assign =
+          field #2: bool
+            local _0 self: Formatter
+          bool true: bool
+      block
+        if: void
+          binary ==: bool
+            local _1 inside: str
+            str ":X": str
+          block
+            assign =
+              field #2: bool
+                local _0 self: Formatter
+              bool true: bool
+            assign =
+              field #3: bool
+                local _0 self: Formatter
+              bool true: bool
+          block
+            if: void
+              binary &&: bool
+                binary >: bool
+                  len: usize
+                    local _1 inside: str
+                  int 2: usize
+                call-method Text::starts_with: bool
+                  local _1 inside: str
+                  str ":.": str
+              block
+                let _2 digits: str
+                  call sub: str
+                    local _1 inside: str
+                    int 2: usize
+                    len: usize
+                      local _1 inside: str
+                if-let: void
+                  call-method Text::parse_u64: u64?
+                    local _2 digits: str
+                  bind _3 n
+                  block
+                    assign =
+                      field #4: u32?
+                        local _0 self: Formatter
+                      cast: u32
+                        local _3 n: u64
 body fn hash_combine -> u64
   param _0 seed: u64
   param _1 h: u64
@@ -3106,7 +3705,7 @@ body method Path::is_dir -> bool
       call path_is_dir: bool
         call-method Path::as_str: str
           local _0 self: Path
-body impl#16 method div -> Path
+body impl#32 method div -> Path
   param _0 self: Path
   param _1 rhs: str
   block
@@ -3114,7 +3713,7 @@ body impl#16 method div -> Path
       call-method Path::join: Path
         local _0 self: Path
         local _1 rhs: str
-body impl#17 method eq -> bool
+body impl#33 method eq -> bool
   param _0 self: Path
   param _1 rhs: &Path
   block
@@ -3124,7 +3723,7 @@ body impl#17 method eq -> bool
           local _0 self: Path
         call-method Path::as_str: str
           local _1 rhs: &Path
-body impl#18 method cmp -> Ordering
+body impl#34 method cmp -> Ordering
   param _0 self: Path
   param _1 rhs: &Path
   block
@@ -3136,7 +3735,7 @@ body impl#18 method cmp -> Ordering
         cast: []u8
           call-method Path::as_str: str
             local _1 rhs: &Path
-body impl#19 method hash -> u64
+body impl#35 method hash -> u64
   param _0 self: Path
   block
     return: !
@@ -5005,7 +5604,7 @@ body method Mat4::inverse -> Mat4?
                           int 2: usize
                       local _1 s0: f32
                   local _14 inv: f32
-body impl#20 method mul -> Mat4
+body impl#36 method mul -> Mat4
   param _0 self: Mat4
   param _1 rhs: Mat4
   block
@@ -5037,7 +5636,7 @@ body impl#20 method mul -> Mat4
                 field #0: [4]Vec4
                   local _1 rhs: Mat4
                 int 3: usize
-body impl#21 method mul -> Vec4
+body impl#37 method mul -> Vec4
   param _0 self: Mat4
   param _1 v: Vec4
   block
@@ -5073,7 +5672,7 @@ body impl#21 method mul -> Vec4
             int 3: usize
           field #3: f32
             local _1 v: Vec4
-body impl#22 method eq -> bool
+body impl#38 method eq -> bool
   param _0 self: Mat4
   param _1 rhs: &Mat4
   block
@@ -5615,7 +6214,7 @@ body method Quat::to_mat4 -> Mat4
                 float 0: f32
               #3
                 float 1: f32
-body impl#23 method mul -> Quat
+body impl#39 method mul -> Quat
   param _0 self: Quat
   param _1 rhs: Quat
   block
@@ -5717,7 +6316,7 @@ body impl#23 method mul -> Quat
                 local _0 self: Quat
               field #2: f32
                 local _1 rhs: Quat
-body impl#24 method mul -> Vec3
+body impl#40 method mul -> Vec3
   param _0 self: Quat
   param _1 rhs: Vec3
   block
@@ -5942,7 +6541,7 @@ body method Vec2::extend -> Vec3
             local _0 self: Vec2
         #2
           local _1 z: f32
-body impl#25 method add -> Vec2
+body impl#41 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -5960,7 +6559,7 @@ body impl#25 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#26 method sub -> Vec2
+body impl#42 method sub -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -5978,7 +6577,7 @@ body impl#26 method sub -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#27 method mul -> Vec2
+body impl#43 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -5996,7 +6595,7 @@ body impl#27 method mul -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#28 method mul -> Vec2
+body impl#44 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -6012,7 +6611,7 @@ body impl#28 method mul -> Vec2
             field #1: f32
               local _0 self: Vec2
             local _1 rhs: f32
-body impl#29 method div -> Vec2
+body impl#45 method div -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -6028,7 +6627,7 @@ body impl#29 method div -> Vec2
             field #1: f32
               local _0 self: Vec2
             local _1 rhs: f32
-body impl#30 method neg -> Vec2
+body impl#46 method neg -> Vec2
   param _0 self: Vec2
   block
     return: !
@@ -6041,7 +6640,7 @@ body impl#30 method neg -> Vec2
           unary -: f32
             field #1: f32
               local _0 self: Vec2
-body impl#31 method eq -> bool
+body impl#47 method eq -> bool
   param _0 self: Vec2
   param _1 rhs: &Vec2
   block
@@ -6094,7 +6693,7 @@ body method Vec2i::manhattan -> i32
               local _1 to: Vec2i
             field #1: i32
               local _0 self: Vec2i
-body impl#32 method add -> Vec2i
+body impl#48 method add -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: Vec2i
   block
@@ -6112,7 +6711,7 @@ body impl#32 method add -> Vec2i
               local _0 self: Vec2i
             field #1: i32
               local _1 rhs: Vec2i
-body impl#33 method sub -> Vec2i
+body impl#49 method sub -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: Vec2i
   block
@@ -6130,7 +6729,7 @@ body impl#33 method sub -> Vec2i
               local _0 self: Vec2i
             field #1: i32
               local _1 rhs: Vec2i
-body impl#34 method mul -> Vec2i
+body impl#50 method mul -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: i32
   block
@@ -6146,7 +6745,7 @@ body impl#34 method mul -> Vec2i
             field #1: i32
               local _0 self: Vec2i
             local _1 rhs: i32
-body impl#35 method neg -> Vec2i
+body impl#51 method neg -> Vec2i
   param _0 self: Vec2i
   block
     return: !
@@ -6159,7 +6758,7 @@ body impl#35 method neg -> Vec2i
           unary -: i32
             field #1: i32
               local _0 self: Vec2i
-body impl#36 method eq -> bool
+body impl#52 method eq -> bool
   param _0 self: Vec2i
   param _1 rhs: &Vec2i
   block
@@ -6175,7 +6774,7 @@ body impl#36 method eq -> bool
             local _0 self: Vec2i
           field #1: i32
             local _1 rhs: &Vec2i
-body impl#37 method hash -> u64
+body impl#53 method hash -> u64
   param _0 self: Vec2i
   block
     return: !
@@ -6464,7 +7063,7 @@ body method Vec3::extend -> Vec4
             local _0 self: Vec3
         #3
           local _1 w: f32
-body impl#38 method add -> Vec3
+body impl#54 method add -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -6488,7 +7087,7 @@ body impl#38 method add -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#39 method sub -> Vec3
+body impl#55 method sub -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -6512,7 +7111,7 @@ body impl#39 method sub -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#40 method mul -> Vec3
+body impl#56 method mul -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -6536,7 +7135,7 @@ body impl#40 method mul -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#41 method mul -> Vec3
+body impl#57 method mul -> Vec3
   param _0 self: Vec3
   param _1 rhs: f32
   block
@@ -6557,7 +7156,7 @@ body impl#41 method mul -> Vec3
             field #2: f32
               local _0 self: Vec3
             local _1 rhs: f32
-body impl#42 method div -> Vec3
+body impl#58 method div -> Vec3
   param _0 self: Vec3
   param _1 rhs: f32
   block
@@ -6578,7 +7177,7 @@ body impl#42 method div -> Vec3
             field #2: f32
               local _0 self: Vec3
             local _1 rhs: f32
-body impl#43 method neg -> Vec3
+body impl#59 method neg -> Vec3
   param _0 self: Vec3
   block
     return: !
@@ -6595,7 +7194,7 @@ body impl#43 method neg -> Vec3
           unary -: f32
             field #2: f32
               local _0 self: Vec3
-body impl#44 method eq -> bool
+body impl#60 method eq -> bool
   param _0 self: Vec3
   param _1 rhs: &Vec3
   block
@@ -6668,7 +7267,7 @@ body method Vec3i::manhattan -> i32
               local _1 to: Vec3i
             field #2: i32
               local _0 self: Vec3i
-body impl#45 method add -> Vec3i
+body impl#61 method add -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: Vec3i
   block
@@ -6692,7 +7291,7 @@ body impl#45 method add -> Vec3i
               local _0 self: Vec3i
             field #2: i32
               local _1 rhs: Vec3i
-body impl#46 method sub -> Vec3i
+body impl#62 method sub -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: Vec3i
   block
@@ -6716,7 +7315,7 @@ body impl#46 method sub -> Vec3i
               local _0 self: Vec3i
             field #2: i32
               local _1 rhs: Vec3i
-body impl#47 method mul -> Vec3i
+body impl#63 method mul -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: i32
   block
@@ -6737,7 +7336,7 @@ body impl#47 method mul -> Vec3i
             field #2: i32
               local _0 self: Vec3i
             local _1 rhs: i32
-body impl#48 method neg -> Vec3i
+body impl#64 method neg -> Vec3i
   param _0 self: Vec3i
   block
     return: !
@@ -6754,7 +7353,7 @@ body impl#48 method neg -> Vec3i
           unary -: i32
             field #2: i32
               local _0 self: Vec3i
-body impl#49 method eq -> bool
+body impl#65 method eq -> bool
   param _0 self: Vec3i
   param _1 rhs: &Vec3i
   block
@@ -6776,7 +7375,7 @@ body impl#49 method eq -> bool
             local _0 self: Vec3i
           field #2: i32
             local _1 rhs: &Vec3i
-body impl#50 method hash -> u64
+body impl#66 method hash -> u64
   param _0 self: Vec3i
   block
     return: !
@@ -6933,7 +7532,7 @@ body method Vec4::xyz -> Vec3
         #2
           field #2: f32
             local _0 self: Vec4
-body impl#51 method add -> Vec4
+body impl#67 method add -> Vec4
   param _0 self: Vec4
   param _1 rhs: Vec4
   block
@@ -6963,7 +7562,7 @@ body impl#51 method add -> Vec4
               local _0 self: Vec4
             field #3: f32
               local _1 rhs: Vec4
-body impl#52 method sub -> Vec4
+body impl#68 method sub -> Vec4
   param _0 self: Vec4
   param _1 rhs: Vec4
   block
@@ -6993,7 +7592,7 @@ body impl#52 method sub -> Vec4
               local _0 self: Vec4
             field #3: f32
               local _1 rhs: Vec4
-body impl#53 method mul -> Vec4
+body impl#69 method mul -> Vec4
   param _0 self: Vec4
   param _1 rhs: f32
   block
@@ -7019,7 +7618,7 @@ body impl#53 method mul -> Vec4
             field #3: f32
               local _0 self: Vec4
             local _1 rhs: f32
-body impl#54 method div -> Vec4
+body impl#70 method div -> Vec4
   param _0 self: Vec4
   param _1 rhs: f32
   block
@@ -7045,7 +7644,7 @@ body impl#54 method div -> Vec4
             field #3: f32
               local _0 self: Vec4
             local _1 rhs: f32
-body impl#55 method neg -> Vec4
+body impl#71 method neg -> Vec4
   param _0 self: Vec4
   block
     return: !
@@ -7066,7 +7665,7 @@ body impl#55 method neg -> Vec4
           unary -: f32
             field #3: f32
               local _0 self: Vec4
-body impl#56 method eq -> bool
+body impl#72 method eq -> bool
   param _0 self: Vec4
   param _1 rhs: &Vec4
   block
@@ -7236,7 +7835,7 @@ body drop Box -> void
         local _0 self: Box<T>
       field #3: usize
         local _0 self: Box<T>
-body impl#58 method is_null -> bool
+body impl#74 method is_null -> bool
   param _0 self: Box<T>
   block
     return: !
@@ -7244,7 +7843,7 @@ body impl#58 method is_null -> bool
         field #0: own ^mut T
           local _0 self: Box<T>
         null: own ^mut T
-body impl#58 method guard -> Unguarded<T>
+body impl#74 method guard -> Unguarded<T>
   param _0 self: Box<T>
   block
     return: !
@@ -7252,7 +7851,7 @@ body impl#58 method guard -> Unguarded<T>
         #0
           field #0: own ^mut T
             local _0 self: Box<T>
-body impl#58 method ptr -> ^mut T
+body impl#74 method ptr -> ^mut T
   param _0 self: Box<T>
   block
     return: !
@@ -7261,7 +7860,7 @@ body impl#58 method ptr -> ^mut T
 body const HEAP_ALIGN -> void
   block
     int 8: usize
-body impl#59 method alloc -> ^mut u8
+body impl#75 method alloc -> ^mut u8
   param _0 self: Heap
   param _1 size: usize
   param _2 align: usize
@@ -7319,7 +7918,7 @@ body impl#59 method alloc -> ^mut u8
     error
     return: !
       local _7 p: ^mut u8
-body impl#59 method realloc -> ^mut u8
+body impl#75 method realloc -> ^mut u8
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -7363,7 +7962,7 @@ body impl#59 method realloc -> ^mut u8
           local _5 loc: SourceLocation
     return: !
       local _6 q: ^mut u8
-body impl#59 method free -> void
+body impl#75 method free -> void
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 size: usize
@@ -7569,7 +8168,7 @@ body copy Rc -> void
       field #0: usize
         local _2 h: &mut RcHeader
       int 1: usize
-body impl#62 method is_null -> bool
+body impl#78 method is_null -> bool
   param _0 self: Rc<T>
   block
     return: !
@@ -7577,12 +8176,12 @@ body impl#62 method is_null -> bool
         field #0: ^mut RcHeader
           local _0 self: Rc<T>
         null: ^mut RcHeader
-body impl#62 method guard -> Rc<T>
+body impl#78 method guard -> Rc<T>
   param _0 self: Rc<T>
   block
     return: !
       local _0 self: Rc<T>
-body impl#62 method ptr -> ^mut T
+body impl#78 method ptr -> ^mut T
   param _0 self: Rc<T>
   block
     return: !
@@ -7825,7 +8424,7 @@ body method TempArena::owns -> bool
                 int 0: usize
     return: !
       bool false: bool
-body impl#63 method alloc -> ^mut u8
+body impl#79 method alloc -> ^mut u8
   param _0 self: TempArena
   param _1 size: usize
   param _2 align: usize
@@ -7873,7 +8472,7 @@ body impl#63 method alloc -> ^mut u8
               local _4 start: usize
     return: !
       local _5 p: ^mut u8
-body impl#63 method realloc -> ^mut u8
+body impl#79 method realloc -> ^mut u8
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -7951,7 +8550,7 @@ body impl#63 method realloc -> ^mut u8
               local _8 kept: usize
     return: !
       local _7 q: ^mut u8
-body impl#63 method free -> void
+body impl#79 method free -> void
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 size: usize
@@ -7985,7 +8584,7 @@ body drop TempArena -> void
 body field-default Unguarded.0 -> void
   block
     null: ^mut T
-body impl#65 method is_null -> bool
+body impl#81 method is_null -> bool
   param _0 self: Unguarded<T>
   block
     return: !
@@ -7993,12 +8592,12 @@ body impl#65 method is_null -> bool
         field #0: ^mut T
           local _0 self: Unguarded<T>
         null: ^mut T
-body impl#65 method guard -> Unguarded<T>
+body impl#81 method guard -> Unguarded<T>
   param _0 self: Unguarded<T>
   block
     return: !
       local _0 self: Unguarded<T>
-body impl#65 method ptr -> ^mut T
+body impl#81 method ptr -> ^mut T
   param _0 self: Unguarded<T>
   block
     return: !
@@ -8095,7 +8694,7 @@ body copy Weak -> void
       field #1: usize
         local _2 h: &mut RcHeader
       int 1: usize
-body impl#68 method is_null -> bool
+body impl#84 method is_null -> bool
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -8109,7 +8708,7 @@ body impl#68 method is_null -> bool
         field #0: usize
           local _1 h: &mut RcHeader
         int 0: usize
-body impl#68 method guard -> Rc<T>
+body impl#84 method guard -> Rc<T>
   param _0 self: Weak<T>
   block
     let _1 r: Rc<T>
@@ -8144,7 +8743,7 @@ body impl#68 method guard -> Rc<T>
         local _0 self: Weak<T>
     return: !
       local _1 r: Rc<T>
-body impl#68 method ptr -> ^mut T
+body impl#84 method ptr -> ^mut T
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -8463,7 +9062,7 @@ body method FieldInfo::tag_value -> str?
           int 1: usize
     return: !
       none: str?
-body impl#69 method eq -> bool
+body impl#85 method eq -> bool
   param _0 self: TypeId
   param _1 rhs: &TypeId
   block
@@ -8473,7 +9072,7 @@ body impl#69 method eq -> bool
           local _0 self: TypeId
         field #0: u32
           local _1 rhs: &TypeId
-body impl#70 method hash -> u64
+body impl#86 method hash -> u64
   param _0 self: TypeId
   block
     return: !
@@ -8497,7 +9096,7 @@ body method Chars::offset -> usize
     return: !
       field #1: usize
         local _0 self: Chars
-body impl#71 method valid -> bool
+body impl#87 method valid -> bool
   param _0 self: Chars
   block
     return: !
@@ -8507,7 +9106,7 @@ body impl#71 method valid -> bool
         len: usize
           field #0: str
             local _0 self: Chars
-body impl#71 method get -> char
+body impl#87 method get -> char
   param _0 self: Chars
   block
     let (_1 c, _)
@@ -8519,7 +9118,7 @@ body impl#71 method get -> char
           local _0 self: Chars
     return: !
       local _1 c: char
-body impl#71 method advance -> void
+body impl#87 method advance -> void
   param _0 self: Chars
   block
     let (_, _1 width)
@@ -8751,6 +9350,33 @@ body method String::from -> String
         local _0 s: str
         local _1 allocator: ^mut Allocator
         local _2 loc: SourceLocation
+body method String::format -> String
+  param _0 fmt: str
+  param _1 args: []&Format
+  param _2 allocator: ^mut Allocator
+  param _3 loc: SourceLocation
+  block
+    let _4 out: String
+      call-ctor String#0: String
+        str "": str
+        local _2 allocator: ^mut Allocator
+        local _3 loc: SourceLocation
+    call-method String::reserve: void
+      local _4 out: String
+      len: usize
+        local _0 fmt: str
+      local _3 loc: SourceLocation
+    let _5 f: Formatter
+      call-ctor Formatter#0: Formatter
+        ref mut: &mut String
+          local _4 out: String
+        local _3 loc: SourceLocation
+    call-method Formatter::write_format: void
+      local _5 f: Formatter
+      local _0 fmt: str
+      local _1 args: []&Format
+    return: !
+      local _4 out: String
 body method String::from_utf8 -> String?
   param _0 bytes: []u8
   param _1 allocator: ^mut Allocator
@@ -9077,7 +9703,7 @@ body method String::reserve -> void
         local _1 additional: usize
         int 1: usize
       local _2 loc: SourceLocation
-body impl#72 method eq -> bool
+body impl#88 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -9087,7 +9713,7 @@ body impl#72 method eq -> bool
           local _0 self: String
         call-method String::as_str: str
           local _1 rhs: &String
-body impl#73 method cmp -> Ordering
+body impl#89 method cmp -> Ordering
   param _0 self: String
   param _1 rhs: &String
   block
@@ -9099,19 +9725,27 @@ body impl#73 method cmp -> Ordering
         cast: []u8
           call-method String::as_str: str
             local _1 rhs: &String
-body impl#74 method iter -> Chars
+body impl#90 method iter -> Chars
   param _0 self: String
   block
     return: !
       call-method String::chars: Chars
         local _0 self: String
-body impl#75 method hash -> u64
+body impl#91 method hash -> u64
   param _0 self: String
   block
     return: !
       call-method Hash::hash: u64
         call-method String::as_str: str
           local _0 self: String
+body impl#92 method format -> void
+  param _0 self: String
+  param _1 f: &mut Formatter
+  block
+    call-method Formatter::write_str: void
+      local _1 f: &mut Formatter
+      call-method String::as_str: str
+        local _0 self: String
 body fn encode_utf8 -> usize
   param _0 c: char
   param _1 out: &mut [4]u8
@@ -9637,12 +10271,12 @@ body method Text::parse_f32 -> f32?
     return: !
       cast: f32
         local _1 v: f64
-body impl#76 method text -> str
+body impl#93 method text -> str
   param _0 self: str
   block
     return: !
       local _0 self: str
-body impl#77 method text -> str
+body impl#94 method text -> str
   param _0 self: String
   block
     return: !
@@ -9712,14 +10346,14 @@ body method Split::find_end -> void
               len: usize
                 field #0: str
                   local _0 self: Split
-body impl#78 method valid -> bool
+body impl#95 method valid -> bool
   param _0 self: Split
   block
     return: !
       unary !: bool
         field #4: bool
           local _0 self: Split
-body impl#78 method get -> str
+body impl#95 method get -> str
   param _0 self: Split
   block
     return: !
@@ -9730,7 +10364,7 @@ body impl#78 method get -> str
           local _0 self: Split
         field #3: usize
           local _0 self: Split
-body impl#78 method advance -> void
+body impl#95 method advance -> void
   param _0 self: Split
   block
     if: void
@@ -9804,7 +10438,7 @@ body method Lines::find_end -> void
               len: usize
                 field #0: str
                   local _0 self: Lines
-body impl#79 method valid -> bool
+body impl#96 method valid -> bool
   param _0 self: Lines
   block
     return: !
@@ -9814,7 +10448,7 @@ body impl#79 method valid -> bool
         len: usize
           field #0: str
             local _0 self: Lines
-body impl#79 method get -> str
+body impl#96 method get -> str
   param _0 self: Lines
   block
     let _1 end: usize
@@ -9847,7 +10481,7 @@ body impl#79 method get -> str
         field #1: usize
           local _0 self: Lines
         local _1 end: usize
-body impl#79 method advance -> void
+body impl#96 method advance -> void
   param _0 self: Lines
   block
     assign =
@@ -10402,7 +11036,7 @@ body method Duration::is_zero -> bool
         field #0: u64
           local _0 self: Duration
         int 0: u64
-body impl#80 method add -> Duration
+body impl#97 method add -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -10414,7 +11048,7 @@ body impl#80 method add -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#81 method sub -> Duration
+body impl#98 method sub -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -10426,7 +11060,7 @@ body impl#81 method sub -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#82 method eq -> bool
+body impl#99 method eq -> bool
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -10436,7 +11070,7 @@ body impl#82 method eq -> bool
           local _0 self: Duration
         field #0: u64
           local _1 rhs: &Duration
-body impl#83 method cmp -> Ordering
+body impl#100 method cmp -> Ordering
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -10447,7 +11081,7 @@ body impl#83 method cmp -> Ordering
         ref: &u64
           field #0: u64
             local _1 rhs: &Duration
-body impl#84 method hash -> u64
+body impl#101 method hash -> u64
   param _0 self: Duration
   block
     return: !
@@ -10483,7 +11117,7 @@ body method Instant::since -> Duration
             local _0 self: Instant
           field #0: u64
             local _1 earlier: Instant
-body impl#85 method sub -> Duration
+body impl#102 method sub -> Duration
   param _0 self: Instant
   param _1 rhs: Instant
   block
@@ -10491,7 +11125,7 @@ body impl#85 method sub -> Duration
       call-method Instant::since: Duration
         local _0 self: Instant
         local _1 rhs: Instant
-body impl#86 method add -> Instant
+body impl#103 method add -> Instant
   param _0 self: Instant
   param _1 rhs: Duration
   block
@@ -10503,7 +11137,7 @@ body impl#86 method add -> Instant
               local _0 self: Instant
             call-method Duration::as_nanos: u64
               local _1 rhs: Duration
-body impl#87 method eq -> bool
+body impl#104 method eq -> bool
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -10513,7 +11147,7 @@ body impl#87 method eq -> bool
           local _0 self: Instant
         field #0: u64
           local _1 rhs: &Instant
-body impl#88 method cmp -> Ordering
+body impl#105 method cmp -> Ordering
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -11340,12 +11974,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#92 method describe -> str
+body impl#109 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#93 method weight -> i32
+body impl#110 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -11489,7 +12123,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#94 method eq -> bool
+body impl#111 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -11499,7 +12133,7 @@ body impl#94 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#95 method cmp -> Ordering
+body impl#112 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -11566,7 +12200,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#96 method add -> Vec2
+body impl#113 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -11584,7 +12218,7 @@ body impl#96 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#97 method mul -> Vec2
+body impl#114 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -11678,7 +12312,7 @@ body fn formatting -> void
       local _0 x: i32
       local _0 x: i32
       local _1 f: f32
-body impl#98 method valid -> bool
+body impl#115 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -11687,13 +12321,13 @@ body impl#98 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#98 method get -> i32
+body impl#115 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#98 method advance -> void
+body impl#115 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -11880,7 +12514,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#99 method mul -> Scale
+body impl#116 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -11891,7 +12525,7 @@ body impl#99 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#100 method mul -> f32
+body impl#117 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -11907,7 +12541,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#101 method label -> str
+body impl#118 method label -> str
   param _0 self: f32
   block
     return: !
@@ -11918,7 +12552,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#102 method label -> str
+body impl#119 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -11931,7 +12565,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#103 method shout -> str
+body impl#120 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -12374,7 +13008,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#106 method measure -> i32
+body impl#123 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -12392,7 +13026,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#107 method measure -> i32
+body impl#124 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -12679,7 +13313,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#108 method eq -> bool
+body impl#125 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -12695,7 +13329,7 @@ body impl#108 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#109 method hash -> u64
+body impl#126 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -12780,7 +13414,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#110 method neg -> Heading
+body impl#127 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -12789,7 +13423,7 @@ body impl#110 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#111 method eq -> bool
+body impl#128 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -12833,7 +13467,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#112 method named -> str
+body impl#129 method named -> str
   param _0 self: Heading
   block
     return: !
@@ -12877,6 +13511,132 @@ body fn variadic_calls -> i32
             local _1 xs: []i32
         cast: i32
           local _2 n: usize
+body fn weighted -> i32
+  param _0 xs: []i32
+  param _1 scale: i32
+  param _2 offset: i32
+  param _3 label: str
+  block
+    let _4 t: i32
+      int 0: i32
+    for _5 x
+      local _0 xs: []i32
+      block
+        assign +=
+          local _4 t: i32
+          local _5 x: i32
+    return: !
+      binary +: i32
+        binary +: i32
+          binary *: i32
+            local _4 t: i32
+            local _1 scale: i32
+          local _2 offset: i32
+        cast: i32
+          len: usize
+            local _3 label: str
+body fn named_calls -> i32
+  param _0 xs: []i32
+  block
+    let _1 a: i32
+      call weighted: i32
+        array: [2]i32
+          int 1: i32
+          int 2: i32
+        default-arg 1: i32
+        default-arg 2: i32
+        str "a": str
+    let _2 b: i32
+      call weighted: i32
+        array: []i32
+        int 2: i32
+        default-arg 2: i32
+        str "b": str
+    let _3 c: i32
+      call weighted: i32
+        array: [1]i32
+          int 3: i32
+        default-arg 1: i32
+        int 1: i32
+        str "c": str
+    return: !
+      binary +: i32
+        binary +: i32
+          binary +: i32
+            local _1 a: i32
+            local _2 b: i32
+          local _3 c: i32
+        call weighted: i32
+          local _0 xs: []i32
+          int 3: i32
+          int 2: i32
+          str "d": str
+body impl#130 method format -> void
+  param _0 self: Heading
+  param _1 f: &mut Formatter
+  block
+    call-method Format::format: void
+      field #0: i32
+        local _0 self: Heading
+      local _1 f: &mut Formatter
+    call-method Formatter::write_str: void
+      local _1 f: &mut Formatter
+      str " degrees": str
+body fn headline -> String
+  param _0 fmt: str
+  param _1 args: []&Format
+  param _2 prefix: str
+  block
+    let _3 body: String
+      call-assoc String::format: String
+        local _0 fmt: str
+        local _1 args: []&Format
+    return: !
+      call-assoc String::format: String
+        str "{}{}": str
+        array: [2]&Format
+          ref: &str
+            local _2 prefix: str
+          ref: &String
+            local _3 body: String
+body fn formatted -> usize
+  param _0 h: Heading
+  block
+    let _1 a: String
+      call-assoc String::format: String
+        str "{} at {:.1} {:x} {}": str
+        array: [4]&Format
+          ref: &Heading
+            local _0 h: Heading
+          ref: &f64
+            float 1.5: f64
+          ref: &i32
+            int 255: i32
+          ref: &bool
+            bool true: bool
+    let _2 b: String
+      call-assoc String::format: String
+        str "{{}}": str
+        array: []&Format
+        const Allocators::Temp: &mut TempArena
+    let _3 c: String
+      call headline: String
+        str "{} and {}": str
+        array: [2]&Format
+          ref: &String
+            local _1 a: String
+          ref: &Heading
+            local _0 h: Heading
+        str "> ": str
+    return: !
+      binary +: usize
+        binary +: usize
+          call-method String::len: usize
+            local _1 a: String
+          call-method String::len: usize
+            local _2 b: String
+        call-method String::len: usize
+          local _3 c: String
 body method Shelf::paired -> (U, U)
   param _0 self: Shelf<T>
   param _1 other: U

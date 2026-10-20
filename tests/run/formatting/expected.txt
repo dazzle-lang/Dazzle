@@ -1,0 +1,23 @@
+true é str 255 -7 2.5 1e+20
+true é str 255 -7 2.5 1e+20
+cstr|true é str 255 -7 2.5 1e+20
+-128 32767 -2147483648 4294967295
+-9223372036854775808 18446744073709551615
+12 -12 c
+ff FF ffffffff 3.14 3
+{literal} {7}
+[]
+v = (1.5, -2), id id 42 or #ff
+temp 1
+note: 1 + 2 = 3
+info: done
+unit()
+a at line 97
+6
+b at line 98
+30
+unit()
+c at line 99
+5
+d at line 100
+13

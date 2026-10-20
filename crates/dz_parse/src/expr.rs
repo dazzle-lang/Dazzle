@@ -372,7 +372,20 @@ impl<'a> Parser<'a> {
             if self.stalled() {
                 continue;
             }
-            args.push(self.parse_expr());
+            // `name = value`: assignment is a statement, never an expression, so an
+            // identifier followed by a lone `=` can only be an argument passed by name.
+            if self.at(TokenKind::Ident) && self.peek_at(1) == TokenKind::Eq {
+                let start = self.start();
+                let name = self.parse_ident_or_error();
+                self.bump(); // `=`
+                let value = self.parse_expr();
+                args.push(Expr {
+                    span: self.span_from(start),
+                    kind: ExprKind::Named { name, value: Box::new(value) },
+                });
+            } else {
+                args.push(self.parse_expr());
+            }
             self.skip_terminators();
             if !self.eat(TokenKind::Comma) {
                 break;

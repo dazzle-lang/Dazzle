@@ -920,9 +920,9 @@ fn assert_needs_a_bool(n: i32) {
     assert(n)
 }
 
-// §7.2: a variadic parameter is last and has no default; a spread is the only variadic
-// argument and is a slice; each argument is the element type.
-fn variadic_first(xs: ..i32, last: i32) {}
+// §7.2: a function has one variadic parameter, with no default; a spread is the only
+// variadic argument and is a slice; each argument is the element type.
+fn variadic_twice(xs: ..i32, ys: ..i32) {}
 
 fn variadic_default(xs: ..i32 = 0) {}
 
@@ -932,6 +932,40 @@ fn adds(xs: ..i32) -> usize {
 
 fn bad_variadic_calls(xs: []i32, n: i32) -> usize {
     return adds(1, ..xs) + adds(..n) + adds(1, true)
+}
+
+// §7.2: DZ0558 — a parameter after a variadic one is passed by name, by its own name,
+// once, after the others, and must be passed when it has no default; nothing else is
+// passed by name.
+fn scaled(xs: ..i32, by: i32 = 1, needed: bool) -> usize {
+    return xs.len
+}
+
+fn bad_named_calls() -> usize {
+    let a = scaled(1, needed = true, bi = 2)
+    let b = scaled(1, by = 2, needed = true, by = 3)
+    let c = scaled(1, by = 2)
+    let d = scaled(1, needed = true, 2)
+    let e = adds(xs = 1)
+    variadic_default(n = 1)
+    return a + b + c + d + e
+}
+
+// §12.9: `#[format]` needs `fmt: str, args: ..&Format`; a call's format string is a literal
+// that fits its arguments, each of which implements `Format`.
+#[format]
+fn misformat(args: ..&Format) {}
+
+struct Unwritten {
+    pub n: i32
+}
+
+fn bad_format_calls(fmt: str, h: Unwritten) -> usize {
+    let a = String::format("{} {}", 1)
+    let b = String::format(fmt, 1)
+    let c = String::format("{:x}", 1.5)
+    let d = String::format("{}", h)
+    return a.len() + b.len() + c.len() + d.len()
 }
 
 // §8.1: a generic method's bound, a parameter no argument decides, type arguments on a

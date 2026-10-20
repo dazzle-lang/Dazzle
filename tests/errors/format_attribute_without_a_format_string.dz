@@ -1,0 +1,11 @@
+// expect: DZ0315
+//
+// `#[format]` marks a format string, which needs a `str` parameter followed by an
+// `args: ..&Format` one (spec §12.9).
+
+#[format]
+fn log(level: i32, args: ..&Format) {}
+
+fn main() {
+    log(1, 2)
+}

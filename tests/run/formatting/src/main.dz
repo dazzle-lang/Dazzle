@@ -1,0 +1,101 @@
+// `String::format`, `Format` implemented by a type of its own, `#[format]` on a wrapper,
+// and arguments passed by name after a variadic one (spec §7.2, §12.9).
+
+struct Vec2 {
+    pub x: f32
+    pub y: f32
+}
+
+impl Format for Vec2 {
+    fn format(&self, f: &mut Formatter) {
+        f.write_str("(")
+        self.x.format(f)
+        f.write_str(", ")
+        self.y.format(f)
+        f.write_str(")")
+    }
+}
+
+/// A `Format` that reads the placeholder's spec: hex digits for `{:x}`, a name otherwise.
+struct Id {
+    pub n: u32
+}
+
+impl Format for Id {
+    fn format(&self, f: &mut Formatter) {
+        if f.hex() {
+            f.write_str("#")
+            self.n.format(f)
+        } else {
+            f.write_str("id ")
+            self.n.format(f)
+        }
+    }
+}
+
+/// A function of one's own whose format string is checked at each call, as `println`'s
+/// is; it hands the string and its arguments on to `String::format` unchanged.
+#[format]
+fn note(fmt: str, args: ..&Format, prefix: str = "note") -> String {
+    let body = String::format(fmt, ..args)
+    return String::format("{}: {}", prefix, body)
+}
+
+// Declared ahead of `total`, whose default calls it: C++ reads a default where the
+// function is declared (see the deferral register).
+fn unit() -> i32 {
+    println("unit()")
+    return 1
+}
+
+/// Every parameter after the variadic one is passed by name; leaving out the first and
+/// giving the second still evaluates the first's default.
+fn total(label: str, xs: ..i32, scale: i32 = unit(), offset: i32 = 0, loc: SourceLocation = #location) -> i32 {
+    let mut t = 0
+    for x in xs {
+        t += x
+    }
+    println("{} at line {}", label, loc.line)
+    return t * scale + offset
+}
+
+fn main() {
+    // Every built-in kind, and the same through `println`, which must agree.
+    let all = String::format("{} {} {} {} {} {} {}", true, 'é', "str", 255u8, -7, 2.5f32, 1.0e20)
+    println("{}", all.as_str())
+    println("{} {} {} {} {} {} {}", true, 'é', "str", 255u8, -7, 2.5f32, 1.0e20)
+    let c: cstr = "cstr"
+    let s = String::format("{}|{}", c, all)
+    println("{}", s.as_str())
+
+    // The ends of every integer width.
+    println("{}", String::format("{} {} {} {}", -128i8, 32767i16, -2147483648, 4294967295u32).as_str())
+    println("{}", String::format("{} {}", -9223372036854775807i64 - 1, 18446744073709551615u64).as_str())
+    let n: usize = 12
+    let m: isize = -12
+    println("{}", String::format("{} {} {:x}", n, m, n).as_str())
+
+    // Specs, braces and an empty string.
+    println("{}", String::format("{:x} {:X} {:x} {:.2} {:.0}", 255, 255, -1, 3.14159, 2.75f32).as_str())
+    println("{}", String::format("{{literal}} {{{}}}", 7).as_str())
+    println("[{}]", String::format("").as_str())
+
+    // A type's own `Format`, which can read the spec it was given.
+    let v = Vec2{ x: 1.5, y: -2.0 }
+    println("{}", String::format("v = {}, id {} or {:x}", v, Id{ n: 42 }, Id{ n: 255 }).as_str())
+
+    // Another allocator, passed by name.
+    let t = String::format("temp {}", 1, allocator = Allocators::Temp)
+    println("{}", t.as_str())
+    Allocators::Temp.reset()
+
+    // A `#[format]` wrapper, with and without its own named parameter.
+    println("{}", note("{} + {} = {}", 1, 2, 3).as_str())
+    println("{}", note("done", prefix = "info").as_str())
+
+    // Named arguments after a variadic one.
+    println("{}", total("a", 1, 2, 3))
+    println("{}", total("b", 1, 2, scale = 10))
+    println("{}", total("c", offset = 5))
+    println("{}", total("d", 4, offset = 1, scale = 3))
+}

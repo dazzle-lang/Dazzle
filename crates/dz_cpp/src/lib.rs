@@ -156,6 +156,7 @@ pub fn emit(
             temp: 0,
             current_fn: String::new(),
             last_line: 0,
+            lines_since_directive: 0,
             standard,
             body: None,
             names: Vec::new(),
@@ -167,6 +168,7 @@ pub fn emit(
             method_instance: None,
             chunks: Vec::new(),
             materialized: HashMap::new(),
+            callees: Vec::new(),
             owners_made: 0,
             guards_made: 0,
             header_ns: module.id,
@@ -284,6 +286,7 @@ pub fn emit(
             temp: 0,
             current_fn: String::new(),
             last_line: 0,
+            lines_since_directive: 0,
             standard,
             body: None,
             names: Vec::new(),
@@ -295,6 +298,7 @@ pub fn emit(
             method_instance: None,
             chunks: Vec::new(),
             materialized: HashMap::new(),
+            callees: Vec::new(),
             owners_made: 0,
             guards_made: 0,
             header_ns: res.prelude,
@@ -512,6 +516,8 @@ struct Emitter<'a> {
     temp: u32,
     current_fn: String,
     last_line: u32,
+    /// Lines written since the last `#line` directive (see [`Emitter::line`]).
+    lines_since_directive: usize,
     /// The C++ standard being targeted, as a year: 17, 20, 23.
     standard: u32,
     /// The body being emitted. Every expression method reads types out of it.
@@ -541,6 +547,9 @@ struct Emitter<'a> {
     /// Expressions already evaluated into a local of their own, by that local's name: the
     /// owners a hoisted view borrows from (`emit_args`).
     materialized: HashMap<ExprId, String>,
+    /// The calls whose arguments are being rendered, innermost last: a `DefaultArg` among
+    /// them is the default of the innermost one's callee.
+    callees: Vec<hir::Callee>,
     /// How many owner locals and handle guards have been written, so a statement can tell
     /// whether it made one: an owner is scoped to its statement, a guard never is.
     owners_made: usize,
@@ -575,11 +584,32 @@ impl<'a> Emitter<'a> {
     }
 
     fn line(&mut self, text: &str) {
+        // Every line a statement writes maps to the statement's own `.dz` line, not only
+        // its first: a hoisted temporary pushes the statement itself down a line, and a
+        // `#location` default reads the line C++ thinks the call is on (spec §12.7, §16.3).
+        // A line of braces alone has nothing to report.
+        if self.lines_since_directive > 0
+            && self.last_line != 0
+            && !text.trim().chars().all(|c| matches!(c, '{' | '}' | ' ' | ';'))
+        {
+            self.repeat_directive();
+        }
+        self.raw_line(text);
+    }
+
+    fn raw_line(&mut self, text: &str) {
         for _ in 0..self.indent {
             self.out.push_str("    ");
         }
         self.out.push_str(text);
         self.out.push('\n');
+        self.lines_since_directive += 1;
+    }
+
+    fn repeat_directive(&mut self) {
+        let path = self.map.get(self.file).name().replace('\\', "/");
+        self.out.push_str(&format!("#line {} \"{path}\"\n", self.last_line));
+        self.lines_since_directive = 0;
     }
 
     /// Emit a `#line` directive so this statement maps back to `.dz` (spec §16.3).
@@ -589,8 +619,7 @@ impl<'a> Emitter<'a> {
             return;
         }
         self.last_line = loc.line;
-        let path = self.map.get(self.file).name();
-        self.out.push_str(&format!("#line {} \"{}\"\n", loc.line, path.replace('\\', "/")));
+        self.repeat_directive();
     }
 
     /// A `dz::SourceLocation` literal for the runtime helpers.
@@ -646,12 +675,14 @@ impl<'a> Emitter<'a> {
 
     /// Write a block captured by [`Emitter::capture`] at the current indentation.
     fn write_captured(&mut self, text: &str) {
+        // The captured text already repeats its directives where it needs them.
         for l in text.lines() {
             if l.starts_with("#line ") {
                 self.out.push_str(l);
                 self.out.push('\n');
+                self.lines_since_directive = 0;
             } else {
-                self.line(l);
+                self.raw_line(l);
             }
         }
     }
@@ -1004,12 +1035,12 @@ impl<'a> Emitter<'a> {
         let body = self.find_body(owner)?;
         let recv = body.params.first().map(|p| body.local(*p))?;
         let recv_ty = self.cpp_ty(&recv.ty);
-        let cst = if recv.mutable { "" } else { "const " };
+        let recv_ty = if recv.mutable { recv_ty } else { const_of(&recv_ty) };
         let ret = self.body_ret_ty(owner);
         let rest = self.decl_params(owner, with_defaults);
         // A member function's `this` is implicit and never "unused"; this parameter is not,
         // and a method that ignores its receiver must not warn (invariant 7).
-        let recv = format!("[[maybe_unused]] {cst}{recv_ty}& self");
+        let recv = format!("[[maybe_unused]] {recv_ty}& self");
         let params = if rest.is_empty() { recv } else { format!("{recv}, {rest}") };
         Some(format!("{ret} {name}({params})"))
     }
@@ -1248,7 +1279,8 @@ impl<'a> Emitter<'a> {
                 let (recv, cast) = if mutable {
                     ("void* s".to_owned(), format!("*static_cast<{self_cpp}*>(s)"))
                 } else {
-                    ("const void* s".to_owned(), format!("*static_cast<const {self_cpp}*>(s)"))
+                    let c = const_of(&self_cpp);
+                    ("const void* s".to_owned(), format!("*static_cast<{c}*>(s)"))
                 };
                 let mut list = vec![recv];
                 list.extend(params.iter().enumerate().map(|(i, t)| format!("{t} a{i}")));
@@ -1261,9 +1293,41 @@ impl<'a> Emitter<'a> {
                     args.join(", ")
                 ));
             }
+            // `isize` and `usize` are `intptr_t` and `size_t`, which are the same C++ type
+            // as `int64_t` and `uint64_t` on some platforms and not on others. Where the
+            // trait has both, the pointer-sized one's vtable is a template that stands down
+            // when C++ sees one type, which then has one vtable, rather than two that clash.
+            let twins: Vec<&str> = match &imp.self_ty {
+                Ty::Int(i @ (IntTy::Isize | IntTy::Usize)) => self
+                    .table
+                    .impls()
+                    .iter()
+                    .filter(|o| o.trait_ref.trait_sym == tsym)
+                    .filter_map(|o| match o.self_ty {
+                        Ty::Int(j) if j != *i && j.is_signed() == i.is_signed() => {
+                            Some(int_name(j))
+                        }
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let (head, pointee) = if twins.is_empty() {
+                (String::new(), const_of(&self_cpp))
+            } else {
+                let unlike: String =
+                    twins.iter().map(|t| format!(" && !::dz::is_same<T, {t}>::value")).collect();
+                (
+                    format!(
+                        "template <class T, typename ::dz::enable_if_c<::dz::is_same<T, \
+                         {self_cpp}>::value{unlike}>::type = 0>\n"
+                    ),
+                    "const T".to_owned(),
+                )
+            };
             let _ = writeln!(
                 self.header,
-                "inline const {vt}* dz_vtable(const {vt}*, const {self_cpp}*) {{\n    \
+                "{head}inline const {vt}* dz_vtable(const {vt}*, {pointee}*) {{\n    \
                  static const {vt} v{{\n{}\n    }};\n    return &v;\n}}\n",
                 entries.join("\n")
             );
@@ -2538,6 +2602,41 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// The callee's own default for its parameter `index`, written at the call because a
+    /// later parameter was passed by name and C++ cannot skip this one (spec §7.2).
+    fn default_arg(&mut self, index: usize, span: Span) -> String {
+        let owner = match self.callees.last() {
+            Some(hir::Callee::Fn { sym, .. }) => Some(BodyOwner::Fn(*sym)),
+            Some(
+                hir::Callee::Method { owner, name, .. }
+                | hir::Callee::BaseMethod { owner, name, .. }
+                | hir::Callee::Assoc { owner, name, .. },
+            ) => Some(BodyOwner::Method { owner: *owner, name: name.clone() }),
+            Some(hir::Callee::Ctor { owner, index }) => {
+                Some(BodyOwner::Ctor { owner: *owner, index: *index })
+            }
+            Some(hir::Callee::Value(_)) | None => None,
+        };
+        let found = owner.and_then(|o| {
+            let body = self.find_body(&o).or_else(|| match &o {
+                BodyOwner::Method { owner, name } => {
+                    self.hir.find(&BodyOwner::TraitDefaults { owner: *owner, name: name.clone() })
+                }
+                _ => None,
+            })?;
+            Some((body, body.param_defaults.get(index).copied().flatten()?))
+        });
+        if let Some((body, default)) = found {
+            return self.render_default(body, default);
+        }
+        self.diags.push(
+            Diagnostic::error(codes::INTERNAL_ERROR, "the compiler lost a default argument")
+                .at(self.file, span, "no C++ can be generated for this call")
+                .with_help("this is a bug in the Dazzle compiler, not in your code"),
+        );
+        "{}".to_owned()
+    }
+
     /// The trait's default for parameter `index` of an implementation's method, from the
     /// trait method's body or, for one without a body, its defaults-only body.
     fn trait_default(&self, owner: &BodyOwner, index: usize) -> Option<(&'a hir::Body, ExprId)> {
@@ -2590,9 +2689,9 @@ impl<'a> Emitter<'a> {
 
     fn emit_body(&mut self, owner: &BodyOwner, head: &str) {
         let Some(body) = self.find_body(owner) else { return };
+        self.last_line = 0;
         self.line(head);
         self.indent += 1;
-        self.last_line = 0;
         self.take_ownership_of_params(body);
         let (text, ()) = self.in_body(body, |e| e.block_into(body.root, Dest::None));
         self.write_captured(&text);
@@ -2686,10 +2785,8 @@ impl<'a> Emitter<'a> {
         let pointee = self.cpp_ty(inner);
         if mutable {
             format!("{pointee}*")
-        } else if pointee.ends_with('*') {
-            format!("{pointee} const*")
         } else {
-            format!("const {pointee}*")
+            format!("{}*", const_of(&pointee))
         }
     }
 
@@ -2714,7 +2811,7 @@ impl<'a> Emitter<'a> {
                 self.trait_object(inner).map(|t| self.dyn_name(t)).unwrap_or_default()
             }
             Ty::Ref { mutable: true, inner } => format!("{}&", self.cpp_ty(inner)),
-            Ty::Ref { mutable: false, inner } => format!("const {}&", self.cpp_ty(inner)),
+            Ty::Ref { mutable: false, inner } => format!("{}&", const_of(&self.cpp_ty(inner))),
             Ty::Optional(i) => format!("::dz::Opt<{}>", self.cpp_ty(i)),
             Ty::Fallible(i) => format!("::dz::Res<{}>", self.cpp_ty(i)),
             Ty::Array { len, elem } => format!("::dz::Array<{}, {len}>", self.cpp_ty(elem)),
@@ -2723,7 +2820,7 @@ impl<'a> Emitter<'a> {
             // miscompiled (spec §5.3, §18.22).
             Ty::Slice { mutable: true, elem } => format!("::dz::Slice<{}>", self.cpp_ty(elem)),
             Ty::Slice { mutable: false, elem } => {
-                format!("::dz::Slice<const {}>", self.cpp_ty(elem))
+                format!("::dz::Slice<{}>", const_of(&self.cpp_ty(elem)))
             }
             Ty::Tuple(parts) => {
                 let ps: Vec<String> = parts.iter().map(|p| self.cpp_ty(p)).collect();
@@ -3841,6 +3938,7 @@ impl<'a> Emitter<'a> {
 
             hir::ExprKind::Builtin { name, args } => self.builtin(name, args, node.span),
             hir::ExprKind::Intrinsic { name, .. } => self.intrinsic(name, node.span),
+            hir::ExprKind::DefaultArg(index) => self.default_arg(*index, node.span),
         }
     }
 
@@ -4092,7 +4190,9 @@ impl<'a> Emitter<'a> {
             _ => None,
         };
         let head_text = head.map(|h| self.expr(h));
+        self.callees.push(callee.clone());
         let captured = self.capture_args(args, true);
+        self.callees.pop();
         let head_text = match (head, head_text) {
             (Some(h), Some(text)) if captured.any_effects() && !self.fixed_place(h) => {
                 let tmp = self.fresh("recv");
@@ -4444,6 +4544,8 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::Return(_)
             | hir::ExprKind::Break(_)
             | hir::ExprKind::Continue(_)
+            // A default argument is an expression of the callee's, and could be a call.
+            | hir::ExprKind::DefaultArg(_)
             | hir::ExprKind::Error => true,
             hir::ExprKind::Int(_)
             | hir::ExprKind::Float(_)
@@ -4738,7 +4840,6 @@ impl<'a> Emitter<'a> {
             "println" | "print" | "eprintln" | "eprint" => {
                 format!("::dz::{name}({})", rendered.join(", "))
             }
-            "format" => format!("::dz::format({})", rendered.join(", ")),
             // `panic` formats exactly as `println` does (spec §9.8, §12.9), so `{}` and `{{`
             // mean the same thing in both; the checker guaranteed a format string is there.
             // A final `SourceLocation` argument is where the panic says it happened, in place
@@ -5383,6 +5484,17 @@ fn is_cpp_reserved(name: &str) -> bool {
             | "wchar_t"
             | "xor"
     )
+}
+
+/// `t` read-only. After a pointer the `const` goes on the right, which is where C++ reads
+/// it as applying to that pointer: a `^cstr` is `const char* const*`, not `const const
+/// char**`.
+fn const_of(t: &str) -> String {
+    if t.ends_with('*') {
+        format!("{t} const")
+    } else {
+        format!("const {t}")
+    }
 }
 
 fn int_name(i: IntTy) -> &'static str {

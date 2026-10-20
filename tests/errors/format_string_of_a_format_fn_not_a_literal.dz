@@ -1,0 +1,9 @@
+// expect: DZ0526
+//
+// A `#[format]` function's format string is checked at each call, so it must be a literal
+// (spec §12.9).
+
+fn main() {
+    let pattern = "{} hp"
+    let _ = String::format(pattern, 10)
+}
