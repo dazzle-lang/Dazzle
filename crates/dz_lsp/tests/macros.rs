@@ -91,6 +91,6 @@ fn hover_on_the_invocation_names_the_macro() {
 
 #[test]
 fn a_method_the_macro_declared_completes_on_the_union() {
-    let got = complete("println(\"{} {}\", name(&state), btn.scale)", "state.");
+    let got = complete("println(\"{} {}\", name(&btn.state), btn.scale)", "btn.state.");
     assert!(got.iter().any(|l| l == "step"), "{got:?}");
 }
