@@ -16,10 +16,18 @@ struct Input {
     pub over: bool
 }
 
+// The button owns its state machine, so nothing outside it has to keep the two together:
+// a frame is `btn.update(&ctx, &input)`, and the active state is handed the button it
+// belongs to.
 struct Button {
     pub scale: f32 = 1
     pub sprite: Sprite = Sprite::Normal
     pub presses: i32 = 0
+    pub state: ButtonState = .DefaultState{}
+
+    pub fn update(&mut self, ctx: &ButtonCtx, input: &Input) {
+        state.step(ctx, input, &mut self)
+    }
 }
 
 struct ButtonCtx {
@@ -103,7 +111,6 @@ fn ctx_for(frames: i32) !-> ButtonCtx {
 
 fn main() {
     let mut btn = Button{}
-    let mut state: ButtonState = .DefaultState{}
     let ctx = ctx_for(4) or ButtonCtx{ delta_time: 0.5 }
     let broken = ctx_for(0) or { e ->
         println("fallback: {}", e.message)
@@ -114,17 +121,17 @@ fn main() {
     // Hover, press, hold for four frames, and the sprite changes.
     let held = Input{ mouse_down: true, mouse_up: false, over: true }
     for frame in 0..7 {
-        state.step(&ctx, &held, &mut btn)
-        println("{} {} {}", frame, name(&state), btn.scale)
+        btn.update(&ctx, &held)
+        println("{} {} {}", frame, name(&btn.state), btn.scale)
     }
 
     // Press and let go half way: the transition is abandoned and the scale restored.
     let released = Input{ mouse_down: false, mouse_up: true, over: true }
-    state.step(&ctx, &held, &mut btn)
-    state.step(&ctx, &held, &mut btn)
-    println("{} {}", name(&state), btn.scale)
-    state.step(&ctx, &released, &mut btn)
-    println("{} {}", name(&state), btn.scale)
+    btn.update(&ctx, &held)
+    btn.update(&ctx, &held)
+    println("{} {}", name(&btn.state), btn.scale)
+    btn.update(&ctx, &released)
+    println("{} {}", name(&btn.state), btn.scale)
 
     let selected = switch btn.sprite {
         case Normal { false }
