@@ -1,6 +1,5 @@
 ---
 source: crates/dz_fmt/tests/fmt.rs
-assertion_line: 96
 expression: fmt(&source)
 input_file: tests/fmt/cfg_if.dz
 ---
@@ -25,7 +24,7 @@ struct S {
 fn main() {
     let x = 1
     #if DEBUG {
-        println("{}", x) // debug only
+        #println("{}", x) // debug only
     } #else {
         record()
     }

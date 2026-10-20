@@ -42,14 +42,14 @@ fn main() {
     let a = make(Allocators::Global, 4, 3)
     let grown = g.realloc(a.ptr, 4, 8, 1)
     let b = Bytes{ ptr: grown, len: 8, from: Allocators::Global }
-    println("{}", unsafe { b.ptr[3] })
+    #println("{}", unsafe { b.ptr[3] })
     release(&b)
 
     // Aligned allocations from both.
     let t = Allocators::Temp
     let wide = g.alloc(64, 16)
     let scratch = t.alloc(24, 8)
-    println("{} {}", (wide as usize) % 16, (scratch as usize) % 8)
+    #println("{} {}", (wide as usize) % 16, (scratch as usize) % 8)
     g.free(wide, 64, 16)
 
     // A frame's scratch: many small allocations, one big one past the chunk size, the
@@ -62,7 +62,7 @@ fn main() {
     let small = t.alloc(8, 8)
     let bigger = t.realloc(small, 8, 32, 8)
     let big = t.alloc(100000, 8)
-    println("{} {} {} {}", total, big != null, small == bigger, t.used() > 0)
+    #println("{} {} {} {}", total, big != null, small == bigger, t.used() > 0)
     t.reset()
-    println("{}", t.used())
+    #println("{}", t.used())
 }

@@ -5,7 +5,7 @@ pub fn assert(cond: bool, msg: str = "", loc: SourceLocation = #location) {
         return
     }
     if msg.len == 0 {
-        panic("assertion failed", loc)
+        #panic("assertion failed", loc)
     }
-    panic("assertion failed: {}", msg, loc)
+    #panic("assertion failed: {}", msg, loc)
 }

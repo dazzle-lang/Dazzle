@@ -257,7 +257,7 @@ impl<'a> Dumper<'a> {
                 node!("deref");
                 self.nest(|d| d.expr(inner));
             }
-            ExprKind::Ref { mutable, place } => {
+            ExprKind::Ref { mutable, place, .. } => {
                 node!("ref{}", if mutable { " mut" } else { "" });
                 self.nest(|d| d.expr(place));
             }

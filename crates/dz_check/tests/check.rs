@@ -452,7 +452,7 @@ fn a_string_literal_is_a_cstr_where_one_is_wanted() {
         .contains(&dz_diag::codes::TYPE_MISMATCH));
     // `cstr("x")` is one mistake at the type name, not a silent error that surfaces later as
     // "`{unknown}` cannot be formatted".
-    let codes = snippet("fn g() {\n let c = cstr(\"x\")\n println(\"{}\", c)\n}\n");
+    let codes = snippet("fn g() {\n let c = cstr(\"x\")\n #println(\"{}\", c)\n}\n");
     assert_eq!(codes, vec![dz_diag::codes::NOT_CALLABLE], "{codes:?}");
 }
 
@@ -487,7 +487,7 @@ fn an_or_clause_must_produce_the_success_type_or_diverge() {
         .contains(&dz_diag::codes::OR_CLAUSE_TYPE));
     assert!(snippet(&format!("{opt}fn g() -> i32 {{\n return maybe() or 0\n}}\n")).is_empty());
     // Diverging satisfies the rule without producing anything.
-    assert!(snippet(&format!("{opt}fn g() -> i32 {{\n return maybe() or panic(\"x\")\n}}\n"))
+    assert!(snippet(&format!("{opt}fn g() -> i32 {{\n return maybe() or #panic(\"x\")\n}}\n"))
         .is_empty());
     // Only a fallible call carries an `Error`, so a `T?` has nothing to bind.
     assert!(snippet(&format!(

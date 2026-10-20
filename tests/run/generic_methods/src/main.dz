@@ -8,13 +8,13 @@ struct Loud {
     pub name: str
 
     pub fn say(&self) {
-        println("loud {}", name)
+        #println("loud {}", name)
     }
 }
 
 impl Drop for Loud {
     fn drop(&mut self) {
-        println("drop {}", name)
+        #println("drop {}", name)
     }
 }
 
@@ -74,24 +74,24 @@ fn main() {
     let p = Pair<f32>{ first: 0.5 }
     let t = p.with(7)
     let u = p.with<bool>(true)
-    println("with: {} {} / {} {}", t.0, t.1, u.0, u.1)
+    #println("with: {} {} / {} {}", t.0, t.1, u.0, u.1)
     let w = wrap(9)
     let z = wrap<u8>(200)
-    println("wrap: {} {} / {} {}", w.0, w.1, z.0, z.1)
+    #println("wrap: {} {} / {} {}", w.0, w.1, z.0, z.1)
 
     let l = Maker::keep(Loud{ name: "a" })
     l.say()
     let s = Maker::swap<i32, str>(3, "three")
-    println("swap: {} {}", s.0, s.1)
+    #println("swap: {} {}", s.0, s.1)
 
     let g = Grid<i32>::filled(4, 3, double)
-    println("fold: {}", g.fold(100, sum))
+    #println("fold: {}", g.fold(100, sum))
     let names = Grid<str>::filled<bool>(2, true, as_str)
-    println("longest: {}", names.fold<usize>(0, longest))
+    #println("longest: {}", names.fold<usize>(0, longest))
 
     let mut tally = Tally{}
     let bytes: [3]u8 = [1, 2, 3]
     tally.add_all(bytes[..], weight_u8)
-    println("tally: {}", tally.count)
-    println("compare: {}", tally.count < 10)
+    #println("tally: {}", tally.count)
+    #println("compare: {}", tally.count < 10)
 }

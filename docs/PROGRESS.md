@@ -21,10 +21,10 @@ the milestone.
 | Milestones done | M0–M5, **M6 — generics, traits, monomorphization**, **M7 — C and C++ interop from vendored source** (both halves; what is left of it is narrower than the milestone and sits in §3); most of **M9 — language server and VS Code extension**, pulled forward. **Struct inheritance** (18.32) landed as r30. **M11 — reflection** landed as r51. **M10 — macros** landed as r63: `#machine` writes M8's `ButtonState` and the editor completes inside it. **M8** is done — its `ButtonState` criterion runs as of r38 — and r37 settled how `for` and `case` bindings hold what they name |
 | Next | **M12 — the stdlib**. Order set by the user on 2026-09-15: ~~stderr~~ and ~~Time~~ (r54), ~~generic methods~~ (r55), ~~Random~~ (r56), ~~`Path` and `File`~~ (r57). The §4c list and the criterion game decide what follows |
 | Also open | **§4d — tooling that lets an LLM work in Dazzle**: a standing backlog beside the milestones (habit diagnostics, JSON diagnostics and fixes, `dz api`, `dz explain`, a primer, …). Mention it whenever asked what there is to work on |
-| Tests | 234, all green but `every_example_builds` where the X11 extension headers are missing — plus the `tests/errors` and `tests/expand` corpora, each run as one test |
+| Tests | 235, all green but `every_example_builds` where the X11 extension headers are missing — plus the `tests/errors` and `tests/expand` corpora, each run as one test |
 | Clippy | clean (`--workspace --all-targets`) |
 | Compiler crates | 17, plus the `dz` CLI |
-| Language spec | 0.1 **unreleased**, revision 63; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
+| Language spec | 0.1 **unreleased**, revision 64; two open questions (§18.2) — 18.18 `collect`, 18.19 `ignore` |
 | C++ compilers verified | clang++ 21, g++ 13 (`DZ_CXX` overrides the choice) |
 
 ```bash
@@ -1524,12 +1524,12 @@ milestone. **This is the list to check before claiming a milestone is complete.*
 | **M12** | **Associated-type projection** (`T::Item`, `T::Output`). An associated type resolves through an implementer but cannot be named off a bounded parameter, so `for` over a generic `T: Iterate` is refused by the checker (`DZ0801`), and generic arithmetic cannot name its result type | `dz_check/src/check.rs`, `iterate_item` |
 | **M12** | An open-ended range (`lo..`) held in a variable rather than written in a `for` head | `dz_cpp`, `expr` |
 | **M12** | A trait default method is exercised by `tests/run/generics` only for bodies that call the trait's own methods; one that builds or returns a `Self` value has no test | `dz_mono`, `inherited_defaults` |
-| **M12** | `error(…)` writes into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. Kept by the user's decision (§4): §9.2 requires no allocation *and* a message that outlives the call. `format` no longer shares it — it is `String::format` since r62 | `dz_cpp/src/runtime.rs`, `message_buffer` |
+| **M12** | `error(…)` writes into a static ring of four 256-byte buffers, so the fifth live message overwrites the first. Kept by the user's decision (§4): §9.2 requires no allocation *and* a message that outlives the call. `format` no longer shares it — it is `String::format` since r62, `#format` since r64 | `dz_cpp/src/runtime.rs`, `message_buffer` |
 | **M12** | `or unreachable` panics in release as well as debug. §9.4 says release may assume the success path, and §18.20 has not settled whether that means `__builtin_unreachable` or merely skipping the check | `dz_cpp/src/lib.rs`, `clause` |
-| **M10** | **`println`/`print`/`eprint`/`eprintln`/`panic` are still builtins** that take only the built-in kinds: a value with its own `Format`, or a `String`, is printed through `String::format` or `as_str()`. They become library functions with macros, which is also when `{}` can lower to direct `Format::format` calls with no intermediate `String` (18.73) | `dz_cpp/src/runtime.rs`, `dz_check/src/check.rs`, `check_format` |
-| **M12** | **A pointer has no `Format`**: `println` writes one, `String::format` cannot take one, since a generic `impl<T> Format for ^T` has no vtable (the trait-object row above). Cast it: `p as usize` with `{:x}` | `dz_project/src/std/core/format.dz` |
+| **M12** | **A pointer has no `Format`**, so no formatting macro takes one — `println` used to print its address, until r64 — since a generic `impl<T> Format for ^T` has no vtable (the trait-object row above). Write what it points at, or cast it: `p as usize` with `{:x}` | `dz_project/src/std/core/format.dz` |
+| **M12** | **A formatting macro's arguments go through `&Format`**, one indirect call each, rather than the statically dispatched `Format::format` call per placeholder §12.9 once described. That was built first and dropped: as a sequence of statements it ended each argument's temporaries before the line was written, where a call keeps them (18.80). The direct form needs codegen to keep one statement's temporaries across several, or a `write_args` instantiated per argument list | `dz_check/src/check.rs`, `format_macro`; `std/core/formatter.dz`, `write_args` |
+| **M12** | **A spread cannot be formatted**: `#format("{} {}", ..xs)` is not an invocation the macro accepts, since how many values a spread holds is not known where the string is checked. Pass the values one by one | `dz_check/src/check.rs`, `format_macro` |
 | **M12** | **A default argument that calls a function declared later in the module does not compile**: C++ reads a default where the function is declared, and functions are declared in source order. Found by `tests/run/formatting`. Free functions could be declared twice — without defaults first, then with them, which C++ allows; a method's defaults cannot be added later | `dz_cpp/src/lib.rs`, `decl_params` |
-| **M10** | **A formatting function of one's own** — a `log(fmt, args…)` — cannot have its format string checked, so `String::format(fmt, ..args)` from one is refused: only a literal is checked, and how many arguments a spread holds is not known. The user's call (2026-10-20): such functions are macros, as in Rust, not an attribute; `#[format]` was built and removed | `dz_check/src/check.rs`, `check_format_call` |
 
 ### Not deferred — deliberately out of scope forever
 
@@ -1928,6 +1928,65 @@ Asked for by the user on 2026-09-15, with design answers recorded as 18.20, 18.6
   or wraps through the unsigned type); `or unreachable` is `__builtin_unreachable` in
   release (18.20 — it still panics in every build); `Rc<Derived>` → `Rc<Base>` (18.64).
 
+### r64 — formatting as macros (18.80)
+
+Asked for by the user on 2026-10-20, as the next step after M10: "migrate the format
+functions, and prints and stuff into macros like `println!()`, `format!()`". Spelled
+`#println(…)` and `#format(…)`, since r63 made `#name` the one invocation spelling and
+removed `name!`.
+
+- **The compiler's own macros.** `print`, `println`, `eprint`, `eprintln`, `panic` and
+  `format` joined `dz_ast::INTRINSICS`, so the parser reads `#println(…)` as an
+  `ExprKind::Intrinsic` with a real argument list — named arguments included, which a
+  Dazzle-written macro could not have forwarded (`allocator = …` is no `expr` fragment) —
+  and their names are reserved like the other intrinsics'. `FORMAT_MACROS` lists them. They
+  left `BUILTIN_FNS`; a bare `println(…)` is DZ0301, whose help says `#println`.
+- **Checking** (`format_macro`, `check_format_args`): the literal is split by
+  `format_holes`, which now steps over escapes (`\u{41}` has braces of its own); each
+  argument must implement `Format` (`satisfies`), with help for an enum, an optional and a
+  pointer; a spec is checked only on the built-in kinds, a type's own `Format` and a type
+  parameter reading it themselves; `#format` alone takes `allocator` by name (DZ0558
+  otherwise). `error(…)` keeps the old path, `check_format`, built-in kinds only.
+- **Lowering**: one call per invocation, built as HIR — `Formatter::print(stream, pieces,
+  specs, args…)` or `Formatter::format(pieces, specs, args…, allocator)`, private
+  functions of `std`, with the text between placeholders and each spec as arrays of
+  literals and the arguments as `&Format`. With no placeholder, `#println` is one
+  `stream_write` and `#format` one `String(…)`. `#panic` writes into the `Formatter`'s
+  own 512-byte buffer (`Formatter::message`), since the allocators and the tracker panic too.
+  The first lowering — a block of statements, one static `Format::format` call per
+  placeholder — read each argument's temporaries out before the line was written
+  (`argorder`'s views, `variadic`'s tokens) and was replaced; see the register.
+- **Temporaries for the length of the statement.** A format argument that is not a place is
+  referred to through `hir::ExprKind::Ref { temporary: true }`, which codegen writes as
+  `::dz::temp_addr<T>(v)` — C++'s own temporary, alive until the end of the full expression —
+  rather than hoisting it into a local of the block, which ended whatever *it* had made at
+  that local's statement. `emit_args` falls back to holding the value when an element must be
+  bound. `order_stable` now counts an array or tuple of stable elements, so the constant
+  pieces are never bound to temporaries.
+- **`std`**: `Formatter` lost its constructor for `Formatter::string(&mut text)`,
+  `stdout()` and `stderr()` (only a type's first constructor is ever chosen), gained a
+  buffer that a stream formatter writes out once, on `flush` or when dropped, and
+  `set_spec`; `write_format`, which parsed at run time, and `String::format` are gone, as are
+  `FnSig::format` and `check_format_call`. The native `stream_write` flushes stdout before
+  writing stderr, as `eprintln` did. The shim's `print` family and `StreamSink` are gone;
+  `dz_prelude.h` keeps only what `error(…)` uses.
+- **Found on the way**: a string literal `"'a'"` decoded to `a` — `decode_string_literal`
+  stripped a character's quotes from inside a string's; a `cstr` receiver of an `impl`
+  method went through `::dz::obj`, which reached through it to its first character; a C
+  bit-field could not be a receiver, since `obj`'s reference cannot bind one (both fixed by
+  passing the machine's own kinds as they are).
+- **Editor**: after `#`, completion offers the compiler's macros and the ones in scope and
+  nothing else; a bare `prin` offers `println`, which writes `#println`.
+- **Migration**: every `.dz` file, the Rust tests' Dazzle snippets and the spec's examples,
+  by a script (`println(` → `#println(`, `String::format(` → `#format(`); the checker's
+  missing-method stub writes `#panic`.
+- Tests: `tests/run/formatting` grew a type's own `Format` printed directly, a `String`, a
+  reference, `#print`/`#eprintln`, escapes and a raw string, `T: Format`, a `#log` macro
+  of one's own, `or #panic` and `#format` with only text (warning-clean on clang++ and g++);
+  `typed/` a `printed<T: Format>`, `typeerrors/` `bad_print_calls`; `tests/errors`
+  `format_macro_called_without_its_hash`;
+  `completion_after_a_hash_offers_macros_and_println_writes_its_hash`.
+
 ### r62 — arguments passed by name, and library formatting (18.72, 18.73)
 
 Asked for by the user on 2026-10-20, as the first of the two recommendations from the
@@ -2264,12 +2323,10 @@ through raylib or C today; a stdlib should not require it.
 
 ### Formatting and text
 
-- [ ] **`println`/`print`/`format` as library functions** — the user wants these as
-  **macros** (M10, landed in r63), so they are now unblocked. The builtin is already expanded at compile time,
-  so this is about extensibility, not speed. (§3, last row): `Format`
-  implemented for the built-in types and `std` types, a real `Formatter` writing into a
-  `String` or a stream, and a way to mark a parameter as a format string the compiler
-  checks against its variadic arguments (18.56 made the arguments possible).
+- [x] **`println`/`print`/`format` as macros** — r64: `#print`, `#println`, `#eprint`,
+  `#eprintln`, `#format` and `#panic`, taking any `Format`, written by `std`'s `Formatter`
+  straight to the stream. A formatting function of one's own is a macro that hands its
+  literal on to one of them.
 - [x] **`format` into a `String`** — r62: `String::format("…", args, allocator = …)`, with
   `Format` implemented for the built-in types and by a type of one's own. Functions of
   one's own that format wait for macros (M10). `error` keeps static storage by the user's decision (§4).

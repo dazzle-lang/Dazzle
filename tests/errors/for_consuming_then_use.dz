@@ -13,7 +13,7 @@ impl Drop for Res {
 fn main() {
     let rs = [Res{ n: 1 }]
     for r in move(rs) {
-        println("{}", r.n)
+        #println("{}", r.n)
     }
-    println("{}", rs[0].n)
+    #println("{}", rs[0].n)
 }

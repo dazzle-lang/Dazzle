@@ -43,9 +43,9 @@ struct Registry {
 fn main() {
     let z = Vec2::zero()
     let v = Vec2::of(1.5, 2).doubled()
-    println("{} {} {} {}", z.x, z.y, v.x, v.y)
+    #println("{} {} {} {}", z.x, z.y, v.x, v.y)
 
     let p = Pair<i32>::both(4)
     let q = Pair<f32>{ a: 1.5, b: 2.5 }.swapped()
-    println("{} {} {} {} {}", p.a, p.b, q.a, q.b, Registry::count())
+    #println("{} {} {} {} {}", p.a, p.b, q.a, q.b, Registry::count())
 }

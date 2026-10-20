@@ -149,33 +149,33 @@ fn dotted_variant(l: Layer) -> str {
 }
 
 fn main() {
-    println("arithmetic: {}", arithmetic(10, 4))
-    println("conditional: {} {} {}", conditionals(-1), conditionals(0), conditionals(7))
-    println("loops: {}", loops(4))
-    println("arrays: {}", arrays())
+    #println("arithmetic: {}", arithmetic(10, 4))
+    #println("conditional: {} {} {}", conditionals(-1), conditionals(0), conditionals(7))
+    #println("loops: {}", loops(4))
+    #println("arrays: {}", arrays())
 
     let mut v = Vec3{ x: 3, y: 4 }
-    println("vec3: {} {}", v.length_squared(), v.z)
-    println("pointer: {}", pointers(&mut v))
+    #println("vec3: {} {}", v.length_squared(), v.z)
+    #println("pointer: {}", pointers(&mut v))
 
     let mut c = Counter(41)
     c.bump()
-    println("counter: {} {}", c.get(), c.label)
+    #println("counter: {} {}", c.get(), c.label)
 
     let named = Counter(1, "named")
-    println("named: {}", named.label)
+    #println("named: {}", named.label)
 
-    println("casts: {}", casts(2, Layer::Ui))
-    println("switch: {} {} {}", layer_name(Layer::Background), layer_name(Layer::World), layer_name(Layer::Ui))
+    #println("casts: {}", casts(2, Layer::Ui))
+    #println("switch: {} {} {}", layer_name(Layer::Background), layer_name(Layer::World), layer_name(Layer::Ui))
 
     let o = Outer{ inner: Inner{ value: 9 }, tag: Layer::World }
-    println("nested: {}", o.inner.value)
+    #println("nested: {}", o.inner.value)
 
-    println("array literals: {}", array_literals())
-    println("typed array literal: {}", typed_array_literal())
-    println("literal as slice: {}", sum_slice([10, 20, 30]))
-    println("dotted: {} {} {}", dotted_variant(Layer::Background), dotted_variant(.World), dotted_variant(.Ui))
+    #println("array literals: {}", array_literals())
+    #println("typed array literal: {}", typed_array_literal())
+    #println("literal as slice: {}", sum_slice([10, 20, 30]))
+    #println("dotted: {} {} {}", dotted_variant(Layer::Background), dotted_variant(.World), dotted_variant(.Ui))
 
-    defer println("deferred: last")
-    println("before defer runs")
+    defer #println("deferred: last")
+    #println("before defer runs")
 }

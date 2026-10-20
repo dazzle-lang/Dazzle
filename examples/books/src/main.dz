@@ -12,7 +12,7 @@ struct Buffer<T> {
 
     pub fn push(&mut self, v: T) {
         if m_len == m_cap {
-            panic("buffer full")
+            #panic("buffer full")
         }
         unsafe {
             construct(m_data[m_len], move(v))
@@ -120,12 +120,12 @@ fn main() {
     let m = find_movie(&mut list, "Nemo")
 
     if let m2 = m  {
-        println("Movie found with id: {}", m2.id)
+        #println("Movie found with id: {}", m2.id)
     } else {
-        println("Movie not found")
+        #println("Movie not found")
     }
 
     for m in list.iter() {
-        println("{}", m.name)
+        #println("{}", m.name)
     }
 }

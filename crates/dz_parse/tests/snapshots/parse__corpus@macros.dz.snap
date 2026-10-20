@@ -14,7 +14,7 @@ macro max -> expr
   expand { if $a > $b { $a } else { $b } }
 macro trace -> stmt
   pattern { $what: literal $( at $level: literal )? }
-  expand { println ( "{}" , $what ) }
+  expand { # println ( "{}" , $what ) }
 macro-call #machine Door ( DoorCtx ) { state Closed ⏎ state Opening ( t : f32 = 0 ) { t += 1 ⏎ } ⏎ }
 macro-call #engine::machine Gate ( GateCtx ) { state Shut ⏎ }
 union Light

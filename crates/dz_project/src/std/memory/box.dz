@@ -4,7 +4,7 @@
 ///
 /// ```dz
 /// let node = Box<Node>(Node{ value: 1 })
-/// if let &n = node { println("{}", n.value) }
+/// if let &n = node { #println("{}", n.value) }
 /// ```
 ///
 /// Nothing else owns the value, so there is no second owner to keep it alive while it is
@@ -22,7 +22,7 @@ pub struct Box<T> {
 
     /// `value`, moved into an allocation from `allocator`.
     Box(value: T, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
-        let a = allocator or panic("a Box needs an allocator")
+        let a = allocator or #panic("a Box needs an allocator")
         m_allocator = allocator
         m_size = sizeof(T)
         m_align = alignof(T)

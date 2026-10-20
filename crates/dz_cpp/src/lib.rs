@@ -3805,20 +3805,18 @@ impl<'a> Emitter<'a> {
                 }
             }
             // `&x` yields a proxy convertible to both `T&` and `T*` (spec §5.2).
-            hir::ExprKind::Ref { place, .. } => {
+            hir::ExprKind::Ref { place, temporary, .. } => {
                 let v = self.expr(*place);
                 // `map.get(&5)`: a reference to a value that is not a place refers to a
                 // temporary holding it, for the rest of the block — C++ will not take the
-                // address of a literal or of a call's result.
-                let is_place = matches!(
-                    body.expr(*place).kind,
-                    hir::ExprKind::Local(_)
-                        | hir::ExprKind::Static(_)
-                        | hir::ExprKind::Field { .. }
-                        | hir::ExprKind::TupleIndex { .. }
-                        | hir::ExprKind::Index { .. }
-                        | hir::ExprKind::Deref(_)
-                ) || matches!(body.ty(*place), Ty::Ref { .. });
+                // address of a literal or of a call's result. A formatting macro's argument
+                // refers to C++'s own temporary instead, which lives to the end of the
+                // statement with everything its evaluation made (spec §12.9).
+                let is_place = self.is_place(*place);
+                if !is_place && *temporary {
+                    let t = self.cpp_ty(body.ty(*place));
+                    return format!("::dz::temp_addr<{t}>({v})");
+                }
                 if !is_place {
                     let tmp = self.fresh("ref");
                     let ty = self.cpp_ty(body.ty(*place));
@@ -4325,8 +4323,19 @@ impl<'a> Emitter<'a> {
             }
             hir::Callee::Method { recv, owner, name, .. } => {
                 let target = self.impl_target(*recv, *owner, name, args);
+                // A value of the machine's own kinds is passed as it is: `obj` would reach
+                // through a `cstr`, a `const char*` to C++, to its first character, and its
+                // reference parameter cannot bind a C bit-field, which a `const&` can.
+                let primitive = matches!(
+                    self.cur().ty(*recv),
+                    Ty::CStr | Ty::Str | Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char
+                );
                 let r = recv_text();
                 match target {
+                    Some(f) if primitive => {
+                        recv_arg = Some(r);
+                        f
+                    }
                     Some(f) => {
                         recv_arg = Some(format!("::dz::obj({r})"));
                         f
@@ -4469,18 +4478,28 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let tmp = self.fresh("arg");
-            let ty = self.cur().ty(a.id).clone();
+            // A reference to C++'s own temporary cannot outlive the statement that made it,
+            // so where it must be held, the value it refers to is held instead.
+            let (id, held) = match self.temporary_ref(a.id) {
+                Some(place) => (place, true),
+                None => (a.id, false),
+            };
+            let ty = self.cur().ty(id).clone();
             // A view — `make_name().as_str()` — bound to a statement of its own would outlive
             // the temporary it looks into, which C++ destroys at the end of that statement.
             // So each owning temporary inside it is evaluated into a local first, in order,
             // and the view is taken from that. `stmt` puts the statement in a scope of its
             // own, so the local is dropped when the statement ends, as the temporary was.
             let owners = if !a.place && self.borrows(&ty) {
-                self.owning_temporaries(a.id)
+                self.owning_temporaries(id)
             } else {
                 Vec::new()
             };
-            let value = if owners.is_empty() {
+            let value = if owners.is_empty() && held {
+                let (pre, v) = self.capture(|e| e.expr(id));
+                self.write_captured(&pre);
+                v
+            } else if owners.is_empty() {
                 self.write_captured(&a.pre);
                 a.value.clone()
             } else {
@@ -4493,8 +4512,8 @@ impl<'a> Emitter<'a> {
                     self.owners_made += 1;
                 }
                 let (pre, v) = self.capture(|e| match &a.target {
-                    Some(t) => e.stored(t, a.id),
-                    None => e.expr(a.id),
+                    Some(t) if !held => e.stored(t, id),
+                    _ => e.expr(id),
                 });
                 for owner in &owners {
                     self.materialized.remove(owner);
@@ -4507,6 +4526,12 @@ impl<'a> Emitter<'a> {
                 }
             };
             let a = &CapturedArg { value, ..CapturedArg::clone_shape(a) };
+            if held {
+                let t = self.cpp_ty(&ty);
+                self.line(&format!("{t} {tmp} = {};", a.value));
+                out.push(format!("::dz::addr({tmp})"));
+                continue;
+            }
             if a.place {
                 // `construct(dst, move_out(src))` and `xs[i()]` work on the place itself:
                 // bound as it is, and forwarded as the lvalue or rvalue it was.
@@ -4525,6 +4550,31 @@ impl<'a> Emitter<'a> {
             }
         }
         out
+    }
+
+    /// Whether `&` of `e` can take its address where it is: a place, or a reference.
+    fn is_place(&self, e: ExprId) -> bool {
+        let body = self.cur();
+        matches!(
+            body.expr(e).kind,
+            hir::ExprKind::Local(_)
+                | hir::ExprKind::Static(_)
+                | hir::ExprKind::Field { .. }
+                | hir::ExprKind::TupleIndex { .. }
+                | hir::ExprKind::Index { .. }
+                | hir::ExprKind::Deref(_)
+        ) || matches!(body.ty(e), Ty::Ref { .. })
+    }
+
+    /// The value a formatting macro's argument refers to, when the reference is to C++'s
+    /// own temporary (`hir::ExprKind::Ref::temporary`, spec §12.9).
+    fn temporary_ref(&self, e: ExprId) -> Option<ExprId> {
+        match self.cur().expr(e).kind {
+            hir::ExprKind::Ref { place, temporary: true, .. } if !self.is_place(place) => {
+                Some(place)
+            }
+            _ => None,
+        }
     }
 
     /// Does a value of `ty` look into memory something else owns — a `str`, a slice, a
@@ -4685,6 +4735,9 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Ref { place, .. } => self.fixed_place(*place),
             hir::ExprKind::Cast { operand } | hir::ExprKind::Unary { operand, .. } => {
                 self.order_stable(*operand)
+            }
+            hir::ExprKind::ArrayLit(elems) | hir::ExprKind::Tuple(elems) => {
+                elems.iter().all(|e| self.order_stable(*e))
             }
             hir::ExprKind::Binary { lhs, rhs, .. } => {
                 self.order_stable(*lhs) && self.order_stable(*rhs)
@@ -4888,8 +4941,9 @@ impl<'a> Emitter<'a> {
     // --- builtins and intrinsics -------------------------------------------
 
     fn builtin(&mut self, name: &str, args: &[ExprId], span: Span) -> String {
-        // In order, as any call's are: `println("{} {}", touch(), COUNT.hits)` is §7.2's own
-        // example. A builtin takes its arguments as they are, so nothing is moved into it.
+        // In order, as any call's are: `error("{} {}", touch(), COUNT.hits)` evaluates
+        // `touch()` first (§7.2). A builtin takes its arguments as they are, so nothing is moved
+        // into it.
         let mut captured = self.capture_args(args, false);
         if matches!(name, "construct" | "destroy" | "move_out") {
             for a in &mut captured.args {
@@ -4914,25 +4968,15 @@ impl<'a> Emitter<'a> {
             "memcpy" => format!("::memcpy({}, {}, {})", rendered[0], rendered[1], rendered[2]),
             // The optimiser barrier a benchmark needs (spec §19 M15).
             "blackbox" => format!("::dz::blackbox({})", rendered[0]),
-            "println" | "print" | "eprintln" | "eprint" => {
-                format!("::dz::{name}({})", rendered.join(", "))
-            }
-            // `panic` formats exactly as `println` does (spec §9.8, §12.9), so `{}` and `{{`
-            // mean the same thing in both; the checker guaranteed a format string is there.
-            // A final `SourceLocation` argument is where the panic says it happened, in place
-            // of its own line: `assert` passes its caller's (spec §9.8, §12.7).
+            // What `#panic` lowers to: its message, already written, and where the panic says
+            // it happened when a `SourceLocation` was given in place of its own line — `assert`
+            // passes its caller's (spec §9.8, §12.7, §12.9).
             "panic" => {
-                let given = args.last().is_some_and(|a| {
-                    matches!(
-                        self.cur().ty(*a).peeled_refs(),
-                        Ty::Builtin(dz_hir::ty::BuiltinTy::SourceLocation)
-                    )
-                });
-                let (values, loc) = match rendered.split_last() {
-                    Some((last, rest)) if given && !rest.is_empty() => (rest, last.clone()),
-                    _ => (&rendered[..], self.source_location(span)),
+                let loc = match rendered.get(1) {
+                    Some(loc) => loc.clone(),
+                    None => self.source_location(span),
                 };
-                format!("::dz::panic_str(::dz::format({}), {loc})", values.join(", "))
+                format!("::dz::panic_str({}, {loc})", rendered[0])
             }
             // `error(code?, fmt, args…)` — the code is optional and comes first (§9.1).
             "error" => {

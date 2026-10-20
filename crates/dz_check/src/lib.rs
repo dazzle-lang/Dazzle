@@ -165,9 +165,6 @@ pub struct FnSig {
     /// the body sees, and a call gives it any number of `T`s — or one slice spread with
     /// `..xs`. Any parameters after it are passed by name.
     pub variadic: Option<usize>,
-    /// The index of the `str` parameter that is a format string, checked at each call
-    /// against the `..&Format` arguments after it (spec §12.9). Only `String::format`'s.
-    pub format: Option<usize>,
 }
 
 impl FnSig {
@@ -947,7 +944,6 @@ impl Ctx<'_> {
                         // through C++'s dispatch and never declares one (spec §15.2).
                         dispatch: Dispatch::Static,
                         variadic: None,
-                        format: None,
                         params: params
                             .iter()
                             .map(|p| ParamSig {
@@ -1036,7 +1032,6 @@ impl Ctx<'_> {
             let f = FnSig {
                 dispatch: Dispatch::Static,
                 variadic: None,
-                format: None,
                 params: m
                     .params
                     .iter()
@@ -1563,7 +1558,7 @@ impl<'a> Ctx<'a> {
         self.prelude_decl(name, SymbolKind::Enum)
     }
 
-    fn prelude_decl(&self, name: &str, kind: SymbolKind) -> Option<SymbolId> {
+    pub(crate) fn prelude_decl(&self, name: &str, kind: SymbolKind) -> Option<SymbolId> {
         let sym = self.res.lookup(self.res.prelude, name)?;
         (self.res.symbol(sym).kind == kind).then_some(sym)
     }
@@ -2442,18 +2437,6 @@ impl<'a> Ctx<'a> {
     /// the runner deciding what to pass, returning a value would leave it deciding what
     /// the value meant, and a generic one has no single instance to call — so all three
     /// are refused here, where the declaration is, rather than at some later point.
-    /// The standard library's `String::format` takes a format string, checked at each call
-    /// against the `..&Format` arguments after it as `println`'s is (spec §12.9). It is the
-    /// only function that does: a function of one's own taking a format string waits for
-    /// macros (§19 M10), as `println` itself does.
-    fn std_format_string(&self, owner: SymbolId, f: &FnDecl, sig: &mut FnSig) {
-        let symbol = self.res.symbol(owner);
-        if symbol.module != self.res.prelude || symbol.name != "String" || f.name.name != "format" {
-            return;
-        }
-        sig.format = sig.variadic.and_then(|v| v.checked_sub(1));
-    }
-
     fn check_test_attribute(&mut self, item: &Item, f: &FnDecl, sig: &FnSig, sym: SymbolId) {
         let which =
             ["test", "bench"].into_iter().find(|w| item.attrs.iter().any(|a| a.name.name == *w));
@@ -2605,8 +2588,7 @@ impl<'a> Ctx<'a> {
                     sig.fields.push(field);
                 }
                 MemberKind::Fn(f) => {
-                    let mut s = self.fn_sig(f, m.vis, None);
-                    self.std_format_string(sym, f, &mut s);
+                    let s = self.fn_sig(f, m.vis, None);
                     // One `virtual` anywhere in the chain makes the whole type
                     // polymorphic, which decides its destructor and whether it can be
                     // memcpy'd (spec §7.3, 18.32). `flatten_bases` carries it downward.
@@ -2713,7 +2695,6 @@ impl<'a> Ctx<'a> {
             generics,
             has_body: f.body.is_some(),
             variadic,
-            format: None,
         }
     }
 
@@ -2882,8 +2863,17 @@ pub(crate) fn parse_int_literal(text: &str) -> Option<i128> {
 /// bytes. The lexer has already rejected malformed escapes, so anything unrecognised here
 /// is passed through rather than reported a second time.
 pub(crate) fn decode_string_literal(text: &str) -> String {
-    let body = text.strip_prefix('"').and_then(|t| t.strip_suffix('"')).unwrap_or(text);
-    let body = body.strip_prefix('\'').and_then(|t| t.strip_suffix('\'')).unwrap_or(body);
+    // A string's quotes or a character's — not both, or `"'a'"` lost its own.
+    let body = text
+        .strip_prefix('"')
+        .and_then(|t| t.strip_suffix('"'))
+        .or_else(|| text.strip_prefix('\'').and_then(|t| t.strip_suffix('\'')))
+        .unwrap_or(text);
+    decode_escapes(body)
+}
+
+/// The escape sequences of a literal's text, between its delimiters, decoded.
+pub(crate) fn decode_escapes(body: &str) -> String {
     let mut out = String::with_capacity(body.len());
     let mut chars = body.chars();
     while let Some(c) = chars.next() {

@@ -29,7 +29,7 @@ fn play(seed: u64, aim_offset: f32, frames: i32) -> Game {
         last_lives = g.lives
         frame += 1
     }
-    println(
+    #println(
         "seed {}: ended {} on field {} lives fall {} score matches {} bricks broken {}",
         seed,
         g.phase == Phase::Won || g.phase == Phase::Lost || frame == frames,
@@ -43,7 +43,7 @@ fn play(seed: u64, aim_offset: f32, frames: i32) -> Game {
 
 fn main() {
     let fresh = Game(800, 600)
-    println("wall {} bricks, {} lives, ready {}", fresh.bricks.len(), fresh.lives, fresh.phase == Phase::Ready)
+    #println("wall {} bricks, {} lives, ready {}", fresh.bricks.len(), fresh.lives, fresh.phase == Phase::Ready)
 
     // A player who always hits the middle of the paddle, and one who aims off the edge.
     let steady = play(1, 0, 240 * 600)
@@ -54,15 +54,15 @@ fn main() {
     for _ in 0..240 {
         idle.update(1.0 / 240.0, Input{ left: true })
     }
-    println("idle stays ready {} paddle at wall {}", idle.phase == Phase::Ready, idle.paddle.x == 0)
+    #println("idle stays ready {} paddle at wall {}", idle.phase == Phase::Ready, idle.paddle.x == 0)
 
     // The best score is kept only when beaten.
-    let dir = Path("breakout_sim_saves_") / String::format("{}", Time::unix().as_nanos() % 1000000007).as_str()
+    let dir = Path("breakout_sim_saves_") / #format("{}", Time::unix().as_nanos() % 1000000007).as_str()
     let file = dir / "best.txt"
     let high = if steady.score > wild.score { steady.score } else { wild.score }
     let first = save_best(&file, high) or false
     let again = save_best(&file, high) or true
-    println("saved {} kept {} reads back {}", first, !again, load_best(&file) == high)
+    #println("saved {} kept {} reads back {}", first, !again, load_best(&file) == high)
     File::remove(&file) or { _e -> }
     Directory::remove(&dir) or { _e -> }
     Directory::remove(&dir.parent()) or { _e -> }

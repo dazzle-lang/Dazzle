@@ -16,19 +16,6 @@ pub struct String {
         return String(s, allocator, loc)
     }
 
-    /// `fmt` with each `{}` replaced by the next argument, as a new `String` (spec §12.9):
-    /// `String::format("Score {}", score)`, or in memory from another allocator,
-    /// `String::format("{} hp", hp, allocator = Allocators::Temp)`. The format string is
-    /// checked against the arguments when the call is compiled, and anything that
-    /// implements `Format` can be an argument.
-    pub fn format(fmt: str, args: ..&Format, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
-        let mut out = String("", allocator, loc)
-        out.reserve(fmt.len, loc)
-        let mut f = Formatter(&mut out, loc)
-        f.write_format(fmt, args)
-        return out
-    }
-
     /// A copy of `bytes` when they are valid UTF-8, and `none` when they are not.
     pub fn from_utf8(bytes: []u8, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String? {
         let text = str::from_utf8(bytes) or return none
@@ -150,7 +137,7 @@ pub struct String {
             return
         }
         if !self.is_char_boundary(len) {
-            panic("truncate at byte {}, inside a character", len, loc)
+            #panic("truncate at byte {}, inside a character", len, loc)
         }
         m_bytes.truncate(len)
         m_bytes.push(0, loc)

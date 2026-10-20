@@ -4,7 +4,7 @@
 ///
 /// ```dz
 /// let config = File::read_text(&Path("settings.json")) or return
-/// File::write_text(&Path("save/slot1.txt"), text) or { e -> eprintln("{}", e.message) }
+/// File::write_text(&Path("save/slot1.txt"), text) or { e -> #eprintln("{}", e.message) }
 /// ```
 ///
 /// Every call that touches the disk is fallible, with an `IoError` as its error's code.

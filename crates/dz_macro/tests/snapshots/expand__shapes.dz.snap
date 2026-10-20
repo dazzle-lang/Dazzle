@@ -65,5 +65,5 @@ struct Plain {
 
 fn main() {
     let s = Size{}
-    println("{} {} {}", s.values()[1], Size::about(), Plain::about())
+    #println("{} {} {}", s.values()[1], Size::about(), Plain::about())
 }

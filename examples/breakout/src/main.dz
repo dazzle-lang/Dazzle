@@ -34,7 +34,7 @@ fn draw(g: &Game, best: i32) {
     rl::DrawRectangleRec(to_rl(&g.paddle), rl::RAYWHITE)
     rl::DrawCircleV(rl::Vector2{ x: g.ball.x, y: g.ball.y }, g.radius, rl::GOLD)
 
-    let hud = String::format("Score {}   Lives {}   Best {}", g.score, g.lives, best)
+    let hud = #format("Score {}   Lives {}   Best {}", g.score, g.lives, best)
     rl::DrawText(hud.as_cstr(), 10, 12, 24, rl::LIGHTGRAY)
 
     switch g.phase {
@@ -72,7 +72,7 @@ fn main() {
 
         if g.phase == Phase::Won || g.phase == Phase::Lost {
             let saved = save_best(&best_path, g.score) or { e ->
-                eprintln("could not save the best score: {}", e.message)
+                #eprintln("could not save the best score: {}", e.message)
                 false
             }
             if saved {

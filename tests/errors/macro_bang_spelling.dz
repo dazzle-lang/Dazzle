@@ -8,5 +8,5 @@ macro twice -> expr {
 }
 
 fn main() {
-    println("{}", twice!(4))
+    #println("{}", twice!(4))
 }

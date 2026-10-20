@@ -4,22 +4,22 @@
 fn main() {
     let args = Process::args()
     let program = args[0].as_str()
-    println("program named {}", program.contains("process"))
-    println("arguments {}", args.len() - 1)
+    #println("program named {}", program.contains("process"))
+    #println("arguments {}", args.len() - 1)
     let mut i: usize = 1
     while i < args.len() {
-        println("arg {} {}", i, args[i].as_str())
+        #println("arg {} {}", i, args[i].as_str())
         i += 1
     }
-    println("PATH set {}", Process::env("PATH") != none)
-    println("unset {}", Process::env("DZ_SURELY_NOT_SET_ANYWHERE") == none)
+    #println("PATH set {}", Process::env("PATH") != none)
+    #println("unset {}", Process::env("DZ_SURELY_NOT_SET_ANYWHERE") == none)
     if let greeting = Process::env("DZ_PROCESS_GREETING") {
-        println("greeting {}", greeting.as_str())
+        #println("greeting {}", greeting.as_str())
     }
     if args.len() > 1 {
         let code = args[args.len() - 1].parse_i64() or 0
-        println("exiting with {}", code)
+        #println("exiting with {}", code)
         Process::exit(code as i32)
-        println("not reached")
+        #println("not reached")
     }
 }

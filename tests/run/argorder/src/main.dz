@@ -21,7 +21,7 @@ fn touch() -> i32 {
 }
 
 fn say(n: i32) -> i32 {
-    println("  step {}", n)
+    #println("  step {}", n)
     return n
 }
 
@@ -30,7 +30,7 @@ fn three(a: i32, b: i32, c: i32) -> i32 {
 }
 
 fn maybe(n: i32) -> i32? {
-    println("  step {}", n)
+    #println("  step {}", n)
     if n < 0 {
         return none
     }
@@ -56,7 +56,7 @@ impl Drop for Token {
 }
 
 fn make_token(n: i32) -> Token {
-    println("  step {}", n)
+    #println("  step {}", n)
     return Token{ id: n }
 }
 
@@ -80,72 +80,72 @@ impl Describe for Scale {
 }
 
 fn scale(n: i32) -> Scale {
-    println("  step {}", n)
+    #println("  step {}", n)
     return Scale{ base: 1000 }
 }
 
 fn main() {
-    println("calls:")
-    println("= {}", three(say(1), say(2), say(3)))
+    #println("calls:")
+    #println("= {}", three(say(1), say(2), say(3)))
 
     // §7.2's own example: the call has run by the time the static is read.
-    println("builtin:")
-    println("= {} {}", touch(), COUNT.hits)
+    #println("builtin:")
+    #println("= {} {}", touch(), COUNT.hits)
 
     // An `or` clause writes statements before the line; they must not run first.
-    println("or clause:")
-    println("= {}", three(say(1), maybe(2) or 0, say(3)))
+    #println("or clause:")
+    #println("= {}", three(say(1), maybe(2) or 0, say(3)))
 
     // A local read before a later argument changes it.
-    println("local:")
+    #println("local:")
     let mut x = 1
-    println("= {}", pair(x, bump(&mut x)))
+    #println("= {}", pair(x, bump(&mut x)))
 
-    println("move-only:")
-    println("= {}", take(say(1), make_token(2), say(3)))
+    #println("move-only:")
+    #println("= {}", take(say(1), make_token(2), say(3)))
 
-    println("receiver:")
-    println("= {}", scale(1).weigh(say(2), say(3)))
+    #println("receiver:")
+    #println("= {}", scale(1).weigh(say(2), say(3)))
 
     // Operands too: this is how a byte reader decodes backwards.
-    println("operands:")
-    println("= {}", say(1) * 10 + say(2))
+    #println("operands:")
+    #println("= {}", say(1) * 10 + say(2))
     let mut y = 1
-    println("= {}", y * 10 + bump(&mut y))
+    #println("= {}", y * 10 + bump(&mut y))
 
-    println("operand with or clause:")
-    println("= {}", say(1) * 10 + (maybe(2) or 0))
+    #println("operand with or clause:")
+    #println("= {}", say(1) * 10 + (maybe(2) or 0))
 
-    println("index:")
+    #println("index:")
     let xs = [10, 20, 30, 40]
-    println("= {}", xs[say(1)] + xs[say(2)])
+    #println("= {}", xs[say(1)] + xs[say(2)])
 
     // Elements in the order written, even where that is not the order declared.
-    println("literals:")
+    #println("literals:")
     let p = Point{ y: say(1), x: say(2) }
-    println("= {} {}", p.x, p.y)
+    #println("= {} {}", p.x, p.y)
     let t = (say(1), maybe(2) or 0, say(3))
-    println("= {} {} {}", t.0, t.1, t.2)
+    #println("= {} {} {}", t.0, t.1, t.2)
     let arr = [say(1), maybe(2) or 0, say(3)]
-    println("= {} {} {}", arr[0], arr[1], arr[2])
+    #println("= {} {} {}", arr[0], arr[1], arr[2])
 
     // Assignment evaluates the value before the place it goes to.
-    println("assignment:")
+    #println("assignment:")
     let mut slots = [0, 0, 0, 0]
     slots[say(2)] = say(1)
     slots[maybe(3) or 0] += say(2)
-    println("= {} {} {} {}", slots[0], slots[1], slots[2], slots[3])
+    #println("= {} {} {} {}", slots[0], slots[1], slots[2], slots[3])
 
     // A view into a temporary, kept in order before a later argument with effects, must not
     // outlive the temporary: `Poisoned` overwrites its text when dropped, so a view read
     // after the drop would print `XXXXX`. It did, on Linux and macOS, until r61's fix.
-    println("views:")
-    println("= {} {}", Poisoned{}.view(), say(1))
-    println("= {} {}", say(1), Poisoned{}.view().len)
+    #println("views:")
+    #println("= {} {}", Poisoned{}.view(), say(1))
+    #println("= {} {}", say(1), Poisoned{}.view().len)
     // And the temporary is still dropped when its statement ends — before the next one,
     // for a plain statement and for a `let` whose value outlives it.
     let width = measure(Poisoned{}.view(), say(2))
-    println("= width {}", width)
+    #println("= width {}", width)
 }
 
 fn measure(text: str, extra: i32) -> usize {
@@ -164,7 +164,7 @@ impl Drop for Poisoned {
     fn drop(&mut self) {
         // Said once per value: a second drop of the same bytes would find them overwritten.
         if bytes[0] == 104 {
-            println("  dropped")
+            #println("  dropped")
         }
         let mut i: usize = 0
         while i < 5 {

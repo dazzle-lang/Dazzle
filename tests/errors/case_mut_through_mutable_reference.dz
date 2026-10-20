@@ -18,7 +18,7 @@ fn main() {
     let mut s = Shape::Circle{ radius: 1 }
     grow(&mut s)
     switch s {
-        case Circle(c) { println("{}", c.radius) }
+        case Circle(c) { #println("{}", c.radius) }
         default {}
     }
 }

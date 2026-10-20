@@ -11,5 +11,5 @@ fn clear(xs: &mut [2]i32) {
 fn main() {
     let mut xs = [1, 2]
     clear(&mut xs)
-    println("{}", xs[0])
+    #println("{}", xs[0])
 }

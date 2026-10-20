@@ -401,7 +401,7 @@ pub const BUILTIN_TYPES: &[&str] = &[
 
 pub const BUILTIN_FNS: &[&str] = &[
     // `alloc` and `free` go straight to the C heap until the stdlib's allocators exist
-    // (spec §9.8, §14, §19 M6). Like `println`, they stop being builtins at M12.
+    // (spec §9.8, §14, §19 M6). They stop being builtins at M12, as `println` did.
     "alloc",
     "free",
     "sizeof",
@@ -409,12 +409,7 @@ pub const BUILTIN_FNS: &[&str] = &[
     "construct",
     "destroy",
     "move_out",
-    "panic",
     "error",
-    "print",
-    "println",
-    "eprint",
-    "eprintln",
     "typeinfo_of",
     "typeid_of",
     "typeinfo",

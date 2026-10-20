@@ -3,7 +3,7 @@
 // allocator's tracking name the line that allocated rather than its own.
 
 fn where_from(tag: str, align: i32 = 8, loc: SourceLocation = #location, line: u32 = #line) -> u32 {
-    println("{} {} {} {} {}", tag, align, loc.line, line, loc.function)
+    #println("{} {} {} {} {}", tag, align, loc.line, line, loc.function)
     return loc.line
 }
 
@@ -26,5 +26,5 @@ fn main() {
     let allocated_at = h.alloc(4)
     // Written directly, it is where it is written.
     let here = #location
-    println("{} {} {}", allocated_at, here.line, here.column)
+    #println("{} {} {}", allocated_at, here.line, here.column)
 }

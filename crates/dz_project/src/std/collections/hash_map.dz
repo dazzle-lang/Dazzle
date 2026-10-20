@@ -165,7 +165,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     /// The hash stored in `slot`, after checking the slot exists.
     fn checked_slot(&self, slot: usize) -> u64 {
         if slot >= m_slots {
-            panic("slot {} is out of bounds for a HashMap of {} slots", slot, m_slots)
+            #panic("slot {} is out of bounds for a HashMap of {} slots", slot, m_slots)
         }
         return unsafe { m_hashes[slot] }
     }
@@ -212,7 +212,7 @@ pub struct HashMap<K: Hash + Eq, V> {
         while wanted * 4 > slots * 3 {
             slots *= 2
         }
-        let a = m_allocator or panic("a HashMap with no allocator cannot grow")
+        let a = m_allocator or #panic("a HashMap with no allocator cannot grow")
         let old_hashes = unsafe { m_hashes as ^mut u64 }
         let old_keys = unsafe { m_keys as ^mut K }
         let old_values = unsafe { m_values as ^mut V }
@@ -292,7 +292,7 @@ impl<K: Hash + Eq + Copy, V: Copy> Copy for HashMap<K, V> {
         if other.m_len == 0 {
             return
         }
-        let a = m_allocator or panic("a HashMap with no allocator cannot be copied")
+        let a = m_allocator or #panic("a HashMap with no allocator cannot be copied")
         m_slots = other.m_slots
         m_hashes = unsafe { a.alloc(m_slots * sizeof(u64), alignof(u64)) as ^mut u64 }
         m_keys = unsafe { a.alloc(m_slots * sizeof(K), alignof(K)) as ^mut K }
