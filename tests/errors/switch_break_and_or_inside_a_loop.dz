@@ -30,5 +30,5 @@ fn count<T: Copy>(xs: []T, stop: Step) -> i32 {
 
 fn main() {
     let xs = [1, 2, 3, 4]
-    #println("{}", count(xs, Step::Stop))
+    println!("{}", count(xs, Step::Stop))
 }

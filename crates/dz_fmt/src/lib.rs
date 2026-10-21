@@ -988,10 +988,12 @@ impl<'a> Printer<'a> {
                 None => "continue".to_owned(),
             },
             ExprKind::Intrinsic { name, args } => {
-                if args.is_empty() {
+                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                if FORMAT_MACROS.contains(&name.name.as_str()) {
+                    format!("{}!({})", name.name, a.join(", "))
+                } else if args.is_empty() {
                     format!("#{}", name.name)
                 } else {
-                    let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
                     format!("#{}({})", name.name, a.join(", "))
                 }
             }

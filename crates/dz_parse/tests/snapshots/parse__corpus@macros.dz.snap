@@ -13,8 +13,8 @@ macro max -> expr
   pattern { ( $a: expr , $b: expr ) }
   expand { if $a > $b { $a } else { $b } }
 macro trace -> stmt
-  pattern { $what: literal $( at $level: literal )? }
-  expand { # println ( "{}" , $what ) }
+  pattern { ( $what: literal $( at $level: literal )? ) }
+  expand { println ! ( "{}" , $what ) }
 macro-call #machine Door ( DoorCtx ) { state Closed ⏎ state Opening ( t : f32 = 0 ) { t += 1 ⏎ } ⏎ }
 macro-call #engine::machine Gate ( GateCtx ) { state Shut ⏎ }
 union Light
@@ -28,11 +28,11 @@ union Light
 fn uses()
   block
     let m
-      macro-call #max ( 1 , 2 )
+      macro-call max! ( 1 , 2 )
     let n
-      macro-call #engine::max [ 3 , 4 ]
-    macro-call #trace "here"
-    macro-call #trace "there" at 2
+      macro-call engine::max! [ 3 , 4 ]
+    macro-call trace! ( "here" )
+    macro-call trace! ( "there" at 2 )
     let at
       intrinsic #location
 

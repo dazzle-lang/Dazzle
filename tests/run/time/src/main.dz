@@ -4,19 +4,19 @@
 
 fn durations() {
     let frame = Duration::from_secs_f32(0.25)
-    #println("frame {} ms, {} us, {} ns", frame.as_millis(), frame.as_micros(), frame.as_nanos())
-    #println("{:.3} s", frame.as_secs_f32())
+    println!("frame {} ms, {} us, {} ns", frame.as_millis(), frame.as_micros(), frame.as_nanos())
+    println!("{:.3} s", frame.as_secs_f32())
 
     let two = Duration::from_secs(2)
     let sum = two + Duration::from_millis(1500)
-    #println("sum {} ms, {} whole s", sum.as_millis(), sum.as_secs())
-    #println("saturates at zero: {}", (Duration::from_millis(5) - two).is_zero())
-    #println("negative seconds: {}", Duration::from_secs_f64(-3.0).as_nanos())
-    #println("from micros: {}", Duration::from_micros(7).as_nanos())
+    println!("sum {} ms, {} whole s", sum.as_millis(), sum.as_secs())
+    println!("saturates at zero: {}", (Duration::from_millis(5) - two).is_zero())
+    println!("negative seconds: {}", Duration::from_secs_f64(-3.0).as_nanos())
+    println!("from micros: {}", Duration::from_micros(7).as_nanos())
 
-    #println("equal: {}", Duration::from_millis(2000) == two)
-    #println("ordered: {} {}", two < sum, sum <= two)
-    #println("default is zero: {}", Duration{}.is_zero())
+    println!("equal: {}", Duration::from_millis(2000) == two)
+    println!("ordered: {} {}", two < sum, sum <= two)
+    println!("default is zero: {}", Duration{}.is_zero())
 }
 
 fn clocks() {
@@ -25,14 +25,14 @@ fn clocks() {
     Time::sleep(wait)
     let later = Instant::now()
 
-    #println("not backwards: {}", later >= start)
-    #println("slept at least 20 ms: {}", later - start >= wait)
-    #println("elapsed agrees: {}", start.elapsed() >= later.since(start))
-    #println("since a later instant: {}", start.since(later).is_zero())
-    #println("instant + duration: {}", start + (later - start) == later)
+    println!("not backwards: {}", later >= start)
+    println!("slept at least 20 ms: {}", later - start >= wait)
+    println!("elapsed agrees: {}", start.elapsed() >= later.since(start))
+    println!("since a later instant: {}", start.since(later).is_zero())
+    println!("instant + duration: {}", start + (later - start) == later)
 
     // 2026-09-15, in seconds since the epoch.
-    #println("wall clock is current: {}", Time::unix().as_secs() > 1_789_430_400)
+    println!("wall clock is current: {}", Time::unix().as_secs() > 1_789_430_400)
 }
 
 fn main() {

@@ -29,19 +29,19 @@
 
         pub fn release(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
             if m_cap == 0 {
-                #panic("free of a pointer Allocators::Global never allocated, at {}:{}", loc.file, loc.line)
+                panic!("free of a pointer Allocators::Global never allocated, at {}:{}", loc.file, loc.line)
             }
             let i = self.slot(p as usize)
             unsafe {
                 if m_slots[i].addr == 0 {
-                    #panic(
+                    panic!(
                         "free of a pointer Allocators::Global never allocated, at {}:{}",
                         loc.file,
                         loc.line,
                     )
                 }
                 if !m_slots[i].live {
-                    #panic(
+                    panic!(
                         "double free at {}:{}; allocated at {}:{} and already freed at {}:{}",
                         loc.file,
                         loc.line,
@@ -52,7 +52,7 @@
                     )
                 }
                 if m_slots[i].size != size || m_slots[i].align != align {
-                    #panic(
+                    panic!(
                         "free of {} bytes (align {}) at {}:{}, but {}:{} allocated {} bytes (align {})",
                         size,
                         align,
@@ -121,7 +121,7 @@
                     if m_slots[i].live {
                         leaks += 1
                         bytes += m_slots[i].size
-                        #eprintln(
+                        eprintln!(
                             "leak: {} bytes allocated at {}:{}",
                             m_slots[i].size,
                             m_slots[i].file,
@@ -132,7 +132,7 @@
                 i += 1
             }
             if leaks > 0 {
-                #eprintln("{} allocations leaked, {} bytes", leaks, bytes)
+                eprintln!("{} allocations leaked, {} bytes", leaks, bytes)
             }
             if m_slots != null {
                 unsafe { free(m_slots) }

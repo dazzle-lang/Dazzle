@@ -20,5 +20,5 @@ fn main() {
             case Neither {}
         }
     }
-    #println("{}", total)
+    println!("{}", total)
 }

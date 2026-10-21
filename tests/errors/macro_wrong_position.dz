@@ -11,5 +11,5 @@ macro constant -> decl {
 
 fn main() {
     let x = #constant(ANSWER = 1)
-    #println("{} {}", ANSWER, x)
+    println!("{} {}", ANSWER, x)
 }

@@ -81,16 +81,16 @@ fn parse_name(text: str) !-> str {
 
 fn greet(text: str) !-> i32 {
     let name = parse_name(text) or return          // propagate
-    #println("hello, {}", name)
+    println!("hello, {}", name)
     return 0
 }
 
 fn main() {
     let name = parse_name("") or "stranger"        // fall back
-    #println("hello, {}", name)
+    println!("hello, {}", name)
     greet("Ada") or ignore                         // deliberately drop the failure
     greet("a name that is far too long") or { e -> // handle it
-        #println("failed at {}:{}: {}", e.location.file, e.location.line, e.message)
+        println!("failed at {}:{}: {}", e.location.file, e.location.line, e.message)
         0
     }
 }
@@ -142,7 +142,7 @@ struct Sprite {
 fn main() {
     let a = Sprite{ texture: Texture{ name: "player.png", id: 1 } }
     let b = move(a)                // `let b = a` would not compile: Sprite owns a Texture
-    #println("{}", b.texture.name)
+    println!("{}", b.texture.name)
 }                                  // the texture is dropped here, once
 ```
 
@@ -154,7 +154,7 @@ error[DZ0401]: `a` was moved and cannot be used again
    │
 17 │     let b = move(a)                // `let b = a` would not compile: Sprite owns a Texture
    │             ------- moved here
-18 │     #println("{}", a.texture.id)
+18 │     println!("{}", a.texture.id)
    │                    ^^^^^^^^^^^^ used here after the move
    │
    = help: a moved-from value is left at its defaults, and reading it back would almost never be what was meant (spec §6.4)
@@ -229,8 +229,8 @@ machine, for example, is a user macro rather than a language feature (trimmed fr
 
 `#machine` is about sixty lines of Dazzle in the game's own code. It writes a struct per
 state, a tagged union over them and a `step` method. `dz expand` prints exactly what any
-invocation turns into. Formatting is built from the same machinery: `#println`, `#format`
-and `#panic` check their format string against their arguments at compile time.
+invocation turns into. Formatting is built from the same machinery: `println!`, `format!`
+and `panic!` check their format string against their arguments at compile time.
 
 ### And the rest
 
@@ -344,7 +344,7 @@ and some code, here `src/main.dz`:
 
 ```dz
 fn main() {
-    #println("Hello, world!")
+    println!("Hello, world!")
 }
 ```
 

@@ -91,6 +91,43 @@ fn hover_on_the_invocation_names_the_macro() {
 
 #[test]
 fn a_method_the_macro_declared_completes_on_the_union() {
-    let got = complete("#println(\"{} {}\", name(&btn.state), btn.scale)", "btn.state.");
+    let got = complete("println!(\"{} {}\", name(&btn.state), btn.scale)", "btn.state.");
     assert!(got.iter().any(|l| l == "step"), "{got:?}");
+}
+
+/// Choosing a macro writes it as its kind invokes it: `max!` and `swap!` for an `expr` and a
+/// `stmt` macro, `#record` for a `decl` one; after `#`, only the ones `#` invokes are
+/// offered (spec §12.5).
+#[test]
+fn a_macro_completes_in_the_spelling_its_kind_takes() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/macros");
+    let main = Path::new("src").join("main.dz");
+    let original = std::fs::read_to_string(root.join(&main)).unwrap();
+    let at = |typed: &str| {
+        let line = original.find("    let a = 3").expect("needle");
+        let text = format!("{}    {typed}\n{}", &original[..line], &original[line..]);
+        let offset = line + 4 + typed.len();
+        let overlay = |p: &Path| p.ends_with(&main).then(|| text.clone());
+        let a = analyse_with(&root, &overlay, Mode::Editor);
+        let f = main_file(&a);
+        ide::complete(Some((&a, f)), None, &text, offset)
+    };
+
+    let items = at("");
+    let insert = |label: &str| {
+        let c = items.iter().find(|c| c.label == label).unwrap_or_else(|| panic!("{label}"));
+        c.insert.clone()
+    };
+    assert_eq!(insert("max").as_deref(), Some("max!"));
+    assert_eq!(insert("swap").as_deref(), Some("swap!"));
+    assert_eq!(insert("record").as_deref(), Some("#record"));
+
+    let after_hash: Vec<String> = at("#").into_iter().map(|c| c.label).collect();
+    assert!(after_hash.iter().any(|l| l == "record"), "{after_hash:?}");
+    for bang in ["max", "swap"] {
+        assert!(
+            !after_hash.iter().any(|l| l == bang),
+            "`{bang}!` offered after `#`: {after_hash:?}"
+        );
+    }
 }

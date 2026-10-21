@@ -33,7 +33,7 @@ pub struct Handle {
 impl Drop for Handle {
     fn drop(&mut self) {
         if m_slot != null {
-            #println("  drop {}", label)
+            println!("  drop {}", label)
             unsafe {
                 m_slot^ = 0
             }
@@ -59,7 +59,7 @@ impl Copy for Counted {
 
 impl Drop for Counted {
     fn drop(&mut self) {
-        #println("  drop Counted({})", n)
+        println!("  drop Counted({})", n)
     }
 }
 
@@ -79,36 +79,36 @@ fn main() {
     let mut slot_c: i32
 
     let h = Handle(&mut slot_a, "a")
-    #println("live: {}", h.live())
+    println!("live: {}", h.live())
 
     // §6.4: the source of a move is left at its defaults, so the moved-from handle
     // reports -1 rather than pointing at a slot someone else now owns.
     let moved = move(h)
-    #println("moved: label={} live={}", moved.label, moved.live())
+    println!("moved: label={} live={}", moved.label, moved.live())
 
     // Passing by value hands the resource to `consume`, whose parameter dies at its end.
-    #println("consume: {}", consume(move(moved)))
-    #println("slot a released: {}", slot_a == 0)
+    println!("consume: {}", consume(move(moved)))
+    println!("slot a released: {}", slot_a == 0)
 
     // §6.3: `copy` runs on a defaults-initialised object, so `d.n` is the body's answer.
     let c = Counted(1)
     let d = c
-    #println("copied: {} {}", c.n, d.n)
+    println!("copied: {} {}", c.n, d.n)
 
     // §6.5: drop at the end of the enclosing scope, not at the end of the function.
     {
         let p = Pair{ a: Handle(&mut slot_b, "b"), tag: 3 }
-        #println("nested: tag={} live={}", p.tag, p.a.live())
+        println!("nested: tag={} live={}", p.tag, p.a.live())
     }
-    #println("slot b released: {}", slot_b == 0)
+    println!("slot b released: {}", slot_b == 0)
 
     // §6.5: `defer` runs at scope exit *after* that scope's drops.
     {
-        defer #println("  deferred")
+        defer println!("  deferred")
         // Held only for its `drop` at the end of the scope: `_` says so (DZ0406).
         let _e = Handle(&mut slot_c, "c")
-        #println("before scope ends")
+        println!("before scope ends")
     }
 
-    #println("done")
+    println!("done")
 }

@@ -90,7 +90,7 @@ GLES   = { cpp = "gles" }                       # GLES::DrawArrays
 - **`std` is a dependency like any other** (§14.4). It needs no `path`, but it must be
   listed: a module that does not list it cannot name `String` or `Vec2` at all, and one that
   lists it without `open` writes `std::String`. The language's own constructs — `for`, `or`,
-  operators, `#println` — work either way, because they reach the standard library without
+  operators, `println!` — work either way, because they reach the standard library without
   naming it. `dz new` writes `std = { open = true }`.
 - **Only a dependency's `pub` declarations are reachable**, and never what *it* depends on,
   unless it says so (below).

@@ -189,16 +189,16 @@ fn comments_stay_inside_the_blocks_they_were_written_in() {
         "\
 fn f(n: i32) !-> i32 {
     let handled = halve(n) or { e ->
-        #println(\"{}\", e.message)
+        println!(\"{}\", e.message)
         // inside the `or` block
         0
     }
     if n > 0 {
         // inside the `if`
-        #println(\"positive\")
+        println!(\"positive\")
     } else {
         // inside the `else`
-        #println(\"not\")
+        println!(\"not\")
     }
     switch n {
         case Odd {
@@ -226,7 +226,7 @@ fn a_block_holding_only_a_comment_keeps_it() {
 #[test]
 fn a_block_comment_in_a_nested_block_does_not_drift() {
     unchanged(
-        "fn f(n: i32) {\n    if n > 0 {\n        /* two\n           lines */\n        #println(\"x\")\n    }\n}\n",
+        "fn f(n: i32) {\n    if n > 0 {\n        /* two\n           lines */\n        println!(\"x\")\n    }\n}\n",
     );
 }
 
@@ -292,6 +292,6 @@ fn a_comment_inside_a_macro_or_an_invocation_is_kept_once() {
     unchanged(
         "macro twice -> expr {\n    // doubles\n    pattern { ( $e: expr ) }\n    expand { $e * 2 }\n}\n\n\
          #machine Door() {\n    // closed first\n    state Closed {}\n}\n\n\
-         fn main() {\n    #trace \"here\" // why\n    let x = #twice(\n        // four\n        4\n    )\n}\n",
+         fn main() {\n    trace!(\"here\") // why\n    let x = twice!(\n        // four\n        4\n    )\n}\n",
     );
 }

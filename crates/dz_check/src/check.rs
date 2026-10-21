@@ -321,7 +321,7 @@ fn check_impl_conformance(cx: &mut Ctx, imp: &ImplSig, trait_name: &str, me: &st
                 // definite return (§10.5).
                 let stub = vec![
                     format!("{shown} {{"),
-                    "    #panic(\"not implemented\")".to_owned(),
+                    "    panic!(\"not implemented\")".to_owned(),
                     "}".to_owned(),
                 ];
                 let mut d = Diagnostic::error(
@@ -5618,7 +5618,7 @@ impl<'a, 'c> Body<'a, 'c> {
         self.check_format_count(holes.len(), values.len(), fmt.span);
     }
 
-    /// `#println("…", args)` and the rest of the formatting macros (spec §12.9).
+    /// `println!("…", args)` and the rest of the formatting macros (spec §12.9).
     ///
     /// The format string is parsed here, so a wrong argument count, an unknown `{:spec}` or
     /// an argument with no `Format` is an ordinary compile error pointing into the literal.
@@ -5645,13 +5645,13 @@ impl<'a, 'c> Body<'a, 'c> {
             self.cx.error_help(
                 codes::BAD_FORMAT_STRING,
                 e.span,
-                format!("`#{which}` needs a format string"),
+                format!("`{which}!` needs a format string"),
                 "no format string",
-                format!("write `#{which}(\"…\")` (spec §12.9)"),
+                format!("write `{which}!(\"…\")` (spec §12.9)"),
             );
             return self.mk(e, result, hir::ExprKind::Error);
         };
-        // `#println("{}", ..xs)` gives a slice whose length is not known until it runs.
+        // `println!("{}", ..xs)` gives a slice whose length is not known until it runs.
         if let Some(a) = positional[1..].iter().find(|a| spread(a).is_some()) {
             self.cx.error_help(
                 codes::BAD_FORMAT_STRING,
@@ -5668,7 +5668,7 @@ impl<'a, 'c> Body<'a, 'c> {
         let checked: Vec<Checked> = positional[1..].iter().map(|a| self.expr(a, None)).collect();
         let mut values: &[Checked] = &checked;
         let mut value_args = &positional[1..];
-        // `#panic("…", args…, loc)`: a final `SourceLocation` is where the panic reports it
+        // `panic!("…", args…, loc)`: a final `SourceLocation` is where the panic reports it
         // happened, not something to write — which is how `assert` names its caller's line
         // (spec §9.8, §12.7). It cannot be mistaken for a value, since it has no `Format`.
         let mut loc = None;
@@ -5711,7 +5711,7 @@ impl<'a, 'c> Body<'a, 'c> {
             return self.mk(e, Ty::Never, hir::ExprKind::Builtin { name: "panic".into(), args });
         }
 
-        // The text around the placeholders, split here; `#println`'s line break joins the
+        // The text around the placeholders, split here; `println!`'s line break joins the
         // last piece.
         let mut pieces = Vec::with_capacity(holes.len() + 1);
         let mut at = 0;
@@ -5838,7 +5838,7 @@ impl<'a, 'c> Body<'a, 'c> {
         self.hir.expr(span, ty, hir::ExprKind::ArrayLit(elems)).id
     }
 
-    /// What a formatting macro is given by name: `#format`'s `allocator`, which says where
+    /// What a formatting macro is given by name: `format!`'s `allocator`, which says where
     /// the `String` it builds lives (spec §7.2, §12.9), and nothing else.
     fn format_named_args(
         &mut self,
@@ -5884,15 +5884,15 @@ impl<'a, 'c> Body<'a, 'c> {
                 continue;
             }
             let help = if which == "format" {
-                "`#format` takes `allocator` by name, for where the text lives (spec §12.9)"
+                "`format!` takes `allocator` by name, for where the text lives (spec §12.9)"
                     .to_owned()
             } else {
-                format!("`#{which}` takes nothing by name (spec §12.9)")
+                format!("`{which}!` takes nothing by name (spec §12.9)")
             };
             self.cx.error_help(
                 codes::BAD_NAMED_ARG,
                 name.span,
-                format!("`#{which}` has no parameter `{}` to pass by name", name.name),
+                format!("`{which}!` has no parameter `{}` to pass by name", name.name),
                 "no such parameter",
                 help,
             );
@@ -6013,7 +6013,7 @@ impl<'a, 'c> Body<'a, 'c> {
             "the format string must be a string literal",
             "not a literal",
             "it is parsed at compile time, which is what makes a mismatch an error rather \
-             than garbage — write `#println(\"{}\", value)` (spec §12.9)",
+             than garbage — write `println!(\"{}\", value)` (spec §12.9)",
         );
     }
 
@@ -7775,7 +7775,7 @@ impl<'a, 'c> Body<'a, 'c> {
 
         let hir_clause = match clause {
             OrClause::Value(v) => {
-                // `or return`, `or break`, `or continue` and `or #panic(…)` arrive here as
+                // `or return`, `or break`, `or continue` and `or panic!(…)` arrive here as
                 // the diverging expressions they are, and `Never` satisfies anything — so
                 // divergence needs no special case, only the type rule.
                 let c = self.expr(v, Some(&success));

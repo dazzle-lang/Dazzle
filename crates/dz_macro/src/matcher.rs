@@ -66,6 +66,11 @@ pub(crate) struct Matcher<'a> {
 }
 
 impl<'a> Matcher<'a> {
+    /// The macro as it is invoked, `#machine` or `max!`.
+    fn written(&self) -> String {
+        macro_spelling(self.decl.kind.name != "decl", &self.decl.name.name)
+    }
+
     pub(crate) fn new(
         file: FileId,
         decl: &'a MacroDecl,
@@ -85,7 +90,7 @@ impl<'a> Matcher<'a> {
             let found = self.describe(pos);
             self.fail(
                 pos,
-                format!("unexpected {found} in an invocation of `#{}`", self.decl.name.name),
+                format!("unexpected {found} in an invocation of `{}`", self.written()),
                 "the macro's pattern ends before this",
             );
             return Err(());
@@ -122,10 +127,7 @@ impl<'a> Matcher<'a> {
         let span = self.toks.get(pos).or(self.toks.last()).map_or(dz_span::Span::DUMMY, |t| t.span);
         self.diags.push(
             Diagnostic::error(codes::MACRO_NO_MATCH, msg).at(self.file, span, label).with_help(
-                format!(
-                    "the invocation must follow `#{}`'s `pattern` (spec §12.3)",
-                    self.decl.name.name
-                ),
+                format!("the invocation must follow `{}`'s `pattern` (spec §12.3)", self.written()),
             ),
         );
     }

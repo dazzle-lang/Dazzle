@@ -8,7 +8,7 @@ struct Token {
 
 impl Drop for Token {
     fn drop(&mut self) {
-        #println("drop {}", id)
+        println!("drop {}", id)
     }
 }
 
@@ -33,16 +33,16 @@ fn main() {
     let hp = if alive { 100 } else { none }
     let dead = if !alive { 100 } else { none }
     let mut maybe: i32? = 5
-    #println("{} {} {} {}", hp or -1, dead or -1, maybe or -1, heal(7))
+    println!("{} {} {} {}", hp or -1, dead or -1, maybe or -1, heal(7))
     maybe = 9
-    #println("{} {}", maybe or -1, heal(none))
+    println!("{} {}", maybe or -1, heal(none))
     let t: Token? = Token{ id: 3 }
     let moved = t or return
-    #println("got {}", moved.id)
+    println!("got {}", moved.id)
     let s = next(&State::Idle) or return
     let s2 = next(&s) or return
     switch s2 {
-        case Idle { #println("idle") }
-        case Busy(b) { #println("busy {}", b.n) }
+        case Idle { println!("idle") }
+        case Busy(b) { println!("busy {}", b.n) }
     }
 }

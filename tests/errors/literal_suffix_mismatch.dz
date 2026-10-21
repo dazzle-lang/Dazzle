@@ -8,5 +8,5 @@ fn wants(x: u16) -> u16 {
 }
 
 fn main() {
-    #println("{}", wants(5u8))
+    println!("{}", wants(5u8))
 }

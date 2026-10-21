@@ -7,5 +7,5 @@ fn main() {
     for &mut x in xs {
         x = 0
     }
-    #println("{}", xs[0])
+    println!("{}", xs[0])
 }

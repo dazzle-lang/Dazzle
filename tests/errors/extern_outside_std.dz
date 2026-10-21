@@ -7,5 +7,5 @@
 extern fn monotonic_nanos() -> u64
 
 fn main() {
-    #println("{}", monotonic_nanos())
+    println!("{}", monotonic_nanos())
 }

@@ -6,5 +6,5 @@
 fn ticks() -> u64
 
 fn main() {
-    #println("{}", ticks())
+    println!("{}", ticks())
 }

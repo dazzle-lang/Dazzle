@@ -52,5 +52,5 @@ fn main() {
         0
     }
     let p = Shape::Point
-    #println("{} {} {}", ignores(1, 2), describe(&p), second)
+    println!("{} {} {}", ignores(1, 2), describe(&p), second)
 }

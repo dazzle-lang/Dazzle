@@ -4,37 +4,37 @@
 
 fn paths() {
     let hero = Path("assets") / "sprites" / "hero.png"
-    #println("join {}", hero.as_str())
-    #println("name {} stem {} ext {}", hero.file_name(), hero.stem(), hero.extension())
-    #println("parent {} / {}", hero.parent().as_str(), hero.parent().parent().as_str())
-    #println("with_extension {} {}", hero.with_extension("json").as_str(), hero.with_extension("").as_str())
+    println!("join {}", hero.as_str())
+    println!("name {} stem {} ext {}", hero.file_name(), hero.stem(), hero.extension())
+    println!("parent {} / {}", hero.parent().as_str(), hero.parent().parent().as_str())
+    println!("with_extension {} {}", hero.with_extension("json").as_str(), hero.with_extension("").as_str())
 
     let windows = Path("C:\\games\\save\\")
-    #println("backslashes {} absolute {}", windows.as_str(), windows.is_absolute())
-    #println("drive parent {} name '{}'", windows.parent().parent().as_str(), Path("C:/").file_name())
-    #println("root {} parent {}", Path("/").as_str(), Path("/etc").parent().as_str())
-    #println("absolute part replaces {}", (Path("a/b") / "/c").as_str())
-    #println("dotfile ext '{}' stem {}", Path(".gitignore").extension(), Path(".gitignore").stem())
-    #println("empty parent '{}' join {}", Path("file.txt").parent().as_str(), (Path() / "x").as_str())
-    #println("eq {} {}", Path("a\\b") == Path("a/b/"), Path("a") == Path("b"))
+    println!("backslashes {} absolute {}", windows.as_str(), windows.is_absolute())
+    println!("drive parent {} name '{}'", windows.parent().parent().as_str(), Path("C:/").file_name())
+    println!("root {} parent {}", Path("/").as_str(), Path("/etc").parent().as_str())
+    println!("absolute part replaces {}", (Path("a/b") / "/c").as_str())
+    println!("dotfile ext '{}' stem {}", Path(".gitignore").extension(), Path(".gitignore").stem())
+    println!("empty parent '{}' join {}", Path("file.txt").parent().as_str(), (Path() / "x").as_str())
+    println!("eq {} {}", Path("a\\b") == Path("a/b/"), Path("a") == Path("b"))
 }
 
 fn disk(root: &Path) !-> void {
     let nested = root / "saves" / "slot1"
     Directory::create(&nested) or return
     Directory::create(&nested) or return
-    #println("created {} {}", nested.is_dir(), root.is_dir())
+    println!("created {} {}", nested.is_dir(), root.is_dir())
 
     let text_path = nested / "héllo ✓.txt"
     File::write_text(&text_path, "first line\nsecond ✓\n") or return
     let text = File::read_text(&text_path) or return
-    #println("text {} bytes, exists {} is_file {} is_dir {}", text.len(), text_path.exists(), text_path.is_file(), text_path.is_dir())
+    println!("text {} bytes, exists {} is_file {} is_dir {}", text.len(), text_path.exists(), text_path.is_file(), text_path.is_dir())
 
     let bin_path = root / "data.bin"
     let bytes: [5]u8 = [0, 1, 2, 250, 255]
     File::write_bytes(&bin_path, bytes[..]) or return
     let back = File::read_bytes(&bin_path) or return
-    #println("bytes {} {} {}", back.len(), back[3], back[4])
+    println!("bytes {} {} {}", back.len(), back[3], back[4])
 
     // Appending, then reading back in pieces with seek, position and size.
     let log_path = root / "log.txt"
@@ -53,17 +53,17 @@ fn disk(root: &Path) !-> void {
         let n = log.read(buf[..]) or return
         let at = log.position() or return
         let piece = str::from_utf8(buf[0..n]) or ""
-        #println("append size {} read {} '{}' at {}", size, n, piece, at)
+        println!("append size {} read {} '{}' at {}", size, n, piece, at)
     }
 
     // Failures carry an `IoError` code.
     let missing = File::read_text(&(root / "nope.txt")) or { e ->
-        #println("missing: not found {}", e.code == IoError::NotFound as u32)
+        println!("missing: not found {}", e.code == IoError::NotFound as u32)
         String()
     }
     let _ = move(missing)
     let _ = File::read_text(&bin_path) or { e ->
-        #println("binary as text: invalid data {}", e.code == IoError::InvalidData as u32)
+        println!("binary as text: invalid data {}", e.code == IoError::InvalidData as u32)
         String()
     }
 
@@ -73,15 +73,15 @@ fn disk(root: &Path) !-> void {
         names.push_str(p.file_name())
         names.push(' ')
     }
-    #println("listed in order: {}", names.as_str())
+    println!("listed in order: {}", names.as_str())
 
     // A write moves the modification time forward (or leaves it, on a coarse clock).
     let before = log_path.modified() or return
     Time::sleep(Duration::from_millis(20))
     File::write_text(&log_path, "changed") or return
     let after = log_path.modified() or return
-    #println("modified is recent {} and not earlier {}", before.as_secs() > 1_700_000_000, after >= before)
-    #println("as_cstr length {}", (log_path.as_cstr() as str).len == log_path.as_str().len)
+    println!("modified is recent {} and not earlier {}", before.as_secs() > 1_700_000_000, after >= before)
+    println!("as_cstr length {}", (log_path.as_cstr() as str).len == log_path.as_str().len)
 
     File::remove(&text_path) or return
     File::remove(&bin_path) or return
@@ -89,9 +89,9 @@ fn disk(root: &Path) !-> void {
     Directory::remove(&nested) or return
     Directory::remove(&nested.parent()) or return
     Directory::remove(root) or return
-    #println("cleaned {} {}", text_path.exists(), root.exists())
+    println!("cleaned {} {}", text_path.exists(), root.exists())
     Directory::remove(root) or { e ->
-        #println("remove twice: not found {}", e.code == IoError::NotFound as u32)
+        println!("remove twice: not found {}", e.code == IoError::NotFound as u32)
     }
 }
 
@@ -113,6 +113,6 @@ fn main() {
     }
     let root = Path(name.as_str())
     disk(&root) or { e ->
-        #println("disk failed: {} (code {})", e.message, e.code)
+        println!("disk failed: {} (code {})", e.message, e.code)
     }
 }

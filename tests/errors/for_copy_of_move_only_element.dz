@@ -13,6 +13,6 @@ impl Drop for Res {
 fn main() {
     let rs = [Res{ n: 1 }]
     for r in rs {
-        #println("{}", r.n)
+        println!("{}", r.n)
     }
 }

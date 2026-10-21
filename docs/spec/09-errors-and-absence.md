@@ -110,7 +110,7 @@ the rest of the enclosing block.
 let tex  = load_texture(path) or Textures::Missing            // fall back
 let f    = File::open(path)   or return                       // propagate
 let hp   = find_player(id)    or continue                     // diverge
-let btn  = ctx.btn            or #panic("no button")           // assert
+let btn  = ctx.btn            or panic!("no button")           // assert
 let cfg  = load_config()      or { e ->                       // handle
     log::warn("config: {} ({}:{})", e.message, e.location.file, e.location.line)
     Config{}
@@ -128,7 +128,7 @@ is an instance of it. The clause forms are:
 | `{ e -> … }` | the same, with the `Error` bound to `e` |
 | `return` | propagate the failure (§9.5) |
 | `return expr` / `break` / `continue` | ordinary divergence |
-| `#panic("…")` | abort (§9.8) |
+| `panic!("…")` | abort (§9.8) |
 | `unreachable` | assert non-failure; see below |
 | `ignore` | statement position only; discards the value |
 
@@ -175,9 +175,9 @@ diverge:
 
 ```dz
 if let m = find_movie(&mut list, "Nemo") {
-    #println("found {}", m.id)        // m: Movie
+    println!("found {}", m.id)        // m: Movie
 } else {
-    #println("not found")
+    println!("not found")
 }
 ```
 
@@ -288,12 +288,12 @@ its statement is a design mistake in a language with no way to store one.
 ## 9.8 What is *not* an error: panics
 
 Most things that go wrong in a game are not recoverable and should not be modelled as
-errors. `#panic("...")` aborts with a message, a `SourceLocation`, and a stack trace in debug
-builds. It formats as `#println` does (§12.9), but without allocating — the allocators
+errors. `panic!("...")` aborts with a message, a `SourceLocation`, and a stack trace in debug
+builds. It formats as `println!` does (§12.9), but without allocating — the allocators
 panic too — so a message longer than a few hundred bytes is cut.
 
-The location is the `#panic`'s own line, unless a `SourceLocation` is passed as the **last
-argument**, after the format arguments: `#panic("missing {}", what, loc)`. That is how a
+The location is the `panic!`'s own line, unless a `SourceLocation` is passed as the **last
+argument**, after the format arguments: `panic!("missing {}", what, loc)`. That is how a
 helper reports its caller's line — it takes `loc: SourceLocation = #location` (§12.7) and
 hands it on. A `SourceLocation` cannot be formatted, so it is never mistaken for a value.
 `assert(cond, msg = "")` is the standard library's helper of this kind. `[DECIDED]`

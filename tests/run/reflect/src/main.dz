@@ -36,32 +36,32 @@ fn main() {
     p.scores = [10, 20, 30]
     p.pet = "Ember"
     p.held = Item::Sword{ damage: 40 }
-    #println("{}", to_json(&p).as_str())
+    println!("{}", to_json(&p).as_str())
 
     let q = Player{ name: "Bram", class: Class::Rogue, alive: false }
-    #println("{}", to_json(&q).as_str())
+    println!("{}", to_json(&q).as_str())
 
     let levels: [4]u16 = [1, 2, 3, 5]
     let view: []u16 = levels[1..3]
-    #println("{}", to_json(&view).as_str())
+    println!("{}", to_json(&view).as_str())
 
     let info = typeinfo_of<Player>()
-    #println("{} in {}: {} fields, kind {}", info.name, info.module_name, info.fields.len, info.kind as u8)
+    println!("{} in {}: {} fields, kind {}", info.name, info.module_name, info.fields.len, info.kind as u8)
     for &f in info.fields {
-        #println("  {} tag `{}` json={}", f.name, f.tag, f.tag_value("json") or "-")
+        println!("  {} tag `{}` json={}", f.name, f.tag, f.tag_value("json") or "-")
     }
     let class = typeinfo_of<Class>()
     for &v in class.variants {
-        #println("  {} = {}", v.name, v.value)
+        println!("  {} = {}", v.name, v.value)
     }
-    #println("same id: {}", typeid_of<Player>() == typeid_of<Player>())
+    println!("same id: {}", typeid_of<Player>() == typeid_of<Player>())
 
     // An editor's component list: the program keeps the ids it wants, which is also what
     // puts those types in the table (spec §13.2).
     let components: [2]TypeId = [typeid_of<Stats>(), typeid_of<Item>()]
     for &id in components {
         let c = typeinfo(id)
-        #println("component {} ({} bytes, {} fields, {} variants)", c.name, c.size, c.fields.len, c.variants.len)
+        println!("component {} ({} bytes, {} fields, {} variants)", c.name, c.size, c.fields.len, c.variants.len)
     }
-    #println("list: {}", typeinfo_of<List<i32>>().name)
+    println!("list: {}", typeinfo_of<List<i32>>().name)
 }

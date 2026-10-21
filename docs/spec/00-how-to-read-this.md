@@ -51,7 +51,7 @@ impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable 
 | Interface | `trait X` + `impl X for Y` | bound `<T: X>` = static dispatch; `^X` = fat pointer, object stays the same size; an `impl` lives with the trait or with the type, so a module can add a trait to a type it did not write |
 | Generics | `fn f<T: Ord>(…)` | checked once at the definition, then monomorphized by Dazzle |
 | Module | one `dazzle.toml` = one module | folders mean nothing; `name = "engine::render"` for nesting |
-| Metaprogramming | `macro m -> decl { … }`, invoked `#m …` | declarative pattern → expand, so the LSP can complete inside it |
+| Metaprogramming | `macro m -> decl { … }`, invoked `#m …`; an `expr` or `stmt` macro `m!(…)` | declarative pattern → expand, so the LSP can complete inside it |
 | Reflection | `typeinfo_of<T>()` | one static table; your structs carry zero extra bytes |
 | Compiles to | C++17, `-fno-exceptions -fno-rtti` | with `#line` back to `.dz`, so debuggers and profilers show your source |
 

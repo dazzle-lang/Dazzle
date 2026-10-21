@@ -105,7 +105,7 @@ compiler tracks that with flow analysis:
 ```dz
 let a = String("hello")
 let b = move(a)
-#println("{}", a.length())   // error: `a` was moved on line 2 and cannot be used
+println!("{}", a.length())   // error: `a` was moved on line 2 and cannot be used
 ```
 
 The analysis is flow-sensitive and handles branches:

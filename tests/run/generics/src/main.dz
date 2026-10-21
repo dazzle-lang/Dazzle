@@ -15,7 +15,7 @@ impl Drop for Tracked {
     fn drop(&mut self) {
         // A moved-from value is back at its defaults (spec §6.4), so it has nothing to say.
         if id != 0 {
-            #println("drop {}", id)
+            println!("drop {}", id)
         }
     }
 }
@@ -78,7 +78,7 @@ struct Buffer<T> {
 
     pub fn push(&mut self, v: T) {
         if m_len == m_cap {
-            #panic("buffer full")
+            panic!("buffer full")
         }
         unsafe { construct(m_data[m_len], move(v)) }
         m_len += 1
@@ -225,11 +225,11 @@ const SLOTS = 4 * 2
 const HALF: i32 = SLOTS / 2
 
 fn main() {
-    #println("largest i32: {}", largest(3, 9))
-    #println("largest Score: {}", largest(Score(12), Score(4)).value)
+    println!("largest i32: {}", largest(3, 9))
+    println!("largest Score: {}", largest(Score(12), Score(4)).value)
 
     let p = Pair<f32>{ first: 1.5, second: 2.5 }
-    #println("pair: {} {}", p.first, p.second)
+    println!("pair: {} {}", p.first, p.second)
 
     let mut ints = Buffer<i32>(4)
     ints.push(10)
@@ -239,51 +239,51 @@ fn main() {
     unsafe {
         second = ints.at(1)^
     }
-    #println("ints: len={} [1]={}", ints.len(), second)
+    println!("ints: len={} [1]={}", ints.len(), second)
     // `Buffer<i32>` is copyable — its `copy` exists because `i32` is `Copy` (§18.26).
     let copied = ints
-    #println("copy: len={}", copied.len())
-    #println("i32 trivially copyable: {}, Tracked: {}", i32::is_trivially_copyable, Tracked::is_trivially_copyable)
+    println!("copy: len={}", copied.len())
+    println!("i32 trivially copyable: {}, Tracked: {}", i32::is_trivially_copyable, Tracked::is_trivially_copyable)
 
     {
         let mut things = Buffer<Tracked>(3)
         things.push(Tracked(1))
         things.push(Tracked(2))
-        #println("things: len={}", things.len())
+        println!("things: len={}", things.len())
     }
 
     let mut seen = 0
     for n in Countdown(3) {
         seen += n
     }
-    #println("countdown: {}", seen)
+    println!("countdown: {}", seen)
     for i, n in Countdown(2).indexed() {
-        #println("step {} -> {}", i, n)
+        println!("step {} -> {}", i, n)
     }
 
     let c = Crate{ n: 1 }
-    #println("default method: {}", c.shout())
+    println!("default method: {}", c.shout())
     let seven = 7
-    #println("impl for a primitive: {}", seven.label())
+    println!("impl for a primitive: {}", seven.label())
     let boxed = Boxed<i32>{ inner: 5 }
-    #println("generic impl: {}", boxed.label())
+    println!("generic impl: {}", boxed.label())
 
     let v = Vec2{ x: 1.0, y: 2.0 }
     let scaled = v * 3.0
     let stretched = v * Vec2{ x: 2.0, y: 0.5 }
     let direct = v.mul(10.0)
-    #println("mul: {} {} / {} {} / {}", scaled.x, scaled.y, stretched.x, stretched.y, direct.y)
+    println!("mul: {} {} / {} {} / {}", scaled.x, scaled.y, stretched.x, stretched.y, direct.y)
 
-    #println("hex: {:x} {:X}, fixed: {:.2}, braces: {{}}", 255, 255, 3.14159)
+    println!("hex: {:x} {:X}, fixed: {:.2}, braces: {{}}", 255, 255, 3.14159)
 
     let grid: [SLOTS]i32
-    #println("consts: {} {} {}", SLOTS, HALF, grid.len)
+    println!("consts: {} {} {}", SLOTS, HALF, grid.len)
 
     let r = 1..4
     let mut total = 0
     for i in r {
         total += i
     }
-    #println("range value: {}", total)
-    #println("done")
+    println!("range value: {}", total)
+    println!("done")
 }

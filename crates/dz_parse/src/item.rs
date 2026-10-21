@@ -141,7 +141,10 @@ impl<'a> Parser<'a> {
         self.skip_terminators();
 
         // `#machine Foo(…) { … }` — a macro invocation in declaration position (spec §12.5).
-        if self.at(TokenKind::Hash) && self.peek_at(1) == TokenKind::Ident {
+        // `name!(…)` is read here too, so that an `expr` macro written where a declaration
+        // goes is reported as that.
+        if (self.at(TokenKind::Hash) && self.peek_at(1) == TokenKind::Ident) || self.at_bang_name()
+        {
             let call = self.parse_macro_call(false);
             return Some(Item {
                 span: self.span_from(start),

@@ -4968,7 +4968,7 @@ impl<'a> Emitter<'a> {
             "memcpy" => format!("::memcpy({}, {}, {})", rendered[0], rendered[1], rendered[2]),
             // The optimiser barrier a benchmark needs (spec §19 M15).
             "blackbox" => format!("::dz::blackbox({})", rendered[0]),
-            // What `#panic` lowers to: its message, already written, and where the panic says
+            // What `panic!` lowers to: its message, already written, and where the panic says
             // it happened when a `SourceLocation` was given in place of its own line — `assert`
             // passes its caller's (spec §9.8, §12.7, §12.9).
             "panic" => {

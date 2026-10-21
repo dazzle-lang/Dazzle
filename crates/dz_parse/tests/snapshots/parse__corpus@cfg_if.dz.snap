@@ -31,7 +31,7 @@ fn main()
     let x
       int 1
     #if DEBUG
-      intrinsic #println
+      intrinsic println!
         str "{}"
         path x
     #else
