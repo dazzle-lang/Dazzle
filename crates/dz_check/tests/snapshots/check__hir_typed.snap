@@ -2519,15 +2519,13 @@ body fn write_signed -> void
           local _0 f: &mut Formatter
           local _2 bits: u64
           int 16: u64
+          bool false: bool
       block
         if: void
           binary <: bool
             local _1 value: i64
             int 0: i64
           block
-            call-method Formatter::write_char: void
-              local _0 f: &mut Formatter
-              char '-': char
             call write_digits: void
               local _0 f: &mut Formatter
               binary -: u64
@@ -2535,6 +2533,7 @@ body fn write_signed -> void
                 cast: u64
                   local _1 value: i64
               int 10: u64
+              bool true: bool
           block
             block-value: void
               block
@@ -2543,6 +2542,7 @@ body fn write_signed -> void
                   cast: u64
                     local _1 value: i64
                   int 10: u64
+                  bool false: bool
 body fn write_unsigned -> void
   param _0 f: &mut Formatter
   param _1 value: u64
@@ -2559,18 +2559,20 @@ body fn write_unsigned -> void
           block-value: u64
             block
               int 10: u64
+      bool false: bool
 body fn write_digits -> void
   param _0 f: &mut Formatter
   param _1 value: u64
   param _2 base: u64
+  param _3 negative: bool
   block
-    let _3 buf: [20]u8
+    let _4 buf: [21]u8
       (uninitialised)
-    let _4 at: usize
-      int 20: usize
-    let _5 n: u64
+    let _5 at: usize
+      int 21: usize
+    let _6 n: u64
       local _1 value: u64
-    let _6 ten: u8
+    let _7 ten: u8
       if: u8
         call-method Formatter::upper: bool
           local _0 f: &mut Formatter
@@ -2586,54 +2588,66 @@ body fn write_digits -> void
       bool true: bool
       block
         assign -=
-          local _4 at: usize
+          local _5 at: usize
           int 1: usize
-        let _7 d: u8
+        let _8 d: u8
           cast: u8
             binary %: u64
-              local _5 n: u64
+              local _6 n: u64
               local _2 base: u64
         assign =
           index: u8
-            local _3 buf: [20]u8
-            local _4 at: usize
+            local _4 buf: [21]u8
+            local _5 at: usize
           if: u8
             binary <: bool
-              local _7 d: u8
+              local _8 d: u8
               int 10: u8
             block
               binary +: u8
                 cast: u8
                   char '0': char
-                local _7 d: u8
+                local _8 d: u8
             block
               block-value: u8
                 block
                   binary -: u8
                     binary +: u8
-                      local _6 ten: u8
-                      local _7 d: u8
+                      local _7 ten: u8
+                      local _8 d: u8
                     int 10: u8
         assign =
-          local _5 n: u64
+          local _6 n: u64
           binary /: u64
-            local _5 n: u64
+            local _6 n: u64
             local _2 base: u64
         if: void
           binary ==: bool
-            local _5 n: u64
+            local _6 n: u64
             int 0: u64
           block
             break: !
-    call-method Formatter::write_str: void
+    if: void
+      local _3 negative: bool
+      block
+        assign -=
+          local _5 at: usize
+          int 1: usize
+        assign =
+          index: u8
+            local _4 buf: [21]u8
+            local _5 at: usize
+          cast: u8
+            char '-': char
+    call-method Formatter::write_number: void
       local _0 f: &mut Formatter
       block-value: str
         block
           cast: str
             slice: []mut u8
-              local _3 buf: [20]u8
-              local _4 at: usize
-              int 20: usize
+              local _4 buf: [21]u8
+              local _5 at: usize
+              int 21: usize
 body fn write_float -> void
   param _0 f: &mut Formatter
   param _1 value: f64
@@ -2661,7 +2675,7 @@ body fn write_float -> void
           local _2 buf: [64]u8
           int 0: usize
           int 64: usize
-    call-method Formatter::write_str: void
+    call-method Formatter::write_number: void
       local _0 f: &mut Formatter
       block-value: str
         block
@@ -2698,6 +2712,21 @@ body field-default Formatter.6 -> void
 body field-default Formatter.7 -> void
   block
     none: u32?
+body field-default Formatter.8 -> void
+  block
+    none: u32?
+body field-default Formatter.9 -> void
+  block
+    bool false: bool
+body field-default Formatter.10 -> void
+  block
+    bool false: bool
+body field-default Formatter.11 -> void
+  block
+    int 0: usize
+body field-default Formatter.13 -> void
+  block
+    int 0: usize
 body method Formatter::string -> Formatter
   param _0 out: &mut String
   param _1 loc: SourceLocation
@@ -2741,6 +2770,53 @@ body method Formatter::write_str -> void
   param _0 self: Formatter
   param _1 s: str
   block
+    if: void
+      field #10: bool
+        local _0 self: Formatter
+      block
+        if: void
+          binary >: bool
+            field #13: usize
+              local _0 self: Formatter
+            int 0: usize
+          block
+            let _2 held: [64]u8
+              field #12: [64]u8
+                local _0 self: Formatter
+            let _3 n: usize
+              field #13: usize
+                local _0 self: Formatter
+            assign =
+              field #13: usize
+                local _0 self: Formatter
+              int 0: usize
+            call-method Formatter::write_str: void
+              local _0 self: Formatter
+              block-value: str
+                block
+                  cast: str
+                    slice: []u8
+                      local _2 held: [64]u8
+                      int 0: usize
+                      local _3 n: usize
+        let _4 bytes: []u8
+          cast: []u8
+            local _1 s: str
+        for _5 b
+          local _4 bytes: []u8
+          block
+            if: void
+              binary !=: bool
+                binary &: u32
+                  cast: u32
+                    local _5 b: u8
+                  int 192: u32
+                int 128: u32
+              block
+                assign +=
+                  field #11: usize
+                    local _0 self: Formatter
+                  int 1: usize
     if: void
       binary <: bool
         field #1: i32
@@ -2788,14 +2864,14 @@ body method Formatter::write_str -> void
             local _0 self: Formatter
           local _1 s: str
         return: !
-    let _2 bytes: []u8
+    let _6 bytes: []u8
       cast: []u8
         local _1 s: str
-    for _3 i
+    for _7 i
       range: usize..usize
         int 0: i32
         len: usize
-          local _2 bytes: []u8
+          local _6 bytes: []u8
       block
         assign =
           index: u8
@@ -2804,15 +2880,15 @@ body method Formatter::write_str -> void
             binary +: usize
               field #3: usize
                 local _0 self: Formatter
-              local _3 i: usize
+              local _7 i: usize
           index: u8
-            local _2 bytes: []u8
-            local _3 i: usize
+            local _6 bytes: []u8
+            local _7 i: usize
     assign +=
       field #3: usize
         local _0 self: Formatter
       len: usize
-        local _2 bytes: []u8
+        local _6 bytes: []u8
 body method Formatter::write_char -> void
   param _0 self: Formatter
   param _1 c: char
@@ -2899,12 +2975,38 @@ body method Formatter::write_args -> void
           index: str
             local _2 specs: []str
             local _4 i: usize
-        call-method Format::format: void
-          index: &Format
-            local _3 args: []&Format
-            local _4 i: usize
-          ref mut: &mut Formatter
+        if-let: void
+          field #8: u32?
             local _0 self: Formatter
+          bind _5 width
+          block
+            assign =
+              field #10: bool
+                local _0 self: Formatter
+              bool true: bool
+            assign =
+              field #11: usize
+                local _0 self: Formatter
+              int 0: usize
+            call-method Format::format: void
+              index: &Format
+                local _3 args: []&Format
+                local _4 i: usize
+              ref mut: &mut Formatter
+                local _0 self: Formatter
+            call-method Formatter::end_padded: void
+              local _0 self: Formatter
+              cast: usize
+                local _5 width: u32
+          block
+            block-value: void
+              block
+                call-method Format::format: void
+                  index: &Format
+                    local _3 args: []&Format
+                    local _4 i: usize
+                  ref mut: &mut Formatter
+                    local _0 self: Formatter
     call-method Formatter::set_spec: void
       local _0 self: Formatter
       str "": str
@@ -2916,6 +3018,195 @@ body method Formatter::write_args -> void
           local _3 args: []&Format
     call-method Formatter::flush: void
       local _0 self: Formatter
+body method Formatter::write_number -> void
+  param _0 self: Formatter
+  param _1 text: str
+  block
+    if: void
+      binary &&: bool
+        binary &&: bool
+          binary &&: bool
+            field #10: bool
+              local _0 self: Formatter
+            binary ==: bool
+              field #11: usize
+                local _0 self: Formatter
+              int 0: usize
+          binary ==: bool
+            field #13: usize
+              local _0 self: Formatter
+            int 0: usize
+        binary <=: bool
+          len: usize
+            local _1 text: str
+          int 64: usize
+      block
+        let _2 bytes: []u8
+          cast: []u8
+            local _1 text: str
+        for _3 i
+          range: usize..usize
+            int 0: i32
+            len: usize
+              local _2 bytes: []u8
+          block
+            assign =
+              index: u8
+                field #12: [64]u8
+                  local _0 self: Formatter
+                local _3 i: usize
+              index: u8
+                local _2 bytes: []u8
+                local _3 i: usize
+        assign =
+          field #13: usize
+            local _0 self: Formatter
+          len: usize
+            local _2 bytes: []u8
+        return: !
+    call-method Formatter::write_str: void
+      local _0 self: Formatter
+      local _1 text: str
+body method Formatter::end_padded -> void
+  param _0 self: Formatter
+  param _1 width: usize
+  block
+    assign =
+      field #10: bool
+        local _0 self: Formatter
+      bool false: bool
+    if: void
+      binary ==: bool
+        field #13: usize
+          local _0 self: Formatter
+        int 0: usize
+      block
+        if: void
+          binary <: bool
+            field #11: usize
+              local _0 self: Formatter
+            local _1 width: usize
+          block
+            call-method Formatter::write_fill: void
+              local _0 self: Formatter
+              char ' ': char
+              binary -: usize
+                local _1 width: usize
+                field #11: usize
+                  local _0 self: Formatter
+        return: !
+    let _2 held: [64]u8
+      field #12: [64]u8
+        local _0 self: Formatter
+    let _3 n: usize
+      field #13: usize
+        local _0 self: Formatter
+    assign =
+      field #13: usize
+        local _0 self: Formatter
+      int 0: usize
+    let _4 text: str
+      block-value: str
+        block
+          cast: str
+            slice: []u8
+              local _2 held: [64]u8
+              int 0: usize
+              local _3 n: usize
+    if: void
+      binary >=: bool
+        local _3 n: usize
+        local _1 width: usize
+      block
+        call-method Formatter::write_str: void
+          local _0 self: Formatter
+          local _4 text: str
+        return: !
+    let _5 sign: usize
+      if: usize
+        binary ||: bool
+          binary ==: bool
+            index: u8
+              local _2 held: [64]u8
+              int 0: usize
+            cast: u8
+              char '-': char
+          binary ==: bool
+            index: u8
+              local _2 held: [64]u8
+              int 0: usize
+            cast: u8
+              char '+': char
+        block
+          int 1: usize
+        block
+          block-value: usize
+            block
+              int 0: usize
+    let _6 c: u32
+      binary |: u32
+        cast: u32
+          index: u8
+            local _2 held: [64]u8
+            local _5 sign: usize
+        int 32: u32
+    if: void
+      binary &&: bool
+        binary &&: bool
+          field #9: bool
+            local _0 self: Formatter
+          binary !=: bool
+            local _6 c: u32
+            cast: u32
+              char 'i': char
+        binary !=: bool
+          local _6 c: u32
+          cast: u32
+            char 'n': char
+      block
+        call-method Formatter::write_str: void
+          local _0 self: Formatter
+          call sub: str
+            local _4 text: str
+            int 0: usize
+            local _5 sign: usize
+        call-method Formatter::write_fill: void
+          local _0 self: Formatter
+          char '0': char
+          binary -: usize
+            local _1 width: usize
+            local _3 n: usize
+        call-method Formatter::write_str: void
+          local _0 self: Formatter
+          call sub: str
+            local _4 text: str
+            local _5 sign: usize
+            local _3 n: usize
+      block
+        block-value: void
+          block
+            call-method Formatter::write_fill: void
+              local _0 self: Formatter
+              char ' ': char
+              binary -: usize
+                local _1 width: usize
+                local _3 n: usize
+            call-method Formatter::write_str: void
+              local _0 self: Formatter
+              local _4 text: str
+body method Formatter::write_fill -> void
+  param _0 self: Formatter
+  param _1 c: char
+  param _2 count: usize
+  block
+    for _
+      range: usize..usize
+        int 0: i32
+        local _2 count: usize
+      block
+        call-method Formatter::write_char: void
+          local _0 self: Formatter
+          local _1 c: char
 body method Formatter::flush -> void
   param _0 self: Formatter
   block
@@ -3043,25 +3334,126 @@ body method Formatter::precision -> u32?
     return: !
       field #7: u32?
         local _0 self: Formatter
+body method Formatter::width -> u32?
+  param _0 self: Formatter
+  block
+    return: !
+      field #8: u32?
+        local _0 self: Formatter
+body method Formatter::fill -> char
+  param _0 self: Formatter
+  block
+    return: !
+      if: char
+        field #9: bool
+          local _0 self: Formatter
+        block
+          char '0': char
+        block
+          block-value: char
+            block
+              char ' ': char
 body method Formatter::set_spec -> void
   param _0 self: Formatter
   param _1 spec: str
   block
     assign =
+      field #8: u32?
+        local _0 self: Formatter
+      none: u32?
+    assign =
+      field #9: bool
+        local _0 self: Formatter
+      bool false: bool
+    let _2 bytes: []u8
+      cast: []u8
+        local _1 spec: str
+    let _3 at: usize
+      int 0: usize
+    if: void
+      binary &&: bool
+        binary >: bool
+          len: usize
+            local _2 bytes: []u8
+          int 1: usize
+        binary ==: bool
+          index: u8
+            local _2 bytes: []u8
+            int 0: usize
+          cast: u8
+            char '0': char
+      block
+        assign =
+          field #9: bool
+            local _0 self: Formatter
+          bool true: bool
+        assign =
+          local _3 at: usize
+          int 1: usize
+    let _4 start: usize
+      local _3 at: usize
+    while
+      binary &&: bool
+        binary &&: bool
+          binary <: bool
+            local _3 at: usize
+            len: usize
+              local _2 bytes: []u8
+          binary >=: bool
+            index: u8
+              local _2 bytes: []u8
+              local _3 at: usize
+            cast: u8
+              char '0': char
+        binary <=: bool
+          index: u8
+            local _2 bytes: []u8
+            local _3 at: usize
+          cast: u8
+            char '9': char
+      block
+        assign +=
+          local _3 at: usize
+          int 1: usize
+    if: void
+      binary >: bool
+        local _3 at: usize
+        local _4 start: usize
+      block
+        if-let: void
+          call-method Text::parse_u64: u64?
+            call sub: str
+              local _1 spec: str
+              local _4 start: usize
+              local _3 at: usize
+          bind _5 n
+          block
+            assign =
+              field #8: u32?
+                local _0 self: Formatter
+              cast: u32
+                local _5 n: u64
+    let _6 rest: str
+      call sub: str
+        local _1 spec: str
+        local _3 at: usize
+        len: usize
+          local _1 spec: str
+    assign =
       field #5: bool
         local _0 self: Formatter
       binary ||: bool
         binary ==: bool
-          local _1 spec: str
+          local _6 rest: str
           str "x": str
         binary ==: bool
-          local _1 spec: str
+          local _6 rest: str
           str "X": str
     assign =
       field #6: bool
         local _0 self: Formatter
       binary ==: bool
-        local _1 spec: str
+        local _6 rest: str
         str "X": str
     assign =
       field #7: u32?
@@ -3071,26 +3463,26 @@ body method Formatter::set_spec -> void
       binary &&: bool
         binary >: bool
           len: usize
-            local _1 spec: str
+            local _6 rest: str
           int 1: usize
         call-method Text::starts_with: bool
-          local _1 spec: str
+          local _6 rest: str
           str ".": str
       block
         if-let: void
           call-method Text::parse_u64: u64?
             call sub: str
-              local _1 spec: str
+              local _6 rest: str
               int 1: usize
               len: usize
-                local _1 spec: str
-          bind _2 n
+                local _6 rest: str
+          bind _7 n
           block
             assign =
               field #7: u32?
                 local _0 self: Formatter
               cast: u32
-                local _2 n: u64
+                local _7 n: u64
 body drop Formatter -> void
   param _0 self: Formatter
   block
@@ -12607,6 +12999,64 @@ body fn formatting -> void
           local _0 x: i32
         ref: &f32
           local _1 f: f32
+body fn widths -> void
+  param _0 x: i32
+  param _1 f: f32
+  param _2 s: str
+  param _3 t: T
+  block
+    call-assoc Formatter::print: void
+      int 0: i32
+      array: [7]str
+        str "": str
+        str " ": str
+        str " ": str
+        str " ": str
+        str " ": str
+        str " ": str
+        str "\n": str
+      array: [6]str
+        str "8": str
+        str "08": str
+        str "8x": str
+        str "08X": str
+        str "10.3": str
+        str "010.3": str
+      array: [6]&Format
+        ref: &i32
+          local _0 x: i32
+        ref: &i32
+          local _0 x: i32
+        ref: &i32
+          local _0 x: i32
+        ref: &i32
+          local _0 x: i32
+        ref: &f32
+          local _1 f: f32
+        ref: &f32
+          local _1 f: f32
+    call-assoc Formatter::print: void
+      int 0: i32
+      array: [5]str
+        str "": str
+        str " ": str
+        str " ": str
+        str " ": str
+        str "\n": str
+      array: [4]str
+        str "12": str
+        str "5": str
+        str "3": str
+        str "6": str
+      array: [4]&Format
+        ref: &str
+          local _2 s: str
+        ref: &bool
+          bool true: bool
+        ref: &char
+          char 'c': char
+        ref: &T
+          local _3 t: T
 body impl#116 method valid -> bool
   param _0 self: Upto
   block

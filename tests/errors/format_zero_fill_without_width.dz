@@ -1,0 +1,9 @@
+// expect: DZ0526
+//
+// The `0` of `{:0N}` fills a width with zeros, so a width must follow it: `{:08x}`, not
+// `{:0x}` (spec §12.9).
+
+fn main() {
+    let flags: u32 = 255
+    println!("{:0x}", flags)
+}
