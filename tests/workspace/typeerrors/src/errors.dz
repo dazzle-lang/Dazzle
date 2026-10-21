@@ -1039,6 +1039,21 @@ fn by_value(a: i32, b: i32) -> bool {
     return a < b
 }
 
+// §5.2: a reference reads as its value under an operator, and the value is still typed.
+fn compares_a_reference_with_text(x: &i32) -> bool {
+    return x == "three"
+}
+
+// §14.4: `Search` needs elements that are `Eq` and `Extend` ones that are `Copy`; a `str`
+// lookup exists only for `String` keys; a set's elements must be `Hash`.
+fn collections_unbounded(xs: &mut List<Plain>, ts: &mut List<Box<i32>>, m: &HashMap<i32, i32>) -> bool {
+    let found = xs.contains(&Plain{ n: 1 })
+    ts.fill(Box<i32>(3))
+    let named = m.get_str("hero") == null
+    let floats = HashSet<f32>()
+    return found && named && floats.is_empty()
+}
+
 // §14.4: a `String`'s characters are decoded, not stored, so a loop cannot write them.
 fn write_through_chars(s: &mut String) {
     for &mut c in s {

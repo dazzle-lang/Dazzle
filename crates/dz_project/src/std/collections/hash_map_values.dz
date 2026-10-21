@@ -1,0 +1,29 @@
+/// Steps through a map's values in slot order, handing out `&V`: `for v in map.values()`.
+pub struct HashMapValues<K: Hash + Eq, V> {
+    m_map: ^HashMap<K, V> = null
+    m_slot: usize = 0
+
+    HashMapValues(map: &HashMap<K, V>) {
+        m_map = map
+        m_slot = first_entry_from(map, 0)
+    }
+}
+
+impl<K: Hash + Eq, V> Iterate for HashMapValues<K, V> {
+    type Item = &V
+
+    fn valid(&self) -> bool {
+        let map = m_map or return false
+        return m_slot < map.slot_count()
+    }
+
+    fn get(&self) -> &V {
+        let map = m_map or unreachable
+        return map.value_at(m_slot) or unreachable
+    }
+
+    fn advance(&mut self) {
+        let map = m_map or return
+        m_slot = first_entry_from(map, m_slot + 1)
+    }
+}

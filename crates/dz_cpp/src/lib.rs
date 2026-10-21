@@ -1707,6 +1707,13 @@ impl<'a> Emitter<'a> {
                 let ps: Vec<String> = parts.iter().map(m).collect();
                 format!("t{}_{}", parts.len(), ps.join("_"))
             }
+            // Spelled out like a tuple: two function types as arguments — `HashMap`'s and
+            // `HashSet`'s `retain_with` — once shared the fallback name and so one instance.
+            Ty::Fn { params, ret } => {
+                let ps: Vec<String> = params.iter().map(m).collect();
+                format!("f{}_{}_{}", params.len(), ps.join("_"), m(ret))
+            }
+            Ty::Range(elem) => format!("rg_{}", m(elem)),
             Ty::Named { sym, args } => {
                 let s = self.res.symbol(*sym);
                 // An imported type is named by its C++ path, which is unique across the
@@ -4966,6 +4973,10 @@ impl<'a> Emitter<'a> {
             // `typeinfo(id)` reads the table codegen writes (spec §13.1).
             "typeinfo" => self.typeinfo_by_id(&rendered[0]),
             "memcpy" => format!("::memcpy({}, {}, {})", rendered[0], rendered[1], rendered[2]),
+            // The ranges may overlap: what shifts a list's tail by one slot (spec §14.3).
+            "memmove" => {
+                format!("::memmove({}, {}, {})", rendered[0], rendered[1], rendered[2])
+            }
             // The optimiser barrier a benchmark needs (spec §19 M15).
             "blackbox" => format!("::dz::blackbox({})", rendered[0]),
             // What `panic!` lowers to: its message, already written, and where the panic says
@@ -5567,21 +5578,31 @@ fn is_cpp_reserved(name: &str) -> bool {
             | "alignas"
             | "alignof"
             | "and"
+            | "and_eq"
             | "asm"
             | "auto"
             | "bitand"
             | "bitor"
+            | "bool"
             | "catch"
+            | "char"
+            | "char8_t"
+            | "char16_t"
+            | "char32_t"
             | "class"
             | "compl"
             | "concept"
+            | "consteval"
             | "constexpr"
+            | "constinit"
             | "const_cast"
             | "co_await"
             | "co_return"
             | "co_yield"
             | "decltype"
+            | "default"
             | "delete"
+            | "do"
             | "double"
             | "dynamic_cast"
             | "explicit"
@@ -5598,9 +5619,11 @@ fn is_cpp_reserved(name: &str) -> bool {
             | "new"
             | "noexcept"
             | "not"
+            | "not_eq"
             | "nullptr"
             | "operator"
             | "or"
+            | "or_eq"
             | "private"
             | "protected"
             | "public"
@@ -5628,9 +5651,11 @@ fn is_cpp_reserved(name: &str) -> bool {
             | "unsigned"
             | "using"
             | "virtual"
+            | "void"
             | "volatile"
             | "wchar_t"
             | "xor"
+            | "xor_eq"
     )
 }
 

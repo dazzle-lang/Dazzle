@@ -1281,160 +1281,200 @@ error[DZ0501]: expected `fn(&i32, &i32) -> bool`, found `fn(i32, i32) -> bool`
 1035 │     ys.sort_by(by_value)
      │                ^^^^^^^^ this is `fn(i32, i32) -> bool`
 
-error[DZ0507]: `String` can be looped over, but not written through
-     ┌─ typeerrors/src/errors.dz:1044:19
+error[DZ0514]: cannot compare `i32` with `str`
+     ┌─ typeerrors/src/errors.dz:1044:12
      │
-1044 │     for &mut c in s {
+1044 │     return x == "three"
+     │            ^^^^^^^^^^^^ operands have different types
+     │
+     = help: Dazzle has no implicit conversions (spec §5.1) — cast one side
+
+error[DZ0531]: `List<Plain>` has `contains` only when `Plain` implements `Eq`
+     ┌─ typeerrors/src/errors.dz:1050:20
+     │
+1050 │     let found = xs.contains(&Plain{ n: 1 })
+     │                    ^^^^^^^^ `Plain` does not implement `Eq`
+     │
+     = help: `contains` comes from `Search`, implemented for `List<Plain>` when its argument is `Eq`: implement `Eq` for `Plain` (spec §7.6)
+
+error[DZ0531]: `List<Box<i32>>` has `fill` only when `Box<i32>` implements `Copy`
+     ┌─ typeerrors/src/errors.dz:1051:8
+     │
+1051 │     ts.fill(Box<i32>(3))
+     │        ^^^^ `Box<i32>` does not implement `Copy`
+     │
+     = help: `fill` comes from `Extend`, implemented for `List<Box<i32>>` when its argument is `Copy`: implement `Copy` for `Box<i32>` (spec §7.6)
+
+error[DZ0520]: `HashMap<i32, i32>` has no method `get_str`
+     ┌─ typeerrors/src/errors.dz:1052:19
+     │
+1052 │     let named = m.get_str("hero") == null
+     │                   ^^^^^^^ unknown method
+     │
+     = help: `get_str` comes from `StrKeys`, which is implemented for `HashMap<String, V>` and not for this type (spec §7.6)
+
+error[DZ0531]: `f32` does not implement `Hash`
+     ┌─ typeerrors/src/errors.dz:1053:18
+     │
+1053 │     let floats = HashSet<f32>()
+     │                  ^^^^^^^^^^^^^^ `T` is bounded by `Hash`
+     │
+     = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)
+
+error[DZ0507]: `String` can be looped over, but not written through
+     ┌─ typeerrors/src/errors.dz:1059:19
+     │
+1059 │     for &mut c in s {
      │                   ^ implements `Iterable`, not `IterableMut`
      │
      = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
 
 error[DZ0502]: `300` does not fit in `u8`
-     ┌─ typeerrors/src/errors.dz:1051:12
+     ┌─ typeerrors/src/errors.dz:1066:12
      │
-1051 │     return 300u8
+1066 │     return 300u8
      │            ^^^^^ outside the range of `u8`
      │
      = help: valid values are 0 to 255
 
 error[DZ0501]: expected `u16`, found `u8`
-     ┌─ typeerrors/src/errors.dz:1055:12
+     ┌─ typeerrors/src/errors.dz:1070:12
      │
-1055 │     return 5u8
+1070 │     return 5u8
      │            ^^^ this is `u8`
      │
      = help: Dazzle has no implicit numeric conversions, not even widening (spec §5.1) — write `... as u16`
 
 error[DZ0531]: `bool` does not implement `Number`
-     ┌─ typeerrors/src/errors.dz:1060:12
+     ┌─ typeerrors/src/errors.dz:1075:12
      │
-1060 │     return Random::range(false, true)
+1075 │     return Random::range(false, true)
      │            ^^^^^^^^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Number`
      │
      = help: `bool` is built in, and implements only what the language gives it; wrap it in a struct that implements `Number` (spec §7.6)
 
 error[DZ0510]: fallible call not consumed
-     ┌─ typeerrors/src/errors.dz:1066:5
+     ┌─ typeerrors/src/errors.dz:1081:5
      │
-1066 │     File::remove(p)
+1081 │     File::remove(p)
      │     ^^^^^^^^^^^^^^^ this may fail, and the failure is discarded
      │
      = help: add an `or` clause: `or return` to propagate, `or <value>` to fall back, or `or ignore` to drop it deliberately (spec §9.7)
 
 error[DZ0501]: expected `[]mut u8`, found `[]u8`
-     ┌─ typeerrors/src/errors.dz:1069:20
+     ┌─ typeerrors/src/errors.dz:1084:20
      │
-1069 │     let _ = f.read(buf[..]) or return
+1084 │     let _ = f.read(buf[..]) or return
      │                    ^^^^^^^ this is `[]u8`
 
 error[DZ0531]: `-` cannot be applied to `Plain`
-     ┌─ typeerrors/src/errors.dz:1074:12
+     ┌─ typeerrors/src/errors.dz:1089:12
      │
-1074 │     return -p
+1089 │     return -p
      │            ^^ `Plain` does not implement `Neg`
      │
      = help: operators are traits (spec §11.2) — implement it: `impl Neg for Plain { … }`
 
 error[DZ0502]: `-129` does not fit in `i8`
-     ┌─ typeerrors/src/errors.dz:1078:12
+     ┌─ typeerrors/src/errors.dz:1093:12
      │
-1078 │     return -129
+1093 │     return -129
      │            ^^^^ outside the range of `i8`
      │
      = help: valid values are -128 to 127
 
 error[DZ0507]: `Readings` can be looped over, but not written through
-     ┌─ typeerrors/src/errors.dz:1096:19
+     ┌─ typeerrors/src/errors.dz:1111:19
      │
-1096 │     for &mut v in r {
+1111 │     for &mut v in r {
      │                   ^ implements `Iterable`, not `IterableMut`
      │
      = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
 
 error[DZ0507]: cannot refer to these elements with `&mut`
-     ┌─ typeerrors/src/errors.dz:1102:19
+     ┌─ typeerrors/src/errors.dz:1117:19
      │
-1102 │     for &mut x in xs {
+1117 │     for &mut x in xs {
      │                   ^^ the container is read-only here
      │
      = help: declare it `let mut`, or pass it as `&mut` (spec §10.4)
 
 error[DZ0501]: expected `i32`, found `i32?`
-     ┌─ typeerrors/src/errors.dz:1110:18
+     ┌─ typeerrors/src/errors.dz:1125:18
      │
-1110 │     let n: i32 = o
+1125 │     let n: i32 = o
      │                  ^ this is `i32?`
 
 error[DZ0521]: `none` needs an optional type here
-     ┌─ typeerrors/src/errors.dz:1115:24
+     ┌─ typeerrors/src/errors.dz:1130:24
      │
-1115 │     let x = if alive { none } else { none }
+1130 │     let x = if alive { none } else { none }
      │                        ^^^^ nothing here expects a `T?`
      │
      = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0521]: `none` needs an optional type here
-     ┌─ typeerrors/src/errors.dz:1115:38
+     ┌─ typeerrors/src/errors.dz:1130:38
      │
-1115 │     let x = if alive { none } else { none }
+1130 │     let x = if alive { none } else { none }
      │                                      ^^^^ nothing here expects a `T?`
      │
      = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0514]: `+` cannot be applied to `Layer`
-     ┌─ typeerrors/src/errors.dz:1120:12
+     ┌─ typeerrors/src/errors.dz:1135:12
      │
-1120 │     return l + l == l
+1135 │     return l + l == l
      │            ^ not a numeric type
 
 error[DZ0531]: `f32` does not implement `Hash`
-     ┌─ typeerrors/src/errors.dz:1125:13
+     ┌─ typeerrors/src/errors.dz:1140:13
      │
-1125 │     let m = HashMap<f32, i32>()
+1140 │     let m = HashMap<f32, i32>()
      │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
      │
      = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)
 
 error[DZ0504]: `typeinfo_of` takes one type and no arguments
-     ┌─ typeerrors/src/errors.dz:1132:13
+     ┌─ typeerrors/src/errors.dz:1147:13
      │
-1132 │     let a = typeinfo_of<i32>(1)
+1147 │     let a = typeinfo_of<i32>(1)
      │             ^^^^^^^^^^^^^^^^^^^ not the form this call has
      │
      = help: write `typeinfo_of<T>()` (spec §13.1)
 
 error[DZ0501]: expected `TypeId`, found `{integer}`
-     ┌─ typeerrors/src/errors.dz:1133:22
+     ┌─ typeerrors/src/errors.dz:1148:22
      │
-1133 │     let b = typeinfo(3)
+1148 │     let b = typeinfo(3)
      │                      ^ this is `{integer}`
 
 error[DZ0559]: a union cannot declare a method named `kind`
-     ┌─ typeerrors/src/errors.dz:1142:12
+     ┌─ typeerrors/src/errors.dz:1157:12
      │
-1142 │     pub fn kind(&self) -> i32 {
+1157 │     pub fn kind(&self) -> i32 {
      │            ^^^^ every union already has `kind()`
      │
      = help: `s.kind()` names the active variant (spec §7.5); choose another name
 
 error[DZ0559]: a union's method cannot be `virtual` or `override`
-     ┌─ typeerrors/src/errors.dz:1146:16
+     ┌─ typeerrors/src/errors.dz:1161:16
      │
-1146 │     virtual fn turn(&self) {}
+1161 │     virtual fn turn(&self) {}
      │                ^^^^ nothing inherits from a union
      │
      = help: remove `virtual` / `override` (spec §7.3, §7.5)
 
 error[DZ0507]: cannot assign to `self`
-     ┌─ typeerrors/src/errors.dz:1149:9
+     ┌─ typeerrors/src/errors.dz:1164:9
      │
-1149 │         self = .Low{}
+1164 │         self = .Low{}
      │         ^^^^ not mutable
      │
      = help: declare it as `let mut self` to allow assignment
 
 error[DZ0520]: `Dial` has no method `spin`
-     ┌─ typeerrors/src/errors.dz:1154:7
+     ┌─ typeerrors/src/errors.dz:1169:7
      │
-1154 │     d.spin()
+1169 │     d.spin()
      │       ^^^^ unknown method

@@ -1,0 +1,11 @@
+// expect: DZ0528, DZ0507
+//
+// `memmove` writes raw memory, as `memcpy` does (spec §14.3): it needs `unsafe`, and its
+// destination must be a pointer that may be written through.
+
+fn shift(dst: ^mut u8, src: ^u8, n: usize) {
+    memmove(dst, src, n)
+    unsafe { memmove(src, dst, n) }
+}
+
+fn main() {}

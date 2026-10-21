@@ -43,6 +43,37 @@ pub struct List<T> {
         return unsafe { m_data[0..m_len] }
     }
 
+    /// The first element, or `null` when the list is empty: `let top = stack.first() or
+    /// return`.
+    pub fn first(&self) -> ^T {
+        if m_len == 0 {
+            return null
+        }
+        return unsafe { &m_data[0] }
+    }
+
+    pub fn first_mut(&mut self) -> ^mut T {
+        if m_len == 0 {
+            return null
+        }
+        return unsafe { &mut m_data[0] }
+    }
+
+    /// The last element, or `null` when the list is empty.
+    pub fn last(&self) -> ^T {
+        if m_len == 0 {
+            return null
+        }
+        return unsafe { &m_data[m_len - 1] }
+    }
+
+    pub fn last_mut(&mut self) -> ^mut T {
+        if m_len == 0 {
+            return null
+        }
+        return unsafe { &mut m_data[m_len - 1] }
+    }
+
     /// Add `v` at the end, growing when there is no room.
     pub fn push(&mut self, v: T, loc: SourceLocation = #location) {
         if m_len == m_cap {
@@ -69,11 +100,7 @@ pub struct List<T> {
         if m_len == m_cap {
             self.grow_to(m_len + 1, loc)
         }
-        let mut j = m_len
-        while j > i {
-            unsafe { construct(m_data[j], move_out(m_data[j - 1])) }
-            j -= 1
-        }
+        self.shift_up(i, 1)
         unsafe { construct(m_data[i], move(v)) }
         m_len += 1
     }
@@ -84,13 +111,117 @@ pub struct List<T> {
             panic!("List::remove at {} for a length of {}", i, m_len)
         }
         let v = unsafe { move_out(m_data[i]) }
-        let mut j = i
-        while j + 1 < m_len {
-            unsafe { construct(m_data[j], move_out(m_data[j + 1])) }
-            j += 1
-        }
+        self.shift_down(i + 1, 1)
         m_len -= 1
         return move(v)
+    }
+
+    /// Drop the elements `from..to`, moving the ones after them down. Panics when the range
+    /// is backwards or runs past the length.
+    pub fn remove_range(&mut self, from: usize, to: usize) {
+        if from > to || to > m_len {
+            panic!("List::remove_range of {}..{} for a length of {}", from, to, m_len)
+        }
+        if from == to {
+            return
+        }
+        for i in from..to {
+            unsafe { destroy(m_data[i]) }
+        }
+        self.shift_down(to, to - from)
+        m_len -= to - from
+    }
+
+    /// Keep only the elements `keep` says yes to, in their order, and drop the rest:
+    /// `particles.retain(is_alive)`. Each element is asked once.
+    pub fn retain(&mut self, keep: fn(&T) -> bool) {
+        let mut kept: usize = 0
+        for i in 0..m_len {
+            if keep(unsafe { &m_data[i] }) {
+                if kept != i {
+                    unsafe { construct(m_data[kept], move_out(m_data[i])) }
+                }
+                kept += 1
+            } else {
+                unsafe { destroy(m_data[i]) }
+            }
+        }
+        m_len = kept
+    }
+
+    /// Move every element of `other` onto the end, in order, leaving `other` empty with its
+    /// allocation kept.
+    pub fn append(&mut self, other: &mut List<T>, loc: SourceLocation = #location) {
+        let n = other.m_len
+        if n == 0 {
+            return
+        }
+        self.reserve(n, loc)
+        if T::is_trivially_copyable {
+            unsafe { memcpy(&mut m_data[m_len], &other.m_data[0], n * sizeof(T)) }
+        } else {
+            for i in 0..n {
+                unsafe { construct(m_data[m_len + i], move_out(other.m_data[i])) }
+            }
+        }
+        m_len += n
+        other.m_len = 0
+    }
+
+    /// Put the elements in the opposite order.
+    pub fn reverse(&mut self) {
+        if m_len < 2 {
+            return
+        }
+        let mut i: usize = 0
+        let mut j = m_len - 1
+        while i < j {
+            self.swap(i, j)
+            i += 1
+            j -= 1
+        }
+    }
+
+    /// Give the room past the last element back to the allocator; an empty list holds no
+    /// memory afterwards.
+    pub fn shrink_to_fit(&mut self, loc: SourceLocation = #location) {
+        if m_cap == m_len {
+            return
+        }
+        self.move_to(m_len, loc)
+    }
+
+    /// Open a gap of `n` slots at `at` by moving the elements from `at` on up; the gap is
+    /// left raw. There must be room.
+    fn shift_up(&mut self, at: usize, n: usize) {
+        if at >= m_len {
+            return
+        }
+        if T::is_trivially_copyable {
+            // Bytes can move anywhere, so the whole tail goes in one overlapping copy.
+            unsafe { memmove(&mut m_data[at + n], &m_data[at], (m_len - at) * sizeof(T)) }
+            return
+        }
+        let mut j = m_len
+        while j > at {
+            j -= 1
+            unsafe { construct(m_data[j + n], move_out(m_data[j])) }
+        }
+    }
+
+    /// Close the `n` raw slots just before `from` by moving the elements from `from` on
+    /// down. The length is the caller's to change.
+    fn shift_down(&mut self, from: usize, n: usize) {
+        if from >= m_len {
+            return
+        }
+        if T::is_trivially_copyable {
+            unsafe { memmove(&mut m_data[from - n], &m_data[from], (m_len - from) * sizeof(T)) }
+            return
+        }
+        for j in from..m_len {
+            unsafe { construct(m_data[j - n], move_out(m_data[j])) }
+        }
     }
 
     /// Take the element at `i` out and put the last one in its place: no shifting, and the
@@ -204,10 +335,20 @@ pub struct List<T> {
     /// costs amortised constant time — with the elements moved into it.
     fn grow_to(&mut self, wanted: usize, loc: SourceLocation) {
         let doubled = if m_cap == 0 { 8 } else { m_cap * 2 }
-        let cap = if wanted > doubled { wanted } else { doubled }
+        self.move_to(if wanted > doubled { wanted } else { doubled }, loc)
+    }
+
+    /// A new allocation of exactly `cap` elements, at least the length, with the elements
+    /// moved into it; none at all when `cap` is zero.
+    fn move_to(&mut self, cap: usize, loc: SourceLocation) {
         let a = m_allocator or panic!("a List with no allocator cannot grow")
-        if T::is_trivially_copyable {
-            // Bytes can move anywhere, so the allocator may grow the memory in place.
+        if cap == 0 {
+            if m_data != null {
+                a.free(unsafe { m_data as ^mut u8 }, m_cap * sizeof(T), alignof(T), loc)
+            }
+            m_data = null
+        } else if T::is_trivially_copyable {
+            // Bytes can move anywhere, so the allocator may resize the memory in place.
             let old = unsafe { m_data as ^mut u8 }
             m_data = unsafe { a.realloc(old, m_cap * sizeof(T), cap * sizeof(T), alignof(T), loc) as ^mut T }
         } else {
@@ -252,6 +393,32 @@ impl<T: Copy> Copy for List<T> {
             unsafe { construct(m_data[i], other.m_data[i]) }
         }
         m_len = other.m_len
+    }
+}
+
+/// The same length and equal elements in the same order.
+impl<T: Eq> Eq for List<T> {
+    fn eq(&self, rhs: &List<T>) -> bool {
+        if m_len != rhs.m_len {
+            return false
+        }
+        for i in 0..m_len {
+            if unsafe { m_data[i] != rhs.m_data[i] } {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+/// The elements' hashes combined in order, so a list of grid cells can key a `HashMap`.
+impl<T: Hash> Hash for List<T> {
+    fn hash(&self) -> u64 {
+        let mut h = m_len.hash()
+        for i in 0..m_len {
+            h = hash_combine(h, unsafe { m_data[i].hash() })
+        }
+        return h
     }
 }
 

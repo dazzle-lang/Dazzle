@@ -1,0 +1,46 @@
+// Spec §6.5: a temporary is dropped at the end of its statement, so a view into one — a
+// `str`, `cstr`, slice, reference or pointer taken from it — may be passed on within the
+// statement but not kept by a `let`, an assignment or a `return`.
+// expect: DZ0407, DZ0407, DZ0407, DZ0407, DZ0407
+
+struct Named {
+    pub name: String
+
+    Named() {
+        name = String("x")
+    }
+}
+
+fn make() -> String {
+    return String("made")
+}
+
+fn words() -> List<String> {
+    let mut l = List<String>()
+    l.push(String("w"))
+    return l
+}
+
+fn returned() -> str {
+    return make().as_str()
+}
+
+fn takes(c: cstr) -> usize {
+    return (c as str).len
+}
+
+fn main() {
+    let c = String::from("hero").as_cstr()
+    let w = words()[0].as_str()
+    let f = Named().name.as_str()
+    let mut later = "x"
+    later = make().as_str()
+
+    // Fine: passed on within the statement, bound first, or owning.
+    let n = takes(String::from("hero").as_cstr())
+    let owned = String::from("hero")
+    let kept = owned.as_cstr()
+    let len = make().len()
+    let joined = Path("a") / "b"
+    println!("{} {} {} {} {} {} {} {}", takes(c), w, f, later, n, takes(kept), len, joined.as_str())
+}

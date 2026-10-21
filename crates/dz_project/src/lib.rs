@@ -575,16 +575,27 @@ pub const STD_MODULE: &str = "std";
 /// names nothing on disk — and its text. Folders are organisation only, as in any project
 /// (§3.1). A test holds this list to the files under `src/std`.
 pub const STD_SOURCES: &[(&str, &str)] = &[
+    ("<std>/collections/extend.dz", include_str!("std/collections/extend.dz")),
     ("<std>/collections/hash_map.dz", include_str!("std/collections/hash_map.dz")),
     ("<std>/collections/hash_map_iter.dz", include_str!("std/collections/hash_map_iter.dz")),
     (
         "<std>/collections/hash_map_iter_mut.dz",
         include_str!("std/collections/hash_map_iter_mut.dz"),
     ),
+    ("<std>/collections/hash_map_keys.dz", include_str!("std/collections/hash_map_keys.dz")),
+    ("<std>/collections/hash_map_values.dz", include_str!("std/collections/hash_map_values.dz")),
+    (
+        "<std>/collections/hash_map_values_mut.dz",
+        include_str!("std/collections/hash_map_values_mut.dz"),
+    ),
+    ("<std>/collections/hash_set.dz", include_str!("std/collections/hash_set.dz")),
     ("<std>/collections/list.dz", include_str!("std/collections/list.dz")),
+    ("<std>/collections/search.dz", include_str!("std/collections/search.dz")),
     ("<std>/collections/slice_iter.dz", include_str!("std/collections/slice_iter.dz")),
     ("<std>/collections/sort.dz", include_str!("std/collections/sort.dz")),
     ("<std>/collections/slice_iter_mut.dz", include_str!("std/collections/slice_iter_mut.dz")),
+    ("<std>/collections/str_keys.dz", include_str!("std/collections/str_keys.dz")),
+    ("<std>/collections/str_set.dz", include_str!("std/collections/str_set.dz")),
     ("<std>/core/assert.dz", include_str!("std/core/assert.dz")),
     ("<std>/core/format.dz", include_str!("std/core/format.dz")),
     ("<std>/core/formatter.dz", include_str!("std/core/formatter.dz")),
@@ -633,6 +644,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/reflect/variant_info.dz", include_str!("std/reflect/variant_info.dz")),
     ("<std>/reflect/visibility.dz", include_str!("std/reflect/visibility.dz")),
     ("<std>/text/chars.dz", include_str!("std/text/chars.dz")),
+    ("<std>/text/join.dz", include_str!("std/text/join.dz")),
     ("<std>/text/string.dz", include_str!("std/text/string.dz")),
     ("<std>/text/text.dz", include_str!("std/text/text.dz")),
     ("<std>/time/duration.dz", include_str!("std/time/duration.dz")),

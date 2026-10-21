@@ -309,9 +309,6 @@ impl TypeTable {
         self.copy_impls.get(&sym).copied()
     }
 
-    /// Does `imp` apply to `ty`, and with what for its parameters? `impl<T: Copy> Copy for
-    /// Buffer<T>` applies to `Buffer<f32>` with `T = f32`, and not to `Buffer<File>`,
-    /// whose argument fails the bound.
     /// An implementation that would give `ty` a method `method` but for a bound its
     /// arguments do not meet — `impl<T: Ord> Sort for List<T>` asked about `List<Plain>` —
     /// as the trait, the argument, and the bound it lacks. So "no method `sort`" can say why.
@@ -343,6 +340,26 @@ impl TypeTable {
         None
     }
 
+    /// An implementation giving another instance of `ty`'s generic type a method `method`
+    /// — `impl<V> StrKeys<V> for HashMap<String, V>` asked about `HashMap<i32, i32>` — as
+    /// the trait and the type it is implemented for. So "no method `get_str`" can say which
+    /// instances have one.
+    pub fn impl_for_other_instance(&self, ty: &Ty, method: &str) -> Option<(SymbolId, Ty)> {
+        let Ty::Named { sym, .. } = ty else { return None };
+        self.impls().iter().find_map(|imp| {
+            let same_type = matches!(&imp.self_ty, Ty::Named { sym: s, .. } if s == sym);
+            let provides = imp.methods.contains_key(method)
+                || self
+                    .struct_sig(imp.trait_ref.trait_sym)
+                    .and_then(|s| s.methods.get(method))
+                    .is_some_and(|m| m.has_body);
+            (same_type && provides).then(|| (imp.trait_ref.trait_sym, imp.self_ty.clone()))
+        })
+    }
+
+    /// Does `imp` apply to `ty`, and with what for its parameters? `impl<T: Copy> Copy for
+    /// Buffer<T>` applies to `Buffer<f32>` with `T = f32`, and not to `Buffer<File>`,
+    /// whose argument fails the bound.
     pub fn impl_applies(&self, imp: &ImplSig, ty: &Ty) -> Option<HashMap<u32, Ty>> {
         let params: Vec<u32> = imp.generics.iter().map(|g| g.param.id).collect();
         let mut map = HashMap::new();

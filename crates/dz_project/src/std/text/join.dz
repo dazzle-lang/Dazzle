@@ -1,0 +1,38 @@
+/// Pieces of text written one after another with a separator between them, into a new
+/// `String`: `names.join(", ")` (spec §14.4). Implemented for a slice of `str` and for a
+/// `List` of `str` or of `String`.
+pub trait Join {
+    fn join(&self, separator: str) -> String
+}
+
+impl Join for []str {
+    fn join(&self, separator: str) -> String {
+        let mut out = String()
+        for i in 0..self.len {
+            if i > 0 {
+                out.push_str(separator)
+            }
+            out.push_str(self[i])
+        }
+        return out
+    }
+}
+
+impl Join for List<str> {
+    fn join(&self, separator: str) -> String {
+        return self.as_slice().join(separator)
+    }
+}
+
+impl Join for List<String> {
+    fn join(&self, separator: str) -> String {
+        let mut out = String()
+        for i in 0..self.len() {
+            if i > 0 {
+                out.push_str(separator)
+            }
+            out.push_str(self[i].as_str())
+        }
+        return out
+    }
+}
