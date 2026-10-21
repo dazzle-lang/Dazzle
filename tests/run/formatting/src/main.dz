@@ -113,6 +113,49 @@ fn main() {
     let w = format!("{:.1}", 2.25, allocator = Allocators::Temp)
     println!("{} {} {}", got, plain, w)
     Allocators::Temp.reset()
+
+    // Widths: a number right-aligned, with zeros after its sign for `{:0N}`, in hex and
+    // with a precision too; anything else left-aligned, counted in characters; nothing cut.
+    println!("[{:6}] [{:06}] [{:06}] [{:8x}] [{:08X}]", 1250, 42, -42, 255, 48879)
+    println!("[{:8.2}] [{:08.2}] [{:3}] [{:2}] [{:06}]", 3.14159, -2.5, 12345, 'é', -0.5)
+    let word = format!("héllo")
+    println!("{}", format!("[{:6}] [{:7}] [{:7}] [{:3}]", "ab", true, word, "longer").as_str())
+
+    // A type's own `Format` is padded as a whole, the numbers inside it left as they are —
+    // a number first, then more, included — and through a type parameter the same.
+    println!("[{:12}] [{:8x}] [{:8}]", v, Id{ n: 255 }, Meters{ m: 2.5 })
+    padded(7)
+    padded(Meters{ m: 1.0 })
+
+    // `error(…)` formats its message without `Format`, and pads the same way.
+    let fallback = checked(-7) or { e ->
+        println!("{}", e.message)
+        0
+    }
+    println!("{}", fallback)
+}
+
+/// A number then a unit: under a width, the whole of it is padded, not the number.
+struct Meters {
+    pub m: f32
+}
+
+impl Format for Meters {
+    fn format(&self, f: &mut Formatter) {
+        self.m.format(f)
+        f.write_str("m")
+    }
+}
+
+fn padded<T: Format>(x: T) {
+    println!("[{:6}]", x)
+}
+
+fn checked(n: i32) !-> i32 {
+    if n < 0 {
+        return error("[{:5}] [{:05}] [{:4}] [{:08.3}]", n, n, "ab", 1.5)
+    }
+    return n
 }
 
 fn show<T: Format>(x: T) {

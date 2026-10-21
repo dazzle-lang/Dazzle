@@ -418,6 +418,11 @@ fn format_spec_does_not_fit(f: f32) {
     println!("{:x}", f)
 }
 
+// §12.9: a zero fill suits only a number.
+fn format_zero_fill_does_not_fit(s: str) {
+    println!("{:08}", s)
+}
+
 fn format_not_a_literal(s: str) {
     println!(s)
 }

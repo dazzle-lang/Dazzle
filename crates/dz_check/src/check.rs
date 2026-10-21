@@ -5978,8 +5978,9 @@ impl<'a, 'c> Body<'a, 'c> {
             here,
             format!("`{{:{spec}}}` does not suit `{shown}`"),
             why,
-            "`{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals \
-             (spec §12.9)",
+            "`{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals; \
+             `{:N}` pads anything to N characters, and `{:0N}` a number with zeros, as in \
+             `{:08x}` (spec §12.9)",
         );
         false
     }
@@ -8061,8 +8062,28 @@ fn formattable(t: &Ty) -> bool {
 }
 
 /// Does a `{:spec}` suit its argument? `Err` carries the label for the diagnostic.
+///
+/// A spec is an optional width — `N`, or `0N` to fill a number with zeros — then what the
+/// value is written as: nothing, `x`/`X`, or `.N`. A width suits anything.
 fn spec_fits(spec: &str, t: &Ty) -> Result<(), &'static str> {
     let t = t.peeled();
+    let zero = spec.len() > 1 && spec.starts_with('0');
+    let after_zero = &spec[usize::from(zero)..];
+    let digits = after_zero.bytes().take_while(u8::is_ascii_digit).count();
+    let (width, spec) = after_zero.split_at(digits);
+    if zero && width.is_empty() {
+        return Err("a zero fill needs a width after it");
+    }
+    if !width.is_empty() {
+        match width.parse::<u32>() {
+            Ok(0) => return Err("a width of zero pads nothing"),
+            Ok(_) => {}
+            Err(_) => return Err("too wide to be a width"),
+        }
+    }
+    if zero && !matches!(t, Ty::Int(_) | Ty::Float(_)) {
+        return Err("a zero fill needs a number");
+    }
     match spec {
         "" => Ok(()),
         "x" | "X" if matches!(t, Ty::Int(_)) => Ok(()),

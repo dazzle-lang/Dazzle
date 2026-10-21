@@ -356,6 +356,7 @@ builds a `String`; `panic!` aborts with the text (§9.8):
 println!("player {} has {} hp", name, hp)
 println!("{:.2}", elapsed)          // 2 decimal places
 println!("{:x}", flags)             // hex
+println!("{:6} {:08x}", score, id)  // 6 columns; 8 hex digits, zero-filled
 println!("{{literal braces}}")
 ```
 
@@ -373,7 +374,23 @@ The spec set is deliberately small, and each one names the kind of value it suit
 | `{}` | the value, in its natural form | anything formattable |
 | `{:x}` / `{:X}` | hex, lower / upper case | integers |
 | `{:.N}` | `N` digits after the point | floats |
+| `{:N}` | at least `N` characters, padded with spaces | anything formattable |
+| `{:0N}` | at least `N` characters, padded with zeros after the sign | numbers |
 | `{{` / `}}` | a literal brace | — |
+
+**A width comes first and combines with the rest**: `{:8x}`, `{:08X}`, `{:10.3}`,
+`{:010.3}`. It is a least, never a most — a value longer than its width is written whole —
+and it counts characters, not bytes, so `{:6}` lines up `"héllo"` with `"hello"`. A number
+is right-aligned in it and anything else left-aligned, which is what a column of names and
+scores wants:
+
+```dz
+println!("{:10}{:6}", "ada", 1250)      // "ada         1250"
+println!("{:06} {:05.1}", -42, 2.25)    // "-00042 002.2"
+```
+
+A width of `0` is an error, as is a `0` with no width after it (`{:0x}`). Alignment of one's
+own choosing (`{:<8}`, `{:>8}`) is not part of the set.
 
 **The arguments are evaluated as a call's are** (§7.2): left to right, all of them before
 anything is written, and a temporary one of them makes lives until the text is written. An
@@ -412,9 +429,12 @@ println!("at {}", player.position)
 ```
 
 A `Formatter` takes text with `write_str` and `write_char`, and says what the placeholder
-asked for: `hex()` and `upper()` for `{:x}`/`{:X}`, `precision()` for `{:.N}`. On the
-built-in kinds a spec must suit the value, as in the table above; on a type with its own
-`Format` it is that implementation's to interpret. `Formatter::string(&mut text)` appends
+asked for: `hex()` and `upper()` for `{:x}`/`{:X}`, `precision()` for `{:.N}`, `width()`
+and `fill()` for `{:N}`/`{:0N}`. On the built-in kinds a spec must suit the value, as in the
+table above; on a type with its own `Format` it is that implementation's to interpret —
+except the width, which needs no help: the value is padded as a whole, after whatever it
+wrote, so `{:12}` puts `(1.5, -2)` in twelve columns and leaves the numbers inside it as
+they are. `Formatter::string(&mut text)` appends
 to a `String`, and `Formatter::stdout()` and `Formatter::stderr()` write to a stream, for
 code that formats a value without a format string.
 
