@@ -213,6 +213,7 @@ struct Res<void> {
 // --- tuples (spec §5.4) ---------------------------------------------------
 
 template <class... Ts> struct Tuple;
+template <> struct Tuple<> {};
 template <class A> struct Tuple<A> { A v0; };
 template <class A, class B> struct Tuple<A, B> { A v0; B v1; };
 template <class A, class B, class C> struct Tuple<A, B, C> { A v0; B v1; C v2; };

@@ -2,7 +2,8 @@
 id: T-0006
 title: A `cstr` from a runtime `str`
 milestone: M12
-status: open
+status: done
+done: r67, 2026-10-21
 kind: feature
 area: text
 ---
@@ -61,3 +62,5 @@ formatting macro's arguments, and worth deciding once for both.
 name or a label wants a `cstr`. Literals cover the demos; the moment a name comes from a
 level file, a directory listing or a config, there is no way to call that API at all. It is
 the most likely thing to stop a real game using a C library.
+
+**Done in r67** (D-0081), as the user chose: no new type. `let owned = String::from(name)` then `owned.as_cstr()` is the documented way (§5.3, §14.4), and `String::from(name).as_cstr()` passed straight to a call is fine, since the temporary lives to the end of the statement. Not diagnosed: a `cstr` bound by `let` from a temporary `String` dangles. That is one case of a general hole — any view taken from a temporary owner and bound by `let` — and is its own task, [T-0078](T-0078-view-temporary-owner-bound-by-let.md).

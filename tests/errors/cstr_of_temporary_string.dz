@@ -1,0 +1,15 @@
+// expect: DZ0407
+//
+// The `String` built here is dropped when the `let` ends, so `c` would point at freed
+// bytes by the time C reads them. Bind the `String` first: `let owned = String::from(name)`,
+// then `owned.as_cstr()` (spec §6.5, §14.4).
+
+fn text_len(c: cstr) -> usize {
+    return (c as str).len
+}
+
+fn main() {
+    let name: str = "hero"
+    let c = String::from(name).as_cstr()
+    println!("{}", text_len(c))
+}

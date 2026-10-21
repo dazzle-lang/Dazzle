@@ -1,0 +1,43 @@
+/// Copying elements into a `List` of anything `Copy`: `xs.extend(more)`, `xs.insert_slice(i,
+/// more)` and `xs.fill(v)` (spec §14.4). A trait, as `Sort` is, because a move-only element
+/// cannot be copied out of a slice.
+///
+/// The slice must not be a view of the list itself, which growing would free under it.
+pub trait Extend<T> {
+    /// Copy every element of `xs` onto the end, in order.
+    fn extend(&mut self, xs: []T)
+
+    /// Copy every element of `xs` in at `i`, moving the elements from `i` on up. `i` may be
+    /// `len()`.
+    fn insert_slice(&mut self, i: usize, xs: []T)
+
+    /// Make every element a copy of `v`; the length stays as it is.
+    fn fill(&mut self, v: T)
+}
+
+impl<T: Copy> Extend<T> for List<T> {
+    fn extend(&mut self, xs: []T) {
+        self.insert_slice(m_len, xs)
+    }
+
+    fn insert_slice(&mut self, i: usize, xs: []T) {
+        if i > m_len {
+            panic!("List::insert_slice at {} past the length {}", i, m_len)
+        }
+        if xs.len == 0 {
+            return
+        }
+        self.reserve(xs.len)
+        self.shift_up(i, xs.len)
+        for k in 0..xs.len {
+            unsafe { construct(m_data[i + k], xs[k]) }
+        }
+        m_len += xs.len
+    }
+
+    fn fill(&mut self, v: T) {
+        for i in 0..m_len {
+            unsafe { m_data[i] = v }
+        }
+    }
+}

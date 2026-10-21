@@ -1,0 +1,41 @@
+/// Looking a `HashMap<String, V>` up by a `str`, with no `String` built to do it:
+/// `textures.get_str(name)` (spec §14.4). A `String` hashes as its text, so the `str` finds
+/// the entry its `String` would.
+pub trait StrKeys<V> {
+    /// The value for `key`, or `null` when there is none.
+    fn get_str(&self, key: str) -> ^V
+
+    /// The value for `key`, to change in place, or `null` when there is none.
+    fn get_mut_str(&mut self, key: str) -> ^mut V
+
+    fn contains_str(&self, key: str) -> bool
+
+    /// Take the entry for `key` out, returning its value, or `none` when there is none.
+    fn remove_str(&mut self, key: str) -> V?
+}
+
+impl<V> StrKeys<V> for HashMap<String, V> {
+    fn get_str(&self, key: str) -> ^V {
+        let slot = self.find_by(&key, key_hash(&key), string_is) or return null
+        return unsafe { &m_values[slot] }
+    }
+
+    fn get_mut_str(&mut self, key: str) -> ^mut V {
+        let slot = self.find_by(&key, key_hash(&key), string_is) or return null
+        return unsafe { &mut m_values[slot] }
+    }
+
+    fn contains_str(&self, key: str) -> bool {
+        return self.find_by(&key, key_hash(&key), string_is) != none
+    }
+
+    fn remove_str(&mut self, key: str) -> V? {
+        let slot = self.find_by(&key, key_hash(&key), string_is) or return none
+        return self.remove_slot(slot)
+    }
+}
+
+/// Whether the key `k` is the text `s`.
+fn string_is(k: &String, s: &str) -> bool {
+    return k.as_str() == s
+}

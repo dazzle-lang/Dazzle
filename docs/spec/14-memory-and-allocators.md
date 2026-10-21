@@ -81,16 +81,29 @@ standard library's `TRACK_MEMORY` flag (§12.10), and the tracker does not exist
 
 **`List<T>`** is the growable array, in `std`. `List<i32>()` is empty and allocates
 nothing; `List<T>(capacity, allocator)` takes both. It doubles when it grows; `push`,
-`pop` (a `T?`), `insert`, `remove`, `swap_remove`, `clear`, `truncate`, `resize` (new
-elements at their defaults), `reserve`, `len`, `capacity`, `is_empty`; `b[i]` reads and
-writes, checked against the length; `as_slice()` and `as_mut_slice()` view the elements.
-It is move-only unless `T` is copyable, and then a copy copies into a new allocation from the
-same allocator. Every call that may allocate takes `loc = #location`, so tracking names the
-line that pushed.
+`pop` (a `T?`), `insert`, `remove`, `swap_remove`, `remove_range(from, to)`, `clear`,
+`truncate`, `resize` (new elements at their defaults), `reserve`, `shrink_to_fit`, `len`,
+`capacity`, `is_empty`; `retain(keep)` keeps the elements a `fn(&T) -> bool` says yes to,
+in order, and drops the rest; `append(&mut other)` moves `other`'s elements onto the end;
+`reverse`; `b[i]` reads and writes, checked against the length; `as_slice()` and
+`as_mut_slice()` view the elements; `first()`, `last()`, `first_mut()` and `last_mut()`
+are a `^T`, `null` when the list is empty, as a map's lookup is (§9.1). It is move-only
+unless `T` is copyable, and then a copy copies into a new allocation from the same
+allocator. Every call that may allocate takes `loc = #location`, so tracking names the line
+that pushed.
+
+What needs more of the element than the list does is a trait implemented for `List<T>`
+with that bound, since a method cannot require more of `T` than its type does — as `sort`
+is (§14.4). **`Search<T>`**, for an `Eq` element: `contains(&v)`, and `index_of(&v)`, a
+`usize?`. **`Extend<T>`**, for a `Copy` one: `extend(xs)` and `insert_slice(i, xs)` copy a
+slice in — one that must not be a view of the list itself, which growing would free — and
+`fill(v)` overwrites every element. A list of `Eq` elements is `Eq`, and of `Hash`
+elements `Hash`, so a list can key a map. `[DECIDED — D-0081]`
 
 **`String`** is owned UTF-8 text, in `std`: `String("x")` or `String::from("x")` copy a
 `str`, with an allocator as a second argument. `push_str`, `push` (a `char`, encoded),
-`clear`, `reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
+`insert(at, c)`, `insert_str(at, s)`, `remove(at)` (the character there), `clear`,
+`reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
 `as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
 compares text, and a copy copies it. `format!("…", args)` builds one from a format string,
 taking `allocator = …` by name (§12.9).
@@ -101,12 +114,33 @@ adds or replaces, dropping a replaced value; `replace(k, v)` returns it as a `V?
 A lookup takes the key by reference and follows §9.1 — `get(&k)` is a `^V` and `get_mut(&k)`
 a `^mut V`, `null` when the key is absent, so `let hp = health.get(&id) or return`.
 `remove(&k)` returns the value as a `V?`; `contains`, `len`, `is_empty`, `capacity`,
-`clear`, `reserve`. A loop visits every entry: `for k, &v in m`, or `for k, &mut v in m`
-to change the values (§10.4) — keys stay read-only. By slot works too: `for s in
-0..m.slot_count()` with `m.key_at(s)`, `m.value_at(s)` or `m.value_at_mut(s)`, each `null`
-for an empty slot. It is
+`clear`, `reserve`. `get_or_insert(k, default)` is the value for `k` as a `&mut V`, after
+adding `default` when `k` was not there — counting in one lookup. `retain(keep)` drops the
+entries a `fn(&K, &mut V) -> bool` says no to, asking each once. A loop visits every entry:
+`for k, &v in m`, or `for k, &mut v in m` to change the values (§10.4) — keys stay
+read-only — and `keys()`, `values()` and `values_mut()` visit one side. By slot works too:
+`for s in 0..m.slot_count()` with `m.key_at(s)`, `m.value_at(s)` or `m.value_at_mut(s)`,
+each `null` for an empty slot. The order is the table's, which is no particular one. It is
 move-only unless `K` and `V` are both copyable. Keys are found by linear probing, the table
 doubles at three quarters full, and removal leaves no markers behind.
+
+A map with `String` keys is also looked up by `str`, with no `String` built to do it:
+**`StrKeys<V>`**, implemented for `HashMap<String, V>` alone, gives `get_str`,
+`get_mut_str`, `contains_str` and `remove_str`. A `String` hashes as its text, so the `str`
+finds the entry its `String` would.
+
+```dz
+let n = counts.get_or_insert(word, 0)
+n += 1
+let tex = textures.get_str(name) or return
+```
+
+**`HashSet<T: Hash + Eq>`** holds each value once, in `std`, on the same table as a
+`HashMap`: `HashSet<T>(capacity, allocator)`, `insert(v)` (whether `v` was new — when it
+was not, the set is unchanged and `v` dropped), `contains(&v)`, `remove(&v)` (whether it was
+there), `retain`, `clear`, `reserve`, `len`, `is_empty`, `capacity`, and `for &v in set`. A
+`HashSet<String>` also answers `contains_str` and `remove_str` (**`StrSet`**). It is
+move-only unless `T` is copyable. `[DECIDED — D-0081]`
 
 **`Hash`** is the `std` trait a key needs: `fn hash(&self) -> u64`, equal values hashing
 equally. Integers, `bool`, `char` and `str` implement it, and `Eq`, without an `impl`, and
@@ -138,6 +172,14 @@ not-yet-constructed state, so all three are `unsafe` (§5.2), as are `memcpy` an
 `move_out` is how `List::pop` returns an element, and how growing a list of move-only
 elements carries them to the new memory. `[DECIDED — §18.16, §18.50]`
 
+Beside them, two that copy bytes: `memcpy(dst, src, n)` copies `n` bytes between places
+that do not overlap, and `memmove(dst, src, n)` between places that may — what shifts a
+list's tail along by a slot. Both are `unsafe`, and `dst` must be a pointer that may be
+written through. Copying bytes is moving only for a type whose bytes may be relocated,
+which `T::is_trivially_copyable` answers; `List` shifts its elements with one `memmove`
+when it is, and with `construct` and `move_out` one at a time when it is not.
+`[DECIDED — D-0081]`
+
 ## 14.4 The standard library: `std`
 
 The standard library is **one module, `std`**, carried by the compiler as Dazzle source:
@@ -167,8 +209,9 @@ is an error. `[DECIDED — §18.57, superseding §18.23 and §18.55]`
 - **`Float`**, implemented by `f32` and `f64`, and **`Integer`**, implemented by every integer
   type, both without an `impl`. Their methods are called on the number: `x.sqrt()`,
   `angle.sin()`, `t.lerp(to, 0.5)`, `hp.clamp(0, max)`, `seed.wrapping_mul(31)`,
-  `a.checked_add(b)` (a `T?`), `n.saturating_sub(1)`. Plain integer arithmetic makes no
-  promise on overflow; these methods are how a program says what should happen. A method
+  `a.checked_add(b)` (a `T?`), `n.saturating_sub(1)`. Plain integer arithmetic wraps on
+  overflow (§5.1) — `hash_combine` relies on it; these methods are how a program asks for
+  anything else. A method
   of the wrong kind of number is an error that says which kind has it.
 - **`Number`**, implemented by every integer and float type, and required by both `Integer`
   and `Float`: the bound for code that works on either kind. `x.to_f64()`, and
@@ -214,12 +257,17 @@ let dt = start.elapsed().as_secs_f32()
 Like the math, these are associated functions and methods of types, not free functions.
 
 **Reading text.** The `Text` trait, implemented for `str` and `String`, gives both the same
-operations, literals included: `starts_with`, `ends_with`, `find` (a byte offset, `usize?`),
-`contains`, `trim`, `trim_start`, `trim_end`, `split(separator)` and `lines()` (iterators of
-`str` views), `replace(from, to)`, `to_ascii_lowercase`, `to_ascii_uppercase` (new
+operations, literals included: `starts_with`, `ends_with`, `find` and `rfind` (a byte
+offset, `usize?`), `contains`, `trim`, `trim_start`, `trim_end`, `strip_prefix` and
+`strip_suffix` (a `str?`, `none` when the text does not start or end so), `split_once(sep)`
+(the text before and after the first `sep`, a `(str, str)?`), `split(separator)`,
+`split_whitespace()` and `lines()` (iterators of `str` views), `eq_ignore_ascii_case`,
+`replace(from, to)`, `to_ascii_lowercase`, `to_ascii_uppercase`, `repeat(n)` (new
 `String`s), and `parse_i64`, `parse_u64`, `parse_f64`, `parse_f32` — the whole text as a
 number, or `none` for anything else, including surrounding spaces and a value that does not
-fit. Pieces are views of the text they came from, never copies.
+fit. Pieces are views of the text they came from, never copies. **`Join`** writes pieces
+with a separator between them into a new `String`: `names.join(", ")` on a `[]str`, a
+`List<str>` or a `List<String>`.
 
 ```dz
 let text = File::read_text(&config) or return
@@ -230,7 +278,7 @@ for line in text.lines() {
 let volume = setting.trim().parse_f32() or 1.0
 ```
 
-`[DECIDED — §18.71]`
+`[DECIDED — §18.71, D-0081]`
 
 **Sorting.** `xs.sort()` orders a `List` of anything `Ord` by `<` — through the `Sort`
 trait — and `xs.sort_by(before)` by any strict order, a `fn(&T, &T) -> bool`; `xs.swap(i,
@@ -255,11 +303,26 @@ a character outside ASCII takes two to four. Characters are decoded as they are 
 - `char_count()`, `pop()` (the last character, a `char?`), `is_char_boundary(i)`,
   `slice(from, to)` (a `str?`: `none` when an end falls inside a character) and
   `truncate(len)` (a panic inside one), so text is never cut into invalid bytes.
+- `insert(at, c)`, `insert_str(at, s)` and `remove(at)` (the character starting there)
+  change a `String` in place, and panic when `at` is not where a character starts.
 - `String::from_utf8(bytes)` copies bytes that are valid UTF-8, `none` otherwise.
 - A `char` formatted with `{}` is written as UTF-8, as a `str` is.
 
 A character's position is in bytes throughout; there is no indexing by character, which
 would take time in proportion to the text's length on every use. `[DECIDED — §18.69]`
+
+**A C string from text.** A `str` has no zero after it, so it is not a `cstr`; a literal
+is (§5.3). A `String` keeps a zero after its bytes, and `as_cstr()` borrows the text as a
+`cstr` with no copy — so text from anywhere reaches a C function through one:
+
+```dz
+let owned = String::from(name)
+rl::LoadFileText(owned.as_cstr())
+```
+
+`rl::LoadFileText(String::from(name).as_cstr())` is the same, since a temporary lives to the
+end of its statement; binding that `cstr` with `let` keeps a view of a temporary, which is an
+error (`DZ0407`, §6.5). `[DECIDED — D-0039, D-0081]`
 
 **Files** are reached through three types, and no free functions:
 
