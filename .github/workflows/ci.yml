@@ -75,8 +75,12 @@ jobs:
             libxcursor-dev libxi-dev
           # Not `llvm-config --libdir`: Ubuntu installs it versioned (`llvm-config-18`),
           # so the bare name is usually absent and the command substitution silently
-          # produced an empty path. Find the library itself instead.
-          lib=$(find /usr/lib /usr/local/lib -name 'libclang*.so*' 2>/dev/null | head -n1)
+          # produced an empty path. Find the library itself instead — and by its exact
+          # name, newest LLVM first. A `libclang*.so*` glob also matches the sanitizer
+          # runtimes (`libclang_rt.memprof-x86_64.so`) the runner image ships, `find`'s
+          # order is not fixed, and clang-sys searches *only* LIBCLANG_PATH once it is set,
+          # so a run that picked one of those failed every interop test.
+          lib=$(ls /usr/lib/llvm-*/lib/libclang.so 2>/dev/null | sort -V | tail -n1)
           if [ -z "$lib" ]; then
             echo "::error::libclang not found after installing libclang-dev"
             exit 1
