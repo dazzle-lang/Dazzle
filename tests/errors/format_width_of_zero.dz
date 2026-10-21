@@ -1,0 +1,9 @@
+// expect: DZ0526, DZ0526
+//
+// A width of zero pads nothing, so it is refused rather than read as a mistyped one —
+// whether written `{:0}` or with a zero fill, `{:00}` (spec §12.9).
+
+fn main() {
+    let score = 1250
+    println!("{:0} {:00}", score, score)
+}

@@ -1608,9 +1608,10 @@ template <class S> inline void write_precision(S& s, double v, int p) {
     write_printf(s, "%.*f", p, v);
 }
 
-/// One argument, honouring its spec: `{:x}`/`{:X}` for an integer, `{:.N}` for a float.
+/// One argument as its spec writes it, the width aside: `{:x}`/`{:X}` for an integer,
+/// `{:.N}` for a float.
 template <class S, class T, class P>
-inline void write_spec(S& s, T v, const P* spec, size_t n) {
+inline void write_kind(S& s, T v, const P* spec, size_t n) {
     if (n == 1 && (spec[0] == 'x' || spec[0] == 'X')) {
         write_hex(s, v, spec[0] == 'X');
     } else if (n > 1 && spec[0] == '.') {
@@ -1619,6 +1620,79 @@ inline void write_spec(S& s, T v, const P* spec, size_t n) {
         write_precision(s, v, p);
     } else {
         write_value(s, v);
+    }
+}
+
+/// Passes text on to `s`, counting the characters, for `{:N}`'s padding.
+template <class S> struct CountSink {
+    S& s;
+    size_t chars;
+
+    void write(const char* p, size_t k) {
+        for (size_t i = 0; i < k; ++i) { put(p[i]); }
+    }
+    void put(char c) {
+        if ((static_cast<unsigned char>(c) & 0xC0) != 0x80) { ++chars; }
+        s.put(c);
+    }
+};
+
+template <class S> inline void write_fill(S& s, char c, size_t n) {
+    for (size_t i = 0; i < n; ++i) { s.put(c); }
+}
+
+// Whether a value is right-aligned in its width, as a number is, rather than left-aligned.
+// Overloaded on the fundamental types for the reason `write_value` is.
+template <class T> constexpr bool is_number(T) { return false; }
+constexpr bool is_number(signed char) { return true; }
+constexpr bool is_number(short) { return true; }
+constexpr bool is_number(int) { return true; }
+constexpr bool is_number(long) { return true; }
+constexpr bool is_number(long long) { return true; }
+constexpr bool is_number(unsigned char) { return true; }
+constexpr bool is_number(unsigned short) { return true; }
+constexpr bool is_number(unsigned int) { return true; }
+constexpr bool is_number(unsigned long) { return true; }
+constexpr bool is_number(unsigned long long) { return true; }
+constexpr bool is_number(float) { return true; }
+constexpr bool is_number(double) { return true; }
+
+/// One argument, honouring its spec: an optional width, `N` or `0N`, then what `write_kind`
+/// reads. A number is right-aligned in the width, with zeros after its sign for `0N`;
+/// anything else is left-aligned, as `Formatter` does (spec §12.9).
+template <class S, class T, class P>
+inline void write_spec(S& s, T v, const P* spec, size_t n) {
+    const bool zero = n > 1 && spec[0] == '0';
+    size_t i = zero ? 1 : 0;
+    size_t width = 0;
+    for (; i < n && spec[i] >= '0' && spec[i] <= '9'; ++i) {
+        width = width * 10 + static_cast<size_t>(spec[i] - '0');
+    }
+    spec += i;
+    n -= i;
+    if (width == 0) {
+        write_kind(s, v, spec, n);
+    } else if (is_number(v)) {
+        char tmp[64];
+        BufSink b{tmp, sizeof(tmp), 0};
+        write_kind(b, v, spec, n);
+        const size_t sign = b.n > 0 && (tmp[0] == '-' || tmp[0] == '+') ? 1 : 0;
+        const size_t pad = b.n < width ? width - b.n : 0;
+        // `inf` and `nan` have no digits to put zeros before, and are padded with spaces.
+        // No hex digit is an `i` or an `n`.
+        const char c = sign < b.n ? static_cast<char>(tmp[sign] | 0x20) : 'n';
+        if (zero && c != 'i' && c != 'n') {
+            s.write(tmp, sign);
+            write_fill(s, '0', pad);
+            s.write(tmp + sign, b.n - sign);
+        } else {
+            write_fill(s, ' ', pad);
+            s.write(tmp, b.n);
+        }
+    } else {
+        CountSink<S> c{s, 0};
+        write_kind(c, v, spec, n);
+        if (c.chars < width) { write_fill(s, ' ', width - c.chars); }
     }
 }
 
