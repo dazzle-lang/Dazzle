@@ -156,6 +156,16 @@ A type's `drop` runs deterministically:
 `defer { ... }` runs a block at scope exit, after that scope's drops, in reverse order of
 registration. It is for the non-RAII cases (`defer profiler::end_zone()`).
 
+**A temporary is dropped at the end of its statement** — a value a call or a literal makes
+that nothing binds, such as the `String` in `String::from(name).as_cstr()`. (`&make()`
+written out is the exception: it lives to the end of the block, §14.2.) So a view into a
+temporary — a `str`, `cstr`, slice, reference or pointer taken from it through a method,
+a field, an index or a slice — may be handed to a call in the same statement, which
+finishes first, but **keeping one is an error** (`DZ0407`): by `let`, by assignment, or by
+`return`. Bind the owner first, `let owned = String::from(name)`, and take the view from
+it. A function's result is not followed into its arguments, since what it returns need
+not point into them. `[DECIDED — D-0081]`
+
 **A type with an `own` field and no `drop` is an error.** `[DECIDED — §18.4]`
 
 ```

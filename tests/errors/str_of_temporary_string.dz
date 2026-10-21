@@ -1,0 +1,13 @@
+// expect: DZ0407
+//
+// A `str` taken from a `String` a call returns is a view of a temporary: it may be passed
+// straight to a call, but not kept (spec §6.5).
+
+fn make() -> String {
+    return String("made")
+}
+
+fn main() {
+    let s = make().as_str()
+    println!("{}", s)
+}

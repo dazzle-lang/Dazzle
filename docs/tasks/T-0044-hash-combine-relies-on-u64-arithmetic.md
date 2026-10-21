@@ -2,7 +2,8 @@
 id: T-0044
 title: `hash_combine` relies on `u64` arithmetic wrapping
 milestone: M12
-status: open
+status: done
+done: r67, 2026-10-21
 kind: deferral
 area: stdlib
 where: `dz_project/src/std/core/hash.dz`, `hash_combine`
@@ -42,3 +43,5 @@ here, only an unstated dependency. Settling item 1 closes it, and item 2 is a st
 
 A test pinning `hash_combine`'s output for known inputs would be worth having regardless —
 it does not exist, and a mixer whose result nothing asserts is free to change silently.
+
+**Done in r67** (D-0081). §5.1 already stated wrapping; §14.4 contradicted it and now says plain arithmetic wraps and `hash_combine` relies on it. The style call went to leaving `+` as it is: `wrapping_add` in `std` would suggest plain `+` might not wrap. `tests/run/collections` pins three outputs, checked against a Python model of the mixer.

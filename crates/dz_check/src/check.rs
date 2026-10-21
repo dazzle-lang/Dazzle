@@ -3217,12 +3217,14 @@ impl<'a, 'c> Body<'a, 'c> {
                 // the one place a variant could not be written with a leading dot.
                 let (a, b) = if needs_context(lhs) && !needs_context(rhs) {
                     let b = self.expr(rhs, None);
+                    let b = self.read_operand(b, rhs);
                     let a = self.expr(lhs, Some(&b.ty));
-                    (a, b)
+                    (self.read_operand(a, lhs), b)
                 } else {
                     let a = self.expr(lhs, None);
+                    let a = self.read_operand(a, lhs);
                     let b = self.expr(rhs, Some(&a.ty));
-                    (a, b)
+                    (a, self.read_operand(b, rhs))
                 };
                 if join(&a.ty, &b.ty).is_none() {
                     let (x, y) = (self.cx.name_of(&a.ty), self.cx.name_of(&b.ty));
@@ -3280,7 +3282,9 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             BitAnd | BitOr | BitXor | Shl | Shr => {
                 let a = self.expr(lhs, expected);
+                let a = self.read_operand(a, lhs);
                 let b = self.expr(rhs, Some(&a.ty));
+                let b = self.read_operand(b, rhs);
                 let mut ty = None;
                 for (t, at) in [(&a.ty, lhs), (&b.ty, rhs)] {
                     if !t.is_wildcard() && !t.is_integral() {
@@ -3301,6 +3305,7 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             Add | Sub | Mul | Div | Rem => {
                 let a = self.expr(lhs, expected);
+                let a = self.read_operand(a, lhs);
                 // `v1 + v2` and `v * scalar` on a user type go through the trait §11.2
                 // names for the operator (spec §11.2).
                 if self.needs_operator_trait(a.ty.peeled()) {
@@ -3332,6 +3337,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     };
                 }
                 let b = self.expr(rhs, Some(&a.ty));
+                let b = self.read_operand(b, rhs);
                 let mut ty = None;
                 for (t, at) in [(&a.ty, lhs), (&b.ty, rhs)] {
                     if !t.is_wildcard() && !t.is_numeric() {
@@ -3620,6 +3626,26 @@ impl<'a, 'c> Body<'a, 'c> {
     /// Everything except a user struct or union, and a generic parameter, keeps the built-in
     /// operator it has always had: integers, floats, `bool`, `char`, pointers, enums (which
     /// are named integers, §7.4) and slices are compared by the machine.
+    /// An operand that is a `&T` of a type the machine compares and computes on — a number,
+    /// `bool`, `char`, `str` or an enum — read as its `T`, as a reference reads as its value
+    /// wherever one is wanted (spec §5.2). An operator has no type wanted of its operands,
+    /// so without this `x > 2` on a `&i32` compared a reference with a number.
+    fn read_operand(&mut self, c: Checked, at: &Expr) -> Checked {
+        let Ty::Ref { inner, .. } = self.subst(&c.ty) else { return c };
+        let machine = match &*inner {
+            t if t.is_numeric() => true,
+            Ty::Bool | Ty::Char | Ty::Str => true,
+            Ty::Named { sym, .. } => {
+                matches!(self.cx.table.get(*sym), Some(ItemSig::Enum { .. }))
+            }
+            _ => false,
+        };
+        if !machine {
+            return c;
+        }
+        self.hir.expr(at.span, (*inner).clone(), hir::ExprKind::Deref(c.id))
+    }
+
     fn needs_operator_trait(&self, t: &Ty) -> bool {
         match t {
             Ty::Param(_) => true,
@@ -4865,12 +4891,33 @@ impl<'a, 'c> Body<'a, 'c> {
                             .collect();
                         let suggestion =
                             dz_resolve::closest(&name.name, names.iter().map(String::as_str));
-                        let mut d = dz_diag::Diagnostic::error(
-                            codes::NO_SUCH_METHOD,
-                            format!("`{owner}` has no method `{}`", name.name),
-                        )
+                        // Implemented for another instance only — `get_str` is for a map
+                        // whose keys are `String` (spec §7.6, §14.2).
+                        let elsewhere = self.cx.table.impl_for_other_instance(&peeled, &name.name);
+                        let mut d = match &elsewhere {
+                            Some(_) => dz_diag::Diagnostic::error(
+                                codes::NO_SUCH_METHOD,
+                                format!(
+                                    "`{}` has no method `{}`",
+                                    self.cx.name_of(&peeled),
+                                    name.name
+                                ),
+                            ),
+                            None => dz_diag::Diagnostic::error(
+                                codes::NO_SUCH_METHOD,
+                                format!("`{owner}` has no method `{}`", name.name),
+                            ),
+                        }
                         .at(self.cx.file, name.span, "unknown method");
-                        if let Some(s) = suggestion {
+                        if let Some((tr, for_ty)) = elsewhere {
+                            let tname = self.cx.res.symbol(tr).name.clone();
+                            let shown = self.cx.name_of(&for_ty);
+                            d = d.with_help(format!(
+                                "`{}` comes from `{tname}`, which is implemented for `{shown}` \
+                                 and not for this type (spec §7.6)",
+                                name.name
+                            ));
+                        } else if let Some(s) = suggestion {
                             d = d.with_help(format!("did you mean `{s}`?"));
                         }
                         self.cx.diags.push(d);
@@ -5056,8 +5103,10 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
                 // The placement primitives and the heap's release write memory nothing
                 // tracks (spec §5.2, §14.3). `alloc` only hands a pointer out, which is safe.
-                if matches!(name.as_str(), "construct" | "destroy" | "move_out" | "memcpy" | "free")
-                {
+                if matches!(
+                    name.as_str(),
+                    "construct" | "destroy" | "move_out" | "memcpy" | "memmove" | "free"
+                ) {
                     self.require_unsafe(span, &format!("`{name}`"));
                 }
                 let checked: Vec<Checked> = args.iter().map(|a| self.expr(a, None)).collect();
@@ -5068,7 +5117,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         self.require_writable(dst, &name);
                     }
                 }
-                if name == "memcpy" {
+                if name == "memcpy" || name == "memmove" {
                     if let (Some(dst), Some(c)) = (args.first(), checked.first()) {
                         if matches!(
                             c.ty,
@@ -5078,7 +5127,7 @@ impl<'a, 'c> Body<'a, 'c> {
                             self.cx.error_help(
                                 codes::NOT_MUTABLE,
                                 dst.span,
-                                "`memcpy` writes through its first argument",
+                                format!("`{name}` writes through its first argument"),
                                 format!("this is a read-only `{n}`"),
                                 "the destination must be a `^mut` pointer (spec §5.2, §14.3)",
                             );
@@ -8112,7 +8161,7 @@ fn builtin_arity(name: &str) -> Option<(usize, usize)> {
         "free" | "destroy" | "move_out" | "sizeof" | "alignof" | "blackbox" => (1, 1),
         // `construct(dst)` default-constructs; `construct(dst, v)` copies or moves in.
         "construct" => (1, 2),
-        "memcpy" => (3, 3),
+        "memcpy" | "memmove" => (3, 3),
         _ => return None,
     })
 }

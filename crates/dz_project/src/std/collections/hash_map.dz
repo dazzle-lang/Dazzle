@@ -58,9 +58,29 @@ pub struct HashMap<K: Hash + Eq, V> {
         if (m_len + 1) * 4 > m_slots * 3 {
             self.grow_to(m_len + 1, loc)
         }
-        self.place(move(key), move(value), h)
+        let _ = self.place(move(key), move(value), h)
         m_len += 1
         return none
+    }
+
+    /// The value for `key`, after adding `key` with `default` when it was not there: what
+    /// counting and grouping want, in one lookup.
+    ///
+    /// ```dz
+    /// let n = counts.get_or_insert(word, 0)
+    /// n += 1
+    /// ```
+    pub fn get_or_insert(&mut self, key: K, default: V, loc: SourceLocation = #location) -> &mut V {
+        let h = key_hash(&key)
+        if let slot = self.find(&key, h) {
+            return unsafe { &mut m_values[slot] }
+        }
+        if (m_len + 1) * 4 > m_slots * 3 {
+            self.grow_to(m_len + 1, loc)
+        }
+        let slot = self.place(move(key), move(default), h)
+        m_len += 1
+        return unsafe { &mut m_values[slot] }
     }
 
     /// The value for `key`, or `null` when there is none.
@@ -82,32 +102,70 @@ pub struct HashMap<K: Hash + Eq, V> {
     /// Take the entry for `key` out, returning its value, or `none` when there is none.
     pub fn remove(&mut self, key: &K) -> V? {
         let found = self.find(key, key_hash(key)) or return none
-        let value = unsafe { move_out(m_values[found]) }
-        unsafe {
-            destroy(m_keys[found])
-            m_hashes[found] = 0
+        return self.remove_slot(found)
+    }
+
+    /// Keep only the entries `keep` says yes to, and drop the rest. `keep` may change the
+    /// value it is shown; each entry is asked once.
+    pub fn retain(&mut self, keep: fn(&K, &mut V) -> bool) {
+        self.retain_with(&keep, ask_entry<K, V>)
+    }
+
+    /// The slot holding the key `same` says is `key`, whose hash is `h`: a lookup by
+    /// something other than a `K`, such as a `str` for a `String` key.
+    pub(module) fn find_by<Q>(&self, key: &Q, h: u64, same: fn(&K, &Q) -> bool) -> usize? {
+        if m_len == 0 {
+            return none
         }
-        // Backward shift: an entry further along the run moves into the hole when the hole
-        // lies between the slot it hashes to and where it sits, so no probe that passed the
-        // removed entry can stop short at the gap.
         let mask = m_slots - 1
-        let mut hole = found
-        let mut i = (found + 1) & mask
-        while unsafe { m_hashes[i] } != 0 {
-            let home = (unsafe { m_hashes[i] } & (mask as u64)) as usize
-            if ((i + m_slots - home) & mask) >= ((i + m_slots - hole) & mask) {
-                unsafe {
-                    m_hashes[hole] = m_hashes[i]
-                    m_hashes[i] = 0
-                    construct(m_keys[hole], move_out(m_keys[i]))
-                    construct(m_values[hole], move_out(m_values[i]))
-                }
-                hole = i
+        let mut i = (h & (mask as u64)) as usize
+        while true {
+            let stored = unsafe { m_hashes[i] }
+            if stored == 0 {
+                return none
+            }
+            if stored == h && same(unsafe { &m_keys[i] }, key) {
+                return i
             }
             i = (i + 1) & mask
         }
-        m_len -= 1
-        return move(value)
+        return none
+    }
+
+    /// Drop every entry `keep(q, key, value)` says no to: `retain`, and a `HashSet`'s, which
+    /// asks about the key alone.
+    pub(module) fn retain_with<Q>(&mut self, q: &Q, keep: fn(&Q, &K, &mut V) -> bool) {
+        if m_len == 0 {
+            return
+        }
+        // Start just past an empty slot and go round once. Removing shifts entries back
+        // towards the slot they hash to, never past an empty one, so an entry already asked
+        // never moves ahead to be asked again; a slot that has just taken one is asked again.
+        let start = self.empty_slot()
+        let mut step: usize = 1
+        while step < m_slots {
+            let i = (start + step) & (m_slots - 1)
+            if unsafe { m_hashes[i] } != 0 && !keep(q, unsafe { &m_keys[i] }, unsafe { &mut m_values[i] }) {
+                let _ = self.remove_slot(i)
+            } else {
+                step += 1
+            }
+        }
+    }
+
+    /// The keys, in slot order: `for k in map.keys()`.
+    pub fn keys(&self) -> HashMapKeys<K, V> {
+        return HashMapKeys<K, V>(&self)
+    }
+
+    /// The values, in slot order: `for v in map.values()`.
+    pub fn values(&self) -> HashMapValues<K, V> {
+        return HashMapValues<K, V>(&self)
+    }
+
+    /// The values, to change in place: `for &mut v in map.values_mut()`.
+    pub fn values_mut(&mut self) -> HashMapValuesMut<K, V> {
+        return HashMapValuesMut<K, V>(&mut self)
     }
 
     /// Drop every entry and keep the allocation.
@@ -132,8 +190,8 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// How many slots there are, for visiting every entry: slots `0..slot_count()`, each
-    /// holding an entry or not. `for` over a map itself is owed by M12, with the iterator
-    /// a `List` needs too.
+    /// holding an entry or not — what the map's iterators walk. `for k, &v in map` is the
+    /// usual way to visit the entries.
     pub fn slot_count(&self) -> usize {
         return m_slots
     }
@@ -191,8 +249,9 @@ pub struct HashMap<K: Hash + Eq, V> {
         return none
     }
 
-    /// Put an entry known not to be present into the first free slot of its run.
-    fn place(&mut self, key: K, value: V, h: u64) {
+    /// Put an entry known not to be present into the first free slot of its run, and say
+    /// which slot that was.
+    fn place(&mut self, key: K, value: V, h: u64) -> usize {
         let mask = m_slots - 1
         let mut i = (h & (mask as u64)) as usize
         while unsafe { m_hashes[i] } != 0 {
@@ -203,6 +262,46 @@ pub struct HashMap<K: Hash + Eq, V> {
             construct(m_keys[i], move(key))
             construct(m_values[i], move(value))
         }
+        return i
+    }
+
+    /// Take the entry in `found` out, returning its value.
+    pub(module) fn remove_slot(&mut self, found: usize) -> V {
+        let value = unsafe { move_out(m_values[found]) }
+        unsafe {
+            destroy(m_keys[found])
+            m_hashes[found] = 0
+        }
+        // Backward shift: an entry further along the run moves into the hole when the hole
+        // lies between the slot it hashes to and where it sits, so no probe that passed the
+        // removed entry can stop short at the gap.
+        let mask = m_slots - 1
+        let mut hole = found
+        let mut i = (found + 1) & mask
+        while unsafe { m_hashes[i] } != 0 {
+            let home = (unsafe { m_hashes[i] } & (mask as u64)) as usize
+            if ((i + m_slots - home) & mask) >= ((i + m_slots - hole) & mask) {
+                unsafe {
+                    m_hashes[hole] = m_hashes[i]
+                    m_hashes[i] = 0
+                    construct(m_keys[hole], move_out(m_keys[i]))
+                    construct(m_values[hole], move_out(m_values[i]))
+                }
+                hole = i
+            }
+            i = (i + 1) & mask
+        }
+        m_len -= 1
+        return move(value)
+    }
+
+    /// The first slot holding no entry. A quarter of them always do, once there are any.
+    fn empty_slot(&self) -> usize {
+        let mut i: usize = 0
+        while unsafe { m_hashes[i] } != 0 {
+            i += 1
+        }
+        return i
     }
 
     /// Enough slots for `wanted` entries at three quarters full — a power of two, so a hash
@@ -230,7 +329,7 @@ pub struct HashMap<K: Hash + Eq, V> {
         for i in 0..old_slots {
             let h = unsafe { old_hashes[i] }
             if h != 0 {
-                unsafe { self.place(move_out(old_keys[i]), move_out(old_values[i]), h) }
+                let _ = unsafe { self.place(move_out(old_keys[i]), move_out(old_values[i]), h) }
             }
         }
         a.free(unsafe { old_hashes as ^mut u8 }, old_slots * sizeof(u64), alignof(u64), loc)
@@ -262,6 +361,12 @@ impl<K: Hash + Eq, V> IterableMut for HashMap<K, V> {
     fn iter_mut(&mut self) -> HashMapIterMut<K, V> {
         return HashMapIterMut<K, V>(&mut self)
     }
+}
+
+/// `HashMap::retain`'s question, in the shape `retain_with` asks it.
+fn ask_entry<K, V>(keep: &fn(&K, &mut V) -> bool, key: &K, value: &mut V) -> bool {
+    let f: fn(&K, &mut V) -> bool = keep
+    return f(key, value)
 }
 
 /// A key's hash, never zero: zero marks an empty slot.

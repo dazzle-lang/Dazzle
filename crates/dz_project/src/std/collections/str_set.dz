@@ -1,0 +1,18 @@
+/// Asking a `HashSet<String>` about a `str`, with no `String` built to do it:
+/// `seen.contains_str(name)` (spec §14.4).
+pub trait StrSet {
+    fn contains_str(&self, v: str) -> bool
+
+    /// Take `v` out, saying whether it was there.
+    fn remove_str(&mut self, v: str) -> bool
+}
+
+impl StrSet for HashSet<String> {
+    fn contains_str(&self, v: str) -> bool {
+        return m_map.contains_str(v)
+    }
+
+    fn remove_str(&mut self, v: str) -> bool {
+        return m_map.remove_str(v) != none
+    }
+}

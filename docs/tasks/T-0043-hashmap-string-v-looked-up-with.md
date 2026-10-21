@@ -2,7 +2,8 @@
 id: T-0043
 title: A `HashMap<String, V>` is looked up with a `&String`
 milestone: M12
-status: open
+status: done
+done: r67, 2026-10-21
 kind: deferral
 area: stdlib
 where: `dz_project/src/std/collections/hash_map.dz`
@@ -44,3 +45,5 @@ methods a `str` overload, which D-0005 rules out while overloading is out.
 The cheap answer is probably the right one for M12: three methods on `std`'s own
 `HashMap<String, V>`, documented as the way to look up by `str`, with a `tests/run` case
 proving no allocation happens (the `--track-memory` tracker can count).
+
+**Done in r67** (D-0081), the cheap way: `StrKeys<V>`, a trait implemented for `HashMap<String, V>` alone — `get_str`, `get_mut_str`, `contains_str`, `remove_str` — over `HashMap::find_by`, a `pub(module)` lookup by any key-like value with its own comparison. `StrSet` does the same for `HashSet<String>`. `tests/run/collections` looks a key up through a counting allocator: no allocation by `str`, one by `&String::from(…)`.

@@ -1,0 +1,75 @@
+/// A set of values, each held once, in memory from the allocator it was built with.
+///
+/// A `HashMap` whose values say nothing, so it has the map's table and costs: one byte a
+/// slot beside the hashes and the elements. `for &v in set` visits them in no particular
+/// order. Move-only unless `T` is copyable.
+pub struct HashSet<T: Hash + Eq> {
+    m_map: HashMap<T, bool>
+
+    /// An empty set, with room for `capacity` elements already allocated when it is given.
+    HashSet(
+        capacity: usize = 0,
+        allocator: ^mut Allocator = Allocators::Global,
+        loc: SourceLocation = #location,
+    ) {
+        m_map = HashMap<T, bool>(capacity, allocator, loc)
+    }
+
+    pub fn len(&self) -> usize {
+        return m_map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return m_map.is_empty()
+    }
+
+    /// How many elements fit before the set grows again.
+    pub fn capacity(&self) -> usize {
+        return m_map.capacity()
+    }
+
+    /// Add `v`, saying whether it is new: `false` when it was already there, in which case
+    /// the set is unchanged and `v` is dropped.
+    pub fn insert(&mut self, v: T, loc: SourceLocation = #location) -> bool {
+        return m_map.replace(move(v), true, loc) == none
+    }
+
+    pub fn contains(&self, v: &T) -> bool {
+        return m_map.contains(v)
+    }
+
+    /// Take `v` out, saying whether it was there.
+    pub fn remove(&mut self, v: &T) -> bool {
+        return m_map.remove(v) != none
+    }
+
+    /// Keep only the elements `keep` says yes to, and drop the rest.
+    pub fn retain(&mut self, keep: fn(&T) -> bool) {
+        m_map.retain_with(&keep, ask_element<T>)
+    }
+
+    /// Drop every element and keep the allocation.
+    pub fn clear(&mut self) {
+        m_map.clear()
+    }
+
+    /// Room for at least `additional` more elements without growing again.
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+        m_map.reserve(additional, loc)
+    }
+}
+
+/// `for &v in set`.
+impl<T: Hash + Eq> Iterable for HashSet<T> {
+    type Iter = HashMapKeys<T, bool>
+
+    fn iter(&self) -> HashMapKeys<T, bool> {
+        return m_map.keys()
+    }
+}
+
+/// `HashSet::retain`'s question, in the shape `HashMap::retain_with` asks it.
+fn ask_element<T>(keep: &fn(&T) -> bool, v: &T, _present: &mut bool) -> bool {
+    let f: fn(&T) -> bool = keep
+    return f(v)
+}

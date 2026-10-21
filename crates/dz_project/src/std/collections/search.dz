@@ -1,0 +1,24 @@
+/// Looking for an element by `==`: `ids.contains(&id)`, `names.index_of(&name)` on a `List`
+/// of anything `Eq` (spec §14.4). A trait rather than methods of `List` itself, as `Sort`
+/// is, because only some element types can be compared. Each is a linear scan.
+pub trait Search<T> {
+    fn contains(&self, v: &T) -> bool
+
+    /// Where `v` first occurs, or `none` when it does not.
+    fn index_of(&self, v: &T) -> usize?
+}
+
+impl<T: Eq> Search<T> for List<T> {
+    fn contains(&self, v: &T) -> bool {
+        return self.index_of(v) != none
+    }
+
+    fn index_of(&self, v: &T) -> usize? {
+        for i in 0..m_len {
+            if unsafe { m_data[i] == v } {
+                return i
+            }
+        }
+        return none
+    }
+}

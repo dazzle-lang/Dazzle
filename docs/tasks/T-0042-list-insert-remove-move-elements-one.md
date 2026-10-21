@@ -2,7 +2,8 @@
 id: T-0042
 title: `List::insert` and `remove` move elements one at a time
 milestone: M12
-status: open
+status: done
+done: r67, 2026-10-21
 kind: deferral
 area: stdlib
 where: `dz_project/src/std/collections/list.dz`, `insert` and `remove`
@@ -44,3 +45,5 @@ type table can answer, and `insert`/`remove` would branch on it at compile time 
 
 Adding a primitive to §14.3 is a language change: a §21 revision row, and a `tests/run` case
 covering both paths with a `Drop` type proving the loop still runs for it.
+
+**Done in r67** (D-0081). `memmove` is a placement primitive beside `memcpy` (§14.3), and `List` shifts with it whenever `T::is_trivially_copyable` — the predicate `grow_to` already used for `realloc` — through `shift_up`/`shift_down`, which `insert`, `remove`, `remove_range` and `insert_slice` share. `tests/run/collections` runs both paths, a `Drop` element proving the loop still runs and drops each element once.

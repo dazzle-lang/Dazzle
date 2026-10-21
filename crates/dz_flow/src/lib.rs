@@ -2,13 +2,14 @@
 //!
 //! Everything here is a consequence of one sentence in §6.3: a type that owns a resource
 //! is **move-only**, and every other rule is about keeping track of where the one live
-//! copy is. Five things are checked:
+//! copy is. Six things are checked:
 //!
 //! * a move-only value used where a copy would be needed (`DZ0403`);
 //! * a value read after it was moved out of, on any path (`DZ0401`, `DZ0404`);
 //! * `move` out of somewhere the function does not own (`DZ0402`);
 //! * a value-returning function with a path that falls off the end (`DZ0405`);
-//! * a binding nothing reads — a warning, not an error (`DZ0406`).
+//! * a binding nothing reads — a warning, not an error (`DZ0406`);
+//! * a view kept from a temporary that is dropped at the end of its statement (`DZ0407`).
 //!
 //! **This pass reads the HIR and nothing else.** It needs a name to be a `LocalId` so a
 //! place can be a map key, and every expression to carry its type so "is this move-only?"
@@ -219,6 +220,96 @@ impl<'a> Flow<'a> {
         }
     }
 
+    // --- views of temporaries ----------------------------------------------
+
+    /// Spec §6.5: a value that is kept — bound, assigned or returned — must not be a view
+    /// into a temporary, which is dropped when the statement ends. Passing one to a call is
+    /// fine, since the temporary outlives the call; keeping it is a read of freed memory
+    /// once the statement is over, and nothing at run time says so.
+    fn kept_view(&mut self, value: ExprId) {
+        if !self.borrows(&self.body.ty(value).clone(), 0) {
+            return;
+        }
+        let Some(owner) = self.viewed_temporary(value) else { return };
+        let node = self.body.expr(owner);
+        let ty = self.type_name(&node.ty);
+        let span = node.span;
+        self.error(
+            Diagnostic::error(
+                codes::VIEW_OF_TEMPORARY,
+                format!(
+                    "this keeps a view into a `{ty}` that is dropped at the end of the statement"
+                ),
+            )
+            .at(self.file, span, "a temporary, gone once the statement ends")
+            .with_help(format!(
+                "bind the `{ty}` first so it lives on — `let owned = …`, then take the view \
+                 from `owned` (spec §6.5)"
+            )),
+        );
+    }
+
+    /// Does a value of `ty` look into memory something else owns — a `str`, a slice, a
+    /// reference or pointer, or a struct, tuple or optional holding one? A value that needs
+    /// a drop owns what it holds, so it is no view: a `String` keeps a `^mut Allocator`,
+    /// and `Path("a") / "b"` is a new `Path`, not a look into the old one.
+    fn borrows(&self, ty: &Ty, depth: u32) -> bool {
+        if depth > 8 || self.table.needs_drop(ty) {
+            return false;
+        }
+        match ty {
+            Ty::Str | Ty::CStr | Ty::Slice { .. } | Ty::Ref { .. } | Ty::Ptr { .. } => true,
+            Ty::Optional(inner) | Ty::Array { elem: inner, .. } => self.borrows(inner, depth + 1),
+            Ty::Tuple(parts) => parts.iter().any(|p| self.borrows(p, depth + 1)),
+            Ty::Named { sym, args } => match self.table.struct_sig(*sym) {
+                Some(sig) => self
+                    .table
+                    .field_types(*sym, args, &sig.fields)
+                    .iter()
+                    .any(|f| self.borrows(f, depth + 1)),
+                None => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// The temporary a view computed by `e` looks into, following the chain a view is
+    /// taken along — a method's receiver, a field, an element, a slice — to a value made
+    /// in this statement that owns something. Not through a call's arguments: a function
+    /// may return a view of anything, while a method on a temporary that hands back a view
+    /// is handing back one of itself. A literal `&make()` is not followed either, since it
+    /// lives to the end of its block (§14.2).
+    fn viewed_temporary(&self, e: ExprId) -> Option<ExprId> {
+        let next = match &self.body.expr(e).kind {
+            hir::ExprKind::Call {
+                callee: hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. },
+                ..
+            } => *recv,
+            hir::ExprKind::Field { base, .. }
+            | hir::ExprKind::TupleIndex { base, .. }
+            | hir::ExprKind::Index { base, .. }
+            | hir::ExprKind::SliceRange { base, .. }
+            | hir::ExprKind::DataPtr(base)
+            | hir::ExprKind::Deref(base)
+            | hir::ExprKind::Cast { operand: base } => *base,
+            _ => return None,
+        };
+        let node = self.body.expr(next);
+        let made = matches!(
+            node.kind,
+            hir::ExprKind::Call { .. }
+                | hir::ExprKind::StructLit { .. }
+                | hir::ExprKind::ArrayLit(_)
+                | hir::ExprKind::Tuple(_)
+        );
+        // Inside a generic body a `T` may or may not own anything; only a type known to
+        // need a drop is known to free what the view looks at.
+        if made && !node.ty.has_params() && self.table.needs_drop(&node.ty) {
+            return Some(next);
+        }
+        self.viewed_temporary(next)
+    }
+
     // --- statements --------------------------------------------------------
 
     /// Walk a block, returning whether every path through it diverges.
@@ -239,6 +330,7 @@ impl<'a> Flow<'a> {
             hir::StmtKind::Let { local, init } => {
                 if let Some(init) = init {
                     let diverges = self.value(*init);
+                    self.kept_view(*init);
                     // A `let` rebinds, so a local that was moved and is now the target of
                     // a fresh binding is live again.
                     if let Some(l) = local {
@@ -253,6 +345,7 @@ impl<'a> Flow<'a> {
             }
             hir::StmtKind::LetTuple { locals, init } => {
                 let diverges = self.value(*init);
+                self.kept_view(*init);
                 for l in locals.iter().flatten() {
                     self.revive(&Place { local: *l, path: Vec::new() });
                 }
@@ -263,6 +356,7 @@ impl<'a> Flow<'a> {
                 // Plain assignment overwrites, so it re-initialises a moved-from place.
                 // A compound assignment *reads* the target first, so it does not.
                 if *op == dz_hir::AssignOp::Assign {
+                    self.kept_view(*value);
                     if let Denotes::Owned(p) = self.denotes(*target) {
                         self.revive(&p);
                         return diverges;
@@ -613,6 +707,7 @@ impl<'a> Flow<'a> {
             hir::ExprKind::Return(v) => {
                 if let Some(v) = v {
                     self.value(v);
+                    self.kept_view(v);
                 }
                 true
             }

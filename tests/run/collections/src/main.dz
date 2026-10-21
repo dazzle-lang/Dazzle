@@ -1,0 +1,325 @@
+// The collections pass (spec §14.3, §14.4): `List`'s editing methods on both of their paths
+// — one `memmove` for elements whose bytes can move, element by element for one with a
+// `drop` — and its `Search`, `Extend`, `Eq` and `Hash`; `HashMap`'s `get_or_insert`,
+// `retain` and key and value iterators; looking up `String` keys by `str` without
+// allocating; `HashSet`; `String`'s editing; `Join` and the newer `Text` methods; a
+// runtime `str` handed to C as a `cstr`; and `hash_combine` pinned to known outputs.
+// Leak-free under `--track-memory`, and warning-clean.
+
+static DROPS: i32 = 0
+
+/// Move-only, so a `List<Token>` takes the element-by-element path.
+struct Token {
+    pub id: i32 = 0
+    pub live: bool = false
+
+    Token(id: i32) {
+        self.id = id
+        live = true
+    }
+}
+
+impl Drop for Token {
+    fn drop(&mut self) {
+        if live {
+            unsafe { DROPS += 1 }
+        }
+    }
+}
+
+/// Counts what it hands out, and passes every call on to the heap.
+struct Counting {
+    pub allocs: i32 = 0
+}
+
+impl Allocator for Counting {
+    fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation = #location) -> ^mut u8 {
+        allocs += 1
+        return Allocators::Global.alloc(size, align, loc)
+    }
+
+    fn realloc(
+        &mut self,
+        p: ^mut u8,
+        old_size: usize,
+        new_size: usize,
+        align: usize,
+        loc: SourceLocation = #location,
+    ) -> ^mut u8 {
+        allocs += 1
+        return Allocators::Global.realloc(p, old_size, new_size, align, loc)
+    }
+
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation = #location) {
+        Allocators::Global.free(p, size, align, loc)
+    }
+}
+
+fn ids(xs: &List<Token>) -> String {
+    let mut out = String()
+    for &t in xs {
+        if !out.is_empty() {
+            out.push(' ')
+        }
+        out.push_str(format!("{}", t.id).as_str())
+    }
+    return out
+}
+
+fn ints(xs: &List<i32>) -> String {
+    let mut out = String()
+    for &x in xs {
+        if !out.is_empty() {
+            out.push(' ')
+        }
+        out.push_str(format!("{}", x).as_str())
+    }
+    return out
+}
+
+fn is_even(x: &i32) -> bool {
+    return x % 2 == 0
+}
+
+fn is_odd_token(t: &Token) -> bool {
+    return t.id % 2 == 1
+}
+
+fn small_enough(_k: &i32, v: &mut i32) -> bool {
+    v *= 10
+    return v < 300
+}
+
+fn short_word(w: &String) -> bool {
+    return w.len() <= 4
+}
+
+fn text_len(c: cstr) -> usize {
+    return (c as str).len
+}
+
+fn lists() {
+    // Bytes that can move: one overlapping copy shifts the tail.
+    let mut xs = List<i32>()
+    for i in 0..10 {
+        xs.push(i)
+    }
+    xs.insert(0, 100)
+    xs.insert(5, 200)
+    xs.insert(xs.len(), 300)
+    let removed = xs.remove(1)
+    println!("{} | removed {}", ints(&xs), removed)
+    xs.remove_range(2, 5)
+    println!("{}", ints(&xs))
+    let first = xs.first() or return
+    let last = xs.last() or return
+    println!("first {} last {}", first, last)
+    let top = xs.last_mut() or return
+    top += 1
+    xs.retain(is_even)
+    println!("{}", ints(&xs))
+    xs.reverse()
+    println!("{}", ints(&xs))
+    let empty = List<i32>()
+    println!("empty first is null: {}", empty.first() == null)
+
+    // A `drop`: the element-by-element path, and every element dropped exactly once.
+    let mut tokens = List<Token>()
+    for i in 0..8 {
+        tokens.push(Token(i))
+    }
+    tokens.insert(2, Token(20))
+    let t = tokens.remove(0)
+    tokens.remove_range(1, 3)
+    println!("{} | removed {} | drops {}", ids(&tokens), t.id, unsafe { DROPS })
+    tokens.retain(is_odd_token)
+    println!("{} | drops {}", ids(&tokens), unsafe { DROPS })
+    let mut more = List<Token>()
+    more.push(Token(40))
+    more.push(Token(41))
+    tokens.append(&mut more)
+    tokens.reverse()
+    println!("{} | more {} | drops {}", ids(&tokens), more.len(), unsafe { DROPS })
+
+    // `append` on bytes, and giving memory back.
+    let mut a = List<i32>(64)
+    a.push(1)
+    let mut b = List<i32>()
+    b.push(2)
+    b.push(3)
+    a.append(&mut b)
+    let before = a.capacity()
+    a.shrink_to_fit()
+    println!("{} | {} -> {} | b {}", ints(&a), before, a.capacity(), b.len())
+    a.clear()
+    a.shrink_to_fit()
+    println!("cleared capacity {}", a.capacity())
+
+    // `Search` and `Extend`.
+    let mut ys = List<i32>()
+    let some: [3]i32 = [5, 6, 7]
+    ys.extend(some[0..3])
+    ys.insert_slice(1, some[1..3])
+    println!("{} | has 6 {} | 7 at {} | 9 at {}", ints(&ys), ys.contains(&6), ys.index_of(&7) or 99, ys.index_of(&9) or 99)
+    ys.fill(4)
+    println!("{}", ints(&ys))
+
+    // `Eq` and `Hash`: equal lists are equal keys.
+    let mut p = List<i32>()
+    p.push(1)
+    p.push(2)
+    let q = p
+    let mut r = List<i32>()
+    r.push(2)
+    r.push(1)
+    println!("p == q {} | p == r {} | hashes equal {}", p == q, p == r, p.hash() == q.hash())
+    let mut by_path = HashMap<List<i32>, str>()
+    by_path.insert(p, "one-two")
+    let found = by_path.get(&q) or return
+    println!("by path: {}", found)
+}
+
+fn maps() {
+    // Counting words, one lookup each.
+    let mut counts = HashMap<str, i32>()
+    for word in "the cat and the hat and the bat".split_whitespace() {
+        let n = counts.get_or_insert(word, 0)
+        n += 1
+    }
+    let the = counts.get(&"the") or return
+    let and = counts.get(&"and") or return
+    println!("the {} and {} distinct {}", the, and, counts.len())
+
+    // Keys and values, in no particular order, so summed.
+    let mut squares = HashMap<i32, i32>()
+    for i in 1..9 {
+        squares.insert(i, i * i)
+    }
+    let mut key_sum = 0
+    for &k in squares.keys() {
+        key_sum += k
+    }
+    for &mut v in squares.values_mut() {
+        v += 1
+    }
+    let mut value_sum = 0
+    for &v in squares.values() {
+        value_sum += v
+    }
+    println!("keys {} values {}", key_sum, value_sum)
+
+    // `retain` sees each entry once, even as removals shift entries back.
+    let mut big = HashMap<i32, i32>()
+    for i in 0..200 {
+        big.insert(i, i)
+    }
+    big.retain(small_enough)
+    let mut ok = big.len() == 30
+    for k, &v in big {
+        ok = ok && v == k * 10 && k < 30
+    }
+    println!("retained {} ok {}", big.len(), ok)
+
+    // `String` keys, looked up by `str`: no `String` is built to do it.
+    let mut counting = Counting{}
+    let mut textures = HashMap<String, i32>(0, &mut counting)
+    textures.insert(String::from("hero", &mut counting), 1)
+    textures.insert(String::from("wall", &mut counting), 2)
+    let line = "hero.png"
+    let name = line.strip_suffix(".png") or return
+    let allocs = counting.allocs
+    let hero = textures.get_str(name) or return
+    let wall = textures.get_mut_str("wall") or return
+    wall += 10
+    let lookups_allocated = counting.allocs - allocs
+    let built = textures.get(&String::from(name, &mut counting)) or return
+    println!("hero {} {} wall {} | by str allocated {} | by String allocated {}", hero, built, textures.get_str("wall") or return, lookups_allocated, counting.allocs - allocs)
+    let gone = textures.remove_str("hero") or return
+    println!("removed {} | hero {} | wall {}", gone, textures.contains_str("hero"), textures.contains_str("wall"))
+}
+
+fn sets() {
+    let mut seen = HashSet<i32>()
+    let rolls: [8]i32 = [3, 1, 4, 1, 5, 9, 2, 6]
+    let mut repeats = 0
+    for r in rolls {
+        if !seen.insert(r) {
+            repeats += 1
+        }
+    }
+    println!("{} distinct, {} repeated, has 9 {}, has 7 {}", seen.len(), repeats, seen.contains(&9), seen.contains(&7))
+    println!("removed 4 {} again {}", seen.remove(&4), seen.remove(&4))
+    seen.retain(is_even)
+    let mut sum = 0
+    for &v in seen {
+        sum += v
+    }
+    let copy = seen
+    println!("evens {} sum {} copy {}", seen.len(), sum, copy.len())
+
+    let mut words = HashSet<String>()
+    for w in "alpha beta gamma beta".split_whitespace() {
+        let _ = words.insert(String::from(w))
+    }
+    println!("words {} beta {} delta {}", words.len(), words.contains_str("beta"), words.contains_str("delta"))
+    println!("removed beta {} | {}", words.remove_str("beta"), words.len())
+    let mut long = HashSet<String>()
+    let _ = long.insert(String::from("tiny"))
+    let _ = long.insert(String::from("enormous"))
+    long.retain(short_word)
+    println!("short kept {}", long.contains_str("tiny") && !long.contains_str("enormous"))
+}
+
+fn strings() {
+    let mut s = String("héllo")
+    s.insert(0, '¡')
+    s.insert_str(s.len(), " world")
+    s.insert(s.find(" ") or 0, ',')
+    let e = s.remove(3)
+    println!("{} | removed {} | {} bytes", s, e, s.len())
+
+    let parts: [3]str = ["a", "b", "c"]
+    let mut names = List<String>()
+    names.push(String("ada"))
+    names.push(String("grace"))
+    let mut views = List<str>()
+    views.push("x")
+    views.push("y")
+    println!("{} | {} | {} | [{}]", parts[0..3].join(", "), names.join(" & "), views.join(""), List<str>().join(","))
+
+    let path = "assets/sprites/hero.png"
+    let slash = path.rfind("/") or 0
+    println!("{} | {} | {}", slash, path.rfind("q") or 99, path.rfind("") or 99)
+    println!("{} | {}", path.strip_prefix("assets/") or "-", path.strip_prefix("sprites") or "-")
+    let (key, value) = "volume = 0.8".split_once("=") or ("-", "-")
+    println!("[{}] [{}]", key.trim(), value.trim())
+    let missing = "novalue".split_once("=") == none
+    println!("missing {}", missing)
+    let mut words = 0
+    for w in "  one\ttwo \n three  ".split_whitespace() {
+        print!("<{}>", w)
+        words += 1
+    }
+    println!(" {}", words)
+    for _ in "   ".split_whitespace() {
+        println!("never")
+    }
+    println!("{} {} {}", "Hello".eq_ignore_ascii_case("hELLO"), "Hello".eq_ignore_ascii_case("Help!"), String("ab").eq_ignore_ascii_case("AB"))
+    println!("[{}] [{}]", "-=".repeat(4), "x".repeat(0))
+
+    // A runtime `str` to a C string: the `String` holds the zero after the text.
+    let piece = path.strip_suffix(".png") or return
+    let owned = String::from(piece)
+    println!("cstr {} {}", text_len(owned.as_cstr()), text_len(String::from(piece).as_cstr()))
+}
+
+fn main() {
+    lists()
+    maps()
+    sets()
+    strings()
+
+    // `hash_combine` wraps on overflow (D-0063); these outputs are pinned so the mixer
+    // cannot change without a test noticing.
+    println!("{} {} {}", hash_combine(0, 0), hash_combine(1, 2), hash_combine(0xFFFFFFFFFFFFFFFF, 1))
+}

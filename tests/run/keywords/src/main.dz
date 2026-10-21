@@ -32,6 +32,11 @@ fn register(v: &explicit) -> i32 {
     return v.double + mutable
 }
 
+// Missing from the list until `HashMap::get_or_insert` named a parameter `default`.
+fn do(default: i32, char8_t: i32, xor_eq: i32) -> i32 {
+    return default + char8_t + xor_eq
+}
+
 fn main() {
     let e: class = .template
     let s = explicit{ double: 4 }
@@ -46,5 +51,5 @@ fn main() {
         }
     }
 
-    println!("{} {} {} {} {}", double(21), s.volatile(), register(&s), e as u8, mutable)
+    println!("{} {} {} {} {} {}", double(21), s.volatile(), register(&s), e as u8, mutable, do(1, 2, 3))
 }

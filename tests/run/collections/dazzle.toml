@@ -1,0 +1,9 @@
+[module]
+name    = "collections"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"
