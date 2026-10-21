@@ -47,6 +47,32 @@ where: `dz_check/src/check.rs`, `iterate_item`
 What is missing or wrong, why it matters, and what has been tried.
 ```
 
+**The body is written for someone who has not met the problem.** The title is a reminder;
+the body is the explanation, and it is what the backlog's link leads to. Four things, in
+this order, each under a bold lead-in so a reader can skip to the one they want:
+
+1. **What it is** — the feature or the defect, *spelled out*, with a short Dazzle snippet
+   showing the refused or wrong form and the working one beside it. Do not assume the reader
+   knows what the title's words mean: "format specifiers" meant nothing to the user who had
+   to choose whether to schedule it, and that is the bar to clear.
+2. **Why it matters** — concretely, in terms of a program someone would write. "A game needs
+   it for X" beats "it is a gap". If it does not matter much, say so: a row that admits it is
+   low value is more useful than one that implies everything is urgent.
+3. **Why it is this way** — for a deferral, what was tried and what blocked it; for a
+   feature, why it has not been built. Name the diagnostic code where there is one.
+4. **What it would take** — the files and functions, and the **decision the user has to
+   make** if there is one, with the options and what each costs. Say explicitly whether it is
+   a language change (a §21 revision row and usually a `D-NNNN`) or only compiler work
+   (`docs/log/`).
+
+Link related tasks as `[T-0050](T-0050-associated-type-projection.md)` — a relative link to
+the sibling file, so it is clickable from the backlog and in an editor. `check` verifies every
+`T-NNNN` and `D-NNNN` mentioned anywhere under `docs/` exists.
+
+**Do not quote the `title:` value.** `header` splits on the first colon and keeps the rest
+verbatim, so backticks and a second colon are fine as they are; quotes would become part of
+the title and appear in the backlog.
+
 | Field | Values |
 |---|---|
 | `milestone` | a row of the roadmap, spec §19 (`M9`, `M12`, …), `v2` for after the first release, or `none` for not scheduled. A milestone is a group of tasks; when milestones become versions, that mapping goes in §19 and no task changes |
