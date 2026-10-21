@@ -1,0 +1,7 @@
+---
+id: D-0080
+title: Formatting as macros
+status: decided
+---
+
+**`#print`, `#println`, `#eprint`, `#eprintln`, `#format` and `#panic` are the compiler's own macros**, as the intrinsics are, chosen by the user once M10 had landed: invoked with `#` like every macro (18.75), `println!`'s Rust spelling not being Dazzle's. `#format` replaces `String::format` and takes `allocator = …` by name. **Any `Format` is an argument**, a type's own included, so printing a `Vec2` no longer goes through a `String`; an enum, an optional and a pointer have none. Their names are reserved; a bare `println(…)` is an unknown name whose help says to write `#println`. **Arguments are evaluated as a call's are** — all before anything is written, temporaries living until the text is — because the invocation lowers to one call: the text between placeholders and each spec, split at compile time, and the arguments as `&Format`, written in turn by `std`'s `Formatter`, straight to the stream with no intermediate `String`. Lowering to one statically-dispatched `Format::format` call per placeholder was tried and dropped: a sequence of statements ends each argument's temporaries before the line is written, which a call does not. `#panic` formats without allocating, since the allocators panic too. `error(…)` stays a function: `#error` is a macro's own rejection (§12.6), and an `Error`'s message keeps its static storage (§9.2) (§12.9)
