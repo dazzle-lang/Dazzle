@@ -524,7 +524,7 @@ pub enum ExprKind {
 
     /// `println`, `sizeof`, `panic`, … — temporary builtins that become stdlib functions
     /// at M12. Kept as a node of their own so that when they do, only this variant and its
-    /// consumers disappear (deferral register, `docs/PROGRESS.md`).
+    /// consumers disappear (deferral register, `docs/tasks/`).
     Builtin {
         name: String,
         args: Vec<ExprId>,
