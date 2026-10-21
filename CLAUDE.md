@@ -13,7 +13,8 @@ diverged branch), stop and tell the user rather than stashing, rebasing or resol
 
 Where it stands: M0–M8, M10, M11, M14 and M15 are done; most of M9 (`dz lsp` and the VS
 Code extension) was pulled forward; **now: M12, the stdlib**, whose criterion (Breakout) is
-met. `docs/tasks/README.md` says what is next. Spec §19 is the roadmap.
+met. **`docs/tasks.md` is the backlog** — what is next, and every open task by milestone.
+Spec §19 is the roadmap.
 
 **Formatting is rustfmt's**, configured by `rustfmt.toml` (`use_small_heuristics = "Max"`,
 which is what keeps it close to how this repository was written by hand). Run `cargo fmt
@@ -28,20 +29,24 @@ Each is a folder of small files, so read the one you need rather than all of it.
   the index and holds the revision number. See below.
 - **`docs/decisions/`** — spec §18: every design question the user has settled or left open,
   one `D-NNNN` file each. `D-00NN` is what older text cites as `18.NN`.
+- **`docs/tasks.md`** — **the backlog: read it first.** What is next, then every open task,
+  one line each, grouped by milestone. **When asked what there is to work on, answer from
+  it** in two parts: the milestone work (M12 first) and the tooling that would make Dazzle
+  easy for an LLM to work in (the `llm-tooling` rows) — say both. It is generated from
+  `docs/tasks/`, so it is always current: **never edit it by hand.**
 - **`docs/tasks/`** — open and done work, one `T-NNNN` file each with a `milestone`, `status`,
-  `kind` and `area` header; deferrals are `kind: deferral`. **Query it with
-  `python tools/track.py`** (`tasks --milestone M12`, `milestones`, `show T-0050`, `new task`)
-  instead of reading the files. `docs/tasks/README.md` has the rules and what is next.
-  **When asked what there is to work on**, answer in two parts: the milestone work and the
-  tooling that would make Dazzle easy for an LLM to work in (`--area llm-tooling`) — say both.
+  `kind` and `area` header; deferrals are `kind: deferral`. Add a task with `python
+  tools/track.py new task "…" --milestone M12 --area …`; close one by setting `status: done`.
+  A PostToolUse hook then rewrites `docs/tasks.md` (or run `python tools/track.py index`).
+  `docs/tasks/README.md` has the rules.
 - **`docs/log/`** — the build log, one file per milestone (`README.md` is the index): what
   was built and decided, and why. Add what you built to the matching file when you finish;
   read one only when you need the history behind something.
 - **`docs/testing.md`** — the test map: which corpus covers what.
 
 Run `python tools/track.py check` after editing any of them: it checks every task's and
-decision's header, that ids are unique and exist where cited, and that every `§N.M` in the
-spec names a real heading.
+decision's header, that ids are unique and exist where cited, that every `§N.M` in the
+spec names a real heading, and that `docs/tasks.md` matches the task files.
 
 ## The spec is the contract
 
@@ -92,10 +97,11 @@ only the compiler's internals change, it is `docs/log/`.
 ```
 docs/spec/            the language specification, one file per section (the contract)
 docs/decisions/       D-NNNN: design decisions, spec §18
-docs/tasks/           T-NNNN: open and done work, queried with tools/track.py
+docs/tasks.md         the backlog: open tasks by milestone, generated — read it first
+docs/tasks/           T-NNNN: open and done work, one file each
 docs/log/             build log, one file per milestone
 docs/testing.md       test map: what every corpus below covers
-tools/track.py        lists, creates and checks tasks and decisions
+tools/track.py        lists, creates and checks tasks and decisions; writes docs/tasks.md
 tools/hooks/          Claude Code hooks, wired up in .claude/settings.json
 crates/
   dz_span/            Span, SourceMap, line/column mapping

@@ -101,7 +101,7 @@ Server output, including any compiler panic, is in the **Dazzle** output channel
 
 ## Limits
 
-These are open tasks in `docs/tasks/` (`python tools/track.py tasks --milestone M9`):
+These are open tasks in the backlog, `docs/tasks.md`, under M9:
 
 - Rename waits until the project parses, because code that doesn't parse could hide uses
   of the name.
