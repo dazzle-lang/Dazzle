@@ -1,8 +1,8 @@
 /// Where a `Format` implementation writes, and how the placeholder it was given asks for the
 /// value: `{:x}` and `{:X}` in hex, `{:.N}` with `N` digits after the point (spec §12.9).
 ///
-/// It appends to a `String` that outlives it — what `#format` builds — or writes to
-/// standard output or standard error, for `#print` and `#eprint`. An implementation only
+/// It appends to a `String` that outlives it — what `format!` builds — or writes to
+/// standard output or standard error, for `print!` and `eprint!`. An implementation only
 /// ever adds text, with `write_str` and `write_char`:
 ///
 /// ```dz
@@ -30,7 +30,7 @@ pub struct Formatter {
     m_upper: bool = false
     m_precision: u32? = none
 
-    /// A formatter appending to `out`, which must outlive it, as `#format` uses. `loc` is
+    /// A formatter appending to `out`, which must outlive it, as `format!` uses. `loc` is
     /// where the text's memory is recorded as allocated, under `--track-memory`.
     pub fn string(out: &mut String, loc: SourceLocation = #location) -> Formatter {
         let mut f: Formatter
@@ -39,13 +39,13 @@ pub struct Formatter {
         return move(f)
     }
 
-    /// A formatter writing to standard output, as `#print` does. What it holds is written
+    /// A formatter writing to standard output, as `print!` does. What it holds is written
     /// when it is dropped, or by `flush`.
     pub fn stdout() -> Formatter {
         return Formatter::stream(0)
     }
 
-    /// A formatter writing to standard error, as `#eprint` does. Standard output is
+    /// A formatter writing to standard error, as `eprint!` does. Standard output is
     /// flushed first, so the two keep their order in a terminal.
     pub fn stderr() -> Formatter {
         return Formatter::stream(1)
@@ -90,14 +90,14 @@ pub struct Formatter {
         self.write_str(unsafe { encoded[0..n] as str })
     }
 
-    /// What `#print`, `#println`, `#eprint` and `#eprintln` lower to (spec §12.9): `args`
+    /// What `print!`, `println!`, `eprint!` and `eprintln!` lower to (spec §12.9): `args`
     /// written between `pieces` to standard output (`stream` 0) or standard error (1).
     fn print(stream: i32, pieces: []str, specs: []str, args: ..&Format) {
         let mut f = Formatter::stream(stream)
         f.write_args(pieces, specs, ..args)
     }
 
-    /// What `#format` lowers to (spec §12.9): `args` written between `pieces`, as a new
+    /// What `format!` lowers to (spec §12.9): `args` written between `pieces`, as a new
     /// `String` in memory from `allocator`.
     fn format(pieces: []str, specs: []str, args: ..&Format, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
         let mut out = String("", allocator, loc)
@@ -132,7 +132,7 @@ pub struct Formatter {
         }
     }
 
-    /// A formatter that keeps what it is given in itself, for `#panic`'s message: a panic
+    /// A formatter that keeps what it is given in itself, for `panic!`'s message: a panic
     /// must not allocate, since the allocators panic too (spec §9.8). What does not fit is
     /// left out.
     fn message() -> Formatter {

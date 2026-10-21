@@ -113,29 +113,29 @@ fn main() {
     let mut btn = Button{}
     let ctx = ctx_for(4) or ButtonCtx{ delta_time: 0.5 }
     let broken = ctx_for(0) or { e ->
-        #println("fallback: {}", e.message)
+        println!("fallback: {}", e.message)
         ButtonCtx{ delta_time: 0.5 }
     }
-    #println("{} {}", ctx.delta_time, broken.delta_time)
+    println!("{} {}", ctx.delta_time, broken.delta_time)
 
     // Hover, press, hold for four frames, and the sprite changes.
     let held = Input{ mouse_down: true, mouse_up: false, over: true }
     for frame in 0..7 {
         btn.update(&ctx, &held)
-        #println("{} {} {}", frame, name(&btn.state), btn.scale)
+        println!("{} {} {}", frame, name(&btn.state), btn.scale)
     }
 
     // Press and let go half way: the transition is abandoned and the scale restored.
     let released = Input{ mouse_down: false, mouse_up: true, over: true }
     btn.update(&ctx, &held)
     btn.update(&ctx, &held)
-    #println("{} {}", name(&btn.state), btn.scale)
+    println!("{} {}", name(&btn.state), btn.scale)
     btn.update(&ctx, &released)
-    #println("{} {}", name(&btn.state), btn.scale)
+    println!("{} {}", name(&btn.state), btn.scale)
 
     let selected = switch btn.sprite {
         case Normal { false }
         case Selected { true }
     }
-    #println("{} {}", selected, btn.presses)
+    println!("{} {}", selected, btn.presses)
 }

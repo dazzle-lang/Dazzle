@@ -32,26 +32,84 @@ impl<'a> Parser<'a> {
         m
     }
 
-    /// Is the cursor at an intrinsic — `#file`, `#location(…)` — rather than a macro
-    /// invocation? Intrinsics are the compiler's own macros and stay expressions (§12.7).
-    pub(crate) fn at_intrinsic(&self) -> bool {
-        self.at(TokenKind::Hash)
-            && self.peek_at(1) == TokenKind::Ident
-            && self.peek_at(2) != TokenKind::ColonColon
-            && INTRINSICS.contains(&self.text_after(1))
+    /// Is the cursor at `name!` or `dep::name!`? A prefix `!` cannot follow a name on one
+    /// line, and `!=` and `!->` are tokens of their own, so the `!` is unambiguous.
+    pub(crate) fn at_bang_name(&self) -> bool {
+        let mut i = 0;
+        loop {
+            if self.peek_at(i) != TokenKind::Ident {
+                return false;
+            }
+            match self.peek_at(i + 1) {
+                TokenKind::Bang => return true,
+                TokenKind::ColonColon => i += 2,
+                _ => return false,
+            }
+        }
     }
 
-    /// Is the cursor at `#name` or `#dep::name` — an invocation, in any position?
+    /// Is the `name!(…)` at the cursor the whole statement — a `stmt` macro's invocation —
+    /// rather than the start of an expression such as `max!(a, b).abs()`? Looks past the
+    /// group without consuming it.
+    pub(crate) fn bang_call_is_statement(&self) -> bool {
+        let mut i = 0;
+        while self.peek_at(i) != TokenKind::Bang {
+            i += 1;
+        }
+        i += 1;
+        if !is_open(self.peek_at(i)) {
+            return true; // no group, which `parse_macro_call` reports
+        }
+        let mut depth = 0i32;
+        loop {
+            let k = self.peek_at(i);
+            if k == TokenKind::Eof {
+                return true;
+            }
+            if is_open(k) {
+                depth += 1;
+            } else if is_close(k) {
+                depth -= 1;
+            }
+            i += 1;
+            if depth == 0 {
+                break;
+            }
+        }
+        matches!(self.peek_at(i), TokenKind::Terminator | TokenKind::RBrace | TokenKind::Eof)
+    }
+
+    /// Is the cursor at an intrinsic — `#file`, `#location`, `println!(…)` — rather than a
+    /// macro invocation? Either spelling of any of them counts, so that the wrong one is
+    /// reported as that rather than as an unknown macro (§12.7, §12.9). `module` is a
+    /// keyword, so `#module` is the one whose name is not an identifier token.
+    pub(crate) fn at_intrinsic(&self) -> bool {
+        if self.at(TokenKind::Hash) {
+            return self.peek_at(1) == TokenKind::Module
+                || (self.peek_at(1) == TokenKind::Ident
+                    && self.peek_at(2) != TokenKind::ColonColon
+                    && INTRINSICS.contains(&self.text_after(1)));
+        }
+        self.peek_at(1) == TokenKind::Bang
+            && (self.at(TokenKind::Module)
+                || (self.at(TokenKind::Ident) && INTRINSICS.contains(&self.cur_text())))
+    }
+
+    /// Is the cursor at `#name`, `#dep::name`, `name!` or `dep::name!` — an invocation, in
+    /// any position? Which of the two the macro takes is `dz_macro`'s to check, once it
+    /// knows the macro's kind (spec §12.5).
     pub(crate) fn at_macro_call(&self) -> bool {
-        self.at(TokenKind::Hash) && self.peek_at(1) == TokenKind::Ident && !self.at_intrinsic()
+        ((self.at(TokenKind::Hash) && self.peek_at(1) == TokenKind::Ident) || self.at_bang_name())
+            && !self.at_intrinsic()
     }
 
     /// `#machine Foo(…) { … }` in declaration or statement position, which runs to the end
-    /// of the line outside brackets; `#max(a, b)` in expression position, which is one
-    /// bracketed group (spec §12.5).
+    /// of the line outside brackets; `max!(a, b)` anywhere, and `#max(a, b)` in expression
+    /// position, which are one bracketed group (spec §12.5). A mismatch with the kind is
+    /// `dz_macro`'s to report.
     pub(crate) fn parse_macro_call(&mut self, in_expression: bool) -> MacroCall {
         let start = self.start();
-        self.bump(); // `#`
+        let bang = !self.eat(TokenKind::Hash);
         let path_start = self.start();
         let mut segments = Vec::new();
         loop {
@@ -62,19 +120,73 @@ impl<'a> Parser<'a> {
             }
         }
         let path = Path { span: self.span_from(path_start), segments };
+        if bang {
+            self.bump(); // `!`
+        }
         let name_span = self.span_from(start);
 
         let mut tokens = Vec::new();
-        if in_expression {
+        if in_expression || bang {
             let takes_group = matches!(self.peek(), TokenKind::LParen | TokenKind::LBracket)
                 || (self.at(TokenKind::LBrace) && self.no_struct_literal == 0);
             if takes_group {
                 self.collect_group(&mut tokens);
+            } else if bang {
+                let span = self.peek_token().span;
+                let found = self.describe_current();
+                let names: Vec<&str> = path.segments.iter().map(|s| s.name.name.as_str()).collect();
+                self.error_help(
+                    codes::EXPECTED_TOKEN,
+                    span,
+                    format!("expected `(` after `{}!`, found {found}", names.join("::")),
+                    "expected the macro's arguments",
+                    "`name!` is followed by one bracketed group, `name!(…)` (spec §12.5)",
+                );
             }
         } else {
             self.collect_to_line_end(&mut tokens);
         }
-        MacroCall { span: self.span_from(start), name_span, path, tokens }
+        MacroCall { span: self.span_from(start), name_span, path, bang, tokens }
+    }
+
+    /// `#file`, `#location`, `#expr_text(e)` — and `println!("…", x)`, the formatting
+    /// macros reading like a call as an `expr` macro does (spec §12.7, §12.9). The other
+    /// spelling of either is read the same way, and reported.
+    pub(crate) fn parse_intrinsic(&mut self) -> ExprKind {
+        let start = self.start();
+        let hashed = self.eat(TokenKind::Hash);
+        let name = if self.at(TokenKind::Module) {
+            Ident::new(self.bump().span, "module")
+        } else {
+            self.parse_ident_or_error()
+        };
+        if !hashed {
+            self.bump(); // `!`
+        }
+        let formatting = FORMAT_MACROS.contains(&name.name.as_str());
+        if hashed == formatting {
+            let span = self.span_from(start);
+            let n = &name.name;
+            if formatting {
+                self.error_help(
+                    codes::INTRINSIC_SPELLING,
+                    span,
+                    format!("`#{n}` is not how a formatting macro is invoked"),
+                    "written with `#`",
+                    format!("write `{n}!(…)`: formatting reads like a call (spec §12.9)"),
+                );
+            } else {
+                self.error_help(
+                    codes::INTRINSIC_SPELLING,
+                    span,
+                    format!("`{n}!` is not how an intrinsic is invoked"),
+                    "written with `!`",
+                    format!("write `#{n}`: an intrinsic is written with `#` (spec §12.7)"),
+                );
+            }
+        }
+        let args = if self.at(TokenKind::LParen) { self.parse_call_args() } else { Vec::new() };
+        ExprKind::Intrinsic { name, args }
     }
 
     /// One balanced bracketed group, brackets included.

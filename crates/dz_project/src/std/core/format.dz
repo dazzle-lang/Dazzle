@@ -1,4 +1,4 @@
-/// What `#format("{}", x)` and `#println("{}", x)` need of `x`: a way to write itself into a `Formatter`
+/// What `format!("{}", x)` and `println!("{}", x)` need of `x`: a way to write itself into a `Formatter`
 /// (spec §12.9). Numbers, `bool`, `char`, `str`, `cstr` and `String` implement it here; a
 /// type of your own implements it to be formatted too.
 pub trait Format {

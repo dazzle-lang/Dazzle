@@ -14,6 +14,6 @@ impl Drop for File {
 fn main() {
     let shared = Rc<File>(File{ fd: 3 })
     if let f = shared {
-        #println("{}", f.fd)
+        println!("{}", f.fd)
     }
 }

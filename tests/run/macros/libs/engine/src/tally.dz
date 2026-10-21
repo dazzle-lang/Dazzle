@@ -11,7 +11,7 @@ pub fn bump(t: &mut Tally, by: i32) {
 }
 
 pub macro tally -> stmt {
-    pattern { $name: ident $( by $step: expr )? }
+    pattern { ( $name: ident $( by $step: expr )? ) }
     expand {
         let mut $name = Tally{}
         bump(&mut $name, #if $step { $step } #else { 1 })

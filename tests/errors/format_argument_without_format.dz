@@ -1,11 +1,11 @@
 // expect: DZ0527
 //
-// An argument of `#format` must implement `Format` (spec §12.9).
+// An argument of `format!` must implement `Format` (spec §12.9).
 
 struct Unwritten {
     pub n: i32
 }
 
 fn main() {
-    let _ = #format("{}", Unwritten{ n: 1 })
+    let _ = format!("{}", Unwritten{ n: 1 })
 }

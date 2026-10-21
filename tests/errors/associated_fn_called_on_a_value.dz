@@ -14,5 +14,5 @@ struct Vec2 {
 fn main() {
     let v = Vec2{ x: 1 }
     let z = v.zero()
-    #println("{}", z.x)
+    println!("{}", z.x)
 }

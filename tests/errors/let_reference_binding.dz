@@ -12,7 +12,7 @@
 fn probe(a: ^u32?) {
     let p = a or return
     let &c = p or return
-    #println("{}", c)
+    println!("{}", c)
 }
 
 fn main() {

@@ -8,4 +8,4 @@ area: checker
 where: `dz_check/src/check.rs`, `format_macro`
 ---
 
-**A spread cannot be formatted**: `#format("{} {}", ..xs)` is not an invocation the macro accepts, since how many values a spread holds is not known where the string is checked. Pass the values one by one
+**A spread cannot be formatted**: `format!("{} {}", ..xs)` is not an invocation the macro accepts, since how many values a spread holds is not known where the string is checked. Pass the values one by one

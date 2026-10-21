@@ -188,26 +188,29 @@ macros safe to use without reading their bodies. `[DECIDED — §18.76]`
 
 ```dz
 #machine ButtonState(ctx: &ButtonCtx) { … }   // declaration position
-#trace "entering the loop"                    // statement position
-let v = #max(a, b)                            // expression position
+trace!("entering the loop")                   // statement position
+let v = max!(a, b)                            // expression position
 ```
 
-A macro is invoked **with `#` in every position.** The name is `#name` for a macro of the
-same module and `#dep::name` for a `pub macro` of a dependency (§3.2). The invocation is the
-name and what follows it:
+**A macro's kind decides how it is invoked**, so each macro has one spelling:
 
-- in **declaration and statement position**, everything up to the end of the line,
-  outside brackets — so `#machine`'s braces run over as many lines as they need;
-- in **expression position**, one bracketed group, `( … )`, `[ … ]` or `{ … }`.
+- an **`expr` or `stmt` macro** reads like the call it stands for: `name!`, then one
+  bracketed group, `( … )`, `[ … ]` or `{ … }` — `max!(a, b)`, `count![xs]`,
+  `log!("warn", …)`. An `expr` macro goes wherever an expression may be, a statement
+  included, and a `stmt` macro where a statement may be, as the whole statement;
+- a **`decl` macro** reads like the declaration it writes: `#name`, then everything up to
+  the end of the line, outside brackets — so `#machine`'s braces run over as many lines as
+  they need. It is invoked where a declaration may be, at module level or in a body.
 
-The pattern is matched against everything after the name, the brackets of an expression
-invocation included. A `decl` macro is invoked only where a declaration may be — at module
-level or in a body — a `stmt` macro where a statement may be, and an `expr` macro wherever
-an expression may be.
+A dependency's `pub macro` is reached through the dependency (§3.2): `dep::max!(a, b)`,
+`#dep::machine …`. The pattern is matched against everything after the name, the brackets
+of a `name!` invocation included. A macro invoked in another kind's spelling is an error
+that says which one to write (DZ0610).
 
 **The intrinsics are the compiler's own macros**: `#file`, `#line`, `#location` and the
-rest (§12.7) are invoked the same way, and so are the formatting macros, `#println` and its
-family (§12.9) — which is why their names are reserved.
+rest (§12.7) are written with `#`, since they stand for a value rather than a call; the
+formatting macros, `println!` and its family (§12.9), read like a call and take `!`. Their
+names are reserved, and the other spelling of any of them is an error (DZ0217).
 
 The invocation is replaced by its expansion: declarations where the invocation was,
 statements into the enclosing block (opening no scope, as a statement `#if` does), and an
@@ -246,8 +249,8 @@ single most important debugging tool for a macro system, and cheap to build.
 
 ## 12.7 Compiler intrinsics
 
-Intrinsics are the macros the compiler provides, invoked like any other (§12.5) in
-expression or parameter position. Unlike a user macro they are resolved during checking,
+Intrinsics are the macros the compiler provides, written with `#` (§12.5) in expression or
+parameter position. Unlike a user macro they are resolved during checking,
 since what they produce depends on where they end up, and become constants in the C++
 output.
 
@@ -269,7 +272,7 @@ which is exactly the `#src_code` behaviour you asked for (and the same trick as 
 ```dz
 pub fn assert(cond: bool, msg: str = "", loc: SourceLocation = #location) {
     if !cond {
-        #panic("assertion failed: {}", msg, loc)   // reports `loc`, the caller's line (§9.8)
+        panic!("assertion failed: {}", msg, loc)   // reports `loc`, the caller's line (§9.8)
     }
 }
 
@@ -296,22 +299,26 @@ is what lets an assertion macro print `assert(hp > 0)` rather than `assert(false
 #[thread_local] static SCRATCH: TempArena = TempArena{}
 ```
 
-Attributes deliberately share the `#` sigil with macros and intrinsics, because they are the
-same category of thing: **`#` means "the compiler does something here at compile time."**
-An attribute is really just a macro in attribute position — `#[derive(Serialize)]` is a
-compile-time transform on the declaration that follows it, no different in kind from
-`#machine`. `[DECIDED — §18.2]`
+Attributes deliberately share the `#` sigil with `decl` macros and intrinsics, because they
+are the same category of thing: **`#` means "the compiler does something here at compile
+time."** An attribute is really just a macro in attribute position — `#[derive(Serialize)]`
+is a compile-time transform on the declaration that follows it, no different in kind from
+`#machine`. What reads like a call — an `expr` or `stmt` macro, a formatting macro — is
+`name!` instead, so that it looks like the call it stands for. `[DECIDED — §18.2]`
 
-The `#` forms are distinguished by what follows, so the parser never has to guess:
+The forms are distinguished by their first tokens, so the parser never has to guess:
 
 | Form | Position | Meaning |
 |---|---|---|
 | `#[name]`, `#[name(...)]` | before a declaration | attribute |
 | `#if`, `#else` | around declarations, members or statements | build-flag conditional (§12.10) |
-| `#name …`, `#dep::name …` | declaration or statement position, to the end of the line | macro invocation (§12.5) |
-| `#name(…)`, `#name[…]`, `#name{…}` | expression position, one bracketed group | macro invocation (§12.5) |
-| `#file`, `#location(…)`, … | expression or default-argument position | intrinsic — a built-in macro (§12.7) |
-| `#println(…)`, `#format(…)`, … | expression position, which includes a statement | formatting — a built-in macro (§12.9) |
+| `#name …`, `#dep::name …` | declaration position, at module level or in a body, to the end of the line | `decl` macro invocation (§12.5) |
+| `name!(…)`, `name![…]`, `name!{…}`, `dep::name!(…)` | expression or statement position; one bracketed group | `expr` or `stmt` macro invocation (§12.5) |
+| `#file`, `#location`, `#expr_text(…)`, … | expression or default-argument position | intrinsic — a built-in macro (§12.7) |
+| `println!(…)`, `format!(…)`, … | expression position, which includes a statement | formatting — a built-in macro (§12.9) |
+
+`!` after a name is an invocation and nowhere else: as a prefix it is "not", and in `!->`
+"fallible" (§7.1, §9), neither of which can follow a name.
 
 Intrinsic names are reserved, and so is `error`, which `#error` (§12.6) uses: a macro may
 not be called `file`, `line`, `column`, `function`, `module`, `location`, `expr_text`,
@@ -338,25 +345,26 @@ Attributes this specification describes but the compiler does not implement yet 
 ## 12.9 Format strings
 
 Formatting is not string interpolation and not varargs — it is a compile-time-checked
-macro. **`#print`, `#println`, `#eprint`, `#eprintln`, `#format` and `#panic` are the
+macro. **`print!`, `println!`, `eprint!`, `eprintln!`, `format!` and `panic!` are the
 compiler's own macros** (§12.5, §12.7): each takes a **string literal** as its format string
-and the values it names, and the compiler parses the literal where it is written. `#print`
-and `#println` write to standard output; `#eprint` and `#eprintln` write the same way to
-standard error, for diagnostics that must not mix with a program's output; `#format`
-builds a `String`; `#panic` aborts with the text (§9.8):
+and the values it names, and the compiler parses the literal where it is written. `print!`
+and `println!` write to standard output; `eprint!` and `eprintln!` write the same way to
+standard error, for diagnostics that must not mix with a program's output; `format!`
+builds a `String`; `panic!` aborts with the text (§9.8):
 
 ```dz
-#println("player {} has {} hp", name, hp)
-#println("{:.2}", elapsed)          // 2 decimal places
-#println("{:x}", flags)             // hex
-#println("{{literal braces}}")
+println!("player {} has {} hp", name, hp)
+println!("{:.2}", elapsed)          // 2 decimal places
+println!("{:x}", flags)             // hex
+println!("{{literal braces}}")
 ```
 
 Because the format string is parsed at compile time, an argument-count mismatch, an
 unknown format spec, or an argument whose type has no `Format` impl are all ordinary
 compile errors pointing at the offending `{}` — not runtime garbage, and not a `printf`
-mismatch that corrupts the stack. They are spelled with `#` because they are macros:
-`println("…")` without it is not a name, and the error says to write `#println`.
+mismatch that corrupts the stack. They are spelled with `!` because they are macros that
+read like a call: `println("…")` without it is not a name, and the error says to write
+`println!`.
 
 The spec set is deliberately small, and each one names the kind of value it suits:
 
@@ -369,15 +377,15 @@ The spec set is deliberately small, and each one names the kind of value it suit
 
 **The arguments are evaluated as a call's are** (§7.2): left to right, all of them before
 anything is written, and a temporary one of them makes lives until the text is written. An
-argument is read, never moved: `#println("{}", name)` leaves `name` where it was.
+argument is read, never moved: `println!("{}", name)` leaves `name` where it was.
 
-**Text you keep is a `String`.** `#format` builds a new `String`, in memory from
+**Text you keep is a `String`.** `format!` builds a new `String`, in memory from
 `Allocators::Global` unless an allocator is passed by name (§7.2), the one argument any of
 these macros takes by name:
 
 ```dz
-let hud = #format("Score {}   Lives {}", g.score, g.lives)
-let msg = #format("{} took {:.1} ms", name, ms, allocator = Allocators::Temp)
+let hud = format!("Score {}   Lives {}", g.score, g.lives)
+let msg = format!("{} took {:.1} ms", name, ms, allocator = Allocators::Temp)
 ```
 
 **`Format` is how a value writes itself.** Anything that implements the trait can be an
@@ -400,7 +408,7 @@ impl Format for Vec2 {
     }
 }
 
-#println("at {}", player.position)
+println!("at {}", player.position)
 ```
 
 A `Formatter` takes text with `write_str` and `write_char`, and says what the placeholder
@@ -418,20 +426,20 @@ the caller wrote them:
 ```dz
 macro log -> stmt {
     syntax Arg { $value: expr }
-    pattern { $level: literal $fmt: literal $( , $args: [,]Arg )? }
+    pattern { ( $level: literal , $fmt: literal $( , $args: [,]Arg )? ) }
     expand {
-        #print("[{}] ", $level)
-        #println($fmt #for a in $args { , $a.value })
+        print!("[{}] ", $level)
+        println!($fmt #for a in $args { , $a.value })
     }
 }
 
-#log "warn" "hp is {} of {}", hp, max_hp     // a missing argument is reported at this string
+log!("warn", "hp is {} of {}", hp, max_hp)   // a missing argument is reported at this string
 ```
 
 Nothing of the format string is left to parse when the program runs: an invocation lowers
 to one call that hands the text between the placeholders, each placeholder's spec and the
 arguments to the standard library, which writes them in turn — straight to the stream for
-`#print`, with no intermediate `String`. `error(…)` (§9.1) checks its format string the
+`print!`, with no intermediate `String`. `error(…)` (§9.1) checks its format string the
 same way, but keeps its message in static storage (§9.2), so it writes only the built-in
 kinds. `[DECIDED — §18.73, §18.80]`
 
@@ -461,7 +469,7 @@ pub fn alloc(size: usize, loc: SourceLocation = #location) -> ^mut u8 {
 } #else #if OS_LINUX || OS_MACOS {
     fn open_window() { … }
 } #else {
-    fn open_window() { #panic("no window on this platform") }
+    fn open_window() { panic!("no window on this platform") }
 }
 ```
 

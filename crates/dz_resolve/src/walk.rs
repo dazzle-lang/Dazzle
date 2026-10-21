@@ -1487,7 +1487,7 @@ impl<'a, 'w> Walker<'a, 'w> {
             _ if use_kind == PathUse::Value && FORMAT_MACROS.contains(&name.name.as_str()) => d
                 .with_help(format!(
                     "formatting is a macro, so its string is checked where it is written: \
-                     `#{}(\"…\", …)` (spec §12.9)",
+                     `{}!(\"…\", …)` (spec §12.9)",
                     name.name
                 )),
             (Some((_, true)), _) => d.with_help(format!(

@@ -10,5 +10,5 @@ fn set(x: &mut i32) {
 fn main() {
     let mut n = 0
     set(&mut n)
-    #println("{}", n)
+    println!("{}", n)
 }

@@ -73,11 +73,14 @@ pub const SPECIAL_MEMBER_IS_A_TRAIT: &str = "DZ0213";
 /// `mut fn`, removed in r15: the receiver alone says whether a method mutates, so
 /// `fn f(&mut self)` is the one spelling (spec §7.3, §18.34).
 pub const MUT_FN_REMOVED: &str = "DZ0214";
-/// `name!(…)`, removed in r63: a macro is invoked `#name(…)` in every position (spec
-/// §12.5, §18.9).
-pub const BANG_MACRO_REMOVED: &str = "DZ0215";
+// DZ0215 was `name!(…)`, removed in r63 when every macro was invoked `#name`. r65 made
+// `name!` the spelling of an `expr` macro again, so the code can no longer occur; codes are
+// not reused, so the number is retired rather than reassigned. DZ0217 and DZ0610 replace it.
 /// Something in a union's body that is neither a variant nor a method (spec §7.5).
 pub const BAD_UNION_MEMBER: &str = "DZ0216";
+/// An intrinsic in the other spelling: `#println(…)` for `println!(…)`, or `location!()`
+/// for `#location` (spec §12.7, §12.9).
+pub const INTRINSIC_SPELLING: &str = "DZ0217";
 
 // --- DZ00xx: projects and manifests --------------------------------------------
 
@@ -345,6 +348,10 @@ pub const RESERVED_MACRO_NAME: &str = "DZ0607";
 pub const MACRO_IN_EXPANSION: &str = "DZ0608";
 /// Two macros of one name in one module.
 pub const DUPLICATE_MACRO: &str = "DZ0609";
+/// A macro invoked in the spelling another kind takes: `#max(a, b)` for an `expr` or `stmt`
+/// macro, which is `max!(a, b)`, or `machine! …` for a `decl` one, which is `#machine …` (spec
+/// §12.5).
+pub const MACRO_SPELLING: &str = "DZ0610";
 
 // --- DZ07xx: C and C++ interop (spec §15) --------------------------------------
 

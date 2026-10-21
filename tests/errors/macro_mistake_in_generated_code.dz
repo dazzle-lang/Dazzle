@@ -9,5 +9,5 @@ macro quarter -> expr {
 }
 
 fn main() {
-    #println("{}", #quarter(8))
+    println!("{}", quarter!(8))
 }

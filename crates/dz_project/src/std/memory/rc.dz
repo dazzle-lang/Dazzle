@@ -20,7 +20,7 @@ pub struct Rc<T> {
 
     /// A new value, in one allocation with its counts, from `allocator`.
     Rc(value: T, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
-        let a = allocator or #panic("an Rc needs an allocator")
+        let a = allocator or panic!("an Rc needs an allocator")
         let size = RcBlock<T>::size
         let align = RcBlock<T>::align
         let block = unsafe { a.alloc(size, align, loc) as ^mut RcBlock<T> }

@@ -92,7 +92,7 @@ line that pushed.
 `str`, with an allocator as a second argument. `push_str`, `push` (a `char`, encoded),
 `clear`, `reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
 `as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
-compares text, and a copy copies it. `#format("…", args)` builds one from a format string,
+compares text, and a copy copies it. `format!("…", args)` builds one from a format string,
 taking `allocator = …` by name (§12.9).
 
 **`HashMap<K: Hash + Eq, V>`** maps keys to values, in `std`. `HashMap<K, V>()` is
@@ -153,7 +153,7 @@ std = { open = true }       # String, Vec2, Allocators — and std::Vec2 where n
 ```
 
 Every declaration the language itself relies on lives here, and the compiler reaches those
-without the program naming them: a `for` over a `List` or a `#println` of a `Vec2` works in a
+without the program naming them: a `for` over a `List` or a `println!` of a `Vec2` works in a
 module that does not list `std`, which simply cannot write `List` or `Vec2` itself. Only what
 a program uses is instantiated and emitted, so a flat, always-present library costs a
 program nothing it does not call.
@@ -283,10 +283,10 @@ would take time in proportion to the text's length on every use. `[DECIDED — �
 ```dz
 let save = Path("saves") / "slot1.txt"
 Directory::create(&save.parent()) or return
-File::write_text(&save, state) or { e -> #eprintln("could not save: {}", e.message) }
+File::write_text(&save, state) or { e -> eprintln!("could not save: {}", e.message) }
 let text = File::read_text(&save) or { e ->
     if e.code != IoError::NotFound as u32 {
-        #eprintln("could not load: {}", e.message)
+        eprintln!("could not load: {}", e.message)
     }
     String()
 }

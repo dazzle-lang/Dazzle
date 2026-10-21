@@ -20,7 +20,7 @@ struct Buffer<T> {
 
     pub fn push(&mut self, v: T) {
         if m_len == m_cap {
-            #panic("buffer full")
+            panic!("buffer full")
         }
         unsafe {
             construct(m_data[m_len], move(v))
@@ -123,25 +123,25 @@ fn main() {
     list.push(Movie{ 2, 7.4, "Madagascar" })
 
     for m in list.iter() {
-        #println("{} {}", m.id, m.name)
+        println!("{} {}", m.id, m.name)
     }
-    #println("{}", list.len())
+    println!("{}", list.len())
 
     let found = find_movie(&mut list, "Madagascar") or return
-    #println("found {} {}", found.id, found.name)
+    println!("found {} {}", found.id, found.name)
 
     // `== none` tests the optional's flag; it once reached C++ as `Opt == Opt`.
     let missing = find_movie(&mut list, "Nemo")
     if missing == none {
-        #println("Nemo not found")
+        println!("Nemo not found")
     }
 
     // `if let` (spec §9.4): the value exists in the first block only.
     for name in ["Madagascar", "Nemo"] {
         if let m = find_movie(&mut list, name) {
-            #println("if let: {} is {}", m.name, m.id)
+            println!("if let: {} is {}", m.name, m.id)
         } else {
-            #println("if let: no {}", name)
+            println!("if let: no {}", name)
         }
     }
 
@@ -149,9 +149,9 @@ fn main() {
     if let &mut first = list.at(0) {
         first.id = 10
     }
-    #println("first is now {}", (list.at(0) or unreachable).id)
+    println!("first is now {}", (list.at(0) or unreachable).id)
 
     // And as a value, when both blocks produce one.
     let rating = if let m = find_movie(&mut list, "Nemo") { m.rating } else { 0.0 }
-    #println("rating {}", rating)
+    println!("rating {}", rating)
 }

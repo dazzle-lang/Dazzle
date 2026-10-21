@@ -8,6 +8,6 @@ fn main() {
         b += a as f64
     }
     for &a, b in pairs {
-        #println("{} {}", a, b)
+        println!("{} {}", a, b)
     }
 }

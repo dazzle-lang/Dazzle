@@ -88,7 +88,7 @@ and a reference may not:
 
 ```dz
 let btn = ctx.btn or return                     // propagate
-let btn = ctx.btn or #panic("button missing")    // assert, with a message
+let btn = ctx.btn or panic!("button missing")    // assert, with a message
 let btn = ctx.btn or unreachable                // checked in debug, free in release
 draw(ctx.btn)                                   // error[DZ0522]: expected &Button, found ^Button
 ```
