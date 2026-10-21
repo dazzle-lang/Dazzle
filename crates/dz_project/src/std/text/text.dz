@@ -30,6 +30,70 @@ pub trait Text {
         return self.find(needle) != none
     }
 
+    /// Where `needle` last occurs, in bytes; `none` when it does not. An empty `needle` is
+    /// found at the end.
+    fn rfind(&self, needle: str) -> usize? {
+        return rfind_bytes(self.text(), needle)
+    }
+
+    /// The text after `prefix`, or `none` when it does not start with it:
+    /// `line.strip_prefix("name=") or continue`.
+    fn strip_prefix(&self, prefix: str) -> str? {
+        let t = self.text()
+        if !t.starts_with(prefix) {
+            return none
+        }
+        return sub(t, prefix.len, t.len)
+    }
+
+    /// The text before `suffix`, or `none` when it does not end with it.
+    fn strip_suffix(&self, suffix: str) -> str? {
+        let t = self.text()
+        if !t.ends_with(suffix) {
+            return none
+        }
+        return sub(t, 0, t.len - suffix.len)
+    }
+
+    /// The text before and after the first `separator`, or `none` when there is none:
+    /// `let (key, value) = line.split_once("=") or continue`.
+    fn split_once(&self, separator: str) -> (str, str)? {
+        let t = self.text()
+        let at = find_bytes(t, separator, 0) or return none
+        return (sub(t, 0, at), sub(t, at + separator.len, t.len))
+    }
+
+    /// The words: the pieces between runs of spaces, tabs and line breaks, never empty.
+    fn split_whitespace(&self) -> SplitWhitespace {
+        return SplitWhitespace(self.text())
+    }
+
+    /// Whether the two are the same text when `A`–`Z` and `a`–`z` are not told apart.
+    fn eq_ignore_ascii_case(&self, other: str) -> bool {
+        let a = self.text() as []u8
+        let b = other as []u8
+        if a.len != b.len {
+            return false
+        }
+        for i in 0..a.len {
+            if ascii_lower(a[i]) != ascii_lower(b[i]) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// The text `n` times over, as a new `String`: `"-".repeat(20)`.
+    fn repeat(&self, n: usize) -> String {
+        let t = self.text()
+        let mut out = String()
+        out.reserve(t.len * n)
+        for _ in 0..n {
+            out.push_str(t)
+        }
+        return out
+    }
+
     /// Without the spaces, tabs and line breaks at either end.
     fn trim(&self) -> str {
         let t = self.text()
@@ -259,6 +323,78 @@ impl Iterate for Lines {
         m_start = m_end + 1
         self.find_end()
     }
+}
+
+/// A text's words, the pieces between runs of whitespace: `for word in
+/// line.split_whitespace()`.
+pub struct SplitWhitespace {
+    m_text: str
+    m_start: usize = 0
+    m_end: usize = 0
+
+    SplitWhitespace(text: str) {
+        m_text = text
+        self.find_word(0)
+    }
+
+    /// Skip the whitespace from `at` on, then find where the word after it ends.
+    fn find_word(&mut self, at: usize) {
+        let bytes = m_text as []u8
+        let mut i = at
+        while i < bytes.len && is_space(bytes[i]) {
+            i += 1
+        }
+        m_start = i
+        while i < bytes.len && !is_space(bytes[i]) {
+            i += 1
+        }
+        m_end = i
+    }
+}
+
+impl Iterate for SplitWhitespace {
+    type Item = str
+
+    fn valid(&self) -> bool {
+        return m_start < m_text.len
+    }
+
+    fn get(&self) -> str {
+        return sub(m_text, m_start, m_end)
+    }
+
+    fn advance(&mut self) {
+        self.find_word(m_end)
+    }
+}
+
+/// Where `needle` last occurs in `hay`.
+fn rfind_bytes(hay: str, needle: str) -> usize? {
+    let h = hay as []u8
+    let n = needle as []u8
+    if n.len > h.len {
+        return none
+    }
+    let mut i = h.len - n.len + 1
+    while i > 0 {
+        i -= 1
+        let mut k: usize = 0
+        while k < n.len && h[i + k] == n[k] {
+            k += 1
+        }
+        if k == n.len {
+            return i
+        }
+    }
+    return none
+}
+
+/// `b` with `A`–`Z` made `a`–`z`.
+fn ascii_lower(b: u8) -> u8 {
+    if b >= 'A' as u8 && b <= 'Z' as u8 {
+        return b + 32
+    }
+    return b
 }
 
 /// Where `needle` first occurs in `hay` at or after `from`. Matching whole UTF-8 sequences

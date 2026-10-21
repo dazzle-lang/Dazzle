@@ -414,6 +414,7 @@ pub const BUILTIN_FNS: &[&str] = &[
     "typeid_of",
     "typeinfo",
     "memcpy",
+    "memmove",
     // Stops the optimiser deleting work whose result nothing reads, which is every
     // benchmark (spec §19 M15).
     "blackbox",

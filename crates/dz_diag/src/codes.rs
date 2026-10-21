@@ -155,6 +155,10 @@ pub const MISSING_RETURN: &str = "DZ0405";
 /// A warning: a local or parameter nothing reads. A leading `_` in the name says it is
 /// unused on purpose.
 pub const UNUSED_VARIABLE: &str = "DZ0406";
+/// A view — a `str`, `cstr`, slice, reference or pointer — kept by a `let`, an assignment
+/// or a `return` from a temporary that owns what it views, which is dropped at the end of
+/// the statement: `let c = String::from(name).as_cstr()` (spec §6.5).
+pub const VIEW_OF_TEMPORARY: &str = "DZ0407";
 /// A second `copy` or `drop` on one struct (spec §6.1).
 pub const DUPLICATE_SPECIAL_MEMBER: &str = "DZ0411";
 /// A struct with an `own` field and no `drop` (spec §6.5, §18.4).
@@ -219,8 +223,8 @@ pub const BAD_FORMAT_STRING: &str = "DZ0526";
 /// A formatting argument whose type has no way to be written (spec §12.9).
 pub const NOT_FORMATTABLE: &str = "DZ0527";
 /// A raw-memory operation outside `unsafe`: reading or writing through a `^T`, indexing
-/// one, a pointer cast, `construct`/`destroy`/`memcpy`/`free`, or a call to an `unsafe fn`
-/// (spec §5.2). Forming, copying, storing and comparing a pointer are all safe.
+/// one, a pointer cast, `construct`/`destroy`/`move_out`/`memcpy`/`memmove`/`free`, or a
+/// call to an `unsafe fn` (spec §5.2). Forming, copying, storing and comparing a pointer are all safe.
 pub const UNSAFE_OPERATION: &str = "DZ0528";
 /// `if let` on a fallible call. Its `else` has no `Error` to hand over, so the failure
 /// would be silently dropped; that is `or`'s job (spec §9.4, §9.5).

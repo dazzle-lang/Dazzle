@@ -1,0 +1,30 @@
+/// Steps through a map's keys in slot order, handing out `&K`: `for k in map.keys()`. A
+/// `HashSet` is looped over with one.
+pub struct HashMapKeys<K: Hash + Eq, V> {
+    m_map: ^HashMap<K, V> = null
+    m_slot: usize = 0
+
+    HashMapKeys(map: &HashMap<K, V>) {
+        m_map = map
+        m_slot = first_entry_from(map, 0)
+    }
+}
+
+impl<K: Hash + Eq, V> Iterate for HashMapKeys<K, V> {
+    type Item = &K
+
+    fn valid(&self) -> bool {
+        let map = m_map or return false
+        return m_slot < map.slot_count()
+    }
+
+    fn get(&self) -> &K {
+        let map = m_map or unreachable
+        return map.key_at(m_slot) or unreachable
+    }
+
+    fn advance(&mut self) {
+        let map = m_map or return
+        m_slot = first_entry_from(map, m_slot + 1)
+    }
+}

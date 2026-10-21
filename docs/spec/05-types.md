@@ -74,6 +74,12 @@ can be read this way: a move-only one would have to be moved, and nothing may be
 of a borrow (`DZ0402`, §6.4), and in a generic body that means `T: Copy`. Where no type is
 wanted, a reference stays a reference: `let r2 = r` is another `&T`. `[DECIDED — §18.35]`
 
+An operand of a comparison, an arithmetic or a bitwise operator is read the same way when
+it refers to a number, `bool`, `char`, `str` or an enum: `x > 2`, `x * 2` and `x & 1` on a
+`&i32` work on the `i32`, whether or not a type is wanted of the result, so a predicate
+taking `&T` reads as one taking `T`. A reference to a struct is compared through `Eq` and
+`Ord` as before (§11.2).
+
 **Writing through a reference.** Assigning to a `&mut T` writes the `T` it refers to — `x = 1` and `x += 1` on an `x: &mut i32` change the caller's integer — since a reference cannot be pointed elsewhere. Through a `&T` that is an error. `[DECIDED — §18.44]`
 
 **Converting between them.** Forming a pointer changes nothing, so a reference becomes a
@@ -231,8 +237,9 @@ costs nothing: C++ sees the literal itself, so `rl::InitWindow(1280, 720, "Dazzl
 call it looks like. `"x" as cstr` says the same explicitly. The other way, `c as str`
 measures a C string and copies nothing. A runtime `str` cannot become a `cstr`: nothing
 follows its last byte, so a C string needs a copy, and a copy has to be owned and freed. That
-owning C string arrives with the stdlib's `String` (M12), freed by its drop. `String::from("x")`
-copies; `s.as_str()` borrows. `[DECIDED — §18.39]`
+owning C string is a `String`, which keeps a zero after its bytes and frees them when dropped:
+`String::from(name)` copies, and its `as_cstr()` borrows the copy as a `cstr` (§14.4).
+`s.as_str()` borrows the text. `[DECIDED — §18.39, D-0081]`
 
 Because `?` binds to the type name, `[]T?` is a slice **of optionals**. An optional slice
 is `([]T)?` — parenthesised, because it is far rarer and the parentheses say which level

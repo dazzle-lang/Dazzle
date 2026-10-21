@@ -60,12 +60,11 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (29 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (25 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
 - **[T-0004](tasks/T-0004-generational-handles-pool-t-handle-t.md)** Generational handles: `Pool<T>` and `Handle<T>` · feature, ownership
-- **[T-0006](tasks/T-0006-cstr-from-runtime-str.md)** A `cstr` from a runtime `str` · feature, text
 - **[T-0007](tasks/T-0007-generic-methods-in-trait.md)** Generic methods in a trait · feature, generics
 - **[T-0034](tasks/T-0034-module-named-after-runtime-shim-identifier.md)** A module named after a runtime-shim identifier does not compile · deferral, codegen
 - **[T-0035](tasks/T-0035-generic-base.md)** A generic base · deferral, checker
@@ -75,9 +74,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0039](tasks/T-0039-trait-method-non-constant-default-argument.md)** A trait method's non-constant default argument · deferral, codegen
 - **[T-0040](tasks/T-0040-for-over-generic-c-iterable.md)** `for` over a generic `C: Iterable` · deferral, checker
 - **[T-0041](tasks/T-0041-union-variant-carrying-struct-with-constructor.md)** A union variant carrying a struct with a constructor cannot be built · deferral, checker
-- **[T-0042](tasks/T-0042-list-insert-remove-move-elements-one.md)** `List::insert` and `remove` move elements one at a time · deferral, stdlib
-- **[T-0043](tasks/T-0043-hashmap-string-v-looked-up-with.md)** A `HashMap<String, V>` is looked up with a `&String` · deferral, stdlib
-- **[T-0044](tasks/T-0044-hash-combine-relies-on-u64-arithmetic.md)** `hash_combine` relies on `u64` arithmetic wrapping · deferral, stdlib
 - **[T-0045](tasks/T-0045-methods-on-untyped-literal.md)** Methods on an untyped literal · deferral, checker
 - **[T-0046](tasks/T-0046-converting-mat4-raylib-matrix-copies-field.md)** Converting `Mat4` to raylib's `Matrix` copies field by field · deferral, stdlib
 - **[T-0047](tasks/T-0047-intrinsic-default-uses-c-compiler-builtins.md)** An intrinsic default uses the C++ compiler's builtins · deferral, codegen

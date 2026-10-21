@@ -1535,3 +1535,39 @@ fn union_methods() -> i32 {
     l.flip()
     return l.level()
 }
+
+// §5.2: a reference to a number, `bool`, `char`, `str` or enum reads as its value under an
+// operator, where no type is wanted of it: compared, computed with, masked.
+fn operators_read_through(x: &i32, flag: &bool, l: &Layer, s: &str) -> bool {
+    let doubled = x * 2
+    let low = x & 1
+    let bigger = x > 2 && 2 < x && x != doubled
+    return bigger && low == 0 && flag == true && l == Layer::Ui && .Ui == l && s == "x"
+}
+
+// §14.4: `Search` and `Extend` on a `List` of `Eq` and `Copy` elements, a `List` as a key,
+// `String` keys looked up by `str`, a `HashSet`, `Join`, and the newer `Text` methods.
+fn collections_pass(names: &mut HashMap<String, i32>, words: &List<String>) -> usize {
+    let mut xs = List<i32>()
+    let more: [2]i32 = [1, 2]
+    xs.extend(more[0..2])
+    xs.insert_slice(0, more[0..1])
+    let at = xs.index_of(&2) or 0
+    let first = xs.first() or return 0
+    let mut by_cells = HashMap<List<i32>, bool>()
+    by_cells.insert(xs, true)
+    let hero = names.get_mut_str("hero") or return 0
+    hero += 1
+    let count = names.get_or_insert(String::from("wall"), 0)
+    count += 1
+    let mut seen = HashSet<str>()
+    let fresh = seen.insert("a") && !seen.contains(&"b")
+    let line = words.join(", ")
+    let (k, _) = line.split_once(",") or ("", "")
+    let tail = line.strip_prefix(k) or ""
+    let mut s = String::from(tail)
+    s.insert(0, 'x')
+    let removed = s.remove(0)
+    let comma = tail.rfind(",") or 0
+    return at + k.len + comma + (if fresh && removed == 'x' && first == 1 { 1 } else { 0 })
+}
