@@ -579,7 +579,7 @@ impl<'a> Emitter<'a> {
         self.diags.push(
             Diagnostic::error(codes::CODEGEN_UNSUPPORTED, format!("{what} is not generated yet"))
                 .at(self.file, span, "no C++ is emitted for this")
-                .with_help(format!("{owner} — see the deferral register in docs/PROGRESS.md")),
+                .with_help(format!("{owner} — see the deferral register in docs/tasks/")),
         );
     }
 

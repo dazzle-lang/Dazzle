@@ -877,7 +877,7 @@ fn check_warning_clean(cxx: &str, fixture: &str) {
 #[test]
 fn unsupported_constructs_are_reported_not_miscompiled() {
     // Codegen must refuse what it cannot emit, rather than producing something subtly
-    // wrong. The deferral register in docs/PROGRESS.md tracks these.
+    // wrong. The deferral register in docs/tasks/ tracks these.
     let dir = std::env::temp_dir().join("dz_m4_unsupported");
     let _ = std::fs::create_dir_all(dir.join("src"));
     std::fs::write(

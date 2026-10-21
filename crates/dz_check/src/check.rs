@@ -1638,7 +1638,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 "`move(…).indexed()` is not supported yet",
                 "a consuming loop with a pass count",
                 "count the passes yourself, or iterate by reference with `&e` — see the \
-                 deferral register in docs/PROGRESS.md",
+                 deferral register in docs/tasks/",
             );
         }
 
@@ -1705,7 +1705,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     format!("`for` over a generic `{name}: Iterable` is not supported yet"),
                     "its element type would be the projection of `Iter`'s `Item`",
                     "loop over a concrete container, or pass a slice — see the deferral register \
-                     in docs/PROGRESS.md",
+                     in docs/tasks/",
                 );
                 return Some(Checked { ty: Ty::Error, id: subject.id });
             }
@@ -4193,7 +4193,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 format!("`for` over a generic `{name}: Iterate` is not supported yet"),
                 "its element type would be the projection `T::Item`",
                 "iterate a concrete type, or pass a slice — see the deferral register in \
-                 docs/PROGRESS.md",
+                 docs/tasks/",
             );
             return Some(Ty::Error);
         }
