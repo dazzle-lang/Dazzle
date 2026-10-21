@@ -1,6 +1,6 @@
 # Dazzle for VS Code
 
-Language support for [Dazzle](../../docs/spec.md). The extension only starts the compiler's
+Language support for [Dazzle](../../docs/spec/README.md). The extension only starts the compiler's
 own language server, `dz lsp` (spec §17.4), so everything it knows comes from the compiler.
 
 - **Highlighting**: a TextMate grammar, refined by the compiler's semantic tokens. Parameters,
@@ -101,7 +101,7 @@ Server output, including any compiler panic, is in the **Dazzle** output channel
 
 ## Limits
 
-These are listed in `docs/PROGRESS.md`:
+These are open tasks in `docs/tasks/` (`python tools/track.py tasks --milestone M9`):
 
 - Rename waits until the project parses, because code that doesn't parse could hide uses
   of the name.

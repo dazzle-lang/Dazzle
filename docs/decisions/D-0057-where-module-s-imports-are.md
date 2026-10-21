@@ -1,0 +1,7 @@
+---
+id: D-0057
+title: Where a module's imports are declared
+status: decided
+---
+
+**In `dazzle.toml`, for the whole module; not in each file.** A dependency's key is its name in every file (`rl::DrawLine`); `open = true` also makes its exports bare; `std` is one flat module (`std::Vec2`, `std::String`) listed like any dependency, and not listed means not nameable; a C or C++ header is named once, in its recipe's `import`, and depended on as `rl = { cpp = "raylib" }`. A bare name is found in locals, then the module's own declarations, then a file's `{ … }` import, then `[names]`, then the opened dependencies — where **two different declarations are an error at the use** (DZ0310), with no precedence by manifest order, since reordering a manifest or upgrading a library must never silently change which declaration a name means. A file keeps `import m::{ … }` and `import m as x` as the exception. Chosen over per-file imports (Java, Rust `use`, the earlier Dazzle): in a game the same engine, math and container types are used in nearly every file, and a per-file alias let one file call a library `rl` and the next `raylib`. Precedent: C#'s project-level global usings, and Rust's extern prelude, which puts every Cargo dependency in scope under its manifest name. What made C++'s `using namespace` fail — names leaking transitively, and clashes settled silently — is ruled out by private dependencies (18.58) and the use-site error. The cost is that a bare name's origin is not written in the file; the editor shows it (§3.2, §14.4, §15.1)
