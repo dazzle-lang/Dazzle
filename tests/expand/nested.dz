@@ -8,7 +8,7 @@ macro max -> expr {
 
 macro max3 -> expr {
     pattern { ( $a: expr , $b: expr , $c: expr ) }
-    expand { #max(#max($a, $b), $c) }
+    expand { max!(max!($a, $b), $c) }
 }
 
 macro count -> expr {
@@ -18,5 +18,5 @@ macro count -> expr {
 
 fn main() {
     let xs = [5, 6]
-    #println("{} {}", #max3(1, 7, 3), #count[xs])
+    println!("{} {}", max3!(1, 7, 3), count![xs])
 }

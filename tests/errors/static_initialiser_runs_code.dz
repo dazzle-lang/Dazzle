@@ -10,5 +10,5 @@ fn seven() -> i32 {
 static COMPUTED: i32 = seven()
 
 fn main() {
-    #println("{}", COMPUTED)
+    println!("{}", COMPUTED)
 }

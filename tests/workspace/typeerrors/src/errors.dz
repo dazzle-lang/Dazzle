@@ -411,23 +411,23 @@ fn alloc_without_alignment() -> ^u8 {
 
 // §12.9: the format string is checked against its arguments, at compile time.
 fn format_count_mismatch(x: i32) {
-    #println("{} and {}", x)
+    println!("{} and {}", x)
 }
 
 fn format_spec_does_not_fit(f: f32) {
-    #println("{:x}", f)
+    println!("{:x}", f)
 }
 
 fn format_not_a_literal(s: str) {
-    #println(s)
+    println!(s)
 }
 
 fn format_unformattable(v: Vec3) {
-    #println("{}", v)
+    println!("{}", v)
 }
 
 fn format_interpolation(hp: i32) {
-    #println("hp is {hp}", hp)
+    println!("hp is {hp}", hp)
 }
 
 // --- r12: `unsafe` (spec §5.2) ---------------------------------------------------------
@@ -912,7 +912,7 @@ fn index_without_index(p: Plain) -> i32 {
 
 // §9.8: `panic`'s location is not a value to format, so the placeholder has no argument.
 fn located_panic(loc: SourceLocation) {
-    #panic("at {}", loc)
+    panic!("at {}", loc)
 }
 
 // §12.7: `assert` is an ordinary function, and its condition is a `bool`.
@@ -951,21 +951,21 @@ fn bad_named_calls() -> usize {
     return a + b + c + d + e
 }
 
-// §12.9: `#format`'s format string is a literal that fits its arguments, each of which
+// §12.9: `format!`'s format string is a literal that fits its arguments, each of which
 // implements `Format`.
 struct Unwritten {
     pub n: i32
 }
 
 fn bad_format_calls(fmt: str, h: Unwritten) -> usize {
-    let a = #format("{} {}", 1)
-    let b = #format(fmt, 1)
-    let c = #format("{:x}", 1.5)
-    let d = #format("{}", h)
+    let a = format!("{} {}", 1)
+    let b = format!(fmt, 1)
+    let c = format!("{:x}", 1.5)
+    let d = format!("{}", h)
     return a.len() + b.len() + c.len() + d.len()
 }
 
-// §12.9: an enum, an optional and a pointer have no `Format`; only `#format` takes an
+// §12.9: an enum, an optional and a pointer have no `Format`; only `format!` takes an
 // argument by name, and only `allocator`; every formatting macro needs its string; and a
 // spread has no count to check the string against.
 enum Shade {
@@ -974,12 +974,12 @@ enum Shade {
 }
 
 fn bad_print_calls(s: Shade, o: i32?, p: ^i32, xs: []i32) {
-    #println("{} {} {}", s, o, p)
-    #println("{}", 1, allocator = Allocators::Temp)
-    let t = #format("{}", 1, colour = 2)
-    #print("{}", t)
-    #print()
-    #println("{} {}", ..xs)
+    println!("{} {} {}", s, o, p)
+    println!("{}", 1, allocator = Allocators::Temp)
+    let t = format!("{}", 1, colour = 2)
+    print!("{}", t)
+    print!()
+    println!("{} {}", ..xs)
 }
 
 // §8.1: a generic method's bound, a parameter no argument decides, type arguments on a

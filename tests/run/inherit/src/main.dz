@@ -81,22 +81,22 @@ fn main() {
     let mut d = Dialog{ left: 3, top: 4, title: "dialog", modal: false }
 
     // Inherited fields and methods, at every depth of the chain.
-    #println("{} {} {} {}", d.left, d.top, d.title, d.modal)
-    #println("{} {} {}", d.origin(), d.area(), widget_origin(&d))
+    println!("{} {} {} {}", d.left, d.top, d.title, d.modal)
+    println!("{} {} {}", d.origin(), d.area(), widget_origin(&d))
 
     // `&mut Derived` where a `&mut Base` is wanted, writing through it.
     shift(&mut d)
-    #println("{} {}", d.left, through_a_pointer(&d))
+    println!("{} {}", d.left, through_a_pointer(&d))
 
     // Defaults come from the declaration that wrote them, whichever type that was.
     let p = Panel{}
-    #println("{} {} {}", p.left, p.top, p.title)
+    println!("{} {} {}", p.left, p.top, p.title)
 
     // A constructor that builds its base.
     let b = Boxed(2, 5, 7)
-    #println("{} {} {} {}", b.w, b.h, b.depth, b.volume())
+    println!("{} {} {} {}", b.w, b.h, b.depth, b.volume())
     let g = Guarded(-3, 4)
-    #println("{} {} {} {}", g.w, g.h, g.label, g.volume())
+    println!("{} {} {} {}", g.w, g.h, g.label, g.volume())
 
     virtual_and_protected()
 }
@@ -181,14 +181,14 @@ fn virtual_and_protected() {
     let b = Box{ scale: 7, side: 3 }
 
     // Runtime dispatch through a base reference.
-    #println("{} {}", area_through_base(&c), area_through_base(&b))
+    println!("{} {}", area_through_base(&c), area_through_base(&b))
 
     // A base method calling a virtual one lands on the override.
-    #println("{} {}", report_through_base(&c), report_through_base(&b))
+    println!("{} {}", report_through_base(&c), report_through_base(&b))
 
     // `Shape::label(self)` from inside the override, plus a `protected` method.
-    #println("{} {}", c.label(), b.label())
+    println!("{} {}", c.label(), b.label())
 
     // `Circle` inherits `Shape`'s implementation; `Box` has its own.
-    #println("{} {}", measure_any(&c), measure_any(&b))
+    println!("{} {}", measure_any(&c), measure_any(&b))
 }

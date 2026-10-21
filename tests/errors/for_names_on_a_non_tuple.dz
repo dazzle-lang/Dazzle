@@ -5,6 +5,6 @@
 fn main() {
     let xs = [1, 2]
     for i, x in xs {
-        #println("{} {}", i, x)
+        println!("{} {}", i, x)
     }
 }

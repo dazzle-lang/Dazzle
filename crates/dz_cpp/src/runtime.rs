@@ -106,7 +106,7 @@ inline bool operator!=(str a, str b) { return !(a == b); }
 inline str caller_file(const char* file = __builtin_FILE()) { return str(file); }
 inline str caller_function(const char* function = __builtin_FUNCTION()) { return str(function); }
 
-/// `#panic("…")`. The message is a `str` — a pointer and a length, not NUL-terminated —
+/// `panic!("…")`. The message is a `str` — a pointer and a length, not NUL-terminated —
 /// so it cannot go through `panic` above.
 [[noreturn]] DZ_INLINE void panic_str(str message, SourceLocation where) {
     panic_len(message.ptr, message.len, where);
@@ -747,7 +747,7 @@ void panic_bounds(size_t index, size_t length, SourceLocation where) {
     abort();
 }
 
-/// `#panic("…")` takes a `str`, which is a pointer and a length rather than a
+/// `panic!("…")` takes a `str`, which is a pointer and a length rather than a
 /// NUL-terminated string, so it cannot go through `panic` above.
 void panic_len(const uint8_t* message, size_t len, SourceLocation where) {
     fputs("panic: ", stderr);
@@ -1422,7 +1422,7 @@ void write_stream(int which, const char* p, size_t n) {
 }
 
 /// What a `Formatter` on standard output (`which` 0) or standard error (1) hands over,
-/// once per `#print` or `#eprint` (spec §12.9). Standard output is flushed before standard
+/// once per `print!` or `eprint!` (spec §12.9). Standard output is flushed before standard
 /// error is written, so in a terminal a message appears after the output printed before it
 /// rather than ahead of everything still sitting in stdout's buffer.
 void stream_write(int32_t which, str text) {

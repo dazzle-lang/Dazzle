@@ -4,7 +4,7 @@
 // the caller's `tmp`, and the caller's names in the captured expressions are the caller's.
 
 macro swap -> stmt {
-    pattern { $a: ident , $b: ident }
+    pattern { ( $a: ident , $b: ident ) }
     expand {
         let tmp = $a
         $a = $b
@@ -15,6 +15,6 @@ macro swap -> stmt {
 fn main() {
     let mut tmp = 1
     let mut other = 2
-    #swap tmp, other
-    #println("{} {}", tmp, other)
+    swap!(tmp, other)
+    println!("{} {}", tmp, other)
 }

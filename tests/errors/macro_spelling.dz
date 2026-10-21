@@ -1,0 +1,27 @@
+// expect: DZ0610, DZ0610, DZ0610
+//
+// A macro's kind decides how it is invoked: an `expr` or `stmt` macro reads like a call,
+// `twice!(4)`, `log!("…")`, and a `decl` macro like what it declares, `#constant …`
+// (spec §12.5, 18.9).
+
+macro twice -> expr {
+    pattern { ( $e: expr ) }
+    expand { $e * 2 }
+}
+
+macro log -> stmt {
+    pattern { ( $msg: literal ) }
+    expand { println!("{}", $msg) }
+}
+
+macro constant -> decl {
+    pattern { ( $name: ident = $value: expr ) }
+    expand { const $name: i32 = $value }
+}
+
+constant!(ANSWER = 42)
+
+fn main() {
+    println!("{}", #twice(4))
+    #log("hello")
+}

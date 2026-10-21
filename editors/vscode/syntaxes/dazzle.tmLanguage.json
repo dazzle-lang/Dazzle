@@ -193,6 +193,11 @@
           "name": "entity.name.function.macro.dazzle",
           "match": "#[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*"
         },
+        {
+          "comment": "An expr macro or formatting macro: max!(…), println!(…), engine::max!(…) (spec §12.5). Not `x != y`.",
+          "name": "entity.name.function.macro.dazzle",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*!(?!=)"
+        },
         { "name": "variable.other.macro.dazzle", "match": "\\$[A-Za-z_][A-Za-z0-9_]*" }
       ]
     },

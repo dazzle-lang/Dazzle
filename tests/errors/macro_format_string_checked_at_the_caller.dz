@@ -5,11 +5,11 @@
 
 macro log -> stmt {
     syntax Arg { $value: expr }
-    pattern { $fmt: literal $( , $args: [,]Arg )? }
-    expand { #println($fmt #for a in $args { , $a.value }) }
+    pattern { ( $fmt: literal $( , $args: [,]Arg )? ) }
+    expand { println!($fmt #for a in $args { , $a.value }) }
 }
 
 fn main() {
     let hp = 3
-    #log "one {} two {}", hp
+    log!("one {} two {}", hp)
 }

@@ -35,7 +35,7 @@ fn fields(out: &mut String, value: ^u8, all: []FieldInfo) {
             out.push(',')
         }
         first = false
-        out.push_str(#format("\"{}\":", f.tag_value("json") or f.name).as_str())
+        out.push_str(format!("\"{}\":", f.tag_value("json") or f.name).as_str())
         write_json(out, at(value, f.offset), f.type_id)
     }
     out.push('}')
@@ -46,14 +46,14 @@ pub fn write_json(out: &mut String, value: ^u8, id: TypeId) {
     switch info.kind {
         case Struct { fields(out, value, info.fields) }
         case Bool { out.push_str(if unsafe { (value as ^bool)^ } { "true" } else { "false" }) }
-        case F32 { out.push_str(#format("{}", unsafe { (value as ^f32)^ }).as_str()) }
-        case F64 { out.push_str(#format("{}", unsafe { (value as ^f64)^ }).as_str()) }
-        case Str { out.push_str(#format("\"{}\"", unsafe { (value as ^str)^ }).as_str()) }
+        case F32 { out.push_str(format!("{}", unsafe { (value as ^f32)^ }).as_str()) }
+        case F64 { out.push_str(format!("{}", unsafe { (value as ^f64)^ }).as_str()) }
+        case Str { out.push_str(format!("\"{}\"", unsafe { (value as ^str)^ }).as_str()) }
         case Enum {
             let n = integer(value, typeinfo(info.elem).kind)
             for &v in info.variants {
                 if v.value == n {
-                    out.push_str(#format("\"{}\"", v.name).as_str())
+                    out.push_str(format!("\"{}\"", v.name).as_str())
                 }
             }
         }
@@ -61,7 +61,7 @@ pub fn write_json(out: &mut String, value: ^u8, id: TypeId) {
             let tag = unsafe { (at(value, info.tag_offset) as ^u32)^ } as i64
             for &v in info.variants {
                 if v.value == tag {
-                    out.push_str(#format("{{\"{}\":", v.name).as_str())
+                    out.push_str(format!("{{\"{}\":", v.name).as_str())
                     fields(out, value, v.fields)
                     out.push('}')
                 }
@@ -98,7 +98,7 @@ pub fn write_json(out: &mut String, value: ^u8, id: TypeId) {
                 out.push_str("null")
             }
         }
-        default { out.push_str(#format("{}", integer(value, info.kind)).as_str()) }
+        default { out.push_str(format!("{}", integer(value, info.kind)).as_str()) }
     }
 }
 

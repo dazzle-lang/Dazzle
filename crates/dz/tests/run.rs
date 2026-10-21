@@ -85,14 +85,14 @@ fn every_program_produces_its_expected_output() {
         // Projects that are meant to abort record their expectation on the first line.
         //
         // Normalised *before* the marker is stripped: git may check these files out with
-        // CRLF, and `#panic\r\n` does not start with `#panic\n`. Stripping first made the
+        // CRLF, and `panic!\r\n` does not start with `panic!\n`. Stripping first made the
         // marker part of the expected output, and the test then looked for the literal
-        // "#panic" in the program's own stderr — which is how this passed on a Linux
+        // "panic!" in the program's own stderr — which is how this passed on a Linux
         // checkout and failed on a Windows one.
         let expected = normalise(&std::fs::read_to_string(dir.join("expected.txt")).unwrap());
-        let should_panic = expected.starts_with("#panic");
+        let should_panic = expected.starts_with("panic!");
         let expected_body =
-            expected.strip_prefix("#panic\n").map(str::to_owned).unwrap_or(expected);
+            expected.strip_prefix("panic!\n").map(str::to_owned).unwrap_or(expected);
 
         let out = Command::new(dz())
             .args(["run", dir.to_str().unwrap()])
@@ -193,7 +193,7 @@ fn overflow_wraps_and_unreachable_is_assumed_in_release() {
     let dir = scratch(
         "dz_overflow",
         "[module]\nname = \"overflow\"\nsources = [\"src/**/*.dz\"]\n",
-        "fn grows(x: i32) -> bool {\n    return x + 1 > x\n}\n\nfn find(n: i32) -> i32? {\n    return n\n}\n\nfn main() {\n    let max: i32 = 2147483647\n    let small = 250u8\n    let v = find(3) or unreachable\n    #println(\"{} {} {} {}\", max + 1, grows(max), small + 10, v)\n}\n",
+        "fn grows(x: i32) -> bool {\n    return x + 1 > x\n}\n\nfn find(n: i32) -> i32? {\n    return n\n}\n\nfn main() {\n    let max: i32 = 2147483647\n    let small = 250u8\n    let v = find(3) or unreachable\n    println!(\"{} {} {} {}\", max + 1, grows(max), small + 10, v)\n}\n",
     );
     for mode in ["--debug", "--release", "--shipping"] {
         let out = Command::new(dz())
@@ -256,7 +256,7 @@ fn a_module_may_share_a_name_with_the_runtime() {
     let dir = scratch(
         "dz_runtime_names",
         "[module]\nname = \"panic\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstr = { path = \"str\" }\n",
-        "fn main() {\n    #println(\"{}\", str::index(4))\n}\n",
+        "fn main() {\n    println!(\"{}\", str::index(4))\n}\n",
     );
     std::fs::create_dir_all(dir.join("str/src")).unwrap();
     std::fs::write(
@@ -287,7 +287,7 @@ fn eprintln_writes_to_stderr() {
     let dir = scratch(
         "dz_stderr",
         "[module]\nname = \"streams\"\nsources = [\"src/**/*.dz\"]\n",
-        "fn main() {\n    #println(\"out {}\", 1)\n    #eprintln(\"err {:x}\", 255)\n    #print(\"a\")\n    #eprint(\"b{{}}\")\n    #println(\"\")\n}\n",
+        "fn main() {\n    println!(\"out {}\", 1)\n    eprintln!(\"err {:x}\", 255)\n    print!(\"a\")\n    eprint!(\"b{{}}\")\n    println!(\"\")\n}\n",
     );
     let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -373,7 +373,7 @@ fn a_build_mode_can_be_chosen_on_the_command_line() {
     let dir = scratch(
         "dz_build_modes",
         "[module]\nname = \"hello\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
-        "fn main() {\n    #println(\"Hello, world!\")\n}\n",
+        "fn main() {\n    println!(\"Hello, world!\")\n}\n",
     );
     for mode in ["--debug", "--release", "--shipping"] {
         let out = Command::new(dz())
@@ -456,7 +456,7 @@ fn line_directives_name_files_a_debugger_can_open() {
     let dir = scratch(
         "dz_debug_lines",
         "[module]\nname = \"lines\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
-        "fn main() {\n    let mut xs = List<i32>()\n    xs.push(1)\n    #println(\"{}\", xs.len())\n}\n",
+        "fn main() {\n    let mut xs = List<i32>()\n    xs.push(1)\n    println!(\"{}\", xs.len())\n}\n",
     );
     let out =
         Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
@@ -487,7 +487,7 @@ fn a_failing_test_is_reported_and_does_not_stop_the_rest() {
         return;
     }
     let source = "#[test]\nfn passes() {}\n\n\
-                  #[test]\nfn fails() {\n    #panic(\"deliberately broken\")\n}\n\n\
+                  #[test]\nfn fails() {\n    panic!(\"deliberately broken\")\n}\n\n\
                   #[test]\nfn also_passes() {}\n\nfn main() {}\n";
     let dir = scratch(
         "dz_test_failing",
@@ -523,7 +523,7 @@ fn dz_bench_times_the_projects_benchmarks() {
     let source = "fn work(n: i32) -> i32 {\n    let mut t = 0\n    let mut i = 0\n    \
                   while i < n {\n        t += i\n        i += 1\n    }\n    return t\n}\n\n\
                   #[bench]\nfn adding() {\n    blackbox(work(blackbox(64)))\n}\n\n\
-                  fn main() {\n    #println(\"{}\", work(4))\n}\n";
+                  fn main() {\n    println!(\"{}\", work(4))\n}\n";
     let dir =
         scratch("dz_bench_smoke", "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n", source);
     let out = Command::new(dz())
@@ -586,7 +586,7 @@ fn the_cpp_compiler_can_be_chosen_at_four_levels() {
         eprintln!("skipping: no C++ compiler available");
         return;
     }
-    let src = "fn main() {\n    #println(\"ok\")\n}\n";
+    let src = "fn main() {\n    println!(\"ok\")\n}\n";
     let plain = "[module]\nname = \"cx\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n";
     let with_cxx = format!("{plain}\n[build]\ncxx = \"dz-not-a-compiler\"\n");
 
@@ -689,7 +689,7 @@ fn a_module_named_after_a_build_directory_does_not_collide() {
     }
     let src = "#[bench]\nfn measured() {\n    blackbox(1)\n}\n\n\
                #[test]\nfn checked() {}\n\n\
-               fn main() {\n    #println(\"ok\")\n}\n";
+               fn main() {\n    println!(\"ok\")\n}\n";
     // Not `obj`: that name collides with the runtime shim's `dz::obj` helper rather than
     // with a directory, which is a separate bug — see the deferral register.
     for name in ["bench", "test", "cpp", "bin"] {
@@ -891,7 +891,7 @@ fn unsupported_constructs_are_reported_not_miscompiled() {
         // that is, and without a DZ0801 it would reach C++ as a type nobody declared.
         "trait Shape {\n    fn area(&self) -> f32\n    fn cloned(&self) -> Self\n}\n\n\
          fn total(s: ^Shape) -> f32 {\n    return 0\n}\n\n\
-         fn main() {\n    #println(\"{}\", 1)\n}\n",
+         fn main() {\n    println!(\"{}\", 1)\n}\n",
     )
     .unwrap();
 
@@ -914,7 +914,7 @@ fn runaway_instantiation_is_bounded_by_the_compiler() {
         "struct Box<T> {\n    pub v: T\n}\n\n\
          fn deeper<T>(x: T) -> i32 {\n    let b = Box<T>{ v: move(x) }\n    \
          return deeper(move(b))\n}\n\n\
-         fn main() {\n    #println(\"{}\", deeper(1))\n}\n",
+         fn main() {\n    println!(\"{}\", deeper(1))\n}\n",
     );
     let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -955,7 +955,7 @@ fn a_function_is_a_value() {
         "[module]\nname = \"f\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "fn twice(a: i32) -> i32 {\n    return a * 2\n}\n\n\
          fn apply(f: fn(i32) -> i32, v: i32) -> i32 {\n    return f(v)\n}\n\n\
-         fn main() {\n    let g = twice\n    #println(\"{} {}\", apply(twice, 21), g(3))\n}\n",
+         fn main() {\n    let g = twice\n    println!(\"{} {}\", apply(twice, 21), g(3))\n}\n",
     );
     let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -1042,7 +1042,7 @@ fn a_library_that_fails_to_compile_is_blamed_on_the_library() {
         "dz_vendored_broken",
         "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n\n\
          [cpp.libs.broken]\nsources = [\"broken.c\"]\n",
-        "fn main() {\n    #println(\"{}\", 1)\n}\n",
+        "fn main() {\n    println!(\"{}\", 1)\n}\n",
     );
     std::fs::write(dir.join("broken.c"), "int broken(void) { return }\n").unwrap();
     let out = Command::new(dz()).args(["build", dir.to_str().unwrap()]).output().unwrap();
@@ -1059,7 +1059,7 @@ fn a_header_that_is_not_found_is_reported_at_the_import() {
     let dir = scratch(
         "dz_import_missing",
         "[module]\nname = \"m\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\nnope = { cpp = \"nope\" }\n\n[cpp.libs.nope]\nimport = [\"no_such_header.h\"]\n",
-        "fn main() {\n    #println(\"{}\", 1)\n}\n",
+        "fn main() {\n    println!(\"{}\", 1)\n}\n",
     );
     let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -1128,7 +1128,7 @@ fn a_c_union_literal_sets_one_member() {
         "[module]\nname = \"u\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
         "fn main() {\n    let one = api::Value{ as_int: 1 }\n    \
          let two = api::Value{ as_int: 1, as_float: 2.0 }\n    \
-         #println(\"{} {}\", one.as_int, two.as_int)\n}\n",
+         println!(\"{} {}\", one.as_int, two.as_int)\n}\n",
     );
     std::fs::write(
         dir.join("api.h"),
@@ -1152,7 +1152,7 @@ fn a_c_bit_field_has_no_address() {
         "dz_import_bitfield",
         "[module]\nname = \"b\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
         "fn main() {\n    let mut bits: api::Bits\n    let on = &mut bits.on\n    \
-         let count = &mut bits.count\n    #println(\"{}\", bits.count)\n}\n",
+         let count = &mut bits.count\n    println!(\"{}\", bits.count)\n}\n",
     );
     std::fs::write(
         dir.join("api.h"),
@@ -1177,7 +1177,7 @@ fn a_c_array_member_is_indexed_not_copied() {
         "[module]\nname = \"a\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
         "fn main() {\n    let box: api::Box\n    let first = box.items[0]\n    \
          let n = box.items.len\n    let copied = box.items\n    \
-         #println(\"{} {} {}\", first, n, copied[0])\n}\n",
+         println!(\"{} {} {}\", first, n, copied[0])\n}\n",
     );
     std::fs::write(dir.join("api.h"), "#pragma once\ntypedef struct Box { int items[4]; } Box;\n")
         .unwrap();
@@ -1203,8 +1203,8 @@ fn type_info_none_refuses_reflection_and_all_describes_everything() {
     let source = "struct Probe {\n    pub a: i32 = 0\n}\n\n\
                   struct Holder<T> {\n    pub item: T\n}\n\n\
                   union Shape {\n    Circle { radius: f32 }\n    Dot {}\n}\n\n\
-                  fn main() {\n    #println(\"{}\", typeinfo_of<Probe>().name)\n    \
-                  let h = Holder<List<u8>>{ item: List<u8>() }\n    #println(\"{}\", h.item.len())\n    \
+                  fn main() {\n    println!(\"{}\", typeinfo_of<Probe>().name)\n    \
+                  let h = Holder<List<u8>>{ item: List<u8>() }\n    println!(\"{}\", h.item.len())\n    \
                   let s = Shape::Dot{}\n    let _ = s\n}\n";
     let none = scratch(
         "dz_type_info_none",
@@ -1263,7 +1263,7 @@ pub struct Vec3 {
 
 fn main() {
     let a = Vec3{ y: 2, x: 1 }
-    #println(\"{} {}\", a.x, a.y)
+    println!(\"{} {}\", a.x, a.y)
 }
 ";
 
@@ -1322,7 +1322,7 @@ fn the_access_helpers_cost_nothing_in_the_generated_code() {
         "dz_zero_overhead",
         "[module]\nname = \"perf\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "fn sum(xs: []i32) -> i32 {\n    let mut total = 0\n    for i in 0..xs.len {\n        \
-         total += xs[i]\n    }\n    return total\n}\n\nfn main() {\n    #println(\"{}\", 0)\n}\n",
+         total += xs[i]\n    }\n    return total\n}\n\nfn main() {\n    println!(\"{}\", 0)\n}\n",
     );
     let out = Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));

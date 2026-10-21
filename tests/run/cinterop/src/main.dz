@@ -8,37 +8,37 @@ fn triple(value: i32) -> i32 {
 
 fn main() {
     // `MINI_SCALE=3` comes from the recipe's `defines`.
-    #println("scaled {}", mini::mini_scale(5))
+    println!("scaled {}", mini::mini_scale(5))
 
     // A C struct is a Dazzle struct; a literal names the fields it sets, and the rest
     // are zero, as `{}` makes them in C.
     let a = mini::MiniVec2{ x: 1, y: 2 }
     let b = mini::mini_add(a, mini::MiniVec2{ x: 2, y: 2 })
-    #println("sum {} {}", b.x, b.y)
-    #println("length sq {}", mini::mini_length_sq(b))
+    println!("sum {} {}", b.x, b.y)
+    println!("length sq {}", mini::mini_length_sq(b))
     let zero: mini::MiniVec2
-    #println("zero {} {}", zero.x, zero.y)
+    println!("zero {} {}", zero.x, zero.y)
 
     // An enum parameter takes a variant; an unscoped enumerator is also a plain integer,
     // and a macro that is a number is a constant (spec §15.2).
-    #println("sides {} {}", mini::mini_sides(.MINI_CIRCLE), mini::mini_sides(mini::MiniShape::MINI_SQUARE))
+    println!("sides {} {}", mini::mini_sides(.MINI_CIRCLE), mini::mini_sides(mini::MiniShape::MINI_SQUARE))
     let square: i32 = mini::MINI_SQUARE
-    #println("square {} version {} half {}", square, mini::MINI_VERSION, mini::MINI_HALF)
+    println!("square {} version {} half {}", square, mini::MINI_VERSION, mini::MINI_HALF)
 
     // `int *` is a `^mut i32` and `const int *` a `^i32` (§18.37): a writable array's
     // `.ptr` passes to both.
     let mut xs: [4]i32
     mini::mini_fill(xs.ptr, 4, 6)
-    #println("total {}", mini::mini_sum(xs.ptr, 4))
+    println!("total {}", mini::mini_sum(xs.ptr, 4))
 
     // `const char *` is a `cstr`. A string literal is one wherever one is wanted, and a
     // `cstr` measures into a `str` with `as` (§18.39).
-    #println("name {}", mini::mini_name())
-    #println("length {}", mini::mini_length("hello"))
+    println!("name {}", mini::mini_name())
+    println!("length {}", mini::mini_length("hello"))
     let name = mini::mini_name() as str
-    #println("measured {}", name)
+    println!("measured {}", name)
 
-    #println("callback {}", mini::mini_apply(triple, 7))
+    println!("callback {}", mini::mini_apply(triple, 7))
 
     // `char *` (§15.2): the C++ types differ — `int8_t` is `signed char` — so the call is
     // cast at the boundary. (A platform whose plain `char` is unsigned maps it to `u8`.)
@@ -46,7 +46,7 @@ fn main() {
     word[0] = 'h' as i8
     word[1] = 'i' as i8
     mini::mini_upper(word.ptr)
-    #println("upper {} {}", word[0] as i32, word[1] as i32)
+    println!("upper {} {}", word[0] as i32, word[1] as i32)
 
     // A C array member and bit-fields (§15.2): indexed, iterated and read like any other
     // field. A bit-field has no address, so `&flags.visible` is refused.
@@ -55,24 +55,24 @@ fn main() {
     for s in flags.samples {
         total += s
     }
-    #println("bits {} {} sample {} total {} {}", flags.visible, flags.level, flags.samples[2],
+    println!("bits {} {} sample {} total {} {}", flags.visible, flags.level, flags.samples[2],
             total, mini::mini_sample_sum(&flags))
 
     // An anonymous union inside a struct (§15.2): its members belong to the struct itself.
     let event = mini::mini_event(5)
-    #println("event {} {}", event.kind, event.pressed)
+    println!("event {} {}", event.kind, event.pressed)
 
     // A C union (§18.41): its members are the same memory, so a literal sets one of them
     // and reading another is C's own bargain.
     let value = mini::mini_int_value(9)
-    #println("union {} {}", value.as_int, mini::mini_read_int(&value))
+    println!("union {} {}", value.as_int, mini::mini_read_int(&value))
     let chosen = mini::MiniValue{ as_int: 4 }
-    #println("chosen {}", chosen.as_int)
+    println!("chosen {}", chosen.as_int)
 
     // A handle (§18.40): `mini.h` declares `MiniCounter` and never defines it, so it
     // travels as a pointer and the library does the work on what it points at.
     let counter = mini::mini_counter()
     mini::mini_bump(counter)
     mini::mini_bump(counter)
-    #println("count {}", mini::mini_count(counter))
+    println!("count {}", mini::mini_count(counter))
 }

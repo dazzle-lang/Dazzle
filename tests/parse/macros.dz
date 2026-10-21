@@ -46,8 +46,8 @@ macro max -> expr {
 }
 
 macro trace -> stmt {
-    pattern { $what: literal $( at $level: literal )? }
-    expand { #println("{}", $what) }
+    pattern { ( $what: literal $( at $level: literal )? ) }
+    expand { println!("{}", $what) }
 }
 
 #machine Door(DoorCtx) {
@@ -71,9 +71,9 @@ union Light {
 }
 
 fn uses() {
-    let m = #max(1, 2)
-    let n = #engine::max[3, 4]
-    #trace "here"
-    #trace "there" at 2
+    let m = max!(1, 2)
+    let n = engine::max![3, 4]
+    trace!("here")
+    trace!("there" at 2)
     let at = #location
 }

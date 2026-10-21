@@ -1,0 +1,10 @@
+// expect: DZ0217, DZ0217
+//
+// The formatting macros read like a call, `println!(…)`; the other intrinsics are written
+// with `#`, `#location` (spec §12.7, §12.9).
+
+fn main() {
+    #println("{}", 1)
+    let loc = location!()
+    println!("{}", loc.line)
+}

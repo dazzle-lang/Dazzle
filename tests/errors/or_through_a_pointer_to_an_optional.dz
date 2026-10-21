@@ -30,5 +30,5 @@ fn by_reference(a: ^u32?) -> u32 {
 
 fn main() {
     let mut n: u32? = 7
-    #println("{} {}", by_copy(&mut n), by_reference(&mut n))
+    println!("{} {}", by_copy(&mut n), by_reference(&mut n))
 }

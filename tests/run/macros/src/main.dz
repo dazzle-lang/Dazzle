@@ -13,7 +13,7 @@ macro max -> expr {
 // An invocation inside an expansion expands in turn.
 macro max3 -> expr {
     pattern { ( $a: expr , $b: expr , $c: expr ) }
-    expand { #max(#max($a, $b), $c) }
+    expand { max!(max!($a, $b), $c) }
 }
 
 // `$xs.len` — `.len` is Dazzle's own field access on what `$xs` captured, not a capture.
@@ -26,7 +26,7 @@ macro count -> expr {
 
 // `tmp` is the macro's own: a caller's `tmp` is a different variable (spec §12.4).
 macro swap -> stmt {
-    pattern { $a: ident , $b: ident }
+    pattern { ( $a: ident , $b: ident ) }
     expand {
         let tmp = $a
         $a = $b
@@ -37,10 +37,10 @@ macro swap -> stmt {
 // An `#if` on a build flag is emitted, and decided like any other (spec §12.10); `#line` in
 // an expansion is the invocation's line (spec §12.7).
 macro trace -> stmt {
-    pattern { $what: literal }
+    pattern { ( $what: literal ) }
     expand {
         #if DEBUG {
-            #println("trace {} at line {}", $what, #line)
+            println!("trace {} at line {}", $what, #line)
         }
     }
 }
@@ -48,10 +48,10 @@ macro trace -> stmt {
 // `#expr_text` is the condition as written, which is what lets a check say which one failed
 // (spec §12.7).
 macro check -> stmt {
-    pattern { $cond: expr }
+    pattern { ( $cond: expr ) }
     expand {
         if !($cond) {
-            #println("failed: {} in {}", #expr_text($cond), #module)
+            println!("failed: {} in {}", #expr_text($cond), #module)
         }
     }
 }
@@ -61,10 +61,10 @@ macro check -> stmt {
 // body so no arguments leave none.
 macro log -> stmt {
     syntax Arg { $value: expr }
-    pattern { $level: literal $fmt: literal $( , $args: [,]Arg )? }
+    pattern { ( $level: literal , $fmt: literal $( , $args: [,]Arg )? ) }
     expand {
-        #print("[{}] ", $level)
-        #println($fmt #for a in $args { , $a.value })
+        print!("[{}] ", $level)
+        println!($fmt #for a in $args { , $a.value })
     }
 }
 
@@ -87,7 +87,7 @@ macro record -> decl {
 
             pub fn describe(&self) {
                 for v in [#for f in $fields[,] { $f.name }] {
-                    #println("{}", v)
+                    println!("{}", v)
                 }
             }
         }
@@ -99,27 +99,27 @@ macro record -> decl {
 fn main() {
     let a = 3
     let b = 9
-    #println("{} {}", #max(a, b), #max3(4, a, 2))
+    println!("{} {}", max!(a, b), max3!(4, a, 2))
     let xs = [1, 2, 3, 4]
-    #println("{}", #count[xs])
+    println!("{}", count![xs])
 
     let mut tmp = 1
     let mut other = 2
-    #swap tmp, other
-    #println("{} {}", tmp, other)
+    swap!(tmp, other)
+    println!("{} {}", tmp, other)
 
-    #trace "start"
-    #check a < b
-    #check a > b
-    #log "info" "{} and {}", a, b
-    #log "warn" "nothing to say"
+    trace!("start")
+    check!(a < b)
+    check!(a > b)
+    log!("info", "{} and {}", a, b)
+    log!("warn", "nothing to say")
 
     let s = Size{ w: 1 }
-    #println("{}", s.total())
+    println!("{}", s.total())
     s.describe()
 
-    #engine::tally hits by 3
-    #println("{}", hits.n)
-    #engine::tally once
-    #println("{}", once.n)
+    engine::tally!(hits by 3)
+    println!("{}", hits.n)
+    engine::tally!(once)
+    println!("{}", once.n)
 }

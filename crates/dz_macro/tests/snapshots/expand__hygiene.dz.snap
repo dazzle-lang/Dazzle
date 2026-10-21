@@ -12,7 +12,7 @@ struct Pair {
 }
 
 macro swap -> stmt {
-    pattern { $a: ident , $b: ident }
+    pattern { ( $a: ident , $b: ident ) }
     expand {
         let tmp = $a
         $a = $b
@@ -42,5 +42,5 @@ fn main() {
         let right·2 = other
         Pair{ left: left·2, right: right·2 }
     }
-    #println("{} {}", p.left, p.right)
+    println!("{} {}", p.left, p.right)
 }

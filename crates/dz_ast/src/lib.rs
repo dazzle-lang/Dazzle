@@ -471,13 +471,17 @@ pub enum TemplateNode {
     },
 }
 
-/// `#machine Foo(…) { … }`, `#max(a, b)` — an invocation, in any position (spec §12.5).
+/// `#machine Foo(…) { … }`, `max!(a, b)` — an invocation, in any position (spec §12.5).
 #[derive(Clone, Debug)]
 pub struct MacroCall {
     pub span: Span,
-    /// `#name` or `#dep::name`, the `#` included: where the expansion's own code points.
+    /// `#name` or `name!`, with a path's `dep::`, the `#` or `!` included: where the
+    /// expansion's own code points.
     pub name_span: Span,
     pub path: Path,
+    /// Written `name!`, as an `expr` or `stmt` macro is, rather than `#name`, as a `decl`
+    /// macro is. Which one the macro takes is known only once it is found (spec §12.5).
+    pub bang: bool,
     /// Everything after the name, which the pattern is matched against.
     pub tokens: Vec<MacroToken>,
 }
@@ -486,6 +490,22 @@ impl MacroCall {
     /// The macro's own name, the path's last segment.
     pub fn name(&self) -> &str {
         self.path.segments.last().map_or("", |s| s.name.name.as_str())
+    }
+
+    /// The path as written, `dep::name`, without its `#` or `!`.
+    pub fn path_text(&self) -> String {
+        let names: Vec<&str> = self.path.segments.iter().map(|s| s.name.name.as_str()).collect();
+        names.join("::")
+    }
+}
+
+/// How a macro is invoked: `name!` for an `expr` or `stmt` macro, which reads like a call,
+/// and `#name` for a `decl` one (spec §12.5).
+pub fn macro_spelling(bang: bool, path: &str) -> String {
+    if bang {
+        format!("{path}!")
+    } else {
+        format!("#{path}")
     }
 }
 
@@ -509,7 +529,8 @@ pub const INTRINSICS: &[&str] = &[
 ];
 
 /// The formatting macros (spec §12.9): intrinsics whose first argument is a format string,
-/// checked against the arguments after it and lowered to `Format::format` calls.
+/// checked against the arguments after it and lowered to `Format::format` calls. They are
+/// the intrinsics invoked like an `expr` macro, `println!(…)`; the rest are `#file`.
 pub const FORMAT_MACROS: &[&str] = &["print", "println", "eprint", "eprintln", "panic", "format"];
 
 // ---------------------------------------------------------------------------
@@ -597,7 +618,7 @@ pub enum StmtKind {
     /// `#if FLAG { … }` around statements (spec §12.10). The active branch's statements
     /// are spliced into the enclosing block, so it opens no scope of its own.
     CfgIf(CfgIf<Stmt>),
-    /// `#trace "here"` — a macro invocation in statement position, replaced by its
+    /// `trace!("here")` — a macro invocation in statement position, replaced by its
     /// expansion's statements before resolution (spec §12.5).
     Macro(MacroCall),
     Error,
@@ -829,7 +850,7 @@ pub enum ExprKind {
         name: Ident,
         args: Vec<Expr>,
     },
-    /// `#max(a, b)` — replaced by its expansion before resolution (spec §12.5).
+    /// `max!(a, b)` — replaced by its expansion before resolution (spec §12.5).
     MacroCall(MacroCall),
     Tuple(Vec<Expr>),
     /// `allocator = Allocators::Temp` — an argument passed by name. Parsed only inside a
@@ -847,7 +868,7 @@ pub enum ExprKind {
 #[derive(Clone, Debug)]
 pub enum OrClause {
     /// `or Textures::Missing` — the fallback value. `or return`, `or break`, `or continue`
-    /// and `or #panic(...)` all arrive here too, as the diverging expressions they already
+    /// and `or panic!(...)` all arrive here too, as the diverging expressions they already
     /// are, so no clause form needs its own variant.
     Value(Expr),
     /// `or { ... }` and `or { e -> ... }`.

@@ -716,7 +716,7 @@ pub struct Arm {
 #[derive(Clone, Debug)]
 pub enum OrClause {
     /// `or fallback`, including the diverging expressions `or return`, `or break`,
-    /// `or continue` and `or #panic(...)`.
+    /// `or continue` and `or panic!(...)`.
     Value(ExprId),
     /// `or { ... }` / `or { e -> ... }`.
     Block { binding: Option<LocalId>, body: BlockId },

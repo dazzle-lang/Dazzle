@@ -13,6 +13,6 @@ pub fn save_best(path: &Path, score: i32) !-> bool {
         return false
     }
     Directory::create(&path.parent()) or return
-    File::write_text(path, #format("{}", score).as_str()) or return
+    File::write_text(path, format!("{}", score).as_str()) or return
     return true
 }

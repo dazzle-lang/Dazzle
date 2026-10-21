@@ -9,7 +9,7 @@ union Shape {
 
 fn show(s: &Shape) {
     switch s {
-        case Circle(&c) { #println("{}", c.radius) }
+        case Circle(&c) { println!("{}", c.radius) }
         default {}
     }
 }

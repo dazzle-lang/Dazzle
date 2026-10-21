@@ -141,7 +141,7 @@ fn main() {
     // A benchmark project still needs an entry point; running it checks the two halves
     // agree on what they compute, which is what makes the comparison meaningful.
     let xs = filled()
-    #println("{} {}", sum_indexed(&xs, N), base::baseline_sum_indexed(xs.ptr, N))
-    #println("{} {}", raii_loop(N), base::baseline_raii(N))
-    #println("{} {}", virtual_loop(N), base::baseline_virtual(N))
+    println!("{} {}", sum_indexed(&xs, N), base::baseline_sum_indexed(xs.ptr, N))
+    println!("{} {}", raii_loop(N), base::baseline_raii(N))
+    println!("{} {}", virtual_loop(N), base::baseline_virtual(N))
 }

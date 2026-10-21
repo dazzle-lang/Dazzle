@@ -30,13 +30,13 @@ use table::{MacroEntry, Table};
 const MAX_DEPTH: u32 = 64;
 
 /// One invocation that was expanded, for what comes after: the "in expansion of" note on a
-/// diagnostic in code the macro wrote, and the editor's hover over `#name`.
+/// diagnostic in code the macro wrote, and the editor's hover over `#name` or `name!`.
 #[derive(Clone, Debug)]
 pub struct Record {
     pub file: FileId,
     /// The whole invocation.
     pub call: Span,
-    /// `#name`, which every token the macro wrote points at.
+    /// `#name` or `name!`, which every token the macro wrote points at.
     pub name_span: Span,
     pub name: String,
     pub kind: MacroKind,
@@ -75,8 +75,9 @@ pub fn expand(
     records
 }
 
-/// Add "in expansion of `#name`" to every diagnostic that points at code a macro wrote —
-/// that is, at an invocation's name (spec §12.6) — and report a mistake once however many
+/// Add "in expansion of `#name`" (or `name!`) to every diagnostic that points at code a
+/// macro wrote — that is, at an invocation's name (spec §12.6) — and report a mistake once
+/// however many
 /// places an expansion copied it to.
 pub fn annotate(records: &[Record], map: &dz_span::SourceMap, diags: &mut Diagnostics) {
     diags.dedup();
@@ -88,7 +89,8 @@ pub fn annotate(records: &[Record], map: &dz_span::SourceMap, diags: &mut Diagno
     for d in diags.iter_mut() {
         let Some(site) = d.primary_span() else { continue };
         let Some(r) = by_site.get(&site) else { continue };
-        let note = format!("in expansion of `#{}`", r.name);
+        let note =
+            format!("in expansion of `{}`", macro_spelling(r.kind != MacroKind::Decl, &r.name));
         if d.notes.iter().any(|n| n.contains(&note)) {
             continue;
         }
@@ -263,6 +265,25 @@ impl<'a> Expander<'a> {
         let table = self.table;
         let (entry, def_alias) = self.lookup(table, call, pos)?;
         let kind = entry.kind?;
+        // The kind decides the spelling: `max!(…)` and `log!(…)` read like the call they stand
+        // for, `#machine …` like the declaration it writes (spec §12.5).
+        let spelled = macro_spelling(kind != MacroKind::Decl, &call.path_text());
+        if call.bang != (kind != MacroKind::Decl) {
+            let was = macro_spelling(call.bang, &call.path_text());
+            self.diags.push(
+                Diagnostic::error(
+                    codes::MACRO_SPELLING,
+                    format!("`{}` is a `{}` macro, invoked `{spelled}`", call.name(), kind.name()),
+                )
+                .at(self.file, call.name_span, format!("written `{was}`"))
+                .with_secondary(entry.file, entry.decl.kind.span, "declared as this kind")
+                .with_help(
+                    "an `expr` or `stmt` macro is invoked `name!(…)`, a `decl` macro `#name …` \
+                     (spec §12.5)",
+                ),
+            );
+            return None;
+        }
         let fits = match pos {
             Position::Decl => kind == MacroKind::Decl,
             Position::Stmt => true,
@@ -272,12 +293,7 @@ impl<'a> Expander<'a> {
             self.diags.push(
                 Diagnostic::error(
                     codes::MACRO_WRONG_POSITION,
-                    format!(
-                        "`#{}` is a `{}` macro, invoked {}",
-                        call.name(),
-                        kind.name(),
-                        pos.describe()
-                    ),
+                    format!("`{spelled}` is a `{}` macro, invoked {}", kind.name(), pos.describe()),
                 )
                 .at(self.file, call.name_span, "cannot be invoked here")
                 .with_secondary(entry.file, entry.decl.kind.span, "declared as this kind")
@@ -304,7 +320,7 @@ impl<'a> Expander<'a> {
                 self.diags.push(d.with_secondary(
                     entry.file,
                     entry.decl.name.span,
-                    format!("`#{}` is declared here", call.name()),
+                    format!("`{spelled}` is declared here"),
                 ));
             }
             return None;
@@ -352,7 +368,7 @@ impl<'a> Expander<'a> {
                 self.diags.push(
                     Diagnostic::error(
                         codes::MACRO_IN_EXPANSION,
-                        format!("`#{}` expands to a macro declaration", call.name()),
+                        format!("`{spelled}` expands to a macro declaration"),
                     )
                     .at(self.file, i.span, "declares a macro")
                     .with_help(
@@ -405,7 +421,7 @@ impl<'a> Expander<'a> {
         Some(out)
     }
 
-    /// The macro `#name` or `#dep::name` names from here, and the alias it was reached
+    /// The macro `#name`, `name!`, or either through a `dep::`, names from here, and the alias it was reached
     /// through when it is a dependency's.
     fn lookup(
         &mut self,
@@ -414,33 +430,34 @@ impl<'a> Expander<'a> {
         pos: Position,
     ) -> Option<(&'a MacroEntry, Option<String>)> {
         let names: Vec<&str> = call.path.segments.iter().map(|s| s.name.name.as_str()).collect();
-        let (target, name, alias) = match names[..] {
-            [name] => (self.module, name, None),
-            [alias, name] => match table.deps.get(&self.module).and_then(|d| d.get(alias)) {
-                Some(m) => (*m, name, Some(alias.to_owned())),
-                None => {
-                    self.diags.push(
+        let (target, name, alias) =
+            match names[..] {
+                [name] => (self.module, name, None),
+                [alias, name] => match table.deps.get(&self.module).and_then(|d| d.get(alias)) {
+                    Some(m) => (*m, name, Some(alias.to_owned())),
+                    None => {
+                        self.diags.push(
                         Diagnostic::error(
                             codes::UNKNOWN_MACRO,
                             format!("`{alias}` is not a dependency of this module"),
                         )
                         .at(self.file, call.path.segments[0].span, "not a dependency")
                         .with_help(
-                            "a dependency's macro is `#dep::name`, with `dep` as \
+                            "a dependency's macro is `#dep::name` or `dep::name!`, with `dep` as \
                              `[dependencies]` names it (spec §12.5)",
                         ),
                     );
+                        return None;
+                    }
+                },
+                _ => {
+                    self.diags.push(
+                        Diagnostic::error(codes::UNKNOWN_MACRO, "a macro is `name` or `dep::name`")
+                            .at(self.file, call.path.span, "too many segments"),
+                    );
                     return None;
                 }
-            },
-            _ => {
-                self.diags.push(
-                    Diagnostic::error(codes::UNKNOWN_MACRO, "a macro is `#name` or `#dep::name`")
-                        .at(self.file, call.path.span, "too many segments"),
-                );
-                return None;
-            }
-        };
+            };
         let Some(entry) = table.macros.get(&(target, name.to_owned())) else {
             let mut d = Diagnostic::error(
                 codes::UNKNOWN_MACRO,
@@ -448,14 +465,17 @@ impl<'a> Expander<'a> {
             )
             .at(self.file, call.name_span, "no macro by this name");
             if INTRINSICS.contains(&name) && pos != Position::Expr {
+                let written = macro_spelling(FORMAT_MACROS.contains(&name), name);
                 d = d.with_help(format!(
-                    "`#{name}` is an intrinsic, which is an expression (spec §12.7)"
+                    "`{written}` is an intrinsic, which is an expression (spec §12.7)"
                 ));
             } else {
                 let known =
                     table.macros.keys().filter(|(m, _)| *m == target).map(|(_, n)| n.as_str());
                 if let Some(near) = dz_resolve::closest(name, known) {
-                    d = d.with_help(format!("did you mean `#{near}`?"));
+                    let bang = table.macros.get(&(target, near.to_owned())).and_then(|e| e.kind)
+                        != Some(MacroKind::Decl);
+                    d = d.with_help(format!("did you mean `{}`?", macro_spelling(bang, &near)));
                 }
             }
             self.diags.push(d);

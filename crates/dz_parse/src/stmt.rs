@@ -93,9 +93,14 @@ impl<'a> Parser<'a> {
                     StmtKind::Error
                 }
             },
-            // `#trace "here"` — an invocation in statement position, to the end of the line
-            // (spec §12.5). `#location` is an intrinsic, and so an expression.
+            // `#record Size(…)` — a `decl` macro in a body, to the end of the line (spec
+            // §12.5). `#location` is an intrinsic, and so an expression.
             TokenKind::Hash if self.at_macro_call() => {
+                StmtKind::Macro(self.parse_macro_call(false))
+            }
+            // `log!("warn", …)` as the whole statement, which a `stmt` macro is; anything
+            // after it, `max!(a, b).abs()`, makes it an expression's start instead.
+            _ if self.at_macro_call() && self.at_bang_name() && self.bang_call_is_statement() => {
                 StmtKind::Macro(self.parse_macro_call(false))
             }
             // `#[attr] fn ...` nested in a body, but `#location` is an expression.
