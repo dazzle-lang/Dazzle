@@ -5267,7 +5267,8 @@ fn local_names(body: &hir::Body) -> Vec<String> {
 /// in Dazzle and keywords in C++, so every identifier the generator writes goes through
 /// here — a declaration and every reference to it alike, which is what keeps the two
 /// spellings in step. Applied unconditionally, including to imported names: a C++ header
-/// cannot declare something named after a C++ keyword, so there is nothing to special-case.
+/// cannot declare something named after a C++ keyword (or, portably, after a standard
+/// macro), so there is nothing to special-case.
 fn sanitize(name: &str) -> String {
     // A local a macro's hygiene renamed is `next·1`, a spelling no Dazzle source can write
     // and so no user name can collide with (spec §12.4). C++ gets `next__m1`: a double
@@ -5550,11 +5551,20 @@ impl Namer<'_> {
     }
 }
 
-/// Words that are keywords in C++ but ordinary identifiers in Dazzle.
+/// Words that are keywords in C++ but ordinary identifiers in Dazzle — and the lowercase
+/// names the C standard lets a header define as object-like macros, which the preprocessor
+/// rewrites wherever they appear. Windows' `<stdio.h>` makes `stdout` `(__acrt_iob_func(1))`,
+/// so std's `Formatter::stdout()` came out as a syntax error there and nowhere else. No
+/// portable C header can use these as a field name either, so renaming an imported one too
+/// costs nothing.
 fn is_cpp_reserved(name: &str) -> bool {
     matches!(
         name,
-        "alignas"
+        "stdin"
+            | "stdout"
+            | "stderr"
+            | "errno"
+            | "alignas"
             | "alignof"
             | "and"
             | "asm"

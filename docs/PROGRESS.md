@@ -1928,6 +1928,24 @@ Asked for by the user on 2026-09-15, with design answers recorded as 18.20, 18.6
   or wraps through the unsigned type); `or unreachable` is `__builtin_unreachable` in
   release (18.20 — it still panics in every build); `Rc<Derived>` → `Rc<Base>` (18.64).
 
+### CI on 2026-10-21: a macro named `stdout`, and the wrong libclang
+
+r64's merge to master failed on Linux and Windows; macOS passed.
+
+- **Windows: `Formatter::stdout()`.** r64's std declares `stdout` and `stderr` methods,
+  and the UCRT's `<stdio.h>` defines both as expression macros, `(__acrt_iob_func(1))`,
+  so `std.h` did not compile there (glibc and macOS define them as plain names, which
+  happen to survive). **Fixed** in `dz_cpp`'s `is_cpp_reserved`: the C standard's
+  lowercase object-like macros — `stdin`, `stdout`, `stderr`, `errno` — are renamed like a
+  C++ keyword, to `stdout_`. Reproduced on Linux by force-including a header that
+  redefines them the UCRT's way: nine errors before, none after.
+- **Linux: libclang not found, on pushes only.** The workflow took the first
+  `libclang*.so*` that `find` listed, and on some runners that was
+  `libclang_rt.memprof-x86_64.so`, a sanitizer runtime. clang-sys searches only
+  `LIBCLANG_PATH` once it is set, so every interop test reported `DZ0703`. Pull-request
+  runs had happened to list the right file first. **Fixed** in `ci.yml`: the newest
+  `/usr/lib/llvm-*/lib/libclang.so`, by its exact name.
+
 ### r64 — formatting as macros (18.80)
 
 Asked for by the user on 2026-10-20, as the next step after M10: "migrate the format
