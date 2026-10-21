@@ -1,0 +1,8 @@
+// expect: DZ0526
+//
+// `{:0N}` fills a number with zeros; text is padded with spaces, by `{:N}` (spec §12.9).
+
+fn main() {
+    let name = "ada"
+    println!("[{:08}]", name)
+}

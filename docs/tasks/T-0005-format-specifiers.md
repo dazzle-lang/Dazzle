@@ -2,7 +2,8 @@
 id: T-0005
 title: Format specifiers
 milestone: M12
-status: open
+status: done
+done: r66, 2026-10-21
 kind: feature
 area: text
 ---

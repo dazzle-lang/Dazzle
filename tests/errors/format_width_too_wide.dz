@@ -1,0 +1,15 @@
+// expect: DZ0526
+//
+// A width is a `u32`; one that does not fit is reported at its placeholder, in `error(…)`
+// as in the formatting macros (spec §9.1, §12.9).
+
+fn check(n: i32) !-> i32 {
+    if n < 0 {
+        return error("{:99999999999} is negative", n)
+    }
+    return n
+}
+
+fn main() {
+    let _ = check(1) or 0
+}

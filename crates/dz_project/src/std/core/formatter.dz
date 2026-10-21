@@ -1,5 +1,6 @@
 /// Where a `Format` implementation writes, and how the placeholder it was given asks for the
-/// value: `{:x}` and `{:X}` in hex, `{:.N}` with `N` digits after the point (spec §12.9).
+/// value: `{:x}` and `{:X}` in hex, `{:.N}` with `N` digits after the point, `{:N}` in at
+/// least `N` characters and `{:0N}` with zeros (spec §12.9).
 ///
 /// It appends to a `String` that outlives it — what `format!` builds — or writes to
 /// standard output or standard error, for `print!` and `eprint!`. An implementation only
@@ -29,6 +30,16 @@ pub struct Formatter {
     m_hex: bool = false
     m_upper: bool = false
     m_precision: u32? = none
+    m_width: u32? = none
+    m_zero: bool = false
+    /// While an argument with a width is written: how many characters it has written so
+    /// far, so what falls short of the width can be made up after it.
+    m_counting: bool = false
+    m_written: usize = 0
+    /// A number that is so far the whole of its argument, held back until the argument
+    /// ends: if nothing follows it, it is right-aligned, and otherwise written as it is.
+    m_held: [64]u8
+    m_held_len: usize = 0
 
     /// A formatter appending to `out`, which must outlive it, as `format!` uses. `loc` is
     /// where the text's memory is recorded as allocated, under `--track-memory`.
@@ -61,6 +72,21 @@ pub struct Formatter {
 
     /// Append `s`.
     pub fn write_str(&mut self, s: str) {
+        if m_counting {
+            if m_held_len > 0 {
+                // Something follows the number, so it was not the whole argument.
+                let held = m_held
+                let n = m_held_len
+                m_held_len = 0
+                self.write_str(unsafe { held[0..n] as str })
+            }
+            let bytes = s as []u8
+            for b in bytes {
+                if ((b as u32) & 0xC0) != 0x80 {
+                    m_written += 1
+                }
+            }
+        }
         if m_stream < 0 {
             unsafe { m_out.push_str(s, m_loc) }
             return
@@ -117,11 +143,73 @@ pub struct Formatter {
         for i in 0..args.len {
             self.write_str(pieces[i])
             self.set_spec(specs[i])
-            args[i].format(&mut self)
+            if let width = m_width {
+                m_counting = true
+                m_written = 0
+                args[i].format(&mut self)
+                self.end_padded(width as usize)
+            } else {
+                args[i].format(&mut self)
+            }
         }
         self.set_spec("")
         self.write_str(pieces[args.len])
         self.flush()
+    }
+
+    /// Write a number's text — its sign, if any, then its digits — honouring `{:N}` and
+    /// `{:0N}`. A number that is the whole of its argument is right-aligned in the width,
+    /// with zeros after the sign under `{:0N}`; one inside a larger value, such as a field
+    /// of a type's own `Format`, is written as it is, and the value as a whole is padded.
+    pub(module) fn write_number(&mut self, text: str) {
+        if m_counting && m_written == 0 && m_held_len == 0 && text.len <= 64 {
+            let bytes = text as []u8
+            for i in 0..bytes.len {
+                m_held[i] = bytes[i]
+            }
+            m_held_len = bytes.len
+            return
+        }
+        self.write_str(text)
+    }
+
+    /// The end of an argument written under a `width`: a number still held is
+    /// right-aligned, and anything else is made up to the width with spaces after it.
+    fn end_padded(&mut self, width: usize) {
+        m_counting = false
+        if m_held_len == 0 {
+            if m_written < width {
+                self.write_fill(' ', width - m_written)
+            }
+            return
+        }
+        let held = m_held
+        let n = m_held_len
+        m_held_len = 0
+        let text = unsafe { held[0..n] as str }
+        if n >= width {
+            self.write_str(text)
+            return
+        }
+        let sign: usize = if held[0] == '-' as u8 || held[0] == '+' as u8 { 1 } else { 0 }
+        // `inf` and `nan` have no digits to put zeros before; they are padded with spaces,
+        // as C's `%08f` does. No hex digit is an `i` or an `n`.
+        let c = (held[sign] as u32) | 0x20
+        if m_zero && c != 'i' as u32 && c != 'n' as u32 {
+            self.write_str(sub(text, 0, sign))
+            self.write_fill('0', width - n)
+            self.write_str(sub(text, sign, n))
+        } else {
+            self.write_fill(' ', width - n)
+            self.write_str(text)
+        }
+    }
+
+    /// `count` copies of `c`.
+    fn write_fill(&mut self, c: char, count: usize) {
+        for _ in 0..count {
+            self.write_char(c)
+        }
     }
 
     /// Write out what a formatter on a stream holds. Dropping it does the same.
@@ -175,16 +263,46 @@ pub struct Formatter {
         return m_precision
     }
 
-    /// Ask for what a placeholder's spec asks for, as it is written after the colon: `x`,
-    /// `X`, `.N`, or empty for `{}`. The formatting macros call this before each argument
-    /// whose spec differs from the last one's; an implementation may call it to write a
-    /// part of itself differently.
+    /// The `N` of `{:N}` or `{:0N}`: how many characters the value takes at least. `none`
+    /// when no width was given. The formatting macros pad a value that falls short, so an
+    /// implementation need not; one that pads itself is not padded again.
+    pub fn width(&self) -> u32? {
+        return m_width
+    }
+
+    /// What a number is padded with to fill its width: `'0'` for `{:0N}`, `' '` otherwise.
+    pub fn fill(&self) -> char {
+        return if m_zero { '0' } else { ' ' }
+    }
+
+    /// Ask for what a placeholder's spec asks for, as it is written after the colon: an
+    /// optional `0` and width, `N` or `0N`, then `x`, `X` or `.N` — or empty for `{}`. The
+    /// formatting macros call this before each argument; an implementation may call it to
+    /// write a part of itself differently.
     pub fn set_spec(&mut self, spec: str) {
-        m_hex = spec == "x" || spec == "X"
-        m_upper = spec == "X"
+        m_width = none
+        m_zero = false
+        let bytes = spec as []u8
+        let mut at: usize = 0
+        if bytes.len > 1 && bytes[0] == '0' as u8 {
+            m_zero = true
+            at = 1
+        }
+        let start = at
+        while at < bytes.len && bytes[at] >= '0' as u8 && bytes[at] <= '9' as u8 {
+            at += 1
+        }
+        if at > start {
+            if let n = sub(spec, start, at).parse_u64() {
+                m_width = n as u32
+            }
+        }
+        let rest = sub(spec, at, spec.len)
+        m_hex = rest == "x" || rest == "X"
+        m_upper = rest == "X"
         m_precision = none
-        if spec.len > 1 && spec.starts_with(".") {
-            if let n = sub(spec, 1, spec.len).parse_u64() {
+        if rest.len > 1 && rest.starts_with(".") {
+            if let n = sub(rest, 1, rest.len).parse_u64() {
                 m_precision = n as u32
             }
         }

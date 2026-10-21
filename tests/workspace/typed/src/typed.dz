@@ -625,6 +625,12 @@ fn formatting(x: i32, f: f32) {
     println!("{} {:x} {:X} {:.3} {{literal}}", x, x, x, f)
 }
 
+// §12.9: a width suits anything; a zero fill a number, before `x`, `X` or `.N` too.
+fn widths<T: Format>(x: i32, f: f32, s: str, t: T) {
+    println!("{:8} {:08} {:8x} {:08X} {:10.3} {:010.3}", x, x, x, x, f, f)
+    println!("{:12} {:5} {:3} {:6}", s, true, 'c', t)
+}
+
 // §8.5, §10.4: any type implementing `Iterate` works in `for`.
 struct Upto {
     pub i: i32

@@ -105,24 +105,25 @@ impl Format for cstr {
 /// so a negative `i32` shows eight hex digits rather than sixteen.
 fn write_signed(f: &mut Formatter, value: i64, bits: u64) {
     if f.hex() {
-        write_digits(f, bits, 16)
+        write_digits(f, bits, 16, false)
     } else if value < 0 {
-        f.write_char('-')
         // Wraps for `i64::MIN`, whose magnitude has no `i64` but is the right `u64`.
-        write_digits(f, 0 - (value as u64), 10)
+        write_digits(f, 0 - (value as u64), 10, true)
     } else {
-        write_digits(f, value as u64, 10)
+        write_digits(f, value as u64, 10, false)
     }
 }
 
 fn write_unsigned(f: &mut Formatter, value: u64) {
-    write_digits(f, value, if f.hex() { 16 } else { 10 })
+    write_digits(f, value, if f.hex() { 16 } else { 10 }, false)
 }
 
-fn write_digits(f: &mut Formatter, value: u64, base: u64) {
-    // Twenty digits hold any `u64` in decimal, and sixteen in hex.
-    let mut buf: [20]u8
-    let mut at: usize = 20
+/// The digits of `value`, after a `-` when `negative`, written as one number so a width
+/// can pad them as one (`Formatter::write_number`).
+fn write_digits(f: &mut Formatter, value: u64, base: u64, negative: bool) {
+    // Twenty digits hold any `u64` in decimal, and sixteen in hex; one more holds the sign.
+    let mut buf: [21]u8
+    let mut at: usize = 21
     let mut n = value
     let ten = if f.upper() { 'A' as u8 } else { 'a' as u8 }
     while true {
@@ -134,7 +135,11 @@ fn write_digits(f: &mut Formatter, value: u64, base: u64) {
             break
         }
     }
-    f.write_str(unsafe { buf[at..20] as str })
+    if negative {
+        at -= 1
+        buf[at] = '-' as u8
+    }
+    f.write_number(unsafe { buf[at..21] as str })
 }
 
 /// A float as `{}` writes it — the shortest of fixed and scientific, to six significant
@@ -143,7 +148,7 @@ fn write_float(f: &mut Formatter, value: f64) {
     let mut buf: [64]u8
     let precision = if let p = f.precision() { p as i32 } else { -1 }
     let n = format_float(value, precision, buf[0..64])
-    f.write_str(unsafe { buf[0..n] as str })
+    f.write_number(unsafe { buf[0..n] as str })
 }
 
 /// `value` written by C's `snprintf` into `out`, with `%.*f` when `precision` is not
