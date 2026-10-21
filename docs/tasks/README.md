@@ -1,7 +1,11 @@
 # Tasks
 
-One file per task, `T-NNNN-slug.md`. Read the list with the script rather than the files —
-it reads only each file's header, so the whole list costs one line per task:
+One file per task, `T-NNNN-slug.md`. **`docs/tasks.md` is the backlog**: every open task,
+one line each, grouped by milestone — read it first. It is generated from these files by
+`python tools/track.py index` and never edited by hand; a hook rewrites it whenever a task
+file changes, and `check` fails while it is stale. To change the backlog, change a task file
+(or the `## Now` section below, which it copies). For other views, the script reads only
+each file's header:
 
 ```bash
 python tools/track.py tasks                      # every open task
@@ -20,12 +24,12 @@ python tools/track.py check                      # headers, ids, milestones, §-
 with no C++ of its own — is met: Breakout, 2026-09-15 (`examples/breakout`, its rules played
 headless by `tests/run/breakout_sim`). The order the user set on 2026-09-15 is done through
 r57 (stderr, `Time`, generic methods, `Random`, `Path` and `File`); what follows is chosen
-from `--milestone M12`. Later, by the roadmap: fetched packages (M16), hot reload (M13), and
+from M12's open tasks. Later, by the roadmap: fetched packages (M16), hot reload (M13), and
 the release workflow and installer (T-0076).
 
-**When asked what there is to work on**, answer in two parts and say both: the milestone
-work (`--milestone M12`, then the other milestones' open tasks), and the tooling that would
-make Dazzle easy for an LLM to work in (`--area llm-tooling`).
+**When asked what there is to work on**, answer from `docs/tasks.md` in two parts and say
+both: the milestone work (M12 first, then the other milestones' open tasks), and the tooling
+that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under `none`).
 
 ## A task file
 

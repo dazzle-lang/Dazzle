@@ -7,7 +7,7 @@ generics, traits, unions, macros and reflection, call C and C++ libraries that `
 builds from vendored source, and are edited with a language server. Not yet 0.1: the
 editor still lacks code actions and incremental analysis (M9), and the standard library,
 which has carried a game written without C++ (M12's criterion), is still growing.
-Open work is in `docs/tasks/`; what was built, milestone by milestone, is in `docs/log/`.
+Open work is the backlog, `docs/tasks.md`; what was built, milestone by milestone, is in `docs/log/`.
 
 **The version number stays 0.1 until 0.1 is actually finished.** 0.1 means: an LSP good
 enough to work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop

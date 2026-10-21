@@ -24,6 +24,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/tools/hooks/tasks_backlog.py\"",
+            "timeout": 20
+          }
+        ]
+      }
     ]
   }
 }

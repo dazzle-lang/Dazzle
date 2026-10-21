@@ -1,7 +1,7 @@
 # The build log
 
 What each milestone built and decided, one file each. It is the record, not the plan:
-**open work is in `docs/tasks/`**, and what changed in the language is spec §21. Read a
+**open work is the backlog, `docs/tasks.md`**, and what changed in the language is spec §21. Read a
 file here when you need to know *why* something is the way it is; nothing here is needed to
 decide what to do next.
 
