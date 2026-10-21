@@ -1,9 +1,9 @@
 // expect: DZ0526
 //
-// `#format`'s format string is checked where it is written, so it must be a literal
+// `format!`'s format string is checked where it is written, so it must be a literal
 // (spec §12.9).
 
 fn main() {
     let pattern = "{} hp"
-    let _ = #format(pattern, 10)
+    let _ = format!(pattern, 10)
 }

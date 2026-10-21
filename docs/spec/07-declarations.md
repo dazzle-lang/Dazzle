@@ -37,7 +37,7 @@ fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
   `Buffer(8, arena)` are genuinely the same operation.
 
 **Arguments are evaluated left to right**, each completely before the next: in
-`#println("{} {}", touch(), COUNT.hits)`, `touch()` has run by the time `COUNT.hits` is
+`println!("{} {}", touch(), COUNT.hits)`, `touch()` has run by the time `COUNT.hits` is
 read. The receiver of a method call is evaluated before its arguments. `[DECIDED — §18.49]`
 
 The same holds for **every expression with more than one operand**: both sides of a binary
@@ -89,7 +89,7 @@ fn total(xs: ..i32, scale: i32 = 1, loc: SourceLocation = #location) -> i32 { �
 total(1, 2, 3)                        // scale = 1, loc = this line
 total(1, 2, scale = 10)
 total(loc = here, scale = 2)          // any order; no variadic arguments at all
-#format("{} hp", hp, allocator = Allocators::Temp)
+format!("{} hp", hp, allocator = Allocators::Temp)
 ```
 
 - Only these parameters are passed by name, and only by name. Naming any other parameter —

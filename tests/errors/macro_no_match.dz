@@ -9,5 +9,5 @@ macro pair -> expr {
 }
 
 fn main() {
-    #println("{}", #pair(1; 2))
+    println!("{}", pair!(1; 2))
 }

@@ -30,7 +30,7 @@ fn touch() -> i32 {
 }
 
 fn main() {
-    #println("{} {} {} {}", COUNT.hits, COUNT.name, TABLE[2], SCRATCH)
+    println!("{} {} {} {}", COUNT.hits, COUNT.name, TABLE[2], SCRATCH)
     unsafe {
         COUNT.bump()
         COUNT.hits += 10
@@ -41,11 +41,11 @@ fn main() {
         }
     }
     let touched = touch()
-    #println("{} {}", touched, COUNT.hits)
+    println!("{} {}", touched, COUNT.hits)
 
     // A `&mut` built by a block and stored as a pointer points at the static itself.
     let h = Holder{ p: unsafe { &mut COUNT } }
     let c = h.p or return
     c.hits += 100
-    #println("{} {} {} {}", COUNT.hits, TABLE[0], TABLE[3], SCRATCH)
+    println!("{} {} {} {}", COUNT.hits, TABLE[0], TABLE[3], SCRATCH)
 }

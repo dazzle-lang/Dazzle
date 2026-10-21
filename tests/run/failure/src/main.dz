@@ -67,37 +67,37 @@ fn pair() -> (i32, str) {
 
 fn main() {
     // §9.6: fall back and keep going.
-    #println("fallback: {} {}", halve(8) or -1, halve(7) or -1)
-    #println("propagated: {} {}", quarter(8) or -1, quarter(6) or -1)
+    println!("fallback: {} {}", halve(8) or -1, halve(7) or -1)
+    println!("propagated: {} {}", quarter(8) or -1, quarter(6) or -1)
 
     // §9.4: the block clause, with the `Error` bound.
     let handled = halve(9) or { e ->
-        #println("  code {}: {}", e.code, e.message)
+        println!("  code {}: {}", e.code, e.message)
         // `location` is a reference into static storage (spec §9.2), read directly.
         let at = e.location
-        #println("  located: {}", at.line > 0)
+        println!("  located: {}", at.line > 0)
         0
     }
-    #println("handled: {}", handled)
+    println!("handled: {}", handled)
 
     // §9.4: statement position only, and deliberately discards.
     halve(5) or ignore
 
     // §9.4: `or` on a `T?` and on a `^T`.
-    #println("optional: {} {}", maybe(3) or -1, maybe(-3) or -1)
+    println!("optional: {} {}", maybe(3) or -1, maybe(-3) or -1)
 
     let mut xs: [4]i32
     xs[0] = 4
     xs[1] = 5
     xs[2] = 6
 
-    let hit = find(&mut xs, 5) or #panic("5 must be there")
-    #println("pointer: {}", hit)
-    #println("missing: {}", find(&mut xs, 99) == null)
+    let hit = find(&mut xs, 5) or panic!("5 must be there")
+    println!("pointer: {}", hit)
+    println!("missing: {}", find(&mut xs, 99) == null)
 
     // §5.4: tuples, and destructuring one.
     let (n, name) = pair()
-    #println("tuple: {} {}", n, name)
+    println!("tuple: {} {}", n, name)
 
     // Control flow used as a value.
     let chosen = if n > 3 {
@@ -110,11 +110,11 @@ fn main() {
         let b = 3
         a * b
     }
-    #println("values: {} {}", chosen, computed)
+    println!("values: {} {}", chosen, computed)
 
     // §7.5: tagged unions, constructed and matched.
     let c = Shape::Circle{ radius: 2 }
     let r = Shape::Rect{ w: 3, h: 4 }
     let p = Shape::Point
-    #println("areas: {} {} {}", area(&c), area(&r), area(&p))
+    println!("areas: {} {} {}", area(&c), area(&r), area(&p))
 }

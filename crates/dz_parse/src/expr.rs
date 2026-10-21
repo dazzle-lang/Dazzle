@@ -157,7 +157,7 @@ impl<'a> Parser<'a> {
 
     /// The right-hand side of an `or` (spec §9.4).
     ///
-    /// `return`, `break`, `continue` and `#panic(...)` need no special handling here: they
+    /// `return`, `break`, `continue` and `panic!(...)` need no special handling here: they
     /// are already expressions, and the single rule — produce a `T` or diverge — is a type
     /// question rather than a syntactic one, so the checker enforces it, not the parser.
     fn parse_or_clause(&mut self) -> OrClause {
@@ -458,27 +458,15 @@ impl<'a> Parser<'a> {
                 };
                 ExprKind::DotInfer { name, init }
             }
-            // `#max(a, b)` — an invocation in expression position (spec §12.5).
-            TokenKind::Hash if self.at_macro_call() => {
+            // `max!(a, b)` — an invocation in expression position (spec §12.5).
+            _ if self.at_macro_call() => {
                 return Expr {
                     span: self.span_from(start),
                     kind: ExprKind::MacroCall(self.parse_macro_call(true)),
                 };
             }
-            // `#location`, `#file` (spec §12.7). `module` is a keyword, so `#module` is
-            // the one intrinsic whose name is not an identifier token.
-            TokenKind::Hash if self.peek_at(1) == TokenKind::Module => {
-                self.bump();
-                let name = Ident::new(self.bump().span, "module");
-                ExprKind::Intrinsic { name, args: Vec::new() }
-            }
-            TokenKind::Hash if self.peek_at(1) == TokenKind::Ident => {
-                self.bump();
-                let name = self.parse_ident_or_error();
-                let args =
-                    if self.at(TokenKind::LParen) { self.parse_call_args() } else { Vec::new() };
-                ExprKind::Intrinsic { name, args }
-            }
+            // `#location`, `#file`, `println!(…)` (spec §12.7, §12.9).
+            _ if self.at_intrinsic() => self.parse_intrinsic(),
             TokenKind::LParen => {
                 self.bump();
                 let saved = std::mem::replace(&mut self.no_struct_literal, 0);
@@ -514,65 +502,6 @@ impl<'a> Parser<'a> {
                 ExprKind::Tuple(elems)
             }
             TokenKind::SelfValue | TokenKind::SelfType | TokenKind::Ident => {
-                // `name!(…)`, the spelling r63 removed: report it, and read it as the
-                // `#name(…)` it now is so the tree stays whole (spec §12.5, 18.9).
-                if self.at(TokenKind::Ident)
-                    && self.peek_at(1) == TokenKind::Bang
-                    && self.peek_at(2) == TokenKind::LParen
-                {
-                    let name = self.parse_ident_or_error();
-                    let bang = self.bump().span;
-                    self.error_help(
-                        codes::BANG_MACRO_REMOVED,
-                        name.span.to(bang),
-                        format!("`{}!(…)` is not how a macro is invoked", name.name),
-                        "invoked with `!`",
-                        format!(
-                            "write `#{}(…)`: every macro is invoked with `#` (spec §12.5)",
-                            name.name
-                        ),
-                    );
-                    let mut tokens = Vec::new();
-                    let mut depth = 0i32;
-                    loop {
-                        let k = self.peek();
-                        if k == TokenKind::Eof {
-                            break;
-                        }
-                        match k {
-                            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
-                                depth += 1
-                            }
-                            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
-                                depth -= 1
-                            }
-                            _ => {}
-                        }
-                        tokens.push(self.macro_token());
-                        self.bump();
-                        if depth <= 0 {
-                            break;
-                        }
-                    }
-                    let path = Path {
-                        span: name.span,
-                        segments: vec![PathSegment {
-                            span: name.span,
-                            name: name.clone(),
-                            generics: Vec::new(),
-                        }],
-                    };
-                    return Expr {
-                        span: self.span_from(start),
-                        kind: ExprKind::MacroCall(MacroCall {
-                            span: self.span_from(start),
-                            name_span: name.span,
-                            path,
-                            tokens,
-                        }),
-                    };
-                }
-
                 let path = match self.peek() {
                     TokenKind::SelfValue | TokenKind::SelfType => {
                         let t = self.bump();

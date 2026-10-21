@@ -86,7 +86,7 @@ the line break rather than swallowing the rest of the file — that is the bug t
 Raw strings use backticks: `` `C:\path\no\escapes` ``. Multi-line raw strings are allowed.
 `[PROPOSED]`
 
-Interpolation is *not* part of the string literal. `#println("Hello {}", name)` uses
+Interpolation is *not* part of the string literal. `println!("Hello {}", name)` uses
 compile-time format-string checking instead (§12.9). `[PROPOSED]`
 
 ## 2.6 Operators and punctuation

@@ -5,6 +5,6 @@
 fn main() {
     let xs = [1, 2]
     for i, a, b in xs.indexed() {
-        #println("{} {}", i, a)
+        println!("{} {}", i, a)
     }
 }

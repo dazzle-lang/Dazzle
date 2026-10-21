@@ -137,7 +137,7 @@ pub struct String {
             return
         }
         if !self.is_char_boundary(len) {
-            #panic("truncate at byte {}, inside a character", len, loc)
+            panic!("truncate at byte {}, inside a character", len, loc)
         }
         m_bytes.truncate(len)
         m_bytes.push(0, loc)

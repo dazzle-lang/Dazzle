@@ -5,9 +5,9 @@
 
 macro forever -> expr {
     pattern { ( $e: expr ) }
-    expand { #forever($e + 1) }
+    expand { forever!($e + 1) }
 }
 
 fn main() {
-    #println("{}", #forever(0))
+    println!("{}", forever!(0))
 }

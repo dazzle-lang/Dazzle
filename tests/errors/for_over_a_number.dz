@@ -4,6 +4,6 @@
 
 fn main() {
     for x in 5 {
-        #println("{}", x)
+        println!("{}", x)
     }
 }

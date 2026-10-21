@@ -1,6 +1,6 @@
 // expect: DZ0301
 //
-// Formatting is a macro, `#println("…", …)`, so its format string is checked where it is
+// Formatting is a macro, `println!("…", …)`, so its format string is checked where it is
 // written; the bare `println(…)` it replaced is no longer a name, and the help says what to
 // write instead (spec §12.9).
 

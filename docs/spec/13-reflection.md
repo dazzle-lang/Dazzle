@@ -120,12 +120,12 @@ pub fn write_json(out: &mut String, value: ^u8, id: TypeId) {
             out.push('{')
             for &f in info.fields {
                 let key = f.tag_value("json") or f.name
-                out.push_str(#format("\"{}\":", key).as_str())
+                out.push_str(format!("\"{}\":", key).as_str())
                 write_json(out, unsafe { ((value as usize) + f.offset) as ^u8 }, f.type_id)
             }
             out.push('}')
         }
-        case I32 { out.push_str(#format("{}", unsafe { (value as ^i32)^ }).as_str()) }
+        case I32 { out.push_str(format!("{}", unsafe { (value as ^i32)^ }).as_str()) }
         // ...
     }
 }

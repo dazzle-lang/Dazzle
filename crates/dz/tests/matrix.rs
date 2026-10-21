@@ -32,7 +32,7 @@ fn program() -> (String, Vec<String>) {
             let name = format!("{construct}_in_{context_name}");
             code.push_str(&place(context, &name, body));
             code.push_str("\n\n");
-            calls.push_str(&format!("    #println(\"{name} {{}}\", {name}())\n"));
+            calls.push_str(&format!("    println!(\"{name} {{}}\", {name}())\n"));
             expected.push(format!("{name} {value}"));
         }
     }

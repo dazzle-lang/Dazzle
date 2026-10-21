@@ -64,7 +64,7 @@ pub struct List<T> {
     /// Put `v` at index `i`, moving the elements from `i` on up by one. `i` may be `len()`.
     pub fn insert(&mut self, i: usize, v: T, loc: SourceLocation = #location) {
         if i > m_len {
-            #panic("List::insert at {} past the length {}", i, m_len)
+            panic!("List::insert at {} past the length {}", i, m_len)
         }
         if m_len == m_cap {
             self.grow_to(m_len + 1, loc)
@@ -81,7 +81,7 @@ pub struct List<T> {
     /// Take the element at `i` out, moving the ones after it down by one.
     pub fn remove(&mut self, i: usize) -> T {
         if i >= m_len {
-            #panic("List::remove at {} for a length of {}", i, m_len)
+            panic!("List::remove at {} for a length of {}", i, m_len)
         }
         let v = unsafe { move_out(m_data[i]) }
         let mut j = i
@@ -97,7 +97,7 @@ pub struct List<T> {
     /// order is not kept.
     pub fn swap_remove(&mut self, i: usize) -> T {
         if i >= m_len {
-            #panic("List::swap_remove at {} for a length of {}", i, m_len)
+            panic!("List::swap_remove at {} for a length of {}", i, m_len)
         }
         let v = unsafe { move_out(m_data[i]) }
         m_len -= 1
@@ -110,7 +110,7 @@ pub struct List<T> {
     /// Exchange the elements at `i` and `j`.
     pub fn swap(&mut self, i: usize, j: usize) {
         if i >= m_len || j >= m_len {
-            #panic("List::swap of {} and {} for a length of {}", i, j, m_len)
+            panic!("List::swap of {} and {} for a length of {}", i, j, m_len)
         }
         if i == j {
             return
@@ -205,7 +205,7 @@ pub struct List<T> {
     fn grow_to(&mut self, wanted: usize, loc: SourceLocation) {
         let doubled = if m_cap == 0 { 8 } else { m_cap * 2 }
         let cap = if wanted > doubled { wanted } else { doubled }
-        let a = m_allocator or #panic("a List with no allocator cannot grow")
+        let a = m_allocator or panic!("a List with no allocator cannot grow")
         if T::is_trivially_copyable {
             // Bytes can move anywhere, so the allocator may grow the memory in place.
             let old = unsafe { m_data as ^mut u8 }
@@ -245,7 +245,7 @@ impl<T: Copy> Copy for List<T> {
         if other.m_len == 0 {
             return
         }
-        let a = m_allocator or #panic("a List with no allocator cannot be copied")
+        let a = m_allocator or panic!("a List with no allocator cannot be copied")
         m_data = unsafe { a.alloc(other.m_len * sizeof(T), alignof(T)) as ^mut T }
         m_cap = other.m_len
         for i in 0..other.m_len {
@@ -260,7 +260,7 @@ impl<T> Index<usize> for List<T> {
 
     fn index(&self, i: usize) -> &T {
         if i >= m_len {
-            #panic("index {} is out of bounds for a List of length {}", i, m_len)
+            panic!("index {} is out of bounds for a List of length {}", i, m_len)
         }
         return unsafe { &m_data[i] }
     }
@@ -289,7 +289,7 @@ impl<T> IndexMut<usize> for List<T> {
 
     fn index_mut(&mut self, i: usize) -> &mut T {
         if i >= m_len {
-            #panic("index {} is out of bounds for a List of length {}", i, m_len)
+            panic!("index {} is out of bounds for a List of length {}", i, m_len)
         }
         return unsafe { &mut m_data[i] }
     }

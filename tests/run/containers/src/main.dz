@@ -42,10 +42,10 @@ fn main() {
     b.insert(2, 7)
     let removed = b.remove(3)
     let swapped = b.swap_remove(0)
-    #println("{} {} {} {} {} {}", b.len(), last, removed, swapped, b[0], sum(b.as_slice()))
+    println!("{} {} {} {} {} {}", b.len(), last, removed, swapped, b[0], sum(b.as_slice()))
     let c = b
     b.clear()
-    #println("{} {} {}", b.len(), c.len(), c[1])
+    println!("{} {} {}", b.len(), c.len(), c[1])
 
     let mut tokens = List<Token>(2)
     for i in 0..5 {
@@ -53,9 +53,9 @@ fn main() {
     }
     let t = tokens.remove(1)
     let u = tokens.pop() or Token(-1)
-    #println("{} {} {} {}", tokens.len(), t.id, u.id, tokens[1].id)
+    println!("{} {} {} {}", tokens.len(), t.id, u.id, tokens[1].id)
     tokens.truncate(1)
-    #println("drops {}", unsafe { DROPS })
+    println!("drops {}", unsafe { DROPS })
 
     let mut s = String("hello")
     s.push_str(", world")
@@ -63,21 +63,21 @@ fn main() {
     s.push('\u{e9}')
     let copy = s
     let same = copy == s
-    #println("{} {} {} {} {}", s.as_str(), s.len(), same, String::from("x").len(), s.as_cstr())
+    println!("{} {} {} {} {}", s.as_str(), s.len(), same, String::from("x").len(), s.as_cstr())
     let mut names = List<String>()
     names.push(String("ada"))
     names.push(String("grace"))
-    #println("{} {}", names[1].as_str(), names.len())
+    println!("{} {}", names[1].as_str(), names.len())
 
     // A frame's scratch list, in the arena.
     let mut scratch = List<u16>(0, Allocators::Temp)
     for i in 0..1000 {
         scratch.push(i as u16)
     }
-    #println("{} {}", scratch[999], Allocators::Temp.used() > 0)
+    println!("{} {}", scratch[999], Allocators::Temp.used() > 0)
 
     // Bytes to text, checked.
     let text = str::from_utf8(s.as_str() as []u8) or "invalid"
     let cut = str::from_utf8((s.as_str() as []u8)[0..14]) or "invalid"
-    #println("{} {}", text.len, cut)
+    println!("{} {}", text.len, cut)
 }

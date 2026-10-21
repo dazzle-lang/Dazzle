@@ -1387,7 +1387,14 @@ impl<'a> Query<'a> {
 
     fn symbol_completion(&self, s: SymbolId, out: &mut Completions) {
         let (kind, detail) = self.symbol_kind_detail(s);
-        out.push(&self.res.symbol(s).name, kind, detail);
+        let name = &self.res.symbol(s).name;
+        if kind == CompletionKind::Macro {
+            // Choosing a macro writes it as it is invoked: `max!` or `#machine` (spec §12.5).
+            let written = dz_ast::macro_spelling(!is_decl_macro(detail.as_deref()), name);
+            out.push_written(name, kind, detail, &written);
+        } else {
+            out.push(name, kind, detail);
+        }
     }
 
     fn symbol_kind_detail(&self, s: SymbolId) -> (CompletionKind, Option<String>) {
@@ -1776,13 +1783,19 @@ impl Completions {
     }
 
     /// A name that is written differently from how it is filtered: `println`, which
-    /// writes `#println`.
-    fn push_written(&mut self, label: &str, kind: CompletionKind, insert: &str) {
+    /// writes `println!`, and `machine`, which writes `#machine`.
+    fn push_written(
+        &mut self,
+        label: &str,
+        kind: CompletionKind,
+        detail: Option<String>,
+        insert: &str,
+    ) {
         if self.seen.insert(label.to_owned()) {
             self.items.push(Completion {
                 label: label.to_owned(),
                 kind,
-                detail: None,
+                detail,
                 insert: Some(insert.to_owned()),
                 source: None,
             });
@@ -1941,9 +1954,10 @@ pub fn completion(
         return CompletionSet { items: out.items, incomplete: false };
     }
 
-    // `#…`: the compiler's own macros and the ones in scope, and nothing else (spec §12.5).
+    // `#…`: the intrinsics and the `decl` macros in scope, which are what `#` invokes, and
+    // nothing else (spec §12.5, §12.7).
     if lead.ends_with('#') {
-        for m in INTRINSICS {
+        for m in INTRINSICS.iter().filter(|m| !FORMAT_MACROS.contains(m)) {
             out.push(m, CompletionKind::Macro, None);
         }
         let mut scope = Completions::default();
@@ -1951,7 +1965,9 @@ pub fn completion(
             q.complete_scope(*file, offset as u32, &mut scope);
         }
         for c in scope.items.into_iter().filter(|c| c.kind == CompletionKind::Macro) {
-            out.push(&c.label, c.kind, c.detail);
+            if is_decl_macro(c.detail.as_deref()) {
+                out.push(&c.label, c.kind, c.detail);
+            }
         }
         return CompletionSet { items: out.items, incomplete: false };
     }
@@ -1977,11 +1993,17 @@ pub fn completion(
     for f in BUILTIN_FNS {
         out.push(f, CompletionKind::Function, None);
     }
-    // `println` is a macro, so choosing it writes `#println` (spec §12.9).
+    // `println` is a macro, so choosing it writes `println!` (spec §12.9).
     for m in FORMAT_MACROS {
-        out.push_written(m, CompletionKind::Macro, &format!("#{m}"));
+        out.push_written(m, CompletionKind::Macro, None, &format!("{m}!"));
     }
     CompletionSet { items: out.items, incomplete }
+}
+
+/// Whether a macro's header, `macro machine -> decl`, says it is a `decl` macro, which is
+/// invoked `#machine` rather than `machine!` (spec §12.5).
+fn is_decl_macro(header: Option<&str>) -> bool {
+    header.is_some_and(|h| h.trim_end().ends_with("-> decl"))
 }
 
 // ---------------------------------------------------------------------------

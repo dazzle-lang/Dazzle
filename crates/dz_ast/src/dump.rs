@@ -45,7 +45,8 @@ impl<'a> Dumper<'a> {
     }
 
     fn macro_call(&mut self, c: &MacroCall) {
-        self.line(format_args!("macro-call #{} {}", path_str(&c.path), tokens_str(&c.tokens)));
+        let name = crate::macro_spelling(c.bang, &path_str(&c.path));
+        self.line(format_args!("macro-call {name} {}", tokens_str(&c.tokens)));
     }
 
     // --- items ------------------------------------------------------------
@@ -581,7 +582,11 @@ impl<'a> Dumper<'a> {
                 label.as_ref().map(|l| format!(" '{}", l.name)).unwrap_or_default()
             )),
             ExprKind::Intrinsic { name, args } => {
-                self.line(format_args!("intrinsic #{}", name.name));
+                let written = crate::macro_spelling(
+                    crate::FORMAT_MACROS.contains(&name.name.as_str()),
+                    &name.name,
+                );
+                self.line(format_args!("intrinsic {written}"));
                 self.nest(|d| {
                     for a in args {
                         d.expr(a);

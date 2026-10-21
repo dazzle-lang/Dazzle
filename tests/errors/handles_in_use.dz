@@ -22,13 +22,13 @@ fn main() {
         n.value += 1
     }
     if let n = w {
-        #println("{}", n.value)
+        println!("{}", n.value)
     } else if w != null {
-        #println("unreachable")
+        println!("unreachable")
     }
     let b = Box<Node>(Node{ value: read(&a) })
     if let &n = b {
-        #println("{}", n.value)
+        println!("{}", n.value)
     }
     let mut o: i32? = 1
     if let &mut v = o {
@@ -38,6 +38,6 @@ fn main() {
     x += 1
     let p: ^i32 = &x
     if let &v = p {
-        #println("{}", v)
+        println!("{}", v)
     }
 }

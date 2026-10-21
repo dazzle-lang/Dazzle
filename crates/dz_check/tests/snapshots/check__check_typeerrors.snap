@@ -472,7 +472,7 @@ error[DZ0504]: `alloc` takes 2 arguments, found 1
 error[DZ0526]: this format string has 2 placeholders but 1 argument was given
     ┌─ typeerrors/src/errors.dz:414:14
     │
-414 │     #println("{} and {}", x)
+414 │     println!("{} and {}", x)
     │              ^^^^^^^^^^^ 2 `{}` here
     │
     = help: each `{}` takes one argument, in order; write `{{` or `}}` for a literal brace (spec §12.9)
@@ -480,7 +480,7 @@ error[DZ0526]: this format string has 2 placeholders but 1 argument was given
 error[DZ0526]: `{:x}` does not suit `f32`
     ┌─ typeerrors/src/errors.dz:418:15
     │
-418 │     #println("{:x}", f)
+418 │     println!("{:x}", f)
     │               ^^^^ hex needs an integer
     │
     = help: `{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals (spec §12.9)
@@ -488,15 +488,15 @@ error[DZ0526]: `{:x}` does not suit `f32`
 error[DZ0526]: the format string must be a string literal
     ┌─ typeerrors/src/errors.dz:422:14
     │
-422 │     #println(s)
+422 │     println!(s)
     │              ^ not a literal
     │
-    = help: it is parsed at compile time, which is what makes a mismatch an error rather than garbage — write `#println("{}", value)` (spec §12.9)
+    = help: it is parsed at compile time, which is what makes a mismatch an error rather than garbage — write `println!("{}", value)` (spec §12.9)
 
 error[DZ0527]: `Vec3` does not implement `Format`
     ┌─ typeerrors/src/errors.dz:426:20
     │
-426 │     #println("{}", v)
+426 │     println!("{}", v)
     │                    ^ no way to write this
     │
     = help: write `impl Format for Vec3` to give it a way to be written, or format the fields you mean (spec §12.9)
@@ -504,7 +504,7 @@ error[DZ0527]: `Vec3` does not implement `Format`
 error[DZ0526]: format strings do not interpolate names
     ┌─ typeerrors/src/errors.dz:430:21
     │
-430 │     #println("hp is {hp}", hp)
+430 │     println!("hp is {hp}", hp)
     │                     ^^^^ not a placeholder
     │
     = help: write `{}` and pass `hp` as an argument — interpolation is deliberately absent (spec §12.9)
@@ -1024,7 +1024,7 @@ error[DZ0515]: `Plain` cannot be indexed
 error[DZ0526]: this format string has 1 placeholder but 0 arguments were given
     ┌─ typeerrors/src/errors.dz:915:12
     │
-915 │     #panic("at {}", loc)
+915 │     panic!("at {}", loc)
     │            ^^^^^^^ 1 `{}` here
     │
     = help: each `{}` takes one argument, in order; write `{{` or `}}` for a literal brace (spec §12.9)
@@ -1122,7 +1122,7 @@ error[DZ0558]: `n` is passed by name, and nothing here takes it
 error[DZ0526]: this format string has 2 placeholders but 1 argument was given
     ┌─ typeerrors/src/errors.dz:961:21
     │
-961 │     let a = #format("{} {}", 1)
+961 │     let a = format!("{} {}", 1)
     │                     ^^^^^^^ 2 `{}` here
     │
     = help: each `{}` takes one argument, in order; write `{{` or `}}` for a literal brace (spec §12.9)
@@ -1130,15 +1130,15 @@ error[DZ0526]: this format string has 2 placeholders but 1 argument was given
 error[DZ0526]: the format string must be a string literal
     ┌─ typeerrors/src/errors.dz:962:21
     │
-962 │     let b = #format(fmt, 1)
+962 │     let b = format!(fmt, 1)
     │                     ^^^ not a literal
     │
-    = help: it is parsed at compile time, which is what makes a mismatch an error rather than garbage — write `#println("{}", value)` (spec §12.9)
+    = help: it is parsed at compile time, which is what makes a mismatch an error rather than garbage — write `println!("{}", value)` (spec §12.9)
 
 error[DZ0526]: `{:x}` does not suit `f64`
     ┌─ typeerrors/src/errors.dz:963:22
     │
-963 │     let c = #format("{:x}", 1.5)
+963 │     let c = format!("{:x}", 1.5)
     │                      ^^^^ hex needs an integer
     │
     = help: `{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals (spec §12.9)
@@ -1146,7 +1146,7 @@ error[DZ0526]: `{:x}` does not suit `f64`
 error[DZ0527]: `Unwritten` does not implement `Format`
     ┌─ typeerrors/src/errors.dz:964:27
     │
-964 │     let d = #format("{}", h)
+964 │     let d = format!("{}", h)
     │                           ^ no way to write this
     │
     = help: write `impl Format for Unwritten` to give it a way to be written, or format the fields you mean (spec §12.9)
@@ -1154,7 +1154,7 @@ error[DZ0527]: `Unwritten` does not implement `Format`
 error[DZ0527]: `Shade` does not implement `Format`
     ┌─ typeerrors/src/errors.dz:977:26
     │
-977 │     #println("{} {} {}", s, o, p)
+977 │     println!("{} {} {}", s, o, p)
     │                          ^ no way to write this
     │
     = help: an enum is written through its backing integer: `x as i32` (spec §7.4)
@@ -1162,7 +1162,7 @@ error[DZ0527]: `Shade` does not implement `Format`
 error[DZ0527]: `i32?` does not implement `Format`
     ┌─ typeerrors/src/errors.dz:977:29
     │
-977 │     #println("{} {} {}", s, o, p)
+977 │     println!("{} {} {}", s, o, p)
     │                             ^ no way to write this
     │
     = help: take the value out first, with `or` or `if let` (spec §9.4)
@@ -1170,39 +1170,39 @@ error[DZ0527]: `i32?` does not implement `Format`
 error[DZ0527]: `^i32` does not implement `Format`
     ┌─ typeerrors/src/errors.dz:977:32
     │
-977 │     #println("{} {} {}", s, o, p)
+977 │     println!("{} {} {}", s, o, p)
     │                                ^ no way to write this
     │
     = help: a pointer is written through what it points at: `p^` (spec §5.2)
 
-error[DZ0558]: `#println` has no parameter `allocator` to pass by name
+error[DZ0558]: `println!` has no parameter `allocator` to pass by name
     ┌─ typeerrors/src/errors.dz:978:23
     │
-978 │     #println("{}", 1, allocator = Allocators::Temp)
+978 │     println!("{}", 1, allocator = Allocators::Temp)
     │                       ^^^^^^^^^ no such parameter
     │
-    = help: `#println` takes nothing by name (spec §12.9)
+    = help: `println!` takes nothing by name (spec §12.9)
 
-error[DZ0558]: `#format` has no parameter `colour` to pass by name
+error[DZ0558]: `format!` has no parameter `colour` to pass by name
     ┌─ typeerrors/src/errors.dz:979:30
     │
-979 │     let t = #format("{}", 1, colour = 2)
+979 │     let t = format!("{}", 1, colour = 2)
     │                              ^^^^^^ no such parameter
     │
-    = help: `#format` takes `allocator` by name, for where the text lives (spec §12.9)
+    = help: `format!` takes `allocator` by name, for where the text lives (spec §12.9)
 
-error[DZ0526]: `#print` needs a format string
+error[DZ0526]: `print!` needs a format string
     ┌─ typeerrors/src/errors.dz:981:5
     │
-981 │     #print()
+981 │     print!()
     │     ^^^^^^^^ no format string
     │
-    = help: write `#print("…")` (spec §12.9)
+    = help: write `print!("…")` (spec §12.9)
 
 error[DZ0526]: a format string cannot be checked against a spread
     ┌─ typeerrors/src/errors.dz:982:23
     │
-982 │     #println("{} {}", ..xs)
+982 │     println!("{} {}", ..xs)
     │                       ^^^^ how many values `..` gives is not known here
     │
     = help: pass the values one by one, so each `{}` has its own (spec §12.9)

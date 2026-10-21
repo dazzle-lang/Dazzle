@@ -24,7 +24,7 @@ struct S {
 fn main() {
     let x = 1
     #if DEBUG {
-        #println("{}", x) // debug only
+        println!("{}", x) // debug only
     } #else {
         record()
     }

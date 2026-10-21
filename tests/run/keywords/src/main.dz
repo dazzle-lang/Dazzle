@@ -39,12 +39,12 @@ fn main() {
 
     switch u {
         case delete(d) {
-            #println("delete {}", d.friend)
+            println!("delete {}", d.friend)
         }
         case export(x) {
-            #println("export {}", x.typename)
+            println!("export {}", x.typename)
         }
     }
 
-    #println("{} {} {} {} {}", double(21), s.volatile(), register(&s), e as u8, mutable)
+    println!("{} {} {} {} {}", double(21), s.volatile(), register(&s), e as u8, mutable)
 }
