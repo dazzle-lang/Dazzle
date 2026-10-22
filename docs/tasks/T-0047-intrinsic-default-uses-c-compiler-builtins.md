@@ -2,7 +2,8 @@
 id: T-0047
 title: An intrinsic default uses the C++ compiler's builtins
 milestone: M12
-status: open
+status: done
+done: r71, 2026-10-22
 kind: deferral
 area: codegen
 where: `dz_cpp/src/runtime.rs`, `caller_location`

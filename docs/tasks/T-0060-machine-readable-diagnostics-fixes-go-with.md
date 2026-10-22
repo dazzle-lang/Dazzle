@@ -2,7 +2,8 @@
 id: T-0060
 title: Machine-readable diagnostics, and fixes to go with them
 milestone: none
-status: open
+status: done
+done: r72, 2026-10-22
 kind: feature
 area: llm-tooling
 ---

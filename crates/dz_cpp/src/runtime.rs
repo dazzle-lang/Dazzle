@@ -49,19 +49,6 @@ struct SourceLocation {
     uint32_t column;
 };
 
-// Intrinsic default arguments (spec §12.7): where the call that left the argument out is.
-// The builtins are these functions' own default arguments, so they are evaluated where the
-// function is called — and a default argument is evaluated at each call of its function.
-// Written inside a larger expression instead (`SourceLocation{__builtin_LINE(), …}`), g++
-// evaluates them where the function is declared; clang does not, which is how that
-// spelling passed on Windows and failed on Linux.
-constexpr SourceLocation caller_location(const char* file = __builtin_FILE(),
-                                         const char* function = __builtin_FUNCTION(),
-                                         uint32_t line = __builtin_LINE()) {
-    return SourceLocation{file, function, line, 0};
-}
-constexpr uint32_t caller_line(uint32_t line = __builtin_LINE()) { return line; }
-
 // --- panics (spec §9.8) ---------------------------------------------------
 //
 // Never a C++ exception: the generated code builds with -fno-exceptions.
@@ -101,10 +88,6 @@ inline bool operator==(str a, str b) {
     return true;
 }
 inline bool operator!=(str a, str b) { return !(a == b); }
-
-// The `str` intrinsic defaults, after `str` exists; see `caller_location`.
-inline str caller_file(const char* file = __builtin_FILE()) { return str(file); }
-inline str caller_function(const char* function = __builtin_FUNCTION()) { return str(function); }
 
 /// `panic!("…")`. The message is a `str` — a pointer and a length, not NUL-terminated —
 /// so it cannot go through `panic` above.

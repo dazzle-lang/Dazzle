@@ -416,6 +416,12 @@ impl<'a> Parser<'a> {
         if self.last_error_at == Some(self.pos) {
             return false;
         }
+        // The lexer makes an error token only for a character it has already reported
+        // (DZ0102); "expected an expression, found `Error`" would say it a second time.
+        if self.texts.is_none() && self.peek() == TokenKind::Error {
+            self.last_error_at = Some(self.pos);
+            return false;
+        }
         self.last_error_at = Some(self.pos);
         true
     }
@@ -441,14 +447,45 @@ impl<'a> Parser<'a> {
         label: impl Into<String>,
         help: impl Into<String>,
     ) {
+        self.report_help(code, span, msg, label, help);
+    }
+
+    /// [`Parser::error_help`], saying whether it reported — false where an earlier error
+    /// at this token suppressed it — so a fix is attached only to a diagnostic that exists.
+    pub(crate) fn report_help(
+        &mut self,
+        code: &'static str,
+        span: Span,
+        msg: impl Into<String>,
+        label: impl Into<String>,
+        help: impl Into<String>,
+    ) -> bool {
         if !self.should_report() {
-            return;
+            return false;
         }
         self.diags.push(
             Diagnostic::error(code, msg.into())
                 .at(self.file, span, label.into())
                 .with_help(help.into()),
         );
+        true
+    }
+
+    /// Attach a certain fix to the diagnostic just reported, replacing `span` with `text` —
+    /// but only when parsing a file's own tokens. An expansion's tokens carry the spans of
+    /// the invocation they came from, so an edit there would land on the wrong text. Call it
+    /// only when [`Parser::report_help`] said it reported.
+    pub(crate) fn fix_last(&mut self, title: impl Into<String>, span: Span, text: &str) {
+        if self.texts.is_some() {
+            return;
+        }
+        let edit = dz_diag::Edit { file: self.file, span, text: text.to_owned() };
+        if let Some(d) = self.diags.iter_mut().last() {
+            if d.fix.is_none() {
+                d.fix =
+                    Some(dz_diag::Fix { title: title.into(), edits: vec![edit], certain: true });
+            }
+        }
     }
 
     /// Describe the current token for an error message.

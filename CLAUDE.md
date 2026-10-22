@@ -157,7 +157,9 @@ cargo run -p dz -- lex <file.dz>     # tokens
 cargo run -p dz -- parse <file.dz>   # syntax tree
 cargo run -p dz -- expand <file.dz>  # the file with every macro invocation expanded
 cargo run -p dz -- fmt --stdout <file.dz>
-cargo run -p dz -- check <dir>   # analyse only
+cargo run -p dz -- check <dir>   # analyse only; --format=json for every diagnostic as JSON
+cargo run -p dz -- fix <dir>     # apply the fixes the compiler is certain of (--dry-run)
+cargo run -p dz -- explain DZ0401    # a diagnostic's rule, why, and a wrong and right program
 cargo run -p dz -- cpp   <dir>   # generate C++ into <dir>/build/cpp
 cargo run -p dz -- run   <dir>   # build and execute; DZ_CXX picks the C++ compiler
 cargo run -p dz -- lsp           # the language server on stdio (what VS Code runs)

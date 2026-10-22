@@ -1,0 +1,25 @@
+// expect: DZ0539
+//
+// A method call reaches through a pointer to what it points at (spec §5.2), so `x.show()`
+// on a `^Person` looks for `show` on `Person`. An implementation for `^T` itself could never
+// be found that way; wrap the pointer in a struct and implement the trait for that
+// (spec §7.6, T-0080).
+
+trait Show {
+    fn show(&self) -> i32
+}
+
+struct Person {
+    pub age: i32
+}
+
+impl<T> Show for ^T {
+    fn show(&self) -> i32 {
+        return 1
+    }
+}
+
+fn main() {
+    let p = Person{ age: 30 }
+    println!("{}", p.age)
+}

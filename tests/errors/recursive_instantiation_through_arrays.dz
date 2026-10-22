@@ -1,0 +1,16 @@
+// expect: DZ0536
+//
+// Each call instantiates `nest` at a new type — `i32`, `[1]i32`, `[1][1]i32`, … — without
+// ever naming a generic type. The depth bound counted only those, so this ran until the
+// compiler's own stack overflowed rather than being reported (spec §8.4).
+
+fn nest<T: Copy>(x: T, n: i32) -> i32 {
+    if n == 0 {
+        return 0
+    }
+    return nest([x], n - 1)
+}
+
+fn main() {
+    println!("{}", nest(1, 3))
+}

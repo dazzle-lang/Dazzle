@@ -1,0 +1,9 @@
+[module]
+name    = "constructors"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"
