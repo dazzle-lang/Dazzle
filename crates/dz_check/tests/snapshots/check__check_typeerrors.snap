@@ -1526,3 +1526,17 @@ error[DZ0501]: expected `&Frame<f32>`, found `&Badge`
      │
 1225 │     return wider(b)
      │                  ^ this is `&Badge`
+
+error[DZ0501]: expected `Key<Vec3>`, found `Key<Counter>`
+     ┌─ typeerrors/src/errors.dz:1231:28
+     │
+1231 │     return points.contains(k)
+     │                            ^ this is `Key<Counter>`
+
+error[DZ0507]: cannot assign to `v`
+     ┌─ typeerrors/src/errors.dz:1235:18
+     │
+1235 │     let w = &mut v
+     │                  ^ not mutable
+     │
+     = help: declare it as `let mut v` to allow assignment

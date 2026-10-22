@@ -1,0 +1,57 @@
+/// Names a value in a `SlotMap<T>`: a slot index and the version that slot had when the
+/// value went in. Eight bytes and copyable, so it can be kept in a struct field, put in a
+/// `List`, key a `HashMap` and be written to a file, none of which a reference can do.
+///
+/// It owns nothing and keeps nothing alive. Once its value is removed the slot's version
+/// moves on, and the map reads the key as absent — even after the slot holds a new value.
+/// `T` is only checked: a `Key<Enemy>` is not a `Key<Bullet>`.
+///
+/// `Key<T>()` is the null key, which no map ever holds. `Key<T>(index, version)` rebuilds
+/// one from the parts `index()` and `version()` read, as when loading a save.
+pub struct Key<T> {
+    m_index: u32 = 0
+    m_version: u32 = 0
+
+    Key(index: u32 = 0, version: u32 = 0) {
+        m_index = index
+        m_version = version
+    }
+
+    pub fn index(&self) -> u32 {
+        return m_index
+    }
+
+    pub fn version(&self) -> u32 {
+        return m_version
+    }
+
+    /// Whether this is `Key<T>()`. A key that is not null may still be absent from its map.
+    pub fn is_null(&self) -> bool {
+        return m_version == 0
+    }
+}
+
+impl<T> Eq for Key<T> {
+    fn eq(&self, rhs: &Key<T>) -> bool {
+        return m_index == rhs.m_index && m_version == rhs.m_version
+    }
+}
+
+impl<T> Hash for Key<T> {
+    fn hash(&self) -> u64 {
+        return hash_combine(m_index.hash(), m_version.hash())
+    }
+}
+
+/// `3v1` for slot 3 at version 1, and `null` for the null key.
+impl<T> Format for Key<T> {
+    fn format(&self, f: &mut Formatter) {
+        if m_version == 0 {
+            f.write_str("null")
+            return
+        }
+        m_index.format(f)
+        f.write_char('v')
+        m_version.format(f)
+    }
+}

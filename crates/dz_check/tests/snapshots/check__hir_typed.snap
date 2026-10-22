@@ -1917,6 +1917,97 @@ body fn ask_element -> bool
       call-value: bool
         local _3 f: fn(&T) -> bool
         local _1 v: &T
+body field-default Key.0 -> void
+  block
+    int 0: u32
+body field-default Key.1 -> void
+  block
+    int 0: u32
+body ctor Key#0 -> void
+  param _0 self: Key<T>
+  param _1 index: u32
+  param _2 version: u32
+  block
+    assign =
+      field #0: u32
+        local _0 self: Key<T>
+      local _1 index: u32
+    assign =
+      field #1: u32
+        local _0 self: Key<T>
+      local _2 version: u32
+body method Key::index -> u32
+  param _0 self: Key<T>
+  block
+    return: !
+      field #0: u32
+        local _0 self: Key<T>
+body method Key::version -> u32
+  param _0 self: Key<T>
+  block
+    return: !
+      field #1: u32
+        local _0 self: Key<T>
+body method Key::is_null -> bool
+  param _0 self: Key<T>
+  block
+    return: !
+      binary ==: bool
+        field #1: u32
+          local _0 self: Key<T>
+        int 0: u32
+body impl#11 method eq -> bool
+  param _0 self: Key<T>
+  param _1 rhs: &Key<T>
+  block
+    return: !
+      binary &&: bool
+        binary ==: bool
+          field #0: u32
+            local _0 self: Key<T>
+          field #0: u32
+            local _1 rhs: &Key<T>
+        binary ==: bool
+          field #1: u32
+            local _0 self: Key<T>
+          field #1: u32
+            local _1 rhs: &Key<T>
+body impl#12 method hash -> u64
+  param _0 self: Key<T>
+  block
+    return: !
+      call hash_combine: u64
+        call-method Hash::hash: u64
+          field #0: u32
+            local _0 self: Key<T>
+        call-method Hash::hash: u64
+          field #1: u32
+            local _0 self: Key<T>
+body impl#13 method format -> void
+  param _0 self: Key<T>
+  param _1 f: &mut Formatter
+  block
+    if: void
+      binary ==: bool
+        field #1: u32
+          local _0 self: Key<T>
+        int 0: u32
+      block
+        call-method Formatter::write_str: void
+          local _1 f: &mut Formatter
+          str "null": str
+        return: !
+    call-method Format::format: void
+      field #0: u32
+        local _0 self: Key<T>
+      local _1 f: &mut Formatter
+    call-method Formatter::write_char: void
+      local _1 f: &mut Formatter
+      char 'v': char
+    call-method Format::format: void
+      field #1: u32
+        local _0 self: Key<T>
+      local _1 f: &mut Formatter
 body field-default List.0 -> void
   block
     null: own ^mut T
@@ -3320,7 +3411,7 @@ body copy List -> void
         local _0 self: List<T>
       field #1: usize
         local _1 other: &List<T>
-body impl#13 method eq -> bool
+body impl#16 method eq -> bool
   param _0 self: List<T>
   param _1 rhs: &List<T>
   block
@@ -3358,7 +3449,7 @@ body impl#13 method eq -> bool
               bool false: bool
     return: !
       bool true: bool
-body impl#14 method hash -> u64
+body impl#17 method hash -> u64
   param _0 self: List<T>
   block
     let _1 h: u64
@@ -3384,7 +3475,7 @@ body impl#14 method hash -> u64
                     local _2 i: usize
     return: !
       local _1 h: u64
-body impl#15 method index -> &T
+body impl#18 method index -> &T
   param _0 self: List<T>
   param _1 i: usize
   block
@@ -3439,21 +3530,21 @@ body impl#15 method index -> &T
               field #0: own ^mut T
                 local _0 self: List<T>
               local _1 i: usize
-body impl#16 method iter -> SliceIter<T>
+body impl#19 method iter -> SliceIter<T>
   param _0 self: List<T>
   block
     return: !
       call-ctor SliceIter#0: SliceIter<T>
         call-method List::as_slice: []T
           local _0 self: List<T>
-body impl#17 method iter_mut -> SliceIterMut<T>
+body impl#20 method iter_mut -> SliceIterMut<T>
   param _0 self: List<T>
   block
     return: !
       call-ctor SliceIterMut#0: SliceIterMut<T>
         call-method List::as_mut_slice: []mut T
           local _0 self: List<T>
-body impl#18 method index_mut -> &mut T
+body impl#21 method index_mut -> &mut T
   param _0 self: List<T>
   param _1 i: usize
   block
@@ -3508,7 +3599,7 @@ body impl#18 method index_mut -> &mut T
               field #0: own ^mut T
                 local _0 self: List<T>
               local _1 i: usize
-body impl#19 method contains -> bool
+body impl#22 method contains -> bool
   param _0 self: List<T>
   param _1 v: &T
   block
@@ -3518,7 +3609,7 @@ body impl#19 method contains -> bool
           local _0 self: List<T>
           local _1 v: &T
         none: usize?
-body impl#19 method index_of -> usize?
+body impl#22 method index_of -> usize?
   param _0 self: List<T>
   param _1 v: &T
   block
@@ -3555,7 +3646,7 @@ body ctor SliceIter#0 -> void
       field #0: []T
         local _0 self: SliceIter<T>
       local _1 slice: []T
-body impl#20 method valid -> bool
+body impl#23 method valid -> bool
   param _0 self: SliceIter<T>
   block
     return: !
@@ -3565,7 +3656,7 @@ body impl#20 method valid -> bool
         len: usize
           field #0: []T
             local _0 self: SliceIter<T>
-body impl#20 method get -> &T
+body impl#23 method get -> &T
   param _0 self: SliceIter<T>
   block
     return: !
@@ -3575,14 +3666,577 @@ body impl#20 method get -> &T
             local _0 self: SliceIter<T>
           field #1: usize
             local _0 self: SliceIter<T>
-body impl#20 method advance -> void
+body impl#23 method advance -> void
   param _0 self: SliceIter<T>
   block
     assign +=
       field #1: usize
         local _0 self: SliceIter<T>
       int 1: usize
-body impl#21 method sort -> void
+body field-default SlotMap.3 -> void
+  block
+    const NO_SLOT: u32
+body ctor SlotMap#0 -> void
+  param _0 self: SlotMap<T>
+  param _1 capacity: usize
+  param _2 allocator: ^mut Allocator
+  param _3 loc: SourceLocation
+  block
+    assign =
+      field #0: List<T>
+        local _0 self: SlotMap<T>
+      call-ctor List#0: List<T>
+        local _1 capacity: usize
+        local _2 allocator: ^mut Allocator
+        local _3 loc: SourceLocation
+    assign =
+      field #1: List<u32>
+        local _0 self: SlotMap<T>
+      call-ctor List#0: List<u32>
+        local _1 capacity: usize
+        local _2 allocator: ^mut Allocator
+        local _3 loc: SourceLocation
+    assign =
+      field #2: List<SlotMapSlot>
+        local _0 self: SlotMap<T>
+      call-ctor List#0: List<SlotMapSlot>
+        local _1 capacity: usize
+        local _2 allocator: ^mut Allocator
+        local _3 loc: SourceLocation
+body method SlotMap::len -> usize
+  param _0 self: SlotMap<T>
+  block
+    return: !
+      call-method List::len: usize
+        field #0: List<T>
+          local _0 self: SlotMap<T>
+body method SlotMap::is_empty -> bool
+  param _0 self: SlotMap<T>
+  block
+    return: !
+      call-method List::is_empty: bool
+        field #0: List<T>
+          local _0 self: SlotMap<T>
+body method SlotMap::capacity -> usize
+  param _0 self: SlotMap<T>
+  block
+    return: !
+      call-method List::capacity: usize
+        field #0: List<T>
+          local _0 self: SlotMap<T>
+body method SlotMap::insert -> Key<T>
+  param _0 self: SlotMap<T>
+  param _1 v: T
+  param _2 loc: SourceLocation
+  block
+    let _3 place: u32
+      cast: u32
+        call-method List::len: usize
+          field #0: List<T>
+            local _0 self: SlotMap<T>
+    let _4 slot: u32
+      field #3: u32
+        local _0 self: SlotMap<T>
+    if: void
+      binary ==: bool
+        local _4 slot: u32
+        const NO_SLOT: u32
+      block
+        if: void
+          binary ==: bool
+            call-method List::len: usize
+              field #2: List<SlotMapSlot>
+                local _0 self: SlotMap<T>
+            cast: usize
+              const NO_SLOT: u32
+          block
+            block-value: !
+              block
+                formatted: !
+                  bind _5 arg·
+                    ref: &u32
+                      const NO_SLOT: u32
+                  block
+                    let _6 fmt·: Formatter
+                      call-assoc Formatter::message: Formatter
+                    call-method Formatter::begin_arg: void
+                      local _6 fmt·: Formatter
+                      str "a SlotMap cannot hold more than ": str
+                      str "": str
+                    call-method Format::format: void
+                      deref: u32
+                        local _5 arg·: &u32
+                      ref mut: &mut Formatter
+                        local _6 fmt·: Formatter
+                    call-method Formatter::finish: void
+                      local _6 fmt·: Formatter
+                      str " slots": str
+                    builtin panic: !
+                      call-method Formatter::message_text: str
+                        local _6 fmt·: Formatter
+        assign =
+          local _4 slot: u32
+          cast: u32
+            call-method List::len: usize
+              field #2: List<SlotMapSlot>
+                local _0 self: SlotMap<T>
+        call-method List::push: void
+          field #2: List<SlotMapSlot>
+            local _0 self: SlotMap<T>
+          struct-lit SlotMapSlot: SlotMapSlot
+            #0
+              int 0: u32
+            #1
+              int 0: u32
+          local _2 loc: SourceLocation
+      block
+        block-value: void
+          block
+            assign =
+              field #3: u32
+                local _0 self: SlotMap<T>
+              field #1: u32
+                call-method IndexMut::index_mut: &mut SlotMapSlot
+                  field #2: List<SlotMapSlot>
+                    local _0 self: SlotMap<T>
+                  cast: usize
+                    local _4 slot: u32
+    let _7 s: &mut SlotMapSlot
+      ref mut: &mut SlotMapSlot
+        call-method IndexMut::index_mut: &mut SlotMapSlot
+          field #2: List<SlotMapSlot>
+            local _0 self: SlotMap<T>
+          cast: usize
+            local _4 slot: u32
+    assign +=
+      field #0: u32
+        local _7 s: &mut SlotMapSlot
+      int 1: u32
+    assign =
+      field #1: u32
+        local _7 s: &mut SlotMapSlot
+      local _3 place: u32
+    call-method List::push: void
+      field #0: List<T>
+        local _0 self: SlotMap<T>
+      move: T
+        local _1 v: T
+      local _2 loc: SourceLocation
+    call-method List::push: void
+      field #1: List<u32>
+        local _0 self: SlotMap<T>
+      local _4 slot: u32
+      local _2 loc: SourceLocation
+    return: !
+      call-ctor Key#0: Key<T>
+        local _4 slot: u32
+        field #0: u32
+          local _7 s: &mut SlotMapSlot
+body method SlotMap::get -> ^T
+  param _0 self: SlotMap<T>
+  param _1 k: Key<T>
+  block
+    let _2 place: usize
+      or: usize
+        call-method SlotMap::place_of: usize?
+          local _0 self: SlotMap<T>
+          local _1 k: Key<T>
+        return: !
+          null: ^T
+    return: !
+      ref: &T
+        deref: T
+          call-method Index::index: &T
+            field #0: List<T>
+              local _0 self: SlotMap<T>
+            local _2 place: usize
+body method SlotMap::get_mut -> ^mut T
+  param _0 self: SlotMap<T>
+  param _1 k: Key<T>
+  block
+    let _2 place: usize
+      or: usize
+        call-method SlotMap::place_of: usize?
+          local _0 self: SlotMap<T>
+          local _1 k: Key<T>
+        return: !
+          null: ^mut T
+    return: !
+      ref mut: &mut T
+        deref: T
+          call-method IndexMut::index_mut: &mut T
+            field #0: List<T>
+              local _0 self: SlotMap<T>
+            local _2 place: usize
+body method SlotMap::contains -> bool
+  param _0 self: SlotMap<T>
+  param _1 k: Key<T>
+  block
+    return: !
+      binary !=: bool
+        call-method SlotMap::place_of: usize?
+          local _0 self: SlotMap<T>
+          local _1 k: Key<T>
+        none: usize?
+body method SlotMap::remove -> T?
+  param _0 self: SlotMap<T>
+  param _1 k: Key<T>
+  block
+    let _2 place: usize
+      or: usize
+        call-method SlotMap::place_of: usize?
+          local _0 self: SlotMap<T>
+          local _1 k: Key<T>
+        return: !
+          none: T?
+    call-method SlotMap::free_slot: void
+      local _0 self: SlotMap<T>
+      call-method Key::index: u32
+        local _1 k: Key<T>
+    let _3 v: T
+      call-method List::swap_remove: T
+        field #0: List<T>
+          local _0 self: SlotMap<T>
+        local _2 place: usize
+    let _: _
+      call-method List::swap_remove: u32
+        field #1: List<u32>
+          local _0 self: SlotMap<T>
+        local _2 place: usize
+    if: void
+      binary <: bool
+        local _2 place: usize
+        call-method List::len: usize
+          field #1: List<u32>
+            local _0 self: SlotMap<T>
+      block
+        let _4 moved: &mut u32
+          call-method IndexMut::index_mut: &mut u32
+            field #1: List<u32>
+              local _0 self: SlotMap<T>
+            local _2 place: usize
+        assign =
+          field #1: u32
+            call-method IndexMut::index_mut: &mut SlotMapSlot
+              field #2: List<SlotMapSlot>
+                local _0 self: SlotMap<T>
+              cast: usize
+                local _4 moved: &mut u32
+          cast: u32
+            local _2 place: usize
+    return: !
+      move: T
+        local _3 v: T
+body method SlotMap::retain -> void
+  param _0 self: SlotMap<T>
+  param _1 keep: fn(Key<T>, &mut T) -> bool
+  block
+    let _2 i: usize
+      int 0: usize
+    while
+      binary <: bool
+        local _2 i: usize
+        call-method List::len: usize
+          field #0: List<T>
+            local _0 self: SlotMap<T>
+      block
+        let _3 k: Key<T>
+          call-method SlotMap::key_at: Key<T>
+            local _0 self: SlotMap<T>
+            local _2 i: usize
+        if: void
+          call-value: bool
+            local _1 keep: fn(Key<T>, &mut T) -> bool
+            local _3 k: Key<T>
+            ref mut: &mut T
+              deref: T
+                call-method IndexMut::index_mut: &mut T
+                  field #0: List<T>
+                    local _0 self: SlotMap<T>
+                  local _2 i: usize
+          block
+            assign +=
+              local _2 i: usize
+              int 1: usize
+          block
+            block-value: void
+              block
+                let _: _
+                  call-method SlotMap::remove: T?
+                    local _0 self: SlotMap<T>
+                    local _3 k: Key<T>
+body method SlotMap::clear -> void
+  param _0 self: SlotMap<T>
+  block
+    for _1 i
+      range: usize..usize
+        int 0: i32
+        call-method List::len: usize
+          field #1: List<u32>
+            local _0 self: SlotMap<T>
+      block
+        call-method SlotMap::free_slot: void
+          local _0 self: SlotMap<T>
+          deref: u32
+            call-method IndexMut::index_mut: &mut u32
+              field #1: List<u32>
+                local _0 self: SlotMap<T>
+              local _1 i: usize
+    call-method List::clear: void
+      field #0: List<T>
+        local _0 self: SlotMap<T>
+    call-method List::clear: void
+      field #1: List<u32>
+        local _0 self: SlotMap<T>
+body method SlotMap::reserve -> void
+  param _0 self: SlotMap<T>
+  param _1 additional: usize
+  param _2 loc: SourceLocation
+  block
+    call-method List::reserve: void
+      field #0: List<T>
+        local _0 self: SlotMap<T>
+      local _1 additional: usize
+      local _2 loc: SourceLocation
+    call-method List::reserve: void
+      field #1: List<u32>
+        local _0 self: SlotMap<T>
+      local _1 additional: usize
+      local _2 loc: SourceLocation
+    call-method List::reserve: void
+      field #2: List<SlotMapSlot>
+        local _0 self: SlotMap<T>
+      local _1 additional: usize
+      local _2 loc: SourceLocation
+body method SlotMap::values -> []T
+  param _0 self: SlotMap<T>
+  block
+    return: !
+      call-method List::as_slice: []T
+        field #0: List<T>
+          local _0 self: SlotMap<T>
+body method SlotMap::values_mut -> []mut T
+  param _0 self: SlotMap<T>
+  block
+    return: !
+      call-method List::as_mut_slice: []mut T
+        field #0: List<T>
+          local _0 self: SlotMap<T>
+body method SlotMap::key_at -> Key<T>
+  param _0 self: SlotMap<T>
+  param _1 i: usize
+  block
+    let _2 slot: &u32
+      call-method Index::index: &u32
+        field #1: List<u32>
+          local _0 self: SlotMap<T>
+        local _1 i: usize
+    return: !
+      call-ctor Key#0: Key<T>
+        deref: u32
+          local _2 slot: &u32
+        field #0: u32
+          call-method Index::index: &SlotMapSlot
+            field #2: List<SlotMapSlot>
+              local _0 self: SlotMap<T>
+            cast: usize
+              local _2 slot: &u32
+body method SlotMap::place_of -> usize?
+  param _0 self: SlotMap<T>
+  param _1 k: Key<T>
+  block
+    let _2 slot: usize
+      cast: usize
+        call-method Key::index: u32
+          local _1 k: Key<T>
+    if: void
+      binary ||: bool
+        binary >=: bool
+          local _2 slot: usize
+          call-method List::len: usize
+            field #2: List<SlotMapSlot>
+              local _0 self: SlotMap<T>
+        binary ==: bool
+          binary %: u32
+            call-method Key::version: u32
+              local _1 k: Key<T>
+            int 2: u32
+          int 0: u32
+      block
+        return: !
+          none: usize?
+    let _3 s: &SlotMapSlot
+      call-method Index::index: &SlotMapSlot
+        field #2: List<SlotMapSlot>
+          local _0 self: SlotMap<T>
+        local _2 slot: usize
+    if: void
+      binary !=: bool
+        field #0: u32
+          local _3 s: &SlotMapSlot
+        call-method Key::version: u32
+          local _1 k: Key<T>
+      block
+        return: !
+          none: usize?
+    return: !
+      cast: usize
+        field #1: u32
+          local _3 s: &SlotMapSlot
+body method SlotMap::free_slot -> void
+  param _0 self: SlotMap<T>
+  param _1 slot: u32
+  block
+    let _2 s: &mut SlotMapSlot
+      ref mut: &mut SlotMapSlot
+        call-method IndexMut::index_mut: &mut SlotMapSlot
+          field #2: List<SlotMapSlot>
+            local _0 self: SlotMap<T>
+          cast: usize
+            local _1 slot: u32
+    assign +=
+      field #0: u32
+        local _2 s: &mut SlotMapSlot
+      int 1: u32
+    assign =
+      field #1: u32
+        local _2 s: &mut SlotMapSlot
+      field #3: u32
+        local _0 self: SlotMap<T>
+    assign =
+      field #3: u32
+        local _0 self: SlotMap<T>
+      local _1 slot: u32
+body impl#24 method iter -> SlotMapIter<T>
+  param _0 self: SlotMap<T>
+  block
+    return: !
+      call-ctor SlotMapIter#0: SlotMapIter<T>
+        ref: &SlotMap<T>
+          local _0 self: SlotMap<T>
+body impl#25 method iter_mut -> SlotMapIterMut<T>
+  param _0 self: SlotMap<T>
+  block
+    return: !
+      call-ctor SlotMapIterMut#0: SlotMapIterMut<T>
+        ref mut: &mut SlotMap<T>
+          local _0 self: SlotMap<T>
+body const NO_SLOT -> void
+  block
+    int 4294967295: u32
+body field-default SlotMapIter.0 -> void
+  block
+    null: ^SlotMap<T>
+body field-default SlotMapIter.1 -> void
+  block
+    int 0: usize
+body ctor SlotMapIter#0 -> void
+  param _0 self: SlotMapIter<T>
+  param _1 map: &SlotMap<T>
+  block
+    assign =
+      field #0: ^SlotMap<T>
+        local _0 self: SlotMapIter<T>
+      local _1 map: &SlotMap<T>
+body impl#26 method valid -> bool
+  param _0 self: SlotMapIter<T>
+  block
+    let _1 map: &SlotMap<T>
+      or: &SlotMap<T>
+        field #0: ^SlotMap<T>
+          local _0 self: SlotMapIter<T>
+        return: !
+          bool false: bool
+    return: !
+      binary <: bool
+        field #1: usize
+          local _0 self: SlotMapIter<T>
+        call-method SlotMap::len: usize
+          local _1 map: &SlotMap<T>
+body impl#26 method get -> (Key<T>, &T)
+  param _0 self: SlotMapIter<T>
+  block
+    let _1 map: &SlotMap<T>
+      or: &SlotMap<T>
+        field #0: ^SlotMap<T>
+          local _0 self: SlotMapIter<T>
+        unreachable
+    return: !
+      tuple: (Key<T>, &T)
+        call-method SlotMap::key_at: Key<T>
+          local _1 map: &SlotMap<T>
+          field #1: usize
+            local _0 self: SlotMapIter<T>
+        ref: &T
+          index: T
+            call-method SlotMap::values: []T
+              local _1 map: &SlotMap<T>
+            field #1: usize
+              local _0 self: SlotMapIter<T>
+body impl#26 method advance -> void
+  param _0 self: SlotMapIter<T>
+  block
+    assign +=
+      field #1: usize
+        local _0 self: SlotMapIter<T>
+      int 1: usize
+body field-default SlotMapIterMut.0 -> void
+  block
+    null: ^mut SlotMap<T>
+body field-default SlotMapIterMut.1 -> void
+  block
+    int 0: usize
+body ctor SlotMapIterMut#0 -> void
+  param _0 self: SlotMapIterMut<T>
+  param _1 map: &mut SlotMap<T>
+  block
+    assign =
+      field #0: ^mut SlotMap<T>
+        local _0 self: SlotMapIterMut<T>
+      local _1 map: &mut SlotMap<T>
+body impl#27 method valid -> bool
+  param _0 self: SlotMapIterMut<T>
+  block
+    let _1 map: &mut SlotMap<T>
+      or: &mut SlotMap<T>
+        field #0: ^mut SlotMap<T>
+          local _0 self: SlotMapIterMut<T>
+        return: !
+          bool false: bool
+    return: !
+      binary <: bool
+        field #1: usize
+          local _0 self: SlotMapIterMut<T>
+        call-method SlotMap::len: usize
+          local _1 map: &mut SlotMap<T>
+body impl#27 method get -> (Key<T>, &mut T)
+  param _0 self: SlotMapIterMut<T>
+  block
+    let _1 map: &mut SlotMap<T>
+      or: &mut SlotMap<T>
+        field #0: ^mut SlotMap<T>
+          local _0 self: SlotMapIterMut<T>
+        unreachable
+    return: !
+      tuple: (Key<T>, &mut T)
+        call-method SlotMap::key_at: Key<T>
+          local _1 map: &mut SlotMap<T>
+          field #1: usize
+            local _0 self: SlotMapIterMut<T>
+        ref mut: &mut T
+          index: T
+            call-method SlotMap::values_mut: []mut T
+              local _1 map: &mut SlotMap<T>
+            field #1: usize
+              local _0 self: SlotMapIterMut<T>
+body impl#27 method advance -> void
+  param _0 self: SlotMapIterMut<T>
+  block
+    assign +=
+      field #1: usize
+        local _0 self: SlotMapIterMut<T>
+      int 1: usize
+body impl#28 method sort -> void
   param _0 self: List<T>
   block
     call-method List::sort_by: void
@@ -3684,7 +4338,7 @@ body ctor SliceIterMut#0 -> void
       field #0: []mut T
         local _0 self: SliceIterMut<T>
       local _1 slice: []mut T
-body impl#22 method valid -> bool
+body impl#29 method valid -> bool
   param _0 self: SliceIterMut<T>
   block
     return: !
@@ -3694,7 +4348,7 @@ body impl#22 method valid -> bool
         len: usize
           field #0: []mut T
             local _0 self: SliceIterMut<T>
-body impl#22 method get -> &mut T
+body impl#29 method get -> &mut T
   param _0 self: SliceIterMut<T>
   block
     return: !
@@ -3704,14 +4358,14 @@ body impl#22 method get -> &mut T
             local _0 self: SliceIterMut<T>
           field #1: usize
             local _0 self: SliceIterMut<T>
-body impl#22 method advance -> void
+body impl#29 method advance -> void
   param _0 self: SliceIterMut<T>
   block
     assign +=
       field #1: usize
         local _0 self: SliceIterMut<T>
       int 1: usize
-body impl#23 method get_str -> ^V
+body impl#30 method get_str -> ^V
   param _0 self: HashMap<String, V>
   param _1 key: str
   block
@@ -3735,7 +4389,7 @@ body impl#23 method get_str -> ^V
               field #2: own ^mut V
                 local _0 self: HashMap<String, V>
               local _2 slot: usize
-body impl#23 method get_mut_str -> ^mut V
+body impl#30 method get_mut_str -> ^mut V
   param _0 self: HashMap<String, V>
   param _1 key: str
   block
@@ -3759,7 +4413,7 @@ body impl#23 method get_mut_str -> ^mut V
               field #2: own ^mut V
                 local _0 self: HashMap<String, V>
               local _2 slot: usize
-body impl#23 method contains_str -> bool
+body impl#30 method contains_str -> bool
   param _0 self: HashMap<String, V>
   param _1 key: str
   block
@@ -3774,7 +4428,7 @@ body impl#23 method contains_str -> bool
               local _1 key: str
           fn-item string_is: fn(&String, &str) -> bool
         none: usize?
-body impl#23 method remove_str -> V?
+body impl#30 method remove_str -> V?
   param _0 self: HashMap<String, V>
   param _1 key: str
   block
@@ -3804,7 +4458,7 @@ body fn string_is -> bool
           local _0 k: &String
         deref: str
           local _1 s: &str
-body impl#24 method contains_str -> bool
+body impl#31 method contains_str -> bool
   param _0 self: HashSet<String>
   param _1 v: str
   block
@@ -3813,7 +4467,7 @@ body impl#24 method contains_str -> bool
         field #0: HashMap<String, bool>
           local _0 self: HashSet<String>
         local _1 v: str
-body impl#24 method remove_str -> bool
+body impl#31 method remove_str -> bool
   param _0 self: HashSet<String>
   param _1 v: str
   block
@@ -3869,7 +4523,7 @@ body fn assert -> void
               call-method Formatter::message_text: str
                 local _5 fmt·: Formatter
               local _4 arg·: SourceLocation
-body impl#25 method format -> void
+body impl#32 method format -> void
   param _0 self: i8
   param _1 f: &mut Formatter
   block
@@ -3880,7 +4534,7 @@ body impl#25 method format -> void
       cast: u64
         cast: u8
           local _0 self: i8
-body impl#26 method format -> void
+body impl#33 method format -> void
   param _0 self: i16
   param _1 f: &mut Formatter
   block
@@ -3891,7 +4545,7 @@ body impl#26 method format -> void
       cast: u64
         cast: u16
           local _0 self: i16
-body impl#27 method format -> void
+body impl#34 method format -> void
   param _0 self: i32
   param _1 f: &mut Formatter
   block
@@ -3902,7 +4556,7 @@ body impl#27 method format -> void
       cast: u64
         cast: u32
           local _0 self: i32
-body impl#28 method format -> void
+body impl#35 method format -> void
   param _0 self: i64
   param _1 f: &mut Formatter
   block
@@ -3912,7 +4566,7 @@ body impl#28 method format -> void
         local _0 self: i64
       cast: u64
         local _0 self: i64
-body impl#29 method format -> void
+body impl#36 method format -> void
   param _0 self: isize
   param _1 f: &mut Formatter
   block
@@ -3923,7 +4577,7 @@ body impl#29 method format -> void
       cast: u64
         cast: usize
           local _0 self: isize
-body impl#30 method format -> void
+body impl#37 method format -> void
   param _0 self: u8
   param _1 f: &mut Formatter
   block
@@ -3931,7 +4585,7 @@ body impl#30 method format -> void
       local _1 f: &mut Formatter
       cast: u64
         local _0 self: u8
-body impl#31 method format -> void
+body impl#38 method format -> void
   param _0 self: u16
   param _1 f: &mut Formatter
   block
@@ -3939,7 +4593,7 @@ body impl#31 method format -> void
       local _1 f: &mut Formatter
       cast: u64
         local _0 self: u16
-body impl#32 method format -> void
+body impl#39 method format -> void
   param _0 self: u32
   param _1 f: &mut Formatter
   block
@@ -3947,7 +4601,7 @@ body impl#32 method format -> void
       local _1 f: &mut Formatter
       cast: u64
         local _0 self: u32
-body impl#33 method format -> void
+body impl#40 method format -> void
   param _0 self: u64
   param _1 f: &mut Formatter
   block
@@ -3955,7 +4609,7 @@ body impl#33 method format -> void
       local _1 f: &mut Formatter
       cast: u64
         local _0 self: u64
-body impl#34 method format -> void
+body impl#41 method format -> void
   param _0 self: usize
   param _1 f: &mut Formatter
   block
@@ -3963,7 +4617,7 @@ body impl#34 method format -> void
       local _1 f: &mut Formatter
       cast: u64
         local _0 self: usize
-body impl#35 method format -> void
+body impl#42 method format -> void
   param _0 self: f32
   param _1 f: &mut Formatter
   block
@@ -3971,7 +4625,7 @@ body impl#35 method format -> void
       local _1 f: &mut Formatter
       cast: f64
         local _0 self: f32
-body impl#36 method format -> void
+body impl#43 method format -> void
   param _0 self: f64
   param _1 f: &mut Formatter
   block
@@ -3979,7 +4633,7 @@ body impl#36 method format -> void
       local _1 f: &mut Formatter
       cast: f64
         local _0 self: f64
-body impl#37 method format -> void
+body impl#44 method format -> void
   param _0 self: bool
   param _1 f: &mut Formatter
   block
@@ -3993,21 +4647,21 @@ body impl#37 method format -> void
           block-value: str
             block
               str "false": str
-body impl#38 method format -> void
+body impl#45 method format -> void
   param _0 self: char
   param _1 f: &mut Formatter
   block
     call-method Formatter::write_char: void
       local _1 f: &mut Formatter
       local _0 self: char
-body impl#39 method format -> void
+body impl#46 method format -> void
   param _0 self: str
   param _1 f: &mut Formatter
   block
     call-method Formatter::write_str: void
       local _1 f: &mut Formatter
       local _0 self: str
-body impl#40 method format -> void
+body impl#47 method format -> void
   param _0 self: cstr
   param _1 f: &mut Formatter
   block
@@ -5929,7 +6583,7 @@ body method Path::is_dir -> bool
       call path_is_dir: bool
         call-method Path::as_str: str
           local _0 self: Path
-body impl#43 method div -> Path
+body impl#50 method div -> Path
   param _0 self: Path
   param _1 rhs: str
   block
@@ -5937,7 +6591,7 @@ body impl#43 method div -> Path
       call-method Path::join: Path
         local _0 self: Path
         local _1 rhs: str
-body impl#44 method eq -> bool
+body impl#51 method eq -> bool
   param _0 self: Path
   param _1 rhs: &Path
   block
@@ -5947,7 +6601,7 @@ body impl#44 method eq -> bool
           local _0 self: Path
         call-method Path::as_str: str
           local _1 rhs: &Path
-body impl#45 method cmp -> Ordering
+body impl#52 method cmp -> Ordering
   param _0 self: Path
   param _1 rhs: &Path
   block
@@ -5959,7 +6613,7 @@ body impl#45 method cmp -> Ordering
         cast: []u8
           call-method Path::as_str: str
             local _1 rhs: &Path
-body impl#46 method hash -> u64
+body impl#53 method hash -> u64
   param _0 self: Path
   block
     return: !
@@ -7849,7 +8503,7 @@ body method Mat4::inverse -> Mat4?
                           int 2: usize
                       local _1 s0: f32
                   local _14 inv: f32
-body impl#47 method mul -> Mat4
+body impl#54 method mul -> Mat4
   param _0 self: Mat4
   param _1 rhs: Mat4
   block
@@ -7881,7 +8535,7 @@ body impl#47 method mul -> Mat4
                 field #0: [4]Vec4
                   local _1 rhs: Mat4
                 int 3: usize
-body impl#48 method mul -> Vec4
+body impl#55 method mul -> Vec4
   param _0 self: Mat4
   param _1 v: Vec4
   block
@@ -7917,7 +8571,7 @@ body impl#48 method mul -> Vec4
             int 3: usize
           field #3: f32
             local _1 v: Vec4
-body impl#49 method eq -> bool
+body impl#56 method eq -> bool
   param _0 self: Mat4
   param _1 rhs: &Mat4
   block
@@ -8459,7 +9113,7 @@ body method Quat::to_mat4 -> Mat4
                 float 0: f32
               #3
                 float 1: f32
-body impl#50 method mul -> Quat
+body impl#57 method mul -> Quat
   param _0 self: Quat
   param _1 rhs: Quat
   block
@@ -8561,7 +9215,7 @@ body impl#50 method mul -> Quat
                 local _0 self: Quat
               field #2: f32
                 local _1 rhs: Quat
-body impl#51 method mul -> Vec3
+body impl#58 method mul -> Vec3
   param _0 self: Quat
   param _1 rhs: Vec3
   block
@@ -8786,7 +9440,7 @@ body method Vec2::extend -> Vec3
             local _0 self: Vec2
         #2
           local _1 z: f32
-body impl#52 method add -> Vec2
+body impl#59 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -8804,7 +9458,7 @@ body impl#52 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#53 method sub -> Vec2
+body impl#60 method sub -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -8822,7 +9476,7 @@ body impl#53 method sub -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#54 method mul -> Vec2
+body impl#61 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -8840,7 +9494,7 @@ body impl#54 method mul -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#55 method mul -> Vec2
+body impl#62 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -8856,7 +9510,7 @@ body impl#55 method mul -> Vec2
             field #1: f32
               local _0 self: Vec2
             local _1 rhs: f32
-body impl#56 method div -> Vec2
+body impl#63 method div -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -8872,7 +9526,7 @@ body impl#56 method div -> Vec2
             field #1: f32
               local _0 self: Vec2
             local _1 rhs: f32
-body impl#57 method neg -> Vec2
+body impl#64 method neg -> Vec2
   param _0 self: Vec2
   block
     return: !
@@ -8885,7 +9539,7 @@ body impl#57 method neg -> Vec2
           unary -: f32
             field #1: f32
               local _0 self: Vec2
-body impl#58 method eq -> bool
+body impl#65 method eq -> bool
   param _0 self: Vec2
   param _1 rhs: &Vec2
   block
@@ -8938,7 +9592,7 @@ body method Vec2i::manhattan -> i32
               local _1 to: Vec2i
             field #1: i32
               local _0 self: Vec2i
-body impl#59 method add -> Vec2i
+body impl#66 method add -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: Vec2i
   block
@@ -8956,7 +9610,7 @@ body impl#59 method add -> Vec2i
               local _0 self: Vec2i
             field #1: i32
               local _1 rhs: Vec2i
-body impl#60 method sub -> Vec2i
+body impl#67 method sub -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: Vec2i
   block
@@ -8974,7 +9628,7 @@ body impl#60 method sub -> Vec2i
               local _0 self: Vec2i
             field #1: i32
               local _1 rhs: Vec2i
-body impl#61 method mul -> Vec2i
+body impl#68 method mul -> Vec2i
   param _0 self: Vec2i
   param _1 rhs: i32
   block
@@ -8990,7 +9644,7 @@ body impl#61 method mul -> Vec2i
             field #1: i32
               local _0 self: Vec2i
             local _1 rhs: i32
-body impl#62 method neg -> Vec2i
+body impl#69 method neg -> Vec2i
   param _0 self: Vec2i
   block
     return: !
@@ -9003,7 +9657,7 @@ body impl#62 method neg -> Vec2i
           unary -: i32
             field #1: i32
               local _0 self: Vec2i
-body impl#63 method eq -> bool
+body impl#70 method eq -> bool
   param _0 self: Vec2i
   param _1 rhs: &Vec2i
   block
@@ -9019,7 +9673,7 @@ body impl#63 method eq -> bool
             local _0 self: Vec2i
           field #1: i32
             local _1 rhs: &Vec2i
-body impl#64 method hash -> u64
+body impl#71 method hash -> u64
   param _0 self: Vec2i
   block
     return: !
@@ -9308,7 +9962,7 @@ body method Vec3::extend -> Vec4
             local _0 self: Vec3
         #3
           local _1 w: f32
-body impl#65 method add -> Vec3
+body impl#72 method add -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -9332,7 +9986,7 @@ body impl#65 method add -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#66 method sub -> Vec3
+body impl#73 method sub -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -9356,7 +10010,7 @@ body impl#66 method sub -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#67 method mul -> Vec3
+body impl#74 method mul -> Vec3
   param _0 self: Vec3
   param _1 rhs: Vec3
   block
@@ -9380,7 +10034,7 @@ body impl#67 method mul -> Vec3
               local _0 self: Vec3
             field #2: f32
               local _1 rhs: Vec3
-body impl#68 method mul -> Vec3
+body impl#75 method mul -> Vec3
   param _0 self: Vec3
   param _1 rhs: f32
   block
@@ -9401,7 +10055,7 @@ body impl#68 method mul -> Vec3
             field #2: f32
               local _0 self: Vec3
             local _1 rhs: f32
-body impl#69 method div -> Vec3
+body impl#76 method div -> Vec3
   param _0 self: Vec3
   param _1 rhs: f32
   block
@@ -9422,7 +10076,7 @@ body impl#69 method div -> Vec3
             field #2: f32
               local _0 self: Vec3
             local _1 rhs: f32
-body impl#70 method neg -> Vec3
+body impl#77 method neg -> Vec3
   param _0 self: Vec3
   block
     return: !
@@ -9439,7 +10093,7 @@ body impl#70 method neg -> Vec3
           unary -: f32
             field #2: f32
               local _0 self: Vec3
-body impl#71 method eq -> bool
+body impl#78 method eq -> bool
   param _0 self: Vec3
   param _1 rhs: &Vec3
   block
@@ -9512,7 +10166,7 @@ body method Vec3i::manhattan -> i32
               local _1 to: Vec3i
             field #2: i32
               local _0 self: Vec3i
-body impl#72 method add -> Vec3i
+body impl#79 method add -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: Vec3i
   block
@@ -9536,7 +10190,7 @@ body impl#72 method add -> Vec3i
               local _0 self: Vec3i
             field #2: i32
               local _1 rhs: Vec3i
-body impl#73 method sub -> Vec3i
+body impl#80 method sub -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: Vec3i
   block
@@ -9560,7 +10214,7 @@ body impl#73 method sub -> Vec3i
               local _0 self: Vec3i
             field #2: i32
               local _1 rhs: Vec3i
-body impl#74 method mul -> Vec3i
+body impl#81 method mul -> Vec3i
   param _0 self: Vec3i
   param _1 rhs: i32
   block
@@ -9581,7 +10235,7 @@ body impl#74 method mul -> Vec3i
             field #2: i32
               local _0 self: Vec3i
             local _1 rhs: i32
-body impl#75 method neg -> Vec3i
+body impl#82 method neg -> Vec3i
   param _0 self: Vec3i
   block
     return: !
@@ -9598,7 +10252,7 @@ body impl#75 method neg -> Vec3i
           unary -: i32
             field #2: i32
               local _0 self: Vec3i
-body impl#76 method eq -> bool
+body impl#83 method eq -> bool
   param _0 self: Vec3i
   param _1 rhs: &Vec3i
   block
@@ -9620,7 +10274,7 @@ body impl#76 method eq -> bool
             local _0 self: Vec3i
           field #2: i32
             local _1 rhs: &Vec3i
-body impl#77 method hash -> u64
+body impl#84 method hash -> u64
   param _0 self: Vec3i
   block
     return: !
@@ -9777,7 +10431,7 @@ body method Vec4::xyz -> Vec3
         #2
           field #2: f32
             local _0 self: Vec4
-body impl#78 method add -> Vec4
+body impl#85 method add -> Vec4
   param _0 self: Vec4
   param _1 rhs: Vec4
   block
@@ -9807,7 +10461,7 @@ body impl#78 method add -> Vec4
               local _0 self: Vec4
             field #3: f32
               local _1 rhs: Vec4
-body impl#79 method sub -> Vec4
+body impl#86 method sub -> Vec4
   param _0 self: Vec4
   param _1 rhs: Vec4
   block
@@ -9837,7 +10491,7 @@ body impl#79 method sub -> Vec4
               local _0 self: Vec4
             field #3: f32
               local _1 rhs: Vec4
-body impl#80 method mul -> Vec4
+body impl#87 method mul -> Vec4
   param _0 self: Vec4
   param _1 rhs: f32
   block
@@ -9863,7 +10517,7 @@ body impl#80 method mul -> Vec4
             field #3: f32
               local _0 self: Vec4
             local _1 rhs: f32
-body impl#81 method div -> Vec4
+body impl#88 method div -> Vec4
   param _0 self: Vec4
   param _1 rhs: f32
   block
@@ -9889,7 +10543,7 @@ body impl#81 method div -> Vec4
             field #3: f32
               local _0 self: Vec4
             local _1 rhs: f32
-body impl#82 method neg -> Vec4
+body impl#89 method neg -> Vec4
   param _0 self: Vec4
   block
     return: !
@@ -9910,7 +10564,7 @@ body impl#82 method neg -> Vec4
           unary -: f32
             field #3: f32
               local _0 self: Vec4
-body impl#83 method eq -> bool
+body impl#90 method eq -> bool
   param _0 self: Vec4
   param _1 rhs: &Vec4
   block
@@ -10080,7 +10734,7 @@ body drop Box -> void
         local _0 self: Box<T>
       field #3: usize
         local _0 self: Box<T>
-body impl#85 method is_null -> bool
+body impl#92 method is_null -> bool
   param _0 self: Box<T>
   block
     return: !
@@ -10088,7 +10742,7 @@ body impl#85 method is_null -> bool
         field #0: own ^mut T
           local _0 self: Box<T>
         null: own ^mut T
-body impl#85 method guard -> Unguarded<T>
+body impl#92 method guard -> Unguarded<T>
   param _0 self: Box<T>
   block
     return: !
@@ -10096,7 +10750,7 @@ body impl#85 method guard -> Unguarded<T>
         #0
           field #0: own ^mut T
             local _0 self: Box<T>
-body impl#85 method ptr -> ^mut T
+body impl#92 method ptr -> ^mut T
   param _0 self: Box<T>
   block
     return: !
@@ -10105,7 +10759,7 @@ body impl#85 method ptr -> ^mut T
 body const HEAP_ALIGN -> void
   block
     int 8: usize
-body impl#86 method alloc -> ^mut u8
+body impl#93 method alloc -> ^mut u8
   param _0 self: Heap
   param _1 size: usize
   param _2 align: usize
@@ -10163,7 +10817,7 @@ body impl#86 method alloc -> ^mut u8
     error
     return: !
       local _7 p: ^mut u8
-body impl#86 method realloc -> ^mut u8
+body impl#93 method realloc -> ^mut u8
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -10207,7 +10861,7 @@ body impl#86 method realloc -> ^mut u8
           local _5 loc: SourceLocation
     return: !
       local _6 q: ^mut u8
-body impl#86 method free -> void
+body impl#93 method free -> void
   param _0 self: Heap
   param _1 p: ^mut u8
   param _2 size: usize
@@ -10413,7 +11067,7 @@ body copy Rc -> void
       field #0: usize
         local _2 h: &mut RcHeader
       int 1: usize
-body impl#89 method is_null -> bool
+body impl#96 method is_null -> bool
   param _0 self: Rc<T>
   block
     return: !
@@ -10421,12 +11075,12 @@ body impl#89 method is_null -> bool
         field #0: ^mut RcHeader
           local _0 self: Rc<T>
         null: ^mut RcHeader
-body impl#89 method guard -> Rc<T>
+body impl#96 method guard -> Rc<T>
   param _0 self: Rc<T>
   block
     return: !
       local _0 self: Rc<T>
-body impl#89 method ptr -> ^mut T
+body impl#96 method ptr -> ^mut T
   param _0 self: Rc<T>
   block
     return: !
@@ -10669,7 +11323,7 @@ body method TempArena::owns -> bool
                 int 0: usize
     return: !
       bool false: bool
-body impl#90 method alloc -> ^mut u8
+body impl#97 method alloc -> ^mut u8
   param _0 self: TempArena
   param _1 size: usize
   param _2 align: usize
@@ -10717,7 +11371,7 @@ body impl#90 method alloc -> ^mut u8
               local _4 start: usize
     return: !
       local _5 p: ^mut u8
-body impl#90 method realloc -> ^mut u8
+body impl#97 method realloc -> ^mut u8
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -10795,7 +11449,7 @@ body impl#90 method realloc -> ^mut u8
               local _8 kept: usize
     return: !
       local _7 q: ^mut u8
-body impl#90 method free -> void
+body impl#97 method free -> void
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 size: usize
@@ -10829,7 +11483,7 @@ body drop TempArena -> void
 body field-default Unguarded.0 -> void
   block
     null: ^mut T
-body impl#92 method is_null -> bool
+body impl#99 method is_null -> bool
   param _0 self: Unguarded<T>
   block
     return: !
@@ -10837,12 +11491,12 @@ body impl#92 method is_null -> bool
         field #0: ^mut T
           local _0 self: Unguarded<T>
         null: ^mut T
-body impl#92 method guard -> Unguarded<T>
+body impl#99 method guard -> Unguarded<T>
   param _0 self: Unguarded<T>
   block
     return: !
       local _0 self: Unguarded<T>
-body impl#92 method ptr -> ^mut T
+body impl#99 method ptr -> ^mut T
   param _0 self: Unguarded<T>
   block
     return: !
@@ -10939,7 +11593,7 @@ body copy Weak -> void
       field #1: usize
         local _2 h: &mut RcHeader
       int 1: usize
-body impl#95 method is_null -> bool
+body impl#102 method is_null -> bool
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -10953,7 +11607,7 @@ body impl#95 method is_null -> bool
         field #0: usize
           local _1 h: &mut RcHeader
         int 0: usize
-body impl#95 method guard -> Rc<T>
+body impl#102 method guard -> Rc<T>
   param _0 self: Weak<T>
   block
     let _1 r: Rc<T>
@@ -10988,7 +11642,7 @@ body impl#95 method guard -> Rc<T>
         local _0 self: Weak<T>
     return: !
       local _1 r: Rc<T>
-body impl#95 method ptr -> ^mut T
+body impl#102 method ptr -> ^mut T
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -11307,7 +11961,7 @@ body method FieldInfo::tag_value -> str?
           int 1: usize
     return: !
       none: str?
-body impl#96 method eq -> bool
+body impl#103 method eq -> bool
   param _0 self: TypeId
   param _1 rhs: &TypeId
   block
@@ -11317,7 +11971,7 @@ body impl#96 method eq -> bool
           local _0 self: TypeId
         field #0: u32
           local _1 rhs: &TypeId
-body impl#97 method hash -> u64
+body impl#104 method hash -> u64
   param _0 self: TypeId
   block
     return: !
@@ -11341,7 +11995,7 @@ body method Chars::offset -> usize
     return: !
       field #1: usize
         local _0 self: Chars
-body impl#98 method valid -> bool
+body impl#105 method valid -> bool
   param _0 self: Chars
   block
     return: !
@@ -11351,7 +12005,7 @@ body impl#98 method valid -> bool
         len: usize
           field #0: str
             local _0 self: Chars
-body impl#98 method get -> char
+body impl#105 method get -> char
   param _0 self: Chars
   block
     let (_1 c, _)
@@ -11363,7 +12017,7 @@ body impl#98 method get -> char
           local _0 self: Chars
     return: !
       local _1 c: char
-body impl#98 method advance -> void
+body impl#105 method advance -> void
   param _0 self: Chars
   block
     let (_, _1 width)
@@ -11568,7 +12222,7 @@ body fn is_utf8_boundary -> bool
               local _1 at: usize
           int 192: u32
         int 128: u32
-body impl#99 method join -> String
+body impl#106 method join -> String
   param _0 self: []str
   param _1 separator: str
   block
@@ -11595,7 +12249,7 @@ body impl#99 method join -> String
             local _3 i: usize
     return: !
       local _2 out: String
-body impl#100 method join -> String
+body impl#107 method join -> String
   param _0 self: List<str>
   param _1 separator: str
   block
@@ -11604,7 +12258,7 @@ body impl#100 method join -> String
         call-method List::as_slice: []str
           local _0 self: List<str>
         local _1 separator: str
-body impl#101 method join -> String
+body impl#108 method join -> String
   param _0 self: List<String>
   param _1 separator: str
   block
@@ -12158,7 +12812,7 @@ body method String::reserve -> void
         local _1 additional: usize
         int 1: usize
       local _2 loc: SourceLocation
-body impl#102 method eq -> bool
+body impl#109 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -12168,7 +12822,7 @@ body impl#102 method eq -> bool
           local _0 self: String
         call-method String::as_str: str
           local _1 rhs: &String
-body impl#103 method cmp -> Ordering
+body impl#110 method cmp -> Ordering
   param _0 self: String
   param _1 rhs: &String
   block
@@ -12180,20 +12834,20 @@ body impl#103 method cmp -> Ordering
         cast: []u8
           call-method String::as_str: str
             local _1 rhs: &String
-body impl#104 method iter -> Chars
+body impl#111 method iter -> Chars
   param _0 self: String
   block
     return: !
       call-method String::chars: Chars
         local _0 self: String
-body impl#105 method hash -> u64
+body impl#112 method hash -> u64
   param _0 self: String
   block
     return: !
       call-method Hash::hash: u64
         call-method String::as_str: str
           local _0 self: String
-body impl#106 method format -> void
+body impl#113 method format -> void
   param _0 self: String
   param _1 f: &mut Formatter
   block
@@ -12883,12 +13537,12 @@ body method Text::parse_f32 -> f32?
     return: !
       cast: f32
         local _1 v: f64
-body impl#107 method text -> str
+body impl#114 method text -> str
   param _0 self: str
   block
     return: !
       local _0 self: str
-body impl#108 method text -> str
+body impl#115 method text -> str
   param _0 self: String
   block
     return: !
@@ -12958,14 +13612,14 @@ body method Split::find_end -> void
               len: usize
                 field #0: str
                   local _0 self: Split
-body impl#109 method valid -> bool
+body impl#116 method valid -> bool
   param _0 self: Split
   block
     return: !
       unary !: bool
         field #4: bool
           local _0 self: Split
-body impl#109 method get -> str
+body impl#116 method get -> str
   param _0 self: Split
   block
     return: !
@@ -12976,7 +13630,7 @@ body impl#109 method get -> str
           local _0 self: Split
         field #3: usize
           local _0 self: Split
-body impl#109 method advance -> void
+body impl#116 method advance -> void
   param _0 self: Split
   block
     if: void
@@ -13050,7 +13704,7 @@ body method Lines::find_end -> void
               len: usize
                 field #0: str
                   local _0 self: Lines
-body impl#110 method valid -> bool
+body impl#117 method valid -> bool
   param _0 self: Lines
   block
     return: !
@@ -13060,7 +13714,7 @@ body impl#110 method valid -> bool
         len: usize
           field #0: str
             local _0 self: Lines
-body impl#110 method get -> str
+body impl#117 method get -> str
   param _0 self: Lines
   block
     let _1 end: usize
@@ -13093,7 +13747,7 @@ body impl#110 method get -> str
         field #1: usize
           local _0 self: Lines
         local _1 end: usize
-body impl#110 method advance -> void
+body impl#117 method advance -> void
   param _0 self: Lines
   block
     assign =
@@ -13169,7 +13823,7 @@ body method SplitWhitespace::find_word -> void
       field #2: usize
         local _0 self: SplitWhitespace
       local _3 i: usize
-body impl#111 method valid -> bool
+body impl#118 method valid -> bool
   param _0 self: SplitWhitespace
   block
     return: !
@@ -13179,7 +13833,7 @@ body impl#111 method valid -> bool
         len: usize
           field #0: str
             local _0 self: SplitWhitespace
-body impl#111 method get -> str
+body impl#118 method get -> str
   param _0 self: SplitWhitespace
   block
     return: !
@@ -13190,7 +13844,7 @@ body impl#111 method get -> str
           local _0 self: SplitWhitespace
         field #2: usize
           local _0 self: SplitWhitespace
-body impl#111 method advance -> void
+body impl#118 method advance -> void
   param _0 self: SplitWhitespace
   block
     call-method SplitWhitespace::find_word: void
@@ -13826,7 +14480,7 @@ body method Duration::is_zero -> bool
         field #0: u64
           local _0 self: Duration
         int 0: u64
-body impl#112 method add -> Duration
+body impl#119 method add -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -13838,7 +14492,7 @@ body impl#112 method add -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#113 method sub -> Duration
+body impl#120 method sub -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -13850,7 +14504,7 @@ body impl#113 method sub -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#114 method eq -> bool
+body impl#121 method eq -> bool
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -13860,7 +14514,7 @@ body impl#114 method eq -> bool
           local _0 self: Duration
         field #0: u64
           local _1 rhs: &Duration
-body impl#115 method cmp -> Ordering
+body impl#122 method cmp -> Ordering
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -13871,7 +14525,7 @@ body impl#115 method cmp -> Ordering
         ref: &u64
           field #0: u64
             local _1 rhs: &Duration
-body impl#116 method hash -> u64
+body impl#123 method hash -> u64
   param _0 self: Duration
   block
     return: !
@@ -13907,7 +14561,7 @@ body method Instant::since -> Duration
             local _0 self: Instant
           field #0: u64
             local _1 earlier: Instant
-body impl#117 method sub -> Duration
+body impl#124 method sub -> Duration
   param _0 self: Instant
   param _1 rhs: Instant
   block
@@ -13915,7 +14569,7 @@ body impl#117 method sub -> Duration
       call-method Instant::since: Duration
         local _0 self: Instant
         local _1 rhs: Instant
-body impl#118 method add -> Instant
+body impl#125 method add -> Instant
   param _0 self: Instant
   param _1 rhs: Duration
   block
@@ -13927,7 +14581,7 @@ body impl#118 method add -> Instant
               local _0 self: Instant
             call-method Duration::as_nanos: u64
               local _1 rhs: Duration
-body impl#119 method eq -> bool
+body impl#126 method eq -> bool
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -13937,7 +14591,7 @@ body impl#119 method eq -> bool
           local _0 self: Instant
         field #0: u64
           local _1 rhs: &Instant
-body impl#120 method cmp -> Ordering
+body impl#127 method cmp -> Ordering
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -14764,12 +15418,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#124 method describe -> str
+body impl#131 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#125 method weight -> i32
+body impl#132 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -14913,7 +15567,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#126 method eq -> bool
+body impl#133 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -14923,7 +15577,7 @@ body impl#126 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#127 method cmp -> Ordering
+body impl#134 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -14990,7 +15644,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#128 method add -> Vec2
+body impl#135 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -15008,7 +15662,7 @@ body impl#128 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#129 method mul -> Vec2
+body impl#136 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -15314,7 +15968,7 @@ body fn widths -> void
         call-method Formatter::finish: void
           local _15 fmt·: Formatter
           str "\n": str
-body impl#130 method valid -> bool
+body impl#137 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -15323,13 +15977,13 @@ body impl#130 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#130 method get -> i32
+body impl#137 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#130 method advance -> void
+body impl#137 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -15516,7 +16170,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#131 method mul -> Scale
+body impl#138 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -15527,7 +16181,7 @@ body impl#131 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#132 method mul -> f32
+body impl#139 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -15543,7 +16197,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#133 method label -> str
+body impl#140 method label -> str
   param _0 self: f32
   block
     return: !
@@ -15554,7 +16208,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#134 method label -> str
+body impl#141 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -15567,7 +16221,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#135 method shout -> str
+body impl#142 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -16010,7 +16664,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#138 method measure -> i32
+body impl#145 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -16028,7 +16682,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#139 method measure -> i32
+body impl#146 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -16338,7 +16992,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#140 method eq -> bool
+body impl#147 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -16354,7 +17008,7 @@ body impl#140 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#141 method hash -> u64
+body impl#148 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -16365,7 +17019,7 @@ body impl#141 method hash -> u64
         call-method Hash::hash: u64
           field #1: i32
             local _0 self: Tile
-body impl#142 method eq -> bool
+body impl#149 method eq -> bool
   param _0 self: TileRef
   param _1 rhs: &TileRef
   block
@@ -16375,7 +17029,7 @@ body impl#142 method eq -> bool
           local _0 self: TileRef
         field #0: ^Tile
           local _1 rhs: &TileRef
-body impl#143 method hash -> u64
+body impl#150 method hash -> u64
   param _0 self: TileRef
   block
     return: !
@@ -16457,7 +17111,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#144 method neg -> Heading
+body impl#151 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -16466,7 +17120,7 @@ body impl#144 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#145 method eq -> bool
+body impl#152 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -16510,7 +17164,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#146 method named -> str
+body impl#153 method named -> str
   param _0 self: Heading
   block
     return: !
@@ -16614,7 +17268,7 @@ body fn named_calls -> i32
           int 3: i32
           int 2: i32
           str "d": str
-body impl#147 method format -> void
+body impl#154 method format -> void
   param _0 self: Heading
   param _1 f: &mut Formatter
   block
@@ -17841,3 +18495,84 @@ body fn generic_bases -> i32
             local _0 a: IntHolder
         call-method Holder::get: i32
           local _1 b: Labelled<i32>
+body field-default Seeker.0 -> void
+  block
+    call-ctor Key#0: Key<Vec3>
+body fn slot_maps -> f32
+  param _0 points: &mut SlotMap<Vec3>
+  param _1 scores: &mut List<Score>
+  block
+    let _2 k: Key<Vec3>
+      call-method SlotMap::insert: Key<Vec3>
+        local _0 points: &mut SlotMap<Vec3>
+        struct-lit Vec3: Vec3
+          #0
+            float 1: f32
+          #1
+            float 2: f32
+          #2
+            float 3: f32
+    let _3 seeker: Seeker
+      struct-lit Seeker: Seeker
+        #0
+          local _2 k: Key<Vec3>
+    let _4 p: &mut Vec3
+      or: &mut Vec3
+        call-method SlotMap::get_mut: ^mut Vec3
+          local _0 points: &mut SlotMap<Vec3>
+          field #0: Key<Vec3>
+            local _3 seeker: Seeker
+        return: !
+          float 0: f32
+    assign +=
+      field #0: f32
+        local _4 p: &mut Vec3
+      float 1: f32
+    let _5 by_key: HashMap<Key<Vec3>, i32>
+      call-ctor HashMap#0: HashMap<Key<Vec3>, i32>
+    call-method HashMap::insert: void
+      local _5 by_key: HashMap<Key<Vec3>, i32>
+      call-ctor Key#0: Key<Vec3>
+        call-method Key::index: u32
+          local _2 k: Key<Vec3>
+        call-method Key::version: u32
+          local _2 k: Key<Vec3>
+      int 1: i32
+    let _6 total: f32
+      float 0: f32
+    for _7 key, _8 v (tuple)
+      call-method Iterable::iter: SlotMapIter<Vec3>
+        local _0 points: &mut SlotMap<Vec3>
+      block
+        assign +=
+          local _6 total: f32
+          binary +: f32
+            field #1: f32
+              local _8 v: &Vec3
+            cast: f32
+              call-method Key::index: u32
+                local _7 key: Key<Vec3>
+    let _9 gone: Vec3
+      or: Vec3
+        call-method SlotMap::remove: Vec3?
+          local _0 points: &mut SlotMap<Vec3>
+          local _2 k: Key<Vec3>
+        return: !
+          local _6 total: f32
+    let _10 first: &mut Score
+      ref mut: &mut Score
+        call-method IndexMut::index_mut: &mut Score
+          local _1 scores: &mut List<Score>
+          int 0: usize
+    let _11 again: &mut Score
+      ref mut: &mut Score
+        local _10 first: &mut Score
+    assign +=
+      field #0: i32
+        local _11 again: &mut Score
+      int 1: i32
+    return: !
+      binary +: f32
+        local _6 total: f32
+        field #2: f32
+          local _9 gone: Vec3

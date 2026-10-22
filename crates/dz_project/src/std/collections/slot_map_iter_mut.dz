@@ -1,0 +1,28 @@
+/// Steps through a slot map's values, handing out `(Key<T>, &mut T)`: `for k, &mut v in
+/// map` changes them in place.
+pub struct SlotMapIterMut<T> {
+    m_map: ^mut SlotMap<T> = null
+    m_index: usize = 0
+
+    SlotMapIterMut(map: &mut SlotMap<T>) {
+        m_map = map
+    }
+}
+
+impl<T> Iterate for SlotMapIterMut<T> {
+    type Item = (Key<T>, &mut T)
+
+    fn valid(&self) -> bool {
+        let map = m_map or return false
+        return m_index < map.len()
+    }
+
+    fn get(&self) -> (Key<T>, &mut T) {
+        let map = m_map or unreachable
+        return (map.key_at(m_index), &mut map.values_mut()[m_index])
+    }
+
+    fn advance(&mut self) {
+        m_index += 1
+    }
+}

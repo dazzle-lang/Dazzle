@@ -1,0 +1,196 @@
+/// Values that are added and removed in any order and referred to by `Key<T>`, in memory
+/// from the allocator it was built with.
+///
+/// What to use where a struct would hold a reference to something it does not own (D-0003
+/// forbids that): an entity, a node, a connection. A key to a removed value reads as absent
+/// rather than as whatever took its place, at the cost of one comparison.
+///
+/// The values sit together in one array, in no particular order, so `values()` is a slice
+/// and a loop over them is a linear scan. Removing one moves the last value into its place;
+/// keys are unaffected, since each names a slot that knows where its value is. A slot's
+/// version is odd while it holds a value and even while it is free, and a key always
+/// carries an odd one. Move-only unless `T` is copyable.
+pub struct SlotMap<T> {
+    m_values: List<T>
+    /// The slot each value is in, in the order of `m_values`.
+    m_slot_of: List<u32>
+    m_slots: List<SlotMapSlot>
+    /// The first free slot, whose `m_slots` entry links to the next; `NO_SLOT` when none is.
+    m_free: u32 = NO_SLOT
+
+    /// An empty map, with room for `capacity` values already allocated when it is given.
+    SlotMap(
+        capacity: usize = 0,
+        allocator: ^mut Allocator = Allocators::Global,
+        loc: SourceLocation = #location,
+    ) {
+        m_values = List<T>(capacity, allocator, loc)
+        m_slot_of = List<u32>(capacity, allocator, loc)
+        m_slots = List<SlotMapSlot>(capacity, allocator, loc)
+    }
+
+    pub fn len(&self) -> usize {
+        return m_values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return m_values.is_empty()
+    }
+
+    /// How many values fit before the map grows again.
+    pub fn capacity(&self) -> usize {
+        return m_values.capacity()
+    }
+
+    /// Add `v`, returning the key that names it from now until it is removed.
+    pub fn insert(&mut self, v: T, loc: SourceLocation = #location) -> Key<T> {
+        let place = m_values.len() as u32
+        let mut slot = m_free
+        if slot == NO_SLOT {
+            if m_slots.len() == NO_SLOT as usize {
+                panic!("a SlotMap cannot hold more than {} slots", NO_SLOT)
+            }
+            slot = m_slots.len() as u32
+            m_slots.push(SlotMapSlot{ version: 0, link: 0 }, loc)
+        } else {
+            m_free = m_slots[slot as usize].link
+        }
+        let s = &mut m_slots[slot as usize]
+        // Free to taken: even to odd. After 2^31 reuses of one slot the version comes round
+        // again, and a key that old would name the new value.
+        s.version += 1
+        s.link = place
+        m_values.push(move(v), loc)
+        m_slot_of.push(slot, loc)
+        return Key<T>(slot, s.version)
+    }
+
+    /// The value `k` names, or `null` when it was removed, belongs to another map, or is
+    /// null: `let e = enemies.get(target) or return`.
+    pub fn get(&self, k: Key<T>) -> ^T {
+        let place = self.place_of(k) or return null
+        return &m_values[place]
+    }
+
+    /// The value `k` names, to change in place, or `null` when there is none.
+    pub fn get_mut(&mut self, k: Key<T>) -> ^mut T {
+        let place = self.place_of(k) or return null
+        return &mut m_values[place]
+    }
+
+    pub fn contains(&self, k: Key<T>) -> bool {
+        return self.place_of(k) != none
+    }
+
+    /// Take the value `k` names out, or `none` when there is none. Every key to it reads as
+    /// absent from now on.
+    pub fn remove(&mut self, k: Key<T>) -> T? {
+        let place = self.place_of(k) or return none
+        self.free_slot(k.index())
+        let v = m_values.swap_remove(place)
+        let _ = m_slot_of.swap_remove(place)
+        if place < m_slot_of.len() {
+            // The last value moved into the gap; its slot follows it.
+            let moved = m_slot_of[place]
+            m_slots[moved as usize].link = place as u32
+        }
+        return move(v)
+    }
+
+    /// Keep only the values `keep` says yes to, and drop the rest. `keep` may change the
+    /// value it is shown; each is asked once.
+    pub fn retain(&mut self, keep: fn(Key<T>, &mut T) -> bool) {
+        let mut i: usize = 0
+        while i < m_values.len() {
+            let k = self.key_at(i)
+            if keep(k, &mut m_values[i]) {
+                i += 1
+            } else {
+                // The last value takes position `i`, and has not been asked yet.
+                let _ = self.remove(k)
+            }
+        }
+    }
+
+    /// Drop every value and keep the allocation. Every key reads as absent afterwards.
+    pub fn clear(&mut self) {
+        for i in 0..m_slot_of.len() {
+            self.free_slot(m_slot_of[i])
+        }
+        m_values.clear()
+        m_slot_of.clear()
+    }
+
+    /// Room for at least `additional` more values without growing again.
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+        m_values.reserve(additional, loc)
+        m_slot_of.reserve(additional, loc)
+        m_slots.reserve(additional, loc)
+    }
+
+    /// Every value, in no particular order. Valid until the map next changes size.
+    pub fn values(&self) -> []T {
+        return m_values.as_slice()
+    }
+
+    pub fn values_mut(&mut self) -> []mut T {
+        return m_values.as_mut_slice()
+    }
+
+    /// The key of `values()[i]`: `for i in 0..m.len()` visits keys and values together, as
+    /// `for k, &v in m` does.
+    pub fn key_at(&self, i: usize) -> Key<T> {
+        let slot = m_slot_of[i]
+        return Key<T>(slot, m_slots[slot as usize].version)
+    }
+
+    /// Where in `m_values` the value `k` names is, or `none` when it names none.
+    fn place_of(&self, k: Key<T>) -> usize? {
+        let slot = k.index() as usize
+        // An even version is a free slot, whose `link` is not a position.
+        if slot >= m_slots.len() || k.version() % 2 == 0 {
+            return none
+        }
+        let s = m_slots[slot]
+        if s.version != k.version() {
+            return none
+        }
+        return s.link as usize
+    }
+
+    /// Mark `slot` free, which moves its version on, and put it first on the free list.
+    fn free_slot(&mut self, slot: u32) {
+        let s = &mut m_slots[slot as usize]
+        s.version += 1
+        s.link = m_free
+        m_free = slot
+    }
+}
+
+/// `for k, &v in map`, in the order of `values()`.
+impl<T> Iterable for SlotMap<T> {
+    type Iter = SlotMapIter<T>
+
+    fn iter(&self) -> SlotMapIter<T> {
+        return SlotMapIter<T>(&self)
+    }
+}
+
+/// `for k, &mut v in map`, in the order of `values()`.
+impl<T> IterableMut for SlotMap<T> {
+    type IterMut = SlotMapIterMut<T>
+
+    fn iter_mut(&mut self) -> SlotMapIterMut<T> {
+        return SlotMapIterMut<T>(&mut self)
+    }
+}
+
+/// One of a `SlotMap`'s slots. Taken (an odd version), `link` is where its value is in the
+/// map's values; free (an even one), it is the next free slot.
+struct SlotMapSlot {
+    pub version: u32
+    pub link: u32
+}
+
+/// The end of a `SlotMap`'s free list, and one more slot than a map may have.
+const NO_SLOT: u32 = 4294967295
