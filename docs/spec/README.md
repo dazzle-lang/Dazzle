@@ -13,7 +13,8 @@ Open work is the backlog, `docs/tasks.md`; what was built, milestone by mileston
 enough to work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop
 (M7). Until all three land, this document is revised, not versioned — the revision numbers
 in §21 track *changes to the language*, and none of them is a release.
-**Target:** a systems language for game development that compiles to readable C++17.
+**Target:** a systems language that compiles to readable C++17, for the places C++ is used
+today: games and engines, embedded systems, tools, and real-time code.
 
 One file per top-level section; **start with §0.1**, the whole language on one page. Section
 numbers are stable and are what code, commits and the other documents cite (`spec §6.4`);

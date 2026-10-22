@@ -1,11 +1,11 @@
 // Breakout's rules, with no window and no renderer: a paddle, a ball, a wall of bricks.
-// `tests/run/breakout` draws it with raylib; `tests/run/breakout_sim`, where it lives, plays it
-// headless. Written against the standard library only (spec §19, M12's criterion).
+// `examples/breakout` draws it with raylib; `tests/run/breakout_sim` plays it headless.
+// Written against the standard library only (spec §19, M12's criterion).
 
 pub struct Brick {
     pub rect: Rect
     /// How many hits it still takes.
-    pub hits: i32 = 1
+    pub hits:   i32 = 1
     pub points: i32 = 10
 }
 
@@ -19,27 +19,30 @@ pub enum Phase {
 
 /// What the player is doing this frame.
 pub struct Input {
-    pub left: bool = false
-    pub right: bool = false
+    pub left:   bool = false
+    pub right:  bool = false
     pub launch: bool = false
 }
 
 pub const PADDLE_SPEED: f32 = 520
+
 pub const BALL_SPEED: f32 = 380
+
 pub const BRICK_ROWS: i32 = 6
+
 pub const BRICK_COLUMNS: i32 = 10
 
 pub struct Game {
-    pub width: f32 = 800
-    pub height: f32 = 600
-    pub paddle: Rect
-    pub ball: Vec2
+    pub width:    f32 = 800
+    pub height:   f32 = 600
+    pub paddle:   Rect
+    pub ball:     Vec2
     pub velocity: Vec2
-    pub radius: f32 = 7
-    pub bricks: List<Brick>
-    pub score: i32 = 0
-    pub lives: i32 = 3
-    pub phase: Phase = Phase::Ready
+    pub radius:   f32 = 7
+    pub bricks:   List<Brick>
+    pub score:    i32 = 0
+    pub lives:    i32 = 3
+    pub phase:    Phase = Phase::Ready
     /// Every point scored, from the bricks broken: the rules' own check on `score`.
     pub broken_points: i32 = 0
 
@@ -67,7 +70,11 @@ pub struct Game {
                 let tough = row < 2
                 bricks.push(Brick{
                     rect: rect,
-                    hits: if tough { 2 } else { 1 },
+                    hits: if tough {
+                        2
+                    } else {
+                        1
+                    },
                     points: (BRICK_ROWS - row) * 10,
                 })
             }

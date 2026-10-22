@@ -238,3 +238,30 @@ The first two `llm-tooling` rows, chosen by the user with the r70–r72 batch.
   cannot drift. Codes no single-file program can produce (manifests, encodings, C++ libraries,
   compiler bugs) carry a `No example:` line instead. Writing them found four compiler bugs,
   listed under r70–r72 in `m12.md`.
+
+## Getting the repository ready to be public (2026-10-22)
+
+The repository moved to the `dazzle-lang` organisation, ahead of being made public.
+
+- **raylib and RGFW are git submodules** in `examples/vendor/`, no longer 527 files of
+  raylib copied into `examples/raylib/vendor`. raylib is pinned to its `6.0` tag: the copy
+  matched 6.0 except for a newer RGFW backend, which the GLFW build never compiles. RGFW is
+  pinned to `d7eb573`, the upstream commit whose `RGFW.h` was byte-identical to the copy.
+  `examples/raylib` and `examples/breakout` share the one raylib. CI checks out submodules,
+  and `every_example_builds` names `git submodule update --init` when they are missing,
+  rather than failing deep inside the recipe. The copies remain in git history. A recipe
+  that fetches its own source, which would retire the submodules, is now part of T-0077.
+- **The examples were cleaned up.** `raylib` had leftover `List` pushes and an unused
+  static. `rgfw` called `RGFW_window_close`, which frees the window, inside the event loop
+  and then again after it, so pressing a key was a use-after-free. It now asks the window to
+  close and frees it once with `defer`. `books` reimplemented `Buffer` and `List` over
+  movies, and is now `ownership`, the README's companion: a growable `Shelf<T>` with `own`,
+  a constructor, `drop`, `copy`, growth through `move_out`, a copy and a move, and no leaks
+  under `--track-memory`. Breakout's rules moved from `tests/run/breakout_sim/game` to
+  `examples/breakout/game`, so an example no longer depends on a test fixture;
+  `breakout_sim` points there instead. Every example is now `dz fmt`-clean, and CI checks
+  that. Formatting them found T-0081 and T-0082.
+- **README**: new sections on modules and imports, and on `own` and the three special
+  members with the C++ they become, taken from `dz cpp`'s real output. The stale revision
+  number and the "planned" `dz fix`, `dz explain` and `--format=json`, all shipped, are
+  gone. Added `LICENSE` (MIT, previously declared only in `Cargo.toml`) and `CONTRIBUTING.md`.

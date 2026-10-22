@@ -2,6 +2,7 @@
 // and `R` starts again. The best score is kept in `saves/best.txt`.
 
 const WIDTH: i32 = 800
+
 const HEIGHT: i32 = 600
 
 fn to_rl(r: &Rect) -> rl::Rectangle {
@@ -10,11 +11,21 @@ fn to_rl(r: &Rect) -> rl::Rectangle {
 
 /// A row's colour: warm at the top, where the bricks are worth most.
 fn brick_color(points: i32, hits: i32) -> rl::Color {
-    let shade: u8 = if hits > 1 { 255 } else { 200 }
+    let shade: u8 = if hits > 1 {
+        255
+    } else {
+        200
+    }
     return switch points {
-        case 60, 50 { rl::Color{ r: shade, g: 70, b: 60, a: 255 } }
-        case 40, 30 { rl::Color{ r: shade, g: 170, b: 50, a: 255 } }
-        default { rl::Color{ r: 70, g: 140, b: shade, a: 255 } }
+        case 60, 50 {
+            rl::Color{ r: shade, g: 70, b: 60, a: 255 }
+        }
+        case 40, 30 {
+            rl::Color{ r: shade, g: 170, b: 50, a: 255 }
+        }
+        default {
+            rl::Color{ r: 70, g: 140, b: shade, a: 255 }
+        }
     }
 }
 
@@ -38,9 +49,15 @@ fn draw(g: &Game, best: i32) {
     rl::DrawText(hud.as_cstr(), 10, 12, 24, rl::LIGHTGRAY)
 
     switch g.phase {
-        case Ready { centered(&String("Space to launch"), 400, 28, rl::LIGHTGRAY) }
-        case Won { centered(&String("You win! R to play again"), 300, 36, rl::GREEN) }
-        case Lost { centered(&String("Game over. R to play again"), 300, 36, rl::RED) }
+        case Ready {
+            centered(&String("Space to launch"), 400, 28, rl::LIGHTGRAY)
+        }
+        case Won {
+            centered(&String("You win! R to play again"), 300, 36, rl::GREEN)
+        }
+        case Lost {
+            centered(&String("Game over. R to play again"), 300, 36, rl::RED)
+        }
         case Playing {}
     }
     rl::EndDrawing()
