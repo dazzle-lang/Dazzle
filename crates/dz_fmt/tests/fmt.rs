@@ -270,6 +270,14 @@ fn consecutive_fields_get_their_types_aligned() {
 }
 
 #[test]
+fn field_alignment_counts_the_visibility() {
+    // T-0081: the width was the name's alone, so `pub` pushed its own fields' types right.
+    unchanged(
+        "struct S {\n    pub width:    u32\n    pub height:   u32\n    m_pixels:     u8\n    own m_buffer: u8\n}\n",
+    );
+}
+
+#[test]
 fn long_parameter_lists_break_one_per_line() {
     let src = "fn f(alpha: SomeVeryLongTypeName, beta: AnotherRatherLongTypeName, gamma: AndAThirdLongTypeName, delta: PlusOneMore) {}\n";
     let out = fmt(src);

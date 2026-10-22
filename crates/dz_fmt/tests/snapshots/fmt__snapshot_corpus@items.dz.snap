@@ -38,9 +38,9 @@ pub struct Transform {
 }
 
 pub struct SpriteBatch {
-    m_verts:     Buffer<Vertex>
+    m_verts:                 Buffer<Vertex>
     pub(module) m_gl_handle: u32
-    pub count:       u32
+    pub count:               u32
 
     pub fn draw(&mut self, s: &Sprite) {
         count += 1
@@ -179,7 +179,7 @@ fn named() {
 pub struct Player {
     pub name: str = "" `json:"player_name"`
     pub hp:   i32 = 100 `json:"health" save:"-"`
-    m_id: u64
+    m_id:     u64
 }
 
 union Event {
