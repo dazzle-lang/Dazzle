@@ -1,0 +1,11 @@
+// expect: DZ0527
+//
+// `{}` writes what a pointer points at, one level down: a pointer to a pointer points at
+// something with no `Format` of its own (spec §12.9).
+
+fn main() {
+    let hp = 10
+    let p: ^i32 = &hp
+    let pp: ^^i32 = &p
+    println!("{}", pp)
+}

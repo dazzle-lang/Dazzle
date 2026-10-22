@@ -1342,6 +1342,17 @@ fn printed<T: Format>(h: Heading, r: &Heading, s: String, t: T) {
     println!(`raw {}`, "\u{7b}")
 }
 
+// §12.9: a pointer is written as what it points at, a spec applying to that, and `{:p}`
+// writes its address — in `error(…)` too, which writes nothing else of a pointer.
+fn pointed(h: ^Heading, m: ^mut Heading, n: ^i32) !-> usize {
+    println!("{} {} {:x} [{:6}] {:p} {:18p}", h, m, n, n, h, m)
+    let s = format!("{:p}", n)
+    if s.len() == 0 {
+        return error("nothing at {:p} [{:12p}]", n, h)
+    }
+    return s.len()
+}
+
 // §8.1: generic methods — inferred and written, with and without a receiver, on a generic
 // type beside the type's own parameter, and a method's bound used in its body.
 struct Shelf<T> {

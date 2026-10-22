@@ -216,6 +216,37 @@ fn overflow_wraps_and_unreachable_is_assumed_in_release() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A formatting macro writes each argument with a direct `Format::format` call, through no
+/// vtable — a pointer's through what it points at — and an argument that looks into a
+/// temporary is written before the temporary is dropped (spec §12.9, D-0080). The first
+/// is checked in the generated C++, where only the program's own file is looked at: `std`
+/// still declares the trait object type.
+#[test]
+fn formatting_dispatches_statically_and_keeps_temporaries() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_static_format",
+        "[module]\nname = \"statics\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "struct Loud {\n    pub label: String\n\n    pub fn text(&self) -> str {\n        return self.label.as_str()\n    }\n}\n\nimpl Drop for Loud {\n    fn drop(&mut self) {\n        println!(\"drop {}\", self.label)\n    }\n}\n\nfn make(s: str) -> Loud {\n    return Loud{ label: String(s) }\n}\n\nfn main() {\n    let n = 7\n    let p: ^i32 = &n\n    println!(\"{} {} {}\", make(\"a\").text(), make(\"b\").text(), p)\n}\n",
+    );
+    let out =
+        Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+    // Which temporary C++ drops first is its business; that both outlive the line is not.
+    // `make`'s moved-from `Loud`s are dropped too, reset to an empty label (§6.4).
+    let mut lines: Vec<&str> = stdout.lines().filter(|l| l.trim_end() != "drop").collect();
+    assert_eq!(lines.first(), Some(&"a b 7"), "{stdout}");
+    lines.sort_unstable();
+    assert_eq!(lines, ["a b 7", "drop a", "drop b"], "{stdout}");
+    let cpp = std::fs::read_to_string(dir.join("build/cpp/statics.cpp")).unwrap();
+    assert!(!cpp.contains("Format__dyn"), "a formatting call went through a vtable:\n{cpp}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `Process::args`, `Process::env` and `Process::exit` (spec §14.4), on the built binary run
 /// directly: a non-ASCII argument arrives as UTF-8 (on Windows it is re-read from the wide
 /// command line), a variable set for the child is seen, and the exit code is the program's.

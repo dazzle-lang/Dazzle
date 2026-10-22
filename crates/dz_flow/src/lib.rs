@@ -669,6 +669,18 @@ impl<'a> Flow<'a> {
                 self.revive(&Place { local: guard, path: Vec::new() });
                 self.value(value) || diverges
             }
+            // A formatting macro's arguments are a call's (spec §12.9): each is read and
+            // bound, then the body writes them.
+            hir::ExprKind::Formatted { args, params, body } => {
+                let mut diverges = false;
+                for a in args {
+                    diverges |= self.value(a);
+                }
+                for p in params {
+                    self.revive(&Place { local: p, path: Vec::new() });
+                }
+                self.block(body) || diverges
+            }
             // A reference binding (`&v`, `&mut v`) refers into the operand, so it is only
             // read in place; a plain one takes the value out, as `or` does (18.61).
             hir::ExprKind::IfLet { binding, operand, then, else_branch } => {

@@ -2,7 +2,8 @@
 id: T-0055
 title: A pointer has no `Format`
 milestone: M12
-status: open
+status: done
+done: r69, 2026-10-22
 kind: deferral
 area: stdlib
 where: `dz_project/src/std/core/format.dz`

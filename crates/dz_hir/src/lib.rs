@@ -481,6 +481,18 @@ pub enum ExprKind {
         init: ExprId,
         value: ExprId,
     },
+    /// A formatting macro's invocation (spec §12.9, D-0080). `args` are evaluated as a
+    /// call's arguments are — left to right, all of them first — and each is bound to the
+    /// local beside it in `params`; then `body` runs, and its final expression is the
+    /// node's value. What the arguments' evaluation made lives until `body` has ended, as a
+    /// call's temporaries live until it returns, which is what lets `body` write each
+    /// argument with a direct `Format::format` call per placeholder rather than through a
+    /// vtable.
+    Formatted {
+        args: Vec<ExprId>,
+        params: Vec<LocalId>,
+        body: BlockId,
+    },
     /// `e or clause` — the one failure eliminator (spec §9.4). `operand` is fallible: a
     /// call to a `!->` function, a `T?`, or a `^T`. The node's own type is the success
     /// type, so consumers never see the failure shape.

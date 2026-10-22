@@ -1548,8 +1548,10 @@ template <class S> inline void write_value(S& s, unsigned long v) { write_printf
 template <class S> inline void write_value(S& s, unsigned long long v) {
     write_printf(s, "%llu", v);
 }
+/// An address, in hex after `0x` on every platform — `%p` is spelled differently by each C
+/// library — as `{:p}` writes it (spec §12.9).
 template <class S, class T> inline void write_value(S& s, T* p) {
-    write_printf(s, "%p", static_cast<void*>(p));
+    write_printf(s, "0x%llx", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(p)));
 }
 
 // --- `{:spec}` (spec §12.9) ------------------------------------------------
@@ -1611,9 +1613,15 @@ template <class S> inline void write_precision(S& s, double v, int p) {
 
 /// One argument as its spec writes it, the width aside: `{:x}`/`{:X}` for an integer,
 /// `{:.N}` for a float.
+/// `{:p}`: a pointer's address. The checker allows it on pointers only.
+template <class S, class T> inline void write_address(S&, T) {}
+template <class S, class T> inline void write_address(S& s, T* p) { write_value(s, p); }
+
 template <class S, class T, class P>
 inline void write_kind(S& s, T v, const P* spec, size_t n) {
-    if (n == 1 && (spec[0] == 'x' || spec[0] == 'X')) {
+    if (n == 1 && spec[0] == 'p') {
+        write_address(s, v);
+    } else if (n == 1 && (spec[0] == 'x' || spec[0] == 'X')) {
         write_hex(s, v, spec[0] == 'X');
     } else if (n > 1 && spec[0] == '.') {
         int p = 0;
@@ -1657,6 +1665,8 @@ constexpr bool is_number(unsigned long) { return true; }
 constexpr bool is_number(unsigned long long) { return true; }
 constexpr bool is_number(float) { return true; }
 constexpr bool is_number(double) { return true; }
+// An address, which `{:p}` writes, lines up as a number does.
+template <class T> constexpr bool is_number(T*) { return true; }
 
 /// One argument, honouring its spec: an optional width, `N` or `0N`, then what `write_kind`
 /// reads. A number is right-aligned in the width, with zeros after its sign for `0N`;

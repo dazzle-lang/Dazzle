@@ -5649,6 +5649,20 @@ impl<'a, 'c> Body<'a, 'c> {
             if t.is_wildcard() {
                 continue;
             }
+            // `{}` writes what a pointer points at, which takes its `Format`; an address
+            // takes nothing.
+            if matches!(t, Ty::Ptr { .. } | Ty::OwnPtr { .. }) && spec_kind(spec) != "p" {
+                let shown = self.cx.name_of(t);
+                self.cx.error_help(
+                    codes::NOT_FORMATTABLE,
+                    *at,
+                    format!("`{shown}` cannot be written into an `Error`"),
+                    "what this points at has no way to be written here",
+                    "an error's message writes a pointer's address with `{:p}`; for what it \
+                     points at, write `p^` (spec §9.2, §12.9)",
+                );
+                continue;
+            }
             if !formattable(t) {
                 let shown = self.cx.name_of(t);
                 self.cx.error_help(
@@ -5707,7 +5721,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 a.span,
                 "a format string cannot be checked against a spread",
                 "how many values `..` gives is not known here",
-                "pass the values one by one, so each `{}` has its own (spec §12.9)",
+                "pass the values one by one, so each `{}` has its own; for however many there \
+                 are, write a loop — `for x in xs { print!(\"{} \", x) }` — and a macro that \
+                 forwards its arguments repeats them in its pattern (spec §12.9)",
             );
             for a in &positional[1..] {
                 self.expr(spread(a).unwrap_or(a), None);
@@ -5798,16 +5814,36 @@ impl<'a, 'c> Body<'a, 'c> {
             };
         }
 
-        // One call, so the arguments are evaluated as any call's are: left to right, all
-        // before anything is written, and what they produce lives until it returns.
-        let specs: Vec<String> = holes.iter().map(|h| h.spec.clone().unwrap_or_default()).collect();
-        let pieces = self.str_array(pieces, fmt.span);
-        let specs = self.str_array(specs, fmt.span);
-        let object = Ty::reference(false, Ty::plain(format_trait));
-        let mut elems = Vec::with_capacity(values.len());
-        for ((v, (at, t)), a) in values.iter().zip(&typed).zip(value_args) {
+        // The arguments are evaluated as a call's are — left to right, all before anything is
+        // written — and bound, so what their evaluation made lives until the text is written
+        // (D-0080). Then each is written by its own `Format::format`, called directly, so a
+        // generic implementation needs no vtable.
+        let mut bound: Vec<(hir::ExprId, Ty)> = Vec::with_capacity(values.len() + 2);
+        let mut writes = Vec::with_capacity(values.len());
+        for (((v, (at, t)), a), hole) in values.iter().zip(&typed).zip(value_args).zip(&holes) {
+            // A pointer is written as what it points at, or under `{:p}` as its address.
+            if let Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } = t {
+                if spec_kind(hole.spec.as_deref().unwrap_or("")) == "p" {
+                    let usize_ty = Ty::Int(IntTy::Usize);
+                    let cast = hir::ExprKind::Cast { operand: v.id };
+                    bound.push((self.hir.expr(*at, usize_ty.clone(), cast).id, usize_ty));
+                    writes.push(FormatWrite::Address);
+                    continue;
+                }
+                let read_only = Ty::Ptr { mutable: false, inner: inner.clone() };
+                let arg = if *t == read_only {
+                    v.id
+                } else {
+                    let cast = hir::ExprKind::Cast { operand: v.id };
+                    self.hir.expr(*at, read_only.clone(), cast).id
+                };
+                bound.push((arg, read_only));
+                writes.push(FormatWrite::Pointee((**inner).clone()));
+                continue;
+            }
+            writes.push(FormatWrite::Value);
             if matches!(t, Ty::Ref { .. }) {
-                elems.push(v.id);
+                bound.push((v.id, t.clone()));
                 continue;
             }
             // A C bit-field has no address, so it is referred to through a copy (§15.2).
@@ -5817,74 +5853,215 @@ impl<'a, 'c> Body<'a, 'c> {
             };
             let r = Ty::reference(false, t.clone());
             let kind = hir::ExprKind::Ref { mutable: false, place, temporary: true };
-            elems.push(self.hir.expr(*at, r, kind).id);
+            bound.push((self.hir.expr(*at, r.clone(), kind).id, r));
         }
-        let array = Ty::Array { elem: Rc::new(object), len: elems.len() as u64 };
-        let array = self.hir.expr(span, array, hir::ExprKind::ArrayLit(elems)).id;
+        // What the invocation is given besides the values is evaluated with them, in the
+        // order it is written: `format!`'s allocator, and `panic!`'s location last of all.
+        let allocator_ty = string
+            .and_then(|s| self.cx.table.struct_sig(s))
+            .and_then(|s| s.ctors.first())
+            .and_then(|c| c.params.iter().find(|p| p.name == "allocator"))
+            .map(|p| p.ty.clone());
+        let extra_from = bound.len();
+        if let (Some(a), Some(ty)) = (allocator, allocator_ty) {
+            bound.push((a, ty));
+        }
+        if let Some(l) = loc {
+            bound.push((l, Ty::Builtin(dz_hir::ty::BuiltinTy::SourceLocation)));
+        }
+        let mut args = Vec::with_capacity(bound.len());
+        let mut params = Vec::with_capacity(bound.len());
+        for (arg, ty) in bound {
+            args.push(arg);
+            params.push(self.hir.local("arg·", ty, false, span, LocalKind::Binding));
+        }
+        let extras = &params[extra_from..];
+        let allocator_param = if allocator.is_some() { extras.first().copied() } else { None };
+        let loc_param = if loc.is_some() { extras.last().copied() } else { None };
+
+        let fmt_ty = Ty::plain(formatter);
+        let f = self.hir.local("fmt·", fmt_ty.clone(), true, span, LocalKind::Let);
+        let mut outer = Vec::new();
+        // `format!` builds its `String` once the arguments are in hand, and appends to it.
+        let text = match (which, string) {
+            ("format", Some(string)) => {
+                let string_ty = Ty::plain(string);
+                let text = self.hir.local("text·", string_ty.clone(), true, span, LocalKind::Let);
+                let empty = self.hir.expr(span, Ty::Str, hir::ExprKind::Str(String::new())).id;
+                let mut ctor_args = vec![empty];
+                if let Some(p) = allocator_param {
+                    let ty = self.hir_local_ty(p);
+                    ctor_args.push(self.hir.expr(span, ty, hir::ExprKind::Local(p)).id);
+                }
+                let callee = hir::Callee::Ctor { owner: string, index: 0 };
+                let call = hir::ExprKind::Call { callee, args: ctor_args };
+                let init = self.hir.expr(span, string_ty, call).id;
+                let local = Some(text);
+                outer.push(self.hir.stmt(span, hir::StmtKind::Let { local, init: Some(init) }));
+                Some(text)
+            }
+            _ => None,
+        };
         let assoc = |name: &str| hir::Callee::Assoc {
             owner: formatter,
             type_args: Vec::new(),
             name: name.into(),
             method_args: Vec::new(),
         };
-
-        match which {
-            "format" => {
-                let args = [pieces, specs, array].into_iter().chain(allocator).collect();
-                self.mk(e, result, hir::ExprKind::Call { callee: assoc("format"), args })
+        let init = match text {
+            Some(text) => {
+                let ty = self.hir_local_ty(text);
+                let place = self.hir.expr(span, ty.clone(), hir::ExprKind::Local(text)).id;
+                let kind = hir::ExprKind::Ref { mutable: true, place, temporary: false };
+                let out = self.hir.expr(span, Ty::reference(true, ty), kind).id;
+                hir::ExprKind::Call { callee: assoc("string"), args: vec![out] }
             }
             // A panic must not allocate, since the allocators panic too: its message is
             // written into the `Formatter` itself.
-            "panic" => {
-                let fmt_ty = Ty::plain(formatter);
-                let f = self.hir.local("fmt·", fmt_ty.clone(), true, span, LocalKind::Let);
-                let call = hir::ExprKind::Call { callee: assoc("message"), args: Vec::new() };
-                let init = self.hir.expr(span, fmt_ty.clone(), call);
-                let mut stmts = vec![self
-                    .hir
-                    .stmt(span, hir::StmtKind::Let { local: Some(f), init: Some(init.id) })];
-                let method = |recv: hir::ExprId, name: &str| hir::Callee::Method {
+            None if which == "panic" => {
+                hir::ExprKind::Call { callee: assoc("message"), args: Vec::new() }
+            }
+            None => {
+                let which = self.hir.expr(span, Ty::Int(IntTy::I32), hir::ExprKind::Int(stream));
+                hir::ExprKind::Call { callee: assoc("stream"), args: vec![which.id] }
+            }
+        };
+        let init = self.hir.expr(span, fmt_ty.clone(), init).id;
+        let mut stmts =
+            vec![self.hir.stmt(span, hir::StmtKind::Let { local: Some(f), init: Some(init) })];
+
+        let tail = pieces.pop().unwrap_or_default();
+        for (i, (write, piece)) in writes.into_iter().zip(pieces).enumerate() {
+            let spec = holes[i].spec.clone().unwrap_or_default();
+            let piece = self.hir.expr(fmt.span, Ty::Str, hir::ExprKind::Str(piece)).id;
+            let spec = self.hir.expr(fmt.span, Ty::Str, hir::ExprKind::Str(spec)).id;
+            stmts.push(self.formatter_call(f, formatter, "begin_arg", vec![piece, spec], span));
+            let arg_span = typed[i].0;
+            let param = params[i];
+            let param_ty = self.hir_local_ty(param);
+            let arg = self.hir.expr(arg_span, param_ty, hir::ExprKind::Local(param)).id;
+            let write = match write {
+                FormatWrite::Value => {
+                    // The receiver is what the reference refers to: a `cstr` is a C++ pointer,
+                    // which a reference receiver would be read through.
+                    let value_ty = match self.hir_local_ty(param) {
+                        Ty::Ref { inner, .. } => (*inner).clone(),
+                        t => t,
+                    };
+                    let value = self.hir.expr(arg_span, value_ty, hir::ExprKind::Deref(arg)).id;
+                    let recv = self.hir.expr(arg_span, fmt_ty.clone(), hir::ExprKind::Local(f)).id;
+                    let kind = hir::ExprKind::Ref { mutable: true, place: recv, temporary: false };
+                    let out = self.hir.expr(arg_span, Ty::reference(true, fmt_ty.clone()), kind);
+                    let callee = hir::Callee::Method {
+                        recv: value,
+                        owner: format_trait,
+                        name: "format".into(),
+                        method_args: Vec::new(),
+                    };
+                    let call = hir::ExprKind::Call { callee, args: vec![out.id] };
+                    let call = self.hir.expr(arg_span, Ty::Void, call);
+                    self.hir.stmt(arg_span, hir::StmtKind::Expr(call.id))
+                }
+                FormatWrite::Pointee(t) => {
+                    self.formatter_generic_call(f, formatter, "write_pointee", t, arg, arg_span)
+                }
+                FormatWrite::Address => {
+                    self.formatter_call(f, formatter, "write_address", vec![arg], arg_span)
+                }
+            };
+            stmts.push(write);
+            // Only a width has anything to finish, and whether there is one is known here.
+            if spec_kind(&holes[i].spec.clone().unwrap_or_default()).len()
+                != holes[i].spec.as_ref().map_or(0, String::len)
+            {
+                stmts.push(self.formatter_call(f, formatter, "end_arg", Vec::new(), span));
+            }
+        }
+        let tail = self.hir.expr(fmt.span, Ty::Str, hir::ExprKind::Str(tail)).id;
+        stmts.push(self.formatter_call(f, formatter, "finish", vec![tail], span));
+
+        let body = match text {
+            // The `Formatter` is done with the text before it is handed back.
+            Some(text) => {
+                let inner = self.hir.block(span, stmts);
+                let inner = self.hir.expr(span, Ty::Void, hir::ExprKind::Block(inner)).id;
+                outer.push(self.hir.stmt(span, hir::StmtKind::Expr(inner)));
+                let ty = self.hir_local_ty(text);
+                let local = self.hir.expr(span, ty.clone(), hir::ExprKind::Local(text)).id;
+                let moved = self.hir.expr(span, ty, hir::ExprKind::Move(local)).id;
+                outer.push(self.hir.stmt(span, hir::StmtKind::Expr(moved)));
+                self.hir.block(span, outer)
+            }
+            None if which == "panic" => {
+                let recv = self.hir.expr(span, fmt_ty, hir::ExprKind::Local(f)).id;
+                let callee = hir::Callee::Method {
                     recv,
                     owner: formatter,
-                    name: name.into(),
+                    name: "message_text".into(),
                     method_args: Vec::new(),
                 };
-                let recv = self.hir.expr(span, fmt_ty.clone(), hir::ExprKind::Local(f)).id;
-                let args = vec![pieces, specs, array];
-                let write = self.hir.expr(
-                    span,
-                    Ty::Void,
-                    hir::ExprKind::Call { callee: method(recv, "write_args"), args },
-                );
-                stmts.push(self.hir.stmt(span, hir::StmtKind::Expr(write.id)));
-                let recv = self.hir.expr(span, fmt_ty, hir::ExprKind::Local(f)).id;
-                let call =
-                    hir::ExprKind::Call { callee: method(recv, "message_text"), args: Vec::new() };
-                let message = self.hir.expr(span, Ty::Str, call);
-                let args = std::iter::once(message.id).chain(loc).collect();
+                let call = hir::ExprKind::Call { callee, args: Vec::new() };
+                let message = self.hir.expr(span, Ty::Str, call).id;
+                let mut args = vec![message];
+                if let Some(p) = loc_param {
+                    let ty = self.hir_local_ty(p);
+                    args.push(self.hir.expr(span, ty, hir::ExprKind::Local(p)).id);
+                }
                 let panic = hir::ExprKind::Builtin { name: "panic".into(), args };
                 let panic = self.hir.expr(span, Ty::Never, panic);
                 stmts.push(self.hir.stmt(span, hir::StmtKind::Expr(panic.id)));
-                let block = self.hir.block(span, stmts);
-                self.mk(e, Ty::Never, hir::ExprKind::Block(block))
+                self.hir.block(span, stmts)
             }
-            _ => {
-                let which = self.hir.expr(span, Ty::Int(IntTy::I32), hir::ExprKind::Int(stream));
-                let args = vec![which.id, pieces, specs, array];
-                self.mk(e, Ty::Void, hir::ExprKind::Call { callee: assoc("print"), args })
-            }
+            None => self.hir.block(span, stmts),
+        };
+        let formatted = hir::ExprKind::Formatted { args, params, body };
+        if which != "panic" {
+            return self.mk(e, result, formatted);
         }
+        // A panic is a statement of its own, as `panic!` with nothing to fill in is.
+        let formatted = self.hir.expr(span, Ty::Never, formatted).id;
+        let stmt = self.hir.stmt(span, hir::StmtKind::Expr(formatted));
+        let block = self.hir.block(span, vec![stmt]);
+        self.mk(e, Ty::Never, hir::ExprKind::Block(block))
     }
 
-    /// An array of string literals, for the pieces and specs of a format string.
-    fn str_array(&mut self, texts: Vec<String>, span: Span) -> hir::ExprId {
-        let len = texts.len() as u64;
-        let elems = texts
-            .into_iter()
-            .map(|t| self.hir.expr(span, Ty::Str, hir::ExprKind::Str(t)).id)
-            .collect();
-        let ty = Ty::Array { elem: Rc::new(Ty::Str), len };
-        self.hir.expr(span, ty, hir::ExprKind::ArrayLit(elems)).id
+    /// The type of a local this body has made.
+    fn hir_local_ty(&self, l: LocalId) -> Ty {
+        self.hir.local_ty(l).clone()
+    }
+
+    /// `f.name(args)` on a formatting macro's `Formatter`, as a statement (spec §12.9).
+    fn formatter_call(
+        &mut self,
+        f: LocalId,
+        formatter: SymbolId,
+        name: &str,
+        args: Vec<hir::ExprId>,
+        span: Span,
+    ) -> StmtId {
+        let recv = self.hir.expr(span, Ty::plain(formatter), hir::ExprKind::Local(f)).id;
+        let callee =
+            hir::Callee::Method { recv, owner: formatter, name: name.into(), method_args: vec![] };
+        let call = self.hir.expr(span, Ty::Void, hir::ExprKind::Call { callee, args });
+        self.hir.stmt(span, hir::StmtKind::Expr(call.id))
+    }
+
+    /// `f.name<t>(arg)` on a formatting macro's `Formatter`, as a statement: one of its
+    /// generic methods, instantiated for what a pointer argument points at.
+    fn formatter_generic_call(
+        &mut self,
+        f: LocalId,
+        formatter: SymbolId,
+        name: &str,
+        t: Ty,
+        arg: hir::ExprId,
+        span: Span,
+    ) -> StmtId {
+        let recv = self.hir.expr(span, Ty::plain(formatter), hir::ExprKind::Local(f)).id;
+        let callee =
+            hir::Callee::Method { recv, owner: formatter, name: name.into(), method_args: vec![t] };
+        let call = self.hir.expr(span, Ty::Void, hir::ExprKind::Call { callee, args: vec![arg] });
+        self.hir.stmt(span, hir::StmtKind::Expr(call.id))
     }
 
     /// What a formatting macro is given by name: `format!`'s `allocator`, which says where
@@ -5968,14 +6145,26 @@ impl<'a, 'c> Body<'a, 'c> {
                 ok = false;
                 continue;
             }
-            let inner = t.peeled_refs();
+            let hole = holes.get(i);
+            // `{:p}` writes a pointer's address, whatever it points at.
+            if let Some(Hole { spec: Some(spec), span, .. }) = hole {
+                if spec_kind(spec) == "p" {
+                    ok &= self.check_spec(spec, *span, t);
+                    continue;
+                }
+            }
+            // A pointer is written as what it points at, as a reference is.
+            let inner = match t {
+                Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => inner.peeled_refs(),
+                _ => t.peeled_refs(),
+            };
             let r = TraitRef { trait_sym: format_trait, args: Vec::new(), span: *at };
             if !self.satisfies(inner, &r) {
                 self.not_formattable(inner, *at);
                 ok = false;
                 continue;
             }
-            let Some(Hole { spec: Some(spec), span, .. }) = holes.get(i) else { continue };
+            let Some(Hole { spec: Some(spec), span, .. }) = hole else { continue };
             // A type's own `Format` reads the spec itself, through `Formatter::hex` and
             // `precision`, so it decides what `{:x}` means for it — and so does whatever a
             // type parameter turns out to be; the built-in kinds' answers are known here.
@@ -5997,9 +6186,10 @@ impl<'a, 'c> Body<'a, 'c> {
             Ty::Optional(_) => {
                 "take the value out first, with `or` or `if let` (spec §9.4)".to_owned()
             }
-            Ty::Ptr { .. } | Ty::OwnPtr { .. } => {
-                "a pointer is written through what it points at: `p^` (spec §5.2)".to_owned()
-            }
+            Ty::Ptr { .. } | Ty::OwnPtr { .. } => "`{}` writes what a pointer points at, one \
+                                                   level down: write `p^` to reach further, or \
+                                                   `{:p}` for the address (spec §12.9)"
+                .to_owned(),
             Ty::Named { .. } => format!(
                 "write `impl Format for {shown}` to give it a way to be written, or format the \
                  fields you mean (spec §12.9)"
@@ -6021,15 +6211,20 @@ impl<'a, 'c> Body<'a, 'c> {
     /// it does not (spec §12.9).
     fn check_spec(&mut self, spec: &str, here: Span, t: &Ty) -> bool {
         let Err(why) = spec_fits(spec, t) else { return true };
-        let shown = self.cx.name_of(t.peeled());
+        // `{:p}` is about the pointer itself; every other spec about what it points at.
+        let shown = if spec_kind(spec) == "p" {
+            self.cx.name_of(t.peeled_refs())
+        } else {
+            self.cx.name_of(t.peeled())
+        };
         self.cx.error_help(
             codes::BAD_FORMAT_STRING,
             here,
             format!("`{{:{spec}}}` does not suit `{shown}`"),
             why,
-            "`{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals; \
-             `{:N}` pads anything to N characters, and `{:0N}` a number with zeros, as in \
-             `{:08x}` (spec §12.9)",
+            "`{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals, \
+             `{:p}` a pointer's address; `{:N}` pads anything to N characters, and `{:0N}` a \
+             number with zeros, as in `{:08x}` (spec §12.9)",
         );
         false
     }
@@ -8068,6 +8263,22 @@ struct Hole {
     end: usize,
 }
 
+/// How a formatting macro writes one argument (spec §12.9).
+enum FormatWrite {
+    /// By its own `Format::format`, called directly.
+    Value,
+    /// A pointer, by what it points at — a `T`, written by `T`'s `Format` — or as `null`.
+    Pointee(Ty),
+    /// A pointer under `{:p}`, by its address.
+    Address,
+}
+
+/// What a spec asks to be written, its width left out: `""`, `"x"`, `".2"`, `"p"`.
+fn spec_kind(spec: &str) -> &str {
+    let after_zero = spec.strip_prefix('0').filter(|_| spec.len() > 1).unwrap_or(spec);
+    after_zero.trim_start_matches(|c: char| c.is_ascii_digit())
+}
+
 /// Where the escape sequence at `raw[i]` (a `\`) ends: past `\u{…}`'s closing brace, or
 /// past the one character after the backslash.
 fn escape_end(raw: &str, i: usize) -> usize {
@@ -8115,6 +8326,16 @@ fn formattable(t: &Ty) -> bool {
 /// A spec is an optional width — `N`, or `0N` to fill a number with zeros — then what the
 /// value is written as: nothing, `x`/`X`, or `.N`. A width suits anything.
 fn spec_fits(spec: &str, t: &Ty) -> Result<(), &'static str> {
+    let pointer = matches!(t.peeled_refs(), Ty::Ptr { .. } | Ty::OwnPtr { .. });
+    if spec_kind(spec) == "p" {
+        // An address is a pointer's alone, and has no sign for zeros to follow.
+        if !pointer {
+            return Err("an address needs a pointer");
+        }
+        if spec.len() > 1 && spec.starts_with('0') {
+            return Err("an address is padded with spaces, not zeros");
+        }
+    }
     let t = t.peeled();
     let zero = spec.len() > 1 && spec.starts_with('0');
     let after_zero = &spec[usize::from(zero)..];
@@ -8134,7 +8355,7 @@ fn spec_fits(spec: &str, t: &Ty) -> Result<(), &'static str> {
         return Err("a zero fill needs a number");
     }
     match spec {
-        "" => Ok(()),
+        "" | "p" => Ok(()),
         "x" | "X" if matches!(t, Ty::Int(_)) => Ok(()),
         "x" | "X" => Err("hex needs an integer"),
         s if s.len() > 1 && s.starts_with('.') && s[1..].bytes().all(|b| b.is_ascii_digit()) => {

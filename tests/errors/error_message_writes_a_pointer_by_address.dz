@@ -1,0 +1,17 @@
+// expect: DZ0527
+//
+// `error(…)` writes its message without allocating and without `Format` (spec §9.2), so
+// it cannot write what a pointer points at; `{:p}` writes the address (spec §12.9).
+
+struct Asset {
+    pub id: i32
+}
+
+fn load(a: ^Asset) !-> i32 {
+    return error("could not load {}", a)
+}
+
+fn main() {
+    let a = Asset{ id: 1 }
+    let _ = load(&a) or 0
+}
