@@ -1,5 +1,6 @@
 ---
 source: crates/dz_check/tests/check.rs
+assertion_line: 233
 expression: r.hir
 ---
 body impl#0 method extend -> void
@@ -24,26 +25,41 @@ body impl#0 method insert_slice -> void
       block
         block-value: !
           block
-            let _3 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _3 fmt·: Formatter
-              array: [3]str
-                str "List::insert_slice at ": str
-                str " past the length ": str
-                str "": str
-              array: [2]str
-                str "": str
-                str "": str
-              array: [2]&Format
+            formatted: !
+              bind _3 arg·
                 ref: &usize
                   local _1 i: usize
+              bind _4 arg·
                 ref: &usize
                   field #1: usize
                     local _0 self: List<T>
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _3 fmt·: Formatter
+              block
+                let _5 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _5 fmt·: Formatter
+                  str "List::insert_slice at ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _5 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _5 fmt·: Formatter
+                  str " past the length ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _4 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _5 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _5 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _5 fmt·: Formatter
     if: void
       binary ==: bool
         len: usize
@@ -60,7 +76,7 @@ body impl#0 method insert_slice -> void
       local _1 i: usize
       len: usize
         local _2 xs: []T
-    for _4 k
+    for _6 k
       range: usize..usize
         int 0: i32
         len: usize
@@ -74,10 +90,10 @@ body impl#0 method insert_slice -> void
                   local _0 self: List<T>
                 binary +: usize
                   local _1 i: usize
-                  local _4 k: usize
+                  local _6 k: usize
               index: T
                 local _2 xs: []T
-                local _4 k: usize
+                local _6 k: usize
     assign +=
       field #1: usize
         local _0 self: List<T>
@@ -702,26 +718,41 @@ body method HashMap::checked_slot -> u64
       block
         block-value: !
           block
-            let _2 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _2 fmt·: Formatter
-              array: [3]str
-                str "slot ": str
-                str " is out of bounds for a HashMap of ": str
-                str " slots": str
-              array: [2]str
-                str "": str
-                str "": str
-              array: [2]&Format
+            formatted: !
+              bind _2 arg·
                 ref: &usize
                   local _1 slot: usize
+              bind _3 arg·
                 ref: &usize
                   field #4: usize
                     local _0 self: HashMap<K, V>
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _2 fmt·: Formatter
+              block
+                let _4 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str "slot ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _2 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str " is out of bounds for a HashMap of ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _4 fmt·: Formatter
+                  str " slots": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _4 fmt·: Formatter
     return: !
       block-value: u64
         block
@@ -2115,26 +2146,41 @@ body method List::insert -> void
       block
         block-value: !
           block
-            let _4 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _4 fmt·: Formatter
-              array: [3]str
-                str "List::insert at ": str
-                str " past the length ": str
-                str "": str
-              array: [2]str
-                str "": str
-                str "": str
-              array: [2]&Format
+            formatted: !
+              bind _4 arg·
                 ref: &usize
                   local _1 i: usize
+              bind _5 arg·
                 ref: &usize
                   field #1: usize
                     local _0 self: List<T>
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _4 fmt·: Formatter
+              block
+                let _6 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str "List::insert at ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _4 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str " past the length ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _5 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _6 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _6 fmt·: Formatter
     if: void
       binary ==: bool
         field #1: usize
@@ -2178,27 +2224,42 @@ body method List::remove -> T
       block
         block-value: !
           block
-            let _2 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _2 fmt·: Formatter
-              array: [3]str
-                str "List::remove at ": str
-                str " for a length of ": str
-                str "": str
-              array: [2]str
-                str "": str
-                str "": str
-              array: [2]&Format
+            formatted: !
+              bind _2 arg·
                 ref: &usize
                   local _1 i: usize
+              bind _3 arg·
                 ref: &usize
                   field #1: usize
                     local _0 self: List<T>
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _2 fmt·: Formatter
-    let _3 v: T
+              block
+                let _4 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str "List::remove at ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _2 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str " for a length of ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _4 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _4 fmt·: Formatter
+    let _5 v: T
       block-value: T
         block
           builtin move_out: T
@@ -2218,7 +2279,7 @@ body method List::remove -> T
       int 1: usize
     return: !
       move: T
-        local _3 v: T
+        local _5 v: T
 body method List::remove_range -> void
   param _0 self: List<T>
   param _1 from: usize
@@ -2236,37 +2297,60 @@ body method List::remove_range -> void
       block
         block-value: !
           block
-            let _3 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _3 fmt·: Formatter
-              array: [4]str
-                str "List::remove_range of ": str
-                str "..": str
-                str " for a length of ": str
-                str "": str
-              array: [3]str
-                str "": str
-                str "": str
-                str "": str
-              array: [3]&Format
+            formatted: !
+              bind _3 arg·
                 ref: &usize
                   local _1 from: usize
+              bind _4 arg·
                 ref: &usize
                   local _2 to: usize
+              bind _5 arg·
                 ref: &usize
                   field #1: usize
                     local _0 self: List<T>
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _3 fmt·: Formatter
+              block
+                let _6 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str "List::remove_range of ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str "..": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _4 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str " for a length of ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _5 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _6 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _6 fmt·: Formatter
     if: void
       binary ==: bool
         local _1 from: usize
         local _2 to: usize
       block
         return: !
-    for _4 i
+    for _7 i
       range: usize..usize
         local _1 from: usize
         local _2 to: usize
@@ -2277,7 +2361,7 @@ body method List::remove_range -> void
               index: T
                 field #0: own ^mut T
                   local _0 self: List<T>
-                local _4 i: usize
+                local _7 i: usize
     call-method List::shift_down: void
       local _0 self: List<T>
       local _2 to: usize
@@ -2596,27 +2680,42 @@ body method List::swap_remove -> T
       block
         block-value: !
           block
-            let _2 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _2 fmt·: Formatter
-              array: [3]str
-                str "List::swap_remove at ": str
-                str " for a length of ": str
-                str "": str
-              array: [2]str
-                str "": str
-                str "": str
-              array: [2]&Format
+            formatted: !
+              bind _2 arg·
                 ref: &usize
                   local _1 i: usize
+              bind _3 arg·
                 ref: &usize
                   field #1: usize
                     local _0 self: List<T>
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _2 fmt·: Formatter
-    let _3 v: T
+              block
+                let _4 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str "List::swap_remove at ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _2 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str " for a length of ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _4 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _4 fmt·: Formatter
+    let _5 v: T
       block-value: T
         block
           builtin move_out: T
@@ -2649,7 +2748,7 @@ body method List::swap_remove -> T
                     local _0 self: List<T>
     return: !
       move: T
-        local _3 v: T
+        local _5 v: T
 body method List::swap -> void
   param _0 self: List<T>
   param _1 i: usize
@@ -2668,30 +2767,53 @@ body method List::swap -> void
       block
         block-value: !
           block
-            let _3 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _3 fmt·: Formatter
-              array: [4]str
-                str "List::swap of ": str
-                str " and ": str
-                str " for a length of ": str
-                str "": str
-              array: [3]str
-                str "": str
-                str "": str
-                str "": str
-              array: [3]&Format
+            formatted: !
+              bind _3 arg·
                 ref: &usize
                   local _1 i: usize
+              bind _4 arg·
                 ref: &usize
                   local _2 j: usize
+              bind _5 arg·
                 ref: &usize
                   field #1: usize
                     local _0 self: List<T>
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _3 fmt·: Formatter
+              block
+                let _6 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str "List::swap of ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str " and ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _4 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str " for a length of ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _5 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _6 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _6 fmt·: Formatter
     if: void
       binary ==: bool
         local _1 i: usize
@@ -2700,7 +2822,7 @@ body method List::swap -> void
         return: !
     block-value: void
       block
-        let _4 held: T
+        let _7 held: T
           builtin move_out: T
             index: T
               field #0: own ^mut T
@@ -2722,7 +2844,7 @@ body method List::swap -> void
               local _0 self: List<T>
             local _2 j: usize
           move: T
-            local _4 held: T
+            local _7 held: T
 body method List::sort_by -> void
   param _0 self: List<T>
   param _1 before: fn(&T, &T) -> bool
@@ -3275,26 +3397,41 @@ body impl#15 method index -> &T
       block
         block-value: !
           block
-            let _2 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _2 fmt·: Formatter
-              array: [3]str
-                str "index ": str
-                str " is out of bounds for a List of length ": str
-                str "": str
-              array: [2]str
-                str "": str
-                str "": str
-              array: [2]&Format
+            formatted: !
+              bind _2 arg·
                 ref: &usize
                   local _1 i: usize
+              bind _3 arg·
                 ref: &usize
                   field #1: usize
                     local _0 self: List<T>
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _2 fmt·: Formatter
+              block
+                let _4 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str "index ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _2 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str " is out of bounds for a List of length ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _4 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _4 fmt·: Formatter
     return: !
       block-value: &T
         block
@@ -3329,26 +3466,41 @@ body impl#18 method index_mut -> &mut T
       block
         block-value: !
           block
-            let _2 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _2 fmt·: Formatter
-              array: [3]str
-                str "index ": str
-                str " is out of bounds for a List of length ": str
-                str "": str
-              array: [2]str
-                str "": str
-                str "": str
-              array: [2]&Format
+            formatted: !
+              bind _2 arg·
                 ref: &usize
                   local _1 i: usize
+              bind _3 arg·
                 ref: &usize
                   field #1: usize
                     local _0 self: List<T>
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _2 fmt·: Formatter
+              block
+                let _4 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str "index ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _2 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _4 fmt·: Formatter
+                  str " is out of bounds for a List of length ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _4 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _4 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _4 fmt·: Formatter
     return: !
       block-value: &mut T
         block
@@ -3693,22 +3845,31 @@ body fn assert -> void
           local _2 loc: SourceLocation
     block-value: !
       block
-        let _3 fmt·: Formatter
-          call-assoc Formatter::message: Formatter
-        call-method Formatter::write_args: void
-          local _3 fmt·: Formatter
-          array: [2]str
-            str "assertion failed: ": str
-            str "": str
-          array: [1]str
-            str "": str
-          array: [1]&Format
+        formatted: !
+          bind _3 arg·
             ref: &str
               local _1 msg: str
-        builtin panic: !
-          call-method Formatter::message_text: str
-            local _3 fmt·: Formatter
-          local _2 loc: SourceLocation
+          bind _4 arg·
+            local _2 loc: SourceLocation
+          block
+            let _5 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::begin_arg: void
+              local _5 fmt·: Formatter
+              str "assertion failed: ": str
+              str "": str
+            call-method Format::format: void
+              deref: str
+                local _3 arg·: &str
+              ref mut: &mut Formatter
+                local _5 fmt·: Formatter
+            call-method Formatter::finish: void
+              local _5 fmt·: Formatter
+              str "": str
+            builtin panic: !
+              call-method Formatter::message_text: str
+                local _5 fmt·: Formatter
+              local _4 arg·: SourceLocation
 body impl#25 method format -> void
   param _0 self: i8
   param _1 f: &mut Formatter
@@ -4262,111 +4423,156 @@ body method Formatter::write_char -> void
               local _2 encoded: [4]u8
               int 0: usize
               local _3 n: usize
-body method Formatter::print -> void
-  param _0 stream: i32
-  param _1 pieces: []str
-  param _2 specs: []str
-  param _3 args: []&Format
-  block
-    let _4 f: Formatter
-      call-assoc Formatter::stream: Formatter
-        local _0 stream: i32
-    call-method Formatter::write_args: void
-      local _4 f: Formatter
-      local _1 pieces: []str
-      local _2 specs: []str
-      local _3 args: []&Format
-body method Formatter::format -> String
-  param _0 pieces: []str
-  param _1 specs: []str
-  param _2 args: []&Format
-  param _3 allocator: ^mut Allocator
-  param _4 loc: SourceLocation
-  block
-    let _5 out: String
-      call-ctor String#0: String
-        str "": str
-        local _3 allocator: ^mut Allocator
-        local _4 loc: SourceLocation
-    block-value: void
-      block
-        let _6 f: Formatter
-          call-assoc Formatter::string: Formatter
-            ref mut: &mut String
-              local _5 out: String
-            local _4 loc: SourceLocation
-        call-method Formatter::write_args: void
-          local _6 f: Formatter
-          local _0 pieces: []str
-          local _1 specs: []str
-          local _2 args: []&Format
-    return: !
-      local _5 out: String
-body method Formatter::write_args -> void
+body method Formatter::begin_arg -> void
   param _0 self: Formatter
-  param _1 pieces: []str
-  param _2 specs: []str
-  param _3 args: []&Format
+  param _1 piece: str
+  param _2 spec: str
   block
-    for _4 i
-      range: usize..usize
-        int 0: i32
-        len: usize
-          local _3 args: []&Format
+    call-method Formatter::write_str: void
+      local _0 self: Formatter
+      local _1 piece: str
+    call-method Formatter::set_spec: void
+      local _0 self: Formatter
+      local _2 spec: str
+    if: void
+      binary !=: bool
+        field #8: u32?
+          local _0 self: Formatter
+        none: u32?
       block
-        call-method Formatter::write_str: void
-          local _0 self: Formatter
-          index: str
-            local _1 pieces: []str
-            local _4 i: usize
-        call-method Formatter::set_spec: void
-          local _0 self: Formatter
-          index: str
-            local _2 specs: []str
-            local _4 i: usize
-        if-let: void
-          field #8: u32?
+        assign =
+          field #10: bool
             local _0 self: Formatter
-          bind _5 width
-          block
-            assign =
-              field #10: bool
-                local _0 self: Formatter
-              bool true: bool
-            assign =
-              field #11: usize
-                local _0 self: Formatter
-              int 0: usize
-            call-method Format::format: void
-              index: &Format
-                local _3 args: []&Format
-                local _4 i: usize
-              ref mut: &mut Formatter
-                local _0 self: Formatter
-            call-method Formatter::end_padded: void
-              local _0 self: Formatter
-              cast: usize
-                local _5 width: u32
-          block
-            block-value: void
-              block
-                call-method Format::format: void
-                  index: &Format
-                    local _3 args: []&Format
-                    local _4 i: usize
-                  ref mut: &mut Formatter
-                    local _0 self: Formatter
+          bool true: bool
+        assign =
+          field #11: usize
+            local _0 self: Formatter
+          int 0: usize
+body method Formatter::end_arg -> void
+  param _0 self: Formatter
+  block
+    if-let: void
+      field #8: u32?
+        local _0 self: Formatter
+      bind _1 width
+      block
+        call-method Formatter::end_padded: void
+          local _0 self: Formatter
+          cast: usize
+            local _1 width: u32
+body method Formatter::finish -> void
+  param _0 self: Formatter
+  param _1 piece: str
+  block
     call-method Formatter::set_spec: void
       local _0 self: Formatter
       str "": str
     call-method Formatter::write_str: void
       local _0 self: Formatter
-      index: str
-        local _1 pieces: []str
-        len: usize
-          local _3 args: []&Format
+      local _1 piece: str
     call-method Formatter::flush: void
       local _0 self: Formatter
+body method Formatter::write_pointee -> void
+  param _0 self: Formatter
+  param _1 p: ^T
+  block
+    if: void
+      binary ==: bool
+        local _1 p: ^T
+        null: ^T
+      block
+        call-method Formatter::write_str: void
+          local _0 self: Formatter
+          str "null": str
+        return: !
+    block-value: void
+      block
+        call-method Format::format: void
+          deref: T
+            local _1 p: ^T
+          ref mut: &mut Formatter
+            local _0 self: Formatter
+body method Formatter::write_address -> void
+  param _0 self: Formatter
+  param _1 address: usize
+  block
+    let _2 buf: [18]u8
+      (uninitialised)
+    let _3 at: usize
+      int 18: usize
+    let _4 n: u64
+      cast: u64
+        local _1 address: usize
+    while
+      bool true: bool
+      block
+        assign -=
+          local _3 at: usize
+          int 1: usize
+        let _5 d: u8
+          cast: u8
+            binary %: u64
+              local _4 n: u64
+              int 16: u64
+        assign =
+          index: u8
+            local _2 buf: [18]u8
+            local _3 at: usize
+          if: u8
+            binary <: bool
+              local _5 d: u8
+              int 10: u8
+            block
+              binary +: u8
+                cast: u8
+                  char '0': char
+                local _5 d: u8
+            block
+              block-value: u8
+                block
+                  binary -: u8
+                    binary +: u8
+                      cast: u8
+                        char 'a': char
+                      local _5 d: u8
+                    int 10: u8
+        assign =
+          local _4 n: u64
+          binary /: u64
+            local _4 n: u64
+            int 16: u64
+        if: void
+          binary ==: bool
+            local _4 n: u64
+            int 0: u64
+          block
+            break: !
+    assign -=
+      local _3 at: usize
+      int 2: usize
+    assign =
+      index: u8
+        local _2 buf: [18]u8
+        local _3 at: usize
+      cast: u8
+        char '0': char
+    assign =
+      index: u8
+        local _2 buf: [18]u8
+        binary +: usize
+          local _3 at: usize
+          int 1: usize
+      cast: u8
+        char 'x': char
+    call-method Formatter::write_number: void
+      local _0 self: Formatter
+      block-value: str
+        block
+          cast: str
+            slice: []mut u8
+              local _2 buf: [18]u8
+              local _3 at: usize
+              int 18: usize
 body method Formatter::write_number -> void
   param _0 self: Formatter
   param _1 text: str
@@ -6470,21 +6676,28 @@ body method Mat4::row -> Vec4
           block
             block-value: !
               block
-                let _2 fmt·: Formatter
-                  call-assoc Formatter::message: Formatter
-                call-method Formatter::write_args: void
-                  local _2 fmt·: Formatter
-                  array: [2]str
-                    str "row ": str
-                    str " of a Mat4, which has 4": str
-                  array: [1]str
-                    str "": str
-                  array: [1]&Format
+                formatted: !
+                  bind _2 arg·
                     ref: &usize
                       local _1 row: usize
-                builtin panic: !
-                  call-method Formatter::message_text: str
-                    local _2 fmt·: Formatter
+                  block
+                    let _3 fmt·: Formatter
+                      call-assoc Formatter::message: Formatter
+                    call-method Formatter::begin_arg: void
+                      local _3 fmt·: Formatter
+                      str "row ": str
+                      str "": str
+                    call-method Format::format: void
+                      deref: usize
+                        local _2 arg·: &usize
+                      ref mut: &mut Formatter
+                        local _3 fmt·: Formatter
+                    call-method Formatter::finish: void
+                      local _3 fmt·: Formatter
+                      str " of a Mat4, which has 4": str
+                    builtin panic: !
+                      call-method Formatter::message_text: str
+                        local _3 fmt·: Formatter
 body method Mat4::transpose -> Mat4
   param _0 self: Mat4
   block
@@ -11614,22 +11827,31 @@ body method String::insert_str -> void
       block
         block-value: !
           block
-            let _4 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _4 fmt·: Formatter
-              array: [2]str
-                str "insert at byte ": str
-                str ", inside a character or past the end": str
-              array: [1]str
-                str "": str
-              array: [1]&Format
+            formatted: !
+              bind _4 arg·
                 ref: &usize
                   local _1 at: usize
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _4 fmt·: Formatter
-              local _3 loc: SourceLocation
+              bind _5 arg·
+                local _3 loc: SourceLocation
+              block
+                let _6 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str "insert at byte ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _4 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _6 fmt·: Formatter
+                  str ", inside a character or past the end": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _6 fmt·: Formatter
+                  local _5 arg·: SourceLocation
     if: void
       binary ==: bool
         len: usize
@@ -11701,23 +11923,32 @@ body method String::remove -> char
       block
         block-value: !
           block
-            let _3 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _3 fmt·: Formatter
-              array: [2]str
-                str "remove at byte ": str
-                str ", not the start of a character": str
-              array: [1]str
-                str "": str
-              array: [1]&Format
+            formatted: !
+              bind _3 arg·
                 ref: &usize
                   local _1 at: usize
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _3 fmt·: Formatter
-              local _2 loc: SourceLocation
-    let (_4 c, _5 width)
+              bind _4 arg·
+                local _2 loc: SourceLocation
+              block
+                let _5 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _5 fmt·: Formatter
+                  str "remove at byte ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _5 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _5 fmt·: Formatter
+                  str ", not the start of a character": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _5 fmt·: Formatter
+                  local _4 arg·: SourceLocation
+    let (_6 c, _7 width)
       call decode_utf8: (char, usize)
         cast: []u8
           call-method String::as_str: str
@@ -11729,9 +11960,9 @@ body method String::remove -> char
       local _1 at: usize
       binary +: usize
         local _1 at: usize
-        local _5 width: usize
+        local _7 width: usize
     return: !
-      local _4 c: char
+      local _6 c: char
 body method String::clear -> void
   param _0 self: String
   block
@@ -11882,22 +12113,31 @@ body method String::truncate -> void
       block
         block-value: !
           block
-            let _3 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _3 fmt·: Formatter
-              array: [2]str
-                str "truncate at byte ": str
-                str ", inside a character": str
-              array: [1]str
-                str "": str
-              array: [1]&Format
+            formatted: !
+              bind _3 arg·
                 ref: &usize
                   local _1 len: usize
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _3 fmt·: Formatter
-              local _2 loc: SourceLocation
+              bind _4 arg·
+                local _2 loc: SourceLocation
+              block
+                let _5 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _5 fmt·: Formatter
+                  str "truncate at byte ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _5 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _5 fmt·: Formatter
+                  str ", inside a character": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _5 fmt·: Formatter
+                  local _4 arg·: SourceLocation
     call-method List::truncate: void
       field #0: List<u8>
         local _0 self: String
@@ -14857,86 +15097,224 @@ body fn formatting -> void
   param _0 x: i32
   param _1 f: f32
   block
-    call-assoc Formatter::print: void
-      int 0: i32
-      array: [5]str
-        str "": str
-        str " ": str
-        str " ": str
-        str " ": str
-        str " {literal}\n": str
-      array: [4]str
-        str "": str
-        str "x": str
-        str "X": str
-        str ".3": str
-      array: [4]&Format
+    formatted: void
+      bind _2 arg·
         ref: &i32
           local _0 x: i32
+      bind _3 arg·
         ref: &i32
           local _0 x: i32
+      bind _4 arg·
         ref: &i32
           local _0 x: i32
+      bind _5 arg·
         ref: &f32
           local _1 f: f32
+      block
+        let _6 fmt·: Formatter
+          call-assoc Formatter::stream: Formatter
+            int 0: i32
+        call-method Formatter::begin_arg: void
+          local _6 fmt·: Formatter
+          str "": str
+          str "": str
+        call-method Format::format: void
+          deref: i32
+            local _2 arg·: &i32
+          ref mut: &mut Formatter
+            local _6 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _6 fmt·: Formatter
+          str " ": str
+          str "x": str
+        call-method Format::format: void
+          deref: i32
+            local _3 arg·: &i32
+          ref mut: &mut Formatter
+            local _6 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _6 fmt·: Formatter
+          str " ": str
+          str "X": str
+        call-method Format::format: void
+          deref: i32
+            local _4 arg·: &i32
+          ref mut: &mut Formatter
+            local _6 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _6 fmt·: Formatter
+          str " ": str
+          str ".3": str
+        call-method Format::format: void
+          deref: f32
+            local _5 arg·: &f32
+          ref mut: &mut Formatter
+            local _6 fmt·: Formatter
+        call-method Formatter::finish: void
+          local _6 fmt·: Formatter
+          str " {literal}\n": str
 body fn widths -> void
   param _0 x: i32
   param _1 f: f32
   param _2 s: str
   param _3 t: T
   block
-    call-assoc Formatter::print: void
-      int 0: i32
-      array: [7]str
-        str "": str
-        str " ": str
-        str " ": str
-        str " ": str
-        str " ": str
-        str " ": str
-        str "\n": str
-      array: [6]str
-        str "8": str
-        str "08": str
-        str "8x": str
-        str "08X": str
-        str "10.3": str
-        str "010.3": str
-      array: [6]&Format
+    formatted: void
+      bind _4 arg·
         ref: &i32
           local _0 x: i32
+      bind _5 arg·
         ref: &i32
           local _0 x: i32
+      bind _6 arg·
         ref: &i32
           local _0 x: i32
+      bind _7 arg·
         ref: &i32
           local _0 x: i32
+      bind _8 arg·
         ref: &f32
           local _1 f: f32
+      bind _9 arg·
         ref: &f32
           local _1 f: f32
-    call-assoc Formatter::print: void
-      int 0: i32
-      array: [5]str
-        str "": str
-        str " ": str
-        str " ": str
-        str " ": str
-        str "\n": str
-      array: [4]str
-        str "12": str
-        str "5": str
-        str "3": str
-        str "6": str
-      array: [4]&Format
+      block
+        let _10 fmt·: Formatter
+          call-assoc Formatter::stream: Formatter
+            int 0: i32
+        call-method Formatter::begin_arg: void
+          local _10 fmt·: Formatter
+          str "": str
+          str "8": str
+        call-method Format::format: void
+          deref: i32
+            local _4 arg·: &i32
+          ref mut: &mut Formatter
+            local _10 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _10 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _10 fmt·: Formatter
+          str " ": str
+          str "08": str
+        call-method Format::format: void
+          deref: i32
+            local _5 arg·: &i32
+          ref mut: &mut Formatter
+            local _10 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _10 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _10 fmt·: Formatter
+          str " ": str
+          str "8x": str
+        call-method Format::format: void
+          deref: i32
+            local _6 arg·: &i32
+          ref mut: &mut Formatter
+            local _10 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _10 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _10 fmt·: Formatter
+          str " ": str
+          str "08X": str
+        call-method Format::format: void
+          deref: i32
+            local _7 arg·: &i32
+          ref mut: &mut Formatter
+            local _10 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _10 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _10 fmt·: Formatter
+          str " ": str
+          str "10.3": str
+        call-method Format::format: void
+          deref: f32
+            local _8 arg·: &f32
+          ref mut: &mut Formatter
+            local _10 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _10 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _10 fmt·: Formatter
+          str " ": str
+          str "010.3": str
+        call-method Format::format: void
+          deref: f32
+            local _9 arg·: &f32
+          ref mut: &mut Formatter
+            local _10 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _10 fmt·: Formatter
+        call-method Formatter::finish: void
+          local _10 fmt·: Formatter
+          str "\n": str
+    formatted: void
+      bind _11 arg·
         ref: &str
           local _2 s: str
+      bind _12 arg·
         ref: &bool
           bool true: bool
+      bind _13 arg·
         ref: &char
           char 'c': char
+      bind _14 arg·
         ref: &T
           local _3 t: T
+      block
+        let _15 fmt·: Formatter
+          call-assoc Formatter::stream: Formatter
+            int 0: i32
+        call-method Formatter::begin_arg: void
+          local _15 fmt·: Formatter
+          str "": str
+          str "12": str
+        call-method Format::format: void
+          deref: str
+            local _11 arg·: &str
+          ref mut: &mut Formatter
+            local _15 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _15 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _15 fmt·: Formatter
+          str " ": str
+          str "5": str
+        call-method Format::format: void
+          deref: bool
+            local _12 arg·: &bool
+          ref mut: &mut Formatter
+            local _15 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _15 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _15 fmt·: Formatter
+          str " ": str
+          str "3": str
+        call-method Format::format: void
+          deref: char
+            local _13 arg·: &char
+          ref mut: &mut Formatter
+            local _15 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _15 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _15 fmt·: Formatter
+          str " ": str
+          str "6": str
+        call-method Format::format: void
+          deref: T
+            local _14 arg·: &T
+          ref mut: &mut Formatter
+            local _15 fmt·: Formatter
+        call-method Formatter::end_arg: void
+          local _15 fmt·: Formatter
+        call-method Formatter::finish: void
+          local _15 fmt·: Formatter
+          str "\n": str
 body impl#130 method valid -> bool
   param _0 self: Upto
   block
@@ -15930,22 +16308,31 @@ body fn require -> void
       block
         block-value: !
           block
-            let _3 fmt·: Formatter
-              call-assoc Formatter::message: Formatter
-            call-method Formatter::write_args: void
-              local _3 fmt·: Formatter
-              array: [2]str
-                str "missing ": str
-                str "": str
-              array: [1]str
-                str "": str
-              array: [1]&Format
+            formatted: !
+              bind _3 arg·
                 ref: &str
                   local _1 what: str
-            builtin panic: !
-              call-method Formatter::message_text: str
-                local _3 fmt·: Formatter
-              local _2 loc: SourceLocation
+              bind _4 arg·
+                local _2 loc: SourceLocation
+              block
+                let _5 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _5 fmt·: Formatter
+                  str "missing ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: str
+                    local _3 arg·: &str
+                  ref mut: &mut Formatter
+                    local _5 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _5 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _5 fmt·: Formatter
+                  local _4 arg·: SourceLocation
 body field-default Tile.0 -> void
   block
     int 0: i32
@@ -16224,115 +16611,364 @@ body impl#145 method format -> void
 body fn formatted -> usize
   param _0 h: Heading
   block
-    let _1 a: String
-      call-assoc Formatter::format: String
-        array: [5]str
-          str "": str
-          str " at ": str
-          str " ": str
-          str " ": str
-          str "": str
-        array: [4]str
-          str "": str
-          str ".1": str
-          str "x": str
-          str "": str
-        array: [4]&Format
+    let _7 a: String
+      formatted: String
+        bind _1 arg·
           ref: &Heading
             local _0 h: Heading
+        bind _2 arg·
           ref: &f64
             float 1.5: f64
+        bind _3 arg·
           ref: &i32
             int 255: i32
+        bind _4 arg·
           ref: &bool
             bool true: bool
-    let _2 b: String
+        block
+          let _6 text·: String
+            call-ctor String#0: String
+              str "": str
+          block-value: void
+            block
+              let _5 fmt·: Formatter
+                call-assoc Formatter::string: Formatter
+                  ref mut: &mut String
+                    local _6 text·: String
+              call-method Formatter::begin_arg: void
+                local _5 fmt·: Formatter
+                str "": str
+                str "": str
+              call-method Format::format: void
+                deref: Heading
+                  local _1 arg·: &Heading
+                ref mut: &mut Formatter
+                  local _5 fmt·: Formatter
+              call-method Formatter::begin_arg: void
+                local _5 fmt·: Formatter
+                str " at ": str
+                str ".1": str
+              call-method Format::format: void
+                deref: f64
+                  local _2 arg·: &f64
+                ref mut: &mut Formatter
+                  local _5 fmt·: Formatter
+              call-method Formatter::begin_arg: void
+                local _5 fmt·: Formatter
+                str " ": str
+                str "x": str
+              call-method Format::format: void
+                deref: i32
+                  local _3 arg·: &i32
+                ref mut: &mut Formatter
+                  local _5 fmt·: Formatter
+              call-method Formatter::begin_arg: void
+                local _5 fmt·: Formatter
+                str " ": str
+                str "": str
+              call-method Format::format: void
+                deref: bool
+                  local _4 arg·: &bool
+                ref mut: &mut Formatter
+                  local _5 fmt·: Formatter
+              call-method Formatter::finish: void
+                local _5 fmt·: Formatter
+                str "": str
+          move: String
+            local _6 text·: String
+    let _8 b: String
       call-ctor String#0: String
         str "{}": str
         const Allocators::Temp: &mut TempArena
-    let _3 c: String
-      call-assoc Formatter::format: String
-        array: [3]str
-          str "": str
-          str " and ": str
-          str "": str
-        array: [2]str
-          str "": str
-          str "": str
-        array: [2]&Format
+    let _13 c: String
+      formatted: String
+        bind _9 arg·
           ref: &String
-            local _1 a: String
+            local _7 a: String
+        bind _10 arg·
           ref: &Heading
             local _0 h: Heading
+        block
+          let _12 text·: String
+            call-ctor String#0: String
+              str "": str
+          block-value: void
+            block
+              let _11 fmt·: Formatter
+                call-assoc Formatter::string: Formatter
+                  ref mut: &mut String
+                    local _12 text·: String
+              call-method Formatter::begin_arg: void
+                local _11 fmt·: Formatter
+                str "": str
+                str "": str
+              call-method Format::format: void
+                deref: String
+                  local _9 arg·: &String
+                ref mut: &mut Formatter
+                  local _11 fmt·: Formatter
+              call-method Formatter::begin_arg: void
+                local _11 fmt·: Formatter
+                str " and ": str
+                str "": str
+              call-method Format::format: void
+                deref: Heading
+                  local _10 arg·: &Heading
+                ref mut: &mut Formatter
+                  local _11 fmt·: Formatter
+              call-method Formatter::finish: void
+                local _11 fmt·: Formatter
+                str "": str
+          move: String
+            local _12 text·: String
     return: !
       binary +: usize
         binary +: usize
           call-method String::len: usize
-            local _1 a: String
+            local _7 a: String
           call-method String::len: usize
-            local _2 b: String
+            local _8 b: String
         call-method String::len: usize
-          local _3 c: String
+          local _13 c: String
 body fn printed -> void
   param _0 h: Heading
   param _1 r: &Heading
   param _2 s: String
   param _3 t: T
   block
-    call-assoc Formatter::print: void
-      int 0: i32
-      array: [3]str
-        str "": str
-        str " ": str
-        str " ": str
-      array: [2]str
-        str "": str
-        str "x": str
-      array: [2]&Format
+    formatted: void
+      bind _4 arg·
         ref: &Heading
           local _0 h: Heading
+      bind _5 arg·
         ref: &Heading
           local _0 h: Heading
-    call-assoc Formatter::print: void
-      int 0: i32
-      array: [4]str
-        str "": str
-        str " ": str
-        str " ": str
-        str "\n": str
-      array: [3]str
-        str "": str
-        str "": str
-        str "": str
-      array: [3]&Format
+      block
+        let _6 fmt·: Formatter
+          call-assoc Formatter::stream: Formatter
+            int 0: i32
+        call-method Formatter::begin_arg: void
+          local _6 fmt·: Formatter
+          str "": str
+          str "": str
+        call-method Format::format: void
+          deref: Heading
+            local _4 arg·: &Heading
+          ref mut: &mut Formatter
+            local _6 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _6 fmt·: Formatter
+          str " ": str
+          str "x": str
+        call-method Format::format: void
+          deref: Heading
+            local _5 arg·: &Heading
+          ref mut: &mut Formatter
+            local _6 fmt·: Formatter
+        call-method Formatter::finish: void
+          local _6 fmt·: Formatter
+          str " ": str
+    formatted: void
+      bind _7 arg·
         local _1 r: &Heading
+      bind _8 arg·
         ref: &String
           local _2 s: String
+      bind _9 arg·
         ref: &T
           local _3 t: T
-    call-assoc Formatter::print: void
-      int 1: i32
-      array: [2]str
-        str "": str
-        str "": str
-      array: [1]str
-        str "": str
-      array: [1]&Format
+      block
+        let _10 fmt·: Formatter
+          call-assoc Formatter::stream: Formatter
+            int 0: i32
+        call-method Formatter::begin_arg: void
+          local _10 fmt·: Formatter
+          str "": str
+          str "": str
+        call-method Format::format: void
+          deref: Heading
+            local _7 arg·: &Heading
+          ref mut: &mut Formatter
+            local _10 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _10 fmt·: Formatter
+          str " ": str
+          str "": str
+        call-method Format::format: void
+          deref: String
+            local _8 arg·: &String
+          ref mut: &mut Formatter
+            local _10 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _10 fmt·: Formatter
+          str " ": str
+          str "": str
+        call-method Format::format: void
+          deref: T
+            local _9 arg·: &T
+          ref mut: &mut Formatter
+            local _10 fmt·: Formatter
+        call-method Formatter::finish: void
+          local _10 fmt·: Formatter
+          str "\n": str
+    formatted: void
+      bind _11 arg·
         ref: &i32
           int 1: i32
+      block
+        let _12 fmt·: Formatter
+          call-assoc Formatter::stream: Formatter
+            int 1: i32
+        call-method Formatter::begin_arg: void
+          local _12 fmt·: Formatter
+          str "": str
+          str "": str
+        call-method Format::format: void
+          deref: i32
+            local _11 arg·: &i32
+          ref mut: &mut Formatter
+            local _12 fmt·: Formatter
+        call-method Formatter::finish: void
+          local _12 fmt·: Formatter
+          str "": str
     call stream_write: void
       int 1: i32
       str "\n": str
-    call-assoc Formatter::print: void
-      int 0: i32
-      array: [2]str
-        str "raw ": str
-        str "\n": str
-      array: [1]str
-        str "": str
-      array: [1]&Format
+    formatted: void
+      bind _13 arg·
         ref: &str
           str "{": str
+      block
+        let _14 fmt·: Formatter
+          call-assoc Formatter::stream: Formatter
+            int 0: i32
+        call-method Formatter::begin_arg: void
+          local _14 fmt·: Formatter
+          str "raw ": str
+          str "": str
+        call-method Format::format: void
+          deref: str
+            local _13 arg·: &str
+          ref mut: &mut Formatter
+            local _14 fmt·: Formatter
+        call-method Formatter::finish: void
+          local _14 fmt·: Formatter
+          str "\n": str
+body fn pointed !-> usize
+  param _0 h: ^Heading
+  param _1 m: ^mut Heading
+  param _2 n: ^i32
+  block
+    formatted: void
+      bind _3 arg·
+        local _0 h: ^Heading
+      bind _4 arg·
+        cast: ^Heading
+          local _1 m: ^mut Heading
+      bind _5 arg·
+        local _2 n: ^i32
+      bind _6 arg·
+        local _2 n: ^i32
+      bind _7 arg·
+        cast: usize
+          local _0 h: ^Heading
+      bind _8 arg·
+        cast: usize
+          local _1 m: ^mut Heading
+      block
+        let _9 fmt·: Formatter
+          call-assoc Formatter::stream: Formatter
+            int 0: i32
+        call-method Formatter::begin_arg: void
+          local _9 fmt·: Formatter
+          str "": str
+          str "": str
+        call-method Formatter::write_pointee<Heading>: void
+          local _9 fmt·: Formatter
+          local _3 arg·: ^Heading
+        call-method Formatter::begin_arg: void
+          local _9 fmt·: Formatter
+          str " ": str
+          str "": str
+        call-method Formatter::write_pointee<Heading>: void
+          local _9 fmt·: Formatter
+          local _4 arg·: ^Heading
+        call-method Formatter::begin_arg: void
+          local _9 fmt·: Formatter
+          str " ": str
+          str "x": str
+        call-method Formatter::write_pointee<i32>: void
+          local _9 fmt·: Formatter
+          local _5 arg·: ^i32
+        call-method Formatter::begin_arg: void
+          local _9 fmt·: Formatter
+          str " [": str
+          str "6": str
+        call-method Formatter::write_pointee<i32>: void
+          local _9 fmt·: Formatter
+          local _6 arg·: ^i32
+        call-method Formatter::end_arg: void
+          local _9 fmt·: Formatter
+        call-method Formatter::begin_arg: void
+          local _9 fmt·: Formatter
+          str "] ": str
+          str "p": str
+        call-method Formatter::write_address: void
+          local _9 fmt·: Formatter
+          local _7 arg·: usize
+        call-method Formatter::begin_arg: void
+          local _9 fmt·: Formatter
+          str " ": str
+          str "18p": str
+        call-method Formatter::write_address: void
+          local _9 fmt·: Formatter
+          local _8 arg·: usize
+        call-method Formatter::end_arg: void
+          local _9 fmt·: Formatter
+        call-method Formatter::finish: void
+          local _9 fmt·: Formatter
+          str "\n": str
+    let _13 s: String
+      formatted: String
+        bind _10 arg·
+          cast: usize
+            local _2 n: ^i32
+        block
+          let _12 text·: String
+            call-ctor String#0: String
+              str "": str
+          block-value: void
+            block
+              let _11 fmt·: Formatter
+                call-assoc Formatter::string: Formatter
+                  ref mut: &mut String
+                    local _12 text·: String
+              call-method Formatter::begin_arg: void
+                local _11 fmt·: Formatter
+                str "": str
+                str "p": str
+              call-method Formatter::write_address: void
+                local _11 fmt·: Formatter
+                local _10 arg·: usize
+              call-method Formatter::finish: void
+                local _11 fmt·: Formatter
+                str "": str
+          move: String
+            local _12 text·: String
+    if: void
+      binary ==: bool
+        call-method String::len: usize
+          local _13 s: String
+        int 0: usize
+      block
+        return: !
+          builtin error: !-> !
+            str "nothing at {:p} [{:12p}]": str
+            local _2 n: ^i32
+            local _0 h: ^Heading
+    return: !
+      call-method String::len: usize
+        local _13 s: String
 body method Shelf::paired -> (U, U)
   param _0 self: Shelf<T>
   param _1 other: U

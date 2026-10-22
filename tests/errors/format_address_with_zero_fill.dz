@@ -1,0 +1,10 @@
+// expect: DZ0526
+//
+// An address is padded with spaces, as `{:16p}` asks; `{:016p}` would put zeros before
+// its `0x` (spec §12.9).
+
+fn main() {
+    let hp = 10
+    let p: ^i32 = &hp
+    println!("{:016p}", p)
+}

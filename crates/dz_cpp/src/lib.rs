@@ -3974,6 +3974,10 @@ impl<'a> Emitter<'a> {
                 self.guards_made += 1;
                 self.expr(value)
             }
+            hir::ExprKind::Formatted { args, params, body: block } => {
+                let (args, params, block) = (args.clone(), params.clone(), *block);
+                self.formatted(e, &args, &params, block)
+            }
             hir::ExprKind::Or { operand, clause } => {
                 let ty = body.ty(e).clone();
                 if matches!(ty, Ty::Void | Ty::Never | Ty::Error) {
@@ -4573,6 +4577,62 @@ impl<'a> Emitter<'a> {
         ) || matches!(body.ty(e), Ty::Ref { .. })
     }
 
+    /// A formatting macro's invocation (spec §12.9, D-0080), as a lambda called on the spot.
+    /// Its arguments are the call's, evaluated in order as any call's are, and they live,
+    /// with every temporary their evaluation made, until the body has written them — which
+    /// a sequence of statements would not give, since each ends its own temporaries.
+    fn formatted(
+        &mut self,
+        e: ExprId,
+        args: &[ExprId],
+        params: &[LocalId],
+        block: BlockId,
+    ) -> String {
+        let captured = self.capture_args(args, false);
+        let values = self.emit_args(captured);
+        let mut list = Vec::with_capacity(params.len());
+        for p in params {
+            let ty = self.cur().local(*p).ty.clone();
+            list.push(format!("{} {}", self.cpp_ty(&ty), self.names[p.index()]));
+        }
+        let valued = !matches!(self.cur().ty(e), Ty::Void | Ty::Never | Ty::Error);
+        let line = self.last_line;
+        let (text, ()) = self.capture(|em| {
+            let stmts = em.cur().block(block).stmts.clone();
+            for (i, s) in stmts.iter().enumerate() {
+                if let (true, hir::StmtKind::Expr(v)) = (valued, &em.cur().stmt(*s).kind) {
+                    if i + 1 == stmts.len() {
+                        let v = em.expr(*v);
+                        em.line(&format!("return {v};"));
+                        continue;
+                    }
+                }
+                em.stmt(*s);
+            }
+        });
+        let pad = "    ".repeat(self.indent + 1);
+        let mut s = format!("[&]({}) {{\n", list.join(", "));
+        for l in text.lines() {
+            // A `#line` directive must start its line.
+            if !l.starts_with("#line ") {
+                s.push_str(&pad);
+            }
+            s.push_str(l);
+            s.push('\n');
+        }
+        // The arguments after the body are on the invocation's line again, which is the
+        // line a `#location` default among them reads (spec §12.7). The body's own lines
+        // each restate theirs, so without this the closing line would read one past it.
+        if line != 0 {
+            self.last_line = line;
+            let path = self.map.get(self.file).name().replace('\\', "/");
+            let _ = writeln!(s, "#line {line} \"{path}\"");
+        }
+        s.push_str(&"    ".repeat(self.indent));
+        let _ = write!(s, "}}({})", values.join(", "));
+        s
+    }
+
     /// The value a formatting macro's argument refers to, when the reference is to C++'s
     /// own temporary (`hir::ExprKind::Ref::temporary`, spec §12.9).
     fn temporary_ref(&self, e: ExprId) -> Option<ExprId> {
@@ -4675,6 +4735,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::Switch { .. }
             | hir::ExprKind::Or { .. }
             | hir::ExprKind::Guarded { .. }
+            | hir::ExprKind::Formatted { .. }
             | hir::ExprKind::Return(_)
             | hir::ExprKind::Break(_)
             | hir::ExprKind::Continue(_)
@@ -5555,6 +5616,18 @@ impl Namer<'_> {
                 for a in args {
                     self.expr(a);
                 }
+            }
+            // The parameters of the lambda it becomes, and its body (`Emitter::formatted`).
+            hir::ExprKind::Formatted { args, params, body } => {
+                for a in args {
+                    self.expr(a);
+                }
+                self.scoped(|n| {
+                    for p in params {
+                        n.declare(p);
+                    }
+                    n.block(body);
+                });
             }
             hir::ExprKind::Return(Some(v)) => self.expr(v),
             _ => {}

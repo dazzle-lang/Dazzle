@@ -1,0 +1,9 @@
+// expect: DZ0526
+//
+// `{:p}` writes a pointer's address; a value that is not a pointer has none to write
+// (spec §12.9).
+
+fn main() {
+    let hp = 10
+    println!("{:p}", hp)
+}

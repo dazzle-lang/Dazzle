@@ -376,6 +376,7 @@ The spec set is deliberately small, and each one names the kind of value it suit
 | `{:.N}` | `N` digits after the point | floats |
 | `{:N}` | at least `N` characters, padded with spaces | anything formattable |
 | `{:0N}` | at least `N` characters, padded with zeros after the sign | numbers |
+| `{:p}` | the address, in hex after `0x` | pointers |
 | `{{` / `}}` | a literal brace | — |
 
 **A width comes first and combines with the rest**: `{:8x}`, `{:08X}`, `{:10.3}`,
@@ -438,6 +439,20 @@ they are. `Formatter::string(&mut text)` appends
 to a `String`, and `Formatter::stdout()` and `Formatter::stderr()` write to a stream, for
 code that formats a value without a format string.
 
+**A pointer is written as what it points at**, as a reference is — one level down, so what
+it points at must have a `Format`, and a spec applies to that: `{:x}` of a `^i32` writes the
+integer in hex. A null pointer is written `null`. The pointer's own address is what `{:p}`
+writes, in hex after `0x` on every platform, padded by a width as a number is and never with
+zeros:
+
+```dz
+println!("aiming at {}", target)        // the `^Enemy`'s Enemy, by its own `Format`, or `null`
+println!("{:p} {:p}", target, other)    // two addresses, to see whether they are one
+```
+
+This is the formatting macros' doing, not an implementation of `Format` for pointers: a type
+parameter bounded by `Format` is not satisfied by a pointer.
+
 **A function of one's own that takes a format string is a macro** (§12): a format string is
 checked only where it is written in one of these, so a wrapper such as a `log` with levels
 hands its literal on to one of them, where it is checked against the arguments exactly as
@@ -457,11 +472,12 @@ log!("warn", "hp is {} of {}", hp, max_hp)   // a missing argument is reported a
 ```
 
 Nothing of the format string is left to parse when the program runs: an invocation lowers
-to one call that hands the text between the placeholders, each placeholder's spec and the
-arguments to the standard library, which writes them in turn — straight to the stream for
-`print!`, with no intermediate `String`. `error(…)` (§9.1) checks its format string the
-same way, but keeps its message in static storage (§9.2), so it writes only the built-in
-kinds. `[DECIDED — §18.73, §18.80]`
+to its arguments, evaluated and kept as a call's are, then for each placeholder the text
+before it, its spec, and a direct call to the argument's own `Format::format` — no vtable,
+so a generic implementation serves as well as any — straight to the stream for `print!`,
+with no intermediate `String`. `error(…)` (§9.1) checks its format string the same way, but
+keeps its message in static storage (§9.2), so it writes only the built-in kinds, and a
+pointer only by its address, `{:p}`. `[DECIDED — §18.73, §18.80, D-0082]`
 
 Interpolation (`"hp is {hp}"`) is deliberately absent for now: it hides a name lookup
 inside a literal, which complicates the lexer, the LSP's rename, and macro capture. It can

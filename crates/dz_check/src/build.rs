@@ -100,6 +100,11 @@ impl BodyBuilder {
         self.locals[id.index()].kind
     }
 
+    /// A local's type, as it was declared.
+    pub(crate) fn local_ty(&self, id: LocalId) -> &Ty {
+        &self.locals[id.index()].ty
+    }
+
     /// What a node already built turned out to be.
     pub(crate) fn kind(&self, id: ExprId) -> &hir::ExprKind {
         &self.exprs[id.index()].kind
