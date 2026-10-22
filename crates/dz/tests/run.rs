@@ -255,6 +255,35 @@ fn formatting_dispatches_statically_and_keeps_temporaries() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A field of a temporary is not a place (spec §12.9). When an earlier argument makes a
+/// formatting call hoist its arguments into variables, `v.lerp(w, t).x` has to be hoisted
+/// as its value: hoisted as an address it pointed into a `Vec3` that died with the
+/// statement, which `tests/run/math` printed as garbage under g++ with optimisation on
+/// Linux only. The emitted C++ is checked, since undefined behaviour need not show.
+#[test]
+fn a_field_of_a_temporary_is_hoisted_as_a_value() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_field_of_temporary",
+        "[module]\nname = \"hoisted\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "fn main() {\n    let x = Vec3{ x: 1, y: 0, z: 0 }\n    let y = Vec3{ x: 0, y: 1, z: 0 }\n    println!(\"{} {} {}\", x.distance(y) * x.distance(y), x.lerp(y, 0.5).x, x == y)\n}\n",
+    );
+    let out = Command::new(dz())
+        .args(["run", "--release", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "2 0.5 false");
+    let cpp = std::fs::read_to_string(dir.join("build/cpp/hoisted.cpp")).unwrap();
+    let hoisted = cpp.lines().find(|l| l.contains("lerp(y, 0.5f)")).expect("the lerp call");
+    // Hoisted it is — the arguments before `x == y` are — but as the `float`, not a pointer.
+    assert!(hoisted.trim_start().starts_with("float _dz_arg"), "hoisted by address:\n{hoisted}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `Process::args`, `Process::env` and `Process::exit` (spec §14.4), on the built binary run
 /// directly: a non-ASCII argument arrives as UTF-8 (on Windows it is re-read from the wide
 /// command line), a variable set for the child is seen, and the exit code is the program's.

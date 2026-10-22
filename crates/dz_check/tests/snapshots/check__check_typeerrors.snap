@@ -457,11 +457,11 @@ error[DZ0501]: array length must be a constant
     │
     = help: an array length is an integer made of literals, operators and other `const`s, folded at compile time (spec §5.3, §8.3)
 
-error[DZ0504]: `alloc` takes 2 arguments, found 1
-    ┌─ typeerrors/src/errors.dz:409:12
+error[DZ0504]: `construct` takes 1 or 2 arguments, found 3
+    ┌─ typeerrors/src/errors.dz:409:14
     │
-409 │     return alloc(16)
-    │            ^^^^^^^^^ wrong number of arguments
+409 │     unsafe { construct(p[0], 1, 2) }
+    │              ^^^^^^^^^^^^^^^^^^^^^ wrong number of arguments
 
 error[DZ0526]: this format string has 2 placeholders but 1 argument was given
     ┌─ typeerrors/src/errors.dz:414:14

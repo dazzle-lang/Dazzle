@@ -302,7 +302,8 @@ Panics are for: out-of-bounds indexing, failed assertions,
 exhausted fixed-size pools, and violated invariants. Errors are for: I/O, parsing,
 user-supplied data, and anything crossing a boundary you do not control.
 
-**Allocation failure is a panic by default.** `alloc` returns `^mut u8` and panics on failure;
+**Allocation failure is a panic by default.** An allocator's `alloc` returns `^mut u8` and
+panics on failure (§14);
 `fn try_alloc(n: usize) !-> ^mut u8` covers the rare code (console memory budgets, streaming)
 that genuinely handles OOM. Making every allocation fallible would put `or return` on every
 line of `Buffer` for a case that, on a PC game, means the process is already dead.

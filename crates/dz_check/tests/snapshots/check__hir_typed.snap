@@ -10756,6 +10756,90 @@ body impl#92 method ptr -> ^mut T
     return: !
       field #0: own ^mut T
         local _0 self: Box<T>
+body fn c_malloc -> ^mut u8
+  param _0 size: usize
+  param _1 loc: SourceLocation
+  block
+    let _2 p: ^mut void
+      call malloc: ^mut void
+        if: usize
+          binary ==: bool
+            local _0 size: usize
+            int 0: usize
+          block
+            int 1: usize
+          block
+            block-value: usize
+              block
+                local _0 size: usize
+    if: void
+      binary ==: bool
+        local _2 p: ^mut void
+        null: ^mut void
+      block
+        block-value: !
+          block
+            formatted: !
+              bind _3 arg·
+                ref: &usize
+                  local _0 size: usize
+              bind _4 arg·
+                ref: &cstr
+                  field #0: cstr
+                    local _1 loc: SourceLocation
+              bind _5 arg·
+                ref: &u32
+                  field #2: u32
+                    local _1 loc: SourceLocation
+              block
+                let _6 fmt·: Formatter
+                  call-assoc Formatter::message: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str "out of memory allocating ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: usize
+                    local _3 arg·: &usize
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str " bytes at ": str
+                  str "": str
+                call-method Format::format: void
+                  deref: cstr
+                    local _4 arg·: &cstr
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::begin_arg: void
+                  local _6 fmt·: Formatter
+                  str ":": str
+                  str "": str
+                call-method Format::format: void
+                  deref: u32
+                    local _5 arg·: &u32
+                  ref mut: &mut Formatter
+                    local _6 fmt·: Formatter
+                call-method Formatter::finish: void
+                  local _6 fmt·: Formatter
+                  str "": str
+                builtin panic: !
+                  call-method Formatter::message_text: str
+                    local _6 fmt·: Formatter
+    return: !
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            local _2 p: ^mut void
+body fn c_free -> void
+  param _0 p: ^mut u8
+  block
+    call free: void
+      block-value: ^mut void
+        block
+          cast: ^mut void
+            local _0 p: ^mut u8
 body const HEAP_ALIGN -> void
   block
     int 8: usize
@@ -10771,24 +10855,22 @@ body impl#93 method alloc -> ^mut u8
           local _2 align: usize
           const HEAP_ALIGN: usize
         block
-          block-value: ^mut u8
-            block
-              builtin alloc: ^mut u8
-                local _1 size: usize
-                local _2 align: usize
+          call c_malloc: ^mut u8
+            local _1 size: usize
+            local _3 loc: SourceLocation
         block
           block-value: ^mut u8
             block
               block-value: ^mut u8
                 block
                   let _4 raw: ^mut u8
-                    builtin alloc: ^mut u8
+                    call c_malloc: ^mut u8
                       binary +: usize
                         binary +: usize
                           local _1 size: usize
                           local _2 align: usize
                         const HEAP_ALIGN: usize
-                      const HEAP_ALIGN: usize
+                      local _3 loc: SourceLocation
                   let _5 first: usize
                     binary +: usize
                       cast: usize
@@ -10880,16 +10962,14 @@ body impl#93 method free -> void
         local _3 align: usize
         const HEAP_ALIGN: usize
       block
-        block-value: void
-          block
-            builtin free: void
-              local _1 p: ^mut u8
+        call c_free: void
+          local _1 p: ^mut u8
       block
         block-value: void
           block
-            block-value: void
-              block
-                builtin free: void
+            call c_free: void
+              block-value: ^mut u8
+                block
                   index: ^mut u8
                     cast: ^mut ^mut u8
                       binary -: usize
@@ -11152,7 +11232,7 @@ body method TempArena::reset -> void
             null: ^mut u8
           block
             error
-            builtin free: void
+            call c_free: void
               local _1 chunk: ^mut u8
             assign =
               local _1 chunk: ^mut u8
@@ -11220,9 +11300,8 @@ body method TempArena::grow -> void
     block-value: void
       block
         let _5 chunk: ^mut u8
-          builtin alloc: ^mut u8
+          call c_malloc: ^mut u8
             local _4 cap: usize
-            type-query usize::align: usize
         assign =
           index: ^mut u8
             cast: ^mut ^mut u8
@@ -11475,7 +11554,7 @@ body drop TempArena -> void
                 cast: ^mut ^mut u8
                   local _1 chunk: ^mut u8
                 int 0: usize
-            builtin free: void
+            call c_free: void
               local _1 chunk: ^mut u8
             assign =
               local _1 chunk: ^mut u8

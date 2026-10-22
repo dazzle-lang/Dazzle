@@ -266,27 +266,10 @@ DZ_INLINE T take(T& x) {
     return v;
 }
 
-// --- raw memory (spec §9.8, §14.3) ----------------------------------------
+// --- raw memory (spec §14.3) ------------------------------------------------
 //
-// `alloc` and `free` use the C heap until the stdlib's allocators exist (§19 M6).
-// Allocation failure is a panic, not an error (§9.8).
-inline uint8_t* alloc(size_t size, size_t align, SourceLocation where) {
-    static const char too_aligned[] = "alloc: alignment stricter than the C heap guarantees";
-    static const char out_of_memory[] = "alloc: out of memory";
-    // malloc's result suits any fundamental type. A stricter request is not honoured yet,
-    // and refusing it loudly beats handing back a misaligned pointer.
-    if (align > alignof(max_align_t)) {
-        panic_str(str(too_aligned, sizeof(too_aligned) - 1), where);
-    }
-    void* p = ::malloc(size == 0 ? 1 : size);
-    if (!p) {
-        panic_str(str(out_of_memory, sizeof(out_of_memory) - 1), where);
-    }
-    return static_cast<uint8_t*>(p);
-}
-
-// `free` takes any pointer, `own ^T` included: releasing memory is not writing it (§14.3).
-inline void dealloc(const void* p) { ::free(const_cast<void*>(p)); }
+// No allocation here: memory comes from `std`'s allocators, which reach the C heap through
+// their own import of `stdlib.h` (spec §14.2).
 
 // `construct(dst, v)` and `destroy(x)` (spec §14.3): placement new and an explicit
 // destructor call — the only places a value is seen in a not-yet-constructed state.

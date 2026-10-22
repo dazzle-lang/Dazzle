@@ -119,8 +119,9 @@ fn check(entry: &Path) -> Checked {
 fn a_three_module_workspace_resolves_cleanly() {
     let r = check(&fixture("good"));
     assert_eq!(r.error_count, 0, "expected a clean workspace:\n{}", r.rendered);
-    // Four, not three: the prelude is a real module in every workspace (spec §18.23).
-    assert_eq!(r.module_count, 4, "game plus two libraries plus the prelude");
+    // Five, not three: the prelude is a real module in every workspace (spec §18.23), and so
+    // is the C library it imports for `Allocators::Global` (spec §14.2).
+    assert_eq!(r.module_count, 5, "game plus two libraries plus the prelude and its libc");
     // Five of the workspace's own, and the standard library's, one declaration to a file.
     assert_eq!(r.file_count, 5 + dz_project::STD_SOURCES.len());
 }

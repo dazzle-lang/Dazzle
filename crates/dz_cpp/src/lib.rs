@@ -139,7 +139,8 @@ pub fn emit(
     };
     let reflection: reflect::Shared = Default::default();
 
-    for module in ws.modules() {
+    // An imported header generates nothing: its names are the header's own (spec §15.1).
+    for module in ws.modules().filter(|m| m.foreign.is_none()) {
         let Some(module_files) = files.get(&module.id) else { continue };
         let mut e = Emitter {
             ws,
@@ -4680,15 +4681,28 @@ impl<'a> Emitter<'a> {
     /// Whether `&` of `e` can take its address where it is: a place, or a reference.
     fn is_place(&self, e: ExprId) -> bool {
         let body = self.cur();
-        matches!(
-            body.expr(e).kind,
-            hir::ExprKind::Local(_)
-                | hir::ExprKind::Static(_)
-                | hir::ExprKind::Field { .. }
-                | hir::ExprKind::TupleIndex { .. }
-                | hir::ExprKind::Index { .. }
-                | hir::ExprKind::Deref(_)
-        ) || matches!(body.ty(e), Ty::Ref { .. })
+        if matches!(body.ty(e), Ty::Ref { .. }) {
+            return true;
+        }
+        match body.expr(e).kind {
+            hir::ExprKind::Local(_) | hir::ExprKind::Static(_) | hir::ExprKind::Deref(_) => true,
+            // A field or element is only as lasting as what holds it: `v.lerp(w, t).x` is a
+            // member of a temporary, which dies with its statement. Taken for a place, its
+            // address was hoisted out of a formatting call's arguments and read after that,
+            // which printed garbage under g++ with optimisation (spec §12.9).
+            hir::ExprKind::Field { base, .. }
+            | hir::ExprKind::TupleIndex { base, .. }
+            | hir::ExprKind::Index { base, .. } => self.reaches_owned(base),
+            _ => false,
+        }
+    }
+
+    /// Does `e` reach memory that outlives the expression: a place, or something seen
+    /// through a reference, pointer or slice, which another value owns?
+    fn reaches_owned(&self, e: ExprId) -> bool {
+        let ty = self.cur().ty(e);
+        matches!(ty, Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Slice { .. } | Ty::Str)
+            || self.is_place(e)
     }
 
     /// A formatting macro's invocation (spec §12.9, D-0080), as a lambda called on the spot.
@@ -5136,11 +5150,6 @@ impl<'a> Emitter<'a> {
         match name {
             // The checker verified the argument counts of everything below (`builtin_arity`),
             // so indexing `rendered` cannot go out of range.
-            "alloc" => {
-                let loc = self.source_location(span);
-                format!("::dz::alloc({}, {}, {loc})", rendered[0], rendered[1])
-            }
-            "free" => format!("::dz::dealloc({})", rendered[0]),
             "construct" => format!("::dz::construct({})", rendered.join(", ")),
             "destroy" => format!("::dz::destroy({})", rendered[0]),
             "move_out" => format!("::dz::move_out({})", rendered[0]),

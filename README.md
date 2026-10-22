@@ -491,7 +491,7 @@ planned.
 |---|---|
 | A current stable **Rust** toolchain | to build `dz` |
 | **clang++** or **g++** with C++17 | `dz` compiles the C++ it generates with it |
-| **libclang** (any recent LLVM) | only for `import cpp`; a program that calls no C or C++ never loads it |
+| **libclang** (any recent LLVM) | to read C and C++ headers: a program's own, and `stdlib.h`, which the standard library's allocator calls `malloc` from |
 
 ```bash
 git clone --recursive https://github.com/dazzle-lang/Dazzle.git
