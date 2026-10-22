@@ -2,7 +2,7 @@
 id: T-0082
 title: dz fmt moves a trailing comment after { or } onto its own line
 milestone: none
-status: open
+status: done
 kind: bug
 area: tooling
 ---

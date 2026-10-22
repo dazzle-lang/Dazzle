@@ -284,3 +284,23 @@ PR run was usually cancelled. It now runs only on a push to master, plus by hand
 root Markdown files, `docs/`, `editors/`, `tools/`, `.claude/` or the logo skips it (not
 every `.md`: `dz explain` compiles in `crates/dz_diag/explain/*.md`), and a newer push to the
 same ref cancels the run still going.
+
+## Trailing comments stay where they were written (T-0082; 2026-10-23)
+
+`dz fmt` placed a trailing comment only after the nodes that asked for one — a statement, a
+field, a variant — so a comment after a block's `{` went to the next line inside the block,
+and one after a `}` to a line of its own. Now any line comment written after code goes at
+the end of the last line printed, which is that code: the head of a `fn`, `struct`, `impl`,
+`while`, `for` or `#if`, any closing `}`. Blocks inside expressions (`if`, `else`, `case`,
+`unsafe`, an `or { e -> }`) are printed by a sub-printer that now starts on the `{`, so the
+same rule covers them; `switch x {` takes its comment explicitly, or the first `case` would.
+A `fn` whose body is only a comment no longer prints as `{}` with the comment after it.
+
+Trailing comments also keep their column instead of collapsing to one space. Each is
+written as a placeholder carrying the column it was written at, and a last pass over the
+finished text places it: at that column, counted from its line's indentation so it moves
+with a re-indented line, never closer than one space to the code, and with adjacent lines
+whose comments were written at one column kept aligned at the column the widest needs. The
+placeholder is a private-use character absent from the source, so it can never be mistaken
+for one written there. The README's samples, aligned by hand, format unchanged; nothing in
+`examples/`, `tests/` or the standard library formats differently.

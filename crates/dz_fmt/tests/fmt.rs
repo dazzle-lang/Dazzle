@@ -175,6 +175,83 @@ fn f() {
     }
 }
 
+/// T-0082: a comment after a `{` went to the next line, inside the block, and one after a
+/// `}` to a line of its own — away from what each annotates.
+#[test]
+fn a_comment_after_a_brace_stays_on_its_line() {
+    unchanged(
+        "\
+struct S { // opens
+    a: i32
+} // closes
+
+impl Copy for S { // opt-in
+    fn copy(&mut self, other: &Self) {
+        a = other.a
+    }
+}
+
+fn empty() { // nothing yet
+}
+
+fn main() { // entry
+    while true { // forever
+        break
+    } // after the loop
+    if a { // then
+        foo()
+    } else { // otherwise
+        bar()
+    }
+    switch n { // on n
+        case Odd { // odd
+            return 1
+        }
+        default {
+            return 2
+        }
+    }
+    let x = halve(n) or { e -> // handle it
+        0
+    }
+} // c, b and a are dropped
+",
+    );
+}
+
+/// The README's samples line their trailing comments up, across lines and across a `}`.
+#[test]
+fn trailing_comments_keep_the_column_they_were_written_at() {
+    unchanged(
+        "\
+fn main() {
+    let a = Image(64, 64)
+    let b = a                        // a copy: runs `copy`
+    let c = move(a)                  // a move: `a` is reset to its defaults
+}                                    // c, b and a are dropped, in that order
+",
+    );
+    // One space is the least, whatever the column was.
+    assert_eq!(fmt("fn f() {\n    let a = 1// x\n}\n"), "fn f() {\n    let a = 1 // x\n}\n");
+}
+
+#[test]
+fn a_trailing_comment_moves_with_its_re_indented_line() {
+    assert_eq!(
+        fmt("fn f() {\n        let a = 1      // x\n}\n"),
+        "fn f() {\n    let a = 1      // x\n}\n"
+    );
+}
+
+#[test]
+fn an_aligned_run_of_comments_stays_aligned_when_one_line_grows() {
+    // `a+1` becomes `a + 1`, which no longer leaves room at the column; the whole run moves.
+    assert_eq!(
+        fmt("fn f() {\n    let a = 1   // one\n    let bb = a+1// two\n}\n"),
+        "fn f() {\n    let a = 1      // one\n    let bb = a + 1 // two\n}\n"
+    );
+}
+
 #[test]
 fn a_fallible_signature_keeps_its_bang() {
     // Spec §9.1: `!->` is part of the signature's meaning. Printing `->` made every

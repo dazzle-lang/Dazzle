@@ -38,19 +38,30 @@ pub fn format_expanded(
 ) -> String {
     let cursor = Cell::new(0);
     let consumed = RefCell::new(HashSet::new());
+    let src = file.text();
+    // Any private-use character the source does not contain can stand in for the place
+    // of a trailing comment, since everything printed comes from the source or is ASCII.
+    let mark = ('\u{E000}'..='\u{F8FF}').find(|ch| !src.contains(*ch));
     let mut p = Printer {
         file,
-        src: file.text(),
+        src,
         comments,
         synthetic,
         consumed: &consumed,
         next_comment: &cursor,
+        mark,
         out: String::new(),
         indent: 0,
         pending_blank: false,
+        comment_end: usize::MAX,
+        opened_end: usize::MAX,
     };
     p.file_ast(ast);
-    p.finish()
+    let out = p.finish();
+    match mark {
+        Some(mark) => align_trailing_comments(&out, mark),
+        None => out,
+    }
 }
 
 struct Printer<'a> {
@@ -65,9 +76,18 @@ struct Printer<'a> {
     /// [`format_expanded`]).
     synthetic: &'a HashSet<u32>,
     consumed: &'a RefCell<HashSet<u32>>,
+    /// Written before a trailing comment, with the column it was written at, so that
+    /// [`align_trailing_comments`] can place it once every line is final. `None` only for
+    /// a source holding every private-use character; its comments then get one space.
+    mark: Option<char>,
     out: String,
     indent: usize,
     pending_blank: bool,
+    /// `out.len()` just after a comment was written, so a second one never joins its line.
+    comment_end: usize,
+    /// `out.len()` just after a trailing comment went on a line ending in `{`, which still
+    /// opens a scope: no blank line follows it.
+    opened_end: usize,
 }
 
 impl<'a> Printer<'a> {
@@ -92,7 +112,9 @@ impl<'a> Printer<'a> {
     fn flush_blank(&mut self) {
         if self.pending_blank {
             self.pending_blank = false;
-            let at_scope_start = self.out.is_empty() || self.out.ends_with("{\n");
+            let at_scope_start = self.out.is_empty()
+                || self.out.ends_with("{\n")
+                || self.out.len() == self.opened_end;
             if !at_scope_start && !self.out.ends_with("\n\n") {
                 self.out.push('\n');
             }
@@ -138,6 +160,14 @@ impl<'a> Printer<'a> {
             }
             self.next_comment.set(self.next_comment.get() + 1);
 
+            // Written after code — an opening `{`, a closing `}`, anything with no
+            // trailing-comment call of its own — it stays after what was printed last,
+            // which is that code, rather than moving to a line of its own.
+            if c.kind == CommentKind::Line && self.follows_code(c) && self.can_trail() {
+                let text = self.trailing_text(c);
+                self.trail(&text);
+                continue;
+            }
             if self.blank_line_before(c.span.start) {
                 self.pending_blank = true;
             }
@@ -171,27 +201,68 @@ impl<'a> Printer<'a> {
                     }
                 }
             }
+            self.comment_end = self.out.len();
         }
     }
 
     /// A trailing comment on the same source line as `end`, e.g. `let a = 1 // why`.
     fn emit_trailing_comment(&mut self, end: u32) {
-        if self.next_comment.get() >= self.comments.len() {
-            return;
+        if let Some(text) = self.take_trailing_comment(end) {
+            self.trail(&text);
         }
-        let c = self.comments[self.next_comment.get()];
-        if c.kind != CommentKind::Line || self.line_of(c.span.start) != self.line_of(end) {
-            return;
+    }
+
+    /// The next comment, rendered by [`Self::trailing_text`] and passed over, if it is a
+    /// line comment on the same source line as `offset`.
+    fn take_trailing_comment(&self, offset: u32) -> Option<String> {
+        let c = *self.comments.get(self.next_comment.get())?;
+        if c.kind != CommentKind::Line || self.line_of(c.span.start) != self.line_of(offset) {
+            return None;
         }
         self.next_comment.set(self.next_comment.get() + 1);
-        let text = self.text(c.span).trim_end().to_owned();
-        // Replace the newline the caller just wrote.
+        Some(self.trailing_text(c))
+    }
+
+    /// Is `c` written after code on its line, as in `let a = 1 // why`?
+    fn follows_code(&self, c: Comment) -> bool {
+        let start = c.span.start as usize;
+        let line_start = self.src[..start].rfind(['\n', '\r']).map_or(0, |i| i + 1);
+        !self.src[line_start..start].trim().is_empty()
+    }
+
+    /// Can a trailing comment go on the last line printed? Not when there is none, and
+    /// not when that line already ends in a comment, which would swallow this one.
+    fn can_trail(&self) -> bool {
+        self.out.ends_with('\n')
+            && !self.out.ends_with("\n\n")
+            && self.out.len() != self.comment_end
+    }
+
+    /// `c` as it follows code: the comment, preceded by the column it was written at and
+    /// the indentation of its line, between marks, for [`align_trailing_comments`].
+    fn trailing_text(&self, c: Comment) -> String {
+        let text = self.text(c.span).trim_end();
+        let Some(mark) = self.mark else { return format!(" {text}") };
+        let start = c.span.start as usize;
+        let line_start = self.src[..start].rfind(['\n', '\r']).map_or(0, |i| i + 1);
+        let before = &self.src[line_start..start];
+        let column = before.chars().count();
+        let indent = before.chars().take_while(|ch| *ch == ' ' || *ch == '\t').count();
+        format!("{mark}{column},{indent}{mark}{text}")
+    }
+
+    /// Put `text`, from [`Self::trailing_text`], at the end of the last line printed.
+    fn trail(&mut self, text: &str) {
         if self.out.ends_with('\n') {
             self.out.pop();
         }
-        self.out.push(' ');
-        self.out.push_str(&text);
+        let opens = self.out.ends_with('{');
+        self.out.push_str(text);
         self.out.push('\n');
+        self.comment_end = self.out.len();
+        if opens {
+            self.opened_end = self.out.len();
+        }
     }
 
     /// Did the author leave a blank line immediately before `offset`?
@@ -638,7 +709,8 @@ impl<'a> Printer<'a> {
             None if f.fallible => format!(" {arrow}"),
             None => self.base_init(f),
         };
-        let empty_body = f.body.as_ref().is_some_and(|b| b.stmts.is_empty());
+        let empty_body =
+            f.body.as_ref().is_some_and(|b| b.stmts.is_empty() && !self.comment_inside(b.span));
         let open = match &f.body {
             Some(_) if empty_body => " {}",
             Some(_) => " {",
@@ -750,12 +822,16 @@ impl<'a> Printer<'a> {
                 let mark = self.out.len();
                 let indent_at = self.indent;
                 self.stmt(inner);
+                let ended_in_comment = self.comment_end == self.out.len();
                 let rendered = self.out.split_off(mark);
                 let prefix = INDENT.repeat(indent_at);
                 let body = rendered.strip_prefix(&prefix).unwrap_or(&rendered).to_owned();
                 self.write_indent();
                 self.out.push_str("defer ");
                 self.out.push_str(&body);
+                if ended_in_comment {
+                    self.comment_end = self.out.len();
+                }
             }
             StmtKind::Item(item) => self.item(item),
             StmtKind::Error => self.line("/* <error> */"),
@@ -944,7 +1020,10 @@ impl<'a> Printer<'a> {
                 s
             }
             ExprKind::Switch(sw) => {
-                let mut s = format!("switch {} {{\n", self.expr(&sw.subject));
+                let mut s = format!("switch {} {{", self.expr(&sw.subject));
+                // `switch x { // why` — or the first `case` would take it as its own.
+                s.push_str(&self.take_trailing_comment(sw.subject.span.end).unwrap_or_default());
+                s.push('\n');
                 for arm in &sw.arms {
                     let pats: Vec<String> = arm
                         .patterns
@@ -1061,7 +1140,8 @@ impl<'a> Printer<'a> {
         }
         // Nested blocks inside an expression are rendered by re-entering a sub-printer, so
         // statement layout is identical wherever a block appears. It shares the comment
-        // cursor, so the comments written inside the block land inside it.
+        // cursor, so the comments written inside the block land inside it. It starts on the
+        // `{`, so a comment written after that is kept there.
         let mut sub = Printer {
             file: self.file,
             src: self.src,
@@ -1069,19 +1149,24 @@ impl<'a> Printer<'a> {
             synthetic: self.synthetic,
             consumed: self.consumed,
             next_comment: self.next_comment,
-            out: String::new(),
+            mark: self.mark,
+            out: "{\n".to_owned(),
             indent: 0,
             pending_blank: false,
+            comment_end: usize::MAX,
+            opened_end: usize::MAX,
         };
         sub.block_body(b);
-        let body = sub.out;
-        let mut s = "{\n".to_owned();
-        for l in body.trim_end_matches('\n').split('\n') {
-            if !l.is_empty() {
-                s.push_str(INDENT);
-                s.push_str(l);
+        let (open, body) = sub.out.split_once('\n').unwrap_or_default();
+        let mut s = format!("{open}\n");
+        if !body.is_empty() {
+            for l in body.trim_end_matches('\n').split('\n') {
+                if !l.is_empty() {
+                    s.push_str(INDENT);
+                    s.push_str(l);
+                }
+                s.push('\n');
             }
-            s.push('\n');
         }
         s.push('}');
         s
@@ -1090,20 +1175,22 @@ impl<'a> Printer<'a> {
     /// Is a comment still to be placed inside `span`? An otherwise empty block holding one
     /// must not print as `{}`, which would lose it.
     fn comment_inside(&self, span: Span) -> bool {
-        self.comments
-            .get(self.next_comment.get())
-            .is_some_and(|c| span.start <= c.span.start && c.span.end <= span.end)
+        self.comments[self.next_comment.get()..]
+            .iter()
+            .take_while(|c| c.span.start < span.end)
+            .any(|c| span.start <= c.span.start)
     }
 
     fn closure_block(&self, binding: &Option<Ident>, body: &Block) -> String {
         let rendered = self.render_block(body);
         match binding {
             Some(b) => {
-                // `{ it -> ...` — splice the binding in after the opening brace.
-                if let Some(rest) = rendered.strip_prefix("{\n") {
-                    format!("{{ {} ->\n{}", b.name, rest)
-                } else if rendered == "{}" {
+                // `{ it -> ...` — splice the binding in after the opening brace, and before
+                // any comment written after it.
+                if rendered == "{}" {
                     format!("{{ {} -> }}", b.name)
+                } else if let Some(rest) = rendered.strip_prefix('{') {
+                    format!("{{ {} ->{}", b.name, rest)
                 } else {
                     rendered
                 }
@@ -1114,6 +1201,66 @@ impl<'a> Printer<'a> {
 }
 
 // --- helpers ---------------------------------------------------------------
+
+/// Place every trailing comment, now that the lines it follows are final. Each keeps the
+/// column it was written at, counted from its line's indentation so that it moves with a
+/// re-indented line, but never comes closer than one space to the code. Adjacent lines
+/// whose comments were written at one column stay aligned, at the column the widest needs:
+/// the README's samples line their comments up, and re-indenting must not undo that.
+fn align_trailing_comments(out: &str, mark: char) -> String {
+    struct Trailing<'s> {
+        code: &'s str,
+        comment: &'s str,
+        written_at: usize,
+        wants: usize,
+    }
+    let lines: Vec<&str> = out.split('\n').collect();
+    let trailing: Vec<Option<Trailing>> = lines
+        .iter()
+        .map(|l| {
+            let (code, rest) = l.split_once(mark)?;
+            let (place, comment) = rest.split_once(mark)?;
+            let (column, indent) = place.split_once(',')?;
+            let (column, indent): (usize, usize) = (column.parse().ok()?, indent.parse().ok()?);
+            let code = code.trim_end();
+            let own_indent = code.len() - code.trim_start_matches(' ').len();
+            let wants = (own_indent + column.saturating_sub(indent)).max(code.chars().count() + 1);
+            Some(Trailing { code, comment, written_at: column, wants })
+        })
+        .collect();
+
+    let mut result = String::with_capacity(out.len());
+    let mut i = 0;
+    while i < lines.len() {
+        if i > 0 {
+            result.push('\n');
+        }
+        let Some(first) = &trailing[i] else {
+            result.push_str(lines[i]);
+            i += 1;
+            continue;
+        };
+        let mut end = i + 1;
+        while trailing
+            .get(end)
+            .is_some_and(|t| t.as_ref().is_some_and(|t| t.written_at == first.written_at))
+        {
+            end += 1;
+        }
+        let column = trailing[i..end].iter().flatten().map(|t| t.wants).max().unwrap_or(0);
+        for (k, t) in trailing[i..end].iter().flatten().enumerate() {
+            if k > 0 {
+                result.push('\n');
+            }
+            let pad = column - t.code.chars().count();
+            result.push_str(t.code);
+            result.push_str(&" ".repeat(pad));
+            result.push_str(t.comment);
+        }
+        i = end;
+    }
+    result
+}
 
 /// End of a run of consecutive fields with no blank line between them.
 fn field_run_end(members: &[Member], start: usize, p: &Printer<'_>) -> usize {
