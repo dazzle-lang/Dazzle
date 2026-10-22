@@ -1,22 +1,25 @@
 // A growable array written from scratch, to show what the standard library's `List` is
-// made of: an `own` pointer, the three special members (a constructor, `drop` and `copy`),
-// and moves. `dz cpp .` writes the C++ this becomes into `build/cpp/`.
+// made of: an `own` pointer, memory from an allocator, the three special members (a
+// constructor, `drop` and `copy`), and moves. `dz cpp .` writes the C++ this becomes into
+// `build/cpp/`.
 
 /// Books on a shelf that grows as it fills.
 struct Shelf<T> {
-    pub label:  str
+    pub label:       str
     // `own`: a Shelf frees this pointer itself. That makes Shelf move-only unless it says
     // how to copy, and it is a compile error for Shelf not to have a `drop`.
-    m_data: own ^mut T
-    m_len:  usize
-    m_cap:  usize
+    m_data:      own ^mut T
+    m_len:       usize
+    m_cap:       usize
+    // Where the memory comes from. `Allocators::Global` is the C heap; a caller can hand
+    // in another, such as `Allocators::Temp` for a shelf that lives one frame.
+    m_allocator: ^mut Allocator = Allocators::Global
 
     // The constructor: named after the struct, no return type.
-    Shelf(label: str, cap: usize) {
+    Shelf(label: str, cap: usize, allocator: ^mut Allocator = Allocators::Global) {
         self.label = label
-        unsafe {
-            m_data = alloc(cap * sizeof(T), alignof(T)) as ^mut T
-        }
+        m_allocator = allocator
+        m_data = self.take(cap)
         m_cap = cap
     }
 
@@ -49,17 +52,37 @@ struct Shelf<T> {
         } else {
             m_cap * 2
         }
+        let data = self.take(cap)
         unsafe {
-            let data = alloc(cap * sizeof(T), alignof(T)) as ^mut T
             // `move_out` leaves the old slot raw, as `destroy` would, so nothing is
             // dropped twice.
             for i in 0..m_len {
                 construct(data[i], move_out(m_data[i]))
             }
-            free(m_data)
-            m_data = data
         }
+        self.give_back()
+        m_data = data
         m_cap = cap
+    }
+
+    /// Room for `cap` books, from the shelf's allocator.
+    fn take(&mut self, cap: usize) -> ^mut T {
+        let a = m_allocator or panic!("a shelf with no allocator cannot grow")
+        unsafe {
+            return a.alloc(cap * sizeof(T), alignof(T)) as ^mut T
+        }
+    }
+
+    /// Hand the current memory back. An allocator is told the size and alignment it gave
+    /// out, so it never has to store them (spec §14).
+    fn give_back(&mut self) {
+        if m_data == null {
+            return
+        }
+        let a = m_allocator or return
+        unsafe {
+            a.free(m_data as ^mut u8, m_cap * sizeof(T), alignof(T))
+        }
     }
 }
 
@@ -75,18 +98,20 @@ impl<T> Drop for Shelf<T> {
             for i in 0..m_len {
                 destroy(m_data[i])
             }
-            free(m_data)
         }
+        self.give_back()
     }
 }
 
 // The copy constructor, for the shelves whose books can be copied. It always runs on a
-// defaults-initialised `self`, so returning early would leave a valid, empty shelf.
+// defaults-initialised `self`, so returning early would leave a valid, empty shelf. The
+// copy draws from the same allocator as the original.
 impl<T: Copy> Copy for Shelf<T> {
     fn copy(&mut self, other: &Self) {
         label = other.label
+        m_allocator = other.m_allocator
+        m_data = self.take(other.m_cap)
         unsafe {
-            m_data = alloc(other.m_cap * sizeof(T), alignof(T)) as ^mut T
             for i in 0..other.m_len {
                 construct(m_data[i], other.m_data[i])
             }

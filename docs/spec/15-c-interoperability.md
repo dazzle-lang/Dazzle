@@ -99,6 +99,15 @@ defines = ["JPH_PROFILE_ENABLED=0"]
   that builds it, so renaming or replacing a library touches one table. `[DECIDED —
   §18.57]`
 
+- **A system header is imported only when it is asked for.** `raylib.h` includes
+  `stdlib.h`, and importing raylib does not import the C library with it: declarations in
+  a system header are passed over. A recipe that names a system header itself —
+  `[cpp.libs.libc]` with `import = ["stdlib.h"]` — gets its declarations, and those of the
+  system headers it includes, since a C library spreads one header's API over several
+  (`malloc` is in `corecrt_malloc.h` on Windows). A system file belongs to the requested
+  header that included it first, so a system header is best requested in a recipe of its
+  own. This is how the standard library reaches the C heap (§14.2). `[DECIDED — D-0084]`
+
 ```toml
 [dependencies]
 rl   = { cpp = "raylib" }

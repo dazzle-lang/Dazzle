@@ -405,8 +405,8 @@ fn not_a_constant_length(n: usize) -> i32 {
 }
 
 // The builtins codegen reads by position have their argument counts checked.
-fn alloc_without_alignment() -> ^u8 {
-    return alloc(16)
+fn construct_with_two_values(p: ^mut i32) {
+    unsafe { construct(p[0], 1, 2) }
 }
 
 // §12.9: the format string is checked against its arguments, at compile time.

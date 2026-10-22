@@ -5,7 +5,7 @@
 //! run exactly this function rather than a copy of it that could drift.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_project::{ModuleId, Workspace};
@@ -116,7 +116,10 @@ pub fn analyse_for(
     }
 
     let mut files: HashMap<ModuleId, Vec<ParsedFile>> = HashMap::new();
-    for module in ws.modules() {
+    // An imported header has no Dazzle source, and a module with an entry here is one
+    // codegen writes files for: an empty `raylib.cpp` for the header would overwrite the
+    // one generated for a module itself called `raylib` (spec §15.1).
+    for module in ws.modules().filter(|m| m.foreign.is_none()) {
         let mut parsed = Vec::new();
         for path in &module.sources {
             // The standard library's text never changes within a process, so its tree is
@@ -166,8 +169,6 @@ pub fn analyse_for(
         }
         files.insert(module.id, parsed);
     }
-
-    import_headers(&mut ws, &mut map, &mut diags);
 
     // Only the active branch of each `#if` goes on to resolution (spec §12.10). Skipped
     // when parsing failed: a broken `#if` has no branches worth choosing between.
@@ -289,153 +290,4 @@ fn std_tree(pseudo: &Path) -> Option<dz_ast::SourceFileAst> {
     });
     let key = pseudo.to_string_lossy().replace('\\', "/");
     trees.get(key.as_str()).cloned()
-}
-
-/// `rl = { cpp = "raylib" }` (spec §15.1): read the header each such dependency's recipe
-/// imports through libclang, with the flags the generated C++ will be compiled with, and
-/// add it to the workspace as a module of its own before resolution needs its names. Its
-/// files go into the source map, so what points at a declaration points into the header.
-fn import_headers(ws: &mut Workspace, map: &mut SourceMap, diags: &mut Diagnostics) {
-    use dz_project::cppimport::{import, ImportError, Request};
-
-    let root = ws.module(ws.root);
-    // Where the generated C++ is compiled, so a quoted include is searched for from there.
-    let from_dir = root.root_dir.join("build").join("cpp");
-    let cpp_standard = root.build.cpp_standard.clone();
-    let mut added: HashMap<PathBuf, FileId> = HashMap::new();
-    let ids: Vec<ModuleId> = ws.modules().map(|m| m.id).collect();
-
-    for id in ids {
-        let module = ws.module(id);
-        let manifest = module.manifest;
-        let wanted = module.cpp_deps.clone();
-        for dep in wanted {
-            // The recipe is this manifest's, or a dependency's that carries it for its users
-            // (spec §15.1): the first one found, nearest first.
-            let recipe = std::iter::once(id)
-                .chain(ws.module(id).deps.iter().map(|d| d.module))
-                .find_map(|m| ws.module(m).cpp.libs.iter().find(|l| l.name == dep.recipe).cloned());
-            let Some(recipe) = recipe else {
-                diags.push(
-                    Diagnostic::error(
-                        codes::MANIFEST_BAD_VALUE,
-                        format!("no `[cpp.libs.{}]` recipe for `{}`", dep.recipe, dep.alias),
-                    )
-                    .at(manifest, dep.recipe_span, "no recipe by this name")
-                    .with_help(format!(
-                        "add `[cpp.libs.{}]` with `import = [\"header.h\"]` (spec §15.1)",
-                        dep.recipe
-                    )),
-                );
-                continue;
-            };
-            let names: Vec<String> = recipe.import.iter().map(|(n, _)| n.clone()).collect();
-            let header = match &recipe.import[..] {
-                [(_, first), ..] => *first,
-                [] => {
-                    diags.push(
-                        Diagnostic::error(
-                            codes::MANIFEST_MISSING_FIELD,
-                            format!("recipe `{}` imports no header", recipe.name),
-                        )
-                        .at(manifest, dep.recipe_span, "nothing here for Dazzle code to see")
-                        .with_help(format!(
-                            "name the header in `[cpp.libs.{}]`: `import = [\"{}.h\"]` (spec §15.1)",
-                            recipe.name, recipe.name
-                        )),
-                    );
-                    continue;
-                }
-            };
-            // A failure names the header clang could not read, when its message says which.
-            let span_for = |messages: &[String]| {
-                recipe
-                    .import
-                    .iter()
-                    .find(|(n, _)| messages.iter().any(|m| m.contains(n.as_str())))
-                    .map_or(header, |(_, s)| *s)
-            };
-            // The header's span is in whichever manifest holds the recipe.
-            let header_file = ws
-                .modules()
-                .find(|m| {
-                    m.cpp
-                        .libs
-                        .iter()
-                        .any(|l| l.name == recipe.name && l.name_span == recipe.name_span)
-                })
-                .map_or(manifest, |m| m.manifest);
-            let (pf_file, header) = (header_file, header);
-            {
-                let name = names.join("`, `");
-                let flags = ws.cpp_flags(id);
-                let instantiate = ws.cpp_instantiate(id);
-                let req = Request {
-                    headers: &names,
-                    include_dirs: &flags.include_dirs,
-                    defines: &flags.defines,
-                    cpp_standard: &cpp_standard,
-                    from_dir: &from_dir,
-                    instantiate: &instantiate,
-                };
-                match import(&req) {
-                    Ok(h) => {
-                        let mut ids = Vec::new();
-                        for p in &h.files {
-                            if let Some(f) = added.get(p) {
-                                ids.push(*f);
-                                continue;
-                            }
-                            match std::fs::read(p).ok().and_then(|b| map.add_bytes(p, &b).ok()) {
-                                Some(f) => {
-                                    added.insert(p.clone(), f);
-                                    ids.push(f);
-                                }
-                                None => break,
-                            }
-                        }
-                        if ids.len() != h.files.len() {
-                            diags.push(
-                                Diagnostic::error(
-                                    codes::CPP_HEADER_FAILED,
-                                    format!("cannot import `{name}`"),
-                                )
-                                .at(
-                                    pf_file,
-                                    header,
-                                    "one of the files it includes could not be read",
-                                ),
-                            );
-                            continue;
-                        }
-                        ws.add_foreign(id, &dep, dz_project::Foreign { header: h, files: ids });
-                    }
-                    Err(ImportError::Unavailable(why)) => diags.push(
-                        Diagnostic::error(
-                            codes::CPP_UNAVAILABLE,
-                            "libclang is not available, so a C or C++ header cannot be read",
-                        )
-                        .at(pf_file, header, "needs libclang")
-                        .with_note(why)
-                        .with_help(
-                            "install LLVM, or set LIBCLANG_PATH to the directory holding \
-                             libclang (spec §15.1)",
-                        ),
-                    ),
-                    Err(ImportError::Failed(messages)) => {
-                        let mut d = Diagnostic::error(codes::CPP_HEADER_FAILED, format!("cannot import `{name}`"))
-                            .at(pf_file, span_for(&messages), "clang could not read this header")
-                            .with_help(
-                                "headers are found through the `include_dirs` of this module's \
-                                 `[cpp]` and `[cpp.libs]` tables, and its dependencies' (spec §15.1)",
-                            );
-                        for m in messages.iter().take(5) {
-                            d = d.with_note(m.clone());
-                        }
-                        diags.push(d);
-                    }
-                }
-            }
-        }
-    }
 }

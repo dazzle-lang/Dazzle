@@ -77,8 +77,9 @@ resource. Inside that `copy`, `T` is `Copy` because the implementation says so.
 ```dz
 impl<T: Copy> Copy for Buffer<T> {
     fn copy(&mut self, other: &Self) {
+        m_allocator = other.m_allocator
         unsafe {
-            m_data = alloc(other.m_cap * sizeof(T), alignof(T)) as ^mut T
+            m_data = m_allocator.alloc(other.m_cap * sizeof(T), alignof(T)) as ^mut T
             if T::is_trivially_copyable {
                 memcpy(m_data, other.m_data, other.m_len * sizeof(T))
             } else {

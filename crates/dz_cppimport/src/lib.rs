@@ -481,7 +481,7 @@ unsafe fn parse(req: &Request<'_>, args: &[String]) -> Result<(Header, Vec<PathB
 
     let errors = diagnostics(tu);
     let result = if errors.is_empty() {
-        let mut w = Walker::default();
+        let mut w = Walker { asked_system: asked_system_files(tu), ..Walker::default() };
         w.walk(tu);
         let (inputs, direct) = inclusions(tu);
         // Each requested header by where it was found: the files the unsaved main file
@@ -769,6 +769,55 @@ unsafe fn inclusions(tu: CXTranslationUnit) -> (Vec<PathBuf>, Vec<PathBuf>) {
     out
 }
 
+/// The system headers whose declarations this import is for: a requested header that is
+/// itself a system header — `stdlib.h` — and every system header it brings in, since a C
+/// library spreads its declarations over those (`malloc` is in `corecrt_malloc.h` on
+/// Windows). A system header reached through a library's own header is still passed over,
+/// so importing `raylib.h` does not import the C library with it (spec §15.1).
+///
+/// A file belongs to the requested header that first included it. One a library's header
+/// included before a requested system header did is the library's, so a system header is
+/// best requested in a recipe of its own.
+unsafe fn asked_system_files(tu: CXTranslationUnit) -> HashSet<String> {
+    struct Visit {
+        tu: CXTranslationUnit,
+        /// Each file, with the requested header it was reached through.
+        roots: Vec<(String, String)>,
+        asked: HashSet<String>,
+    }
+    extern "C" fn visit(
+        file: CXFile,
+        stack: *mut CXSourceLocation,
+        len: c_uint,
+        data: CXClientData,
+    ) {
+        // SAFETY: `data` is the `Visit` passed below, alive for the whole visit, and `stack`
+        // holds `len` locations, innermost include first.
+        let v = unsafe { &mut *(data as *mut Visit) };
+        let name = unsafe { string(clang_getFileName(file)) };
+        if name.is_empty() || len == 0 {
+            return;
+        }
+        if len == 1 {
+            let start = unsafe { clang_getLocationForOffset(v.tu, file, 0) };
+            if unsafe { clang_Location_isInSystemHeader(start) } != 0 {
+                v.asked.insert(name.clone());
+            }
+            v.roots.push((name.clone(), name));
+            return;
+        }
+        // The outermost entry is the `#include` in the unsaved main file; the one inside it
+        // is in the requested header that started this chain.
+        let at = unsafe { *stack.add(len as usize - 2) };
+        if let Some((root, _)) = unsafe { file_location(at) } {
+            v.roots.push((name, root));
+        }
+    }
+    let mut v = Visit { tu, roots: Vec::new(), asked: HashSet::new() };
+    clang_getInclusions(tu, visit, &mut v as *mut Visit as CXClientData);
+    v.roots.into_iter().filter(|(_, root)| v.asked.contains(root)).map(|(file, _)| file).collect()
+}
+
 /// `#include` lines for `targets`, each already bracketed or quoted.
 fn includes(targets: impl Iterator<Item = String>) -> String {
     targets.map(|t| format!("#include {t}\n")).collect()
@@ -811,6 +860,9 @@ struct Walker {
     anchor: Option<Loc>,
     /// The requested headers, absolute, for the passes that parse them again.
     direct: Vec<PathBuf>,
+    /// System headers whose declarations are imported all the same, because the recipe
+    /// asked for one of them (see [`asked_system_files`]).
+    asked_system: HashSet<String>,
     /// A class template's parameters bound to the instantiation being imported, by name:
     /// `T` to `int` while reading `Pair<int>` (spec §15.4). Empty everywhere else.
     template_args: HashMap<String, CXType>,
@@ -902,10 +954,13 @@ impl Walker {
             return Some(anchor);
         }
         let loc = clang_getCursorLocation(c);
-        if clang_Location_isInSystemHeader(loc) != 0 || clang_Location_isFromMainFile(loc) != 0 {
+        if clang_Location_isFromMainFile(loc) != 0 {
             return None;
         }
         let (file, offset) = file_location(loc)?;
+        if clang_Location_isInSystemHeader(loc) != 0 && !self.asked_system.contains(&file) {
+            return None;
+        }
         let index = match self.file_index.get(&file) {
             Some(i) => *i,
             None => {

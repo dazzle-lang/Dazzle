@@ -312,7 +312,7 @@ struct Buffer {
 
 impl Drop for Buffer {
     fn drop(&mut self) {
-        unsafe { free(m_data) }
+        Allocators::Global.free(m_data, len, 1)
     }
 }
 

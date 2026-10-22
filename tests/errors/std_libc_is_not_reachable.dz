@@ -1,0 +1,9 @@
+// expect: DZ0301
+//
+// The C library the standard library imports to back `Allocators::Global` is its own
+// dependency, not one a program can name (spec §14.2). A program that wants C's `malloc`
+// imports `stdlib.h` itself, with a `cpp` dependency (spec §15.1).
+
+fn main() {
+    let p = libc::malloc(16)
+}

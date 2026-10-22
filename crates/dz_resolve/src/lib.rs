@@ -400,10 +400,8 @@ pub const BUILTIN_TYPES: &[&str] = &[
 ];
 
 pub const BUILTIN_FNS: &[&str] = &[
-    // `alloc` and `free` go straight to the C heap until the stdlib's allocators exist
-    // (spec §9.8, §14, §19 M6). They stop being builtins at M12, as `println` did.
-    "alloc",
-    "free",
+    // No `alloc` or `free`: memory comes from an `Allocator`, and the C heap underneath
+    // `Allocators::Global` is `std`'s own import of `stdlib.h` (spec §14.2, r74).
     "sizeof",
     "alignof",
     "construct",
