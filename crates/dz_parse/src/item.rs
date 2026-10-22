@@ -391,13 +391,17 @@ impl<'a> Parser<'a> {
         // spec §18.34). Reported, then parsed as if absent — the receiver decides.
         if self.at(TokenKind::Mut) {
             let t = self.bump();
-            self.error_help(
+            if self.report_help(
                 codes::MUT_FN_REMOVED,
                 t.span,
                 "`mut fn` is no longer part of Dazzle",
                 "remove this `mut`",
                 "a method that mutates says so by its receiver: `fn name(&mut self)` (spec §7.3)",
-            );
+            ) {
+                // Up to the `fn`, so the space after `mut` goes with it.
+                let to = self.peek_token().span.start;
+                self.fix_last("remove `mut`", Span { start: t.span.start, end: to }, "");
+            }
         }
         self.bump(); // `fn`
         let name = self.parse_ident_or_error();

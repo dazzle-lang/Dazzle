@@ -2,7 +2,8 @@
 id: T-0062
 title: `dz explain <code>`
 milestone: none
-status: open
+status: done
+done: r72, 2026-10-22
 kind: feature
 area: llm-tooling
 ---

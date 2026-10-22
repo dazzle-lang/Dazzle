@@ -421,10 +421,16 @@ fn check_overrides(cx: &mut Ctx, sym: SymbolId) {
         let Some(mine) = sig.methods.get(key) else { continue };
         let name = key.split('#').next().unwrap_or(key);
         // The nearest base declaring a method of this name is the one being replaced.
+        // A generic base's method is compared at the base's arguments: `Panel<T>`'s
+        // `fn set(&mut self, v: T)` is `set(&mut self, v: i32)` to `Button : Panel<i32>`.
+        let own: Vec<Ty> =
+            cx.table.type_params(sym).iter().map(|d| Ty::Param(d.param.clone())).collect();
         let found = bases.iter().find_map(|b| {
             let bsig = cx.table.struct_sig(*b)?;
             let bkey = bsig.overloads.get(name)?.first()?;
-            Some((*b, bsig.methods.get(bkey)?.clone()))
+            let theirs = bsig.methods.get(bkey)?;
+            let args = cx.table.args_as(sym, &own, *b);
+            Some((*b, cx.instantiate_sig(*b, &args, theirs)))
         });
 
         match (mine.dispatch, found) {
@@ -1078,13 +1084,18 @@ impl<'a, 'c> Body<'a, 'c> {
                         .is_some_and(|h| self.cx.res.symbol(h).kind == SymbolKind::Trait)
                     && self.cx.table.implements(have, &wanted)
             }
-            (Ty::Named { sym: base, args: ba }, Ty::Named { sym: derived, args: da })
-                if ba.is_empty() && da.is_empty() =>
-            {
-                self.cx.table.inherits_from(*derived, *base)
+            (Ty::Named { sym: base, args: ba }, Ty::Named { sym: derived, args: da }) => {
+                self.is_base_of(*base, ba, *derived, da)
             }
             _ => false,
         }
+    }
+
+    /// Is `base<ba>` an ancestor of `derived<da>` — the struct, and at those arguments?
+    /// `Button : Panel<i32>` is a `Panel<i32>` and not a `Panel<f32>` (spec §7.3, T-0035).
+    fn is_base_of(&self, base: SymbolId, ba: &[Ty], derived: SymbolId, da: &[Ty]) -> bool {
+        self.cx.table.inherits_from(derived, base)
+            && self.cx.table.args_as(derived, da, base).as_slice() == ba
     }
 
     /// `Rc<Button>` where an `Rc<UiElement>` is wanted, and the same for `Weak` and `Box`:
@@ -1105,10 +1116,8 @@ impl<'a, 'c> Body<'a, 'c> {
             return false;
         }
         match (wa.as_slice(), ha.as_slice()) {
-            ([Ty::Named { sym: base, args: ba }], [Ty::Named { sym: derived, args: da }])
-                if ba.is_empty() && da.is_empty() =>
-            {
-                self.cx.table.inherits_from(*derived, *base)
+            ([Ty::Named { sym: base, args: ba }], [Ty::Named { sym: derived, args: da }]) => {
+                self.is_base_of(*base, ba, *derived, da)
             }
             _ => false,
         }
@@ -1141,10 +1150,8 @@ impl<'a, 'c> Body<'a, 'c> {
     /// someone who wrote one what to write instead.
     fn would_slice(&self, expected: &Ty, actual: &Ty) -> bool {
         match (expected, actual) {
-            (Ty::Named { sym: base, args: ba }, Ty::Named { sym: derived, args: da })
-                if ba.is_empty() && da.is_empty() =>
-            {
-                self.cx.table.inherits_from(*derived, *base)
+            (Ty::Named { sym: base, args: ba }, Ty::Named { sym: derived, args: da }) => {
+                self.is_base_of(*base, ba, *derived, da)
             }
             _ => false,
         }
@@ -1418,15 +1425,21 @@ impl<'a, 'c> Body<'a, 'c> {
             return;
         }
 
-        // A constructor call picks the first constructor, as every other one does today
-        // — several constructors on one type are not resolved by argument yet.
-        let sig = ctors[0].clone();
+        // Resolved by argument, as a constructor call is (spec §7.2).
         let bname = self.cx.res.symbol(b).name.clone();
         self.in_base_init = true;
+        // A generic base's constructor takes its parameters at the base's arguments, which
+        // are written in terms of this type's own (T-0035).
+        let base_args = self.cx.table.struct_sig(owner).map(|s| s.base_args.clone());
+        let base_args = base_args.unwrap_or_default();
+        let ctors: Vec<FnSig> =
+            ctors.iter().map(|c| self.cx.instantiate_sig(b, &base_args, c)).collect();
+        let index = self.pick_ctor(&ctors, &init.args, init.span, &bname);
+        let sig = ctors[index].clone();
         let args = self.check_args(&sig, &init.args, init.span, &bname);
         self.in_base_init = false;
-        let ty = Ty::Named { sym: b, args: Vec::new() };
-        let callee = hir::Callee::Ctor { owner: b, index: 0 };
+        let ty = Ty::Named { sym: b, args: base_args };
+        let callee = hir::Callee::Ctor { owner: b, index };
         let call = self.hir.expr(init.span, ty, hir::ExprKind::Call { callee, args });
         self.hir.set_base_init(call.id);
     }
@@ -3518,7 +3531,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     )
                     .at(self.cx.file, name.span, "unknown field");
                     if let Some(s) = suggestion {
-                        d = d.with_help(format!("did you mean `{s}`?"));
+                        d = d.did_you_mean(&s);
                     }
                     self.cx.diags.push(d);
                     (Ty::Error, None)
@@ -3551,7 +3564,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     )
                     .at(self.cx.file, name.span, "unknown field");
                     if let Some(s) = suggestion {
-                        d = d.with_help(format!("did you mean `{s}`?"));
+                        d = d.did_you_mean(&s);
                     }
                     self.cx.diags.push(d);
                     (Ty::Error, None)
@@ -3608,7 +3621,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     name.name, name.name
                 ));
             } else if let Some(s) = suggestion {
-                d = d.with_help(format!("did you mean `{s}`?"));
+                d = d.did_you_mean(&s);
             }
             self.cx.diags.push(d);
             let _ = base_span;
@@ -3774,6 +3787,65 @@ impl<'a, 'c> Body<'a, 'c> {
              (spec §18.27)",
         );
         fits[0]
+    }
+
+    /// Which of a type's constructors a call reaches (spec §7.2): one that takes this many
+    /// arguments — counting the ones its defaults supply — and whose parameters each
+    /// argument fits. Several fitting is settled by exact types, as for an overload set
+    /// (§18.27), and is otherwise ambiguous. With none fitting, the first that takes this
+    /// many arguments is returned, and checking the arguments against it reports why.
+    fn pick_ctor(&mut self, ctors: &[FnSig], args: &[Expr], span: Span, name: &str) -> usize {
+        if ctors.len() <= 1 {
+            return 0;
+        }
+        let positional = args.iter().take_while(|a| !matches!(a.kind, ExprKind::Named { .. }));
+        let positional: Vec<&Expr> = positional.collect();
+        let n = positional.len();
+        let takes = |s: &FnSig| match s.variadic {
+            Some(v) => n >= v,
+            None => s.required() <= n && n <= s.params.len(),
+        };
+        let by_count: Vec<usize> = (0..ctors.len()).filter(|&i| takes(&ctors[i])).collect();
+        if by_count.len() <= 1 {
+            return by_count.first().copied().unwrap_or(0);
+        }
+        let tys: Vec<Ty> = positional.iter().map(|a| self.expr_quiet(a)).collect();
+        // A parameter of a generic struct's type parameter fits anything here: what it is
+        // solved to is decided once the constructor is chosen.
+        let fits = |s: &FnSig, exact: bool| {
+            s.params.iter().zip(&tys).take(s.variadic.unwrap_or(usize::MAX)).all(|(p, a)| {
+                if p.ty.has_params() || a.is_wildcard() {
+                    return !exact;
+                }
+                if exact {
+                    p.ty == *a || p.ty == a.defaulted()
+                } else {
+                    assignable(&p.ty, a)
+                }
+            })
+        };
+        let fitting: Vec<usize> =
+            by_count.iter().copied().filter(|&i| fits(&ctors[i], false)).collect();
+        match fitting.as_slice() {
+            [] => return by_count[0],
+            [one] => return *one,
+            _ => {}
+        }
+        let exact: Vec<usize> =
+            fitting.iter().copied().filter(|&i| fits(&ctors[i], true)).collect();
+        if let [one] = exact.as_slice() {
+            return *one;
+        }
+        let shown: Vec<String> = tys.iter().map(|t| self.cx.name_of(t)).collect();
+        self.cx.error_help(
+            codes::AMBIGUOUS_CALL,
+            span,
+            format!("more than one constructor of `{name}` accepts ({})", shown.join(", ")),
+            "ambiguous constructor call",
+            "give an argument a type — `3 as i64`, say — or pass the argument a default would \
+             have supplied, so that exactly one constructor fits (spec §7.2)",
+        );
+        fitting[0]
     }
 
     /// Find the trait method an operator dispatches to, and build the call (spec §11.2).
@@ -4785,6 +4857,8 @@ impl<'a, 'c> Body<'a, 'c> {
                     // chain; the type that declared it is the one whose visibility applies
                     // and the one the HIR records (spec §7.3, 18.32).
                     let owner = self.cx.table.method_owner(sym, &name.name).unwrap_or(sym);
+                    // A generic base's method reads its `T` as the base's argument (T-0035).
+                    let type_args = self.cx.table.args_as(sym, &type_args, owner);
                     if let Some(sig) =
                         self.method_by_args(owner, &type_args, &name.name, args, span)
                     {
@@ -4918,7 +4992,7 @@ impl<'a, 'c> Body<'a, 'c> {
                                 name.name
                             ));
                         } else if let Some(s) = suggestion {
-                            d = d.with_help(format!("did you mean `{s}`?"));
+                            d = d.did_you_mean(&s);
                         }
                         self.cx.diags.push(d);
                         for a in args {
@@ -4989,8 +5063,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 if self.cx.res.symbol(sym).kind == SymbolKind::Struct {
                     let ctors =
                         self.cx.table.struct_sig(sym).map(|s| s.ctors.clone()).unwrap_or_default();
-                    if let Some(sig) = ctors.first().cloned() {
-                        let name = self.cx.res.symbol(sym).name.clone();
+                    let name = self.cx.res.symbol(sym).name.clone();
+                    let index = self.pick_ctor(&ctors, args, span, &name);
+                    if let Some(sig) = ctors.get(index).cloned() {
                         // A generic struct's parameters are solved exactly as a generic
                         // function's are: written (`Buffer<f32>(8)`) or inferred from the
                         // arguments (spec §8.1). The result is the instantiation.
@@ -5006,7 +5081,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         };
                         let args = self.check_args(&sig, args, span, &name);
                         self.refuse_abstract(sym, span);
-                        let callee = hir::Callee::Ctor { owner: sym, index: 0 };
+                        let callee = hir::Callee::Ctor { owner: sym, index };
                         return self.mk(e, ty, hir::ExprKind::Call { callee, args });
                     }
                 }
@@ -6753,7 +6828,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 )
                 .at(self.cx.file, name.span, "unknown field");
                 if let Some(s) = suggestion {
-                    d = d.with_help(format!("did you mean `{s}`?"));
+                    d = d.did_you_mean(&s);
                 }
                 self.cx.diags.push(d);
                 self.expr(&f.value, None);
@@ -7078,7 +7153,7 @@ impl<'a, 'c> Body<'a, 'c> {
             )
             .at(self.cx.file, name.span, "unknown variant");
             if let Some(s) = suggestion {
-                d = d.with_help(format!("did you mean `{s}`?"));
+                d = d.did_you_mean(&s);
             }
             self.cx.diags.push(d);
         }
@@ -7259,7 +7334,7 @@ impl<'a, 'c> Body<'a, 'c> {
                                 "unknown variant",
                             );
                             if let Some(x) = suggestion {
-                                d = d.with_help(format!("did you mean `{x}`?"));
+                                d = d.did_you_mean(&x);
                             }
                             self.cx.diags.push(d);
                         }
@@ -8073,8 +8148,11 @@ impl<'a, 'c> Body<'a, 'c> {
             OrClause::Unreachable(_) => hir::OrClause::Unreachable,
         };
 
-        // `or ignore` discards, so the expression yields nothing at all.
+        // `or ignore` discards, so the expression yields nothing at all — and where a value
+        // was wanted that has just been reported, so it is an error type rather than a
+        // `void` for the binding to be reported against a second time.
         let ty = match clause {
+            OrClause::Ignore(_) if !stmt_position => Ty::Error,
             OrClause::Ignore(_) => Ty::Void,
             _ => success,
         };

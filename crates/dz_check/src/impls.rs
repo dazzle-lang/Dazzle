@@ -94,6 +94,26 @@ impl Ctx<'_> {
             );
             return false;
         }
+        // A method call reaches through a pointer or reference to what it points at (§5.2),
+        // so an implementation on the pointer type itself could only be reached through a
+        // bound — and the call there is emitted on the pointee too (T-0080).
+        if let Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } | Ty::Ref { inner, .. } =
+            &imp.self_ty
+        {
+            let inner = self.name_of(inner);
+            self.error_help(
+                codes::ORPHAN_IMPL,
+                imp.span,
+                format!("`{trait_name}` cannot be implemented for a pointer or reference type"),
+                format!("`{me}` is a pointer or reference"),
+                format!(
+                    "a method call on `{me}` reaches through to `{inner}`, so this could never \
+                     be called; implement `{trait_name}` for `{inner}`, or wrap the pointer in a \
+                     struct of your own and implement it for that (spec §7.6)"
+                ),
+            );
+            return false;
+        }
         if special {
             if self.special_owner(imp).is_none() {
                 self.error_help(
@@ -405,9 +425,14 @@ impl TypeTable {
             return direct;
         }
 
+        let args = match ty {
+            Ty::Named { args, .. } => args.clone(),
+            _ => Vec::new(),
+        };
         let mut out = direct;
         for base in chain.into_iter().skip(1) {
-            let base_ty = Ty::plain(base);
+            // A generic base is the instance this type inherits (T-0035).
+            let base_ty = Ty::Named { sym: base, args: self.args_as(sym, &args, base) };
             for (i, imp) in self.impls.iter().enumerate() {
                 if Some(imp.trait_ref.trait_sym) == self.drop_trait
                     || Some(imp.trait_ref.trait_sym) == self.copy_trait

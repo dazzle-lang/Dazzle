@@ -34,7 +34,14 @@ fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
 - **There is no function overloading.** `[DECIDED — §18.5]` One name, one function.
   Imported C++ overloads are the exception (§15.3), because we do not control those headers.
 - Constructors may be overloaded on arity and parameter types, since `Buffer(8)` and
-  `Buffer(8, arena)` are genuinely the same operation.
+  `Buffer(8, arena)` are genuinely the same operation. A call — and a base initialiser,
+  `: Base(…)` (§7.3) — reaches the constructor that takes that many arguments, **counting
+  those its defaults supply**, and whose parameters the arguments fit. Where several fit,
+  the one every argument's type matches exactly is chosen, an untyped literal matching the
+  type it would default to; if that still leaves more than one, the call is ambiguous and an
+  error. So `Color(r: u8, g: u8, b: u8, a: u8 = 255)` and `Color(gray: f32)` are told apart
+  by `Color(1, 2, 3)` and `Color(0.5)`, while `Span(from: i32, to: i32 = 0)` beside
+  `Span(len: i32)` makes `Span(4)` an error.
 
 **Arguments are evaluated left to right**, each completely before the next: in
 `println!("{} {}", touch(), COUNT.hits)`, `touch()` has run by the time `COUNT.hits` is
@@ -174,6 +181,12 @@ pub struct Button : UiElement {
     }
 }
 ```
+
+**A base may be an instance of a generic struct**: `struct Button : Panel<i32>` inherits
+`Panel<i32>`, its fields and methods with `T` read as `i32`, and is built through
+`Panel<i32>`'s constructor, `: Panel(clicks)`. A generic derived type may pass its own
+parameter on — `struct Slider<T> : Panel<T>` — and a non-generic base is as before. A
+`&Button` converts to a `&Panel<i32>` and to no other instance of `Panel`.
 
 **The base comes first in memory**, so `&Derived` → `&Base` and `^Derived` → `^Base` are
 implicit and cost nothing. A **by-value** `Derived` where a `Base` is wanted is an error:
@@ -407,7 +420,10 @@ type in a struct of your own. `[DECIDED — §18.31]`
 **Generic implementations** have parameters of their own: `impl<T: Inspect> Inspect for
 Buffer<T>` applies to every `Buffer<T>` whose `T` is `Inspect`. An implementation for every
 type at once — `impl<T> Inspect for T` — is not allowed, since it would overlap every other
-implementation of the trait. Two implementations of one trait that could apply to the same
+implementation of the trait. Nor is one for a pointer or reference type — `impl Hash for
+^Node` — since a method call reaches through a pointer to what it points at (§5.2) and so
+could never find it; to give a pointer behaviour of its own, wrap it in a struct and
+implement the trait for that. Two implementations of one trait that could apply to the same
 type at the same arguments are an error; at different arguments they are how a type takes
 several right-hand sides (§11.2).
 

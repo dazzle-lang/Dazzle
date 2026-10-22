@@ -195,6 +195,10 @@ pub struct StructSig {
     pub fields: Vec<FieldSig>,
     /// `struct Button : UiElement` — the one struct this one inherits from (18.32).
     pub base: Option<SymbolId>,
+    /// The base's type arguments, `[i32]` for `struct Button : Panel<i32>` — written in
+    /// terms of this type's own parameters, `[T]` for `struct Slider<T> : Panel<T>`. Empty
+    /// for a base that is not generic (T-0035).
+    pub base_args: Vec<Ty>,
     /// How many leading entries of `fields` came from bases. Zero without a base.
     pub inherited: usize,
     /// Does this type, or anything it inherits from, declare a `virtual` method? A C++
@@ -504,6 +508,35 @@ impl TypeTable {
         self.with_bases(sym)
             .into_iter()
             .find(|s| self.methods_sig(*s).is_some_and(|x| x.overloads.contains_key(name)))
+    }
+
+    /// `sym` at `args`, seen as its ancestor `target`: the type arguments `target` has in
+    /// that chain. `Button : Panel<i32>` seen as `Panel` is `[i32]`; `Slider<f32>`, with
+    /// `Slider<T> : Panel<T>`, is `[f32]`. Empty when `target` is not generic, and `args`
+    /// themselves when `target` is `sym` (spec §7.3, T-0035).
+    pub fn args_as(&self, sym: SymbolId, args: &[Ty], target: SymbolId) -> Vec<Ty> {
+        let mut at = sym;
+        let mut at_args = args.to_vec();
+        for _ in 0..self.with_bases(sym).len() {
+            if at == target {
+                return at_args;
+            }
+            let Some(s) = self.struct_sig(at) else { break };
+            let Some(base) = s.base else { break };
+            let map: HashMap<u32, Ty> = self
+                .type_params(at)
+                .iter()
+                .map(|p| p.param.id)
+                .zip(at_args.iter().cloned())
+                .collect();
+            at_args = s.base_args.iter().map(|t| ty::substitute(t, &map)).collect();
+            at = base;
+        }
+        if at == target {
+            at_args
+        } else {
+            Vec::new()
+        }
     }
 
     /// Does `sym` inherit from `base`, at any depth? A `&Derived` is usable as a `&Base`
@@ -1962,22 +1995,12 @@ impl<'a> Ctx<'a> {
         let ty = self.lower_path_type(base, base.span);
         self.pop_params();
 
-        let base_sym = match &ty {
+        // A generic base is one instance of it, `Panel<i32>` — or, in a generic derived
+        // type, one in terms of its own parameters, `Panel<T>` (T-0035). `: Panel` with no
+        // arguments has been reported by the lowering, as DZ0534, and comes back an error.
+        let (base_sym, base_args) = match &ty {
             Ty::Error => return,
-            Ty::Named { sym: b, args } if args.is_empty() => *b,
-            Ty::Named { sym: b, .. } => {
-                let name = self.res.symbol(*b).name.clone();
-                self.error_help(
-                    codes::BAD_BASE,
-                    base.span,
-                    format!("`{name}` is generic, and a generic base is not supported yet"),
-                    "a base with type arguments",
-                    "inheriting from an instantiation means laying out one base per \
-                     instance, which monomorphization does not do yet; inherit from a \
-                     concrete struct (spec §7.3, 18.32)",
-                );
-                return;
-            }
+            Ty::Named { sym: b, args } => (*b, args.clone()),
             other => {
                 let shown = self.name_of(other);
                 self.error_help(
@@ -2041,6 +2064,7 @@ impl<'a> Ctx<'a> {
         }
         if let Some(ItemSig::Struct(sig)) = self.table.sigs.get_mut(&sym) {
             sig.base = Some(base_sym);
+            sig.base_args = base_args;
         }
     }
 
@@ -2083,8 +2107,8 @@ impl<'a> Ctx<'a> {
         if done.contains(&sym) {
             return;
         }
-        let base = match self.table.get(sym) {
-            Some(ItemSig::Struct(s)) => s.base,
+        let (base, base_args) = match self.table.get(sym) {
+            Some(ItemSig::Struct(s)) => (s.base, s.base_args.clone()),
             _ => return,
         };
         let Some(base) = base else {
@@ -2126,10 +2150,23 @@ impl<'a> Ctx<'a> {
             done.insert(sym);
             return;
         };
+        // A generic base's fields are this type's at the base's arguments: `Panel<T>`'s
+        // `value: T` is `value: i32` in `Button : Panel<i32>` (T-0035).
+        let map: HashMap<u32, Ty> = self
+            .table
+            .type_params(base)
+            .iter()
+            .map(|p| p.param.id)
+            .zip(base_args.iter().cloned())
+            .collect();
         let base_fields: Vec<FieldSig> = base_sig
             .fields
             .iter()
-            .map(|f| FieldSig { declared_in: Some(f.declared_in.unwrap_or(base)), ..f.clone() })
+            .map(|f| FieldSig {
+                declared_in: Some(f.declared_in.unwrap_or(base)),
+                ty: ty::substitute(&f.ty, &map),
+                ..f.clone()
+            })
             .collect();
         let base_polymorphic = base_sig.polymorphic;
 

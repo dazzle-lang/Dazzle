@@ -1,0 +1,9 @@
+[module]
+name    = "generic_base"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

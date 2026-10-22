@@ -1226,6 +1226,24 @@ impl Hash for Tile {
     }
 }
 
+// §7.6: a trait is not implemented for a pointer type, which a method call reaches through;
+// keying by identity wraps the pointer in a struct of its own (T-0080).
+struct TileRef {
+    pub at: ^Tile
+}
+
+impl Eq for TileRef {
+    fn eq(&self, rhs: &TileRef) -> bool {
+        return at == rhs.at
+    }
+}
+
+impl Hash for TileRef {
+    fn hash(&self) -> u64 {
+        return (at as usize).hash()
+    }
+}
+
 // §9.1, 18.53: a `T` is a `T?` wherever one is wanted — `let`, argument, assignment, and
 // `if`/`switch` arms joined with `none` or a `T?`; `.Variant` infers through the `?`.
 fn takes_optional(n: i32?) -> i32 {
@@ -1581,4 +1599,71 @@ fn collections_pass(names: &mut HashMap<String, i32>, words: &List<String>) -> u
     let removed = s.remove(0)
     let comma = tail.rfind(",") or 0
     return at + k.len + comma + (if fresh && removed == 'x' && first == 1 { 1 } else { 0 })
+}
+
+// §7.2, T-0036: several constructors, each reached by the arguments that fit it — by count,
+// defaults included, and by type; a base initialiser chooses the same way.
+struct Extent {
+    pub w: f32
+    pub h: f32
+
+    Extent(w: f32, h: f32 = 1.0) {
+        self.w = w
+        self.h = h
+    }
+
+    Extent(size: Vec2) {
+        self.w = size.x
+        self.h = size.y
+    }
+}
+
+struct Framed : Extent {
+    pub border: i32
+
+    Framed(size: Vec2) : Extent(size) {
+        self.border = 1
+    }
+}
+
+fn constructors_by_argument() -> f32 {
+    let a = Extent(2.0)
+    let b = Extent(2.0, 3.0)
+    let c = Extent(Vec2{ x: 1.0, y: 1.0 })
+    let d = Framed(Vec2{ x: 4.0, y: 4.0 })
+    return a.w + b.h + c.w + d.w + d.border as f32
+}
+
+// §7.3, T-0035: a generic base — an instance of it, or passed a parameter by a generic
+// derived type — with its fields, methods and constructor read at the base's arguments.
+struct Holder<T: Copy> {
+    pub held: T
+
+    Holder(held: T) {
+        self.held = held
+    }
+
+    pub fn get(&self) -> T {
+        return held
+    }
+}
+
+struct IntHolder : Holder<i32> {
+    IntHolder(n: i32) : Holder(n) {}
+}
+
+struct Labelled<T: Copy> : Holder<T> {
+    pub label: str = ""
+
+    Labelled(v: T) : Holder(v) {}
+}
+
+fn holder_value(h: &Holder<i32>) -> i32 {
+    return h.get()
+}
+
+fn generic_bases() -> i32 {
+    let a = IntHolder(3)
+    let b = Labelled<i32>(4)
+    return holder_value(&a) + holder_value(&b) + a.held + b.get()
 }

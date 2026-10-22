@@ -1,0 +1,25 @@
+// expect: DZ0538
+//
+// A call reaches the constructor its arguments fit, defaults counted (spec §7.2). Here both
+// take one `i32`, the first through its default, so nothing chooses between them; passing
+// the second argument, `Span(4, 0)`, would.
+
+struct Span {
+    pub from: i32
+    pub to: i32
+
+    Span(from: i32, to: i32 = 0) {
+        self.from = from
+        self.to = to
+    }
+
+    Span(len: i32) {
+        self.from = 0
+        self.to = len
+    }
+}
+
+fn main() {
+    let s = Span(4)
+    println!("{}", s.to)
+}

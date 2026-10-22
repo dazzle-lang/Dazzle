@@ -21,6 +21,9 @@ usage:
     dz test  [path]             build the project's `#[test]` functions and run them
     dz bench [path]             build the project's `#[bench]` functions and time them
     dz check [path]             load a project and check it without generating code
+    dz check --format=json      the same, every diagnostic as JSON on stdout
+    dz fix   [path]             apply the fixes the compiler is certain of
+    dz fix --dry-run [path]     list them, changing nothing
     dz hir   [path]             check and print the typed tree
     dz lex   <file.dz>          tokenize and print the token stream
     dz parse <file.dz>          parse and print the syntax tree
@@ -28,6 +31,8 @@ usage:
     dz fmt   <file.dz>...       format in place
     dz fmt --check <file.dz>... report which files are not formatted (exit 1 if any)
     dz fmt --stdout <file.dz>   print the formatted source without writing
+    dz explain <code>           what a diagnostic means, with a wrong and a right program
+    dz explain                  every diagnostic code, one line each
     dz lsp                      run the language server on stdin/stdout
     dz --version
     dz --help
@@ -70,7 +75,12 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("check") => match build_args(&args) {
+            Ok(b) if b.json => cmd_check_json(&b.path, &b.options),
             Ok(b) => cmd_check(&b.path, &b.options),
+            Err(code) => code,
+        },
+        Some("fix") => match build_args(&args) {
+            Ok(b) => cmd_fix(&b.path, &b.options, b.dry_run),
             Err(code) => code,
         },
         Some("hir") => match build_args(&args) {
@@ -87,6 +97,7 @@ fn main() -> ExitCode {
         Some("expand") => with_file(&args, cmd_expand),
         Some("fmt") => cmd_fmt(&args[1..]),
         Some("lsp") => cmd_lsp(),
+        Some("explain") => cmd_explain(args.get(1).map(String::as_str)),
         Some("--version" | "-V") => {
             println!("dz {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -183,6 +194,106 @@ fn cmd_check(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
         if files == 1 { "" } else { "s" }
     );
     ExitCode::SUCCESS
+}
+
+/// `dz check --format=json`: every diagnostic, warnings included, as one JSON document on
+/// stdout and nothing else there — the shape is `dz_diag::render_json`'s. The exit code is
+/// still the verdict: failure when there is an error.
+fn cmd_check_json(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
+    let analysis = analyse_for_build(entry, options);
+    print!("{}", dz_diag::render_json(&analysis.map, &analysis.diags));
+    if analysis.diags.has_errors() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// `dz fix`: apply every certain fix the diagnostics carry, then report what is left.
+///
+/// Only a fix marked certain is applied — a suggestion such as "did you mean `count`?" is a
+/// guess, and `dz fix` runs unattended (see `dz_diag::Fix`). Edits are byte ranges in the
+/// file as it is on disk (invariant 2), applied last first so earlier offsets stay true;
+/// one that overlaps an edit already taken waits for the next run, as does anything a fix
+/// uncovers, since fixing one mistake can let a later phase see the next.
+fn cmd_fix(entry: &str, options: &dz_driver::BuildOptions, dry_run: bool) -> ExitCode {
+    let analysis = analyse_for_build(entry, options);
+    let map = &analysis.map;
+    let mut by_file: std::collections::BTreeMap<FileId, Vec<&dz_diag::Edit>> =
+        std::collections::BTreeMap::new();
+    let mut applied: Vec<(&dz_diag::Diagnostic, &dz_diag::Fix)> = Vec::new();
+    for d in analysis.diags.iter() {
+        let Some(fix) = d.fix.as_ref().filter(|f| f.certain) else { continue };
+        // A fix whose edits cannot all be taken is not taken at all: half a fix is a
+        // different program.
+        let clashes = fix.edits.iter().any(|e| {
+            by_file.get(&e.file).is_some_and(|taken| {
+                taken.iter().any(|t| {
+                    e.span.start < t.span.end.max(t.span.start + 1)
+                        && t.span.start < e.span.end.max(e.span.start + 1)
+                })
+            })
+        });
+        // Only a file that is the project's own, on disk: never the standard library's
+        // sources, which the compiler carries.
+        let on_disk =
+            fix.edits.iter().all(|e| map.try_get(e.file).is_some_and(|f| f.path().is_file()));
+        if clashes || !on_disk {
+            continue;
+        }
+        for e in &fix.edits {
+            by_file.entry(e.file).or_default().push(e);
+        }
+        applied.push((d, fix));
+    }
+
+    for (d, fix) in &applied {
+        let at = d
+            .primary_span()
+            .and_then(|(f, s)| map.try_get(f).map(|file| (file, file.location(s.start as usize))))
+            .map(|(file, loc)| {
+                format!("{}:{}:{}", file.name().replace('\\', "/"), loc.line, loc.column)
+            })
+            .unwrap_or_default();
+        let code = d.code.unwrap_or("");
+        let would = if dry_run { "would " } else { "" };
+        println!("{at}: {code} {would}{}", fix.title);
+    }
+
+    let mut failed = false;
+    if !dry_run {
+        for (file, mut edits) in by_file {
+            let source = map.get(file);
+            let mut text = source.text().to_owned();
+            edits.sort_by_key(|e| std::cmp::Reverse((e.span.start, e.span.end)));
+            for e in edits {
+                text.replace_range(e.span.range(), &e.text);
+            }
+            if let Err(e) = std::fs::write(source.path(), text) {
+                eprintln!("error: cannot write {}: {e}", source.path().display());
+                failed = true;
+            }
+        }
+    }
+
+    let n = applied.len();
+    let left = analysis.diags.len() - n;
+    println!(
+        "{} {n} fix{}; {left} diagnostic{} not fixed{}",
+        if dry_run { "would apply" } else { "applied" },
+        if n == 1 { "" } else { "es" },
+        if left == 1 { "" } else { "s" },
+        if n > 0 && !dry_run {
+            " — run `dz check` again, since a fix can uncover the next mistake"
+        } else {
+            ""
+        }
+    );
+    if failed || (left > 0 && analysis.diags.has_errors()) {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 /// `dz test` and `dz bench` — build a harness binary and drive it (spec §19 M14, M15).
@@ -364,6 +475,10 @@ struct BuildArgs {
     path: String,
     options: dz_driver::BuildOptions,
     cxx: Option<String>,
+    /// `--format=json`: diagnostics as one JSON document on stdout, for a program to read.
+    json: bool,
+    /// `dz fix --dry-run`: say what would change, and change nothing.
+    dry_run: bool,
 }
 
 /// Split `run`/`build`/`cpp`/`check`/`hir`'s arguments into a path, a build mode and flags.
@@ -374,11 +489,31 @@ struct BuildArgs {
 /// takes the same options because the mode and the flags decide which `#if` branches are
 /// checked at all (spec §12.10).
 fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
-    let mut out =
-        BuildArgs { path: ".".to_owned(), options: dz_driver::BuildOptions::default(), cxx: None };
+    let mut out = BuildArgs {
+        path: ".".to_owned(),
+        options: dz_driver::BuildOptions::default(),
+        cxx: None,
+        json: false,
+        dry_run: false,
+    };
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
         match a.as_str() {
+            "--format" | "--format=json" | "--format=human" if args[0] == "check" => {
+                let value = match a.strip_prefix("--format=") {
+                    Some(v) => Some(v),
+                    None => rest.next().map(String::as_str),
+                };
+                match value {
+                    Some("json") => out.json = true,
+                    Some("human") => out.json = false,
+                    _ => {
+                        eprintln!("error: `--format` is `human` or `json`\n\n{USAGE}");
+                        return Err(ExitCode::FAILURE);
+                    }
+                }
+            }
+            "--dry-run" if args[0] == "fix" => out.dry_run = true,
             // `--cxx g++` and `--cxx=g++` both, since a flag taking a value is usually
             // written either way and guessing wrong is a confusing error.
             "--cxx" => match rest.next() {
@@ -494,6 +629,27 @@ fn cmd_pipeline(
         }
         Err(e) => {
             eprintln!("error: could not run {}: {e}", exe.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `dz explain DZ0401` (or `0401`, `401`): the rule behind a diagnostic, why it exists, and
+/// a program that breaks it beside one that does not — every example compiled by a test,
+/// so it says what the compiler does. With no code, the list of every code.
+fn cmd_explain(code: Option<&str>) -> ExitCode {
+    let Some(arg) = code else {
+        print!("{}", dz_diag::explain::index());
+        return ExitCode::SUCCESS;
+    };
+    let found = dz_diag::explain::normalise(arg).and_then(|c| dz_diag::explain::explain(&c));
+    match found {
+        Some(e) => {
+            print!("{}", dz_diag::explain::render(&e));
+            ExitCode::SUCCESS
+        }
+        None => {
+            eprintln!("error: `{arg}` is not a diagnostic code; `dz explain` lists them all");
             ExitCode::FAILURE
         }
     }
