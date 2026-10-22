@@ -274,3 +274,13 @@ ragged. It now measures and pads everything before the `:`: visibility, `own` an
 `examples/ownership` and `tests/run/ownership` re-format. Four fixtures that had been aligned
 by hand the new way were already right. The standard library is not `dz fmt`-clean for other
 reasons and was not re-formatted here.
+
+## CI runs once per change (2026-10-23)
+
+CI ran on every pull request and again on the merge into master, and pull requests here are
+merged as soon as they open, so every change paid for two runs of up to half an hour and the
+PR run was usually cancelled. It now runs only on a push to master, plus by hand
+(`gh workflow run CI --ref <branch>`) to try a branch first. A push that touches only the
+root Markdown files, `docs/`, `editors/`, `tools/`, `.claude/` or the logo skips it (not
+every `.md`: `dz explain` compiles in `crates/dz_diag/explain/*.md`), and a newer push to the
+same ref cancels the run still going.
