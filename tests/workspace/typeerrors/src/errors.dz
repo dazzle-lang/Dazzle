@@ -970,15 +970,22 @@ fn bad_format_calls(fmt: str, h: Unwritten) -> usize {
     return a.len() + b.len() + c.len() + d.len()
 }
 
-// §12.9: an enum, an optional and a pointer have no `Format`; only `format!` takes an
-// argument by name, and only `allocator`; every formatting macro needs its string; and a
-// spread has no count to check the string against.
+// §12.9: an enum, an optional and a pointer to a pointer have no `Format`; `{:p}` suits
+// only a pointer, and is not filled with zeros; `error(…)` writes a pointer only by its
+// address; only `format!` takes an argument by name, and only `allocator`; every
+// formatting macro needs its string; and a spread has no count to check the string
+// against.
 enum Shade {
     Light
     Dark
 }
 
-fn bad_print_calls(s: Shade, o: i32?, p: ^i32, xs: []i32) {
+fn bad_pointer_formats(n: i32, p: ^i32) !-> i32 {
+    println!("{:p} {:08p}", n, p)
+    return error("{}", p)
+}
+
+fn bad_print_calls(s: Shade, o: i32?, p: ^^i32, xs: []i32) {
     println!("{} {} {}", s, o, p)
     println!("{}", 1, allocator = Allocators::Temp)
     let t = format!("{}", 1, colour = 2)

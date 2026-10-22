@@ -2,7 +2,8 @@
 id: T-0056
 title: A formatting macro's arguments go through `&Format`
 milestone: M12
-status: open
+status: done
+done: r69, 2026-10-22
 kind: deferral
 area: stdlib
 where: `dz_check/src/check.rs`, `format_macro`; `std/core/formatter.dz`, `write_args`

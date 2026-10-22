@@ -116,45 +116,67 @@ pub struct Formatter {
         self.write_str(unsafe { encoded[0..n] as str })
     }
 
-    /// What `print!`, `println!`, `eprint!` and `eprintln!` lower to (spec §12.9): `args`
-    /// written between `pieces` to standard output (`stream` 0) or standard error (1).
-    fn print(stream: i32, pieces: []str, specs: []str, args: ..&Format) {
-        let mut f = Formatter::stream(stream)
-        f.write_args(pieces, specs, ..args)
-    }
+    // A formatting macro lowers to these (spec §12.9): for each placeholder `begin_arg`, the
+    // argument's own `Format::format`, called directly rather than through a vtable, and
+    // `end_arg`; then `finish`. The format string was split and checked where the
+    // invocation was compiled, so each piece and spec arrives as a literal.
 
-    /// What `format!` lowers to (spec §12.9): `args` written between `pieces`, as a new
-    /// `String` in memory from `allocator`.
-    fn format(pieces: []str, specs: []str, args: ..&Format, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
-        let mut out = String("", allocator, loc)
-        {
-            let mut f = Formatter::string(&mut out, loc)
-            f.write_args(pieces, specs, ..args)
+    /// The text since the last placeholder, then this one's spec, which the argument's
+    /// `Format` reads; under a width, the argument's characters are counted from here.
+    fn begin_arg(&mut self, piece: str, spec: str) {
+        self.write_str(piece)
+        self.set_spec(spec)
+        if m_width != none {
+            m_counting = true
+            m_written = 0
         }
-        return out
     }
 
-    /// What the formatting macros lower to (spec §12.9): `pieces[i]`, then `args[i]` as
-    /// `specs[i]` asks, for each argument, then the last piece, and on a stream the whole
-    /// of it written out before the arguments' temporaries are dropped. The format string
-    /// was split and checked against the arguments where the invocation was compiled, so
-    /// there is one more piece than there are arguments, and a spec for each.
-    fn write_args(&mut self, pieces: []str, specs: []str, args: ..&Format) {
-        for i in 0..args.len {
-            self.write_str(pieces[i])
-            self.set_spec(specs[i])
-            if let width = m_width {
-                m_counting = true
-                m_written = 0
-                args[i].format(&mut self)
-                self.end_padded(width as usize)
-            } else {
-                args[i].format(&mut self)
+    /// The end of an argument: what its width still asks for.
+    fn end_arg(&mut self) {
+        if let width = m_width {
+            self.end_padded(width as usize)
+        }
+    }
+
+    /// The text after the last placeholder, and on a stream the whole of it written out —
+    /// before the arguments' temporaries are dropped.
+    fn finish(&mut self, piece: str) {
+        self.set_spec("")
+        self.write_str(piece)
+        self.flush()
+    }
+
+    /// A pointer under `{}` or any spec but `{:p}`: what it points at, as a reference to it
+    /// would be written, or `null` (spec §12.9).
+    fn write_pointee<T: Format>(&mut self, p: ^T) {
+        if p == null {
+            self.write_str("null")
+            return
+        }
+        unsafe { p^.format(&mut self) }
+    }
+
+    /// A pointer under `{:p}`: its address, in hex after `0x`, right-aligned in a width as
+    /// a number is (spec §12.9).
+    fn write_address(&mut self, address: usize) {
+        // Sixteen digits hold any 64-bit address; two more hold the `0x`.
+        let mut buf: [18]u8
+        let mut at: usize = 18
+        let mut n = address as u64
+        while true {
+            at -= 1
+            let d = (n % 16) as u8
+            buf[at] = if d < 10 { '0' as u8 + d } else { 'a' as u8 + d - 10 }
+            n = n / 16
+            if n == 0 {
+                break
             }
         }
-        self.set_spec("")
-        self.write_str(pieces[args.len])
-        self.flush()
+        at -= 2
+        buf[at] = '0' as u8
+        buf[at + 1] = 'x' as u8
+        self.write_number(unsafe { buf[at..18] as str })
     }
 
     /// Write a number's text — its sign, if any, then its digits — honouring `{:N}` and

@@ -19,7 +19,7 @@ to `status: done` in `docs/tasks/`.
 | `r30-inheritance.md` | struct inheritance, its plan and r30 |
 | `m9.md` | language server, VS Code extension, tolerant analysis, quick fixes |
 | `m10-m11.md` | macros (r63), reflection (r51), checked attributes (r52) |
-| `m12.md` | the standard library, r39–r68, Breakout, CI fixes along the way |
+| `m12.md` | the standard library, r39–r69, Breakout, CI fixes along the way |
 | `tooling.md` | build modes, `dz test` (M14), `dz bench` (M15), CI, the parallel suite |
 
 **Where things stand (2026-10-21):** M0–M8, M10, M11, M14 and M15 are done; M7 is done

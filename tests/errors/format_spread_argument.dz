@@ -1,0 +1,10 @@
+// expect: DZ0526
+//
+// A format string is checked against the arguments written out after it, and a spread's
+// length is not known until the program runs — so it is refused by name, not as a macro
+// that failed to match (spec §12.9).
+
+fn main() {
+    let xs = [1, 2]
+    println!("{} {}", ..xs)
+}
