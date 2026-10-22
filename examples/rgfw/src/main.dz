@@ -1,16 +1,21 @@
-fn main() !-> void {
-	rgfw::RGFW_init("Dazzle", 0)
+// A window from RGFW, a single-header C library, called with no bindings. Escape or the
+// window's close button ends it.
 
-	let win = rgfw::RGFW_createWindow("Window", 0, 0, 800, 600, rgfw::RGFW_windowCenter)
-	let mut event: rgfw::RGFW_event
+fn main() {
+    rgfw::RGFW_init("Dazzle", 0)
+    defer rgfw::RGFW_deinit()
 
-	while rgfw::RGFW_window_shouldClose(win) == 0 {
-		while rgfw::RGFW_window_checkEvent(win, &mut event) != 0 {
-    		if event.type == rgfw::RGFW_keyPressed {
-				rgfw::RGFW_window_close(win)
-			}
-		}
-	}
-	
-	rgfw::RGFW_window_close(win)
+    let win = rgfw::RGFW_createWindow("Dazzle + RGFW", 0, 0, 800, 600, rgfw::RGFW_windowCenter)
+    // `RGFW_window_close` frees the window, so it runs once, after the loop has stopped
+    // using it, and before `RGFW_deinit` (defers run in reverse).
+    defer rgfw::RGFW_window_close(win)
+
+    let mut event: rgfw::RGFW_event
+    while rgfw::RGFW_window_shouldClose(win) == 0 {
+        while rgfw::RGFW_window_checkEvent(win, &mut event) != 0 {
+            if event.type == rgfw::RGFW_keyPressed && event.key.value == rgfw::RGFW_keyEscape {
+                rgfw::RGFW_window_setShouldClose(win, 1)
+            }
+        }
+    }
 }

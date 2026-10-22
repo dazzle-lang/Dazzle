@@ -21,3 +21,9 @@ dependencies are supported so far"*. A git source is a real feature, not a manif
    something the user did not write. Worth deciding explicitly, before implementing, what
    `dz` will and will not run from a fetched package (today: nothing — there are no build
    scripts, and `[cpp.libs]` recipes are declarative, which is a property worth keeping).
+5. **A `[cpp.libs.<name>]` recipe fetches its source the same way**: the same `git` and
+   `rev` (or a URL with a hash), the same lockfile and cache, with `root` then relative to
+   the fetched tree. This is what retires the git submodules in `examples/vendor/` (raylib,
+   RGFW): until it exists, a C library that is not in the repository has to be a
+   submodule, and `git clone` without `--recursive` cannot build the examples. The user
+   asked for it on 2026-10-22, when the vendored copies became submodules.

@@ -1,0 +1,187 @@
+// Breakout's rules, with no window and no renderer: a paddle, a ball, a wall of bricks.
+// `examples/breakout` draws it with raylib; `tests/run/breakout_sim` plays it headless.
+// Written against the standard library only (spec §19, M12's criterion).
+
+pub struct Brick {
+    pub rect: Rect
+    /// How many hits it still takes.
+    pub hits:   i32 = 1
+    pub points: i32 = 10
+}
+
+pub enum Phase {
+    /// The ball sits on the paddle until launched.
+    Ready
+    Playing
+    Won
+    Lost
+}
+
+/// What the player is doing this frame.
+pub struct Input {
+    pub left:   bool = false
+    pub right:  bool = false
+    pub launch: bool = false
+}
+
+pub const PADDLE_SPEED: f32 = 520
+
+pub const BALL_SPEED: f32 = 380
+
+pub const BRICK_ROWS: i32 = 6
+
+pub const BRICK_COLUMNS: i32 = 10
+
+pub struct Game {
+    pub width:    f32 = 800
+    pub height:   f32 = 600
+    pub paddle:   Rect
+    pub ball:     Vec2
+    pub velocity: Vec2
+    pub radius:   f32 = 7
+    pub bricks:   List<Brick>
+    pub score:    i32 = 0
+    pub lives:    i32 = 3
+    pub phase:    Phase = Phase::Ready
+    /// Every point scored, from the bricks broken: the rules' own check on `score`.
+    pub broken_points: i32 = 0
+
+    Game(width: f32, height: f32) {
+        self.width = width
+        self.height = height
+        paddle = Rect{ x: width / 2 - 50, y: height - 40, w: 100, h: 14 }
+        self.build_wall()
+        self.rest_ball()
+    }
+
+    fn build_wall(&mut self) {
+        bricks.clear()
+        let gap: f32 = 6
+        let brick_w = (width - gap * (BRICK_COLUMNS + 1) as f32) / BRICK_COLUMNS as f32
+        for row in 0..BRICK_ROWS {
+            for column in 0..BRICK_COLUMNS {
+                let rect = Rect{
+                    x: gap + column as f32 * (brick_w + gap),
+                    y: 60 + row as f32 * (20 + gap),
+                    w: brick_w,
+                    h: 20,
+                }
+                // The top rows are tougher and worth more.
+                let tough = row < 2
+                bricks.push(Brick{
+                    rect: rect,
+                    hits: if tough {
+                        2
+                    } else {
+                        1
+                    },
+                    points: (BRICK_ROWS - row) * 10,
+                })
+            }
+        }
+    }
+
+    /// Put the ball on the paddle, waiting to be launched.
+    fn rest_ball(&mut self) {
+        let top = paddle.center()
+        ball = Vec2{ x: top.x, y: paddle.y - radius - 1 }
+        velocity = Vec2{}
+        phase = Phase::Ready
+    }
+
+    /// Advance the game by `dt` seconds.
+    pub fn update(&mut self, dt: f32, input: Input) {
+        if phase == Phase::Won || phase == Phase::Lost {
+            return
+        }
+        self.move_paddle(dt, input)
+        if phase == Phase::Ready {
+            self.rest_ball()
+            if input.launch {
+                // A random angle within 30 degrees of straight up.
+                let angle = Random::range<f32>(-0.52, 0.52)
+                velocity = Vec2{ x: angle.sin(), y: -angle.cos() } * BALL_SPEED
+                phase = Phase::Playing
+            }
+            return
+        }
+        ball = ball + velocity * dt
+        self.bounce_off_walls()
+        self.bounce_off_paddle()
+        self.hit_bricks()
+        if ball.y - radius > height {
+            lives -= 1
+            if lives == 0 {
+                phase = Phase::Lost
+            } else {
+                self.rest_ball()
+            }
+        } else if bricks.is_empty() {
+            phase = Phase::Won
+        }
+    }
+
+    fn move_paddle(&mut self, dt: f32, input: Input) {
+        let mut dx: f32 = 0
+        if input.left {
+            dx -= PADDLE_SPEED * dt
+        }
+        if input.right {
+            dx += PADDLE_SPEED * dt
+        }
+        paddle.x = (paddle.x + dx).clamp(0, width - paddle.w)
+    }
+
+    fn bounce_off_walls(&mut self) {
+        if ball.x - radius < 0 {
+            ball.x = radius
+            velocity.x = velocity.x.abs()
+        } else if ball.x + radius > width {
+            ball.x = width - radius
+            velocity.x = -velocity.x.abs()
+        }
+        if ball.y - radius < 0 {
+            ball.y = radius
+            velocity.y = velocity.y.abs()
+        }
+    }
+
+    /// Off the paddle, the ball leaves at an angle set by where it hit: the edges send it
+    /// wide, the middle straight up — which is what lets the player aim.
+    fn bounce_off_paddle(&mut self) {
+        if velocity.y <= 0 || !paddle.touches_circle(ball, radius) {
+            return
+        }
+        let offset = ((ball.x - paddle.center().x) / (paddle.w / 2)).clamp(-1, 1)
+        let angle = offset * 1.1
+        velocity = Vec2{ x: angle.sin(), y: -angle.cos() } * BALL_SPEED
+        ball.y = paddle.y - radius - 1
+    }
+
+    /// At most one brick per frame, so the ball never tunnels through two at once and
+    /// reverses twice.
+    fn hit_bricks(&mut self) {
+        let mut i: usize = 0
+        while i < bricks.len() {
+            if bricks[i].rect.touches_circle(ball, radius) {
+                let near = bricks[i].rect.nearest(ball)
+                // The side it came in from decides which way it turns.
+                let dx = (ball.x - near.x).abs()
+                let dy = (ball.y - near.y).abs()
+                if dx > dy {
+                    velocity.x = -velocity.x
+                } else {
+                    velocity.y = -velocity.y
+                }
+                bricks[i].hits -= 1
+                if bricks[i].hits == 0 {
+                    let broken = bricks.swap_remove(i)
+                    score += broken.points
+                    broken_points += broken.points
+                }
+                return
+            }
+            i += 1
+        }
+    }
+}

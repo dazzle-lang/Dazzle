@@ -1,5 +1,5 @@
 [module]
-name    = "cinterop"
+name    = "rgfw"
 sources = ["src/**/*.dz"]
 
 [dependencies]
@@ -13,12 +13,13 @@ std = { open = true }
 [cpp]
 defines = ["RGFWDEF="]
 
-# The library itself, vendored as source and compiled by `dz` (spec §15.1). RGFW is a
+# The library itself, compiled from source by `dz` (spec §15.1): a git submodule in
+# `examples/vendor/RGFW`, which `git submodule update --init` fetches. RGFW is a
 # single-header library: `header` names it, and `dz` compiles the one translation unit that
 # includes it with `RGFW_IMPLEMENTATION` defined. Nothing else sees that define, so nothing
 # is defined twice.
 [cpp.libs.rgfw]
-root         = "vendor/rgfw"
+root         = "../vendor/RGFW"
 header       = "RGFW.h"
 include_dirs = ["."]
 defines      = ["RGFW_IMPLEMENTATION"]

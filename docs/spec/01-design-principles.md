@@ -21,8 +21,8 @@ The principles, in priority order. When two conflict, the earlier one wins.
 5. **The escape hatch is a door, not a hole.** C++ interop is a first-class feature with a
    real header importer, not an `extern "C"` afterthought. You should be able to use
    raylib, Jolt, and Dear ImGui on day one.
-6. **Compile fast.** A game programmer recompiles hundreds of times a day. Any design
-   decision that trades compile time for cleverness loses.
+6. **Compile fast.** Someone working in a large native codebase recompiles hundreds of
+   times a day. Any design decision that trades compile time for cleverness loses.
 
 ## 1.1 Non-goals
 
