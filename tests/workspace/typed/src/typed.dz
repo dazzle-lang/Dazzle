@@ -1667,3 +1667,27 @@ fn generic_bases() -> i32 {
     let b = Labelled<i32>(4)
     return holder_value(&a) + holder_value(&b) + a.held + b.get()
 }
+
+// §14.4: a `SlotMap` and the `Key`s it hands out, kept in a field, as a map key, rebuilt
+// from their parts; and §5.2, `&` of a reference, which refers to what that reference does.
+struct Seeker {
+    pub target: Key<Vec3> = Key<Vec3>()
+}
+
+fn slot_maps(points: &mut SlotMap<Vec3>, scores: &mut List<Score>) -> f32 {
+    let k = points.insert(Vec3{ x: 1.0, y: 2.0, z: 3.0 })
+    let seeker = Seeker{ target: k }
+    let p = points.get_mut(seeker.target) or return 0.0
+    p.x += 1.0
+    let mut by_key = HashMap<Key<Vec3>, i32>()
+    by_key.insert(Key<Vec3>(k.index(), k.version()), 1)
+    let mut total: f32 = 0.0
+    for key, &v in points {
+        total += v.y + key.index() as f32
+    }
+    let gone = points.remove(k) or return total
+    let first = &mut scores[0]
+    let again = &mut first
+    again.value += 1
+    return total + gone.z
+}

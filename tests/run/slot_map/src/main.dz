@@ -1,0 +1,147 @@
+// `SlotMap<T>` and `Key<T>` (spec §14.4): a stale key reads as absent, a freed slot is
+// reused under a new version, removal keeps every other key valid, iteration visits only
+// live values, `retain` asks each once, move-only values are dropped exactly once, keys
+// are values that key a `HashMap` and survive being taken apart, copying, clearing, and
+// many removals through the free list. Run with `--track-memory` too, which reports no
+// leaks.
+
+static DROPS: i32 = 0
+
+struct Enemy {
+    pub name: str = ""
+    pub hp: i32 = 0
+
+    Enemy(name: str, hp: i32) {
+        self.name = name
+        self.hp = hp
+    }
+}
+
+impl Drop for Enemy {
+    fn drop(&mut self) {
+        if hp != 0 {
+            unsafe {
+                DROPS += 1
+            }
+        }
+    }
+}
+
+// What a struct holds instead of a reference to something it does not own.
+struct Turret {
+    pub target: Key<Enemy> = Key<Enemy>()
+}
+
+fn total_hp(enemies: &SlotMap<Enemy>) -> i32 {
+    let mut total = 0
+    for &e in enemies.values() {
+        total += e.hp
+    }
+    return total
+}
+
+fn is_healthy(_k: Key<Enemy>, e: &mut Enemy) -> bool {
+    e.hp += 1
+    return e.hp > 100
+}
+
+fn enemies() {
+    let mut enemies = SlotMap<Enemy>()
+    let grunt = enemies.insert(Enemy("grunt", 10))
+    let boss = enemies.insert(Enemy("boss", 50))
+    let imp = enemies.insert(Enemy("imp", 3))
+    println!("{} {} {} len {}", grunt, boss, imp, enemies.len())
+
+    let turret = Turret{ target: boss }
+    if let &e = enemies.get(turret.target) {
+        println!("aiming at {} with {}", e.name, e.hp)
+    }
+
+    // Removing from the middle moves the last value, and every other key still finds its own.
+    let removed = enemies.remove(grunt) or panic!("grunt was there")
+    println!("removed {}", removed.name)
+    println!("grunt present: {}", enemies.contains(grunt))
+    println!("boss: {}", (enemies.get(boss) or panic!("boss")).name)
+    println!("imp: {}", (enemies.get(imp) or panic!("imp")).name)
+    println!("second remove: {}", enemies.remove(grunt) == none)
+
+    // The freed slot comes back under a new version, and the old key does not reach it.
+    let ghoul = enemies.insert(Enemy("ghoul", 7))
+    println!("ghoul {} same slot as grunt: {}", ghoul, ghoul.index() == grunt.index())
+    println!("stale key reads: {}", enemies.get(grunt) == null)
+    println!("null key reads: {} is_null {}", enemies.get(Key<Enemy>()) == null, Key<Enemy>().is_null())
+
+    // Changing through a key and through a loop.
+    if let &mut e = enemies.get_mut(imp) {
+        e.hp += 100
+    }
+    for _k, &mut e in enemies {
+        e.hp *= 2
+    }
+    for k, &e in enemies {
+        println!("{} {} {}", k, e.name, e.hp)
+    }
+    println!("total {}", total_hp(&enemies))
+
+    // A key's parts, as a save file would keep them.
+    let saved = Key<Enemy>(boss.index(), boss.version())
+    println!("rebuilt finds {}", (enemies.get(saved) or panic!("saved")).name)
+
+    // Keys are hashable values.
+    let mut threat = HashMap<Key<Enemy>, i32>()
+    threat.insert(boss, 9)
+    threat.insert(imp, 2)
+    println!("boss threat {}", threat.get(&boss) or panic!("threat"))
+
+    // `retain` asks each value once and may change it; the slot of every dropped one frees.
+    enemies.retain(is_healthy)
+    println!("after retain len {} imp {} boss {} ghoul {}", enemies.len(), enemies.contains(imp), enemies.contains(boss), enemies.contains(ghoul))
+    for i in 0..enemies.len() {
+        println!("at {}: {} {}", i, enemies.key_at(i), enemies.values()[i].hp)
+    }
+    println!("drops so far {}", unsafe { DROPS })
+}
+
+fn copying() {
+    // Copyable values make a copyable map, whose keys work in both.
+    let mut ids = SlotMap<i32>(4)
+    let a = ids.insert(1)
+    let b = ids.insert(2)
+    let copy = ids
+    let _ = ids.remove(a)
+    println!("copy has a: {} original has a: {} b in both: {}", copy.contains(a), ids.contains(a), copy.get(b) != null && ids.get(b) != null)
+
+    // Clearing frees every slot: old keys read as absent and the slots are reused.
+    ids.clear()
+    let c = ids.insert(3)
+    println!("cleared: len {} b {} c {}", ids.len(), ids.contains(b), c)
+}
+
+fn many_removals() {
+    let mut many = SlotMap<i32>()
+    let mut keys = List<Key<i32>>()
+    for i in 0..100 {
+        keys.push(many.insert(i))
+    }
+    for i in 0..100 {
+        if i % 3 == 0 {
+            let _ = many.remove(keys[i as usize])
+        }
+    }
+    let mut sum = 0
+    for i in 0..100 {
+        if let v = many.get(keys[i as usize]) {
+            sum += v
+        }
+    }
+    println!("many: len {} sum {}", many.len(), sum)
+}
+
+fn main() {
+    enemies()
+    // The ghoul, dropped by `retain`; the grunt that was taken out; the imp and the boss,
+    // dropped with the map — each once.
+    println!("drops {}", unsafe { DROPS })
+    copying()
+    many_removals()
+}
