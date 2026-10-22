@@ -7,8 +7,8 @@
 // the program can print rather than something you have to take on faith.
 
 pub struct Handle {
-    m_slot: own ^mut i32
-    pub label:  str
+    m_slot:    own ^mut i32
+    pub label: str
 
     Handle(slot: ^mut i32, label: str) {
         m_slot = slot
