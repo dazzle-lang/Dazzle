@@ -5,7 +5,7 @@
 
 /// Books on a shelf that grows as it fills.
 struct Shelf<T> {
-    pub label:       str
+    pub label:   str
     // `own`: a Shelf frees this pointer itself. That makes Shelf move-only unless it says
     // how to copy, and it is a compile error for Shelf not to have a `drop`.
     m_data:      own ^mut T

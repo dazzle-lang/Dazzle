@@ -265,3 +265,12 @@ The repository moved to the `dazzle-lang` organisation, ahead of being made publ
   members with the C++ they become, taken from `dz cpp`'s real output. The stale revision
   number and the "planned" `dz fix`, `dz explain` and `--format=json`, all shipped, are
   gone. Added `LICENSE` (MIT, previously declared only in `Cargo.toml`) and `CONTRIBUTING.md`.
+
+## Field alignment counts the visibility (T-0081; 2026-10-23)
+
+`dz fmt` aligns a run of fields on the width of the longest name, but measured the name
+without its `pub`, `protected` or `pub(module)`, so a struct mixing visibilities came out
+ragged. It now measures and pads everything before the `:`: visibility, `own` and the name.
+`examples/ownership` and `tests/run/ownership` re-format. Four fixtures that had been aligned
+by hand the new way were already right. The standard library is not `dz fmt`-clean for other
+reasons and was not re-formatted here.

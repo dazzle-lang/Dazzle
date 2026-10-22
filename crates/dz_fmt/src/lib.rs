@@ -520,7 +520,8 @@ impl<'a> Printer<'a> {
 
     fn members(&mut self, members: &[Member]) {
         // Consecutive fields get their types aligned, which is the style the language's
-        // own samples use. The run ends at any non-field member or a blank line.
+        // own samples use. The run ends at any non-field member or a blank line. The width
+        // counts the visibility too, or a run mixing `pub` and private fields comes out ragged.
         let mut i = 0;
         while i < members.len() {
             let run_end = field_run_end(members, i, self);
@@ -528,9 +529,7 @@ impl<'a> Printer<'a> {
                 let width = members[i..run_end]
                     .iter()
                     .filter_map(|m| match &m.kind {
-                        MemberKind::Field(f) => {
-                            Some(f.name.name.chars().count() + if f.is_own { 4 } else { 0 })
-                        }
+                        MemberKind::Field(f) => Some(field_lhs(m.vis, f).chars().count()),
                         _ => None,
                     })
                     .max()
@@ -554,13 +553,12 @@ impl<'a> Printer<'a> {
                 self.cfg_if(c, false, &mut |f, x| f.member(x, 0));
             }
             MemberKind::Field(f) => {
-                let own = if f.is_own { "own " } else { "" };
-                let lhs = format!("{own}{}", f.name.name);
+                let lhs = field_lhs(m.vis, f);
                 let pad = align.saturating_sub(lhs.chars().count());
                 let default =
                     f.default.as_ref().map(|d| format!(" = {}", self.expr(d))).unwrap_or_default();
                 let tag = f.tag.map(|s| format!(" {}", self.text(s))).unwrap_or_default();
-                let s = format!("{vis}{lhs}:{} {}{default}{tag}", " ".repeat(pad), self.ty(&f.ty));
+                let s = format!("{lhs}:{} {}{default}{tag}", " ".repeat(pad), self.ty(&f.ty));
                 self.line(&s);
                 self.emit_trailing_comment(m.span.end);
             }
@@ -1143,6 +1141,12 @@ fn indent_lines(text: &str) -> String {
         .map(|l| if l.is_empty() { l.to_owned() } else { format!("{INDENT}{l}") })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Everything a field writes before its `:`, which is what a run of fields aligns on.
+fn field_lhs(vis: Vis, f: &Field) -> String {
+    let own = if f.is_own { "own " } else { "" };
+    format!("{}{own}{}", vis_str(vis), f.name.name)
 }
 
 fn vis_str(v: Vis) -> &'static str {
