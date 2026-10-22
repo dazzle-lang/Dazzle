@@ -1,6 +1,7 @@
 # Dazzle — working notes for Claude Code
 
-Dazzle is a systems language for game development that compiles to readable C++17. It is
+Dazzle is a systems language that compiles to readable C++17, meant as a replacement for C++
+wherever it is used: games and engines, embedded systems, tools, real-time code. It is
 C++-grade in control, but with RAII reduced to three special members, enforced
 encapsulation, and definition-site generics. The compiler is written in Rust.
 
@@ -141,7 +142,9 @@ tests/flow/*.dz       one file per ownership rule, naming its code in `// expect
 tests/run/            whole programs compiled and executed against an expected.txt
 tests/workspace/      multi-module workspaces; typed/ must check with ZERO diagnostics,
                       typeerrors/ has one deliberate failure per type rule
-examples/             real projects, every one built by `every_example_builds`
+examples/             real projects, every one built by `every_example_builds`, held to `dz fmt`
+examples/vendor/      raylib and RGFW as git submodules (`git submodule update --init`),
+                      until a recipe can fetch its own source (T-0077)
 ```
 
 Crates still to come are listed in spec §17.1. Follow that layout rather than inventing one.

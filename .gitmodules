@@ -1,0 +1,6 @@
+[submodule "examples/vendor/RGFW"]
+	path = examples/vendor/RGFW
+	url = https://github.com/ColleagueRiley/RGFW
+[submodule "examples/vendor/raylib"]
+	path = examples/vendor/raylib
+	url = https://github.com/raysan5/raylib

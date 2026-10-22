@@ -1,9 +1,0 @@
-[module]
-name = "books"
-sources = ["src/**/*.dz"]
-
-[build]
-output = "executable"
-
-[dependencies]
-std = {open = true}
