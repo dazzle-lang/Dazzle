@@ -415,6 +415,17 @@ impl<'a> Dumper<'a> {
                     d.expr(value);
                 });
             }
+            ExprKind::Formatted { args, params, body } => {
+                node!("formatted");
+                self.nest(|d| {
+                    for (a, p) in args.iter().zip(&params) {
+                        let name = d.opt_local(&Some(*p));
+                        d.line(format_args!("bind {name}"));
+                        d.nest(|d| d.expr(*a));
+                    }
+                    d.block(body);
+                });
+            }
             ExprKind::Switch { subject, arms, default } => {
                 node!("switch");
                 self.nest(|d| {

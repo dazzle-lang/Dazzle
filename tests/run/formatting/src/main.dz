@@ -133,6 +133,29 @@ fn main() {
         0
     }
     println!("{}", fallback)
+
+    // A pointer is written as what it points at, a spec and a width applying to that, or
+    // as `null`; `{:p}` writes its address, which differs from run to run, so it is
+    // compared rather than printed — except a null one's.
+    let mut target = Vec2{ x: 0.5, y: 4.0 }
+    let at: ^Vec2 = &target
+    let at_mut: ^mut Vec2 = &mut target
+    let nowhere: ^Vec2 = null
+    let count = 255
+    let counted: ^i32 = &count
+    println!("{} {} {} {:x} [{:5}]", at, at_mut, nowhere, counted, counted)
+    let address = format!("{:p}", at)
+    let same = address == format!("{:p}", at_mut)
+    println!("{} {} {}", same, address.as_str().starts_with("0x"), format!("[{:20p}]", at).len())
+    println!("{:p} [{:5p}]", nowhere, nowhere)
+    let _ = missing(nowhere) or { e ->
+        println!("{}", e.message)
+        0
+    }
+}
+
+fn missing(p: ^Vec2) !-> i32 {
+    return error("nothing at {:p} [{:5p}]", p, p)
 }
 
 /// A number then a unit: under a width, the whole of it is padded, not the number.

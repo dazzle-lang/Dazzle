@@ -60,7 +60,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (25 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (23 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -83,10 +83,8 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0051](tasks/T-0051-open-ended-range-held-in-variable.md)** An open-ended range held in a variable · deferral, codegen
 - **[T-0052](tasks/T-0052-test-trait-default-method-that-builds.md)** Test a trait default method that builds a `Self` · deferral, generics
 - **[T-0053](tasks/T-0053-error-shares-static-ring-four-buffers.md)** `error(…)` shares a static ring of four buffers · deferral, codegen
-- **[T-0055](tasks/T-0055-pointer-has-no-format.md)** A pointer has no `Format` · deferral, stdlib
-- **[T-0056](tasks/T-0056-formatting-macro-arguments-go-through-format.md)** A formatting macro's arguments go through `&Format` · deferral, stdlib
-- **[T-0057](tasks/T-0057-spread-cannot-be-formatted.md)** A spread cannot be formatted · deferral, checker
 - **[T-0058](tasks/T-0058-default-argument-that-calls-function-declared.md)** A default argument that calls a function declared later in the module does not compile · deferral, codegen
+- **[T-0080](tasks/T-0080-trait-implemented-for-pointer-type-compiles.md)** A trait implemented for a pointer type compiles to C++ that calls the pointee · bug, codegen
 
 ## M15 — `dz bench`, and the C++ comparison (1 open)
 

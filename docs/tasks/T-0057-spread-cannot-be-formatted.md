@@ -2,7 +2,8 @@
 id: T-0057
 title: A spread cannot be formatted
 milestone: M12
-status: open
+status: done
+done: r69, 2026-10-22
 kind: deferral
 area: checker
 where: `dz_check/src/check.rs`, `format_macro`
