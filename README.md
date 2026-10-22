@@ -1,4 +1,6 @@
-# Dazzle
+<p align="center">
+  <img src=".github/logo.png" alt="Dazzle" width="640">
+</p>
 
 **A systems language that compiles to readable C++17, meant for the places C++ is used
 today.**
