@@ -25,7 +25,7 @@ pub struct TempArena {
                 #if TRACK_MEMORY {
                     poison(chunk, TEMP_HEADER, (chunk as ^mut usize)[1])
                 }
-                free(chunk)
+                c_free(chunk)
                 chunk = prev
                 prev = (chunk as ^mut ^mut u8)[0]
             }
@@ -51,7 +51,7 @@ pub struct TempArena {
         let wanted = TEMP_HEADER + align + size
         let cap = if wanted > TEMP_CHUNK { wanted } else { TEMP_CHUNK }
         unsafe {
-            let chunk = alloc(cap, alignof(usize))
+            let chunk = c_malloc(cap)
             (chunk as ^mut ^mut u8)[0] = m_chunk
             (chunk as ^mut usize)[1] = cap
             m_chunk = chunk
@@ -142,7 +142,7 @@ impl Drop for TempArena {
         while chunk != null {
             unsafe {
                 let prev = (chunk as ^mut ^mut u8)[0]
-                free(chunk)
+                c_free(chunk)
                 chunk = prev
             }
         }

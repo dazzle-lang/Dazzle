@@ -1,0 +1,19 @@
+// The C heap, `malloc` and `free` from `stdlib.h`, imported as `libc` (spec §14.2, §15.1).
+// The standard library's allocators are the only way to it: `Heap`, which is
+// `Allocators::Global`, and the memory `TempArena` and the tracker take for themselves.
+// Nothing outside `std` can name `libc`, so a program allocates through an `Allocator`.
+
+/// `size` bytes from `malloc`, aligned for any fundamental type. Running out of memory is a
+/// panic, not an error a program handles (§9.8), and it names the line that allocated.
+fn c_malloc(size: usize, loc: SourceLocation = #location) -> ^mut u8 {
+    let p = libc::malloc(if size == 0 { 1 } else { size })
+    if p == null {
+        panic!("out of memory allocating {} bytes at {}:{}", size, loc.file, loc.line)
+    }
+    return unsafe { p as ^mut u8 }
+}
+
+/// Give back what `c_malloc` returned.
+fn c_free(p: ^mut u8) {
+    libc::free(unsafe { p as ^mut void })
+}

@@ -27,9 +27,12 @@ pub struct List<T> {
 - `^mut Allocator` is a fat trait pointer (§7.6), which is what lets one `List<f32>` work
   with any allocator.
 
-Underneath, two builtins reach the C heap and are what `Allocators::Global` is built on:
-`alloc(size, align) -> ^mut u8`, which panics on exhaustion (§9.8), and `free(p)`, both
-`unsafe`. User code allocates through an `Allocator`.
+**Memory comes only from an allocator.** The language has no `alloc` or `free` of its own.
+Underneath `Allocators::Global` is the C heap: the standard library imports `stdlib.h` as a
+C library of its own (§15.1) and calls its `malloc` and `free`, panicking when `malloc`
+returns null (§9.8). Nothing outside `std` can name that import, so a program allocates
+through an `Allocator`. A program that wants C's `malloc` itself imports `stdlib.h` with a
+recipe of its own. `[DECIDED — D-0084]`
 
 ## 14.1 Why explicit rather than an implicit context
 
@@ -201,7 +204,7 @@ move_out(dst)             // the value, moved out; the storage is left raw, as a
 
 They compile to C++ placement `new`, an explicit destructor call, and a move followed by
 one. They are the only place in the language where a value can be observed in a
-not-yet-constructed state, so all three are `unsafe` (§5.2), as are `memcpy` and `free`.
+not-yet-constructed state, so all three are `unsafe` (§5.2), as are `memcpy` and `memmove`.
 `move_out` is how `List::pop` returns an element, and how growing a list of move-only
 elements carries them to the new memory. `[DECIDED — §18.16, §18.50]`
 

@@ -5183,17 +5183,16 @@ impl<'a, 'c> Body<'a, 'c> {
                         return self.mk(e, Ty::Error, hir::ExprKind::Error);
                     }
                 }
-                // The placement primitives and the heap's release write memory nothing
-                // tracks (spec §5.2, §14.3). `alloc` only hands a pointer out, which is safe.
+                // The placement primitives write memory nothing tracks (spec §5.2, §14.3).
                 if matches!(
                     name.as_str(),
-                    "construct" | "destroy" | "move_out" | "memcpy" | "memmove" | "free"
+                    "construct" | "destroy" | "move_out" | "memcpy" | "memmove"
                 ) {
                     self.require_unsafe(span, &format!("`{name}`"));
                 }
                 let checked: Vec<Checked> = args.iter().map(|a| self.expr(a, None)).collect();
                 // What they write has to be writable: a `^T` promises its pointee is only
-                // read (spec §5.2). `free` releases rather than writes, so any pointer does.
+                // read (spec §5.2).
                 if matches!(name.as_str(), "construct" | "destroy" | "move_out") {
                     if let Some(dst) = args.first() {
                         self.require_writable(dst, &name);
@@ -8463,8 +8462,7 @@ pub(crate) fn is_source_location(t: &Ty) -> bool {
 /// variadic formatting calls, which §12.9's format-string checking will cover.
 fn builtin_arity(name: &str) -> Option<(usize, usize)> {
     Some(match name {
-        "alloc" => (2, 2),
-        "free" | "destroy" | "move_out" | "sizeof" | "alignof" | "blackbox" => (1, 1),
+        "destroy" | "move_out" | "sizeof" | "alignof" | "blackbox" => (1, 1),
         // `construct(dst)` default-constructs; `construct(dst, v)` copies or moves in.
         "construct" => (1, 2),
         "memcpy" | "memmove" => (3, 3),
@@ -8475,8 +8473,6 @@ fn builtin_arity(name: &str) -> Option<(usize, usize)> {
 fn builtin_call_type(name: &str) -> Ty {
     match name {
         "sizeof" | "alignof" => Ty::Int(IntTy::Usize),
-        // `alloc` returns `^mut u8` and panics on failure rather than failing (spec §9.8).
-        "alloc" => Ty::ptr(true, Ty::Int(IntTy::U8)),
         // `error(...)` is the failure case of whatever `!->` signature encloses it, so its
         // payload is `Never` and unifies with any success type (spec §9.1).
         "error" => Ty::Fallible(Rc::new(Ty::Never)),

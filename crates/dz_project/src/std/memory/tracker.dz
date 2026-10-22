@@ -89,7 +89,7 @@
             m_cap = if old_cap == 0 { 1024 } else { old_cap * 2 }
             m_used = 0
             unsafe {
-                m_slots = alloc(m_cap * sizeof(Allocation), alignof(Allocation)) as ^mut Allocation
+                m_slots = c_malloc(m_cap * sizeof(Allocation)) as ^mut Allocation
                 let mut i: usize = 0
                 while i < m_cap {
                     construct(m_slots[i], Allocation{})
@@ -105,7 +105,7 @@
                     j += 1
                 }
                 if old != null {
-                    free(old)
+                    c_free(old as ^mut u8)
                 }
             }
         }
@@ -135,7 +135,7 @@
                 eprintln!("{} allocations leaked, {} bytes", leaks, bytes)
             }
             if m_slots != null {
-                unsafe { free(m_slots) }
+                unsafe { c_free(m_slots as ^mut u8) }
             }
         }
     }

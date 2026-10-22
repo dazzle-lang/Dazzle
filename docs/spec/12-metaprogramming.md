@@ -493,12 +493,10 @@ be added later as pure sugar over this. `[PROPOSED]`
     static TRACKER: Tracker = Tracker{}
 }
 
-pub fn alloc(size: usize, loc: SourceLocation = #location) -> ^mut u8 {
-    let p = heap_alloc(size)
+fn note_allocation(p: ^mut u8, size: usize, loc: SourceLocation = #location) {
     #if TRACK_MEMORY {
         unsafe { TRACKER.record(p, size, loc) }
     }
-    return p
 }
 
 #if OS_WINDOWS {

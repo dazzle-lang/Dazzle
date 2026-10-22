@@ -127,9 +127,9 @@ unsafe {
 ```
 
 Unsafe, and only these: `p^`, `.` and `[i]` through a `^T`, a pointer cast (§10.6),
-`construct`, `destroy`, `memcpy` and `free` (§14.3), and calling an `unsafe fn`. Everything
-else stays safe — forming, copying, storing, comparing and passing pointers, `alloc`, and the
-`or` conversion, whose null check is the one thing that *can* be checked. An `unsafe fn` is
+`construct`, `destroy`, `move_out`, `memcpy` and `memmove` (§14.3), and calling an `unsafe
+fn`. Everything else stays safe — forming, copying, storing, comparing and passing pointers,
+and the `or` conversion, whose null check is the one thing that *can* be checked. An `unsafe fn` is
 one whose callers must uphold something the compiler cannot see; its body is an `unsafe`
 block, and calling it needs one:
 
