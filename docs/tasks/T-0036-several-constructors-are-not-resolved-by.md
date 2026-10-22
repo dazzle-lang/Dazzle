@@ -2,7 +2,8 @@
 id: T-0036
 title: Several constructors are not resolved by argument
 milestone: M12
-status: open
+status: done
+done: r71, 2026-10-22
 kind: deferral
 area: checker
 where: `dz_check/src/check.rs`, `call`

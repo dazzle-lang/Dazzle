@@ -117,6 +117,7 @@ dependencies = [
  "dz_resolve",
  "dz_span",
  "insta",
+ "serde_json",
 ]
 
 [[package]]

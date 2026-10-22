@@ -260,13 +260,13 @@ pub const DUPLICATE_METHOD: &str = "DZ0537";
 /// A call that more than one of a type's same-named methods would accept (spec §18.27).
 pub const AMBIGUOUS_CALL: &str = "DZ0538";
 /// An `impl` written where it may not be: outside both the trait's module and the type's
-/// (the orphan rule), for every type at once, or a `Drop`/`Copy` that is not its struct's
-/// own (spec §6.1, §7.6).
+/// (the orphan rule), for every type at once, for a pointer or reference type, or a
+/// `Drop`/`Copy` that is not its struct's own (spec §6.1, §7.6).
 pub const ORPHAN_IMPL: &str = "DZ0539";
 /// Two implementations of one trait that could both apply to the same type (spec §7.6).
 pub const OVERLAPPING_IMPL: &str = "DZ0540";
 /// `struct Button : UiElement` where `UiElement` cannot be a base: not a struct, itself,
-/// an imported type, a generic one, or a chain that comes back round (spec §7.3, 18.32).
+/// an imported type, or a chain that comes back round (spec §7.3, 18.32).
 pub const BAD_BASE: &str = "DZ0541";
 /// A base's field or method redeclared in the derived type. Dazzle has no hiding: a name
 /// means one thing in a type, whichever of its declarations it came from (spec §7.3).

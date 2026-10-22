@@ -2,7 +2,8 @@
 id: T-0058
 title: A default argument that calls a function declared later in the module does not compile
 milestone: M12
-status: open
+status: done
+done: r71, 2026-10-22
 kind: deferral
 area: codegen
 where: `dz_cpp`, function declaration emission

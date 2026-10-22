@@ -1,0 +1,113 @@
+// Default arguments are written at each call, never left to C++ (spec §7.2, §12.7). A C++
+// default is read where its function is declared, which broke three ways: a default calling
+// a function declared later (T-0058), a trait method's default naming a struct defined after
+// the trait's handle (T-0039), and a `#location` default with column 0 and C++'s unqualified
+// function name (T-0047).
+
+// T-0058: the default calls a function declared after it, in a free function and a method.
+fn greet(name: str = default_name()) -> str {
+    return name
+}
+
+struct Greeter {
+    pub fn greet(&self, name: str = default_name(), times: i32 = default_times()) -> i32 {
+        println!("{} x{}", name, times)
+        return times
+    }
+}
+
+fn default_name() -> str {
+    return "world"
+}
+
+fn default_times() -> i32 {
+    return 2
+}
+
+// T-0039: a trait method's default that builds a struct, called on a concrete type and
+// through a trait object.
+pub trait Spawner {
+    fn spawn(&self, count: i32 = 1) -> i32
+    fn spawn_at(&self, at: Spot = Spot{ x: 3, y: 4 }) -> i32
+}
+
+struct Spot {
+    pub x: i32
+    pub y: i32
+}
+
+struct Nest {
+    pub base: i32
+}
+
+impl Spawner for Nest {
+    fn spawn(&self, count: i32) -> i32 {
+        return base + count
+    }
+
+    fn spawn_at(&self, at: Spot) -> i32 {
+        return base + at.x * 10 + at.y
+    }
+}
+
+fn through_object(s: &Spawner) -> i32 {
+    return s.spawn() + s.spawn_at()
+}
+
+// T-0047: a `#location` default inside a method names the caller's line, column and
+// Dazzle function, qualified by its type.
+struct Counter {
+    pub hits: i32
+
+    pub fn bump(&mut self, loc: SourceLocation = #location) {
+        hits += 1
+        println!("bump at {}:{} in {}", loc.line, loc.column, loc.function)
+    }
+
+    pub fn bump_twice(&mut self) {
+        self.bump()
+        self.bump()
+    }
+}
+
+// A generic function's default, and a generic type's constructor's.
+fn first_or<T: Copy>(xs: []T, fallback: T, limit: usize = 1) -> T {
+    if xs.len < limit {
+        return fallback
+    }
+    return xs[0]
+}
+
+struct Boxed<T: Copy> {
+    pub value: T
+    pub scale: i32
+
+    Boxed(value: T, scale: i32 = default_times()) {
+        self.value = value
+        self.scale = scale
+    }
+}
+
+fn main() {
+    println!("{}", greet())
+    println!("{}", greet("you"))
+    let g = Greeter{}
+    g.greet()
+    g.greet("twice")
+
+    let n = Nest{ base: 100 }
+    println!("{} {}", n.spawn(), n.spawn(5))
+    println!("{} {}", n.spawn_at(), n.spawn_at(Spot{ x: 1, y: 2 }))
+    println!("{}", through_object(&n))
+
+    let mut c = Counter{ hits: 0 }
+    c.bump()
+    c.bump_twice()
+    println!("{} hits", c.hits)
+
+    let xs = [7, 8, 9]
+    let empty: []i32 = xs[0..0]
+    println!("{} {}", first_or(xs[..], 0), first_or(empty, 42))
+    let b = Boxed<f32>(1.5)
+    println!("{} {}", b.value, b.scale)
+}

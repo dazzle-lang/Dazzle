@@ -1,0 +1,78 @@
+// A base may be an instance of a generic struct (spec §7.3, T-0035): `Button : Panel<i32>`
+// inherits `Panel<i32>`'s fields and methods with `T` read as `i32`, and `Slider<T> :
+// Panel<T>` passes its own parameter on. UI and component hierarchies take this shape.
+
+struct Panel<T: Copy> {
+    pub value: T
+    pub shown: bool = true
+
+    Panel(value: T) {
+        self.value = value
+    }
+
+    pub fn get(&self) -> T {
+        return value
+    }
+
+    pub fn set(&mut self, v: T) {
+        value = v
+    }
+
+    pub virtual fn describe(&self) -> str {
+        return "panel"
+    }
+}
+
+// A concrete instance as the base.
+struct Button : Panel<i32> {
+    pub label: str = ""
+
+    Button(label: str, clicks: i32) : Panel(clicks) {
+        self.label = label
+    }
+
+    pub fn click(&mut self) {
+        self.set(self.get() + 1)
+    }
+
+    pub override fn describe(&self) -> str {
+        return "button"
+    }
+}
+
+// A generic derived type, passing its parameter on.
+struct Slider<T: Copy> : Panel<T> {
+    pub step: T
+
+    Slider(start: T, step: T) : Panel(start) {
+        self.step = step
+    }
+
+    pub override fn describe(&self) -> str {
+        return Panel::describe(self)
+    }
+}
+
+// Through a reference to the base, at the base's arguments.
+fn read(p: &Panel<i32>) -> i32 {
+    return p.get()
+}
+
+fn name_of(p: &Panel<f32>) -> str {
+    return p.describe()
+}
+
+fn main() {
+    let mut b = Button("ok", 2)
+    b.click()
+    b.click()
+    println!("{} {} {} {}", b.label, b.get(), b.value, b.shown)
+    println!("{} {}", read(&b), b.describe())
+
+    let mut s = Slider<f32>(0.5, 0.25)
+    s.set(s.get() + s.step)
+    println!("{} {}", s.value, name_of(&s))
+
+    let p = Panel<i32>(9)
+    println!("{} {}", read(&p), p.describe())
+}

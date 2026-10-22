@@ -116,12 +116,20 @@ fn unused(body: &hir::Body, unread: &mut Unread) {
             )
             .at(body.file, l.span, "nothing reads this")
         };
+        // The span is the name exactly as written (`written` above), so a `_` in front of it
+        // is the whole of the rename: a leading `_` is what says "unused on purpose".
+        let underscore = dz_diag::Edit {
+            file: body.file,
+            span: dz_span::Span { start: l.span.start, end: l.span.start },
+            text: "_".to_owned(),
+        };
         unread.pending.push((
             key,
             d.with_help(format!(
                 "if that is deliberate, name it `_{}`; otherwise remove it",
                 l.name
-            )),
+            ))
+            .with_fix(format!("rename it `_{}`", l.name), vec![underscore]),
         ));
     }
 }

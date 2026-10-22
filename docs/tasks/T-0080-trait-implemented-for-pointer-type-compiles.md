@@ -2,7 +2,8 @@
 id: T-0080
 title: A trait implemented for a pointer type compiles to C++ that calls the pointee
 milestone: M12
-status: open
+status: done
+done: r70, 2026-10-22
 kind: bug
 area: codegen
 ---

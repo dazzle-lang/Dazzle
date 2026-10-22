@@ -87,6 +87,20 @@ pub fn annotate(records: &[Record], map: &dz_span::SourceMap, diags: &mut Diagno
     let by_site: HashMap<(FileId, Span), &Record> =
         records.iter().map(|r| ((r.file, r.name_span), r)).collect();
     for d in diags.iter_mut() {
+        // A token the macro wrote has the invocation's name as its span, so an edit aimed
+        // at one would rewrite the invocation instead: the fix is dropped, its help kept.
+        let in_expansion = d.fix.as_ref().is_some_and(|fix| {
+            fix.edits.iter().any(|e| {
+                records.iter().any(|r| {
+                    r.file == e.file
+                        && e.span.start <= r.name_span.end
+                        && r.name_span.start <= e.span.end
+                })
+            })
+        });
+        if in_expansion {
+            d.fix = None;
+        }
         let Some(site) = d.primary_span() else { continue };
         let Some(r) = by_site.get(&site) else { continue };
         let note =
