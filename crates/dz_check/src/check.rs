@@ -2622,7 +2622,14 @@ impl<'a, 'c> Body<'a, 'c> {
                          another member (spec §15.2)",
                     );
                 }
-                let ty = Ty::Ref { mutable: *mutable, inner: Rc::new(inner.ty.defaulted()) };
+                // `&` of a reference refers to what that reference does, as reading through
+                // it would (§5.2): there is no reference to a reference, so `&mut list[i]`,
+                // whose `index_mut` already returns one, is a `&mut T`.
+                let pointee = match inner.ty.defaulted() {
+                    Ty::Ref { inner: to, .. } => (*to).clone(),
+                    t => t,
+                };
+                let ty = Ty::Ref { mutable: *mutable, inner: Rc::new(pointee) };
                 self.mk(
                     e,
                     ty,

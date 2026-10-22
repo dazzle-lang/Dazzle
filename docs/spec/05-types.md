@@ -80,6 +80,11 @@ it refers to a number, `bool`, `char`, `str` or an enum: `x > 2`, `x * 2` and `x
 taking `&T` reads as one taking `T`. A reference to a struct is compared through `Eq` and
 `Ord` as before (§11.2).
 
+**There is no reference to a reference.** `&r` or `&mut r` on an `r: &mut T` refers to the
+`T` that `r` refers to, and is a `&T` or a `&mut T`; so is `&mut list[i]`, whose `IndexMut`
+already hands back a reference (§11.2). `&mut` of a `&T` is an error, since nothing writable
+is behind it.
+
 **Writing through a reference.** Assigning to a `&mut T` writes the `T` it refers to — `x = 1` and `x += 1` on an `x: &mut i32` change the caller's integer — since a reference cannot be pointed elsewhere. Through a `&T` that is an error. `[DECIDED — §18.44]`
 
 **Converting between them.** Forming a pointer changes nothing, so a reference becomes a

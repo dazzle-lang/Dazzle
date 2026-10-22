@@ -1,0 +1,9 @@
+[module]
+name    = "slot_map"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"
