@@ -2,7 +2,7 @@
 id: T-0081
 title: dz fmt aligns field types without counting pub
 milestone: none
-status: open
+status: done
 kind: bug
 area: tooling
 ---
