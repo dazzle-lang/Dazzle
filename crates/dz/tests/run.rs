@@ -135,6 +135,14 @@ fn every_example_builds() {
     }
     let found = example_projects();
     assert!(found.len() >= 3, "expected the examples under examples/, found {found:?}");
+    // raylib and RGFW are git submodules. A checkout without them would fail below with a
+    // missing-file error from deep inside the raylib recipe; say what is actually wrong.
+    for lib in ["raylib/src/raylib.h", "RGFW/RGFW.h"] {
+        assert!(
+            repo_root().join("examples/vendor").join(lib).exists(),
+            "examples/vendor/{lib} is missing: run `git submodule update --init`"
+        );
+    }
 
     for (name, dir) in found {
         let out = Command::new(dz())
@@ -1019,6 +1027,24 @@ fn copy_fixture(name: &str, scratch_name: &str) -> PathBuf {
     let to = std::env::temp_dir().join(scratch_name);
     let _ = std::fs::remove_dir_all(&to);
     copy_dir(&run_dir(name), &to);
+    // A dependency outside the fixture (`breakout_sim` plays `examples/breakout/game`) is
+    // not copied with it, so its relative path is made absolute against the original.
+    let manifest = to.join("dazzle.toml");
+    let text = std::fs::read_to_string(&manifest).unwrap();
+    let mut out = String::new();
+    for line in text.lines() {
+        match line.split_once("path = \"../") {
+            Some((before, rest)) => {
+                let (rel, after) = rest.split_once('"').unwrap();
+                let abs = run_dir(name).join("..").join(rel).canonicalize().unwrap();
+                // Forward slashes: a backslash in a TOML basic string is an escape.
+                let abs = abs.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/");
+                out.push_str(&format!("{before}path = \"{abs}\"{after}\n"));
+            }
+            None => out.push_str(&format!("{line}\n")),
+        }
+    }
+    std::fs::write(&manifest, out).unwrap();
     to
 }
 

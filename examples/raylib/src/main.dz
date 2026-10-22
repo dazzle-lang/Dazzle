@@ -1,25 +1,16 @@
-static a: i32 = 4
+// A raylib window, called with no bindings: `rl` is raylib's own header, read by libclang,
+// and raylib itself is compiled from its source by `dz` (see dazzle.toml).
 
 fn main() {
-	let s = String("b")
-	let mut p = List<i32>()
-
-	p.push(1)
-	p.push(2)
-
-    rl::InitWindow(1600, 900, "Window name")
+    rl::InitWindow(800, 450, "Dazzle + raylib")
     defer rl::CloseWindow()
-
     rl::SetTargetFPS(60)
 
     while !rl::WindowShouldClose() {
         rl::BeginDrawing()
         rl::ClearBackground(rl::RAYWHITE)
-        rl::DrawText("hello", 190, 200, 40, rl::DARKGRAY)
-
-        let mouse = rl::GetMousePosition()
-        rl::DrawCircleV(mouse, 8, rl::MAROON)
-
+        rl::DrawText("Hello from Dazzle", 190, 200, 40, rl::DARKGRAY)
+        rl::DrawCircleV(rl::GetMousePosition(), 8, rl::MAROON)
         rl::EndDrawing()
     }
 }

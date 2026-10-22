@@ -49,7 +49,11 @@ jobs:
       DZ_CXX: ${{ matrix.cxx }}
 
     steps:
+      # raylib and RGFW are submodules under `examples/vendor/`, and `every_example_builds`
+      # compiles them from that source.
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install Rust (stable, for the build and tests)
         uses: dtolnay/rust-toolchain@stable
@@ -159,3 +163,8 @@ jobs:
 
       - name: dz bench
         run: cargo run -p dz -- bench tests/bench
+
+      # The examples are the first Dazzle a visitor reads, so they are held to `dz fmt`.
+      - name: dz fmt --check examples
+        if: matrix.name == 'linux'
+        run: find examples -name '*.dz' -not -path '*/vendor/*' -not -path '*/build/*' -print0 | xargs -0 cargo run -q -p dz -- fmt --check

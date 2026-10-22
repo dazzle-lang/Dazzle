@@ -3,15 +3,16 @@ name    = "breakout"
 sources = ["src/**/*.dz"]
 
 # M12's criterion (spec §19): a small game with no C++ of its own. The rules are `game`,
-# plain Dazzle over `std`; this module draws them with raylib, built from the source
-# `examples/raylib` vendors.
+# plain Dazzle over `std` with no window, which `tests/run/breakout_sim` also plays
+# headless; this module draws them with raylib, built from the submodule in
+# `examples/vendor/raylib` (`git submodule update --init` fetches it).
 [dependencies]
 std  = { open = true }
-game = { path = "../../tests/run/breakout_sim/game", open = true }
+game = { path = "game", open = true }
 rl   = { cpp = "raylib" }
 
 [cpp.libs.raylib]
-root         = "../raylib/vendor/raylib/src"
+root         = "../vendor/raylib/src"
 sources      = ["*.c"]
 include_dirs = [".", "external/glfw/include"]
 defines      = ["PLATFORM_DESKTOP", "GRAPHICS_API_OPENGL_33"]

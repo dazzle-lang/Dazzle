@@ -1,0 +1,123 @@
+// A growable array written from scratch, to show what the standard library's `List` is
+// made of: an `own` pointer, the three special members (a constructor, `drop` and `copy`),
+// and moves. `dz cpp .` writes the C++ this becomes into `build/cpp/`.
+
+/// Books on a shelf that grows as it fills.
+struct Shelf<T> {
+    pub label:  str
+    // `own`: a Shelf frees this pointer itself. That makes Shelf move-only unless it says
+    // how to copy, and it is a compile error for Shelf not to have a `drop`.
+    m_data: own ^mut T
+    m_len:  usize
+    m_cap:  usize
+
+    // The constructor: named after the struct, no return type.
+    Shelf(label: str, cap: usize) {
+        self.label = label
+        unsafe {
+            m_data = alloc(cap * sizeof(T), alignof(T)) as ^mut T
+        }
+        m_cap = cap
+    }
+
+    pub fn push(&mut self, v: T) {
+        if m_len == m_cap {
+            self.grow()
+        }
+        unsafe {
+            construct(m_data[m_len], move(v))
+        }
+        m_len += 1
+    }
+
+    pub fn len(&self) -> usize {
+        return m_len
+    }
+
+    pub fn get(&self, i: usize) -> &T {
+        if i >= m_len {
+            panic!("index {} out of range for a shelf of {}", i, m_len)
+        }
+        unsafe {
+            return &m_data[i]
+        }
+    }
+
+    fn grow(&mut self) {
+        let cap = if m_cap == 0 {
+            4
+        } else {
+            m_cap * 2
+        }
+        unsafe {
+            let data = alloc(cap * sizeof(T), alignof(T)) as ^mut T
+            // `move_out` leaves the old slot raw, as `destroy` would, so nothing is
+            // dropped twice.
+            for i in 0..m_len {
+                construct(data[i], move_out(m_data[i]))
+            }
+            free(m_data)
+            m_data = data
+        }
+        m_cap = cap
+    }
+}
+
+// The destructor. It runs at the end of the owner's scope, in reverse declaration order,
+// and on a moved-from Shelf too, which is harmless: a move resets its source to defaults,
+// so `m_data` is null and `m_len` is 0.
+impl<T> Drop for Shelf<T> {
+    fn drop(&mut self) {
+        if m_data != null {
+            println!("dropping `{}` ({} books)", label, m_len)
+        }
+        unsafe {
+            for i in 0..m_len {
+                destroy(m_data[i])
+            }
+            free(m_data)
+        }
+    }
+}
+
+// The copy constructor, for the shelves whose books can be copied. It always runs on a
+// defaults-initialised `self`, so returning early would leave a valid, empty shelf.
+impl<T: Copy> Copy for Shelf<T> {
+    fn copy(&mut self, other: &Self) {
+        label = other.label
+        unsafe {
+            m_data = alloc(other.m_cap * sizeof(T), alignof(T)) as ^mut T
+            for i in 0..other.m_len {
+                construct(m_data[i], other.m_data[i])
+            }
+        }
+        m_cap = other.m_cap
+        m_len = other.m_len
+    }
+}
+
+struct Book {
+    pub title: str
+    pub year:  i32
+}
+
+fn main() {
+    let mut fiction = Shelf<Book>("fiction", 2)
+    fiction.push(Book{ title: "Dune", year: 1965 })
+    fiction.push(Book{ title: "Solaris", year: 1961 })
+    fiction.push(Book{ title: "Hyperion", year: 1989 })
+
+    // A copy: Book is copyable, so `impl<T: Copy> Copy` covers Shelf<Book>.
+    let mut backup = fiction
+    backup.label = "backup"
+
+    // A move: `fiction` is reset to its defaults, and reading it again would not compile
+    // (DZ0401). `let shelved = fiction` would be another copy.
+    let shelved = move(fiction)
+
+    for i in 0..shelved.len() {
+        let b = shelved.get(i)
+        println!("{} ({})", b.title, b.year)
+    }
+    println!("the backup has {} books", backup.len())
+}

@@ -65,7 +65,7 @@ readable in a profiler.
 Every emitted statement carries a `#line` directive pointing at the `.dz` source:
 
 ```cpp
-#line 42 "D:/OdinProjects/Dazzle/game/src/gameplay/player.dz"
+#line 42 "/home/ada/game/src/gameplay/player.dz"
     this->health -= damage;
 ```
 
