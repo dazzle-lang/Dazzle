@@ -94,7 +94,7 @@ because that is the thing with a `drop` to run. Anything else would make `if han
 inside `File::drop` a move out of `self`. `[DECIDED]`
 
 Acquiring ownership is an ordinary assignment: a plain `^T` may be stored into an `own ^T`
-field, which is what `alloc` returning `^mut u8` (§9.8) has to mean. The reverse is also allowed
+field, which is what an allocator's `alloc` returning `^mut u8` (§14) has to mean. The reverse is also allowed
 — an `own ^T` satisfies a `^T` — so `own` narrows nothing at the use site. `[DECIDED]`
 
 ## 6.4 Move semantics

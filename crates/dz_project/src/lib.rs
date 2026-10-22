@@ -563,12 +563,199 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
             }
         }
     }
-    Some(Workspace { modules, root, prelude })
+    let mut ws = Workspace { modules, root, prelude };
+    import_headers(&mut ws, map, diags);
+    Some(ws)
+}
+
+/// `rl = { cpp = "raylib" }` (spec §15.1): read the header each such dependency's recipe
+/// imports through libclang, with the flags the generated C++ will be compiled with, and
+/// add it to the workspace as a module of its own before resolution needs its names. Its
+/// files go into the source map, so what points at a declaration points into the header.
+fn import_headers(ws: &mut Workspace, map: &mut SourceMap, diags: &mut Diagnostics) {
+    use crate::cppimport::{import, ImportError, Request};
+
+    let root = ws.module(ws.root);
+    // Where the generated C++ is compiled, so a quoted include is searched for from there.
+    let from_dir = root.root_dir.join("build").join("cpp");
+    let cpp_standard = root.build.cpp_standard.clone();
+    let mut added: HashMap<PathBuf, FileId> = HashMap::new();
+    let ids: Vec<ModuleId> = ws.modules().map(|m| m.id).collect();
+
+    for id in ids {
+        let module = ws.module(id);
+        let manifest = module.manifest;
+        let embedded = module.embedded;
+        let wanted = module.cpp_deps.clone();
+        // The standard library's import is the same for every project: a system header, no
+        // flags of the project's. So it is read from one place, which makes it one cache
+        // entry for the whole process rather than one per project (spec §14.2).
+        let from_dir = if embedded { std::env::temp_dir() } else { from_dir.clone() };
+        for dep in wanted {
+            // The recipe is this manifest's, or a dependency's that carries it for its users
+            // (spec §15.1): the first one found, nearest first.
+            let recipe = std::iter::once(id)
+                .chain(ws.module(id).deps.iter().map(|d| d.module))
+                .find_map(|m| ws.module(m).cpp.libs.iter().find(|l| l.name == dep.recipe).cloned());
+            let Some(recipe) = recipe else {
+                diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("no `[cpp.libs.{}]` recipe for `{}`", dep.recipe, dep.alias),
+                    )
+                    .at(manifest, dep.recipe_span, "no recipe by this name")
+                    .with_help(format!(
+                        "add `[cpp.libs.{}]` with `import = [\"header.h\"]` (spec §15.1)",
+                        dep.recipe
+                    )),
+                );
+                continue;
+            };
+            let names: Vec<String> = recipe.import.iter().map(|(n, _)| n.clone()).collect();
+            let header = match &recipe.import[..] {
+                [(_, first), ..] => *first,
+                [] => {
+                    diags.push(
+                        Diagnostic::error(
+                            codes::MANIFEST_MISSING_FIELD,
+                            format!("recipe `{}` imports no header", recipe.name),
+                        )
+                        .at(manifest, dep.recipe_span, "nothing here for Dazzle code to see")
+                        .with_help(format!(
+                            "name the header in `[cpp.libs.{}]`: `import = [\"{}.h\"]` (spec §15.1)",
+                            recipe.name, recipe.name
+                        )),
+                    );
+                    continue;
+                }
+            };
+            // A failure names the header clang could not read, when its message says which.
+            let span_for = |messages: &[String]| {
+                recipe
+                    .import
+                    .iter()
+                    .find(|(n, _)| messages.iter().any(|m| m.contains(n.as_str())))
+                    .map_or(header, |(_, s)| *s)
+            };
+            // The header's span is in whichever manifest holds the recipe.
+            let header_file = ws
+                .modules()
+                .find(|m| {
+                    m.cpp
+                        .libs
+                        .iter()
+                        .any(|l| l.name == recipe.name && l.name_span == recipe.name_span)
+                })
+                .map_or(manifest, |m| m.manifest);
+            let (pf_file, header) = (header_file, header);
+            {
+                let name = names.join("`, `");
+                let flags = ws.cpp_flags(id);
+                let instantiate = ws.cpp_instantiate(id);
+                let req = Request {
+                    headers: &names,
+                    include_dirs: &flags.include_dirs,
+                    defines: &flags.defines,
+                    cpp_standard: &cpp_standard,
+                    from_dir: &from_dir,
+                    instantiate: &instantiate,
+                };
+                match import(&req) {
+                    Ok(h) => {
+                        let mut ids = Vec::new();
+                        for p in &h.files {
+                            if let Some(f) = added.get(p) {
+                                ids.push(*f);
+                                continue;
+                            }
+                            match std::fs::read(p).ok().and_then(|b| map.add_bytes(p, &b).ok()) {
+                                Some(f) => {
+                                    added.insert(p.clone(), f);
+                                    ids.push(f);
+                                }
+                                None => break,
+                            }
+                        }
+                        if ids.len() != h.files.len() {
+                            diags.push(
+                                Diagnostic::error(
+                                    codes::CPP_HEADER_FAILED,
+                                    format!("cannot import `{name}`"),
+                                )
+                                .at(
+                                    pf_file,
+                                    header,
+                                    "one of the files it includes could not be read",
+                                ),
+                            );
+                            continue;
+                        }
+                        ws.add_foreign(id, &dep, Foreign { header: h, files: ids });
+                    }
+                    // The standard library has no manifest to point at, and its import failing
+                    // is about the machine, not about anything the program wrote.
+                    Err(ImportError::Unavailable(why)) if embedded => diags.push(
+                        Diagnostic::error(
+                            codes::CPP_UNAVAILABLE,
+                            format!(
+                                "libclang is not available, and the standard library reads \
+                                 `{name}` through it"
+                            ),
+                        )
+                        .with_note(why)
+                        .with_help(
+                            "install LLVM, or set LIBCLANG_PATH to the directory holding \
+                             libclang (spec §14.2, §15.1)",
+                        ),
+                    ),
+                    Err(ImportError::Unavailable(why)) => diags.push(
+                        Diagnostic::error(
+                            codes::CPP_UNAVAILABLE,
+                            "libclang is not available, so a C or C++ header cannot be read",
+                        )
+                        .at(pf_file, header, "needs libclang")
+                        .with_note(why)
+                        .with_help(
+                            "install LLVM, or set LIBCLANG_PATH to the directory holding \
+                             libclang (spec §15.1)",
+                        ),
+                    ),
+                    Err(ImportError::Failed(messages)) if embedded => {
+                        let mut d = Diagnostic::error(
+                            codes::CPP_HEADER_FAILED,
+                            format!("the standard library cannot import `{name}`"),
+                        )
+                        .with_help("the C library's headers come with the C++ compiler; check that one is installed (spec §14.2)");
+                        for m in messages.iter().take(5) {
+                            d = d.with_note(m.clone());
+                        }
+                        diags.push(d);
+                    }
+                    Err(ImportError::Failed(messages)) => {
+                        let mut d = Diagnostic::error(codes::CPP_HEADER_FAILED, format!("cannot import `{name}`"))
+                            .at(pf_file, span_for(&messages), "clang could not read this header")
+                            .with_help(
+                                "headers are found through the `include_dirs` of this module's \
+                                 `[cpp]` and `[cpp.libs]` tables, and its dependencies' (spec §15.1)",
+                            );
+                        for m in messages.iter().take(5) {
+                            d = d.with_note(m.clone());
+                        }
+                        diags.push(d);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The standard library's module name, and the dependency key a manifest lists it under
 /// (spec §3.2, §14.4). Reserved: no project may be called this.
 pub const STD_MODULE: &str = "std";
+
+/// The C library as the standard library imports it, `stdlib.h`: both its dependency key,
+/// so `std` calls `libc::malloc`, and its recipe's name. Only `std` can name it (spec §14.2).
+pub const STD_LIBC: &str = "libc";
 
 /// The standard library (spec §14.4): one module, carried by the compiler as Dazzle source,
 /// one declaration to a file. Each entry is the pseudo-path the file is shown under — it
@@ -633,6 +820,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/memory/allocator.dz", include_str!("std/memory/allocator.dz")),
     ("<std>/memory/allocators.dz", include_str!("std/memory/allocators.dz")),
     ("<std>/memory/box.dz", include_str!("std/memory/box.dz")),
+    ("<std>/memory/c_heap.dz", include_str!("std/memory/c_heap.dz")),
     ("<std>/memory/heap.dz", include_str!("std/memory/heap.dz")),
     ("<std>/memory/nullable.dz", include_str!("std/memory/nullable.dz")),
     ("<std>/memory/poison.dz", include_str!("std/memory/poison.dz")),
@@ -713,9 +901,17 @@ impl<'a> Loader<'a> {
             manifest_path: PathBuf::from(first),
             sources,
             deps: Vec::new(),
-            cpp_deps: Vec::new(),
             via_deps: Vec::new(),
             names: Vec::new(),
+            // The C library, which `Allocators::Global` allocates from (spec §14.2).
+            cpp_deps: vec![CppDep {
+                alias: STD_LIBC.to_owned(),
+                alias_span: Span::DUMMY,
+                recipe: STD_LIBC.to_owned(),
+                recipe_span: Span::DUMMY,
+                open: false,
+                public: false,
+            }],
             // The stdlib's own: the allocators' memory tracking (spec §14.2).
             flags: vec![FlagDecl {
                 name: "TRACK_MEMORY".to_owned(),
@@ -724,7 +920,24 @@ impl<'a> Loader<'a> {
                 doc: Some("record every allocation and report leaks and bad frees".to_owned()),
             }],
             build: BuildConfig::default(),
-            cpp: CppConfig::default(),
+            // Its recipe: a system header and nothing to compile, since every C++ compiler
+            // links the C library already.
+            cpp: CppConfig {
+                libs: vec![CppLib {
+                    name: STD_LIBC.to_owned(),
+                    name_span: Span::DUMMY,
+                    sources: Vec::new(),
+                    header: None,
+                    include_dirs: Vec::new(),
+                    defines: Vec::new(),
+                    lib_dirs: Vec::new(),
+                    link_libs: Vec::new(),
+                    frameworks: Vec::new(),
+                    flags: Vec::new(),
+                    import: vec![("stdlib.h".to_owned(), Span::DUMMY)],
+                }],
+                ..CppConfig::default()
+            },
             embedded: true,
             foreign: None,
         });

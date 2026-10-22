@@ -1,0 +1,9 @@
+// expect: DZ0301
+//
+// There is no `alloc` builtin: memory comes from an `Allocator` (spec §14.2, r74). The C
+// heap under `Allocators::Global` is the standard library's own, and a program reaches it
+// through `Allocators::Global.alloc(size, align)` like any other allocator.
+
+fn main() {
+    let p = alloc(16, 8)
+}

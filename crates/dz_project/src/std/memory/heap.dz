@@ -11,10 +11,10 @@ const HEAP_ALIGN: usize = 8
 impl Allocator for Heap {
     fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation) -> ^mut u8 {
         let p: ^mut u8 = if align <= HEAP_ALIGN {
-            unsafe { alloc(size, align) }
+            c_malloc(size, loc)
         } else {
             unsafe {
-                let raw = alloc(size + align + HEAP_ALIGN, HEAP_ALIGN)
+                let raw = c_malloc(size + align + HEAP_ALIGN, loc)
                 let first = (raw as usize) + HEAP_ALIGN
                 let at = (first + align - 1) / align * align
                 ((at - HEAP_ALIGN) as ^mut ^mut u8)[0] = raw
@@ -54,9 +54,9 @@ impl Allocator for Heap {
             let _ = size + loc.line as usize
         }
         if align <= HEAP_ALIGN {
-            unsafe { free(p) }
+            c_free(p)
         } else {
-            unsafe { free(((p as usize - HEAP_ALIGN) as ^mut ^mut u8)[0]) }
+            c_free(unsafe { ((p as usize - HEAP_ALIGN) as ^mut ^mut u8)[0] })
         }
     }
 }
