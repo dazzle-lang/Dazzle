@@ -1,0 +1,24 @@
+0v1 1v1 2v1 len 3
+aiming at boss with 50
+removed grunt
+grunt present: false
+boss: boss
+imp: imp
+second remove: true
+ghoul 0v3 same slot as grunt: true
+stale key reads: true
+null key reads: true is_null true
+2v1 imp 206
+1v1 boss 100
+0v3 ghoul 14
+total 320
+rebuilt finds boss
+boss threat 9
+after retain len 2 imp true boss true ghoul false
+at 0: 2v1 207
+at 1: 1v1 101
+drops so far 1
+drops 4
+copy has a: true original has a: false b in both: true
+cleared: len 1 b false c 1v3
+many: len 66 sum 3267

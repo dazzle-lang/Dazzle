@@ -142,6 +142,39 @@ there), `retain`, `clear`, `reserve`, `len`, `is_empty`, `capacity`, and `for &v
 `HashSet<String>` also answers `contains_str` and `remove_str` (**`StrSet`**). It is
 move-only unless `T` is copyable. `[DECIDED — D-0081]`
 
+**`SlotMap<T>`** holds values that are added and removed in any order and named by a
+**`Key<T>`**, in `std`. It is what to use where a struct would keep a reference to
+something it does not own — an entity, a node, a connection — which a field cannot be
+(D-0003). `insert(v)` returns the value's key. `get(k)` is a `^T` and `get_mut(k)` a
+`^mut T`, `null` once the value is removed (§9.1), so `let e = enemies.get(target) or
+return`; `remove(k)` returns the value as a `T?`; `contains`, `len`, `is_empty`,
+`capacity`, `clear`, `reserve`. `retain(keep)` drops the values a `fn(Key<T>, &mut T) ->
+bool` says no to, asking each once. `for k, &v in m` and `for k, &mut v in m` visit every
+value with its key; `values()` and `values_mut()` are the values alone as a slice, and
+`key_at(i)` is the key of `values()[i]`. The values sit together in one array in no
+particular order — removing one moves the last into its place, which no key notices. It is
+move-only unless `T` is copyable; a copy's keys are the original's.
+
+A `Key<T>` is a slot index and that slot's version: eight bytes, copyable, `Eq`, `Hash` and
+`Format` (`3v1`), so it can be kept in a field, key a `HashMap` and be written to a file.
+It owns nothing. Removing a value moves its slot's version on, so every key to it reads as
+absent from then on — also after the slot holds a new value, until the version comes round
+again, after 2³¹ reuses of that one slot. `T` is checked: a `Key<Enemy>` is not a
+`Key<Bullet>`. `Key<T>()` is the null key, which no map holds, and `is_null()` asks for it;
+`Key<T>(index, version)` rebuilds a key from what `index()` and `version()` read.
+`[DECIDED — D-0083]`
+
+```dz
+struct Turret {
+    pub target: Key<Enemy> = Key<Enemy>()
+}
+
+fn fire(t: &Turret, enemies: &mut SlotMap<Enemy>) {
+    let e = enemies.get_mut(t.target) or return     // gone: dead, or never set
+    e.hp -= 10
+}
+```
+
 **`Hash`** is the `std` trait a key needs: `fn hash(&self) -> u64`, equal values hashing
 equally. Integers, `bool`, `char` and `str` implement it, and `Eq`, without an `impl`, and
 the methods can be called on them directly — `id.hash()`, `name.eq(&other)`, `a.cmp(&b)`.
@@ -375,6 +408,11 @@ track — and a raw pointer is the wrong tool for it (§5.2). The standard libra
 | `Rc<T>` | a share | shares the value, counting one more owner | with the last `Rc` |
 | `Weak<T>` | nothing | refers to the same value | never by a `Weak` |
 | `Box<T>` | all of it | not allowed: move-only | with the `Box` |
+
+Many values of one kind, made and removed by one owner and referred to from everywhere —
+the entities of a level, the nodes of a graph — are better kept in a `SlotMap` (§14.4).
+Its `Key` is a plain eight-byte value with no count to keep, the values sit together, and
+one dies when its owner removes it rather than when the last `Rc` to it goes.
 
 ```dz
 let tex = Rc<Texture>(load("hero.png"))       // Rc(value, allocator = Allocators::Global)

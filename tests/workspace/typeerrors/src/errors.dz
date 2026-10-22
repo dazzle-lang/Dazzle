@@ -1224,3 +1224,14 @@ fn wider(f: &Frame<f32>) -> f32 {
 fn badge_is_not_a_float_frame(b: &Badge) -> f32 {
     return wider(b)
 }
+
+// §14.4: a `Key` names one type of value — a `Key<Vec3>` is not a `Key<Counter>` — and §5.2:
+// `&mut` of a read-only reference cannot make it writable.
+fn wrong_key(points: &SlotMap<Vec3>, k: Key<Counter>) -> bool {
+    return points.contains(k)
+}
+
+fn writable_through_read_only(v: &Vec3) {
+    let w = &mut v
+    w.x = 1.0
+}
