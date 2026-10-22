@@ -7,6 +7,7 @@
 use dz_span::{FileId, SourceMap, Span};
 
 pub mod codes;
+pub mod explain;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Severity {
@@ -52,13 +53,20 @@ pub struct Edit {
 /// The point of carrying it as data rather than as prose in a `help:` line is that it is
 /// computed once, by the phase that knows: the help text and the edit can then never
 /// disagree, and the language server offers the fix without re-deriving anything (spec
-/// §17.1, §17.4). A fix must be *correct or absent*; there is no "probably right" fix,
-/// because an editor will apply it without the user reading it.
+/// §17.1, §17.4).
+///
+/// A fix is either **certain** — it resolves the diagnostic and changes nothing else a
+/// reader would have to check, so `dz fix` applies it unattended — or a **suggestion**, the
+/// compiler's best guess at what was meant ("did you mean `count`?"), which an editor offers
+/// by its title for someone to pick and `dz fix` never applies. There is no third kind: a
+/// change that might be wrong in a way its title does not show is left as prose.
 #[derive(Clone, Debug)]
 pub struct Fix {
     /// What the editor lists, imperative and short: "add the missing arms".
     pub title: String,
     pub edits: Vec<Edit>,
+    /// Applied by `dz fix` without asking, rather than only offered.
+    pub certain: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -133,8 +141,29 @@ impl Diagnostic {
     /// Attach the edit that resolves this (spec §17.4). The `help:` line still says it in
     /// words, for a reader in a terminal; this is the same answer as data.
     pub fn with_fix(mut self, title: impl Into<String>, edits: Vec<Edit>) -> Diagnostic {
-        self.fix = Some(Fix { title: title.into(), edits });
+        self.fix = Some(Fix { title: title.into(), edits, certain: true });
         self
+    }
+
+    /// Attach a fix that is the compiler's best guess rather than a certainty: offered by an
+    /// editor under its title, never applied by `dz fix` (see [`Fix`]).
+    pub fn with_suggestion(mut self, title: impl Into<String>, edits: Vec<Edit>) -> Diagnostic {
+        self.fix = Some(Fix { title: title.into(), edits, certain: false });
+        self
+    }
+
+    /// "did you mean `name`?", with the suggestion as a fix: the primary span — which must
+    /// be exactly the misspelled name — replaced by `name`.
+    pub fn did_you_mean(self, name: &str) -> Diagnostic {
+        let at = self.primary_span();
+        let d = self.with_help(format!("did you mean `{name}`?"));
+        match at {
+            Some((file, span)) => d.with_suggestion(
+                format!("replace with `{name}`"),
+                vec![Edit { file, span, text: name.to_owned() }],
+            ),
+            None => d,
+        }
     }
 
     /// The span a caller should treat as "where this happened".
@@ -317,6 +346,153 @@ pub fn render_to_string(map: &SourceMap, diags: &Diagnostics) -> String {
         }
     }
     String::from_utf8_lossy(&buf.into_inner()).into_owned()
+}
+
+// ---------------------------------------------------------------------------
+// JSON
+// ---------------------------------------------------------------------------
+
+/// Diagnostics as one JSON document, for a program to read rather than a person: `dz check
+/// --format=json`. One diagnostic to a line inside it, so it also reads in a terminal.
+///
+/// Every span is given twice — as byte offsets into the file exactly as it is on disk
+/// (`start`, `end`; invariant 2), which is what an edit is applied with, and as 1-based
+/// line and column in characters, which is what a person or an editor counts. A fix's edits
+/// are spans and replacement text; `certain` says whether `dz fix` would apply it (see
+/// [`Fix`]). Notes and helps are split, with their `note: `/`help: ` prefixes taken off.
+///
+/// ```json
+/// {"diagnostics": [
+/// {"code": "DZ0406", "severity": "warning", "message": "variable `n` is never used",
+///  "file": "src/main.dz", "line": 3, "column": 9, "labels": [...], "notes": [],
+///  "help": ["if that is deliberate, name it `_n`; otherwise remove it"],
+///  "fix": {"title": "rename it `_n`", "certain": true, "edits": [...]}}
+/// ],
+/// "errors": 0, "warnings": 1}
+/// ```
+pub fn render_json(map: &SourceMap, diags: &Diagnostics) -> String {
+    let mut out = String::from("{\"diagnostics\": [");
+    for (i, d) in diags.iter().enumerate() {
+        out.push_str(if i == 0 { "\n" } else { ",\n" });
+        json_diagnostic(&mut out, map, d);
+    }
+    out.push_str(if diags.is_empty() { "],\n" } else { "\n],\n" });
+    out.push_str(&format!(
+        "\"errors\": {}, \"warnings\": {}}}\n",
+        diags.error_count(),
+        diags.warning_count()
+    ));
+    out
+}
+
+fn json_diagnostic(out: &mut String, map: &SourceMap, d: &Diagnostic) {
+    let severity = match d.severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Note => "note",
+        Severity::Help => "help",
+    };
+    out.push_str("{\"code\": ");
+    match d.code {
+        Some(c) => json_str(out, c),
+        None => out.push_str("null"),
+    }
+    out.push_str(", \"severity\": ");
+    json_str(out, severity);
+    out.push_str(", \"message\": ");
+    json_str(out, &d.message);
+    // Where it happened, flat, so the common question needs no walk through `labels`.
+    match d.primary_span().and_then(|(f, s)| map.try_get(f).map(|file| (file, s))) {
+        Some((file, span)) => {
+            let at = file.location(span.start as usize);
+            out.push_str(", \"file\": ");
+            json_str(out, &file.name().replace('\\', "/"));
+            out.push_str(&format!(", \"line\": {}, \"column\": {}", at.line, at.column));
+        }
+        None => out.push_str(", \"file\": null, \"line\": null, \"column\": null"),
+    }
+    out.push_str(", \"labels\": [");
+    for (i, l) in d.labels.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push('{');
+        json_span(out, map, l.file, l.span);
+        out.push_str(&format!(", \"primary\": {}, \"message\": ", l.primary));
+        json_str(out, &l.message);
+        out.push('}');
+    }
+    out.push(']');
+    for (key, prefix) in [("notes", "note: "), ("help", "help: ")] {
+        out.push_str(&format!(", \"{key}\": ["));
+        let lines = d.notes.iter().filter_map(|n| n.strip_prefix(prefix));
+        for (i, n) in lines.enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            json_str(out, n);
+        }
+        out.push(']');
+    }
+    out.push_str(", \"fix\": ");
+    match &d.fix {
+        None => out.push_str("null"),
+        Some(fix) => {
+            out.push_str("{\"title\": ");
+            json_str(out, &fix.title);
+            out.push_str(&format!(", \"certain\": {}, \"edits\": [", fix.certain));
+            for (i, e) in fix.edits.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push('{');
+                json_span(out, map, e.file, e.span);
+                out.push_str(", \"text\": ");
+                json_str(out, &e.text);
+                out.push('}');
+            }
+            out.push_str("]}");
+        }
+    }
+    out.push('}');
+}
+
+/// `"file": …, "start": …, "end": …, "line": …, "column": …, "end_line": …, "end_column": …`
+fn json_span(out: &mut String, map: &SourceMap, file: FileId, span: Span) {
+    let Some(f) = map.try_get(file) else {
+        out.push_str(&format!(
+            "\"file\": null, \"start\": {}, \"end\": {}, \"line\": null, \"column\": null, \
+             \"end_line\": null, \"end_column\": null",
+            span.start, span.end
+        ));
+        return;
+    };
+    let (a, b) = (f.location(span.start as usize), f.location(span.end as usize));
+    out.push_str("\"file\": ");
+    json_str(out, &f.name().replace('\\', "/"));
+    out.push_str(&format!(
+        ", \"start\": {}, \"end\": {}, \"line\": {}, \"column\": {}, \"end_line\": {}, \
+         \"end_column\": {}",
+        span.start, span.end, a.line, a.column, b.line, b.column
+    ));
+}
+
+/// A JSON string literal: quotes, backslashes and control characters escaped, everything
+/// else — any Unicode — as it is, which JSON allows.
+fn json_str(out: &mut String, s: &str) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
 }
 
 /// Print diagnostics to stderr, in colour when stderr is a terminal.

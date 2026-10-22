@@ -60,31 +60,25 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (23 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (17 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
 - **[T-0004](tasks/T-0004-generational-handles-pool-t-handle-t.md)** Generational handles: `Pool<T>` and `Handle<T>` · feature, ownership
 - **[T-0007](tasks/T-0007-generic-methods-in-trait.md)** Generic methods in a trait · feature, generics
 - **[T-0034](tasks/T-0034-module-named-after-runtime-shim-identifier.md)** A module named after a runtime-shim identifier does not compile · deferral, codegen
-- **[T-0035](tasks/T-0035-generic-base.md)** A generic base · deferral, checker
-- **[T-0036](tasks/T-0036-several-constructors-are-not-resolved-by.md)** Several constructors are not resolved by argument · deferral, checker
 - **[T-0037](tasks/T-0037-indexed-exists-only-in-for-head.md)** `indexed()` exists only in a `for` head · deferral, checker
 - **[T-0038](tasks/T-0038-memory-tracking-single-threaded.md)** Memory tracking is single-threaded · deferral, stdlib
-- **[T-0039](tasks/T-0039-trait-method-non-constant-default-argument.md)** A trait method's non-constant default argument · deferral, codegen
 - **[T-0040](tasks/T-0040-for-over-generic-c-iterable.md)** `for` over a generic `C: Iterable` · deferral, checker
 - **[T-0041](tasks/T-0041-union-variant-carrying-struct-with-constructor.md)** A union variant carrying a struct with a constructor cannot be built · deferral, checker
 - **[T-0045](tasks/T-0045-methods-on-untyped-literal.md)** Methods on an untyped literal · deferral, checker
 - **[T-0046](tasks/T-0046-converting-mat4-raylib-matrix-copies-field.md)** Converting `Mat4` to raylib's `Matrix` copies field by field · deferral, stdlib
-- **[T-0047](tasks/T-0047-intrinsic-default-uses-c-compiler-builtins.md)** An intrinsic default uses the C++ compiler's builtins · deferral, codegen
 - **[T-0048](tasks/T-0048-imported-c-or-c-enum-variants.md)** An imported C or C++ enum's variants are not in the type table · deferral, codegen
 - **[T-0049](tasks/T-0049-trait-objects-that-are-not-object.md)** Trait objects that are not object-safe · deferral, codegen
 - **[T-0050](tasks/T-0050-associated-type-projection.md)** Associated-type projection · deferral, checker
 - **[T-0051](tasks/T-0051-open-ended-range-held-in-variable.md)** An open-ended range held in a variable · deferral, codegen
 - **[T-0052](tasks/T-0052-test-trait-default-method-that-builds.md)** Test a trait default method that builds a `Self` · deferral, generics
 - **[T-0053](tasks/T-0053-error-shares-static-ring-four-buffers.md)** `error(…)` shares a static ring of four buffers · deferral, codegen
-- **[T-0058](tasks/T-0058-default-argument-that-calls-function-declared.md)** A default argument that calls a function declared later in the module does not compile · deferral, codegen
-- **[T-0080](tasks/T-0080-trait-implemented-for-pointer-type-compiles.md)** A trait implemented for a pointer type compiles to C++ that calls the pointee · bug, codegen
 
 ## M15 — `dz bench`, and the C++ comparison (1 open)
 
@@ -99,13 +93,11 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (14 open)
+## none — not scheduled (12 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
-- **[T-0060](tasks/T-0060-machine-readable-diagnostics-fixes-go-with.md)** Machine-readable diagnostics, and fixes to go with them · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
-- **[T-0062](tasks/T-0062-dz-explain-code.md)** `dz explain <code>` · feature, llm-tooling
 - **[T-0063](tasks/T-0063-editor-queries-from-command-line.md)** Editor queries from the command line · feature, llm-tooling
 - **[T-0064](tasks/T-0064-primer-dz-new-ship-it.md)** A primer, and `dz new` to ship it · feature, llm-tooling
 - **[T-0065](tasks/T-0065-checking-game-without-looking-at-it.md)** Checking a game without looking at it · feature, llm-tooling

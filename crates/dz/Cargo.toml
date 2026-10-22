@@ -29,3 +29,4 @@ dz_lsp.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+serde_json.workspace = true

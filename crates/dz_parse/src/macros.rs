@@ -168,13 +168,16 @@ impl<'a> Parser<'a> {
             let span = self.span_from(start);
             let n = &name.name;
             if formatting {
-                self.error_help(
+                let n = n.clone();
+                if self.report_help(
                     codes::INTRINSIC_SPELLING,
                     span,
                     format!("`#{n}` is not how a formatting macro is invoked"),
                     "written with `#`",
                     format!("write `{n}!(…)`: formatting reads like a call (spec §12.9)"),
-                );
+                ) {
+                    self.fix_last(format!("write `{n}!`"), span, &format!("{n}!"));
+                }
             } else {
                 self.error_help(
                     codes::INTRINSIC_SPELLING,

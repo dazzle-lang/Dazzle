@@ -208,3 +208,33 @@ directly, which `every_program_produces_its_expected_output` builds too — and 
 ran on separate harness threads. Serial timing just made the window rare. They take scratch
 copies now, for the reason `copy_fixture` had documented all along. **A test that builds a
 fixture must copy it first**; the shared directory is the failure mode, not the parallelism.
+
+## Diagnostics a program can read, and act on (T-0060, T-0062; 2026-10-22)
+
+The first two `llm-tooling` rows, chosen by the user with the r70–r72 batch.
+
+- **`dz check --format=json`** (`dz_diag::render_json`): one JSON document on stdout, a
+  diagnostic to a line inside it, with code, severity, message, the primary file/line/column
+  flat, every label, notes and helps split, and the fix. Each span is given as byte offsets
+  into the file as it is on disk, which is what an edit is applied with, and as 1-based line
+  and column in characters. Written by hand — `dz_diag` has no serde — and checked by parsing
+  it with `serde_json` in `crates/dz/tests/fix.rs`.
+- **Certain fixes and suggestions.** `Fix` gained `certain`. A certain fix resolves the
+  diagnostic and nothing else a reader would need to check; a suggestion is a guess an editor
+  offers by its title. `Diagnostic::did_you_mean` turns every "did you mean `x`?" in the
+  resolver and checker into a suggestion replacing the misspelt name (twelve sites); certain
+  fixes were added for an unused variable (`_` in front), `mut fn` and `#println(…)`, beside
+  the two that existed (missing switch arms, missing trait members). The parser attaches a
+  fix only to tokens of its own file, and `dz_macro::annotate` drops any fix whose edit
+  touches a macro invocation's name — the span every token a macro wrote carries.
+- **`dz fix [--dry-run]`** applies the certain fixes: per file, last edit first, a fix
+  whose edits clash with one already taken skipped whole, never a file not on disk (the
+  standard library). It says to run `dz check` again, since a fix can let a later phase run.
+- **`dz explain <code>`** (`dz_diag::explain`): the rule is the code's doc comment in
+  `codes.rs`, read from the file as compiled; the why and the examples are in
+  `crates/dz_diag/explain/*.md`, a `## DZNNNN` section per code with a wrong and a right
+  program. `dz_driver/tests/explain.rs` requires a section for every code and compiles every
+  example — the wrong one must report exactly its code, the right one nothing — so the text
+  cannot drift. Codes no single-file program can produce (manifests, encodings, C++ libraries,
+  compiler bugs) carry a `No example:` line instead. Writing them found four compiler bugs,
+  listed under r70–r72 in `m12.md`.

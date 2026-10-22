@@ -180,6 +180,10 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
                         for f in &sig.fields {
                             w.visit_ty(&f.ty, at);
                         }
+                        // `Button : Panel<i32>` holds a `Panel<i32>` as its first part.
+                        if let Some(base) = sig.base {
+                            w.visit_ty(&Ty::Named { sym: base, args: sig.base_args.clone() }, at);
+                        }
                     }
                 }
                 SymbolKind::Union => {
@@ -387,6 +391,11 @@ impl Worklist<'_> {
         if let Some(sig) = self.table.struct_sig(sym) {
             for t in self.table.field_types(sym, &args, &sig.fields) {
                 self.visit_ty(&t, at);
+            }
+            // `Slider<f32> : Panel<f32>` needs that instance of its base (T-0035).
+            if let Some(base) = sig.base {
+                let base_args = self.table.args_as(sym, &args, base);
+                self.visit_ty(&Ty::Named { sym: base, args: base_args }, at);
             }
         }
         self.out.types.push(Instance { sym, args, bodies });
@@ -650,13 +659,20 @@ pub fn impl_defaults(
 }
 
 /// How deeply type arguments nest: `f32` is 0, `Buffer<f32>` 1, `Buffer<Buffer<f32>>` 2.
+///
+/// Every type built from another counts a level, not only a generic one: `fn nest<T>(x: T)`
+/// calling `nest([x])` instantiates at `[1]T`, `[1][1]T`, … and never names a generic type
+/// at all. Counting only `Named` let that run until the compiler's own stack overflowed.
 fn depth(t: &Ty) -> usize {
     match t {
         Ty::Named { args, .. } => 1 + args.iter().map(depth).max().unwrap_or(0),
-        Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => depth(i),
-        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => depth(inner),
-        Ty::Array { elem, .. } | Ty::Slice { elem, .. } => depth(elem),
-        Ty::Tuple(parts) => parts.iter().map(depth).max().unwrap_or(0),
+        Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => 1 + depth(i),
+        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
+            1 + depth(inner)
+        }
+        Ty::Array { elem, .. } | Ty::Slice { elem, .. } => 1 + depth(elem),
+        Ty::Tuple(parts) => 1 + parts.iter().map(depth).max().unwrap_or(0),
+        Ty::Fn { params, ret } => 1 + params.iter().chain([&**ret]).map(depth).max().unwrap_or(0),
         _ => 0,
     }
 }

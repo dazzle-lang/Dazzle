@@ -444,6 +444,9 @@ fn harness_entry(ws: &Workspace, res: &Resolution, table: &TypeTable, mode: Mode
 
 // ---------------------------------------------------------------------------
 
+/// A parameter's default argument: the expression, and the body whose arena holds it.
+type ParamDefault<'a> = (&'a hir::Body, ExprId);
+
 /// A call's arguments, rendered but not yet written out (spec §7.2, 18.49).
 #[derive(Default)]
 struct CapturedArgs {
@@ -549,9 +552,9 @@ struct Emitter<'a> {
     /// Expressions already evaluated into a local of their own, by that local's name: the
     /// owners a hoisted view borrows from (`emit_args`).
     materialized: HashMap<ExprId, String>,
-    /// The calls whose arguments are being rendered, innermost last: a `DefaultArg` among
-    /// them is the default of the innermost one's callee.
-    callees: Vec<hir::Callee>,
+    /// The defaults of the calls whose arguments are being rendered, innermost last: a
+    /// `DefaultArg` among them is the default of the innermost one's callee.
+    callees: Vec<Vec<Option<ParamDefault<'a>>>>,
     /// How many owner locals and handle guards have been written, so a statement can tell
     /// whether it made one: an owner is scoped to its statement, a guard never is.
     owners_made: usize,
@@ -979,7 +982,7 @@ impl<'a> Emitter<'a> {
             for name in names {
                 let owner = BodyOwner::ImplMethod { imp: idx as u32, name: name.clone() };
                 let fname = self.impl_fn_name(idx, &empty, &name);
-                if let Some(head) = self.impl_fn_head(&owner, &fname, true) {
+                if let Some(head) = self.impl_fn_head(&owner, &fname) {
                     let _ = writeln!(self.header, "{head};");
                 }
             }
@@ -994,7 +997,7 @@ impl<'a> Emitter<'a> {
                 let fname = self.impl_fn_name(idx, &empty, &name);
                 let Some(body) = self.find_body(&owner) else { continue };
                 self.file = body.file;
-                let Some(head) = self.impl_fn_head(&owner, &fname, false) else { continue };
+                let Some(head) = self.impl_fn_head(&owner, &fname) else { continue };
                 self.current_fn = fname;
                 self.emit_body(&owner, &format!("{}{head} {{", self.def_prefix));
             }
@@ -1034,18 +1037,13 @@ impl<'a> Emitter<'a> {
 
     /// `Ret name(const T& self, params…)`: the receiver is an ordinary first parameter,
     /// `const` unless the method takes `&mut self`.
-    fn impl_fn_head(
-        &mut self,
-        owner: &BodyOwner,
-        name: &str,
-        with_defaults: bool,
-    ) -> Option<String> {
+    fn impl_fn_head(&mut self, owner: &BodyOwner, name: &str) -> Option<String> {
         let body = self.find_body(owner)?;
         let recv = body.params.first().map(|p| body.local(*p))?;
         let recv_ty = self.cpp_ty(&recv.ty);
         let recv_ty = if recv.mutable { recv_ty } else { const_of(&recv_ty) };
         let ret = self.body_ret_ty(owner);
-        let rest = self.decl_params(owner, with_defaults);
+        let rest = self.decl_params(owner);
         // A member function's `this` is implicit and never "unused"; this parameter is not,
         // and a method that ignores its receiver must not warn (invariant 7).
         let recv = format!("[[maybe_unused]] {recv_ty}& self");
@@ -1105,7 +1103,7 @@ impl<'a> Emitter<'a> {
             let owner = BodyOwner::ImplMethod { imp: inst.imp as u32, name: name.clone() };
             let fname = self.impl_fn_name(inst.imp, &map, &name);
             if !bodies {
-                let Some(head) = self.impl_fn_head(&owner, &fname, true) else { continue };
+                let Some(head) = self.impl_fn_head(&owner, &fname) else { continue };
                 let guard = format!("DZ_INST_{stem}_{fname}_DECL");
                 let _ = writeln!(
                     self.header,
@@ -1113,7 +1111,7 @@ impl<'a> Emitter<'a> {
                 );
                 continue;
             }
-            let Some(head) = self.impl_fn_head(&owner, &fname, false) else { continue };
+            let Some(head) = self.impl_fn_head(&owner, &fname) else { continue };
             self.current_fn = fname.clone();
             let (text, ()) = self.capture(|e| e.emit_body(&owner, &format!("inline {head} {{")));
             let guard = format!("DZ_INST_{stem}_{fname}_DEF");
@@ -1211,34 +1209,12 @@ impl<'a> Emitter<'a> {
                  {name}__dyn& operator=(const {name}__dyn& h) = default;\n    \
                  const {name}__dyn& operator*() const {{ return *this; }}"
             );
-            let keys: Vec<String> = match self.table.get(sym) {
-                Some(ItemSig::Trait(t)) => {
-                    t.method_keys.iter().filter(|k| t.methods.contains_key(*k)).cloned().collect()
-                }
-                _ => Vec::new(),
-            };
-            for ((m, sig), key) in methods.iter().zip(keys) {
+            // No defaults here either: `a.alloc(8)` through a handle writes the trait's
+            // default for each argument it leaves out, as any call does (spec §7.6).
+            for (m, sig) in &methods {
                 let (ret, params) = self.dyn_signature(sig);
-                // The trait's default arguments go on the declaration, as on any function:
-                // `a.alloc(8)` through a handle fills in the rest, and a `#location` default
-                // still records the caller (spec §7.2, §12.7).
-                let owner = BodyOwner::TraitDefaults { owner: sym, name: key };
-                if self.find_body(&owner).is_some() {
-                    let list = self.decl_params(&owner, true);
-                    let _ = writeln!(self.header, "    {ret} {}({list}) const;", sanitize(m));
-                    continue;
-                }
-                let list: Vec<String> = params
-                    .iter()
-                    .zip(&sig.params)
-                    .enumerate()
-                    .map(|(i, (t, p))| {
-                        match p.caller_default.as_deref().and_then(caller_intrinsic) {
-                            Some(d) => format!("{t} a{i} = {d}"),
-                            None => format!("{t} a{i}"),
-                        }
-                    })
-                    .collect();
+                let list: Vec<String> =
+                    params.iter().enumerate().map(|(i, t)| format!("{t} a{i}")).collect();
                 let _ =
                     writeln!(self.header, "    {ret} {}({}) const;", sanitize(m), list.join(", "));
             }
@@ -1542,11 +1518,11 @@ impl<'a> Emitter<'a> {
         let fname = self.method_instance_name(inst.owner, &inst.owner_args, &inst.name, &inst.args);
         let has_self = inst.body.params.first().is_some_and(|p| inst.body.local(*p).name == "self");
         let head = if has_self {
-            let Some(head) = self.impl_fn_head(&owner, &fname, !bodies) else { return };
+            let Some(head) = self.impl_fn_head(&owner, &fname) else { return };
             head
         } else {
             let ret = self.body_ret_ty(&owner);
-            let params = self.decl_params(&owner, !bodies);
+            let params = self.decl_params(&owner);
             format!("{ret} {fname}({params})")
         };
         let stem = file_stem(&self.ws.module(self.res.symbol(inst.owner).module).name);
@@ -1577,7 +1553,7 @@ impl<'a> Emitter<'a> {
         let owner = BodyOwner::Fn(inst.sym);
         let name = self.instance_name(inst.sym, &inst.args);
         let ret = self.body_ret_ty(&owner);
-        let decl = self.decl_params(&owner, true);
+        let decl = self.decl_params(&owner);
         let guard = self.instance_guard(inst.sym, &inst.args, "_DECL");
         let shown = self.instance_shown(inst);
         let _ = writeln!(
@@ -1591,7 +1567,7 @@ impl<'a> Emitter<'a> {
         let owner = BodyOwner::Fn(inst.sym);
         let name = self.instance_name(inst.sym, &inst.args);
         let ret = self.body_ret_ty(&owner);
-        let params = self.decl_params(&owner, false);
+        let params = self.decl_params(&owner);
         self.current_fn = self.instance_shown(inst);
         let head = format!("inline {ret} {name}({params}) {{");
         let (text, ()) = self.capture(|e| e.emit_body(&owner, &head));
@@ -1765,7 +1741,7 @@ impl<'a> Emitter<'a> {
                 // is defined — exactly as a field held by value does (spec §7.3, 18.32).
                 if let Some(ItemSig::Struct(s)) = self.table.get(*sym) {
                     if let Some(base) = s.base {
-                        stored.push((base, Vec::new()));
+                        stored.push((base, self.table.args_as(*sym, args, base)));
                     }
                 }
                 stored
@@ -1983,7 +1959,13 @@ impl<'a> Emitter<'a> {
         let inherited = self.table.struct_sig(sym).map_or(0, |s| s.inherited);
         match base {
             Some(b) => {
-                let b = self.qualify(b);
+                // A generic base is the instance this one inherits, `Panel<i32>` (T-0035).
+                let base_args = self.table.args_as(sym, args, b);
+                let b = if base_args.is_empty() {
+                    self.qualify(b)
+                } else {
+                    self.qualify_instance(b, &base_args)
+                };
                 let _ = writeln!(self.header, "struct {name} : {b} {{");
             }
             None => {
@@ -2048,7 +2030,7 @@ impl<'a> Emitter<'a> {
                 MemberKind::Ctor(_) => {
                     let owner = BodyOwner::Ctor { owner: sym, index: ctors };
                     ctors += 1;
-                    let params = self.decl_params(&owner, true);
+                    let params = self.decl_params(&owner);
                     let _ = writeln!(self.header, "    {name}({params});");
                 }
                 MemberKind::Fn(f) => {
@@ -2062,7 +2044,7 @@ impl<'a> Emitter<'a> {
                     }
                     let method = f.name.name.clone();
                     let owner = BodyOwner::Method { owner: sym, name: key };
-                    let params = self.decl_params(&owner, true);
+                    let params = self.decl_params(&owner);
                     let ret = self.body_ret_ty(&owner);
                     // A function with no receiver is C++'s `static` member, and has no
                     // `this` to be `const` about (spec §7.3).
@@ -2109,9 +2091,16 @@ impl<'a> Emitter<'a> {
             // has to keep working (spec §6.2) — unless a user constructor can already be
             // called with no arguments, which is then what `let v: T` runs, and a defaulted
             // one beside it would be a redeclaration.
-            let callable_with_nothing = sig.ctors.iter().any(|c| c.required() == 0);
-            if !callable_with_nothing {
-                let _ = writeln!(self.header, "    {name}() = default;");
+            // C++ gets no defaults, so a constructor that takes arguments but needs none is
+            // given a default constructor of its own, defined beside it (`nullary_ctor`).
+            match nullary_ctor(&sig) {
+                None => {
+                    let _ = writeln!(self.header, "    {name}() = default;");
+                }
+                Some(i) if !sig.ctors[i].params.is_empty() => {
+                    let _ = writeln!(self.header, "    {name}();");
+                }
+                Some(_) => {}
             }
         }
         // A polymorphic type with no `drop` of its own still needs the virtual destructor,
@@ -2240,13 +2229,32 @@ impl<'a> Emitter<'a> {
                 MemberKind::Ctor(_) => {
                     let owner = BodyOwner::Ctor { owner: sym, index: ctors };
                     ctors += 1;
-                    let params = self.decl_params(&owner, false);
+                    let params = self.decl_params(&owner);
                     self.current_fn = format!("{name}::{name}");
                     // `: UiElement(w)` is a C++ member-initialiser list, which is the only
                     // place a base can be constructed (spec §7.3, 18.32).
                     let init = self.base_init(&owner);
                     let head = format!("{inline}{name}::{name}({params}){init} {{");
                     self.emit_body(&owner, &head);
+                    // `let v: T` runs a constructor every argument of which has a default
+                    // (spec §6.2), so C++'s default constructor delegates to it with them.
+                    let sig = self.table.struct_sig(sym).cloned().unwrap_or_default();
+                    let index = ctors - 1;
+                    if nullary_ctor(&sig) == Some(index) && !sig.ctors[index].params.is_empty() {
+                        if let Some(body) = self.find_body(&owner) {
+                            let defaults: Vec<String> = body
+                                .param_defaults
+                                .iter()
+                                .flatten()
+                                .map(|d| self.render_default(body, *d, body.span))
+                                .collect();
+                            let _ = writeln!(
+                                self.out,
+                                "{inline}{name}::{name}() : {name}({}) {{}}\n",
+                                defaults.join(", ")
+                            );
+                        }
+                    }
                 }
                 MemberKind::Fn(f) => {
                     let key = keys.get(fns).cloned().unwrap_or_else(|| f.name.name.clone());
@@ -2261,7 +2269,7 @@ impl<'a> Emitter<'a> {
                     if f.dispatch == Dispatch::Virtual && f.body.is_none() {
                         continue;
                     }
-                    let params = self.decl_params(&owner, false);
+                    let params = self.decl_params(&owner);
                     let ret = self.body_ret_ty(&owner);
                     let cst = match f.self_param {
                         Some(s) if !s.is_mut => " const",
@@ -2408,7 +2416,7 @@ impl<'a> Emitter<'a> {
             }
             let owner = BodyOwner::Method { owner: sym, name: key };
             self.qualify_all = true;
-            let params = self.decl_params(&owner, true);
+            let params = self.decl_params(&owner);
             let ret = self.body_ret_ty(&owner);
             self.qualify_all = false;
             let (stat, cst) = match f.self_param {
@@ -2438,7 +2446,7 @@ impl<'a> Emitter<'a> {
             let method = f.name.name.clone();
             let owner = BodyOwner::Method { owner: sym, name: key };
             self.qualify_all = true;
-            let params = self.decl_params(&owner, false);
+            let params = self.decl_params(&owner);
             let ret = self.body_ret_ty(&owner);
             let cst = match f.self_param {
                 Some(s) if !s.is_mut => " const",
@@ -2581,12 +2589,12 @@ impl<'a> Emitter<'a> {
             return;
         }
         let ret = self.body_ret_ty(&owner);
-        let decl = self.decl_params(&owner, true);
+        let decl = self.decl_params(&owner);
         // `current_fn` feeds `#function`, which names the Dazzle function, not the C++ one.
         let cpp = sanitize(name);
         let _ = writeln!(self.header, "{ret} {cpp}({decl});");
 
-        let params = self.decl_params(&owner, false);
+        let params = self.decl_params(&owner);
         self.current_fn = name.to_owned();
         let head = format!("{ret} {cpp}({params}) {{");
         self.emit_body(&owner, &head);
@@ -2599,7 +2607,7 @@ impl<'a> Emitter<'a> {
         let owner = BodyOwner::Fn(sym);
         let Some(body) = self.find_body(&owner) else { return };
         let ret = self.body_ret_ty(&owner);
-        let decl = self.decl_params(&owner, true);
+        let decl = self.decl_params(&owner);
         let cpp = sanitize(name);
         let _ = writeln!(self.header, "{ret} {cpp}({decl});");
         let names = local_names(body);
@@ -2632,9 +2640,9 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// Parameters as C++ writes them. `with_defaults` controls whether default arguments
-    /// are printed, which C++ allows only on the declaration.
-    fn decl_params(&mut self, owner: &BodyOwner, with_defaults: bool) -> String {
+    /// Parameters as C++ writes them. Never with a default: every call writes out each
+    /// argument it leaves out (see [`Emitter::callee_defaults`]).
+    fn decl_params(&mut self, owner: &BodyOwner) -> String {
         let Some(body) = self.find_body(owner) else { return String::new() };
         let names = local_names(body);
         let uses = hir::local_uses(body);
@@ -2642,36 +2650,25 @@ impl<'a> Emitter<'a> {
         let start = usize::from(has_self);
 
         let mut parts: Vec<String> = Vec::new();
-        for (i, p) in body.params.iter().enumerate().skip(start) {
+        for p in body.params.iter().skip(start) {
             let local = body.local(*p);
             let ty = self.cpp_ty(&local.ty);
             let unused = if uses[p.index()].read { "" } else { "[[maybe_unused]] " };
-            let mut text =
-                format!("{unused}{ty} {}", incoming_name(&names[p.index()], self.table, &local.ty));
-            if with_defaults {
-                // An implementation's method takes its defaults from the trait when it does
-                // not write its own: the trait's signature is what callers were checked
-                // against (spec §7.6).
-                let own = body.param_defaults.get(i - start).copied().flatten().map(|d| (body, d));
-                let found = own.or_else(|| self.trait_default(owner, i - start));
-                if let Some((from, default)) = found {
-                    let v = self.render_default(from, default);
-                    let _ = write!(text, " = {v}");
-                }
-            }
-            parts.push(text);
+            parts.push(format!(
+                "{unused}{ty} {}",
+                incoming_name(&names[p.index()], self.table, &local.ty)
+            ));
         }
         parts.join(", ")
     }
 
-    /// A default argument as its declaration writes it.
-    fn render_default(&mut self, body: &'a hir::Body, default: ExprId) -> String {
-        // `loc: SourceLocation = #location` is the *caller's* location (spec §12.7). A C++
-        // default argument is evaluated at each call, and these builtins answer for that
-        // call — through the `#line` directives, in Dazzle's file and line.
-        if let hir::ExprKind::Intrinsic { name, .. } = &body.expr(default).kind {
-            if let Some(v) = caller_intrinsic(name) {
-                return v.to_owned();
+    /// A default argument, written at a call. `span` is the call's: a `#location` default,
+    /// or `#line` and the rest, is the *caller's* position (spec §12.7), and only the call
+    /// knows it — column and Dazzle function name included, which C++'s builtins never gave.
+    fn render_default(&mut self, body: &'a hir::Body, default: ExprId, span: Span) -> String {
+        if let hir::ExprKind::Intrinsic { name, args } = &body.expr(default).kind {
+            if args.is_empty() {
+                return self.intrinsic(name, span, None);
             }
         }
         let (pre, value) = self.in_body(body, |e| e.expr(default));
@@ -2682,32 +2679,12 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// The callee's own default for its parameter `index`, written at the call because a
-    /// later parameter was passed by name and C++ cannot skip this one (spec §7.2).
+    /// The callee's own default for its parameter `index`, where a later parameter was
+    /// passed by name and this one was left out (spec §7.2).
     fn default_arg(&mut self, index: usize, span: Span) -> String {
-        let owner = match self.callees.last() {
-            Some(hir::Callee::Fn { sym, .. }) => Some(BodyOwner::Fn(*sym)),
-            Some(
-                hir::Callee::Method { owner, name, .. }
-                | hir::Callee::BaseMethod { owner, name, .. }
-                | hir::Callee::Assoc { owner, name, .. },
-            ) => Some(BodyOwner::Method { owner: *owner, name: name.clone() }),
-            Some(hir::Callee::Ctor { owner, index }) => {
-                Some(BodyOwner::Ctor { owner: *owner, index: *index })
-            }
-            Some(hir::Callee::Value(_)) | None => None,
-        };
-        let found = owner.and_then(|o| {
-            let body = self.find_body(&o).or_else(|| match &o {
-                BodyOwner::Method { owner, name } => {
-                    self.hir.find(&BodyOwner::TraitDefaults { owner: *owner, name: name.clone() })
-                }
-                _ => None,
-            })?;
-            Some((body, body.param_defaults.get(index).copied().flatten()?))
-        });
+        let found = self.callees.last().and_then(|d| d.get(index).copied().flatten());
         if let Some((body, default)) = found {
-            return self.render_default(body, default);
+            return self.render_default(body, default, span);
         }
         self.diags.push(
             Diagnostic::error(codes::INTERNAL_ERROR, "the compiler lost a default argument")
@@ -2717,16 +2694,133 @@ impl<'a> Emitter<'a> {
         "{}".to_owned()
     }
 
-    /// The trait's default for parameter `index` of an implementation's method, from the
-    /// trait method's body or, for one without a body, its defaults-only body.
-    fn trait_default(&self, owner: &BodyOwner, index: usize) -> Option<(&'a hir::Body, ExprId)> {
-        let BodyOwner::ImplMethod { imp, name } = owner else { return None };
-        let tsym = self.table.impls().get(*imp as usize)?.trait_ref.trait_sym;
+    /// The default of each parameter a call's callee declares, after the receiver: what the
+    /// call writes for an argument it leaves out. Empty for a function value, which has no
+    /// defaults, and for an imported function, whose defaults its own header supplies.
+    ///
+    /// Taken from the instance being called where there is one, so a default that mentions
+    /// a type parameter is written at its argument, and from the declaration otherwise.
+    fn callee_defaults(
+        &self,
+        callee: &hir::Callee,
+        args: &[ExprId],
+        node_ty: &Ty,
+    ) -> Vec<Option<ParamDefault<'a>>> {
         let hir = self.hir;
-        let body = hir
-            .find(&BodyOwner::TraitDefaults { owner: tsym, name: name.clone() })
-            .or_else(|| hir.find(&BodyOwner::Method { owner: tsym, name: name.clone() }))?;
-        Some((body, body.param_defaults.get(index).copied().flatten()?))
+        let of = |body: Option<&'a hir::Body>| -> Vec<Option<ParamDefault<'a>>> {
+            body.map(|b| b.param_defaults.iter().map(|d| d.map(|d| (b, d))).collect())
+                .unwrap_or_default()
+        };
+        match callee {
+            hir::Callee::Value(_) => Vec::new(),
+            hir::Callee::Fn { sym, type_args } => {
+                let owner = BodyOwner::Fn(*sym);
+                of(self.instance_body(*sym, type_args, &owner).or_else(|| hir.find(&owner)))
+            }
+            hir::Callee::Ctor { owner, index } => {
+                let type_args = match node_ty {
+                    Ty::Named { args, .. } => args.as_slice(),
+                    _ => &[],
+                };
+                let o = BodyOwner::Ctor { owner: *owner, index: *index };
+                of(self.instance_body(*owner, type_args, &o).or_else(|| hir.find(&o)))
+            }
+            hir::Callee::Assoc { owner, type_args, name, method_args } => {
+                of(self.method_body(*owner, type_args, name, method_args))
+            }
+            hir::Callee::BaseMethod { owner, name, .. } => {
+                of(hir.find(&BodyOwner::Method { owner: *owner, name: name.clone() }))
+            }
+            hir::Callee::Method { recv, owner, name, method_args } => {
+                let recv_ty = self.cur().ty(*recv).peeled().clone();
+                if self.res.symbol(*owner).kind != dz_resolve::SymbolKind::Trait {
+                    let owner_args = match &recv_ty {
+                        Ty::Named { sym, args } if sym == owner => args.clone(),
+                        _ => Vec::new(),
+                    };
+                    return of(self.method_body(*owner, &owner_args, name, method_args));
+                }
+                // A trait's defaults are the trait's (§7.6); an implementation that writes
+                // its own for a parameter has those instead.
+                let mut defaults = of(hir
+                    .find(&BodyOwner::TraitDefaults { owner: *owner, name: name.clone() })
+                    .or_else(|| {
+                        hir.find(&BodyOwner::Method { owner: *owner, name: name.clone() })
+                    }));
+                let arg = args.first().map(|a| self.cur().ty(*a).clone());
+                if let Some((idx, map)) =
+                    self.table.resolve_impl(*owner, &recv_ty, name, arg.as_ref())
+                {
+                    let o = BodyOwner::ImplMethod { imp: idx as u32, name: name.clone() };
+                    let imp = &self.table.impls()[idx];
+                    let imp_args: Vec<Ty> = imp
+                        .generics
+                        .iter()
+                        .map(|g| map.get(&g.param.id).cloned().unwrap_or(Ty::Error))
+                        .collect();
+                    let body = self
+                        .mono
+                        .by_module
+                        .values()
+                        .flat_map(|m| &m.impls)
+                        .find(|i| i.imp == idx && i.args == imp_args)
+                        .and_then(|i| i.find(&o))
+                        .or_else(|| hir.find(&o));
+                    for (i, own) in of(body).into_iter().enumerate() {
+                        match defaults.get_mut(i) {
+                            Some(slot) if own.is_some() => *slot = own,
+                            None => defaults.push(own),
+                            _ => {}
+                        }
+                    }
+                }
+                defaults
+            }
+        }
+    }
+
+    /// A type's method or associated function, from the instance a call reaches: the type's
+    /// instance for its arguments, or the method's own for its type parameters (spec §8.4).
+    fn method_body(
+        &self,
+        owner: SymbolId,
+        owner_args: &[Ty],
+        name: &str,
+        method_args: &[Ty],
+    ) -> Option<&'a hir::Body> {
+        let o = BodyOwner::Method { owner, name: name.to_owned() };
+        if !method_args.is_empty() {
+            let inst = self.mono.by_module.values().flat_map(|m| &m.methods).find(|m| {
+                m.owner == owner
+                    && m.name == name
+                    && m.owner_args == owner_args
+                    && m.args == method_args
+            });
+            if let Some(inst) = inst {
+                return Some(&inst.body);
+            }
+        }
+        self.instance_body(owner, owner_args, &o).or_else(|| self.hir.find(&o))
+    }
+
+    /// `owner`'s body in the instance of `sym` at `args` — a generic function's, or a member
+    /// of a generic type's — wherever a module asked for it. `None` when `sym` is not
+    /// generic, or no module did.
+    fn instance_body(
+        &self,
+        sym: SymbolId,
+        args: &[Ty],
+        owner: &BodyOwner,
+    ) -> Option<&'a hir::Body> {
+        if args.is_empty() {
+            return None;
+        }
+        self.mono
+            .by_module
+            .values()
+            .flat_map(|m| m.fns.iter().chain(&m.types))
+            .find(|i| i.sym == sym && i.args == args)
+            .and_then(|i| i.find(owner))
     }
 
     /// Emit `head`, then the body's statements, then the closing brace.
@@ -3906,7 +4000,9 @@ impl<'a> Emitter<'a> {
                 self.union_literal(*owner, *index, &payload.clone(), body.ty(e).clone())
             }
 
-            hir::ExprKind::Call { callee, args } => self.call(callee, args, body.ty(e).clone()),
+            hir::ExprKind::Call { callee, args } => {
+                self.call(callee, args, body.ty(e).clone(), node.span)
+            }
             hir::ExprKind::Move(inner) => {
                 /// Something `take` can reset: a local, or a field of one.
                 fn is_place(body: &hir::Body, e: hir::ExprId) -> bool {
@@ -4260,12 +4356,13 @@ impl<'a> Emitter<'a> {
 
     /// `node_ty` is the call's own type, which is what says *which* instance a generic
     /// struct's constructor builds.
-    fn call(&mut self, callee: &hir::Callee, args: &[ExprId], node_ty: Ty) -> String {
+    fn call(&mut self, callee: &hir::Callee, args: &[ExprId], node_ty: Ty, span: Span) -> String {
         if let hir::Callee::Method { recv, owner, name, .. } = callee {
             if let Some(native) = self.native_trait_call(*recv, *owner, name, args) {
                 return native;
             }
         }
+        let defaults = self.callee_defaults(callee, args, &node_ty);
         // The receiver, or the function value, is evaluated first (spec §7.2, 18.49). C++17
         // already sequences a call's postfix expression before its arguments, so this only
         // has to protect it from an argument's hoisted statements, or — for a trait method,
@@ -4276,7 +4373,7 @@ impl<'a> Emitter<'a> {
             _ => None,
         };
         let head_text = head.map(|h| self.expr(h));
-        self.callees.push(callee.clone());
+        self.callees.push(defaults.clone());
         let captured = self.capture_args(args, true);
         self.callees.pop();
         let head_text = match (head, head_text) {
@@ -4318,8 +4415,16 @@ impl<'a> Emitter<'a> {
             },
             // `UiElement::draw(self)` is C++'s `recv.UiElement::draw()`, which is exactly
             // the qualified call that suppresses virtual dispatch (spec §7.3, 18.32).
-            hir::Callee::BaseMethod { owner, name, .. } => {
-                let base = self.qualify(*owner);
+            hir::Callee::BaseMethod { recv, owner, name } => {
+                let base_args = match self.cur().ty(*recv).peeled() {
+                    Ty::Named { sym, args } => self.table.args_as(*sym, args, *owner),
+                    _ => Vec::new(),
+                };
+                let base = if base_args.is_empty() {
+                    self.qualify(*owner)
+                } else {
+                    self.qualify_instance(*owner, &base_args)
+                };
                 let r = recv_text();
                 format!("::dz::obj({r}).{base}::{}", sanitize(name))
             }
@@ -4391,6 +4496,15 @@ impl<'a> Emitter<'a> {
                 Some(c) => format!("({c})({v})"),
                 None => v,
             });
+        }
+        // Every argument the call leaves out is written here, never left to a C++ default:
+        // one there is read where the function is declared, so it could not name what is
+        // declared after it, nor a type not yet complete, and `#location` would be C++'s
+        // idea of the caller (spec §7.2, §12.7; T-0039, T-0047, T-0058).
+        for d in defaults.iter().skip(args.len()) {
+            let Some((body, default)) = *d else { break };
+            let v = self.render_default(body, default, span);
+            rendered.push(v);
         }
         let call = format!("{target}({})", rendered.join(", "));
         match imported {
@@ -5255,21 +5369,10 @@ impl<'a> Emitter<'a> {
 // helpers
 // ---------------------------------------------------------------------------
 
-/// An intrinsic used as a default argument, spelled so C++ evaluates it at the call
-/// (spec §12.7). GCC, Clang and MSVC all provide these builtins. The column is not the
-/// Dazzle one — C++ only knows its own — so a default `#location` carries column 0.
-fn caller_intrinsic(name: &str) -> Option<&'static str> {
-    Some(match name {
-        // Each is a shim function whose own default arguments are the builtins: g++ evaluates
-        // a builtin at the call only when it is directly a default argument, and inside any
-        // larger expression evaluates it where the function is declared.
-        "location" => "::dz::caller_location()",
-        "line" => "::dz::caller_line()",
-        "column" => "0u",
-        "file" => "::dz::caller_file()",
-        "function" => "::dz::caller_function()",
-        _ => return None,
-    })
+/// The constructor `let v: T` runs: the first that can be called with no arguments
+/// (spec §6.2), or `None` when the type has none and C++'s default constructor is used.
+fn nullary_ctor(sig: &dz_check::StructSig) -> Option<usize> {
+    sig.ctors.iter().position(|c| c.required() == 0)
 }
 
 /// Does `Self` appear anywhere in this type?

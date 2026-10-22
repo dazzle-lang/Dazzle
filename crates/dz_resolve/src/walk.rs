@@ -199,6 +199,8 @@ impl<'a, 'w> Walker<'a, 'w> {
                                     format!("`{prev_name}` is already in scope"),
                                 ),
                             );
+                            // Reported once, as a duplicate — not again as unused.
+                            self.used_imports[index] = true;
                             continue;
                         }
                         self.unqualified.insert(n.name.clone(), (sym, index));
@@ -249,7 +251,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                 Diagnostic::error(codes::UNKNOWN_MODULE, format!("no module `{head}` in scope"))
                     .at(file, path.segments[0].name.span, "not a dependency of this module");
             d = match closest(head, known.iter().map(String::as_str)) {
-                Some(s) => d.with_help(format!("did you mean `{s}`?")),
+                Some(s) => d.did_you_mean(&s),
                 None if head == dz_project::STD_MODULE => d.with_help(
                     "list the standard library in dazzle.toml: `std = { open = true }` under \
                      `[dependencies]` (spec §14.4)",
@@ -1319,7 +1321,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                             "not found in this namespace",
                         );
                         if let Some(s) = suggestion {
-                            d = d.with_help(format!("did you mean `{s}`?"));
+                            d = d.did_you_mean(&s);
                         }
                         self.error(d);
                         return;
@@ -1363,7 +1365,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                 )
                 .at(file, seg.name.span, "not found");
                 if let Some(s) = suggestion {
-                    d = d.with_help(format!("did you mean `{s}`?"));
+                    d = d.did_you_mean(&s);
                 }
                 self.error(d);
                 return;
@@ -1422,7 +1424,7 @@ impl<'a, 'w> Walker<'a, 'w> {
         )
         .at(file, span, "not found in this module");
         if let Some(s) = suggestion {
-            d = d.with_help(format!("did you mean `{s}`?"));
+            d = d.did_you_mean(&s);
         }
         self.error(d);
     }
@@ -1506,7 +1508,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                 hidden_in.unwrap_or_default(),
                 name.name
             )),
-            (None, Some(s)) => d.with_help(format!("did you mean `{s}`?")),
+            (None, Some(s)) => d.did_you_mean(&s),
             (None, None) => d.with_help(
                 "declare it in this module, or list the module that exports it in dazzle.toml \
                  (spec §3.2)",

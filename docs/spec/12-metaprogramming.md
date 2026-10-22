@@ -265,8 +265,9 @@ output.
 
 Used as a **default parameter value**, an intrinsic is evaluated at the *caller's* location,
 which is exactly the `#src_code` behaviour you asked for (and the same trick as Odin's
-`#caller_location` and C++20's `std::source_location`). A defaulted `#location`'s
-`column` is 0: the caller's line is exact, its column is not known there.
+`#caller_location` and C++20's `std::source_location`). A defaulted `#location` is the
+call's own position — line and column of the call, and its `function` the caller's name as
+Dazzle spells it, `Counter::bump` for a method. `#module` is the caller's module.
 `[DECIDED — §18.48]`
 
 ```dz

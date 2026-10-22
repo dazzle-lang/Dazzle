@@ -1,0 +1,91 @@
+// A type with several constructors: a call reaches the one its arguments fit, by how many
+// there are and by their types, defaults counted (spec §7.2, T-0036). A base initialiser
+// `: Base(…)` chooses the same way (§7.3).
+
+struct Rect {
+    pub w: f32
+    pub h: f32
+
+    Rect(w: f32, h: f32) {
+        self.w = w
+        self.h = h
+    }
+
+    Rect(size: Vec2) {
+        self.w = size.x
+        self.h = size.y
+    }
+
+    Rect(side: f32) {
+        self.w = side
+        self.h = side
+    }
+
+    pub fn area(&self) -> f32 {
+        return w * h
+    }
+}
+
+struct Color {
+    pub r: u8
+    pub g: u8
+    pub b: u8
+    pub a: u8
+
+    // Three channels, or four: the defaulted alpha makes the first take either count,
+    // so the second is told apart by its type.
+    Color(r: u8, g: u8, b: u8, a: u8 = 255) {
+        self.r = r
+        self.g = g
+        self.b = b
+        self.a = a
+    }
+
+    Color(gray: f32) {
+        let v = (gray * 255.0) as u8
+        self.r = v
+        self.g = v
+        self.b = v
+        self.a = 255
+    }
+}
+
+struct Widget {
+    pub label: str
+
+    Widget(label: str) {
+        self.label = label
+    }
+
+    Widget(id: i32) {
+        self.label = if id == 0 { "zero" } else { "numbered" }
+    }
+}
+
+struct Button : Widget {
+    pub pressed: bool
+
+    Button(label: str) : Widget(label) {
+        self.pressed = false
+    }
+
+    Button(id: i32, pressed: bool) : Widget(id) {
+        self.pressed = pressed
+    }
+}
+
+fn main() {
+    let a = Rect(2.0, 3.0)
+    let b = Rect(Vec2{ x: 4.0, y: 5.0 })
+    let c = Rect(1.5)
+    println!("{} {} {}", a.area(), b.area(), c.area())
+
+    let red = Color(255, 0, 0)
+    let glass = Color(0, 0, 255, 128)
+    let gray = Color(0.5)
+    println!("{} {} {}", red.a, glass.a, gray.r)
+
+    let ok = Button("ok")
+    let seven = Button(7, true)
+    println!("{} {} {} {}", ok.label, ok.pressed, seven.label, seven.pressed)
+}

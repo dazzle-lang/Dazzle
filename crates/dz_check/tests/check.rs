@@ -634,3 +634,48 @@ fn an_impl_belongs_with_its_trait_or_its_type() {
     );
     assert_eq!(neither, vec![dz_diag::codes::ORPHAN_IMPL], "one diagnostic, for the orphan");
 }
+
+/// Spec §7.2, T-0036: a call reaches the constructor its arguments fit — by count, defaults
+/// counted, then by type, exact types settling a tie — and is ambiguous when nothing settles
+/// it. It used to take the first constructor whatever the arguments said.
+#[test]
+fn constructors_are_resolved_by_argument() {
+    let decl = "struct R {\n pub w: f32\n R(w: f32, h: f32 = 1.0) {\n  self.w = w * h\n }\n \
+                R(n: i32) {\n  self.w = n as f32\n }\n R(n: i64, m: i64) {\n  self.w = 0.0\n }\n}\n";
+    for call in ["R(2.0)", "R(2.0, 3.0)", "R(2)", "R(2 as i64, 3)"] {
+        let codes = snippet(&format!("{decl}fn f() -> f32 {{\n return {call}.w\n}}\n"));
+        assert!(codes.is_empty(), "`{call}` reaches one constructor, got {codes:?}");
+    }
+    let ambiguous = snippet(
+        "struct S {\n pub a: i32\n S(a: i32, b: i32 = 0) {\n  self.a = a + b\n }\n \
+         S(a: i32) {\n  self.a = a\n }\n}\nfn f() -> i32 {\n return S(1).a\n}\n",
+    );
+    assert_eq!(ambiguous, vec![dz_diag::codes::AMBIGUOUS_CALL], "both take one `i32`");
+}
+
+/// Spec §7.6, T-0080: a method call reaches through a pointer or reference to what it points
+/// at (§5.2), so an implementation for the pointer type itself is refused — it used to pass
+/// the checker and reach C++ as a call on the pointee. Wrapping the pointer is the way.
+#[test]
+fn an_impl_for_a_pointer_type_is_refused() {
+    for self_ty in ["^P", "^mut P", "&P"] {
+        let codes = snippet(&format!(
+            "trait Show {{\n fn show(&self) -> i32\n}}\nstruct P {{\n}}\n\
+             impl Show for {self_ty} {{\n fn show(&self) -> i32 {{\n  return 1\n }}\n}}\n"
+        ));
+        assert_eq!(codes, vec![dz_diag::codes::ORPHAN_IMPL], "`impl Show for {self_ty}`");
+    }
+    let generic = snippet(
+        "trait Show {\n fn show(&self) -> i32\n}\n\
+         impl<T> Show for ^T {\n fn show(&self) -> i32 {\n  return 1\n }\n}\n",
+    );
+    assert_eq!(generic, vec![dz_diag::codes::ORPHAN_IMPL], "`impl<T> Show for ^T`");
+    let wrapped = snippet(
+        "trait Show {\n fn show(&self) -> i32\n}\nstruct P {\n}\n\
+         struct ById {\n pub p: ^P\n}\n\
+         impl Show for ById {\n fn show(&self) -> i32 {\n  return 1\n }\n}\n\
+         fn twice<T: Show>(x: T) -> i32 {\n return x.show() * 2\n}\n\
+         fn f(p: ^P) -> i32 {\n return twice(ById{ p: p })\n}\n",
+    );
+    assert!(wrapped.is_empty(), "a struct wrapping the pointer, got {wrapped:?}");
+}

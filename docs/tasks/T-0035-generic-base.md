@@ -2,7 +2,8 @@
 id: T-0035
 title: A generic base
 milestone: M12
-status: open
+status: done
+done: r72, 2026-10-22
 kind: deferral
 area: checker
 where: `dz_check/src/lib.rs`, `collect_base`
