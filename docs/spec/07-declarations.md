@@ -145,6 +145,14 @@ It has no `self`, so the type's fields are not in scope in it, and calling one o
 static — `unsafe { &mut HEAP }` — and nothing that runs code (DZ0553). It is evaluated where
 it is named, so the address of a `#[thread_local]` static is the naming thread's own.
 
+**A struct is laid out as C++ lays out the same struct.** Its fields are in memory in the
+order they are declared, a base's first (§7.3, Inheritance), with the padding and alignment
+the target's C++ compiler gives them; the compiler never reorders fields. So a Dazzle
+struct is layout-identical to a C or C++ struct that declares the same fields in the same
+order, and can be passed to one by pointer; `T::size` and `T::align` (§5.5) are that
+compiler's answer. Where size matters, order the fields yourself, largest alignment first:
+`a: u8, b: u64, c: u8` is 24 bytes, and `b: u64, a: u8, c: u8` is 16. `[DECIDED — D-0085]`
+
 Struct literals:
 
 ```dz

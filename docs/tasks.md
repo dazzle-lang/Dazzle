@@ -70,7 +70,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0038](tasks/T-0038-memory-tracking-single-threaded.md)** Memory tracking is single-threaded · deferral, stdlib
 - **[T-0041](tasks/T-0041-union-variant-carrying-struct-with-constructor.md)** A union variant carrying a struct with a constructor cannot be built · deferral, checker
 - **[T-0045](tasks/T-0045-methods-on-untyped-literal.md)** Methods on an untyped literal · deferral, checker
-- **[T-0046](tasks/T-0046-converting-mat4-raylib-matrix-copies-field.md)** Converting `Mat4` to raylib's `Matrix` copies field by field · deferral, stdlib
+- **[T-0046](tasks/T-0046-converting-mat4-raylib-matrix-copies-field.md)** Converting `Mat4` to raylib's `Matrix` is a transpose, not a cast · deferral, interop
 - **[T-0048](tasks/T-0048-imported-c-or-c-enum-variants.md)** An imported C or C++ enum's variants are not in the type table · deferral, codegen
 - **[T-0049](tasks/T-0049-trait-objects-that-are-not-object.md)** Trait objects that are not object-safe · deferral, codegen
 - **[T-0051](tasks/T-0051-open-ended-range-held-in-variable.md)** An open-ended range held in a variable · deferral, codegen

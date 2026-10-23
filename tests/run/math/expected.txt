@@ -29,5 +29,7 @@ inverse true true det true
 singular true
 transpose true
 look_at true true true
-perspective near plane depth true
-orthographic true true
+perspective -1..1 true true
+perspective 0..1 true true
+orthographic true true depth true
+orthographic 0..1 true true true

@@ -1,39 +1,44 @@
 ---
 id: T-0046
-title: Converting `Mat4` to raylib's `Matrix` copies field by field
+title: Converting `Mat4` to raylib's `Matrix` is a transpose, not a cast
 milestone: M12
 status: open
 kind: deferral
-area: stdlib
-where: `dz_project/src/std/math/`, `Mat4`
+area: interop
+where: a game's raylib binding code, not `std`, which knows nothing of raylib
 ---
 
-**What goes wrong.** `std`'s `Mat4` and raylib's `Matrix` hold the same sixteen floats in the
-same order in memory, so passing one as the other *should* be a reinterpretation and nothing
-more. But raylib's struct declares its fields **one per element, row by row** —
-`m0, m4, m8, m12, m1, m5, …` — rather than as an array, so there is no field-to-field
-correspondence to cast between: converting means writing out sixteen assignments.
+**What goes wrong.** Handing a `std::Mat4` to raylib (`DrawMesh`, `rlPushMatrix`, a shader
+uniform) means converting it to raylib's `Matrix`, and that conversion moves all sixteen
+floats, once or twice per object per frame.
 
-**Why it matters.** It is a per-call cost in the one place it is paid most: a matrix handed
-to `DrawMesh`, `rlPushMatrix` or a shader uniform, once or twice per object per frame.
-Sixteen loads and stores where there should be none is not catastrophic, but it is exactly
-the kind of invisible overhead a language that compiles to C++ should not impose, and the
-code is ugly in a way that invites a transcription mistake in one of the sixteen lines.
+**Why no cast can make it free.** This task first assumed the two types hold the same
+sixteen floats in the same order, so that an `unsafe` pointer reinterpretation (§10,
+`p as ^T`) behind a size assertion would do. They do not. Both use column-major
+*numbering*, but they store the elements differently:
 
-**What it would take.** Three candidate answers:
+- `Mat4` is `cols: [4]Vec4`, so memory holds column 0, then column 1, and so on, which is
+  what OpenGL, GLSL, glm and HLSL's default `column_major` packing read.
+- raylib's `Matrix` (`raylib.h`) declares `m0, m4, m8, m12` first, which is row 0, so its
+  memory holds the matrix **row by row**. raylib transposes it back on every upload:
+  `rlSetUniformMatrix` calls `rlMatrixToFloat` before `glUniformMatrix4fv`.
 
-1. **A transmuting cast at the boundary**, allowed because the layouts provably match: an
-   `unsafe` reinterpretation in the one conversion function, with a static assertion that
-   the two sizes and alignments agree so a raylib version that reorders its fields fails to
-   compile rather than drawing garbage. Cheapest and correct; needs a way to spell the
-   assertion, which is where [T-0071](T-0071-size-alignment-on-hover.md)'s observation
-   bites — Dazzle has no layout model of its own and `T::size` is the C++ compiler's answer,
-   which is fine for an assertion in generated C++ but means the check lives in the emitted
-   code rather than in the checker.
-2. **Generate the sixteen assignments** from reflection (§13), so the code is not hand-written
-   even if the work still happens. Removes the transcription risk, not the cost.
-3. **Leave it**, and document that a matrix conversion is not free. Defensible: a game that
-   cares holds its matrices in raylib's shape to begin with.
+So the two are the same matrix stored in different orders: the bytes of one are the bytes
+of the other's transpose. A cast would compile, pass any size and alignment check (both are
+64 bytes, aligned to 4), and draw every object with a transposed transform. Converting is
+sixteen copies **by name**, `m0 = cols[0].x`, `m1 = cols[0].y`, … `m4 = cols[1].x`,
+since `mN` is element `N` counted down the columns. That is real work, which the C++
+compiler turns into a few shuffles, but not free.
 
-Option 1 is the one worth building, and the static assertion is the part that makes it safe
-rather than a bet on a third-party header.
+**What it would take.** Nothing in the language or in `std`, which knows nothing of raylib.
+
+- **Write the conversion once**, in the code that binds raylib: the raylib example, or a
+  raylib wrapper package once one exists. With reflection over fields (§13), it could be
+  generated from the names, `mN` ← element `N`, which removes the risk of a slip in one of
+  the sixteen lines.
+- **Or don't convert**: a game that draws only through raylib can hold `Matrix` throughout
+  and use raymath's functions on it.
+
+Its cost beside the draw call it feeds is small, so this stays a deferral. Struct layout is
+now a rule (D-0085, §7.3), so where another library's matrix really does share `Mat4`'s
+layout, a pointer cast to it is sound.

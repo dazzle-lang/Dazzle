@@ -848,6 +848,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/io/path.dz", include_str!("std/io/path.dz")),
     ("<std>/io/process.dz", include_str!("std/io/process.dz")),
     ("<std>/math/constants.dz", include_str!("std/math/constants.dz")),
+    ("<std>/math/depth_range.dz", include_str!("std/math/depth_range.dz")),
     ("<std>/math/float.dz", include_str!("std/math/float.dz")),
     ("<std>/math/integer.dz", include_str!("std/math/integer.dz")),
     ("<std>/math/mat4.dz", include_str!("std/math/mat4.dz")),
