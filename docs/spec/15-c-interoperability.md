@@ -178,8 +178,12 @@ libclang pass runs once and not on every build.
 The importer only teaches the compiler what exists. **A call into a header is ordinary safe
 code**, emitted as the call it names (`::InitWindow(1280, 720, "Dazzle")`): what the callee
 does with a pointer is the header's promise, which Dazzle can neither check nor improve on
-by making every call `unsafe`. Forming the pointer is safe as always (§5.2); a nicer API is a
-Dazzle module wrapping the header. What cannot be named in Dazzle yet — a variadic function,
+by making every call `unsafe`. Forming the pointer is safe as always (§5.2). A wrapper is
+seldom needed to make a call pleasant: a `String` or a `Path` is passed where the header wants
+a `const char*` (§7.2), and the module carrying the recipe may give the header's types the
+language's traits, such as `+` on a vector struct (§7.6). A Dazzle module wrapping the header
+is for what a header cannot say, such as which call frees what it returned.
+What cannot be named in Dazzle yet — a variadic function,
 a union, a function pointer — is left out of the import rather than guessed at.
 
 An imported type with a non-trivial C++ destructor is **move-only in Dazzle** unless it also
@@ -201,7 +205,8 @@ impl Drop for Texture {
 
 Dazzle has no function overloading (§7.2), but C++ headers are full of it. Imported
 overload sets are resolved by argument types at the call site, using exact matches only —
-no implicit conversions, no promotion, no SFINAE.
+no implicit conversions, no promotion, no SFINAE. A type's `ImplicitAs` (§7.2) is not tried
+either: it converts an argument once the function is known, and never chooses one.
 
 An overloaded **member function** resolves this way today: `counter.add(5)` and
 `counter.add(point)` reach the two `add`s of one C++ class. An overloaded **free function**

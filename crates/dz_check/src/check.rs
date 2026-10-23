@@ -1238,6 +1238,14 @@ impl<'a, 'c> Body<'a, 'c> {
                      (spec §5.1) — write `... as {e}`"
                 ),
             );
+        } else if let Some(help) = self.implicit_as_help(&expected, &actual) {
+            self.cx.error_help(
+                codes::TYPE_MISMATCH,
+                span,
+                format!("expected `{e}`, found `{a}`"),
+                format!("this is `{a}`"),
+                help,
+            );
         } else {
             self.cx.error(
                 codes::TYPE_MISMATCH,
@@ -1246,6 +1254,38 @@ impl<'a, 'c> Body<'a, 'c> {
                 format!("this is `{a}`"),
             );
         }
+    }
+
+    /// Why a type that converts through `ImplicitAs` did not convert here (spec §7.2):
+    /// this is not an argument, or reaching `expected` would take two conversions.
+    fn implicit_as_help(&self, expected: &Ty, actual: &Ty) -> Option<String> {
+        let tsym = self.cx.prelude_trait("ImplicitAs")?;
+        let source = match actual {
+            Ty::Ref { inner, .. } => (**inner).clone(),
+            t => t.clone(),
+        };
+        let to = |t: &Ty| TraitRef { trait_sym: tsym, args: vec![t.clone()], span: Span::DUMMY };
+        let (e, a) = (self.cx.name_of(expected), self.cx.name_of(&source));
+        if self.cx.table.implements(&source, &to(expected)) {
+            return Some(format!(
+                "`{a}` converts to `{e}` on its own only where it is passed as an argument, \
+                 so that what the conversion borrows is not kept past the call (spec §7.2); \
+                 here, convert it yourself"
+            ));
+        }
+        let via = self
+            .cx
+            .table
+            .traits_of(&source)
+            .into_iter()
+            .filter(|r| r.trait_sym == tsym)
+            .filter_map(|r| r.args.first().cloned())
+            .find(|mid| self.cx.table.implements(mid, &to(expected)))?;
+        let m = self.cx.name_of(&via);
+        Some(format!(
+            "`{a}` converts to `{m}` and `{m}` to `{e}`, but an argument is converted once at \
+             most (spec §7.2); convert it to `{m}` yourself first"
+        ))
     }
 
     // --- functions --------------------------------------------------------
@@ -5314,14 +5354,57 @@ impl<'a, 'c> Body<'a, 'c> {
         let mut ids = Vec::with_capacity(args.len());
         for (a, p) in args.iter().zip(&sig.params) {
             let want = self.subst(&p.ty);
-            let c = self.expr(a, Some(&want));
-            self.expect(&want, &c.ty, a.span);
-            ids.push(c.id);
+            ids.push(self.argument(a, &want));
         }
         for a in args.iter().skip(sig.params.len()) {
             ids.push(self.expr(a, None).id);
         }
         ids
+    }
+
+    /// One argument, checked against its parameter's type: as it is when it is one, and
+    /// otherwise converted through its type's `ImplicitAs<want>` (spec §7.2, §7.6).
+    fn argument(&mut self, a: &Expr, want: &Ty) -> hir::ExprId {
+        let c = self.expr(a, Some(want));
+        if let Some(converted) = self.implicit_as(&c, want, a.span) {
+            return converted;
+        }
+        self.expect(want, &c.ty, a.span);
+        c.id
+    }
+
+    /// `convert` called on `c` when its type, or what a reference to it refers to,
+    /// implements `ImplicitAs<want>` and is not already a `want`. The value is the
+    /// receiver, so it is borrowed as any `&self` method borrows it, and a temporary
+    /// lives until the call it is an argument of returns.
+    ///
+    /// Never to a parameter's own type parameter: the conversion is chosen by the
+    /// type wanted, and a generic call's arguments are what decide that type (§8.1).
+    fn implicit_as(&mut self, c: &Checked, want: &Ty, span: Span) -> Option<hir::ExprId> {
+        let want = self.subst(want);
+        let got = self.subst(&c.ty);
+        if want.is_wildcard() || got.is_wildcard() || want.has_params() {
+            return None;
+        }
+        if assignable(&want, &got) || self.base_convertible(&want, &got) {
+            return None;
+        }
+        let tsym = self.cx.prelude_trait("ImplicitAs")?;
+        let source = match &got {
+            Ty::Ref { inner, .. } => (**inner).clone(),
+            t => t.clone(),
+        };
+        let r = TraitRef { trait_sym: tsym, args: vec![want.clone()], span: Span::DUMMY };
+        if !self.cx.table.implements(&source, &r) {
+            return None;
+        }
+        let callee = hir::Callee::Method {
+            recv: c.id,
+            owner: tsym,
+            name: "convert".to_owned(),
+            method_args: Vec::new(),
+        };
+        Some(self.hir.expr(span, want, hir::ExprKind::Call { callee, args: Vec::new() }).id)
     }
 
     /// A call of `fn f(a: A, xs: ..T)` (spec §7.2): the fixed arguments as usual, then every
@@ -5374,9 +5457,7 @@ impl<'a, 'c> Body<'a, 'c> {
         let mut ids = Vec::with_capacity(sig.params.len());
         for (a, p) in args.iter().zip(&sig.params[..fixed]) {
             let want = self.subst(&p.ty);
-            let c = self.expr(a, Some(&want));
-            self.expect(&want, &c.ty, a.span);
-            ids.push(c.id);
+            ids.push(self.argument(a, &want));
         }
         // Defaulted fixed parameters the call left out are filled in by codegen as for any
         // call; the variadic slice after them has to be passed, so a call that gives no
@@ -5507,8 +5588,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 continue;
             };
             let want = self.subst(&kw[k].ty);
-            let c = self.expr(value, Some(&want));
-            self.expect(&want, &c.ty, value.span);
+            let c = self.argument(value, &want);
             if given[k].is_some() {
                 self.cx.error(
                     codes::BAD_NAMED_ARG,
@@ -5518,7 +5598,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 );
                 continue;
             }
-            given[k] = Some(c.id);
+            given[k] = Some(c);
         }
         let Some(ids) = ids else { return };
         if let Some(k) = (0..kw.len()).find(|&k| given[k].is_none() && !kw[k].has_default) {

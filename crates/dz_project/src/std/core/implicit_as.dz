@@ -1,0 +1,15 @@
+/// A conversion the compiler makes on its own, where an argument of this type is passed to
+/// a parameter of type `T` (spec §7.2, §7.6): `rl::DrawText(name, …)` with a `String`
+/// `name`, where `DrawText` takes a `cstr`, calls `convert` on it.
+///
+/// Only arguments convert, never a `let`, a field or a `return`, so whatever `convert`
+/// borrows is used by the call and not kept past it. The argument is borrowed, not moved;
+/// one conversion is made at most, never two in a row; and none is tried to choose
+/// between a C++ overload set's members or to infer a generic parameter.
+///
+/// It is written by the module that declares the type converted from, or the type
+/// converted to: `impl ImplicitAs<Vec2> for rl::Vector2` belongs with `Vec2`. A plain
+/// method never converts on its own.
+pub trait ImplicitAs<T> {
+    fn convert(&self) -> T
+}

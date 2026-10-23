@@ -645,9 +645,9 @@ error[DZ0539]: `impl Add for i32` belongs with `Add` or with `i32`
     ┌─ typeerrors/src/errors.dz:562:6
     │
 562 │ impl Add for i32 {
-    │      ^^^ neither is declared in this module
+    │      ^^^ neither it, the type, nor a type it is given is declared in this module
     │
-    = help: otherwise two libraries could both implement it, and a program using both could not choose between them; to implement someone else's trait for someone else's type, wrap the type in a struct of your own (spec §7.6)
+    = help: a trait taking type arguments may also be implemented where one of them is declared, as `impl ImplicitAs<Vec2> for rl::Vector2` is with `Vec2`; otherwise wrap the type in a struct of your own (spec §7.6)
 
 error[DZ0539]: `Same` cannot be implemented for every type at once
     ┌─ typeerrors/src/errors.dz:571:9
@@ -1554,3 +1554,27 @@ error[DZ0560]: `T` has no associated type `Size`
      │                                                   ^^^^^^^ no bound declares it
      │
      = help: an associated type comes from a bound: none of `T`'s declares `type Size` (spec §8.5)
+
+error[DZ0501]: expected `cstr`, found `&String`
+     ┌─ typeerrors/src/errors.dz:1275:19
+     │
+1275 │     let c: cstr = s
+     │                   ^ this is `&String`
+     │
+     = help: `String` converts to `cstr` on its own only where it is passed as an argument, so that what the conversion borrows is not kept past the call (spec §7.2); here, convert it yourself
+
+error[DZ0501]: expected `cstr`, found `Pounds`
+     ┌─ typeerrors/src/errors.dz:1281:16
+     │
+1281 │     takes_cstr(p)
+     │                ^ this is `Pounds`
+     │
+     = help: `Pounds` converts to `Ounces` and `Ounces` to `cstr`, but an argument is converted once at most (spec §7.2); convert it to `Ounces` yourself first
+
+error[DZ0539]: `impl ImplicitAs for i32` belongs with `ImplicitAs` or with `i32`
+     ┌─ typeerrors/src/errors.dz:1285:6
+     │
+1285 │ impl ImplicitAs<cstr> for i32 {
+     │      ^^^^^^^^^^^^^^^^ neither it, the type, nor a type it is given is declared in this module
+     │
+     = help: a trait taking type arguments may also be implemented where one of them is declared, as `impl ImplicitAs<Vec2> for rl::Vector2` is with `Vec2`; otherwise wrap the type in a struct of your own (spec §7.6)

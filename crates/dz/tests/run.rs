@@ -904,6 +904,7 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
             "formatting",
             "collections",
             "projection",
+            "implicit_as",
         ],
         |fixture| check_warning_clean(cxx, fixture),
     );

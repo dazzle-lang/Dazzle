@@ -45,7 +45,9 @@ pub struct String {
         return unsafe { bytes[0..self.len()] as str }
     }
 
-    /// The text as a C string, borrowed, for C and C++ functions that want one.
+    /// The text as a C string, borrowed, for C and C++ functions that want one. Valid until
+    /// the `String` next changes or is dropped, which nothing checks: pass a `String`
+    /// straight to a `cstr` parameter instead, and it converts for that call alone.
     pub fn as_cstr(&self) -> cstr {
         if m_bytes.len() == 0 {
             return ""
@@ -200,6 +202,14 @@ impl Iterable for String {
     type Iter = Chars
     fn iter(&self) -> Chars {
         return self.chars()
+    }
+}
+
+/// A `String` passed where a `cstr` is wanted is its text, borrowed for the call:
+/// `rl::DrawText(format!("score {}", n), …)` (spec §7.2).
+impl ImplicitAs<cstr> for String {
+    fn convert(&self) -> cstr {
+        return self.as_cstr()
     }
 }
 

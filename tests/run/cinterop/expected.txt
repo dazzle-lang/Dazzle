@@ -1,5 +1,6 @@
 scaled 15
 sum 3 4
+plus 4 6
 length sq 25
 zero 0 0
 sides 0 4
@@ -8,6 +9,7 @@ total 24
 name mini
 length 5
 measured mini
+owned 6 formatted 7
 callback 21
 upper 72 73
 bits 1 5 sample 3 total 10 10
