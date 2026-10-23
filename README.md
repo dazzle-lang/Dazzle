@@ -10,7 +10,7 @@ special members, encapsulation the compiler enforces, errors as values instead o
 exceptions, generics checked where they are written, and C and C++ libraries used directly
 from their source, with no wrapper or build system. The compiler is written in Rust.
 
-```dz
+```rust
 fn main() {
     rl::InitWindow(800, 450, "Dazzle")
     defer rl::CloseWindow()
@@ -89,7 +89,7 @@ says so on its signature with `!->`, and the caller handles the failure with **o
 `or` clause**. The same clause handles an optional value (`T?`) and a nullable pointer
 (`^T`):
 
-```dz
+```rust
 enum ErrorCode : u32 {
     Empty = 1
     TooLong
@@ -151,7 +151,7 @@ constructor). There is no move constructor, no move assignment, no copy assignme
 default constructor to write; the compiler derives them. A field marked **`own`** is a
 pointer the struct is responsible for releasing:
 
-```dz
+```rust
 struct Image {
     pub width:  u32
     pub height: u32
@@ -341,7 +341,7 @@ rl     = { cpp = "raylib" }                     # a C library: rl::DrawText
   give it, it can bring in names or shorten a path, for that file only. It can never reach a
   module the manifest does not list:
 
-  ```dz
+  ```rust
   import phys::{ Vec3, Body }     // a bare Vec3 is phys's in this file
   import engine::render as gfx    // gfx::draw(...) in this file
   ```
@@ -380,7 +380,7 @@ overloaded methods chosen by argument type, references, classes that C++ destroy
 and named template instances. From [`tests/run/cppinterop`](tests/run/cppinterop), which
 builds a small C++ library from source:
 
-```dz
+```rust
 let mut counter = shp::shapes::Counter(10)    // a C++ class and its constructor
 counter.add(5)                                // an overload set, resolved by argument type
 counter.add(a)                                //   …the other `add`
@@ -399,7 +399,7 @@ locals, and the editor keeps completing and hovering *inside* an invocation. A s
 machine, for example, is a user macro rather than a language feature (trimmed from
 [`tests/run/machine`](tests/run/machine)):
 
-```dz
+```rust
 #machine ButtonState(ctx: &ButtonCtx, input: &Input, btn: &mut Button) {
     state DefaultState {
         if input.mouse_down && input.over {
@@ -437,7 +437,7 @@ and `panic!` check their format string against their arguments at compile time.
   code they cover, and each test runs in its own process, so one crash does not hide the
   rest.
 
-  ```dz
+  ```rust
   #[test]
   fn clamp_keeps_values_in_range() {
       assert(clamp01(2) == 1)
@@ -535,7 +535,7 @@ output = "executable"
 
 and some code, here `src/main.dz`:
 
-```dz
+```rust
 fn main() {
     println!("Hello, world!")
 }
