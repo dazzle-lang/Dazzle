@@ -1,0 +1,158 @@
+// Associated-type projection (spec §8.5): a generic body names `T::Item`, `C::Iter::Item`
+// and `T::Output` — in signatures, in fields, through an adapter's own `Item` — and loops
+// over a `T: Iterate` and a `C: Iterable`. Each instance reads the projection as whatever
+// the implementation chose: `&i32` for a list's iterator, an owned `Token` for one that
+// makes its items, `Vec2` for a `Vec2 * f32`.
+
+struct Monster {
+    pub name: str = ""
+    pub hp: i32 = 0
+}
+
+// An iterator whose items are values it makes, move-only ones, so a generic body that
+// takes them has to `move` them — once per pass, since each pass binds a new one.
+struct Token {
+    pub id: i32 = 0
+}
+
+// A moved-from token is left at its defaults (spec §6.4), so only a real one says so.
+impl Drop for Token {
+    fn drop(&mut self) {
+        if id != 0 {
+            println!("drop token {}", id)
+        }
+    }
+}
+
+struct Countdown {
+    pub left: i32 = 0
+}
+
+impl Iterate for Countdown {
+    type Item = Token
+
+    fn valid(&self) -> bool {
+        return left > 0
+    }
+
+    fn get(&self) -> Token {
+        return Token{ id: left }
+    }
+
+    fn advance(&mut self) {
+        left -= 1
+    }
+}
+
+fn first<T: Iterate>(it: &T) -> T::Item {
+    return it.get()
+}
+
+fn count<T: Iterate>(it: T) -> usize {
+    let mut n: usize = 0
+    for _ in move(it) {
+        n += 1
+    }
+    return n
+}
+
+fn each<C: Iterable>(xs: &C, f: fn(C::Iter::Item)) {
+    for x in xs {
+        f(move(x))
+    }
+}
+
+fn drain<T: Iterate>(it: T, f: fn(T::Item)) {
+    for x in move(it) {
+        f(move(x))
+    }
+}
+
+fn total<C: Iterable>(xs: &C) -> usize {
+    return count(xs.iter())
+}
+
+// An adapter: the inner iterator's items, numbered — its `Item` is built from the inner
+// one's, which is what a projection is for.
+struct Numbered<I: Iterate> {
+    pub inner: I
+    m_index: usize = 0
+}
+
+impl<I: Iterate> Iterate for Numbered<I> {
+    type Item = (usize, I::Item)
+
+    fn valid(&self) -> bool {
+        return inner.valid()
+    }
+
+    fn get(&self) -> (usize, I::Item) {
+        return (m_index, inner.get())
+    }
+
+    fn advance(&mut self) {
+        inner.advance()
+        m_index += 1
+    }
+}
+
+struct Vec2 {
+    pub x: f32 = 0.0
+    pub y: f32 = 0.0
+}
+
+impl Mul<f32> for Vec2 {
+    type Output = Vec2
+
+    fn mul(&self, rhs: f32) -> Vec2 {
+        return Vec2{ x: x * rhs, y: y * rhs }
+    }
+}
+
+fn plus<T: Add + Copy>(a: T, b: T) -> T::Output {
+    return a + b
+}
+
+fn doubled<T: Mul<f32> + Copy>(v: T) -> T::Output {
+    return v * 2.0
+}
+
+fn show_int(x: &i32) {
+    println!("item {}", x)
+}
+
+fn show_monster(m: &Monster) {
+    println!("{} has {}", m.name, m.hp)
+}
+
+fn keep(t: Token) {
+    println!("kept {}", t.id)
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    for i in 1..5 {
+        xs.push(i * 10)
+    }
+    println!("first {}", first(&xs.iter()))
+    println!("count {} total {}", count(xs.iter()), total(&xs))
+    each(&xs, show_int)
+
+    let mut monsters = List<Monster>()
+    monsters.push(Monster{ name: "slime", hp: 3 })
+    monsters.push(Monster{ name: "bat", hp: 5 })
+    each(&monsters, show_monster)
+    let numbered = Numbered<SliceIter<Monster>>{ inner: monsters.iter() }
+    for i, m in move(numbered) {
+        println!("{}: {}", i, m.name)
+    }
+
+    drain(Countdown{ left: 2 }, keep)
+    let counting = Countdown{ left: 3 }
+    let top = first(&counting)
+    println!("first token {}", top.id)
+
+    println!("plus {} {}", plus(2, 3), plus(1.5, 2.25))
+    let v = doubled(Vec2{ x: 1.0, y: -0.5 })
+    println!("doubled {} {}", v.x, v.y)
+}

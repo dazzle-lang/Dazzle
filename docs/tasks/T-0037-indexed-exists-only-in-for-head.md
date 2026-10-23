@@ -43,3 +43,7 @@ Then `indexed()` becomes an ordinary `std` struct in
 `crates/dz_project/src/std/collections/`, the `for_stmt` special case is deleted, and a
 `tests/run` case checks the two refused forms above now work. Deleting the special case is
 part of the job: two implementations of the same name would drift.
+
+**Unblocked** (r75): [T-0050](T-0050-associated-type-projection.md) is done, and an adapter
+whose `Item` is built from the inner one's can now be written — `tests/run/projection` has
+one, `Numbered<I>`, with `type Item = (usize, I::Item)`. What is left is the work above.

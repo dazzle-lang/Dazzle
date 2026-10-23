@@ -329,6 +329,11 @@ pub const GENERIC_METHOD_NOT_ALLOWED: &str = "DZ0557";
 pub const BAD_NAMED_ARG: &str = "DZ0558";
 /// A union method named `kind`, which every union already has (spec §7.5).
 pub const RESERVED_UNION_METHOD: &str = "DZ0559";
+/// `T::Name` where none of `T`'s bounds declares an associated type `Name` (spec §8.5).
+pub const NO_ASSOC_TYPE: &str = "DZ0560";
+/// `T::Name` where more than one of `T`'s bounds declares `Name`, each with its own
+/// choice — `T: Mul<f32> + Mul<Vec2>` asked for `T::Output` (spec §8.5, §18.29).
+pub const AMBIGUOUS_ASSOC_TYPE: &str = "DZ0561";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

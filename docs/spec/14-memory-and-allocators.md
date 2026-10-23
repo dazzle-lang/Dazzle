@@ -269,7 +269,8 @@ is an error. `[DECIDED — §18.57, superseding §18.23 and §18.55]`
 
 Methods rather than free functions throughout, since there is no overloading (§18.5) and
 one name must work across `f32`, `f64` and every vector: `a.lerp(b, t)` is the same call on
-each. A generic `Vec3<T>` waits on associated-type projection in generic code.
+each. There is no generic `Vec3<T>`; the associated-type projection one would need now
+exists (§8.5).
 `[DECIDED — §18.55]`
 
 **Time** holds:

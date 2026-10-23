@@ -1,0 +1,11 @@
+// expect: DZ0531
+//
+// `T::Item` is whatever the implementation chooses, so in a generic body it can do only
+// what its trait's bounds on `type Item` say — and `Iterate` puts none on it (spec §8.5).
+
+fn describe<T: Iterate>(it: &T) {
+    let x = it.get()
+    x.describe()
+}
+
+fn main() {}

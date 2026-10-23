@@ -377,7 +377,7 @@ impl<'a> Flow<'a> {
             hir::StmtKind::Expr(e) => self.value(*e),
             hir::StmtKind::While { cond, body, .. } => {
                 self.read(*cond);
-                self.loop_body(*body);
+                self.loop_body(*body, &[]);
                 false
             }
             hir::StmtKind::For { bindings, subject, body, shape, .. } => {
@@ -392,10 +392,8 @@ impl<'a> Flow<'a> {
                 } else {
                     self.read(*subject);
                 }
-                for l in bindings.iter().flatten() {
-                    self.revive(&Place { local: *l, path: Vec::new() });
-                }
-                self.loop_body(*body);
+                let fresh: Vec<LocalId> = bindings.iter().flatten().copied().collect();
+                self.loop_body(*body, &fresh);
                 false
             }
             // A deferred statement runs at scope exit, after the drops (spec §6.5). What
@@ -411,7 +409,17 @@ impl<'a> Flow<'a> {
     /// A loop body runs an unknown number of times, so anything it moves is already moved
     /// when the body starts again. Replaying it from `entry ∪ what-it-moves` is what turns
     /// "moved on the previous iteration" into a diagnostic at the use rather than silence.
-    fn loop_body(&mut self, body: BlockId) {
+    ///
+    /// `fresh` are a `for`'s bindings, which every pass binds anew: moving the element out
+    /// of `x` in `for x in it { take(move(x)) }` leaves nothing for the next pass to find
+    /// missing, because the next pass has another `x`.
+    fn loop_body(&mut self, body: BlockId, fresh: &[LocalId]) {
+        let revive_fresh = |this: &mut Self| {
+            for l in fresh {
+                this.revive(&Place { local: *l, path: Vec::new() });
+            }
+        };
+        revive_fresh(self);
         let entry = self.moved.clone();
         let was_quiet = std::mem::replace(&mut self.quiet, true);
         self.block(body);
@@ -420,6 +428,7 @@ impl<'a> Flow<'a> {
         for (place, span) in after {
             self.moved.entry(place).or_insert(span);
         }
+        revive_fresh(self);
         self.block(body);
     }
 
@@ -459,17 +468,23 @@ impl<'a> Flow<'a> {
                         .move_only_because(&ty)
                         .unwrap_or_else(|| "it owns a resource".to_owned());
                     let span = self.body.expr(e).span;
+                    // A generic parameter or a projection of one has no declaration of its
+                    // own to give a `copy` to; its bound is what says it copies.
+                    let help = if dz_hir::ty::is_abstract(&ty) {
+                        format!("{why} — write `move(…)` to transfer ownership")
+                    } else {
+                        format!(
+                            "{why} — write `move(…)` to transfer ownership, or give \
+                             `{name}` a `copy(other: &Self)` to make it copyable (spec §6.3)"
+                        )
+                    };
                     self.error(
                         Diagnostic::error(
                             codes::IMPLICIT_COPY,
                             format!("`{name}` is move-only and cannot be copied"),
                         )
                         .at(self.file, span, "this would copy it")
-                        .with_help(format!(
-                            "{why} — write `move(…)` to transfer ownership, or give \
-                             `{name}` a `copy(other: &Self)` to make it copyable \
-                             (spec §6.3)"
-                        )),
+                        .with_help(help),
                     );
                 }
                 Denotes::Borrowed => {

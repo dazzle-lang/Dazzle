@@ -1,0 +1,10 @@
+// expect: DZ0560
+//
+// An unbounded `T` has no associated types: they come from bounds, and it has none
+// (spec §8.2, §8.5).
+
+fn item_of<T>(x: T) -> T::Item {
+    return move(x)
+}
+
+fn main() {}

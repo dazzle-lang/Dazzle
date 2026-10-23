@@ -189,6 +189,39 @@ satisfy.
 answers for each separately: `impl Mul<Vec4> for Mat4` has `type Output = Vec4`, and `impl
 Mul<f32> for Mat4` has `type Output = Mat4` (§11.2). `[DECIDED — §18.29]`
 
+**A generic body names an associated type through a bound**, as `T::Item`. It is the type
+`T`'s implementation chooses, whatever that turns out to be:
+
+```dz
+fn first<T: Iterate>(it: &T) -> T::Item {
+    return it.get()
+}
+
+fn each<C: Iterable>(xs: &C, f: fn(C::Iter::Item)) {
+    for x in xs { f(move(x)) }                // x is a C::Iter::Item
+}
+
+impl<I: Iterate> Iterate for Numbered<I> {
+    type Item = (usize, I::Item)              // built from the inner iterator's
+    …
+}
+```
+
+- **It comes from a bound.** `T::Item` is valid because `T: Iterate` and `Iterate` declares
+  `type Item`; supertraits count. A name no bound declares is an error (`DZ0560`), and so is
+  a name two bounds declare, since each answers it separately — `T: Mul<f32> + Mul<i32>`
+  has two `Output`s (`DZ0561`). A projection's own bounds reach further: `Iterable` declares
+  `type Iter : Iterate`, so `C::Iter::Item` is a type too.
+- **Inside the body, it is checked once, like `T` itself** (§8.1). `T::Item` is one type
+  wherever it is reached from `T`, and a different type from `U::Item`. It can do what the
+  trait's bounds on `type Item` say, and nothing more: `Iterate` puts none on `Item`, so a
+  `T::Item` is moved, never copied (§8.2), and has no methods.
+- **At an instance, it is the implementation's choice.** `first(&list.iter())` returns a
+  `&i32`, because `SliceIter<i32>` chose `type Item = &i32`; a caller sees that type, never
+  the projection. `T::Output` for a number is the number: `i32 + i32` is an `i32` (§11.2).
+
+`[DECIDED]`
+
 **Why three methods and not one `next() -> Item?`.** The one-method form is what every
 `Option`-returning iterator does, and it does not work here. It uses absence as the
 end-of-iteration signal, which means the signal lives **inside the item's own value

@@ -1235,3 +1235,13 @@ fn writable_through_read_only(v: &Vec3) {
     let w = &mut v
     w.x = 1.0
 }
+
+// §8.5: `T::Item` is whatever `T`'s implementation chooses, so a generic body cannot take it
+// for an `i32`; and a projection names an associated type one of the bounds declares.
+fn item_is_not_an_int<T: Iterate>(it: &T) -> i32 {
+    return it.get()
+}
+
+fn no_such_associated_type<T: Iterate>(it: &T) -> T::Size {
+    return it.get()
+}

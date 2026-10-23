@@ -1,0 +1,18 @@
+first 10
+count 4 total 4
+item 10
+item 20
+item 30
+item 40
+slime has 3
+bat has 5
+0: slime
+1: bat
+kept 2
+drop token 2
+kept 1
+drop token 1
+first token 3
+plus 5 3.75
+doubled 2 -1
+drop token 3
