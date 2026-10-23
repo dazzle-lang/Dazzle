@@ -6926,71 +6926,104 @@ body method Mat4::perspective -> Mat4
   param _1 aspect: f32
   param _2 near: f32
   param _3 far: f32
+  param _4 depth: DepthRange
   block
-    let _4 f: f32
+    let _5 f: f32
       binary /: f32
         int 1: i32
         call-method Float::tan: f32
           binary *: f32
             local _0 fov_y: f32
             float 0.5: f32
-    let _5 m: Mat4
+    let _6 m: Mat4
       struct-lit Mat4: Mat4
         #0 (default)
     assign =
       field #0: f32
         index: Vec4
           field #0: [4]Vec4
-            local _5 m: Mat4
+            local _6 m: Mat4
           int 0: usize
       binary /: f32
-        local _4 f: f32
+        local _5 f: f32
         local _1 aspect: f32
     assign =
       field #1: f32
         index: Vec4
           field #0: [4]Vec4
-            local _5 m: Mat4
+            local _6 m: Mat4
           int 1: usize
-      local _4 f: f32
-    assign =
-      field #2: f32
-        index: Vec4
-          field #0: [4]Vec4
-            local _5 m: Mat4
-          int 2: usize
-      binary /: f32
-        binary +: f32
-          local _3 far: f32
-          local _2 near: f32
-        binary -: f32
-          local _2 near: f32
-          local _3 far: f32
+      local _5 f: f32
     assign =
       field #3: f32
         index: Vec4
           field #0: [4]Vec4
-            local _5 m: Mat4
+            local _6 m: Mat4
           int 2: usize
       unary -: f32
         float 1: f32
-    assign =
-      field #2: f32
-        index: Vec4
-          field #0: [4]Vec4
-            local _5 m: Mat4
-          int 3: usize
-      binary /: f32
-        binary *: f32
-          binary *: f32
-            float 2: f32
+    if: void
+      binary ==: bool
+        local _4 depth: DepthRange
+        enum-variant DepthRange#1: DepthRange
+      block
+        assign =
+          field #2: f32
+            index: Vec4
+              field #0: [4]Vec4
+                local _6 m: Mat4
+              int 2: usize
+          binary /: f32
             local _3 far: f32
-          local _2 near: f32
-        binary -: f32
-          local _2 near: f32
-          local _3 far: f32
+            binary -: f32
+              local _2 near: f32
+              local _3 far: f32
+        assign =
+          field #2: f32
+            index: Vec4
+              field #0: [4]Vec4
+                local _6 m: Mat4
+              int 3: usize
+          binary /: f32
+            binary *: f32
+              local _3 far: f32
+              local _2 near: f32
+            binary -: f32
+              local _2 near: f32
+              local _3 far: f32
+      block
+        block-value: void
+          block
+            assign =
+              field #2: f32
+                index: Vec4
+                  field #0: [4]Vec4
+                    local _6 m: Mat4
+                  int 2: usize
+              binary /: f32
+                binary +: f32
+                  local _3 far: f32
+                  local _2 near: f32
+                binary -: f32
+                  local _2 near: f32
+                  local _3 far: f32
+            assign =
+              field #2: f32
+                index: Vec4
+                  field #0: [4]Vec4
+                    local _6 m: Mat4
+                  int 3: usize
+              binary /: f32
+                binary *: f32
+                  binary *: f32
+                    float 2: f32
+                    local _3 far: f32
+                  local _2 near: f32
+                binary -: f32
+                  local _2 near: f32
+                  local _3 far: f32
     return: !
-      local _5 m: Mat4
+      local _6 m: Mat4
 body method Mat4::orthographic -> Mat4
   param _0 left: f32
   param _1 right: f32
@@ -6998,14 +7031,15 @@ body method Mat4::orthographic -> Mat4
   param _3 top: f32
   param _4 near: f32
   param _5 far: f32
+  param _6 depth: DepthRange
   block
-    let _6 m: Mat4
+    let _7 m: Mat4
       call-assoc Mat4::identity: Mat4
     assign =
       field #0: f32
         index: Vec4
           field #0: [4]Vec4
-            local _6 m: Mat4
+            local _7 m: Mat4
           int 0: usize
       binary /: f32
         float 2: f32
@@ -7016,7 +7050,7 @@ body method Mat4::orthographic -> Mat4
       field #1: f32
         index: Vec4
           field #0: [4]Vec4
-            local _6 m: Mat4
+            local _7 m: Mat4
           int 1: usize
       binary /: f32
         float 2: f32
@@ -7024,22 +7058,10 @@ body method Mat4::orthographic -> Mat4
           local _3 top: f32
           local _2 bottom: f32
     assign =
-      field #2: f32
-        index: Vec4
-          field #0: [4]Vec4
-            local _6 m: Mat4
-          int 2: usize
-      binary /: f32
-        unary -: f32
-          float 2: f32
-        binary -: f32
-          local _5 far: f32
-          local _4 near: f32
-    assign =
       field #0: f32
         index: Vec4
           field #0: [4]Vec4
-            local _6 m: Mat4
+            local _7 m: Mat4
           int 3: usize
       binary /: f32
         unary -: f32
@@ -7053,7 +7075,7 @@ body method Mat4::orthographic -> Mat4
       field #1: f32
         index: Vec4
           field #0: [4]Vec4
-            local _6 m: Mat4
+            local _7 m: Mat4
           int 3: usize
       binary /: f32
         unary -: f32
@@ -7063,22 +7085,66 @@ body method Mat4::orthographic -> Mat4
         binary -: f32
           local _3 top: f32
           local _2 bottom: f32
-    assign =
-      field #2: f32
-        index: Vec4
-          field #0: [4]Vec4
-            local _6 m: Mat4
-          int 3: usize
-      binary /: f32
-        unary -: f32
-          binary +: f32
-            local _5 far: f32
-            local _4 near: f32
-        binary -: f32
-          local _5 far: f32
-          local _4 near: f32
+    if: void
+      binary ==: bool
+        local _6 depth: DepthRange
+        enum-variant DepthRange#1: DepthRange
+      block
+        assign =
+          field #2: f32
+            index: Vec4
+              field #0: [4]Vec4
+                local _7 m: Mat4
+              int 2: usize
+          binary /: f32
+            unary -: f32
+              float 1: f32
+            binary -: f32
+              local _5 far: f32
+              local _4 near: f32
+        assign =
+          field #2: f32
+            index: Vec4
+              field #0: [4]Vec4
+                local _7 m: Mat4
+              int 3: usize
+          binary /: f32
+            unary -: f32
+              local _4 near: f32
+            binary -: f32
+              local _5 far: f32
+              local _4 near: f32
+      block
+        block-value: void
+          block
+            assign =
+              field #2: f32
+                index: Vec4
+                  field #0: [4]Vec4
+                    local _7 m: Mat4
+                  int 2: usize
+              binary /: f32
+                unary -: f32
+                  float 2: f32
+                binary -: f32
+                  local _5 far: f32
+                  local _4 near: f32
+            assign =
+              field #2: f32
+                index: Vec4
+                  field #0: [4]Vec4
+                    local _7 m: Mat4
+                  int 3: usize
+              binary /: f32
+                unary -: f32
+                  binary +: f32
+                    local _5 far: f32
+                    local _4 near: f32
+                binary -: f32
+                  local _5 far: f32
+                  local _4 near: f32
     return: !
-      local _6 m: Mat4
+      local _7 m: Mat4
 body method Mat4::look_at -> Mat4
   param _0 eye: Vec3
   param _1 target: Vec3

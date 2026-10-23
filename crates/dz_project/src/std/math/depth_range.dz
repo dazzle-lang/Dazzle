@@ -1,0 +1,16 @@
+/// The depth range a projection maps `near`..`far` onto: `Mat4::perspective` and
+/// `Mat4::orthographic` take one. It belongs to the graphics API that draws with the matrix,
+/// not to taste, so pass the one that API expects. The wrong one fails silently: geometry
+/// near the camera is clipped away and half the depth buffer's precision is wasted.
+///
+/// A program that draws through one API names it once, `const DEPTH = DepthRange::ZeroToOne`;
+/// one that can be built for either picks it with `#if` (spec §12.10); one that chooses its
+/// API at run time passes a variable.
+pub enum DepthRange : u8 {
+    /// -1 at `near`, 1 at `far`. OpenGL, OpenGL ES and WebGL, and so raylib, whose matrices
+    /// all reach OpenGL.
+    MinusOneToOne
+    /// 0 at `near`, 1 at `far`. Vulkan, Direct3D 11 and 12, Metal, WebGPU and SDL3's GPU API,
+    /// and OpenGL after `glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)`.
+    ZeroToOne
+}
