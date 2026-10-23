@@ -1062,6 +1062,7 @@ impl<'a> Emitter<'a> {
         owner: SymbolId,
         name: &str,
         args: &[ExprId],
+        ret: &Ty,
     ) -> Option<String> {
         if self.res.symbol(owner).kind != dz_resolve::SymbolKind::Trait {
             return None;
@@ -1069,7 +1070,7 @@ impl<'a> Emitter<'a> {
         let body = self.cur();
         let recv_ty = body.ty(recv).peeled().clone();
         let arg = args.first().map(|a| body.ty(*a).clone());
-        let (idx, map) = self.table.resolve_impl(owner, &recv_ty, name, arg.as_ref())?;
+        let (idx, map) = self.table.resolve_impl(owner, &recv_ty, name, arg.as_ref(), Some(ret))?;
         Some(self.qualify_impl_fn(idx, &map, name))
     }
 
@@ -2750,7 +2751,7 @@ impl<'a> Emitter<'a> {
                     }));
                 let arg = args.first().map(|a| self.cur().ty(*a).clone());
                 if let Some((idx, map)) =
-                    self.table.resolve_impl(*owner, &recv_ty, name, arg.as_ref())
+                    self.table.resolve_impl(*owner, &recv_ty, name, arg.as_ref(), Some(node_ty))
                 {
                     let o = BodyOwner::ImplMethod { imp: idx as u32, name: name.clone() };
                     let imp = &self.table.impls()[idx];
@@ -3379,7 +3380,7 @@ impl<'a> Emitter<'a> {
             let calls = self
                 .table
                 .prelude_trait_named("Iterate")
-                .and_then(|t| self.table.resolve_impl(t, &iterated, "valid", None))
+                .and_then(|t| self.table.resolve_impl(t, &iterated, "valid", None, None))
                 .map(|(idx, map)| {
                     (
                         self.qualify_impl_fn(idx, &map, "valid"),
@@ -4454,7 +4455,7 @@ impl<'a> Emitter<'a> {
                 self.qualify_method_instance(*owner, &owner_args, name, method_args)
             }
             hir::Callee::Method { recv, owner, name, .. } => {
-                let target = self.impl_target(*recv, *owner, name, args);
+                let target = self.impl_target(*recv, *owner, name, args, &node_ty);
                 // A value of the machine's own kinds is passed as it is: `obj` would reach
                 // through a `cstr`, a `const char*` to C++, to its first character, and its
                 // reference parameter cannot bind a C bit-field, which a `const&` can.

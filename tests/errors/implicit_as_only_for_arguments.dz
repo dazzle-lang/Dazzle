@@ -1,0 +1,11 @@
+// expect: DZ0501
+//
+// A `String` converts to a `cstr` only where it is passed as an argument (spec §7.2). A
+// `cstr` kept in a local would point into the string after the string changed or was
+// dropped, and nothing would say so; an argument's conversion is over when the call returns.
+
+fn main() {
+    let name = String::from("Dazzle")
+    let c: cstr = name
+    println!("{}", c)
+}

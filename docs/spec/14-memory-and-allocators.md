@@ -219,8 +219,8 @@ when it is, and with `construct` and `move_out` one at a time when it is not.
 ## 14.4 The standard library: `std`
 
 The standard library is **one module, `std`**, carried by the compiler as Dazzle source:
-the language's traits (`Drop`, `Copy`, `Eq`, `Ord`, the operators, `Iterate`, `Format`),
-the allocators, the containers and the math below. Its names are flat — `std::String`,
+the language's traits (`Drop`, `Copy`, `Eq`, `Ord`, the operators, `Iterate`, `Format`,
+`ImplicitAs`), the allocators, the containers and the math below. Its names are flat — `std::String`,
 `std::List`, `std::Vec2` — with one declaration to a file, as any project may organise
 itself (§3.1). A module names it in its manifest like any dependency, and usually opens it
 (§3.2):
@@ -357,16 +357,18 @@ would take time in proportion to the text's length on every use. `[DECIDED — �
 
 **A C string from text.** A `str` has no zero after it, so it is not a `cstr`; a literal
 is (§5.3). A `String` keeps a zero after its bytes, and `as_cstr()` borrows the text as a
-`cstr` with no copy — so text from anywhere reaches a C function through one:
+`cstr` with no copy — so text from anywhere reaches a C function through one. Passed as an
+argument, a `String` or a `Path` *is* one, through `std`'s `ImplicitAs<cstr>` (§7.2):
 
 ```dz
 let owned = String::from(name)
-rl::LoadFileText(owned.as_cstr())
+rl::LoadFileText(owned)                        // the same as owned.as_cstr()
+rl::DrawText(format!("hp {}", hp), 8, 8, 20, rl::RED)
 ```
 
 `rl::LoadFileText(String::from(name).as_cstr())` is the same, since a temporary lives to the
 end of its statement; binding that `cstr` with `let` keeps a view of a temporary, which is an
-error (`DZ0407`, §6.5). `[DECIDED — D-0039, D-0081]`
+error (`DZ0407`, §6.5). `[DECIDED — D-0039, D-0081, D-0089]`
 
 **Files** are reached through three types, and no free functions:
 

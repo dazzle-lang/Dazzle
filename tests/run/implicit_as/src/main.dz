@@ -1,0 +1,83 @@
+// `ImplicitAs<T>` (spec §7.2, §7.6): an argument whose type is not its parameter's
+// converts when its type says how. Nothing else converts: a `let`, a field and a `return`
+// take the type they are given.
+
+/// Takes a C string, as an imported C function does.
+fn c_len(s: cstr) -> usize {
+    return (s as str).len
+}
+
+pub struct Meters {
+    pub v: f32
+}
+
+pub struct Feet {
+    pub v: f32
+}
+
+/// Declared with the type converted from.
+impl ImplicitAs<Meters> for Feet {
+    fn convert(&self) -> Meters {
+        return Meters{ v: v * 0.25 }
+    }
+}
+
+fn distance(d: Meters) -> f32 {
+    return d.v
+}
+
+pub struct Cell {
+    pub x: i32
+    pub y: i32
+}
+
+/// Declared with the type converted *to*: neither `ImplicitAs` nor `Vec2` is this module's,
+/// but `Cell` is, and the orphan rule counts a trait's arguments (§7.6).
+impl ImplicitAs<Cell> for Vec2 {
+    fn convert(&self) -> Cell {
+        return Cell{ x: x as i32, y: y as i32 }
+    }
+}
+
+fn cell_sum(c: Cell) -> i32 {
+    return c.x + c.y
+}
+
+/// Two conversions from one type, told apart by the type each call wants.
+pub struct Label {
+    pub text: String
+}
+
+impl ImplicitAs<cstr> for Label {
+    fn convert(&self) -> cstr {
+        return text.as_cstr()
+    }
+}
+
+impl ImplicitAs<Meters> for Label {
+    fn convert(&self) -> Meters {
+        return Meters{ v: text.len() as f32 }
+    }
+}
+
+/// A bound: whatever `S` is, it converts, and each instance calls its own `convert`.
+fn length_of<S: ImplicitAs<cstr>>(s: &S) -> usize {
+    return c_len(s)
+}
+
+fn main() {
+    let name = String::from("Dazzle")
+    println!("string {}", c_len(name))
+    // Borrowed, not moved: still usable after the call.
+    println!("still {}", name)
+    println!("reference {}", c_len(&name))
+    // A temporary lives until the call returns.
+    println!("temporary {}", c_len(format!("{}-{}", name, 77)))
+    let p = Path("assets/hero.png")
+    println!("path {}", c_len(p))
+    println!("feet {}", distance(Feet{ v: 10 }))
+    println!("cell {}", cell_sum(Vec2{ x: 3.5, y: 4.25 }))
+    let label = Label{ text: String::from("abcd") }
+    println!("label {} {}", c_len(label), distance(label))
+    println!("bound {} {}", length_of(&name), length_of(&label))
+}

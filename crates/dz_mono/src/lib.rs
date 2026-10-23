@@ -473,7 +473,7 @@ impl Worklist<'_> {
                 {
                     let recv_ty = b.ty(*recv).peeled().clone();
                     let arg = args.first().map(|a| b.ty(*a).clone());
-                    self.want_impl(*owner, &recv_ty, name, arg.as_ref(), here);
+                    self.want_impl(*owner, &recv_ty, name, arg.as_ref(), Some(&e.ty), here);
                 }
                 // A type's own generic method: the type's arguments come from the receiver,
                 // unless the method is a base's, which is never generic (DZ0541).
@@ -495,7 +495,7 @@ impl Worklist<'_> {
             for s in &b.stmts {
                 if let StmtKind::For { subject, .. } = &s.kind {
                     let t = b.ty(*subject).peeled().clone();
-                    self.want_impl(iterate, &t, "valid", None, (b.file, s.span));
+                    self.want_impl(iterate, &t, "valid", None, None, (b.file, s.span));
                 }
             }
         }
@@ -507,12 +507,13 @@ impl Worklist<'_> {
         recv: &Ty,
         method: &str,
         arg: Option<&Ty>,
+        ret: Option<&Ty>,
         at: (FileId, Span),
     ) {
         if recv.has_params() {
             return; // reached again, concretely, through each instance
         }
-        let Some((idx, map)) = self.table.resolve_impl(trait_sym, recv, method, arg) else {
+        let Some((idx, map)) = self.table.resolve_impl(trait_sym, recv, method, arg, ret) else {
             return;
         };
         let imp = &self.table.impls()[idx];

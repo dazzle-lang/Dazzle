@@ -6,6 +6,15 @@ fn triple(value: i32) -> i32 {
     return value * 3
 }
 
+// This module carries `mini`'s recipe, so the orphan rule counts the header's types as its
+// own (§7.6, §15.1): it may give a C struct a trait from `std`, here `+`.
+impl Add for mini::MiniVec2 {
+    type Output = mini::MiniVec2
+    fn add(&self, rhs: mini::MiniVec2) -> mini::MiniVec2 {
+        return mini::mini_add(self, rhs)
+    }
+}
+
 fn main() {
     // `MINI_SCALE=3` comes from the recipe's `defines`.
     println!("scaled {}", mini::mini_scale(5))
@@ -15,6 +24,8 @@ fn main() {
     let a = mini::MiniVec2{ x: 1, y: 2 }
     let b = mini::mini_add(a, mini::MiniVec2{ x: 2, y: 2 })
     println!("sum {} {}", b.x, b.y)
+    let c = a + b
+    println!("plus {} {}", c.x, c.y)
     println!("length sq {}", mini::mini_length_sq(b))
     let zero: mini::MiniVec2
     println!("zero {} {}", zero.x, zero.y)
@@ -37,6 +48,10 @@ fn main() {
     println!("length {}", mini::mini_length("hello"))
     let name = mini::mini_name() as str
     println!("measured {}", name)
+    // A `String` is a `cstr` for the call it is passed to (§7.2), through `std`'s
+    // `ImplicitAs<cstr>`: a built one, and a `format!` that lives until the call returns.
+    let owned = String::from("dazzle")
+    println!("owned {} formatted {}", mini::mini_length(owned), mini::mini_length(format!("{}!", owned)))
 
     println!("callback {}", mini::mini_apply(triple, 7))
 

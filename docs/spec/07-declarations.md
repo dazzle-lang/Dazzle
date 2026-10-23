@@ -56,6 +56,35 @@ the left decides. **Assignment is the one exception: the value is evaluated befo
 place it is stored in** — in `xs[next()] = compute()`, `compute()` runs first — for `=` and
 for every compound assignment alike. `[DECIDED — §18.49]`
 
+**An argument converts when its type says how.** A type that implements `std`'s
+`ImplicitAs<T>` (§14.4) is converted to a `T` where it is passed to a parameter of type `T`,
+by calling its `convert(&self) -> T`:
+
+```dz
+impl ImplicitAs<cstr> for String { fn convert(&self) -> cstr { return self.as_cstr() } }  // in std
+
+rl::DrawText(format!("score {}", score), 10, 12, 24, rl::LIGHTGRAY)   // a String, as a cstr
+rl::LoadTexture(path)                                                 // a Path, likewise
+```
+
+- **Only arguments convert** — positional, named and variadic ones' fixed part — never a
+  `let`, a field, a `return` or an operator's operand. What `convert` borrows, as `as_cstr`
+  borrows a string's bytes, is used by the call and cannot be kept past it.
+- **The argument is borrowed, not moved**, as any `&self` method borrows its receiver, so it
+  is still usable after the call; a temporary, such as a `format!`, lives until the call
+  returns. A reference to a type that converts converts as the type does.
+- **Once at most.** A `Pounds` that converts to `Ounces`, which converts to `cstr`, is not a
+  `cstr`.
+- **Not to choose or infer.** A C++ overload set is still chosen by exact types (§15.3), and
+  a generic parameter is still inferred from the argument's own type (§8.1).
+- **Opt-in.** A method or constructor never converts on its own, unlike C++'s single-argument
+  constructors, which do unless marked `explicit`. Between two number types there is none:
+  neither type is a program's own, so only `std` could declare one, and it does not (§5.1).
+
+Where an `impl` of it may be written is the orphan rule's ordinary answer, which counts the
+trait's argument (§7.6): `impl ImplicitAs<Vec2> for rl::Vector2` belongs with `Vec2`.
+`[DECIDED — D-0089]`
+
 **Variadic parameters.** One parameter may take any number of arguments, written
 `name: ..T`. In the body it is a read-only slice, `[]T`:
 
@@ -424,6 +453,21 @@ implement a third's trait for a fourth's type, so a program using both is never 
 choose, and code that can see both the trait and the type can always see the implementation
 that joins them. Implementing someone else's trait for someone else's type means wrapping the
 type in a struct of your own. `[DECIDED — §18.31]`
+
+**A trait's type arguments count too.** `impl Mul<Vec2> for f32` and `impl ImplicitAs<Vec2>
+for rl::Vector2` may be written in the module that declares `Vec2`: the types an `impl` joins
+are its type, then each of the trait's arguments in order, and any one declared in the module
+is enough. It stays collision-free: two modules could only both write one implementation if
+each named the other's type, which would make their dependencies a cycle (§3.2). As in Rust,
+a bare type parameter before the module's own type ends the search — `impl<T> Pair<T, Mine>
+for Theirs` would also cover `Pair<Yours, Mine>`, which `Yours`'s module could write too.
+`[DECIDED — D-0087]`
+
+**An imported header's types belong to the module that carries its recipe** (§15.1). That
+module may implement any trait for them — `impl Mul for rl::Matrix`, so raylib's own matrix
+takes `*` — as if it had declared them. There is one such module in any build, since two
+recipes for one library are an error. Methods are not added this way: a struct's methods are
+written in its body (§7.3), and C++ already wrote this one's. `[DECIDED — D-0088]`
 
 **Generic implementations** have parameters of their own: `impl<T: Inspect> Inspect for
 Buffer<T>` applies to every `Buffer<T>` whose `T` is `Inspect`. An implementation for every
