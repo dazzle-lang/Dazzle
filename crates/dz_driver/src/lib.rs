@@ -121,18 +121,22 @@ pub fn analyse_for(
     // one generated for a module itself called `raylib` (spec §15.1).
     for module in ws.modules().filter(|m| m.foreign.is_none()) {
         let mut parsed = Vec::new();
-        for path in &module.sources {
+        for (n, path) in module.sources.iter().enumerate() {
             // The standard library's text never changes within a process, so its tree is
             // parsed once and copied into each analysis — the editor analyses on every
             // pause in typing, and `std` is most of what a small program parses (§14.4).
-            if module.is_prelude() {
-                if let Some(ast) = std_tree(path) {
-                    let text = module.read_source(path).unwrap_or_default();
-                    if let Ok(id) = map.add_bytes(path, &text) {
-                        parsed.push(ParsedFile { file: id, ast });
-                        continue;
-                    }
-                }
+            // Its files are already in the map, put there first by `dz_project::load`.
+            if let Some(&id) = module.embedded_files.get(n) {
+                let ast = std_tree(path).unwrap_or_else(|| {
+                    let text = map.get(id).text().to_owned();
+                    let lexed = dz_lex::lex(id, &text);
+                    let parsed_file = dz_parse::parse(id, &text, &lexed.tokens);
+                    diags.extend(lexed.diagnostics);
+                    diags.extend(parsed_file.diagnostics);
+                    parsed_file.ast
+                });
+                parsed.push(ParsedFile { file: id, ast });
+                continue;
             }
             // The prelude is carried by the compiler, so no editor buffer can stand in for it.
             let buffered = if module.is_prelude() { None } else { overlay(path) };
@@ -228,7 +232,7 @@ pub fn analyse_for(
         //
         // A *parse* error still suppresses, and must: the tree itself is then a guess.
         if parsed_cleanly || tolerant {
-            let checked = dz_check::check(&ws, &r, &files, &map);
+            let checked = check(&ws, &r, &files, &map, flags.as_ref());
             let checked_cleanly = resolved_cleanly && !checked.diagnostics.has_errors();
             if parsed_cleanly {
                 diags.extend(checked.diagnostics);
@@ -265,6 +269,83 @@ pub fn analyse_for(
         diags,
         parsed_cleanly,
     }
+}
+
+thread_local! {
+    static REUSED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many analyses on this thread have started from a standard library checked by an
+/// earlier one. For the test that holds reuse to giving what checking afresh gives, which
+/// would pass without ever reusing anything if it could not ask.
+#[doc(hidden)]
+pub fn prelude_reuses() -> usize {
+    REUSED.get()
+}
+
+/// Type check, starting from the standard library already checked when this thread has
+/// checked one like it before (see [`dz_check::PreludeLayer`]).
+///
+/// What can make one checked standard library differ from another is all in the key: which
+/// of its `#if` branches exist (`None` when a parse error left every `#if` in place), the
+/// headers it imports — the same `Arc` for as long as none of their files changes on disk,
+/// and held here so its address cannot be reused by another — and the one root setting the
+/// checker reads. Its modules, files and symbols are numbered the same in every workspace,
+/// which `dz_project::load` sees to.
+///
+/// Per thread, not per process, because the checker's types share names through `Rc`; an
+/// editor analyses on one thread, and a test running thousands of analyses on every core
+/// pays for one standard library per core.
+fn check(
+    ws: &Workspace,
+    r: &Resolution,
+    files: &HashMap<ModuleId, Vec<ParsedFile>>,
+    map: &SourceMap,
+    flags: Option<&cfg::Flags>,
+) -> dz_check::CheckResult {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    struct Key {
+        flags: Option<Vec<String>>,
+        headers: Vec<Arc<dz_project::cppimport::Header>>,
+        type_info: dz_project::TypeInfo,
+    }
+    impl PartialEq for Key {
+        fn eq(&self, other: &Key) -> bool {
+            self.flags == other.flags
+                && self.type_info == other.type_info
+                && self.headers.len() == other.headers.len()
+                && self.headers.iter().zip(&other.headers).all(|(a, b)| Arc::ptr_eq(a, b))
+        }
+    }
+    thread_local! {
+        static PRELUDE: RefCell<Option<(Key, Rc<dz_check::PreludeLayer>)>> =
+            const { RefCell::new(None) };
+    }
+
+    let key = Key {
+        flags: flags.map(|f| f.on_for(ws.prelude)),
+        headers: ws
+            .modules()
+            .filter(|m| ws.in_prelude_layer(m.id))
+            .filter_map(|m| m.foreign.as_ref().map(|f| f.header.clone()))
+            .collect(),
+        type_info: ws.module(ws.root).build.type_info,
+    };
+    let cached = PRELUDE.with_borrow(|cell| {
+        cell.as_ref().filter(|(k, _)| *k == key).map(|(_, layer)| layer.clone())
+    });
+    if cached.is_some() {
+        REUSED.set(REUSED.get() + 1);
+    }
+    let layer = cached.unwrap_or_else(|| {
+        let layer = Rc::new(dz_check::check_prelude(ws, r, files, map));
+        PRELUDE.set(Some((key, layer.clone())));
+        layer
+    });
+    dz_check::check_from(ws, r, files, map, Some(&layer))
 }
 
 /// The parsed tree of the standard-library file at `pseudo`, from a process-wide cache.

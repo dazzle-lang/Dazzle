@@ -363,6 +363,11 @@ pub struct Module {
     pub manifest_path: PathBuf,
     /// Source files, in a deterministic order.
     pub sources: Vec<PathBuf>,
+    /// The standard library's sources as they went into the source map, one for each of
+    /// `sources`; empty for every other module, whose files analysis reads itself. They go
+    /// in before any manifest, so they have the same ids in every analysis — which is what
+    /// lets the checked standard library be reused from one analysis to the next.
+    pub embedded_files: Vec<FileId>,
     pub deps: Vec<Dependency>,
     /// `cpp = "…"` dependencies not yet read; see [`CppDep`].
     pub cpp_deps: Vec<CppDep>,
@@ -420,6 +425,7 @@ impl Workspace {
                     manifest: foreign.files.first().copied().unwrap_or(FileId(0)),
                     manifest_path: header_path,
                     sources: Vec::new(),
+                    embedded_files: Vec::new(),
                     deps: Vec::new(),
                     cpp_deps: Vec::new(),
                     via_deps: Vec::new(),
@@ -479,9 +485,19 @@ pub struct Workspace {
     pub root: ModuleId,
     /// The prelude (spec §3.2, §18.23). Always present, and always module 0.
     pub prelude: ModuleId,
+    /// How many modules the prelude's layer holds: the prelude, then the headers it imports.
+    /// They are always the first ids, and their files the first in the source map, so a
+    /// result computed for them is the same whatever project they are loaded into.
+    prelude_layer: u32,
 }
 
 impl Workspace {
+    /// Is `id` the prelude or a header the prelude imports? Nothing in that layer can see
+    /// past it, so it can be analysed before, and without, everything else.
+    pub fn in_prelude_layer(&self, id: ModuleId) -> bool {
+        id.0 < self.prelude_layer
+    }
+
     pub fn module(&self, id: ModuleId) -> &Module {
         &self.modules[id.0 as usize]
     }
@@ -522,13 +538,27 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
 
     let mut loader = Loader { map, diags, modules: Vec::new(), by_path: HashMap::new() };
     let prelude = loader.add_prelude();
+    // The prelude's headers are read before any project module exists, so their modules
+    // and files come straight after the prelude's own and are numbered the same in every
+    // analysis (see `prelude_layer`).
+    let mut added: HashMap<PathBuf, FileId> = HashMap::new();
+    let mut layer = Workspace {
+        modules: std::mem::take(&mut loader.modules),
+        root: prelude,
+        prelude,
+        prelude_layer: 1,
+    };
+    import_headers(&mut layer, &[prelude], &mut added, loader.map, loader.diags);
+    let prelude_layer = layer.modules.len() as u32;
+    loader.modules = layer.modules;
     let root = loader.load_module(&manifest_path, None)?;
 
     // Every module depends on the standard library, because the language's own constructs
     // are written in it (spec §14.4). One whose manifest does not list it gets the
     // dependency anyway, marked implicit, which name resolution treats as not nameable.
     let mut modules = loader.modules;
-    for m in &mut modules {
+    // Not an imported header, which is C declarations and depends on nothing.
+    for m in modules.iter_mut().filter(|m| m.foreign.is_none()) {
         if m.id != prelude && !m.deps.iter().any(|d| d.module == prelude) {
             m.deps.push(Dependency {
                 alias: STD_MODULE.to_owned(),
@@ -563,8 +593,10 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
             }
         }
     }
-    let mut ws = Workspace { modules, root, prelude };
-    import_headers(&mut ws, map, diags);
+    let rest: Vec<ModuleId> =
+        modules.iter().map(|m| m.id).filter(|id| id.0 >= prelude_layer).collect();
+    let mut ws = Workspace { modules, root, prelude, prelude_layer };
+    import_headers(&mut ws, &rest, &mut added, map, diags);
     Some(ws)
 }
 
@@ -572,17 +604,27 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
 /// imports through libclang, with the flags the generated C++ will be compiled with, and
 /// add it to the workspace as a module of its own before resolution needs its names. Its
 /// files go into the source map, so what points at a declaration points into the header.
-fn import_headers(ws: &mut Workspace, map: &mut SourceMap, diags: &mut Diagnostics) {
+///
+/// Only `ids` import; `added` is every header file already in the map, so two imports that
+/// include one file share it.
+fn import_headers(
+    ws: &mut Workspace,
+    ids: &[ModuleId],
+    added: &mut HashMap<PathBuf, FileId>,
+    map: &mut SourceMap,
+    diags: &mut Diagnostics,
+) {
     use crate::cppimport::{import, ImportError, Request};
 
     let root = ws.module(ws.root);
     // Where the generated C++ is compiled, so a quoted include is searched for from there.
     let from_dir = root.root_dir.join("build").join("cpp");
+    // The prelude's headers are read before the root manifest is, so with the default
+    // standard: C++17, the oldest the generated code compiles as, so whatever it declares
+    // there is declared under any later standard a project picks.
     let cpp_standard = root.build.cpp_standard.clone();
-    let mut added: HashMap<PathBuf, FileId> = HashMap::new();
-    let ids: Vec<ModuleId> = ws.modules().map(|m| m.id).collect();
 
-    for id in ids {
+    for &id in ids {
         let module = ws.module(id);
         let manifest = module.manifest;
         let embedded = module.embedded;
@@ -887,19 +929,22 @@ impl<'a> Loader<'a> {
     fn add_prelude(&mut self) -> ModuleId {
         let id = ModuleId(self.modules.len() as u32);
         let sources: Vec<PathBuf> = STD_SOURCES.iter().map(|(p, _)| PathBuf::from(p)).collect();
+        let embedded_files: Vec<FileId> = STD_SOURCES
+            .iter()
+            .map(|(p, text)| self.map.add(PathBuf::from(p), (*text).to_owned()))
+            .collect();
         // A module needs a "manifest" file for diagnostics about it; the standard library has
-        // none, so it is the first source, under its own pseudo-path.
-        let (first, text) = STD_SOURCES[0];
-        let file = self.map.add(PathBuf::from(first), text.to_owned());
+        // none, so it is the first source.
         self.modules.push(Module {
             id,
             name: STD_MODULE.to_owned(),
             name_span: Span::DUMMY,
             version: env!("CARGO_PKG_VERSION").to_owned(),
             root_dir: PathBuf::from("<std>"),
-            manifest: file,
-            manifest_path: PathBuf::from(first),
+            manifest: embedded_files[0],
+            manifest_path: PathBuf::from(STD_SOURCES[0].0),
             sources,
+            embedded_files,
             deps: Vec::new(),
             via_deps: Vec::new(),
             names: Vec::new(),
@@ -1018,6 +1063,7 @@ impl<'a> Loader<'a> {
             manifest: file,
             manifest_path: manifest_path.to_path_buf(),
             sources,
+            embedded_files: Vec::new(),
             deps: Vec::new(),
             cpp_deps: Vec::new(),
             via_deps: Vec::new(),

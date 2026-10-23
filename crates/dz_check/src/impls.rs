@@ -234,13 +234,16 @@ impl Ctx<'_> {
     /// Only an implementation that may be special is attached: the struct's own module, and
     /// the struct itself rather than one instance of it. One that breaks those rules is
     /// reported with the rest of the implementation's checks, in pass 3.
-    pub(crate) fn attach_special_impls(&mut self) {
+    ///
+    /// Only the implementations from `from` on: the ones before are an earlier layer's,
+    /// attached already.
+    pub(crate) fn attach_special_impls(&mut self, from: usize) {
         let (Some(drop), Some(copy)) = (self.prelude_trait("Drop"), self.prelude_trait("Copy"))
         else {
             return;
         };
         let saved = (self.file, self.module);
-        for idx in 0..self.table.impls.len() {
+        for idx in from..self.table.impls.len() {
             let imp = self.table.impls[idx].clone();
             let is_drop = imp.trait_ref.trait_sym == drop;
             if !is_drop && imp.trait_ref.trait_sym != copy {
