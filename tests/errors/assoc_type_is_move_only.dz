@@ -1,0 +1,11 @@
+// expect: DZ0403
+//
+// `T::Item` may be a move-only type — an iterator may make owned values — so a generic body
+// cannot copy one unless the trait bounds it by `Copy` (spec §8.2, §8.5).
+
+fn keep<T: Iterate>(it: &T, f: fn(T::Item)) {
+    let x = it.get()
+    f(x)
+}
+
+fn main() {}

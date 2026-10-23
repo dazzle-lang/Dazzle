@@ -2,7 +2,8 @@
 id: T-0050
 title: Associated-type projection
 milestone: M12
-status: open
+status: done
+done: r75, 2026-10-23
 kind: deferral
 area: checker
 where: `dz_check/src/check.rs`, `iterate_item`
@@ -58,3 +59,15 @@ this is the largest of the M12 checker rows — and the one that pays for itself
 it closes [T-0037](T-0037-indexed-exists-only-in-for-head.md),
 [T-0040](T-0040-for-over-generic-c-iterable.md) and part of
 [T-0049](T-0049-trait-objects-that-are-not-object.md) behind it.
+
+**Where it is** (r75). As sketched above: `Ty::Assoc(Proj)` in `dz_hir/src/ty.rs`, carrying
+the base, the trait with its arguments, and the name. `T::Item` written in a type is
+`Ctx::project_named`. A trait's method read through a bound gets projections for its
+associated types (`TypeTable::assoc_bindings`). `TypeTable::normalize` replaces a projection
+once its base is concrete, and every substitution in the checker, `dz_mono` and `dz_cpp`
+goes through `TypeTable::subst`, which ends with it. What a projection may do is
+`TypeTable::abstract_bounds`. New codes: `DZ0560` (no bound declares the name) and `DZ0561`
+(two bounds do). Tested by `tests/run/projection`, a case each in `typed/` and
+`typeerrors/`, six files in `tests/errors/`, and a construct and a mistake in the feature
+matrix. [T-0040](T-0040-for-over-generic-c-iterable.md) closed with it. A real `indexed()`
+([T-0037](T-0037-indexed-exists-only-in-for-head.md)) can now be written, and is still open.

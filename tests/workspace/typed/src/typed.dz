@@ -1691,3 +1691,48 @@ fn slot_maps(points: &mut SlotMap<Vec3>, scores: &mut List<Score>) -> f32 {
     again.value += 1
     return total + gone.z
 }
+
+// §8.5: an associated type named off a bound — `T::Item`, `C::Iter::Item` — in a signature,
+// in a `for` over a generic iterator and a generic container, and in an adapter's `Item`,
+// which each instance reads as the implementation's choice.
+fn first_item<T: Iterate>(it: &T) -> T::Item {
+    return it.get()
+}
+
+fn count_items<C: Iterable>(xs: &C, seen: fn(C::Iter::Item)) -> i32 {
+    let mut n = 0
+    for x in xs {
+        seen(move(x))
+        n += 1
+    }
+    return n
+}
+
+struct Flagged<I: Iterate> {
+    pub inner: I
+}
+
+impl<I: Iterate> Iterate for Flagged<I> {
+    type Item = (I::Item, bool)
+
+    fn valid(&self) -> bool {
+        return inner.valid()
+    }
+
+    fn get(&self) -> (I::Item, bool) {
+        return (inner.get(), true)
+    }
+
+    fn advance(&mut self) {
+        inner.advance()
+    }
+}
+
+fn ignore_int(x: &i32) {}
+
+fn projections(xs: &List<i32>) -> i32 {
+    let a: &i32 = first_item(&xs.iter())
+    let flagged = Flagged<SliceIter<i32>>{ inner: xs.iter() }
+    let pair: (&i32, bool) = first_item(&flagged)
+    return a + pair.0 + count_items(xs, ignore_int)
+}

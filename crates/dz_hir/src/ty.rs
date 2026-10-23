@@ -167,6 +167,25 @@ impl PartialEq for Param {
 
 impl Eq for Param {}
 
+/// An associated type named off a type: `T::Item`, where `T: Iterate` (spec §8.5).
+///
+/// While `on` is a generic parameter — or itself a projection of one — nobody has chosen
+/// the type yet, and it stays a `Proj`: two projections of the same base through the same
+/// trait are the same type, and otherwise all that is known of it is the bounds the trait
+/// puts on the associated type. Once `on` is concrete, the implementation for it says what
+/// the type is, and the checker's `normalize` replaces the projection with that. So no
+/// projection survives monomorphization.
+///
+/// The trait is part of the identity, arguments included: a `T: Mul<f32> + Mul<Vec2>` has
+/// two `Output`s, one per implementation (spec §18.29).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Proj {
+    pub on: Ty,
+    pub trait_sym: SymbolId,
+    pub trait_args: Vec<Ty>,
+    pub name: Rc<str>,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Ty {
     /// A type that could not be determined. Already reported, and compatible with
@@ -244,6 +263,9 @@ pub enum Ty {
     /// A generic parameter inside the body that declares it (spec §8.1). Replaced by a
     /// concrete type during monomorphization; never present in emitted code.
     Param(Param),
+    /// `T::Item`: an associated type of a type nobody has chosen yet (spec §8.5). Like a
+    /// parameter, never present in emitted code.
+    Assoc(Rc<Proj>),
 }
 
 impl Ty {
@@ -355,6 +377,7 @@ impl Ty {
     pub fn has_params(&self) -> bool {
         match self {
             Ty::Param(_) => true,
+            Ty::Assoc(p) => p.on.has_params() || p.trait_args.iter().any(Ty::has_params),
             Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => i.has_params(),
             Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
                 inner.has_params()
@@ -421,7 +444,64 @@ pub fn substitute_with(
         Ty::Fn { params, ret } => {
             Ty::Fn { params: params.iter().map(&substitute).collect(), ret: rc(ret) }
         }
+        // The base may become concrete here, and then the projection has an answer — but
+        // only the checker's type table knows the implementations, so finding it is
+        // `TypeTable::normalize`'s job, run after this.
+        Ty::Assoc(p) => Ty::Assoc(Rc::new(Proj {
+            on: substitute(&p.on),
+            trait_sym: p.trait_sym,
+            trait_args: p.trait_args.iter().map(&substitute).collect(),
+            name: p.name.clone(),
+        })),
         other => other.clone(),
+    }
+}
+
+/// Does `t` contain a projection anywhere? A type that does not is already normal, which
+/// lets the checker skip the walk for almost every type it sees.
+pub fn has_assoc(t: &Ty) -> bool {
+    match t {
+        Ty::Assoc(_) => true,
+        Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => has_assoc(i),
+        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
+            has_assoc(inner)
+        }
+        Ty::Array { elem, .. } | Ty::Slice { elem, .. } => has_assoc(elem),
+        Ty::Tuple(parts) => parts.iter().any(has_assoc),
+        Ty::Named { args, .. } | Ty::Variant(_, _, args) => args.iter().any(has_assoc),
+        Ty::Fn { params, ret } => params.iter().any(has_assoc) || has_assoc(ret),
+        _ => false,
+    }
+}
+
+/// `t` with `f` applied to each type directly inside it, and its own shape kept. A
+/// projection's parts are left alone: what to do with one is the caller's question.
+pub fn map_parts(t: &Ty, f: &dyn Fn(&Ty) -> Ty) -> Ty {
+    let rc = |x: &Rc<Ty>| Rc::new(f(x));
+    match t {
+        Ty::Ptr { mutable, inner } => Ty::Ptr { mutable: *mutable, inner: rc(inner) },
+        Ty::OwnPtr { mutable, inner } => Ty::OwnPtr { mutable: *mutable, inner: rc(inner) },
+        Ty::Ref { mutable, inner } => Ty::Ref { mutable: *mutable, inner: rc(inner) },
+        Ty::Optional(i) => Ty::Optional(rc(i)),
+        Ty::Fallible(i) => Ty::Fallible(rc(i)),
+        Ty::Range(i) => Ty::Range(rc(i)),
+        Ty::Array { len, elem } => Ty::Array { len: *len, elem: rc(elem) },
+        Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
+        Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(f).collect()),
+        Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(f).collect() },
+        Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, args.iter().map(f).collect()),
+        Ty::Fn { params, ret } => Ty::Fn { params: params.iter().map(f).collect(), ret: rc(ret) },
+        other => other.clone(),
+    }
+}
+
+/// Is this a type nobody has chosen yet — a generic parameter, or an associated type of
+/// one (spec §8.1, §8.5)? What such a type can do is exactly what its bounds say.
+pub fn is_abstract(t: &Ty) -> bool {
+    match t {
+        Ty::Param(_) => true,
+        Ty::Assoc(p) => is_abstract(&p.on),
+        _ => false,
     }
 }
 
@@ -449,6 +529,12 @@ pub fn replace(t: &Ty, from: &Ty, to: &Ty) -> Ty {
         Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(r).collect() },
         Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, args.iter().map(r).collect()),
         Ty::Fn { params, ret } => Ty::Fn { params: params.iter().map(r).collect(), ret: rc(ret) },
+        Ty::Assoc(p) => Ty::Assoc(Rc::new(Proj {
+            on: replace(&p.on, from, to),
+            trait_sym: p.trait_sym,
+            trait_args: p.trait_args.iter().map(r).collect(),
+            name: p.name.clone(),
+        })),
         other => other.clone(),
     }
 }

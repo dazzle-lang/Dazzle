@@ -18655,3 +18655,82 @@ body fn slot_maps -> f32
         local _6 total: f32
         field #2: f32
           local _9 gone: Vec3
+body fn first_item -> T::Item
+  param _0 it: &T
+  block
+    return: !
+      call-method Iterate::get: T::Item
+        local _0 it: &T
+body fn count_items -> i32
+  param _0 xs: &C
+  param _1 seen: fn(C::Iter::Item) -> void
+  block
+    let _2 n: i32
+      int 0: i32
+    for _3 x
+      call-method Iterable::iter: C::Iter
+        local _0 xs: &C
+      block
+        call-value: void
+          local _1 seen: fn(C::Iter::Item) -> void
+          move: C::Iter::Item
+            local _3 x: C::Iter::Item
+        assign +=
+          local _2 n: i32
+          int 1: i32
+    return: !
+      local _2 n: i32
+body impl#155 method valid -> bool
+  param _0 self: Flagged<I>
+  block
+    return: !
+      call-method Iterate::valid: bool
+        field #0: I
+          local _0 self: Flagged<I>
+body impl#155 method get -> (I::Item, bool)
+  param _0 self: Flagged<I>
+  block
+    return: !
+      tuple: (I::Item, bool)
+        call-method Iterate::get: I::Item
+          field #0: I
+            local _0 self: Flagged<I>
+        bool true: bool
+body impl#155 method advance -> void
+  param _0 self: Flagged<I>
+  block
+    call-method Iterate::advance: void
+      field #0: I
+        local _0 self: Flagged<I>
+body fn ignore_int -> void
+  param _0 x: &i32
+  block
+    (empty)
+body fn projections -> i32
+  param _0 xs: &List<i32>
+  block
+    let _1 a: &i32
+      call first_item: &i32
+        ref: &SliceIter<i32>
+          call-method Iterable::iter: SliceIter<i32>
+            local _0 xs: &List<i32>
+    let _2 flagged: Flagged<SliceIter<i32>>
+      struct-lit Flagged: Flagged<SliceIter<i32>>
+        #0
+          call-method Iterable::iter: SliceIter<i32>
+            local _0 xs: &List<i32>
+    let _3 pair: (&i32, bool)
+      call first_item: (&i32, bool)
+        ref: &Flagged<SliceIter<i32>>
+          local _2 flagged: Flagged<SliceIter<i32>>
+    return: !
+      binary +: i32
+        binary +: i32
+          deref: i32
+            local _1 a: &i32
+          deref: i32
+            tuple-index #0: &i32
+              local _3 pair: (&i32, bool)
+        call count_items: i32
+          local _0 xs: &List<i32>
+          fn-item ignore_int: fn(&i32) -> void

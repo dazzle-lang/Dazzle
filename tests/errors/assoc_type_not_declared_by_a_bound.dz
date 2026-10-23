@@ -1,0 +1,10 @@
+// expect: DZ0560
+//
+// An associated type is named off a generic parameter through one of its bounds (spec
+// §8.5): `T::Item` exists because `Iterate` declares `type Item`. Nothing declares `Size`.
+
+fn size_of_first<T: Iterate>(it: &T) -> T::Size {
+    return it.get()
+}
+
+fn main() {}

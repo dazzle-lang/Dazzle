@@ -2,7 +2,8 @@
 id: T-0040
 title: `for` over a generic `C: Iterable`
 milestone: M12
-status: open
+status: done
+done: r75, 2026-10-23
 kind: deferral
 area: checker
 where: `dz_check/src/check.rs`, `container_iterator`
@@ -39,3 +40,8 @@ type today, or take a slice and so refuse anything that is not contiguous.
 the *symptom* a user hits — `container_iterator` is where the refusal is reported, and
 someone reading that code should be pointed at the projection row rather than concluding the
 loop lowering is at fault.
+
+**Done** (r75), with [T-0050](T-0050-associated-type-projection.md): the refusal in
+`container_iterator` is gone, and a loop over a `C: Iterable` binds a `C::Iter::Item`.
+Tested by `each` and `total` in `tests/run/projection`, `count_items` in `typed/`, and
+`count_of` in the feature matrix.

@@ -1,0 +1,8 @@
+// expect: DZ0561
+//
+// Each implementation chooses its own associated types (spec §8.5, §18.29), so a `T` bounded
+// by `Mul<f32>` and by `Mul<i32>` has two `Output`s, and `T::Output` does not say which.
+
+fn keep<T: Mul<f32> + Mul<i32>>(product: T::Output) {}
+
+fn main() {}
