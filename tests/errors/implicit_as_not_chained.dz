@@ -1,0 +1,33 @@
+// expect: DZ0501
+//
+// `ImplicitAs` converts an argument once at most (spec §7.2): `Pounds` converts to
+// `Ounces` and `Ounces` to `cstr`, but a `Pounds` passed where a `cstr` is wanted does not
+// go through both. Two conversions the reader cannot see are one too many.
+
+struct Ounces {
+    pub oz: f32
+}
+
+struct Pounds {
+    pub lb: f32
+}
+
+impl ImplicitAs<Ounces> for Pounds {
+    fn convert(&self) -> Ounces {
+        return Ounces{ oz: lb * 16 }
+    }
+}
+
+impl ImplicitAs<cstr> for Ounces {
+    fn convert(&self) -> cstr {
+        return "oz"
+    }
+}
+
+fn show(s: cstr) {
+    println!("{}", s)
+}
+
+fn main() {
+    show(Pounds{ lb: 2 })
+}

@@ -144,24 +144,73 @@ impl Ctx<'_> {
             }
             return true;
         }
-        let trait_module = self.res.symbol(trait_sym).module;
-        let type_module = match &imp.self_ty {
-            Ty::Named { sym, .. } => Some(self.res.symbol(*sym).module),
-            _ => None,
-        };
-        if self.module != trait_module && type_module != Some(self.module) {
+        if !self.impl_is_local(imp) {
+            let (label, help) = if imp.trait_ref.args.is_empty() {
+                (
+                    "neither is declared in this module",
+                    "otherwise two libraries could both implement it, and a program using \
+                     both could not choose between them; to implement someone else's trait \
+                     for someone else's type, wrap the type in a struct of your own \
+                     (spec §7.6)",
+                )
+            } else {
+                (
+                    "neither it, the type, nor a type it is given is declared in this module",
+                    "a trait taking type arguments may also be implemented where one of them \
+                     is declared, as `impl ImplicitAs<Vec2> for rl::Vector2` is with `Vec2`; \
+                     otherwise wrap the type in a struct of your own (spec §7.6)",
+                )
+            };
             self.error_help(
                 codes::ORPHAN_IMPL,
                 imp.span,
                 format!("`impl {trait_name} for {me}` belongs with `{trait_name}` or with `{me}`"),
-                "neither is declared in this module",
-                "otherwise two libraries could both implement it, and a program using both \
-                 could not choose between them; to implement someone else's trait for \
-                 someone else's type, wrap the type in a struct of your own (spec §7.6)",
+                label,
+                help,
             );
             return false;
         }
         true
+    }
+
+    /// The orphan rule (spec §7.6): an implementation is written with its trait, or where
+    /// one of the types it joins is declared — `Self`, then each of the trait's arguments,
+    /// in order. So the module that declares `Vec2` may write `impl ImplicitAs<Vec2> for
+    /// rl::Vector2`. Two modules could only both write one implementation if each named
+    /// the other's type, which would make their dependencies a cycle (§3.2).
+    ///
+    /// A bare type parameter before the local type ends the search, as in Rust: `impl<T>
+    /// Pair<T, Mine> for Theirs` would cover `Pair<Yours, Mine>`, which the module declaring
+    /// `Yours` may also write without a cycle.
+    fn impl_is_local(&self, imp: &ImplSig) -> bool {
+        if self.res.symbol(imp.trait_ref.trait_sym).module == self.module {
+            return true;
+        }
+        for t in std::iter::once(&imp.self_ty).chain(&imp.trait_ref.args) {
+            if self.declared_here(t) {
+                return true;
+            }
+            let uncovered = match t {
+                Ty::Param(_) => true,
+                Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } | Ty::Ref { inner, .. } => {
+                    matches!(**inner, Ty::Param(_))
+                }
+                _ => false,
+            };
+            if uncovered {
+                return false;
+            }
+        }
+        false
+    }
+
+    /// Whether `t` is a type this module declares. An imported header's types count as
+    /// declared by the module whose manifest carries its recipe, which is one module in any
+    /// build, since two recipes for one library are an error (spec §15.1).
+    fn declared_here(&self, t: &Ty) -> bool {
+        let Ty::Named { sym, .. } = t else { return false };
+        let home = self.res.symbol(*sym).module;
+        home == self.module || self.ws.recipe_owner(home) == Some(self.module)
     }
 
     /// Pass 2: the implementation's method signatures, with `Self` replaced by the type.
@@ -524,27 +573,32 @@ impl TypeTable {
     /// Which implementation a call of `method` on `recv` reaches (spec §7.6). A type that
     /// implements one trait at several arguments — `Mul<f32>` and `Mul<Vec2>` — has one
     /// implementation per argument type, and the call's first argument picks (§18.27).
+    /// Where there is no argument to pick by, as for `ImplicitAs<cstr>` and
+    /// `ImplicitAs<str>`, the call's result type `ret` does.
     pub fn resolve_impl(
         &self,
         trait_sym: SymbolId,
         recv: &Ty,
         method: &str,
         arg: Option<&Ty>,
+        ret: Option<&Ty>,
     ) -> Option<(usize, HashMap<u32, Ty>)> {
         let found: Vec<(usize, TraitRef, HashMap<u32, Ty>)> =
             self.impls_for(recv).into_iter().filter(|(_, r, _)| r.trait_sym == trait_sym).collect();
         if found.len() > 1 {
-            if let Some(arg) = arg {
+            let by = |pick: &dyn Fn(&crate::FnSig) -> bool| {
+                found.iter().position(|(_, r, _)| {
+                    self.trait_method(r, recv, method).is_some_and(|s| pick(&s))
+                })
+            };
+            let by_arg = arg.and_then(|arg| {
                 let arg = arg.peeled().clone();
-                let hit = found.iter().position(|(_, r, _)| {
-                    self.trait_method(r, recv, method)
-                        .and_then(|s| s.params.first().map(|p| p.ty.peeled().clone()))
-                        .is_some_and(|p| p == arg)
-                });
-                if let Some(i) = hit {
-                    let (idx, _, map) = found.into_iter().nth(i)?;
-                    return Some((idx, map));
-                }
+                by(&|s| s.params.first().is_some_and(|p| *p.ty.peeled() == arg))
+            });
+            let hit = by_arg.or_else(|| ret.and_then(|ret| by(&|s| s.ret == *ret)));
+            if let Some(i) = hit {
+                let (idx, _, map) = found.into_iter().nth(i)?;
+                return Some((idx, map));
             }
         }
         found.into_iter().next().map(|(i, _, m)| (i, m))

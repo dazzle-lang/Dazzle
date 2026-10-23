@@ -243,8 +243,9 @@ call it looks like. `"x" as cstr` says the same explicitly. The other way, `c as
 measures a C string and copies nothing. A runtime `str` cannot become a `cstr`: nothing
 follows its last byte, so a C string needs a copy, and a copy has to be owned and freed. That
 owning C string is a `String`, which keeps a zero after its bytes and frees them when dropped:
-`String::from(name)` copies, and its `as_cstr()` borrows the copy as a `cstr` (§14.4).
-`s.as_str()` borrows the text. `[DECIDED — §18.39, D-0081]`
+`String::from(name)` copies, and its `as_cstr()` borrows the copy as a `cstr` (§14.4); a
+`String` passed as an argument where a `cstr` is wanted is borrowed that way on its own
+(§7.2). `s.as_str()` borrows the text. `[DECIDED — §18.39, D-0081, D-0089]`
 
 Because `?` binds to the type name, `[]T?` is a slice **of optionals**. An optional slice
 is `([]T)?` — parenthesised, because it is far rarer and the parentheses say which level

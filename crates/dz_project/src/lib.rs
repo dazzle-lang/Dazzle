@@ -453,6 +453,21 @@ impl Workspace {
     }
 }
 
+impl Workspace {
+    /// The module whose manifest carries the recipe an imported header's module came from,
+    /// when `module` is one (spec §15.1). Its types count as that module's own for the
+    /// orphan rule (§7.6); there is one such module, since two recipes for one library are
+    /// an error.
+    pub fn recipe_owner(&self, module: ModuleId) -> Option<ModuleId> {
+        let foreign = self.modules.get(module.0 as usize)?;
+        foreign.foreign.as_ref()?;
+        self.modules
+            .iter()
+            .find(|m| m.foreign.is_none() && m.cpp.libs.iter().any(|l| l.name == foreign.name))
+            .map(|m| m.id)
+    }
+}
+
 impl Module {
     /// Look up a dependency by the alias used in `import`.
     pub fn dependency(&self, alias: &str) -> Option<&Dependency> {
@@ -837,6 +852,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/core/formatter.dz", include_str!("std/core/formatter.dz")),
     ("<std>/core/hash.dz", include_str!("std/core/hash.dz")),
     ("<std>/core/iterate.dz", include_str!("std/core/iterate.dz")),
+    ("<std>/core/implicit_as.dz", include_str!("std/core/implicit_as.dz")),
     ("<std>/core/ops.dz", include_str!("std/core/ops.dz")),
     ("<std>/core/ordering.dz", include_str!("std/core/ordering.dz")),
     ("<std>/core/ownership.dz", include_str!("std/core/ownership.dz")),

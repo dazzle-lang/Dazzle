@@ -1736,3 +1736,42 @@ fn projections(xs: &List<i32>) -> i32 {
     let pair: (&i32, bool) = first_item(&flagged)
     return a + pair.0 + count_items(xs, ignore_int)
 }
+
+// --- r78: the orphan rule counts a trait's arguments, and `ImplicitAs` (spec §7.2, §7.6) --
+
+// `Mul` is `std`'s and `f32` is no one's here, but `Scale`, its argument, is this module's.
+impl Mul<Scale> for f32 {
+    type Output = Scale
+
+    fn mul(&self, rhs: Scale) -> Scale {
+        return rhs
+    }
+}
+
+pub struct Grams {
+    pub g: f32
+}
+
+// Into a type of this module, from one that is not.
+impl ImplicitAs<Grams> for f32 {
+    fn convert(&self) -> Grams {
+        return Grams{ g: self }
+    }
+}
+
+fn weigh(w: Grams) -> f32 {
+    return w.g
+}
+
+fn c_text(s: cstr) -> cstr {
+    return s
+}
+
+// A `String`, a reference to one and a temporary each convert for the call alone; so does a
+// value whose type is converted from by a module that is not its own.
+fn conversions(name: &String, owned: String, x: f32) -> f32 {
+    let _ = c_text(name)
+    let _ = c_text(owned)
+    let _ = c_text(String::from("x"))
+    return weigh(x) + weigh(owned.len() as f32)
+}

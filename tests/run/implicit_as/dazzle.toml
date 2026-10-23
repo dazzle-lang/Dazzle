@@ -1,0 +1,9 @@
+[module]
+name    = "implicit_as"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

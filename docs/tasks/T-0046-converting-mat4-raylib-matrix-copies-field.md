@@ -37,7 +37,9 @@ compiler turns into a few shuffles, but not free.
   generated from the names, `mN` ← element `N`, which removes the risk of a slip in one of
   the sixteen lines.
 - **Or don't convert**: a game that draws only through raylib can hold `Matrix` throughout
-  and use raymath's functions on it.
+  and use raymath's functions on it. Since r78 the module carrying raylib's recipe may give
+  it `std`'s traits (D-0088), so `impl Mul for rl::Matrix` over raymath's `MatrixMultiply`
+  makes `proj * view * model` work on raylib's own type.
 
 Its cost beside the draw call it feeds is small, so this stays a deferral. Struct layout is
 now a rule (D-0085, §7.3), so where another library's matrix really does share `Mat4`'s

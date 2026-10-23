@@ -1,0 +1,9 @@
+string 6
+still Dazzle
+reference 6
+temporary 9
+path 15
+feet 2.5
+cell 7
+label 4 4
+bound 6 4

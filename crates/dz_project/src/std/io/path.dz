@@ -133,8 +133,9 @@ pub struct Path {
         return Path(out.as_str())
     }
 
-    /// The text as a C string, borrowed, for a C or C++ function that takes a file name —
-    /// `rl::LoadTexture(path.as_cstr())`. Valid until the path next changes or is dropped.
+    /// The text as a C string, borrowed, for a C or C++ function that takes a file name.
+    /// Valid until the path next changes or is dropped, which nothing checks: passing the
+    /// `Path` itself, `rl::LoadTexture(path)`, converts it for that call alone.
     pub fn as_cstr(&self) -> cstr {
         return m_text.as_cstr()
     }
@@ -186,6 +187,14 @@ impl Ord for Path {
 impl Hash for Path {
     fn hash(&self) -> u64 {
         return self.as_str().hash()
+    }
+}
+
+/// A `Path` passed where a `cstr` is wanted is its text, borrowed for the call:
+/// `rl::LoadTexture(path)` (spec §7.2).
+impl ImplicitAs<cstr> for Path {
+    fn convert(&self) -> cstr {
+        return self.as_cstr()
     }
 }
 
