@@ -56,6 +56,13 @@ env:
   # A CI machine has no incremental cache worth keeping between jobs, and building one
   # costs both time and disk.
   CARGO_INCREMENTAL: 0
+  # The tests are a compiler run thousands of times, and unoptimised that is most of the
+  # job: `tolerant.rs` alone took six and a half minutes on Linux, against about a third of
+  # that at opt-level 1, which costs only seconds more to build. Debug assertions and
+  # overflow checks are their own settings and stay on. Here rather than in Cargo.toml,
+  # where it would slow every local edit-and-rebuild too.
+  CARGO_PROFILE_DEV_OPT_LEVEL: 1
+  CARGO_PROFILE_TEST_OPT_LEVEL: 1
 
 jobs:
   test:
@@ -107,9 +114,15 @@ jobs:
       - name: Install libclang and the window-system headers (linux)
         if: matrix.name == 'linux'
         run: |
+          # The runner image ships LLVM, and `dz` only needs libclang's shared library,
+          # which clang-sys also finds as `libclang.so.1`. libclang-dev adds headers and
+          # static archives on top — 29 MB, which on a slow day for the Ubuntu mirror was
+          # seven minutes of the job — so it is installed only when the image has none.
+          libclang=libclang-dev
+          if ls /usr/lib/llvm-*/lib/libclang.so.1 >/dev/null 2>&1; then libclang=; fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libclang-dev \
+            $libclang \
             libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
             libxcursor-dev libxi-dev
           # Not `llvm-config --libdir`: Ubuntu installs it versioned (`llvm-config-18`),
@@ -119,9 +132,10 @@ jobs:
           # runtimes (`libclang_rt.memprof-x86_64.so`) the runner image ships, `find`'s
           # order is not fixed, and clang-sys searches *only* LIBCLANG_PATH once it is set,
           # so a run that picked one of those failed every interop test.
-          lib=$(ls /usr/lib/llvm-*/lib/libclang.so 2>/dev/null | sort -V | tail -n1)
+          lib=$(ls /usr/lib/llvm-*/lib/libclang.so /usr/lib/llvm-*/lib/libclang.so.1 \
+            2>/dev/null | sort -V | tail -n1)
           if [ -z "$lib" ]; then
-            echo "::error::libclang not found after installing libclang-dev"
+            echo "::error::libclang not found, even after installing libclang-dev"
             exit 1
           fi
           echo "found $lib"
@@ -183,13 +197,14 @@ jobs:
         run: cargo test --workspace
 
       # Invariant 7: generated C++ must compile warning-clean on more than one compiler.
-      # The suite checks whichever it is given, so on the platform that has both, it runs
-      # again against the other.
+      # `run.rs` builds with whichever it is given, so on the platform that has both, it runs
+      # again against the other. Only it: nothing else reads DZ_CXX (`matrix.rs` already
+      # tries every compiler present), and re-running the whole suite here doubled the job.
       - name: Test against clang++ as well
         if: matrix.name == 'linux'
         env:
           DZ_CXX: clang++
-        run: cargo test --workspace
+        run: cargo test -p dz --test run
 
       # `dz`'s own commands, exercised the way a user meets them rather than through the
       # Rust test harness.
