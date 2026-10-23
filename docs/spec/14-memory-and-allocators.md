@@ -263,9 +263,16 @@ is an error. `[DECIDED — §18.57, superseding §18.23 and §18.55]`
   `to_mat4`.
 - **`Mat4`**, **column-major** and acting on column vectors: `m * v`, `projection * view *
   model`, `cols[3]` the translation — the OpenGL, GLSL and glm convention, right-handed.
-  `Mat4::identity`, `translation`, `scaling`, `rotation`, `perspective` and `orthographic`
-  (into OpenGL's clip space), `look_at`, `transform_point`, `transform_vector`, `transpose`,
-  `determinant`, and `inverse` (a `Mat4?`, `none` when singular).
+  `Mat4::identity`, `translation`, `scaling`, `rotation`, `perspective` and `orthographic`,
+  `look_at`, `transform_point`, `transform_vector`, `transpose`, `determinant`, and
+  `inverse` (a `Mat4?`, `none` when singular). Its layout is what OpenGL, Vulkan, Direct3D,
+  Metal and SDL3's GPU API read as it is. raylib's `Matrix` is the same matrix stored in
+  the transposed order, so converting to it is a copy field by field, never a cast.
+- **`DepthRange`**, the last argument of `perspective` and `orthographic`, with no default:
+  `.MinusOneToOne` for OpenGL and raylib, `.ZeroToOne` for Vulkan, Direct3D, Metal and
+  SDL3's GPU API. The wrong one still draws, with geometry near the camera clipped away, so
+  it is written at every call; a program fixed to one API names it once in a `const` or
+  picks it with `#if` (§12.10). `[DECIDED — D-0086]`
 
 Methods rather than free functions throughout, since there is no overloading (§18.5) and
 one name must work across `f32`, `f64` and every vector: `a.lerp(b, t)` is the same call on

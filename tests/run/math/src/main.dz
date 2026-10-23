@@ -105,12 +105,21 @@ fn matrices() {
     let view = Mat4::look_at(Vec3{ x: 0, y: 0, z: 5 }, Vec3{}, Vec3{ x: 0, y: 1, z: 0 })
     let eye_space = view.transform_point(Vec3{})
     println!("look_at {} {} {}", near(eye_space.x, 0), near(eye_space.y, 0), near(eye_space.z, -5))
-    let proj = Mat4::perspective(std::PI / 2, 1, 1, 100)
+    let proj = Mat4::perspective(std::PI / 2, 1, 1, 100, .MinusOneToOne)
     let clip = proj * Vec4{ x: 0, y: 0, z: -1, w: 1 }
-    println!("perspective near plane depth {}", near(clip.z / clip.w, -1))
-    let ortho = Mat4::orthographic(0, 800, 600, 0, -1, 1)
+    let far_clip = proj * Vec4{ x: 0, y: 0, z: -100, w: 1 }
+    println!("perspective -1..1 {} {}", near(clip.z / clip.w, -1), near(far_clip.z / far_clip.w, 1))
+    let proj_zo = Mat4::perspective(std::PI / 2, 1, 1, 100, .ZeroToOne)
+    let clip_zo = proj_zo * Vec4{ x: 0, y: 0, z: -1, w: 1 }
+    let far_clip_zo = proj_zo * Vec4{ x: 0, y: 0, z: -100, w: 1 }
+    println!("perspective 0..1 {} {}", near(clip_zo.z / clip_zo.w, 0), near(far_clip_zo.z / far_clip_zo.w, 1))
+    let ortho = Mat4::orthographic(0, 800, 600, 0, -1, 1, .MinusOneToOne)
     let corner = ortho.transform_point(Vec3{ x: 800, y: 600, z: 0 })
-    println!("orthographic {} {}", near(corner.x, 1), near(corner.y, -1))
+    println!("orthographic {} {} depth {}", near(corner.x, 1), near(corner.y, -1), near(corner.z, 0))
+    let ortho_zo = Mat4::orthographic(0, 800, 600, 0, 1, 11, .ZeroToOne)
+    let near_corner = ortho_zo.transform_point(Vec3{ x: 800, y: 600, z: -1 })
+    let far_corner = ortho_zo.transform_point(Vec3{ x: 0, y: 0, z: -11 })
+    println!("orthographic 0..1 {} {} {}", near(near_corner.x, 1), near(near_corner.z, 0), near(far_corner.z, 1))
 }
 
 /// A method on a literal: the literal takes the type `let` would give it (spec §2.5).

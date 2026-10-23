@@ -279,6 +279,9 @@ T::fields                  a compile-time sequence of the fields — deferred (�
 `sizeof(T)` and `alignof(T)` are accepted as aliases for `T::size` / `T::align`, because
 they read better in allocation code, which is where they almost always appear.
 
+Dazzle has no layout model of its own: `T::size` and `T::align` are what the target's C++
+compiler says, for a struct laid out as §7.3 describes.
+
 ## 5.6 Modality
 
 The type sigils divide on two axes, and keeping them apart is what stops them composing

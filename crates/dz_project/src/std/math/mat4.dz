@@ -32,28 +32,42 @@ pub struct Mat4 {
         return Quat::from_axis_angle(axis, angle).to_mat4()
     }
 
-    /// A perspective projection, `fov_y` in radians, into OpenGL's clip space, where depth
-    /// runs from -1 at `near` to 1 at `far`.
-    pub fn perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
+    /// A perspective projection, `fov_y` in radians, for a camera looking down -z, with depth
+    /// mapped onto `depth`: `.MinusOneToOne` for OpenGL and raylib, `.ZeroToOne` for Vulkan,
+    /// Direct3D, Metal and SDL3's GPU API (see `DepthRange`). There is no default, because
+    /// the wrong one still draws, just wrongly. Clip-space y points up, as in every one of
+    /// those but Vulkan, where a viewport of negative height turns it back up.
+    pub fn perspective(fov_y: f32, aspect: f32, near: f32, far: f32, depth: DepthRange) -> Mat4 {
         let f = 1 / (fov_y * 0.5).tan()
         let mut m = Mat4{}
         m.cols[0].x = f / aspect
         m.cols[1].y = f
-        m.cols[2].z = (far + near) / (near - far)
         m.cols[2].w = -1
-        m.cols[3].z = (2 * far * near) / (near - far)
+        if depth == DepthRange::ZeroToOne {
+            m.cols[2].z = far / (near - far)
+            m.cols[3].z = (far * near) / (near - far)
+        } else {
+            m.cols[2].z = (far + near) / (near - far)
+            m.cols[3].z = (2 * far * near) / (near - far)
+        }
         return m
     }
 
-    /// An orthographic projection into OpenGL's clip space.
-    pub fn orthographic(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> Mat4 {
+    /// An orthographic projection for a camera looking down -z, with depth mapped onto
+    /// `depth`, chosen as for `perspective`.
+    pub fn orthographic(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32, depth: DepthRange) -> Mat4 {
         let mut m = Mat4::identity()
         m.cols[0].x = 2 / (right - left)
         m.cols[1].y = 2 / (top - bottom)
-        m.cols[2].z = -2 / (far - near)
         m.cols[3].x = -(right + left) / (right - left)
         m.cols[3].y = -(top + bottom) / (top - bottom)
-        m.cols[3].z = -(far + near) / (far - near)
+        if depth == DepthRange::ZeroToOne {
+            m.cols[2].z = -1 / (far - near)
+            m.cols[3].z = -near / (far - near)
+        } else {
+            m.cols[2].z = -2 / (far - near)
+            m.cols[3].z = -(far + near) / (far - near)
+        }
         return m
     }
 
