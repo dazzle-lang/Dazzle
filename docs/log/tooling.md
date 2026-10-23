@@ -285,6 +285,15 @@ root Markdown files, `docs/`, `editors/`, `tools/`, `.claude/` or the logo skips
 every `.md`: `dz explain` compiles in `crates/dz_diag/explain/*.md`), and a newer push to the
 same ref cancels the run still going.
 
+## CI on the pull request again, and linear history (2026-10-23)
+
+The repository now merges pull requests only by rebase, deletes the branch once merged, and
+commits carry no per-commit AI credit (the README discloses it once). With rebase-merge, a
+PR's commits land on master as new commits whose committer is GitHub, so CI runs on the pull
+request again and the job skips a push to master that GitHub committed: each change is still
+tested once, on the PR (as merged into master), or on master for a commit pushed there
+directly. Both triggers share the same paths-ignore.
+
 ## Trailing comments stay where they were written (T-0082; 2026-10-23)
 
 `dz fmt` placed a trailing comment only after the nodes that asked for one — a statement, a

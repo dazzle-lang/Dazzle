@@ -227,6 +227,11 @@ These are load-bearing. Breaking one is a real regression even if tests still pa
 - **Comments** explain *why*, especially where a choice looks arbitrary. Do not narrate
   what the code already says.
 - **Do not commit or push unless the user asks.**
+- **No AI attribution in commits or PRs**: no `Co-Authored-By: Claude` trailer, no
+  "Generated with Claude Code" line. The README's "How Dazzle is made" section discloses it
+  once for the whole repository; `.claude/settings.json` turns the trailers off.
+- **PRs merge by rebase** (the repository allows nothing else), so history stays linear: keep
+  a PR to one commit with a full message, which lands on master as it is.
 
 ## Environment gotchas
 

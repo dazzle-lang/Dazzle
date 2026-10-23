@@ -11,15 +11,28 @@ name: CI
 # and the Linux and macOS jobs failed on code that had been fine. Bump LINT_TOOLCHAIN
 # deliberately, see what the new release thinks, and fix it in its own commit.
 #
-# It runs once per change, on master after the merge, and not on the pull request too: PRs
-# here are merged as soon as they open, so a PR run only doubled the wait and the minutes.
-# To try a branch before merging, run it by hand: `gh workflow run CI --ref <branch>`.
+# It runs once per change: on the pull request, or on master for a commit pushed there
+# directly. A PR lands on master by rebase, which makes new commits with GitHub as their
+# committer; the job skips those, since the PR's run already tested them (as merged into
+# master, which is what `pull_request` checks out). To try a branch with no PR, run it by
+# hand: `gh workflow run CI --ref <branch>`.
+#
+# A change that cannot alter what is built or tested does not need a 30-minute run, hence
+# the paths-ignore, the same for both triggers. Not `**.md`: `crates/dz_diag/explain/*.md`
+# is compiled into `dz explain`. `*` stops at `/`, so `*.md` is only the README,
+# CONTRIBUTING and CLAUDE.md at the root.
 on:
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "editors/**"
+      - "tools/**"
+      - ".claude/**"
+      - ".github/logo.png"
   push:
     branches: [master]
-    # A change that cannot alter what is built or tested does not need a 30-minute run.
-    # Not `**.md`: `crates/dz_diag/explain/*.md` is compiled into `dz explain`. `*` stops
-    # at `/`, so `*.md` is only the README, CONTRIBUTING and CLAUDE.md at the root.
     paths-ignore:
       - "*.md"
       - "docs/**"
@@ -29,8 +42,9 @@ on:
       - ".github/logo.png"
   workflow_dispatch:
 
-# Two merges in quick succession test only the second: it contains the first, so finishing
-# the older run would spend the time and say nothing the newer one will not.
+# Two pushes in quick succession, to master or to one PR, test only the second: it contains
+# the first, so finishing the older run would spend the time and say nothing the newer one
+# will not.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -46,6 +60,8 @@ env:
 jobs:
   test:
     name: ${{ matrix.name }}
+    # A push GitHub committed is a rebase-merged PR, already tested on the PR.
+    if: github.event_name != 'push' || github.event.head_commit.committer.email != 'noreply@github.com'
     runs-on: ${{ matrix.os }}
     strategy:
       # One platform failing is a fact worth having about the other two, so let them finish.

@@ -610,6 +610,13 @@ The open work, milestone by milestone, is the backlog in [`docs/tasks.md`](docs/
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to report a problem, propose a change, and build and test the compiler |
 | [`CLAUDE.md`](CLAUDE.md) | the invariants, conventions and commands, written for an AI assistant working in this repository and just as useful to a person |
 
+## How Dazzle is made
+
+Dazzle is built with AI. The language's design is its author's: its syntax and semantics,
+and every decision recorded in [`docs/decisions/`](docs/decisions/README.md). The compiler,
+its tests and much of the documentation are written by Claude, Anthropic's AI model, working
+from that design and the [specification](docs/spec/README.md).
+
 ## License
 
 [MIT](LICENSE). The libraries under `examples/vendor/` are submodules under licenses of their
