@@ -320,6 +320,7 @@ pub enum ItemSig {
 }
 
 /// Everything the body checker needs to know about declarations.
+#[derive(Clone)]
 pub struct TypeTable {
     /// Every `#[test] fn`, in declaration order across the workspace (spec §19 M14).
     /// Held here because both halves of the build ask about it: a normal build leaves
@@ -864,92 +865,179 @@ pub fn check(
     files: &HashMap<ModuleId, Vec<ParsedFile>>,
     map: &SourceMap,
 ) -> CheckResult {
-    let mut cx = Ctx {
-        ws,
-        res,
-        map,
-        diags: Diagnostics::new(),
-        table: TypeTable {
-            tests: Vec::new(),
-            benches: Vec::new(),
-            sigs: HashMap::new(),
-            type_params: HashMap::new(),
-            param_bounds: HashMap::new(),
-            assoc_params: HashMap::new(),
-            assoc_decls: HashMap::new(),
-            declared_traits: HashMap::new(),
-            copy_trait: None,
-            drop_trait: None,
-            impls: Vec::new(),
-            drop_impls: HashMap::new(),
-            copy_impls: HashMap::new(),
-            prelude_names: HashMap::new(),
-        },
-        hir: Hir::default(),
-        module: ModuleId(0),
-        file: FileId(0),
-        param_scopes: Vec::new(),
-        next_param: 0,
-        consts: HashMap::new(),
-        impl_params: HashMap::new(),
-        impl_at: HashMap::new(),
-    };
-    cx.table.copy_trait = cx.prelude_trait("Copy");
-    cx.table.drop_trait = cx.prelude_trait("Drop");
-    // The standard library's traits, `Float` and `Integer` among them, by name (spec §14.4).
-    for (i, s) in res.symbols.iter().enumerate() {
-        if s.module == res.prelude && s.kind == SymbolKind::Trait {
-            cx.table.prelude_names.insert(SymbolId(i as u32), s.name.clone());
+    check_from(ws, res, files, map, None)
+}
+
+/// The checker's state once the prelude's layer — the standard library and the headers it
+/// imports — is checked, and nothing else yet.
+///
+/// That layer sees nothing past itself, and `dz_project` gives its modules, files and so
+/// its symbols the first ids in every workspace, so this state is the same for every
+/// project the standard library is loaded into. Computed once, it stands in for checking
+/// the standard library again in each analysis — most of what checking a small program
+/// costs, paid by the editor on every pause in typing (spec §17.2).
+#[derive(Clone)]
+pub struct PreludeLayer {
+    table: TypeTable,
+    hir: Hir,
+    diags: Diagnostics,
+    next_param: u32,
+    consts: HashMap<SymbolId, (ConstDecl, ModuleId, FileId)>,
+    impl_params: HashMap<(FileId, u32), Vec<ParamDef>>,
+    impl_at: HashMap<(FileId, u32), usize>,
+    /// How many symbols the layer's resolution had: the cheap check that a layer is being
+    /// reused against the resolution it was made from.
+    symbols: usize,
+}
+
+/// Check the prelude's layer alone, for [`check_from`] to start from.
+pub fn check_prelude(
+    ws: &Workspace,
+    res: &Resolution,
+    files: &HashMap<ModuleId, Vec<ParsedFile>>,
+    map: &SourceMap,
+) -> PreludeLayer {
+    let mut cx = Ctx::new(ws, res, map);
+    cx.check_layer(files, true);
+    PreludeLayer {
+        table: cx.table,
+        hir: cx.hir,
+        diags: cx.diags,
+        next_param: cx.next_param,
+        consts: cx.consts,
+        impl_params: cx.impl_params,
+        impl_at: cx.impl_at,
+        symbols: prelude_symbols(ws, res),
+    }
+}
+
+/// [`check`], starting from the prelude's layer already checked when `prelude` is given.
+///
+/// The caller vouches that `prelude` was made from the same standard library: the same
+/// `#if` flags and the same imported headers. Every other input is the workspace's own and
+/// cannot reach into the layer. A layer whose symbol count does not match is not used.
+pub fn check_from(
+    ws: &Workspace,
+    res: &Resolution,
+    files: &HashMap<ModuleId, Vec<ParsedFile>>,
+    map: &SourceMap,
+    prelude: Option<&PreludeLayer>,
+) -> CheckResult {
+    let mut cx = Ctx::new(ws, res, map);
+    match prelude.filter(|p| p.symbols == prelude_symbols(ws, res)) {
+        Some(p) => {
+            let p = p.clone();
+            cx.table = p.table;
+            cx.hir = p.hir;
+            cx.diags = p.diags;
+            cx.next_param = p.next_param;
+            cx.consts = p.consts;
+            cx.impl_params = p.impl_params;
+            cx.impl_at = p.impl_at;
         }
+        None => cx.check_layer(files, true),
+    }
+    cx.check_layer(files, false);
+    cx.diags.sort_by_position();
+    CheckResult { table: cx.table, hir: cx.hir, diagnostics: cx.diags }
+}
+
+/// The prelude's layer's symbols, which resolution numbers first.
+fn prelude_symbols(ws: &Workspace, res: &Resolution) -> usize {
+    res.symbols.iter().take_while(|s| ws.in_prelude_layer(s.module)).count()
+}
+
+impl<'a> Ctx<'a> {
+    fn new(ws: &'a Workspace, res: &'a Resolution, map: &'a SourceMap) -> Ctx<'a> {
+        let mut cx = Ctx {
+            ws,
+            res,
+            map,
+            diags: Diagnostics::new(),
+            table: TypeTable {
+                tests: Vec::new(),
+                benches: Vec::new(),
+                sigs: HashMap::new(),
+                type_params: HashMap::new(),
+                param_bounds: HashMap::new(),
+                assoc_params: HashMap::new(),
+                assoc_decls: HashMap::new(),
+                declared_traits: HashMap::new(),
+                copy_trait: None,
+                drop_trait: None,
+                impls: Vec::new(),
+                drop_impls: HashMap::new(),
+                copy_impls: HashMap::new(),
+                prelude_names: HashMap::new(),
+            },
+            hir: Hir::default(),
+            module: ModuleId(0),
+            file: FileId(0),
+            param_scopes: Vec::new(),
+            next_param: 0,
+            consts: HashMap::new(),
+            impl_params: HashMap::new(),
+            impl_at: HashMap::new(),
+        };
+        cx.table.copy_trait = cx.prelude_trait("Copy");
+        cx.table.drop_trait = cx.prelude_trait("Drop");
+        // The standard library's traits, `Float` and `Integer` among them, by name (spec §14.4).
+        for (i, s) in res.symbols.iter().enumerate() {
+            if s.module == res.prelude && s.kind == SymbolKind::Trait {
+                cx.table.prelude_names.insert(SymbolId(i as u32), s.name.clone());
+            }
+        }
+        cx
     }
 
-    // Imported headers first: their signatures come from libclang, and a Dazzle signature
-    // may name one of their types (spec §15.2).
-    cx.collect_foreign();
+    /// Check one layer of the workspace: the prelude's when `prelude` is true, which needs
+    /// nothing from outside it, and otherwise everything else, which needs it done first.
+    /// Each pass below runs over a whole layer before the next starts.
+    fn check_layer(&mut self, files: &HashMap<ModuleId, Vec<ParsedFile>>, prelude: bool) {
+        let ws = self.ws;
+        let in_layer = |m: ModuleId| ws.in_prelude_layer(m) == prelude;
 
-    // Four passes, in strict dependency order. Each exists because the one before it
-    // supplies something the next cannot do without, whatever order declarations appear in
-    // — which is the point, since order never matters inside a module (spec §3.2).
-    //
-    //   0. Generic parameters and associated types: what names *are* types.
-    //   1. Bounds and trait lists: `Mul<f32>` needs `Mul`'s parameter list to check its
-    //      argument count, and the trait may be declared after the struct using it.
-    //   2. Signatures: a field of type `Buffer<f32>` needs both of the above.
-    //   3. Bodies.
-    fn run(
-        ws: &Workspace,
-        files: &HashMap<ModuleId, Vec<ParsedFile>>,
-        cx: &mut Ctx,
-        f: impl Fn(&mut Ctx, &Item),
-    ) {
-        for module in ws.modules() {
-            cx.module = module.id;
-            if let Some(module_files) = files.get(&module.id) {
-                for pf in module_files {
-                    cx.file = pf.file;
-                    for item in &pf.ast.items {
-                        f(cx, item);
+        // Imported headers first: their signatures come from libclang, and a Dazzle signature
+        // may name one of their types (spec §15.2).
+        self.collect_foreign(&in_layer);
+
+        // Four passes, in strict dependency order. Each exists because the one before it
+        // supplies something the next cannot do without, whatever order declarations appear in
+        // — which is the point, since order never matters inside a module (spec §3.2).
+        //
+        //   0. Generic parameters and associated types: what names *are* types.
+        //   1. Bounds and trait lists: `Mul<f32>` needs `Mul`'s parameter list to check its
+        //      argument count, and the trait may be declared after the struct using it.
+        //   2. Signatures: a field of type `Buffer<f32>` needs both of the above.
+        //   3. Bodies.
+        let run = |cx: &mut Ctx, f: &dyn Fn(&mut Ctx, &Item)| {
+            for module in ws.modules().filter(|m| in_layer(m.id)) {
+                cx.module = module.id;
+                if let Some(module_files) = files.get(&module.id) {
+                    for pf in module_files {
+                        cx.file = pf.file;
+                        for item in &pf.ast.items {
+                            f(cx, item);
+                        }
                     }
                 }
             }
-        }
+        };
+        let impls_before = self.table.impls.len();
+        run(self, &|cx, it| cx.collect_type_params(it));
+        run(self, &|cx, it| cx.collect_trait_refs(it));
+        run(self, &|cx, it| cx.collect_item(it));
+        // `: Base` needs every struct's signature to exist before any base can be resolved,
+        // and then the bases flattened parent-first — so it is its own pass, after 2 and
+        // before any body is checked (spec §7.3, 18.32).
+        run(self, &|cx, it| cx.collect_base(it));
+        self.flatten_bases(&in_layer);
+        // `impl Drop` and `impl Copy` fill in their struct's special members, which every
+        // later question about ownership reads — so after every signature exists, and before
+        // any body is checked (spec §6.1).
+        self.attach_special_impls(impls_before);
+        run(self, &check::item);
     }
-    run(ws, files, &mut cx, |cx, it| cx.collect_type_params(it));
-    run(ws, files, &mut cx, |cx, it| cx.collect_trait_refs(it));
-    run(ws, files, &mut cx, |cx, it| cx.collect_item(it));
-    // `: Base` needs every struct's signature to exist before any base can be resolved,
-    // and then the bases flattened parent-first — so it is its own pass, after 2 and
-    // before any body is checked (spec §7.3, 18.32).
-    run(ws, files, &mut cx, |cx, it| cx.collect_base(it));
-    cx.flatten_bases();
-    // `impl Drop` and `impl Copy` fill in their struct's special members, which every
-    // later question about ownership reads — so after every signature exists, and before
-    // any body is checked (spec §6.1).
-    cx.attach_special_impls();
-    run(ws, files, &mut cx, check::item);
-
-    cx.diags.sort_by_position();
-    CheckResult { table: cx.table, hir: cx.hir, diagnostics: cx.diags }
 }
 
 impl Ctx<'_> {
@@ -961,10 +1049,10 @@ impl Ctx<'_> {
     /// `unsigned` is wanted; a float macro written with `f` is an `f32`. Calling a C
     /// function is safe code: what it does with a pointer is the header's promise, and
     /// §15.1 calls raylib without `unsafe`.
-    fn collect_foreign(&mut self) {
+    fn collect_foreign(&mut self, in_layer: &dyn Fn(ModuleId) -> bool) {
         use dz_project::cppimport::{ConstValue, DeclKind};
         let ws = self.ws;
-        for module in ws.modules() {
+        for module in ws.modules().filter(|m| in_layer(m.id)) {
             let Some(f) = &module.foreign else { continue };
             for d in &f.header.decls {
                 let Some(sym) = self.res.foreign(module.id, &d.cpp) else { continue };
@@ -2074,8 +2162,12 @@ impl<'a> Ctx<'a> {
     /// same thing everywhere and a `&Derived` is a `&Base` at offset zero. Walking
     /// parent-first is what lets a chain of three work from one pass: by the time a type
     /// is flattened its base already holds *its* base's fields.
-    fn flatten_bases(&mut self) {
-        let with_base: Vec<SymbolId> = self
+    ///
+    /// Only the types of the layer being checked: an earlier layer's are flattened already,
+    /// and doing one again would give it its base's fields twice.
+    fn flatten_bases(&mut self, in_layer: &dyn Fn(ModuleId) -> bool) {
+        let res = self.res;
+        let (with_base, earlier): (Vec<SymbolId>, Vec<SymbolId>) = self
             .table
             .sigs
             .iter()
@@ -2083,14 +2175,14 @@ impl<'a> Ctx<'a> {
                 ItemSig::Struct(s) if s.base.is_some() => Some(*sym),
                 _ => None,
             })
-            .collect();
+            .partition(|s| in_layer(res.symbol(*s).module));
 
         // Deterministic order: the map's iteration order is not, and a cycle's diagnostic
         // must land on the same struct every run.
         let mut with_base = with_base;
         with_base.sort_by_key(|s| s.0);
 
-        let mut done: HashSet<SymbolId> = HashSet::new();
+        let mut done: HashSet<SymbolId> = earlier.into_iter().collect();
         for sym in with_base {
             self.flatten_one(sym, &mut done, &mut Vec::new());
         }

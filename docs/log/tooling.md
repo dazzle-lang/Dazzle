@@ -313,3 +313,63 @@ whose comments were written at one column kept aligned at the column the widest 
 placeholder is a private-use character absent from the source, so it can never be mistaken
 for one written there. The README's samples, aligned by hand, format unchanged; nothing in
 `examples/`, `tests/` or the standard library formats differently.
+
+## CI in a third of the time, and the standard library checked once (2026-10-23)
+
+The Linux job took 29 minutes. Per-step timings put it in three places: `apt-get install`,
+7 of them on a day the Ubuntu mirror served `libclang-dev`'s 29 MB at 70 kB/s; the test
+suite at 10; and the whole suite again against clang++, another 10. Within the suite,
+`dz_driver/tests/tolerant.rs` was six and a half minutes of each pass. Now:
+
+- **Tests build at opt-level 1 in CI** (`CARGO_PROFILE_{DEV,TEST}_OPT_LEVEL`, in the
+  workflow and not `Cargo.toml`, so local rebuilds stay fast). Debug assertions and overflow
+  checks are separate settings and stay on. `tolerant.rs` went from 293 s to 96 s on an
+  8-core machine for 36 s more of build.
+- **The clang++ pass runs only `dz/tests/run.rs`**, the one test that reads `DZ_CXX`;
+  `matrix.rs` already tries every compiler present, and nothing else compiles C++.
+- **`libclang-dev` is installed only when the runner has no libclang**: clang-sys loads
+  `libclang.so.1`, which the image's LLVM ships, and the headers and static archives on top
+  are what made the download slow.
+
+**The standard library is checked once per thread rather than once per analysis.** With
+its trees already cached, checking its bodies was still about 20 of the 44 ms an analysis of
+`hello` took — and the editor analyses on every pause in typing. The checker now works in two
+layers: the prelude's (`std` and the headers it imports), then everything else, each pass
+running over a whole layer before the next starts. Nothing in the prelude's layer can see
+past it, so its checker state — the type table, its HIR, the parameter counter, the `impl`
+bookkeeping — is a function of the standard library alone, and `dz_check::PreludeLayer`
+captures it. `dz_driver` keeps one per thread (the types share names through `Rc`) keyed on
+what can change it: the `#if` flags on for `std` (none when a parse error left every `#if`
+in place), the `Arc` of each header it imports, and the root's `type_info`, the one root
+setting the checker reads. An analysis that matches starts from a copy and checks only the
+rest.
+
+That needed the layer's ids to be the same in every workspace, and they were not:
+- `libc`, the module `std` imports `stdlib.h` into, was created after every project module,
+  so its module id and symbol ids depended on the program. `dz_project::load` now imports
+  the prelude's headers straight after adding the prelude, so they are modules 1.. and their
+  files follow `std`'s. **`std`'s own `stdlib.h` is therefore read with C++17**, the oldest
+  standard the generated code compiles as, rather than the root manifest's `cpp_standard`:
+  anything declared there is declared under any later standard too.
+- `std`'s 75 files are added to the source map first, before any manifest
+  (`Module::embedded_files`), instead of after the manifests of however many modules the
+  project has.
+- The checker numbered a method's generic parameters after every module's type parameters;
+  checking by layer numbers `std`'s first.
+
+`flatten_bases`, `attach_special_impls` and `collect_foreign` each walked the whole
+workspace; each now does only its layer, since flattening a type twice gives it its base's
+fields twice. Impl overlap is checked only against earlier impls, and `std`'s come first, so
+layering changes nothing there. A layer is used only if its symbol count matches the
+resolution it is given.
+
+`dz_driver/tests/prelude_cache.rs` holds reuse to being invisible: a program analysed after a
+different one must give exactly the diagnostics and HIR dump it gives checked afresh, in both
+modes, and a broken program and a clean one never share a layer. It caught a race on its
+first run: two threads importing one header for the first time both parsed it, and the
+second replaced the first's cache entry, so the first thread's `Arc` never matched again.
+`dz_cppimport::import` now keeps an entry another thread made meanwhile, so an unchanged
+header is one `Arc` per process — which `Workspace::add_foreign`'s sharing relied on already.
+
+`hello` now analyses in about 29 ms steady, from 44; copying the layer is 3.5 ms of that.
+`tolerant.rs` takes 132 s in a debug build (from 293) and 55 s at opt-level 1 (from 96).

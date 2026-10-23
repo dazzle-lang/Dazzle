@@ -34,6 +34,13 @@ impl Flags {
     pub fn is_on(&self, module: ModuleId, name: &str) -> bool {
         self.on.get(&module).is_some_and(|s| s.contains(name))
     }
+
+    /// Every flag on for `module`, sorted.
+    pub fn on_for(&self, module: ModuleId) -> Vec<String> {
+        let mut names: Vec<String> = self.on.get(&module).into_iter().flatten().cloned().collect();
+        names.sort();
+        names
+    }
 }
 
 /// Settle every module's flags: its defaults, what its dependents ask of it, the command

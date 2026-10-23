@@ -313,8 +313,17 @@ pub fn import(req: &Request<'_>) -> Result<Arc<Header>, ImportError> {
     // calls; `parse` disposes of what it creates on every path out.
     let (header, inputs) = unsafe { parse(req, &args)? };
     let header = Arc::new(header);
-    let stamps = inputs.iter().map(|p| Stamp::of(p)).collect();
+    let stamps: Vec<Stamp> = inputs.iter().map(|p| Stamp::of(p)).collect();
     if let Ok(mut map) = cache().lock() {
+        // Another thread may have parsed the same header meanwhile. Its entry stands, so an
+        // unchanged header is one `Arc` for the whole process: a module is shared by
+        // `Arc::ptr_eq`, and the driver reuses a checked standard library only for the
+        // very headers it was checked against.
+        if let Some((existing, held)) = map.get(&key) {
+            if *held == stamps {
+                return Ok(existing.clone());
+            }
+        }
         map.insert(key, (header.clone(), stamps));
     }
     Ok(header)

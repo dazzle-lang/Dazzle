@@ -66,7 +66,7 @@ id!(BodyId, "One function, method or constructor body in the whole program.");
 // ---------------------------------------------------------------------------
 
 /// Every body in the workspace, plus the lookup consumers need to find one.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Hir {
     bodies: Vec<Body>,
     index: HashMap<BodyOwner, BodyId>,
