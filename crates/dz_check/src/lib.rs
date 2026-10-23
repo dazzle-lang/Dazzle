@@ -430,16 +430,128 @@ impl TypeTable {
     /// themselves, which is exactly right for a body checked once at its definition.
     pub fn assoc_bindings(&self, r: &TraitRef, self_ty: &Ty) -> HashMap<u32, Ty> {
         let mut map = HashMap::new();
+        // Read through a bound, `T: Iterate`, nothing has chosen `Item` yet: it is the
+        // projection `T::Item`, which is one type wherever it is reached from `T` and
+        // becomes the implementation's choice once `T` is known (spec §8.5).
+        if ty::is_abstract(self_ty) {
+            for (name, param) in self.assoc_params(r.trait_sym) {
+                map.insert(
+                    param.id,
+                    Ty::Assoc(Rc::new(ty::Proj {
+                        on: self_ty.clone(),
+                        trait_sym: r.trait_sym,
+                        trait_args: r.args.clone(),
+                        name: Rc::from(name.as_str()),
+                    })),
+                );
+            }
+            return map;
+        }
         let Some((idx, imap)) = self.impl_of(r, self_ty) else { return map };
         let imp = &self.impls[idx];
         for (name, param) in self.assoc_params(r.trait_sym) {
             if let Some(chosen) = imp.assoc_types.iter().find(|a| &a.name == name) {
                 if let Some(ty) = &chosen.ty {
-                    map.insert(param.id, ty::substitute_with(ty, &imap, Some(self_ty)));
+                    map.insert(param.id, self.subst_with(ty, &imap, Some(self_ty)));
                 }
             }
         }
         map
+    }
+
+    /// What a projection stands for once its base is concrete: the choice the
+    /// implementation for that base made (spec §8.5). `None` while the base is still a
+    /// parameter, when the projection is itself the answer.
+    pub fn project(&self, p: &ty::Proj) -> Option<Ty> {
+        if ty::is_abstract(&p.on) {
+            return None;
+        }
+        if p.on.is_wildcard() {
+            return Some(Ty::Error);
+        }
+        // The machine's types implement the arithmetic traits with no `impl` to choose an
+        // `Output`, and what they produce is themselves: `i32 + i32` is an `i32` (§11.2).
+        if let Some(trait_name) = self.prelude_names.get(&p.trait_sym) {
+            if &*p.name == "Output" && self.builtin_implements(&p.on, trait_name, &p.trait_args) {
+                return Some(p.on.clone());
+            }
+        }
+        let r =
+            TraitRef { trait_sym: p.trait_sym, args: p.trait_args.clone(), span: Span::new(0, 0) };
+        // No implementation means a bound went unchecked somewhere, which has been
+        // reported where it was; the error type keeps this from saying it again.
+        let Some((idx, imap)) = self.impl_of(&r, &p.on) else { return Some(Ty::Error) };
+        let chosen = self.impls[idx].assoc_types.iter().find(|a| *a.name == *p.name);
+        let Some(chosen) = chosen.and_then(|a| a.ty.as_ref()) else { return Some(Ty::Error) };
+        Some(self.normalize(&ty::substitute_with(chosen, &imap, Some(&p.on))))
+    }
+
+    /// `t` with every projection whose base is now concrete replaced by what the
+    /// implementation chose (spec §8.5). Substitution can make a base concrete —
+    /// `T::Item` with `T = SliceIter<i32>` is `&i32` — so everything that substitutes into
+    /// a type a body will be checked or emitted with goes through [`TypeTable::subst`],
+    /// which ends here.
+    pub fn normalize(&self, t: &Ty) -> Ty {
+        if !ty::has_assoc(t) {
+            return t.clone();
+        }
+        match t {
+            Ty::Assoc(p) => {
+                let p = ty::Proj {
+                    on: self.normalize(&p.on),
+                    trait_sym: p.trait_sym,
+                    trait_args: p.trait_args.iter().map(|a| self.normalize(a)).collect(),
+                    name: p.name.clone(),
+                };
+                self.project(&p).unwrap_or_else(|| Ty::Assoc(Rc::new(p)))
+            }
+            _ => ty::map_parts(t, &|x| self.normalize(x)),
+        }
+    }
+
+    /// [`ty::substitute`], then [`TypeTable::normalize`]: a substitution as the checker and
+    /// monomorphization need it, with no projection left whose base is known.
+    pub fn subst(&self, t: &Ty, map: &HashMap<u32, Ty>) -> Ty {
+        self.normalize(&ty::substitute(t, map))
+    }
+
+    /// [`ty::substitute_with`], then [`TypeTable::normalize`].
+    pub fn subst_with(&self, t: &Ty, map: &HashMap<u32, Ty>, self_ty: Option<&Ty>) -> Ty {
+        self.normalize(&ty::substitute_with(t, map, self_ty))
+    }
+
+    /// What a projection is known to implement: the bounds its trait puts on the
+    /// associated type, `type Iter : Iterate`, as seen through the projection's trait
+    /// arguments, with `Self` read as the projection itself (spec §8.5).
+    pub fn assoc_bounds(&self, p: &ty::Proj) -> Vec<TraitRef> {
+        let decl =
+            self.assoc_decls.get(&p.trait_sym).and_then(|d| d.iter().find(|a| *a.name == *p.name));
+        let Some(decl) = decl else { return Vec::new() };
+        let me = Ty::Assoc(Rc::new(p.clone()));
+        let map: HashMap<u32, Ty> = self
+            .type_params(p.trait_sym)
+            .iter()
+            .map(|d| d.param.id)
+            .zip(p.trait_args.iter().cloned())
+            .collect();
+        decl.bounds
+            .iter()
+            .map(|b| TraitRef {
+                trait_sym: b.trait_sym,
+                args: b.args.iter().map(|a| ty::substitute_with(a, &map, Some(&me))).collect(),
+                span: b.span,
+            })
+            .collect()
+    }
+
+    /// What a type nobody has chosen yet may do — a parameter's bounds, or a projection's
+    /// (spec §8.1, §8.5). Empty for anything else, which has implementations instead.
+    pub fn abstract_bounds(&self, t: &Ty) -> Vec<TraitRef> {
+        match t {
+            Ty::Param(p) => self.bounds_of(p).to_vec(),
+            Ty::Assoc(p) => self.assoc_bounds(p),
+            _ => Vec::new(),
+        }
     }
 
     /// One of a trait's methods, as seen through `r` applied to `self_ty` (spec §7.6).
@@ -458,13 +570,13 @@ impl TypeTable {
                 .iter()
                 .map(|p| ParamSig {
                     name: p.name.clone(),
-                    ty: ty::substitute_with(&p.ty, &map, Some(self_ty)),
+                    ty: self.subst_with(&p.ty, &map, Some(self_ty)),
                     has_default: p.has_default,
                     caller_default: p.caller_default.clone(),
                     c_cast: p.c_cast.clone(),
                 })
                 .collect(),
-            ret: ty::substitute_with(&sig.ret, &map, Some(self_ty)),
+            ret: self.subst_with(&sig.ret, &map, Some(self_ty)),
             ..sig.clone()
         })
     }
@@ -530,7 +642,7 @@ impl TypeTable {
                 .map(|p| p.param.id)
                 .zip(at_args.iter().cloned())
                 .collect();
-            at_args = s.base_args.iter().map(|t| ty::substitute(t, &map)).collect();
+            at_args = s.base_args.iter().map(|t| self.subst(t, &map)).collect();
             at = base;
         }
         if at == target {
@@ -623,7 +735,7 @@ impl TypeTable {
             // Inside a generic body `T` may be anything, so it is assumed to need dropping.
             // That is the conservative answer, and the one that keeps flow analysis honest
             // about a body checked once for every `T` it will ever be given (spec §8.2).
-            Ty::Param(_) => true,
+            Ty::Param(_) | Ty::Assoc(_) => true,
             // A fixed array's elements die with it. A slice is a view and owns nothing.
             Ty::Array { elem, .. } => self.needs_drop(elem),
             Ty::Tuple(parts) => parts.iter().any(|t| self.needs_drop(t)),
@@ -649,10 +761,14 @@ impl TypeTable {
 
     /// Is `p` bounded by `Copy`, directly or through a supertrait (spec §8.2)?
     pub fn param_is_copy(&self, p: &ty::Param) -> bool {
+        self.abstract_is_copy(&Ty::Param(p.clone()))
+    }
+
+    /// Is a type nobody has chosen yet bounded by `Copy` — a parameter by its bounds, a
+    /// projection by the ones its trait puts on it (spec §8.2, §8.5)?
+    pub fn abstract_is_copy(&self, t: &Ty) -> bool {
         let Some(copy) = self.copy_trait else { return false };
-        self.trait_closure(self.bounds_of(p), &Ty::Param(p.clone()))
-            .iter()
-            .any(|r| r.trait_sym == copy)
+        self.trait_closure(&self.abstract_bounds(t), t).iter().any(|r| r.trait_sym == copy)
     }
 
     /// The prelude's `Copy` trait, if the prelude declares it.
@@ -726,6 +842,9 @@ impl TypeTable {
             // the instantiation for a move-only type would then duplicate a resource. A
             // `T: Copy` is what says otherwise.
             Ty::Param(p) => self.param_is_copy(p),
+            // `T::Item` likewise, by what its trait says of it: `Iterate`'s `Item` may be
+            // anything, so it is moved, never copied (spec §8.5).
+            Ty::Assoc(_) => self.abstract_is_copy(ty),
             _ => true,
         }
     }
@@ -734,7 +853,7 @@ impl TypeTable {
     pub fn field_types(&self, sym: SymbolId, args: &[Ty], fields: &[FieldSig]) -> Vec<Ty> {
         let map: HashMap<u32, Ty> =
             self.type_params(sym).iter().map(|p| p.param.id).zip(args.iter().cloned()).collect();
-        fields.iter().map(|f| ty::substitute(&f.ty, &map)).collect()
+        fields.iter().map(|f| self.subst(&f.ty, &map)).collect()
     }
 
     /// What a union variant holds, as types: its fields as the instance `args` sees them,
@@ -789,7 +908,7 @@ impl TypeTable {
             Ty::Array { elem, .. } => self.trivially_copyable(elem),
             Ty::Tuple(parts) => parts.iter().all(|t| self.trivially_copyable(t)),
             // Unknown until monomorphization, where the query is answered for real.
-            Ty::Param(_) => false,
+            Ty::Param(_) | Ty::Assoc(_) => false,
             _ => true,
         }
     }
@@ -804,6 +923,11 @@ impl TypeTable {
             Ty::Param(_) => {
                 "a generic parameter can only be copied when it is bounded by `Copy` (spec \
                  §8.2)"
+                    .to_owned()
+            }
+            Ty::Assoc(_) => {
+                "an associated type of a generic parameter can only be copied when its trait \
+                 bounds it by `Copy` (spec §8.5)"
                     .to_owned()
             }
             Ty::Named { sym: id, .. } => match self.get(*id) {
@@ -1454,6 +1578,8 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
         }
         Ty::SelfTy => "Self".to_owned(),
         Ty::Param(p) => p.name.to_string(),
+        // As written: `T::Item`, and `C::Iter::Item` for a projection of one (spec §8.5).
+        Ty::Assoc(p) => format!("{}::{}", name_of(&p.on), p.name),
     }
 }
 
@@ -1639,7 +1765,7 @@ impl<'a> Ctx<'a> {
             .map(|p| p.param.id)
             .zip(args.iter().cloned())
             .collect();
-        ty::substitute(t, &map)
+        self.table.subst(t, &map)
     }
 
     /// A whole signature as seen from an instantiation (spec §8.4).
@@ -1920,6 +2046,15 @@ impl<'a> Ctx<'a> {
             return Ty::Error;
         }
 
+        // `T::Item`, and `C::Iter::Item` through a projection's own bounds (spec §8.5).
+        if let Some(param) = self.param_in_scope(name) {
+            let mut on = param;
+            for seg in &p.segments[1..] {
+                on = self.project_named(on, &seg.name, span);
+            }
+            return on;
+        }
+
         // `module::Type`, and `header::ns::Type` for a C++ namespace, which the path walks
         // through one segment at a time (spec §15.2).
         // And `rl::shapes::Rectangle` through a public dependency (spec §3.2).
@@ -1935,6 +2070,87 @@ impl<'a> Ctx<'a> {
             return self.named_or_error(sym, &p.segments[used - 1], span);
         }
         Ty::Error
+    }
+
+    /// `on::name`: an associated type of a type nobody has chosen yet, from whichever of its
+    /// bounds declares it — `T::Item` for a `T: Iterate` (spec §8.5).
+    ///
+    /// Supertraits count, as they do for a bound's methods. Two bounds that both declare
+    /// `name` are ambiguous rather than resolved by order: a `T: Mul<f32> + Mul<Vec2>` has
+    /// an `Output` for each, and nothing in `T::Output` says which.
+    pub(crate) fn project_named(&mut self, on: Ty, name: &Ident, span: Span) -> Ty {
+        if on.is_error() {
+            return Ty::Error;
+        }
+        let shown = self.name_of(&on);
+        let bounds = self.table.abstract_bounds(&on);
+        let mut found: Vec<TraitRef> = Vec::new();
+        for r in self.table.trait_closure(&bounds, &on) {
+            let declares =
+                self.table.assoc_params(r.trait_sym).iter().any(|(n, _)| *n == name.name);
+            if declares && !found.iter().any(|x| x.trait_sym == r.trait_sym && x.args == r.args) {
+                found.push(r);
+            }
+        }
+        // In the order the bounds were written, supertraits after, so a message lists them
+        // as the reader wrote them.
+        let written = |r: &TraitRef| {
+            bounds
+                .iter()
+                .position(|b| b.trait_sym == r.trait_sym && b.args == r.args)
+                .unwrap_or(bounds.len())
+        };
+        found.sort_by_key(written);
+        let n = &name.name;
+        match found.len() {
+            1 => {
+                let r = found.remove(0);
+                Ty::Assoc(Rc::new(ty::Proj {
+                    on,
+                    trait_sym: r.trait_sym,
+                    trait_args: r.args,
+                    name: Rc::from(n.as_str()),
+                }))
+            }
+            0 => {
+                let help = if bounds.is_empty() {
+                    format!(
+                        "`{shown}` has no bounds, so it has no associated types — bound it by \
+                         a trait that declares `type {n}` (spec §8.5)"
+                    )
+                } else {
+                    format!(
+                        "an associated type comes from a bound: none of `{shown}`'s declares \
+                         `type {n}` (spec §8.5)"
+                    )
+                };
+                self.error_help(
+                    codes::NO_ASSOC_TYPE,
+                    span,
+                    format!("`{shown}` has no associated type `{n}`"),
+                    "no bound declares it",
+                    help,
+                );
+                Ty::Error
+            }
+            _ => {
+                let traits: Vec<String> = found
+                    .iter()
+                    .map(|r| self.name_of(&Ty::Named { sym: r.trait_sym, args: r.args.clone() }))
+                    .collect();
+                self.error_help(
+                    codes::AMBIGUOUS_ASSOC_TYPE,
+                    span,
+                    format!("`{shown}::{n}` could be the `{n}` of `{}`", traits.join("` or `")),
+                    "ambiguous associated type",
+                    format!(
+                        "each of those implementations chooses its own `{n}`; bound `{shown}` \
+                         by only one trait that declares it (spec §8.5, §18.29)"
+                    ),
+                );
+                Ty::Error
+            }
+        }
     }
 
     /// Lower a written type-argument list against what the declaration expects (spec §8.1).

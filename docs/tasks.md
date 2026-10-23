@@ -68,17 +68,17 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0034](tasks/T-0034-module-named-after-runtime-shim-identifier.md)** A module named after a runtime-shim identifier does not compile · deferral, codegen
 - **[T-0037](tasks/T-0037-indexed-exists-only-in-for-head.md)** `indexed()` exists only in a `for` head · deferral, checker
 - **[T-0038](tasks/T-0038-memory-tracking-single-threaded.md)** Memory tracking is single-threaded · deferral, stdlib
-- **[T-0040](tasks/T-0040-for-over-generic-c-iterable.md)** `for` over a generic `C: Iterable` · deferral, checker
 - **[T-0041](tasks/T-0041-union-variant-carrying-struct-with-constructor.md)** A union variant carrying a struct with a constructor cannot be built · deferral, checker
 - **[T-0045](tasks/T-0045-methods-on-untyped-literal.md)** Methods on an untyped literal · deferral, checker
 - **[T-0046](tasks/T-0046-converting-mat4-raylib-matrix-copies-field.md)** Converting `Mat4` to raylib's `Matrix` copies field by field · deferral, stdlib
 - **[T-0048](tasks/T-0048-imported-c-or-c-enum-variants.md)** An imported C or C++ enum's variants are not in the type table · deferral, codegen
 - **[T-0049](tasks/T-0049-trait-objects-that-are-not-object.md)** Trait objects that are not object-safe · deferral, codegen
-- **[T-0050](tasks/T-0050-associated-type-projection.md)** Associated-type projection · deferral, checker
 - **[T-0051](tasks/T-0051-open-ended-range-held-in-variable.md)** An open-ended range held in a variable · deferral, codegen
 - **[T-0052](tasks/T-0052-test-trait-default-method-that-builds.md)** Test a trait default method that builds a `Self` · deferral, generics
 - **[T-0053](tasks/T-0053-error-shares-static-ring-four-buffers.md)** `error(…)` shares a static ring of four buffers · deferral, codegen
 - **[T-0084](tasks/T-0084-remove-extern-fn-std-reaches-os.md)** Remove extern fn: std reaches the OS through header imports · feature, interop
+- **[T-0085](tasks/T-0085-optional-reference-passes-checker.md)** An optional of a reference passes the checker · design, checker
+- **[T-0086](tasks/T-0086-bound-at-two-arguments-answers-method.md)** A bound at two arguments answers a method call with the first · bug, checker
 
 ## M15 — `dz bench`, and the C++ comparison (1 open)
 
@@ -93,7 +93,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (13 open)
+## none — not scheduled (14 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -108,3 +108,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0070](tasks/T-0070-one-word-one-job.md)** One word, one job · design, language
 - **[T-0076](tasks/T-0076-release-workflow-installer-with-libclang-bundled.md)** A release workflow and an installer with libclang bundled · feature, packaging
 - **[T-0083](tasks/T-0083-build-static-lib-shared-lib-outputs.md)** Build static-lib and shared-lib outputs · feature, codegen
+- **[T-0087](tasks/T-0087-build-compiles-c-left-behind-by.md)** A build compiles C++ left behind by a module that no longer exists · bug, tooling

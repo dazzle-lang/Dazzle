@@ -316,7 +316,7 @@ impl Worklist<'_> {
         };
         let mut map = self.params_map(owner, &owner_args);
         map.extend(sig.generics.iter().map(|g| g.param.id).zip(args.iter().cloned()));
-        let body = dz_hir::substitute_body(template, &map);
+        let body = table_body(self.table, template, &map, None);
         self.visit_body(&body);
         self.out.methods.push(MethodInstance { owner, owner_args, name, args, body });
     }
@@ -378,9 +378,9 @@ impl Worklist<'_> {
                 Some(Some(idx)) => {
                     let imp = &self.table.impls()[idx];
                     let m = self.table.impl_applies(imp, &self_ty).unwrap_or_default();
-                    dz_hir::substitute_body(b, &m)
+                    table_body(self.table, b, &m, None)
                 }
-                _ => dz_hir::substitute_body(b, &map),
+                _ => table_body(self.table, b, &map, None),
             };
             self.visit_body(&concrete);
             bodies.push(concrete);
@@ -404,7 +404,7 @@ impl Worklist<'_> {
     fn instantiate_fn(&mut self, sym: SymbolId, args: Vec<Ty>) {
         let Some(body) = self.hir.find(&BodyOwner::Fn(sym)) else { return };
         let map = self.params_map(sym, &args);
-        let concrete = dz_hir::substitute_body(body, &map);
+        let concrete = table_body(self.table, body, &map, None);
         self.visit_body(&concrete);
         self.out.fns.push(Instance { sym, args, bodies: vec![concrete] });
     }
@@ -415,7 +415,7 @@ impl Worklist<'_> {
             imp.generics.iter().map(|g| g.param.id).zip(args.iter().cloned()).collect();
         let mut bodies = Vec::new();
         for b in self.impl_members.get(&idx).cloned().unwrap_or_default() {
-            let concrete = dz_hir::substitute_body(b, &map);
+            let concrete = table_body(self.table, b, &map, None);
             self.visit_body(&concrete);
             bodies.push(concrete);
         }
@@ -617,15 +617,10 @@ pub fn impl_defaults(
     map: &HashMap<u32, Ty>,
 ) -> Vec<Body> {
     let imp = &table.impls()[idx];
-    let self_ty = ty::substitute(&imp.self_ty, map);
+    let self_ty = table.subst(&imp.self_ty, map);
     let r = TraitRef {
         trait_sym: imp.trait_ref.trait_sym,
-        args: imp
-            .trait_ref
-            .args
-            .iter()
-            .map(|a| ty::substitute_with(a, map, Some(&self_ty)))
-            .collect(),
+        args: imp.trait_ref.args.iter().map(|a| table.subst_with(a, map, Some(&self_ty))).collect(),
         span: imp.trait_ref.span,
     };
     let Some(spec) = table.struct_sig(r.trait_sym) else { return Vec::new() };
@@ -646,16 +641,30 @@ pub fn impl_defaults(
             .zip(r.args.iter().cloned())
             .collect();
         tmap.extend(table.assoc_bindings(&r, &self_ty));
-        let body = dz_hir::substitute_body_with(template, &tmap, Some(&self_ty));
+        let body = table_body(table, template, &tmap, Some(&self_ty));
         // Inside its own default body the checker reads `self` through the trait, so
         // `Self` there is spelled as the trait applied to its arguments; the copy says the
         // implementer instead.
         let as_trait = Ty::Named { sym: r.trait_sym, args: r.args.clone() };
-        let mut body = dz_hir::map_body_types(&body, |t| ty::replace(t, &as_trait, &self_ty));
+        let mut body = dz_hir::map_body_types(&body, |t| {
+            table.normalize(&ty::replace(t, &as_trait, &self_ty))
+        });
         body.owner = BodyOwner::ImplMethod { imp: idx as u32, name: name.clone() };
         out.push(body);
     }
     out
+}
+
+/// A concrete copy of `body`: every parameter in `map` substituted, and then every
+/// projection that substitution made concrete — `T::Item` once `T` is `SliceIter<i32>` —
+/// replaced by what its implementation chose (spec §8.4, §8.5). Codegen never sees one.
+fn table_body(
+    table: &TypeTable,
+    body: &Body,
+    map: &HashMap<u32, Ty>,
+    self_ty: Option<&Ty>,
+) -> Body {
+    dz_hir::map_body_types(body, |t| table.subst_with(t, map, self_ty))
 }
 
 /// How deeply type arguments nest: `f32` is 0, `Buffer<f32>` 1, `Buffer<Buffer<f32>>` 2.

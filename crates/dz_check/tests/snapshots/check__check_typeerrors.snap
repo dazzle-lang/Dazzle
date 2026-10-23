@@ -1540,3 +1540,17 @@ error[DZ0507]: cannot assign to `v`
      │                  ^ not mutable
      │
      = help: declare it as `let mut v` to allow assignment
+
+error[DZ0501]: expected `i32`, found `T::Item`
+     ┌─ typeerrors/src/errors.dz:1242:12
+     │
+1242 │     return it.get()
+     │            ^^^^^^^^ this is `T::Item`
+
+error[DZ0560]: `T` has no associated type `Size`
+     ┌─ typeerrors/src/errors.dz:1245:51
+     │
+1245 │ fn no_such_associated_type<T: Iterate>(it: &T) -> T::Size {
+     │                                                   ^^^^^^^ no bound declares it
+     │
+     = help: an associated type comes from a bound: none of `T`'s declares `type Size` (spec §8.5)

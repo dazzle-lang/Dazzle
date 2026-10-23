@@ -1,0 +1,44 @@
+// A `for` binding is bound anew on every pass, so moving the element out of it is not a
+// move the next pass can trip over: that pass has an element of its own (spec §6.4, §10.4).
+// expect: (none)
+
+pub struct Token {
+    pub m_p: own ^mut i32
+}
+
+impl Drop for Token {
+    fn drop(&mut self) {}
+}
+
+pub struct Maker {
+    pub left: i32 = 0
+}
+
+impl Iterate for Maker {
+    type Item = Token
+
+    fn valid(&self) -> bool {
+        return left > 0
+    }
+
+    fn get(&self) -> Token {
+        return Token{ m_p: null }
+    }
+
+    fn advance(&mut self) {
+        left -= 1
+    }
+}
+
+fn keep(t: Token) -> bool {
+    return true
+}
+
+fn keep_all(m: Maker) -> i32 {
+    let mut n = 0
+    for t in move(m) {
+        let kept = keep(move(t))
+        n += 1
+    }
+    return n
+}

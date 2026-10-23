@@ -1,4 +1,4 @@
-# Generics, traits and the rest of type checking, DZ053x-DZ055x
+# Generics, traits and the rest of type checking, DZ053x-DZ056x
 
 ## DZ0530
 
@@ -906,4 +906,55 @@ union Shape {
 }
 
 fn main() {}
+```
+
+## DZ0560
+
+An associated type is named off a generic parameter through one of its bounds: `T::Item`
+exists because `T: Iterate` and `Iterate` declares `type Item` (spec §8.5). A name no bound
+declares is not a type, and an unbounded parameter has no associated types at all.
+
+```dz
+fn first<T: Iterate>(it: &T) -> T::Element {
+    return it.get()
+}
+
+fn main() {}
+```
+
+```dz
+fn first<T: Iterate>(it: &T) -> T::Item {
+    return it.get()
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    xs.push(7)
+    println!("{}", first(&xs.iter()))
+}
+```
+
+## DZ0561
+
+Each implementation of a trait chooses its own associated types (spec §8.5, §18.29), so a
+parameter bounded by one trait at two arguments has one `Output` for each. `T::Output` does
+not say which it means. Bound the parameter by the one trait whose associated type you use.
+
+```dz
+fn scaled<T: Mul<f32> + Mul<i32> + Copy>(v: T) -> T::Output {
+    return v * 2.0
+}
+
+fn main() {}
+```
+
+```dz
+fn scaled<T: Mul<f32> + Copy>(v: T) -> T::Output {
+    return v * 2.0
+}
+
+fn main() {
+    let x: f32 = 1.5
+    println!("{}", scaled(x))
+}
 ```

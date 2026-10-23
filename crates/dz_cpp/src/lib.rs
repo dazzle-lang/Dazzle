@@ -1009,13 +1009,13 @@ impl<'a> Emitter<'a> {
     /// readable, since it is what a debugger and a profiler show (spec §16.2).
     fn impl_fn_name(&self, idx: usize, map: &HashMap<u32, Ty>, method: &str) -> String {
         let imp = &self.table.impls()[idx];
-        let self_ty = dz_hir::ty::substitute(&imp.self_ty, map);
+        let self_ty = self.table.subst(&imp.self_ty, map);
         let trait_name = &self.res.symbol(imp.trait_ref.trait_sym).name;
         let args: Vec<String> = imp
             .trait_ref
             .args
             .iter()
-            .map(|a| self.mangle(&dz_hir::ty::substitute_with(a, map, Some(&self_ty))))
+            .map(|a| self.mangle(&self.table.subst_with(a, map, Some(&self_ty))))
             .collect();
         let tr = if args.is_empty() {
             trait_name.clone()
@@ -3025,6 +3025,16 @@ impl<'a> Emitter<'a> {
             // reaches codegen: `dz_mono` has already replaced every `T` with a concrete
             // type, so this arm exists only to keep the match total.
             Ty::Param(_) => "void".to_owned(),
+            // A projection whose base is concrete has an answer, and monomorphization gave
+            // it; asking the table again here keeps a missed path from emitting `void`.
+            Ty::Assoc(_) => {
+                let normal = self.table.normalize(t);
+                if matches!(normal, Ty::Assoc(_)) {
+                    "void".to_owned()
+                } else {
+                    self.cpp_ty(&normal)
+                }
+            }
         }
     }
 
@@ -4015,7 +4025,12 @@ impl<'a> Emitter<'a> {
                     }
                 }
                 let v = self.expr(*inner);
-                if !self.table.copyable(body.ty(e)) {
+                if matches!(body.ty(e), Ty::Ref { .. }) {
+                    // A reference is not reset by a move — C++ cannot reseat one, and what
+                    // it refers to is not the mover's. A generic body moving its `T::Item`
+                    // reaches here once the item turns out to be a `&T` (spec §8.5).
+                    v
+                } else if !self.table.copyable(body.ty(e)) {
                     // The type's move constructor resets the source (spec §6.4).
                     format!("::dz::mv({v})")
                 } else if is_place(body, *inner) {

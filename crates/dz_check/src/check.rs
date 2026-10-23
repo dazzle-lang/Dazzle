@@ -1041,6 +1041,12 @@ impl<'a, 'c> Body<'a, 'c> {
             Ty::Fn { params, ret } => {
                 Ty::Fn { params: params.iter().map(|p| self.subst(p)).collect(), ret: rc(ret) }
             }
+            Ty::Assoc(p) => self.cx.table.normalize(&Ty::Assoc(Rc::new(ty::Proj {
+                on: self.subst(&p.on),
+                trait_sym: p.trait_sym,
+                trait_args: p.trait_args.iter().map(|a| self.subst(a)).collect(),
+                name: p.name.clone(),
+            }))),
             other => other.clone(),
         }
     }
@@ -1698,32 +1704,8 @@ impl<'a, 'c> Body<'a, 'c> {
     ) -> Option<Checked> {
         let ty = self.subst(&subject.ty);
         let peeled = ty.peeled().clone();
-        if let Ty::Param(p) = &peeled {
-            // `C: Iterable` gives the loop the projection `C::Iter`'s `Item`, which
-            // monomorphization cannot yet trace back to the implementer — refused, as a
-            // generic `T: Iterate` is, rather than emitted as broken C++.
-            let bounded = ["Iterable", "IterableMut"].iter().any(|t| {
-                self.cx.prelude_trait(t).is_some_and(|sym| {
-                    self.satisfies(
-                        &peeled,
-                        &TraitRef { trait_sym: sym, args: Vec::new(), span: ast.span },
-                    )
-                })
-            });
-            if bounded {
-                let name = p.name.clone();
-                self.cx.error_help(
-                    codes::CODEGEN_UNSUPPORTED,
-                    ast.span,
-                    format!("`for` over a generic `{name}: Iterable` is not supported yet"),
-                    "its element type would be the projection of `Iter`'s `Item`",
-                    "loop over a concrete container, or pass a slice — see the deferral register \
-                     in docs/tasks/",
-                );
-                return Some(Checked { ty: Ty::Error, id: subject.id });
-            }
-            return None;
-        }
+        // A `C: Iterable` is looped over like a concrete container: its `iter()` hands out a
+        // `C::Iter`, whose `Item` is the loop's element (spec §8.5, §10.4).
         if ty.is_wildcard() || matches!(peeled, Ty::Range(_)) || ty.element().is_some() {
             return None;
         }
@@ -3581,8 +3563,8 @@ impl<'a, 'c> Body<'a, 'c> {
         // A generic parameter has no fields of its own; what it has is what its bounds
         // give it, and a trait declares methods and associated types, never fields
         // (spec §7.6, §8.1).
-        if let Ty::Param(p) = &peeled {
-            self.no_such_member_on_param(p, name, "field");
+        if ty::is_abstract(&peeled) {
+            self.no_such_member_on_param(&peeled, name, "field");
             return (Ty::Error, None);
         }
         let Some(sym) = peeled.named() else {
@@ -3668,7 +3650,7 @@ impl<'a, 'c> Body<'a, 'c> {
 
     fn needs_operator_trait(&self, t: &Ty) -> bool {
         match t {
-            Ty::Param(_) => true,
+            Ty::Param(_) | Ty::Assoc(_) => true,
             Ty::Named { sym, .. } => matches!(
                 self.cx.table.get(*sym),
                 Some(ItemSig::Struct(_)) | Some(ItemSig::Union { .. })
@@ -4071,13 +4053,13 @@ impl<'a, 'c> Body<'a, 'c> {
                 .iter()
                 .map(|p| crate::ParamSig {
                     name: p.name.clone(),
-                    ty: ty::substitute(&p.ty, &map),
+                    ty: self.cx.table.subst(&p.ty, &map),
                     has_default: p.has_default,
                     caller_default: p.caller_default.clone(),
                     c_cast: p.c_cast.clone(),
                 })
                 .collect(),
-            ret: ty::substitute(&sig.ret, &map),
+            ret: self.cx.table.subst(&sig.ret, &map),
             generics: Vec::new(),
             ..sig.clone()
         };
@@ -4271,9 +4253,10 @@ impl<'a, 'c> Body<'a, 'c> {
     /// What `t` is known to implement: a parameter's bounds, or the traits the `impl`s that
     /// apply to it implement (spec §7.6).
     fn declared_traits_of(&self, t: &Ty) -> Vec<TraitRef> {
-        match t {
-            Ty::Param(p) => self.cx.table.bounds_of(p).to_vec(),
-            _ => self.cx.table.traits_of(t),
+        if ty::is_abstract(t) {
+            self.cx.table.abstract_bounds(t)
+        } else {
+            self.cx.table.traits_of(t)
         }
     }
 
@@ -4287,21 +4270,8 @@ impl<'a, 'c> Body<'a, 'c> {
         if !self.satisfies(&t, &r) {
             return None;
         }
-        if let Ty::Param(p) = &t {
-            // `T: Iterate` gives the loop variable the type `T::Item`, and monomorphization
-            // cannot yet trace that back to the implementer that chose it — so this is
-            // refused here rather than emitted as broken C++.
-            let name = p.name.clone();
-            self.cx.error_help(
-                codes::CODEGEN_UNSUPPORTED,
-                span,
-                format!("`for` over a generic `{name}: Iterate` is not supported yet"),
-                "its element type would be the projection `T::Item`",
-                "iterate a concrete type, or pass a slice — see the deferral register in \
-                 docs/tasks/",
-            );
-            return Some(Ty::Error);
-        }
+        // Through a bound, `T: Iterate`, this is the projection `T::Item`, which
+        // monomorphization replaces with the implementer's choice (spec §8.5).
         let sig = self.cx.table.trait_method(&r, &t, "get")?;
         Some(sig.ret)
     }
@@ -4576,12 +4546,11 @@ impl<'a, 'c> Body<'a, 'c> {
         };
         let recv = self.expr(recv_expr, None);
         let peeled = recv.ty.peeled().clone();
-        let refs: Vec<TraitRef> = match &peeled {
-            Ty::Param(p) => {
-                let bounds = self.cx.table.bounds_of(p).to_vec();
-                self.cx.table.trait_closure(&bounds, &peeled)
-            }
-            _ => self.cx.table.traits_of(&peeled),
+        let refs: Vec<TraitRef> = if ty::is_abstract(&peeled) {
+            let bounds = self.cx.table.abstract_bounds(&peeled);
+            self.cx.table.trait_closure(&bounds, &peeled)
+        } else {
+            self.cx.table.traits_of(&peeled)
         };
         let found: Vec<FnSig> = refs
             .iter()
@@ -4633,11 +4602,22 @@ impl<'a, 'c> Body<'a, 'c> {
     /// The message names the bounds, because that is the actionable part: the fix is
     /// either to use something the bound already has, or to add a bound. This is reported
     /// at the line inside the generic body, never at an instantiation (§8.6).
-    fn no_such_member_on_param(&mut self, p: &ty::Param, name: &Ident, what: &str) {
-        let bounds = self.cx.table.bounds_of(p).to_vec();
-        let t = &p.name;
+    fn no_such_member_on_param(&mut self, on: &Ty, name: &Ident, what: &str) {
+        let bounds = self.cx.table.abstract_bounds(on);
+        let t = &self.cx.name_of(on);
         let member = &name.name;
-        let (label, help) = if bounds.is_empty() {
+        let (label, help) = if let (true, Ty::Assoc(p)) = (bounds.is_empty(), on) {
+            let tr = self.cx.res.symbol(p.trait_sym).name.clone();
+            (
+                format!("`{tr}` puts no bounds on `{}`", p.name),
+                format!(
+                    "`{t}` is whatever the implementation chooses, so it supports only being \
+                     moved, default-initialised and dropped — a bound on `type {}` in `{tr}` \
+                     is what would give it more (spec §8.5)",
+                    p.name
+                ),
+            )
+        } else if bounds.is_empty() {
             (
                 format!("`{t}` has no bounds, so it has no {what}s"),
                 format!(
@@ -4674,11 +4654,10 @@ impl<'a, 'c> Body<'a, 'c> {
     /// every `Ord` is an `Eq` (spec §7.6). The returned signature has both the trait's own
     /// parameters and `Self` substituted, so it is stated in terms the caller can check
     /// arguments against directly.
-    fn param_method(&mut self, p: &ty::Param, name: &str) -> Option<(SymbolId, FnSig)> {
-        let self_ty = Ty::Param(p.clone());
-        let bounds = self.cx.table.bounds_of(p).to_vec();
-        for r in self.cx.table.trait_closure(&bounds, &self_ty) {
-            if let Some(sig) = self.cx.table.trait_method(&r, &self_ty, name) {
+    fn param_method(&mut self, self_ty: &Ty, name: &str) -> Option<(SymbolId, FnSig)> {
+        let bounds = self.cx.table.abstract_bounds(self_ty);
+        for r in self.cx.table.trait_closure(&bounds, self_ty) {
+            if let Some(sig) = self.cx.table.trait_method(&r, self_ty, name) {
                 return Some((r.trait_sym, sig));
             }
         }
@@ -4762,11 +4741,11 @@ impl<'a, 'c> Body<'a, 'c> {
             // A method on a generic parameter comes from its bounds, and from nothing else
             // (spec §8.1). Resolution is static: the bound names one trait method, and
             // monomorphization turns the call into a direct one (§7.6).
-            if let Ty::Param(p) = &peeled {
+            if ty::is_abstract(&peeled) {
                 self.no_method_type_args(generics, name);
-                let found = self.param_method(p, &name.name);
+                let found = self.param_method(&peeled, &name.name);
                 let Some((trait_sym, sig)) = found else {
-                    self.no_such_member_on_param(p, name, "method");
+                    self.no_such_member_on_param(&peeled, name, "method");
                     for a in args {
                         self.expr(a, None);
                     }
@@ -6249,7 +6228,7 @@ impl<'a, 'c> Body<'a, 'c> {
             // A type's own `Format` reads the spec itself, through `Formatter::hex` and
             // `precision`, so it decides what `{:x}` means for it — and so does whatever a
             // type parameter turns out to be; the built-in kinds' answers are known here.
-            if matches!(inner, Ty::Named { .. } | Ty::Param(_)) {
+            if matches!(inner, Ty::Named { .. } | Ty::Param(_) | Ty::Assoc(_)) {
                 continue;
             }
             ok &= self.check_spec(spec, *span, inner);
@@ -6607,9 +6586,9 @@ impl<'a, 'c> Body<'a, 'c> {
                             params: sig
                                 .params
                                 .iter()
-                                .map(|p| ty::substitute(&p.ty, &map))
+                                .map(|p| self.cx.table.subst(&p.ty, &map))
                                 .collect(),
-                            ret: Rc::new(ty::substitute(&sig.ret, &map)),
+                            ret: Rc::new(self.cx.table.subst(&sig.ret, &map)),
                         },
                         hir::ExprKind::FnItem { sym, type_args },
                     )

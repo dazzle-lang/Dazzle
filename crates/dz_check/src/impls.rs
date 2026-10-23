@@ -497,10 +497,7 @@ impl TypeTable {
                 return true;
             }
         }
-        let direct = match t {
-            Ty::Param(p) => self.bounds_of(p).to_vec(),
-            _ => self.traits_of(t),
-        };
+        let direct = if ty::is_abstract(t) { self.abstract_bounds(t) } else { self.traits_of(t) };
         self.trait_closure(&direct, t)
             .iter()
             .any(|x| x.trait_sym == r.trait_sym && x.args == r.args)
@@ -517,9 +514,10 @@ impl TypeTable {
                 return true;
             }
         }
-        match t {
-            Ty::Param(_) => self.implements(t, r),
-            _ => self.impl_of(r, t).is_some(),
+        if ty::is_abstract(t) {
+            self.implements(t, r)
+        } else {
+            self.impl_of(r, t).is_some()
         }
     }
 

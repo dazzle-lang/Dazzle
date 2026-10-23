@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 74
+**Version:** 0.1 — **unreleased**, revision 75
 **Status:** M0–M8, M10, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle
 programs compile and run, own, move and drop their resources deterministically, have
 generics, traits, unions, macros and reflection, call C and C++ libraries that `dz`
