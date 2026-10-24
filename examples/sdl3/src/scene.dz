@@ -1,0 +1,137 @@
+// What is in the scene at time `t`, as plain data for the renderer: a trefoil knot turning
+// over a dais, a ring of pillars, three lamps circling the knot, and the sun going slowly round.
+// The grass is not here: the renderer grows it everywhere but under the dais.
+
+pub enum Shape : u8 {
+    Floor
+    Cube
+    Sphere
+    Knot
+}
+
+pub struct Object {
+    pub shape: Shape
+    pub model: Mat4
+    /// Linear, and above 1 for what glows.
+    pub color: Vec3
+    /// The Blinn-Phong exponent: higher is a smaller, sharper highlight.
+    pub gloss: f32 = 24
+    /// 1 for a metal, which reflects in its own colour and has no diffuse light.
+    pub metal: f32 = 0
+    /// 1 for a surface that is all its own light, which nothing else lights.
+    pub emissive:     f32 = 0
+    pub casts_shadow: bool = true
+}
+
+pub struct Frame {
+    pub objects: List<Object>
+    /// Seconds into the scene, which moves the wind through the grass.
+    pub time:   f32
+    pub eye:    Vec3
+    pub target: Vec3
+    /// Towards the sun.
+    pub sun_dir:    Vec3
+    pub sun_color:  Vec3
+    pub lamp_pos:   [3]Vec3
+    pub lamp_color: [3]Vec3
+}
+
+/// An orbit round a point: dragging the mouse turns it, the wheel moves it nearer.
+pub struct Camera {
+    pub yaw:      f32 = 0.7
+    pub pitch:    f32 = 0.2
+    pub distance: f32 = 13.5
+    pub target:   Vec3 = Vec3{ x: 0, y: 2.2, z: 0 }
+
+    pub fn eye(&self) -> Vec3 {
+        let dir = Vec3{ x: pitch.cos() * yaw.sin(), y: pitch.sin(), z: pitch.cos() * yaw.cos() }
+        return target + dir * distance
+    }
+}
+
+fn rgb(r: f32, g: f32, b: f32) -> Vec3 {
+    return Vec3{ x: r, y: g, z: b }
+}
+
+/// A point on the circle of `radius` round the y axis, at `angle` and `height`.
+fn around(angle: f32, radius: f32, height: f32) -> Vec3 {
+    return Vec3{ x: angle.cos() * radius, y: height, z: angle.sin() * radius }
+}
+
+fn placed(at: Vec3, size: Vec3) -> Mat4 {
+    return Mat4::translation(at) * Mat4::scaling(size)
+}
+
+const PILLARS: i32 = 6
+
+pub fn build(t: f32, camera: &Camera) -> Frame {
+    let mut f: Frame
+    f.eye = camera.eye()
+    f.target = camera.target
+    f.time = t
+
+    // An afternoon sun, behind the knot as the camera first sees it, so the shadows fall
+    // towards the viewer; it goes slowly round.
+    let elevation: f32 = 0.62
+    let azimuth = 4.35 + t * 0.05
+    f.sun_dir = Vec3{ x: elevation.cos() * azimuth.cos(), y: elevation.sin(), z: elevation.cos() * azimuth.sin() }
+    f.sun_color = rgb(1.7, 1.55, 1.35)
+
+    let up = Vec3{ x: 0, y: 1, z: 0 }
+    f.objects.push(Object{
+        shape: Shape::Floor,
+        model: Mat4::identity(),
+        color: rgb(1, 1, 1),
+        gloss: 8,
+        casts_shadow: false,
+    })
+
+    // The dais, two steps high, and the knot turning above it.
+    let slate = rgb(0.16, 0.17, 0.21)
+    f.objects.push(Object{ shape: Shape::Cube, model: placed(rgb(0, 0.2, 0), rgb(6, 0.4, 6)), color: slate })
+    f.objects.push(Object{ shape: Shape::Cube, model: placed(rgb(0, 0.6, 0), rgb(4.4, 0.4, 4.4)), color: slate })
+    let spin = Mat4::rotation(up, t * 0.35) * Mat4::rotation(Vec3{ x: 1, y: 0, z: 0 }, 1.25 + (t * 0.3).sin() * 0.25)
+    let knot = Mat4::translation(rgb(0, 3.5 + (t * 0.8).sin() * 0.15, 0)) * spin * Mat4::scaling(rgb(0.7, 0.7, 0.7))
+    f.objects.push(Object{ shape: Shape::Knot, model: knot, color: rgb(1.0, 0.60, 0.16), gloss: 180, metal: 1 })
+
+    // A ring of pillars, each with a ball resting on it and a block at its foot.
+    let colors = [rgb(0.95, 0.30, 0.28), rgb(0.12, 0.72, 0.66), rgb(0.52, 0.32, 0.95), rgb(0.98, 0.70, 0.18), rgb(0.22, 0.52, 0.98), rgb(0.55, 0.85, 0.24)]
+    let heights: [6]f32 = [2.2, 1.5, 2.8, 1.8, 2.5, 1.3]
+    for i in 0..PILLARS {
+        let angle = i as f32 / PILLARS as f32 * TAU + 0.3
+        let h = heights[i as usize]
+        let base = around(angle, 7.5, 0)
+        f.objects.push(Object{
+            shape: Shape::Cube,
+            model: placed(base + rgb(0, h / 2, 0), rgb(0.9, h, 0.9)),
+            color: rgb(0.62, 0.60, 0.58),
+            gloss: 12,
+        })
+        let bob = (t * 1.3 + i as f32).sin() * 0.06
+        f.objects.push(Object{
+            shape: Shape::Sphere,
+            model: placed(base + rgb(0, h + 0.62 + bob, 0), rgb(0.6, 0.6, 0.6)),
+            color: colors[i as usize],
+            gloss: 90,
+        })
+        let block = Mat4::translation(around(angle + 0.42, 6.2, 0.35)) * Mat4::rotation(up, angle * 2.0) * Mat4::scaling(rgb(0.7, 0.7, 0.7))
+        f.objects.push(Object{ shape: Shape::Cube, model: block, color: colors[i as usize] * 0.6, gloss: 32 })
+    }
+
+    // Three lamps circling the knot, each a small ball that glows in its own colour.
+    f.lamp_color = [rgb(4.0, 1.5, 0.35), rgb(0.35, 1.9, 4.0), rgb(3.6, 0.5, 3.0)]
+    for i in 0..3 {
+        let angle = t * 0.6 + i as f32 * TAU / 3
+        let pos = around(angle, 3.9, 2.1 + (t * 1.1 + i as f32 * 2).sin() * 0.7)
+        f.lamp_pos[i as usize] = pos
+        let glow = f.lamp_color[i as usize] * 2
+        f.objects.push(Object{
+            shape: Shape::Sphere,
+            model: placed(pos, rgb(0.16, 0.16, 0.16)),
+            color: glow,
+            emissive: 1,
+            casts_shadow: false,
+        })
+    }
+    return f
+}

@@ -16,3 +16,6 @@
 [submodule "examples/vendor/box2d"]
 	path = examples/vendor/box2d
 	url = https://github.com/erincatto/box2d
+[submodule "examples/vendor/SDL"]
+	path = examples/vendor/SDL
+	url = https://github.com/libsdl-org/SDL

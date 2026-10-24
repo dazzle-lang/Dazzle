@@ -101,6 +101,20 @@ fn maybe(n: i32) -> i32? {
     return n
 }
 
+fn sum(xs: []i32) -> i32 {
+    let mut n = 0
+    for x in xs {
+        n += x
+    }
+    return n
+}
+
+fn double(xs: []mut i32) {
+    for &mut x in xs {
+        x *= 2
+    }
+}
+
 fn count<T: Copy>(xs: []T, stop: Step) -> i32 {
     let mut n = 0
     for i, &_x in xs.indexed() {
@@ -197,6 +211,13 @@ fn main() {
     // `break`, `continue` and `or break` inside arms, inside a generic loop.
     let ns = [1, 2, 3, 4]
     println!("count {} {}", count(ns, Step::Stop), count(ns, Step::Go))
+
+    // A reference to an array, where a slice is wanted, is read as the slice that views
+    // it (spec §5.2, §5.3): a `&`, a `&mut` that the callee writes through, and the address
+    // of a temporary. The generated C++ once rejected all three.
+    let mut ms = [1, 2, 3]
+    double(&mut ms)
+    println!("through references {} {} {}", sum(&ns), sum(&ms), sum(&[7, 8]))
 
     // A generic union inferred from its payload, and matched over copies.
     let cs = [wrap(1), wrap(2), Choice<i32>::Neither]

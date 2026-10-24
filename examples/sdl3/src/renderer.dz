@@ -1,0 +1,319 @@
+// Draws a `Frame` in two passes: the scene's depth from the sun, into the shadow map, then the
+// scene from the camera, lit, over a sky.
+
+const SHADOW_SIZE: i32 = 2048
+
+/// How far the sun's view reaches from the centre of the scene, which is what the shadow map
+/// covers: wider is blurrier.
+const SHADOW_EXTENT: f32 = 13
+
+/// Blades along each side of the field, so the grass is this squared: about 400 000 blades,
+/// drawn in one call.
+const GRASS_GRID: i32 = 640
+
+const GRASS_SPACING: f32 = 0.11
+
+/// Shapes uploaded to the GPU, one vertex buffer each.
+struct Mesh {
+    pub vao:   u32
+    pub vbo:   u32
+    pub count: i32
+}
+
+fn upload(g: &Geometry) -> Mesh {
+    let mut m: Mesh
+    gl::glGenVertexArrays(1, &mut m.vao)
+    gl::glBindVertexArray(m.vao)
+    gl::glGenBuffers(1, &mut m.vbo)
+    gl::glBindBuffer(gl::GL_ARRAY_BUFFER, m.vbo)
+    let verts = g.verts.as_slice()
+    // `GLsizeiptr`, a pointer-sized signed integer.
+    let bytes = (verts.len * Vertex::size) as i64
+    gl::glBufferData(gl::GL_ARRAY_BUFFER, bytes, unsafe {
+        verts.ptr as ^void
+    }, gl::GL_STATIC_DRAW)
+    // `pos` then `normal`, as the vertex shaders' locations 0 and 1.
+    let stride = Vertex::size as i32
+    gl::glVertexAttribPointer(0, 3, gl::GL_FLOAT, 0, stride, null)
+    gl::glVertexAttribPointer(1, 3, gl::GL_FLOAT, 0, stride, unsafe {
+        Vec3::size as ^void
+    })
+    gl::glEnableVertexAttribArray(0)
+    gl::glEnableVertexAttribArray(1)
+    m.count = verts.len as i32
+    return m
+}
+
+fn compile(kind: u32, parts: []cstr) -> u32 {
+    let shader = gl::glCreateShader(kind)
+    gl::glShaderSource(shader, parts.len as i32, parts.ptr, null)
+    gl::glCompileShader(shader)
+    let mut ok: i32 = 0
+    gl::glGetShaderiv(shader, gl::GL_COMPILE_STATUS, &mut ok)
+    if ok == 0 {
+        let mut log: [2048]u8
+        let mut len: i32 = 0
+        gl::glGetShaderInfoLog(shader, log.len as i32, &mut len, unsafe {
+            log.ptr as ^mut i8
+        })
+        panic!("a shader did not compile:\n{}", unsafe {
+            log[0..len as usize] as str
+        })
+    }
+    return shader
+}
+
+fn link(vertex: []cstr, fragment: []cstr) -> u32 {
+    let vs = compile(gl::GL_VERTEX_SHADER, vertex)
+    let fs = compile(gl::GL_FRAGMENT_SHADER, fragment)
+    let program = gl::glCreateProgram()
+    gl::glAttachShader(program, vs)
+    gl::glAttachShader(program, fs)
+    gl::glLinkProgram(program)
+    gl::glDeleteShader(vs)
+    gl::glDeleteShader(fs)
+    let mut ok: i32 = 0
+    gl::glGetProgramiv(program, gl::GL_LINK_STATUS, &mut ok)
+    if ok == 0 {
+        let mut log: [2048]u8
+        let mut len: i32 = 0
+        gl::glGetProgramInfoLog(program, log.len as i32, &mut len, unsafe {
+            log.ptr as ^mut i8
+        })
+        panic!("a shader program did not link:\n{}", unsafe {
+            log[0..len as usize] as str
+        })
+    }
+    return program
+}
+
+pub struct Renderer {
+    m_lit:    u32
+    m_shadow: u32
+    m_sky:    u32
+    m_grass:  u32
+    /// The program the uniform setters below write to.
+    m_current: u32
+    m_floor:   Mesh
+    m_cube:    Mesh
+    m_sphere:  Mesh
+    m_knot:    Mesh
+    /// The sky's triangle has no vertices to read, but core OpenGL draws nothing without a
+    /// vertex array bound.
+    m_empty:      u32
+    m_shadow_fbo: u32
+    m_shadow_map: u32
+
+    pub Renderer() {
+        m_lit = link(&[VERSION, LIT_VS], &[VERSION, NOISE, COMMON, LIGHTING, GRASS, LIT_FS])
+        m_shadow = link(&[VERSION, SHADOW_VS], &[VERSION, SHADOW_FS])
+        m_sky = link(&[VERSION, SKY_VS], &[VERSION, NOISE, COMMON, SKY_FS])
+        m_grass = link(&[VERSION, NOISE, GRASS_VS], &[VERSION, NOISE, COMMON, LIGHTING, GRASS, GRASS_FS])
+        m_floor = upload(&floor_geometry())
+        m_cube = upload(&cube_geometry())
+        m_sphere = upload(&sphere_geometry())
+        m_knot = upload(&knot_geometry())
+        gl::glGenVertexArrays(1, &mut m_empty)
+
+        // A depth texture the lit shader samples as a `sampler2DShadow`: each lookup compares
+        // against the stored depth and filters the results. Outside it, nothing is in shadow.
+        gl::glGenTextures(1, &mut m_shadow_map)
+        gl::glBindTexture(gl::GL_TEXTURE_2D, m_shadow_map)
+        gl::glTexImage2D(gl::GL_TEXTURE_2D, 0, gl::GL_DEPTH_COMPONENT24, SHADOW_SIZE, SHADOW_SIZE, 0, gl::GL_DEPTH_COMPONENT, gl::GL_FLOAT, null)
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR)
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR)
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_S, gl::GL_CLAMP_TO_BORDER)
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_T, gl::GL_CLAMP_TO_BORDER)
+        let border: [4]f32 = [1, 1, 1, 1]
+        gl::glTexParameterfv(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_BORDER_COLOR, border.ptr)
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_COMPARE_MODE, gl::GL_COMPARE_REF_TO_TEXTURE)
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_COMPARE_FUNC, gl::GL_LEQUAL)
+
+        gl::glGenFramebuffers(1, &mut m_shadow_fbo)
+        gl::glBindFramebuffer(gl::GL_FRAMEBUFFER, m_shadow_fbo)
+        gl::glFramebufferTexture2D(gl::GL_FRAMEBUFFER, gl::GL_DEPTH_ATTACHMENT, gl::GL_TEXTURE_2D, m_shadow_map, 0)
+        gl::glDrawBuffer(gl::GL_NONE)
+        gl::glReadBuffer(gl::GL_NONE)
+        if gl::glCheckFramebufferStatus(gl::GL_FRAMEBUFFER) != gl::GL_FRAMEBUFFER_COMPLETE {
+            panic!("the shadow map's framebuffer is incomplete")
+        }
+        gl::glBindFramebuffer(gl::GL_FRAMEBUFFER, 0)
+
+        gl::glEnable(gl::GL_DEPTH_TEST)
+        gl::glEnable(gl::GL_CULL_FACE)
+        gl::glEnable(gl::GL_MULTISAMPLE)
+    }
+
+    fn mesh(&self, shape: Shape) -> Mesh {
+        return switch shape {
+            case Floor {
+                m_floor
+            }
+            case Cube {
+                m_cube
+            }
+            case Sphere {
+                m_sphere
+            }
+            case Knot {
+                m_knot
+            }
+        }
+    }
+
+    fn use_program(&mut self, program: u32) {
+        m_current = program
+        gl::glUseProgram(program)
+    }
+
+    fn location(&self, name: cstr) -> i32 {
+        return gl::glGetUniformLocation(m_current, name)
+    }
+
+    fn set_mat4(&self, name: cstr, m: &Mat4) {
+        let p: ^Mat4 = m
+        gl::glUniformMatrix4fv(self.location(name), 1, 0, unsafe {
+            p as ^f32
+        })
+    }
+
+    fn set_vec3s(&self, name: cstr, vs: []Vec3) {
+        gl::glUniform3fv(self.location(name), vs.len as i32, unsafe {
+            vs.ptr as ^f32
+        })
+    }
+
+    fn set_vec3(&self, name: cstr, v: &Vec3) {
+        let p: ^Vec3 = v
+        gl::glUniform3fv(self.location(name), 1, unsafe {
+            p as ^f32
+        })
+    }
+
+    fn set_f32(&self, name: cstr, v: f32) {
+        gl::glUniform1f(self.location(name), v)
+    }
+
+    fn set_i32(&self, name: cstr, v: i32) {
+        gl::glUniform1i(self.location(name), v)
+    }
+
+    /// The uniforms `COMMON` declares, which both the sky and the lit shader read.
+    fn set_common(&self, frame: &Frame, width: i32, height: i32) {
+        self.set_vec3("u_sun_dir", &frame.sun_dir)
+        self.set_vec3s("u_lamp_pos", &frame.lamp_pos)
+        self.set_vec3s("u_lamp_color", &frame.lamp_color)
+        let viewport: [2]f32 = [width as f32, height as f32]
+        gl::glUniform2fv(self.location("u_viewport"), 1, viewport.ptr)
+        self.set_f32("u_time", frame.time)
+    }
+
+    fn draw_mesh(&self, shape: Shape) {
+        let mesh = self.mesh(shape)
+        gl::glBindVertexArray(mesh.vao)
+        gl::glDrawArrays(gl::GL_TRIANGLES, 0, mesh.count)
+    }
+
+    /// Draws `frame` into the window's framebuffer, `width` × `height` pixels.
+    pub fn draw(&mut self, frame: &Frame, width: i32, height: i32) {
+        let center = Vec3{ x: 0, y: 1, z: 0 }
+        let up = Vec3{ x: 0, y: 1, z: 0 }
+        let light_view = Mat4::look_at(center + frame.sun_dir * 30, center, up)
+        let e = SHADOW_EXTENT
+        let light_proj = Mat4::orthographic(-e, e, -e, e, 1, 60, DepthRange::MinusOneToOne)
+        let light_view_proj = light_proj * light_view
+
+        // The sun's pass. The offset pushes each depth slightly away from the sun, so a
+        // surface does not shadow itself in stripes.
+        gl::glBindFramebuffer(gl::GL_FRAMEBUFFER, m_shadow_fbo)
+        gl::glViewport(0, 0, SHADOW_SIZE, SHADOW_SIZE)
+        gl::glClear(gl::GL_DEPTH_BUFFER_BIT)
+        gl::glEnable(gl::GL_POLYGON_OFFSET_FILL)
+        gl::glPolygonOffset(2, 4)
+        self.use_program(m_shadow)
+        self.set_mat4("u_light_view_proj", &light_view_proj)
+        for &o in frame.objects {
+            if o.casts_shadow {
+                self.set_mat4("u_model", &o.model)
+                self.draw_mesh(o.shape)
+            }
+        }
+        gl::glDisable(gl::GL_POLYGON_OFFSET_FILL)
+
+        // The camera's pass, over the sky.
+        gl::glBindFramebuffer(gl::GL_FRAMEBUFFER, 0)
+        gl::glViewport(0, 0, width, height)
+        gl::glClear(gl::GL_COLOR_BUFFER_BIT | gl::GL_DEPTH_BUFFER_BIT)
+        let aspect = width as f32 / height.max(1) as f32
+        let proj = Mat4::perspective(0.8, aspect, 0.1, 200, DepthRange::MinusOneToOne)
+        let view_proj = proj * Mat4::look_at(frame.eye, frame.target, up)
+
+        gl::glDisable(gl::GL_DEPTH_TEST)
+        self.use_program(m_sky)
+        self.set_mat4("u_inv_view_proj", &(view_proj.inverse() or Mat4::identity()))
+        self.set_vec3("u_eye", &frame.eye)
+        self.set_common(frame, width, height)
+        gl::glBindVertexArray(m_empty)
+        gl::glDrawArrays(gl::GL_TRIANGLES, 0, 3)
+        gl::glEnable(gl::GL_DEPTH_TEST)
+
+        self.use_program(m_lit)
+        self.set_mat4("u_view_proj", &view_proj)
+        self.set_mat4("u_light_view_proj", &light_view_proj)
+        self.set_vec3("u_eye", &frame.eye)
+        self.set_vec3("u_sun_color", &frame.sun_color)
+        self.set_common(frame, width, height)
+        gl::glActiveTexture(gl::GL_TEXTURE0)
+        gl::glBindTexture(gl::GL_TEXTURE_2D, m_shadow_map)
+        self.set_i32("u_shadow_map", 0)
+        for &o in frame.objects {
+            self.set_mat4("u_model", &o.model)
+            self.set_vec3("u_color", &o.color)
+            self.set_f32("u_gloss", o.gloss)
+            self.set_f32("u_metal", o.metal)
+            self.set_f32("u_emissive", o.emissive)
+            self.set_i32("u_floor", if o.shape == Shape::Floor {
+                1
+            } else {
+                0
+            })
+            self.draw_mesh(o.shape)
+        }
+
+        // The grass, both faces of each blade, round whatever stands in it. The shadow map
+        // is still bound to unit 0.
+        self.use_program(m_grass)
+        self.set_mat4("u_view_proj", &view_proj)
+        self.set_mat4("u_light_view_proj", &light_view_proj)
+        self.set_vec3("u_eye", &frame.eye)
+        self.set_vec3("u_sun_color", &frame.sun_color)
+        self.set_common(frame, width, height)
+        self.set_i32("u_shadow_map", 0)
+        self.set_i32("u_grid", GRASS_GRID)
+        self.set_f32("u_spacing", GRASS_SPACING)
+        self.set_f32("u_radius", GRASS_GRID as f32 * GRASS_SPACING / 2)
+        self.set_f32("u_clear", 3.05)
+        gl::glDisable(gl::GL_CULL_FACE)
+        gl::glBindVertexArray(m_empty)
+        gl::glDrawArraysInstanced(gl::GL_TRIANGLE_STRIP, 0, 7, GRASS_GRID * GRASS_GRID)
+        gl::glEnable(gl::GL_CULL_FACE)
+    }
+}
+
+/// Everything the renderer made on the GPU, given back while the GL context still exists:
+/// `main` creates the context first, so it is destroyed after this runs.
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        for &m in [m_floor, m_cube, m_sphere, m_knot] {
+            gl::glDeleteBuffers(1, &m.vbo)
+            gl::glDeleteVertexArrays(1, &m.vao)
+        }
+        gl::glDeleteVertexArrays(1, &m_empty)
+        gl::glDeleteFramebuffers(1, &m_shadow_fbo)
+        gl::glDeleteTextures(1, &m_shadow_map)
+        gl::glDeleteProgram(m_lit)
+        gl::glDeleteProgram(m_shadow)
+        gl::glDeleteProgram(m_sky)
+        gl::glDeleteProgram(m_grass)
+    }
+}

@@ -1,0 +1,135 @@
+// The scene's shapes, built on the CPU as lists of triangles and uploaded once. Every curved
+// shape is a parametric surface: a function from (u, v) in 0..1 to a point and its normal,
+// sampled on a grid.
+
+/// One corner of a triangle, laid out as the vertex shader reads it: two `vec3`s.
+pub struct Vertex {
+    pub pos:    Vec3
+    pub normal: Vec3
+}
+
+/// A list of triangles under construction.
+pub struct Geometry {
+    pub verts: List<Vertex>
+
+    /// Adds a triangle wound counter-clockwise seen from outside, which is the side
+    /// back-face culling keeps. The corners' normals say which side that is, so a caller
+    /// never has to get the winding of its grid right.
+    pub fn triangle(&mut self, a: Vertex, b: Vertex, c: Vertex) {
+        let facing = (b.pos - a.pos).cross(c.pos - a.pos)
+        let outward = a.normal + b.normal + c.normal
+        verts.push(a)
+        if facing.dot(outward) >= 0 {
+            verts.push(b)
+            verts.push(c)
+        } else {
+            verts.push(c)
+            verts.push(b)
+        }
+    }
+
+    pub fn quad(&mut self, a: Vertex, b: Vertex, c: Vertex, d: Vertex) {
+        self.triangle(a, b, c)
+        self.triangle(a, c, d)
+    }
+
+    /// Samples `surface` on a `us` × `vs` grid.
+    pub fn surface(&mut self, us: i32, vs: i32, surface: fn(f32, f32) -> Vertex) {
+        for i in 0..us {
+            let u0 = i as f32 / us as f32
+            let u1 = (i + 1) as f32 / us as f32
+            for j in 0..vs {
+                let v0 = j as f32 / vs as f32
+                let v1 = (j + 1) as f32 / vs as f32
+                self.quad(surface(u0, v0), surface(u1, v0), surface(u1, v1), surface(u0, v1))
+            }
+        }
+    }
+}
+
+fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
+    return Vec3{ x: x, y: y, z: z }
+}
+
+/// A unit sphere: `u` goes round the equator and `v` from pole to pole.
+fn sphere_point(u: f32, v: f32) -> Vertex {
+    let theta = u * TAU
+    let phi = v * PI
+    let n = vec3(phi.sin() * theta.cos(), phi.cos(), phi.sin() * theta.sin())
+    return Vertex{ pos: n, normal: n }
+}
+
+const KNOT_P: f32 = 2
+
+const KNOT_Q: f32 = 3
+
+const KNOT_TUBE: f32 = 0.42
+
+/// The centre line of a (2, 3) torus knot, a trefoil: it winds `KNOT_P` times round the
+/// torus's axis while going `KNOT_Q` times through its hole.
+fn knot_curve(t: f32) -> Vec3 {
+    let r = 2 + (KNOT_Q * t).cos()
+    return vec3(r * (KNOT_P * t).cos(), -(KNOT_Q * t).sin(), r * (KNOT_P * t).sin())
+}
+
+/// A tube round `knot_curve`: `u` runs along the curve and `v` round the tube.
+fn knot_point(u: f32, v: f32) -> Vertex {
+    let t = u * TAU
+    let center = knot_curve(t)
+    let tangent = (knot_curve(t + 0.001) - knot_curve(t - 0.001)).normalized()
+    // Away from the torus's own core circle: periodic in `t`, so the tube closes up with no
+    // seam, and never parallel to the tangent.
+    let core = vec3(2 * (KNOT_P * t).cos(), 0, 2 * (KNOT_P * t).sin())
+    let out = center - core
+    let normal = (out - tangent * out.dot(tangent)).normalized()
+    let binormal = tangent.cross(normal)
+    let a = v * TAU
+    let n = normal * a.cos() + binormal * a.sin()
+    return Vertex{ pos: center + n * KNOT_TUBE, normal: n }
+}
+
+/// A unit cube centred on the origin: for each axis, the face on either side of it.
+fn add_cube(g: &mut Geometry) {
+    let axes = [vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1)]
+    let sides: [2]f32 = [-0.5, 0.5]
+    for i in 0..3 {
+        let s = axes[(i + 1) % 3] * 0.5
+        let t = axes[(i + 2) % 3] * 0.5
+        for &side in sides {
+            let c = axes[i] * side
+            let n = axes[i] * side * 2
+            g.quad(Vertex{ pos: c - s - t, normal: n }, Vertex{ pos: c + s - t, normal: n }, Vertex{ pos: c + s + t, normal: n }, Vertex{ pos: c - s + t, normal: n })
+        }
+    }
+}
+
+/// A square of side `size` in the xz plane, facing up.
+fn add_floor(g: &mut Geometry, size: f32) {
+    let h = size / 2
+    let up = vec3(0, 1, 0)
+    g.quad(Vertex{ pos: vec3(-h, 0, -h), normal: up }, Vertex{ pos: vec3(h, 0, -h), normal: up }, Vertex{ pos: vec3(h, 0, h), normal: up }, Vertex{ pos: vec3(-h, 0, h), normal: up })
+}
+
+pub fn floor_geometry() -> Geometry {
+    let mut g: Geometry
+    add_floor(&mut g, 160)
+    return g
+}
+
+pub fn cube_geometry() -> Geometry {
+    let mut g: Geometry
+    add_cube(&mut g)
+    return g
+}
+
+pub fn sphere_geometry() -> Geometry {
+    let mut g: Geometry
+    g.surface(48, 24, sphere_point)
+    return g
+}
+
+pub fn knot_geometry() -> Geometry {
+    let mut g: Geometry
+    g.surface(320, 28, knot_point)
+    return g
+}

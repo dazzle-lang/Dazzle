@@ -3262,9 +3262,12 @@ pub(crate) fn decode_escapes(body: &str) -> String {
     out
 }
 
-/// Strip the delimiters of a raw string literal, which has no escapes (spec §2.4).
+/// Strip the backticks of a raw string literal, which has no escapes (spec §2.5): its value
+/// is exactly the text between them, line breaks included. An unterminated one, already
+/// reported by the lexer, has no closing backtick and runs to the end of the file.
 pub(crate) fn decode_raw_string_literal(text: &str) -> String {
-    text.strip_prefix('"').and_then(|t| t.strip_suffix('"')).unwrap_or(text).to_owned()
+    let inner = text.strip_prefix('`').unwrap_or(text);
+    inner.strip_suffix('`').unwrap_or(inner).to_owned()
 }
 
 /// Parse a float literal's value, ignoring separators and any type suffix.

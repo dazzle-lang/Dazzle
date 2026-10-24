@@ -1,0 +1,351 @@
+// The GLSL, as raw strings. `glShaderSource` takes a shader as several strings, so the
+// version line and `COMMON` are written once and put in front of each shader that needs them.
+
+const VERSION: cstr = "#version 330 core\n"
+
+/// Random numbers from a position, for the grass's placement and colour.
+const NOISE: cstr = `
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// Smooth noise: random values at the corners of a grid, blended between them.
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+`
+
+/// What every fragment shader shares: the sky, which the fog fades each surface into so the
+/// floor meets the horizon with no seam; the glow of the air round each lamp; and the tone
+/// mapping that brings the lighting's high range into the screen's.
+const COMMON: cstr = `
+uniform vec3 u_sun_dir;         // towards the sun
+uniform vec3 u_lamp_pos[3];
+uniform vec3 u_lamp_color[3];
+uniform vec2 u_viewport;
+uniform float u_time;
+
+// The sky's colour with nothing in it: deep blue overhead, paler at the horizon, and
+// brighter round the sun. Below the horizon it is the horizon's, which is what the fog
+// fades the ground into.
+vec3 haze(vec3 d) {
+    vec3 zenith  = vec3(0.012, 0.060, 0.300);
+    vec3 horizon = vec3(0.170, 0.300, 0.560);
+    vec3 col = mix(horizon, zenith, smoothstep(0.0, 0.45, max(d.y, 0.0)));
+    float s = max(dot(d, u_sun_dir), 0.0);
+    return col + vec3(1.0, 0.85, 0.60) * (pow(s, 8.0) * 0.12 + pow(s, 64.0) * 0.5);
+}
+
+// Clouds are noise on a plane high above, seen through the sky: thin wisps where the noise
+// is low, white where it is high, shaded grey underneath, and thinning to nothing towards
+// the horizon, where the plane is too far away to resolve. They drift with u_time.
+float fbm(vec2 p) {
+    float sum = 0.0;
+    float amp = 0.5;
+    for (int i = 0; i < 5; i++) {
+        sum += amp * noise(p);
+        p = p * 2.03 + vec2(1.7, 9.2);
+        amp *= 0.5;
+    }
+    return sum;
+}
+
+vec3 sky(vec3 d, float sun_disk) {
+    vec3 col = haze(d);
+    float s = max(dot(d, u_sun_dir), 0.0);
+    col += vec3(1.0, 0.92, 0.80) * smoothstep(0.9994, 0.9997, s) * 20.0 * sun_disk;
+    if (d.y > 0.0) {
+        vec2 uv = d.xz / (d.y + 0.12) * 0.9 + vec2(u_time * 0.015, u_time * 0.006);
+        float cover = smoothstep(0.42, 0.72, fbm(uv));
+        float under = smoothstep(0.45, 0.85, fbm(uv * 1.3 + vec2(3.1, 1.2)));
+        vec3 cloud = mix(vec3(1.10, 1.08, 1.05), vec3(0.50, 0.56, 0.68), under * 0.6);
+        cloud += vec3(1.0, 0.9, 0.7) * pow(s, 12.0) * 0.6;
+        col = mix(col, cloud, cover * smoothstep(0.02, 0.25, d.y));
+    }
+    return col;
+}
+
+// Light scattered towards the eye by the air near each lamp, along a ray from the eye that
+// stops at far: brightest where the ray passes closest to the lamp.
+vec3 lamp_glow(vec3 eye, vec3 dir, float far) {
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 3; i++) {
+        float t = clamp(dot(u_lamp_pos[i] - eye, dir), 0.0, far);
+        vec3 off = eye + dir * t - u_lamp_pos[i];
+        float d2 = dot(off, off);
+        sum += u_lamp_color[i] * (0.06 * exp(-d2 * 3.0) + 0.0025 / (d2 + 0.0025));
+    }
+    return sum;
+}
+
+// Distance fades everything into the sky behind it, and the lamps light the air between.
+vec3 fogged(vec3 color, vec3 eye, vec3 pos) {
+    vec3 v = normalize(eye - pos);
+    float dist = length(eye - pos);
+    float fog = 1.0 - exp(-pow(dist * 0.015, 2.0));
+    return mix(color, haze(-v), fog) + lamp_glow(eye, -v, dist);
+}
+
+vec3 finish(vec3 c) {
+    c = (c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14);    // ACES, fitted
+    vec2 uv = gl_FragCoord.xy / u_viewport - 0.5;
+    c *= 1.0 - dot(uv, uv) * 0.55;                                     // vignette
+    return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
+}
+`
+
+/// What the lit surfaces and the grass share: the sun's shadow, and the light from the sky
+/// and the ground that reaches everything.
+const LIGHTING: cstr = `
+uniform sampler2DShadow u_shadow_map;
+uniform vec3 u_sun_color;
+
+// How much of the sun reaches a point, given where it is in the sun's view: 25 depth
+// comparisons, each of them filtered by the hardware, for a soft edge.
+float sunlight(vec4 light_pos, float ndl) {
+    vec3 p = light_pos.xyz / light_pos.w * 0.5 + 0.5;
+    if (p.z >= 1.0) return 1.0;
+    float bias = 0.0004 + 0.0016 * (1.0 - max(ndl, 0.0));
+    vec2 texel = 1.0 / vec2(textureSize(u_shadow_map, 0));
+    float lit = 0.0;
+    for (int x = -2; x <= 2; x++)
+        for (int y = -2; y <= 2; y++)
+            lit += texture(u_shadow_map, vec3(p.xy + vec2(x, y) * texel * 1.25, p.z - bias));
+    return lit / 25.0;
+}
+
+// Light from the blue sky above and the green ground below.
+vec3 ambient(vec3 n) {
+    return mix(vec3(0.050, 0.065, 0.030), vec3(0.090, 0.130, 0.220), n.y * 0.5 + 0.5);
+}
+`
+
+/// The grass's colour and light, shared by the blades and the ground under them, so that
+/// earth seen between the blades, and grass too far away to see blade by blade, are the same
+/// green: where the field thins out under the fog there is no edge to see. Stylized rather
+/// than physical: broad patches of yellow-green and blue-green, and blades shaded as the
+/// ground they stand on rather than one by one.
+const GRASS: cstr = `
+// The colour at a height up the blade, 0 at the root and 1 at the tip: only a little
+// darker at the root, which is also the ground's colour.
+vec3 grass_albedo(vec2 xz, float along) {
+    float patches = noise(xz * 0.09) * 0.7 + noise(xz * 0.37) * 0.3;
+    vec3 tip = mix(vec3(0.120, 0.330, 0.075), vec3(0.200, 0.400, 0.050), smoothstep(0.2, 0.8, patches));
+    return tip * mix(0.72, 1.0, along);
+}
+
+// Light that wraps a little round, as it does through a thin leaf.
+float wrapped(vec3 n, vec3 l) {
+    return max((dot(n, l) + 0.6) / 1.6, 0.0);
+}
+
+// Lit mostly as the ground under it is; the sun behind the grass shines through the tips.
+vec3 grass_light(vec3 albedo, vec3 n, vec3 v, vec3 pos, float shadow, float along) {
+    vec3 shading = normalize(mix(vec3(0.0, 1.0, 0.0), n, 0.5));
+    float through = pow(max(dot(-v, u_sun_dir), 0.0), 4.0) * along;
+    vec3 color = albedo * ambient(shading) * 1.2;
+    color += albedo * (wrapped(shading, u_sun_dir) + through * 1.5) * u_sun_color * shadow;
+    for (int i = 0; i < 3; i++) {
+        vec3 d = u_lamp_pos[i] - pos;
+        float dist2 = dot(d, d);
+        color += albedo * wrapped(shading, d * inversesqrt(dist2)) * u_lamp_color[i] / (1.0 + 0.3 * dist2);
+    }
+    return color;
+}
+`
+
+/// A triangle that covers the screen, from `gl_VertexID` alone: no vertex buffer.
+const SKY_VS: cstr = `
+out vec2 v_ndc;
+void main() {
+    v_ndc = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2.0 - 1.0;
+    gl_Position = vec4(v_ndc, 0.0, 1.0);
+}
+`
+
+const SKY_FS: cstr = `
+in vec2 v_ndc;
+out vec4 frag;
+uniform mat4 u_inv_view_proj;
+uniform vec3 u_eye;
+void main() {
+    vec4 far = u_inv_view_proj * vec4(v_ndc, 1.0, 1.0);
+    vec3 dir = normalize(far.xyz / far.w - u_eye);
+    frag = vec4(finish(sky(dir, 1.0) + lamp_glow(u_eye, dir, 1000.0)), 1.0);
+}
+`
+
+/// Depth only, from the sun's point of view.
+const SHADOW_VS: cstr = `
+layout(location = 0) in vec3 a_pos;
+uniform mat4 u_model;
+uniform mat4 u_light_view_proj;
+void main() {
+    gl_Position = u_light_view_proj * u_model * vec4(a_pos, 1.0);
+}
+`
+
+const SHADOW_FS: cstr = `
+void main() {}
+`
+
+const LIT_VS: cstr = `
+layout(location = 0) in vec3 a_pos;
+layout(location = 1) in vec3 a_normal;
+uniform mat4 u_model;
+uniform mat4 u_view_proj;
+uniform mat4 u_light_view_proj;
+out vec3 v_pos;
+out vec3 v_normal;
+out vec4 v_light;
+void main() {
+    vec4 world = u_model * vec4(a_pos, 1.0);
+    v_pos = world.xyz;
+    v_normal = transpose(inverse(mat3(u_model))) * a_normal;
+    v_light = u_light_view_proj * world;
+    gl_Position = u_view_proj * world;
+}
+`
+
+/// Per-pixel lighting: a sun that casts soft shadows, three coloured lamps, a sky and a
+/// ground that light what faces them, and fog.
+const LIT_FS: cstr = `
+in vec3 v_pos;
+in vec3 v_normal;
+in vec4 v_light;
+out vec4 frag;
+
+uniform vec3  u_eye;
+uniform vec3  u_color;
+uniform float u_gloss;
+uniform float u_emissive;
+uniform float u_metal;
+uniform int   u_floor;
+
+// How much light a surface reflects as a mirror would, rising to all of it at grazing
+// angles (Schlick). A metal reflects in its own colour, anything else in the light's.
+vec3 fresnel(vec3 f0, float cos_theta) {
+    return f0 + (1.0 - f0) * pow(1.0 - max(cos_theta, 0.0), 5.0);
+}
+
+// Diffuse and a normalised Blinn-Phong highlight.
+vec3 shade(vec3 diffuse, vec3 f0, vec3 n, vec3 v, vec3 l, vec3 light) {
+    float ndl = max(dot(n, l), 0.0);
+    vec3 h = normalize(l + v);
+    float spec = pow(max(dot(n, h), 0.0), u_gloss) * (u_gloss + 8.0) / 25.0;
+    return (diffuse + fresnel(f0, dot(h, v)) * spec) * ndl * light;
+}
+
+void main() {
+    vec3 n = normalize(v_normal);
+    vec3 v = normalize(u_eye - v_pos);
+    if (u_floor == 1) {
+        // The ground is the colour of the grass's roots.
+        vec3 ground = grass_light(grass_albedo(v_pos.xz, 0.0), n, v, v_pos, sunlight(v_light, 1.0), 0.0);
+        frag = vec4(finish(fogged(ground, u_eye, v_pos)), 1.0);
+        return;
+    }
+    vec3 albedo = u_color;
+
+    vec3 diffuse = albedo * (1.0 - u_metal);
+    vec3 f0 = mix(vec3(0.04), albedo, u_metal);
+
+    vec3 color = diffuse * ambient(n);
+    color += shade(diffuse, f0, n, v, u_sun_dir, u_sun_color) * sunlight(v_light, dot(n, u_sun_dir));
+    for (int i = 0; i < 3; i++) {
+        vec3 d = u_lamp_pos[i] - v_pos;
+        float dist2 = dot(d, d);
+        color += shade(diffuse, f0, n, v, d * inversesqrt(dist2), u_lamp_color[i] / (1.0 + 0.3 * dist2));
+    }
+    // The sky, reflected: sharper and stronger on glossier surfaces.
+    vec3 r = reflect(-v, n);
+    float sharpness = clamp(u_gloss / 160.0, 0.15, 1.0);
+    color += sky(r, 0.0) * fresnel(f0, dot(n, v)) * sharpness;
+    color = mix(color, u_color, u_emissive);
+    frag = vec4(finish(fogged(color, u_eye, v_pos)), 1.0);
+}
+`
+
+/// A field of grass with no vertex buffer at all: each blade is one instance, placed from
+/// `gl_InstanceID` on a jittered grid, and each of its seven vertices is found from
+/// `gl_VertexID`, a strip of three quads narrowing to a point. The wind stirs only the tips.
+const GRASS_VS: cstr = `
+uniform mat4  u_view_proj;
+uniform mat4  u_light_view_proj;
+uniform float u_time;
+uniform int   u_grid;       // blades along each side of the field
+uniform float u_spacing;    // between neighbouring blades
+uniform float u_radius;     // where the field has thinned out to nothing
+uniform float u_clear;      // half the side of the square left bare in the middle
+
+out vec3  v_pos;
+out vec3  v_normal;
+out vec4  v_light;
+out float v_along;          // 0 at the root, 1 at the tip
+out float v_gust;
+out float v_shade;        // each blade a little lighter or darker than the next
+
+void main() {
+    vec2 cell = vec2(gl_InstanceID % u_grid, gl_InstanceID / u_grid) - float(u_grid) * 0.5;
+    vec2 root = (cell + vec2(hash(cell), hash(cell + 17.0))) * u_spacing;
+
+    // Shorter and shorter over the far half of the field, so it thins out under the fog
+    // rather than stopping, and none under the dais. A blade of no height is a line, which
+    // draws nothing.
+    float edge = 1.0 - smoothstep(u_radius * 0.3, u_radius, length(root));
+    vec2 outside = abs(root) - u_clear;
+    float tall = 0.75 + 0.5 * noise(root * 0.3);
+    float height = (0.60 + 0.50 * hash(cell + 31.0)) * tall * edge * step(0.0, max(outside.x, outside.y));
+
+    float angle = hash(cell + 53.0) * 6.2832;
+    vec3 facing = vec3(cos(angle), 0.0, sin(angle));
+    vec3 across = vec3(-facing.z, 0.0, facing.x);
+
+    float along = float(gl_VertexID / 2) / 3.0;
+    float side = gl_VertexID == 6 ? 0.0 : float(gl_VertexID % 2) * 2.0 - 1.0;
+    float width = 0.032 * (1.0 - along * along) * (0.7 + 0.6 * hash(cell + 71.0));
+
+    // Each blade leans its own way. The wind only stirs the tips: small gusts passing
+    // through the field, and each blade a little out of step with its neighbours.
+    vec2 lean = (vec2(hash(cell + 91.0), hash(cell + 13.0)) - 0.5) * 0.5;
+    float gust = 0.5 + 0.5 * sin(u_time * 2.2 + dot(root, vec2(1.9, 1.3)));
+    float sway = 0.5 + 0.5 * sin(u_time * 3.1 + hash(cell + 7.0) * 6.2832);
+    float stir = (0.6 * gust + 0.4 * sway) * 0.12;
+    vec2 bend = (lean + vec2(0.8, 0.6) * stir * along) * along * along * height;
+
+    vec3 pos = vec3(root.x, 0.0, root.y) + across * (side * width)
+             + vec3(bend.x, along * height, bend.y);
+    v_pos = pos;
+    v_normal = normalize(facing + vec3(bend.x, 0.4, bend.y));
+    v_light = u_light_view_proj * vec4(pos, 1.0);
+    v_along = along;
+    v_gust = gust;
+    v_shade = 0.88 + 0.24 * hash(cell + 47.0);
+    gl_Position = u_view_proj * vec4(pos, 1.0);
+}
+`
+
+const GRASS_FS: cstr = `
+in vec3  v_pos;
+in vec3  v_normal;
+in vec4  v_light;
+in float v_along;
+in float v_gust;
+in float v_shade;
+out vec4 frag;
+
+uniform vec3 u_eye;
+
+void main() {
+    vec3 v = normalize(u_eye - v_pos);
+    vec3 n = normalize(v_normal);
+    if (dot(n.xz, v.xz) < 0.0) n.xz = -n.xz;
+    vec3 albedo = grass_albedo(v_pos.xz, v_along) * mix(1.0, v_shade, v_along) * (1.0 + 0.06 * v_gust * v_along);
+    vec3 color = grass_light(albedo, n, v, v_pos, sunlight(v_light, 1.0), v_along);
+    frag = vec4(finish(fogged(color, u_eye, v_pos)), 1.0);
+}
+`
