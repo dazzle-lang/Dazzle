@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_span::{FileId, SourceMap, Span};
 
+pub mod cmake;
 pub mod toml;
+
+pub use cmake::CmakeBuild;
 
 /// The header importer, re-exported so every phase that meets an imported header reads its
 /// declarations through the crate that holds them.
@@ -143,6 +146,15 @@ pub struct CppLib {
     /// `import = ["raylib.h"]`: the header Dazzle code sees of this library, as a
     /// `cpp = "…"` dependency names it (spec §15.1).
     pub import: Vec<(String, Span)>,
+    /// `cmake = "vendor/SDL"`: a library built by its own CMake rather than from `sources`
+    /// (spec §15.1, D-0090). Its include dirs, link libraries and the fields below come
+    /// from what the build installed, read when the workspace is loaded.
+    pub cmake: Option<CmakeBuild>,
+    /// Defines that every user of the library's headers needs, from its install's
+    /// pkg-config `Cflags`. Shared like `[cpp]`'s, unlike `defines` above.
+    pub shared_defines: Vec<String>,
+    /// The rest of an install's link line: `-pthread`, a `-Wl,` option.
+    pub link_flags: Vec<String>,
 }
 
 /// Everything the final link needs, gathered from the whole dependency graph.
@@ -152,6 +164,8 @@ pub struct LinkInputs {
     pub libs: Vec<String>,
     /// macOS frameworks, linked as `-framework <name>`. Empty everywhere else.
     pub frameworks: Vec<String>,
+    /// Passed as they are, after the libraries: a CMake install's `-pthread` (spec §15.1).
+    pub flags: Vec<String>,
 }
 
 /// What the preprocessor is given for one module's C++: see [`Workspace::cpp_flags`].
@@ -215,7 +229,9 @@ impl Workspace {
             // every translation unit that includes the header would define every symbol
             // again, which the linker rejects. A define that has to be shared belongs in
             // `[cpp]`, as §15.1's `JPH_PROFILE_ENABLED` is.
-            for d in cpp.defines.iter() {
+            // A CMake install's own `Cflags` defines are the exception: they are what its
+            // headers need to mean the right thing, so they go wherever the headers go.
+            for d in cpp.defines.iter().chain(cpp.libs.iter().flat_map(|l| &l.shared_defines)) {
                 if !out.defines.contains(d) {
                     out.defines.push(d.clone());
                 }
@@ -243,8 +259,14 @@ impl Workspace {
     /// module the root reaches, each once.
     pub fn link_inputs(&self) -> LinkInputs {
         let (mut dirs, mut libs, mut frameworks) = (Vec::new(), Vec::new(), Vec::new());
+        let mut flags: Vec<String> = Vec::new();
         for m in self.reachable(self.root) {
             let cpp = &self.module(m).cpp;
+            for f in cpp.libs.iter().flat_map(|l| &l.link_flags) {
+                if !flags.contains(f) {
+                    flags.push(f.clone());
+                }
+            }
             for f in cpp.libs.iter().flat_map(|l| &l.frameworks).chain(&cpp.frameworks) {
                 if !frameworks.contains(f) {
                     frameworks.push(f.clone());
@@ -262,7 +284,7 @@ impl Workspace {
                 }
             }
         }
-        LinkInputs { dirs, libs, frameworks }
+        LinkInputs { dirs, libs, frameworks, flags }
     }
 
     /// Every vendored library the root reaches, with the module whose manifest declares it.
@@ -548,6 +570,22 @@ impl Workspace {
 /// problem is reported as a diagnostic and loading continues, so one broken dependency
 /// does not hide the rest.
 pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Option<Workspace> {
+    load_for(entry, map, diags, None, &mut |_, _| {})
+}
+
+/// [`load`] for one build. `optimize` overrides every manifest's `[build] optimize`, since
+/// one command builds one program. `prepare` runs once every manifest has been read and
+/// before any header is: it is where `dz` builds the libraries with a CMake build, whose
+/// headers are the ones their install holds (spec §15.1, D-0090). The editor passes one
+/// that does nothing. When it reports an error, loading stops there and the result is
+/// `None`, since every header it should have installed would be reported missing too.
+pub fn load_for(
+    entry: &Path,
+    map: &mut SourceMap,
+    diags: &mut Diagnostics,
+    optimize: Option<Optimize>,
+    prepare: &mut dyn FnMut(&Workspace, &mut Diagnostics),
+) -> Option<Workspace> {
     let manifest_path =
         normalize(&if entry.is_dir() { entry.join("dazzle.toml") } else { entry.to_owned() });
 
@@ -611,8 +649,75 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
     let rest: Vec<ModuleId> =
         modules.iter().map(|m| m.id).filter(|id| id.0 >= prelude_layer).collect();
     let mut ws = Workspace { modules, root, prelude, prelude_layer };
+    // Every module, not just the root: a dependency compiled at a different optimisation
+    // level is the classic way to get a binary that behaves differently from either.
+    if let Some(m) = optimize {
+        for module in ws.modules_mut() {
+            module.build.optimize = m;
+        }
+    }
+    place_cmake_builds(&mut ws);
+    if !diags.has_errors() {
+        let mut prepared = Diagnostics::new();
+        prepare(&ws, &mut prepared);
+        let failed = prepared.has_errors();
+        diags.extend(prepared);
+        if failed {
+            return None;
+        }
+    }
+    read_cmake_installs(&mut ws);
     import_headers(&mut ws, &rest, &mut added, map, diags);
     Some(ws)
+}
+
+/// Give every CMake recipe its build tree: `build/cmake/<lib>/<config>/` under the **root**
+/// project, whichever manifest holds the recipe, as there is one recipe for a library and
+/// so one build of it for the whole program (spec §15.1, D-0090).
+fn place_cmake_builds(ws: &mut Workspace) {
+    let root = ws.module(ws.root);
+    let base = root.root_dir.join("build").join("cmake");
+    let config = cmake::config_for(root.build.optimize);
+    for m in ws.modules_mut() {
+        for lib in &mut m.cpp.libs {
+            if let Some(c) = &mut lib.cmake {
+                c.dir = base.join(&lib.name).join(config);
+                c.config = config;
+            }
+        }
+    }
+}
+
+/// What each CMake recipe's last build installed: its headers, which the import reads, and
+/// its link line.
+fn read_cmake_installs(ws: &mut Workspace) {
+    for m in ws.modules_mut() {
+        for lib in &mut m.cpp.libs {
+            let Some(c) = &mut lib.cmake else { continue };
+            let Some(usage) = cmake::read_install(&c.install_dir(), &lib.name) else { continue };
+            c.installed = true;
+            lib.include_dirs = usage.include_dirs;
+            lib.shared_defines = usage.defines;
+            lib.lib_dirs = usage.lib_dirs;
+            lib.link_flags = usage.link_flags;
+            // The recipe's own `link_libs` and `frameworks` add what the pkg-config file
+            // left out. They come after the install's, being what the library needs.
+            let mut libs = usage.link_libs;
+            for l in lib.link_libs.drain(..) {
+                if !libs.contains(&l) {
+                    libs.push(l);
+                }
+            }
+            lib.link_libs = libs;
+            let mut frameworks = usage.frameworks;
+            for f in lib.frameworks.drain(..) {
+                if !frameworks.contains(&f) {
+                    frameworks.push(f);
+                }
+            }
+            lib.frameworks = frameworks;
+        }
+    }
 }
 
 /// `rl = { cpp = "raylib" }` (spec §15.1): read the header each such dependency's recipe
@@ -708,6 +813,23 @@ fn import_headers(
                 })
                 .map_or(manifest, |m| m.manifest);
             let (pf_file, header) = (header_file, header);
+            // A CMake library's headers are the ones its build installed, and only `dz`
+            // builds it: the editor never runs CMake (D-0090). Until a build has, there is
+            // nothing to read, and clang's "file not found" would not say why.
+            if recipe.cmake.as_ref().is_some_and(|c| !c.installed) {
+                diags.push(
+                    Diagnostic::error(
+                        codes::CPP_NOT_BUILT,
+                        format!("`{}` is built with CMake and has not been built yet", recipe.name),
+                    )
+                    .at(pf_file, header, "its build installs this header")
+                    .with_help(
+                        "`dz build` or `dz check` builds and installs it, after which its \
+                         headers can be read here too (spec §15.1)",
+                    ),
+                );
+                continue;
+            }
             {
                 let name = names.join("`, `");
                 let flags = ws.cpp_flags(id);
@@ -1003,6 +1125,9 @@ impl<'a> Loader<'a> {
                     frameworks: Vec::new(),
                     flags: Vec::new(),
                     import: vec![("stdlib.h".to_owned(), Span::DUMMY)],
+                    cmake: None,
+                    shared_defines: Vec::new(),
+                    link_flags: Vec::new(),
                 }],
                 ..CppConfig::default()
             },
@@ -1788,8 +1913,11 @@ impl<'a> Loader<'a> {
             "frameworks",
             "flags",
             "import",
+            "cmake",
+            "options",
         ];
         const LIB_TARGET_KEYS: &[&str] = &[
+            "options",
             "sources",
             "include_dirs",
             "defines",
@@ -1895,6 +2023,40 @@ impl<'a> Loader<'a> {
             }
         }
 
+        // A CMake build says how to compile the library, so a key that says it too would be
+        // either ignored or at war with it (spec §15.1).
+        for (_, _, l) in libs.iter().filter(|(_, _, l)| l.cmake.is_some()) {
+            for (key, span) in &l.compile_keys {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("`{key}` cannot be used with `cmake`"),
+                    )
+                    .at(file, *span, "the library's CMake build decides this")
+                    .with_help(
+                        "a recipe with `cmake` takes its headers and its link line from what \
+                         the build installs; set the build's own settings with `options` \
+                         (spec §15.1)",
+                    ),
+                );
+            }
+        }
+        for (name, name_span, _) in
+            libs.iter().filter(|(_, _, l)| l.cmake.is_none() && !l.options.is_empty())
+        {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::MANIFEST_BAD_VALUE,
+                    format!("`options` in `[cpp.libs.{name}]` needs `cmake`"),
+                )
+                .at(file, *name_span, "this recipe is built from its sources")
+                .with_help(
+                    "`options` are a CMake build's settings; a recipe built from `sources` \
+                     takes `defines` instead (spec §15.1)",
+                ),
+            );
+        }
+
         CppConfig {
             include_dirs: module.include_dirs,
             defines: module.defines,
@@ -1916,6 +2078,17 @@ impl<'a> Loader<'a> {
                     frameworks: l.frameworks,
                     flags: l.flags,
                     import: l.import,
+                    // Where it builds is the root project's to say, so it is placed when the
+                    // whole workspace has been read (`place_cmake_builds`).
+                    cmake: l.cmake.map(|source| CmakeBuild {
+                        source,
+                        options: l.options,
+                        dir: PathBuf::new(),
+                        config: "Debug",
+                        installed: false,
+                    }),
+                    shared_defines: Vec::new(),
+                    link_flags: Vec::new(),
                 })
                 .collect(),
         }
@@ -1945,8 +2118,75 @@ impl<'a> Loader<'a> {
                 );
                 continue;
             }
+            if matches!(
+                key,
+                "root" | "sources" | "header" | "include_dirs" | "defines" | "lib_dirs" | "flags"
+            ) {
+                out.compile_keys.push((key.to_owned(), entry.key_span));
+            }
             if key == "root" {
                 continue; // read in a pass of its own, before any path is resolved
+            }
+            // `cmake = "vendor/SDL"`: a library built by its own CMake (spec §15.1, D-0090).
+            if key == "cmake" {
+                match &entry.value {
+                    Value::Str(s, span) => {
+                        let dir = normalize(&base.join(s));
+                        if !dir.join("CMakeLists.txt").is_file() {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::MANIFEST_BAD_VALUE,
+                                    format!("`{s}` has no CMakeLists.txt"),
+                                )
+                                .at(file, *span, "no CMake project here")
+                                .with_help(format!(
+                                    "name the folder holding the library's CMakeLists.txt, \
+                                     relative to {base_desc}"
+                                )),
+                            );
+                        }
+                        out.cmake = Some(dir);
+                    }
+                    other => self.type_error(
+                        file,
+                        other,
+                        &format!("{}.{key}", table.name),
+                        "a string naming the folder with the library's CMakeLists.txt",
+                    ),
+                }
+                continue;
+            }
+            // `options = { SDL_TEST_LIBRARY = false }`: the configure step's `-D` settings.
+            if key == "options" {
+                let Value::InlineTable(entries, _) = &entry.value else {
+                    self.type_error(
+                        file,
+                        &entry.value,
+                        &format!("{}.{key}", table.name),
+                        "a table of CMake options, `{ NAME = \"value\" }`",
+                    );
+                    continue;
+                };
+                for option in entries {
+                    let value = match &option.value {
+                        Value::Str(s, _) => s.clone(),
+                        Value::Bool(b, _) => if *b { "ON" } else { "OFF" }.to_owned(),
+                        Value::Int(n, _) => n.to_string(),
+                        other => {
+                            self.type_error(
+                                file,
+                                other,
+                                &format!("{}.{key}.{}", table.name, option.key),
+                                "a string, a boolean or an integer",
+                            );
+                            continue;
+                        }
+                    };
+                    // A target section's value replaces the base table's.
+                    out.options.retain(|(k, _)| *k != option.key);
+                    out.options.push((option.key.clone(), value));
+                }
+                continue;
             }
             // `header = "RGFW.h"`: a single-header library, whose implementation `dz`
             // compiles itself rather than making you write a one-line `.c` for it
@@ -2147,6 +2387,12 @@ struct Lists {
     frameworks: Vec<String>,
     flags: Vec<String>,
     import: Vec<(String, Span)>,
+    /// `cmake = "…"`: the folder, checked to hold a `CMakeLists.txt`.
+    cmake: Option<PathBuf>,
+    options: Vec<(String, String)>,
+    /// The keys that say how to compile a library from source, which a CMake build says
+    /// instead: refused alongside `cmake` (spec §15.1).
+    compile_keys: Vec<(String, Span)>,
 }
 
 fn as_str(v: &Value) -> Option<&str> {

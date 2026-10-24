@@ -1,0 +1,10 @@
+// A C library built by its own CMake and called directly (spec §15.1, D-0090).
+
+fn main() {
+    // Both come from `tally_config.h`, which CMake wrote from the recipe's `options`.
+    println!("step {}", tally::TALLY_STEP)
+    println!("loud {}", tally::TALLY_LOUD)
+    println!("tally {}", tally::tally_add(10, 3))
+    // Links only because tally.pc's `Libs.private` names the maths library on Unix.
+    println!("root {}", tally::tally_root(16.0))
+}

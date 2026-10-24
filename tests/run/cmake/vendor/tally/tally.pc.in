@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: tally
+Description: counts in steps, for tests/run/cmake
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -ltally
+Libs.private: @TALLY_LIBS_PRIVATE@
+Cflags: -I${includedir} -DTALLY_VIA_PKG_CONFIG=1

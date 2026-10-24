@@ -102,4 +102,4 @@ error[DZ0004]: unknown key `optimise` in `[cpp.libs.broken]`
 27 │ optimise = "fast"
    │ ^^^^^^^^ not a key of this table
    │
-   = help: the keys here are `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs`, `frameworks`, `flags`, `import` (spec §15.1)
+   = help: the keys here are `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs`, `frameworks`, `flags`, `import`, `cmake`, `options` (spec §15.1)

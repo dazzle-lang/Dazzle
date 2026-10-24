@@ -60,7 +60,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (21 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (20 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -82,7 +82,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0088](tasks/T-0088-explicit-as-t-trait-user-defined.md)** An explicit As<T> trait: user-defined conversions written with as · feature, language
 - **[T-0089](tasks/T-0089-show-where-implicit-conversions-happen-for.md)** Show where implicit conversions happen, for LLMs and debugging · feature, llm-tooling
 - **[T-0094](tasks/T-0094-function-pointers-casts-null-optional-fn.md)** Function pointers: casts, null, optional fn, and C's function-pointer typedefs and globals · design, interop
-- **[T-0095](tasks/T-0095-cmake-recipe-form-build-cmake-library.md)** A cmake recipe form: build a CMake library with dz and link what it installs · design, interop
 
 ## M15 — `dz bench`, and the C++ comparison (2 open)
 

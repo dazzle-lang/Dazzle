@@ -6,12 +6,15 @@
 //! header it included, or the command that compiles it — judged by content rather than by
 //! timestamp, as the generated C++ is (spec §16.6), so a checkout that touches every file
 //! does not rebuild raylib.
+//!
+//! A library that names its own CMake build is the exception: CMake builds it, here, before
+//! analysis reads its installed headers (spec §15.1, D-0090).
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use dz_diag::{codes, Diagnostic, Diagnostics};
-use dz_project::{CppLib, Module, SourceLang, Workspace};
+use dz_project::{CmakeBuild, CppLib, Module, SourceLang, Workspace};
 
 /// Write the one translation unit that carries a single-header library's implementation,
 /// and return its path (spec §15.1).
@@ -302,6 +305,254 @@ fn depfile_inputs(text: &str) -> Vec<PathBuf> {
     out
 }
 
+/// Build and install every library whose recipe names its CMake build, with the compiler
+/// this build uses (spec §15.1, D-0090). Runs before any header is read, since a CMake
+/// library's headers are the ones its install holds; `dz_project` reads that install.
+///
+/// A library is configured, built and installed again only when its stamp says something
+/// that went into it changed: a file under its source folder (by content, as for every
+/// other input), an option, a compiler, the generator or the configuration.
+pub fn build_cmake_libraries(ws: &Workspace, chosen: Option<&str>, diags: &mut Diagnostics) {
+    let libs: Vec<(&Module, &CppLib, &CmakeBuild)> = ws
+        .cpp_libs()
+        .into_iter()
+        .filter_map(|(m, l)| l.cmake.as_ref().map(|c| (m, l, c)))
+        .collect();
+    if libs.is_empty() {
+        return;
+    }
+    let fail = |diags: &mut Diagnostics, m: &Module, l: &CppLib, msg: String, help: &str| {
+        diags.push(
+            Diagnostic::error(codes::CPP_CMAKE_FAILED, msg)
+                .at(m.manifest, l.name_span, "this library is built with CMake")
+                .with_help(help.to_owned()),
+        );
+    };
+
+    let runs = |tool: &str| {
+        Command::new(tool)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    if !runs("cmake") {
+        for (m, l, _) in &libs {
+            fail(
+                diags,
+                m,
+                l,
+                format!("`{}` needs CMake, which is not installed", l.name),
+                "install CMake (cmake.org, or the system's package manager); only a recipe \
+                 with `cmake` needs it (spec §15.1)",
+            );
+        }
+        return;
+    }
+    // Ninja when there is one. Without it CMake picks the platform's generator, which on
+    // Windows is Visual Studio's, and that one ignores the compiler it is given (D-0090).
+    let generator = runs("ninja").then_some("Ninja");
+    if generator.is_none() && cfg!(windows) {
+        for (m, l, _) in &libs {
+            fail(
+                diags,
+                m,
+                l,
+                format!("`{}` needs Ninja to build with CMake on Windows", l.name),
+                "install Ninja (ninja-build.org, or `winget install Ninja-build.Ninja`): \
+                 CMake's default generator on Windows ignores the compiler `dz` uses \
+                 (spec §15.1)",
+            );
+        }
+        return;
+    }
+    let Some(cxx) = crate::build::find_compiler(Some(ws), chosen) else {
+        for (m, l, _) in &libs {
+            fail(
+                diags,
+                m,
+                l,
+                "no C++ compiler found".to_owned(),
+                "install clang++ or g++, or name one with `--cxx` or `DZ_CXX`",
+            );
+        }
+        return;
+    };
+    let cc = c_compiler_for(&cxx);
+
+    for (module, lib, build) in libs {
+        let setup = format!(
+            "{cxx}\0{}\0{}\0{}",
+            cc.as_deref().unwrap_or(""),
+            generator.unwrap_or(""),
+            build.config
+        );
+        let mut key = setup.clone().into_bytes();
+        for (k, v) in &build.options {
+            key.extend_from_slice(format!("\0{k}={v}").as_bytes());
+        }
+        key.extend_from_slice(&tree_hash(&build.source).to_le_bytes());
+        let stamp = format!("{:016x}\n{:016x}\n", fnv1a(setup.as_bytes()), fnv1a(&key));
+        let stamp_path = build.dir.join("dz-stamp");
+        let old = std::fs::read_to_string(&stamp_path).unwrap_or_default();
+        if old == stamp && build.install_dir().is_dir() {
+            continue;
+        }
+        // A tree configured by another compiler or generator cannot be reconfigured in
+        // place; CMake refuses. A changed option or source is an ordinary re-run.
+        if old.lines().next() != stamp.lines().next() {
+            let _ = std::fs::remove_dir_all(&build.dir);
+        }
+        let _ = std::fs::remove_file(&stamp_path);
+        // CMake resolves a relative path against the build tree, not where `dz` runs.
+        let absolute = |p: &Path| {
+            if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                std::env::current_dir().map_or_else(|_| p.to_path_buf(), |d| d.join(p))
+            }
+        };
+        let (build_dir, install_dir) =
+            (absolute(&build.build_dir()), absolute(&build.install_dir()));
+        eprintln!("   building {} with CMake ({})", lib.name, build.config);
+
+        let mut configure = Command::new("cmake");
+        configure.arg("-S").arg(absolute(&build.source)).arg("-B").arg(&build_dir);
+        if let Some(g) = generator {
+            configure.args(["-G", g]);
+        }
+        configure.arg(format!("-DCMAKE_BUILD_TYPE={}", build.config));
+        configure.arg(format!("-DCMAKE_INSTALL_PREFIX={}", slashes(&install_dir)));
+        // `lib`, not `lib64`, wherever the platform would choose, so the install has one
+        // shape to read.
+        configure.arg("-DCMAKE_INSTALL_LIBDIR=lib");
+        configure.arg(format!("-DCMAKE_CXX_COMPILER={cxx}"));
+        if let Some(cc) = &cc {
+            configure.arg(format!("-DCMAKE_C_COMPILER={cc}"));
+        }
+        // Static, so the program is one executable, as with a source recipe (D-0090).
+        configure.arg("-DBUILD_SHARED_LIBS=OFF");
+        // CMake 4 refuses a project that asks for a CMake older than 3.5, which many
+        // libraries still do without needing anything that old.
+        configure.arg("-DCMAKE_POLICY_VERSION_MINIMUM=3.5");
+        // clang targeting MSVC links the static C runtime by default; CMake would build
+        // against the DLL one, and the two do not mix in one program.
+        if cfg!(windows) {
+            configure.arg("-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded");
+        }
+        for (k, v) in &build.options {
+            configure.arg(format!("-D{k}={v}"));
+        }
+        let mut build_cmd = Command::new("cmake");
+        build_cmd.arg("--build").arg(&build_dir).args(["--config", build.config, "--parallel"]);
+        let mut install = Command::new("cmake");
+        install.arg("--install").arg(&build_dir).args(["--config", build.config]);
+
+        let _ = std::fs::remove_dir_all(&install_dir);
+        let steps = [("configure", configure), ("build", build_cmd), ("install", install)];
+        let mut ok = true;
+        for (step, mut cmd) in steps {
+            match cmd.output() {
+                Ok(out) if out.status.success() => {}
+                Ok(out) => {
+                    diags.push(
+                        Diagnostic::error(
+                            codes::CPP_CMAKE_FAILED,
+                            format!("CMake could not {step} `{}`", lib.name),
+                        )
+                        .at(module.manifest, lib.name_span, "this library is built with CMake")
+                        .with_note(format!("{}{}", tail(&out.stdout), tail(&out.stderr)))
+                        .with_help(format!(
+                            "the whole log is in {}; a failed configure is usually an \
+                             `options` value the library does not accept (spec §15.1)",
+                            build_dir.display()
+                        )),
+                    );
+                    ok = false;
+                    break;
+                }
+                Err(e) => {
+                    fail(
+                        diags,
+                        module,
+                        lib,
+                        format!("could not run cmake: {e}"),
+                        "check that CMake is installed and on the path (spec §15.1)",
+                    );
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            let _ = std::fs::write(&stamp_path, stamp);
+        }
+    }
+}
+
+/// The C compiler of the same family as `cxx`, which CMake needs for a library's C sources:
+/// `clang` for `clang++`, `gcc` for `g++`, `cc` for `c++`, keeping any target prefix and
+/// version suffix (`x86_64-w64-mingw32-g++` → `x86_64-w64-mingw32-gcc`). `None` for a name
+/// that says neither, which leaves CMake to find one.
+fn c_compiler_for(cxx: &str) -> Option<String> {
+    let path = Path::new(cxx);
+    let file = path.file_name()?.to_str()?;
+    let (stem, ext) = match file.strip_suffix(".exe") {
+        Some(s) => (s, ".exe"),
+        None => (file, ""),
+    };
+    let c =
+        [("clang++", "clang"), ("g++", "gcc"), ("c++", "cc")].iter().find_map(|(from, to)| {
+            stem.rfind(from).map(|i| format!("{}{to}{}{ext}", &stem[..i], &stem[i + from.len()..]))
+        })?;
+    Some(path.with_file_name(c).to_string_lossy().into_owned())
+}
+
+/// Every file under `dir`, by path and content, in a fixed order. `.git` is passed over: a
+/// submodule's checkout metadata says nothing about what it builds.
+fn tree_hash(dir: &Path) -> u64 {
+    let mut files = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(d) = pending.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            match e.file_type() {
+                Ok(t) if t.is_dir() && e.file_name() != ".git" => pending.push(p),
+                Ok(t) if t.is_file() => files.push(p),
+                _ => {}
+            }
+        }
+    }
+    files.sort();
+    let mut all = Vec::new();
+    for f in files {
+        let rel = f.strip_prefix(dir).unwrap_or(&f).to_string_lossy().replace('\\', "/");
+        all.extend_from_slice(rel.as_bytes());
+        all.push(0);
+        if let Ok(bytes) = std::fs::read(&f) {
+            all.extend_from_slice(&fnv1a(&bytes).to_le_bytes());
+        }
+    }
+    fnv1a(&all)
+}
+
+/// A path as CMake writes them, which a backslash in a `-D` value would escape.
+fn slashes(p: &Path) -> String {
+    p.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/")
+}
+
+/// The last lines of a step's output, where its error is.
+fn tail(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = lines[lines.len().saturating_sub(25)..].join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
 /// FNV-1a, 64 bits: stable across Rust versions and platforms, which `DefaultHasher` does
 /// not promise, and a cache key needs.
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -315,8 +566,21 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::depfile_inputs;
+    use super::{c_compiler_for, depfile_inputs};
     use std::path::PathBuf;
+
+    #[test]
+    fn cmake_gets_the_c_compiler_of_the_same_family() {
+        assert_eq!(c_compiler_for("clang++").as_deref(), Some("clang"));
+        assert_eq!(c_compiler_for("g++-14").as_deref(), Some("gcc-14"));
+        assert_eq!(
+            c_compiler_for("x86_64-w64-mingw32-g++").as_deref(),
+            Some("x86_64-w64-mingw32-gcc")
+        );
+        assert_eq!(c_compiler_for("/usr/bin/c++").as_deref(), Some("/usr/bin/cc"));
+        assert_eq!(c_compiler_for("clang++.exe").as_deref(), Some("clang.exe"));
+        assert_eq!(c_compiler_for("icpx"), None);
+    }
 
     #[test]
     fn a_depfile_lists_its_inputs_across_continuations() {

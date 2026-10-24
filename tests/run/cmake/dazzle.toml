@@ -1,0 +1,15 @@
+[module]
+name    = "cmakelib"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std   = { open = true }
+tally = { cpp = "tally" }
+
+# A library built by its own CMake (spec §15.1, D-0090). Its header includes a file the
+# configure step writes from these options, so `import` can only read what the build
+# installed, and its pkg-config file gives the link line and a define the header checks for.
+[cpp.libs.tally]
+cmake   = "vendor/tally"
+options = { TALLY_STEP = 5, TALLY_LOUD = true }
+import  = ["tally.h"]

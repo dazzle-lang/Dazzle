@@ -7,69 +7,14 @@ std = { open = true }
 sdl = { cpp = "sdl3" }
 gl  = { cpp = "glad" }
 
-# SDL3 compiled from its own source by `dz`, with no CMake. SDL is a git submodule pinned to
-# its 3.4.18 tag; `git submodule update --init` fetches it.
-#
-# SDL is normally configured by CMake, which writes an `SDL_build_config.h` saying what the
-# platform has and which subsystems to build. A recipe has no configure step (spec §15.1),
-# so that file is generated once and vendored, one per platform, under `config/`. Each turns
-# on only what this example uses: video, and OpenGL through the platform's own API. Every
-# other subsystem is compiled out, which is what keeps the list of sources and system
-# libraries below short.
-#
-# The sources are the directories SDL's CMakeLists.txt compiles for those subsystems. Most
-# of SDL's files test the config before compiling anything, so a directory is listed whole
-# where it can be; a file is named only where its directory holds others that do not.
+# SDL3 built by its own CMake, which `dz` runs with the compilers it uses itself and
+# installs into build/cmake/ (spec §15.1). SDL is a git submodule pinned to its 3.4.18 tag;
+# `git submodule update --init` fetches it. The headers `import` reads and the link line
+# are what the build installed.
 [cpp.libs.sdl3]
-root         = "../vendor/SDL"
-sources      = [
-    "src/*.c", "src/atomic/*.c", "src/audio/*.c", "src/audio/dummy/*.c", "src/camera/*.c",
-    "src/camera/dummy/*.c", "src/core/*.c", "src/cpuinfo/*.c", "src/dialog/*.c",
-    "src/dialog/dummy/*.c", "src/dynapi/*.c", "src/events/*.c", "src/filesystem/*.c",
-    "src/gpu/*.c", "src/haptic/*.c", "src/haptic/dummy/*.c", "src/hidapi/*.c", "src/io/*.c",
-    "src/io/generic/*.c", "src/joystick/*.c", "src/joystick/dummy/*.c", "src/libm/*.c",
-    "src/locale/*.c", "src/main/*.c", "src/main/generic/*.c", "src/misc/*.c", "src/power/*.c",
-    "src/process/*.c", "src/render/*.c", "src/render/opengl/*.c", "src/render/software/*.c",
-    "src/sensor/*.c", "src/sensor/dummy/*.c", "src/stdlib/*.c", "src/storage/*.c",
-    "src/storage/generic/*.c", "src/thread/*.c", "src/time/*.c", "src/timer/*.c",
-    "src/tray/*.c", "src/video/*.c", "src/video/dummy/*.c", "src/video/offscreen/*.c",
-    "src/video/yuv2rgb/*.c",
-]
-include_dirs = ["include", "src", "src/video/khronos"]
-import       = ["SDL3/SDL.h"]
-
-# The window through X11, whose libraries SDL loads when it starts rather than linking them,
-# so building needs only their headers (`libx11-dev`, `libxcursor-dev`, `libxi-dev` and
-# `libxrandr-dev` on Debian and Ubuntu). Wayland is left out: its protocol code is generated
-# by `wayland-scanner`, and an X11 window runs under a Wayland desktop through XWayland.
-[cpp.libs.sdl3.target.linux]
-sources      = [
-    "src/core/linux/SDL_evdev.c", "src/core/linux/SDL_evdev_capabilities.c",
-    "src/core/linux/SDL_evdev_kbd.c", "src/core/linux/SDL_threadprio.c",
-    "src/core/unix/*.c", "src/dialog/unix/SDL_zenitymessagebox.c", "src/filesystem/posix/*.c",
-    "src/filesystem/unix/*.c", "src/loadso/dlopen/*.c", "src/locale/unix/*.c",
-    "src/misc/unix/*.c", "src/power/linux/*.c", "src/process/posix/*.c",
-    "src/thread/pthread/*.c", "src/time/unix/*.c", "src/timer/unix/*.c", "src/tray/unix/*.c",
-    "src/video/x11/*.c",
-]
-include_dirs = ["../../sdl3/config/linux"]
-defines      = ["_REENTRANT"]
-link_libs    = ["m", "dl", "pthread"]
-
-# The window through Win32 and OpenGL through WGL.
-[cpp.libs.sdl3.target.windows]
-sources      = [
-    "src/core/windows/SDL_hid.c", "src/core/windows/SDL_windows.c", "src/filesystem/windows/*.c",
-    "src/io/windows/*.c",
-    "src/loadso/windows/*.c", "src/locale/windows/*.c", "src/main/windows/*.c",
-    "src/misc/windows/*.c", "src/power/windows/*.c", "src/process/windows/*.c",
-    "src/thread/generic/SDL_syscond.c", "src/thread/generic/SDL_sysrwlock.c",
-    "src/thread/windows/*.c", "src/time/windows/*.c", "src/timer/windows/*.c",
-    "src/tray/dummy/*.c", "src/video/windows/*.c", "src/video/windows/*.cpp",
-]
-include_dirs = ["../../sdl3/config/windows"]
-link_libs    = ["kernel32", "user32", "gdi32", "winmm", "imm32", "ole32", "oleaut32",
-                "version", "uuid", "advapi32", "setupapi", "shell32"]
+cmake   = "../vendor/SDL"
+options = { SDL_SHARED = false, SDL_STATIC = true, SDL_TEST_LIBRARY = false, SDL_EXAMPLES = false }
+import  = ["SDL3/SDL.h"]
 
 # OpenGL past version 1.1 is not exported by the system library on every platform (on
 # Windows, `opengl32.dll` has nothing newer), so its functions are asked of the driver at

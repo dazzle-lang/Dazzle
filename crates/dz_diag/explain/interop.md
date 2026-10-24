@@ -52,3 +52,19 @@ C++ cannot copy or assign a raw array, so an imported struct's array member is i
 iterated or pointed at rather than taken whole (spec §15.2).
 
 No example: it takes a vendored C header.
+
+## DZ0708
+
+A library whose recipe names its CMake build could not be built: CMake is not installed,
+or its configure, build or install step failed. The note holds the end of CMake's output.
+A failed configure is usually an `options` value the library does not accept (spec §15.1).
+
+No example: it takes a vendored CMake project.
+
+## DZ0709
+
+A library with a CMake build has headers only once a build has installed them, and the
+editor never runs CMake. Run `dz build` or `dz check` once, and its headers can be read
+(spec §15.1).
+
+No example: it takes a vendored CMake project.

@@ -88,10 +88,24 @@ pub fn analyse_for(
     mode: Mode,
     options: &BuildOptions,
 ) -> Analysis {
+    analyse_prepared(entry, overlay, mode, options, &mut |_, _| {})
+}
+
+/// [`analyse_for`], with `prepare` run once the manifests are read and before any header
+/// is (see [`dz_project::load_for`]). The CLI builds the libraries that have a CMake build
+/// there; the editor never does (spec §15.1, D-0090).
+pub fn analyse_prepared(
+    entry: &Path,
+    overlay: &dyn Fn(&Path) -> Option<String>,
+    mode: Mode,
+    options: &BuildOptions,
+    prepare: &mut dyn FnMut(&Workspace, &mut Diagnostics),
+) -> Analysis {
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
 
-    let Some(mut ws) = dz_project::load(entry, &mut map, &mut diags) else {
+    let loaded = dz_project::load_for(entry, &mut map, &mut diags, options.optimize, prepare);
+    let Some(ws) = loaded else {
         return Analysis {
             map,
             ws: None,
@@ -105,15 +119,6 @@ pub fn analyse_for(
             parsed_cleanly: false,
         };
     };
-
-    // Every module, not just the root: one command builds one program, and a dependency
-    // compiled at a different optimisation level is the classic way to get a binary that
-    // behaves differently from either setting.
-    if let Some(m) = options.optimize {
-        for module in ws.modules_mut() {
-            module.build.optimize = m;
-        }
-    }
 
     let mut files: HashMap<ModuleId, Vec<ParsedFile>> = HashMap::new();
     // An imported header has no Dazzle source, and a module with an entry here is one

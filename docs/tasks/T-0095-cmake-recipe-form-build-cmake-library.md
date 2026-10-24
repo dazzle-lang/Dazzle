@@ -2,7 +2,8 @@
 id: T-0095
 title: A cmake recipe form: build a CMake library with dz and link what it installs
 milestone: M12
-status: open
+status: done
+done: r80, 2026-10-24
 kind: design
 area: interop
 where: `dz_project` (the recipe table), `crates/dz/src/native.rs` (building libraries), spec §15.1

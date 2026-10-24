@@ -540,7 +540,7 @@ git clone --recursive https://github.com/dazzle-lang/Dazzle.git
 cd Dazzle && cargo build --release
 ```
 
-`--recursive` fetches the C libraries the examples build from source (raylib, SDL, RGFW,
+`--recursive` fetches the C libraries the examples build from source (raylib, SDL3, RGFW,
 sokol, stb, miniaudio and Box2D), which are git submodules in `examples/vendor/`. In a checkout made without it, run `git
 submodule update --init`. Nothing outside `examples/` needs them.
 
@@ -608,7 +608,7 @@ different C library, built from source and called with no bindings:
 | | | |
 |---|---|---|
 | [`breakout`](examples/breakout) | raylib | a complete game: the rules are plain Dazzle in [`game`](examples/breakout/game), drawn with raylib |
-| [`sdl3`](examples/sdl3) | SDL3 | a real-time 3D scene: per-pixel lighting, shadows, fog and instanced grass in GLSL, on SDL compiled without CMake |
+| [`sdl3`](examples/sdl3) | SDL3 | a real-time 3D scene: per-pixel lighting, shadows, fog and instanced grass in GLSL, on SDL3 built by its own CMake |
 | [`box2d`](examples/box2d) | Box2D + sokol | rigid-body physics: two C libraries in one project |
 | [`sokol`](examples/sokol) | sokol | a particle fountain on sokol_app, sokol_gfx and sokol_gl, with C callbacks into Dazzle |
 | [`stb`](examples/stb) | stb_image_write | a ray tracer that saves its render as a PNG |
@@ -674,5 +674,5 @@ from that design and the [specification](docs/spec/README.md).
 ## License
 
 [MIT](LICENSE). The libraries under `examples/vendor/` are submodules under licenses of their
-own: raylib's and sokol's are zlib/libpng, SDL's is zlib, RGFW's is libpng, Box2D's is MIT, and stb and
+own: raylib's and sokol's are zlib/libpng, SDL3's is zlib, RGFW's is libpng, Box2D's is MIT, and stb and
 miniaudio are public domain or MIT, at your choice.
