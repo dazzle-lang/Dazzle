@@ -231,6 +231,12 @@ struct Addr {
     // A `T&` already binds where a `const T&` is wanted, so two conversions suffice.
     DZ_INLINE operator T&() const { return *p; }
     DZ_INLINE operator T*() const { return p; }
+    /// `&xs` where a `[]T` is wanted, for an array `xs`: the reference is read through as
+    /// for any other `T` (spec §5.2), and the array then becomes the slice that views it
+    /// (§5.3). That is two user-defined conversions, which C++ never chains, so the second
+    /// is spelled out here. It exists only where `T` itself converts to the slice.
+    template <class E, class = decltype(static_cast<Slice<E>>(*static_cast<T*>(nullptr)))>
+    DZ_INLINE operator Slice<E>() const { return *p; }
 };
 
 template <class T> DZ_INLINE Addr<T> addr(T& x) { return Addr<T>{&x}; }

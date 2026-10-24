@@ -1,3 +1,5 @@
+raw C:\no\escapes 13 [as cstr] [uniform vec3 c;
+void main() {}]
 trim 'player=Ada;score=42;zone=été'
 start 'x ' end '  x'
 starts true ends true contains true false

@@ -117,3 +117,11 @@ int mini_length(const char *s) {
     }
     return n;
 }
+
+static void shout(char *text, int n) {
+    for (int i = 0; i < n; i++) {
+        if (text[i] >= 'a' && text[i] <= 'z') text[i] = (char)(text[i] - 'a' + 'A');
+    }
+}
+
+MiniShoutProc mini_shout_ptr = shout;

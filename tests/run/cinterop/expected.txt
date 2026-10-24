@@ -12,6 +12,7 @@ measured mini
 owned 6 formatted 7
 callback 21
 upper 72 73
+shout 79 75
 bits 1 5 sample 3 total 10 10
 event 1 5
 union 9 9

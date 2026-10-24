@@ -374,11 +374,12 @@ unsafe fn parse(req: &Request<'_>, args: &[String]) -> Result<(Header, Vec<PathB
 /// `(1 << 3)` is an untyped integer like any other (§18.38) — and one that is merely
 /// well-typed, raylib's `RAYWHITE`, keeps its type and is emitted by name. Whatever does
 /// not compile leaves no variable behind and is recorded as skipped (spec §15.2).
+///
+/// Every candidate goes into the one parse, however many there are: a loader such as glad
+/// is a thousand `#define glClear glad_glClear`, and a cap on them once dropped every GL
+/// function past the 512th without a word.
 unsafe fn type_macros(w: &mut Walker, index: CXIndex, main: &CString, args: &[CString]) {
-    /// A header with thousands of macros is not worth a second parse of each.
-    const LIMIT: usize = 512;
-
-    let candidates: Vec<(String, Loc)> = w.macro_candidates.drain(..).take(LIMIT).collect();
+    let candidates: Vec<(String, Loc)> = std::mem::take(&mut w.macro_candidates);
     if candidates.is_empty() {
         return;
     }

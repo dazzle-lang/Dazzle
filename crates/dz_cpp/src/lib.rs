@@ -3879,9 +3879,20 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Local(l) => self.names[l.index()].clone(),
             // An imported constant is an enumerator or a macro, whose C++ type is C's — an
             // enum, an `int` — rather than the one its Dazzle context settled (spec §15.2).
+            //
+            // A pointer or function pointer is reinterpreted instead: Dazzle spells C's
+            // `char *` as `int8_t *`, which is `signed char *`, a distinct C++ type that no
+            // `static_cast` reaches. A loader's `#define glGetShaderInfoLog
+            // glad_glGetShaderInfoLog`, whose last parameter is `GLchar *`, is the case that
+            // found it. The two types are the same on every ABI Dazzle targets (spec §15.2).
             hir::ExprKind::Const(sym) if self.is_foreign(*sym) => {
-                let t = self.cpp_ty(body.ty(e));
-                format!("static_cast<{t}>({})", self.qualify(*sym))
+                let ty = body.ty(e);
+                let t = self.cpp_ty(ty);
+                let cast = match ty {
+                    Ty::Ptr { .. } | Ty::Fn { .. } => "reinterpret_cast",
+                    _ => "static_cast",
+                };
+                format!("{cast}<{t}>({})", self.qualify(*sym))
             }
             hir::ExprKind::FnItem { sym, type_args } if !type_args.is_empty() => {
                 self.qualify_instance(*sym, type_args)

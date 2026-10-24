@@ -251,6 +251,55 @@ fn several_headers_are_one_import() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A loader such as glad names each function through a macro, `#define glClear
+/// glad_glClear`, over a global function pointer: a thousand of them in one header, behind
+/// macros that do not compile. Every one is imported, however many there are and however
+/// many fail before it (spec §15.2).
+#[test]
+fn every_macro_naming_a_function_pointer_is_imported() {
+    let dir = std::env::temp_dir().join("dz_import_loader");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut text = String::from("#pragma once\n");
+    for i in 0..40 {
+        text.push_str(&format!("#define BROKEN_{i} no_such_name_{i}\n"));
+    }
+    for i in 0..1000 {
+        text.push_str(&format!(
+            "typedef int (*PFNPROC{i})(int);\nextern \"C\" PFNPROC{i} loader_f{i};\n#define f{i} loader_f{i}\n"
+        ));
+    }
+    std::fs::write(dir.join("loader.h"), text).unwrap();
+    let dirs = [dir.clone()];
+    let req = Request {
+        headers: &["loader.h".to_owned()],
+        include_dirs: &dirs,
+        defines: &[],
+        cpp_standard: "c++17",
+        from_dir: &std::env::temp_dir(),
+        instantiate: &[],
+    };
+    let h = match import(&req) {
+        Ok(h) => h,
+        Err(ImportError::Unavailable(e)) => {
+            eprintln!("skipping: libclang is not available: {e}");
+            return;
+        }
+        Err(e) => panic!("loader.h did not import: {e:?}"),
+    };
+    let f = CType::Fn { params: vec![I32], ret: Box::new(I32) };
+    for name in ["f0", "f511", "f512", "f999"] {
+        match &h.decl(name).unwrap_or_else(|| panic!("`{name}` was not imported")).kind {
+            DeclKind::Const { value: ConstValue::Typed(t), from_macro: true } => {
+                assert_eq!(*t, f, "{name}")
+            }
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+    assert!(h.skipped.iter().any(|s| s.name == "BROKEN_39"), "{:?}", h.skipped);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_missing_header_is_reported_with_clang_s_words() {
     let req = Request {

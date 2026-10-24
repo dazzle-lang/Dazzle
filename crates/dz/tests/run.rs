@@ -139,6 +139,7 @@ fn every_example_builds() {
     // missing-file error from deep inside a recipe; say what is actually wrong.
     for lib in [
         "raylib/src/raylib.h",
+        "SDL/include/SDL3/SDL.h",
         "RGFW/RGFW.h",
         "sokol/sokol_app.h",
         "stb/stb_image_write.h",
@@ -152,6 +153,12 @@ fn every_example_builds() {
     }
 
     for (name, dir) in found {
+        // SDL's macOS backend is Objective-C, `.m` files a source recipe does not compile.
+        // It builds there once a recipe can hand SDL to CMake (T-0095).
+        if name == "sdl3" && cfg!(target_os = "macos") {
+            eprintln!("skipping sdl3: no macOS recipe until T-0095");
+            continue;
+        }
         let out = Command::new(dz())
             .args(["build", dir.to_str().unwrap()])
             .output()

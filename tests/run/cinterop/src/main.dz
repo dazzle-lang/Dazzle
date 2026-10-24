@@ -63,6 +63,12 @@ fn main() {
     mini::mini_upper(word.ptr)
     println!("upper {} {}", word[0] as i32, word[1] as i32)
 
+    // A function pointer named through a macro, glad's way (§15.2), taking a `char *`.
+    word[0] = 'o' as i8
+    word[1] = 'k' as i8
+    mini::mini_shout(word.ptr, 2)
+    println!("shout {} {}", word[0] as i32, word[1] as i32)
+
     // A C array member and bit-fields (§15.2): indexed, iterated and read like any other
     // field. A bit-field has no address, so `&flags.visible` is refused.
     let flags = mini::mini_flags()

@@ -16,6 +16,7 @@ circle 3
 point
 circle 10
 count 3 0
+through references 10 12 15
 choices 3
 see 0 1
 see 1 2

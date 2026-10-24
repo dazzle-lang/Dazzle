@@ -17,7 +17,19 @@ fn show_f(label: str, v: f64?) {
     }
 }
 
+/// A raw string's value is what lies between its backticks, line breaks included and with
+/// no escapes (spec §2.5); it once kept the backticks themselves.
+const SHADER: cstr = `uniform vec3 c;
+void main() {}`
+
+fn raw_strings() {
+    let s = `C:\no\escapes`
+    let c: cstr = `as cstr`
+    println!("raw {} {} [{}] [{}]", s, s.len, c as str, SHADER as str)
+}
+
 fn main() {
+    raw_strings()
     let line = String("  player=Ada;score=42;zone=été  ")
     let t = line.trim()
     println!("trim '{}'", t)

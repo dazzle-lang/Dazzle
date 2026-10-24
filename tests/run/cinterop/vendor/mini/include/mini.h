@@ -96,6 +96,13 @@ typedef struct MiniConfig {
 MiniConfig mini_config(void);
 int mini_config_total(const MiniConfig *c);
 
+/* A function reached through a global function pointer and a macro naming it, as a loader
+   such as glad declares every OpenGL function: `mini_shout` is `mini_shout_ptr`. Its
+   `char *` is `int8_t *` to Dazzle, so the pointer's C++ type is not the Dazzle one. */
+typedef void (*MiniShoutProc)(char *text, int n);
+extern MiniShoutProc mini_shout_ptr;
+#define mini_shout mini_shout_ptr
+
 #ifdef __cplusplus
 }
 

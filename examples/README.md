@@ -7,6 +7,7 @@ to work with, copy its folder, and you have a project that already builds.
 | | Example | Library | What it is |
 |---|---|---|---|
 | <img src="breakout/screenshot.png" width="200"> | [**breakout**](breakout) | [raylib](https://www.raylib.com) | A complete game: the rules in plain Dazzle, drawn with raylib |
+| <img src="sdl3/screenshot.avif" width="200"> | [**sdl3**](sdl3) | [SDL3](https://libsdl.org) | A real-time 3D scene: per-pixel lighting, soft shadows, fog and 400 000 blades of instanced grass in GLSL. A large C library built with no CMake |
 | <img src="box2d/screenshot.gif" width="200"> | [**box2d**](box2d) | [Box2D](https://box2d.org) + [sokol](https://github.com/floooh/sokol) | Rigid-body physics: knock down a pyramid. Two C libraries in one project |
 | <img src="sokol/screenshot.gif" width="200"> | [**sokol**](sokol) | [sokol](https://github.com/floooh/sokol) | A particle fountain with additive blending, on sokol_app, sokol_gfx and sokol_gl |
 | <img src="stb/screenshot.png" width="200"> | [**stb**](stb) | [stb_image_write](https://github.com/nothings/stb) | A ray tracer that renders this image on the CPU and saves it as a PNG |
