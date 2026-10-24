@@ -1,6 +1,6 @@
 # Dazzle — working notes for Claude Code
 
-Dazzle is a systems language that compiles to readable C++17, meant as a replacement for C++
+Dazzle is a systems language that compiles to standard C++17, meant as a replacement for C++
 wherever it is used: games and engines, embedded systems, tools, real-time code. It is
 C++-grade in control, but with RAII reduced to three special members, enforced
 encapsulation, and definition-site generics. The compiler is written in Rust.

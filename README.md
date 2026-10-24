@@ -2,35 +2,55 @@
   <img src=".github/logo.png" alt="Dazzle" width="640">
 </p>
 
-**A systems language that compiles to readable C++17, meant for the places C++ is used
-today.**
+**A successor to C++ that compiles to C++.**
 
-Dazzle has the control of C++ without forty years of accumulated syntax: RAII reduced to three
-special members, encapsulation the compiler enforces, errors as values instead of
-exceptions, generics checked where they are written, and C and C++ libraries used directly
-from their source, with no wrapper or build system. The compiler is written in Rust.
+Dazzle is an upgrade of C++ for the places C++ is used today: games and engines, embedded
+systems, tools and real-time code. It keeps C++'s control and drops forty years of
+accumulated syntax: RAII reduced to three special members, encapsulation the compiler
+enforces, errors as values instead of exceptions, generics checked where they are written,
+and C and C++ libraries used directly from their source, with no wrapper or build system.
+
+Its goal is close to [Carbon](https://github.com/carbon-language/carbon-lang)'s, with a
+different route: instead of bringing its own LLVM-based toolchain, Dazzle compiles to
+standard C++17. Whatever compiler, debugger, profiler or console SDK a C++ project already
+uses keeps working, and Dazzle code links into that project without changing anything
+around it. The compiler is written in Rust.
 
 ```rust
-fn main() {
-    rl::InitWindow(800, 450, "Dazzle")
-    defer rl::CloseWindow()
+struct Buffer {
+    pub len: usize
+    m_data:  own ^mut u8                     // Buffer frees this, so it is move-only
 
-    while !rl::WindowShouldClose() {
-        rl::BeginDrawing()
-        rl::ClearBackground(rl::RAYWHITE)
-        rl::DrawCircleV(rl::GetMousePosition(), 8, rl::MAROON)
-        rl::EndDrawing()
+    Buffer(len: usize) {
+        self.len = len
+        m_data = Allocators::Global.alloc(len, 1)
     }
 }
+
+impl Drop for Buffer {                       // runs once, at the end of the owner's scope
+    fn drop(&mut self) {
+        Allocators::Global.free(m_data, len, 1)
+    }
+}
+
+fn load(path: str) !-> Buffer {              // `!->`: this can fail
+    if path.len == 0 {
+        return error(1, "no path given")
+    }
+    return Buffer(64)
+}
+
+fn main() {
+    let a = load("level1.dat") or panic!("cannot load")   // handled where it is called
+    let b = move(a)                          // `a` is reset; using it again is an error
+    let c = load("") or Buffer(0)            // or replaced by a fallback
+    println!("{} {}", b.len, c.len)
+}                                            // c and b are freed here, exactly once
 ```
 
-That is raylib, called with no bindings. `dz` compiled it from raylib's own seven `.c`
-files, which is all a `dazzle.toml` recipe names. No CMake and no prebuilt library were
-involved.
-
 > **Status: pre-release.** The language is **0.1, unreleased**. It compiles, runs, checks
-> ownership, calls C and C++, and has a language server; it already carries a small raylib
-> game. It is not finished: 0.1 is declared once the editor support, the standard library
+> ownership, calls C and C++, and has a language server; [`examples/breakout`](examples/breakout)
+> is a complete game written in it. It is not finished: 0.1 is declared once the editor support, the standard library
 > and C++ interop are all complete (see [Status](#status-and-roadmap)). **Expect the
 > language to change**: every change is a revision row in the
 > [changelog](docs/spec/21-changelog.md).
@@ -40,9 +60,9 @@ involved.
 ## Why Dazzle
 
 C++ gives you control and abstraction, but buries them under undefined behaviour and syntax
-nobody can hold in their head. Odin gives you clarity, but takes away encapsulation, RAII
-and layered abstractions that hold up in a large codebase. Dazzle aims at the space between
-the two. Its principles, in priority order:
+nobody can hold in their head. Dazzle keeps what C++ is for (RAII, encapsulation, layered
+abstractions that hold up in a large codebase, zero-cost generics) and replaces the parts
+that make it hard. Its principles, in priority order:
 
 1. **You can always see the machine.** No hidden allocations, no hidden control flow, no
    garbage collector, no runtime you did not ask for.
@@ -50,8 +70,8 @@ the two. Its principles, in priority order:
    constructor, `copy` and `drop`.
 3. **Encapsulation is enforced, not conventional.** Private is the default.
 4. **Errors point at your code**, never at generated code or a 400-line template trace.
-5. **The escape hatch is a door, not a hole.** C++ interop is a first-class feature:
-   raylib, Jolt and Dear ImGui should work on day one.
+5. **The escape hatch is a door, not a hole.** C++ interop is a first-class feature: an
+   existing C or C++ library is used as it is, from its own source and headers.
 6. **Compile fast.**
 
 Dazzle is **not** trying to be memory-safe in Rust's sense. It prevents use-after-move and
@@ -63,9 +83,9 @@ has no lifetimes and no borrow checker.
 Anywhere you would otherwise reach for C++: code that needs predictable performance, no
 garbage collector, and direct access to C and C++ libraries.
 
-- **Games and engines.** This is the furthest along today: raylib builds from source with
-  no bindings, and [`examples/breakout`](examples/breakout) is a game written with no C++ of
-  its own.
+- **Games and engines.** This is the furthest along today:
+  [`examples/breakout`](examples/breakout) is a game written with no C++ of its own, on top
+  of raylib built from its own source.
 - **Embedded and firmware.** There is no runtime and no garbage collector, destruction is
   deterministic, and the output is C++17 built with `-fno-exceptions -fno-rtti`, which any
   vendor toolchain can compile. Freestanding targets (no heap, no operating system, boards
@@ -75,10 +95,24 @@ garbage collector, and direct access to C and C++ libraries.
   where startup time and memory use matter.
 - **Real-time and performance-critical code**: simulation, audio, and anything where a
   garbage-collector pause is a bug.
-- **Inside an existing C++ codebase.** What Dazzle produces is plain C++ (`dz cpp` writes
-  it out), so it can be adopted one module at a time rather than all at once. Building a
-  module straight to a static or shared library is declared in the manifest but not built
+- **Inside an existing C++ codebase.** What Dazzle produces is standard C++ (`dz cpp`
+  writes it out), so it can be adopted one module at a time rather than all at once. Building
+  a module straight to a static or shared library is declared in the manifest but not built
   yet.
+
+### Why compile to C++?
+
+A new language usually means a new toolchain, and a new toolchain is what keeps it out of
+existing projects. Compiling to C++17 means the C++ compiler a team already trusts does the
+code generation, so Dazzle runs wherever C++ runs, including console and embedded SDKs whose
+compilers no new backend supports. Debuggers and profilers show the `.dz` source, through
+`#line` directives. And there is no foreign-function boundary to C++: a Dazzle module is C++
+by the time it is compiled.
+
+The generated C++ is **not meant to be read** any more than an object file is: it is full of
+`#line` directives, temporaries and helpers, and it is written for the C++ compiler. What
+matters is that it is standard and portable, and compiles warning-clean under both clang++
+and g++ with `-fno-exceptions -fno-rtti`.
 
 ## The language at a glance
 
@@ -355,7 +389,7 @@ rl     = { cpp = "raylib" }                     # a C library: rl::DrawText
   `Color::Red` and `List<f32>::with_capacity(8)` all use `::`; `.` is always a field or a
   method on a value, and reaches through pointers on its own (there is no `->`).
 
-This is closer to C# projects or CMake targets than to Go, Rust or Odin, where the
+This is closer to C# projects or CMake targets than to Go or Rust, where the
 directory tree is the module tree. [Spec §3](docs/spec/03-projects-modules-and-imports.md)
 has the rest, including build flags and how a library is built.
 
@@ -473,7 +507,7 @@ data, and neither does a new programmer, so the compiler has to teach. **Availab
   visualisers.
 - **`dz expand`** shows what a macro wrote, and `dz fmt` is the single canonical format.
 - **One way to do things:** one `or` clause instead of `?`/`try`/`catch`, no function
-  overloading (one name is one symbol), and no implicit numeric conversions.
+  overloading for now (one name is one symbol), and no implicit numeric conversions.
 
 **Planned**, tracked in the backlog ([`docs/tasks.md`](docs/tasks.md)):
 
@@ -598,7 +632,7 @@ allocation and reports leaks and bad frees when the program exits.
 |---|---|
 | **Done** | lexer, parser, formatter · modules and visibility · type checker · C++ code generation · ownership · generics and traits · C and C++ interop from source · tagged unions and `switch` · macros · reflection · `dz test` · `dz bench` and the C++ comparison suite · `dz fix` and `dz explain` · CI on three platforms |
 | **Mostly done** | the language server and VS Code extension: still to come are incremental analysis and the remaining quick fixes |
-| **Now** | the standard library. Its criterion, a raylib game written without any C++, is met: [`examples/breakout`](examples/breakout) |
+| **Now** | the standard library. Its criterion, a game written without any C++, is met: [`examples/breakout`](examples/breakout) |
 | **Later** | dependencies fetched from git, Dazzle packages and C libraries alike, pinned by a lockfile; hot reload; an installer that bundles libclang |
 
 The open work, milestone by milestone, is the backlog in [`docs/tasks.md`](docs/tasks.md).
