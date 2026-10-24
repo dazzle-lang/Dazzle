@@ -6,9 +6,10 @@ overhead. The importer's only job is to teach the type checker what the header c
 
 ## 15.1 Importing a header
 
-A C or C++ library is **vendored as source and built by `dz`** — no CMake, no Makefiles,
-no binaries to find for each platform. Its recipe says which files to compile and how, and
-lives in the `dazzle.toml` of the module that uses it:
+A C or C++ library is **vendored as source and built by `dz`** — no Makefiles, no binaries
+to find for each platform. Its recipe says which files to compile and how, or names the
+library's own CMake build (below), and lives in the `dazzle.toml` of the module that uses
+it:
 
 ```toml
 [cpp.libs.raylib]
@@ -83,9 +84,29 @@ defines = ["JPH_PROFILE_ENABLED=0"]
   and as C++ otherwise. Forgetting to write that file by hand produces an unresolved symbol
   at link time, which says nothing about what is actually missing — this is the same recipe
   without that trap.
-- A library that needs a configure step — a generated `config.h` — cannot be described this
-  way. Ship its binaries through `lib_dirs` and `link_libs`, or generate the file once and
-  vendor it. `[DECIDED]`
+- **`cmake`** names a library that has a CMake build, in place of every key that says how to
+  compile it: `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs` and
+  `flags`. `dz` configures, builds and installs it with CMake and its own C and C++
+  compilers, as a static library, into `build/cmake/<name>/`. The headers it installed are
+  what `import` reads, and the pkg-config file it installed (`lib/pkgconfig/<name>.pc`)
+  gives the link line. `options` are its `-D` settings, with `true` and `false` passed as
+  `ON` and `OFF`. `link_libs` and `frameworks` add to what the pkg-config file says, and a
+  target section may add `options`. Debug builds CMake's `Debug` configuration; release
+  and shipping build `Release`. A library is reconfigured and rebuilt only when a file
+  under `cmake`, an option, the compilers or the configuration changed. CMake is needed
+  only by a project that has such a recipe. The editor never runs it, so a library's
+  headers can be read only once a build has installed them. `[DECIDED — D-0090]`
+
+  ```toml
+  [cpp.libs.sdl3]
+  cmake   = "vendor/SDL"                     # a folder with a CMakeLists.txt
+  options = { SDL_TEST_LIBRARY = false }
+  import  = ["SDL3/SDL.h"]
+  ```
+
+- A library that needs a configure step and has no CMake build can ship its binaries
+  through `lib_dirs` and `link_libs`, or have the configure step's output generated once
+  and vendored. `[DECIDED]`
 
 - **`import`** lists the headers Dazzle code sees of the library: their declarations become
   a module of their own, which the manifest names like any dependency, `rl = { cpp =

@@ -65,6 +65,18 @@ fn have_compiler() -> bool {
         .any(|c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()))
 }
 
+/// A project with a recipe that names its CMake build (spec §15.1, D-0090).
+fn needs_cmake(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join("dazzle.toml"))
+        .is_ok_and(|t| t.lines().any(|l| l.trim_start().starts_with("cmake ")))
+}
+
+/// CMake is needed only by a project that has such a recipe, so a machine without it still
+/// runs every other test.
+fn have_cmake() -> bool {
+    matches!(Command::new("cmake").arg("--version").output(), Ok(o) if o.status.success())
+}
+
 fn normalise(s: &str) -> String {
     s.replace("\r\n", "\n").trim_end().to_owned()
 }
@@ -93,6 +105,10 @@ fn every_program_produces_its_expected_output() {
         let should_panic = expected.starts_with("panic!");
         let expected_body =
             expected.strip_prefix("panic!\n").map(str::to_owned).unwrap_or(expected);
+        if needs_cmake(dir) && !have_cmake() {
+            eprintln!("skipping {name}: it builds a library with CMake, which is not installed");
+            return;
+        }
 
         let out = Command::new(dz())
             .args(["run", dir.to_str().unwrap()])
@@ -153,10 +169,8 @@ fn every_example_builds() {
     }
 
     for (name, dir) in found {
-        // SDL's macOS backend is Objective-C, `.m` files a source recipe does not compile.
-        // It builds there once a recipe can hand SDL to CMake (T-0095).
-        if name == "sdl3" && cfg!(target_os = "macos") {
-            eprintln!("skipping sdl3: no macOS recipe until T-0095");
+        if needs_cmake(&dir) && !have_cmake() {
+            eprintln!("skipping {name}: it builds a library with CMake, which is not installed");
             continue;
         }
         let out = Command::new(dz())
@@ -1170,6 +1184,59 @@ fn a_vendored_library_is_compiled_once_and_again_when_a_header_changes() {
     std::fs::write(&header, text).unwrap();
     build();
     assert_ne!(objects(), first, "a changed header did not recompile the library");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_cmake_library_is_built_once_and_again_when_its_source_changes() {
+    // spec §15.1, D-0090 — CMake runs again only when something that went into the build
+    // changed, judged by content, as a source recipe's objects are.
+    if !have_compiler() || !have_cmake() {
+        return;
+    }
+    let dir = copy_fixture("cmake", "dz_cmake_cache");
+    let build = |args: &[&str]| {
+        let out =
+            Command::new(dz()).arg("build").args(args).arg(dir.to_str().unwrap()).output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(out.status.success(), "{stderr}");
+        stderr.contains("building tally with CMake")
+    };
+    assert!(build(&[]), "the first build did not run CMake");
+    assert!(!build(&[]), "an unchanged library was built again");
+    let source = dir.join("vendor/tally/tally.c");
+    let text = std::fs::read_to_string(&source).unwrap();
+    std::fs::write(&source, &text).unwrap();
+    assert!(!build(&[]), "a file rewritten with the same content rebuilt the library");
+    std::fs::write(&source, format!("{text}\n/* changed */\n")).unwrap();
+    assert!(build(&[]), "a changed source did not rebuild the library");
+    // Another configuration is a build tree of its own, and the first one is kept.
+    assert!(build(&["--release"]), "a release build reused the debug library");
+    assert!(!build(&[]), "switching to release and back rebuilt the debug library");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_cmake_build_that_fails_is_reported_at_its_recipe() {
+    // DZ0708, with CMake's own words in the note, and nothing after it: every header the
+    // build should have installed would only be reported missing too (D-0090).
+    if !have_compiler() || !have_cmake() {
+        return;
+    }
+    let dir = copy_fixture("cmake", "dz_cmake_broken");
+    let lists = dir.join("vendor/tally/CMakeLists.txt");
+    let text = std::fs::read_to_string(&lists).unwrap();
+    std::fs::write(&lists, format!("{text}\nmessage(FATAL_ERROR \"tally is broken\")\n")).unwrap();
+    let out = Command::new(dz())
+        .args(["check", "--format=json", dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let text = json.to_string();
+    assert!(text.contains("DZ0708"), "{text}");
+    assert!(text.contains("tally is broken"), "{text}");
+    assert!(!text.contains("DZ0709") && !text.contains("DZ0702"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

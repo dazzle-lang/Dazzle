@@ -81,16 +81,16 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("check") => match build_args(&args) {
-            Ok(b) if b.json => cmd_check_json(&b.path, &b.options),
-            Ok(b) => cmd_check(&b.path, &b.options),
+            Ok(b) if b.json => cmd_check_json(&b.path, &b.options, b.cxx.as_deref()),
+            Ok(b) => cmd_check(&b.path, &b.options, b.cxx.as_deref()),
             Err(code) => code,
         },
         Some("fix") => match build_args(&args) {
-            Ok(b) => cmd_fix(&b.path, &b.options, b.dry_run),
+            Ok(b) => cmd_fix(&b.path, &b.options, b.cxx.as_deref(), b.dry_run),
             Err(code) => code,
         },
         Some("hir") => match build_args(&args) {
-            Ok(b) => cmd_hir(&b.path, &b.options),
+            Ok(b) => cmd_hir(&b.path, &b.options, b.cxx.as_deref()),
             Err(code) => code,
         },
         Some("cpp") => with_mode(&args, Stage::Cpp),
@@ -167,8 +167,8 @@ fn project_root(entry: &str) -> std::path::PathBuf {
 
 /// Print the typed tree the checker built (spec §17.1). A development aid: it is how you
 /// see what the compiler actually concluded, rather than inferring it from the C++.
-fn cmd_hir(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
-    let analysis = analyse_for_build(entry, options);
+fn cmd_hir(entry: &str, options: &dz_driver::BuildOptions, cxx: Option<&str>) -> ExitCode {
+    let analysis = analyse_for_build(entry, options, cxx);
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
@@ -184,8 +184,8 @@ fn cmd_hir(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
     }
 }
 
-fn cmd_check(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
-    let analysis = analyse_for_build(entry, options);
+fn cmd_check(entry: &str, options: &dz_driver::BuildOptions, cxx: Option<&str>) -> ExitCode {
+    let analysis = analyse_for_build(entry, options, cxx);
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
@@ -205,8 +205,8 @@ fn cmd_check(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
 /// `dz check --format=json`: every diagnostic, warnings included, as one JSON document on
 /// stdout and nothing else there — the shape is `dz_diag::render_json`'s. The exit code is
 /// still the verdict: failure when there is an error.
-fn cmd_check_json(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
-    let analysis = analyse_for_build(entry, options);
+fn cmd_check_json(entry: &str, options: &dz_driver::BuildOptions, cxx: Option<&str>) -> ExitCode {
+    let analysis = analyse_for_build(entry, options, cxx);
     print!("{}", dz_diag::render_json(&analysis.map, &analysis.diags));
     if analysis.diags.has_errors() {
         ExitCode::FAILURE
@@ -222,8 +222,13 @@ fn cmd_check_json(entry: &str, options: &dz_driver::BuildOptions) -> ExitCode {
 /// file as it is on disk (invariant 2), applied last first so earlier offsets stay true;
 /// one that overlaps an edit already taken waits for the next run, as does anything a fix
 /// uncovers, since fixing one mistake can let a later phase see the next.
-fn cmd_fix(entry: &str, options: &dz_driver::BuildOptions, dry_run: bool) -> ExitCode {
-    let analysis = analyse_for_build(entry, options);
+fn cmd_fix(
+    entry: &str,
+    options: &dz_driver::BuildOptions,
+    cxx: Option<&str>,
+    dry_run: bool,
+) -> ExitCode {
+    let analysis = analyse_for_build(entry, options, cxx);
     let map = &analysis.map;
     let mut by_file: std::collections::BTreeMap<FileId, Vec<&dz_diag::Edit>> =
         std::collections::BTreeMap::new();
@@ -362,7 +367,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     let cxx = cxx.as_deref();
 
     build_flags.optimize = mode;
-    let analysis = analyse_for_build(path, &build_flags);
+    let analysis = analyse_for_build(path, &build_flags, cxx);
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
@@ -567,8 +572,22 @@ fn with_mode(args: &[String], stage: Stage) -> ExitCode {
 }
 
 /// Analyse one build: its mode and flags decide which `#if` branches exist (spec §12.10).
-fn analyse_for_build(entry: &str, options: &dz_driver::BuildOptions) -> build::Analysis {
-    dz_driver::analyse_for(Path::new(entry), &|_| None, dz_driver::Mode::Build, options)
+///
+/// A library with a CMake build is built and installed first, by the compiler this build
+/// uses, since its headers are the ones its install holds (spec §15.1, D-0090). So `dz
+/// check` builds it too, once: a check has to read the headers a build would.
+fn analyse_for_build(
+    entry: &str,
+    options: &dz_driver::BuildOptions,
+    cxx: Option<&str>,
+) -> build::Analysis {
+    dz_driver::analyse_prepared(
+        Path::new(entry),
+        &|_| None,
+        dz_driver::Mode::Build,
+        options,
+        &mut |ws, diags| native::build_cmake_libraries(ws, cxx, diags),
+    )
 }
 
 /// `dz cpp`, `dz build` and `dz run` share everything up to where they stop.
@@ -579,7 +598,7 @@ fn cmd_pipeline(
     cxx: Option<&str>,
     line_directives: bool,
 ) -> ExitCode {
-    let analysis = analyse_for_build(entry, options);
+    let analysis = analyse_for_build(entry, options, cxx);
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }

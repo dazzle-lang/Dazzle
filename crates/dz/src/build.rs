@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use dz_diag::{codes, Diagnostic, Diagnostics};
-use dz_project::{Optimize, OutputKind};
+use dz_project::{Optimize, OutputKind, Workspace};
 
 // Analysis is shared with the language server, so it lives in `dz_driver` (spec §17.4).
 pub use dz_driver::Analysis;
@@ -129,7 +129,7 @@ fn with_embedded_lines(text: &str, renames: &[(String, String)]) -> String {
 ///
 /// A name given explicitly is **not** probed: if it does not exist the compile fails
 /// saying so, which is better than silently using a different compiler than was asked for.
-pub fn find_compiler(analysis: &Analysis, chosen: Option<&str>) -> Option<String> {
+pub fn find_compiler(ws: Option<&Workspace>, chosen: Option<&str>) -> Option<String> {
     if let Some(c) = chosen.filter(|c| !c.is_empty()) {
         return Some(c.to_owned());
     }
@@ -138,7 +138,7 @@ pub fn find_compiler(analysis: &Analysis, chosen: Option<&str>) -> Option<String
             return Some(cxx);
         }
     }
-    if let Some(ws) = &analysis.ws {
+    if let Some(ws) = ws {
         if let Some(cxx) = ws.module(ws.root).build.cxx.clone() {
             if !cxx.is_empty() {
                 return Some(cxx);
@@ -161,7 +161,7 @@ pub fn compile(
     cxx: Option<&str>,
 ) -> Result<PathBuf, Diagnostics> {
     let mut diags = Diagnostics::new();
-    let Some(cxx) = find_compiler(analysis, cxx) else {
+    let Some(cxx) = find_compiler(analysis.ws.as_ref(), cxx) else {
         diags.push(
             Diagnostic::error(codes::CPP_COMPILER_FAILED, "no C++ compiler found").with_help(
                 "install clang++ or g++, or name one: `--cxx <compiler>`, `DZ_CXX` in the \
@@ -269,6 +269,8 @@ pub fn compile(
     for f in &link.frameworks {
         cmd.arg("-framework").arg(f);
     }
+    // What a CMake install's pkg-config file asks for besides libraries: `-pthread`.
+    cmd.args(&link.flags);
 
     let output = match cmd.output() {
         Ok(o) => o,

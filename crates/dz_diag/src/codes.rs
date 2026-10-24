@@ -385,6 +385,12 @@ pub const BITFIELD_ADDRESS: &str = "DZ0706";
 /// An imported C array member taken as a value. C++ cannot copy or assign a raw array, so
 /// it is indexed, iterated or pointed at instead (spec §15.2).
 pub const C_ARRAY_BY_VALUE: &str = "DZ0707";
+/// A library with a CMake build that could not be built: CMake is not installed, or its
+/// configure, build or install step failed (spec §15.1, D-0090).
+pub const CPP_CMAKE_FAILED: &str = "DZ0708";
+/// A header of a library with a CMake build that no build has installed yet. The editor
+/// never runs CMake, so a `dz build` has to come first (spec §15.1, D-0090).
+pub const CPP_NOT_BUILT: &str = "DZ0709";
 
 // --- DZ08xx: code generation ---------------------------------------------------
 

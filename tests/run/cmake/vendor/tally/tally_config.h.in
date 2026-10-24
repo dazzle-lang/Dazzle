@@ -1,0 +1,3 @@
+/* Written by CMake's configure step from the recipe's `options`. */
+#define TALLY_STEP @TALLY_STEP@
+#cmakedefine01 TALLY_LOUD
