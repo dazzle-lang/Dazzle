@@ -531,7 +531,9 @@ unsafe fn instantiate(
         // member it has is read against this anchor instead of its own position.
         w.anchor = Some(anchor);
         let mut fields = Vec::new();
-        w.collect_fields(source, name, &mut fields);
+        // No C++ spelling for the owner: a template instance's unnamed member structs stay
+        // unnamed, and fields of them are left out as before.
+        w.collect_fields(source, name, None, &mut fields);
         let (methods, move_only) = w.collect_methods(source, name);
         w.anchor = None;
         w.template_args.clear();
@@ -699,6 +701,11 @@ struct Walker {
     /// `typedef struct { … } Vector2`: an anonymous struct or enum takes the name of the
     /// typedef that names it, keyed by where it is declared.
     anon_names: HashMap<(String, u32), String>,
+    /// `struct { … } playback;` inside `ma_device_config`: a field whose struct has no name
+    /// at all. C++ can still name the type, as `decltype(::ma_device_config::playback)`, and
+    /// that spelling is kept here, keyed like [`Walker::anon_names`], which holds the name
+    /// Dazzle gives it.
+    anon_fields: HashMap<(String, u32), String>,
     /// Object-like macros whose value is not a plain number. A second parse asks clang what
     /// each one's expansion *is* — raylib's `RAYWHITE` is a `Color` (spec §15.2).
     macro_candidates: Vec<(String, Loc)>,
@@ -845,6 +852,9 @@ impl Walker {
     /// This is what [`CType::Named`] carries: two namespaces may each declare a `Body`, and
     /// an unqualified name could not tell them apart (spec §15.2).
     unsafe fn cpp_path(&self, c: CXCursor) -> Option<String> {
+        if let Some(cpp) = position(c).and_then(|k| self.anon_fields.get(&k)) {
+            return Some(cpp.clone());
+        }
         let name = self.decl_name(c)?;
         let mut scope = Vec::new();
         let mut parent = clang_getCursorSemanticParent(c);
@@ -987,7 +997,8 @@ impl Walker {
         }
         let loc = Loc { end: loc.start + name.len() as u32, ..loc };
         let mut fields = Vec::new();
-        self.collect_fields(c, &name, &mut fields);
+        let cpp = self.qualified(&name);
+        self.collect_fields(c, &name, Some(&cpp), &mut fields);
         let is_union = clang_getCursorKind(c) == CXCursor_UnionDecl;
         let (methods, move_only) = self.collect_methods(c, &name);
         let kind = DeclKind::Struct { fields, opaque: false, is_union, methods, move_only };
@@ -1110,17 +1121,29 @@ impl Walker {
     /// One record's members. An anonymous `union { … };` or `struct { … };` written inside
     /// it has no name of its own, and C makes what it holds a member of the enclosing
     /// struct — `event.key` — so its members are collected here too (spec §15.2).
-    unsafe fn collect_fields(&mut self, c: CXCursor, owner: &str, out: &mut Vec<Field>) {
+    ///
+    /// `owner_cpp` is how C++ spells the owner, which a field of an unnamed struct type
+    /// needs to name that type (see [`Walker::unnamed_field_type`]).
+    unsafe fn collect_fields(
+        &mut self,
+        c: CXCursor,
+        owner: &str,
+        owner_cpp: Option<&str>,
+        out: &mut Vec<Field>,
+    ) {
         for f in children(c) {
             match clang_getCursorKind(f) {
                 CXCursor_FieldDecl => {}
                 CXCursor_StructDecl | CXCursor_UnionDecl
                     if clang_Cursor_isAnonymousRecordDecl(f) != 0 =>
                 {
-                    self.collect_fields(f, owner, out);
+                    self.collect_fields(f, owner, owner_cpp, out);
                     continue;
                 }
                 _ => continue,
+            }
+            if let Some(owner_cpp) = owner_cpp {
+                self.unnamed_field_type(f, owner, owner_cpp);
             }
             // A private or protected C++ member is not Dazzle's to name. It stays in the
             // type — the layout is the header's, since Dazzle never redeclares it — so it
@@ -1143,6 +1166,47 @@ impl Walker {
                 }
             }
         }
+    }
+
+    /// A field declared with a struct that has no name — `struct { ma_format format; … }
+    /// playback;` — would otherwise be left out, and with it the only way to set what it
+    /// holds. The struct is imported under the owner's name and the field's,
+    /// `ma_device_config_playback`, which C++ spells
+    /// `decltype(::ma_device_config::playback)`, so the field maps like any other (spec
+    /// §15.2). A struct nested in one of these is reached the same way, one level down.
+    unsafe fn unnamed_field_type(&mut self, f: CXCursor, owner: &str, owner_cpp: &str) {
+        let decl = clang_getTypeDeclaration(clang_getCanonicalType(clang_getCursorType(f)));
+        if !matches!(clang_getCursorKind(decl), CXCursor_StructDecl | CXCursor_UnionDecl)
+            || !is_anonymous(decl)
+            || clang_isCursorDefinition(decl) == 0
+        {
+            return;
+        }
+        let Some(key) = position(decl) else { return };
+        if self.anon_names.contains_key(&key) {
+            return; // named by a typedef, or already imported through another field
+        }
+        let Some(loc) = self.place(f) else { return };
+        let fname = string(clang_getCursorSpelling(f));
+        let name = format!("{owner}_{fname}");
+        if !self.claim(&name) {
+            return;
+        }
+        let cpp = format!("decltype({owner_cpp}::{fname})");
+        self.anon_names.insert(key.clone(), name.clone());
+        self.anon_fields.insert(key, cpp.clone());
+        let mut fields = Vec::new();
+        self.collect_fields(decl, &name, Some(&cpp), &mut fields);
+        let is_union = clang_getCursorKind(decl) == CXCursor_UnionDecl;
+        let kind = DeclKind::Struct {
+            fields,
+            opaque: false,
+            is_union,
+            methods: Vec::new(),
+            move_only: false,
+        };
+        self.pending_docs = doc_comment(f);
+        self.push_cpp(name, cpp, self.ns.clone(), loc, kind);
     }
 
     unsafe fn enumeration(&mut self, c: CXCursor, loc: Loc) {

@@ -1,0 +1,128 @@
+// A tiny synthesizer: an arpeggio over four chords and a bass line, generated sample by
+// sample and played through miniaudio, a single-file C audio library called with no
+// bindings. It runs for about seven seconds.
+//
+// miniaudio asks for sound from its own audio thread, through a callback: a plain Dazzle
+// function handed to C (spec §15.2). The `Synth` it plays from belongs to `main`, which
+// passes a pointer to it as the device's user data and keeps it alive until the device is
+// closed.
+
+const SAMPLE_RATE: u32 = 48000
+
+/// The overall loudness, from 0 (silent) to 1 (as loud as the mix goes).
+const VOLUME: f32 = 0.5
+
+/// Eighth notes per second, at 140 beats a minute.
+const STEPS_PER_SECOND: f32 = 140.0 / 60.0 * 2
+
+const CHORD_NAMES: [4]str = ["Am", "F", "C", "G"]
+
+/// Each chord in `CHORD_NAMES` as semitones above A3, which the arpeggio climbs twice.
+const CHORDS: [4][4]i32 = [[0, 3, 7, 12], [-4, 0, 3, 8], [3, 7, 10, 15], [-2, 2, 5, 10]]
+
+const STEPS_PER_CHORD: i32 = 8
+
+/// A note's frequency, `semitones` above A3 (220 Hz).
+fn pitch(semitones: i32) -> f32 {
+    return 220 * (2.0 as f32).pow(semitones as f32 / 12)
+}
+
+/// One oscillator: a phase that goes round once per cycle.
+struct Voice {
+    phase: f32
+
+    /// The next sample of a wave at `freq`: `shape` blends a soft triangle into a square.
+    pub fn next(&mut self, freq: f32, shape: f32) -> f32 {
+        phase = (phase + freq / SAMPLE_RATE as f32).fract()
+        let triangle = 4 * (phase - 0.5).abs() - 1
+        let square: f32 = if phase < 0.5 {
+            1
+        } else {
+            -1
+        }
+        return triangle.lerp(square, shape)
+    }
+}
+
+struct Synth {
+    m_frame: u64
+    m_lead:  Voice
+    m_bass:  Voice
+
+    /// The next mono sample.
+    pub fn next(&mut self) -> f32 {
+        let time = m_frame as f32 / SAMPLE_RATE as f32
+        m_frame += 1
+        let step = (time * STEPS_PER_SECOND) as i32
+        let total = STEPS_PER_CHORD * CHORDS.len as i32
+        if step >= total {
+            return 0
+        }
+        let chord = CHORDS[(step / STEPS_PER_CHORD) as usize]
+        let note = chord[(step % 4) as usize] + 12
+
+        // A pluck: each note starts loud and decays before the next one.
+        let into_step = (time * STEPS_PER_SECOND).fract()
+        let pluck = (-into_step * 5).exp()
+        let lead = m_lead.next(pitch(note), 0.35) * pluck * 0.22
+        let bass = m_bass.next(pitch(chord[0] - 12), 0) * 0.25
+
+        // Fade the last chord out rather than stopping dead.
+        let left = total as f32 / STEPS_PER_SECOND - time
+        return (lead + bass) * left.min(1) * VOLUME
+    }
+
+    pub fn seconds(&self) -> f32 {
+        return (STEPS_PER_CHORD * CHORDS.len as i32) as f32 / STEPS_PER_SECOND
+    }
+}
+
+/// The `Synth` behind the device's user data, which only `main` sets.
+fn synth_of(device: ^mut ma::ma_device) -> ^mut Synth {
+    return unsafe {
+        device.pUserData as ^mut Synth
+    }
+}
+
+/// miniaudio's data callback: fill `frames` stereo frames of 32-bit floats.
+fn fill(device: ^mut ma::ma_device, output: ^mut void, _input: ^void, frames: u32) {
+    let synth = synth_of(device) or return
+    let out = unsafe {
+        output as ^mut f32
+    }
+    for i in 0..frames as usize {
+        let s = synth.next()
+        unsafe {
+            out[2 * i] = s
+            out[2 * i + 1] = s
+        }
+    }
+}
+
+fn main() {
+    let mut synth: Synth
+    let ptr: ^mut Synth = &mut synth
+
+    let mut config = ma::ma_device_config_init(ma::ma_device_type::ma_device_type_playback)
+    config.playback.format = ma::ma_format::ma_format_f32
+    config.playback.channels = 2
+    config.sampleRate = SAMPLE_RATE
+    config.dataCallback = fill
+    config.pUserData = unsafe {
+        ptr as ^mut void
+    }
+
+    let mut device: ma::ma_device
+    if ma::ma_device_init(null, &config, &mut device) != ma::ma_result::MA_SUCCESS {
+        eprintln!("no audio device to play on")
+        return
+    }
+    defer ma::ma_device_uninit(&mut device)
+    ma::ma_device_start(&mut device)
+
+    for name in CHORD_NAMES {
+        print!("{} ", name)
+    }
+    println!("  ({} s at {} Hz)", synth.seconds(), SAMPLE_RATE)
+    Time::sleep(Duration::from_secs_f32(synth.seconds() + 0.3))
+}

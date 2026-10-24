@@ -1,0 +1,31 @@
+[module]
+name    = "synth"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"
+
+[dependencies]
+std = { open = true }
+ma  = { cpp = "miniaudio" }
+
+# miniaudio, compiled from source by `dz`: a git submodule in `examples/vendor/miniaudio`,
+# pinned to its 0.11.25 tag, which `git submodule update --init` fetches. Since 0.11.22 it
+# ships as a header and one `.c` file rather than as a single header, so the recipe names the
+# source instead of `header`. It talks to WASAPI, ALSA, PulseAudio or Core Audio, chosen
+# from the platform when it is compiled, and loads them at run time, so it needs almost
+# nothing to link.
+[cpp.libs.miniaudio]
+root         = "../vendor/miniaudio"
+sources      = ["miniaudio.c"]
+include_dirs = ["."]
+import       = ["miniaudio.h"]
+
+[cpp.libs.miniaudio.target.windows]
+link_libs = ["ole32"]
+
+[cpp.libs.miniaudio.target.linux]
+link_libs = ["dl", "pthread", "m"]
+
+[cpp.libs.miniaudio.target.macos]
+frameworks = ["CoreFoundation", "CoreAudio", "AudioToolbox"]

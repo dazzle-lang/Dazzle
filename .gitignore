@@ -14,3 +14,5 @@
 # was first built — and a rule alone never untracks: the files already in the index had to
 # be removed with `git rm --cached` before this could take effect.
 /examples/**/build/
+# What `examples/stb` renders when it runs; its README shows a copy, `screenshot.png`.
+/examples/stb/render.png

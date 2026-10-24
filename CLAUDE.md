@@ -143,7 +143,8 @@ tests/run/            whole programs compiled and executed against an expected.t
 tests/workspace/      multi-module workspaces; typed/ must check with ZERO diagnostics,
                       typeerrors/ has one deliberate failure per type rule
 examples/             real projects, every one built by `every_example_builds`, held to `dz fmt`
-examples/vendor/      raylib and RGFW as git submodules (`git submodule update --init`),
+examples/vendor/      the C libraries the examples use, as git submodules (raylib, RGFW, sokol,
+                      stb, miniaudio, Box2D; `git submodule update --init`),
                       until a recipe can fetch its own source (T-0077)
 ```
 

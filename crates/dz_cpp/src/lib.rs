@@ -1874,8 +1874,18 @@ impl<'a> Emitter<'a> {
     fn const_decl(&mut self, sym: SymbolId) {
         let Some(body) = self.find_body(&BodyOwner::Const(sym)) else { return };
         let name = self.res.symbol(sym).name.clone();
+        // A `str` anywhere in the value, `[4]str` included, is what keeps it from `constexpr`.
+        fn holds_str(t: &Ty) -> bool {
+            match t {
+                Ty::Str => true,
+                Ty::Array { elem, .. } => holds_str(elem),
+                Ty::Optional(inner) => holds_str(inner),
+                Ty::Tuple(elems) => elems.iter().any(holds_str),
+                _ => false,
+            }
+        }
         let (ty, is_str) = match self.table.get(sym) {
-            Some(ItemSig::Const(t)) => (self.cpp_ty(t), matches!(t, Ty::Str)),
+            Some(ItemSig::Const(t)) => (self.cpp_ty(t), holds_str(t)),
             _ => ("auto".to_owned(), false),
         };
         let (pre, value) = self.in_body(body, |e| {
@@ -3806,6 +3816,21 @@ impl<'a> Emitter<'a> {
         if hoisted_ref && matches!(target, Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
             return self.ptr_expr(e);
         }
+        // The destination's type is known here, so the proxy need not stay open: a C++
+        // overload set of `f(const T*)` and `f(const T&)` would find it ambiguous. A trait
+        // object is a handle of its own, built where the proxy converts, so it is left alone.
+        if matches!(body.expr(e).kind, hir::ExprKind::Ref { .. }) {
+            if let Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } = target
+            {
+                if self.trait_object(inner).is_none() {
+                    let v = self.expr(e);
+                    return match target {
+                        Ty::Ref { .. } => format!("::dz::as_ref({v})"),
+                        _ => format!("::dz::as_ptr({v})"),
+                    };
+                }
+            }
+        }
         self.expr(e)
     }
 
@@ -4414,8 +4439,46 @@ impl<'a> Emitter<'a> {
             _ => None,
         };
         let head_text = head.map(|h| self.expr(h));
+        // An imported function may want a C type Dazzle spells differently — `char *`
+        // against `int8_t *` — so the crossing is cast, in both directions (spec §15.2).
+        let imported = match callee {
+            hir::Callee::Fn { sym, .. } if self.is_foreign(*sym) => match self.table.get(*sym) {
+                Some(ItemSig::Fn(sig)) => Some(sig.clone()),
+                _ => None,
+            },
+            // A member function of an imported C++ class crosses the same boundary as a
+            // free one, and wants the same casts (spec §15.2). The call node carries the
+            // name, not the overload key, so this applies only where the name names one
+            // method — and an overload set's members differ in their parameter types, which
+            // is exactly when guessing would cast against the wrong one.
+            hir::Callee::Method { owner, name, .. } if self.is_foreign(*owner) => {
+                match self.table.struct_sig(*owner) {
+                    Some(s) => match s.overloads.get(name).map(Vec::as_slice) {
+                        Some([key]) => s.methods.get(key).cloned(),
+                        _ => None,
+                    },
+                    None => None,
+                }
+            }
+            hir::Callee::Ctor { owner, index } if self.is_foreign(*owner) => {
+                self.table.struct_sig(*owner).and_then(|s| s.ctors.get(*index)).cloned()
+            }
+            _ => None,
+        };
         self.callees.push(defaults.clone());
-        let captured = self.capture_args(args, true);
+        // An imported function's arguments are rendered for its parameters' types, so a
+        // `&x` is the pointer or the reference the header asked for, never a proxy a C++
+        // overload set could read both ways (see [`Emitter::stored`]).
+        let captured = match &imported {
+            Some(sig) => self.capture_each(
+                args.iter()
+                    .enumerate()
+                    .map(|(i, &a)| (a, sig.params.get(i).map(|p| p.ty.clone())))
+                    .collect(),
+                true,
+            ),
+            None => self.capture_args(args, true),
+        };
         self.callees.pop();
         let head_text = match (head, head_text) {
             (Some(h), Some(text)) if captured.any_effects() && !self.fixed_place(h) => {
@@ -4502,33 +4565,6 @@ impl<'a> Emitter<'a> {
             }
             hir::Callee::Value(_) => format!("({})", recv_text()),
         };
-        // An imported function may want a C type Dazzle spells differently — `char *`
-        // against `int8_t *` — so the crossing is cast, in both directions (spec §15.2).
-        let imported = match callee {
-            hir::Callee::Fn { sym, .. } if self.is_foreign(*sym) => match self.table.get(*sym) {
-                Some(ItemSig::Fn(sig)) => Some(sig.clone()),
-                _ => None,
-            },
-            // A member function of an imported C++ class crosses the same boundary as a
-            // free one, and wants the same casts (spec §15.2). The call node carries the
-            // name, not the overload key, so this applies only where the name names one
-            // method — and an overload set's members differ in their parameter types, which
-            // is exactly when guessing would cast against the wrong one.
-            hir::Callee::Method { owner, name, .. } if self.is_foreign(*owner) => {
-                match self.table.struct_sig(*owner) {
-                    Some(s) => match s.overloads.get(name).map(Vec::as_slice) {
-                        Some([key]) => s.methods.get(key).cloned(),
-                        _ => None,
-                    },
-                    None => None,
-                }
-            }
-            hir::Callee::Ctor { owner, index } if self.is_foreign(*owner) => {
-                self.table.struct_sig(*owner).and_then(|s| s.ctors.get(*index)).cloned()
-            }
-            _ => None,
-        };
-
         let mut rendered: Vec<String> = recv_arg.into_iter().collect();
         for (i, v) in self.emit_args(captured).into_iter().enumerate() {
             let cast =

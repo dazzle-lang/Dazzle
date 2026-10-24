@@ -98,6 +98,18 @@ void mini_bump(MiniCounter *c) { c->n += 1; }
 
 int mini_count(const MiniCounter *c) { return c->n; }
 
+MiniConfig mini_config(void) {
+    MiniConfig c = {0};
+    c.rate = 100;
+    c.output.channels = 2;
+    c.output.gain.left = 3;
+    return c;
+}
+
+int mini_config_total(const MiniConfig *c) {
+    return c->rate + c->output.channels + c->output.gain.left + c->output.gain.right;
+}
+
 int mini_length(const char *s) {
     int n = 0;
     while (s[n] != '\0') {

@@ -1,0 +1,244 @@
+// Physics with Box2D, drawn with sokol: two C libraries, each built from its own source and
+// called with no bindings. A pyramid of boxes stands on the ground; a click throws a ball at
+// it from the mouse, Space drops a rain of boxes, R builds the pyramid again, and Escape
+// quits.
+//
+// Box2D works in metres with y up, so drawing converts to pixels with y down. sokol calls
+// back into the program each frame, as in `examples/sokol`: `main` owns the `Demo`, and
+// sokol hands a pointer to it to every callback.
+
+/// Pixels per metre.
+const SCALE: f32 = 30
+
+const GROUND_Y: f32 = 1
+
+struct Thing {
+    pub body: b2::b2BodyId
+    /// Half the box's size, in metres; zero for a ball.
+    pub half:   Vec2 = Vec2{}
+    pub radius: f32 = 0
+    pub color:  Vec3
+}
+
+struct Demo {
+    m_world:  b2::b2WorldId
+    m_things: List<Thing>
+    m_mouse:  Vec2
+
+    pub fn init(&mut self) {
+        let logger = sk::sg_logger{ func: sk::slog_func }
+        sk::sg_setup(&sk::sg_desc{ environment: sk::sglue_environment(), logger: logger })
+        sk::sgl_setup(&sk::sgl_desc_t{ logger: sk::sgl_logger_t{ func: sk::slog_func } })
+        self.reset()
+    }
+
+    /// A fresh world: the ground, and a pyramid on it.
+    fn reset(&mut self) {
+        if b2::b2World_IsValid(m_world) {
+            b2::b2DestroyWorld(m_world)
+        }
+        m_things.clear()
+        let mut def = b2::b2DefaultWorldDef()
+        def.gravity = b2::b2Vec2{ x: 0, y: -10 }
+        m_world = b2::b2CreateWorld(&def)
+
+        let mut ground = b2::b2DefaultBodyDef()
+        ground.position = b2::b2Vec2{ x: self.width() / 2, y: GROUND_Y - 0.5 }
+        let body = b2::b2CreateBody(m_world, &ground)
+        let half = Vec2{ x: self.width() / 2 - 1, y: 0.5 }
+        let shape = b2::b2DefaultShapeDef()
+        b2::b2CreatePolygonShape(body, &shape, &b2::b2MakeBox(half.x, half.y))
+        m_things.push(Thing{ body: body, half: half, color: Vec3{ x: 0.3, y: 0.32, z: 0.38 } })
+
+        let rows = 12
+        let size: f32 = 0.5
+        for row in 0..rows {
+            for i in 0..rows - row {
+                let x = self.width() / 2 + (i as f32 - (rows - row) as f32 / 2 + 0.5) * size * 2.05
+                let y = GROUND_Y + size + row as f32 * size * 2
+                let t = row as f32 / rows as f32
+                let color = Vec3{ x: 0.95, y: 0.7 - 0.4 * t, z: 0.25 + 0.5 * t }
+                self.add_box(Vec2{ x: x, y: y }, size, color)
+            }
+        }
+    }
+
+    fn width(&self) -> f32 {
+        return sk::sapp_widthf() / SCALE
+    }
+
+    fn add_box(&mut self, at: Vec2, half: f32, color: Vec3) {
+        let mut def = b2::b2DefaultBodyDef()
+        def.type = b2::b2BodyType::b2_dynamicBody
+        def.position = b2::b2Vec2{ x: at.x, y: at.y }
+        let body = b2::b2CreateBody(m_world, &def)
+        let mut shape = b2::b2DefaultShapeDef()
+        shape.material.friction = 0.6
+        b2::b2CreatePolygonShape(body, &shape, &b2::b2MakeBox(half, half))
+        m_things.push(Thing{ body: body, half: Vec2{ x: half, y: half }, color: color })
+    }
+
+    fn throw_ball(&mut self, from: Vec2) {
+        let mut def = b2::b2DefaultBodyDef()
+        def.type = b2::b2BodyType::b2_dynamicBody
+        def.position = b2::b2Vec2{ x: from.x, y: from.y }
+        def.isBullet = true
+        let body = b2::b2CreateBody(m_world, &def)
+        let mut shape = b2::b2DefaultShapeDef()
+        shape.density = 8
+        shape.material.restitution = 0.3
+        let circle = b2::b2Circle{ center: b2::b2Vec2{}, radius: 0.6 }
+        b2::b2CreateCircleShape(body, &shape, &circle)
+        // Aimed at the pyramid's middle, whichever side it comes from.
+        let target = Vec2{ x: self.width() / 2, y: GROUND_Y + 3 }
+        let v = (target - from).normalized() * 30
+        b2::b2Body_SetLinearVelocity(body, b2::b2Vec2{ x: v.x, y: v.y })
+        m_things.push(Thing{ body: body, radius: 0.6, color: Vec3{ x: 0.85, y: 0.9, z: 1 } })
+    }
+
+    pub fn frame(&mut self) {
+        let dt = (sk::sapp_frame_duration() as f32).min(1.0 / 30)
+        b2::b2World_Step(m_world, dt, 4)
+
+        let w = sk::sapp_widthf()
+        let h = sk::sapp_heightf()
+        sk::sgl_defaults()
+        sk::sgl_matrix_mode_projection()
+        // Metres, y up, straight from Box2D: the projection does the conversion.
+        sk::sgl_ortho(0, w / SCALE, 0, h / SCALE, -1, 1)
+        for &t in m_things {
+            let p = b2::b2Body_GetPosition(t.body)
+            let r = b2::b2Body_GetRotation(t.body)
+            let c = t.color
+            sk::sgl_c3f(c.x, c.y, c.z)
+            if t.radius > 0 {
+                draw_ball(p.x, p.y, r.c, r.s, t.radius)
+            } else {
+                draw_box(p.x, p.y, r.c, r.s, t.half)
+            }
+        }
+
+        let mut action: sk::sg_pass_action
+        action.colors[0].load_action = sk::sg_load_action::SG_LOADACTION_CLEAR
+        action.colors[0].clear_value = sk::sg_color{ r: 0.08, g: 0.09, b: 0.12, a: 1 }
+        sk::sg_begin_pass(&sk::sg_pass{ action: action, swapchain: sk::sglue_swapchain() })
+        sk::sgl_draw()
+        sk::sg_end_pass()
+        sk::sg_commit()
+    }
+
+    pub fn event(&mut self, e: &sk::sapp_event) {
+        switch e.type {
+            case SAPP_EVENTTYPE_MOUSE_MOVE {
+                m_mouse = Vec2{ x: e.mouse_x / SCALE, y: (sk::sapp_heightf() - e.mouse_y) / SCALE }
+            }
+            case SAPP_EVENTTYPE_MOUSE_DOWN {
+                self.throw_ball(m_mouse)
+            }
+            case SAPP_EVENTTYPE_KEY_DOWN {
+                switch e.key_code {
+                    case SAPP_KEYCODE_SPACE {
+                        for _ in 0..20 {
+                            let x = Random::range<f32>(2, self.width() - 2)
+                            let y = Random::range<f32>(16, 24)
+                            let color = Vec3{ x: 0.3, y: Random::range<f32>(0.6, 0.9), z: 0.8 }
+                            self.add_box(Vec2{ x: x, y: y }, 0.35, color)
+                        }
+                    }
+                    case SAPP_KEYCODE_R {
+                        self.reset()
+                    }
+                    case SAPP_KEYCODE_ESCAPE {
+                        sk::sapp_request_quit()
+                    }
+                    default {}
+                }
+            }
+            default {}
+        }
+    }
+
+    pub fn cleanup(&mut self) {
+        b2::b2DestroyWorld(m_world)
+        sk::sgl_shutdown()
+        sk::sg_shutdown()
+    }
+}
+
+/// A box of half-size `half` at `(x, y)`, turned by the rotation `(c, s)`: its cosine and
+/// sine, which is how Box2D keeps an angle.
+fn draw_box(x: f32, y: f32, c: f32, s: f32, half: Vec2) {
+    sk::sgl_begin_quads()
+    for corner in [Vec2{ x: -1, y: -1 }, Vec2{ x: 1, y: -1 }, Vec2{ x: 1, y: 1 }, Vec2{ x: -1, y: 1 }] {
+        let lx = corner.x * half.x
+        let ly = corner.y * half.y
+        sk::sgl_v2f(x + c * lx - s * ly, y + s * lx + c * ly)
+    }
+    sk::sgl_end()
+}
+
+/// A ball as a fan of triangles, with one darker spoke so it can be seen rolling.
+fn draw_ball(x: f32, y: f32, c: f32, s: f32, radius: f32) {
+    let segments = 20
+    sk::sgl_begin_triangles()
+    for i in 0..segments {
+        let a0 = i as f32 / segments as f32 * TAU
+        let a1 = (i + 1) as f32 / segments as f32 * TAU
+        sk::sgl_v2f(x, y)
+        sk::sgl_v2f(x + a0.cos() * radius, y + a0.sin() * radius)
+        sk::sgl_v2f(x + a1.cos() * radius, y + a1.sin() * radius)
+    }
+    sk::sgl_end()
+    sk::sgl_c3f(0.3, 0.35, 0.5)
+    sk::sgl_begin_lines()
+    sk::sgl_v2f(x, y)
+    sk::sgl_v2f(x + c * radius, y + s * radius)
+    sk::sgl_end()
+}
+
+fn demo(data: ^mut void) -> ^mut Demo {
+    return unsafe {
+        data as ^mut Demo
+    }
+}
+
+fn init(data: ^mut void) {
+    let d = demo(data) or return
+    d.init()
+}
+
+fn frame(data: ^mut void) {
+    let d = demo(data) or return
+    d.frame()
+}
+
+fn event(e: ^sk::sapp_event, data: ^mut void) {
+    let d = demo(data) or return
+    let e = e or return
+    d.event(e)
+}
+
+fn cleanup(data: ^mut void) {
+    let d = demo(data) or return
+    d.cleanup()
+}
+
+fn main() {
+    let mut demo: Demo
+    let ptr: ^mut Demo = &mut demo
+    let data = unsafe {
+        ptr as ^mut void
+    }
+    sk::sapp_run(&sk::sapp_desc{
+        user_data: data,
+        init_userdata_cb: init,
+        frame_userdata_cb: frame,
+        event_userdata_cb: event,
+        cleanup_userdata_cb: cleanup,
+        width: 960,
+        height: 600,
+        sample_count: 4,
+        window_title: "Dazzle + Box2D + sokol",
+        logger: sk::sapp_logger{ func: sk::slog_func },
+    })
+}

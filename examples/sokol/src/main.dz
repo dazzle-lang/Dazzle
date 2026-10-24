@@ -1,0 +1,187 @@
+// A particle fountain drawn with sokol, a set of single-header C libraries, called with no
+// bindings. The fountain follows the mouse, a click throws a burst, and Escape quits.
+//
+// sokol runs the frame loop itself and calls back into the program, the way most windowing
+// libraries in C do. The callbacks are plain Dazzle functions handed to C (spec §15.2), and
+// sokol passes each one the `user_data` pointer it was given: the `Fountain` that `main`
+// owns. Each callback turns that pointer back into a reference and hands over to an
+// ordinary method, so everything else is safe code.
+
+const MAX_PARTICLES: usize = 4096
+
+/// Particles thrown per second while the fountain runs.
+const RATE: f32 = 1400
+
+const GRAVITY: f32 = 700
+
+struct Particle {
+    pub pos: Vec2
+    pub vel: Vec2
+    /// Seconds left; a particle at 0 is free to reuse.
+    pub life: f32 = 0
+    pub size: f32 = 4
+}
+
+struct Fountain {
+    m_parts:    [4096]Particle
+    m_next:     usize
+    m_emitter:  Vec2
+    m_owed:     f32
+    m_pipeline: sk::sgl_pipeline
+
+    /// Called once the window and the GPU are ready.
+    pub fn init(&mut self) {
+        let logger = sk::sg_logger{ func: sk::slog_func }
+        sk::sg_setup(&sk::sg_desc{ environment: sk::sglue_environment(), logger: logger })
+        sk::sgl_setup(&sk::sgl_desc_t{ logger: sk::sgl_logger_t{ func: sk::slog_func } })
+
+        // Additive blending: where particles overlap, they glow.
+        let mut desc: sk::sg_pipeline_desc
+        desc.colors[0].blend.enabled = true
+        desc.colors[0].blend.src_factor_rgb = sk::sg_blend_factor::SG_BLENDFACTOR_SRC_ALPHA
+        desc.colors[0].blend.dst_factor_rgb = sk::sg_blend_factor::SG_BLENDFACTOR_ONE
+        m_pipeline = sk::sgl_make_pipeline(&desc)
+
+        m_emitter = Vec2{ x: sk::sapp_widthf() / 2, y: sk::sapp_heightf() * 0.9 }
+    }
+
+    fn spawn(&mut self, speed: f32, spread: f32) {
+        let angle = -TAU / 4 + Random::range<f32>(-spread, spread)
+        let v = Random::range<f32>(0.6, 1.0) * speed
+        m_parts[m_next] = Particle{
+            pos: m_emitter,
+            vel: Vec2{ x: angle.cos() * v, y: angle.sin() * v },
+            life: Random::range<f32>(1.2, 2.2),
+            size: Random::range<f32>(1.5, 4.5),
+        }
+        m_next = (m_next + 1) % MAX_PARTICLES
+    }
+
+    fn update(&mut self, dt: f32) {
+        m_owed += RATE * dt
+        while m_owed >= 1 {
+            self.spawn(780, 0.2)
+            m_owed -= 1
+        }
+        for &mut p in m_parts {
+            if p.life > 0 {
+                p.vel.y += GRAVITY * dt
+                p.pos = p.pos + p.vel * dt
+                p.life -= dt
+            }
+        }
+    }
+
+    fn draw(&self) {
+        let w = sk::sapp_widthf()
+        let h = sk::sapp_heightf()
+        sk::sgl_defaults()
+        sk::sgl_load_pipeline(m_pipeline)
+        sk::sgl_matrix_mode_projection()
+        sk::sgl_ortho(0, w, h, 0, -1, 1)
+
+        sk::sgl_begin_quads()
+        for &p in m_parts {
+            if p.life > 0 {
+                // White-hot when thrown, cooling through gold to red as it falls.
+                let t = (p.life / 2).min(1)
+                let r: u8 = 255
+                let g = (90 + 165 * t) as u8
+                let b = (40 + 180 * t * t) as u8
+                let a = (255 * p.life.min(1)) as u8
+                let s = p.size
+                sk::sgl_v2f_c4b(p.pos.x - s, p.pos.y - s, r, g, b, a)
+                sk::sgl_v2f_c4b(p.pos.x + s, p.pos.y - s, r, g, b, a)
+                sk::sgl_v2f_c4b(p.pos.x + s, p.pos.y + s, r, g, b, a)
+                sk::sgl_v2f_c4b(p.pos.x - s, p.pos.y + s, r, g, b, a)
+            }
+        }
+        sk::sgl_end()
+
+        let mut action: sk::sg_pass_action
+        action.colors[0].load_action = sk::sg_load_action::SG_LOADACTION_CLEAR
+        action.colors[0].clear_value = sk::sg_color{ r: 0.04, g: 0.04, b: 0.08, a: 1 }
+        sk::sg_begin_pass(&sk::sg_pass{ action: action, swapchain: sk::sglue_swapchain() })
+        sk::sgl_draw()
+        sk::sg_end_pass()
+        sk::sg_commit()
+    }
+
+    pub fn frame(&mut self) {
+        self.update((sk::sapp_frame_duration() as f32).min(0.05))
+        self.draw()
+    }
+
+    pub fn event(&mut self, e: &sk::sapp_event) {
+        switch e.type {
+            case SAPP_EVENTTYPE_MOUSE_MOVE {
+                m_emitter = Vec2{ x: e.mouse_x, y: e.mouse_y }
+            }
+            case SAPP_EVENTTYPE_MOUSE_DOWN {
+                for _ in 0..400 {
+                    self.spawn(900, TAU / 2)
+                }
+            }
+            case SAPP_EVENTTYPE_KEY_DOWN {
+                if e.key_code == sk::sapp_keycode::SAPP_KEYCODE_ESCAPE {
+                    sk::sapp_request_quit()
+                }
+            }
+            default {}
+        }
+    }
+
+    pub fn cleanup(&mut self) {
+        sk::sgl_shutdown()
+        sk::sg_shutdown()
+    }
+}
+
+/// The `Fountain` behind sokol's `user_data`. Only `main` hands sokol that pointer, so this
+/// cast is the one place the program trusts C; `or` turns the checked pointer into a
+/// reference (spec §5.2).
+fn app(data: ^mut void) -> ^mut Fountain {
+    return unsafe {
+        data as ^mut Fountain
+    }
+}
+
+fn init(data: ^mut void) {
+    let app = app(data) or return
+    app.init()
+}
+
+fn frame(data: ^mut void) {
+    let app = app(data) or return
+    app.frame()
+}
+
+fn event(e: ^sk::sapp_event, data: ^mut void) {
+    let app = app(data) or return
+    let e = e or return
+    app.event(e)
+}
+
+fn cleanup(data: ^mut void) {
+    let app = app(data) or return
+    app.cleanup()
+}
+
+fn main() {
+    let mut fountain: Fountain
+    let ptr: ^mut Fountain = &mut fountain
+    let data = unsafe {
+        ptr as ^mut void
+    }
+    sk::sapp_run(&sk::sapp_desc{
+        user_data: data,
+        init_userdata_cb: init,
+        frame_userdata_cb: frame,
+        event_userdata_cb: event,
+        cleanup_userdata_cb: cleanup,
+        width: 960,
+        height: 600,
+        window_title: "Dazzle + sokol",
+        logger: sk::sapp_logger{ func: sk::slog_func },
+    })
+}

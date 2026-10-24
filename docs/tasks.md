@@ -82,9 +82,10 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0088](tasks/T-0088-explicit-as-t-trait-user-defined.md)** An explicit As<T> trait: user-defined conversions written with as · feature, language
 - **[T-0089](tasks/T-0089-show-where-implicit-conversions-happen-for.md)** Show where implicit conversions happen, for LLMs and debugging · feature, llm-tooling
 
-## M15 — `dz bench`, and the C++ comparison (1 open)
+## M15 — `dz bench`, and the C++ comparison (2 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
+- **[T-0090](tasks/T-0090-whole-program-benchmarks-against-c-one.md)** Whole-program benchmarks against C++: one real algorithm, written in both · feature, bench
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
@@ -95,7 +96,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (14 open)
+## none — not scheduled (17 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -111,3 +112,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0076](tasks/T-0076-release-workflow-installer-with-libclang-bundled.md)** A release workflow and an installer with libclang bundled · feature, packaging
 - **[T-0083](tasks/T-0083-build-static-lib-shared-lib-outputs.md)** Build static-lib and shared-lib outputs · feature, codegen
 - **[T-0087](tasks/T-0087-build-compiles-c-left-behind-by.md)** A build compiles C++ left behind by a module that no longer exists · bug, tooling
+- **[T-0091](tasks/T-0091-static-cannot-hold-struct-with-array.md)** A static cannot hold a struct with an array field that has no default · design, language
+- **[T-0092](tasks/T-0092-dz-fmt-collapses-multi-line-array.md)** dz fmt collapses a multi-line array literal and detaches its elements' comments · bug, tooling
+- **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling

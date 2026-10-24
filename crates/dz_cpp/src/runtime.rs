@@ -235,6 +235,14 @@ struct Addr {
 
 template <class T> DZ_INLINE Addr<T> addr(T& x) { return Addr<T>{&x}; }
 
+/// An `Addr` settled into the one form the parameter it is passed to wants. The proxy is
+/// ambiguous where a header offers both, as sokol's does in C++: `sg_begin_pass(const
+/// sg_pass*)` beside an inline `sg_begin_pass(const sg_pass&)` (spec §15.3).
+template <class T> DZ_INLINE T* as_ptr(Addr<T> a) { return a.p; }
+template <class T> DZ_INLINE T* as_ptr(T* p) { return p; }
+template <class T> DZ_INLINE T& as_ref(Addr<T> a) { return *a.p; }
+template <class T> DZ_INLINE T& as_ref(T& r) { return r; }
+
 /// `&` of a value that is not a place, used only within the statement it is in — a
 /// formatting macro's argument (spec §12.9). The temporary lives to the end of the full
 /// expression, as a call's argument does. `T` is the Dazzle type, named rather than deduced,

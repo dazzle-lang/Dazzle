@@ -80,8 +80,29 @@ MiniCounter *mini_counter(void);
 void mini_bump(MiniCounter *c);
 int mini_count(const MiniCounter *c);
 
+/* A field whose struct has no name at all, as miniaudio's `ma_device_config::playback`
+   is, with another nested inside it. Dazzle names them `MiniConfig_output` and
+   `MiniConfig_output_gain`; C++ spells them through `decltype` (spec §15.2). */
+typedef struct MiniConfig {
+    int rate;
+    struct {
+        int channels;
+        struct {
+            int left, right;
+        } gain;
+    } output;
+} MiniConfig;
+
+MiniConfig mini_config(void);
+int mini_config_total(const MiniConfig *c);
+
 #ifdef __cplusplus
 }
+
+/* sokol's headers add a reference overload beside each pointer function when compiled as
+   C++. A call written `mini_config_total(&c)` must still reach the pointer one, rather than
+   find the pair ambiguous (spec §15.3). */
+inline int mini_config_total(const MiniConfig &c) { return mini_config_total(&c); }
 #endif
 
 #endif
