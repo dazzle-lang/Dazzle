@@ -2,6 +2,69 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## Whole-program benchmarks against C++ (T-0090; 2026-10-24)
+
+`tests/bench` compares one construct at a time. The website wanted a number for a whole
+program, so `tests/bench_programs` has three, each written idiomatically twice: `astar` (A*
+over a grid with a generic heap and struct-keyed maps), `expr` (generate, tokenize, parse into
+`Box`ed unions, evaluate, with errors through `!->`) and `words` (a word count over generated
+text, then a sort). `tests/bench_programs/README.md` has the rules.
+
+- **Same compiler, same flags, same result.** For each compiler, the Dazzle half is `dz build
+  --release --cxx X`, and the C++ half is `X -std=c++17 -O2 -fno-exceptions -fno-rtti`.
+  Dazzle's code also gets `-fwrapv`, the cost of its wrapping arithmetic, which the C++ does
+  not get. Input comes from SplitMix64, written out on both sides. Every program prints a
+  checksum over its whole result, and any order that could tie is made total, since the two
+  sides' heaps and sorts are different algorithms.
+- **`tools/bench_programs.py`** builds from clean, times `dz cpp` separately as the front end,
+  runs the halves alternately, takes the median of ten, and refuses to report a pair whose
+  checksums differ. It writes Markdown (`RESULTS.md`) and JSON, with the CPU, the compilers'
+  versions, the commit and the load average before and after. Runs go through
+  `measure.cpp`, a fork/exec/`wait4` helper, because a process started from Python reports
+  the interpreter's ~18 MiB as its own peak until it calls exec.
+- **A test**, `whole_program_benchmarks_agree_with_their_cpp_halves`, builds every pair at
+  `-O0`/`-O1` on the input in `quick_args.txt` and requires the same checksum.
+
+**The temporary arena.** The Dazzle halves first allocated everything from the global heap.
+The user pointed out that a Dazzle program would put scratch memory in `Allocators::Temp`,
+so each program was measured both ways, interleaved in one sitting. `expr`, with each
+statement's tree in the arena and a reset before the next, was 5–11% faster. `words`, with
+the whole count in it, was 6–7% faster, but peaked at 71 MiB instead of 44, because what a
+growing text or table leaves behind is not reused. `astar`, with each search's heap and
+maps in it and a reset after the search, was 4–5% *slower* and 30% larger. Its maps grow
+past the arena's 64 KiB chunk, so every resize became a `malloc` of its own (T-0099). It stays on the
+global heap, with a comment saying why. The C++ halves use the default allocator;
+`std::pmr::monotonic_buffer_resource` would be the matching strategy, and is not used.
+
+**The published run:** Dazzle at 1.3–1.45× C++ with g++ and 1.55–2.1× with clang. Build time
+is 1.8–3 s against 0.3–0.5 s, of which the front end is about 0.5 s. Phase timings, taken with
+`Instant` in throwaway copies, located most of the gap. Neither `perf` nor valgrind works
+on this machine; valgrind cannot decode its glibc's AVX-512.
+
+- `words`: `List::sort_by` takes 100 ms where `std::sort` takes 19 (T-0096).
+- `expr`: parsing takes 120 ms where C++ parses and evaluates in about 80. Each `!->` step
+  moves a union twice through a default-constructed temporary (T-0097).
+- `astar`: not broken down yet.
+
+**Three codegen bugs the programs found, fixed** (each with a case in `tests/run`):
+
+- A `const` array built from casts, `const OPS: [2]u8 = ['+' as u8, '-' as u8]`, failed to
+  compile. The C++ is `constexpr`, and `dz::cast` was not. It is now (`tests/run/statics`).
+- `let (name, tree) = parser.statement() or { … }` copied each element out of the tuple
+  temporary, and `Expr` is move-only, so the C++ did not compile. An element that owns
+  anything is now moved out (`tests/run/failure`).
+- `let tokens = tokenize(text) or { … }` **copied the whole list twice**: out of the result,
+  then into `tokens`. `List<Token>` is copyable because `Token` is, and both lowerings moved
+  only what could not be copied. Both sources are compiler temporaries that are never read
+  again, so anything that owns something is now moved out of them (`copy_is_free` in
+  `dz_cpp`). `expr`'s peak memory went from 298 MiB to 140, below C++'s 151, and its g++ time
+  fell from 402 ms to 310.
+
+Writing them also turned up some friction, not filed as tasks: `while true { … return }`
+does not count as returning on every path (DZ0405); a moved-out local must be returned as
+`move(x)` rather than `x`; and `if let (a, b) = opt` does not parse. A `str` cannot be cut
+safely at all, which is T-0098.
+
 ## `--no-line-directives`, and `dz` as WebAssembly for the website's playground (2026-10-24)
 
 The website gained a playground: Dazzle on one side, the C++ it compiles to on the other,

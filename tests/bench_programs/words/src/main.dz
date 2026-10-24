@@ -1,0 +1,144 @@
+// Word frequencies over a generated text: the Dazzle half of a whole-program benchmark
+// (tests/bench_programs/README.md). `main.cpp` beside this folder is the same program in
+// C++, and both must print the same checksum.
+//
+// It writes a long text of made-up words — a few common, most rare, some capitalised or
+// followed by punctuation — then splits it into words, folds each to lower-case letters,
+// counts them in a `HashMap<String, i32>`, copies the counts out into a `List`, and sorts
+// that by count and then alphabetically.
+//
+// What it exercises: `String` building, `split_whitespace`, a reused `String` buffer,
+// hashing and comparing text, looking a `String` key up by a `str` (so a word that is
+// already counted allocates nothing), copying `String`s, and `sort_by`. All of it is in
+// `Allocators::Temp`: the program is one batch of work whose memory dies with it, so every
+// allocation is a pointer bump and every free is nothing.
+//
+// Usage: words [words]
+
+/// SplitMix64, written out so the C++ half writes exactly the same text.
+struct Rng {
+    m_state: u64 = 0
+
+    Rng(seed: u64) {
+        m_state = seed
+    }
+
+    pub fn next(&mut self) -> u64 {
+        m_state += 0x9E3779B97F4A7C15
+        let mut z = m_state
+        z = (z ^^ z >> 30) * 0xBF58476D1CE4E5B9
+        z = (z ^^ z >> 27) * 0x94D049BB133111EB
+        return z ^^ z >> 31
+    }
+
+    pub fn below(&mut self, n: u64) -> u64 {
+        return self.next() % n
+    }
+}
+
+const SYLLABLES: [24]str = ["ka", "lo", "mi", "ra", "ten", "sho", "vu", "en", "dar", "is", "po", "qua", "zel", "ne", "fi", "gor", "ul", "be", "tha", "xo", "rin", "ma", "cu", "dei"]
+
+/// `words` words of one to four syllables. A syllable is picked as `below(below(24) + 1)`,
+/// which favours the first few, so some words are very common and most are rare.
+fn generate(words: i64) -> String {
+    let mut rng = Rng(1234)
+    let mut text = String("", Allocators::Temp)
+    for i in 0..words {
+        let syllables = 1 + rng.below(4)
+        let capital = rng.below(8) == 0
+        for s in 0..syllables {
+            let pick = rng.below(rng.below(24) + 1) as usize
+            let syllable = SYLLABLES[pick]
+            if s == 0 && capital {
+                for j, b in (syllable as []u8).indexed() {
+                    text.push(if j == 0 {
+                        b - 32
+                    } else {
+                        b
+                    } as char)
+                }
+            } else {
+                text.push_str(syllable)
+            }
+        }
+        let mark = rng.below(20)
+        if mark == 0 {
+            text.push(',')
+        } else if mark == 1 {
+            text.push('.')
+        }
+        text.push(if i % 12 == 11 {
+            '\n'
+        } else {
+            ' '
+        })
+    }
+    return move(text)
+}
+
+struct Entry {
+    pub word:  String
+    pub count: i32 = 0
+}
+
+/// More often first, and alphabetically among equals. Every word is distinct, so this is a
+/// total order and both halves sort into exactly the same list.
+fn before(a: &Entry, b: &Entry) -> bool {
+    if a.count != b.count {
+        return a.count > b.count
+    }
+    return a.word < b.word
+}
+
+fn main() {
+    let args = Process::args()
+    let total = if args.len() > 1 {
+        args[1].parse_i64() or 2000000
+    } else {
+        2000000
+    }
+
+    let text = generate(total)
+
+    let mut counts = HashMap<String, i32>(0, Allocators::Temp)
+    // A copy of a `String` comes from the same allocator, so every key is in `Temp` too.
+    let mut word = String("", Allocators::Temp)
+    for piece in text.split_whitespace() {
+        word.clear()
+        for b in piece as []u8 {
+            if b >= 'a' as u8 && b <= 'z' as u8 {
+                word.push(b as char)
+            } else if b >= 'A' as u8 && b <= 'Z' as u8 {
+                word.push((b + 32) as char)
+            }
+        }
+        if word.is_empty() {
+            continue
+        }
+        if let &mut n = counts.get_mut_str(word.as_str()) {
+            n += 1
+        } else {
+            // A copy of the buffer becomes the key; the buffer is kept for the next word.
+            counts.insert(word, 1)
+        }
+    }
+
+    let mut entries = List<Entry>(counts.len(), Allocators::Temp)
+    for w, &n in counts {
+        entries.push(Entry{ word: w, count: n })
+    }
+    entries.sort_by(before)
+
+    let mut checksum: u64 = 1469598103934665603
+    for e in entries {
+        for b in e.word.as_str() as []u8 {
+            checksum = (checksum ^^ b as u64) * 1099511628211
+        }
+        checksum = (checksum ^^ e.count as u64) * 1099511628211
+    }
+    println!("{} bytes, {} words, {} distinct", text.len(), total, entries.len())
+    for i in 0..3 {
+        println!("  {} {}", entries[i as usize].word, entries[i as usize].count)
+    }
+    println!("checksum {}", checksum)
+}

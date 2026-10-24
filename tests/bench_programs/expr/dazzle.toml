@@ -1,0 +1,9 @@
+[module]
+name    = "expr"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

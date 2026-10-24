@@ -60,7 +60,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (20 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (23 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -82,11 +82,14 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0088](tasks/T-0088-explicit-as-t-trait-user-defined.md)** An explicit As<T> trait: user-defined conversions written with as · feature, language
 - **[T-0089](tasks/T-0089-show-where-implicit-conversions-happen-for.md)** Show where implicit conversions happen, for LLMs and debugging · feature, llm-tooling
 - **[T-0094](tasks/T-0094-function-pointers-casts-null-optional-fn.md)** Function pointers: casts, null, optional fn, and C's function-pointer typedefs and globals · design, interop
+- **[T-0096](tasks/T-0096-list-sort-by-heapsort-through-function.md)** List::sort_by is a heapsort through a function pointer: five times slower than std::sort · feature, stdlib
+- **[T-0098](tasks/T-0098-str-cannot-be-cut-str-b.md)** A str cannot be cut: str[a..b] is refused, and only String has slice · feature, stdlib
+- **[T-0099](tasks/T-0099-allocators-temp-gives-growing-container-malloc.md)** Allocators::Temp gives a growing container a malloc per resize past 64 KiB · feature, stdlib
 
 ## M15 — `dz bench`, and the C++ comparison (2 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
-- **[T-0090](tasks/T-0090-whole-program-benchmarks-against-c-one.md)** Whole-program benchmarks against C++: one real algorithm, written in both · feature, bench
+- **[T-0097](tasks/T-0097-moving-union-through-fallible-result-costs.md)** Moving a union through a fallible result costs a construct, two moves and a drop at every step · feature, codegen
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
@@ -97,7 +100,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (17 open)
+## none — not scheduled (18 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -116,3 +119,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0091](tasks/T-0091-static-cannot-hold-struct-with-array.md)** A static cannot hold a struct with an array field that has no default · design, language
 - **[T-0092](tasks/T-0092-dz-fmt-collapses-multi-line-array.md)** dz fmt collapses a multi-line array literal and detaches its elements' comments · bug, tooling
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
+- **[T-0100](tasks/T-0100-choose-temporary-arena-where-it-faster.md)** Choose the temporary arena where it is faster, automatically or by a setting · design, stdlib

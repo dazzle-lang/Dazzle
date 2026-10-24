@@ -18,6 +18,10 @@ const START: i32 = 1
 /// this is an `inline const` rather than a `constexpr`.
 const NAMES: [3]str = ["red", "green", "blue"]
 
+// A constant whose elements are casts: the C++ is a `constexpr` array, so the cast it
+// lowers to must be usable in one.
+const SIGNS: [2]u8 = ['+' as u8, '-' as u8]
+
 static COUNT: Counter = Counter{}
 static TABLE: [4]i32 = [START, 2, 3, 4]
 #[thread_local]
@@ -53,4 +57,5 @@ fn main() {
     c.hits += 100
     println!("{} {} {} {}", COUNT.hits, TABLE[0], TABLE[3], SCRATCH)
     println!("{} {}", NAMES[1], NAMES.len)
+    println!("{} {}", SIGNS[0], SIGNS[1] as char)
 }

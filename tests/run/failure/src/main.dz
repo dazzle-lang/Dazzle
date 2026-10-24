@@ -61,6 +61,17 @@ fn find(xs: ^[4]i32, want: i32) -> ^i32 {
     return null
 }
 
+// A tuple with a move-only element, from a fallible call: destructuring it moves the
+// element out rather than copying it.
+fn named(n: i32) !-> (str, List<i32>) {
+    if n < 0 {
+        return error(Code::Negative, "{} is negative", n)
+    }
+    let mut xs = List<i32>()
+    xs.push(n)
+    return ("list", move(xs))
+}
+
 fn pair() -> (i32, str) {
     return (7, "seven")
 }
@@ -98,6 +109,10 @@ fn main() {
     // §5.4: tuples, and destructuring one.
     let (n, name) = pair()
     println!("tuple: {} {}", n, name)
+    let (label, list) = named(4) or { e ->
+        panic!("{}", e.message)
+    }
+    println!("tuple: {} {}", label, list[0])
 
     // Control flow used as a value.
     let chosen = if n > 3 {

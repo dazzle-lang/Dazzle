@@ -673,6 +673,81 @@ fn the_benchmark_suite_agrees_with_its_cpp_baseline() {
     }
 }
 
+/// The whole-program benchmarks (`tests/bench_programs`, T-0090): each program's Dazzle half
+/// and its C++ half must print the same checksum, on the small input in `quick_args.txt`.
+/// The timings belong to `tools/bench_programs.py`; this keeps the pairs honest, since a
+/// change to either half that makes them compute different things would otherwise only be
+/// noticed the next time someone publishes numbers.
+#[test]
+fn whole_program_benchmarks_agree_with_their_cpp_halves() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let cxx = std::env::var("DZ_CXX").ok().filter(|c| !c.is_empty()).unwrap_or_else(|| {
+        ["clang++", "g++", "c++"]
+            .into_iter()
+            .find(|c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()))
+            .unwrap()
+            .to_owned()
+    });
+    let root = repo_root().join("tests/bench_programs");
+    let mut programs: Vec<PathBuf> = std::fs::read_dir(&root)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.join("main.cpp").exists())
+        .collect();
+    programs.sort();
+    assert!(programs.len() >= 3, "expected the benchmark programs, found {programs:?}");
+
+    let checksum = |out: &std::process::Output, what: &str| -> String {
+        assert!(out.status.success(), "{what} failed: {}", String::from_utf8_lossy(&out.stderr));
+        let text = String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n");
+        let line = text.lines().find(|l| l.starts_with("checksum "));
+        line.unwrap_or_else(|| panic!("{what} printed no checksum:\n{text}")).to_owned()
+    };
+    let scratch = std::env::temp_dir().join("dz_bench_programs");
+    std::fs::create_dir_all(&scratch).unwrap();
+    for dir in programs {
+        let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+        let args_text = std::fs::read_to_string(dir.join("quick_args.txt")).unwrap();
+        let args: Vec<&str> = args_text.split_whitespace().collect();
+
+        let built = Command::new(dz()).args(["build", dir.to_str().unwrap()]).output().unwrap();
+        assert!(built.status.success(), "{name}: {}", String::from_utf8_lossy(&built.stderr));
+        let exe = dir.join("build/bin").join(if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.clone()
+        });
+        let dazzle = checksum(&Command::new(&exe).args(&args).output().unwrap(), &name);
+
+        let cpp_exe =
+            scratch.join(if cfg!(windows) { format!("{name}.exe") } else { name.clone() });
+        // Only the result is checked here, so the C++ half gets no more flags than it needs:
+        // `-fno-exceptions` breaks the MSVC standard library a Windows clang++ uses unless
+        // it is configured for it. The timings, which do use it, are tools/bench_programs.py.
+        let compiled = Command::new(&cxx)
+            .args(["-std=c++17", "-O1"])
+            .arg(dir.join("main.cpp"))
+            .arg("-o")
+            .arg(&cpp_exe)
+            .output()
+            .unwrap();
+        assert!(
+            compiled.status.success(),
+            "{name}/main.cpp: {}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        let cpp = checksum(
+            &Command::new(&cpp_exe).args(&args).output().unwrap(),
+            &format!("{name}/main.cpp"),
+        );
+        assert_eq!(dazzle, cpp, "{name}: the Dazzle and C++ halves compute different things");
+    }
+}
+
 /// Which C++ compiler builds the generated code, and who gets the last word (spec §16.5).
 ///
 /// Four places may say. The test pins the *order* rather than any one of them, by naming a
