@@ -184,10 +184,12 @@ jobs:
         run: cargo build --workspace --all-targets
 
       # The website's playground runs this `dz` in the browser. A dependency that cannot
-      # target WebAssembly would break it without failing anything else here.
+      # target WebAssembly would break it without failing anything else here. `+stable`
+      # because that is the toolchain the target was installed for: the lint toolchain's
+      # install, which runs after it, becomes the default.
       - name: Build for WebAssembly
         if: matrix.name == 'linux'
-        run: cargo build -p dz --target wasm32-wasip1
+        run: cargo +stable build -p dz --target wasm32-wasip1
 
       # One platform is enough for the lints: they read the source, which is the same
       # everywhere, and running them three times only triples the chance of a flake.
