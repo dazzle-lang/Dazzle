@@ -1,0 +1,23 @@
+[module]
+name    = "raytracer"
+sources = ["src/**/*.dz"]
+
+[build]
+output = "executable"
+
+[dependencies]
+std = { open = true }
+stb = { cpp = "stb_image_write" }
+
+# stb_image_write is one header with its implementation behind a define, as every stb
+# library is: a git submodule in `examples/vendor/stb`, which `git submodule update --init`
+# fetches. `header` has `dz` write the one translation unit that compiles it (spec §15.1),
+# so there is no C file to keep, and the define reaches that file and nothing else. The
+# other stb headers are used the same way: `stb_image.h` to load images, `stb_truetype.h`
+# to rasterise fonts.
+[cpp.libs.stb_image_write]
+root         = "../vendor/stb"
+header       = "stb_image_write.h"
+include_dirs = ["."]
+defines      = ["STB_IMAGE_WRITE_IMPLEMENTATION"]
+import       = ["stb_image_write.h"]

@@ -1,0 +1,44 @@
+[module]
+name    = "fountain"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+sk  = { cpp = "sokol" }
+
+# sokol is a set of single-header C libraries: `sokol_app.h` opens the window and runs the
+# frame loop, `sokol_gfx.h` talks to the GPU, `sokol_gl.h` draws immediate-mode shapes on
+# top of it, and `sokol_glue.h` connects the first two. All of them are in `sk`, read
+# together, since each header uses the types of the ones before it.
+#
+# These hold on both sides of the boundary, so they go in `[cpp]` (spec §15.1): which GPU
+# backend the headers describe, and `SOKOL_NO_ENTRY`, which keeps `main` ours and makes
+# `sapp_run` the call that opens the window.
+[cpp]
+defines = ["SOKOL_GLCORE", "SOKOL_NO_ENTRY"]
+
+# The library itself, compiled from source by `dz`: a git submodule in
+# `examples/vendor/sokol`, which `git submodule update --init` fetches. `SOKOL_IMPL` turns
+# on the implementation in every sokol header, and the translation unit `dz` writes for a
+# single-header library includes only `header`, so `-include` puts the others in front of it,
+# in the order they depend on each other.
+[cpp.libs.sokol]
+root         = "../vendor/sokol"
+header       = "util/sokol_gl.h"
+include_dirs = [".", "util"]
+defines      = ["SOKOL_IMPL"]
+flags        = ["-include", "sokol_log.h", "-include", "sokol_gfx.h",
+                "-include", "sokol_app.h", "-include", "sokol_glue.h"]
+import       = ["sokol_log.h", "sokol_gfx.h", "sokol_app.h", "sokol_glue.h", "sokol_gl.h"]
+
+[cpp.libs.sokol.target.windows]
+link_libs = ["kernel32", "user32", "shell32", "gdi32"]
+
+[cpp.libs.sokol.target.linux]
+link_libs = ["X11", "Xi", "Xcursor", "GL", "dl", "pthread", "m"]
+
+# On macOS the implementation is Objective-C, as sokol's own documentation says, whatever
+# its file is called.
+[cpp.libs.sokol.target.macos]
+flags      = ["-x", "objective-c"]
+frameworks = ["Cocoa", "QuartzCore", "OpenGL"]

@@ -1,15 +1,58 @@
-// A window from RGFW, a single-header C library, called with no bindings. Escape or the
-// window's close button ends it.
+// A window from RGFW, a single-header C library, called with no bindings, showing a plasma
+// computed pixel by pixel in Dazzle: no GPU API at all, just a buffer RGFW copies to the
+// window each frame. Escape or the window's close button ends it.
+
+const WIDTH: i32 = 640
+
+const HEIGHT: i32 = 400
+
+/// The colour of one pixel at `time`: four sine waves summed, run through a palette.
+fn plasma(x: f32, y: f32, time: f32) -> Vec3 {
+    let cx = x + 0.5 * (time / 3).sin()
+    let cy = y + 0.5 * (time / 2).cos()
+    let a = (x * 10 + time).sin()
+    let b = ((y * 10 + time) / 2).sin()
+    let c = ((x * 10 + y * 10 + time) / 2).sin()
+    let d = ((cx * cx + cy * cy) * 100 + 1).sqrt().sin()
+    // A cosine palette: each channel the same wave, shifted, from deep blue to gold.
+    let t = (a + b + c + d) * 0.15 + time * 0.05
+    return Vec3{
+        x: 0.5 + 0.5 * (TAU * (t + 0.5)).cos(),
+        y: 0.45 + 0.4 * (TAU * (t + 0.6)).cos(),
+        z: 0.5 + 0.45 * (TAU * (t + 0.75)).cos(),
+    }
+}
+
+fn render(pixels: &mut List<u8>, time: f32) {
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let c = plasma(x as f32 / WIDTH as f32 - 0.5, y as f32 / HEIGHT as f32 - 0.5, time)
+            let i = ((y * WIDTH + x) * 4) as usize
+            pixels[i] = (c.x * 255) as u8
+            pixels[i + 1] = (c.y * 255) as u8
+            pixels[i + 2] = (c.z * 255) as u8
+            pixels[i + 3] = 255
+        }
+    }
+}
 
 fn main() {
     rgfw::RGFW_init("Dazzle", 0)
     defer rgfw::RGFW_deinit()
 
-    let win = rgfw::RGFW_createWindow("Dazzle + RGFW", 0, 0, 800, 600, rgfw::RGFW_windowCenter)
+    let win = rgfw::RGFW_createWindow("Dazzle + RGFW", 0, 0, WIDTH, HEIGHT, rgfw::RGFW_windowCenter | rgfw::RGFW_windowNoResize)
     // `RGFW_window_close` frees the window, so it runs once, after the loop has stopped
     // using it, and before `RGFW_deinit` (defers run in reverse).
     defer rgfw::RGFW_window_close(win)
 
+    // The pixels belong to the program; RGFW's surface only points at them, so the list is
+    // sized once and never grows while the surface exists.
+    let mut pixels: List<u8>
+    pixels.resize((WIDTH * HEIGHT * 4) as usize)
+    let surface = rgfw::RGFW_window_createSurface(win, pixels.as_mut_slice().ptr, WIDTH, HEIGHT, rgfw::RGFW_formatRGBA8)
+    defer rgfw::RGFW_surface_free(surface)
+
+    let start = Instant::now()
     let mut event: rgfw::RGFW_event
     while rgfw::RGFW_window_shouldClose(win) == 0 {
         while rgfw::RGFW_window_checkEvent(win, &mut event) != 0 {
@@ -17,5 +60,7 @@ fn main() {
                 rgfw::RGFW_window_setShouldClose(win, 1)
             }
         }
+        render(&mut pixels, start.elapsed().as_secs_f32())
+        rgfw::RGFW_window_blitSurface(win, surface)
     }
 }

@@ -156,6 +156,7 @@ libclang pass runs once and not on every build.
 | `const char*` | `cstr` |
 | `struct` / `class` | `struct`, public fields mapped, private and protected C++ members become opaque padding — they stay in the type, since Dazzle never redeclares it, but cannot be named. A field whose type Dazzle cannot name yet is left out the same way. Every field defaults to zero, as `{}` makes it, so a literal names only the fields it sets |
 | `typedef` of a struct or enum | a second name for the same type |
+| a field of a struct with no name, `struct { ma_format format; … } playback;` | an ordinary field: `config.playback.format = …`. The struct is imported as `ma_device_config_playback` (the owner's name and the field's), which C++ spells `decltype(::ma_device_config::playback)`; one nested inside it takes the same rule one level down. An anonymous `struct { … };` with no field name is different, and its members belong to the enclosing struct |
 | a `struct` the header only declares | a **handle**: used behind `^T` and `^mut T`, never by value (§18.40) |
 | C `union` | a type whose members are the same memory, as in C; a literal sets one of them (§18.41) |
 | an array member, `float m[16]` | `[16]f32` — indexed, iterated, `.len`, `.ptr`, bounds-checked. A whole one is not a value: C cannot copy an array either (`DZ0707`) |

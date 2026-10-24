@@ -4,3 +4,15 @@
 [submodule "examples/vendor/raylib"]
 	path = examples/vendor/raylib
 	url = https://github.com/raysan5/raylib
+[submodule "examples/vendor/sokol"]
+	path = examples/vendor/sokol
+	url = https://github.com/floooh/sokol
+[submodule "examples/vendor/stb"]
+	path = examples/vendor/stb
+	url = https://github.com/nothings/stb
+[submodule "examples/vendor/miniaudio"]
+	path = examples/vendor/miniaudio
+	url = https://github.com/mackron/miniaudio
+[submodule "examples/vendor/box2d"]
+	path = examples/vendor/box2d
+	url = https://github.com/erincatto/box2d

@@ -540,8 +540,8 @@ git clone --recursive https://github.com/dazzle-lang/Dazzle.git
 cd Dazzle && cargo build --release
 ```
 
-`--recursive` fetches the C libraries the examples build from source, raylib and RGFW,
-which are git submodules in `examples/vendor/`. In a checkout made without it, run `git
+`--recursive` fetches the C libraries the examples build from source (raylib, RGFW, sokol,
+stb, miniaudio and Box2D), which are git submodules in `examples/vendor/`. In a checkout made without it, run `git
 submodule update --init`. Nothing outside `examples/` needs them.
 
 The compiler is then `target/release/dz` (`dz.exe` on Windows). Put it on your `PATH`.
@@ -602,14 +602,25 @@ dz run .
 `--debug` (the default), `--release` or `--shipping`, and `--track-memory` records every
 allocation and reports leaks and bad frees when the program exits.
 
-**Examples** in [`examples/`](examples) to start from:
+**Examples** in [`examples/`](examples) to start from, each a complete project on a
+different C library, built from source and called with no bindings:
 
-| | |
-|---|---|
-| [`ownership`](examples/ownership) | a growable array from scratch: `own`, the three special members, copies and moves; no C++ needed |
-| [`raylib`](examples/raylib) | a raylib window, with raylib compiled from source by `dz` |
-| [`rgfw`](examples/rgfw) | a window from RGFW, a single-header C library |
-| [`breakout`](examples/breakout) | a small game: the rules are plain Dazzle in [`game`](examples/breakout/game), drawn with raylib |
+| | | |
+|---|---|---|
+| [`breakout`](examples/breakout) | raylib | a complete game: the rules are plain Dazzle in [`game`](examples/breakout/game), drawn with raylib |
+| [`box2d`](examples/box2d) | Box2D + sokol | rigid-body physics: two C libraries in one project |
+| [`sokol`](examples/sokol) | sokol | a particle fountain on sokol_app, sokol_gfx and sokol_gl, with C callbacks into Dazzle |
+| [`stb`](examples/stb) | stb_image_write | a ray tracer that saves its render as a PNG |
+| [`rgfw`](examples/rgfw) | RGFW | a plasma computed pixel by pixel and blitted to a window |
+| [`raylib`](examples/raylib) | raylib | the smallest windowed program |
+| [`miniaudio`](examples/miniaudio) | miniaudio | a synthesizer, with Dazzle as the real-time audio callback |
+| [`ownership`](examples/ownership) | none | a growable array from scratch: `own`, the three special members, copies and moves |
+
+<p align="center">
+  <img src="examples/box2d/screenshot.gif" width="32%">
+  <img src="examples/stb/screenshot.png" width="32%">
+  <img src="examples/sokol/screenshot.gif" width="32%">
+</p>
 
 ## Compatibility
 
@@ -659,4 +670,5 @@ from that design and the [specification](docs/spec/README.md).
 ## License
 
 [MIT](LICENSE). The libraries under `examples/vendor/` are submodules under licenses of their
-own: raylib's is zlib/libpng, and RGFW's is libpng.
+own: raylib's and sokol's are zlib/libpng, RGFW's is libpng, Box2D's is MIT, and stb and
+miniaudio are public domain or MIT, at your choice.

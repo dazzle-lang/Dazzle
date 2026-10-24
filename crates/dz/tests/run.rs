@@ -120,8 +120,8 @@ fn every_program_produces_its_expected_output() {
     });
 }
 
-/// The examples, guarded. `examples/raylib`, `examples/rgfw` and `examples/breakout` open a
-/// window, so none can carry an `expected.txt`; without this, M7b's own criterion would go
+/// The examples, guarded. Most open a window or an audio device, so none can carry an
+/// `expected.txt`; without this, M7b's own criterion would go
 /// untested — a break in `import cpp`, in a `[cpp.libs]` recipe, in the single-header
 /// `header =` form, in callbacks or in `[cpp.instantiate]` would pass green — and an
 /// example could rot unnoticed, as the pre-spec sketches once did. `dz build` exercises
@@ -135,9 +135,16 @@ fn every_example_builds() {
     }
     let found = example_projects();
     assert!(found.len() >= 3, "expected the examples under examples/, found {found:?}");
-    // raylib and RGFW are git submodules. A checkout without them would fail below with a
-    // missing-file error from deep inside the raylib recipe; say what is actually wrong.
-    for lib in ["raylib/src/raylib.h", "RGFW/RGFW.h"] {
+    // The libraries are git submodules. A checkout without them would fail below with a
+    // missing-file error from deep inside a recipe; say what is actually wrong.
+    for lib in [
+        "raylib/src/raylib.h",
+        "RGFW/RGFW.h",
+        "sokol/sokol_app.h",
+        "stb/stb_image_write.h",
+        "miniaudio/miniaudio.h",
+        "box2d/include/box2d/box2d.h",
+    ] {
         assert!(
             repo_root().join("examples/vendor").join(lib).exists(),
             "examples/vendor/{lib} is missing: run `git submodule update --init`"

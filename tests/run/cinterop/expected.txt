@@ -17,3 +17,4 @@ event 1 5
 union 9 9
 chosen 4
 count 2
+config 100 6 3 113

@@ -145,6 +145,29 @@ fn a_c_union_imports_as_a_type_whose_members_overlap() {
 }
 
 #[test]
+fn a_field_of_an_unnamed_struct_names_it_through_decltype() {
+    // spec §15.2 — miniaudio's `ma_device_config` keeps its playback settings in
+    // `struct { … } playback;`. Leaving the field out would leave no way to set them.
+    let Some(h) = import_mini() else { return };
+    let decl = |name: &str| h.decl(name).unwrap_or_else(|| panic!("`{name}` was not imported"));
+
+    let output = CType::Named("decltype(::MiniConfig::output)".into());
+    match &decl("MiniConfig").kind {
+        DeclKind::Struct { fields, .. } => {
+            assert_eq!(fields.len(), 2, "{fields:?}");
+            assert_eq!(fields[1].name, "output");
+            assert_eq!(fields[1].ty, output);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(decl("MiniConfig_output").cpp, "decltype(::MiniConfig::output)");
+    // One level down, through the first.
+    let gain = decl("MiniConfig_output_gain");
+    assert_eq!(gain.cpp, "decltype(decltype(::MiniConfig::output)::gain)");
+    assert!(matches!(&gain.kind, DeclKind::Struct { fields, .. } if fields.len() == 2));
+}
+
+#[test]
 fn a_struct_keeps_its_array_members_and_bit_fields() {
     // spec §15.2 — the shapes raylib's `Matrix` and RGFW's device structs are built from.
     let Some(h) = import_mini() else { return };

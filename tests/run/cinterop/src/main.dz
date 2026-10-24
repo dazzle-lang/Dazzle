@@ -90,4 +90,12 @@ fn main() {
     mini::mini_bump(counter)
     mini::mini_bump(counter)
     println!("count {}", mini::mini_count(counter))
+
+    // A field of a struct with no name (§15.2), and one nested in it: read, written, and
+    // passed back to C, whose overload set beside it must not make the call ambiguous.
+    let mut config = mini::mini_config()
+    config.output.channels = 6
+    config.output.gain.right = 4
+    println!("config {} {} {} {}", config.rate, config.output.channels, config.output.gain.left,
+            mini::mini_config_total(&config))
 }

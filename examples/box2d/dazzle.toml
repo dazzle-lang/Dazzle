@@ -1,0 +1,44 @@
+[module]
+name    = "physics"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+b2  = { cpp = "box2d" }
+sk  = { cpp = "sokol" }
+
+# Box2D 3, a C physics engine: a git submodule in `examples/vendor/box2d`, pinned to its
+# v3.2.0 tag, which `git submodule update --init` fetches. Its CMake build comes down to this:
+# every `.c` under `src/`, compiled as C17, with its public headers in `include/`.
+[cpp.libs.box2d]
+root         = "../vendor/box2d"
+sources      = ["src/*.c"]
+include_dirs = ["include", "src"]
+flags        = ["-std=c17"]
+import       = ["box2d/box2d.h"]
+
+[cpp.libs.box2d.target.linux]
+link_libs = ["m"]
+
+# sokol draws it, exactly as in `examples/sokol`, whose manifest explains each line.
+[cpp]
+defines = ["SOKOL_GLCORE", "SOKOL_NO_ENTRY"]
+
+[cpp.libs.sokol]
+root         = "../vendor/sokol"
+header       = "util/sokol_gl.h"
+include_dirs = [".", "util"]
+defines      = ["SOKOL_IMPL"]
+flags        = ["-include", "sokol_log.h", "-include", "sokol_gfx.h",
+                "-include", "sokol_app.h", "-include", "sokol_glue.h"]
+import       = ["sokol_log.h", "sokol_gfx.h", "sokol_app.h", "sokol_glue.h", "sokol_gl.h"]
+
+[cpp.libs.sokol.target.windows]
+link_libs = ["kernel32", "user32", "shell32", "gdi32"]
+
+[cpp.libs.sokol.target.linux]
+link_libs = ["X11", "Xi", "Xcursor", "GL", "dl", "pthread", "m"]
+
+[cpp.libs.sokol.target.macos]
+flags      = ["-x", "objective-c"]
+frameworks = ["Cocoa", "QuartzCore", "OpenGL"]
