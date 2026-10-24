@@ -99,6 +99,8 @@ jobs:
 
       - name: Install Rust (stable, for the build and tests)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
 
       - name: Install Rust (pinned, for the lints)
         uses: dtolnay/rust-toolchain@master
@@ -180,6 +182,12 @@ jobs:
 
       - name: Build
         run: cargo build --workspace --all-targets
+
+      # The website's playground runs this `dz` in the browser. A dependency that cannot
+      # target WebAssembly would break it without failing anything else here.
+      - name: Build for WebAssembly
+        if: matrix.name == 'linux'
+        run: cargo build -p dz --target wasm32-wasip1
 
       # One platform is enough for the lints: they read the source, which is the same
       # everywhere, and running them three times only triples the chance of a flake.

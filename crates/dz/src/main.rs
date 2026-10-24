@@ -61,6 +61,12 @@ and build flags, which `#if` reads (spec §12.10):
     --flag engine::NAME         turn on a dependency's flag
     --track-memory              record every allocation; report leaks and bad frees
 
+The generated C++ carries a `#line` before each statement, so a debugger, a
+profiler and any C++ error point at the `.dz` source. To read or debug the C++
+itself instead:
+
+    --no-line-directives        leave them out
+
 They also take `--cxx <compiler>`, which is the last word on which C++ compiler
 builds the generated code. Four places may say, nearest first:
 
@@ -313,6 +319,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     let mut mode: Option<Optimize> = if benching { Some(Optimize::Release) } else { None };
     let mut cxx: Option<String> = None;
     let mut build_flags = dz_driver::BuildOptions::default();
+    let mut line_directives = true;
     let mut positional = 0;
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
@@ -329,6 +336,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
             "--release" => mode = Some(Optimize::Release),
             "--shipping" => mode = Some(Optimize::Shipping),
             "--track-memory" => build_flags.track_memory = true,
+            "--no-line-directives" => line_directives = false,
             "--flag" => match rest.next() {
                 Some(f) => build_flags.flags.push(f.clone()),
                 None => {
@@ -378,7 +386,8 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     // does not relink somebody else's entry point.
     let dir = if benching { "bench" } else { "test" };
     let root = project_root(path).join("build").join(dir);
-    let out = match build::emit_cpp(&analysis, &root, kind) {
+    let emit = dz_cpp::Options { mode: kind, line_directives };
+    let out = match build::emit_cpp(&analysis, &root, emit) {
         Ok(o) => o,
         Err(d) => {
             dz_diag::emit_to_stderr(&analysis.map, &d);
@@ -479,6 +488,8 @@ struct BuildArgs {
     json: bool,
     /// `dz fix --dry-run`: say what would change, and change nothing.
     dry_run: bool,
+    /// `#line` directives in the generated C++, unless `--no-line-directives` (spec §16.3).
+    line_directives: bool,
 }
 
 /// Split `run`/`build`/`cpp`/`check`/`hir`'s arguments into a path, a build mode and flags.
@@ -495,6 +506,7 @@ fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
         cxx: None,
         json: false,
         dry_run: false,
+        line_directives: true,
     };
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
@@ -514,6 +526,7 @@ fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
                 }
             }
             "--dry-run" if args[0] == "fix" => out.dry_run = true,
+            "--no-line-directives" => out.line_directives = false,
             // `--cxx g++` and `--cxx=g++` both, since a flag taking a value is usually
             // written either way and guessing wrong is a confusing error.
             "--cxx" => match rest.next() {
@@ -548,7 +561,7 @@ fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
 
 fn with_mode(args: &[String], stage: Stage) -> ExitCode {
     match build_args(args) {
-        Ok(b) => cmd_pipeline(&b.path, stage, &b.options, b.cxx.as_deref()),
+        Ok(b) => cmd_pipeline(&b.path, stage, &b.options, b.cxx.as_deref(), b.line_directives),
         Err(code) => code,
     }
 }
@@ -564,6 +577,7 @@ fn cmd_pipeline(
     stage: Stage,
     options: &dz_driver::BuildOptions,
     cxx: Option<&str>,
+    line_directives: bool,
 ) -> ExitCode {
     let analysis = analyse_for_build(entry, options);
     if !analysis.diags.is_empty() {
@@ -577,7 +591,8 @@ fn cmd_pipeline(
     // into it, so a harness can put its own elsewhere without nesting a second `build/`
     // inside the first.
     let root = project_root(entry).join("build");
-    let out = match build::emit_cpp(&analysis, &root, dz_cpp::Mode::Program) {
+    let emit = dz_cpp::Options { mode: dz_cpp::Mode::Program, line_directives };
+    let out = match build::emit_cpp(&analysis, &root, emit) {
         Ok(o) => o,
         Err(d) => {
             dz_diag::emit_to_stderr(&analysis.map, &d);

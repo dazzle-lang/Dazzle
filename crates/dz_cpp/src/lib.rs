@@ -85,7 +85,22 @@ impl Mode {
     }
 }
 
-// Eight inputs because emission needs every earlier phase's output plus the mode;
+/// How one build writes its C++, beyond what the program and its manifest say.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Options {
+    pub mode: Mode,
+    /// A `#line` before each statement, naming its `.dz` line (spec §16.3). Off for
+    /// `--no-line-directives`, when it is the generated C++ itself being debugged or read.
+    pub line_directives: bool,
+}
+
+impl Default for Options {
+    fn default() -> Options {
+        Options { mode: Mode::default(), line_directives: true }
+    }
+}
+
+// Eight inputs because emission needs every earlier phase's output plus the options;
 // bundling them into a struct would only move the list somewhere else.
 #[allow(clippy::too_many_arguments)]
 pub fn emit(
@@ -96,8 +111,9 @@ pub fn emit(
     mono: &dz_mono::Mono,
     map: &SourceMap,
     files: &HashMap<ModuleId, Vec<ParsedFile>>,
-    mode: Mode,
+    options: Options,
 ) -> Emitted {
+    let mode = options.mode;
     // Every struct's declaration by symbol, across all modules, so an instance of a generic
     // declared in another module can still be emitted from its own AST (spec §8.4).
     let mut struct_asts: HashMap<SymbolId, (FileId, &StructDecl)> = HashMap::new();
@@ -176,6 +192,7 @@ pub fn emit(
             def_prefix: "",
             qualify_all: false,
             mode,
+            line_directives: options.line_directives,
             reflect: &reflection,
         };
         e.module(module_files);
@@ -307,6 +324,7 @@ pub fn emit(
             def_prefix: "",
             qualify_all: false,
             mode,
+            line_directives: options.line_directives,
             reflect: &reflection,
         };
         if type_info == dz_project::TypeInfo::All {
@@ -572,6 +590,9 @@ struct Emitter<'a> {
     /// Program or tests (spec §19 M14). A `#[test]` function is emitted in one and left
     /// out of the other, so a program never carries its tests.
     mode: Mode,
+    /// Whether `#line` directives are written (spec §16.3). Off, every place one would go
+    /// is still tracked, so nothing else about the output changes.
+    line_directives: bool,
     /// The types reflected on, shared by every module's emitter (spec §13).
     reflect: &'a reflect::Shared,
 }
@@ -617,6 +638,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn repeat_directive(&mut self) {
+        if !self.line_directives {
+            return;
+        }
         let path = self.map.get(self.file).name().replace('\\', "/");
         self.out.push_str(&format!("#line {} \"{path}\"\n", self.last_line));
         self.lines_since_directive = 0;
@@ -4769,8 +4793,10 @@ impl<'a> Emitter<'a> {
         // each restate theirs, so without this the closing line would read one past it.
         if line != 0 {
             self.last_line = line;
-            let path = self.map.get(self.file).name().replace('\\', "/");
-            let _ = writeln!(s, "#line {line} \"{path}\"");
+            if self.line_directives {
+                let path = self.map.get(self.file).name().replace('\\', "/");
+                let _ = writeln!(s, "#line {line} \"{path}\"");
+            }
         }
         s.push_str(&"    ".repeat(self.indent));
         let _ = write!(s, "}}({})", values.join(", "));

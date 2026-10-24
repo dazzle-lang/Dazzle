@@ -819,6 +819,43 @@ fn generated_cpp_carries_line_directives_back_to_dazzle() {
 }
 
 #[test]
+fn no_line_directives_leaves_out_the_directives_and_nothing_else() {
+    // spec §16.3 — for reading or debugging the generated C++ itself. Every file, the
+    // standard library's included, is the default output with its `#line`s taken out.
+    let with = copy_fixture("collections", "dz_with_line_directives");
+    let without = copy_fixture("collections", "dz_without_line_directives");
+    for (dir, extra) in [(&with, None), (&without, Some("--no-line-directives"))] {
+        let mut args = vec!["cpp", dir.to_str().unwrap()];
+        args.extend(extra);
+        let out = Command::new(dz()).args(&args).output().expect("failed to run dz");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    }
+    let mut compared = 0;
+    for entry in std::fs::read_dir(without.join("build/cpp")).unwrap() {
+        let path = entry.unwrap().path();
+        if !path.extension().is_some_and(|e| e == "cpp" || e == "h") {
+            continue;
+        }
+        let plain = std::fs::read_to_string(&path).unwrap();
+        assert!(!plain.contains("#line "), "{} has a #line:\n{plain}", path.display());
+        let directed =
+            std::fs::read_to_string(with.join("build/cpp").join(path.file_name().unwrap()))
+                .unwrap()
+                .lines()
+                .filter(|l| !l.trim_start().starts_with("#line "))
+                .map(|l| format!("{l}\n"))
+                .collect::<String>()
+                // Source locations name the scratch copy each was built from.
+                .replace("dz_with_line_directives", "dz_without_line_directives");
+        assert_eq!(plain, directed, "{} differs by more than its #lines", path.display());
+        compared += 1;
+    }
+    assert!(compared > 2, "nothing generated to compare");
+    // Nothing names the standard library's copies, so none is written.
+    assert!(!without.join("build/cpp/std").exists());
+}
+
+#[test]
 fn generated_cpp_snapshot() {
     let scratch = copy_fixture("hello", "dz_cpp_snapshot");
     let out = Command::new(dz())

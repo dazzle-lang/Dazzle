@@ -2,6 +2,40 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## `--no-line-directives`, and `dz` as WebAssembly for the website's playground (2026-10-24)
+
+The website gained a playground: Dazzle on one side, the C++ it compiles to on the other,
+regenerated as you type. It needed two things from the compiler.
+
+- **`--no-line-directives`**, which spec §16.3 had promised and nothing implemented. `dz
+  run`, `build`, `cpp`, `test` and `bench` take it; `dz_cpp::emit` now takes an `Options`
+  (the `Mode` plus `line_directives`). Every place a directive would go is still tracked, so
+  the output is the default output with its `#line`s removed and nothing else — a test
+  (`no_line_directives_leaves_out_the_directives_and_nothing_else`) holds every generated
+  file, `std`'s included, to exactly that. `#location` and panic locations are unaffected:
+  they are rendered from spans, never from C++'s `__LINE__`. Without directives nothing
+  names the copies of the standard library's sources written beside the C++, so they are
+  not written.
+- **`dz` builds for `wasm32-wasip1`.** The browser runs the real CLI over an in-memory
+  filesystem (a WASI shim), so the manifest, the analysis and the emitter are exactly
+  `dz cpp`'s. Two things stood in the way. libclang cannot be loaded in WebAssembly, so the
+  libclang half of `dz_cppimport` moved to `clang.rs`, built only off-wasm, and `clang-sys`
+  became a target-specific dependency. But `std` itself imports `stdlib.h` for
+  `Allocators::Global` (spec §14.2), so a WebAssembly build carries that one header in
+  `builtin.rs`: `malloc` and `free`, the declarations `std` calls, under a pseudo-path whose
+  text `dz_cppimport::read_file` serves. The generated C++ is the same either way, since it
+  includes the real `<stdlib.h>`. Any other `import cpp` reports that this build has no
+  libclang. A test holds the carried declarations to what libclang reads from the real
+  header, parameter names aside (`__size`, `_Size`), so the two cannot drift. The other
+  obstacle was `std::env::temp_dir()`, which panics on WASI; `dz_project` used it only as
+  the directory `std`'s header is imported from, which the carried header never reads.
+- CI builds `dz` for `wasm32-wasip1` on Linux, so a dependency that cannot target it fails
+  there rather than in the website's deploy.
+
+Under Node's WASI on Windows, a glob in `sources` matched nothing (directory listing failed)
+while literal paths worked. The playground names `src/main.dz` literally, so it does not
+depend on listing directories.
+
 ## Raised on 2026-09-12
 
 Struct inheritance is done (r30). What follows is the tooling the language needs before it

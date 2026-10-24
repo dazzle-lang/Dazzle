@@ -19,7 +19,7 @@ pub struct BuildOutput {
 pub fn emit_cpp(
     analysis: &Analysis,
     root: &Path,
-    mode: dz_cpp::Mode,
+    options: dz_cpp::Options,
 ) -> Result<BuildOutput, Diagnostics> {
     let (Some(ws), Some(resolution), Some(table), Some(hir), Some(mono)) =
         (&analysis.ws, &analysis.resolution, &analysis.table, &analysis.hir, &analysis.mono)
@@ -27,7 +27,7 @@ pub fn emit_cpp(
         return Err(Diagnostics::new());
     };
     let emitted =
-        dz_cpp::emit(ws, resolution, table, hir, mono, &analysis.map, &analysis.files, mode);
+        dz_cpp::emit(ws, resolution, table, hir, mono, &analysis.map, &analysis.files, options);
     if emitted.diagnostics.has_errors() {
         return Err(emitted.diagnostics);
     }
@@ -46,7 +46,10 @@ pub fn emit_cpp(
     // their `#line` directives name copies written beside the generated C++ — which is what
     // a debugger opens when stepping into `List::push` or `Vec3::length` (spec §16.3). Only
     // the directives change: a panic message still says `<std>/collections/list.dz`.
-    let absolute_cpp_dir = if cpp_dir.is_absolute() {
+    // Without directives nothing names them, so they are not written.
+    let absolute_cpp_dir = if !options.line_directives {
+        None
+    } else if cpp_dir.is_absolute() {
         Some(cpp_dir.clone())
     } else {
         std::env::current_dir().ok().map(|d| d.join(&cpp_dir))

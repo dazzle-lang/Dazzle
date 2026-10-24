@@ -647,7 +647,10 @@ fn import_headers(
         // The standard library's import is the same for every project: a system header, no
         // flags of the project's. So it is read from one place, which makes it one cache
         // entry for the whole process rather than one per project (spec §14.2).
-        let from_dir = if embedded { std::env::temp_dir() } else { from_dir.clone() };
+        // WASI has no temporary directory, and a WebAssembly build reads no header from one.
+        let std_dir =
+            || if cfg!(target_family = "wasm") { PathBuf::new() } else { std::env::temp_dir() };
+        let from_dir = if embedded { std_dir() } else { from_dir.clone() };
         for dep in wanted {
             // The recipe is this manifest's, or a dependency's that carries it for its users
             // (spec §15.1): the first one found, nearest first.
@@ -725,7 +728,10 @@ fn import_headers(
                                 ids.push(*f);
                                 continue;
                             }
-                            match std::fs::read(p).ok().and_then(|b| map.add_bytes(p, &b).ok()) {
+                            match crate::cppimport::read_file(p)
+                                .ok()
+                                .and_then(|b| map.add_bytes(p, &b).ok())
+                            {
                                 Some(f) => {
                                     added.insert(p.clone(), f);
                                     ids.push(f);

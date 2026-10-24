@@ -6,7 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 description = "Reads C and C++ headers through libclang into declarations Dazzle can name (spec §15)"
 
-[dependencies]
 # Loaded at run time rather than linked, so `dz` starts on a machine without LLVM and only
-# `import cpp` reports that libclang is missing.
+# `import cpp` reports that libclang is missing. A WebAssembly build has nothing to load it
+# from, and carries its one header itself (`src/builtin.rs`).
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 clang-sys = { version = "1.8", features = ["runtime", "clang_11_0"] }
