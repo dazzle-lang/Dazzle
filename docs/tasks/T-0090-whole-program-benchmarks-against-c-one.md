@@ -2,7 +2,8 @@
 id: T-0090
 title: Whole-program benchmarks against C++: one real algorithm, written in both
 milestone: M15
-status: open
+status: done
+done: 2026-10-24
 kind: feature
 area: bench
 ---
@@ -44,3 +45,15 @@ it. The harness is reusable as it is.
 Related: [T-0075](T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md), which
 adds a generic pair and a way to track numbers over time, and
 [T-0066](T-0066-parseable-test-bench-output.md), machine-readable `dz bench` output.
+
+**Done (2026-10-24).** `tests/bench_programs` has three programs, each written as
+`src/main.dz` and `main.cpp`: A* search (`astar`), a tokenizer, parser and evaluator
+(`expr`), and a word count (`words`). `tools/bench_programs.py` builds both halves with each
+compiler at the same optimisation level, runs them alternately, refuses to report a pair
+whose checksums differ, and writes run time, peak memory and build time with the machine
+and compilers to `RESULTS.md`. A test in `crates/dz/tests/run.rs` holds every pair to the
+same checksum on a small input. With `Allocators::Temp` used where it helps (`expr`, `words`), Dazzle came out at 1.3–2.1× C++. The gaps it found
+are [T-0096](T-0096-list-sort-by-heapsort-through-function.md) (sorting),
+[T-0097](T-0097-moving-union-through-fallible-result-costs.md) (moving unions through
+results) and [T-0098](T-0098-str-cannot-be-cut-str-b.md) (cutting a `str`), plus three
+codegen bugs fixed at the time. `docs/log/tooling.md` has the details.

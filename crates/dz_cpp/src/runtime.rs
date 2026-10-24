@@ -550,8 +550,10 @@ struct Dyn {
 /// `static_cast` already covers enum-to-integer and every numeric conversion. A pointer
 /// cast may also turn a `^T` into a `^mut T` (spec §10.6), which is `const T*` to `T*` and
 /// beyond `reinterpret_cast`; the C-style cast is the one spelling that does both.
+/// `constexpr`, because a `const` lowers to a `constexpr` and may be built from casts:
+/// `const SIGNS: [2]u8 = ['+' as u8, '-' as u8]`.
 template <class To, class From>
-DZ_INLINE To cast(From f) {
+DZ_INLINE constexpr To cast(From f) {
     // A pointer and an address convert through the C-style cast too (spec §10.6, 18.49).
     if constexpr (is_ptr<From>::value || is_ptr<To>::value) {
         return (To)(f);

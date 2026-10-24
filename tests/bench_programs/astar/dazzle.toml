@@ -1,0 +1,9 @@
+[module]
+name    = "astar"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

@@ -1,0 +1,309 @@
+// A* path-finding on a generated grid: the Dazzle half of a whole-program benchmark
+// (tests/bench_programs/README.md). `main.cpp` beside this folder is the same program in
+// C++, and both must print the same checksum.
+//
+// What it exercises: a generic binary heap over `List<T>` bounded by `Ord`, a `HashMap`
+// keyed by a struct with its own `Hash` and `Eq`, allocation on every query (two maps, a
+// heap and a path, all dropped at the end of it), bounds-checked indexing of the grid, and
+// optionals for "nothing left in the heap" and "no way through".
+//
+// It allocates from the global heap, not `Allocators::Temp`. Measured both ways, the arena
+// was about 5% slower and took 30% more memory: a search's maps grow past the arena's
+// 64 KiB chunk, so each resize is a `malloc` of its own, and the arrays a resize leaves
+// behind cannot be reused until the reset (T-0099). The other two programs are faster
+// with it.
+//
+// Usage: astar [side] [queries]
+
+/// SplitMix64, written out rather than taken from `std::random`, so the C++ half can
+/// produce exactly the same grid and the same queries.
+struct Rng {
+    m_state: u64 = 0
+
+    Rng(seed: u64) {
+        m_state = seed
+    }
+
+    pub fn next(&mut self) -> u64 {
+        m_state += 0x9E3779B97F4A7C15
+        let mut z = m_state
+        z = (z ^^ z >> 30) * 0xBF58476D1CE4E5B9
+        z = (z ^^ z >> 27) * 0x94D049BB133111EB
+        return z ^^ z >> 31
+    }
+
+    pub fn below(&mut self, n: u64) -> u64 {
+        return self.next() % n
+    }
+}
+
+struct Cell {
+    pub x: i32 = 0
+    pub y: i32 = 0
+}
+
+impl Eq for Cell {
+    fn eq(&self, rhs: &Cell) -> bool {
+        return x == rhs.x && y == rhs.y
+    }
+}
+
+impl Hash for Cell {
+    fn hash(&self) -> u64 {
+        return hash_combine(x.hash(), y.hash())
+    }
+}
+
+struct Grid {
+    pub width:  i32 = 0
+    pub height: i32 = 0
+    m_walls:    List<bool>
+
+    Grid(width: i32, height: i32, rng: &mut Rng) {
+        self.width = width
+        self.height = height
+        let cells = (width * height) as usize
+        m_walls.reserve(cells)
+        for _ in 0..cells {
+            m_walls.push(rng.below(100) < 30)
+        }
+    }
+
+    pub fn is_open(&self, c: Cell) -> bool {
+        if c.x < 0 || c.y < 0 || c.x >= width || c.y >= height {
+            return false
+        }
+        return !m_walls[(c.y * width + c.x) as usize]
+    }
+
+    pub fn random_open(&self, rng: &mut Rng) -> Cell {
+        let mut c = Cell{}
+        while true {
+            c = Cell{ x: rng.below(width as u64) as i32, y: rng.below(height as u64) as i32 }
+            if self.is_open(c) {
+                break
+            }
+        }
+        return c
+    }
+}
+
+/// One entry in the open set. The order is total — by `f`, then the deeper node first,
+/// then by position — so the two halves pop the same node whatever their heaps do with
+/// ties, and so expand the same nodes and find the same path.
+struct Node {
+    pub f:    i32 = 0
+    pub g:    i32 = 0
+    pub cell: Cell
+}
+
+impl Eq for Node {
+    fn eq(&self, rhs: &Node) -> bool {
+        return f == rhs.f && g == rhs.g && cell == rhs.cell
+    }
+}
+
+impl Ord for Node {
+    fn cmp(&self, rhs: &Node) -> Ordering {
+        if f != rhs.f {
+            return if f < rhs.f {
+                .Less
+            } else {
+                .Greater
+            }
+        }
+        if g != rhs.g {
+            return if g > rhs.g {
+                .Less
+            } else {
+                .Greater
+            }
+        }
+        if cell.y != rhs.cell.y {
+            return if cell.y < rhs.cell.y {
+                .Less
+            } else {
+                .Greater
+            }
+        }
+        if cell.x != rhs.cell.x {
+            return if cell.x < rhs.cell.x {
+                .Less
+            } else {
+                .Greater
+            }
+        }
+        return .Equal
+    }
+}
+
+/// A binary min-heap: the smallest element by `Ord` comes out first.
+struct MinHeap<T: Ord> {
+    m_items: List<T>
+
+    MinHeap(allocator: ^mut Allocator) {
+        m_items = List<T>(0, allocator)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return m_items.is_empty()
+    }
+
+    pub fn push(&mut self, v: T) {
+        m_items.push(move(v))
+        let mut at = m_items.len() - 1
+        while at > 0 {
+            let parent = (at - 1) / 2
+            if !(m_items[at] < m_items[parent]) {
+                return
+            }
+            m_items.swap(at, parent)
+            at = parent
+        }
+    }
+
+    pub fn pop(&mut self) -> T? {
+        if m_items.is_empty() {
+            return none
+        }
+        let last = m_items.len() - 1
+        m_items.swap(0, last)
+        let top = m_items.pop()
+        let n = m_items.len()
+        let mut at: usize = 0
+        while true {
+            let left = at * 2 + 1
+            if left >= n {
+                break
+            }
+            let mut smallest = left
+            if left + 1 < n && m_items[left + 1] < m_items[left] {
+                smallest = left + 1
+            }
+            if !(m_items[smallest] < m_items[at]) {
+                break
+            }
+            m_items.swap(at, smallest)
+            at = smallest
+        }
+        return move(top)
+    }
+}
+
+fn distance(a: Cell, b: Cell) -> i32 {
+    let dx = if a.x > b.x {
+        a.x - b.x
+    } else {
+        b.x - a.x
+    }
+    let dy = if a.y > b.y {
+        a.y - b.y
+    } else {
+        b.y - a.y
+    }
+    return dx + dy
+}
+
+/// What one query found: the path's length in steps and a hash of the cells along it, or
+/// `none` when the goal cannot be reached; and how many nodes were expanded either way.
+struct Found {
+    pub path:     (i32, u64)? = none
+    pub expanded: i32 = 0
+}
+
+const STEPS_X: [4]i32 = [1, 0, -1, 0]
+
+const STEPS_Y: [4]i32 = [0, 1, 0, -1]
+
+fn find_path(grid: &Grid, start: Cell, goal: Cell) -> Found {
+    let mut open = MinHeap<Node>(Allocators::Global)
+    let mut best = HashMap<Cell, i32>()
+    let mut came_from = HashMap<Cell, Cell>()
+    let mut found = Found{}
+
+    best.insert(start, 0)
+    open.push(Node{ f: distance(start, goal), g: 0, cell: start })
+    while true {
+        let node = open.pop() or break
+        // A stale entry: this cell was reached more cheaply after it was pushed.
+        let known = best.get(&node.cell) or unreachable
+        if node.g > known {
+            continue
+        }
+        found.expanded += 1
+        if node.cell == goal {
+            found.path = trace(&came_from, start, goal, grid.width)
+            return found
+        }
+        for d in 0..4 {
+            let next = Cell{ x: node.cell.x + STEPS_X[d], y: node.cell.y + STEPS_Y[d] }
+            if !grid.is_open(next) {
+                continue
+            }
+            let g = node.g + 1
+            let cost = best.get_or_insert(next, 2147483647)
+            if g >= cost {
+                continue
+            }
+            cost = g
+            came_from.insert(next, node.cell)
+            open.push(Node{ f: g + distance(next, goal), g: g, cell: next })
+        }
+    }
+    return found
+}
+
+/// Walk back from the goal, then hash the path from the start, so the hash says which
+/// cells were chosen and in what order.
+fn trace(came_from: &HashMap<Cell, Cell>, start: Cell, goal: Cell, width: i32) -> (i32, u64) {
+    let mut path = List<Cell>()
+    let mut at = goal
+    path.push(at)
+    while at != start {
+        at = came_from.get(&at) or unreachable
+        path.push(at)
+    }
+    path.reverse()
+    let mut h: u64 = 1469598103934665603
+    for c in path {
+        h = (h ^^ (c.y * width + c.x) as u64) * 1099511628211
+    }
+    return ((path.len() - 1) as i32, h)
+}
+
+fn main() {
+    let args = Process::args()
+    let side = if args.len() > 1 {
+        args[1].parse_i64() or 400
+    } else {
+        400
+    }
+    let queries = if args.len() > 2 {
+        args[2].parse_i64() or 200
+    } else {
+        200
+    }
+
+    let mut rng = Rng(42)
+    let grid = Grid(side as i32, side as i32, &mut rng)
+
+    let mut checksum: u64 = 0
+    let mut reached = 0
+    let mut total_length: i64 = 0
+    let mut total_expanded: i64 = 0
+    for _ in 0..queries {
+        let start = grid.random_open(&mut rng)
+        let goal = grid.random_open(&mut rng)
+        let found = find_path(&grid, start, goal)
+        total_expanded += found.expanded as i64
+        checksum = checksum * 31 + found.expanded as u64
+        if let path = found.path {
+            let (length, h) = path
+            reached += 1
+            total_length += length as i64
+            checksum = (checksum ^^ h) * 31 + length as u64
+        }
+    }
+    println!("reached {} of {}, total length {}, expanded {}", reached, queries, total_length, total_expanded)
+    println!("checksum {}", checksum)
+}

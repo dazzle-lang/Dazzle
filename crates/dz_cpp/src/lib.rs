@@ -3256,7 +3256,14 @@ impl<'a> Emitter<'a> {
                     let lty = self.cpp_ty(&body.local(*l).ty);
                     let name = self.names[l.index()].clone();
                     let unused = self.unused_attr(l.index());
-                    self.line(&format!("{unused}{lty} {name} = {tmp}.v{i};"));
+                    // The temporary is never read again, so an element that owns
+                    // anything is moved out of it: `(str, Expr)` from a parser, where
+                    // copying `Expr` is deleted, or a `String`, where it would allocate.
+                    if self.copy_is_free(&body.local(*l).ty) {
+                        self.line(&format!("{unused}{lty} {name} = {tmp}.v{i};"));
+                    } else {
+                        self.line(&format!("{unused}{lty} {name} = ::dz::mv({tmp}.v{i});"));
+                    }
                 }
             }
             hir::StmtKind::Assign { target, op, value } => {
@@ -4173,7 +4180,7 @@ impl<'a> Emitter<'a> {
                 } else {
                     self.line(&format!("{cpp} {tmp}{{}};"));
                     self.or_expr(e, *operand, clause, Dest::Var(&tmp));
-                    if self.table.copyable(&ty) {
+                    if self.copy_is_free(&ty) {
                         tmp
                     } else {
                         format!("::dz::mv({tmp})")
@@ -5150,11 +5157,21 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// Whether copying a `ty` costs no more than moving it: copyable, and owning nothing.
+    /// Where the source is a temporary the compiler made (a result, an optional, a tuple
+    /// being taken apart) and is never read again, anything else is moved out of it,
+    /// copyable or not. Copying a `List<Token>` out of a `!->` result once copied every
+    /// token, twice (T-0090).
+    fn copy_is_free(&self, ty: &Ty) -> bool {
+        self.table.copyable(ty) && !self.table.needs_drop(ty)
+    }
+
+    /// Fill `dest` from `source`, a temporary that is not read again.
     fn move_or_copy_into(&mut self, source: &str, ty: &Ty, dest: Dest<'_>) {
         match dest {
             Dest::None => {}
             Dest::Var(name) => {
-                if self.table.copyable(ty) {
+                if self.copy_is_free(ty) {
                     self.line(&format!("{name} = {source};"));
                 } else {
                     self.line(&format!("{name} = ::dz::mv({source});"));

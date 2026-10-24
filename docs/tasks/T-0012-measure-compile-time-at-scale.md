@@ -52,3 +52,11 @@ depends on.
 It is unscheduled rather than deferred: nothing is blocked on it, and it is the kind of
 measurement whose value is in having been taken *before* the structure is hard to change —
 which argues for doing it sooner than its position in the backlog suggests.
+
+**A first data point (2026-10-24, T-0090).** The whole-program benchmarks are three programs
+of 250–400 lines each. Built from clean with `--release` on a Ryzen 7 H 255, `dz build`
+takes 2–3.5 s, where the same program in C++ takes 0.3–0.6 s with the same compiler.
+`dz cpp` alone is about 0.5 s; the rest is the C++ compiler on the generated code. That code
+includes the standard library's C++, about 1 MB of headers, rebuilt on every build.
+`python tools/bench_programs.py` reports both halves on every run
+(`tests/bench_programs/RESULTS.md`).
