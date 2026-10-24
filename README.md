@@ -160,17 +160,17 @@ struct Image {
     Image(width: u32, height: u32) { // the constructor
         self.width = width
         self.height = height
-        m_pixels = unsafe {
-            alloc(width as usize * height as usize * 4, 4)
-        }
+        m_pixels = Allocators::Global.alloc(self.bytes(), 4)
+    }
+
+    fn bytes(&self) -> usize {
+        return width as usize * height as usize * 4
     }
 }
 
 impl Drop for Image {                // runs exactly once, at the end of the owner's scope
     fn drop(&mut self) {
-        unsafe {
-            free(m_pixels)
-        }
+        Allocators::Global.free(m_pixels, self.bytes(), 4)
     }
 }
 
@@ -178,10 +178,9 @@ impl Copy for Image {                // opt-in: without it, Image is move-only
     fn copy(&mut self, other: &Self) {
         width = other.width
         height = other.height
-        let size = width as usize * height as usize * 4
+        m_pixels = Allocators::Global.alloc(self.bytes(), 4)
         unsafe {
-            m_pixels = alloc(size, 4)
-            memcpy(m_pixels, other.m_pixels, size)
+            memcpy(m_pixels, other.m_pixels, self.bytes())
         }
     }
 }
@@ -190,8 +189,13 @@ fn main() {
     let a = Image(64, 64)
     let b = a                        // a copy: runs `copy`
     let c = move(a)                  // a move: `a` is reset to its defaults
+    println!("{} {}", b.width, c.width)
 }                                    // c, b and a are dropped, in that order
 ```
+
+Memory comes from an allocator, here the C heap, and an allocator is told the size and
+alignment it handed out, so it never has to store them. `dz run --track-memory` reports no
+leaks for this program.
 
 The rules that hold this together:
 
@@ -205,7 +209,7 @@ The rules that hold this together:
   error[DZ0412]: `Image` owns a resource but never releases it
     ┌─ src/main.dz:4:5
     │
-  4 │     m_pixels:   own ^mut u8
+  4 │     m_pixels:   own ^mut u8          // Image frees this; private, like every unmarked field
     │     ^^^^^^^^ this field is marked `own`
     │
     = help: add a `drop()` that releases `m_pixels`, or remove `own` if Image does not own this pointer (spec §6.5)
@@ -217,12 +221,12 @@ The rules that hold this together:
 
   ```text
   error[DZ0401]: `a` was moved and cannot be used again
-     ┌─ src/main.dz:39:20
+     ┌─ src/main.dz:38:26
      │
-  38 │     let c = move(a)                  // a move: `a` is reset to its defaults
+  37 │     let c = move(a)                  // a move: `a` is reset to its defaults
      │             ------- moved here
-  39 │     println!("{}", a.width)
-     │                    ^^^^^^^ used here after the move
+  38 │     println!("{} {} {}", a.width, b.width, c.width)
+     │                          ^^^^^^^ used here after the move
      │
      = help: a moved-from value is left at its defaults, and reading it back would almost never be what was meant (spec §6.4)
   ```
@@ -242,6 +246,7 @@ struct Image {
     uint8_t* m_pixels{};
 
     Image(uint32_t width, uint32_t height);   // the constructor
+    size_t bytes() const;                     // a `&self` method is `const`
     Image() = default;                        // every field at its default
     ~Image();                                 // drop
     Image(const Image& other);                // copy
@@ -260,8 +265,8 @@ Image::Image(Image&& other) {
 Image& Image::operator=(const Image& other) {
     if (this == &other) { return *this; }
     this->~Image();
-    new (this) Image();
-    new (this) Image(other);
+    new (static_cast<void*>(this)) Image();
+    new (static_cast<void*>(this)) Image(other);
     return *this;
 }
 ```
