@@ -506,7 +506,10 @@ fn c_compiler_for(cxx: &str) -> Option<String> {
         [("clang++", "clang"), ("g++", "gcc"), ("c++", "cc")].iter().find_map(|(from, to)| {
             stem.rfind(from).map(|i| format!("{}{to}{}{ext}", &stem[..i], &stem[i + from.len()..]))
         })?;
-    Some(path.with_file_name(c).to_string_lossy().into_owned())
+    // The folder exactly as written: `Path::with_file_name` would join with the platform's
+    // separator, turning `/usr/bin/c++` into `/usr/bin\cc` on Windows.
+    let folder = cxx.strip_suffix(file).unwrap_or("");
+    Some(format!("{folder}{c}"))
 }
 
 /// Every file under `dir`, by path and content, in a fixed order. `.git` is passed over: a
@@ -579,6 +582,11 @@ mod tests {
         );
         assert_eq!(c_compiler_for("/usr/bin/c++").as_deref(), Some("/usr/bin/cc"));
         assert_eq!(c_compiler_for("clang++.exe").as_deref(), Some("clang.exe"));
+        // The folder keeps its separators on every host.
+        assert_eq!(
+            c_compiler_for(r"C:\Program Files\LLVM\bin\clang++.exe").as_deref(),
+            Some(r"C:\Program Files\LLVM\bin\clang.exe")
+        );
         assert_eq!(c_compiler_for("icpx"), None);
     }
 
