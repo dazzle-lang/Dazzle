@@ -309,6 +309,12 @@ pub fn import(req: &Request<'_>) -> Result<Arc<Header>, ImportError> {
         }
     }
     ensure_loaded().map_err(ImportError::Unavailable)?;
+    // Not part of the key: it is fixed for the process, once a libclang is loaded.
+    let mut args = args;
+    if let Some(dir) = resource_dir() {
+        args.push("-resource-dir".to_owned());
+        args.push(dir.display().to_string());
+    }
     // SAFETY: libclang is loaded on this thread, and everything handed to it outlives the
     // calls; `parse` disposes of what it creates on every path out.
     let (header, inputs) = unsafe { parse(req, &args)? };
@@ -436,6 +442,83 @@ fn bundled() -> Option<PathBuf> {
     let dir = exe.parent()?;
     let candidates = [dir.to_path_buf(), dir.join("lib"), dir.parent().map(|p| p.join("lib"))?];
     candidates.into_iter().find(|d| d.join(lib_name()).is_file())
+}
+
+/// The loaded libclang's **resource directory**, the one holding clang's own `stddef.h`,
+/// `stdarg.h` and the rest, which glibc's headers include and do not ship.
+///
+/// libclang is meant to find it by itself, next to the library file, but that can fail: a
+/// libclang that cannot work out its own location (as on Arch's LLVM 23, which reports an
+/// empty install directory) looks in a relative `lib/clang/23` instead, and then every
+/// import that touches `stdlib.h` fails with "'stddef.h' file not found", the standard
+/// library's included. So the directory is found here, by LLVM's own layout rule, and
+/// passed as `-resource-dir`. `None` leaves libclang to its own guess, as before.
+fn resource_dir() -> Option<&'static Path> {
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let lib = clang_sys::get_library()?;
+        // SAFETY: called after `ensure_loaded`, and the string is disposed of once copied.
+        let version = unsafe {
+            let s = clang_getClangVersion();
+            let text = clang_getCString(s);
+            let version =
+                (!text.is_null()).then(|| CStr::from_ptr(text).to_string_lossy().into_owned());
+            clang_disposeString(s);
+            version?
+        };
+        find_resource_dir(lib.path(), &version)
+    })
+    .as_deref()
+}
+
+/// Where a libclang at `lib`, reporting `version`, keeps its resource directory:
+/// `clang/<major>` beside the library (Linux, and Xcode's tools on macOS), or under the
+/// sibling `lib/` when the library sits in `bin/` (LLVM's Windows installer). A symlinked
+/// library is also tried where it really lives, since a versioned LLVM is often linked into
+/// `/usr/lib` from its own prefix. Only a directory that actually holds `stddef.h` counts,
+/// and only one of the same major version: another version's headers would not match the
+/// parser reading them.
+fn find_resource_dir(lib: &Path, version: &str) -> Option<PathBuf> {
+    let major = clang_major(version)?;
+    let mut libs = vec![lib.to_path_buf()];
+    if let Ok(real) = std::fs::canonicalize(lib) {
+        if real != lib {
+            libs.push(real);
+        }
+    }
+    let has_headers = |d: &Path| d.join("include").join("stddef.h").is_file();
+    for lib in &libs {
+        let Some(dir) = lib.parent() else { continue };
+        let bases = [Some(dir.join("clang")), dir.parent().map(|p| p.join("lib").join("clang"))];
+        for base in bases.into_iter().flatten() {
+            let exact = base.join(&major);
+            if has_headers(&exact) {
+                return Some(exact);
+            }
+            // Apple's clang has named it by the full version, `clang/15.0.0`.
+            let Ok(entries) = std::fs::read_dir(&base) else { continue };
+            let mut named: Vec<PathBuf> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().starts_with(&format!("{major}.")))
+                .map(|e| e.path())
+                .filter(|d| has_headers(d))
+                .collect();
+            named.sort();
+            if let Some(d) = named.pop() {
+                return Some(d);
+            }
+        }
+    }
+    None
+}
+
+/// The major version in what `clang_getClangVersion` reports, whichever vendor built it:
+/// "clang version 23.1.3", "Ubuntu clang version 18.1.3 (1ubuntu1)", "Apple clang version
+/// 17.0.0 (clang-1700.0.13.3)".
+fn clang_major(version: &str) -> Option<String> {
+    let rest = &version[version.find("version ")? + "version ".len()..];
+    let major: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    (!major.is_empty()).then_some(major)
 }
 
 fn beside_clang() -> Option<PathBuf> {
@@ -1878,7 +1961,104 @@ fn number(body: &[&str]) -> Option<ConstValue> {
 
 #[cfg(test)]
 mod tests {
-    use super::{number, ConstValue};
+    use super::{clang_major, find_resource_dir, number, ConstValue};
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn the_major_version_is_read_whoever_built_clang() {
+        assert_eq!(clang_major("clang version 23.1.3").as_deref(), Some("23"));
+        assert_eq!(clang_major("Ubuntu clang version 18.1.3 (1ubuntu1)").as_deref(), Some("18"));
+        assert_eq!(
+            clang_major("Apple clang version 17.0.0 (clang-1700.0.13.3)").as_deref(),
+            Some("17")
+        );
+        assert_eq!(clang_major("clang"), None);
+    }
+
+    /// A fake LLVM layout under the system's temp directory, so these tests read nothing
+    /// that is installed on the machine running them.
+    struct Layout(PathBuf);
+
+    impl Layout {
+        fn new(name: &str) -> Layout {
+            let root =
+                std::env::temp_dir().join(format!("dz_resdir_{name}_{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            Layout(root)
+        }
+
+        fn file(&self, rel: &str) -> PathBuf {
+            let p = self.0.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "").unwrap();
+            p
+        }
+
+        fn found(&self, lib: &Path, version: &str) -> Option<String> {
+            let d = find_resource_dir(lib, version)?;
+            Some(d.strip_prefix(&self.0).unwrap().to_string_lossy().replace('\\', "/"))
+        }
+    }
+
+    impl Drop for Layout {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_resource_directory_is_beside_the_library() {
+        let l = Layout::new("beside");
+        let lib = l.file("usr/lib/libclang.so.23.1");
+        l.file("usr/lib/clang/23/include/stddef.h");
+        // Another version's headers are never taken.
+        l.file("usr/lib/clang/22/include/stddef.h");
+        assert_eq!(l.found(&lib, "clang version 23.1.3").as_deref(), Some("usr/lib/clang/23"));
+        assert_eq!(l.found(&lib, "clang version 21.1.8"), None);
+    }
+
+    #[test]
+    fn a_library_in_bin_finds_the_sibling_lib() {
+        let l = Layout::new("bin");
+        let lib = l.file("LLVM/bin/libclang.dll");
+        l.file("LLVM/lib/clang/21/include/stddef.h");
+        assert_eq!(l.found(&lib, "clang version 21.1.0").as_deref(), Some("LLVM/lib/clang/21"));
+    }
+
+    #[test]
+    fn a_directory_named_by_the_full_version_counts() {
+        let l = Layout::new("apple");
+        let lib = l.file("usr/lib/libclang.dylib");
+        l.file("usr/lib/clang/15.0.0/include/stddef.h");
+        assert_eq!(
+            l.found(&lib, "Apple clang version 15.0.0 (clang-1500.3.9.4)").as_deref(),
+            Some("usr/lib/clang/15.0.0")
+        );
+    }
+
+    #[test]
+    fn a_directory_without_the_headers_does_not_count() {
+        let l = Layout::new("empty");
+        let lib = l.file("usr/lib/libclang.so");
+        std::fs::create_dir_all(l.0.join("usr/lib/clang/23/include")).unwrap();
+        assert_eq!(l.found(&lib, "clang version 23.1.3"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_library_is_followed_to_where_it_lives() {
+        let l = Layout::new("symlink");
+        let real = l.file("usr/lib/llvm21/lib/libclang.so.21.1");
+        l.file("usr/lib/llvm21/lib/clang/21/include/stddef.h");
+        let link = l.0.join("usr/lib/libclang.so.21.1");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        // `canonicalize` resolves the temp directory too (`/tmp` is a link on macOS), so
+        // compare against the canonical root.
+        let found = find_resource_dir(&link, "clang version 21.1.8").unwrap();
+        let root = std::fs::canonicalize(&l.0).unwrap();
+        assert_eq!(found, root.join("usr/lib/llvm21/lib/clang/21"));
+    }
 
     #[test]
     fn a_macro_is_a_constant_only_when_it_is_a_number() {
