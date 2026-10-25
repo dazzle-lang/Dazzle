@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_project::{ModuleId, Workspace};
@@ -14,6 +15,38 @@ use dz_span::{FileId, SourceMap};
 
 pub mod cfg;
 pub use cfg::BuildOptions;
+
+/// How long each phase of one build took, in the order they ran: what `--timings` prints.
+///
+/// Measured, never read back: nothing in the pipeline depends on a duration, so every
+/// phase stays a pure function of its input (invariant 3) and two analyses of the same
+/// program differ here and nowhere else.
+#[derive(Clone, Debug, Default)]
+pub struct Timings {
+    pub phases: Vec<(&'static str, Duration)>,
+}
+
+impl Timings {
+    /// Record `name` as having run from `since` until now, and return now, which is where
+    /// the next phase starts.
+    pub fn lap(&mut self, name: &'static str, since: Instant) -> Instant {
+        let now = Instant::now();
+        self.add(name, now - since);
+        now
+    }
+
+    /// Add `time` to `name`, which may already have some: `parse` is timed per file.
+    pub fn add(&mut self, name: &'static str, time: Duration) {
+        match self.phases.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, t)) => *t += time,
+            None => self.phases.push((name, time)),
+        }
+    }
+
+    pub fn total(&self) -> Duration {
+        self.phases.iter().map(|(_, t)| *t).sum()
+    }
+}
 
 /// How far analysis goes past a phase that failed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -60,6 +93,8 @@ pub struct Analysis {
     /// Every file lexed and parsed without an error. In [`Mode::Editor`] the later phases
     /// run either way; this says whether what they saw was the whole program.
     pub parsed_cleanly: bool,
+    /// How long each phase took. A build adds its own (emitting and compiling the C++).
+    pub timings: Timings,
 }
 
 /// Load a project from disk and run every analysis phase that the previous one left viable.
@@ -103,8 +138,25 @@ pub fn analyse_prepared(
 ) -> Analysis {
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
+    let mut timings = Timings::default();
+    let started = Instant::now();
 
+    // Loading includes `prepare`, the CMake builds, and importing every C and C++ header
+    // with libclang (spec §15.1); the workspace says how long each of those took.
     let loaded = dz_project::load_for(entry, &mut map, &mut diags, options.optimize, prepare);
+    let loaded_at = Instant::now();
+    if let Some(ws) = &loaded {
+        let t = ws.load_times;
+        timings.add("manifests", (loaded_at - started).saturating_sub(t.headers + t.prepare));
+        // A workspace with nothing to build with CMake spends microseconds finding that out.
+        if t.prepare >= Duration::from_millis(1) {
+            timings.add("CMake builds", t.prepare);
+        }
+        timings.add("C and C++ headers", t.headers);
+    } else {
+        timings.add("manifests", loaded_at - started);
+    }
+    let mut lap = loaded_at;
     let Some(ws) = loaded else {
         return Analysis {
             map,
@@ -117,6 +169,7 @@ pub fn analyse_prepared(
             mono: None,
             diags,
             parsed_cleanly: false,
+            timings,
         };
     };
 
@@ -178,6 +231,7 @@ pub fn analyse_prepared(
         }
         files.insert(module.id, parsed);
     }
+    lap = timings.lap("lex and parse", lap);
 
     // Only the active branch of each `#if` goes on to resolution (spec §12.10). Skipped
     // when parsing failed: a broken `#if` has no branches worth choosing between.
@@ -206,6 +260,8 @@ pub fn analyse_prepared(
         }
     }
 
+    lap = timings.lap("#if and macros", lap);
+
     // Each flag says whether the phase's diagnostics are still worth showing: true until
     // some earlier phase has reported an error.
     let parsed_cleanly = !diags.has_errors();
@@ -216,6 +272,7 @@ pub fn analyse_prepared(
     let mut mono = None;
     if parsed_cleanly || tolerant {
         let r = dz_resolve::resolve(&ws, &files);
+        lap = timings.lap("resolve names", lap);
         let resolved_cleanly = parsed_cleanly && !r.diagnostics.has_errors();
         if parsed_cleanly {
             diags.extend(r.diagnostics.clone());
@@ -238,6 +295,7 @@ pub fn analyse_prepared(
         // A *parse* error still suppresses, and must: the tree itself is then a guess.
         if parsed_cleanly || tolerant {
             let checked = check(&ws, &r, &files, &map, flags.as_ref());
+            lap = timings.lap("type check", lap);
             let checked_cleanly = resolved_cleanly && !checked.diagnostics.has_errors();
             if parsed_cleanly {
                 diags.extend(checked.diagnostics);
@@ -247,10 +305,12 @@ pub fn analyse_prepared(
             // every answer this pass gave would be a guess.
             if checked_cleanly {
                 diags.extend(dz_flow::check(&checked.hir, &checked.table, &r));
+                lap = timings.lap("ownership", lap);
                 // Instantiation runs here rather than at codegen so that `dz check`
                 // reports a runaway instantiation (DZ0536) too; it is a property of the
                 // program, not of the C++ (spec §8.4).
                 let m = dz_mono::monomorphize(&r, &checked.table, &checked.hir);
+                timings.lap("instantiate generics", lap);
                 diags.extend(m.diagnostics.clone());
                 mono = Some(m);
             }
@@ -273,6 +333,7 @@ pub fn analyse_prepared(
         mono,
         diags,
         parsed_cleanly,
+        timings,
     }
 }
 

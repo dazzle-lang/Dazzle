@@ -86,10 +86,12 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0098](tasks/T-0098-str-cannot-be-cut-str-b.md)** A str cannot be cut: str[a..b] is refused, and only String has slice · feature, stdlib
 - **[T-0099](tasks/T-0099-allocators-temp-gives-growing-container-malloc.md)** Allocators::Temp gives a growing container a malloc per resize past 64 KiB · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (2 open)
+## M15 — `dz bench`, and the C++ comparison (4 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0097](tasks/T-0097-moving-union-through-fallible-result-costs.md)** Moving a union through a fallible result costs a construct, two moves and a drop at every step · feature, codegen
+- **[T-0101](tasks/T-0101-every-build-imports-stdlib-h-with.md)** Every build imports stdlib.h with libclang again: about 380 ms of each build · feature, tooling
+- **[T-0102](tasks/T-0102-standard-library-c-compiled-again-in.md)** The standard library's C++ is compiled again in every build · feature, tooling
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 

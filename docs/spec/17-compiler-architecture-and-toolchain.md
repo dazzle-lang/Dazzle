@@ -66,6 +66,11 @@ dz lsp                 language server on stdio
 dz cpp                 emit C++ only, no compilation
 ```
 
+`--timings` on `check`, `cpp`, `build` and `run` prints how long each phase of §17.2 took,
+on standard error: reading the manifests, importing C and C++ headers, each of Dazzle's own
+phases, emitting the C++, building the vendored libraries, and the C++ compiler. Principle 6
+is "compile fast", and this is how a build shows where its time went.
+
 ## 17.4 Language server
 
 Sharing every crate above — the server is not a reimplementation, it is the compiler with a

@@ -673,6 +673,51 @@ fn the_benchmark_suite_agrees_with_its_cpp_baseline() {
     }
 }
 
+/// `--timings` names every phase a build ran, each with a time, then the total, all on
+/// standard error, so a program's own output on standard output is unchanged.
+/// `tools/bench_programs.py` reads these lines, so the names are pinned here.
+#[test]
+fn timings_name_every_phase_on_standard_error() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = copy_fixture("hello", "dz_timings");
+    let out = Command::new(dz())
+        .args(["run", "--timings", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let stderr = String::from_utf8_lossy(&out.stderr).replace("\r\n", "\n");
+    let phases: Vec<&str> = stderr
+        .lines()
+        .skip_while(|l| *l != "timings:")
+        .skip(1)
+        .map(|l| {
+            let l = l.trim();
+            assert!(l.ends_with(" ms"), "not a timing: {l:?}");
+            l.trim_end_matches(" ms").rsplit_once(' ').unwrap().0.trim()
+        })
+        .collect();
+    let expected = [
+        "manifests",
+        "C and C++ headers",
+        "lex and parse",
+        "#if and macros",
+        "resolve names",
+        "type check",
+        "ownership",
+        "instantiate generics",
+        "emit C++",
+        "C and C++ libraries",
+        "C++ compiler",
+        "total",
+    ];
+    assert_eq!(phases, expected, "{stderr}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!stdout.contains("timings"), "timings leaked onto standard output: {stdout}");
+}
+
 /// The whole-program benchmarks (`tests/bench_programs`, T-0090): each program's Dazzle half
 /// and its C++ half must print the same checksum, on the small input in `quick_args.txt`.
 /// The timings belong to `tools/bench_programs.py`; this keeps the pairs honest, since a

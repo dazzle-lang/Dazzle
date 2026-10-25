@@ -51,7 +51,8 @@ Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, a
 - **Timed from outside, as a user would.** Each run is a whole process, generation and
   teardown included, started by a small helper (`measure.cpp`) that also reads its peak
   resident memory. The two halves run alternately, ten times each, and the report gives the
-  median. Build time is from a clean `build/` folder.
+  median. Build time is the median of three builds from a clean `build/` folder, and
+  `dz build --timings` says where Dazzle's went, phase by phase.
 
 ## Running it
 
@@ -93,7 +94,10 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   this benchmark, `let tokens = tokenize(...) or { ... }` copied the whole token list twice.
   That is fixed: it now moves, and peak memory went from 298 MiB to 140, below C++'s 151.
 - **`astar`** is 1.3× on g++ and 1.55× on clang. It has not been broken down yet.
-- **Build time: 1.8–3 s for Dazzle against 0.3–0.5 s for C++.** The front end is about
-  0.5 s of that. The rest is the C++ compiler on the generated code, which includes the
-  standard library's C++ (about 1 MB of headers) on every build
-  ([T-0012](../../docs/tasks/T-0012-measure-compile-time-at-scale.md)).
+- **Build time: 1.7–2.9 s for Dazzle against 0.3–0.5 s for C++.** Dazzle's own phases,
+  from reading the manifests to emitting the C++, take about 35 ms of it. Importing
+  `stdlib.h` with libclang, which the standard library does for every program, takes
+  about 380 ms ([T-0101](../../docs/tasks/T-0101-every-build-imports-stdlib-h-with.md)).
+  The rest is the C++ compiler, 1.3 s with clang and 2.1–2.4 s with g++, because the
+  standard library's C++ is compiled again in every build
+  ([T-0102](../../docs/tasks/T-0102-standard-library-c-compiled-again-in.md)).
