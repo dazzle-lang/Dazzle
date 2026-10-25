@@ -145,38 +145,75 @@ def checksum_of(text, what):
     return m.group(1)
 
 
-def build_dazzle(dz, program, cxx, mode, work):
-    """Build the Dazzle half from clean; return (binary, total seconds, front-end seconds)."""
+# The phases `dz build --timings` reports that are Dazzle's own work, as opposed to importing
+# C and C++ headers with libclang or running the C++ compiler.
+DAZZLE_PHASES = [
+    "manifests",
+    "lex and parse",
+    "#if and macros",
+    "resolve names",
+    "type check",
+    "ownership",
+    "instantiate generics",
+    "emit C++",
+]
+
+
+def parse_timings(stderr):
+    """The phases `--timings` printed, as {name: seconds}, the total left out."""
+    phases = {}
+    lines = stderr.splitlines()
+    if "timings:" not in lines:
+        return phases
+    for line in lines[lines.index("timings:") + 1 :]:
+        m = re.match(r"^\s+(.+?)\s+([\d.]+) ms$", line)
+        if not m:
+            break
+        if m.group(1) != "total":
+            phases[m.group(1)] = float(m.group(2)) / 1000
+    return phases
+
+
+def build_dazzle(dz, program, cxx, mode, work, builds):
+    """Build the Dazzle half from clean `builds` times. Return the binary, the median wall
+    time, and the median time of each phase `--timings` reported."""
     project = SUITE / program
-    shutil.rmtree(project / "build", ignore_errors=True)
-    front, out = timed([str(dz), "cpp", f"--{mode}", str(project)])
-    if out.returncode != 0:
-        sys.exit(f"dz cpp failed for {program}:\n{out.stdout}{out.stderr}")
-    shutil.rmtree(project / "build", ignore_errors=True)
-    total, out = timed([str(dz), "build", f"--{mode}", "--cxx", cxx, str(project)])
-    if out.returncode != 0:
-        sys.exit(f"dz build failed for {program} with {cxx}:\n{out.stdout}{out.stderr}")
+    walls, phases = [], []
+    for _ in range(builds):
+        shutil.rmtree(project / "build", ignore_errors=True)
+        cmd = [str(dz), "build", f"--{mode}", "--timings", "--cxx", cxx, str(project)]
+        wall, out = timed(cmd)
+        if out.returncode != 0:
+            sys.exit(f"dz build failed for {program} with {cxx}:\n{out.stdout}{out.stderr}")
+        walls.append(wall)
+        phases.append(parse_timings(out.stderr))
     binary = work / exe(f"{program}-dazzle-{cxx}")
     shutil.copy2(project / "build" / "bin" / exe(program), binary)
-    return binary, total, front
+    median = {n: statistics.median(p.get(n, 0.0) for p in phases) for n in phases[0]}
+    return binary, statistics.median(walls), median
 
 
-def build_cpp(program, cxx, mode, work):
+def build_cpp(program, cxx, mode, work, builds):
+    """Build the C++ half `builds` times; return the binary and the median wall time."""
     binary = work / exe(f"{program}-cpp-{cxx}")
     cmd = [cxx, *CXX_FLAGS, *MODES[mode], str(SUITE / program / "main.cpp"), "-o", str(binary)]
-    seconds, out = timed(cmd)
-    if out.returncode != 0:
-        sys.exit(f"{cxx} failed on {program}/main.cpp:\n{out.stderr}")
-    return binary, seconds
+    walls = []
+    for _ in range(builds):
+        seconds, out = timed(cmd)
+        if out.returncode != 0:
+            sys.exit(f"{cxx} failed on {program}/main.cpp:\n{out.stderr}")
+        walls.append(seconds)
+    return binary, statistics.median(walls)
 
 
 def summarise(walls):
     return {"median": statistics.median(walls), "min": min(walls), "runs": len(walls)}
 
 
-def bench(dz, program, cxx, mode, runs, args, work, measure):
-    dz_bin, dz_build, dz_front = build_dazzle(dz, program, cxx, mode, work)
-    cpp_bin, cpp_build = build_cpp(program, cxx, mode, work)
+def bench(dz, program, cxx, mode, runs, args, work, measure, builds):
+    dz_bin, dz_build, phases = build_dazzle(dz, program, cxx, mode, work, builds)
+    cpp_bin, cpp_build = build_cpp(program, cxx, mode, work, builds)
+    dz_front = sum(t for n, t in phases.items() if n in DAZZLE_PHASES)
 
     sides = {"dazzle": [str(dz_bin), *args], "cpp": [str(cpp_bin), *args]}
     walls = {"dazzle": [], "cpp": []}
@@ -199,7 +236,14 @@ def bench(dz, program, cxx, mode, runs, args, work, measure):
         "checksum": next(iter(sums)),
         "dazzle": {**summarise(walls["dazzle"]), "peak_kib": rss["dazzle"] or None},
         "cpp": {**summarise(walls["cpp"]), "peak_kib": rss["cpp"] or None},
-        "build": {"dazzle": dz_build, "dazzle_frontend": dz_front, "cpp": cpp_build},
+        # `dazzle_frontend` is the sum of Dazzle's own phases; `phases` has every one.
+        "build": {
+            "builds": builds,
+            "dazzle": dz_build,
+            "dazzle_frontend": dz_front,
+            "phases": phases,
+            "cpp": cpp_build,
+        },
     }
 
 
@@ -215,7 +259,7 @@ def report(info, results, mode, runs):
     flags = " ".join(CXX_FLAGS + MODES[mode])
     lines = [
         "| Program | Compiler | Dazzle | C++ | Dazzle / C++ | Peak memory (Dazzle / C++) "
-        "| Build: Dazzle (front end) / C++ |",
+        "| Build: Dazzle / C++ |",
         "|---|---|---:|---:|---:|---:|---:|",
     ]
     for r in results:
@@ -223,14 +267,34 @@ def report(info, results, mode, runs):
         lines.append(
             f"| {r['program']} | {r['cxx']} | {ms(d['median'])} | {ms(c['median'])} "
             f"| {d['median'] / c['median']:.2f}× | {mib(d['peak_kib'])} / {mib(c['peak_kib'])} "
-            f"| {b['dazzle']:.2f} s ({b['dazzle_frontend']:.2f} s) / {b['cpp']:.2f} s |"
+            f"| {b['dazzle']:.2f} s / {b['cpp']:.2f} s |"
         )
     lines += [
         "",
-        f"Run time is the median of {runs} runs of each half, alternating. Build time is from "
-        "clean: for Dazzle, `dz build` (the front end, then the C++ compiler on the generated "
-        "code and the standard library), with the front end alone, `dz cpp`, in brackets; for "
-        "C++, one compiler invocation. Peak memory is the largest resident set of any run.",
+        "Where Dazzle's build time goes, from `dz build --timings`:",
+        "",
+        "| Program | Compiler | Dazzle's own phases | C and C++ headers | C++ compiler | Other |",
+        "|---|---|---:|---:|---:|---:|",
+    ]
+    for r in results:
+        b = r["build"]
+        headers = b["phases"].get("C and C++ headers", 0.0)
+        compiler = b["phases"].get("C++ compiler", 0.0)
+        other = max(0.0, b["dazzle"] - b["dazzle_frontend"] - headers - compiler)
+        lines.append(
+            f"| {r['program']} | {r['cxx']} | {ms(b['dazzle_frontend'])} | {ms(headers)} "
+            f"| {ms(compiler)} | {ms(other)} |"
+        )
+    builds = results[0]["build"]["builds"] if results else 0
+    lines += [
+        "",
+        f"Run time is the median of {runs} runs of each half, alternating. Build time is the "
+        f"median of {builds} builds from clean: for Dazzle, `dz build`, which compiles the "
+        "program and the standard library; for C++, one compiler invocation. Dazzle's own "
+        "phases are reading the manifests, parsing, macros, resolving names, type checking, "
+        "ownership, instantiating generics and emitting the C++. Other is what no phase "
+        "accounts for, mostly starting `dz` and linking the vendored libraries. Peak memory is "
+        "the largest resident set of any run.",
         "",
         f"- CPU: {info['cpu']} ({info['cores']} threads)",
         f"- OS: {info['os']}",
@@ -253,6 +317,7 @@ def main():
     p.add_argument("--dz", default=None, help="the dz binary (default: target/release/dz)")
     p.add_argument("--mode", choices=sorted(MODES), default="release")
     p.add_argument("--runs", type=int, default=10)
+    p.add_argument("--builds", type=int, default=3, help="clean builds of each half (default 3)")
     p.add_argument("--quick", action="store_true", help="small inputs and 2 runs")
     p.add_argument("--markdown", help="also write the report here")
     p.add_argument("--json", help="also write every measurement here")
@@ -288,7 +353,8 @@ def main():
             args = (SUITE / prog / "quick_args.txt").read_text().split() if a.quick else []
             for cxx in compilers:
                 print(f"{prog} with {cxx}...", file=sys.stderr)
-                results.append(bench(dz, prog, cxx, a.mode, runs, args, Path(tmp), measure))
+                builds = 1 if a.quick else a.builds
+                results.append(bench(dz, prog, cxx, a.mode, runs, args, Path(tmp), measure, builds))
     info["load_after"] = load()
 
     text = report(info, results, a.mode, runs)

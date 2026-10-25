@@ -123,10 +123,15 @@ jobs:
           libclang=libclang-dev
           if ls /usr/lib/llvm-*/lib/libclang.so.1 >/dev/null 2>&1; then libclang=; fi
           sudo apt-get update
+          # examples/sdl3 builds SDL with its own CMake, which stops at configure when any
+          # of the X11 extensions it checks for is missing (cmake/sdlchecks.cmake, every
+          # SDL_missing_dependency): Xext gives XDBE, XSYNC and XSHAPE, and Xfixes, Xss and
+          # Xtst the rest. The others were already here for raylib and RGFW.
           sudo apt-get install -y --no-install-recommends \
             $libclang \
             libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
-            libxcursor-dev libxi-dev
+            libxcursor-dev libxi-dev \
+            libxext-dev libxfixes-dev libxss-dev libxtst-dev
           # Not `llvm-config --libdir`: Ubuntu installs it versioned (`llvm-config-18`),
           # so the bare name is usually absent and the command substitution silently
           # produced an empty path. Find the library itself instead — and by its exact

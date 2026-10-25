@@ -2,6 +2,32 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## `--timings`, and where a build's time goes (2026-10-25)
+
+The user asked for the benchmarks to show compile times, broken down by phase. Nothing in
+`dz` measured a phase, so `check`, `cpp`, `build` and `run` now take `--timings`, which
+prints each phase and its time on standard error once the command is done (spec §17.3).
+
+- `dz_driver::Timings` is a list of named durations, filled by `analyse_prepared`:
+  manifests, C and C++ headers, CMake builds (only when there was one), lex and parse, `#if`
+  and macros, resolve names, type check, ownership, and instantiate generics. `dz` adds
+  emit C++, C and C++ libraries, and the C++ compiler. Nothing reads a duration back, so
+  every phase is still a pure function of its input (invariant 3).
+- Header import and CMake happen inside `dz_project::load_for`, which cannot depend on the
+  driver, so the workspace carries `LoadTimes`, and the driver subtracts them from loading.
+- A test (`timings_name_every_phase_on_standard_error`) pins the phase names, since
+  `tools/bench_programs.py` reads them. The runner now builds each half three times from
+  clean, takes the medians, and reports Dazzle's own phases, the header import and the C++
+  compiler separately.
+
+**What it showed**, on the three benchmark programs at `-O2` with g++ 16: Dazzle's own
+phases take about 35 ms, and importing `stdlib.h` with libclang takes about 380 ms. The
+standard library imports it for `Allocators::Global`, so every program pays that. The C++
+compiler on the generated code takes about 1.4–2.4 s, against 0.3–0.5 s for the same
+program written in C++, because the standard library's C++ is compiled again every time.
+Both are filed: T-0101 (cache imported headers) and T-0102 (stop recompiling the standard
+library).
+
 ## Whole-program benchmarks against C++ (T-0090; 2026-10-24)
 
 `tests/bench` compares one construct at a time. The website wanted a number for a whole

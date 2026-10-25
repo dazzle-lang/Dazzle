@@ -154,11 +154,14 @@ pub fn find_compiler(ws: Option<&Workspace>, chosen: Option<&str>) -> Option<Str
     None
 }
 
+/// Compile the generated C++ into an executable, after the vendored libraries it links.
+/// `timings` gets the time each of the two took (`--timings`).
 pub fn compile(
     analysis: &Analysis,
     out: &BuildOutput,
     root: &Path,
     cxx: Option<&str>,
+    timings: &mut dz_driver::Timings,
 ) -> Result<PathBuf, Diagnostics> {
     let mut diags = Diagnostics::new();
     let Some(cxx) = find_compiler(analysis.ws.as_ref(), cxx) else {
@@ -222,7 +225,9 @@ pub fn compile(
     // Vendored libraries first: a failure there is the library's, and should be reported
     // as such before the generated code is even tried (spec §15.1).
     // `root`, not `bin_dir`: the object cache is `build/obj/`, a sibling of `bin/`.
+    let started = std::time::Instant::now();
     let objects = crate::native::build_libraries(ws, &cxx, root, opt, &module.build.cpp_standard)?;
+    let started = timings.lap("C and C++ libraries", started);
 
     let mut cmd = Command::new(&cxx);
     // spec §16.5 — nothing generated may need exceptions or RTTI. `-fwrapv`: integer
@@ -272,7 +277,9 @@ pub fn compile(
     // What a CMake install's pkg-config file asks for besides libraries: `-pthread`.
     cmd.args(&link.flags);
 
-    let output = match cmd.output() {
+    let output = cmd.output();
+    timings.lap("C++ compiler", started);
+    let output = match output {
         Ok(o) => o,
         Err(e) => {
             diags.push(Diagnostic::error(

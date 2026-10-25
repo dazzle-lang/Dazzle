@@ -67,6 +67,10 @@ itself instead:
 
     --no-line-directives        leave them out
 
+and, as `check` does, `--timings`, which prints how long each phase took on
+standard error: reading the manifests, importing C and C++ headers, each of
+Dazzle's own phases, emitting the C++, and the C++ compiler.
+
 They also take `--cxx <compiler>`, which is the last word on which C++ compiler
 builds the generated code. Four places may say, nearest first:
 
@@ -82,7 +86,7 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("check") => match build_args(&args) {
             Ok(b) if b.json => cmd_check_json(&b.path, &b.options, b.cxx.as_deref()),
-            Ok(b) => cmd_check(&b.path, &b.options, b.cxx.as_deref()),
+            Ok(b) => cmd_check(&b.path, &b.options, b.cxx.as_deref(), b.timings),
             Err(code) => code,
         },
         Some("fix") => match build_args(&args) {
@@ -184,8 +188,16 @@ fn cmd_hir(entry: &str, options: &dz_driver::BuildOptions, cxx: Option<&str>) ->
     }
 }
 
-fn cmd_check(entry: &str, options: &dz_driver::BuildOptions, cxx: Option<&str>) -> ExitCode {
+fn cmd_check(
+    entry: &str,
+    options: &dz_driver::BuildOptions,
+    cxx: Option<&str>,
+    show_timings: bool,
+) -> ExitCode {
     let analysis = analyse_for_build(entry, options, cxx);
+    if show_timings {
+        print_timings(&analysis.timings);
+    }
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
@@ -399,7 +411,8 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
             return failure(&d);
         }
     };
-    let exe = match build::compile(&analysis, &out, &root, cxx) {
+    let exe = match build::compile(&analysis, &out, &root, cxx, &mut dz_driver::Timings::default())
+    {
         Ok(e) => e,
         Err(d) => {
             dz_diag::emit_to_stderr(&analysis.map, &d);
@@ -495,6 +508,8 @@ struct BuildArgs {
     dry_run: bool,
     /// `#line` directives in the generated C++, unless `--no-line-directives` (spec §16.3).
     line_directives: bool,
+    /// `--timings`: how long each phase took, on standard error once the command is done.
+    timings: bool,
 }
 
 /// Split `run`/`build`/`cpp`/`check`/`hir`'s arguments into a path, a build mode and flags.
@@ -512,6 +527,7 @@ fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
         json: false,
         dry_run: false,
         line_directives: true,
+        timings: false,
     };
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
@@ -532,6 +548,7 @@ fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
             }
             "--dry-run" if args[0] == "fix" => out.dry_run = true,
             "--no-line-directives" => out.line_directives = false,
+            "--timings" => out.timings = true,
             // `--cxx g++` and `--cxx=g++` both, since a flag taking a value is usually
             // written either way and guessing wrong is a confusing error.
             "--cxx" => match rest.next() {
@@ -566,7 +583,9 @@ fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
 
 fn with_mode(args: &[String], stage: Stage) -> ExitCode {
     match build_args(args) {
-        Ok(b) => cmd_pipeline(&b.path, stage, &b.options, b.cxx.as_deref(), b.line_directives),
+        Ok(b) => {
+            cmd_pipeline(&b.path, stage, &b.options, b.cxx.as_deref(), b.line_directives, b.timings)
+        }
         Err(code) => code,
     }
 }
@@ -597,8 +616,9 @@ fn cmd_pipeline(
     options: &dz_driver::BuildOptions,
     cxx: Option<&str>,
     line_directives: bool,
+    show_timings: bool,
 ) -> ExitCode {
-    let analysis = analyse_for_build(entry, options, cxx);
+    let mut analysis = analyse_for_build(entry, options, cxx);
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
@@ -611,6 +631,7 @@ fn cmd_pipeline(
     // inside the first.
     let root = project_root(entry).join("build");
     let emit = dz_cpp::Options { mode: dz_cpp::Mode::Program, line_directives };
+    let started = std::time::Instant::now();
     let out = match build::emit_cpp(&analysis, &root, emit) {
         Ok(o) => o,
         Err(d) => {
@@ -618,8 +639,12 @@ fn cmd_pipeline(
             return failure(&d);
         }
     };
+    analysis.timings.lap("emit C++", started);
 
     if stage == Stage::Cpp {
+        if show_timings {
+            print_timings(&analysis.timings);
+        }
         println!(
             "generated {} file{} in {}",
             out.written.len(),
@@ -629,7 +654,12 @@ fn cmd_pipeline(
         return ExitCode::SUCCESS;
     }
 
-    let exe = match build::compile(&analysis, &out, &root, cxx) {
+    let mut timings = std::mem::take(&mut analysis.timings);
+    let compiled = build::compile(&analysis, &out, &root, cxx, &mut timings);
+    if show_timings {
+        print_timings(&timings);
+    }
+    let exe = match compiled {
         Ok(e) => e,
         Err(d) => {
             dz_diag::emit_to_stderr(&analysis.map, &d);
@@ -666,6 +696,18 @@ fn cmd_pipeline(
             ExitCode::FAILURE
         }
     }
+}
+
+/// `--timings`: each phase and how long it took, then the total, on standard error so a
+/// program's own output on standard output is untouched. One phase to a line, `name  N ms`,
+/// which is also what `tools/bench_programs.py` reads.
+fn print_timings(timings: &dz_driver::Timings) {
+    let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+    eprintln!("timings:");
+    for (name, time) in &timings.phases {
+        eprintln!("  {name:<24} {:>9.1} ms", ms(*time));
+    }
+    eprintln!("  {:<24} {:>9.1} ms", "total", ms(timings.total()));
 }
 
 /// `dz explain DZ0401` (or `0401`, `401`): the rule behind a diagnostic, why it exists, and

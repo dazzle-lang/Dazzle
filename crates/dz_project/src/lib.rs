@@ -526,6 +526,18 @@ pub struct Workspace {
     /// They are always the first ids, and their files the first in the source map, so a
     /// result computed for them is the same whatever project they are loaded into.
     prelude_layer: u32,
+    /// How long loading spent outside reading manifests, for `--timings`.
+    pub load_times: LoadTimes,
+}
+
+/// The parts of loading a workspace that can take far longer than reading its manifests.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LoadTimes {
+    /// Importing C and C++ headers with libclang (spec §15.1), the standard library's
+    /// `stdlib.h` included.
+    pub headers: std::time::Duration,
+    /// `prepare`: building and installing the libraries that have a CMake build (D-0090).
+    pub prepare: std::time::Duration,
 }
 
 impl Workspace {
@@ -600,8 +612,11 @@ pub fn load_for(
         root: prelude,
         prelude,
         prelude_layer: 1,
+        load_times: LoadTimes::default(),
     };
+    let started = std::time::Instant::now();
     import_headers(&mut layer, &[prelude], &mut added, loader.map, loader.diags);
+    let load_times = LoadTimes { headers: started.elapsed(), ..LoadTimes::default() };
     let prelude_layer = layer.modules.len() as u32;
     loader.modules = layer.modules;
     let root = loader.load_module(&manifest_path, None)?;
@@ -648,7 +663,7 @@ pub fn load_for(
     }
     let rest: Vec<ModuleId> =
         modules.iter().map(|m| m.id).filter(|id| id.0 >= prelude_layer).collect();
-    let mut ws = Workspace { modules, root, prelude, prelude_layer };
+    let mut ws = Workspace { modules, root, prelude, prelude_layer, load_times };
     // Every module, not just the root: a dependency compiled at a different optimisation
     // level is the classic way to get a binary that behaves differently from either.
     if let Some(m) = optimize {
@@ -659,7 +674,9 @@ pub fn load_for(
     place_cmake_builds(&mut ws);
     if !diags.has_errors() {
         let mut prepared = Diagnostics::new();
+        let started = std::time::Instant::now();
         prepare(&ws, &mut prepared);
+        ws.load_times.prepare = started.elapsed();
         let failed = prepared.has_errors();
         diags.extend(prepared);
         if failed {
@@ -667,7 +684,9 @@ pub fn load_for(
         }
     }
     read_cmake_installs(&mut ws);
+    let started = std::time::Instant::now();
     import_headers(&mut ws, &rest, &mut added, map, diags);
+    ws.load_times.headers += started.elapsed();
     Some(ws)
 }
 
