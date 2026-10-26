@@ -2,7 +2,8 @@
 id: T-0086
 title: A bound at two arguments answers a method call with the first
 milestone: M12
-status: open
+status: done
+done: 2026-10-26
 kind: bug
 area: checker
 where: `dz_check/src/check.rs`, `param_method`

@@ -4694,14 +4694,46 @@ impl<'a, 'c> Body<'a, 'c> {
     /// every `Ord` is an `Eq` (spec §7.6). The returned signature has both the trait's own
     /// parameters and `Self` substituted, so it is stated in terms the caller can check
     /// arguments against directly.
-    fn param_method(&mut self, self_ty: &Ty, name: &str) -> Option<(SymbolId, FnSig)> {
+    ///
+    /// A parameter bounded by one trait at several arguments, `T: Mul<f32> + Mul<i32>`, has
+    /// a method for each, and the first argument picks between them as it does for a
+    /// concrete type (§18.27).
+    fn param_method(
+        &mut self,
+        self_ty: &Ty,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<(SymbolId, FnSig)> {
         let bounds = self.cx.table.abstract_bounds(self_ty);
+        let mut found: Vec<(TraitRef, FnSig)> = Vec::new();
         for r in self.cx.table.trait_closure(&bounds, self_ty) {
+            if found.iter().any(|(x, _)| x.trait_sym == r.trait_sym && x.args == r.args) {
+                continue;
+            }
             if let Some(sig) = self.cx.table.trait_method(&r, self_ty, name) {
-                return Some((r.trait_sym, sig));
+                found.push((r, sig));
             }
         }
-        None
+        // The closure comes off a stack, so put the bounds back in the order they were
+        // written: with nothing fitting, the one the argument check reports against is then
+        // the first the reader wrote, not an accident of the traversal.
+        let written = |r: &TraitRef| {
+            bounds.iter().position(|b| b.trait_sym == r.trait_sym && b.args == r.args)
+        };
+        found.sort_by_key(|(r, _)| written(r).unwrap_or(bounds.len()));
+        let trait_sym = found.first()?.0.trait_sym;
+        // Only one trait's implementations are chosen between by argument; a second trait
+        // providing the same name keeps the first, as before.
+        found.retain(|(r, _)| r.trait_sym == trait_sym);
+        let sigs: Vec<FnSig> = found.iter().map(|(_, s)| instantiate_self(s, self_ty)).collect();
+        let i = if sigs.len() == 1 {
+            0
+        } else {
+            let arg = args.first().map(|a| self.expr_quiet(a));
+            self.pick_overload(&sigs, arg.as_ref(), span, name)
+        };
+        Some((trait_sym, found.swap_remove(i).1))
     }
 
     fn check_member_visible(
@@ -4783,7 +4815,7 @@ impl<'a, 'c> Body<'a, 'c> {
             // monomorphization turns the call into a direct one (§7.6).
             if ty::is_abstract(&peeled) {
                 self.no_method_type_args(generics, name);
-                let found = self.param_method(&peeled, &name.name);
+                let found = self.param_method(&peeled, &name.name, args, span);
                 let Some((trait_sym, sig)) = found else {
                     self.no_such_member_on_param(&peeled, name, "method");
                     for a in args {
