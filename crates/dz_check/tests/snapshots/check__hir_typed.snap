@@ -16348,6 +16348,32 @@ body impl#141 method mul -> f32
           local _0 self: Scale
         field #0: f32
           local _1 rhs: Scale
+body fn scale_by_both -> void
+  param _0 a: &T
+  block
+    let _: _
+      call-method Mul::mul: T::Output
+        local _0 a: &T
+        float 2: f32
+    let _: _
+      call-method Mul::mul: T::Output
+        local _0 a: &T
+        struct-lit Scale: Scale
+          #0
+            float 2: f32
+body fn scale_by_both_flipped -> void
+  param _0 a: &T
+  block
+    let _: _
+      call-method Mul::mul: T::Output
+        local _0 a: &T
+        struct-lit Scale: Scale
+          #0
+            float 2: f32
+    let _: _
+      call-method Mul::mul: T::Output
+        local _0 a: &T
+        float 2: f32
 body method Label::shout -> str
   param _0 self: Label
   block

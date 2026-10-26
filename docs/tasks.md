@@ -60,7 +60,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (23 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (22 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -78,7 +78,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0053](tasks/T-0053-error-shares-static-ring-four-buffers.md)** `error(…)` shares a static ring of four buffers · deferral, codegen
 - **[T-0084](tasks/T-0084-remove-extern-fn-std-reaches-os.md)** Remove extern fn: std reaches the OS through header imports · feature, interop
 - **[T-0085](tasks/T-0085-optional-reference-passes-checker.md)** An optional of a reference passes the checker · design, checker
-- **[T-0086](tasks/T-0086-bound-at-two-arguments-answers-method.md)** A bound at two arguments answers a method call with the first · bug, checker
 - **[T-0088](tasks/T-0088-explicit-as-t-trait-user-defined.md)** An explicit As<T> trait: user-defined conversions written with as · feature, language
 - **[T-0089](tasks/T-0089-show-where-implicit-conversions-happen-for.md)** Show where implicit conversions happen, for LLMs and debugging · feature, llm-tooling
 - **[T-0094](tasks/T-0094-function-pointers-casts-null-optional-fn.md)** Function pointers: casts, null, optional fn, and C's function-pointer typedefs and globals · design, interop

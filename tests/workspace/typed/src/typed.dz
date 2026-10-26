@@ -780,6 +780,18 @@ impl Mul<Scale> for Scale {
     }
 }
 
+// §8.1, §18.27: through a bound at two arguments too, the first argument picks the method —
+// whichever of the two bounds is written first.
+fn scale_by_both<T: Mul<Scale> + Mul<f32>>(a: &T) {
+    let _ = a.mul(2.0)
+    let _ = a.mul(Scale{ k: 2.0 })
+}
+
+fn scale_by_both_flipped<T: Mul<f32> + Mul<Scale>>(a: &T) {
+    let _ = a.mul(Scale{ k: 2.0 })
+    let _ = a.mul(2.0)
+}
+
 // §7.6: a trait of this module implemented for a type this program did not write.
 trait Label {
     fn label(&self) -> str

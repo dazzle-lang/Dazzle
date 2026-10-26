@@ -206,6 +206,29 @@ impl Mul<Vec2> for Vec2 {
     }
 }
 
+// §8.1, §18.27: a parameter bounded by one trait at two arguments has a method for each, and
+// the first argument picks between them as it does on a concrete type — `10` the `i32` one,
+// although an `f32` would also take it and that bound is written first.
+trait Weigh<By> {
+    fn weigh(&self, by: By) -> f32
+}
+
+impl Weigh<f32> for Vec2 {
+    fn weigh(&self, by: f32) -> f32 {
+        return x * by
+    }
+}
+
+impl Weigh<i32> for Vec2 {
+    fn weigh(&self, by: i32) -> f32 {
+        return y + by as f32
+    }
+}
+
+fn weigh_both<T: Weigh<f32> + Weigh<i32>>(a: &T) -> f32 {
+    return a.weigh(2.5) + a.weigh(10)
+}
+
 // §7.6: an implementation for a type the program did not write — here `i32`, which has no
 // members of its own — adds behaviour without touching it.
 trait Describe2 {
@@ -283,6 +306,7 @@ fn main() {
     let stretched = v * Vec2{ x: 2.0, y: 0.5 }
     let direct = v.mul(10.0)
     println!("mul: {} {} / {} {} / {}", scaled.x, scaled.y, stretched.x, stretched.y, direct.y)
+    println!("bound at two arguments: {}", weigh_both(&v))
 
     println!("hex: {:x} {:X}, fixed: {:.2}, braces: {{}}", 255, 255, 3.14159)
 
