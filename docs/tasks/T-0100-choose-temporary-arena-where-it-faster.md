@@ -40,5 +40,8 @@ made where the container is built, and nothing measures it.
    is a language change too, and the most explicit of the three.
 4. **Automatic**, using a profile from a previous run to choose per allocation site. This
    is the most work, and it makes a program's behaviour depend on a profile.
+5. **The compiler chooses where memory comes from**, from ownership alone, with no
+   allocator in ordinary code. It is the most far-reaching option and needs a prototype
+   first: [T-0104](T-0104-prototype-compiler-chooses-where-memory-comes.md).
 
 Option 1 is worth doing whatever is chosen, and may make the rest unnecessary.

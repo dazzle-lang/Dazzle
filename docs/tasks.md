@@ -101,7 +101,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (18 open)
+## none — not scheduled (19 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -121,3 +121,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
 - **[T-0100](tasks/T-0100-choose-temporary-arena-where-it-faster.md)** Choose the temporary arena where it is faster, automatically or by a setting · design, stdlib
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
+- **[T-0104](tasks/T-0104-prototype-compiler-chooses-where-memory-comes.md)** Prototype: the compiler chooses where memory comes from, by ownership · design, ownership
