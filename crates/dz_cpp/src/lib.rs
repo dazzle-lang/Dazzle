@@ -158,6 +158,8 @@ pub fn emit(
         entry: None,
     };
     let reflection: reflect::Shared = Default::default();
+    let results = std::cell::RefCell::new(HashMap::new());
+    let fn_values = regions::fn_values(hir);
 
     // An imported header generates nothing: its names are the header's own (spec §15.1).
     for module in ws.modules().filter(|m| m.foreign.is_none()) {
@@ -200,6 +202,8 @@ pub fn emit(
             reflect: &reflection,
             regions: options.regions,
             placement: Default::default(),
+            results: &results,
+            fn_values: &fn_values,
         };
         e.module(module_files);
         e.finish_header();
@@ -334,6 +338,8 @@ pub fn emit(
             reflect: &reflection,
             regions: false,
             placement: Default::default(),
+            results: &results,
+            fn_values: &fn_values,
         };
         if type_info == dz_project::TypeInfo::All {
             reflect::seed_all(&mut e, files);
@@ -607,6 +613,10 @@ struct Emitter<'a> {
     /// prototype), and which ones are in the current body.
     regions: bool,
     placement: regions::Placement,
+    /// Which functions have a result allocator, by body address, decided once for every
+    /// module; and the functions used as values, which cannot have one (`regions.rs`).
+    results: &'a std::cell::RefCell<HashMap<usize, bool>>,
+    fn_values: &'a std::collections::HashSet<SymbolId>,
 }
 
 impl<'a> Emitter<'a> {
@@ -2633,16 +2643,20 @@ impl<'a> Emitter<'a> {
 
     fn free_fn(&mut self, sym: SymbolId, name: &str) {
         let owner = BodyOwner::Fn(sym);
-        if self.find_body(&owner).is_none() {
-            return;
-        }
+        let Some(body) = self.find_body(&owner) else { return };
         let ret = self.body_ret_ty(&owner);
-        let decl = self.decl_params(&owner);
+        let mut decl = self.decl_params(&owner);
+        // Where what it returns is built, chosen at each call (T-0104, `regions.rs`).
+        if self.places_result(body) {
+            let ty = self.allocator_ty();
+            let comma = if decl.is_empty() { "" } else { ", " };
+            decl = format!("{decl}{comma}[[maybe_unused]] {ty} {}", regions::RESULT);
+        }
         // `current_fn` feeds `#function`, which names the Dazzle function, not the C++ one.
         let cpp = sanitize(name);
         let _ = writeln!(self.header, "{ret} {cpp}({decl});");
 
-        let params = self.decl_params(&owner);
+        let params = decl;
         self.current_fn = name.to_owned();
         let head = format!("{ret} {cpp}({params}) {{");
         self.emit_body(&owner, &head);
@@ -2674,6 +2688,17 @@ impl<'a> Emitter<'a> {
             params.join(", "),
             args.join(", ")
         );
+    }
+
+    /// `^mut Allocator` in C++: the trait object a result allocator is passed as.
+    fn allocator_ty(&mut self) -> String {
+        match self.res.lookup(self.res.prelude, "Allocator") {
+            Some(sym) => {
+                let inner = std::rc::Rc::new(Ty::Named { sym, args: Vec::new() });
+                self.cpp_ty(&Ty::Ptr { mutable: true, inner })
+            }
+            None => "void*".to_owned(),
+        }
     }
 
     /// The C++ return type of a body. A `!->` signature returns `dz::Res<T>`, since the
@@ -2988,7 +3013,9 @@ impl<'a> Emitter<'a> {
         }
         let saved_names = std::mem::replace(&mut self.names, names);
         let saved_file = std::mem::replace(&mut self.file, body.file);
-        let placement = if self.regions { self.place_regions() } else { Default::default() };
+        // Always: passing a function's own `#allocator` on to what it returns is what the
+        // intrinsic means. Only the regions themselves wait for `self.regions`.
+        let placement = self.place_regions();
         let saved_placement = std::mem::replace(&mut self.placement, placement);
         let result = self.capture(f);
         self.body = saved_body;
@@ -4102,12 +4129,24 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Call { callee, args } => {
-                let region = self
-                    .placement
-                    .sites
-                    .get(&e)
-                    .map(|&(b, i)| (i, format!("_dz_region{}", b.index())));
-                self.call(callee, args, body.ty(e).clone(), node.span, region)
+                let mut allocator = self.placement.sites.get(&e).map(|&(slot, source)| {
+                    let text = match source {
+                        regions::Source::Region(b) => format!("_dz_region{}", b.index()),
+                        regions::Source::Result => regions::RESULT.to_owned(),
+                    };
+                    (slot, text)
+                });
+                // A function with a result allocator is always passed one: the heap, when
+                // nothing better was decided.
+                if allocator.is_none() {
+                    if let Some(callee_body) = self.result_callee(callee) {
+                        if self.places_result(callee_body) {
+                            let heap = self.intrinsic("allocator", node.span, None);
+                            allocator = Some((regions::Slot::Hidden, heap));
+                        }
+                    }
+                }
+                self.call(callee, args, body.ty(e).clone(), node.span, allocator)
             }
             hir::ExprKind::Move(inner) => {
                 /// Something `take` can reset: a local, or a field of one.
@@ -4466,15 +4505,15 @@ impl<'a> Emitter<'a> {
     }
 
     /// `node_ty` is the call's own type, which is what says *which* instance a generic
-    /// struct's constructor builds. `region` is an argument index and the region to pass
-    /// there in place of the default allocator (T-0104).
+    /// struct's constructor builds. `allocator` is the index of an `#allocator` argument and
+    /// what to pass there instead of the heap (T-0104, `regions.rs`).
     fn call(
         &mut self,
         callee: &hir::Callee,
         args: &[ExprId],
         node_ty: Ty,
         span: Span,
-        region: Option<(usize, String)>,
+        allocator: Option<(regions::Slot, String)>,
     ) -> String {
         if let hir::Callee::Method { recv, owner, name, .. } = callee {
             if let Some(native) = self.native_trait_call(*recv, *owner, name, args) {
@@ -4619,6 +4658,7 @@ impl<'a> Emitter<'a> {
             hir::Callee::Value(_) => format!("({})", recv_text()),
         };
         let mut rendered: Vec<String> = recv_arg.into_iter().collect();
+        let first_arg = rendered.len();
         for (i, v) in self.emit_args(captured).into_iter().enumerate() {
             let cast =
                 imported.as_ref().and_then(|s| s.params.get(i)).and_then(|p| p.c_cast.clone());
@@ -4636,11 +4676,15 @@ impl<'a> Emitter<'a> {
             let v = self.render_default(body, default, span);
             rendered.push(v);
         }
-        // A constructor has no receiver argument, so the index is the parameter's.
-        if let Some((index, arena)) = region {
-            if let Some(slot) = rendered.get_mut(index) {
-                *slot = arena;
+        // The index counts parameters, and a receiver passed as an argument comes first.
+        match allocator {
+            Some((regions::Slot::Param(index), text)) => {
+                if let Some(slot) = rendered.get_mut(first_arg + index) {
+                    *slot = text;
+                }
             }
+            Some((regions::Slot::Hidden, text)) => rendered.push(text),
+            None => {}
         }
         let call = format!("{target}({})", rendered.join(", "));
         match imported {
@@ -5500,6 +5544,11 @@ impl<'a> Emitter<'a> {
                 format!("::dz::str(\"{n}\", {})", n.len())
             }
             "location" => self.source_location(span),
+            // A call the analysis has no better answer for: the heap (T-0104, `regions.rs`).
+            "allocator" => match self.res.lookup(self.res.prelude, "Allocators") {
+                Some(sym) => format!("{}::Global()", self.qualify(sym)),
+                None => "nullptr".to_owned(),
+            },
             "module" => {
                 let m = self.ws.module(self.module).name.clone();
                 format!("::dz::str({}, {})", quote_cpp(&m), m.len())

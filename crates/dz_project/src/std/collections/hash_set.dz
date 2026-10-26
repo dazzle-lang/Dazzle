@@ -9,7 +9,7 @@ pub struct HashSet<T: Hash + Eq> {
     /// An empty set, with room for `capacity` elements already allocated when it is given.
     HashSet(
         capacity: usize = 0,
-        allocator: ^mut Allocator = Allocators::Global,
+        allocator: ^mut Allocator = #allocator,
         loc: SourceLocation = #location,
     ) {
         m_map = HashMap<T, bool>(capacity, allocator, loc)

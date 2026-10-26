@@ -57,6 +57,31 @@ fn fill(xs: &mut List<i32>, n: i32) {
     xs.push(scratch.len() as i32)
 }
 
+// Builds what it returns without saying where: the compiler gives it a result allocator
+// its signature does not show, chosen at each call (T-0104 stage 2).
+fn squares(n: i32) -> List<i32> {
+    let mut xs = List<i32>()
+    for i in 0..n {
+        xs.push(i * i)
+    }
+    return move(xs)
+}
+
+// Returns what `squares` built, so its own caller's choice reaches `squares`.
+fn more_squares(n: i32) -> List<i32> {
+    return squares(n)
+}
+
+// Says where, with an ordinary parameter it passes on itself. Left out, `#allocator` is
+// filled in by the compiler as a result allocator would be; given, it is the caller's own.
+fn squares_in(n: i32, allocator: ^mut Allocator = #allocator) -> List<i32> {
+    let mut xs = List<i32>(0, allocator)
+    for i in 0..n {
+        xs.push(i * i)
+    }
+    return move(xs)
+}
+
 // Placed: the scratch `String` dies here; the name kept is a copy, on the heap.
 fn label(store: &mut Store, prefix: str, n: i32) {
     let mut text = String::from(prefix)
@@ -117,6 +142,25 @@ fn main() {
         total += c
     }
     println!("counts {} total {}", counts.len(), total)
+
+    // Kept here and only borrowed: with regions, in this scope's region.
+    let local = squares(20)
+    println!("squares {} last {}", local.len(), local.last() or return)
+
+    // Stored where it outlives the call: the heap, region or not.
+    store.saved = squares(5)
+    println!("stored {}", store.saved[4])
+
+    // Two calls deep, kept here: with regions, `squares` builds it in this scope's region.
+    let deep = more_squares(30)
+    println!("deep {} last {}", deep.len(), deep.last() or return)
+
+    // A custom allocator, passed explicitly, and the parameter left to the compiler.
+    let before = Allocators::Temp.used()
+    let in_temp = squares_in(1000, Allocators::Temp)
+    println!("in temp {} grew {}", in_temp.len(), Allocators::Temp.used() > before)
+    let defaulted = squares_in(10)
+    println!("defaulted {}", defaulted[9])
 
     label(&mut store, "item", 1)
     label(&mut store, "item", 2)

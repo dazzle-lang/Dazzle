@@ -181,3 +181,46 @@ What it says:
 
 Not checked: tracking (`--track-memory`) knows nothing of regions, and `DZ_REGIONS_EXPLAIN`
 is read inside codegen, which a real version would take from the build options.
+
+**Stage 2, prototyped on 2026-10-26** on the same branch:
+
+- **A result allocator.** A non-generic free function that returns something built by a
+  call left to the compiler — `let xs = List<T>(); …; return xs`, or `return make()` — gets
+  a hidden last parameter its signature does not show. Each call passes the caller's region
+  (the result kept and only borrowed), the caller's own result allocator (the result returned
+  again), or the heap. Decided once per function for the whole program; a function also used
+  as a value, a generic one and a method get none.
+- **`#allocator`**, an intrinsic like `#location`, as the default of an ordinary parameter:
+  `allocator: ^mut Allocator = #allocator`. Filled in at each call by the same rules; the
+  body passes it on explicitly. `std`'s containers, `String` and `Path` take it instead of
+  `Allocators::Global`; `Box` and `Rc` do not, since a `Weak` can outlive the `Rc` it was
+  made from. An early version also handed a function's `#allocator` to what it returned
+  without the body naming it, and silenced the unused-parameter warning to allow it; the
+  user rejected that, and the warning is back.
+- `let x = make() or …` is followed through the `or`.
+- Everything in `tests/run`, `tests/run/regions` and the crates' tests passes with regions on
+  and off, apart from `cmake` and the tolerant-analysis fixture built on it, which need
+  Ninja on this machine.
+
+What the memory side taught, measured as above (*heap* and *regions* builds of the
+heap-only programs):
+
+| `ScopeArena` keeps outgrown buffers | astar | expr peak | words peak |
+|---|---|---|---|
+| in the region until it ends (stage 1) | −15–17%, +33% memory | +70% with stage 2 | +63% with stage 2 |
+| no: blocks ≥ 16 KiB from `malloc`, freed at once | ±0–6% | as the heap | as the heap |
+| no: blocks ≥ 16 KiB pooled by size class across regions | −15–17%, +7 MiB | +68% | +20% |
+| as above, classes past 4 MiB not pooled | not measured (stopped) | | |
+
+So **`astar`'s gain was never the pointer bump**: it was reusing the same memory across the
+calls of one function, which the heap does not do. Keeping that and the heap's peak at once
+is the open question for the memory side.
+
+**What stage 2 showed about the design**, in the user's questions: a parameter cannot say
+which of the values a function builds it is for. A function given `&mut List<String>` that
+builds a scratch string and pushes another needs two different places, and one `#allocator`
+gives both the same. That moves the work to
+[T-0105](T-0105-placement-follows-value-destination-not-function.md) (placement follows
+each value's destination, including into a container through `push`) and the language
+question to [T-0106](T-0106-keep-manual-allocators-only-at-construction.md) (keep manual
+allocators only at construction, and drop `#allocator`).

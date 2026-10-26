@@ -1,8 +1,30 @@
-/// The chunks regions have finished with, kept for the next region on this thread (T-0104
-/// prototype). Each chunk's first word links it to the next and its second is its capacity,
-/// the same header a `ScopeArena` gives it.
+/// How many size classes of large block the pool keeps: a class `k` block is
+/// `2^k + SCOPE_LARGE_HEADER` bytes, so this covers everything up to 2^47.
+const SCOPE_CLASSES: usize = 48
+
+/// The memory regions have finished with, kept for the next region on this thread (T-0104
+/// prototype): chunks, each linked to the next through its first word with its capacity in
+/// the second, the same header a `ScopeArena` gives it; and large blocks by size class, so a
+/// container that grows through the same sizes on every call takes them from here rather
+/// than from `malloc`.
 pub struct ScopePool {
     m_free: ^mut u8 = null
+    /// The free large blocks of each class, made on first use: a static's array field would
+    /// need all its elements written out.
+    m_large: ^mut ^mut u8 = null
+
+    /// The free list of class `k`, the table made if this is its first use.
+    fn classes(&mut self) -> ^mut ^mut u8 {
+        if m_large == null {
+            m_large = unsafe { c_malloc(SCOPE_CLASSES * sizeof(usize)) as ^mut ^mut u8 }
+            for k in 0..SCOPE_CLASSES {
+                unsafe {
+                    m_large[k] = null
+                }
+            }
+        }
+        return m_large
+    }
 
     /// A chunk of at least `cap` bytes: the first free one big enough, or a new one.
     pub fn take(&mut self, cap: usize) -> ^mut u8 {
@@ -37,6 +59,38 @@ pub struct ScopePool {
         }
         m_free = chunk
     }
+
+    /// The size class of a large allocation of `size` bytes: the smallest `k` with
+    /// `2^k >= size`.
+    pub fn class(size: usize) -> usize {
+        let mut k: usize = 0
+        while (1 as usize) << k < size {
+            k += 1
+        }
+        return k
+    }
+
+    /// A block of class `k`: one given back earlier, or a new one.
+    pub fn take_large(&mut self, k: usize) -> ^mut u8 {
+        let classes = self.classes()
+        unsafe {
+            let block = classes[k]
+            if block != null {
+                classes[k] = (block as ^mut ^mut u8)[0]
+                return block
+            }
+        }
+        return c_malloc(((1 as usize) << k) + SCOPE_LARGE_HEADER)
+    }
+
+    /// Keep a block of class `k` for a later allocation of that class.
+    pub fn give_large(&mut self, block: ^mut u8, k: usize) {
+        let classes = self.classes()
+        unsafe {
+            (block as ^mut ^mut u8)[0] = classes[k]
+            classes[k] = block
+        }
+    }
 }
 
 impl Drop for ScopePool {
@@ -49,6 +103,20 @@ impl Drop for ScopePool {
                 chunk = next
             }
         }
+        if m_large == null {
+            return
+        }
+        for k in 0..SCOPE_CLASSES {
+            let mut block = unsafe { m_large[k] }
+            while block != null {
+                unsafe {
+                    let next = (block as ^mut ^mut u8)[0]
+                    c_free(block)
+                    block = next
+                }
+            }
+        }
+        c_free(unsafe { m_large as ^mut u8 })
     }
 }
 

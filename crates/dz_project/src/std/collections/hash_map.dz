@@ -18,7 +18,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     /// An empty map, with room for `capacity` entries already allocated when it is given.
     HashMap(
         capacity: usize = 0,
-        allocator: ^mut Allocator = Allocators::Global,
+        allocator: ^mut Allocator = #allocator,
         loc: SourceLocation = #location,
     ) {
         m_allocator = allocator

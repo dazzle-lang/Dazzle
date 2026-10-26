@@ -13,7 +13,7 @@ pub struct List<T> {
     /// given.
     List(
         capacity: usize = 0,
-        allocator: ^mut Allocator = Allocators::Global,
+        allocator: ^mut Allocator = #allocator,
         loc: SourceLocation = #location,
     ) {
         m_allocator = allocator
