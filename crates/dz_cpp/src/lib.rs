@@ -38,6 +38,7 @@ use dz_resolve::{ParsedFile, Resolution, SymbolId};
 use dz_span::{FileId, SourceMap, Span};
 
 mod reflect;
+mod regions;
 mod runtime;
 
 pub use runtime::{NATIVE_CPP, NATIVE_H, PRELUDE_H, RUNTIME_CPP, RUNTIME_H};
@@ -92,11 +93,14 @@ pub struct Options {
     /// A `#line` before each statement, naming its `.dz` line (spec §16.3). Off for
     /// `--no-line-directives`, when it is the generated C++ itself being debugged or read.
     pub line_directives: bool,
+    /// Place containers that never leave their scope in a region released when it ends
+    /// (T-0104 prototype, `regions.rs`).
+    pub regions: bool,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { mode: Mode::default(), line_directives: true }
+        Options { mode: Mode::default(), line_directives: true, regions: false }
     }
 }
 
@@ -194,6 +198,8 @@ pub fn emit(
             mode,
             line_directives: options.line_directives,
             reflect: &reflection,
+            regions: options.regions,
+            placement: Default::default(),
         };
         e.module(module_files);
         e.finish_header();
@@ -326,6 +332,8 @@ pub fn emit(
             mode,
             line_directives: options.line_directives,
             reflect: &reflection,
+            regions: false,
+            placement: Default::default(),
         };
         if type_info == dz_project::TypeInfo::All {
             reflect::seed_all(&mut e, files);
@@ -595,6 +603,10 @@ struct Emitter<'a> {
     line_directives: bool,
     /// The types reflected on, shared by every module's emitter (spec §13).
     reflect: &'a reflect::Shared,
+    /// Whether containers that never leave their scope are placed in a region (T-0104
+    /// prototype), and which ones are in the current body.
+    regions: bool,
+    placement: regions::Placement,
 }
 
 impl<'a> Emitter<'a> {
@@ -2976,10 +2988,13 @@ impl<'a> Emitter<'a> {
         }
         let saved_names = std::mem::replace(&mut self.names, names);
         let saved_file = std::mem::replace(&mut self.file, body.file);
+        let placement = if self.regions { self.place_regions() } else { Default::default() };
+        let saved_placement = std::mem::replace(&mut self.placement, placement);
         let result = self.capture(f);
         self.body = saved_body;
         self.names = saved_names;
         self.file = saved_file;
+        self.placement = saved_placement;
         result
     }
 
@@ -3124,6 +3139,13 @@ impl<'a> Emitter<'a> {
     /// Emit a block's statements, sending the value of its final expression to `dest`.
     fn block_into(&mut self, id: BlockId, dest: Dest<'_>) {
         let body = self.cur();
+        // First in the scope, so C++ destroys it after every value placed in it (T-0104).
+        if self.placement.blocks.contains(&id) {
+            if let Some(arena) = self.res.lookup(self.res.prelude, "ScopeArena") {
+                let ty = self.qualify(arena);
+                self.line(&format!("{ty} _dz_region{} {{}};", id.index()));
+            }
+        }
         let stmts = &body.block(id).stmts;
         let last = stmts.len().saturating_sub(1);
         for (i, s) in stmts.iter().enumerate() {
@@ -4080,7 +4102,12 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Call { callee, args } => {
-                self.call(callee, args, body.ty(e).clone(), node.span)
+                let region = self
+                    .placement
+                    .sites
+                    .get(&e)
+                    .map(|&(b, i)| (i, format!("_dz_region{}", b.index())));
+                self.call(callee, args, body.ty(e).clone(), node.span, region)
             }
             hir::ExprKind::Move(inner) => {
                 /// Something `take` can reset: a local, or a field of one.
@@ -4439,8 +4466,16 @@ impl<'a> Emitter<'a> {
     }
 
     /// `node_ty` is the call's own type, which is what says *which* instance a generic
-    /// struct's constructor builds.
-    fn call(&mut self, callee: &hir::Callee, args: &[ExprId], node_ty: Ty, span: Span) -> String {
+    /// struct's constructor builds. `region` is an argument index and the region to pass
+    /// there in place of the default allocator (T-0104).
+    fn call(
+        &mut self,
+        callee: &hir::Callee,
+        args: &[ExprId],
+        node_ty: Ty,
+        span: Span,
+        region: Option<(usize, String)>,
+    ) -> String {
         if let hir::Callee::Method { recv, owner, name, .. } = callee {
             if let Some(native) = self.native_trait_call(*recv, *owner, name, args) {
                 return native;
@@ -4600,6 +4635,12 @@ impl<'a> Emitter<'a> {
             let Some((body, default)) = *d else { break };
             let v = self.render_default(body, default, span);
             rendered.push(v);
+        }
+        // A constructor has no receiver argument, so the index is the parameter's.
+        if let Some((index, arena)) = region {
+            if let Some(slot) = rendered.get_mut(index) {
+                *slot = arena;
+            }
         }
         let call = format!("{target}({})", rendered.join(", "));
         match imported {

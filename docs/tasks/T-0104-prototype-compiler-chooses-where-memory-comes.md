@@ -122,3 +122,62 @@ on its own.
 Related: [T-0099](T-0099-allocators-temp-gives-growing-container-malloc.md) (the arena's
 growth cost) and [T-0100](T-0100-choose-temporary-arena-where-it-faster.md) (choosing the
 arena automatically), of which this is a fifth option.
+
+**Stage 1, prototyped on 2026-10-26** on the branch `t-0104-regions-prototype`, behind
+`DZ_REGIONS=1` (`DZ_REGIONS_EXPLAIN=1` prints every decision, which is what an inlay hint
+would show). What it does:
+
+- `crates/dz_cpp/src/regions.rs` places `let x = List<T>(…)` — `String`, `HashMap`,
+  `HashSet` and `String::from` likewise — when the allocator is left to its default and `x`
+  is only ever borrowed afterwards: `&x`, a `std` method on it, `x[i]`, a slice, a `for`, or
+  an assignment to it. Anything else keeps the heap.
+- The region is a `ScopeArena` (`std/memory/scope_arena.dz`), declared first in the block
+  that holds the `let`, so C++ releases it after everything in it is dropped. A block in a
+  loop gets a fresh one per pass. Chunks come from a per-thread `ScopePool` and go back to
+  it, so a region costs no `malloc` once the pool is warm, and each new chunk in a region is
+  twice the last (T-0099's fix, applied here only).
+- One hole needed the library: a function lent `&List<T>` can copy it into something
+  long-lived, and a copy takes the original's allocator. `Allocator` gained `scoped()`, and
+  a `List` or `HashMap` copied from a scoped allocator goes to the heap. `tests/run/regions`
+  checks this (switching the guard off makes it read `-1 -1` from a reused chunk).
+- Every `tests/run` program prints its expected output with regions on, as does
+  `tests/run/regions` (`regions_change_nothing` in `crates/dz/tests/run.rs`). `cmake` fails
+  on this machine either way, for want of Ninja.
+
+The A/B, Windows, release, ten runs each. *hand* is the benchmark as written, *heap* the
+same with every `Allocators::Temp` taken out, *regions* the heap version with
+`DZ_REGIONS=1`:
+
+| program | compiler | hand | heap | regions | peak MiB (hand / heap / regions) |
+|---|---|---:|---:|---:|---|
+| astar | clang++ | 699 ms | 700 ms | **578 ms (−17%)** | 22 / 22 / 29 |
+| astar | g++ | 564 ms | 566 ms | **484 ms (−15%)** | 22 / 22 / 29 |
+| expr | clang++ | 332 ms | 371 ms | 370 ms | 143 / 143 / 143 |
+| expr | g++ | 303 ms | 336 ms | 337 ms | 143 / 143 / 143 |
+| words | clang++ | 369 ms | 398 ms | 400 ms | 73 / 46 / 60 |
+| words | g++ | 319 ms | 344 ms | 345 ms | 73 / 46 / 60 |
+
+(`astar` uses no `Temp`, so its hand and heap builds are the same program.)
+
+What it says:
+
+- **Where the analysis reaches the hot allocations, it beats hand placement.** `astar`'s
+  maps and path are locals of a function called once per search: placed, they are 15–17%
+  faster than the heap and than `Temp`, which T-0099 measured as *slower* than the heap.
+  The cost is memory: about a third more at peak, from outgrown map arrays kept until the
+  region ends and the pool holding chunks.
+- **`words` and `expr` are untouched, as stage 1 predicted.** In `words` the bulk is the
+  `String` keys, copies of `word`, which is passed to `insert` by value and so stays on the
+  heap. Putting it in the map's region needs to know that `insert` stores its argument:
+  stage 3. In `expr` the allocations are `Box` nodes made by the program's own `Parser`,
+  which the stage-1 rules do not place at all. Hand-placed `Temp` stays 7–11% ahead on
+  both.
+- **Against the go/no-go above:** stage 1 matches or beats hand-placed `Temp` where it
+  applies, but peak memory is not near the heap's, and on two of the three programs it does
+  not yet apply. Neither a go nor a no-go. The next things to learn are whether stage 3 (where
+  parameters go) reaches `words`'s keys, and whether releasing outgrown buffers back into the
+  region (a free that is not a no-op for the last allocation, or a size-classed free list)
+  brings the peak down.
+
+Not checked: tracking (`--track-memory`) knows nothing of regions, and `DZ_REGIONS_EXPLAIN`
+is read inside codegen, which a real version would take from the build options.
