@@ -967,6 +967,27 @@ fn generated_cpp_carries_line_directives_back_to_dazzle() {
 }
 
 #[test]
+fn a_build_ignores_cpp_left_behind_by_a_module_that_is_gone() {
+    // T-0087 — `build/cpp/` keeps the `.cpp` of a module that has since been renamed or
+    // removed. Compiling it fails against a runtime it was not generated for, so a build
+    // compiles only what it emitted, and leaves the folder's other files where they are.
+    if !have_compiler() {
+        return;
+    }
+    let dir = copy_fixture("hello", "dz_stale_cpp");
+    let cpp = dir.join("build/cpp");
+    std::fs::create_dir_all(&cpp).unwrap();
+    let stale = cpp.join("removed_module.cpp");
+    std::fs::write(&stale, "#error this module no longer exists\n").unwrap();
+    let out =
+        Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "Hello, world!");
+    assert!(stale.exists(), "a file the build did not write was deleted");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn no_line_directives_leaves_out_the_directives_and_nothing_else() {
     // spec §16.3 — for reading or debugging the generated C++ itself. Every file, the
     // standard library's included, is the default output with its `#line`s taken out.
