@@ -5,5 +5,10 @@ saved 7 8 9
 grown 1001 sum 500500
 longest 48
 counts 7 total 100
+squares 20 last 361
+stored 16
+deep 30 last 841
+in temp 1000 grew true
+defaulted 81
 item-1
 item-2

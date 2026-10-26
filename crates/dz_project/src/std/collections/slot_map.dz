@@ -21,7 +21,7 @@ pub struct SlotMap<T> {
     /// An empty map, with room for `capacity` values already allocated when it is given.
     SlotMap(
         capacity: usize = 0,
-        allocator: ^mut Allocator = Allocators::Global,
+        allocator: ^mut Allocator = #allocator,
         loc: SourceLocation = #location,
     ) {
         m_values = List<T>(capacity, allocator, loc)

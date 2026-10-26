@@ -124,7 +124,7 @@ pub fn caller_default(default: Option<&Expr>) -> Option<String> {
             if args.is_empty()
                 && matches!(
                     name.name.as_str(),
-                    "location" | "line" | "column" | "file" | "function"
+                    "location" | "line" | "column" | "file" | "function" | "allocator"
                 ) =>
         {
             Some(name.name.clone())

@@ -212,6 +212,12 @@ pub struct LocalUse {
     pub assigned: bool,
 }
 
+/// Whether `e` is the intrinsic `#allocator`, which the compiler fills in at each call with
+/// the allocator for what that call returns (T-0104 prototype).
+pub fn is_allocator(body: &Body, e: ExprId) -> bool {
+    matches!(&body.expr(e).kind, ExprKind::Intrinsic { name, args } if name == "allocator" && args.is_empty())
+}
+
 /// Every local's [`LocalUse`], by [`LocalId`].
 ///
 /// One answer for two consumers: flow analysis warns about a binding nothing reads, and
