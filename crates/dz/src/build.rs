@@ -11,6 +11,10 @@ pub use dz_driver::Analysis;
 
 pub struct BuildOutput {
     pub cpp_dir: PathBuf,
+    /// Every file this build emitted, changed or not. The compiler is given these rather
+    /// than whatever `cpp_dir` holds, so a file left behind by a module that has since been
+    /// renamed or removed is never compiled (T-0087).
+    pub files: Vec<PathBuf>,
     /// Only the files whose contents actually changed (spec §16.6).
     pub written: Vec<PathBuf>,
 }
@@ -70,9 +74,11 @@ pub fn emit_cpp(
         }
     }
 
+    let mut files = Vec::new();
     let mut written = Vec::new();
     for file in &emitted.files {
         let path = cpp_dir.join(&file.name);
+        files.push(path.clone());
         let contents = with_embedded_lines(&file.contents, &renames);
         // Rewriting an unchanged file would defeat the C++ compiler's own incremental
         // build, which is the only incrementality that exists so far (spec §16.6).
@@ -91,7 +97,7 @@ pub fn emit_cpp(
         }
     }
 
-    Ok(BuildOutput { cpp_dir, written })
+    Ok(BuildOutput { cpp_dir, files, written })
 }
 
 /// `text` with every `#line N "<pseudo>"` naming its real copy instead, per `renames` of
@@ -247,15 +253,12 @@ pub fn compile(
         cmd.arg(format!("-D{define}"));
     }
 
-    let mut sources: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&out.cpp_dir) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x == "cpp") {
-                sources.push(p);
-            }
-        }
-    }
+    // Only what this build emitted: `build/cpp/` can still hold the `.cpp` of a module that
+    // has been renamed or removed, and compiling it fails against a runtime it was not
+    // generated for, with an error naming source that no longer exists (T-0087). Nothing in
+    // the folder is deleted, since a user may have put something there.
+    let mut sources: Vec<&PathBuf> =
+        out.files.iter().filter(|p| p.extension().is_some_and(|x| x == "cpp")).collect();
     sources.sort();
     for s in &sources {
         cmd.arg(s);

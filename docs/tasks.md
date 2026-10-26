@@ -117,8 +117,8 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0070](tasks/T-0070-one-word-one-job.md)** One word, one job · design, language
 - **[T-0076](tasks/T-0076-release-workflow-installer-with-libclang-bundled.md)** A release workflow and an installer with libclang bundled · feature, packaging
 - **[T-0083](tasks/T-0083-build-static-lib-shared-lib-outputs.md)** Build static-lib and shared-lib outputs · feature, codegen
-- **[T-0087](tasks/T-0087-build-compiles-c-left-behind-by.md)** A build compiles C++ left behind by a module that no longer exists · bug, tooling
 - **[T-0091](tasks/T-0091-static-cannot-hold-struct-with-array.md)** A static cannot hold a struct with an array field that has no default · design, language
 - **[T-0092](tasks/T-0092-dz-fmt-collapses-multi-line-array.md)** dz fmt collapses a multi-line array literal and detaches its elements' comments · bug, tooling
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
 - **[T-0100](tasks/T-0100-choose-temporary-arena-where-it-faster.md)** Choose the temporary arena where it is faster, automatically or by a setting · design, stdlib
+- **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling

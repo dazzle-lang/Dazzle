@@ -2,6 +2,19 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## A build compiles only the C++ it emitted (T-0087; 2026-10-26)
+
+`compile` used to pass every `.cpp` in `build/cpp/` to the C++ compiler. So a module that
+had been renamed or removed left a stale `.cpp` behind, and that file failed with `DZ0803`
+against a runtime it was not generated for. The error named source that no longer existed.
+`examples/ownership` hit this after its `books` module went.
+
+`BuildOutput` now carries `files`, every file `emit_cpp` emitted whether or not it was
+rewritten, and `compile` takes its sources from that list. Nothing in the folder is deleted,
+since a user may have put something there. `a_build_ignores_cpp_left_behind_by_a_module_that_is_gone`
+plants a `.cpp` holding an `#error`, builds `hello`, and checks that the build succeeds and
+the file is still there. Without the fix, the test fails with the original `DZ0803`.
+
 ## `--timings`, and where a build's time goes (2026-10-25)
 
 The user asked for the benchmarks to show compile times, broken down by phase. Nothing in

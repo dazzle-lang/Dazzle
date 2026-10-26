@@ -2,7 +2,7 @@
 id: T-0087
 title: A build compiles C++ left behind by a module that no longer exists
 milestone: none
-status: open
+status: done
 kind: bug
 area: tooling
 ---
