@@ -383,6 +383,12 @@ impl<T> Drop for List<T> {
 impl<T: Copy> Copy for List<T> {
     fn copy(&mut self, other: &Self) {
         m_allocator = other.m_allocator
+        // The copy may outlive the scope a region belongs to, so it goes to the heap.
+        if let &from = other.m_allocator {
+            if from.scoped() {
+                m_allocator = Allocators::Global
+            }
+        }
         if other.m_len == 0 {
             return
         }

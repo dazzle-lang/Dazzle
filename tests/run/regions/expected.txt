@@ -1,0 +1,9 @@
+285
+5 evens, last 8
+churned 20000
+saved 7 8 9
+grown 1001 sum 500500
+longest 48
+counts 7 total 100
+item-1
+item-2

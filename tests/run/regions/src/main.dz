@@ -1,0 +1,126 @@
+// The regions prototype (T-0104): containers a scope builds and never lets out get their
+// memory from a region released when the scope ends. The output must be the same with it on
+// (`DZ_REGIONS=1`, `regions_change_nothing` in crates/dz/tests/run.rs) and off.
+
+struct Store {
+    pub saved: List<i32>
+    pub names: List<String>
+}
+
+// Placed: only borrowed, by its own methods and a `for`.
+fn sum_squares(n: i32) -> i32 {
+    let mut xs = List<i32>()
+    for i in 0..n {
+        xs.push(i * i)
+    }
+    let mut total = 0
+    for &x in xs {
+        total += x
+    }
+    return total
+}
+
+// Not placed: returned, so it outlives the call.
+fn evens(n: i32) -> List<i32> {
+    let mut xs = List<i32>()
+    for i in 0..n {
+        if i % 2 == 0 {
+            xs.push(i)
+        }
+    }
+    return move(xs)
+}
+
+// Copies what it is lent into a store that outlives the lender's scope.
+fn keep(store: &mut Store, xs: &List<i32>) {
+    store.saved = xs
+}
+
+// Fills a region of its own, reusing the chunks the last region gave back, so anything
+// still pointing into them reads these values instead of its own.
+fn churn() -> i32 {
+    let mut junk = List<i32>()
+    for _ in 0..20000 {
+        junk.push(-1)
+    }
+    return junk.len() as i32
+}
+
+// Grows a list it is lent while its own region is open: the list's memory must come from
+// the lender's region, not this one, which is gone when it returns.
+fn fill(xs: &mut List<i32>, n: i32) {
+    let mut scratch = List<i32>()
+    for i in 0..n {
+        scratch.push(i)
+        xs.push(i)
+    }
+    xs.push(scratch.len() as i32)
+}
+
+// Placed: the scratch `String` dies here; the name kept is a copy, on the heap.
+fn label(store: &mut Store, prefix: str, n: i32) {
+    let mut text = String::from(prefix)
+    text.push_str("-")
+    text.push_str(format!("{}", n).as_str())
+    store.names.push(String::from(text.as_str()))
+}
+
+fn main() {
+    println!("{}", sum_squares(10))
+
+    let e = evens(10)
+    println!("{} evens, last {}", e.len(), e.last() or return)
+
+    let mut store = Store{ saved: List<i32>(), names: List<String>() }
+    {
+        let mut lent = List<i32>()
+        lent.push(7)
+        lent.push(8)
+        keep(&mut store, &lent)
+    }
+    // The block's region is released and its chunk reused; the copy must not have been in it.
+    println!("churned {}", churn())
+    store.saved.push(9)
+    println!("saved {} {} {}", store.saved[0], store.saved[1], store.saved[2])
+
+    let mut grown = List<i32>()
+    fill(&mut grown, 1000)
+    let mut check = 0
+    for &g in grown {
+        check += g
+    }
+    println!("grown {} sum {}", grown.len(), check)
+
+    // A region per pass of the loop: each pass's list is gone by the next.
+    let mut longest = 0
+    for round in 0..50 {
+        let mut words = List<String>()
+        for i in 0..round {
+            words.push(String::from("w"))
+            if i > longest {
+                longest = i
+            }
+        }
+        if words.len() as i32 != round {
+            println!("round {} lost words", round)
+        }
+    }
+    println!("longest {}", longest)
+
+    let mut counts = HashMap<i32, i32>()
+    for i in 0..100 {
+        let n = counts.get_or_insert(i % 7, 0)
+        n += 1
+    }
+    let mut total = 0
+    for _, &c in counts {
+        total += c
+    }
+    println!("counts {} total {}", counts.len(), total)
+
+    label(&mut store, "item", 1)
+    label(&mut store, "item", 2)
+    for &name in store.names {
+        println!("{}", name)
+    }
+}

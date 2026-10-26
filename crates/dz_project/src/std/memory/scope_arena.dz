@@ -1,0 +1,101 @@
+/// Bytes at the start of every region chunk: the previous chunk, and this one's capacity.
+const SCOPE_HEADER: usize = 16
+
+/// The smallest chunk a region asks the pool for.
+const SCOPE_CHUNK: usize = 65536
+
+/// A region: the memory of the values one scope builds and never lets out (T-0104
+/// prototype). The compiler declares one at the top of the scope and hands it to those
+/// values' constructors, so it is released after every one of them is dropped.
+///
+/// Allocation is a pointer bump, freeing is nothing, and the chunks go back to this thread's
+/// pool when the region ends, so a region opened on every call or every pass of a loop costs
+/// no `malloc` once the pool holds enough.
+pub struct ScopeArena {
+    m_chunk: ^mut u8 = null
+    m_used: usize = 0
+    m_cap: usize = 0
+
+    /// A new chunk big enough for `size` bytes at `align`, in front of the current one. Each
+    /// is at least twice the last, so a container that keeps growing settles in a few chunks
+    /// rather than taking one per resize (T-0099).
+    fn grow(&mut self, size: usize, align: usize) {
+        let wanted = SCOPE_HEADER + align + size
+        let mut cap = if m_cap * 2 > SCOPE_CHUNK { m_cap * 2 } else { SCOPE_CHUNK }
+        if wanted > cap {
+            cap = wanted
+        }
+        let chunk = unsafe { SCOPE_POOL.take(cap) }
+        unsafe {
+            (chunk as ^mut ^mut u8)[0] = m_chunk
+        }
+        m_chunk = chunk
+        m_cap = unsafe { (chunk as ^mut usize)[1] }
+        m_used = SCOPE_HEADER
+    }
+
+    /// The first offset at or past `m_used` whose address is a multiple of `align`.
+    fn aligned(&self, align: usize) -> usize {
+        let base = m_chunk as usize
+        let at = base + m_used
+        return (at + align - 1) / align * align - base
+    }
+}
+
+impl Allocator for ScopeArena {
+    fn alloc(&mut self, size: usize, align: usize, _loc: SourceLocation) -> ^mut u8 {
+        let mut start = self.aligned(align)
+        if m_chunk == null || start + size > m_cap {
+            self.grow(size, align)
+            start = self.aligned(align)
+        }
+        m_used = start + size
+        let p: ^mut u8 = unsafe { &mut m_chunk[start] }
+        return p
+    }
+
+    fn realloc(
+        &mut self,
+        p: ^mut u8,
+        old_size: usize,
+        new_size: usize,
+        align: usize,
+        loc: SourceLocation,
+    ) -> ^mut u8 {
+        // The last allocation grows in place when the chunk has room.
+        if p != null && m_chunk != null {
+            let offset = (p as usize) - (m_chunk as usize)
+            if offset + old_size == m_used && offset + new_size <= m_cap {
+                m_used = offset + new_size
+                return p
+            }
+        }
+        let q = self.alloc(new_size, align, loc)
+        if p != null {
+            let kept = if old_size < new_size { old_size } else { new_size }
+            unsafe { memcpy(q, p, kept) }
+        }
+        return q
+    }
+
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+        let _ = p != null && size + align > 0 && loc.line > 0
+    }
+
+    fn scoped(&self) -> bool {
+        return true
+    }
+}
+
+impl Drop for ScopeArena {
+    fn drop(&mut self) {
+        let mut chunk = m_chunk
+        while chunk != null {
+            unsafe {
+                let prev = (chunk as ^mut ^mut u8)[0]
+                SCOPE_POOL.give(chunk)
+                chunk = prev
+            }
+        }
+    }
+}
