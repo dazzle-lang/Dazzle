@@ -101,7 +101,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (21 open)
+## none — not scheduled (22 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -124,3 +124,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0104](tasks/T-0104-prototype-compiler-chooses-where-memory-comes.md)** Prototype: the compiler chooses where memory comes from, by ownership · design, ownership
 - **[T-0105](tasks/T-0105-placement-follows-value-destination-not-function.md)** Placement follows the value's destination, not a function parameter · design, ownership
 - **[T-0106](tasks/T-0106-keep-manual-allocators-only-at-construction.md)** Keep manual allocators only at construction; drop #allocator parameters · design, ownership
+- **[T-0107](tasks/T-0107-design-ties-kills-clauses-compiler-placed.md)** Design ties, kills clauses and compiler-placed memory · design, ownership

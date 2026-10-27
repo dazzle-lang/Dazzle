@@ -227,3 +227,6 @@ allocators only at construction, and drop `#allocator`).
 
 **Stage 3**, values stored into containers, was prototyped on 2026-10-27: its rules and
 measurements are in T-0105.
+
+**The design that grew out of this prototype** is [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md)
+(decision [D-0091](../decisions/D-0091-ties-checked-reference-invalidation-memory-placed.md), open).
