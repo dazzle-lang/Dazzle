@@ -17,45 +17,54 @@ is decided, nothing is in the spec, and the syntax is a sketch to be settled lat
 after the memory it points into has moved or been freed, and memory placed by the compiler
 instead of by an allocator the program names.
 
-*Ties.* A tie is a span during which some memory is valid. A type declares named ties for
-the storage it owns, as public names for private fields, so a signature can name them
+The notation below is the one proposed under **Syntax** further down (`@` for a tie, `in`
+to say where something points); nothing about it is settled.
+
+*Ties.* A tie is a span during which some memory is valid. A type declares a tie by writing
+`in @name` on a field. On a pointer field it names the memory the pointer owns; on any
+other field it is a public name for that private field, so a signature can mention it
 without breaking encapsulation (§4):
 
 ```dz
 pub struct List<T> {
-    tie 'items           // the array of elements: moves when the list grows
-    tie 'contents        // what the elements own: moves only when an element goes
+    m_data: own ^mut T in @items = null     // the array of elements: moves when it grows
     ...
 }
 
 pub struct String {
-    tie 'text
-    ...
+    m_bytes: List<u8> in @text
 }
 ```
 
-A tie is a member, not a generic parameter: every `List` has its own, and nobody using the
-type picks it. A `List` needs two because they die at different times: `push` may move the
-array of strings, but not the bytes of each string, so a `str` view into one element
-survives pushing another.
+A tie is part of the type, not a generic parameter: every `List` has its own, and nobody
+using the type picks it.
+
+*Tie paths.* A clause or a tied return names memory by a path: a parameter, then public
+fields (or fields visible wherever the function is), declared ties (`@items`), and `[*]` for
+any element. A path that ends without a tie means every tie under it.
+
+- `list@items` is the array: what `&list[i]` points into.
+- `list[*]@text` is the text of any element of a `List<String>`: what `list[i].as_str()`
+  points into. It is **not** under `list@items`, so `push`, which moves the array but not
+  each string's bytes, leaves such a view alone.
+- `list[*]` is everything every element owns, and `list` everything the list owns.
 
 *References carry ties.* Every reference points into some tie, and the code that makes it
-knows which: `&mut world.enemies[i]` is tied to `world.enemies'items`. A function that
-returns a reference says what it points into: `pub fn first(&self) -> 'items &T`. With one
-reference input and no tie written, the result is tied to that input as a whole, so any kill
-on it ends the result.
+knows which: `&mut world.enemies[i]` is in `world.enemies@items`. A function returning a
+reference says where it points: `pub fn first(&self) -> ^T in self@items`. With exactly one
+reference input and no `in` written, the result is in that input as a whole, so any kill on it
+ends the result. A reference parameter may declare where it points too, to be checked inside
+the function: `e: &mut Enemy in world`.
 
-*`kills` clauses.* Every function says in its signature which ties it may end. A clause
-names a path through public fields plus a tie, or a whole parameter for everything reachable
-from it:
+*`kills` clauses.* Every function says in its signature which ties it may end:
 
 ```dz
-pub fn push(&mut self, v: T) kills self'items
-pub fn clear(&mut self) kills self'items, self'contents
+pub fn push(&mut self, v: T) kills self@items
+pub fn clear(&mut self) kills self@items, self[*]
 pub fn len(&self) -> usize                        // no clause: kills nothing
 
-pub fn spawn(world: &mut World, e: Enemy) kills world.spawned'items
-fn think(e: &mut Enemy, world: &mut World) kills world.enemies'items
+pub fn spawn(world: &mut World, e: Enemy) kills world.spawned@items
+fn think(e: &mut Enemy, world: &mut World) kills world.enemies@items
 fn rebuild(world: &mut World) kills world          // coarse: anything reachable from it
 ```
 
@@ -73,9 +82,12 @@ fn rebuild(world: &mut World) kills world          // coarse: anything reachable
 - Writing, moving or dropping a place kills every tie under it, inline storage included:
   assigning a tagged union a different variant kills references into its old payload.
 - `xs[i]` and `xs[j]` share one tie: a kill through either kills both, since `i` may equal `j`.
-- `std` writes its containers' clauses by hand, over `unsafe` code:
+- `std` writes its containers' clauses by hand, over `unsafe` code. An element whose own
+  memory survives (a string moved to a new array keeps its bytes) is a design point, not a
+  checker rule: the checker kills everything under a place a *user* moves, since it cannot
+  follow a view from `s` to `t` after `let t = move(s)`.
 
-  | | `'items` | `'contents` |
+  | | `self@items` | `self[*]` |
   |---|---|---|
   | `push`, `insert`, `reserve` | kills | — |
   | `pop`, `remove`, `swap_remove` | kills | — (the element leaves; the others stay) |
@@ -83,7 +95,8 @@ fn rebuild(world: &mut World) kills world          // coarse: anything reachable
   | `sort_by`, `swap`, `reverse` | kills (elements move) | — |
   | `len`, `get`, `first`, indexing | — | — |
 
-  `String::push_str` and `push` kill `'text`. `HashMap` follows `List`.
+  `String::push_str` and `push` kill `self@text`. `HashMap` follows `List`, with `[*]` for
+  its entries.
 - A raw pointer a safe call returns (`HashMap::get` gives a `^V`) is tied like a reference.
   One made in `unsafe` by a cast or arithmetic is untied and unchecked, as today. So is a
   `^mut World` stored in a context struct (§5.2): the checker follows `ctx.world.enemies` as a
@@ -121,16 +134,16 @@ safe, the heap last:
 
 | Scenario | Verdict |
 |---|---|
-| `let n = counts.get_or_insert(k, 0)`; `counts.insert(o, 1)`; `n += 1` | ❌ `insert` kills `counts'items`, `n` points into it |
-| `let s = name.as_str()`; `name.push_str("x")`; use `s` | ❌ `push_str` kills `name'text` |
-| `for &mut e in enemies { enemies.push(…) }` | ❌ the loop's iterator is tied to `enemies'items` |
+| `let n = counts.get_or_insert(k, 0)`; `counts.insert(o, 1)`; `n += 1` | ❌ `insert` kills `counts@items`, `n` points into it |
+| `let s = name.as_str()`; `name.push_str("x")`; use `s` | ❌ `push_str` kills `name@text` |
+| `for &mut e in enemies { enemies.push(…) }` | ❌ the loop's iterator is tied to `enemies@items` |
 | ECS: `let p = &mut world.positions[i]` beside `let v = &world.velocities[i]`, `p.x += v.dx` | ✅ different ties, and the write kills nothing |
 | ECS: `&mut positions[i]` beside `&positions[j]` in a collision loop | ✅ one tie, but nothing kills it (Rust rejects this) |
 | ECS: hold `&world.positions[0]`, push to `world.positions`, use it | ❌ correctly; undefined behaviour in C++ |
 | ECS: hold `&world.enemies[0]`, push to `world.spawned` | ✅ different ties |
 | ECS: `think(&mut world.enemies[i], &mut world)`, where `think` pushes to `world.enemies` and then writes `e` | ❌ at the call: `e` points into what `think`'s clause kills |
 | the same `think` with a local `boss` | ✅ `boss` is not in `world` |
-| `think` declaring `e: &'world mut Enemy` | ❌ inside `think`, at the write after the push |
+| `think` declaring `e: &mut Enemy in world` | ❌ inside `think`, at the write after the push |
 | ECS: a scratch `List` built and dropped in `update` every frame | ✅ the scope's region, from the per-thread pool, no `malloc` per frame |
 | ECS: component lists that despawn with `swap_remove` | heap: one element at a time, so no arena; today's performance |
 | a string popped from a region list and kept in a long-lived store (T-0105's hole) | heap: the region's tie does not reach the store, so that placement fails the check |
@@ -180,6 +193,42 @@ body change ripple into other modules), and the placement intent mechanisms were
 - From the prototype: scope regions and result placement made `astar` 12–17% faster than the
   heap. Stage 3 reached `words`' keys but gained 2%, with hand-placed `Temp` 6–7% ahead.
 
+**Syntax, accepted by the user on 2026-10-27** as proposed here (step 1 below; needed under
+D-0091's options A and B alike). It reaches the spec with D-0091's decision and its §21 row,
+not before. Five choices, and the notation above uses them:
+
+1. **The sigil for a tie: `@items`, not `'items`.** An apostrophe already starts a char
+   literal (`'a'`, §2.5), so `'a` against `'a'` needs lookahead in a lexer that must never
+   bail (invariant 1). Rust does it, but that is the second reason against it: an LLM that
+   sees `'a` writes Rust lifetimes, which mean "lives as long as", where a tie means "points
+   into". `@` is unused (§2.6), lexes on its own, and reads as "at".
+2. **`in` says where something points**, in all three places: a field declaring a tie
+   (`m_data: own ^mut T in @items = null`), a tied return (`-> &T in self@items`), and a
+   parameter declaring one (`e: &mut Enemy in world`). `in` is already a keyword (`for x in`),
+   and after a type it cannot be confused with a loop. The alternative, a prefix on the
+   reference (`&@items T`, as Rust writes `&'a T`), cannot name the parameter the tie
+   belongs to without a second sigil.
+3. **`kills` becomes a reserved keyword** (§2.7), written after the return type and before
+   the body: `fn load(p: &Path) !-> Mesh kills cache@entries { … }`. A keyword only in that
+   position would avoid breaking an identifier named `kills`, but the language is
+   pre-release, and a real keyword is easier for a reader and an LLM to spot.
+4. **A clause may name only what is visible wherever the function is.** A private method can
+   write `kills self.m_things@items`; a `pub` method on a private field declares a tie on
+   the field (`m_things: List<Thing> in @things`) and writes `kills self@things`. A `pub`
+   field is named by its path: `kills self.bricks@items`.
+5. **Function types gain optional parameter names**, needed when their clause names one:
+   `fn(world: &mut World) kills world`. Today a function type has types only (§20).
+
+In the grammar sketch (§20), roughly:
+
+```ebnf
+fn_decl   = … "(" [ params ] ")" [ ( "->" | "!->" ) type [ "in" tie_path ] ]
+            [ "kills" tie_path { "," tie_path } ] block ;
+param     = … | ident ":" type [ "in" tie_path ] [ "=" expr ] ;
+field     = … ident ":" type [ "in" "@" ident ] [ "=" expr ] … ;
+tie_path  = ( ident | "self" ) { "." ident | "[" "*" "]" | "@" ident } ;
+```
+
 **What it would take.** First the user's decision on D-0091 (A: all of it; B: ties and
 `kills` only, allocators explicit; C: neither). B is the first step under A as well. Then, in
 order, each step standing on its own:
@@ -187,7 +236,7 @@ order, each step standing on its own:
 1. Settle the syntax of ties, `kills` clauses and tied returns. A language change: a §21
    row, superseding D-0010 and D-0047, revising §1.1, §6.4 and §14.
 2. The checker: references with ties, `kills` clauses checked against bodies, `std`'s clauses
-   written by hand, diagnostics in terms of user code ("`push` kills `world.enemies'items`;
+   written by hand, diagnostics in terms of user code ("`push` kills `world.enemies@items`;
    `e` points into it and is used at line 14"), and `dz fix` for a missing clause. Per
    function, so the LSP stays fast.
 3. A debug-build check of `std`'s trusted clauses: generation counters on arena memory, so a
