@@ -238,7 +238,25 @@ user's choice. In order, each step standing on its own:
 2. The checker: references with ties, `kills` clauses checked against bodies, `std`'s clauses
    written by hand, diagnostics in terms of user code ("`push` kills `world.enemies@items`;
    `e` points into it and is used at line 14"), and `dz fix` for a missing clause. Per
-   function, so the LSP stays fast.
+   function, so the LSP stays fast. In pieces, each landing on its own:
+   - **2a. Syntax only.** `kills` a keyword; the parser, the syntax tree and the formatter
+     for `in @tie` on fields, `in path` on parameters and returns, `kills` clauses and named
+     parameters in function types; the lex, parse and fmt corpora. Parsed and kept, with no
+     meaning yet. Invariants 1, 6 and 10.
+   - **2b. Resolving tie paths**, in the checker since they go through `.` (invariant 9):
+     each path's parameters, fields, declared ties and `[*]` exist and are visible wherever
+     the function is (§6.7); the clause is part of the function's signature in the HIR; new
+     codes for a bad path; `typed/` and `typeerrors/` cases (invariant 8).
+   - **2c. The analysis**, in `dz_flow`: the tie of every reference and view; kills at
+     calls (the callee's clause read at its arguments), at assignment, move and drop; an
+     error for a use after a kill, and one for a kill the clause does not cover. Calls with
+     no clause kill everything reachable through `&mut` and `^mut` arguments.
+   - **2d. `std`'s clauses** on `List`, `HashMap`, `HashSet`, `SlotMap` and `String`, with
+     `std` itself checking clean.
+   - **2e. `dz fix` for a missing clause**, `dz explain` for every new code, and the clause
+     in the editor's hover. Then the examples and corpora get their clauses (about 13
+     functions in `examples/`), in the same change that makes a missing one an error, so
+     nothing in the repository stops compiling.
 3. A debug-build check of `std`'s trusted clauses: generation counters on arena memory, so a
    wrong declaration fails a test instead of shipping.
 4. Placement on top of the checker: stages 1 and 2 re-based on ties, the result convention
@@ -249,6 +267,9 @@ user's choice. In order, each step standing on its own:
    Measured against hand-placed `Temp` as in T-0104.
 7. Owner arenas, once a program needs them.
 
-Still open, to settle on the way: the elision rules for returned references, how a
+Still open, to settle on the way: what `[*]` means inside the type that declares it (in
+`List`'s own body the elements are `m_data[i]`, behind a pointer tied `@items`, so `self[*]`
+must name what is stored in that memory; the spec does not yet say so), the elision rules
+for returned references, how a
 tagged union's payload is named in a tie, what `dz` shows for each placement (inlay hints and
 a listing), and whether stage 3 on the prototype branch is reverted now or left until step 4.
