@@ -121,10 +121,11 @@ impl<'a> Parser<'a> {
                 self.expect_in(TokenKind::RParen, "to close a tuple type");
                 TypeKind::Tuple(elems)
             }
-            // `fn(i32, f32) -> bool`
+            // `fn(i32, f32) -> bool`, or `fn(world: &mut World) kills world` (spec §6.7)
             TokenKind::Fn => {
                 self.bump();
                 let mut params = Vec::new();
+                let mut param_names = Vec::new();
                 if self.expect_in(TokenKind::LParen, "in a function type") {
                     loop {
                         self.skip_terminators();
@@ -134,6 +135,17 @@ impl<'a> Parser<'a> {
                         if self.stalled() {
                             continue;
                         }
+                        // A name is a name followed by `:`; `Vec2` alone, or `geo::Vec2`,
+                        // is a type.
+                        let name =
+                            if self.at(TokenKind::Ident) && self.peek_at(1) == TokenKind::Colon {
+                                let n = self.parse_ident_or_error();
+                                self.bump(); // `:`
+                                Some(n)
+                            } else {
+                                None
+                            };
+                        param_names.push(name);
                         params.push(self.parse_type());
                         if !self.eat(TokenKind::Comma) {
                             break;
@@ -146,7 +158,9 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                TypeKind::Fn { params, ret }
+                let kills =
+                    if self.eat(TokenKind::Kills) { self.parse_kills(true) } else { Vec::new() };
+                TypeKind::Fn { params, param_names, ret, kills }
             }
             TokenKind::SelfType => {
                 self.bump();

@@ -190,9 +190,14 @@ pub struct FnDecl {
     pub self_param: Option<SelfParam>,
     pub params: Vec<Param>,
     pub ret: Option<Type>,
+    /// `-> ^T in self@items`: where a returned reference points (spec §6.7).
+    pub ret_tie: Option<TiePath>,
     /// `!->` in place of `->`: this function may fail (spec §9). Fallibility lives on the
     /// signature and never on a type, so there is no `Fallible` in [`TypeKind`].
     pub fallible: bool,
+    /// `kills self@items, self[*]`: the ties this function may end (spec §6.7). Empty when
+    /// it kills nothing.
+    pub kills: Vec<TiePath>,
     /// `None` for a trait method with no default body.
     pub body: Option<Block>,
     /// `Button(w: i32) : UiElement(w) { … }` — a constructor's base initialiser, and
@@ -240,6 +245,28 @@ pub struct Param {
     /// `args: ..T`: any number of `T`s, seen in the body as a `[]T` (spec §7.2). Only the
     /// last parameter may be one; `ty` is the element type as written.
     pub variadic: bool,
+    /// `e: &mut Enemy in world`: where a reference parameter points (spec §6.7).
+    pub tie: Option<TiePath>,
+}
+
+/// Memory named by a path, in a `kills` clause or after `in` (spec §6.7): `self@items`,
+/// `world.enemies@items`, `list[*]@text`, or a bare `world` for everything it owns.
+#[derive(Clone, Debug)]
+pub struct TiePath {
+    pub span: Span,
+    /// A parameter's name, or `self`.
+    pub root: Ident,
+    pub steps: Vec<TieStep>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TieStep {
+    /// `.enemies`
+    Field(Ident),
+    /// `[*]`: any element. The span covers the brackets.
+    Elements(Span),
+    /// `@items`, its name without the `@`.
+    Tie(Ident),
 }
 
 #[derive(Clone, Debug)]
@@ -303,6 +330,8 @@ pub struct Field {
     /// `own ^T` — this struct releases the resource (spec §6.3).
     pub is_own: bool,
     pub ty: Type,
+    /// `in @items`: the tie this field declares, its name without the `@` (spec §6.7).
+    pub tie: Option<Ident>,
     pub default: Option<Expr>,
     /// The raw string ending the declaration, `` `json:"hp"` ``: free-form text carried into
     /// reflection for a library to read (spec §13.1). The span includes the backticks.
@@ -579,7 +608,11 @@ pub enum TypeKind {
     Tuple(Vec<Type>),
     Fn {
         params: Vec<Type>,
+        /// Each parameter's name, where one is written: `fn(world: &mut World)`. A function
+        /// type needs one only when its `kills` clause names it (spec §6.7).
+        param_names: Vec<Option<Ident>>,
         ret: Option<Box<Type>>,
+        kills: Vec<TiePath>,
     },
     SelfType,
     Error,

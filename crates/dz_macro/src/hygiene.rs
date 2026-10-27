@@ -193,6 +193,12 @@ impl Hooks for Rename<'_> {
         self.qualify(p);
     }
 
+    fn tie_root(&mut self, id: &mut Ident) {
+        if let Some(n) = self.local(id) {
+            id.name = n;
+        }
+    }
+
     fn field_init(&mut self, f: &mut FieldInit) {
         // `Foo{ x }` names its field by the expression: renaming the local must not rename
         // the field, so the shorthand becomes `Foo{ x: x·1 }`.

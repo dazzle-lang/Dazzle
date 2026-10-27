@@ -2,7 +2,7 @@
 source: crates/dz_resolve/tests/resolve.rs
 expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
 ---
-modules: 3, files: 77
+modules: 3, files: 80
 
 error[DZ0004]: `not a valid name` is not a valid module name
   ┌─ badmanifest/dazzle.toml:2:11

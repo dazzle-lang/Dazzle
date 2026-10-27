@@ -2015,7 +2015,7 @@ impl<'a> Ctx<'a> {
             TypeKind::Tuple(elems) => {
                 Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect())
             }
-            TypeKind::Fn { params, ret } => Ty::Fn {
+            TypeKind::Fn { params, ret, .. } => Ty::Fn {
                 params: params.iter().map(|p| self.lower_type_inner(p)).collect(),
                 ret: Rc::new(ret.as_ref().map(|r| self.lower_type_inner(r)).unwrap_or(Ty::Void)),
             },

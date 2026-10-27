@@ -15,6 +15,9 @@ pub(crate) trait Hooks {
     fn value_path(&mut self, _p: &mut Path) {}
     /// A path in type position.
     fn type_path(&mut self, _p: &mut Path) {}
+    /// The parameter a function's tie path starts from: `world` in `kills world.enemies@items`
+    /// (spec §6.7). Renamed with the parameter, so the clause still names it.
+    fn tie_root(&mut self, _id: &mut Ident) {}
     /// A block's statements, before they are walked — where statement invocations are
     /// replaced.
     fn stmts(&mut self, _stmts: &mut Vec<Stmt>) {}
@@ -171,6 +174,12 @@ fn fn_decl<H: Hooks>(h: &mut H, f: &mut FnDecl) {
     if let Some(r) = &mut f.ret {
         ty(h, r);
     }
+    // A function type's clause names that type's own parameters, which are not binders, so
+    // only a declaration's tie paths are walked.
+    let ties = f.params.iter_mut().filter_map(|p| p.tie.as_mut());
+    for t in ties.chain(f.ret_tie.as_mut()).chain(f.kills.iter_mut()) {
+        h.tie_root(&mut t.root);
+    }
     if let Some(b) = &mut f.base_init {
         h.type_path(&mut b.path);
         for a in &mut b.args {
@@ -206,7 +215,7 @@ pub(crate) fn ty<H: Hooks>(h: &mut H, t: &mut Type) {
                 ty(h, t);
             }
         }
-        TypeKind::Fn { params, ret } => {
+        TypeKind::Fn { params, ret, .. } => {
             for p in params {
                 ty(h, p);
             }

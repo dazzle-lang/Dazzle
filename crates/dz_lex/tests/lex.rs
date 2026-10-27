@@ -155,6 +155,15 @@ fn keywords_are_distinguished_from_identifiers() {
     assert_eq!(kinds("unsafe"), vec![Unsafe, Eof]);
 }
 
+/// `kills` is a keyword and `@` its own token, so `self@items` is three tokens (spec §2.7,
+/// §6.7).
+#[test]
+fn a_kills_clause_lexes_as_keyword_and_tie_path() {
+    use TokenKind::*;
+    assert_eq!(kinds("kills self@items"), vec![Kills, SelfValue, At, Ident, Eof]);
+    assert_eq!(kinds("killsx"), vec![Ident, Eof]);
+}
+
 #[test]
 fn every_input_ends_with_exactly_one_eof() {
     for src in ["", "\n", "a", "\"unterminated", "/* unterminated", "0x"] {

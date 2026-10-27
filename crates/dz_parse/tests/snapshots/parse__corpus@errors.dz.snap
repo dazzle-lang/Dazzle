@@ -1,6 +1,5 @@
 ---
 source: crates/dz_parse/tests/parse.rs
-assertion_line: 34
 expression: "parse_report(&name, &source)"
 input_file: tests/parse/errors.dz
 ---
@@ -19,6 +18,16 @@ struct OldStyle
 struct Removed
   pub fn bump(&mut self)
     block
+fn kills_nothing(xs: &mut List<i32>)
+  block
+fn tie_without_name(xs: &mut List<i32>) kills xs
+  block
+fn one_element(xs: &mut List<i32>) kills xs[*]
+  block
+struct TieWithoutAt
+  field m_data: own ^mut i32 in @items
+    default
+      null
 struct MissingBrace
   field x: i32
   fn ok_after_broken_struct()
@@ -96,74 +105,106 @@ error[DZ0214]: `mut fn` is no longer part of Dazzle
    │
    = help: a method that mutates says so by its receiver: `fn name(&mut self)` (spec §7.3)
 
-error[DZ0205]: comparison operators cannot be chained
-   ┌─ tests/parse/errors.dz:32:21
+error[DZ0218]: expected a tie path, found `{`
+   ┌─ tests/parse/errors.dz:26:44
    │
-32 │     let bad = a < b < c
+26 │ fn kills_nothing(xs: &mut List<i32>) kills {}
+   │                                            ^ expected a parameter or `self` here
+   │
+   = help: a tie path is a parameter or `self`, then fields, `[*]` for any element and `@name` for a tie: `self@items`, `world.enemies@items` (spec §6.7)
+
+error[DZ0218]: expected a tie path, found `{`
+   ┌─ tests/parse/errors.dz:28:51
+   │
+28 │ fn tie_without_name(xs: &mut List<i32>) kills xs@ {}
+   │                                                   ^ expected a tie's name after `@`
+   │
+   = help: a tie path is a parameter or `self`, then fields, `[*]` for any element and `@name` for a tie: `self@items`, `world.enemies@items` (spec §6.7)
+
+error[DZ0218]: expected a tie path, found `1`
+   ┌─ tests/parse/errors.dz:30:45
+   │
+30 │ fn one_element(xs: &mut List<i32>) kills xs[1] {}
+   │                                             ^ expected `*`: a tie path names every element, `[*]`
+   │
+   = help: a tie path is a parameter or `self`, then fields, `[*]` for any element and `@name` for a tie: `self@items`, `world.enemies@items` (spec §6.7)
+
+error[DZ0218]: expected a tie path, found `items`
+   ┌─ tests/parse/errors.dz:33:29
+   │
+33 │     m_data: own ^mut i32 in items = null
+   │                             ^^^^^ a field declares a tie as `in @name`
+   │
+   = help: a tie path is a parameter or `self`, then fields, `[*]` for any element and `@name` for a tie: `self@items`, `world.enemies@items` (spec §6.7)
+
+error[DZ0205]: comparison operators cannot be chained
+   ┌─ tests/parse/errors.dz:44:21
+   │
+44 │     let bad = a < b < c
    │                     ^ this comparison follows another
    │
    = help: comparison is non-associative — write `(a < b) && (b < c)`
 
 error[DZ0203]: expected an expression, found keyword `let`
-   ┌─ tests/parse/errors.dz:37:5
+   ┌─ tests/parse/errors.dz:49:5
    │
-37 │     let b = 2
+49 │     let b = 2
    │     ^^^ expected an expression here
 
 error[DZ0201]: expected end of statement, found `b`
-   ┌─ tests/parse/errors.dz:37:9
+   ┌─ tests/parse/errors.dz:49:9
    │
-37 │     let b = 2
+49 │     let b = 2
    │         ^ expected a newline or `;` here
    │
    = help: statements are separated by newlines; `;` is optional (spec §2.2)
 
 error[DZ0202]: expected a member, found keyword `struct`
-   ┌─ tests/parse/errors.dz:44:1
+   ┌─ tests/parse/errors.dz:56:1
    │
-44 │ struct BadMember {
+56 │ struct BadMember {
    │ ^^^^^^ expected a field, method or constructor
 
 error[DZ0204]: `let` needs a type or an initialiser
-   ┌─ tests/parse/errors.dz:51:5
+   ┌─ tests/parse/errors.dz:63:5
    │
-51 │     let a
+63 │     let a
    │     ^^^^^ neither a type nor a value is given
    │
    = help: write `let x: T` to default-initialise (spec §6.2), or `let x = value`
 
 error[DZ0209]: assignment is not an expression
-   ┌─ tests/parse/errors.dz:55:11
+   ┌─ tests/parse/errors.dz:67:11
    │
-55 │     a = b = c
+67 │     a = b = c
    │           ^ a second assignment cannot appear here
    │
    = help: assignment is a statement (spec §11.1) — split this into two lines
 
 error[DZ0201]: expected `)` to close the argument list, found `}`
-   ┌─ tests/parse/errors.dz:60:1
+   ┌─ tests/parse/errors.dz:72:1
    │
-60 │ }
+72 │ }
    │ ^ expected `)` here
 
 error[DZ0204]: `mut` is not allowed on a fixed-size array
-   ┌─ tests/parse/errors.dz:64:31
+   ┌─ tests/parse/errors.dz:76:31
    │
-64 │ fn mut_on_a_fixed_array(a: [4]mut i32) -> i32 {
+76 │ fn mut_on_a_fixed_array(a: [4]mut i32) -> i32 {
    │                               ^^^ only a slice carries its writability in its type
    │
    = help: a `[N]T` is a value: write `let mut a: [N]T` to make it writable, or `[]mut T` for a writable view (spec §5.3)
 
 error[DZ0212]: `break` does not take a value
-   ┌─ tests/parse/errors.dz:71:15
+   ┌─ tests/parse/errors.dz:83:15
    │
-71 │         break 5
+83 │         break 5
    │               ^ a value here
    │
    = help: a loop is a statement, not an expression — to leave one with a result, assign it to a variable declared before the loop (spec §10.2)
 
 error[DZ0201]: expected `}` to close the body, found end of file
-   ┌─ tests/parse/errors.dz:78:1
+   ┌─ tests/parse/errors.dz:90:1
    │
-78 │ 
+90 │ 
    │ ^ expected `}` here

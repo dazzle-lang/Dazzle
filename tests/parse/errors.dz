@@ -21,6 +21,18 @@ struct Removed {
     pub mut fn bump(&mut self) {}
 }
 
+// A tie path that breaks off is reported once, and the function, its body and what
+// follows still parse (spec §6.7). Also above `MissingBrace`.
+fn kills_nothing(xs: &mut List<i32>) kills {}
+
+fn tie_without_name(xs: &mut List<i32>) kills xs@ {}
+
+fn one_element(xs: &mut List<i32>) kills xs[1] {}
+
+struct TieWithoutAt {
+    m_data: own ^mut i32 in items = null
+}
+
 struct MissingBrace {
     x: i32
 

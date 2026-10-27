@@ -26,7 +26,8 @@ attribute     = "#" "[" ident [ "(" token_tree ")" ] "]" ;
 
 fn_decl       = [ "unsafe" ] [ "mut" ] "fn" ident [ generics ] "(" [ params ] ")"
                 [ ( "->" | "!->" ) type [ "in" tie_path ] ]
-                [ "kills" tie_path { "," tie_path } ] block ;   (* §6.7 *)
+                [ "kills" kill_list ] block ;   (* §6.7 *)
+kill_list     = tie_path { "," tie_path } | "(" tie_path { "," tie_path } ")" ;
 params        = param { "," param } ;
 param         = [ "&" | "&mut" ] "self" | ident ":" type [ "in" tie_path ] [ "=" expr ] ;
 tie_path      = ( ident | "self" ) { "." ident | "[" "*" "]" | "@" ident } ;
@@ -53,7 +54,9 @@ access_type   = "^" type | "&" [ "mut" ] type
               | "[" [ expr ] "]" type
               | "own" "^" type
               | "fn" "(" [ fn_type_params ] ")" [ ( "->" | "!->" ) type ]
-                [ "kills" tie_path { "," tie_path } ]   (* names needed only by a clause, §6.7 *)
+                [ "kills" ( tie_path | "(" tie_path { "," tie_path } ")" ) ]
+                (* names needed only by a clause, §6.7; a comma after a bare path begins the
+                   next parameter, so more than one path is parenthesised here *)
               | "(" type_list ")"
               | path [ "<" type_list ">" ] ;
 path          = ident { "::" ident } ;

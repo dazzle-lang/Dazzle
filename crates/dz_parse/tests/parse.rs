@@ -267,3 +267,27 @@ fn every_corpus_file_that_should_be_clean_is_clean() {
 fn concat_path(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/parse").join(name)
 }
+
+// --- ties and kills clauses (spec §6.7) -----------------------------------
+
+/// In a function type, a comma after a bare path begins the next parameter: more than one
+/// path needs parentheses there, and a declaration's list does not.
+#[test]
+fn a_comma_after_a_kills_path_in_a_function_type_begins_the_next_parameter() {
+    let p = parse_str("fn each(f: fn(xs: &mut List<i32>) kills xs@items, n: i32) {}\n");
+    assert!(p.codes.is_empty(), "{:?}", p.codes);
+    assert!(
+        p.dump.contains("fn each(f: fn(xs: &mut List<i32>) kills xs@items, n: i32)"),
+        "{}",
+        p.dump
+    );
+    let p = parse_str("fn f(a: &mut A, b: &mut B) kills a@x, b@y {}\n");
+    assert!(p.codes.is_empty(), "{:?}", p.codes);
+    assert!(p.dump.contains("kills a@x, b@y"), "{}", p.dump);
+}
+
+/// `kills` is a keyword, so it can no longer name anything (spec §2.7).
+#[test]
+fn kills_is_not_a_name() {
+    assert!(!parse_str("fn f() { let kills = 1 }\n").codes.is_empty());
+}

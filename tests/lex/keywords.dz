@@ -1,6 +1,6 @@
 as break case const continue copy defer drop
 else enum extern false fn for if ignore import
-in let macro module move mut none null or own
+in kills let macro module move mut none null or own
 pub return self Self struct switch trait true
 unreachable union while
 async await impl where yield unsafe comptime collect

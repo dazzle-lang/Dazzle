@@ -459,7 +459,7 @@ impl<'a> Printer<'a> {
                             .map(|f| {
                                 let tag =
                                     f.tag.map(|s| format!(" {}", self.text(s))).unwrap_or_default();
-                                format!("{}: {}{tag}", f.name.name, self.ty(&f.ty))
+                                format!("{}: {}{}{tag}", f.name.name, self.ty(&f.ty), field_tie(f))
                             })
                             .collect();
                         self.line(&format!("{} {{ {} }}", v.name.name, fields.join(", ")));
@@ -629,7 +629,12 @@ impl<'a> Printer<'a> {
                 let default =
                     f.default.as_ref().map(|d| format!(" = {}", self.expr(d))).unwrap_or_default();
                 let tag = f.tag.map(|s| format!(" {}", self.text(s))).unwrap_or_default();
-                let s = format!("{lhs}:{} {}{default}{tag}", " ".repeat(pad), self.ty(&f.ty));
+                let s = format!(
+                    "{lhs}:{} {}{}{default}{tag}",
+                    " ".repeat(pad),
+                    self.ty(&f.ty),
+                    field_tie(f)
+                );
                 self.line(&s);
                 self.emit_trailing_comment(m.span.end);
             }
@@ -697,7 +702,12 @@ impl<'a> Printer<'a> {
             let default =
                 p.default.as_ref().map(|d| format!(" = {}", self.expr(d))).unwrap_or_default();
             let dots = if p.variadic { ".." } else { "" };
-            params.push(format!("{}: {dots}{}{default}", p.name.name, self.ty(&p.ty)));
+            let tie = p
+                .tie
+                .as_ref()
+                .map(|t| format!(" in {}", dump::tie_path_str(t)))
+                .unwrap_or_default();
+            params.push(format!("{}: {dots}{}{tie}{default}", p.name.name, self.ty(&p.ty)));
         }
         // Fallibility is part of the signature, spelled on the arrow (spec §9.1): dropping
         // the `!` would change what the function means, not how it looks.
@@ -709,6 +719,16 @@ impl<'a> Printer<'a> {
             None if f.fallible => format!(" {arrow}"),
             None => self.base_init(f),
         };
+        // Where a returned reference points, and what the function kills: part of what it
+        // means, so they stay exactly as written (spec §6.7).
+        let ret = format!(
+            "{ret}{}{}",
+            f.ret_tie
+                .as_ref()
+                .map(|t| format!(" in {}", dump::tie_path_str(t)))
+                .unwrap_or_default(),
+            dump::kills_str(&f.kills, false)
+        );
         let empty_body =
             f.body.as_ref().is_some_and(|b| b.stmts.is_empty() && !self.comment_inside(b.span));
         let open = match &f.body {
@@ -889,10 +909,19 @@ impl<'a> Printer<'a> {
             TypeKind::Tuple(elems) => {
                 format!("({})", elems.iter().map(|e| self.ty(e)).collect::<Vec<_>>().join(", "))
             }
-            TypeKind::Fn { params, ret } => format!(
-                "fn({}){}",
-                params.iter().map(|p| self.ty(p)).collect::<Vec<_>>().join(", "),
-                ret.as_ref().map(|r| format!(" -> {}", self.ty(r))).unwrap_or_default()
+            TypeKind::Fn { params, param_names, ret, kills } => format!(
+                "fn({}){}{}",
+                params
+                    .iter()
+                    .zip(param_names)
+                    .map(|(p, n)| match n {
+                        Some(n) => format!("{}: {}", n.name, self.ty(p)),
+                        None => self.ty(p),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                ret.as_ref().map(|r| format!(" -> {}", self.ty(r))).unwrap_or_default(),
+                dump::kills_str(kills, true)
             ),
             TypeKind::Path(p) => self.path(p),
             TypeKind::SelfType => "Self".to_owned(),
@@ -1294,6 +1323,11 @@ fn indent_lines(text: &str) -> String {
 fn field_lhs(vis: Vis, f: &Field) -> String {
     let own = if f.is_own { "own " } else { "" };
     format!("{}{own}{}", vis_str(vis), f.name.name)
+}
+
+/// ` in @items`, the tie a field declares (spec §6.7), or nothing.
+fn field_tie(f: &Field) -> String {
+    f.tie.as_ref().map(|t| format!(" in @{}", t.name)).unwrap_or_default()
 }
 
 fn vis_str(v: Vis) -> &'static str {

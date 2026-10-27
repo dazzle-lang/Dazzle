@@ -1,0 +1,59 @@
+---
+source: crates/dz_parse/tests/parse.rs
+expression: "parse_report(&name, &source)"
+input_file: tests/parse/ties.dz
+---
+=== AST ===
+pub struct Grid<T>
+  field m_cells: own ^mut T in @cells
+    default
+      null
+  field m_names: List<String> in @names
+  field width: i32
+    default
+      int 0
+  pub fn first(&self) -> ^T in self@cells
+    block
+      return
+        null
+  pub fn push(&mut self, v: T) kills self@cells
+    block
+  pub fn clear(&mut self) kills self@cells, self[*]
+    block
+  pub fn rename(&mut self, i: usize) kills self@names[*]@text
+    block
+  pub fn len(&self) -> usize
+    block
+      return
+        int 0
+union Slot
+  variant Full
+    field value: String in @text
+  variant Empty
+trait System
+  fn run(&mut self, world: &mut World) kills world
+fn think(e: &mut Enemy in world, world: &mut World) kills world.enemies@items
+  block
+    assign -=
+      field .hp
+        path e
+      int 1
+fn load(path: str) !-> Mesh kills cache.meshes@items
+  block
+fn view(list: &List<String>, i: usize) -> str in list[*]@text
+  block
+    return
+      call
+        field .as_str
+          index
+            path list
+            path i
+struct Hooks
+  field on_spawn: fn(world: &mut World, e: Enemy) kills world.spawned@items
+  field on_reset: fn(world: &mut World) kills (world.enemies@items, world.spawned@items)
+  field plain: fn(i32, f32) -> bool
+fn each(f: fn(xs: &mut List<i32>) kills xs@items, n: i32)
+  block
+
+=== DIAGNOSTICS ===
+(none)
