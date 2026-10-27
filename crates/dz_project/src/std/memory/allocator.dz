@@ -20,4 +20,11 @@ pub trait Allocator {
     fn scoped(&self) -> bool {
         return false
     }
+
+    /// Where what is stored in a container built here may get its memory, or `null` for
+    /// no opinion: the value's own default. Only a region lent to a container that the
+    /// compiler knows never gives an element back says itself (T-0105 prototype).
+    fn contents(&self) -> ^mut Allocator {
+        return null
+    }
 }

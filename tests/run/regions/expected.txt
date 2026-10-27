@@ -1,3 +1,7 @@
+kept 5 kept-1 loop-2
+churned 20000
+given lent-8
+distinct 403
 285
 5 evens, last 8
 churned 20000

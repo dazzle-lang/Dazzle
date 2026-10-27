@@ -224,3 +224,6 @@ gives both the same. That moves the work to
 each value's destination, including into a container through `push`) and the language
 question to [T-0106](T-0106-keep-manual-allocators-only-at-construction.md) (keep manual
 allocators only at construction, and drop `#allocator`).
+
+**Stage 3**, values stored into containers, was prototyped on 2026-10-27: its rules and
+measurements are in T-0105.

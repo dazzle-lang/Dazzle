@@ -23,6 +23,11 @@ pub struct HashSet<T: Hash + Eq> {
         return m_map.is_empty()
     }
 
+    /// Where a value stored in this set may get its memory (T-0105 prototype).
+    pub fn contents_allocator(&self, fallback: ^mut Allocator) -> ^mut Allocator {
+        return m_map.contents_allocator(fallback)
+    }
+
     /// How many elements fit before the set grows again.
     pub fn capacity(&self) -> usize {
         return m_map.capacity()

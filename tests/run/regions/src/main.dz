@@ -90,7 +90,74 @@ fn label(store: &mut Store, prefix: str, n: i32) {
     store.names.push(String::from(text.as_str()))
 }
 
+// T-0105: the scratch string dies here, so it is this scope's region's; the pushed one lives
+// as long as `names`, so it is built wherever `names` keeps what it stores.
+fn tag(names: &mut List<String>, prefix: str, n: i32) {
+    let mut scratch = String::from(prefix)
+    scratch.push_str("-")
+    scratch.push_str(format!("{}", n).as_str())
+    names.push(String::from(scratch.as_str()))
+}
+
+// Lends `names` on: it keeps what it stores only if `tag` does.
+fn tag_twice(names: &mut List<String>, prefix: str) {
+    tag(names, prefix, 1)
+    tag(names, prefix, 2)
+}
+
+// Gives an element back, so a list lent here does not keep what it stores.
+fn take_last(names: &mut List<String>, into: &mut Store) {
+    let last = names.pop() or return
+    into.names.push(move(last))
+}
+
+// Counts words into a map whose keys are copies of one reused buffer, as the `words`
+// benchmark does: the copies go wherever the map keeps its keys.
+fn distinct(text: str) -> i32 {
+    let mut counts = HashMap<String, i32>()
+    let mut word = String::from("")
+    for piece in text.split_whitespace() {
+        word.clear()
+        word.push_str(piece)
+        if let &mut n = counts.get_mut_str(word.as_str()) {
+            n += 1
+        } else {
+            counts.insert(word, 1)
+        }
+    }
+    let mut most = 0
+    for _, &c in counts {
+        if c > most {
+            most = c
+        }
+    }
+    return counts.len() as i32 * 100 + most
+}
+
 fn main() {
+    // Kept: everything stored in `kept` stays there until it is dropped, so what `tag`
+    // pushes comes from this scope's region.
+    let mut kept = List<String>()
+    tag_twice(&mut kept, "kept")
+    for i in 0..3 {
+        tag(&mut kept, "loop", i)
+    }
+    println!("kept {} {} {}", kept.len(), kept[0], kept[4])
+
+    // Not kept: `take_last` moves an element out into the store, which outlives this
+    // block's region, so what `tag` pushes here must stay on the heap.
+    let mut given = Store{ saved: List<i32>(), names: List<String>() }
+    {
+        let mut lent = List<String>()
+        tag(&mut lent, "lent", 7)
+        tag(&mut lent, "lent", 8)
+        take_last(&mut lent, &mut given)
+    }
+    println!("churned {}", churn())
+    println!("given {}", given.names[0])
+
+    println!("distinct {}", distinct("a b a c b a d"))
+
     println!("{}", sum_squares(10))
 
     let e = evens(10)

@@ -1034,6 +1034,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/memory/rc_block.dz", include_str!("std/memory/rc_block.dz")),
     ("<std>/memory/scope_arena.dz", include_str!("std/memory/scope_arena.dz")),
     ("<std>/memory/scope_pool.dz", include_str!("std/memory/scope_pool.dz")),
+    ("<std>/memory/scope_shared.dz", include_str!("std/memory/scope_shared.dz")),
     ("<std>/memory/temp_arena.dz", include_str!("std/memory/temp_arena.dz")),
     ("<std>/memory/tracker.dz", include_str!("std/memory/tracker.dz")),
     ("<std>/memory/unguarded.dz", include_str!("std/memory/unguarded.dz")),
