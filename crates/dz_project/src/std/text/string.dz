@@ -16,6 +16,14 @@ pub struct String {
         return String(s, allocator, loc)
     }
 
+    /// A copy in `allocator`, or an ordinary copy when it is `null`: what the compiler
+    /// writes for a `String` copied into a container whose contents it places (T-0105
+    /// prototype).
+    pub fn copy_in(&self, allocator: ^mut Allocator) -> String {
+        let a = allocator or return self
+        return String(self.as_str(), a)
+    }
+
     /// A copy of `bytes` when they are valid UTF-8, and `none` when they are not.
     pub fn from_utf8(bytes: []u8, allocator: ^mut Allocator = #allocator, loc: SourceLocation = #location) -> String? {
         let text = str::from_utf8(bytes) or return none

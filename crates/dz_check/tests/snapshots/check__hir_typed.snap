@@ -167,6 +167,24 @@ body method HashMap::is_empty -> bool
         field #3: usize
           local _0 self: HashMap<K, V>
         int 0: usize
+body method HashMap::contents_allocator -> ^mut Allocator
+  param _0 self: HashMap<K, V>
+  param _1 fallback: ^mut Allocator
+  block
+    let _2 a: &mut Allocator
+      or: &mut Allocator
+        field #5: ^mut Allocator
+          local _0 self: HashMap<K, V>
+        return: !
+          local _1 fallback: ^mut Allocator
+    let _3 c: &mut Allocator
+      or: &mut Allocator
+        call-method Allocator::contents: ^mut Allocator
+          local _2 a: &mut Allocator
+        return: !
+          local _1 fallback: ^mut Allocator
+    return: !
+      local _3 c: &mut Allocator
 body method HashMap::capacity -> usize
   param _0 self: HashMap<K, V>
   block
@@ -1843,6 +1861,15 @@ body method HashSet::is_empty -> bool
       call-method HashMap::is_empty: bool
         field #0: HashMap<T, bool>
           local _0 self: HashSet<T>
+body method HashSet::contents_allocator -> ^mut Allocator
+  param _0 self: HashSet<T>
+  param _1 fallback: ^mut Allocator
+  block
+    return: !
+      call-method HashMap::contents_allocator: ^mut Allocator
+        field #0: HashMap<T, bool>
+          local _0 self: HashSet<T>
+        local _1 fallback: ^mut Allocator
 body method HashSet::capacity -> usize
   param _0 self: HashSet<T>
   block
@@ -2058,6 +2085,24 @@ body method List::len -> usize
     return: !
       field #1: usize
         local _0 self: List<T>
+body method List::contents_allocator -> ^mut Allocator
+  param _0 self: List<T>
+  param _1 fallback: ^mut Allocator
+  block
+    let _2 a: &mut Allocator
+      or: &mut Allocator
+        field #3: ^mut Allocator
+          local _0 self: List<T>
+        return: !
+          local _1 fallback: ^mut Allocator
+    let _3 c: &mut Allocator
+      or: &mut Allocator
+        call-method Allocator::contents: ^mut Allocator
+          local _2 a: &mut Allocator
+        return: !
+          local _1 fallback: ^mut Allocator
+    return: !
+      local _3 c: &mut Allocator
 body method List::capacity -> usize
   param _0 self: List<T>
   block
@@ -10719,6 +10764,11 @@ body method Allocator::scoped -> bool
   block
     return: !
       bool false: bool
+body method Allocator::contents -> ^mut Allocator
+  param _0 self: Allocator
+  block
+    return: !
+      null: ^mut Allocator
 body const Allocators::Global -> void
   block
     block-value: &mut Heap
@@ -11297,12 +11347,18 @@ body fn drop_value_as -> void
 body const SCOPE_HEADER -> void
   block
     int 16: usize
+body const SCOPE_LARGE_HEADER -> void
+  block
+    int 32: usize
 body const SCOPE_CHUNK -> void
   block
     int 65536: usize
 body const SCOPE_LARGE -> void
   block
     int 16384: usize
+body const SCOPE_POOLED -> void
+  block
+    int 22: usize
 body field-default ScopeArena.0 -> void
   block
     null: ^mut u8
@@ -11423,14 +11479,36 @@ body method ScopeArena::is_large -> bool
 body method ScopeArena::alloc_large -> ^mut u8
   param _0 self: ScopeArena
   param _1 size: usize
-  param _2 loc: SourceLocation
   block
+    let _2 k: usize
+      call-assoc ScopePool::class: usize
+        local _1 size: usize
     let _3 block: ^mut u8
-      call c_malloc: ^mut u8
-        binary +: usize
-          const SCOPE_HEADER: usize
-          local _1 size: usize
-        local _2 loc: SourceLocation
+      null: ^mut u8
+    if: void
+      binary >: bool
+        local _2 k: usize
+        const SCOPE_POOLED: usize
+      block
+        assign =
+          local _2 k: usize
+          const SCOPE_CLASSES: usize
+        assign =
+          local _3 block: ^mut u8
+          call c_malloc: ^mut u8
+            binary +: usize
+              const SCOPE_LARGE_HEADER: usize
+              local _1 size: usize
+      block
+        block-value: void
+          block
+            assign =
+              local _3 block: ^mut u8
+              block-value: ^mut u8
+                block
+                  call-method ScopePool::take_large: ^mut u8
+                    static SCOPE_POOL: ScopePool
+                    local _2 k: usize
     block-value: !
       block
         let _4 links: ^mut ^mut u8
@@ -11447,6 +11525,12 @@ body method ScopeArena::alloc_large -> ^mut u8
             int 1: usize
           field #3: ^mut u8
             local _0 self: ScopeArena
+        assign =
+          index: usize
+            cast: ^mut usize
+              local _3 block: ^mut u8
+            int 2: usize
+          local _2 k: usize
         if: void
           binary !=: bool
             field #3: ^mut u8
@@ -11468,7 +11552,31 @@ body method ScopeArena::alloc_large -> ^mut u8
           ref mut: &mut u8
             index: u8
               local _3 block: ^mut u8
-              const SCOPE_HEADER: usize
+              const SCOPE_LARGE_HEADER: usize
+body method ScopeArena::release -> void
+  param _0 block: ^mut u8
+  block
+    block-value: void
+      block
+        let _1 k: usize
+          index: usize
+            cast: ^mut usize
+              local _0 block: ^mut u8
+            int 2: usize
+        if: void
+          binary ==: bool
+            local _1 k: usize
+            const SCOPE_CLASSES: usize
+          block
+            call c_free: void
+              local _0 block: ^mut u8
+          block
+            block-value: void
+              block
+                call-method ScopePool::give_large: void
+                  static SCOPE_POOL: ScopePool
+                  local _0 block: ^mut u8
+                  local _1 k: usize
 body method ScopeArena::free_large -> void
   param _0 self: ScopeArena
   param _1 p: ^mut u8
@@ -11480,7 +11588,7 @@ body method ScopeArena::free_large -> void
             binary -: usize
               cast: usize
                 local _1 p: ^mut u8
-              const SCOPE_HEADER: usize
+              const SCOPE_LARGE_HEADER: usize
         let _3 links: ^mut ^mut u8
           cast: ^mut ^mut u8
             local _2 block: ^mut u8
@@ -11521,13 +11629,13 @@ body method ScopeArena::free_large -> void
                   local _5 next: ^mut u8
                 int 0: usize
               local _4 prev: ^mut u8
-        call c_free: void
+        call-assoc ScopeArena::release: void
           local _2 block: ^mut u8
 body impl#98 method alloc -> ^mut u8
   param _0 self: ScopeArena
   param _1 size: usize
   param _2 align: usize
-  param _3 loc: SourceLocation
+  param _3 _loc: SourceLocation
   block
     if: void
       call-assoc ScopeArena::is_large: bool
@@ -11538,7 +11646,6 @@ body impl#98 method alloc -> ^mut u8
           call-method ScopeArena::alloc_large: ^mut u8
             local _0 self: ScopeArena
             local _1 size: usize
-            local _3 loc: SourceLocation
     let _4 start: usize
       call-method ScopeArena::aligned: usize
         local _0 self: ScopeArena
@@ -11678,17 +11785,52 @@ body impl#98 method free -> void
   param _4 loc: SourceLocation
   block
     if: void
-      binary &&: bool
-        binary !=: bool
-          local _1 p: ^mut u8
-          null: ^mut u8
-        call-assoc ScopeArena::is_large: bool
-          local _2 size: usize
-          local _3 align: usize
+      binary ==: bool
+        local _1 p: ^mut u8
+        null: ^mut u8
+      block
+        return: !
+    if: void
+      call-assoc ScopeArena::is_large: bool
+        local _2 size: usize
+        local _3 align: usize
       block
         call-method ScopeArena::free_large: void
           local _0 self: ScopeArena
           local _1 p: ^mut u8
+      block
+        if: void
+          binary &&: bool
+            binary !=: bool
+              field #0: ^mut u8
+                local _0 self: ScopeArena
+              null: ^mut u8
+            binary >=: bool
+              cast: usize
+                local _1 p: ^mut u8
+              cast: usize
+                field #0: ^mut u8
+                  local _0 self: ScopeArena
+          block
+            let _5 offset: usize
+              binary -: usize
+                cast: usize
+                  local _1 p: ^mut u8
+                cast: usize
+                  field #0: ^mut u8
+                    local _0 self: ScopeArena
+            if: void
+              binary ==: bool
+                binary +: usize
+                  local _5 offset: usize
+                  local _2 size: usize
+                field #1: usize
+                  local _0 self: ScopeArena
+              block
+                assign =
+                  field #1: usize
+                    local _0 self: ScopeArena
+                  local _5 offset: usize
     let _: _
       field #2: u32
         local _4 loc: SourceLocation
@@ -11736,14 +11878,55 @@ body drop ScopeArena -> void
                 cast: ^mut ^mut u8
                   local _3 block: ^mut u8
                 int 1: usize
-            call c_free: void
+            call-assoc ScopeArena::release: void
               local _3 block: ^mut u8
             assign =
               local _3 block: ^mut u8
               local _4 next: ^mut u8
+body const SCOPE_CLASSES -> void
+  block
+    int 48: usize
 body field-default ScopePool.0 -> void
   block
     null: ^mut u8
+body field-default ScopePool.1 -> void
+  block
+    null: ^mut ^mut u8
+body method ScopePool::classes -> ^mut ^mut u8
+  param _0 self: ScopePool
+  block
+    if: void
+      binary ==: bool
+        field #1: ^mut ^mut u8
+          local _0 self: ScopePool
+        null: ^mut ^mut u8
+      block
+        assign =
+          field #1: ^mut ^mut u8
+            local _0 self: ScopePool
+          block-value: ^mut ^mut u8
+            block
+              cast: ^mut ^mut u8
+                call c_malloc: ^mut u8
+                  binary *: usize
+                    const SCOPE_CLASSES: usize
+                    type-query usize::size: usize
+        for _1 k
+          range: usize..usize
+            int 0: i32
+            const SCOPE_CLASSES: usize
+          block
+            block-value: void
+              block
+                assign =
+                  index: ^mut u8
+                    field #1: ^mut ^mut u8
+                      local _0 self: ScopePool
+                    local _1 k: usize
+                  null: ^mut u8
+    return: !
+      field #1: ^mut ^mut u8
+        local _0 self: ScopePool
 body method ScopePool::take -> ^mut u8
   param _0 self: ScopePool
   param _1 cap: usize
@@ -11829,6 +12012,83 @@ body method ScopePool::give -> void
       field #0: ^mut u8
         local _0 self: ScopePool
       local _1 chunk: ^mut u8
+body method ScopePool::class -> usize
+  param _0 size: usize
+  block
+    let _1 k: usize
+      int 0: usize
+    while
+      binary <: bool
+        binary <<: usize
+          cast: usize
+            int 1: i32
+          local _1 k: usize
+        local _0 size: usize
+      block
+        assign +=
+          local _1 k: usize
+          int 1: usize
+    return: !
+      local _1 k: usize
+body method ScopePool::take_large -> ^mut u8
+  param _0 self: ScopePool
+  param _1 k: usize
+  block
+    let _2 classes: ^mut ^mut u8
+      call-method ScopePool::classes: ^mut ^mut u8
+        local _0 self: ScopePool
+    block-value: void
+      block
+        let _3 block: ^mut u8
+          index: ^mut u8
+            local _2 classes: ^mut ^mut u8
+            local _1 k: usize
+        if: void
+          binary !=: bool
+            local _3 block: ^mut u8
+            null: ^mut u8
+          block
+            assign =
+              index: ^mut u8
+                local _2 classes: ^mut ^mut u8
+                local _1 k: usize
+              index: ^mut u8
+                cast: ^mut ^mut u8
+                  local _3 block: ^mut u8
+                int 0: usize
+            return: !
+              local _3 block: ^mut u8
+    return: !
+      call c_malloc: ^mut u8
+        binary +: usize
+          binary <<: usize
+            cast: usize
+              int 1: i32
+            local _1 k: usize
+          const SCOPE_LARGE_HEADER: usize
+body method ScopePool::give_large -> void
+  param _0 self: ScopePool
+  param _1 block: ^mut u8
+  param _2 k: usize
+  block
+    let _3 classes: ^mut ^mut u8
+      call-method ScopePool::classes: ^mut ^mut u8
+        local _0 self: ScopePool
+    block-value: void
+      block
+        assign =
+          index: ^mut u8
+            cast: ^mut ^mut u8
+              local _1 block: ^mut u8
+            int 0: usize
+          index: ^mut u8
+            local _3 classes: ^mut ^mut u8
+            local _2 k: usize
+        assign =
+          index: ^mut u8
+            local _3 classes: ^mut ^mut u8
+            local _2 k: usize
+          local _1 block: ^mut u8
 body drop ScopePool -> void
   param _0 self: ScopePool
   block
@@ -11852,10 +12112,133 @@ body drop ScopePool -> void
             assign =
               local _1 chunk: ^mut u8
               local _2 next: ^mut u8
+    if: void
+      binary ==: bool
+        field #1: ^mut ^mut u8
+          local _0 self: ScopePool
+        null: ^mut ^mut u8
+      block
+        return: !
+    for _3 k
+      range: usize..usize
+        int 0: i32
+        const SCOPE_CLASSES: usize
+      block
+        let _4 block: ^mut u8
+          block-value: ^mut u8
+            block
+              index: ^mut u8
+                field #1: ^mut ^mut u8
+                  local _0 self: ScopePool
+                local _3 k: usize
+        while
+          binary !=: bool
+            local _4 block: ^mut u8
+            null: ^mut u8
+          block
+            block-value: void
+              block
+                let _5 next: ^mut u8
+                  index: ^mut u8
+                    cast: ^mut ^mut u8
+                      local _4 block: ^mut u8
+                    int 0: usize
+                call c_free: void
+                  local _4 block: ^mut u8
+                assign =
+                  local _4 block: ^mut u8
+                  local _5 next: ^mut u8
+    call c_free: void
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            field #1: ^mut ^mut u8
+              local _0 self: ScopePool
 body static SCOPE_POOL -> void
   block
     struct-lit ScopePool: ScopePool
       #0 (default)
+      #1 (default)
+body field-default ScopeShared.0 -> void
+  block
+    null: ^mut ScopeArena
+body ctor ScopeShared#0 -> void
+  param _0 self: ScopeShared
+  param _1 arena: ^mut ScopeArena
+  block
+    assign =
+      field #0: ^mut ScopeArena
+        local _0 self: ScopeShared
+      local _1 arena: ^mut ScopeArena
+body impl#101 method alloc -> ^mut u8
+  param _0 self: ScopeShared
+  param _1 size: usize
+  param _2 align: usize
+  param _3 loc: SourceLocation
+  block
+    let _4 a: &mut ScopeArena
+      or: &mut ScopeArena
+        field #0: ^mut ScopeArena
+          local _0 self: ScopeShared
+        builtin panic: !
+          str "a ScopeShared with no region": str
+    return: !
+      call-method Allocator::alloc: ^mut u8
+        local _4 a: &mut ScopeArena
+        local _1 size: usize
+        local _2 align: usize
+        local _3 loc: SourceLocation
+body impl#101 method realloc -> ^mut u8
+  param _0 self: ScopeShared
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  param _5 loc: SourceLocation
+  block
+    let _6 a: &mut ScopeArena
+      or: &mut ScopeArena
+        field #0: ^mut ScopeArena
+          local _0 self: ScopeShared
+        builtin panic: !
+          str "a ScopeShared with no region": str
+    return: !
+      call-method Allocator::realloc: ^mut u8
+        local _6 a: &mut ScopeArena
+        local _1 p: ^mut u8
+        local _2 old_size: usize
+        local _3 new_size: usize
+        local _4 align: usize
+        local _5 loc: SourceLocation
+body impl#101 method free -> void
+  param _0 self: ScopeShared
+  param _1 p: ^mut u8
+  param _2 size: usize
+  param _3 align: usize
+  param _4 loc: SourceLocation
+  block
+    let _5 a: &mut ScopeArena
+      or: &mut ScopeArena
+        field #0: ^mut ScopeArena
+          local _0 self: ScopeShared
+        return: !
+    call-method Allocator::free: void
+      local _5 a: &mut ScopeArena
+      local _1 p: ^mut u8
+      local _2 size: usize
+      local _3 align: usize
+      local _4 loc: SourceLocation
+body impl#101 method scoped -> bool
+  param _0 self: ScopeShared
+  block
+    return: !
+      bool true: bool
+body impl#101 method contents -> ^mut Allocator
+  param _0 self: ScopeShared
+  block
+    return: !
+      field #0: ^mut ScopeArena
+        local _0 self: ScopeShared
 body const TEMP_HEADER -> void
   block
     int 16: usize
@@ -12067,7 +12450,7 @@ body method TempArena::owns -> bool
                 int 0: usize
     return: !
       bool false: bool
-body impl#101 method alloc -> ^mut u8
+body impl#102 method alloc -> ^mut u8
   param _0 self: TempArena
   param _1 size: usize
   param _2 align: usize
@@ -12115,7 +12498,7 @@ body impl#101 method alloc -> ^mut u8
               local _4 start: usize
     return: !
       local _5 p: ^mut u8
-body impl#101 method realloc -> ^mut u8
+body impl#102 method realloc -> ^mut u8
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -12193,7 +12576,7 @@ body impl#101 method realloc -> ^mut u8
               local _8 kept: usize
     return: !
       local _7 q: ^mut u8
-body impl#101 method free -> void
+body impl#102 method free -> void
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 size: usize
@@ -12227,7 +12610,7 @@ body drop TempArena -> void
 body field-default Unguarded.0 -> void
   block
     null: ^mut T
-body impl#103 method is_null -> bool
+body impl#104 method is_null -> bool
   param _0 self: Unguarded<T>
   block
     return: !
@@ -12235,12 +12618,12 @@ body impl#103 method is_null -> bool
         field #0: ^mut T
           local _0 self: Unguarded<T>
         null: ^mut T
-body impl#103 method guard -> Unguarded<T>
+body impl#104 method guard -> Unguarded<T>
   param _0 self: Unguarded<T>
   block
     return: !
       local _0 self: Unguarded<T>
-body impl#103 method ptr -> ^mut T
+body impl#104 method ptr -> ^mut T
   param _0 self: Unguarded<T>
   block
     return: !
@@ -12337,7 +12720,7 @@ body copy Weak -> void
       field #1: usize
         local _2 h: &mut RcHeader
       int 1: usize
-body impl#106 method is_null -> bool
+body impl#107 method is_null -> bool
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -12351,7 +12734,7 @@ body impl#106 method is_null -> bool
         field #0: usize
           local _1 h: &mut RcHeader
         int 0: usize
-body impl#106 method guard -> Rc<T>
+body impl#107 method guard -> Rc<T>
   param _0 self: Weak<T>
   block
     let _1 r: Rc<T>
@@ -12386,7 +12769,7 @@ body impl#106 method guard -> Rc<T>
         local _0 self: Weak<T>
     return: !
       local _1 r: Rc<T>
-body impl#106 method ptr -> ^mut T
+body impl#107 method ptr -> ^mut T
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -12705,7 +13088,7 @@ body method FieldInfo::tag_value -> str?
           int 1: usize
     return: !
       none: str?
-body impl#107 method eq -> bool
+body impl#108 method eq -> bool
   param _0 self: TypeId
   param _1 rhs: &TypeId
   block
@@ -12715,7 +13098,7 @@ body impl#107 method eq -> bool
           local _0 self: TypeId
         field #0: u32
           local _1 rhs: &TypeId
-body impl#108 method hash -> u64
+body impl#109 method hash -> u64
   param _0 self: TypeId
   block
     return: !
@@ -12739,7 +13122,7 @@ body method Chars::offset -> usize
     return: !
       field #1: usize
         local _0 self: Chars
-body impl#109 method valid -> bool
+body impl#110 method valid -> bool
   param _0 self: Chars
   block
     return: !
@@ -12749,7 +13132,7 @@ body impl#109 method valid -> bool
         len: usize
           field #0: str
             local _0 self: Chars
-body impl#109 method get -> char
+body impl#110 method get -> char
   param _0 self: Chars
   block
     let (_1 c, _)
@@ -12761,7 +13144,7 @@ body impl#109 method get -> char
           local _0 self: Chars
     return: !
       local _1 c: char
-body impl#109 method advance -> void
+body impl#110 method advance -> void
   param _0 self: Chars
   block
     let (_, _1 width)
@@ -12966,7 +13349,7 @@ body fn is_utf8_boundary -> bool
               local _1 at: usize
           int 192: u32
         int 128: u32
-body impl#110 method join -> String
+body impl#111 method join -> String
   param _0 self: []str
   param _1 separator: str
   block
@@ -12993,7 +13376,7 @@ body impl#110 method join -> String
             local _3 i: usize
     return: !
       local _2 out: String
-body impl#111 method join -> String
+body impl#112 method join -> String
   param _0 self: List<str>
   param _1 separator: str
   block
@@ -13002,7 +13385,7 @@ body impl#111 method join -> String
         call-method List::as_slice: []str
           local _0 self: List<str>
         local _1 separator: str
-body impl#112 method join -> String
+body impl#113 method join -> String
   param _0 self: List<String>
   param _1 separator: str
   block
@@ -13057,6 +13440,20 @@ body method String::from -> String
         local _0 s: str
         local _1 allocator: ^mut Allocator
         local _2 loc: SourceLocation
+body method String::copy_in -> String
+  param _0 self: String
+  param _1 allocator: ^mut Allocator
+  block
+    let _2 a: &mut Allocator
+      or: &mut Allocator
+        local _1 allocator: ^mut Allocator
+        return: !
+          local _0 self: String
+    return: !
+      call-ctor String#0: String
+        call-method String::as_str: str
+          local _0 self: String
+        local _2 a: &mut Allocator
 body method String::from_utf8 -> String?
   param _0 bytes: []u8
   param _1 allocator: ^mut Allocator
@@ -13556,7 +13953,7 @@ body method String::reserve -> void
         local _1 additional: usize
         int 1: usize
       local _2 loc: SourceLocation
-body impl#113 method eq -> bool
+body impl#114 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -13566,7 +13963,7 @@ body impl#113 method eq -> bool
           local _0 self: String
         call-method String::as_str: str
           local _1 rhs: &String
-body impl#114 method cmp -> Ordering
+body impl#115 method cmp -> Ordering
   param _0 self: String
   param _1 rhs: &String
   block
@@ -13578,26 +13975,26 @@ body impl#114 method cmp -> Ordering
         cast: []u8
           call-method String::as_str: str
             local _1 rhs: &String
-body impl#115 method iter -> Chars
+body impl#116 method iter -> Chars
   param _0 self: String
   block
     return: !
       call-method String::chars: Chars
         local _0 self: String
-body impl#116 method convert -> cstr
+body impl#117 method convert -> cstr
   param _0 self: String
   block
     return: !
       call-method String::as_cstr: cstr
         local _0 self: String
-body impl#117 method hash -> u64
+body impl#118 method hash -> u64
   param _0 self: String
   block
     return: !
       call-method Hash::hash: u64
         call-method String::as_str: str
           local _0 self: String
-body impl#118 method format -> void
+body impl#119 method format -> void
   param _0 self: String
   param _1 f: &mut Formatter
   block
@@ -14287,12 +14684,12 @@ body method Text::parse_f32 -> f32?
     return: !
       cast: f32
         local _1 v: f64
-body impl#119 method text -> str
+body impl#120 method text -> str
   param _0 self: str
   block
     return: !
       local _0 self: str
-body impl#120 method text -> str
+body impl#121 method text -> str
   param _0 self: String
   block
     return: !
@@ -14362,14 +14759,14 @@ body method Split::find_end -> void
               len: usize
                 field #0: str
                   local _0 self: Split
-body impl#121 method valid -> bool
+body impl#122 method valid -> bool
   param _0 self: Split
   block
     return: !
       unary !: bool
         field #4: bool
           local _0 self: Split
-body impl#121 method get -> str
+body impl#122 method get -> str
   param _0 self: Split
   block
     return: !
@@ -14380,7 +14777,7 @@ body impl#121 method get -> str
           local _0 self: Split
         field #3: usize
           local _0 self: Split
-body impl#121 method advance -> void
+body impl#122 method advance -> void
   param _0 self: Split
   block
     if: void
@@ -14454,7 +14851,7 @@ body method Lines::find_end -> void
               len: usize
                 field #0: str
                   local _0 self: Lines
-body impl#122 method valid -> bool
+body impl#123 method valid -> bool
   param _0 self: Lines
   block
     return: !
@@ -14464,7 +14861,7 @@ body impl#122 method valid -> bool
         len: usize
           field #0: str
             local _0 self: Lines
-body impl#122 method get -> str
+body impl#123 method get -> str
   param _0 self: Lines
   block
     let _1 end: usize
@@ -14497,7 +14894,7 @@ body impl#122 method get -> str
         field #1: usize
           local _0 self: Lines
         local _1 end: usize
-body impl#122 method advance -> void
+body impl#123 method advance -> void
   param _0 self: Lines
   block
     assign =
@@ -14573,7 +14970,7 @@ body method SplitWhitespace::find_word -> void
       field #2: usize
         local _0 self: SplitWhitespace
       local _3 i: usize
-body impl#123 method valid -> bool
+body impl#124 method valid -> bool
   param _0 self: SplitWhitespace
   block
     return: !
@@ -14583,7 +14980,7 @@ body impl#123 method valid -> bool
         len: usize
           field #0: str
             local _0 self: SplitWhitespace
-body impl#123 method get -> str
+body impl#124 method get -> str
   param _0 self: SplitWhitespace
   block
     return: !
@@ -14594,7 +14991,7 @@ body impl#123 method get -> str
           local _0 self: SplitWhitespace
         field #2: usize
           local _0 self: SplitWhitespace
-body impl#123 method advance -> void
+body impl#124 method advance -> void
   param _0 self: SplitWhitespace
   block
     call-method SplitWhitespace::find_word: void
@@ -15230,7 +15627,7 @@ body method Duration::is_zero -> bool
         field #0: u64
           local _0 self: Duration
         int 0: u64
-body impl#124 method add -> Duration
+body impl#125 method add -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -15242,7 +15639,7 @@ body impl#124 method add -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#125 method sub -> Duration
+body impl#126 method sub -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -15254,7 +15651,7 @@ body impl#125 method sub -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#126 method eq -> bool
+body impl#127 method eq -> bool
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -15264,7 +15661,7 @@ body impl#126 method eq -> bool
           local _0 self: Duration
         field #0: u64
           local _1 rhs: &Duration
-body impl#127 method cmp -> Ordering
+body impl#128 method cmp -> Ordering
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -15275,7 +15672,7 @@ body impl#127 method cmp -> Ordering
         ref: &u64
           field #0: u64
             local _1 rhs: &Duration
-body impl#128 method hash -> u64
+body impl#129 method hash -> u64
   param _0 self: Duration
   block
     return: !
@@ -15311,7 +15708,7 @@ body method Instant::since -> Duration
             local _0 self: Instant
           field #0: u64
             local _1 earlier: Instant
-body impl#129 method sub -> Duration
+body impl#130 method sub -> Duration
   param _0 self: Instant
   param _1 rhs: Instant
   block
@@ -15319,7 +15716,7 @@ body impl#129 method sub -> Duration
       call-method Instant::since: Duration
         local _0 self: Instant
         local _1 rhs: Instant
-body impl#130 method add -> Instant
+body impl#131 method add -> Instant
   param _0 self: Instant
   param _1 rhs: Duration
   block
@@ -15331,7 +15728,7 @@ body impl#130 method add -> Instant
               local _0 self: Instant
             call-method Duration::as_nanos: u64
               local _1 rhs: Duration
-body impl#131 method eq -> bool
+body impl#132 method eq -> bool
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -15341,7 +15738,7 @@ body impl#131 method eq -> bool
           local _0 self: Instant
         field #0: u64
           local _1 rhs: &Instant
-body impl#132 method cmp -> Ordering
+body impl#133 method cmp -> Ordering
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -16168,12 +16565,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#136 method describe -> str
+body impl#137 method describe -> str
   param _0 self: Crate
   block
     return: !
       str "crate": str
-body impl#137 method weight -> i32
+body impl#138 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -16317,7 +16714,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#138 method eq -> bool
+body impl#139 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -16327,7 +16724,7 @@ body impl#138 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#139 method cmp -> Ordering
+body impl#140 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -16394,7 +16791,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#140 method add -> Vec2
+body impl#141 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -16412,7 +16809,7 @@ body impl#140 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#141 method mul -> Vec2
+body impl#142 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -16718,7 +17115,7 @@ body fn widths -> void
         call-method Formatter::finish: void
           local _15 fmt·: Formatter
           str "\n": str
-body impl#142 method valid -> bool
+body impl#143 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -16727,13 +17124,13 @@ body impl#142 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#142 method get -> i32
+body impl#143 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#142 method advance -> void
+body impl#143 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -16920,7 +17317,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#143 method mul -> Scale
+body impl#144 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -16931,7 +17328,7 @@ body impl#143 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#144 method mul -> f32
+body impl#145 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -16973,7 +17370,7 @@ body method Label::shout -> str
     return: !
       call-method Label::label: str
         local _0 self: Label
-body impl#145 method label -> str
+body impl#146 method label -> str
   param _0 self: f32
   block
     return: !
@@ -16984,7 +17381,7 @@ body fn labels -> str
     return: !
       call-method Label::shout: str
         local _0 x: f32
-body impl#146 method label -> str
+body impl#147 method label -> str
   param _0 self: Wrap<T>
   block
     return: !
@@ -16997,7 +17394,7 @@ body fn wrapped -> str
     return: !
       call-method Label::label: str
         local _0 w: Wrap<f32>
-body impl#147 method shout -> str
+body impl#148 method shout -> str
   param _0 self: f32
   block
     return: !
@@ -17440,7 +17837,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#150 method measure -> i32
+body impl#151 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -17458,7 +17855,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#151 method measure -> i32
+body impl#152 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -17768,7 +18165,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#152 method eq -> bool
+body impl#153 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -17784,7 +18181,7 @@ body impl#152 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#153 method hash -> u64
+body impl#154 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -17795,7 +18192,7 @@ body impl#153 method hash -> u64
         call-method Hash::hash: u64
           field #1: i32
             local _0 self: Tile
-body impl#154 method eq -> bool
+body impl#155 method eq -> bool
   param _0 self: TileRef
   param _1 rhs: &TileRef
   block
@@ -17805,7 +18202,7 @@ body impl#154 method eq -> bool
           local _0 self: TileRef
         field #0: ^Tile
           local _1 rhs: &TileRef
-body impl#155 method hash -> u64
+body impl#156 method hash -> u64
   param _0 self: TileRef
   block
     return: !
@@ -17887,7 +18284,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#156 method neg -> Heading
+body impl#157 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -17896,7 +18293,7 @@ body impl#156 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#157 method eq -> bool
+body impl#158 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -17940,7 +18337,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#158 method named -> str
+body impl#159 method named -> str
   param _0 self: Heading
   block
     return: !
@@ -18044,7 +18441,7 @@ body fn named_calls -> i32
           int 3: i32
           int 2: i32
           str "d": str
-body impl#159 method format -> void
+body impl#160 method format -> void
   param _0 self: Heading
   param _1 f: &mut Formatter
   block
@@ -19377,14 +19774,14 @@ body fn count_items -> i32
           int 1: i32
     return: !
       local _2 n: i32
-body impl#160 method valid -> bool
+body impl#161 method valid -> bool
   param _0 self: Flagged<I>
   block
     return: !
       call-method Iterate::valid: bool
         field #0: I
           local _0 self: Flagged<I>
-body impl#160 method get -> (I::Item, bool)
+body impl#161 method get -> (I::Item, bool)
   param _0 self: Flagged<I>
   block
     return: !
@@ -19393,7 +19790,7 @@ body impl#160 method get -> (I::Item, bool)
           field #0: I
             local _0 self: Flagged<I>
         bool true: bool
-body impl#160 method advance -> void
+body impl#161 method advance -> void
   param _0 self: Flagged<I>
   block
     call-method Iterate::advance: void
@@ -19431,13 +19828,13 @@ body fn projections -> i32
         call count_items: i32
           local _0 xs: &List<i32>
           fn-item ignore_int: fn(&i32) -> void
-body impl#161 method mul -> Scale
+body impl#162 method mul -> Scale
   param _0 self: f32
   param _1 rhs: Scale
   block
     return: !
       local _1 rhs: Scale
-body impl#162 method convert -> Grams
+body impl#163 method convert -> Grams
   param _0 self: f32
   block
     return: !

@@ -159,6 +159,7 @@ pub fn emit(
     };
     let reflection: reflect::Shared = Default::default();
     let results = std::cell::RefCell::new(HashMap::new());
+    let keeps = std::cell::RefCell::new(HashMap::new());
     let fn_values = regions::fn_values(hir);
 
     // An imported header generates nothing: its names are the header's own (spec §15.1).
@@ -203,6 +204,7 @@ pub fn emit(
             regions: options.regions,
             placement: Default::default(),
             results: &results,
+            keeps: &keeps,
             fn_values: &fn_values,
         };
         e.module(module_files);
@@ -339,6 +341,7 @@ pub fn emit(
             regions: false,
             placement: Default::default(),
             results: &results,
+            keeps: &keeps,
             fn_values: &fn_values,
         };
         if type_info == dz_project::TypeInfo::All {
@@ -616,6 +619,9 @@ struct Emitter<'a> {
     /// Which functions have a result allocator, by body address, decided once for every
     /// module; and the functions used as values, which cannot have one (`regions.rs`).
     results: &'a std::cell::RefCell<HashMap<usize, bool>>,
+    /// Whether a function keeps everything stored in a container it is lent, by body
+    /// address and parameter (T-0105, `regions.rs`).
+    keeps: &'a std::cell::RefCell<HashMap<(usize, usize), bool>>,
     fn_values: &'a std::collections::HashSet<SymbolId>,
 }
 
@@ -1238,6 +1244,9 @@ impl<'a> Emitter<'a> {
         for &sym in traits {
             let name = sanitize(&self.res.symbol(sym).name);
             let methods = self.trait_methods(sym);
+            // A method may take or return the trait's own handle — `Allocator::contents` —
+            // which a function pointer's signature may name while it is incomplete.
+            let _ = writeln!(self.header, "struct {name}__dyn;");
             let _ = writeln!(self.header, "struct {name}__vtable {{");
             for (m, sig) in &methods {
                 let (ret, params) = self.dyn_signature(sig);
@@ -3172,6 +3181,14 @@ impl<'a> Emitter<'a> {
                 let ty = self.qualify(arena);
                 self.line(&format!("{ty} _dz_region{} {{}};", id.index()));
             }
+            // The view lent to the containers that keep what they store (T-0105).
+            if self.placement.shares.contains(&id) {
+                if let Some(shared) = self.res.lookup(self.res.prelude, "ScopeShared") {
+                    let ty = self.qualify(shared);
+                    let n = id.index();
+                    self.line(&format!("{ty} _dz_share{n} {{::dz::addr(_dz_region{n})}};"));
+                }
+            }
         }
         let stmts = &body.block(id).stmts;
         let last = stmts.len().saturating_sub(1);
@@ -4129,13 +4146,21 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Call { callee, args } => {
-                let mut allocator = self.placement.sites.get(&e).map(|&(slot, source)| {
-                    let text = match source {
-                        regions::Source::Region(b) => format!("_dz_region{}", b.index()),
-                        regions::Source::Result => regions::RESULT.to_owned(),
-                    };
-                    (slot, text)
-                });
+                let mut allocator = match self.placement.sites.get(&e).copied() {
+                    Some((slot, source)) => {
+                        let text = match source {
+                            regions::Source::Region(b) => format!("_dz_region{}", b.index()),
+                            regions::Source::Shared(b) => format!("_dz_share{}", b.index()),
+                            regions::Source::Result => regions::RESULT.to_owned(),
+                            regions::Source::Into(store) => {
+                                let heap = self.intrinsic("allocator", node.span, None);
+                                self.stored_allocator(store, &heap)
+                            }
+                        };
+                        Some((slot, text))
+                    }
+                    None => None,
+                };
                 // A function with a result allocator is always passed one: the heap, when
                 // nothing better was decided.
                 if allocator.is_none() {
@@ -4675,6 +4700,16 @@ impl<'a> Emitter<'a> {
             let Some((body, default)) = *d else { break };
             let v = self.render_default(body, default, span);
             rendered.push(v);
+        }
+        // A `String` copied into a container is copied where the container keeps its
+        // contents, or as any copy is when it has no opinion (T-0105, `regions.rs`).
+        for (i, a) in args.iter().enumerate() {
+            let Some(&store) = self.placement.copies.get(a) else { continue };
+            let null = format!("{}{{}}", self.allocator_ty());
+            let into = self.stored_allocator(store, &null);
+            if let Some(slot) = rendered.get_mut(first_arg + i) {
+                *slot = format!("::dz::obj({slot}).copy_in({into})");
+            }
         }
         // The index counts parameters, and a receiver passed as an argument comes first.
         match allocator {

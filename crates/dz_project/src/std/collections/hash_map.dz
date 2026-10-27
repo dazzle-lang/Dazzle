@@ -35,6 +35,15 @@ pub struct HashMap<K: Hash + Eq, V> {
         return m_len == 0
     }
 
+    /// Where a key or value stored in this map may get its memory: the map's own region
+    /// when the compiler built it as one that never gives an entry back, `fallback`
+    /// otherwise (T-0105 prototype).
+    pub fn contents_allocator(&self, fallback: ^mut Allocator) -> ^mut Allocator {
+        let a = m_allocator or return fallback
+        let c = a.contents() or return fallback
+        return c
+    }
+
     /// How many entries fit before the map grows again.
     pub fn capacity(&self) -> usize {
         return m_slots / 4 * 3

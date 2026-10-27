@@ -1,0 +1,47 @@
+/// A region, lent to a container whose contents may live in it too (T-0105 prototype).
+///
+/// The compiler declares one beside a block's `ScopeArena` and builds a container with it
+/// in place of the arena when it can see that the container keeps everything stored in it
+/// until it is dropped: nothing is popped, removed or cleared, and every function it is
+/// lent to does the same. What is stored then dies with the container, so it can come from
+/// the region as well, and `contents()` says so. What *that* stores goes back to its own
+/// default, since an element can give its own contents back.
+pub struct ScopeShared {
+    m_arena: ^mut ScopeArena = null
+
+    ScopeShared(arena: ^mut ScopeArena) {
+        m_arena = arena
+    }
+}
+
+impl Allocator for ScopeShared {
+    fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation) -> ^mut u8 {
+        let a = m_arena or panic!("a ScopeShared with no region")
+        return a.alloc(size, align, loc)
+    }
+
+    fn realloc(
+        &mut self,
+        p: ^mut u8,
+        old_size: usize,
+        new_size: usize,
+        align: usize,
+        loc: SourceLocation,
+    ) -> ^mut u8 {
+        let a = m_arena or panic!("a ScopeShared with no region")
+        return a.realloc(p, old_size, new_size, align, loc)
+    }
+
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+        let a = m_arena or return
+        a.free(p, size, align, loc)
+    }
+
+    fn scoped(&self) -> bool {
+        return true
+    }
+
+    fn contents(&self) -> ^mut Allocator {
+        return m_arena
+    }
+}
