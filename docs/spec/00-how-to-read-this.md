@@ -42,6 +42,8 @@ impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable 
 |---|---|---|
 | Refer to a value | `&T` `&mut T` `^T` `^mut T` `own ^mut T` | `&`/`&mut` are non-null and **stack-only**; `^` is a C pointer, read-only unless `^mut`; `own ^` means you free it; `^T` → `&T` needs an `or` clause, `&T` → `^T` is free, and reading or writing *through* a pointer is `unsafe` |
 | Copy vs move | `let b = a` / `let b = move(a)` | if the type owns anything, copying needs an `impl Copy`; otherwise `move()` |
+| Invalidation | `fn push(&mut self, v: T) kills self@items` | every function says which ties (`@items`) it may end; a reference into a killed tie is an error to use; aliasing stays legal (§6.7) |
+| Memory | `List<T>()` | no allocator in ordinary code: the compiler places each value — the scope's region, the caller's result, else the heap (§14.6) |
 | Absence | `T?` | postfix, binds to the type name. `^T?` is a pointer to an optional; an optional pointer is just `^T` |
 | Failure | `fn f(…) !-> T` | `!` marks the *signature*, never a type. There is no `T!` to store, annotate, or point at |
 | Handle anything fallible | `let v = f() or { e -> … }` | one clause for `T!`, `T?`, and `^T` alike |
@@ -57,4 +59,5 @@ impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable 
 
 **The five rules that shape everything else:** private by default · no implicit numeric
 conversions · every value is initialised · moved-from values reset to defaults · `&`
-references can never be stored in a field (this is why there are no lifetimes).
+references can never be stored in a field (this is why ties, §6.7, never appear on a struct
+that holds references).

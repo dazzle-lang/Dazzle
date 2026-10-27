@@ -1,8 +1,12 @@
 # 14. Memory and allocators
 
+> **Superseded by D-0091 (§14.6).** Ordinary code will not name an allocator: the compiler
+> places memory. What follows, down to §14.2, is how memory works until that is implemented
+> (T-0107); the `Allocator` trait itself stays, for `std`.
+
 Dazzle has no global allocator baked into the language. Allocation is a library concern
 expressed through the `Allocator` trait (§7.6), and **the allocator is an explicit
-parameter**. `[DECIDED — §18.10]`
+parameter**. `[DECIDED — §18.10; superseded by D-0091]`
 
 ```dz
 pub trait Allocator {
@@ -41,6 +45,10 @@ price is that you cannot tell from a call whether it allocates or from where. Gi
 principle 1 (§1), the parameter stays. The default-argument mechanism (§7.2) gives back
 almost all the ergonomics: `List(8)` reads as cleanly as the implicit version, and
 `List(8, &frame_arena)` is right there when you need it.
+
+D-0091 answers principle 1 differently: where memory comes from is shown by the editor at
+each allocation, not chosen there, and ties make every choice safe, which a parameter a
+program passes by hand never was (a value outliving its arena's `reset()`).
 
 ## 14.2 Standard allocators
 
@@ -477,3 +485,38 @@ count, and likewise `Weak` and `Box`. `[DECIDED — §18.64]`
 
 Not yet: `Arc<T>`, which needs atomics (§18.11); and a handle to a trait object.
 `[DECIDED — §18.62]`
+
+## 14.6 Placement by the compiler
+
+**Ordinary code never names an allocator.** No constructor takes one, no function passes
+one on, and `Allocators::Temp` is not for user code. The compiler puts each value in the
+most efficient place it can prove safe, the heap last. `[DECIDED — D-0091]`, superseding the
+explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user code (D-0047).
+
+| The value | Its memory |
+|---|---|
+| never leaves its scope | that scope's **region**, released in one step when the scope ends |
+| is returned | **wherever the caller wants the result**, passed to the function out of sight |
+| is the contents of a container emptied only all at once | an **arena that container owns**, reset when it is cleared (not yet: T-0107) |
+| anything else | **the heap** |
+
+- **A placement is checked like a reference** (§6.7): a region is a tie that dies when its
+  scope ends, so a placement that would leave a value in memory that dies too soon fails the
+  check, and the value goes to the heap. No placement changes what a program does.
+- **A value's owned parts live where the value lives.** A constructor and `copy` build into
+  wherever `self` is placed.
+- **Every function that returns something owning memory** takes where its result goes,
+  out of sight: free functions, methods, trait methods and function values alike. A function
+  called from C or C++ returns on the heap.
+- **Anything passing through code the compiler cannot see** — a C or C++ call, a pointer
+  stored in a struct — goes to the heap, as do `Rc`, `Weak` and statics. A `Box`'s
+  contents go where the `Box` goes.
+- **The choice is shown, not written**: an editor hint on each allocation names where it
+  went and why ("heap: popped elements leave `queue`").
+- **A memory budget or a program with no heap** is not expressible yet.
+
+`Allocator`, `Allocators`, `TempArena` and the region arena stay in `std`, for writing
+containers, under `unsafe`.
+
+Not yet implemented: until T-0107's steps 4 to 6 land, containers still take an allocator
+as §14 to §14.2 describe, and a value used after `Allocators::Temp.reset()` is not caught.

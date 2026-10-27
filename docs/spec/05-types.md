@@ -44,10 +44,10 @@ Five ways to refer to something — the model your samples already use, plus `&m
   Non-null is enforced at the point of conversion, not by analysis — a `&T` whose target has
   since been freed is still your problem (§1.1).
 
-  This is a cheap heuristic, not a proof — Dazzle has no lifetime analysis, so a `&T`
-  passed *down* into a function that outlives its target is still your problem. What the
-  rule buys is that the most common dangling case costs zero analysis to prevent, and that
-  `&T` keeps a meaning stronger than "non-null pointer".
+  This is a cheap heuristic, not a proof. What the rule buys is that the most common
+  dangling case costs zero analysis to prevent, that `&T` keeps a meaning stronger than
+  "non-null pointer", and that ties (§6.7) — which check the rest, a reference into storage a
+  call has moved — never have to appear on a struct.
 
   The practical consequence: a **context struct holds `^T`, not `&T`.**
 

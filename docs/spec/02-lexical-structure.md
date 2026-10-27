@@ -109,6 +109,7 @@ compile-time format-string checking instead (§12.9). `[PROPOSED]`
 or                         failure clause (§9.4)
 #[...]                     attribute
 #                          compiler intrinsic / macro invocation
+@                          a tie, in a tie path (§6.7)
 $                          macro variable
 _                          discard binding
 ```
@@ -127,7 +128,7 @@ and it is deliberate — access describes how you reach a value, `?` describes t
 ```
 as       break     case     const    continue  defer     else     enum
 extern   false     fn       for      if        ignore    impl     import
-in       let       macro    module   move      mut       none     null
+in       kills     let      macro    module    move      mut      none     null
 or       own       pub      return   self      Self      struct   switch
 static   trait     true      unreachable       union     unsafe    while
 ```

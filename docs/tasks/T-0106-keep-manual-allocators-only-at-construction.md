@@ -2,7 +2,8 @@
 id: T-0106
 title: Keep manual allocators only at construction; drop #allocator parameters
 milestone: none
-status: open
+status: done
+done: r81, 2026-10-27
 kind: design
 area: ownership
 where: spec §14, D-0047, §18.10; `#allocator` on the branch `t-0104-regions-prototype`
@@ -48,3 +49,5 @@ construction as the override, and `#allocator` removed from the prototype.
 **Since 2026-10-27** the question is part of [D-0091](../decisions/D-0091-ties-checked-reference-invalidation-memory-placed.md):
 the user now leans to option 1 (no allocator in ordinary code), made safe by the checker
 [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md) describes, rather than option 2.
+
+**Done, 2026-10-27:** the user chose option 1, no allocators in ordinary code, in D-0091 (r81).

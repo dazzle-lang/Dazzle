@@ -27,9 +27,11 @@ The principles, in priority order. When two conflict, the earlier one wins.
 ## 1.1 Non-goals
 
 - **Memory safety as a guarantee.** Dazzle is not Rust. It prevents use-after-move and
-  double-free; it does not prevent dangling references. What it does instead is *mark* the
-  places a dangling pointer can bite: every read or write through a raw pointer sits inside
-  `unsafe` (§5.2), where a reader — or `grep` — can find it. `[DECIDED]`
+  double-free, and — through ties (§6.7, D-0091) — a reference used after a call moved or
+  freed the memory it points into. It does not prevent every dangling pointer: what it does
+  for raw pointers is *mark* the places one can bite: every read or write through a raw
+  pointer sits inside `unsafe` (§5.2), where a reader — or `grep` — can find it. Nor does it
+  refuse aliasing, which single-threaded code needs. `[DECIDED; revised by D-0091]`
 - **A garbage collector, green threads, or any implicit runtime.**
 - **Source compatibility with C++.** We *call* C++; we are not a superset of it.
 - **Being small.** Odin is small, and that is the problem being solved here.

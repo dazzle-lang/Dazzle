@@ -1,8 +1,15 @@
 ---
 id: D-0091
 title: Ties: checked reference invalidation, and memory placed by the compiler
-status: open
+status: decided
 ---
+
+**Decided: option A, all of it** (r81, 2026-10-27, by the user). References are checked
+against the ties a call kills, every function declares its `kills` clause, and ordinary code
+names no allocator: the compiler places memory. The syntax is T-0107's, as the user accepted
+it: `@name` for a tie, `in` for where something points, `kills` a keyword. Spec: §6.7 (ties),
+§14.6 (placement), revising §1.1, §5.2, §6.4, §14 and §14.1, §2.7 and §20; supersedes D-0010
+and, in part, D-0047. Not yet implemented: T-0107 is the plan, in order, the checker first.
 
 **The question.** Should Dazzle check that a reference is never used after the memory it
 points into has moved or been freed, and, with that check in place, take the choice of
