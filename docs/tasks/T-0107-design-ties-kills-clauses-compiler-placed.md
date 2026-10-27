@@ -68,8 +68,16 @@ fn think(e: &mut Enemy, world: &mut World) kills world.enemies@items
 fn rebuild(world: &mut World) kills world          // coarse: anything reachable from it
 ```
 
-- No clause means the function kills nothing. The body is checked against the clause: a
-  kill the clause does not cover is an error at that line, and `dz fix` inserts it.
+- No clause means the function kills nothing, and **a clause says exactly what the body
+  kills**, as the user required on 2026-10-27. The compiler works out what every body
+  kills and holds the clause to it both ways: a kill left out is an error where it happens; a
+  path the body never kills (`kills xs@items` over a body that only reads `xs`) and a path
+  wider than what dies (`kills w` where only `w.enemies@items` does) are errors on the clause.
+  Each comes with the clause the body needs, which `dz fix` writes, the editor offers as a
+  quick fix, and shows while the body is being written. Where there is no body (a trait
+  method with no default, an `extern fn`, a function type), the clause is a promise, the most
+  an implementation may kill. The cost of exactness: a `pub` function cannot declare a kill
+  it does not do yet, to keep room for a later version.
 - A trait method's clause is the most any implementation may kill; a function type's
   likewise. A call with no clause to read (C or C++, an opaque pointer) is taken to kill
   everything reachable through its `&mut` arguments.
@@ -242,19 +250,23 @@ user's choice. In order, each step standing on its own:
    - **2a. Syntax only.** `kills` a keyword; the parser, the syntax tree and the formatter
      for `in @tie` on fields, `in path` on parameters and returns, `kills` clauses and named
      parameters in function types; the lex, parse and fmt corpora. Parsed and kept, with no
-     meaning yet. Invariants 1, 6 and 10.
+     meaning yet. Invariants 1, 6 and 10. **Done 2026-10-27** (`docs/log/r81-ties.md`).
    - **2b. Resolving tie paths**, in the checker since they go through `.` (invariant 9):
      each path's parameters, fields, declared ties and `[*]` exist and are visible wherever
      the function is (§6.7); the clause is part of the function's signature in the HIR; new
      codes for a bad path; `typed/` and `typeerrors/` cases (invariant 8).
    - **2c. The analysis**, in `dz_flow`: the tie of every reference and view; kills at
-     calls (the callee's clause read at its arguments), at assignment, move and drop; an
-     error for a use after a kill, and one for a kill the clause does not cover. Calls with
-     no clause kill everything reachable through `&mut` and `^mut` arguments.
+     calls (the callee's clause read at its arguments), at assignment, move and drop; what
+     each body kills in all, as the narrowest set of paths. Errors for a use after a kill, and
+     three that hold a clause to its body: a kill it leaves out, a path the body never kills,
+     a path wider than what dies. Each carries the clause the body needs, so 2e can offer it.
+     Calls with no clause kill everything reachable through `&mut` and `^mut` arguments.
    - **2d. `std`'s clauses** on `List`, `HashMap`, `HashSet`, `SlotMap` and `String`, with
      `std` itself checking clean.
-   - **2e. `dz fix` for a missing clause**, `dz explain` for every new code, and the clause
-     in the editor's hover. Then the examples and corpora get their clauses (about 13
+   - **2e. The fixes and the editor.** `dz fix` writes the clause a body needs, adding,
+     removing or narrowing paths; the editor offers the same as a quick fix on each of 2c's
+     errors, shows the clause a body needs while it is being written, and the clause in a
+     call's hover. `dz explain` for every new code. Then the examples and corpora get their clauses (about 13
      functions in `examples/`), in the same change that makes a missing one an error, so
      nothing in the repository stops compiling.
 3. A debug-build check of `std`'s trusted clauses: generation counters on arena memory, so a

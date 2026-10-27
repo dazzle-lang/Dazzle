@@ -1,0 +1,22 @@
+// Ties and `kills` clauses keep their meaning through formatting (spec §6.7): only the
+// layout around them changes. A function type's single path loses its parentheses; a list
+// keeps them, and a declaration's list never needs them.
+struct Grid<T> {
+    m_cells:   own ^mut T   in   @cells = null
+    pub width: i32 = 0
+
+    pub fn push(&mut self,v:T)   kills   self@cells   {}
+
+    pub fn clear(&mut self) kills (self@cells,self[*]) {}
+
+    pub fn first(&self)->^T   in  self@cells {
+        return null
+    }
+}
+
+fn think(e:&mut Enemy  in  world, world: &mut World) kills world.enemies@items {}
+
+struct Hooks {
+    pub on_spawn: fn(world:&mut World) kills (world.spawned@items)
+    pub on_reset: fn(world: &mut World) kills (world.enemies@items,world.spawned@items)
+}

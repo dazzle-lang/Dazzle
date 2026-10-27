@@ -81,6 +81,9 @@ pub const BAD_UNION_MEMBER: &str = "DZ0216";
 /// An intrinsic in the other spelling: `#println(…)` for `println!(…)`, or `location!()`
 /// for `#location` (spec §12.7, §12.9).
 pub const INTRINSIC_SPELLING: &str = "DZ0217";
+/// `kills` or `in` with no tie path after it, or a path that breaks off: `kills {`,
+/// `self@`, `xs[1]` (spec §6.7).
+pub const EXPECTED_TIE_PATH: &str = "DZ0218";
 
 // --- DZ00xx: projects and manifests --------------------------------------------
 

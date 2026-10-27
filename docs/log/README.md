@@ -17,6 +17,7 @@ to `status: done` in `docs/tasks/`.
 | `m7.md` | C and C++ interop from vendored source, r18–r29 |
 | `m8.md` | `switch` on constants, generic unions, r36–r38, the feature matrix |
 | `r30-inheritance.md` | struct inheritance, its plan and r30 |
+| `r81-ties.md` | ties, `kills` clauses and compiler-placed memory (D-0091, T-0107), built in steps |
 | `m9.md` | language server, VS Code extension, tolerant analysis, quick fixes |
 | `m10-m11.md` | macros (r63), reflection (r51), checked attributes (r52) |
 | `m12.md` | the standard library, r39–r80, Breakout, the examples on six C libraries and SDL3, CMake recipes, CI fixes along the way |

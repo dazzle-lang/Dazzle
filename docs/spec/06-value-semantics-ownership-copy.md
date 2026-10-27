@@ -265,16 +265,40 @@ pub fn spawn(world: &mut World, e: Enemy) kills world.spawned@items
 fn rebuild(world: &mut World) kills world               // anything reachable from `world`
 ```
 
-- **No clause means the function kills nothing.** The body is checked against the clause: a
-  kill it does not cover is an error at that line, and `dz fix` writes the clause. Every
-  function says it, private ones included, so a signature always tells what a call can
-  invalidate and a change to a body never breaks a caller somewhere else.
+- **No clause means the function kills nothing, and a clause says exactly what the body
+  kills.** The compiler works out what each body kills — through what it assigns, moves and
+  drops, and the clauses of what it calls — and holds the clause to it, both ways:
+
+  ```dz
+  fn fill(xs: &mut List<i32>) {
+      xs.push(1)             // error: `push` kills `xs@items`, and `fill` has no `kills xs@items`
+  }
+  fn look(xs: &mut List<i32>) kills xs@items {
+      println!("{}", xs.len())   // error: `look` kills nothing, but declares `kills xs@items`
+  }
+  fn reset(w: &mut World) kills w {
+      w.enemies.clear()      // error: `w` is wider than what dies, `w.enemies@items, w.enemies[*]`
+  }
+  ```
+
+  A kill the clause leaves out is an error where it happens; a path the body never kills, or
+  one wider than what it kills, is an error on the clause. Every one comes with the clause the
+  body needs, which `dz fix` writes and the editor offers as a fix, and the editor shows the
+  clause a body needs while it is being written. Every function says it, private ones
+  included, so a signature always tells what a call can invalidate, and a change to a body
+  never breaks a caller somewhere else without the signature changing too.
+- **Where there is no body to hold it to**, the clause is a promise instead: a trait method
+  without a default, an `extern fn`, a function type. An implementation's own clause is
+  exact for its body, as anywhere, and may name no more than the trait's.
 - **A clause names only what is visible wherever the function is.** A private method may
   name a private field (`kills self.m_things@items`); a `pub` one names a tie the field
   declares (`m_things: List<Thing> in @things`, then `kills self@things`).
 - **A trait method's clause is the most an implementation may kill**, and a function type's
-  likewise; a function type names its parameters when its clause does:
-  `fn(world: &mut World) kills world`.
+  is the most a function stored in it may; a function type names its parameters when its
+  clause does:
+  `fn(world: &mut World) kills world`. There, more than one path is parenthesised,
+  `kills (w.a@items, w.b@items)`, since a comma after a bare path would begin the next
+  parameter of whatever the type is written in.
 - **A call with no clause to read** — a C or C++ function, a pointer from C — kills
   everything reachable through its `&mut` and `^mut` arguments.
 

@@ -784,7 +784,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                     self.ty(e);
                 }
             }
-            TypeKind::Fn { params, ret } => {
+            TypeKind::Fn { params, ret, .. } => {
                 for p in params {
                     self.ty(p);
                 }

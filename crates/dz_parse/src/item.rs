@@ -416,6 +416,9 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        // `-> ^T in self@items` and `kills self@items` (spec §6.7).
+        let ret_tie = if ret.is_some() { self.parse_in_tie() } else { None };
+        let kills = if self.eat(TokenKind::Kills) { self.parse_kills(false) } else { Vec::new() };
 
         let body = if self.at(TokenKind::LBrace) { Some(self.parse_block()) } else { None };
         FnDecl {
@@ -428,9 +431,99 @@ impl<'a> Parser<'a> {
             self_param,
             params,
             ret,
+            ret_tie,
             fallible,
+            kills,
             body,
             base_init: None,
+        }
+    }
+
+    /// `self@items`, `world.enemies@items`, `list[*]@text`, or a bare `world` (spec §6.7).
+    /// A path that breaks off is reported and kept as far as it got.
+    pub(crate) fn parse_tie_path(&mut self) -> Option<TiePath> {
+        let start = self.start();
+        let root = if self.at(TokenKind::SelfValue) {
+            let t = self.bump();
+            Ident::new(t.span, "self")
+        } else if self.at(TokenKind::Ident) {
+            self.parse_ident_or_error()
+        } else {
+            self.expected_tie_path("expected a parameter or `self` here");
+            return None;
+        };
+        let mut steps = Vec::new();
+        loop {
+            if self.eat(TokenKind::Dot) {
+                if !self.at(TokenKind::Ident) {
+                    self.expected_tie_path("expected a field name after `.`");
+                    break;
+                }
+                steps.push(TieStep::Field(self.parse_ident_or_error()));
+            } else if self.eat(TokenKind::At) {
+                if !self.at(TokenKind::Ident) {
+                    self.expected_tie_path("expected a tie's name after `@`");
+                    break;
+                }
+                steps.push(TieStep::Tie(self.parse_ident_or_error()));
+            } else if self.at(TokenKind::LBracket) {
+                // `[*]` and nothing else: a path names every element, never one.
+                let open = self.start();
+                self.bump();
+                if !self.eat(TokenKind::Star) {
+                    self.expected_tie_path("expected `*`: a tie path names every element, `[*]`");
+                    // `xs[1]`: the index is the mistake, so it goes with the report, and
+                    // the `]` and the body after it still parse.
+                    if !self.at(TokenKind::RBracket) && self.peek_at(1) == TokenKind::RBracket {
+                        self.bump();
+                    }
+                }
+                self.expect_in(TokenKind::RBracket, "to close `[*]`");
+                steps.push(TieStep::Elements(self.span_from(open)));
+            } else {
+                break;
+            }
+        }
+        Some(TiePath { span: self.span_from(start), root, steps })
+    }
+
+    fn expected_tie_path(&mut self, label: &str) {
+        let found = self.describe_current();
+        let span = self.peek_token().span;
+        self.error_help(
+            codes::EXPECTED_TIE_PATH,
+            span,
+            format!("expected a tie path, found {found}"),
+            label,
+            "a tie path is a parameter or `self`, then fields, `[*]` for any element and \
+             `@name` for a tie: `self@items`, `world.enemies@items` (spec §6.7)",
+        );
+    }
+
+    /// The paths after `kills`, the keyword already consumed. A list in parentheses is
+    /// accepted anywhere; a function type needs one for more than a path, since a comma
+    /// after a bare path there could begin its next parameter (spec §6.7).
+    pub(crate) fn parse_kills(&mut self, in_type: bool) -> Vec<TiePath> {
+        let mut paths = Vec::new();
+        let parenthesised = self.eat(TokenKind::LParen);
+        while let Some(p) = self.parse_tie_path() {
+            paths.push(p);
+            if (in_type && !parenthesised) || !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        if parenthesised {
+            self.expect_in(TokenKind::RParen, "to close the `kills` list");
+        }
+        paths
+    }
+
+    /// `in path` after a type, where it says where a reference points (spec §6.7).
+    fn parse_in_tie(&mut self) -> Option<TiePath> {
+        if self.eat(TokenKind::In) {
+            self.parse_tie_path()
+        } else {
+            None
         }
     }
 
@@ -494,8 +587,16 @@ impl<'a> Parser<'a> {
                 // is the checker's to say, so a mistake still parses into a whole list.
                 let variadic = self.eat(TokenKind::DotDot);
                 let ty = self.parse_type();
+                let tie = self.parse_in_tie();
                 let default = if self.eat(TokenKind::Eq) { Some(self.parse_expr()) } else { None };
-                params.push(Param { span: self.span_from(p_start), name, ty, default, variadic });
+                params.push(Param {
+                    span: self.span_from(p_start),
+                    name,
+                    ty,
+                    default,
+                    variadic,
+                    tie,
+                });
             }
 
             self.skip_terminators();
@@ -761,7 +862,10 @@ impl<'a> Parser<'a> {
             self_param,
             params,
             ret: None,
+            ret_tie: None,
             fallible: false,
+            // A constructor kills nothing: what it builds is not yet anyone's.
+            kills: Vec::new(),
             body,
             base_init,
         }
@@ -773,10 +877,22 @@ impl<'a> Parser<'a> {
         let name = self.parse_ident_or_error();
         self.expect_in(TokenKind::Colon, "after a field name");
         let ty = self.parse_type();
+        // `in @items`: the tie this field declares (spec §6.7).
+        let tie = if self.eat(TokenKind::In) {
+            let at = self.eat(TokenKind::At);
+            if !at || !self.at(TokenKind::Ident) {
+                self.expected_tie_path("a field declares a tie as `in @name`");
+            }
+            // `in items` is reported and read as `in @items`, so the default and the tag
+            // after it still parse.
+            self.at(TokenKind::Ident).then(|| self.parse_ident_or_error())
+        } else {
+            None
+        };
         let default = if self.eat(TokenKind::Eq) { Some(self.parse_expr()) } else { None };
         // The tag: a raw string on the same line, after everything else (spec §13.1).
         let tag = self.at(TokenKind::RawStr).then(|| self.bump().span);
-        Field { span: self.span_from(start), name, is_own, ty, default, tag }
+        Field { span: self.span_from(start), name, is_own, ty, tie, default, tag }
     }
 
     // --- unions -----------------------------------------------------------

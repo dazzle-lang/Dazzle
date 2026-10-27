@@ -405,3 +405,32 @@ fn main() {
     println!("{}", 1)
 }
 ```
+
+## DZ0218
+
+A `kills` clause names memory by a tie path: a parameter or `self`, then fields, `[*]` for
+any element and `@name` for a tie (spec §6.7). A clause with nothing after `kills`, or a
+path that breaks off at `.`, `@` or `[`, names nothing.
+
+```dz
+fn fill(xs: &mut List<i32>) kills {
+    xs.push(1)
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    fill(&mut xs)
+}
+```
+
+```dz
+fn fill(xs: &mut List<i32>) kills xs {
+    xs.push(1)
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    fill(&mut xs)
+    println!("{}", xs.len())
+}
+```

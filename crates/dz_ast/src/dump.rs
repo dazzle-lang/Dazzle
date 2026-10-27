@@ -218,10 +218,11 @@ impl<'a> Dumper<'a> {
 
     fn field(&mut self, f: &Field) {
         self.line(format_args!(
-            "field {}{}: {}{}",
+            "field {}{}: {}{}{}",
             if f.is_own { "own " } else { "" },
             f.name.name,
             type_str(&f.ty),
+            f.tie.as_ref().map(|t| format!(" in @{}", t.name)).unwrap_or_default(),
             f.tag.map(|s| format!(" tag {}", self.text(s))).unwrap_or_default()
         ));
         if let Some(d) = &f.default {
@@ -238,10 +239,11 @@ impl<'a> Dumper<'a> {
             .iter()
             .map(|p| {
                 format!(
-                    "{}: {}{}{}",
+                    "{}: {}{}{}{}",
                     p.name.name,
                     if p.variadic { ".." } else { "" },
                     type_str(&p.ty),
+                    p.tie.as_ref().map(|t| format!(" in {}", tie_path_str(t))).unwrap_or_default(),
                     if p.default.is_some() { " = ..." } else { "" }
                 )
             })
@@ -258,8 +260,14 @@ impl<'a> Dumper<'a> {
         } else {
             format!("{recv}, {}", params.join(", "))
         };
+        // Where a returned reference points, and what the function kills (spec §6.7).
+        let ties = format!(
+            "{}{}",
+            f.ret_tie.as_ref().map(|t| format!(" in {}", tie_path_str(t))).unwrap_or_default(),
+            kills_str(&f.kills, false)
+        );
         self.line(format_args!(
-            "{vis}{}{}{}{} {}{}({}){}",
+            "{vis}{}{}{}{} {}{}({}){}{ties}",
             match f.dispatch {
                 Dispatch::Static => "",
                 Dispatch::Virtual => "virtual ",
@@ -789,13 +797,53 @@ pub fn type_str(t: &Type) -> String {
         TypeKind::Tuple(elems) => {
             format!("({})", elems.iter().map(type_str).collect::<Vec<_>>().join(", "))
         }
-        TypeKind::Fn { params, ret } => format!(
-            "fn({}){}",
-            params.iter().map(type_str).collect::<Vec<_>>().join(", "),
-            ret.as_ref().map(|r| format!(" -> {}", type_str(r))).unwrap_or_default()
+        TypeKind::Fn { params, param_names, ret, kills } => format!(
+            "fn({}){}{}",
+            params
+                .iter()
+                .zip(param_names)
+                .map(|(t, n)| match n {
+                    Some(n) => format!("{}: {}", n.name, type_str(t)),
+                    None => type_str(t),
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+            ret.as_ref().map(|r| format!(" -> {}", type_str(r))).unwrap_or_default(),
+            kills_str(kills, true)
         ),
         TypeKind::SelfType => "Self".to_owned(),
         TypeKind::Error => "<error type>".to_owned(),
+    }
+}
+
+/// `self@items`, `world.enemies@items`, `list[*]@text` — as written (spec §6.7).
+pub fn tie_path_str(t: &TiePath) -> String {
+    let mut out = t.root.name.clone();
+    for step in &t.steps {
+        match step {
+            TieStep::Field(f) => {
+                out.push('.');
+                out.push_str(&f.name);
+            }
+            TieStep::Elements(_) => out.push_str("[*]"),
+            TieStep::Tie(n) => {
+                out.push('@');
+                out.push_str(&n.name);
+            }
+        }
+    }
+    out
+}
+
+/// ` kills a, b`, or nothing when there are none. In a function type, more than one path is
+/// parenthesised, since a comma after one could otherwise begin the next parameter.
+pub fn kills_str(kills: &[TiePath], in_type: bool) -> String {
+    let paths: Vec<String> = kills.iter().map(tie_path_str).collect();
+    match paths.len() {
+        0 => String::new(),
+        1 => format!(" kills {}", paths[0]),
+        _ if in_type => format!(" kills ({})", paths.join(", ")),
+        _ => format!(" kills {}", paths.join(", ")),
     }
 }
 

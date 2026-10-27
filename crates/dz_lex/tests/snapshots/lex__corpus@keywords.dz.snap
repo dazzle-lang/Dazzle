@@ -24,16 +24,17 @@ input_file: tests/lex/keywords.dz
    2:41  import
    2:47  Terminator
    3:1   in
-   3:4   let
-   3:8   macro
-   3:14  module
-   3:21  move
-   3:26  mut
-   3:30  none
-   3:35  null
-   3:40  or
-   3:43  own
-   3:46  Terminator
+   3:4   kills
+   3:10  let
+   3:14  macro
+   3:20  module
+   3:27  move
+   3:32  mut
+   3:36  none
+   3:41  null
+   3:46  or
+   3:49  own
+   3:52  Terminator
    4:1   pub
    4:5   return
    4:12  self
