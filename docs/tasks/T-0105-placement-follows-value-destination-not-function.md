@@ -147,3 +147,8 @@ What it says:
   remain where the program's own functions build and drop whole containers. Copying a key
   out into a struct is the next thing `words` would need, which means following values
   through `let`, `for` bindings and struct literals, not more summaries.
+
+**Superseded as a direction on 2026-10-27** by [D-0091](../decisions/D-0091-ties-checked-reference-invalidation-memory-placed.md)
+and its design, [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md): a checker that knows
+when memory dies makes placement safe by construction, and the hand-written `STORES` and
+`TAKES` tables here are what it would replace.

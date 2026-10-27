@@ -44,3 +44,7 @@ nor tied to a value.
 a decision file superseding parts of D-0047 and §18.10, and a §21 row. The recommendation
 from 2026-10-26 is option 2: the compiler's placement by default, an explicit allocator at
 construction as the override, and `#allocator` removed from the prototype.
+
+**Since 2026-10-27** the question is part of [D-0091](../decisions/D-0091-ties-checked-reference-invalidation-memory-placed.md):
+the user now leans to option 1 (no allocator in ordinary code), made safe by the checker
+[T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md) describes, rather than option 2.
