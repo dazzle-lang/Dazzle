@@ -25,15 +25,18 @@ visibility    = "pub" [ "(" "module" ")" ] ;
 attribute     = "#" "[" ident [ "(" token_tree ")" ] "]" ;
 
 fn_decl       = [ "unsafe" ] [ "mut" ] "fn" ident [ generics ] "(" [ params ] ")"
-                [ ( "->" | "!->" ) type ] block ;
+                [ ( "->" | "!->" ) type [ "in" tie_path ] ]
+                [ "kills" tie_path { "," tie_path } ] block ;   (* §6.7 *)
 params        = param { "," param } ;
-param         = [ "&" | "&mut" ] "self" | ident ":" type [ "=" expr ] ;
+param         = [ "&" | "&mut" ] "self" | ident ":" type [ "in" tie_path ] [ "=" expr ] ;
+tie_path      = ( ident | "self" ) { "." ident | "[" "*" "]" | "@" ident } ;
 generics      = "<" gparam { "," gparam } ">" ;
 gparam        = ident [ ":" bound { "+" bound } ] ;
 
 struct_decl   = "struct" ident [ generics ] [ ":" path ] "{" { member } "}" ;  (* one base *)
 member        = field | fn_decl | ctor ;
-field         = { attribute } [ visibility ] [ "own" ] ident ":" type [ "=" expr ] [ raw_string ] TERM ;  (* the tag, §13.1 *)
+field         = { attribute } [ visibility ] [ "own" ] ident ":" type [ "in" "@" ident ]
+                [ "=" expr ] [ raw_string ] TERM ;  (* a tie, §6.7; the tag, §13.1 *)
 ctor          = ident "(" [ params ] ")" block ;
 impl_decl     = "impl" [ generics ] path [ "<" type_list ">" ] "for" type "{" { impl_item } "}" ;
 impl_item     = "type" ident "=" type TERM | fn_decl ;
@@ -49,10 +52,13 @@ type          = access_type [ "?" ] ;
 access_type   = "^" type | "&" [ "mut" ] type
               | "[" [ expr ] "]" type
               | "own" "^" type
-              | "fn" "(" [ type_list ] ")" [ ( "->" | "!->" ) type ]
+              | "fn" "(" [ fn_type_params ] ")" [ ( "->" | "!->" ) type ]
+                [ "kills" tie_path { "," tie_path } ]   (* names needed only by a clause, §6.7 *)
               | "(" type_list ")"
               | path [ "<" type_list ">" ] ;
 path          = ident { "::" ident } ;
+fn_type_params = fn_type_param { "," fn_type_param } ;
+fn_type_param = [ ident ":" ] type ;
 ```
 
 `?` binds to the innermost complete type to its left, so `^T?` parses as `^(T?)`. Inside a

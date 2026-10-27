@@ -2,7 +2,8 @@
 id: T-0104
 title: Prototype: the compiler chooses where memory comes from, by ownership
 milestone: none
-status: open
+status: done
+done: r81, 2026-10-27
 kind: design
 area: ownership
 where: `dz_flow` (the facts), `dz_cpp` (the placement), the `std` containers' `allocator` parameters
@@ -230,3 +231,5 @@ measurements are in T-0105.
 
 **The design that grew out of this prototype** is [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md)
 (decision [D-0091](../decisions/D-0091-ties-checked-reference-invalidation-memory-placed.md), open).
+
+**Done, 2026-10-27:** the prototype answered its question. The user decided D-0091 (r81): placement becomes the compiler's, made safe by ties, and the remaining work is T-0107.

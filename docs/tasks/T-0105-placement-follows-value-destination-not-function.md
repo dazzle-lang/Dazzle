@@ -2,7 +2,8 @@
 id: T-0105
 title: Placement follows the value's destination, not a function parameter
 milestone: none
-status: open
+status: done
+done: r81, 2026-10-27
 kind: design
 area: ownership
 where: `crates/dz_cpp/src/regions.rs` on the branch `t-0104-regions-prototype`
@@ -152,3 +153,5 @@ What it says:
 and its design, [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md): a checker that knows
 when memory dies makes placement safe by construction, and the hand-written `STORES` and
 `TAKES` tables here are what it would replace.
+
+**Done, 2026-10-27:** prototyped, and superseded by D-0091 (r81); T-0107 replaces the hand-written tables with `kills` clauses.

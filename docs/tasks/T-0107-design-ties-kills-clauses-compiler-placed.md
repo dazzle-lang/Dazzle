@@ -229,9 +229,9 @@ field     = … ident ":" type [ "in" "@" ident ] [ "=" expr ] … ;
 tie_path  = ( ident | "self" ) { "." ident | "[" "*" "]" | "@" ident } ;
 ```
 
-**What it would take.** First the user's decision on D-0091 (A: all of it; B: ties and
-`kills` only, allocators explicit; C: neither). B is the first step under A as well. Then, in
-order, each step standing on its own:
+**What it would take.** The user decided D-0091 on 2026-10-27: option A, all of it (r81;
+spec §6.7 and §14.6). The work happens on the branch `t-0104-regions-prototype`, by the
+user's choice. In order, each step standing on its own:
 
 1. Settle the syntax of ties, `kills` clauses and tied returns. A language change: a §21
    row, superseding D-0010 and D-0047, revising §1.1, §6.4 and §14.

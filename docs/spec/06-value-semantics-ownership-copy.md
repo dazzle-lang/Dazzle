@@ -141,8 +141,11 @@ a partially-moved struct field is tracked per field), and **definite return**: a
 that promises a value must produce one on every path. An exhaustive `switch` counts as
 returning if every arm does, since §10.3 already proved there is no other path.
 
-**What is *not* checked:** whether a `&T` outlives what it points at, and whether a `^T`
-dangles. Dazzle has no lifetime system, by design (§1.1). `[DECIDED]`
+**What is *not* checked:** whether a `^T` made in `unsafe` dangles. Whether a `&T` is
+used after a call moved or freed what it points at *is* checked, by ties (§6.7); Dazzle had
+no lifetime system until D-0091, and ties are a light one: since a reference is never stored
+in a field (D-0003), they never appear on a struct that holds references. `[DECIDED; revised
+by D-0091]`
 
 ## 6.5 Drop
 
@@ -201,3 +204,121 @@ your `Buffer` comment describes, so the invariant it relies on is guaranteed by 
 
 Deleting the C++ copy constructor for move-only types means that even if Dazzle's own flow
 analysis had a hole, the C++ compiler catches the copy as a second line of defence.
+
+## 6.7 Ties and `kills` clauses
+
+A reference must never be used after the memory it points into has moved or been freed.
+Ownership (§6.4) already rules out a use after a move; **ties** rule out the other half: a
+reference into storage that a call has since grown, shrunk or replaced. `[DECIDED — D-0091]`
+
+```dz
+let n = counts.get_or_insert(word, 0)
+counts.insert(other, 1)       // may grow the table
+n += 1                        // error: `insert` kills `counts@items`, and `n` points into it
+```
+
+**A tie** is a span during which some memory is valid, written `@name`. A type declares one by
+writing `in @name` after a field's type. On a pointer field it names the memory the pointer
+owns; on any other field it is a public name for that private field, so a signature can
+mention it without exposing the field (§4):
+
+```dz
+pub struct List<T> {
+    m_data: own ^mut T in @items = null     // the array of elements
+    ...
+}
+pub struct String {
+    m_bytes: List<u8> in @text
+}
+```
+
+A tie belongs to the type, not to whoever uses it: it is not a generic parameter, and every
+`List` has its own.
+
+**A tie path** names memory: a parameter or `self`, then fields visible wherever the
+function is, declared ties, and `[*]` for any element. A path that ends without a tie means
+every tie under it.
+
+| Path | What it names |
+|---|---|
+| `list@items` | the array: what `&list[i]` points into |
+| `list[*]@text` | the text of any element of a `List<String>`: what `list[i].as_str()` points into |
+| `list[*]` | everything every element owns |
+| `list` | everything the list owns |
+
+`list@items` and `list[*]@text` are separate: moving the array of strings leaves each
+string's bytes where they are, so a view into one element survives pushing another.
+
+**Every reference carries a tie**, known where it is made: `&mut world.enemies[i]` is in
+`world.enemies@items`. A function returning a reference or a pointer says where it points
+with `in`: `pub fn first(&self) -> ^T in self@items`. With exactly one reference input and no
+`in`, the result is in that input as a whole. A reference parameter may say where it points
+too, which is then checked inside the function: `e: &mut Enemy in world`.
+
+**A `kills` clause** says which ties a function may end, after the return type:
+
+```dz
+pub fn push(&mut self, v: T) kills self@items
+pub fn clear(&mut self) kills self@items, self[*]
+pub fn len(&self) -> usize                              // no clause: kills nothing
+pub fn spawn(world: &mut World, e: Enemy) kills world.spawned@items
+fn rebuild(world: &mut World) kills world               // anything reachable from `world`
+```
+
+- **No clause means the function kills nothing.** The body is checked against the clause: a
+  kill it does not cover is an error at that line, and `dz fix` writes the clause. Every
+  function says it, private ones included, so a signature always tells what a call can
+  invalidate and a change to a body never breaks a caller somewhere else.
+- **A clause names only what is visible wherever the function is.** A private method may
+  name a private field (`kills self.m_things@items`); a `pub` one names a tie the field
+  declares (`m_things: List<Thing> in @things`, then `kills self@things`).
+- **A trait method's clause is the most an implementation may kill**, and a function type's
+  likewise; a function type names its parameters when its clause does:
+  `fn(world: &mut World) kills world`.
+- **A call with no clause to read** — a C or C++ function, a pointer from C — kills
+  everything reachable through its `&mut` and `^mut` arguments.
+
+**What kills what.**
+
+- **Writing, moving or dropping a place kills every tie under it**, inline storage included:
+  assigning a tagged union a different variant kills references into its old payload.
+- **Elements share their container's ties.** A kill through `xs[i]` is a kill through `xs[j]`,
+  since `i` may equal `j`.
+- **A call kills what its clause names, at the call's arguments.** At a call, a reference
+  in a tie that the callee's clause kills is dead afterwards, and using it is an error:
+
+  ```dz
+  fn think(e: &mut Enemy, world: &mut World) kills world.enemies@items {
+      world.enemies.push(Enemy::spawn(e.x))
+      e.hp -= 1
+  }
+  think(&mut world.enemies[i], &mut world)   // error: `e` points into `world.enemies@items`
+  think(&mut boss, &mut world)               // fine: `boss` is not in `world`
+  ```
+
+**What stays allowed** is aliasing. `&mut xs[i]` beside `&xs[j]`, a write through a `&mut`
+that moves nothing (`p.x += 1`), a borrow of one field while another changes: none of these
+kills anything. A use is an error only when a call in between can move the memory the
+reference points into. Dazzle is single-threaded until §18.11 is decided, which is what lets
+it keep aliasing that Rust refuses.
+
+**What stays unchecked**, as §1.1 says: a pointer made inside `unsafe` by a cast or
+arithmetic, and a pointer stored in a struct (a context struct's `^mut World`, §5.2), since
+the checker cannot know that it and a separate `&mut world` are one `World`. A pointer a safe
+call returns is tied like a reference. `std`'s own clauses are written by hand over `unsafe`
+code, and are trusted.
+
+The ties of `std`'s containers:
+
+| | `self@items` | `self[*]` |
+|---|---|---|
+| `push`, `insert`, `reserve` | kills | — |
+| `pop`, `remove`, `swap_remove` | kills | — |
+| `clear`, `truncate`; assigning or dropping the container | kills | kills |
+| `sort_by`, `swap`, `reverse` | kills | — |
+| `len`, `get`, `first`, indexing | — | — |
+
+`String`'s `push_str` and `push` kill `self@text`. `HashMap` and `HashSet` follow `List`.
+
+Not yet implemented: the checker, `std`'s clauses and the diagnostics are T-0107's steps 2
+and 3.
