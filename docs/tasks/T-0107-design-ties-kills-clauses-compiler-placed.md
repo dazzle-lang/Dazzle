@@ -263,6 +263,18 @@ user's choice. In order, each step standing on its own:
      three that hold a clause to its body: a kill it leaves out, a path the body never kills,
      a path wider than what dies. Each carries the clause the body needs, so 2e can offer it.
      Calls with no clause kill everything reachable through `&mut` and `^mut` arguments.
+     **Started 2026-10-28** (`docs/log/r81-ties.md`): `dz_flow::ties` normalizes public
+     ties and private field paths to the same places, substitutes a call's argument
+     origins into its kill, return and parameter ties, keeps container storage separate
+     from element-owned memory, and compares complete effect sets for missing, unused
+     and broad clauses. `analyse_body` now follows local references and views through
+     calls, assignment, move, scope exit, branches and loop backedges, preserves separate
+     slot-address and element-owned ties, checks returned ties, and produces structured
+     invalid-use and clause-mismatch findings. Unknown cases remain explicit and cannot
+     produce clause-narrowing/removal suggestions. **Still open:** aggregate view storage
+     and destructuring, general iterators, private pointer indexing to `[*]`, union
+     payload paths, default-argument effects, function-type clauses, and diagnostic/fix
+     integration. Nothing new is enforced yet.
    - **2d. `std`'s clauses** on `List`, `HashMap`, `HashSet`, `SlotMap` and `String`, with
      `std` itself checking clean.
    - **2e. The fixes and the editor.** `dz fix` writes the clause a body needs, adding,
