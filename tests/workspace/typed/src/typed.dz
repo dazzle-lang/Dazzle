@@ -1787,3 +1787,44 @@ fn conversions(name: &String, owned: String, x: f32) -> f32 {
     let _ = c_text(String::from("x"))
     return weigh(x) + weigh(owned.len() as f32)
 }
+
+// Ties and `kills` clauses (spec §6.7): every form a signature may use. Nothing checks yet
+// that a body kills what its clause says, so the bodies here only have to make sense.
+pub struct Roster {
+    pub members: List<String>
+    m_scores: List<i32> in @scores
+    m_index: HashMap<String, i32>
+
+    // A private method may name a private field; a public one names its tie.
+    fn reset_index(&mut self) kills self.m_index[*] {
+        m_index.clear()
+    }
+
+    pub fn add_score(&mut self, s: i32) kills self@scores {
+        m_scores.push(s)
+    }
+
+    pub fn first_member(&self) -> ^String in self.members {
+        return members.first()
+    }
+
+    pub fn rename_all(&mut self) kills self.members[*] {
+        for &mut m in members {
+            m.push_str("!")
+        }
+    }
+}
+
+pub trait Tidy {
+    fn tidy(&mut self, roster: &mut Roster) kills roster.members
+}
+
+// A reference parameter may say where it points; a free function names `pub` fields.
+fn shout(name: &mut String in roster, roster: &mut Roster) kills roster.members {
+    name.push_str("!")
+    roster.members.clear()
+}
+
+fn member_text(roster: &Roster, i: usize) -> str in roster.members[*] {
+    return roster.members[i].as_str()
+}

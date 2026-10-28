@@ -249,6 +249,12 @@ every tie under it.
 `list@items` and `list[*]@text` are separate: moving the array of strings leaves each
 string's bytes where they are, so a view into one element survives pushing another.
 
+`[*]` names the elements of what a `for` can walk: an array, a slice, or a type with an
+`Index<usize>` or an `Iterable` implementation. Through `Index` the elements have a type, so a
+path can go on into them (`list[*]@text`); a type that can only be iterated — a `HashMap`,
+whose elements are its entries — is named whole at `[*]`, and the path stops there. So does
+a path at a tie on a pointer field, which names that memory as a whole.
+
 **Every reference carries a tie**, known where it is made: `&mut world.enemies[i]` is in
 `world.enemies@items`. A function returning a reference or a pointer says where it points
 with `in`: `pub fn first(&self) -> ^T in self@items`. With exactly one reference input and no

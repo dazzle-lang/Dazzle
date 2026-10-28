@@ -337,6 +337,21 @@ pub const NO_ASSOC_TYPE: &str = "DZ0560";
 /// `T::Name` where more than one of `T`'s bounds declares `Name`, each with its own
 /// choice — `T: Mul<f32> + Mul<Vec2>` asked for `T::Output` (spec §8.5, §18.29).
 pub const AMBIGUOUS_ASSOC_TYPE: &str = "DZ0561";
+/// A tie path that names nothing: no parameter of that name, `self` outside a method, a
+/// field or tie the type does not have, `[*]` on something with no elements, or a step past
+/// where a path can reach (spec §6.7).
+pub const TIE_PATH_UNRESOLVED: &str = "DZ0562";
+/// A tie path through a field some caller of the function cannot see: a clause is part of
+/// the signature, so it names only what every caller can (spec §6.7).
+pub const TIE_PATH_NOT_VISIBLE: &str = "DZ0563";
+/// A `kills` path that starts at something the function cannot change: a `&` or by-value
+/// parameter, or `&self` (spec §6.7).
+pub const KILLS_NEEDS_MUT: &str = "DZ0564";
+/// `in` on a parameter or a result that points into nothing — an `i32`, a `List` taken by
+/// value — or a parameter said to point into itself (spec §6.7).
+pub const TIE_ON_NON_REFERENCE: &str = "DZ0565";
+/// Two fields of one type declaring the same tie (spec §6.7).
+pub const DUPLICATE_TIE: &str = "DZ0566";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

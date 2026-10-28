@@ -27,6 +27,7 @@ use dz_span::{FileId, SourceMap, Span};
 mod build;
 mod check;
 mod impls;
+pub mod ties;
 
 /// The type model lives in `dz_hir`, since the HIR stores a `Ty` on every node and
 /// `dz_hir` sits below this crate. Re-exported so `dz_check::ty::Ty` keeps working.
@@ -101,6 +102,8 @@ pub struct FieldSig {
     /// An imported C bit-field, `unsigned flags : 3`. Read and written like any other
     /// member; its address cannot be taken, in C++ or here (spec §15.2).
     pub bitfield: bool,
+    /// `in @items`: the tie this field declares, without the `@` (spec §6.7).
+    pub tie: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -115,6 +118,8 @@ pub struct ParamSig {
     /// The C spelling an imported parameter is cast to at the call: `char *` is not
     /// `int8_t *`, nor `long *` an `int32_t *`, and pointers do not convert (spec §15.2).
     pub c_cast: Option<String>,
+    /// `e: &mut Enemy in world`, as written; [`ties::resolve`] says what it names (spec §6.7).
+    pub tie: Option<dz_ast::TiePath>,
 }
 
 /// The intrinsic a parameter's default is, when it is one the caller supplies (spec §12.7).
@@ -165,6 +170,14 @@ pub struct FnSig {
     /// the body sees, and a call gives it any number of `T`s — or one slice spread with
     /// `..xs`. Any parameters after it are passed by name.
     pub variadic: Option<usize>,
+    /// `-> ^T in self@items` and `kills self@items`, as written: a signature is collected
+    /// before every type's fields are, so [`ties::resolve`] reads them once they are
+    /// (spec §6.7).
+    pub ret_tie: Option<dz_ast::TiePath>,
+    pub kills: Vec<dz_ast::TiePath>,
+    /// A C or C++ function, whose header says nothing of what it kills: a call to it kills
+    /// everything reachable through its `&mut` and `^mut` arguments, and `kills` is empty.
+    pub kills_unknown: bool,
 }
 
 impl FnSig {
@@ -574,6 +587,7 @@ impl TypeTable {
                     has_default: p.has_default,
                     caller_default: p.caller_default.clone(),
                     c_cast: p.c_cast.clone(),
+                    tie: p.tie.clone(),
                 })
                 .collect(),
             ret: self.subst_with(&sig.ret, &map, Some(self_ty)),
@@ -1197,6 +1211,7 @@ impl Ctx<'_> {
                                 has_default: false,
                                 caller_default: None,
                                 c_cast: p.c_cast.clone(),
+                                tie: None,
                             })
                             .collect(),
                         ret: self.foreign_ty(module.id, ret),
@@ -1208,6 +1223,9 @@ impl Ctx<'_> {
                         span: span(d.loc),
                         generics: Vec::new(),
                         has_body: true,
+                        ret_tie: None,
+                        kills: Vec::new(),
+                        kills_unknown: true,
                     }),
                     DeclKind::Struct { fields, opaque, is_union, methods, move_only } => {
                         let mut sig = StructSig {
@@ -1221,6 +1239,7 @@ impl Ctx<'_> {
                                     span: span(x.loc),
                                     bitfield: x.bitfield,
                                     declared_in: None,
+                                    tie: None,
                                 })
                                 .collect(),
                             opaque: *opaque,
@@ -1286,6 +1305,7 @@ impl Ctx<'_> {
                         has_default: false,
                         caller_default: None,
                         c_cast: p.c_cast.clone(),
+                        tie: None,
                     })
                     .collect(),
                 ret: self.foreign_ty(module, &m.ret),
@@ -1298,6 +1318,9 @@ impl Ctx<'_> {
                 span,
                 generics: Vec::new(),
                 has_body: true,
+                ret_tie: None,
+                kills: Vec::new(),
+                kills_unknown: true,
             };
             if m.is_ctor {
                 sig.ctors.push(f);
@@ -1783,6 +1806,7 @@ impl<'a> Ctx<'a> {
                     has_default: p.has_default,
                     caller_default: p.caller_default.clone(),
                     c_cast: p.c_cast.clone(),
+                    tie: p.tie.clone(),
                 })
                 .collect(),
             ret: self.instantiate(sym, args, &sig.ret),
@@ -1815,6 +1839,33 @@ impl<'a> Ctx<'a> {
     pub(crate) fn self_type_of(&self, sym: SymbolId) -> Ty {
         let args = self.table.type_params(sym).iter().map(|p| Ty::Param(p.param.clone())).collect();
         Ty::Named { sym, args }
+    }
+
+    /// Report what is wrong with `f`'s tie paths, once every type's fields are known
+    /// (spec §6.7). `privileged` is the type whose private members `f` sees.
+    pub(crate) fn check_ties(
+        &mut self,
+        f: &FnDecl,
+        sig: &FnSig,
+        self_ty: Option<Ty>,
+        privileged: Option<SymbolId>,
+    ) {
+        if sig.kills.is_empty() && sig.ret_tie.is_none() && f.params.iter().all(|p| p.tie.is_none())
+        {
+            return;
+        }
+        let scope = ties::Scope {
+            table: &self.table,
+            res: self.res,
+            module: self.module,
+            name: &f.name.name,
+            sig,
+            self_ty,
+            privileged,
+        };
+        for e in ties::check(&scope, &f.params) {
+            self.error_help(e.code, e.span, e.message, e.label, e.help);
+        }
     }
 
     /// The argument list for a trait reference, filling omitted trailing arguments from the
@@ -2907,6 +2958,23 @@ impl<'a> Ctx<'a> {
                     let mut field = self.field_sig(f);
                     // Visibility lives on the member, not the field node.
                     field.vis = m.vis;
+                    // A tie names one field's memory, so a path can say which (spec §6.7).
+                    if let Some(t) = &f.tie {
+                        if let Some(first) = sig.fields.iter().find(|x| x.tie == field.tie) {
+                            let first = first.name.clone();
+                            self.error_help(
+                                codes::DUPLICATE_TIE,
+                                t.span,
+                                format!("`@{}` is already declared, by `{first}`", t.name),
+                                "a second field with this tie",
+                                format!(
+                                    "a tie names one field's memory: give `{}` a tie of its \
+                                     own, or none if no signature names it (spec §6.7)",
+                                    f.name.name
+                                ),
+                            );
+                        }
+                    }
                     // A reference cannot be stored in a field (spec §5.2, §18.3). This one
                     // rule is what lets Dazzle skip lifetime analysis entirely.
                     if let Ty::Ref { .. } = field.ty {
@@ -2987,6 +3055,7 @@ impl<'a> Ctx<'a> {
             // Dazzle has no bit-fields of its own; only an imported C struct brings them.
             bitfield: false,
             declared_in: None,
+            tie: f.tie.as_ref().map(|t| t.name.clone()),
         }
     }
 
@@ -3040,6 +3109,9 @@ impl<'a> Ctx<'a> {
             generics,
             has_body: f.body.is_some(),
             variadic,
+            ret_tie: f.ret_tie.clone(),
+            kills: f.kills.clone(),
+            kills_unknown: false,
         }
     }
 
@@ -3087,6 +3159,7 @@ impl<'a> Ctx<'a> {
                 has_default: p.default.is_some() || is_variadic,
                 caller_default: caller_default(p.default.as_ref()),
                 c_cast: None,
+                tie: p.tie.clone(),
             });
         }
         (out, variadic)
