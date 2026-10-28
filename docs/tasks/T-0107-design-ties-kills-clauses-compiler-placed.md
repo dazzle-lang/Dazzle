@@ -254,7 +254,9 @@ user's choice. In order, each step standing on its own:
    - **2b. Resolving tie paths**, in the checker since they go through `.` (invariant 9):
      each path's parameters, fields, declared ties and `[*]` exist and are visible wherever
      the function is (§6.7); the clause is part of the function's signature in the HIR; new
-     codes for a bad path; `typed/` and `typeerrors/` cases (invariant 8).
+     codes for a bad path; `typed/` and `typeerrors/` cases (invariant 8). **Done
+     2026-10-28** (`docs/log/r81-ties.md`): the signature keeps the clause as written, and
+     `dz_check::ties::resolve` names what it means, for the checker and later `dz_flow`.
    - **2c. The analysis**, in `dz_flow`: the tie of every reference and view; kills at
      calls (the callee's clause read at its arguments), at assignment, move and drop; what
      each body kills in all, as the narrowest set of paths. Errors for a use after a kill, and
@@ -279,9 +281,11 @@ user's choice. In order, each step standing on its own:
    Measured against hand-placed `Temp` as in T-0104.
 7. Owner arenas, once a program needs them.
 
-Still open, to settle on the way: what `[*]` means inside the type that declares it (in
-`List`'s own body the elements are `m_data[i]`, behind a pointer tied `@items`, so `self[*]`
-must name what is stored in that memory; the spec does not yet say so), the elision rules
-for returned references, how a
+Still open, to settle on the way: how 2c ties `self[*]` to the memory behind it inside the
+type that declares it (2b settled which types have `[*]` — those with `Index` or `Iterable`,
+§6.7 — but in `List`'s own body the elements are `m_data[i]`, behind a pointer tied
+`@items`, which the analysis has to read as `self[*]`); the clause of a function type,
+which 2b leaves unresolved and outside `Ty::Fn`, so storing a function in one does not yet
+compare their clauses; the elision rules for returned references, how a
 tagged union's payload is named in a tie, what `dz` shows for each placement (inlay hints and
 a listing), and whether stage 3 on the prototype branch is reverted now or left until step 4.

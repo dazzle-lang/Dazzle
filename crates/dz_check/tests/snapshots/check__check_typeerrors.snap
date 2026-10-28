@@ -1578,3 +1578,43 @@ error[DZ0539]: `impl ImplicitAs for i32` belongs with `ImplicitAs` or with `i32`
      │      ^^^^^^^^^^^^^^^^ neither it, the type, nor a type it is given is declared in this module
      │
      = help: a trait taking type arguments may also be implemented where one of them is declared, as `impl ImplicitAs<Vec2> for rl::Vector2` is with `Vec2`; otherwise wrap the type in a struct of your own (spec §7.6)
+
+error[DZ0566]: `@notes` is already declared, by `m_notes`
+     ┌─ typeerrors/src/errors.dz:1297:30
+     │
+1297 │     m_more: List<String> in @notes
+     │                              ^^^^^ a second field with this tie
+     │
+     = help: a tie names one field's memory: give `m_more` a tie of its own, or none if no signature names it (spec §6.7)
+
+error[DZ0563]: `Ledger::m_notes` is less visible than `leak`, whose callers must see it
+     ┌─ typeerrors/src/errors.dz:1299:39
+     │
+1299 │     pub fn leak(&mut self) kills self.m_notes {}
+     │                                       ^^^^^^^ not visible to every caller
+     │
+     = help: a clause names only what every caller of `leak` can see: make the field as visible as the function, or declare a tie on it, `m_notes: … in @notes`, and name the tie instead (spec §6.7)
+
+error[DZ0562]: `ledgr` is not a parameter of `misspelt`
+     ┌─ typeerrors/src/errors.dz:1302:40
+     │
+1302 │ fn misspelt(ledger: &mut Ledger) kills ledgr {}
+     │                                        ^^^^^ no parameter of this name
+     │
+     = help: a tie path starts at one of the function's parameters, or at `self` in a method (spec §6.7)
+
+error[DZ0564]: `through_a_view` kills through `ledger`, which it cannot change
+     ┌─ typeerrors/src/errors.dz:1304:42
+     │
+1304 │ fn through_a_view(ledger: &Ledger) kills ledger.lines {}
+     │                                          ^^^^^^ taken as `&Ledger`
+     │
+     = help: a function kills only through a `&mut` or `^mut` parameter, or `&mut self`; what it takes by value is its own, and dies with it (spec §6.7)
+
+error[DZ0565]: the result has type `usize`, which points into nothing
+     ┌─ typeerrors/src/errors.dz:1306:45
+     │
+1306 │ fn count_lines(ledger: &Ledger) -> usize in ledger {
+     │                                             ^^^^^^ nothing to say this of
+     │
+     = help: `in` says where a reference, a pointer, a slice or a `str` points (spec §6.7)

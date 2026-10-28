@@ -129,7 +129,17 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
                 if f.body.is_none() {
                     // Required of every implementer. Its default arguments are still the
                     // trait's, and a trait object's handle declares them (spec §7.6).
-                    if f.params.iter().any(|p| p.default.is_some()) {
+                    let has_defaults = f.params.iter().any(|p| p.default.is_some());
+                    // With no body, nothing below checks its signature's ties (spec §6.7).
+                    if !has_defaults {
+                        let sig =
+                            cx.table.struct_sig(sym).and_then(|s| s.methods.get(&key)).cloned();
+                        if let Some(sig) = sig {
+                            let self_type = cx.self_type_of(sym);
+                            cx.check_ties(f, &sig, Some(self_type), Some(sym));
+                        }
+                    }
+                    if has_defaults {
                         let sig =
                             cx.table.struct_sig(sym).and_then(|s| s.methods.get(&key)).cloned();
                         if let Some(sig) = sig {
@@ -745,6 +755,10 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     span: f.name.span,
                     generics: Vec::new(),
                     has_body: f.body.is_some(),
+                    // A constructor returns nothing and kills nothing (spec §6.7).
+                    ret_tie: None,
+                    kills: Vec::new(),
+                    kills_unknown: false,
                 };
                 let owner = BodyOwner::Ctor { owner: sym, index: ctors };
                 ctors += 1;
@@ -1291,6 +1305,9 @@ impl<'a, 'c> Body<'a, 'c> {
     // --- functions --------------------------------------------------------
 
     fn function(&mut self, f: &FnDecl, sig: &FnSig) -> BlockId {
+        let self_type =
+            self.self_full.clone().or_else(|| self.self_ty.map(|s| self.cx.self_type_of(s)));
+        self.cx.check_ties(f, sig, self_type, self.self_ty);
         self.fallible = sig.fallible;
         if sig.is_unsafe {
             self.unsafe_depth = 1;
@@ -4106,6 +4123,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     has_default: p.has_default,
                     caller_default: p.caller_default.clone(),
                     c_cast: p.c_cast.clone(),
+                    tie: p.tie.clone(),
                 })
                 .collect(),
             ret: self.cx.table.subst(&sig.ret, &map),
@@ -8409,6 +8427,7 @@ fn instantiate_self(sig: &FnSig, self_ty: &Ty) -> FnSig {
                 has_default: p.has_default,
                 caller_default: p.caller_default.clone(),
                 c_cast: p.c_cast.clone(),
+                tie: p.tie.clone(),
             })
             .collect(),
         ret: sub(&sig.ret),

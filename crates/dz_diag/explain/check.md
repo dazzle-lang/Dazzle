@@ -738,3 +738,186 @@ fn main() {
     println!("{}", n)
 }
 ```
+
+## DZ0562
+
+A tie path names memory by starting at one of the function's parameters, or `self` in a
+method, and going through fields, `[*]` for any element and `@name` for a tie the type
+declares (spec §6.7). Each step has to exist: a misspelt parameter or field names nothing.
+
+```dz
+pub struct Party {
+    pub members: List<String>
+}
+
+fn recruit(party: &mut Party) kills party.member {
+    party.members.push(String::from("Ann"))
+}
+
+fn main() {
+    let mut p = Party{ members: List<String>() }
+    recruit(&mut p)
+}
+```
+
+```dz
+pub struct Party {
+    pub members: List<String>
+}
+
+fn recruit(party: &mut Party) kills party.members {
+    party.members.push(String::from("Ann"))
+}
+
+fn main() {
+    let mut p = Party{ members: List<String>() }
+    recruit(&mut p)
+    println!("{}", p.members.len())
+}
+```
+
+## DZ0563
+
+A `kills` clause is part of the signature, so everyone who may call the function reads it,
+and it can only name what they can see (spec §6.7). A `pub` method that names a private
+field would tell its callers about something they cannot name themselves. Declare a tie on
+the field instead: the tie is a public name for that private memory.
+
+```dz
+pub struct Party {
+    m_members: List<String> = List<String>()
+
+    pub fn recruit(&mut self, name: str) kills self.m_members {
+        m_members.push(String::from(name))
+    }
+}
+
+fn main() {
+    let mut p = Party{}
+    p.recruit("Ann")
+}
+```
+
+```dz
+pub struct Party {
+    m_members: List<String> in @members = List<String>()
+
+    pub fn recruit(&mut self, name: str) kills self@members {
+        m_members.push(String::from(name))
+    }
+}
+
+fn main() {
+    let mut p = Party{}
+    p.recruit("Ann")
+}
+```
+
+## DZ0564
+
+A function can only kill memory its caller lent it to change: through a `&mut` or `^mut`
+parameter, or `&mut self` (spec §6.7). Through a `&` it cannot change anything, and what it
+takes by value is its own, so nothing the caller holds can point into it.
+
+```dz
+pub struct Party {
+    pub members: List<String>
+}
+
+fn count(party: &Party) -> usize kills party.members {
+    return party.members.len()
+}
+
+fn main() {
+    let p = Party{ members: List<String>() }
+    println!("{}", count(&p))
+}
+```
+
+```dz
+pub struct Party {
+    pub members: List<String>
+}
+
+fn count(party: &Party) -> usize {
+    return party.members.len()
+}
+
+fn main() {
+    let p = Party{ members: List<String>() }
+    println!("{}", count(&p))
+}
+```
+
+## DZ0565
+
+`in` says where a reference points: into a parameter, or into `self` (spec §6.7). A
+number, a `bool` or a value returned whole points into nothing, so there is nothing to say,
+and a parameter cannot point into itself.
+
+```dz
+pub struct Party {
+    pub members: List<String>
+}
+
+fn count(party: &Party) -> usize in party {
+    return party.members.len()
+}
+
+fn main() {
+    let p = Party{ members: List<String>() }
+    println!("{}", count(&p))
+}
+```
+
+```dz
+pub struct Party {
+    pub members: List<String>
+}
+
+fn leader(party: &Party) -> ^String in party.members {
+    return party.members.first()
+}
+
+fn main() {
+    let p = Party{ members: List<String>() }
+    println!("{}", leader(&p) == null)
+}
+```
+
+## DZ0566
+
+A tie is the name of one field's memory, so a path that names it says exactly which (spec
+§6.7). Two fields declaring the same one would make it mean either.
+
+```dz
+pub struct Party {
+    m_members: List<String> in @members = List<String>()
+    m_guests: List<String> in @members = List<String>()
+
+    pub fn size(&self) -> usize {
+        return m_members.len() + m_guests.len()
+    }
+}
+
+fn main() {
+    let p = Party{}
+    println!("{}", p.size())
+}
+```
+
+```dz
+pub struct Party {
+    m_members: List<String> in @members = List<String>()
+    m_guests: List<String> in @guests = List<String>()
+
+    pub fn size(&self) -> usize {
+        return m_members.len() + m_guests.len()
+    }
+}
+
+fn main() {
+    let p = Party{}
+    println!("{}", p.size())
+}
+```

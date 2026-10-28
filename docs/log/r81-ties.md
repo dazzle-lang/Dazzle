@@ -6,6 +6,41 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## 2b: resolving tie paths (2026-10-28)
+
+Every tie path in a signature now has to name something, and something every caller can
+see. Nothing yet checks a body against its clause; that is 2c.
+
+- **Where the clause lives.** A signature is collected before every type's fields are, so
+  `FnSig` keeps `kills` and `ret_tie`, and `ParamSig` its `tie`, as written. The new module
+  `dz_check::ties` resolves one into a `Tie` — a root (`self` or a parameter's index) and
+  steps (field, `[*]`, tie) — and `ties::check` lists what is wrong with a signature.
+  `dz_flow` will call `resolve` for the paths themselves. This kept the change out of the
+  dozen places a signature is built: the checker runs it once per function, from
+  `Body::function`, and for a trait's required methods, which have no body.
+- **`FieldSig::tie`** carries a field's `in @name`, and **`FnSig::kills_unknown`** marks an
+  imported C or C++ function, whose header says nothing of what it kills.
+- **What a path may name.** A root is a parameter, or `self` in a method. `.field` goes
+  through a struct's fields; `@name` through a tie a field declares, and stops there when the
+  field is a pointer, since the tie then names that memory whole. `[*]` is settled: the
+  elements of an array, a slice, or an `Index<usize>` type, whose `index` gives the element
+  type; an `Iterable`-only type such as `HashMap` is named whole at `[*]`.
+- **Visibility** (§4): a field in a clause must be reachable from the function and at least
+  as visible as it, ranked private < `protected` < `pub(module)` < `pub`. A private free
+  function counts as `pub(module)`, since the whole module may call it. A tie is a public
+  name, which is how a `pub` method names private storage.
+- **Codes**: `DZ0562` a path that names nothing, `DZ0563` a field some caller cannot see,
+  `DZ0564` a kill through `&`, `&self` or a by-value parameter, `DZ0565` an `in` on what
+  points into nothing (or into itself), `DZ0566` a tie declared twice. Each has its `dz
+  explain` entry, wrong and right.
+- **Left for later**: a function type's clause is parsed but not resolved, nor part of
+  `Ty::Fn`. `List` declares no `@items` until 2d, so `kills xs@items` on a list is `DZ0562`
+  today, and the bare `kills xs` stands in for it.
+
+Tests: `typed/` gains every valid form and `typeerrors/` a case for each new code (invariant
+8), and two targeted checker tests pin generic types, implementations, `protected` through
+inheritance, and `pub(module)` against the function's own visibility.
+
 ## 2a: the syntax (2026-10-27)
 
 Parsed and kept, with no meaning yet: nothing past the parser reads a clause.

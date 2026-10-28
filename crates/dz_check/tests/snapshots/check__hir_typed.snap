@@ -19880,3 +19880,55 @@ body fn conversions -> f32
             cast: f32
               call-method String::len: usize
                 local _1 owned: String
+body method Roster::reset_index -> void
+  param _0 self: Roster
+  block
+    call-method HashMap::clear: void
+      field #2: HashMap<String, i32>
+        local _0 self: Roster
+body method Roster::add_score -> void
+  param _0 self: Roster
+  param _1 s: i32
+  block
+    call-method List::push: void
+      field #1: List<i32>
+        local _0 self: Roster
+      local _1 s: i32
+body method Roster::first_member -> ^String
+  param _0 self: Roster
+  block
+    return: !
+      call-method List::first: ^String
+        field #0: List<String>
+          local _0 self: Roster
+body method Roster::rename_all -> void
+  param _0 self: Roster
+  block
+    for _1 m
+      call-method IterableMut::iter_mut: SliceIterMut<String>
+        field #0: List<String>
+          local _0 self: Roster
+      block
+        call-method String::push_str: void
+          local _1 m: &mut String
+          str "!": str
+body fn shout -> void
+  param _0 name: &mut String
+  param _1 roster: &mut Roster
+  block
+    call-method String::push_str: void
+      local _0 name: &mut String
+      str "!": str
+    call-method List::clear: void
+      field #0: List<String>
+        local _1 roster: &mut Roster
+body fn member_text -> str
+  param _0 roster: &Roster
+  param _1 i: usize
+  block
+    return: !
+      call-method String::as_str: str
+        call-method Index::index: &String
+          field #0: List<String>
+            local _0 roster: &Roster
+          local _1 i: usize

@@ -198,6 +198,12 @@ fn every_rule_has_a_failing_case() {
         RESERVED_UNION_METHOD,
         // r62 — arguments passed by name (spec §7.2).
         BAD_NAMED_ARG,
+        // r81 — ties and `kills` clauses (spec §6.7).
+        TIE_PATH_UNRESOLVED,
+        TIE_PATH_NOT_VISIBLE,
+        KILLS_NEEDS_MUT,
+        TIE_ON_NON_REFERENCE,
+        DUPLICATE_TIE,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }
@@ -678,4 +684,35 @@ fn an_impl_for_a_pointer_type_is_refused() {
          fn f(p: ^P) -> i32 {\n return twice(ById{ p: p })\n}\n",
     );
     assert!(wrapped.is_empty(), "a struct wrapping the pointer, got {wrapped:?}");
+}
+
+// --- ties and kills clauses (spec §6.7) -------------------------------------
+
+/// A path resolves through a generic type's fields and elements, and in an implementation's
+/// method as in a struct's own.
+#[test]
+fn tie_paths_resolve_in_generic_types_and_implementations() {
+    let src = "pub struct Bag<T> {\n    pub items: List<T>\n\n    pub fn add(&mut self, v: T) kills self.items {\n        items.push(v)\n    }\n}\n\npub trait Tidy {\n    fn tidy(&mut self) kills self\n}\n\nimpl<T> Tidy for Bag<T> {\n    fn tidy(&mut self) kills self.items[*] {\n        items.clear()\n    }\n}\n";
+    assert!(snippet(src).is_empty(), "{:?}", snippet(src));
+}
+
+/// A `protected` field may be named by an inheriting type's private method, whose callers
+/// are that type's own, but not by its `pub` one (spec §4, §6.7).
+#[test]
+fn a_clause_names_only_what_every_caller_can_see() {
+    use dz_diag::codes::TIE_PATH_NOT_VISIBLE;
+    let base = "pub struct Base {\n    protected m_parts: List<i32>\n}\n\n";
+    let private = format!(
+        "{base}pub struct Derived : Base {{\n    fn wipe(&mut self) kills self.m_parts {{}}\n}}\n"
+    );
+    assert!(snippet(&private).is_empty(), "{:?}", snippet(&private));
+    let public = format!("{base}pub struct Derived : Base {{\n    pub fn wipe(&mut self) kills self.m_parts {{}}\n}}\n");
+    assert_eq!(snippet(&public), vec![TIE_PATH_NOT_VISIBLE]);
+    // A private free function is callable from the whole module, so `pub(module)` will do;
+    // a `pub` one is callable from importers too.
+    let shelf = "pub struct Shelf {\n    pub(module) books: List<i32>\n}\n\n";
+    let module = format!("{shelf}fn sort(s: &mut Shelf) kills s.books {{}}\n");
+    assert!(snippet(&module).is_empty(), "{:?}", snippet(&module));
+    let exported = format!("{shelf}pub fn sort(s: &mut Shelf) kills s.books {{}}\n");
+    assert_eq!(snippet(&exported), vec![TIE_PATH_NOT_VISIBLE]);
 }
