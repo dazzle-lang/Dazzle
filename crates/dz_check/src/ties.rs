@@ -328,7 +328,7 @@ fn tie(scope: &Scope<'_>, ty: &Ty, name: &str, span: Span) -> Result<(Ty, String
 /// slice's, or what an `Index<usize>` implementation hands back — `Some(None)` for a type
 /// that can only be iterated, whose elements a path cannot reach into, and `None` for a
 /// type with no elements at all.
-fn elements(scope: &Scope<'_>, ty: &Ty) -> Option<Option<Ty>> {
+pub fn elements(scope: &Scope<'_>, ty: &Ty) -> Option<Option<Ty>> {
     if let Some(e) = ty.element() {
         return Some(Some(e.clone()));
     }

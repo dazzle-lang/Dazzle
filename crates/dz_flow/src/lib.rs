@@ -30,6 +30,8 @@ use dz_hir::{self as hir, BlockId, ExprId, Hir, LocalId, StmtId};
 use dz_resolve::Resolution;
 use dz_span::{FileId, Span};
 
+pub mod ties;
+
 /// Check every body in the program.
 pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
     let mut diags = Diagnostics::new();

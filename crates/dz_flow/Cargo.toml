@@ -7,13 +7,14 @@ license.workspace = true
 description = "Ownership and flow analysis for the Dazzle language (spec §6)"
 
 [dependencies]
+dz_ast.workspace = true
 dz_span.workspace = true
 dz_diag.workspace = true
 dz_resolve.workspace = true
 dz_hir.workspace = true
 dz_check.workspace = true
+dz_project.workspace = true
 
 [dev-dependencies]
 dz_lex.workspace = true
 dz_parse.workspace = true
-dz_project.workspace = true

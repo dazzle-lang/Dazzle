@@ -194,6 +194,7 @@ dependencies = [
 name = "dz_flow"
 version = "0.1.0"
 dependencies = [
+ "dz_ast",
  "dz_check",
  "dz_diag",
  "dz_hir",
