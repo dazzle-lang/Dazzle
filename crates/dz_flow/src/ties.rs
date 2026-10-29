@@ -15,6 +15,7 @@ pub use body::{
 };
 
 use dz_check::ties::{self, Root, Scope};
+use dz_check::TypeTable;
 use dz_diag::codes;
 use dz_hir::ty::Ty;
 use dz_hir::LocalId;
@@ -170,7 +171,8 @@ pub enum ReturnTie {
     Elided(Place),
     /// No reference-like result.
     None,
-    /// A reference-like result with no uniquely known input, or unknown provenance.
+    /// A reference-like result with no uniquely known input, an aggregate holding a
+    /// view, or unknown provenance.
     Unknown,
 }
 
@@ -256,8 +258,11 @@ pub fn call_effects(scope: &Scope<'_>, bindings: &Bindings) -> Result<CallEffect
         if scope.sig.takes_self.is_some() {
             inputs.push(bindings.receiver.as_ref());
         }
+        // §6.7 elides only with one reference input. Whether a pointer, slice or `str`
+        // input counts is not settled (T-0107), so one beside another input leaves the
+        // result unknown rather than choosing between them.
         for (i, param) in scope.sig.params.iter().enumerate() {
-            if matches!(param.ty, Ty::Ref { .. }) {
+            if points(&param.ty) {
                 inputs.push(bindings.params.get(i).and_then(Option::as_ref));
             }
         }
@@ -265,6 +270,10 @@ pub fn call_effects(scope: &Scope<'_>, bindings: &Bindings) -> Result<CallEffect
             [Some(place)] => ReturnTie::Elided((*place).clone()),
             _ => ReturnTie::Unknown,
         }
+    } else if contains_views(&scope.sig.ret, scope.table) {
+        // A struct, tuple or optional holding a view (`SliceIter`'s slice) has no
+        // elision rule yet, so where it points is unknown rather than nowhere.
+        ReturnTie::Unknown
     } else {
         ReturnTie::None
     };
@@ -286,6 +295,33 @@ fn mutable_input(ty: &Ty) -> bool {
 
 fn points(ty: &Ty) -> bool {
     matches!(ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::Slice { .. } | Ty::Str | Ty::CStr)
+}
+
+/// Whether a value of `ty` holds a view somewhere inside it, other than through a
+/// pointer field, which stays unchecked (spec §6.7).
+pub(crate) fn contains_views(ty: &Ty, table: &TypeTable) -> bool {
+    fn contains(ty: &Ty, table: &TypeTable, depth: usize) -> bool {
+        if depth > 8 {
+            return true;
+        }
+        match ty {
+            Ty::Tuple(parts) => parts.iter().any(|p| contains(p, table, depth + 1)),
+            Ty::Optional(inner) | Ty::Array { elem: inner, .. } => {
+                contains(inner, table, depth + 1)
+            }
+            Ty::Named { sym, args } => table.struct_sig(*sym).is_some_and(|s| {
+                table.field_types(*sym, args, &s.fields).iter().any(|f| {
+                    // Pointer fields are the explicit unchecked boundary in §6.7;
+                    // str/slice fields still make an aggregate a view.
+                    !matches!(f, Ty::Ptr { .. } | Ty::OwnPtr { .. })
+                        && contains(f, table, depth + 1)
+                })
+            }),
+            Ty::Param(_) => true,
+            _ => points(ty),
+        }
+    }
+    contains(ty, table, 0)
 }
 
 /// The narrowest set of places describing a collection of effects, in first-occurrence

@@ -759,11 +759,18 @@ fn for_clean(xs: &mut [2]Text) { for &e in xs { observe(e) } }
 fn for_replaced(xs: &mut [2]Text) kills xs {
     for &e in xs { observe(e); xs = [Text{}, Text{}] }
 }
+fn for_replaced_text(xs: &mut [2]Text) kills xs {
+    let mut last: ^u8 = null
+    for &e in xs { observe_byte(last); last = e.data; xs = [Text{}, Text{}] }
+}
 "#,
     );
     clean(&fixture.analysis("for_clean"));
-    let a = fixture.analysis("for_replaced");
-    assert!(!a.invalid_uses.is_empty(), "{a:#?}");
+    // Writing the array leaves each slot where it is, so `e` survives; the text the
+    // old element owned does not, and the next iteration reads it.
+    clean(&fixture.analysis("for_replaced"));
+    let a = fixture.analysis("for_replaced_text");
+    assert_eq!(a.invalid_uses.len(), 1, "{a:#?}");
     assert!(a.incomplete.is_empty(), "{a:#?}");
 }
 #[test]
@@ -788,29 +795,125 @@ fn every_fixture_and_std_body_can_be_analysed_without_panicking() {
     let fixture = Fixture::new();
     let mut count = 0;
     for (_, body) in fixture.checked.hir.bodies() {
-        ties::analyse_body(body, &fixture.checked.table, &fixture.res);
+        let a = ties::analyse_body(body, &fixture.checked.table, &fixture.res);
+        // std is correct code, so any finding here is the analysis's mistake: returning a
+        // local by value once read as a view of it, in 62 bodies of std and the examples.
+        assert!(a.invalid_uses.is_empty() && a.invalid_returns.is_empty(), "{a:#?}");
         count += 1;
     }
     assert!(count > 100, "this must exercise std as well as the small fixture");
 }
 
 #[test]
-fn replacing_an_element_ends_both_its_slot_and_its_owned_memory() {
+fn replacing_an_element_ends_its_owned_memory_but_not_its_slot() {
     let fixture = Fixture::with_source(
         r#"
-fn replaced_slot(w: &mut World) kills w.bag@items, w.bag[*] {
+fn replaced_slot(w: &mut World) kills w.bag[*] {
     let element = &w.bag[0]
     let text = element.data
     w.bag[0] = Text{}
     observe(element)
     observe_byte(text)
 }
+fn slot_survives(w: &mut World) kills w.bag[*] {
+    let element = &w.bag[0]
+    w.bag[1] = Text{}
+    observe(element)
+}
 "#,
     );
     let a = fixture.analysis("replaced_slot");
-    assert_eq!(a.invalid_uses.len(), 2, "{a:#?}");
+    assert_eq!(a.invalid_uses.len(), 1, "{a:#?}");
     assert!(a.incomplete.is_empty(), "{a:#?}");
     assert!(a.mismatches.is_empty(), "{a:#?}");
+    clean(&fixture.analysis("slot_survives"));
+}
+
+#[test]
+fn writing_plain_data_kills_nothing_but_payloads_and_owned_memory_die() {
+    let fixture = Fixture::with_source(
+        r#"
+pub struct Vec2 { pub x: f32; pub y: f32 }
+pub union Shape { Circle { r: f32 }, Square { side: f32 } }
+pub struct Body {
+    pub at: Vec2
+    pub shape: Shape
+    pub width: f32?
+    pub name: Text
+}
+fn observe_f32(x: &f32) {}
+fn plain(b: &mut Body) {
+    let x = &b.at.x
+    b.at = Vec2{ x: 1, y: 2 }
+    observe_f32(x)
+}
+fn variant(b: &mut Body) kills b.shape {
+    switch b.shape {
+        case Circle(&c) {
+            b.shape = Shape::Square{ side: 1 }
+            observe_f32(&c.r)
+        }
+        case Square(&s) {}
+    }
+}
+fn optional(b: &mut Body) kills b.width {
+    if let &w = b.width {
+        b.width = none
+        observe_f32(w)
+    }
+}
+fn owned(b: &mut Body) kills b.name {
+    let name = &b.name
+    let text = b.name.data
+    b.name = Text{}
+    observe(name)
+    observe_byte(text)
+}
+fn coarse(b: &mut Body) kills b { b.shape = Shape::Square{ side: 1 } }
+fn outside(b: &mut Body) kills b {
+    let x = &b.at.x
+    coarse(b)
+    observe_f32(x)
+}
+"#,
+    );
+    clean(&fixture.analysis("plain"));
+    for name in ["variant", "optional", "owned"] {
+        let a = fixture.analysis(name);
+        assert_eq!(a.invalid_uses.len(), 1, "{name}: {a:#?}");
+        assert!(a.incomplete.is_empty(), "{name}: {a:#?}");
+        assert!(a.mismatches.is_empty(), "{name}: {a:#?}");
+    }
+    // A callee given `&mut Body` can change what it owns and its payloads, but cannot
+    // move a plain field of it.
+    let a = fixture.analysis("outside");
+    assert!(a.invalid_uses.is_empty(), "{a:#?}");
+    assert!(a.mismatches.is_empty(), "{a:#?}");
+    // `coarse` itself only kills the payload, so its own clause is wider than that.
+    let a = fixture.analysis("coarse");
+    assert!(matches!(a.mismatches[..], [Mismatch::TooBroad { .. }]), "{a:#?}");
+}
+
+#[test]
+fn casts_to_another_pointee_are_unchecked_and_dropping_mut_is_not() {
+    let fixture = Fixture::with_source(
+        r#"
+fn reborrow(w: &mut World) kills w.bag@items {
+    let p: ^mut Text = w.bag.data
+    let q: ^Text = p
+    grow(&mut w.bag)
+    observe(q)
+}
+fn reinterpret(w: &mut World) kills w.bag@items {
+    let p = unsafe { w.bag.data as ^u8 }
+    grow(&mut w.bag)
+    observe_byte(p)
+}
+"#,
+    );
+    assert_eq!(fixture.analysis("reborrow").invalid_uses.len(), 1);
+    let a = fixture.analysis("reinterpret");
+    assert!(a.invalid_uses.is_empty(), "{a:#?}");
 }
 
 #[test]

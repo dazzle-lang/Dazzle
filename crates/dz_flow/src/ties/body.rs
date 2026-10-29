@@ -72,16 +72,50 @@ struct Origin {
     tie: Place,
     /// An `in value` or elided result may point into any tie under `value`.
     broad: bool,
+    /// The union or optional whose payload this points into. Any kill of that place ends
+    /// it, since the variant may change, though a payload is inline (spec §6.7).
+    payload: Option<Place>,
     dead: Option<BodyKill>,
+}
+
+/// How far a kill reaches. Dropping or moving a place ends every view into it. Writing it,
+/// or a call's clause, moves only what the old value owned and changes payloads: a view of
+/// a plain inline field still points at valid memory, as after `p.x += 1` (spec §6.7).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    All,
+    Owned,
+}
+
+impl KillKind {
+    fn reach(self) -> Reach {
+        match self {
+            KillKind::Drop | KillKind::Move => Reach::All,
+            KillKind::Assign | KillKind::Call => Reach::Owned,
+        }
+    }
 }
 
 impl Origin {
     fn at(place: Place) -> Self {
-        Self { target: place.clone(), tie: place, broad: false, dead: None }
+        Self { target: place.clone(), tie: place, broad: false, payload: None, dead: None }
     }
 
-    fn ended_by(&self, kill: &Place) -> bool {
-        kill.covers(&self.tie) || (self.broad && self.tie.covers(kill))
+    fn ended_by(&self, kill: &Place, reach: Reach) -> bool {
+        if self.payload.as_ref().is_some_and(|union| kill.covers(union)) {
+            return true;
+        }
+        if self.broad && self.tie.covers(kill) {
+            return true;
+        }
+        if !kill.covers(&self.tie) {
+            return false;
+        }
+        // A broad view under the kill may point into what it owns.
+        reach == Reach::All
+            || self.broad
+            || kill.steps.last() == Some(&Step::Storage)
+            || self.tie.steps[kill.steps.len()..].contains(&Step::Storage)
     }
 
     fn field(&self, step: Step) -> Self {
@@ -90,7 +124,12 @@ impl Origin {
         // inline value, a sibling field must remain independent.
         let tie =
             if self.tie == self.target { self.tie.followed_by(&[step]) } else { self.tie.clone() };
-        Self { target, tie, broad: self.broad, dead: self.dead.clone() }
+        Self { target, tie, ..self.clone() }
+    }
+
+    /// A reference to the payload of the union or optional at this place.
+    fn payload(&self) -> Self {
+        Self { payload: Some(self.target.clone()), ..self.clone() }
     }
 }
 
@@ -219,7 +258,10 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
 
 impl Analysis<'_> {
     fn targets(&self, expression: ExprId, value: &Value) -> Vec<Origin> {
-        if super::points(self.body.ty(expression)) {
+        // An `own` pointer is not a view in a signature, but what it denotes is still
+        // the memory behind it, never the field holding it.
+        let ty = self.body.ty(expression);
+        if super::points(ty) || matches!(ty, Ty::OwnPtr { .. }) {
             value.views.clone()
         } else {
             value.places.clone()
@@ -228,14 +270,27 @@ impl Analysis<'_> {
 
     fn field(&mut self, base: ExprId, index: usize) -> Value {
         let value = self.expr(base);
-        let Ty::Named { sym, args } = self.body.ty(base).peeled() else {
+        // A payload's fields are read like a struct's (`case Circle(&c)`, then `c.r`).
+        let field = match self.body.ty(base).peeled() {
+            Ty::Named { sym, args } => self
+                .table
+                .struct_sig(*sym)
+                .and_then(|s| s.fields.get(index))
+                .map(|f| (*sym, args, f)),
+            Ty::Variant(sym, variant, args) => match self.table.get(*sym) {
+                Some(ItemSig::Union { variants, .. }) => variants
+                    .get(*variant)
+                    .and_then(|v| v.fields.get(index))
+                    .map(|f| (*sym, args, f)),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some((sym, args, field)) = field else {
             self.incomplete(self.body.expr(base).span, "field storage is not known");
             return Value::default();
         };
-        let Some(field) = self.table.struct_sig(*sym).and_then(|s| s.fields.get(index)) else {
-            self.incomplete(self.body.expr(base).span, "field storage is not known");
-            return Value::default();
-        };
+        let sym = &sym;
         let field_ty = self.table.field_types(*sym, args, std::slice::from_ref(field)).remove(0);
         let places = self
             .targets(base, &value)
@@ -254,6 +309,9 @@ impl Analysis<'_> {
                             target: place.clone(),
                             tie: place,
                             broad: false,
+                            // What a pointer owns is not inline in a payload: dropping
+                            // the payload ends it as owned memory instead.
+                            payload: None,
                             dead: o.dead.clone(),
                         }
                     })
@@ -460,6 +518,7 @@ impl Analysis<'_> {
                                 target: logical_result(signature, &scope, &bindings, &place),
                                 tie: place,
                                 broad,
+                                payload: None,
                                 dead: None,
                             };
                             if !value.views.contains(&origin) {
@@ -506,7 +565,7 @@ impl Analysis<'_> {
                 && receiver.iter().any(|o| o.target == kill));
             if !receiver_owns_kill {
                 for origin in &receiver {
-                    if origin.ended_by(&kill) && self.reported.insert(span) {
+                    if origin.ended_by(&kill, Reach::Owned) && self.reported.insert(span) {
                         self.result.invalid_uses.push(InvalidUse {
                             span,
                             tie: origin.tie.clone(),
@@ -526,7 +585,7 @@ impl Analysis<'_> {
                     && origins.iter().any(|o| o.target == kill));
                 if !owns_kill {
                     for origin in origins {
-                        if origin.ended_by(&kill) && self.reported.insert(span) {
+                        if origin.ended_by(&kill, Reach::Owned) && self.reported.insert(span) {
                             self.result.invalid_uses.push(InvalidUse {
                                 span,
                                 tie: origin.tie.clone(),
@@ -687,6 +746,24 @@ impl Analysis<'_> {
         self.live = exit_live;
     }
 
+    /// A reference to the payload of the union or optional `subject` denotes.
+    fn payload_ref(&self, subject: ExprId, value: &Value) -> Value {
+        let views = self.targets(subject, value).iter().map(Origin::payload).collect();
+        Value { views, unknown: value.unknown, ..Value::default() }
+    }
+
+    /// The payload of an optional, taken out by value. An optional does not carry the
+    /// views of what it holds yet, so a view taken out of one has unknown provenance.
+    fn unwrapped(&mut self, operand: ExprId, value: Value, span: Span) -> Value {
+        if let Ty::Optional(inner) = self.body.ty(operand).peeled_refs() {
+            if super::contains_views(inner, self.table) && value.views.is_empty() {
+                self.incomplete(span, "optional view provenance is not modeled yet");
+                return Value { unknown: true, ..Value::default() };
+            }
+        }
+        value
+    }
+
     fn incomplete(&mut self, span: Span, reason: &'static str) {
         let item = Incomplete { span, reason };
         if !self.result.incomplete.contains(&item) {
@@ -699,6 +776,13 @@ impl Analysis<'_> {
             return;
         }
         if let Some(origin) = value.views.iter().chain(&value.places).find(|o| o.dead.is_some()) {
+            // `observe(&c.r)` reads `c` first; the argument around it is the same mistake.
+            let killed = origin.dead.as_ref().unwrap();
+            if self.result.invalid_uses.iter().any(|u| {
+                &u.killed == killed && u.span.start >= span.start && u.span.end <= span.end
+            }) {
+                return;
+            }
             self.result.invalid_uses.push(InvalidUse {
                 span,
                 tie: origin.tie.clone(),
@@ -712,7 +796,7 @@ impl Analysis<'_> {
         let killed = BodyKill { place, span, kind };
         for value in self.state.values_mut().chain(&mut self.held) {
             for origin in value.views.iter_mut().chain(&mut value.places) {
-                if origin.dead.is_none() && origin.ended_by(&killed.place) {
+                if origin.dead.is_none() && origin.ended_by(&killed.place, killed.kind.reach()) {
                     origin.dead = Some(killed.clone());
                 }
             }
@@ -726,7 +810,7 @@ impl Analysis<'_> {
         if super::points(&self.body.local(local).ty) {
             self.state.insert(local, Value { places: Vec::new(), ..value });
         } else {
-            if contains_views(&self.body.local(local).ty, self.table) {
+            if super::contains_views(&self.body.local(local).ty, self.table) {
                 self.incomplete(
                     self.body.local(local).span,
                     "aggregate view bindings are not modeled yet",
@@ -752,7 +836,7 @@ impl Analysis<'_> {
             self.kill(Place::local(local), self.body.block(block).span, KillKind::Drop);
             self.state.remove(&local);
             for origin in value.views.iter_mut().chain(&mut value.places) {
-                if origin.dead.is_none() && origin.ended_by(&Place::local(local)) {
+                if origin.dead.is_none() && origin.ended_by(&Place::local(local), Reach::All) {
                     origin.dead = Some(BodyKill {
                         place: Place::local(local),
                         span: self.body.block(block).span,
@@ -808,16 +892,22 @@ impl Analysis<'_> {
                 }
                 let destination = self.expr(target);
                 if op == hir::AssignOp::Assign {
-                    if replaces(ty) {
-                        self.kill_places(&destination.places, node.span, KillKind::Assign);
-                        if destination.places.is_empty() {
-                            self.incomplete(node.span, "assignment through unknown storage");
-                        }
-                    } else if matches!(self.body.expr(target).kind, hir::ExprKind::Field { .. })
-                        && matches!(ty, Ty::Ptr { .. })
+                    if matches!(self.body.expr(target).kind, hir::ExprKind::Field { .. })
+                        && matches!(ty, Ty::Ptr { .. } | Ty::OwnPtr { .. })
                     {
+                        // A tied pointer field now names other memory. Only a tied one
+                        // has views; an untied one stays unchecked (§6.7).
                         for origin in &destination.views {
                             self.kill(origin.target.clone(), node.span, KillKind::Assign);
+                        }
+                    } else if moves_memory(ty.peeled_refs(), self.table) {
+                        // The slot itself stays where it is: a view of it, or of another
+                        // element, survives, and only what the old value owned dies.
+                        for place in &destination.places {
+                            self.kill(place.target.clone(), node.span, KillKind::Assign);
+                        }
+                        if destination.places.is_empty() {
+                            self.incomplete(node.span, "assignment through unknown storage");
                         }
                     }
                 }
@@ -976,7 +1066,18 @@ impl Analysis<'_> {
                 if !self.live {
                     return Value::default();
                 }
-                self.bind(binding, value);
+                // `if let &v = opt` refers to the payload where it lives (§9); `if let v`
+                // copies it out, and `if let &v = ptr` is the pointee, as the value is.
+                let bound = match self.body.ty(operand).peeled_refs() {
+                    Ty::Optional(inner)
+                        if matches!(self.body.local(binding).ty, Ty::Ref { .. })
+                            && self.body.local(binding).ty != **inner =>
+                    {
+                        self.payload_ref(operand, &value)
+                    }
+                    _ => self.unwrapped(operand, value, node.span),
+                };
+                self.bind(binding, bound);
                 self.branches(&[Some(then), else_branch])
             }
             hir::ExprKind::Switch { subject, arms, default } => {
@@ -987,8 +1088,14 @@ impl Analysis<'_> {
                 let mut blocks = Vec::new();
                 for arm in arms {
                     if let Some(binding) = arm.binding {
-                        self.bind(binding, value.clone());
-                        self.incomplete(arm.span, "union payload tie paths are not settled yet");
+                        // `case Circle(&c)` refers to the payload; `case Circle(c)` is a
+                        // copy, whose own views `bind` cannot follow yet.
+                        let bound = if matches!(self.body.local(binding).ty, Ty::Ref { .. }) {
+                            self.payload_ref(subject, &value)
+                        } else {
+                            Value { unknown: value.unknown, ..Value::default() }
+                        };
+                        self.bind(binding, bound);
                     }
                     blocks.push(Some(arm.body));
                 }
@@ -998,10 +1105,11 @@ impl Analysis<'_> {
                 self.branches(&blocks)
             }
             hir::ExprKind::Or { operand, clause } => {
-                let mut value = self.expr(operand);
+                let value = self.expr(operand);
                 if !self.live {
                     return Value::default();
                 }
+                let mut value = self.unwrapped(operand, value, node.span);
                 let entry = self.state.clone();
                 let held_entry = self.held.clone();
                 let scope_entry = self.scopes.clone();
@@ -1083,7 +1191,9 @@ impl Analysis<'_> {
                             _ => {}
                         }
                     }
-                    self.held.push(value);
+                    // A result returned by value moves out before the locals drop; only
+                    // its views must survive the drops and defers that follow.
+                    self.held.push(Value { places: Vec::new(), ..value });
                 }
                 self.unwind(0);
                 for value in self.held.split_off(held_start) {
@@ -1127,7 +1237,12 @@ impl Analysis<'_> {
             }
             hir::ExprKind::Cast { operand } => {
                 let value = self.expr(operand);
-                if super::points(&node.ty) && !super::points(self.body.ty(operand)) {
+                // Dropping `mut`, or reading a `str` as its bytes, is the same memory. A
+                // cast to another pointee is unchecked, as §6.7 says.
+                let same = pointee(&node.ty).is_some_and(|to| {
+                    pointee(self.body.ty(operand)).is_some_and(|from| from == to)
+                });
+                if super::points(&node.ty) && !same {
                     Value { unknown: true, ..Value::default() }
                 } else {
                     value
@@ -1174,7 +1289,7 @@ impl Analysis<'_> {
                 for e in parts {
                     self.expr(e);
                 }
-                if contains_views(&node.ty, self.table) {
+                if super::contains_views(&node.ty, self.table) {
                     self.incomplete(node.span, "aggregate view provenance is not modeled yet");
                 }
                 Value::default()
@@ -1208,41 +1323,48 @@ impl Analysis<'_> {
     }
 }
 
-fn replaces(ty: &Ty) -> bool {
-    matches!(
-        ty.peeled_refs(),
-        Ty::Named { .. }
-            | Ty::Array { .. }
-            | Ty::Tuple(_)
-            | Ty::Optional(_)
-            | Ty::Param(_)
-            | Ty::OwnPtr { .. }
-    )
-}
-
-fn contains_views(ty: &Ty, table: &TypeTable) -> bool {
-    fn contains(ty: &Ty, table: &TypeTable, depth: usize) -> bool {
+/// Whether writing over a value of `ty` can end a view: the old value owns memory (it has
+/// a `drop`, or a tied pointer), or it holds a union's or an optional's payload, whose
+/// variant may change. A plain value is overwritten in place (spec §6.7). An untied
+/// pointer is unchecked, so it counts only through its owner's `drop`.
+fn moves_memory(ty: &Ty, table: &TypeTable) -> bool {
+    fn go(ty: &Ty, table: &TypeTable, depth: usize) -> bool {
         if depth > 8 {
             return true;
         }
         match ty {
-            Ty::Tuple(parts) => parts.iter().any(|p| contains(p, table, depth + 1)),
-            Ty::Optional(inner) | Ty::Array { elem: inner, .. } => {
-                contains(inner, table, depth + 1)
-            }
-            Ty::Named { sym, args } => table.struct_sig(*sym).is_some_and(|s| {
-                table.field_types(*sym, args, &s.fields).iter().any(|f| {
-                    // Pointer fields are the explicit unchecked boundary in §6.7;
-                    // str/slice fields still make an aggregate a view.
-                    !matches!(f, Ty::Ptr { .. } | Ty::OwnPtr { .. })
-                        && contains(f, table, depth + 1)
-                })
-            }),
-            Ty::Param(_) => true,
-            _ => super::points(ty),
+            Ty::Optional(_) | Ty::Param(_) | Ty::Assoc(_) => true,
+            Ty::Array { elem, .. } => go(elem, table, depth + 1),
+            Ty::Tuple(parts) => parts.iter().any(|p| go(p, table, depth + 1)),
+            Ty::Named { sym, args } => match table.get(*sym) {
+                Some(ItemSig::Struct(s)) => {
+                    s.drop.is_some()
+                        || s.fields.iter().zip(table.field_types(*sym, args, &s.fields)).any(
+                            |(f, t)| {
+                                (f.tie.is_some() && matches!(t, Ty::Ptr { .. } | Ty::OwnPtr { .. }))
+                                    || go(&t, table, depth + 1)
+                            },
+                        )
+                }
+                Some(ItemSig::Union { variants, .. }) => {
+                    variants.iter().any(|v| !table.payload_types(*sym, args, v).is_empty())
+                }
+                _ => false,
+            },
+            _ => false,
         }
     }
-    contains(ty, table, 0)
+    go(ty, table, 0)
+}
+
+fn pointee(ty: &Ty) -> Option<&Ty> {
+    const BYTE: Ty = Ty::Int(ty::IntTy::U8);
+    match ty {
+        Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => Some(inner),
+        Ty::Slice { elem, .. } => Some(elem),
+        Ty::Str | Ty::CStr => Some(&BYTE),
+        _ => None,
+    }
 }
 
 fn merge_value(to: &mut Value, from: &Value) {
@@ -1467,8 +1589,9 @@ fn result_root(
     if signature.sig.takes_self.is_some() {
         roots.push(dz_check::ties::Root::SelfValue);
     }
+    // The same inputs `call_effects` elides over.
     for (i, param) in signature.sig.params.iter().enumerate() {
-        if matches!(param.ty, Ty::Ref { .. }) {
+        if super::points(&param.ty) {
             roots.push(dz_check::ties::Root::Param(i));
         }
     }
