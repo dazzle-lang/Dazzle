@@ -224,6 +224,12 @@ pub struct Player
 union Event
   variant Hit
     field amount: i32 tag `json:"dmg"`
+pub struct Sign
+  field text: const str
+fn caption(s: const str, fallback: const str) -> const str
+  block
+    return
+      path s
 
 === DIAGNOSTICS ===
 (none)

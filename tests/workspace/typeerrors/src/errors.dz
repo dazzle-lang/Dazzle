@@ -1340,3 +1340,19 @@ fn spends(l: &mut Ledger) {
 fn misnamed(f: fn(l: &mut Ledger) kills ledger.lines) {}
 
 fn through_a_ref(f: fn(l: &Ledger) kills l.lines) {}
+
+// `const str` (spec §5.3): text that may die where static text is wanted, written to a field
+// and returned, and `const` before a type that is not `str`.
+pub struct Plaque {
+    pub text: const str
+}
+
+fn engrave(p: &mut Plaque, s: &String) {
+    p.text = s.as_str()
+}
+
+fn borrowed(s: &String) -> const str {
+    return s.as_str()
+}
+
+fn not_text(x: const i32) {}

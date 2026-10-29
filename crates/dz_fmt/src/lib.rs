@@ -924,6 +924,7 @@ impl<'a> Printer<'a> {
                 dump::kills_str(kills, true)
             ),
             TypeKind::Path(p) => self.path(p),
+            TypeKind::Const(inner) => format!("const {}", self.ty(inner)),
             TypeKind::SelfType => "Self".to_owned(),
             TypeKind::Error => "/* <error type> */".to_owned(),
         }

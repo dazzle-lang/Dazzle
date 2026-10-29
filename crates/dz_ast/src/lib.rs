@@ -635,6 +635,9 @@ pub enum TypeKind {
         ret: Option<Box<Type>>,
         kills: Vec<TiePath>,
     },
+    /// `const str`: text in static storage (spec §5.3). Only `str` may follow `const`; the
+    /// checker reports anything else.
+    Const(Box<Type>),
     SelfType,
     Error,
 }

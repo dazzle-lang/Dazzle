@@ -974,3 +974,33 @@ fn main() {
     println!("{}", p.members.len())
 }
 ```
+
+## DZ0569
+
+`const` before a type says its memory is static, so nothing ever kills it (spec §5.3). Only
+text has that so far: `const str`, a literal's or a constant's text. A number is copied
+wherever it goes and needs no such promise, and static tables (`const []T`) wait for a
+program that needs them.
+
+```dz
+fn scale(x: const i32) -> i32 {
+    return x * 2
+}
+
+fn main() {
+    println!("{}", scale(3))
+}
+```
+
+```dz
+fn label(big: bool) -> const str {
+    if big {
+        return "large"
+    }
+    return "small"
+}
+
+fn main() {
+    println!("{}", label(true))
+}
+```

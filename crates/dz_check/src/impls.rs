@@ -441,6 +441,8 @@ impl TypeTable {
     /// Buffer<T>` applies to `Buffer<f32>` with `T = f32`, and not to `Buffer<File>`,
     /// whose argument fails the bound.
     pub fn impl_applies(&self, imp: &ImplSig, ty: &Ty) -> Option<HashMap<u32, Ty>> {
+        // Static text is text: every implementation for `str` is one for `const str` (§5.3).
+        let ty = if *ty == Ty::ConstStr { &Ty::Str } else { ty };
         let params: Vec<u32> = imp.generics.iter().map(|g| g.param.id).collect();
         let mut map = HashMap::new();
         if !match_ty(&imp.self_ty, ty, &params, &mut map) {
@@ -695,10 +697,10 @@ pub(crate) fn primitive_implements(t: &Ty, trait_name: &str, args: &[Ty]) -> boo
     let numeric = matches!(t, Ty::Int(_) | Ty::Float(_));
     let rhs_is_self = args.first().map_or(true, |a| a == t);
     match trait_name {
-        "Eq" => numeric || matches!(t, Ty::Bool | Ty::Char | Ty::Str),
+        "Eq" => numeric || matches!(t, Ty::Bool | Ty::Char | Ty::Str | Ty::ConstStr),
         // Not floats: `NaN != NaN` and `0.0 == -0.0` break the promise that equal keys hash
         // equally, and a float key is almost always a mistake anyway (spec §14.2).
-        "Hash" => matches!(t, Ty::Int(_) | Ty::Bool | Ty::Char | Ty::Str),
+        "Hash" => matches!(t, Ty::Int(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::ConstStr),
         // `std::math`'s, looked up by symbol so a user trait named `Float` is not these.
         "Float" => matches!(t, Ty::Float(_)),
         "Integer" => matches!(t, Ty::Int(_)),

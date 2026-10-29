@@ -16565,18 +16565,18 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#137 method describe -> str
+body impl#137 method describe -> const str
   param _0 self: Crate
   block
     return: !
-      str "crate": str
+      str "crate": const str
 body impl#138 method weight -> i32
   param _0 self: Crate
   block
     return: !
       field #0: i32
         local _0 self: Crate
-body fn heaviest -> String
+body fn heaviest -> const str
   param _0 a: T
   param _1 b: T
   block
@@ -16588,17 +16588,15 @@ body fn heaviest -> String
           local _1 b: T
       block
         return: !
-          call-assoc String::from: String
-            call-method Describe::describe: str
-              local _0 a: T
+          call-method Describe::describe: const str
+            local _0 a: T
     return: !
-      call-assoc String::from: String
-        call-method Describe::describe: str
-          local _1 b: T
-body fn uses_heaviest -> String
+      call-method Describe::describe: const str
+        local _1 b: T
+body fn uses_heaviest -> const str
   block
     return: !
-      call heaviest: String
+      call heaviest: const str
         call-ctor Crate#0: Crate
           int 3: i32
         call-ctor Crate#0: Crate
@@ -17366,50 +17364,47 @@ body fn scale_by_both_flipped -> void
       call-method Mul::mul: T::Output
         local _0 a: &T
         float 2: f32
-body method Label::shout -> str
+body method Label::shout -> const str
   param _0 self: Label
   block
     return: !
-      call-method Label::label: str
+      call-method Label::label: const str
         local _0 self: Label
-body impl#146 method label -> str
+body impl#146 method label -> const str
   param _0 self: f32
   block
     return: !
-      str "a float": str
-body fn labels -> String
+      str "a float": const str
+body fn labels -> const str
   param _0 x: f32
   block
     return: !
-      call-assoc String::from: String
-        call-method Label::shout: str
-          local _0 x: f32
-body impl#147 method label -> str
+      call-method Label::shout: const str
+        local _0 x: f32
+body impl#147 method label -> const str
   param _0 self: Wrap<T>
   block
     return: !
-      call-method Label::label: str
+      call-method Label::label: const str
         field #0: T
           local _0 self: Wrap<T>
-body fn wrapped -> String
+body fn wrapped -> const str
   param _0 w: Wrap<f32>
   block
     return: !
-      call-assoc String::from: String
-        call-method Label::label: str
-          local _0 w: Wrap<f32>
-body impl#148 method shout -> str
+      call-method Label::label: const str
+        local _0 w: Wrap<f32>
+body impl#148 method shout -> const str
   param _0 self: f32
   block
     return: !
-      str "LOUD": str
-body fn chooses -> String
+      str "LOUD": const str
+body fn chooses -> const str
   param _0 x: f32
   block
     return: !
-      call-assoc String::from: String
-        call-method Loud::shout: str
-          local _0 x: f32
+      call-method Loud::shout: const str
+        local _0 x: f32
 body drop Held -> void
   param _0 self: Held<T>
   block
@@ -20044,3 +20039,40 @@ body impl#167 method iter -> SliceIter<i32>
                 local _0 self: Rack
               int 0: usize
               int 0: usize
+body fn sign_text -> const str
+  param _0 s: &Sign
+  block
+    return: !
+      field #0: const str
+        local _0 s: &Sign
+body fn signs -> usize
+  block
+    let _0 all: List<const str>
+      call-ctor List#0: List<const str>
+    let _1 s: Sign
+      struct-lit Sign: Sign
+        #0
+          str "exit": const str
+    call-method List::push: void
+      local _0 all: List<const str>
+      field #0: const str
+        local _1 s: Sign
+    let _2 shown: str
+      field #0: str
+        local _1 s: Sign
+    let _3 label: str
+      str "none": str
+    assign =
+      local _3 label: str
+      call sign_text: str
+        ref: &Sign
+          local _1 s: Sign
+    return: !
+      binary +: usize
+        binary +: usize
+          call-method List::len: usize
+            local _0 all: List<const str>
+          len: usize
+            local _2 shown: str
+        len: usize
+          local _3 label: str

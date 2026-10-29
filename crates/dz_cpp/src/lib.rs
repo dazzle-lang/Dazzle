@@ -899,6 +899,7 @@ impl<'a> Emitter<'a> {
                 | Ty::Int(_)
                 | Ty::Float(_)
                 | Ty::Str
+                | Ty::ConstStr
                 | Ty::CStr
                 | Ty::Ptr { .. }
                 | Ty::Fn { .. } => true,
@@ -1720,6 +1721,7 @@ impl<'a> Emitter<'a> {
             Ty::Bool => "bool".to_owned(),
             Ty::Char => "char".to_owned(),
             Ty::Str => "str".to_owned(),
+            Ty::ConstStr => "const_str".to_owned(),
             Ty::CStr => "cstr".to_owned(),
             Ty::Void => "void".to_owned(),
             Ty::Ptr { mutable, inner } => {
@@ -1908,7 +1910,7 @@ impl<'a> Emitter<'a> {
         // A `str` anywhere in the value, `[4]str` included, is what keeps it from `constexpr`.
         fn holds_str(t: &Ty) -> bool {
             match t {
-                Ty::Str => true,
+                Ty::Str | Ty::ConstStr => true,
                 Ty::Array { elem, .. } => holds_str(elem),
                 Ty::Optional(inner) => holds_str(inner),
                 Ty::Tuple(elems) => elems.iter().any(holds_str),
@@ -3059,7 +3061,7 @@ impl<'a> Emitter<'a> {
             Ty::Int(i) => int_name(*i).to_owned(),
             Ty::Float(FloatTy::F32) => "float".to_owned(),
             Ty::Float(FloatTy::F64) => "double".to_owned(),
-            Ty::Str => "::dz::str".to_owned(),
+            Ty::Str | Ty::ConstStr => "::dz::str".to_owned(),
             Ty::CStr => "const char*".to_owned(),
             // `finish()` settles every literal, so these can only be a checker bug.
             Ty::IntLit => "int32_t".to_owned(),
@@ -4665,7 +4667,13 @@ impl<'a> Emitter<'a> {
                 // reference parameter cannot bind a C bit-field, which a `const&` can.
                 let primitive = matches!(
                     self.cur().ty(*recv),
-                    Ty::CStr | Ty::Str | Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char
+                    Ty::CStr
+                        | Ty::Str
+                        | Ty::ConstStr
+                        | Ty::Int(_)
+                        | Ty::Float(_)
+                        | Ty::Bool
+                        | Ty::Char
                 );
                 let r = recv_text();
                 match target {
@@ -5437,8 +5445,10 @@ impl<'a> Emitter<'a> {
     ) -> Option<String> {
         let recv_ty = self.cur().ty(recv).peeled().clone();
         // An enum is a named integer, and has `Eq`, `Hash` and `Ord` as one (spec §7.4).
-        let builtin = matches!(recv_ty, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str)
-            || self.table.is_enum(&recv_ty);
+        let builtin = matches!(
+            recv_ty,
+            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::ConstStr
+        ) || self.table.is_enum(&recv_ty);
         if !builtin || (self.table.is_enum(&recv_ty) && !matches!(name, "eq" | "cmp" | "hash")) {
             return None;
         }

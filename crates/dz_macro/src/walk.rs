@@ -224,6 +224,7 @@ pub(crate) fn ty<H: Hooks>(h: &mut H, t: &mut Type) {
                 ty(h, r);
             }
         }
+        TypeKind::Const(inner) => ty(h, inner),
         TypeKind::SelfType | TypeKind::Error => {}
     }
 }

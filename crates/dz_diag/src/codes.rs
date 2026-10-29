@@ -376,6 +376,8 @@ pub const TIE_DECLARED_TWICE: &str = "DZ0567";
 /// A function stored where a function type is wanted, that may kill more than the type's
 /// `kills` clause allows (spec §6.7).
 pub const FN_KILLS_TOO_MUCH: &str = "DZ0568";
+/// `const` before a type other than `str`: `const i32`, `const []u8` (spec §5.3).
+pub const CONST_NOT_STR: &str = "DZ0569";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

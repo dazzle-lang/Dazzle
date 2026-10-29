@@ -1226,6 +1226,19 @@ impl<'a, 'c> Body<'a, 'c> {
             );
             return;
         }
+        // Text that may die where text that cannot is wanted (spec §5.3).
+        if expected == Ty::ConstStr && actual == Ty::Str {
+            self.cx.error_help(
+                codes::TYPE_MISMATCH,
+                span,
+                "expected `const str`, found `str`",
+                "this text may point into memory that dies",
+                "a `const str` is text in static storage, a literal or a constant's, and nothing \
+                 ever kills it; a `str` may view a `String`, so it cannot become one. Keep the \
+                 text as a `String`, or make the field or result a `str` (spec §5.3)",
+            );
+            return;
+        }
         // A function that would fit but for what it kills (spec §6.7).
         if let (Ty::Fn { params, ret, kills: wider }, Ty::Fn { kills: narrow, .. }) =
             (&expected, &actual)
@@ -1651,7 +1664,8 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                     (Some(d), None) => (d.clone(), None),
                     (None, Some(init)) => {
-                        let c = self.expr(init, None);
+                        // The binding takes the value's own type: a `const str` stays one (§5.3).
+                        let c = self.expr_inner(init, None);
                         if matches!(c.ty, Ty::Void) {
                             self.cx.error(
                                 codes::TYPE_MISMATCH,
@@ -1684,7 +1698,8 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
             }
             StmtKind::Assign { target, op, value } => {
-                let mut t = self.expr(target, None);
+                // `expr_inner`: a `const str` place takes only a `const str` (spec §5.3).
+                let mut t = self.expr_inner(target, None);
                 // Assigning to a `&mut T` writes the `T` it refers to (spec §5.2). A `&T` is
                 // typed the same way, so the one error about it is that it is read-only.
                 // `b[i] = v` through `IndexMut` is the same: its `index_mut` returns the `&mut`.
@@ -2519,7 +2534,16 @@ impl<'a, 'c> Body<'a, 'c> {
     /// copies the referent (spec §5.2, §18.35). Made explicit as a `Deref` so flow sees the
     /// read — and reports `DZ0402` when `T` is move-only — and codegen sees the copy.
     fn expr(&mut self, e: &Expr, expected: Option<&Ty>) -> Checked {
-        let checked = self.expr_inner(e, expected);
+        let mut checked = self.expr_inner(e, expected);
+        // A `const str` read where no `const str` is wanted is a plain `str`: one C++ type,
+        // so nothing converts, and every operation on text applies (spec §5.3). Where a place
+        // of it is written, its type is kept (`assign`, `&mut`).
+        if checked.ty == Ty::ConstStr
+            && !matches!(expected.map(|t| self.subst(t)), Some(Ty::ConstStr))
+        {
+            self.hir.set_expr_type(checked.id, Ty::Str);
+            checked.ty = Ty::Str;
+        }
         if let Some(exp) = expected {
             let (want, got) = (self.subst(exp), self.subst(&checked.ty));
             // A `T?` is filled from a `T` later, where the value is wrapped, so the read has
@@ -2610,6 +2634,8 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Str(text) => {
                 let ty = match expected.map(|t| self.subst(t)) {
                     Some(Ty::CStr) => Ty::CStr,
+                    // And a `const str` wherever one is wanted: it never dies (spec §5.3).
+                    Some(Ty::ConstStr) => Ty::ConstStr,
                     _ => Ty::Str,
                 };
                 let kind = hir::ExprKind::Str(decode_string_literal(text));
@@ -2618,6 +2644,7 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::RawStr(text) => {
                 let ty = match expected.map(|t| self.subst(t)) {
                     Some(Ty::CStr) => Ty::CStr,
+                    Some(Ty::ConstStr) => Ty::ConstStr,
                     _ => Ty::Str,
                 };
                 let kind = hir::ExprKind::Str(decode_raw_string_literal(text));
@@ -2692,7 +2719,12 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                     _ => None,
                 };
-                let inner = self.expr(expr, wanted.as_ref());
+                // Through a `&mut`, a `const str` place is written, so it keeps its type.
+                let inner = if *mutable && wanted.is_none() {
+                    self.expr_inner(expr, None)
+                } else {
+                    self.expr(expr, wanted.as_ref())
+                };
                 if *mutable {
                     self.require_mutable(expr);
                 }
@@ -3575,7 +3607,11 @@ impl<'a, 'c> Body<'a, 'c> {
     }
 
     fn field_type(&mut self, base: &Ty, name: &Ident, base_span: Span) -> (Ty, Option<usize>) {
-        let peeled = base.peeled().clone();
+        let peeled = match base.peeled() {
+            // `.len` and `.ptr` of static text are those of text (spec §5.3).
+            Ty::ConstStr => Ty::Str,
+            t => t.clone(),
+        };
         // Tuple access: `t.0`
         if let Ty::Tuple(parts) = &peeled {
             if let Ok(i) = name.name.parse::<usize>() {
@@ -3749,7 +3785,7 @@ impl<'a, 'c> Body<'a, 'c> {
         let Ty::Ref { inner, .. } = self.subst(&c.ty) else { return c };
         let machine = match &*inner {
             t if t.is_numeric() => true,
-            Ty::Bool | Ty::Char | Ty::Str => true,
+            Ty::Bool | Ty::Char | Ty::Str | Ty::ConstStr => true,
             Ty::Named { sym, .. } => {
                 matches!(self.cx.table.get(*sym), Some(ItemSig::Enum { .. }))
             }
@@ -8581,7 +8617,7 @@ fn format_piece(raw: &str, raw_string: bool) -> String {
 
 fn formattable(t: &Ty) -> bool {
     match t {
-        Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::CStr => true,
+        Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::ConstStr | Ty::CStr => true,
         Ty::Ptr { .. } | Ty::OwnPtr { .. } => true,
         Ty::Ref { inner, .. } => formattable(inner),
         _ => false,

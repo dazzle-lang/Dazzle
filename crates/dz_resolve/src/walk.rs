@@ -794,6 +794,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                     self.ty(r);
                 }
             }
+            TypeKind::Const(inner) => self.ty(inner),
             TypeKind::SelfType | TypeKind::Error => {}
         }
     }

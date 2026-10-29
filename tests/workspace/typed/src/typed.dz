@@ -434,7 +434,7 @@ fn reads_the_error() -> i32 {
 // A trait of one's own, alongside the prelude's. `Weigh : Describe` means every `Weigh` is
 // a `Describe`, and conformance is checked at the declaration below.
 trait Describe {
-    fn describe(&self) -> str
+    fn describe(&self) -> const str
 }
 
 trait Weigh : Describe {
@@ -455,7 +455,7 @@ struct Crate {
 }
 
 impl Describe for Crate {
-    fn describe(&self) -> str {
+    fn describe(&self) -> const str {
         return "crate"
     }
 }
@@ -468,14 +468,14 @@ impl Weigh for Crate {
 
 // §8.1: the body is checked once, against `T: Weigh` and nothing else. `weight` is legal
 // because `Weigh` provides it; `describe` is legal because `Weigh : Describe` does.
-fn heaviest<T: Weigh>(a: T, b: T) -> String {
+fn heaviest<T: Weigh>(a: T, b: T) -> const str {
     if a.weight() > b.weight() {
-        return String::from(a.describe())
+        return a.describe()
     }
-    return String::from(b.describe())
+    return b.describe()
 }
 
-fn uses_heaviest() -> String {
+fn uses_heaviest() -> const str {
     return heaviest(Crate(3), Crate(7))
 }
 
@@ -794,23 +794,23 @@ fn scale_by_both_flipped<T: Mul<f32> + Mul<Scale>>(a: &T) {
 
 // §7.6: a trait of this module implemented for a type this program did not write.
 trait Label {
-    fn label(&self) -> str
+    fn label(&self) -> const str
 
-    fn shout(&self) -> str {
+    fn shout(&self) -> const str {
         return self.label()
     }
 }
 
 impl Label for f32 {
-    fn label(&self) -> str {
+    fn label(&self) -> const str {
         return "a float"
     }
 }
 
 // `Label::shout` is a default, reached through `impl Label for f32`; naming the trait is
 // needed only because `Loud` below provides a `shout` too.
-fn labels(x: f32) -> String {
-    return String::from(Label::shout(&x))
+fn labels(x: f32) -> const str {
+    return Label::shout(&x)
 }
 
 // §7.6: a generic implementation, applying to every `Wrap<T>` whose `T` is `Label`.
@@ -819,28 +819,28 @@ pub struct Wrap<T> {
 }
 
 impl<T: Label> Label for Wrap<T> {
-    fn label(&self) -> str {
+    fn label(&self) -> const str {
         return inner.label()
     }
 }
 
-fn wrapped(w: Wrap<f32>) -> String {
-    return String::from(w.label())
+fn wrapped(w: Wrap<f32>) -> const str {
+    return w.label()
 }
 
 // §7.6: two traits both provide `shout`, so the call names the one it means.
 trait Loud {
-    fn shout(&self) -> str
+    fn shout(&self) -> const str
 }
 
 impl Loud for f32 {
-    fn shout(&self) -> str {
+    fn shout(&self) -> const str {
         return "LOUD"
     }
 }
 
-fn chooses(x: f32) -> String {
-    return String::from(Loud::shout(&x))
+fn chooses(x: f32) -> const str {
+    return Loud::shout(&x)
 }
 
 // §6.1, §8.2: an `impl Copy` that applies only where its bound holds.
@@ -1915,4 +1915,24 @@ impl Iterable for Rack {
     fn iter(&self) -> SliceIter<i32> {
         return SliceIter<i32>(unsafe { m_data[0..0] })
     }
+}
+
+// `const str` (spec §5.3): text in static storage. A literal is one wherever one is wanted, a
+// field and a container may hold one, and it reads as a `str` anywhere else.
+pub struct Sign {
+    pub text: const str
+}
+
+fn sign_text(s: &Sign) -> const str {
+    return s.text
+}
+
+fn signs() -> usize {
+    let mut all: List<const str> = List<const str>()
+    let s = Sign{ text: "exit" }
+    all.push(s.text)
+    let shown: str = s.text
+    let mut label = "none"
+    label = sign_text(&s)
+    return all.len() + shown.len + label.len
 }

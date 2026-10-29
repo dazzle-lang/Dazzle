@@ -313,7 +313,7 @@ fn describe(e: &mut Emitter<'_>, ty: &Ty) -> TypeRow {
         Ty::IntLit => "I32",
         Ty::Float(FloatTy::F32) => "F32",
         Ty::Float(FloatTy::F64) | Ty::FloatLit => "F64",
-        Ty::Str => {
+        Ty::Str | Ty::ConstStr => {
             let p = e.reflect_id(&Ty::ptr(false, Ty::Int(IntTy::U8)));
             let n = e.reflect_id(&usize_ty);
             row.fields = vec![

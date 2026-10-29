@@ -177,3 +177,12 @@ pub struct Player {
 union Event {
     Hit { amount: i32 `json:"dmg"` }
 }
+
+// `const str`: text in static storage, as a field, a parameter and a result (spec §5.3).
+pub struct Sign {
+    pub text: const str
+}
+
+fn caption(s: const str, fallback: const str) -> const str {
+    return s
+}

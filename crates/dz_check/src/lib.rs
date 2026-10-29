@@ -1571,6 +1571,7 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
         Ty::Int(i) => i.name().to_owned(),
         Ty::Float(f) => f.name().to_owned(),
         Ty::Str => "str".to_owned(),
+        Ty::ConstStr => "const str".to_owned(),
         Ty::CStr => "cstr".to_owned(),
         Ty::IntLit => "{integer}".to_owned(),
         Ty::FloatLit => "{float}".to_owned(),
@@ -2106,6 +2107,24 @@ impl<'a> Ctx<'a> {
                         .collect(),
                     paths: kills.iter().cloned().collect(),
                 },
+            },
+            // `const str`, and nothing else yet: static slices wait for a program that
+            // needs them (spec §5.3).
+            TypeKind::Const(inner) => match self.lower_type_inner(inner) {
+                Ty::Str => Ty::ConstStr,
+                Ty::Error => Ty::Error,
+                other => {
+                    let shown = self.name_of(&other);
+                    self.error_help(
+                        codes::CONST_NOT_STR,
+                        t.span,
+                        format!("`const {shown}` is not a type"),
+                        "only `const str` is",
+                        "`const` before a type says its memory is static, and only text has \
+                         that so far: `const str`, a literal or a constant's (spec §5.3)",
+                    );
+                    Ty::Error
+                }
             },
             TypeKind::SelfType => Ty::SelfTy,
             TypeKind::Error => Ty::Error,
