@@ -308,7 +308,7 @@ impl Analysis<'_> {
         let places = self
             .targets(base, &value)
             .iter()
-            .map(|o| o.field(Step::Field(field.name.clone())))
+            .map(|o| o.field(Step::Field(super::canonical_field(self.table, *sym, &field.name))))
             .collect::<Vec<_>>();
         let mut views = Vec::new();
         let mut unknown = false;

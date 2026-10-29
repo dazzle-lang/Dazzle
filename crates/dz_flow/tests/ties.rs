@@ -948,6 +948,37 @@ fn outside(b: &mut Body) kills b {
 }
 
 #[test]
+fn fields_tied_together_live_and_die_together() {
+    let fixture = Fixture::with_source(
+        r#"
+pub struct Table {
+    pub keys: ^mut Text in @items = null
+    pub values: ^mut Text in @items = null
+    pub count: ^mut i32 in @counts = null
+}
+fn regrow(t: &mut Table) kills t@items {
+    let v = t.values
+    t.keys = null
+    observe(v)
+}
+fn by_field(t: &mut Table) kills t@items { t.values = null }
+fn apart(t: &mut Table) kills t@counts {
+    let v = t.values
+    t.count = null
+    observe(v)
+}
+"#,
+    );
+    let a = fixture.analysis("regrow");
+    assert_eq!(a.invalid_uses.len(), 1, "{a:#?}");
+    assert!(a.incomplete.is_empty() && a.mismatches.is_empty(), "{a:#?}");
+    // Killing through either field is killing the tie, which the clause names.
+    let a = fixture.analysis("by_field");
+    assert!(a.incomplete.is_empty() && a.mismatches.is_empty(), "{a:#?}");
+    clean(&fixture.analysis("apart"));
+}
+
+#[test]
 fn casts_to_another_pointee_are_unchecked_and_dropping_mut_is_not() {
     let fixture = Fixture::with_source(
         r#"

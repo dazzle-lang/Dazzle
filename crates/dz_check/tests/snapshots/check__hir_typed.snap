@@ -19932,3 +19932,23 @@ body fn member_text -> str
           field #0: List<String>
             local _0 roster: &Roster
           local _1 i: usize
+body method Record::forget -> void
+  param _0 self: Record
+  block
+    call-method List::clear: void
+      field #0: List<String>
+        local _0 self: Record
+    call-method List::clear: void
+      field #1: List<String>
+        local _0 self: Record
+body method Record::rename -> void
+  param _0 self: Record
+  block
+    for _1 w
+      call-method IterableMut::iter_mut: SliceIterMut<String>
+        field #0: List<String>
+          local _0 self: Record
+      block
+        call-method String::push_str: void
+          local _1 w: &mut String
+          str "!": str

@@ -1290,13 +1290,14 @@ impl ImplicitAs<cstr> for i32 {
 
 // Ties and `kills` clauses (spec §6.7): a path that names nothing, one through a field a
 // caller cannot see, a kill through what the function cannot change, an `in` on what
-// points into nothing, and a tie declared twice.
+// points into nothing, and a path going on past fields of different types tied together.
 pub struct Ledger {
     pub lines: List<i32>
     m_notes: List<String> in @notes
-    m_more: List<String> in @notes
+    m_tags: List<i32> in @notes
 
     pub fn leak(&mut self) kills self.m_notes {}
+    pub fn retag(&mut self) kills self@notes[*] {}
 }
 
 fn misspelt(ledger: &mut Ledger) kills ledgr {}

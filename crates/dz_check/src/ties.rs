@@ -218,11 +218,17 @@ pub fn resolve(scope: &Scope<'_>, path: &TiePath) -> Result<Tie, Error> {
                 steps.push(Step::Field(f.name.clone()));
             }
             TieStep::Tie(t) => {
-                let (field_ty, field_name) = tie(scope, &ty, &t.name, t.span)?;
-                if matches!(field_ty, Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
-                    ended = Some(format!("`@{}`, the memory `{field_name}` points into", t.name));
+                let fields = tie(scope, &ty, &t.name, t.span)?;
+                if let Some((_, f)) =
+                    fields.iter().find(|(t, _)| matches!(t, Ty::Ptr { .. } | Ty::OwnPtr { .. }))
+                {
+                    ended = Some(format!("`@{}`, the memory `{f}` points into", t.name));
+                } else if fields.iter().any(|(t, _)| *t != fields[0].0) {
+                    // Fields tied together name all their memory at once; a path can go on
+                    // into them only where there is one type to go on into.
+                    ended = Some(format!("`@{}`, which ties fields of different types", t.name));
                 }
-                ty = field_ty;
+                ty = fields.into_iter().next().map(|(t, _)| t).unwrap_or(Ty::Error);
                 steps.push(Step::Tie(t.name.clone()));
             }
             TieStep::Elements(s) => {
@@ -300,17 +306,20 @@ fn field(scope: &Scope<'_>, ty: &Ty, name: &str, span: Span) -> Result<Ty, Error
 
 /// The field declaring `ty`'s tie `@name`, by its type and name. Ties are public names:
 /// declaring one is how a type lets its callers name private storage.
-fn tie(scope: &Scope<'_>, ty: &Ty, name: &str, span: Span) -> Result<(Ty, String), Error> {
+/// Every field of `ty` that declares the tie `name`, with its type: fields may be tied
+/// together, as a `HashMap`'s arrays are (spec §6.7).
+fn tie(scope: &Scope<'_>, ty: &Ty, name: &str, span: Span) -> Result<Vec<(Ty, String)>, Error> {
     let n = crate::type_name(scope.res, ty.peeled());
     let found = match ty.peeled() {
-        Ty::Named { sym, args } => scope.table.struct_sig(*sym).and_then(|s| {
-            let f = s.fields.iter().find(|f| f.tie.as_deref() == Some(name))?;
-            let t = scope.table.field_types(*sym, args, std::slice::from_ref(f)).remove(0);
-            Some((t, f.name.clone()))
+        Ty::Named { sym, args } => scope.table.struct_sig(*sym).map(|s| {
+            let fields: Vec<_> =
+                s.fields.iter().filter(|f| f.tie.as_deref() == Some(name)).cloned().collect();
+            let types = scope.table.field_types(*sym, args, &fields);
+            types.into_iter().zip(fields.into_iter().map(|f| f.name)).collect::<Vec<_>>()
         }),
         _ => None,
     };
-    found.ok_or_else(|| {
+    found.filter(|fields| !fields.is_empty()).ok_or_else(|| {
         error(
             codes::TIE_PATH_UNRESOLVED,
             span,

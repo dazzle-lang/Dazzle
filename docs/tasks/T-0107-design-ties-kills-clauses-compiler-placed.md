@@ -282,7 +282,9 @@ user's choice. In order, each step standing on its own:
      one payload, function-type clauses (14 calls need them), and diagnostic/fix
      integration. Nothing new is enforced yet.
    - **2d. `std`'s clauses** on `List`, `HashMap`, `HashSet`, `SlotMap` and `String`, with
-     `std` itself checking clean.
+     `std` itself checking clean. `HashMap`'s three arrays are all `in @items`, which r83
+     allows (fields tied together, 2026-10-29). `Formatter::set_spec` writes two private
+     `usize?` fields, a payload change under r82, so it needs a tie on them and a clause.
    - **2e. The fixes and the editor.** `dz fix` writes the clause a body needs, adding,
      removing or narrowing paths; the editor offers the same as a quick fix on each of 2c's
      errors, shows the clause a body needs while it is being written, and the clause in a

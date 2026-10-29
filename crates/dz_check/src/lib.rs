@@ -2958,23 +2958,6 @@ impl<'a> Ctx<'a> {
                     let mut field = self.field_sig(f);
                     // Visibility lives on the member, not the field node.
                     field.vis = m.vis;
-                    // A tie names one field's memory, so a path can say which (spec §6.7).
-                    if let Some(t) = &f.tie {
-                        if let Some(first) = sig.fields.iter().find(|x| x.tie == field.tie) {
-                            let first = first.name.clone();
-                            self.error_help(
-                                codes::DUPLICATE_TIE,
-                                t.span,
-                                format!("`@{}` is already declared, by `{first}`", t.name),
-                                "a second field with this tie",
-                                format!(
-                                    "a tie names one field's memory: give `{}` a tie of its \
-                                     own, or none if no signature names it (spec §6.7)",
-                                    f.name.name
-                                ),
-                            );
-                        }
-                    }
                     // A reference cannot be stored in a field (spec §5.2, §18.3). This one
                     // rule is what lets Dazzle skip lifetime analysis entirely.
                     if let Ty::Ref { .. } = field.ty {
