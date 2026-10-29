@@ -4,7 +4,7 @@
 /// new allocation from the same allocator. `b[i]` reads and writes an element, checked
 /// against the length; `as_slice()` views them all.
 pub struct List<T> {
-    m_data: own ^mut T = null
+    m_data: own ^mut T in @items = null
     m_len: usize = 0
     m_cap: usize = 0
     m_allocator: ^mut Allocator = Allocators::Global
@@ -44,24 +44,24 @@ pub struct List<T> {
     }
 
     /// Every element, in order. Valid until the list next grows or is dropped.
-    pub fn as_slice(&self) -> []T {
+    pub fn as_slice(&self) -> []T in self@items {
         return unsafe { m_data[0..m_len] }
     }
 
-    pub fn as_mut_slice(&mut self) -> []mut T {
+    pub fn as_mut_slice(&mut self) -> []mut T in self@items {
         return unsafe { m_data[0..m_len] }
     }
 
     /// The first element, or `null` when the list is empty: `let top = stack.first() or
     /// return`.
-    pub fn first(&self) -> ^T {
+    pub fn first(&self) -> ^T in self@items {
         if m_len == 0 {
             return null
         }
         return unsafe { &m_data[0] }
     }
 
-    pub fn first_mut(&mut self) -> ^mut T {
+    pub fn first_mut(&mut self) -> ^mut T in self@items {
         if m_len == 0 {
             return null
         }
@@ -69,14 +69,14 @@ pub struct List<T> {
     }
 
     /// The last element, or `null` when the list is empty.
-    pub fn last(&self) -> ^T {
+    pub fn last(&self) -> ^T in self@items {
         if m_len == 0 {
             return null
         }
         return unsafe { &m_data[m_len - 1] }
     }
 
-    pub fn last_mut(&mut self) -> ^mut T {
+    pub fn last_mut(&mut self) -> ^mut T in self@items {
         if m_len == 0 {
             return null
         }
@@ -84,7 +84,7 @@ pub struct List<T> {
     }
 
     /// Add `v` at the end, growing when there is no room.
-    pub fn push(&mut self, v: T, loc: SourceLocation = #location) {
+    pub fn push(&mut self, v: T, loc: SourceLocation = #location) kills self@items {
         if m_len == m_cap {
             self.grow_to(m_len + 1, loc)
         }
@@ -93,7 +93,7 @@ pub struct List<T> {
     }
 
     /// Take the last element out, or `none` when there is none.
-    pub fn pop(&mut self) -> T? {
+    pub fn pop(&mut self) -> T? kills self@items {
         if m_len == 0 {
             return none
         }
@@ -102,7 +102,7 @@ pub struct List<T> {
     }
 
     /// Put `v` at index `i`, moving the elements from `i` on up by one. `i` may be `len()`.
-    pub fn insert(&mut self, i: usize, v: T, loc: SourceLocation = #location) {
+    pub fn insert(&mut self, i: usize, v: T, loc: SourceLocation = #location) kills self@items {
         if i > m_len {
             panic!("List::insert at {} past the length {}", i, m_len)
         }
@@ -115,7 +115,7 @@ pub struct List<T> {
     }
 
     /// Take the element at `i` out, moving the ones after it down by one.
-    pub fn remove(&mut self, i: usize) -> T {
+    pub fn remove(&mut self, i: usize) -> T kills self@items {
         if i >= m_len {
             panic!("List::remove at {} for a length of {}", i, m_len)
         }
@@ -127,7 +127,7 @@ pub struct List<T> {
 
     /// Drop the elements `from..to`, moving the ones after them down. Panics when the range
     /// is backwards or runs past the length.
-    pub fn remove_range(&mut self, from: usize, to: usize) {
+    pub fn remove_range(&mut self, from: usize, to: usize) kills self@items, self[*] {
         if from > to || to > m_len {
             panic!("List::remove_range of {}..{} for a length of {}", from, to, m_len)
         }
@@ -143,7 +143,7 @@ pub struct List<T> {
 
     /// Keep only the elements `keep` says yes to, in their order, and drop the rest:
     /// `particles.retain(is_alive)`. Each element is asked once.
-    pub fn retain(&mut self, keep: fn(&T) -> bool) {
+    pub fn retain(&mut self, keep: fn(&T) -> bool) kills self@items, self[*] {
         let mut kept: usize = 0
         for i in 0..m_len {
             if keep(unsafe { &m_data[i] }) {
@@ -160,7 +160,7 @@ pub struct List<T> {
 
     /// Move every element of `other` onto the end, in order, leaving `other` empty with its
     /// allocation kept.
-    pub fn append(&mut self, other: &mut List<T>, loc: SourceLocation = #location) {
+    pub fn append(&mut self, other: &mut List<T>, loc: SourceLocation = #location) kills self@items, other@items {
         let n = other.m_len
         if n == 0 {
             return
@@ -178,7 +178,7 @@ pub struct List<T> {
     }
 
     /// Put the elements in the opposite order.
-    pub fn reverse(&mut self) {
+    pub fn reverse(&mut self) kills self@items {
         if m_len < 2 {
             return
         }
@@ -193,7 +193,7 @@ pub struct List<T> {
 
     /// Give the room past the last element back to the allocator; an empty list holds no
     /// memory afterwards.
-    pub fn shrink_to_fit(&mut self, loc: SourceLocation = #location) {
+    pub fn shrink_to_fit(&mut self, loc: SourceLocation = #location) kills self@items {
         if m_cap == m_len {
             return
         }
@@ -202,7 +202,7 @@ pub struct List<T> {
 
     /// Open a gap of `n` slots at `at` by moving the elements from `at` on up; the gap is
     /// left raw. There must be room.
-    fn shift_up(&mut self, at: usize, n: usize) {
+    fn shift_up(&mut self, at: usize, n: usize) kills self@items {
         if at >= m_len {
             return
         }
@@ -220,7 +220,7 @@ pub struct List<T> {
 
     /// Close the `n` raw slots just before `from` by moving the elements from `from` on
     /// down. The length is the caller's to change.
-    fn shift_down(&mut self, from: usize, n: usize) {
+    fn shift_down(&mut self, from: usize, n: usize) kills self@items {
         if from >= m_len {
             return
         }
@@ -235,7 +235,7 @@ pub struct List<T> {
 
     /// Take the element at `i` out and put the last one in its place: no shifting, and the
     /// order is not kept.
-    pub fn swap_remove(&mut self, i: usize) -> T {
+    pub fn swap_remove(&mut self, i: usize) -> T kills self@items {
         if i >= m_len {
             panic!("List::swap_remove at {} for a length of {}", i, m_len)
         }
@@ -248,7 +248,7 @@ pub struct List<T> {
     }
 
     /// Exchange the elements at `i` and `j`.
-    pub fn swap(&mut self, i: usize, j: usize) {
+    pub fn swap(&mut self, i: usize, j: usize) kills self@items {
         if i >= m_len || j >= m_len {
             panic!("List::swap of {} and {} for a length of {}", i, j, m_len)
         }
@@ -266,7 +266,7 @@ pub struct List<T> {
     /// `before` must be a strict order — `a < b`, not `a <= b`. A heapsort, so no memory is
     /// allocated and no input takes more than `n log n` steps; equal elements may change
     /// places. `xs.sort()` does the same by `<` for elements that are `Ord`.
-    pub fn sort_by(&mut self, before: fn(&T, &T) -> bool) {
+    pub fn sort_by(&mut self, before: fn(&T, &T) -> bool) kills self@items {
         if m_len < 2 {
             return
         }
@@ -286,7 +286,7 @@ pub struct List<T> {
     }
 
     /// Restore the heap below `root`, among the first `len` elements.
-    fn sift_down(&mut self, root: usize, len: usize, before: fn(&T, &T) -> bool) {
+    fn sift_down(&mut self, root: usize, len: usize, before: fn(&T, &T) -> bool) kills self@items {
         let mut at = root
         while true {
             let left = at * 2 + 1
@@ -309,12 +309,12 @@ pub struct List<T> {
     }
 
     /// Drop every element and keep the allocation.
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self) kills self@items, self[*] {
         self.truncate(0)
     }
 
     /// Drop the elements from `n` on; nothing happens when there are fewer.
-    pub fn truncate(&mut self, n: usize) {
+    pub fn truncate(&mut self, n: usize) kills self@items, self[*] {
         while m_len > n {
             m_len -= 1
             unsafe { destroy(m_data[m_len]) }
@@ -322,7 +322,7 @@ pub struct List<T> {
     }
 
     /// Make the length `n`: new elements start at their defaults, extra ones are dropped.
-    pub fn resize(&mut self, n: usize, loc: SourceLocation = #location) {
+    pub fn resize(&mut self, n: usize, loc: SourceLocation = #location) kills self@items, self[*] {
         if n > m_cap {
             self.grow_to(n, loc)
         }
@@ -334,7 +334,7 @@ pub struct List<T> {
     }
 
     /// Room for at least `additional` more elements without growing again.
-    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) kills self@items {
         if m_len + additional > m_cap {
             self.grow_to(m_len + additional, loc)
         }
@@ -342,14 +342,14 @@ pub struct List<T> {
 
     /// A new allocation of at least `wanted` elements — doubling, so pushing one at a time
     /// costs amortised constant time — with the elements moved into it.
-    fn grow_to(&mut self, wanted: usize, loc: SourceLocation) {
+    fn grow_to(&mut self, wanted: usize, loc: SourceLocation) kills self@items {
         let doubled = if m_cap == 0 { 8 } else { m_cap * 2 }
         self.move_to(if wanted > doubled { wanted } else { doubled }, loc)
     }
 
     /// A new allocation of exactly `cap` elements, at least the length, with the elements
     /// moved into it; none at all when `cap` is zero.
-    fn move_to(&mut self, cap: usize, loc: SourceLocation) {
+    fn move_to(&mut self, cap: usize, loc: SourceLocation) kills self@items {
         let a = m_allocator or panic!("a List with no allocator cannot grow")
         if cap == 0 {
             if m_data != null {
@@ -440,7 +440,7 @@ impl<T: Hash> Hash for List<T> {
 impl<T> Index<usize> for List<T> {
     type Output = T
 
-    fn index(&self, i: usize) -> &T {
+    fn index(&self, i: usize) -> &T in self@items {
         if i >= m_len {
             panic!("index {} is out of bounds for a List of length {}", i, m_len)
         }
@@ -469,7 +469,7 @@ impl<T> IterableMut for List<T> {
 impl<T> IndexMut<usize> for List<T> {
     type Output = T
 
-    fn index_mut(&mut self, i: usize) -> &mut T {
+    fn index_mut(&mut self, i: usize) -> &mut T in self@items {
         if i >= m_len {
             panic!("index {} is out of bounds for a List of length {}", i, m_len)
         }

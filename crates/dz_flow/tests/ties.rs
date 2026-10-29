@@ -948,6 +948,80 @@ fn outside(b: &mut Body) kills b {
 }
 
 #[test]
+fn std_clauses_catch_the_scenarios_of_spec_6_7() {
+    let fixture = Fixture::with_source(
+        r#"
+fn use_str(s: str) {}
+fn use_int(n: &mut i32) {}
+fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items {
+    let n = counts.get_or_insert(k, 0)
+    counts.insert(o, 1)
+    use_int(n)
+}
+fn appended(name: &mut String) kills name@text {
+    let s = name.as_str()
+    name.push_str("x")
+    use_str(s)
+}
+fn slot(xs: &mut List<String>) kills xs@items {
+    let e = &xs[0]
+    xs.push(String())
+    use_str(e.as_str())
+}
+fn element_text(xs: &mut List<String>) kills xs@items {
+    let s = xs[0].as_str()
+    xs.push(String())
+    use_str(s)
+}
+fn cleared_text(xs: &mut List<String>) kills xs@items, xs[*] {
+    let s = xs[0].as_str()
+    xs.clear()
+    use_str(s)
+}
+fn separate(a: &mut List<i32>, b: &mut List<i32>) kills b@items {
+    let p = a.first()
+    b.push(1)
+    let q = p or return
+}
+"#,
+    );
+    for name in ["counting", "appended", "slot", "cleared_text"] {
+        let a = fixture.analysis(name);
+        assert_eq!(a.invalid_uses.len(), 1, "{name}: {a:#?}");
+        assert!(a.mismatches.is_empty(), "{name}: {a:#?}");
+    }
+    // `push` moves the array, not each string's bytes (§6.7).
+    clean(&fixture.analysis("element_text"));
+    clean(&fixture.analysis("separate"));
+}
+
+#[test]
+fn clauses_are_compared_over_the_ties_they_name() {
+    let fixture = Fixture::with_source(
+        r#"
+pub struct Name { pub text: String; pub length: i32 }
+pub struct Crowd { pub names: List<String>; pub count: i32 }
+// `n.text` owns only its bytes, so naming it is naming `n.text@text@items`.
+fn whole(n: &mut Name) kills n.text { n.text.push_str("!") }
+fn exact(n: &mut Name) kills n.text@text { n.text.push_str("!") }
+// A plain field names no tie, so `n` is no wider than `n.text`.
+fn outer(n: &mut Name) kills n { n.text.push_str("!") }
+// The names' own text does not die when the list grows.
+fn wider(c: &mut Crowd) kills c.names { c.names.push(String()) }
+fn plain(n: &mut Name) kills n.length { n.length = 1 }
+"#,
+    );
+    for name in ["whole", "exact", "outer"] {
+        let a = fixture.analysis(name);
+        assert!(a.mismatches.is_empty() && a.incomplete.is_empty(), "{name}: {a:#?}");
+    }
+    let a = fixture.analysis("wider");
+    assert!(matches!(a.mismatches[..], [Mismatch::TooBroad { declared: 0, .. }]), "{a:#?}");
+    let a = fixture.analysis("plain");
+    assert!(matches!(a.mismatches[..], [Mismatch::Unused { declared: 0 }]), "{a:#?}");
+}
+
+#[test]
 fn fields_tied_together_live_and_die_together() {
     let fixture = Fixture::with_source(
         r#"

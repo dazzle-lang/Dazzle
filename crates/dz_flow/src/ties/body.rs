@@ -201,7 +201,10 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
     if let Some(signature) = &signature {
         let bindings = body_bindings(body);
         if signature.sig.takes_self == Some(true)
-            && !matches!(body.owner, BodyOwner::Ctor { .. } | BodyOwner::Copy(_))
+            && !matches!(
+                body.owner,
+                BodyOwner::Ctor { .. } | BodyOwner::Copy(_) | BodyOwner::Drop(_)
+            )
         {
             external.extend(bindings.receiver.iter().map(|p| p.local));
         }
@@ -263,8 +266,20 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
             .map(|k| k.place.clone())
             .collect::<Vec<_>>(),
     );
-    if cx.result.incomplete.is_empty() && signature.as_ref().is_some_and(|s| s.sig.has_body) {
-        cx.result.mismatches = super::compare(&cx.result.declared, &cx.result.actual);
+    if let Some(signature) =
+        signature.as_ref().filter(|s| s.sig.has_body && cx.result.incomplete.is_empty())
+    {
+        // Compared over the ties each path names, so `s@text` and `s@text@items` agree
+        // where the text owns nothing else (§6.7).
+        let scope = signature.scope(table, res);
+        let ties = |places: &[Place]| {
+            places
+                .iter()
+                .map(|p| super::ties(&scope, p, &body.local(p.local).ty))
+                .collect::<Vec<_>>()
+        };
+        cx.result.mismatches =
+            super::compare_ties(&ties(&cx.result.declared), &ties(&cx.result.actual));
     }
     cx.result
 }
@@ -1275,14 +1290,17 @@ impl Analysis<'_> {
                 self.expr(operand);
                 Value::default()
             }
-            hir::ExprKind::Cast { operand } => {
+            hir::ExprKind::Cast { operand, explicit } => {
                 let value = self.expr(operand);
-                // Dropping `mut`, or reading a `str` as its bytes, is the same memory. A
-                // cast to another pointee is unchecked, as §6.7 says.
+                // The checker dropping `mut`, or a `str` read as its bytes, is the same
+                // memory. A pointer made by a cast is unchecked, as §6.7 says: written
+                // `as`, it is `unsafe`, and it is how a body keeps the old allocation
+                // while it moves the elements out of it.
                 let same = pointee(&node.ty).is_some_and(|to| {
                     pointee(self.body.ty(operand)).is_some_and(|from| from == to)
                 });
-                if super::points(&node.ty) && !same {
+                let made = explicit && matches!(node.ty, Ty::Ptr { .. } | Ty::OwnPtr { .. });
+                if super::points(&node.ty) && (!same || made) {
                     Value { unknown: true, ..Value::default() }
                 } else {
                     value
@@ -1372,7 +1390,7 @@ impl Analysis<'_> {
 /// a `drop`, or a tied pointer), or it holds a union's or an optional's payload, whose
 /// variant may change. A plain value is overwritten in place (spec §6.7). An untied
 /// pointer is unchecked, so it counts only through its owner's `drop`.
-fn moves_memory(ty: &Ty, table: &TypeTable) -> bool {
+pub(super) fn moves_memory(ty: &Ty, table: &TypeTable) -> bool {
     fn go(ty: &Ty, table: &TypeTable, depth: usize) -> bool {
         if depth > 8 {
             return true;

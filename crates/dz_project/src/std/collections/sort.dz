@@ -1,11 +1,11 @@
 /// Putting a container's elements in order by `<`: `scores.sort()` on a `List` of anything
 /// `Ord` (spec §14.4). For another order, `List::sort_by` takes the comparison.
 pub trait Sort {
-    fn sort(&mut self)
+    fn sort(&mut self) kills self
 }
 
 impl<T: Ord> Sort for List<T> {
-    fn sort(&mut self) {
+    fn sort(&mut self) kills self@items {
         self.sort_by(ord_before<T>)
     }
 }

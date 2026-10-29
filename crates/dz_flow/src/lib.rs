@@ -301,7 +301,7 @@ impl<'a> Flow<'a> {
             | hir::ExprKind::SliceRange { base, .. }
             | hir::ExprKind::DataPtr(base)
             | hir::ExprKind::Deref(base)
-            | hir::ExprKind::Cast { operand: base } => *base,
+            | hir::ExprKind::Cast { operand: base, .. } => *base,
             _ => return None,
         };
         let node = self.body.expr(next);
@@ -611,7 +611,7 @@ impl<'a> Flow<'a> {
                 let b = self.value(rhs);
                 a && b
             }
-            hir::ExprKind::Cast { operand } => self.value(operand),
+            hir::ExprKind::Cast { operand, .. } => self.value(operand),
             hir::ExprKind::Range { start, end, .. } => {
                 for x in [start, end].into_iter().flatten() {
                     self.value(x);

@@ -358,6 +358,19 @@ pub fn elements(scope: &Scope<'_>, ty: &Ty) -> Option<Option<Ty>> {
     scope.table.implements(t, &r).then_some(None)
 }
 
+/// What a `for` over an `Iterable` `ty` hands out: its iterator's `get`. A `String`'s
+/// characters are values computed from its bytes, so its `[*]` names no memory, while a
+/// `HashMap`'s entries are references into its own.
+pub fn iterated(scope: &Scope<'_>, ty: &Ty) -> Option<Ty> {
+    let t = ty.peeled();
+    let iterable = prelude_trait(scope.table, "Iterable")?;
+    let r = TraitRef { trait_sym: iterable, args: Vec::new(), span: Span::DUMMY };
+    let iter = scope.table.trait_method(&r, t, "iter")?.ret;
+    let iterate = prelude_trait(scope.table, "Iterate")?;
+    let r = TraitRef { trait_sym: iterate, args: Vec::new(), span: Span::DUMMY };
+    Some(scope.table.trait_method(&r, &iter, "get")?.ret)
+}
+
 fn prelude_trait(table: &TypeTable, name: &str) -> Option<SymbolId> {
     table.prelude_names.iter().find(|(_, n)| n.as_str() == name).map(|(s, _)| *s)
 }

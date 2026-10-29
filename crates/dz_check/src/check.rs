@@ -2809,7 +2809,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 {
                     self.require_unsafe(e.span, "a pointer cast");
                 }
-                self.mk(e, target, hir::ExprKind::Cast { operand: from.id })
+                self.mk(e, target, hir::ExprKind::Cast { operand: from.id, explicit: true })
             }
             ExprKind::Range { start, end, inclusive } => {
                 let start = start.as_ref().map(|x| self.expr(x, None));
@@ -6024,7 +6024,7 @@ impl<'a, 'c> Body<'a, 'c> {
             if let Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } = t {
                 if spec_kind(hole.spec.as_deref().unwrap_or("")) == "p" {
                     let usize_ty = Ty::Int(IntTy::Usize);
-                    let cast = hir::ExprKind::Cast { operand: v.id };
+                    let cast = hir::ExprKind::Cast { operand: v.id, explicit: false };
                     bound.push((self.hir.expr(*at, usize_ty.clone(), cast).id, usize_ty));
                     writes.push(FormatWrite::Address);
                     continue;
@@ -6033,7 +6033,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 let arg = if *t == read_only {
                     v.id
                 } else {
-                    let cast = hir::ExprKind::Cast { operand: v.id };
+                    let cast = hir::ExprKind::Cast { operand: v.id, explicit: false };
                     self.hir.expr(*at, read_only.clone(), cast).id
                 };
                 bound.push((arg, read_only));
@@ -6047,7 +6047,15 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             // A C bit-field has no address, so it is referred to through a copy (§15.2).
             let place = match self.bitfield_name(a) {
-                Some(_) => self.hir.expr(*at, t.clone(), hir::ExprKind::Cast { operand: v.id }).id,
+                Some(_) => {
+                    self.hir
+                        .expr(
+                            *at,
+                            t.clone(),
+                            hir::ExprKind::Cast { operand: v.id, explicit: false },
+                        )
+                        .id
+                }
                 None => v.id,
             };
             let r = Ty::reference(false, t.clone());
@@ -7939,7 +7947,7 @@ impl<'a, 'c> Body<'a, 'c> {
             | hir::ExprKind::Char(_)
             | hir::ExprKind::Str(_)
             | hir::ExprKind::Const(_) => true,
-            hir::ExprKind::Unary { operand, .. } | hir::ExprKind::Cast { operand } => {
+            hir::ExprKind::Unary { operand, .. } | hir::ExprKind::Cast { operand, .. } => {
                 self.is_constant(*operand)
             }
             hir::ExprKind::Binary { lhs, rhs, .. } => {
