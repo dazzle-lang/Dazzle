@@ -30,15 +30,16 @@ instead of by an allocator the program names.
 | Reporting: `check` per signature (called from `check_ties` in `dz_check/src/lib.rs`), `check_struct` per struct (called at the end of `check_members` in `dz_check/src/check.rs`) | as left |
 | A function type's clause: `FnKills` in `Ty::Fn` (as written, with parameter names; not part of the type's identity), `FnKills::within`, used by `assignable` | `dz_hir/src/ty.rs`; built in `lower_type_inner` and `foreign_ty` (`dz_check/src/lib.rs`) and for a function item's value (`FnItem` in `dz_check/src/check.rs`); `DZ0568` reported in `expect` (`check.rs`) |
 | A function type's clause read as a signature: `fn_type_sig`; its paths checked by `check_fn_types`, from `check_ties` and for fields in `check_members` | `dz_check/src/ties.rs` |
-| Codes `DZ0218`, `DZ0219`, `DZ0562`–`DZ0565`, `DZ0567`, `DZ0568`; `dz explain` text | `dz_diag/src/codes.rs`; `dz_diag/explain/parser.md`, `check.md` |
+| Codes `DZ0218`, `DZ0219`, `DZ0413`–`DZ0417`, `DZ0562`–`DZ0565`, `DZ0567`, `DZ0568`; `dz explain` text (`flow.md` for `DZ041x`) | `dz_diag/src/codes.rs`; `dz_diag/explain/parser.md`, `check.md` |
 | Canonical places: `Place`, `Step` (`Field`, `Elements`, `Storage`), `normalize`, `canonical_steps`, `canonicalize` and `rewrites` (a tie's other paths to its first, `[*]`'s paths to `[*]`), `canonical_field`; call effects `call_effects`; exactness `ties`, `collect_ties`, `minimal`, `compare_ties` | `dz_flow/src/ties.rs` |
+| Findings as diagnostics: `report` (use after kill, bad return, the three clause mismatches, each clause error with the clause the body needs as a fix), `tie_path` (a place spelt with declared ties); called from `check` in `dz_flow/src/lib.rs`. The fix replaces `FnSig::kills_span` (the whole clause, from `FnDecl::kills_span`) or inserts before the body's `{`; a path callers cannot see, or a function a macro wrote, gets no automatic fix | `dz_flow/src/ties/report.rs` |
 | The body walk: `analyse_body`, `Origin` (target vs tie), `field`, `index_origins` (pointer indexing → `[*]`, and the trusted-body marker), `call` (a call through a function value reads `fn_type_sig`), `invoke`, `kill`, loops and branches | `dz_flow/src/ties/body.rs` |
 | std's ties and clauses | `dz_project/src/std/collections/{list,hash_map,hash_set,slot_map,sort,str_keys}.dz`, `text/string.dz`, `core/formatter.dz` |
 | Tests | `tests/parse/ties.dz` and `errors.dz`, `tests/fmt/ties.dz`, `tests/workspace/typed/src/typed.dz` and `typeerrors/src/errors.dz` (search `Ties and`), `dz_flow/tests/ties.rs` (the analysis, std held to its clauses) |
 | Spec and history | spec §6.7; changelog rows r81–r84; build log `docs/log/r81-ties.md` |
 
-Nothing is enforced yet: `dz_flow::check` does not report the analysis's findings; that
-lands with 2e.
+Enforced since 2e (2026-10-29): `dz_flow::check` runs the analysis on every body and
+`ties::report` turns its findings into `DZ0413`–`DZ0417`.
 
 The notation below is the one proposed under **Syntax** further down (`@` for a tie, `in`
 to say where something points); nothing about it is settled.
@@ -326,7 +327,14 @@ user's choice. In order, each step standing on its own:
      errors, shows the clause a body needs while it is being written, and the clause in a
      call's hover. `dz explain` for every new code. Then the examples and corpora get their clauses (about 13
      functions in `examples/`), in the same change that makes a missing one an error, so
-     nothing in the repository stops compiling.
+     nothing in the repository stops compiling. **Started 2026-10-29**
+     (`docs/log/r81-ties.md`): the five findings are errors (`DZ0413`–`DZ0417`), each
+     clause error carries the clause the body needs and `dz fix` writes it, and the
+     examples, the run, workspace and bench corpora have their clauses. **Left:** the
+     clause in a call's hover and the needed clause shown while a body is being written;
+     a fix that declares the tie a `pub` method needs (today only offered, with help
+     saying to declare one); and `examples/sdl3` and `tests/run/cmake`, whose clauses
+     were written by hand on a machine without Ninja, need `dz check` where it is.
 3. A debug-build check of `std`'s trusted clauses: generation counters on arena memory, so a
    wrong declaration fails a test instead of shipping.
 4. Placement on top of the checker: stages 1 and 2 re-based on ties, the result convention
@@ -346,7 +354,12 @@ it came with: making a declared tie opaque, so no path goes on past it. r83's ru
 (a path goes on past a tie whose places share a type), since tests and `s@text@items`
 rely on it; that is the user's call.
 
-Still open, to settle on the way: the elision rules for returned references (whether a pointer, slice
+Still open, to settle on the way: **a view that points into nothing**, a string
+literal returned from `fn describe(&self) -> str`. Elision ties it to `self`, so
+`fn heaviest<T: Weigh>(a: T, b: T) -> str { return a.describe() }` is `DZ0413` (a view
+of a by-value parameter returned), though every implementation returns a literal;
+nothing in a signature can say the result is static (`typed/` returns a `String`
+there for now). The elision rules for returned references (whether a pointer, slice
 or `str` input counts as one: until settled, one beside another leaves the result unknown),
 how a tagged union's payload is named in a tie, what `dz` shows for each placement (inlay
 hints and a listing), and whether stage 3 on the prototype branch is reverted now or left

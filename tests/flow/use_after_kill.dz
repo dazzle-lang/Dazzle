@@ -1,0 +1,20 @@
+// Spec §6.7: a reference is valid while the memory it points into is. A call whose clause
+// kills that memory ends it, and so does returning a view of what the function owns; a
+// reference into memory nothing killed stays valid.
+// expect: DZ0413, DZ0413
+
+fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items, counts[*] {
+    let n = counts.get_or_insert(k, 0)
+    counts.insert(o, 1)
+    n += 1
+}
+
+fn own_text(name: String) -> str {
+    return name.as_str()
+}
+
+fn apart(a: &mut List<i32>, b: &mut List<i32>) kills b@items {
+    let first = a.first() or return
+    b.push(1)
+    let _ = first
+}

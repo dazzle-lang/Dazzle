@@ -15,6 +15,6 @@ fn take(r: Res) -> bool {
     return true
 }
 
-fn through_a_pointer(p: ^mut Res) -> bool {
+fn through_a_pointer(p: ^mut Res) -> bool kills p {
     unsafe { return take(move(p^)) }
 }

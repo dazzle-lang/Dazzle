@@ -460,7 +460,7 @@ fn main() {
 ```dz
 pub struct Party {
     m_members: List<String> = List<String>()
-    tie @members = m_members
+    tie @members = m_members@items
 
     pub fn recruit(&mut self, name: str) kills self@members {
         m_members.push(String::from(name))

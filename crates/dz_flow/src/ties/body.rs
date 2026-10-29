@@ -1252,8 +1252,12 @@ impl Analysis<'_> {
                     if !self.reported.contains(&node.span) {
                         match &self.expected_return {
                             ReturnTie::Explicit(expected) | ReturnTie::Elided(expected) => {
-                                if let Some(origin) = value.views.iter().find(|o| {
-                                    !value.views.iter().any(|other| {
+                                // Spelt as the ties that name them, as the signature's
+                                // `in` is: `self.m_books[*]` is `self[*]` (§6.7).
+                                let views: Vec<Origin> =
+                                    value.views.iter().map(|o| self.canonical(o.clone())).collect();
+                                if let Some(origin) = views.iter().find(|o| {
+                                    !views.iter().any(|other| {
                                         other.target == o.target
                                             && (expected.covers(&other.tie)
                                                 || expected.covers(&other.target))
@@ -1487,16 +1491,20 @@ fn merge_state(to: &mut State, from: &State) {
     }
 }
 
-struct Signature {
-    sig: FnSig,
+pub(super) struct Signature {
+    pub(super) sig: FnSig,
     module: ModuleId,
-    name: String,
+    pub(super) name: String,
     self_ty: Option<Ty>,
     owner: Option<SymbolId>,
 }
 
 impl Signature {
-    fn scope<'a>(&'a self, table: &'a TypeTable, res: &'a Resolution) -> dz_check::ties::Scope<'a> {
+    pub(super) fn scope<'a>(
+        &'a self,
+        table: &'a TypeTable,
+        res: &'a Resolution,
+    ) -> dz_check::ties::Scope<'a> {
         dz_check::ties::Scope {
             table,
             res,
@@ -1517,7 +1525,11 @@ fn body_bindings(body: &Body) -> Bindings {
     }
 }
 
-fn body_signature(body: &Body, table: &TypeTable, res: &Resolution) -> Option<Signature> {
+pub(super) fn body_signature(
+    body: &Body,
+    table: &TypeTable,
+    res: &Resolution,
+) -> Option<Signature> {
     let (sig, home, name) = match &body.owner {
         BodyOwner::Fn(sym) => {
             let ItemSig::Fn(sig) = table.get(*sym)? else { return None };

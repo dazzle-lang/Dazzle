@@ -50,6 +50,10 @@ pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
             quiet: false,
         };
         cx.body();
+        // References used after their memory was killed, and clauses that do not say what
+        // the body kills (spec §6.7).
+        let analysis = ties::analyse_body(body, table, res);
+        ties::report(body, table, res, &analysis, &mut diags);
         // A trait method's parameters are declarations, not bindings anything could read:
         // its body exists only to hold their defaults (spec §7.6).
         let signature_only = matches!(body.owner, dz_hir::BodyOwner::TraitDefaults { .. });

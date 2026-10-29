@@ -38,7 +38,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0020](tasks/T-0020-libclang-parses-with-its-own-default.md)** Libclang parses with its own default target · deferral, interop
 - **[T-0021](tasks/T-0021-untyped-imported-integer-not-range-checked.md)** An untyped imported integer is not range-checked · deferral, checker
 
-## M9 — LSP: diagnostics, hover, go-to-definition, completion (11 open)
+## M9 — LSP: diagnostics, hover, go-to-definition, completion (12 open)
 
 - **[T-0022](tasks/T-0022-more-code-actions-inlay-hints-for.md)** More code actions, and inlay hints for implicit `drop`s · deferral, editor
 - **[T-0023](tasks/T-0023-no-incremental-analysis.md)** No incremental analysis · deferral, editor
@@ -51,6 +51,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0072](tasks/T-0072-doxygen-comment-generation-in-vs-code.md)** Doxygen comment generation in the VS Code extension · feature, editor
 - **[T-0073](tasks/T-0073-remaining-quick-fixes.md)** The remaining quick fixes · feature, editor
 - **[T-0074](tasks/T-0074-debugging-next-steps.md)** Debugging, next steps · feature, editor
+- **[T-0108](tasks/T-0108-dz-fix-renames-assigned-but-unread.md)** dz fix renames an assigned but unread variable only where it is declared · bug, tooling
 
 ## M10 — Macros (5 open)
 

@@ -16576,7 +16576,7 @@ body impl#138 method weight -> i32
     return: !
       field #0: i32
         local _0 self: Crate
-body fn heaviest -> str
+body fn heaviest -> String
   param _0 a: T
   param _1 b: T
   block
@@ -16588,15 +16588,17 @@ body fn heaviest -> str
           local _1 b: T
       block
         return: !
-          call-method Describe::describe: str
-            local _0 a: T
+          call-assoc String::from: String
+            call-method Describe::describe: str
+              local _0 a: T
     return: !
-      call-method Describe::describe: str
-        local _1 b: T
-body fn uses_heaviest -> str
+      call-assoc String::from: String
+        call-method Describe::describe: str
+          local _1 b: T
+body fn uses_heaviest -> String
   block
     return: !
-      call heaviest: str
+      call heaviest: String
         call-ctor Crate#0: Crate
           int 3: i32
         call-ctor Crate#0: Crate
@@ -17375,12 +17377,13 @@ body impl#146 method label -> str
   block
     return: !
       str "a float": str
-body fn labels -> str
+body fn labels -> String
   param _0 x: f32
   block
     return: !
-      call-method Label::shout: str
-        local _0 x: f32
+      call-assoc String::from: String
+        call-method Label::shout: str
+          local _0 x: f32
 body impl#147 method label -> str
   param _0 self: Wrap<T>
   block
@@ -17388,23 +17391,25 @@ body impl#147 method label -> str
       call-method Label::label: str
         field #0: T
           local _0 self: Wrap<T>
-body fn wrapped -> str
+body fn wrapped -> String
   param _0 w: Wrap<f32>
   block
     return: !
-      call-method Label::label: str
-        local _0 w: Wrap<f32>
+      call-assoc String::from: String
+        call-method Label::label: str
+          local _0 w: Wrap<f32>
 body impl#148 method shout -> str
   param _0 self: f32
   block
     return: !
       str "LOUD": str
-body fn chooses -> str
+body fn chooses -> String
   param _0 x: f32
   block
     return: !
-      call-method Loud::shout: str
-        local _0 x: f32
+      call-assoc String::from: String
+        call-method Loud::shout: str
+          local _0 x: f32
 body drop Held -> void
   param _0 self: Held<T>
   block

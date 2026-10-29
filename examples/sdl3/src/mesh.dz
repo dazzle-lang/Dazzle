@@ -15,7 +15,7 @@ pub struct Geometry {
     /// Adds a triangle wound counter-clockwise seen from outside, which is the side
     /// back-face culling keeps. The corners' normals say which side that is, so a caller
     /// never has to get the winding of its grid right.
-    pub fn triangle(&mut self, a: Vertex, b: Vertex, c: Vertex) {
+    pub fn triangle(&mut self, a: Vertex, b: Vertex, c: Vertex) kills self.verts@items {
         let facing = (b.pos - a.pos).cross(c.pos - a.pos)
         let outward = a.normal + b.normal + c.normal
         verts.push(a)
@@ -28,13 +28,18 @@ pub struct Geometry {
         }
     }
 
-    pub fn quad(&mut self, a: Vertex, b: Vertex, c: Vertex, d: Vertex) {
+    pub fn quad(&mut self, a: Vertex, b: Vertex, c: Vertex, d: Vertex) kills self.verts@items {
         self.triangle(a, b, c)
         self.triangle(a, c, d)
     }
 
     /// Samples `surface` on a `us` × `vs` grid.
-    pub fn surface(&mut self, us: i32, vs: i32, surface: fn(f32, f32) -> Vertex) {
+    pub fn surface(
+        &mut self,
+        us: i32,
+        vs: i32,
+        surface: fn(f32, f32) -> Vertex
+    ) kills self.verts@items {
         for i in 0..us {
             let u0 = i as f32 / us as f32
             let u1 = (i + 1) as f32 / us as f32
@@ -89,7 +94,7 @@ fn knot_point(u: f32, v: f32) -> Vertex {
 }
 
 /// A unit cube centred on the origin: for each axis, the face on either side of it.
-fn add_cube(g: &mut Geometry) {
+fn add_cube(g: &mut Geometry) kills g.verts@items {
     let axes = [vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1)]
     let sides: [2]f32 = [-0.5, 0.5]
     for i in 0..3 {
@@ -104,7 +109,7 @@ fn add_cube(g: &mut Geometry) {
 }
 
 /// A square of side `size` in the xz plane, facing up.
-fn add_floor(g: &mut Geometry, size: f32) {
+fn add_floor(g: &mut Geometry, size: f32) kills g.verts@items {
     let h = size / 2
     let up = vec3(0, 1, 0)
     g.quad(Vertex{ pos: vec3(-h, 0, -h), normal: up }, Vertex{ pos: vec3(h, 0, -h), normal: up }, Vertex{ pos: vec3(h, 0, h), normal: up }, Vertex{ pos: vec3(-h, 0, h), normal: up })

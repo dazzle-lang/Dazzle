@@ -141,6 +141,10 @@ impl Ord for Node {
 struct MinHeap<T: Ord> {
     m_items: List<T>
 
+    /// The heap's array, and the elements in it.
+    tie @items = m_items@items
+    tie @values = m_items[*]
+
     MinHeap(allocator: ^mut Allocator) {
         m_items = List<T>(0, allocator)
     }
@@ -149,7 +153,7 @@ struct MinHeap<T: Ord> {
         return m_items.is_empty()
     }
 
-    pub fn push(&mut self, v: T) {
+    pub fn push(&mut self, v: T) kills self@items {
         m_items.push(move(v))
         let mut at = m_items.len() - 1
         while at > 0 {
@@ -162,7 +166,7 @@ struct MinHeap<T: Ord> {
         }
     }
 
-    pub fn pop(&mut self) -> T? {
+    pub fn pop(&mut self) -> T? kills self@items, self@values {
         if m_items.is_empty() {
             return none
         }

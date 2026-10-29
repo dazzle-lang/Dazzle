@@ -169,6 +169,20 @@ pub const VIEW_OF_TEMPORARY: &str = "DZ0407";
 pub const DUPLICATE_SPECIAL_MEMBER: &str = "DZ0411";
 /// A struct with an `own` field and no `drop` (spec §6.5, §18.4).
 pub const OWN_FIELD_WITHOUT_DROP: &str = "DZ0412";
+/// A reference, pointer or view used after a call, write, move or drop killed the tie it
+/// points into: `n` from `counts.get_or_insert(…)`, used after `counts.insert(…)` (spec §6.7).
+pub const USE_AFTER_KILL: &str = "DZ0413";
+/// A returned reference that points somewhere other than its signature says: `-> ^T in
+/// self@items` returning a view of something else (spec §6.7).
+pub const RETURN_OUTSIDE_TIE: &str = "DZ0414";
+/// A body that kills what its `kills` clause leaves out, at the kill: `xs.push(1)` in a
+/// function with no `kills xs@items` (spec §6.7).
+pub const KILL_NOT_DECLARED: &str = "DZ0415";
+/// A `kills` path the body never kills (spec §6.7).
+pub const KILL_NEVER_HAPPENS: &str = "DZ0416";
+/// A `kills` path wider than what the body kills: `kills w` where only `w.enemies@items`
+/// dies (spec §6.7).
+pub const KILL_TOO_BROAD: &str = "DZ0417";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 

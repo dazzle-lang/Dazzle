@@ -47,7 +47,7 @@ macro machine -> decl {
             }
 
             // One frame: the active state decides whether there is a next one.
-            pub fn step(&mut self, $params) {
+            pub fn step(&mut self, $params) kills self {
                 let next: $name? = switch self {
                     #for s in $states {
                         case $s.name(&mut st) { st.update(#for p in $params[,] { $p.name }) }

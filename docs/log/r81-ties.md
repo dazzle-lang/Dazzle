@@ -6,6 +6,49 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## 2e, first part: the findings are errors, and `dz fix` writes clauses (2026-10-29)
+
+Compiler work: §6.7 already said all of this is an error. `dz_flow::check` now runs
+`ties::analyse_body` on every body, and `ties::report` (`dz_flow/src/ties/report.rs`)
+turns what it finds into diagnostics:
+
+- **`DZ0413`**, a use after a kill: the use, labelled with the tie it points into, and the
+  call, write, move or drop that killed it. A `return` of a view of a local or a by-value
+  parameter is the same code with its own message ("dies as the function returns").
+- **`DZ0414`**, a returned view outside the signature's `in`. Both sides are now compared
+  spelt as their ties, so `self.m_books[*]` is `self[*]` when the type says so.
+- **`DZ0415`–`DZ0417`**, a kill the clause leaves out (at the kill), a path never killed,
+  and a path wider than what dies (at the path). Each carries the clause the body needs.
+- **The clause the body needs** is what it kills that a caller sees, without what names
+  no memory, rounded up to the ties types declare and spelt as a tie path, `@items` rather
+  than `.m_data` (`tie_path`). A field a cast reached that its type does not have ends the
+  path, which then names everything under what holds it: `kills data` for a `^mut void`
+  read as a struct (and `ties` compares it that way, a `void` pointee named whole).
+- **The fix** replaces the clause, through its new span (`FnDecl::kills_span`, kept as
+  `FnSig::kills_span`), or inserts one before the body's `{`. It is certain, so `dz fix`
+  applies it, except when a path goes through a field the function's callers cannot see
+  (checked with `ties::resolve`): then it is only offered, and the help says to declare a
+  tie. A function a macro wrote gets no fix, only a note that its clause belongs in the
+  macro, since every token of it is at the invocation.
+
+The repository got its clauses in the same change, mostly by the fixes themselves:
+`box2d` (with `tie @things = m_things@items` on `Demo`, whose `pub` methods could not name
+the private list), `breakout`, `sdl3`'s mesh (by hand: `dz check` needs Ninja for its
+CMake recipe, which this machine lacks), the run corpus (`button`, `generic_base`,
+`machine`'s macro template, `reflect`, `regions`, `union_methods`), `typed/`, and the
+`astar` benchmark (with `@items` and `@values` on its heap). `typed/` had five functions
+returning a view of a by-value parameter (`fn heaviest<T: Weigh>(a: T, b: T) -> str {
+return a.describe() }`); they return a `String` now, and the language gap behind it, a
+view that points into nothing, is open in T-0107. Explain examples whose clauses named a
+whole list where `push` moves only its array now say `@items`.
+
+Found on the way: `dz fix`'s `DZ0406` rename breaks a variable that is assigned but never
+read (T-0108), so the corpora were fixed with the clause fixes alone.
+
+Tests: `tests/flow/` gains one file per code (`use_after_kill`, `return_outside_tie`,
+`kill_not_declared`, `kill_never_happens`, `kill_too_broad`), each with its valid twin;
+every code has its `dz explain` entry in `flow.md`.
+
 ## r86: a function type's clause is checked (2026-10-29)
 
 2b parsed a function type's clause and left it out of `Ty::Fn`, so a call through a function

@@ -468,14 +468,14 @@ impl Weigh for Crate {
 
 // §8.1: the body is checked once, against `T: Weigh` and nothing else. `weight` is legal
 // because `Weigh` provides it; `describe` is legal because `Weigh : Describe` does.
-fn heaviest<T: Weigh>(a: T, b: T) -> str {
+fn heaviest<T: Weigh>(a: T, b: T) -> String {
     if a.weight() > b.weight() {
-        return a.describe()
+        return String::from(a.describe())
     }
-    return b.describe()
+    return String::from(b.describe())
 }
 
-fn uses_heaviest() -> str {
+fn uses_heaviest() -> String {
     return heaviest(Crate(3), Crate(7))
 }
 
@@ -809,8 +809,8 @@ impl Label for f32 {
 
 // `Label::shout` is a default, reached through `impl Label for f32`; naming the trait is
 // needed only because `Loud` below provides a `shout` too.
-fn labels(x: f32) -> str {
-    return Label::shout(&x)
+fn labels(x: f32) -> String {
+    return String::from(Label::shout(&x))
 }
 
 // §7.6: a generic implementation, applying to every `Wrap<T>` whose `T` is `Label`.
@@ -824,8 +824,8 @@ impl<T: Label> Label for Wrap<T> {
     }
 }
 
-fn wrapped(w: Wrap<f32>) -> str {
-    return w.label()
+fn wrapped(w: Wrap<f32>) -> String {
+    return String::from(w.label())
 }
 
 // §7.6: two traits both provide `shout`, so the call names the one it means.
@@ -839,8 +839,8 @@ impl Loud for f32 {
     }
 }
 
-fn chooses(x: f32) -> str {
-    return Loud::shout(&x)
+fn chooses(x: f32) -> String {
+    return String::from(Loud::shout(&x))
 }
 
 // §6.1, §8.2: an `impl Copy` that applies only where its bound holds.
@@ -1117,7 +1117,7 @@ union Motion {
     Stopped {}
 }
 
-fn carried_struct(m: &mut Motion) -> f32 {
+fn carried_struct(m: &mut Motion) -> f32 kills m {
     let next = switch m {
         case Walking(&w) { w.faster() }
         case Stopped { return 0 }
@@ -1429,7 +1429,7 @@ fn later_first(a: &f32, b: &f32) -> bool {
     return a > b
 }
 
-fn sorting(names: &mut List<String>, times: &mut List<f32>) -> usize {
+fn sorting(names: &mut List<String>, times: &mut List<f32>) -> usize kills names@items, times@items {
     names.sort()
     times.sort_by(later_first)
     times.swap(0, 0)
@@ -1562,7 +1562,7 @@ union Lamp {
         }
     }
 
-    pub fn flip(&mut self) {
+    pub fn flip(&mut self) kills self {
         let next: Lamp = switch self {
             case Off { .On{ level: 1 } }
             case On { .Off{} }
@@ -1588,7 +1588,7 @@ fn operators_read_through(x: &i32, flag: &bool, l: &Layer, s: &str) -> bool {
 
 // §14.4: `Search` and `Extend` on a `List` of `Eq` and `Copy` elements, a `List` as a key,
 // `String` keys looked up by `str`, a `HashSet`, `Join`, and the newer `Text` methods.
-fn collections_pass(names: &mut HashMap<String, i32>, words: &List<String>) -> usize {
+fn collections_pass(names: &mut HashMap<String, i32>, words: &List<String>) -> usize kills names@items {
     let mut xs = List<i32>()
     let more: [2]i32 = [1, 2]
     xs.extend(more[0..2])
@@ -1686,7 +1686,7 @@ struct Seeker {
     pub target: Key<Vec3> = Key<Vec3>()
 }
 
-fn slot_maps(points: &mut SlotMap<Vec3>, scores: &mut List<Score>) -> f32 {
+fn slot_maps(points: &mut SlotMap<Vec3>, scores: &mut List<Score>) -> f32 kills points@items, points[*] {
     let k = points.insert(Vec3{ x: 1.0, y: 2.0, z: 3.0 })
     let seeker = Seeker{ target: k }
     let p = points.get_mut(seeker.target) or return 0.0
@@ -1797,7 +1797,7 @@ pub struct Roster {
     tie @scores = m_scores
 
     // A private method may name a private field; a public one names its tie.
-    fn reset_index(&mut self) kills self.m_index[*] {
+    fn reset_index(&mut self) kills self.m_index@items, self.m_index[*] {
         m_index.clear()
     }
 
@@ -1821,7 +1821,7 @@ pub trait Tidy {
 }
 
 // A reference parameter may say where it points; a free function names `pub` fields.
-fn shout(name: &mut String in roster, roster: &mut Roster) kills roster.members {
+fn shout(name: &mut String in roster, roster: &mut Roster) kills name@text, roster.members@items, roster.members[*] {
     name.push_str("!")
     roster.members.clear()
 }

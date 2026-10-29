@@ -765,7 +765,7 @@ pub struct Party {
     pub members: List<String>
 }
 
-fn recruit(party: &mut Party) kills party.members {
+fn recruit(party: &mut Party) kills party.members@items {
     party.members.push(String::from("Ann"))
 }
 
@@ -801,7 +801,7 @@ fn main() {
 ```dz
 pub struct Party {
     m_members: List<String> = List<String>()
-    tie @members = m_members
+    tie @members = m_members@items
 
     pub fn recruit(&mut self, name: str) kills self@members {
         m_members.push(String::from(name))
@@ -896,7 +896,7 @@ list, the second, or both; one declaration with both says they live and die toge
 pub struct Party {
     m_members: List<String> = List<String>()
     m_guests: List<String> = List<String>()
-    tie @members = m_members
+    tie @members = m_members@items
     tie @members = m_guests
 
     pub fn recruit(&mut self, name: str) kills self@members {
@@ -914,7 +914,7 @@ fn main() {
 pub struct Party {
     m_members: List<String> = List<String>()
     m_guests: List<String> = List<String>()
-    tie @members = m_members, m_guests
+    tie @members = m_members@items, m_guests@items
 
     pub fn recruit(&mut self, name: str) kills self@members {
         m_members.push(String::from(name))
@@ -939,7 +939,7 @@ pub struct Party {
     pub members: List<String>
 }
 
-fn recruit(p: &mut Party) kills p.members {
+fn recruit(p: &mut Party) kills p.members@items {
     p.members.push(String::from("Ann"))
 }
 
@@ -959,11 +959,11 @@ pub struct Party {
     pub members: List<String>
 }
 
-fn recruit(p: &mut Party) kills p.members {
+fn recruit(p: &mut Party) kills p.members@items {
     p.members.push(String::from("Ann"))
 }
 
-fn twice(f: fn(p: &mut Party) kills p.members, p: &mut Party) kills p.members {
+fn twice(f: fn(p: &mut Party) kills p.members@items, p: &mut Party) kills p.members@items {
     f(p)
     f(p)
 }

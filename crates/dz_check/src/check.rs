@@ -769,6 +769,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     // A constructor returns nothing and kills nothing (spec §6.7).
                     ret_tie: None,
                     kills: Vec::new(),
+                    kills_span: None,
                     kills_unknown: false,
                 };
                 let owner = BodyOwner::Ctor { owner: sym, index: ctors };

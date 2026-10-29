@@ -571,6 +571,7 @@ pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
         variadic: None,
         ret_tie: None,
         kills: paths.to_vec(),
+        kills_span: None,
         kills_unknown: unknown,
     }
 }

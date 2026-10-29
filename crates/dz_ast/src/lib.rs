@@ -198,6 +198,8 @@ pub struct FnDecl {
     /// `kills self@items, self[*]`: the ties this function may end (spec §6.7). Empty when
     /// it kills nothing.
     pub kills: Vec<TiePath>,
+    /// The whole clause, `kills` through its last path, so a fix can replace or remove it.
+    pub kills_span: Option<Span>,
     /// `None` for a trait method with no default body.
     pub body: Option<Block>,
     /// `Button(w: i32) : UiElement(w) { … }` — a constructor's base initialiser, and

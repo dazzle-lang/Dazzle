@@ -25,7 +25,7 @@ struct Button {
     pub presses: i32 = 0
     pub state: ButtonState = .DefaultState{}
 
-    pub fn update(&mut self, ctx: &ButtonCtx, input: &Input) {
+    pub fn update(&mut self, ctx: &ButtonCtx, input: &Input) kills self.state {
         state.step(ctx, input, &mut self)
     }
 }
@@ -75,7 +75,7 @@ union ButtonState {
     ChangeSprite
 
     // One frame: the active state decides whether there is a next one (spec §7.5).
-    pub fn step(&mut self, ctx: &ButtonCtx, input: &Input, btn: &mut Button) {
+    pub fn step(&mut self, ctx: &ButtonCtx, input: &Input, btn: &mut Button) kills self {
         let next: ButtonState? = switch self {
             case DefaultState(d) { d.update(input) }
             case TransitionState(&mut t) { t.update(ctx, input, btn) }

@@ -1,0 +1,15 @@
+// Spec §6.7: a body that kills what its clause leaves out is an error where it kills, and
+// a function calling one inherits its kill.
+// expect: DZ0415, DZ0415
+
+fn fill(xs: &mut List<i32>) {
+    xs.push(1)
+}
+
+fn fills(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn calls(xs: &mut List<i32>) {
+    fills(xs)
+}
