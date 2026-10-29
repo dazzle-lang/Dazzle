@@ -30,6 +30,7 @@ instead of by an allocator the program names.
 | Reporting: `check` per signature (called from `check_ties` in `dz_check/src/lib.rs`), `check_struct` per struct (called at the end of `check_members` in `dz_check/src/check.rs`) | as left |
 | A function type's clause: `FnKills` in `Ty::Fn` (as written, with parameter names; not part of the type's identity), `FnKills::within`, used by `assignable` | `dz_hir/src/ty.rs`; built in `lower_type_inner` and `foreign_ty` (`dz_check/src/lib.rs`) and for a function item's value (`FnItem` in `dz_check/src/check.rs`); `DZ0568` reported in `expect` (`check.rs`) |
 | A function type's clause read as a signature: `fn_type_sig`; its paths checked by `check_fn_types`, from `check_ties` and for fields in `check_members` | `dz_check/src/ties.rs` |
+| `const str` (r87): `Ty::ConstStr` (`dz_hir/src/ty.rs`; `assignable` lets it be a `str`), `TypeKind::Const` (`dz_ast`, parsed in `dz_parse/src/ty.rs`), lowered in `lower_type_inner` (`DZ0569` otherwise); a literal becomes one in `expr_inner`'s `ExprKind::Str`; it reads as a `str` in `expr` (`dz_check/src/check.rs`), except as an assignment's target, under `&mut`, and as an untyped `let`'s value; `impl_applies` gives it `str`'s implementations; `field_type` its `.len`. Not a view to the tie analysis (`points` leaves it out) | `dz_check`, `dz_hir`, `dz_cpp` (emitted as `::dz::str`) |
 | Codes `DZ0218`, `DZ0219`, `DZ0413`–`DZ0417`, `DZ0562`–`DZ0565`, `DZ0567`, `DZ0568`; `dz explain` text (`flow.md` for `DZ041x`) | `dz_diag/src/codes.rs`; `dz_diag/explain/parser.md`, `check.md` |
 | Canonical places: `Place`, `Step` (`Field`, `Elements`, `Storage`), `normalize`, `canonical_steps`, `canonicalize` and `rewrites` (a tie's other paths to its first, `[*]`'s paths to `[*]`), `canonical_field`; call effects `call_effects`; exactness `ties`, `collect_ties`, `minimal`, `compare_ties` | `dz_flow/src/ties.rs` |
 | Findings as diagnostics: `report` (use after kill, bad return, the three clause mismatches, each clause error with the clause the body needs as a fix), `tie_path` (a place spelt with declared ties); called from `check` in `dz_flow/src/lib.rs`. The fix replaces `FnSig::kills_span` (the whole clause, from `FnDecl::kills_span`) or inserts before the body's `{`; a path callers cannot see, or a function a macro wrote, gets no automatic fix | `dz_flow/src/ties/report.rs` |
@@ -354,12 +355,12 @@ it came with: making a declared tie opaque, so no path goes on past it. r83's ru
 (a path goes on past a tie whose places share a type), since tests and `s@text@items`
 rely on it; that is the user's call.
 
-Still open, to settle on the way: **a view that points into nothing**, a string
-literal returned from `fn describe(&self) -> str`. Elision ties it to `self`, so
-`fn heaviest<T: Weigh>(a: T, b: T) -> str { return a.describe() }` is `DZ0413` (a view
-of a by-value parameter returned), though every implementation returns a literal;
-nothing in a signature can say the result is static (`typed/` returns a `String`
-there for now). The elision rules for returned references (whether a pointer, slice
+**Settled 2026-10-29 (r87, [D-0092](../decisions/D-0092-how-does-function-say-text-it.md)):**
+a view that points into nothing is a `const str`, a type: text in static storage, which
+carries no tie and may be returned from anything or held in a field.
+
+Still open, to settle on the way: whether `const []T` follows `const str` (static
+tables), once a program needs it. The elision rules for returned references (whether a pointer, slice
 or `str` input counts as one: until settled, one beside another leaves the result unknown),
 how a tagged union's payload is named in a tie, what `dz` shows for each placement (inlay
 hints and a listing), and whether stage 3 on the prototype branch is reverted now or left

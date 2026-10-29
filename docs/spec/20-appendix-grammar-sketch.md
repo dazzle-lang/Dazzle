@@ -54,6 +54,7 @@ type          = access_type [ "?" ] ;
 access_type   = "^" type | "&" [ "mut" ] type
               | "[" [ expr ] "]" type
               | "own" "^" type
+              | "const" type    (* only `const str`, §5.3 *)
               | "fn" "(" [ fn_type_params ] ")" [ ( "->" | "!->" ) type ]
                 [ "kills" ( tie_path | "(" tie_path { "," tie_path } ")" ) ]
                 (* names needed only by a clause, §6.7; a comma after a bare path begins the

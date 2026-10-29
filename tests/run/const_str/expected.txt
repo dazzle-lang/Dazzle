@@ -1,0 +1,6 @@
+goblin was walking and is attacking
+seen goblin (6 bytes)
+seen walking (7 bytes)
+heaviest: a crate
+label goblin
+2 kinds, 3 goblins

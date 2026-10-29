@@ -282,7 +282,8 @@ path can go on into them (`list[*]@text`); a type that can only be iterated — 
 whose elements are its entries — is named whole at `[*]`, and the path stops there. So does
 a path at a tie standing for a pointer field, which names that memory as a whole.
 
-**Every reference carries a tie**, known where it is made: `&mut world.enemies[i]` is in
+**Every reference carries a tie**, known where it is made, except a `const str`, which
+points into static storage that nothing kills (§5.3): `&mut world.enemies[i]` is in
 `world.enemies@items`. A function returning a reference or a pointer says where it points
 with `in`: `pub fn first(&self) -> ^T in self@items`. With exactly one reference input and no
 `in`, the result is in that input as a whole. A reference parameter may say where it points

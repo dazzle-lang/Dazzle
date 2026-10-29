@@ -1,0 +1,77 @@
+// `const str` (spec §5.3): text in static storage, which nothing kills. A state's name
+// survives the state changing, a struct keeps one in a field, and a container holds them.
+
+union State {
+    Idle {}
+    Walking {}
+    Attacking {}
+
+    pub fn name(&self) -> const str {
+        switch self {
+            case Idle {
+                return "idle"
+            }
+            case Walking {
+                return "walking"
+            }
+            case Attacking {
+                return "attacking"
+            }
+        }
+    }
+}
+
+pub struct Enemy {
+    pub kind:  const str
+    pub state: State
+}
+
+trait Describe {
+    fn describe(&self) -> const str
+}
+
+pub struct Crate {
+    pub weight: i32
+}
+
+impl Describe for Crate {
+    fn describe(&self) -> const str {
+        return "a crate"
+    }
+}
+
+// Each argument dies here, and what it describes outlives it.
+fn heaviest(a: Crate, b: Crate) -> const str {
+    if a.weight > b.weight {
+        return a.describe()
+    }
+    return b.describe()
+}
+
+fn main() {
+    let mut e = Enemy{ kind: "goblin", state: State::Walking{} }
+    let was = e.state.name()
+    e.state = State::Attacking{}
+    println!("{} was {} and is {}", e.kind, was, e.state.name())
+
+    let mut seen: List<const str> = List<const str>()
+    seen.push(e.kind)
+    seen.push(was)
+    for &name in seen {
+        println!("seen {} ({} bytes)", name, name.len)
+    }
+
+    println!("heaviest: {}", heaviest(Crate{ weight: 3 }, Crate{ weight: 7 }))
+
+    let mut label = "none"
+    label = e.kind
+    println!("label {}", label)
+
+    // Keys hashed and compared as the text they are.
+    let mut counts: HashMap<const str, i32> = HashMap<const str, i32>()
+    counts.insert(e.kind, 1)
+    counts.insert("orc", 2)
+    counts.insert(e.kind, 3)
+    let goblins = counts.get(&e.kind) or return
+    println!("{} kinds, {} goblins", counts.len(), goblins)
+}

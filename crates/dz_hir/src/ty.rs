@@ -261,6 +261,10 @@ pub enum Ty {
     Int(IntTy),
     Float(FloatTy),
     Str,
+    /// `const str`: a `str` whose bytes are in static storage — a literal's, a constant's —
+    /// so nothing ever kills it (spec §5.3, §6.7). The same C++ type as `str`; a value of it
+    /// reads as a `str` wherever a `const str` is not wanted.
+    ConstStr,
     CStr,
     /// An integer literal that has not met a typing context yet (spec §2.5).
     IntLit,
@@ -687,6 +691,8 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
         (Ty::Slice { elem: a, .. }, Ty::Array { elem: b, .. }) => assignable(a, b),
 
         (Ty::Range(a), Ty::Range(b)) => assignable(a, b),
+        // Static text is text; text is not static (spec §5.3).
+        (Ty::Str, Ty::ConstStr) => true,
         (Ty::Tuple(a), Ty::Tuple(b)) => {
             a.len() == b.len() && a.iter().zip(b).all(|(x, y)| assignable(x, y))
         }

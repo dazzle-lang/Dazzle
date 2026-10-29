@@ -20,6 +20,11 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_type(&mut self) -> Type {
         let start = self.start();
         let kind = match self.peek() {
+            // `const str` (spec §5.3)
+            TokenKind::Const => {
+                self.bump();
+                TypeKind::Const(Box::new(self.parse_type()))
+            }
             // `^T` / `^mut T` (spec §5.2)
             TokenKind::Caret => {
                 self.bump();

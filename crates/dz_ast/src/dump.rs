@@ -811,6 +811,7 @@ pub fn type_str(t: &Type) -> String {
             ret.as_ref().map(|r| format!(" -> {}", type_str(r))).unwrap_or_default(),
             kills_str(kills, true)
         ),
+        TypeKind::Const(inner) => format!("const {}", type_str(inner)),
         TypeKind::SelfType => "Self".to_owned(),
         TypeKind::Error => "<error type>".to_owned(),
     }

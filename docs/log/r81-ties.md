@@ -6,6 +6,34 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r87: `const str` (2026-10-29)
+
+D-0092, the user's spelling of the fix for 2e's open gap: `describe(&self) -> str`
+returning literals was tied to `self` by elision, so returning it from a function that took
+the value by value was `DZ0413`, and no signature could say otherwise.
+
+- **The type.** `Ty::ConstStr`, emitted as `::dz::str`; `assignable(Str, ConstStr)` lets
+  it be a `str`, never the reverse. `const` before a type parses as `TypeKind::Const`;
+  lowering accepts only `str` (`DZ0569`, explained).
+- **Where it is one.** A literal is a `const str` where one is wanted, beside the `cstr`
+  rule. A `const str` value reads as a `str` everywhere else: `expr` retypes the node
+  (the C++ is the same), except where a place is written — an assignment's target and a
+  `&mut`'s operand use `expr_inner` — and an untyped `let`, which keeps it. `impl_applies`
+  matches `str`'s implementations for it (`Format`, `Hash`, `Eq`), `field_type` gives it
+  `.len`, and the builtin `Eq`/`Hash` and formatting checks list it.
+- **Ties.** It is not a view (`points` leaves it out), so returning one needs no `in`, a
+  field of it is no aggregate view, and nothing kills it.
+- **The message** for a `str` where a `const str` is wanted says why: the text may view a
+  `String`.
+
+`typed/`'s `Describe`, `Label` and `Loud` return `const str` now, and the five functions
+that returned `String` in 2e return the text again.
+
+Tests: `typed/` holds one in a field and a `List` and reads it as a `str`; `typeerrors/`
+writes a `str` to a `const str` field, returns one, and writes `const i32`; the parse and
+fmt corpora have the type; `tests/run/const_str` keeps a state's name across a change of
+state, lists names, returns one from by-value arguments, and keys a `HashMap` by them.
+
 ## 2e, first part: the findings are errors, and `dz fix` writes clauses (2026-10-29)
 
 Compiler work: §6.7 already said all of this is an error. `dz_flow::check` now runs

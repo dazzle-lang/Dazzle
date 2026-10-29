@@ -221,6 +221,7 @@ says. `[DECIDED — §18.24]`
 ```dz
 str             a UTF-8 string slice: { ptr: ^u8, len: usize }. Never owns.
                 Not null-terminated. Immutable.
+const str       a str whose bytes are in static storage: a literal's, a constant's.
 String          stdlib: owning, growable, allocator-aware. Written in Dazzle, not builtin.
 cstr            a null-terminated ^u8, for C interop only.
 ```
@@ -246,6 +247,30 @@ owning C string is a `String`, which keeps a zero after its bytes and frees them
 `String::from(name)` copies, and its `as_cstr()` borrows the copy as a `cstr` (§14.4); a
 `String` passed as an argument where a `cstr` is wanted is borrowed that way on its own
 (§7.2). `s.as_str()` borrows the text. `[DECIDED — §18.39, D-0081, D-0089]`
+
+**A `const str` is text that never dies**: its bytes are in static storage, a literal's or
+a constant's. It is the same `{ ptr, len }` as a `str` and the same C++ type, and reads as a
+`str` wherever a `const str` is not wanted — a call, a comparison, `{}`, `.len` — so every
+implementation for `str` is one for `const str`. A `str` never becomes a `const str`, since
+it may view a `String`. **A string literal is a `const str` wherever one is wanted**, as it
+is a `cstr`; elsewhere it is a `str`, so `let mut label = "none"` can later take any text,
+while a `let` with no type keeps a `const str` value's type. Because nothing kills it, a
+`const str` carries no tie (§6.7): it can be returned from anything, held in a field and
+put in a container, where a `str` there would be unchecked.
+
+```dz
+pub fn name(&self) -> const str {
+    switch self {
+        case Idle { return "idle" }
+        case Walking { return "walking" }
+    }
+}
+pub struct Enemy { pub kind: const str }
+let was = enemy.state.name()
+enemy.state = State::Idle{}         // `was` is still valid: it points into nothing that dies
+```
+
+Only `str` may follow `const`: `const i32` is `DZ0569`. `[DECIDED — D-0092]`
 
 Because `?` binds to the type name, `[]T?` is a slice **of optionals**. An optional slice
 is `([]T)?` — parenthesised, because it is far rarer and the parentheses say which level
