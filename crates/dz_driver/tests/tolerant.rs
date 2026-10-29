@@ -45,20 +45,28 @@ fn phase(code: Option<&str>) -> u8 {
     code.and_then(|c| c.get(2..4)).and_then(|p| p.parse().ok()).unwrap_or(0)
 }
 
+/// Loading the workspace reports these before anything is lexed, about the machine rather
+/// than the program: libclang missing, a header unreadable, a CMake library not yet built
+/// (the editor never runs CMake). They follow no phase, and whether they appear depends on
+/// what was built before, so counting them made this test pass only after a `dz build`.
+fn environmental(code: Option<&str>) -> bool {
+    use dz_diag::codes;
+    [codes::CPP_HEADER_FAILED, codes::CPP_UNAVAILABLE, codes::CPP_NOT_BUILT]
+        .iter()
+        .any(|c| code == Some(*c))
+}
+
 /// What is wrong with an editor-mode analysis, if anything.
 fn problems(a: &Analysis) -> Option<String> {
     if a.resolution.is_none() || a.hir.is_none() || a.table.is_none() {
         return Some("editor mode left the tree unchecked".to_owned());
     }
-    let errors: Vec<u8> = a
-        .diags
-        .iter()
-        .filter(|d| d.severity == dz_diag::Severity::Error)
-        .map(|d| phase(d.code))
-        .collect();
+    let diags = || a.diags.iter().filter(|d| !environmental(d.code));
+    let errors: Vec<u8> =
+        diags().filter(|d| d.severity == dz_diag::Severity::Error).map(|d| phase(d.code)).collect();
     // The first failing phase, counting lexing and parsing as one.
     let first = errors.iter().map(|&p| if p <= 2 { 2 } else { p }).min()?;
-    let shown: Vec<u8> = a.diags.iter().map(|d| phase(d.code)).collect();
+    let shown: Vec<u8> = diags().map(|d| phase(d.code)).collect();
     // Which phases must stay quiet, given the first one that failed. The code ranges are
     // not in pipeline order — ownership is `DZ04xx` and type checking `DZ05xx`, but
     // ownership runs second — so these are named rather than compared as `p > first`.
