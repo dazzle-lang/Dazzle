@@ -6,6 +6,67 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## 2c, third part: real code, and what a write kills (2026-10-29)
+
+The analysis was run over every body in std and `examples/` (881), with a scratch probe
+tallying findings and the reasons a body was left incomplete. It reported a use after a kill
+in **62 bodies, every one wrong**, and clause mismatches in 20. Nothing is enforced yet, so
+none of this reached a user; it would have made 2e unshippable.
+
+- **A result returned by value is not a view.** `return m` held the value across the
+  scope's drops and read it afterwards, so dropping `m` made its own return "a use after a
+  kill". Only the result's views are held now: 57 of the 62.
+- **An `own` pointer denotes its memory.** Indexing one (`m_data[i]`) took the field as an
+  inline array, so `move_out(m_data[i])` killed `self.m_data[*]`, and `take`'s result,
+  elided to `self`, died with it. An untied `own` pointer is now unchecked, as §6.7 says of
+  a pointer stored in a struct.
+- **Elision does not choose between a reference and a pointer.** §6.7 elides with exactly
+  one reference input; `contents_allocator(&self, fallback: ^mut Allocator)` was elided to
+  `self` and then faulted for returning `fallback`. Whether a pointer, slice or `str` input
+  counts is not settled, so one beside another input now leaves the result unknown (the
+  body incomplete) rather than picking one: still T-0107's open question on elision.
+- **A cast to another pointee is unchecked** (§6.7): `p as ^mut T` from a `^mut u8` was
+  following `p`. Dropping `mut`, or reading a `str` as its bytes, still keeps the tie.
+- **A struct, tuple or optional holding a view, returned from a call,** was silently taken
+  to point nowhere; it is unknown now. So is a view taken out of an optional by `or` or
+  `if let v`, until optionals carry their views.
+
+**What a write kills: r82, the user's call.** r81 said writing a place kills every tie
+under it, inline storage included, so `ball = Vec2{…}` killed `self.ball`, and breakout's
+`rest_ball`, sokol's `spawn` and `event`, box2d's `event` and `Formatter::set_spec` would
+each have needed a clause although nothing moved. Asked, the user chose: moving or dropping
+still kills everything under the place, but writing kills only what the old value owned and
+a union's or optional's payload. In the analysis:
+
+- **A kill's reach follows its kind.** Drop and move reach every view under the place;
+  a write and a call's clause reach only views whose tie passes through a tied pointer's
+  storage below it, broad views (`in w`, elided results) under it, and payload references.
+  So `kills w` from a call leaves `&w.at.x` alone, and replacing `xs[0]` ends what the old
+  element owned but not `&xs[0]` or `&xs[1]`, which no longer need `xs@items` in the clause.
+- **A write kills only when it can move something**: the type has a `drop`, a tied pointer
+  field, a union variant with a payload, an optional, or a type parameter, inline anywhere.
+  Plain data kills nothing, so it needs no clause.
+- **Payload references are followed.** `case Circle(&c)` and `if let &w = opt` make a view
+  remembering the union or optional it is in, which any kill of that place ends; a payload's
+  fields are read through the variant. "Union payload tie paths are not settled" is no longer
+  a reason to give up: a clause names the union's place, which is all a body needs. How a
+  *path* would name one payload apart from the others is still open.
+- **One mistake, one finding**: a read inside an argument (`c` in `observe(&c.r)`) and the
+  argument itself no longer both report the same kill (invariant 6).
+
+After this, across std and the examples: no use after a kill, 544 bodies complete, and one
+mismatch, `Formatter::set_spec`, which writes two `usize?` fields: under r82 that is a payload
+change, so 2d gives it a clause (the fields are private, so a declared tie). The leading
+reasons a body is incomplete: no callable signature (193, mostly generated bodies), function
+types without clauses (95), unknown returned provenance (40–43 each for elision and pointer
+results), and destruction through an untied pointer (27, which is std's trusted code).
+
+Tests: `dz_flow/tests/ties.rs` has 29. New: plain writes against payload, optional and
+owned-memory writes, a coarse clause leaving a plain field alone, casts, and an element
+replacement that leaves slots alive. Two changed with r82 (a replaced slot and a replaced
+array no longer end references to the slots). The every-body test now also requires std
+to produce no invalid use or return; with the first fix undone, it fails.
+
 ## 2c, second part: following references through bodies (2026-10-28)
 
 `dz_flow::ties::analyse_body` now walks a checked body and returns its kills, invalid uses,

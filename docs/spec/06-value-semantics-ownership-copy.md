@@ -310,8 +310,23 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
 
 **What kills what.**
 
-- **Writing, moving or dropping a place kills every tie under it**, inline storage included:
-  assigning a tagged union a different variant kills references into its old payload.
+- **Moving or dropping a place kills every tie under it**, inline storage included.
+- **Writing a place kills what the old value owned, and its payload.** Assigning over a value
+  ends every view into memory it owned — a `String`'s text, a `List`'s array — and, for a
+  tagged union or an optional, every reference into its payload, since the variant may change.
+  A plain value is overwritten where it is, so a reference into it stays valid, as it does
+  after `p.x += 1`:
+
+  ```dz
+  let x = &body.at.x
+  body.at = Vec2{ x: 1, y: 2 }        // fine: `x` still points at `body.at.x`; kills nothing
+  let s = body.name.as_str()
+  body.name = String::from("new")     // kills `body.name`: the old text is freed
+  ```
+
+  A clause reaches as far as a write does: a function given `&mut w` can free what `w` owns
+  or change its payloads, but cannot move `w`, so `kills w` leaves a reference to a plain
+  field of `w` alone.
 - **Elements share their container's ties.** A kill through `xs[i]` is a kill through `xs[j]`,
   since `i` may equal `j`.
 - **A call kills what its clause names, at the call's arguments.** At a call, a reference

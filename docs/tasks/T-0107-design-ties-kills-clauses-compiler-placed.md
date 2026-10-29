@@ -271,9 +271,13 @@ user's choice. In order, each step standing on its own:
      calls, assignment, move, scope exit, branches and loop backedges, preserves separate
      slot-address and element-owned ties, checks returned ties, and produces structured
      invalid-use and clause-mismatch findings. Unknown cases remain explicit and cannot
-     produce clause-narrowing/removal suggestions. **Still open:** aggregate view storage
-     and destructuring, general iterators, private pointer indexing to `[*]`, union
-     payload paths, default-argument effects, function-type clauses, and diagnostic/fix
+     produce clause-narrowing/removal suggestions. **2026-10-29:** run over all 881 bodies
+     of std and `examples/`, it had false uses after a kill in 62 and now has none (std is
+     held to that by a test); writing plain data kills nothing (r82, the user's call), and
+     payload references through `case X(&c)` and `if let &v` are followed. **Still open:**
+     aggregate view storage and destructuring (an optional, struct or tuple holding a view
+     is unknown), general iterators, private pointer indexing to `[*]`, how a path names
+     one payload, default-argument effects, function-type clauses, and diagnostic/fix
      integration. Nothing new is enforced yet.
    - **2d. `std`'s clauses** on `List`, `HashMap`, `HashSet`, `SlotMap` and `String`, with
      `std` itself checking clean.
@@ -298,6 +302,8 @@ type that declares it (2b settled which types have `[*]` — those with `Index` 
 §6.7 — but in `List`'s own body the elements are `m_data[i]`, behind a pointer tied
 `@items`, which the analysis has to read as `self[*]`); the clause of a function type,
 which 2b leaves unresolved and outside `Ty::Fn`, so storing a function in one does not yet
-compare their clauses; the elision rules for returned references, how a
-tagged union's payload is named in a tie, what `dz` shows for each placement (inlay hints and
-a listing), and whether stage 3 on the prototype branch is reverted now or left until step 4.
+compare their clauses; the elision rules for returned references (whether a pointer, slice
+or `str` input counts as one: until settled, one beside another leaves the result unknown),
+how a tagged union's payload is named in a tie, what `dz` shows for each placement (inlay
+hints and a listing), and whether stage 3 on the prototype branch is reverted now or left
+until step 4.
