@@ -1792,8 +1792,9 @@ fn conversions(name: &String, owned: String, x: f32) -> f32 {
 // that a body kills what its clause says, so the bodies here only have to make sense.
 pub struct Roster {
     pub members: List<String>
-    m_scores: List<i32> in @scores
+    m_scores: List<i32>
     m_index: HashMap<String, i32>
+    tie @scores = m_scores
 
     // A private method may name a private field; a public one names its tie.
     fn reset_index(&mut self) kills self.m_index[*] {
@@ -1831,8 +1832,9 @@ fn member_text(roster: &Roster, i: usize) -> str in roster.members[*] {
 
 // Fields may be tied together, and a path goes on past their tie when they share a type.
 pub struct Record {
-    m_wins: List<String> in @games
-    m_losses: List<String> in @games
+    m_wins: List<String>
+    m_losses: List<String>
+    tie @games = m_wins, m_losses
 
     pub fn forget(&mut self) kills self@games {
         m_wins.clear()
@@ -1843,5 +1845,57 @@ pub struct Record {
         for &mut w in m_wins {
             w.push_str("!")
         }
+    }
+}
+
+// A tie may stand for another type's tie, so a wrapper names what its list names without
+// naming the list; `[*]` says where its elements are, behind a pointer or in a field.
+pub struct Bookshelf {
+    m_books: List<String>
+    m_count: own ^mut i32 = null
+    tie @items = m_books@items
+    tie [*] = m_books[*]
+    tie @counts = m_count
+
+    pub fn add(&mut self, title: String) kills self@items {
+        m_books.push(title)
+    }
+
+    pub fn title(&self, i: usize) -> str in self[*]@text {
+        return m_books[i].as_str()
+    }
+
+    pub fn wipe(&mut self) kills self@items, self[*] {
+        m_books.clear()
+    }
+}
+
+impl Drop for Bookshelf {
+    fn drop(&mut self) {}
+}
+
+impl Index<usize> for Bookshelf {
+    type Output = String
+
+    fn index(&self, i: usize) -> &String in self@items {
+        return &m_books[i]
+    }
+}
+
+pub struct Rack {
+    m_data: own ^mut i32 = null
+    tie @items = m_data
+    tie [*] = m_data[*]
+}
+
+impl Drop for Rack {
+    fn drop(&mut self) {}
+}
+
+impl Iterable for Rack {
+    type Iter = SliceIter<i32>
+
+    fn iter(&self) -> SliceIter<i32> {
+        return SliceIter<i32>(unsafe { m_data[0..0] })
     }
 }

@@ -212,17 +212,17 @@ impl<'a> Dumper<'a> {
                 },
                 ty.as_ref().map(|t| format!(" = {}", type_str(t))).unwrap_or_default()
             )),
+            MemberKind::Tie(t) => self.line(format_args!("{}", tie_decl_str(t))),
             MemberKind::Error => self.line(format_args!("<error member>")),
         }
     }
 
     fn field(&mut self, f: &Field) {
         self.line(format_args!(
-            "field {}{}: {}{}{}",
+            "field {}{}: {}{}",
             if f.is_own { "own " } else { "" },
             f.name.name,
             type_str(&f.ty),
-            f.tie.as_ref().map(|t| format!(" in @{}", t.name)).unwrap_or_default(),
             f.tag.map(|s| format!(" tag {}", self.text(s))).unwrap_or_default()
         ));
         if let Some(d) = &f.default {
@@ -833,6 +833,16 @@ pub fn tie_path_str(t: &TiePath) -> String {
         }
     }
     out
+}
+
+/// `tie @items = m_data`, `tie [*] = m_data[*]`, as the formatter writes it.
+pub fn tie_decl_str(t: &TieDecl) -> String {
+    let name = match &t.name {
+        TieName::Named(n) => format!("@{}", n.name),
+        TieName::Elements(_) => "[*]".to_owned(),
+    };
+    let paths = t.paths.iter().map(tie_path_str).collect::<Vec<_>>().join(", ");
+    format!("tie {name} = {paths}")
 }
 
 /// ` kills a, b`, or nothing when there are none. In a function type, more than one path is

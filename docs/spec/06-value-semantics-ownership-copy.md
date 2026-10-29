@@ -217,29 +217,50 @@ counts.insert(other, 1)       // may grow the table
 n += 1                        // error: `insert` kills `counts@items`, and `n` points into it
 ```
 
-**A tie** is a span during which some memory is valid, written `@name`. A type declares one by
-writing `in @name` after a field's type. On a pointer field it names the memory the pointer
-owns; on any other field it is a public name for that private field, so a signature can
-mention it without exposing the field (§4):
+**A tie** is a span during which some memory is valid, written `@name`. A struct declares
+its ties among its members, `tie @name = path, …`, saying what memory of its own each one
+stands for. The paths start at the struct's fields, private ones included: a tie is a public
+name for that private memory, so a signature can mention it without exposing a field (§4).
+A path ending at a pointer field names the memory the pointer owns; one ending anywhere else
+names everything there.
 
 ```dz
 pub struct List<T> {
-    m_data: own ^mut T in @items = null     // the array of elements
+    m_data: own ^mut T = null
     ...
+    tie @items = m_data        // the array of elements
+    tie [*] = m_data[*]        // the elements in it
 }
 pub struct String {
-    m_bytes: List<u8> in @text
+    m_bytes: List<u8>
+    tie @text = m_bytes
+}
+pub struct HashSet<T> {
+    m_map: HashMap<T, bool>
+    tie @items = m_map@items   // another type's tie
+    tie [*] = m_map[*]
 }
 ```
 
 A tie belongs to the type, not to whoever uses it: it is not a generic parameter, and every
-`List` has its own.
+`List` has its own. A struct declares each tie once, `DZ0567` otherwise, and a base's ties are
+its derived types' too.
 
-**Fields may be tied together**, by declaring the same tie on each. A `HashMap` keeps its
-hashes, keys and values in three arrays that grow as one, so all three are `in @items`. A
-path naming the tie names all of them, and they live and die together: a kill through any
-one ends a view into another. A path goes on past such a tie only where every field under
-it has the same type.
+**A tie may stand for several places**, listed together. A `HashMap` keeps its hashes, keys
+and values in three arrays that grow as one, so `tie @items = m_hashes, m_keys, m_values`;
+a `SlotMap`, three lists that change together, has `tie @items = m_values@items,
+m_slot_of@items, m_slots@items`. A path naming the tie names all of them, and they live and
+die together: a kill through any one ends a view into another, and a clause naming the tie
+is exact for a body that kills only one of them. A path goes on past such a tie only where
+every place under it has the same type.
+
+**`tie [*]` says where the elements are**: the memory `[*]` names (below) for a type with
+an `Index` or an `Iterable` implementation. Inside `List`, the elements are `m_data[i]`,
+behind a pointer; `tie [*] = m_data[*]` is what makes `&m_data[i]` a view in `self@items`
+whose element is `self[*]`, so growing the array ends the view and leaves what the element
+owns alone. `[*]` on a pointer field names the array it points at. A type that declares
+no `tie [*]` still has `[*]` in its signatures; only its own body cannot follow its
+elements.
 
 **A tie path** names memory: a parameter or `self`, then fields visible wherever the
 function is, declared ties, and `[*]` for any element. A path that ends without a tie means
@@ -259,7 +280,7 @@ string's bytes where they are, so a view into one element survives pushing anoth
 `Index<usize>` or an `Iterable` implementation. Through `Index` the elements have a type, so a
 path can go on into them (`list[*]@text`); a type that can only be iterated — a `HashMap`,
 whose elements are its entries — is named whole at `[*]`, and the path stops there. So does
-a path at a tie on a pointer field, which names that memory as a whole.
+a path at a tie standing for a pointer field, which names that memory as a whole.
 
 **Every reference carries a tie**, known where it is made: `&mut world.enemies[i]` is in
 `world.enemies@items`. A function returning a reference or a pointer says where it points
@@ -303,8 +324,8 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
   without a default, an `extern fn`, a function type. An implementation's own clause is
   exact for its body, as anywhere, and may name no more than the trait's.
 - **A clause names only what is visible wherever the function is.** A private method may
-  name a private field (`kills self.m_things@items`); a `pub` one names a tie the field
-  declares (`m_things: List<Thing> in @things`, then `kills self@things`).
+  name a private field (`kills self.m_things@items`); a `pub` one names a tie the struct
+  declares for it (`tie @things = m_things@items`, then `kills self@things`).
 - **A trait method's clause is the most an implementation may kill**, and a function type's
   is the most a function stored in it may; a function type names its parameters when its
   clause does:

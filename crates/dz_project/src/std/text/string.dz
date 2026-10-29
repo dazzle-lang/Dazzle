@@ -3,7 +3,10 @@
 /// Its bytes are always followed by a zero, so `as_cstr()` hands a C function the text
 /// without a copy. Copying a `String` copies the text.
 pub struct String {
-    m_bytes: List<u8> in @text
+    m_bytes: List<u8>
+
+    /// The text: it moves when the string grows.
+    tie @text = m_bytes
 
     /// A copy of `s`.
     String(s: str = "", allocator: ^mut Allocator = #allocator, loc: SourceLocation = #location) {

@@ -96,12 +96,14 @@ impl Fixture {
 
 const SOURCE: &str = r#"
 pub struct Text {
-    pub data: ^mut u8 in @chars = null
+    pub data: ^mut u8 = null
+    tie @chars = data
     pub fn examine(&self, n: i32) {}
 }
 pub struct Bag<T> {
-    pub data: ^mut T in @items = null
+    pub data: ^mut T = null
     pub values: [2]T
+    tie @items = data
 }
 impl<T> Index<usize> for Bag<T> {
     type Output = T
@@ -112,7 +114,8 @@ impl<T> IndexMut<usize> for Bag<T> {
     fn index_mut(&mut self, i: usize) -> &mut T in self@items { return unsafe { &mut data[i] } }
 }
 pub struct World {
-    pub bag: Bag<Text> in @bag
+    pub bag: Bag<Text>
+    tie @bag = bag
     pub fn first(&self) -> ^Text in self@bag@items { return bag.data }
     pub fn elided(&self) -> ^Text { return bag.data }
     fn private_paths(&mut self) kills self@bag@items, self.bag@items {}
@@ -843,6 +846,107 @@ fn wrapped_identity(w: &World) -> ^Text in w.bag@items { return identity(&w.bag[
     clean(&fixture.analysis("wrapped_identity"));
 }
 
+// spec §6.7, r84: a tie may stand for another type's tie, so `HashSet`, a `HashMap`, and
+// `SlotMap`, three `List`s, have their own `@items` and `[*]`, and every body is held to
+// its clause. `SlotMap::retain` calls a function value, whose clause is not carried yet.
+#[test]
+fn containers_built_from_containers_are_held_to_their_clauses() {
+    let fixture = Fixture::new();
+    let mut seen = 0;
+    for (_, body) in fixture.checked.hir.bodies() {
+        let dz_hir::BodyOwner::Method { owner, name } = &body.owner else { continue };
+        let o = &fixture.res.symbol(*owner).name;
+        if !["HashSet", "SlotMap"].contains(&o.as_str()) {
+            continue;
+        }
+        seen += 1;
+        let a = ties::analyse_body(body, &fixture.checked.table, &fixture.res);
+        assert!(a.mismatches.is_empty() && a.invalid_uses.is_empty(), "{o}::{name}: {a:#?}");
+        if (o.as_str(), name.as_str()) != ("SlotMap", "retain") {
+            assert!(a.incomplete.is_empty(), "{o}::{name}: {a:#?}");
+        }
+    }
+    assert!(seen > 20, "both types' methods should have been analysed");
+}
+
+#[test]
+fn a_tie_standing_for_another_types_tie_ends_views_at_the_callers() {
+    let fixture = Fixture::with_source(
+        r#"
+fn look(p: ^String) {}
+fn after_insert(m: &mut SlotMap<String>, k: Key<String>, s: String) kills m@items {
+    let v = m.get(k)
+    m.insert(s)
+    look(v)
+}
+fn before_insert(m: &mut SlotMap<String>, k: Key<String>, s: String) kills m@items {
+    let v = m.get(k)
+    look(v)
+    m.insert(s)
+}
+"#,
+    );
+    let a = fixture.analysis("after_insert");
+    assert_eq!(a.invalid_uses.len(), 1, "{a:#?}");
+    assert!(a.mismatches.is_empty(), "{a:#?}");
+    clean(&fixture.analysis("before_insert"));
+}
+
+// Inside the type, an element behind its tied pointer is `self[*]`: its address lives in
+// `@items`, and what it owns in `[*]`, so growing ends the first and not the second.
+#[test]
+fn inside_a_type_its_pointer_elements_are_its_elements() {
+    let fixture = Fixture::with_source(
+        r#"
+pub struct Shelf {
+    m_data: own ^mut Text = null
+    tie @items = m_data
+    tie [*] = m_data[*]
+    fn grow(&mut self) kills self@items {}
+    fn wipe(&mut self) kills self[*] {}
+    fn slot_dies(&mut self) kills self@items {
+        let p = unsafe { &m_data[0] }
+        self.grow()
+        observe(p)
+    }
+    fn text_survives_growth(&mut self) kills self@items {
+        let t = unsafe { m_data[0].data }
+        self.grow()
+        observe_byte(t)
+    }
+    fn text_dies_with_elements(&mut self) kills self[*] {
+        let t = unsafe { m_data[0].data }
+        self.wipe()
+        observe_byte(t)
+    }
+}
+impl Drop for Shelf {
+    fn drop(&mut self) {}
+}
+impl Index<usize> for Shelf {
+    type Output = Text
+    fn index(&self, i: usize) -> &Text in self@items { return unsafe { &m_data[i] } }
+}
+"#,
+    );
+    let method = |name: &str| {
+        let body = fixture
+            .checked
+            .hir
+            .bodies()
+            .map(|(_, b)| b)
+            .find(|b| matches!(&b.owner, dz_hir::BodyOwner::Method { name: n, .. } if n == name))
+            .unwrap();
+        ties::analyse_body(body, &fixture.checked.table, &fixture.res)
+    };
+    for name in ["slot_dies", "text_dies_with_elements"] {
+        let a = method(name);
+        assert_eq!(a.invalid_uses.len(), 1, "{name}: {a:#?}");
+    }
+    let a = method("text_survives_growth");
+    assert!(a.invalid_uses.is_empty(), "{a:#?}");
+}
+
 #[test]
 fn every_fixture_and_std_body_can_be_analysed_without_panicking() {
     let fixture = Fixture::new();
@@ -1026,9 +1130,11 @@ fn fields_tied_together_live_and_die_together() {
     let fixture = Fixture::with_source(
         r#"
 pub struct Table {
-    pub keys: ^mut Text in @items = null
-    pub values: ^mut Text in @items = null
-    pub count: ^mut i32 in @counts = null
+    pub keys: ^mut Text = null
+    pub values: ^mut Text = null
+    pub count: ^mut i32 = null
+    tie @items = keys, values
+    tie @counts = count
 }
 fn regrow(t: &mut Table) kills t@items {
     let v = t.values
@@ -1095,7 +1201,8 @@ fn incomplete_provenance_and_defaults_cannot_remove_or_narrow_clauses() {
     let fixture = Fixture::with_source(
         r#"
 pub struct Link {
-    pub ptr: ^mut Link in @next = null
+    pub ptr: ^mut Link = null
+    tie @next = ptr
     pub fn next(&self) -> ^mut Link in self@next { return ptr }
 }
 fn chase(p: &mut Link, flag: bool) kills p {
@@ -1108,7 +1215,8 @@ fn tuple_boundary(w: &mut World) kills w {
     grow(b)
 }
 pub struct Pile {
-    pub bag: Bag<Text> in @pile
+    pub bag: Bag<Text>
+    tie @pile = bag
     pub fn add(&mut self) kills self@pile@items { grow(&mut bag) }
 }
 pub struct Cursor { pub p: ^mut Pile }

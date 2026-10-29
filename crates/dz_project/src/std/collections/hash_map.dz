@@ -8,12 +8,16 @@
 /// A lookup returns a pointer, `null` when the key is absent (§9.1), so it is handled with
 /// `or`: `let hp = health.get(&id) or return`.
 pub struct HashMap<K: Hash + Eq, V> {
-    m_hashes: own ^mut u64 in @items = null
-    m_keys: own ^mut K in @items = null
-    m_values: own ^mut V in @items = null
+    m_hashes: own ^mut u64 = null
+    m_keys: own ^mut K = null
+    m_values: own ^mut V = null
     m_len: usize = 0
     m_slots: usize = 0
     m_allocator: ^mut Allocator = Allocators::Global
+
+    /// The three arrays, which grow as one.
+    tie @items = m_hashes, m_keys, m_values
+    tie [*] = m_keys[*], m_values[*]
 
     /// An empty map, with room for `capacity` entries already allocated when it is given.
     HashMap(

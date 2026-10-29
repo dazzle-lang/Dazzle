@@ -71,6 +71,7 @@ pub enum TokenKind {
     SelfType,
     Struct,
     Switch,
+    Tie,
     Trait,
     True,
     Or,
@@ -191,6 +192,7 @@ impl TokenKind {
             SelfType => "Self",
             Struct => "struct",
             Switch => "switch",
+            Tie => "tie",
             Trait => "trait",
             True => "true",
             Or => "or",
@@ -286,6 +288,7 @@ impl TokenKind {
                 | SelfType
                 | Struct
                 | Switch
+                | Tie
                 | Trait
                 | True
                 | Or
@@ -391,6 +394,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "Self" => SelfType,
         "struct" => Struct,
         "switch" => Switch,
+        "tie" => Tie,
         "trait" => Trait,
         "true" => True,
         "or" => Or,

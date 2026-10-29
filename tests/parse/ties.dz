@@ -1,11 +1,15 @@
-// Ties and `kills` clauses (spec §6.7): a field declaring a tie, a reference parameter and a
-// returned reference saying where they point, and clauses on declarations, trait methods and
-// function types. Parsed only; nothing here is checked yet.
+// Ties and `kills` clauses (spec §6.7): a struct declaring its ties, its elements' and ones
+// reaching into a field's own, a reference parameter and a returned reference saying where
+// they point, and clauses on declarations, trait methods and function types. Parsed only.
 
 pub struct Grid<T> {
-    m_cells: own ^mut T in @cells = null
-    m_names: List<String> in @names
+    m_cells: own ^mut T = null
+    m_names: List<String>
     pub width: i32 = 0
+    tie @cells = m_cells
+    tie @names = m_names
+    tie [*] = m_cells[*]
+    tie @all = (m_names@items, m_names[*]@text)
 
     pub fn first(&self) -> ^T in self@cells {
         return null
@@ -23,7 +27,7 @@ pub struct Grid<T> {
 }
 
 union Slot {
-    Full { value: String in @text }
+    Full { value: String }
     Empty
 }
 

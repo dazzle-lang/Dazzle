@@ -740,6 +740,7 @@ impl<'a> Parser<'a> {
             }
             // `own m_data: ^T`
             TokenKind::Own => MemberKind::Field(self.parse_field()),
+            TokenKind::Tie => MemberKind::Tie(self.parse_tie_decl()),
             TokenKind::Ident => match self.peek_at(1) {
                 // `Buffer(cap: u32) { ... }` — a constructor.
                 TokenKind::LParen => {
@@ -877,22 +878,69 @@ impl<'a> Parser<'a> {
         let name = self.parse_ident_or_error();
         self.expect_in(TokenKind::Colon, "after a field name");
         let ty = self.parse_type();
-        // `in @items`: the tie this field declares (spec §6.7).
-        let tie = if self.eat(TokenKind::In) {
-            let at = self.eat(TokenKind::At);
-            if !at || !self.at(TokenKind::Ident) {
-                self.expected_tie_path("a field declares a tie as `in @name`");
-            }
-            // `in items` is reported and read as `in @items`, so the default and the tag
-            // after it still parse.
-            self.at(TokenKind::Ident).then(|| self.parse_ident_or_error())
-        } else {
-            None
-        };
+        // `in @items` was how a field declared a tie until r84; the struct declares it now.
+        // Read past it, so the default and the tag after it still parse.
+        if self.at(TokenKind::In) {
+            let tie_start = self.start();
+            self.bump();
+            self.eat(TokenKind::At);
+            let tie = if self.at(TokenKind::Ident) {
+                self.parse_ident_or_error().name
+            } else {
+                "name".to_owned()
+            };
+            let span = self.span_from(tie_start);
+            self.error_help(
+                codes::TIE_ON_FIELD,
+                span,
+                "a field does not declare a tie",
+                "the struct declares it",
+                format!(
+                    "write `tie @{tie} = {}` among the struct's members, which says what \
+                     memory `@{tie}` stands for (spec §6.7)",
+                    name.name
+                ),
+            );
+        }
         let default = if self.eat(TokenKind::Eq) { Some(self.parse_expr()) } else { None };
         // The tag: a raw string on the same line, after everything else (spec §13.1).
         let tag = self.at(TokenKind::RawStr).then(|| self.bump().span);
-        Field { span: self.span_from(start), name, is_own, ty, tie, default, tag }
+        Field { span: self.span_from(start), name, is_own, ty, default, tag }
+    }
+
+    /// `tie @items = m_data`, `tie [*] = m_data[*]`: a tie the struct exports and the
+    /// memory of its own it stands for (spec §6.7).
+    fn parse_tie_decl(&mut self) -> TieDecl {
+        let start = self.start();
+        self.bump(); // `tie`
+        let name = if self.at(TokenKind::LBracket) {
+            let open = self.start();
+            self.bump();
+            if !self.eat(TokenKind::Star) {
+                self.expected_tie_path("expected `@name` or `[*]`: the tie being declared");
+                if !self.at(TokenKind::RBracket) && self.peek_at(1) == TokenKind::RBracket {
+                    self.bump();
+                }
+            }
+            self.expect_in(TokenKind::RBracket, "to close `[*]`");
+            TieName::Elements(self.span_from(open))
+        } else {
+            let at = self.eat(TokenKind::At);
+            if !at || !self.at(TokenKind::Ident) {
+                self.expected_tie_path("expected `@name` or `[*]`: the tie being declared");
+            }
+            if self.at(TokenKind::Ident) {
+                TieName::Named(self.parse_ident_or_error())
+            } else {
+                TieName::Named(Ident::new(self.peek_token().span, "_"))
+            }
+        };
+        let paths = if self.expect_in(TokenKind::Eq, "before the memory the tie stands for") {
+            self.parse_kills(false)
+        } else {
+            Vec::new()
+        };
+        TieDecl { span: self.span_from(start), name, paths }
     }
 
     // --- unions -----------------------------------------------------------

@@ -35,9 +35,10 @@ generics      = "<" gparam { "," gparam } ">" ;
 gparam        = ident [ ":" bound { "+" bound } ] ;
 
 struct_decl   = "struct" ident [ generics ] [ ":" path ] "{" { member } "}" ;  (* one base *)
-member        = field | fn_decl | ctor ;
-field         = { attribute } [ visibility ] [ "own" ] ident ":" type [ "in" "@" ident ]
-                [ "=" expr ] [ raw_string ] TERM ;  (* a tie, §6.7; the tag, §13.1 *)
+member        = field | fn_decl | ctor | tie_decl ;
+field         = { attribute } [ visibility ] [ "own" ] ident ":" type
+                [ "=" expr ] [ raw_string ] TERM ;  (* the tag, §13.1 *)
+tie_decl      = "tie" ( "@" ident | "[" "*" "]" ) "=" kill_list TERM ;  (* paths from fields, §6.7 *)
 ctor          = ident "(" [ params ] ")" block ;
 impl_decl     = "impl" [ generics ] path [ "<" type_list ">" ] "for" type "{" { impl_item } "}" ;
 impl_item     = "type" ident "=" type TERM | fn_decl ;

@@ -1580,41 +1580,81 @@ error[DZ0539]: `impl ImplicitAs for i32` belongs with `ImplicitAs` or with `i32`
      = help: a trait taking type arguments may also be implemented where one of them is declared, as `impl ImplicitAs<Vec2> for rl::Vector2` is with `Vec2`; otherwise wrap the type in a struct of your own (spec §7.6)
 
 error[DZ0563]: `Ledger::m_notes` is less visible than `leak`, whose callers must see it
-     ┌─ typeerrors/src/errors.dz:1299:39
+     ┌─ typeerrors/src/errors.dz:1300:39
      │
-1299 │     pub fn leak(&mut self) kills self.m_notes {}
+1300 │     pub fn leak(&mut self) kills self.m_notes {}
      │                                       ^^^^^^^ not visible to every caller
      │
-     = help: a clause names only what every caller of `leak` can see: make the field as visible as the function, or declare a tie on it, `m_notes: … in @notes`, and name the tie instead (spec §6.7)
+     = help: a clause names only what every caller of `leak` can see: make the field as visible as the function, or have `Ledger` declare a tie for it, `tie @notes = m_notes`, and name the tie instead (spec §6.7)
 
 error[DZ0562]: a tie path ends at `@notes`, which ties fields of different types
-     ┌─ typeerrors/src/errors.dz:1300:45
+     ┌─ typeerrors/src/errors.dz:1301:45
      │
-1300 │     pub fn retag(&mut self) kills self@notes[*] {}
+1301 │     pub fn retag(&mut self) kills self@notes[*] {}
      │                                             ^^^ nothing further to name
      │
      = help: end the path where it is; it already names all of that memory (spec §6.7)
 
 error[DZ0562]: `ledgr` is not a parameter of `misspelt`
-     ┌─ typeerrors/src/errors.dz:1303:40
+     ┌─ typeerrors/src/errors.dz:1304:40
      │
-1303 │ fn misspelt(ledger: &mut Ledger) kills ledgr {}
+1304 │ fn misspelt(ledger: &mut Ledger) kills ledgr {}
      │                                        ^^^^^ no parameter of this name
      │
      = help: a tie path starts at one of the function's parameters, or at `self` in a method (spec §6.7)
 
 error[DZ0564]: `through_a_view` kills through `ledger`, which it cannot change
-     ┌─ typeerrors/src/errors.dz:1305:42
+     ┌─ typeerrors/src/errors.dz:1306:42
      │
-1305 │ fn through_a_view(ledger: &Ledger) kills ledger.lines {}
+1306 │ fn through_a_view(ledger: &Ledger) kills ledger.lines {}
      │                                          ^^^^^^ taken as `&Ledger`
      │
      = help: a function kills only through a `&mut` or `^mut` parameter, or `&mut self`; what it takes by value is its own, and dies with it (spec §6.7)
 
 error[DZ0565]: the result has type `usize`, which points into nothing
-     ┌─ typeerrors/src/errors.dz:1307:45
+     ┌─ typeerrors/src/errors.dz:1308:45
      │
-1307 │ fn count_lines(ledger: &Ledger) -> usize in ledger {
+1308 │ fn count_lines(ledger: &Ledger) -> usize in ledger {
      │                                             ^^^^^^ nothing to say this of
      │
      = help: `in` says where a reference, a pointer, a slice or a `str` points (spec §6.7)
+
+error[DZ0567]: `Drawer` declares `@socks` twice
+     ┌─ typeerrors/src/errors.dz:1319:10
+     │
+1319 │     tie @socks = m_socks@items
+     │          ^^^^^ declared again here
+     │
+     = help: list everything `@socks` stands for in one declaration, `tie @socks = a, b` (spec §6.7)
+
+error[DZ0562]: `Drawer` has no elements
+     ┌─ typeerrors/src/errors.dz:1320:9
+     │
+1320 │     tie [*] = m_socks[*]
+     │         ^^^ nothing for `[*]` to name
+     │
+     = help: `tie [*]` says where the elements of a type with an `Index` or `Iterable` implementation live (spec §6.7)
+
+error[DZ0562]: a tie stands for memory inside the type, so its path starts at a field
+     ┌─ typeerrors/src/errors.dz:1321:18
+     │
+1321 │     tie @whole = self
+     │                  ^^^^ not a field
+     │
+     = help: name one of the type's fields: `tie @items = m_data` (spec §6.7)
+
+error[DZ0563]: `HashMap::m_keys` is private to `HashMap`
+     ┌─ typeerrors/src/errors.dz:1322:23
+     │
+1322 │     tie @keys = m_map.m_keys
+     │                       ^^^^^^ not visible here
+     │
+     = help: a tie names another type's memory through that type's ties: have `HashMap` declare a tie for it, `tie @keys = m_keys`, and name the tie instead (spec §6.7)
+
+error[DZ0562]: `Drawer` has no field `m_sock`
+     ┌─ typeerrors/src/errors.dz:1323:17
+     │
+1323 │     tie @lost = m_sock
+     │                 ^^^^^^ no such field
+     │
+     = help: a tie path goes through a struct's fields (spec §6.7)

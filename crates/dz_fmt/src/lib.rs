@@ -459,7 +459,7 @@ impl<'a> Printer<'a> {
                             .map(|f| {
                                 let tag =
                                     f.tag.map(|s| format!(" {}", self.text(s))).unwrap_or_default();
-                                format!("{}: {}{}{tag}", f.name.name, self.ty(&f.ty), field_tie(f))
+                                format!("{}: {}{tag}", f.name.name, self.ty(&f.ty))
                             })
                             .collect();
                         self.line(&format!("{} {{ {} }}", v.name.name, fields.join(", ")));
@@ -629,12 +629,7 @@ impl<'a> Printer<'a> {
                 let default =
                     f.default.as_ref().map(|d| format!(" = {}", self.expr(d))).unwrap_or_default();
                 let tag = f.tag.map(|s| format!(" {}", self.text(s))).unwrap_or_default();
-                let s = format!(
-                    "{lhs}:{} {}{}{default}{tag}",
-                    " ".repeat(pad),
-                    self.ty(&f.ty),
-                    field_tie(f)
-                );
+                let s = format!("{lhs}:{} {}{default}{tag}", " ".repeat(pad), self.ty(&f.ty));
                 self.line(&s);
                 self.emit_trailing_comment(m.span.end);
             }
@@ -660,6 +655,11 @@ impl<'a> Printer<'a> {
                     },
                     ty.as_ref().map(|t| format!(" = {}", self.ty(t))).unwrap_or_default()
                 );
+                self.line(&s);
+                self.emit_trailing_comment(m.span.end);
+            }
+            MemberKind::Tie(t) => {
+                let s = format!("{vis}{}", dump::tie_decl_str(t));
                 self.line(&s);
                 self.emit_trailing_comment(m.span.end);
             }
@@ -1323,11 +1323,6 @@ fn indent_lines(text: &str) -> String {
 fn field_lhs(vis: Vis, f: &Field) -> String {
     let own = if f.is_own { "own " } else { "" };
     format!("{}{own}{}", vis_str(vis), f.name.name)
-}
-
-/// ` in @items`, the tie a field declares (spec §6.7), or nothing.
-fn field_tie(f: &Field) -> String {
-    f.tie.as_ref().map(|t| format!(" in @{}", t.name)).unwrap_or_default()
 }
 
 fn vis_str(v: Vis) -> &'static str {

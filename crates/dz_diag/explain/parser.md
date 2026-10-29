@@ -434,3 +434,41 @@ fn main() {
     println!("{}", xs.len())
 }
 ```
+
+## DZ0219
+
+A struct declares its ties itself, among its members, and says what memory of its own each
+stands for: `tie @items = m_data` (spec §6.7). Until r84 a field declared one, `m_data:
+own ^mut T in @items`, which could only name the whole field; the struct's own declaration
+can also name a field's tie, `tie @items = m_list@items`, or several places at once.
+
+```dz
+pub struct Party {
+    m_members: List<String> in @members = List<String>()
+
+    pub fn recruit(&mut self, name: str) kills self@members {
+        m_members.push(String::from(name))
+    }
+}
+
+fn main() {
+    let mut p = Party{}
+    p.recruit("Ann")
+}
+```
+
+```dz
+pub struct Party {
+    m_members: List<String> = List<String>()
+    tie @members = m_members
+
+    pub fn recruit(&mut self, name: str) kills self@members {
+        m_members.push(String::from(name))
+    }
+}
+
+fn main() {
+    let mut p = Party{}
+    p.recruit("Ann")
+}
+```
