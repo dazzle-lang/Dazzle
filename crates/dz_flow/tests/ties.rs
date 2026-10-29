@@ -869,6 +869,46 @@ fn containers_built_from_containers_are_held_to_their_clauses() {
     assert!(seen > 20, "both types' methods should have been analysed");
 }
 
+// spec §6.7, r85: taking an element out kills `[*]`. The element's text lives on in the
+// value handed back, but nothing can follow a view to it there and end it when that value
+// is dropped, so a view into any element's own memory ends at the call. Slots and plain
+// elements are unaffected beyond `@items`.
+#[test]
+fn taking_an_element_out_ends_views_into_what_elements_own() {
+    let fixture = Fixture::with_source(
+        r#"
+fn use_str(s: str) {}
+fn dropped(xs: &mut List<String>) kills xs@items, xs[*] {
+    let s = xs[0].as_str()
+    {
+        let x = xs.swap_remove(0)
+    }
+    use_str(s)
+}
+fn popped(xs: &mut List<String>) kills xs@items, xs[*] {
+    let s = xs[0].as_str()
+    let x = xs.pop()
+    use_str(s)
+}
+fn replaced(m: &mut HashMap<i32, String>) kills m@items, m[*] {
+    let s = (m.get(&1) or return).as_str()
+    m.insert(1, String::from("new"))
+    use_str(s)
+}
+fn plain(xs: &mut List<i32>) kills xs@items {
+    let x = xs.pop()
+}
+"#,
+    );
+    for name in ["dropped", "popped", "replaced"] {
+        let a = fixture.analysis(name);
+        assert_eq!(a.invalid_uses.len(), 1, "{name}: {a:#?}");
+        assert!(a.mismatches.is_empty(), "{name}: {a:#?}");
+    }
+    // A list of plain data owns nothing in `[*]`, so its clause need not name it.
+    clean(&fixture.analysis("plain"));
+}
+
 #[test]
 fn a_tie_standing_for_another_types_tie_ends_views_at_the_callers() {
     let fixture = Fixture::with_source(
@@ -1057,7 +1097,7 @@ fn std_clauses_catch_the_scenarios_of_spec_6_7() {
         r#"
 fn use_str(s: str) {}
 fn use_int(n: &mut i32) {}
-fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items {
+fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items, counts[*] {
     let n = counts.get_or_insert(k, 0)
     counts.insert(o, 1)
     use_int(n)

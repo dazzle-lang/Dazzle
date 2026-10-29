@@ -39,7 +39,7 @@ pub struct HashSet<T: Hash + Eq> {
 
     /// Add `v`, saying whether it is new: `false` when it was already there, in which case
     /// the set is unchanged and `v` is dropped.
-    pub fn insert(&mut self, v: T, loc: SourceLocation = #location) -> bool kills self@items {
+    pub fn insert(&mut self, v: T, loc: SourceLocation = #location) -> bool kills self@items, self[*] {
         return m_map.replace(move(v), true, loc) == none
     }
 
@@ -48,7 +48,7 @@ pub struct HashSet<T: Hash + Eq> {
     }
 
     /// Take `v` out, saying whether it was there.
-    pub fn remove(&mut self, v: &T) -> bool kills self@items {
+    pub fn remove(&mut self, v: &T) -> bool kills self@items, self[*] {
         return m_map.remove(v) != none
     }
 

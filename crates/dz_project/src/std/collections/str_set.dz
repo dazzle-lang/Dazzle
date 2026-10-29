@@ -4,7 +4,7 @@ pub trait StrSet {
     fn contains_str(&self, v: str) -> bool
 
     /// Take `v` out, saying whether it was there.
-    fn remove_str(&mut self, v: str) -> bool
+    fn remove_str(&mut self, v: str) -> bool kills self
 }
 
 impl StrSet for HashSet<String> {
@@ -12,7 +12,7 @@ impl StrSet for HashSet<String> {
         return m_map.contains_str(v)
     }
 
-    fn remove_str(&mut self, v: str) -> bool {
+    fn remove_str(&mut self, v: str) -> bool kills self@items, self[*] {
         return m_map.remove_str(v) != none
     }
 }
