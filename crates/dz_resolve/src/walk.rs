@@ -670,7 +670,9 @@ impl<'a, 'w> Walker<'a, 'w> {
                     self.expr(&c.value);
                     self.pop_scope();
                 }
-                MemberKind::Error => {}
+                // A tie path goes through `.` and names fields, which is the checker's
+                // (invariant 9).
+                MemberKind::Tie(_) | MemberKind::Error => {}
             }
         }
     }

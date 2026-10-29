@@ -17,6 +17,27 @@ is decided, nothing is in the spec, and the syntax is a sketch to be settled lat
 after the memory it points into has moved or been freed, and memory placed by the compiler
 instead of by an allocator the program names.
 
+**Where the code is** (keep this current: a new session should not have to search).
+
+| Piece | Where |
+|---|---|
+| Keywords `kills`, `tie`; the `@` token | `dz_lex/src/token.rs`; completion in `dz_lsp/src/ide.rs` (`KEYWORDS`); colour in `editors/vscode/syntaxes/dazzle.tmLanguage.json` |
+| Syntax tree: `TiePath`, `TieStep`, `TieDecl`, `TieName`, `MemberKind::Tie`; `FnDecl::kills`/`ret_tie`, `Param::tie` | `dz_ast/src/lib.rs`; printed by `tie_path_str`, `tie_decl_str`, `kills_str` in `dz_ast/src/dump.rs` |
+| Parsing: `parse_tie_path`, `parse_kills`, `parse_in_tie`, `parse_tie_decl`, the `DZ0219` report in `parse_field` | `dz_parse/src/item.rs`; a function type's clause in `dz_parse/src/ty.rs` |
+| Formatting a `tie` member and clauses | `dz_fmt/src/lib.rs` (`member`, `signature`) |
+| Signatures keep clauses as written: `FnSig::kills`, `ret_tie`, `kills_unknown`; `ParamSig::tie`; `StructSig::ties` (`TieSig`); `FieldSig::tie` (filled from whole-field ties at the end of `collect_struct`) | `dz_check/src/lib.rs` |
+| Resolving paths: `resolve` (signatures), `export_path` (a `tie`'s paths), `tie_decls` (with a base's), `elements_in`/`elements`, `iterated`; the `Walker` decides visibility | `dz_check/src/ties.rs` |
+| Reporting: `check` per signature (called from `check_ties` in `dz_check/src/lib.rs`), `check_struct` per struct (called at the end of `check_members` in `dz_check/src/check.rs`) | as left |
+| Codes `DZ0218`, `DZ0219`, `DZ0562`–`DZ0565`, `DZ0567`; `dz explain` text | `dz_diag/src/codes.rs`; `dz_diag/explain/parser.md`, `check.md` |
+| Canonical places: `Place`, `Step` (`Field`, `Elements`, `Storage`), `normalize`, `canonical_steps`, `canonicalize` and `rewrites` (a tie's other paths to its first, `[*]`'s paths to `[*]`), `canonical_field`; call effects `call_effects`; exactness `ties`, `collect_ties`, `minimal`, `compare_ties` | `dz_flow/src/ties.rs` |
+| The body walk: `analyse_body`, `Origin` (target vs tie), `field`, `index_origins` (pointer indexing → `[*]`, and the trusted-body marker), `call`, `invoke`, `kill`, loops and branches | `dz_flow/src/ties/body.rs` |
+| std's ties and clauses | `dz_project/src/std/collections/{list,hash_map,hash_set,slot_map,sort,str_keys}.dz`, `text/string.dz`, `core/formatter.dz` |
+| Tests | `tests/parse/ties.dz` and `errors.dz`, `tests/fmt/ties.dz`, `tests/workspace/typed/src/typed.dz` and `typeerrors/src/errors.dz` (search `Ties and`), `dz_flow/tests/ties.rs` (the analysis, std held to its clauses) |
+| Spec and history | spec §6.7; changelog rows r81–r84; build log `docs/log/r81-ties.md` |
+
+Nothing is enforced yet: `dz_flow::check` does not report the analysis's findings; that
+lands with 2e.
+
 The notation below is the one proposed under **Syntax** further down (`@` for a tie, `in`
 to say where something points); nothing about it is settled.
 
@@ -285,10 +306,13 @@ user's choice. In order, each step standing on its own:
      `std` itself checking clean. **Started 2026-10-29** (`docs/log/r81-ties.md`): `List`,
      `String`, `HashMap` (its three arrays all `in @items`, r83) and `Formatter` declare
      their ties and clauses, bodies over a tied pointer are trusted as §6.7 says, and clauses
-     compare by the ties they name. **Blocked on the user:** `HashSet`, `StrSet` and
-     `SlotMap`, containers built from containers, whose `@items` and `[*]` are a field's;
-     and whether taking an element out (`pop`, `remove`, `swap_remove`, `replace`) kills
-     `self[*]` too, since nothing ends a view into the element when the caller drops it.
+     compare by the ties they name. **2026-10-29 (r84):** `HashSet` and `SlotMap` declare
+     ties standing for their fields' ties and have their clauses, every body exact (but
+     `SlotMap::retain`, through a function value). **Blocked on the user:** whether taking
+     an element out (`pop`, `remove`, `swap_remove`, `replace`) kills `self[*]` too, since
+     nothing ends a view into the element when the caller drops it. With r84 the analysis
+     can read `List`'s own bodies, and says they do (a moved element is killed), so they
+     stay trusted until this is decided.
    - **2e. The fixes and the editor.** `dz fix` writes the clause a body needs, adding,
      removing or narrowing paths; the editor offers the same as a quick fix on each of 2c's
      errors, shows the clause a body needs while it is being written, and the clause in a
@@ -305,10 +329,16 @@ user's choice. In order, each step standing on its own:
    Measured against hand-placed `Temp` as in T-0104.
 7. Owner arenas, once a program needs them.
 
-Still open, to settle on the way: how 2c ties `self[*]` to the memory behind it inside the
-type that declares it (2b settled which types have `[*]` — those with `Index` or `Iterable`,
-§6.7 — but in `List`'s own body the elements are `m_data[i]`, behind a pointer tied
-`@items`, which the analysis has to read as `self[*]`); the clause of a function type,
+**Settled 2026-10-29 (r84):** a struct declares its ties itself, `tie @items = m_data`,
+`tie [*] = m_data[*]`, with paths from its own fields that may name another type's ties
+(`tie @items = m_map@items`). That answers how `List`'s body reads `m_data[i]` as
+`self[*]`, and unblocks `HashSet` and `SlotMap` (2d). The user finds the syntax ugly and
+will change it later; working first was the point. Not adopted from the recommendation
+it came with: making a declared tie opaque, so no path goes on past it. r83's rule stands
+(a path goes on past a tie whose places share a type), since tests and `s@text@items`
+rely on it; that is the user's call.
+
+Still open, to settle on the way: the clause of a function type,
 which 2b leaves unresolved and outside `Ty::Fn`, so storing a function in one does not yet
 compare their clauses; the elision rules for returned references (whether a pointer, slice
 or `str` input counts as one: until settled, one beside another leaves the result unknown),

@@ -218,7 +218,7 @@
           "match": "\\bmove\\b"
         },
         { "name": "keyword.operator.cast.dazzle", "match": "\\bas\\b" },
-        { "name": "keyword.other.dazzle", "match": "\\b(?:import|module|impl|let|static|unsafe|extern|kills)\\b" },
+        { "name": "keyword.other.dazzle", "match": "\\b(?:import|module|impl|let|static|unsafe|extern|kills|tie)\\b" },
         { "name": "storage.type.dazzle", "match": "\\b(?:fn|struct|union|enum|trait|const|macro)\\b" },
         { "name": "storage.modifier.dazzle", "match": "\\b(?:pub|mut|own|protected|virtual|override)\\b" },
         { "name": "constant.language.dazzle", "match": "\\b(?:true|false|null|none)\\b" },

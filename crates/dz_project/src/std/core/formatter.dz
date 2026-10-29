@@ -29,8 +29,8 @@ pub struct Formatter {
     m_loc: SourceLocation
     m_hex: bool = false
     m_upper: bool = false
-    m_precision: u32? in @spec = none
-    m_width: u32? in @spec = none
+    m_precision: u32? = none
+    m_width: u32? = none
     m_zero: bool = false
     /// While an argument with a width is written: how many characters it has written so
     /// far, so what falls short of the width can be made up after it.
@@ -40,6 +40,9 @@ pub struct Formatter {
     /// ends: if nothing follows it, it is right-aligned, and otherwise written as it is.
     m_held: [64]u8
     m_held_len: usize = 0
+
+    /// The current argument's precision and width, set and cleared together.
+    tie @spec = m_precision, m_width
 
     /// A formatter appending to `out`, which must outlive it, as `format!` uses. `loc` is
     /// where the text's memory is recorded as allocated, under `--track-memory`.

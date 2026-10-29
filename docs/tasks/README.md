@@ -92,6 +92,10 @@ the title and appear in the backlog.
   must print nothing, or every row left must be moved to another milestone with the user's
   agreement.
 - Ids are never reused or renumbered; `new` takes the next free one.
+- **A task whose code spans several files keeps a "Where the code is" table** near the
+  top: each piece, and the file and functions that hold it ([T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md)
+  has one). Whoever works on it updates the table in the same change that moves the code, so
+  the next session reads where to work instead of searching for it.
 
 ## Out of scope for good
 

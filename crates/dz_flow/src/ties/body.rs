@@ -348,7 +348,21 @@ impl Analysis<'_> {
                 unknown = true;
             }
         }
+        let places = places.into_iter().map(|o| self.canonical(o)).collect();
+        let views = views.into_iter().map(|o| self.canonical(o)).collect();
         Value { places, views, unknown }
+    }
+
+    /// `origin` with its places spelt as the ties that name them ([`super::canonicalize`]):
+    /// `m_data[i]` inside a `List` is `self[*]`, and a `SlotMap`'s second list its
+    /// `@items`, as the first is.
+    fn canonical(&self, mut origin: Origin) -> Origin {
+        let canon = |p: &Place| {
+            super::canonical_place(self.table, self.res, &self.body.local(p.local).ty, p)
+        };
+        origin.target = canon(&origin.target);
+        origin.tie = canon(&origin.tie);
+        origin
     }
 
     fn index_origins(&mut self, base: ExprId, value: &Value, span: Span) -> Vec<Origin> {
@@ -376,13 +390,30 @@ impl Analysis<'_> {
                 elements
             }
             Ty::Ptr { .. } | Ty::OwnPtr { .. } => {
-                if targets.iter().any(|o| o.target.steps.contains(&Step::Storage)) {
-                    self.incomplete(
-                        span,
-                        "private pointer indexing is not yet mapped to container [*]",
-                    );
+                // An element behind a tied pointer is the type's `[*]` where it declares
+                // `tie [*] = m_data[*]`; its address stays valid as long as the storage.
+                let elements: Vec<Origin> = targets
+                    .iter()
+                    .map(|o| {
+                        let storage = o.target.steps.last() == Some(&Step::Storage);
+                        let mut e = o.field(Step::Elements);
+                        if storage {
+                            e.tie = o.tie.clone();
+                        }
+                        self.canonical(e)
+                    })
+                    .collect();
+                if elements.iter().any(|o| o.target.steps.contains(&Step::Storage)) {
+                    self.incomplete(span, "the type declares no `tie [*]` for this pointer");
+                } else if targets.iter().any(|o| o.target.steps.last() == Some(&Step::Storage)) {
+                    // Uses are followed through `[*]` all the same; only the summary is not
+                    // held to the clause. std's clauses over raw storage are written by hand
+                    // and trusted (§6.7): `pop` moves an element out, which the checker
+                    // would read as killing `self[*]`, and whether it should is still open
+                    // (T-0107).
+                    self.incomplete(span, "a body over a tied pointer's elements is trusted");
                 }
-                targets.iter().map(|o| o.field(Step::Elements)).collect()
+                elements
             }
             _ => targets.iter().map(|o| o.field(Step::Elements)).collect(),
         }

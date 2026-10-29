@@ -866,7 +866,8 @@ fn struct_members(members: &[Member]) -> Vec<MemberSymbol> {
                 MemberKind::Ctor(f) => (&f.name, MemberSort::Ctor),
                 MemberKind::TypeAlias { name, .. } => (name, MemberSort::AssocType),
                 MemberKind::Const(c) => (&c.name, MemberSort::Const),
-                MemberKind::Error => return None,
+                // A tie is named only in tie paths, never as a member.
+                MemberKind::Tie(_) | MemberKind::Error => return None,
             };
             Some(MemberSymbol { name: name.name.clone(), sort, vis: m.vis, span: name.span })
         })

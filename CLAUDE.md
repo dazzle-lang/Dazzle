@@ -39,7 +39,9 @@ Each is a folder of small files, so read the one you need rather than all of it.
   `kind` and `area` header; deferrals are `kind: deferral`. Add a task with `python
   tools/track.py new task "…" --milestone M12 --area …`; close one by setting `status: done`.
   A PostToolUse hook then rewrites `docs/tasks.md` (or run `python tools/track.py index`).
-  `docs/tasks/README.md` has the rules.
+  `docs/tasks/README.md` has the rules. **Before searching the code for a task, read its
+  file's "Where the code is" table**; if it has none, or it is wrong, write or fix it as
+  part of the work, so the next session does not search again.
 - **`docs/log/`** — the build log, one file per milestone (`README.md` is the index): what
   was built and decided, and why. Add what you built to the matching file when you finish;
   read one only when you need the history behind something.

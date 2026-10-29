@@ -84,6 +84,9 @@ pub const INTRINSIC_SPELLING: &str = "DZ0217";
 /// `kills` or `in` with no tie path after it, or a path that breaks off: `kills {`,
 /// `self@`, `xs[1]` (spec §6.7).
 pub const EXPECTED_TIE_PATH: &str = "DZ0218";
+/// `in @items` after a field's type: since r84 a struct declares its ties itself, `tie
+/// @items = m_data` (spec §6.7).
+pub const TIE_ON_FIELD: &str = "DZ0219";
 
 // --- DZ00xx: projects and manifests --------------------------------------------
 
@@ -353,6 +356,9 @@ pub const TIE_ON_NON_REFERENCE: &str = "DZ0565";
 // DZ0566 was two fields of one type declaring the same tie. r83 made that how fields are
 // tied together, a `HashMap`'s three arrays under one `@items`, so the code can no longer
 // occur; codes are not reused, so the number is retired rather than reassigned.
+/// A struct declaring the same tie twice, `tie @items = …` then `tie @items = …` again: one
+/// declaration lists everything a tie stands for (spec §6.7).
+pub const TIE_DECLARED_TWICE: &str = "DZ0567";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

@@ -351,7 +351,8 @@ fn members(text: &str, members: &[Member]) -> Vec<Decl> {
                     let header = capped(header(text, c.span.start, c.span.end));
                     Decl::new(DeclKind::Const, &c.name, c.span, header, docs)
                 }
-                MemberKind::Error => return None,
+                // Not in the outline yet: what `dz` shows for ties is open (T-0107).
+                MemberKind::Tie(_) | MemberKind::Error => return None,
             };
             with_vis(&mut d, m.vis);
             Some(d)
@@ -1754,6 +1755,7 @@ pub const KEYWORDS: &[&str] = &[
     "static",
     "struct",
     "switch",
+    "tie",
     "trait",
     "true",
     "unreachable",

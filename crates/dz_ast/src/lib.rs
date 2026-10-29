@@ -320,7 +320,28 @@ pub enum MemberKind {
     /// `pub const Global: ^mut Allocator = …` — a constant named through its type,
     /// `Allocators::Global` (spec §3.3, §7.3).
     Const(ConstDecl),
+    /// `tie @items = m_data`, `tie [*] = m_data[*]`: a tie the type exports (spec §6.7).
+    Tie(TieDecl),
     Error,
+}
+
+/// A tie a struct declares, and the memory of its own it stands for (spec §6.7). The paths
+/// start at the struct's fields, private ones included: naming them here is how a type
+/// lets a signature name its private storage.
+#[derive(Clone, Debug)]
+pub struct TieDecl {
+    pub span: Span,
+    pub name: TieName,
+    pub paths: Vec<TiePath>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TieName {
+    /// `@items`, its name without the `@`.
+    Named(Ident),
+    /// `[*]`: where the elements an `Index` or `Iterable` implementation reaches live. The
+    /// span covers the brackets.
+    Elements(Span),
 }
 
 #[derive(Clone, Debug)]
@@ -330,8 +351,6 @@ pub struct Field {
     /// `own ^T` — this struct releases the resource (spec §6.3).
     pub is_own: bool,
     pub ty: Type,
-    /// `in @items`: the tie this field declares, its name without the `@` (spec §6.7).
-    pub tie: Option<Ident>,
     pub default: Option<Expr>,
     /// The raw string ending the declaration, `` `json:"hp"` ``: free-form text carried into
     /// reflection for a library to read (spec §13.1). The span includes the backticks.

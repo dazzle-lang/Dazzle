@@ -780,8 +780,8 @@ fn main() {
 
 A `kills` clause is part of the signature, so everyone who may call the function reads it,
 and it can only name what they can see (spec §6.7). A `pub` method that names a private
-field would tell its callers about something they cannot name themselves. Declare a tie on
-the field instead: the tie is a public name for that private memory.
+field would tell its callers about something they cannot name themselves. Have the struct
+declare a tie for the field instead: the tie is a public name for that private memory.
 
 ```dz
 pub struct Party {
@@ -800,7 +800,8 @@ fn main() {
 
 ```dz
 pub struct Party {
-    m_members: List<String> in @members = List<String>()
+    m_members: List<String> = List<String>()
+    tie @members = m_members
 
     pub fn recruit(&mut self, name: str) kills self@members {
         m_members.push(String::from(name))
@@ -882,5 +883,46 @@ fn leader(party: &Party) -> ^String in party.members {
 fn main() {
     let p = Party{ members: List<String>() }
     println!("{}", leader(&p) == null)
+}
+```
+
+## DZ0567
+
+A struct declares each of its ties once, listing everything the tie stands for (spec
+§6.7). A second `tie @members` would leave it unclear whether the tie means the first
+list, the second, or both; one declaration with both says they live and die together.
+
+```dz
+pub struct Party {
+    m_members: List<String> = List<String>()
+    m_guests: List<String> = List<String>()
+    tie @members = m_members
+    tie @members = m_guests
+
+    pub fn recruit(&mut self, name: str) kills self@members {
+        m_members.push(String::from(name))
+    }
+}
+
+fn main() {
+    let mut p = Party{}
+    p.recruit("Ann")
+}
+```
+
+```dz
+pub struct Party {
+    m_members: List<String> = List<String>()
+    m_guests: List<String> = List<String>()
+    tie @members = m_members, m_guests
+
+    pub fn recruit(&mut self, name: str) kills self@members {
+        m_members.push(String::from(name))
+    }
+}
+
+fn main() {
+    let mut p = Party{}
+    p.recruit("Ann")
 }
 ```

@@ -1293,8 +1293,9 @@ impl ImplicitAs<cstr> for i32 {
 // points into nothing, and a path going on past fields of different types tied together.
 pub struct Ledger {
     pub lines: List<i32>
-    m_notes: List<String> in @notes
-    m_tags: List<i32> in @notes
+    m_notes: List<String>
+    m_tags: List<i32>
+    tie @notes = m_notes, m_tags
 
     pub fn leak(&mut self) kills self.m_notes {}
     pub fn retag(&mut self) kills self@notes[*] {}
@@ -1306,4 +1307,18 @@ fn through_a_view(ledger: &Ledger) kills ledger.lines {}
 
 fn count_lines(ledger: &Ledger) -> usize in ledger {
     return ledger.lines.len()
+}
+
+// A struct's `tie` declarations (spec §6.7): one declared twice, `[*]` on a type with no
+// elements, a path starting at `self` rather than a field, one through another type's
+// private field, and one naming a field the type does not have.
+pub struct Drawer {
+    m_socks: List<i32>
+    m_map: HashMap<i32, i32>
+    tie @socks = m_socks
+    tie @socks = m_socks@items
+    tie [*] = m_socks[*]
+    tie @whole = self
+    tie @keys = m_map.m_keys
+    tie @lost = m_sock
 }

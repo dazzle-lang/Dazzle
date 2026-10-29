@@ -766,8 +766,12 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                 let root = body.function(f, &sig);
                 body.finish(root);
             }
-            MemberKind::TypeAlias { .. } | MemberKind::Error => {}
+            // Checked once for the whole struct, below.
+            MemberKind::Tie(_) | MemberKind::TypeAlias { .. } | MemberKind::Error => {}
         }
+    }
+    for e in crate::ties::check_struct(&cx.table, cx.res, sym) {
+        cx.error_help(e.code, e.span, e.message, e.label, e.help);
     }
 }
 

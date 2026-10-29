@@ -19952,3 +19952,64 @@ body method Record::rename -> void
         call-method String::push_str: void
           local _1 w: &mut String
           str "!": str
+body field-default Bookshelf.1 -> void
+  block
+    null: own ^mut i32
+body method Bookshelf::add -> void
+  param _0 self: Bookshelf
+  param _1 title: String
+  block
+    call-method List::push: void
+      field #0: List<String>
+        local _0 self: Bookshelf
+      local _1 title: String
+body method Bookshelf::title -> str
+  param _0 self: Bookshelf
+  param _1 i: usize
+  block
+    return: !
+      call-method String::as_str: str
+        call-method Index::index: &String
+          field #0: List<String>
+            local _0 self: Bookshelf
+          local _1 i: usize
+body method Bookshelf::wipe -> void
+  param _0 self: Bookshelf
+  block
+    call-method List::clear: void
+      field #0: List<String>
+        local _0 self: Bookshelf
+body drop Bookshelf -> void
+  param _0 self: Bookshelf
+  block
+    (empty)
+body impl#165 method index -> &String
+  param _0 self: Bookshelf
+  param _1 i: usize
+  block
+    return: !
+      ref: &String
+        deref: String
+          call-method Index::index: &String
+            field #0: List<String>
+              local _0 self: Bookshelf
+            local _1 i: usize
+body field-default Rack.0 -> void
+  block
+    null: own ^mut i32
+body drop Rack -> void
+  param _0 self: Rack
+  block
+    (empty)
+body impl#167 method iter -> SliceIter<i32>
+  param _0 self: Rack
+  block
+    return: !
+      call-ctor SliceIter#0: SliceIter<i32>
+        block-value: []mut i32
+          block
+            slice: []mut i32
+              field #0: own ^mut i32
+                local _0 self: Rack
+              int 0: usize
+              int 0: usize

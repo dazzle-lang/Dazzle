@@ -94,51 +94,185 @@ impl Path {
     }
 }
 
-/// Normalize a checked tie path. `in @name` on a non-pointer is a public alias of a
-/// field; on a pointer it names the storage behind that field (spec §6.7).
+/// Normalize a checked tie path. A tie stands for the first path its declaration lists,
+/// and every other path it lists is rewritten to that one, as is every path `[*]` stands
+/// for to `[*]`: a tie is one span of validity (spec §6.7). A path ending at a pointer
+/// names the storage behind it.
 pub fn normalize(scope: &Scope<'_>, path: &dz_ast::TiePath) -> Result<Path, ties::Error> {
     let resolved = ties::resolve(scope, path)?;
-    let mut ty = match resolved.root {
+    let root = match resolved.root {
         Root::SelfValue => scope.self_ty.clone().unwrap_or(Ty::Error),
         Root::Param(i) => scope.sig.params[i].ty.clone(),
     };
-    let mut steps = Vec::new();
-    for step in resolved.steps {
+    let (steps, _) = canonical_steps(scope.table, scope.res, root.clone(), &resolved.steps)
+        .ok_or_else(|| internal_path_error(path.span))?;
+    let steps = canonicalize(scope.table, scope.res, &root, &steps);
+    Ok(Path { root: resolved.root, steps })
+}
+
+/// Resolved `steps` from a value of type `ty`, as canonical steps, and the type they end
+/// at. A field reads as the first field sharing its tie, a tie as what its first path
+/// names, and a pointer field before `[*]` as the storage it points at.
+fn canonical_steps(
+    table: &TypeTable,
+    res: &dz_resolve::Resolution,
+    mut ty: Ty,
+    steps: &[ties::Step],
+) -> Option<(Vec<Step>, Ty)> {
+    let mut out = Vec::new();
+    for (i, step) in steps.iter().enumerate() {
         match step {
             ties::Step::Field(name) => {
                 let canonical = match ty.peeled() {
-                    Ty::Named { sym, .. } => canonical_field(scope.table, *sym, &name),
+                    Ty::Named { sym, .. } => canonical_field(table, *sym, name),
                     _ => name.clone(),
                 };
-                ty = field(scope, &ty, &name).ok_or_else(|| internal_path_error(path.span))?;
-                steps.push(Step::Field(canonical));
-            }
-            ties::Step::Tie(name) => {
-                let Ty::Named { sym, args } = ty.peeled() else {
-                    return Err(internal_path_error(path.span));
-                };
-                let Some(f) = scope
-                    .table
-                    .struct_sig(*sym)
-                    .and_then(|s| s.fields.iter().find(|f| f.tie.as_deref() == Some(&name)))
-                else {
-                    return Err(internal_path_error(path.span));
-                };
-                let next = scope.table.field_types(*sym, args, std::slice::from_ref(f)).remove(0);
-                steps.push(Step::Field(f.name.clone()));
-                if matches!(next, Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
-                    steps.push(Step::Storage);
+                let next = field_of(table, &ty, name)?;
+                out.push(Step::Field(canonical));
+                if is_pointer(&next) && steps.get(i + 1) == Some(&ties::Step::Elements) {
+                    out.push(Step::Storage);
                 }
                 ty = next;
             }
+            ties::Step::Tie(name) => {
+                let (inner, end) = tie_steps(table, res, &ty, name)?;
+                out.extend(inner);
+                ty = end;
+            }
             ties::Step::Elements => {
-                // An Iterable-only path ends here; there is no element type to follow.
-                ty = ties::elements(scope, &ty).flatten().unwrap_or(Ty::Error);
-                steps.push(Step::Elements);
+                ty = match &ty {
+                    Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. }
+                        if out.last() == Some(&Step::Storage) =>
+                    {
+                        (**inner).clone()
+                    }
+                    // An Iterable-only path ends here; there is no element type to follow.
+                    _ => ties::elements_in(table, &ty).flatten().unwrap_or(Ty::Error),
+                };
+                out.push(Step::Elements);
             }
         }
     }
-    Ok(Path { root: resolved.root, steps })
+    Some((out, ty))
+}
+
+/// What `ty`'s tie `@name` names, as canonical steps from `ty`: its declaration's first
+/// path, with the storage behind a pointer it ends at.
+fn tie_steps(
+    table: &TypeTable,
+    res: &dz_resolve::Resolution,
+    ty: &Ty,
+    name: &str,
+) -> Option<(Vec<Step>, Ty)> {
+    let Ty::Named { sym, args } = ty.peeled() else { return None };
+    let decl =
+        ties::tie_decls(table, *sym).into_iter().find(|t| t.name.as_deref() == Some(name))?;
+    export_steps(table, res, *sym, args, decl.paths.first()?)
+}
+
+/// One path of one of `sym`'s `tie` declarations, as canonical steps from the type.
+fn export_steps(
+    table: &TypeTable,
+    res: &dz_resolve::Resolution,
+    sym: dz_resolve::SymbolId,
+    args: &[Ty],
+    path: &dz_ast::TiePath,
+) -> Option<(Vec<Step>, Ty)> {
+    let (inner, _, _) = ties::export_path(table, res, sym, args, path).ok()?;
+    let (mut steps, end) =
+        canonical_steps(table, res, Ty::Named { sym, args: args.to_vec() }, &inner)?;
+    if is_pointer(&end) && steps.last() != Some(&Step::Storage) {
+        steps.push(Step::Storage);
+    }
+    Some((steps, end))
+}
+
+fn is_pointer(ty: &Ty) -> bool {
+    matches!(ty, Ty::Ptr { .. } | Ty::OwnPtr { .. })
+}
+
+/// What `sym`'s ties rewrite, at `args`: a path the type's tie stands for, other than
+/// the first, becomes the first, and a path `[*]` stands for becomes `[*]`. Each with
+/// the type the replacement ends at.
+fn rewrites(
+    table: &TypeTable,
+    res: &dz_resolve::Resolution,
+    sym: dz_resolve::SymbolId,
+    args: &[Ty],
+) -> Vec<(Vec<Step>, Vec<Step>, Ty)> {
+    let mut out = Vec::new();
+    for decl in ties::tie_decls(table, sym) {
+        let paths: Vec<_> =
+            decl.paths.iter().filter_map(|p| export_steps(table, res, sym, args, p)).collect();
+        match decl.name {
+            Some(_) => {
+                let Some((first, first_ty)) = paths.first() else { continue };
+                for (p, _) in &paths[1..] {
+                    if p != first {
+                        out.push((p.clone(), first.clone(), first_ty.clone()));
+                    }
+                }
+            }
+            None => {
+                let this = Ty::Named { sym, args: args.to_vec() };
+                let elem = ties::elements_in(table, &this).flatten().unwrap_or(Ty::Error);
+                for (p, _) in paths {
+                    out.push((p, vec![Step::Elements], elem.clone()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `steps` from a value of type `root`, with every path a tie stands for rewritten to the
+/// one place that names it ([`rewrites`]), so that two spellings of one tie compare equal.
+pub(crate) fn canonicalize(
+    table: &TypeTable,
+    res: &dz_resolve::Resolution,
+    root: &Ty,
+    steps: &[Step],
+) -> Vec<Step> {
+    let mut out = Vec::with_capacity(steps.len());
+    let mut ty = root.peeled().clone();
+    let mut i = 0;
+    'outer: while i < steps.len() {
+        if let Ty::Named { sym, args } = ty.peeled_refs() {
+            if !ties::tie_decls(table, *sym).is_empty() {
+                for (pattern, replacement, after) in rewrites(table, res, *sym, args) {
+                    if steps[i..].starts_with(&pattern) {
+                        out.extend(replacement);
+                        ty = after;
+                        i += pattern.len();
+                        continue 'outer;
+                    }
+                }
+            }
+        }
+        let step = &steps[i];
+        ty = match step {
+            Step::Field(name) => field_of(table, &ty, name).unwrap_or(Ty::Error),
+            // The pointer stays the type until `[*]` reads what it points at.
+            Step::Storage => ty,
+            Step::Elements => match &ty {
+                Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => (**inner).clone(),
+                _ => ties::elements_in(table, &ty).flatten().unwrap_or(Ty::Error),
+            },
+        };
+        out.push(step.clone());
+        i += 1;
+    }
+    out
+}
+
+/// [`canonicalize`] for a place, whose root is its local of type `root`.
+pub(crate) fn canonical_place(
+    table: &TypeTable,
+    res: &dz_resolve::Resolution,
+    root: &Ty,
+    place: &Place,
+) -> Place {
+    Place { local: place.local, steps: canonicalize(table, res, root, &place.steps) }
 }
 
 /// The field standing for `name` in `sym`'s places. Fields tied together are one span of
@@ -154,9 +288,13 @@ pub(crate) fn canonical_field(table: &TypeTable, sym: dz_resolve::SymbolId, name
 }
 
 fn field(scope: &Scope<'_>, ty: &Ty, name: &str) -> Option<Ty> {
+    field_of(scope.table, ty, name)
+}
+
+fn field_of(table: &TypeTable, ty: &Ty, name: &str) -> Option<Ty> {
     let Ty::Named { sym, args } = ty.peeled() else { return None };
-    let f = scope.table.struct_sig(*sym)?.fields.iter().find(|f| f.name == name)?;
-    Some(scope.table.field_types(*sym, args, std::slice::from_ref(f)).remove(0))
+    let f = table.struct_sig(*sym)?.fields.iter().find(|f| f.name == name)?;
+    Some(table.field_types(*sym, args, std::slice::from_ref(f)).remove(0))
 }
 
 fn internal_path_error(span: Span) -> ties::Error {
@@ -427,7 +565,9 @@ pub fn ties(scope: &Scope<'_>, place: &Place, root: &Ty) -> Vec<Place> {
         // Memory named whole: the storage behind a pointer, or an iterable's entries.
         None => out.push(place.clone()),
     }
-    out
+    // A field read through another type's tie is that tie: a `SlotMap`'s three lists are
+    // its one `@items`.
+    out.iter().map(|p| canonical_place(scope.table, scope.res, root, p)).collect()
 }
 
 fn collect_ties(scope: &Scope<'_>, place: &Place, ty: &Ty, out: &mut Vec<Place>, depth: usize) {

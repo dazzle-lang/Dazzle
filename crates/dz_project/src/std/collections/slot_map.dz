@@ -18,6 +18,10 @@ pub struct SlotMap<T> {
     /// The first free slot, whose `m_slots` entry links to the next; `NO_SLOT` when none is.
     m_free: u32 = NO_SLOT
 
+    /// The three lists, which change together.
+    tie @items = m_values@items, m_slot_of@items, m_slots@items
+    tie [*] = m_values[*]
+
     /// An empty map, with room for `capacity` values already allocated when it is given.
     SlotMap(
         capacity: usize = 0,
@@ -43,7 +47,7 @@ pub struct SlotMap<T> {
     }
 
     /// Add `v`, returning the key that names it from now until it is removed.
-    pub fn insert(&mut self, v: T, loc: SourceLocation = #location) -> Key<T> {
+    pub fn insert(&mut self, v: T, loc: SourceLocation = #location) -> Key<T> kills self@items {
         let place = m_values.len() as u32
         let mut slot = m_free
         if slot == NO_SLOT {
@@ -67,13 +71,13 @@ pub struct SlotMap<T> {
 
     /// The value `k` names, or `null` when it was removed, belongs to another map, or is
     /// null: `let e = enemies.get(target) or return`.
-    pub fn get(&self, k: Key<T>) -> ^T {
+    pub fn get(&self, k: Key<T>) -> ^T in self@items {
         let place = self.place_of(k) or return null
         return &m_values[place]
     }
 
     /// The value `k` names, to change in place, or `null` when there is none.
-    pub fn get_mut(&mut self, k: Key<T>) -> ^mut T {
+    pub fn get_mut(&mut self, k: Key<T>) -> ^mut T in self@items {
         let place = self.place_of(k) or return null
         return &mut m_values[place]
     }
@@ -84,7 +88,7 @@ pub struct SlotMap<T> {
 
     /// Take the value `k` names out, or `none` when there is none. Every key to it reads as
     /// absent from now on.
-    pub fn remove(&mut self, k: Key<T>) -> T? {
+    pub fn remove(&mut self, k: Key<T>) -> T? kills self@items {
         let place = self.place_of(k) or return none
         self.free_slot(k.index())
         let v = m_values.swap_remove(place)
@@ -99,7 +103,7 @@ pub struct SlotMap<T> {
 
     /// Keep only the values `keep` says yes to, and drop the rest. `keep` may change the
     /// value it is shown; each is asked once.
-    pub fn retain(&mut self, keep: fn(Key<T>, &mut T) -> bool) {
+    pub fn retain(&mut self, keep: fn(Key<T>, &mut T) -> bool) kills self@items, self[*] {
         let mut i: usize = 0
         while i < m_values.len() {
             let k = self.key_at(i)
@@ -113,7 +117,7 @@ pub struct SlotMap<T> {
     }
 
     /// Drop every value and keep the allocation. Every key reads as absent afterwards.
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self) kills self@items, self[*] {
         for i in 0..m_slot_of.len() {
             self.free_slot(m_slot_of[i])
         }
@@ -122,18 +126,18 @@ pub struct SlotMap<T> {
     }
 
     /// Room for at least `additional` more values without growing again.
-    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) kills self@items {
         m_values.reserve(additional, loc)
         m_slot_of.reserve(additional, loc)
         m_slots.reserve(additional, loc)
     }
 
     /// Every value, in no particular order. Valid until the map next changes size.
-    pub fn values(&self) -> []T {
+    pub fn values(&self) -> []T in self@items {
         return m_values.as_slice()
     }
 
-    pub fn values_mut(&mut self) -> []mut T {
+    pub fn values_mut(&mut self) -> []mut T in self@items {
         return m_values.as_mut_slice()
     }
 

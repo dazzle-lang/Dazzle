@@ -2,8 +2,10 @@
 // layout around them changes. A function type's single path loses its parentheses; a list
 // keeps them, and a declaration's list never needs them.
 struct Grid<T> {
-    m_cells:   own ^mut T   in   @cells = null
+    m_cells:   own ^mut T = null
     pub width: i32 = 0
+    tie   @cells=m_cells
+    tie [ * ]  =  ( m_cells [*] )
 
     pub fn push(&mut self,v:T)   kills   self@cells   {}
 

@@ -142,7 +142,8 @@ fn member<H: Hooks>(h: &mut H, m: &mut Member) {
             }
             expr(h, &mut c.value);
         }
-        MemberKind::Error => {}
+        // A tie's paths start at fields, which are not binders.
+        MemberKind::Tie(_) | MemberKind::Error => {}
     }
 }
 

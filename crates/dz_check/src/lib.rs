@@ -102,7 +102,10 @@ pub struct FieldSig {
     /// An imported C bit-field, `unsigned flags : 3`. Read and written like any other
     /// member; its address cannot be taken, in C++ or here (spec §15.2).
     pub bitfield: bool,
-    /// `in @items`: the tie this field declares, without the `@` (spec §6.7).
+    /// The tie that stands for this whole field, without the `@`: `items` for `m_data`
+    /// after `tie @items = m_data` (spec §6.7). Fields under one tie are one span of
+    /// validity. A tie whose paths go further into a field leaves this `None`; those are
+    /// in [`StructSig::ties`].
     pub tie: Option<String>,
 }
 
@@ -251,6 +254,21 @@ pub struct StructSig {
     pub assoc_types: Vec<AssocType>,
     /// `const Global: ^mut Allocator = …` declared in the type (spec §7.3).
     pub consts: Vec<AssocConst>,
+    /// `tie @items = m_data`, `tie [*] = m_data[*]`: the ties this type declares, in order,
+    /// not counting a base's (spec §6.7). [`ties::check_struct`] says what is wrong with them.
+    pub ties: Vec<TieSig>,
+}
+
+/// A tie a struct declares and the paths, from its own fields, of the memory it stands for
+/// (spec §6.7). Kept as written, like a signature's clause, since the paths need every
+/// type's fields; [`ties`] resolves them.
+#[derive(Clone, Debug)]
+pub struct TieSig {
+    /// `None` for `tie [*]`.
+    pub name: Option<String>,
+    pub paths: Vec<dz_ast::TiePath>,
+    /// The `@items` or `[*]` being declared.
+    pub span: Span,
 }
 
 /// A constant named through its type: `Allocators::Global` (spec §3.3, §7.3).
@@ -3002,8 +3020,29 @@ impl<'a> Ctx<'a> {
                     let s = self.fn_sig(f, m.vis, None);
                     sig.ctors.push(s);
                 }
+                MemberKind::Tie(t) => sig.ties.push(TieSig {
+                    name: match &t.name {
+                        dz_ast::TieName::Named(n) => Some(n.name.clone()),
+                        dz_ast::TieName::Elements(_) => None,
+                    },
+                    paths: t.paths.clone(),
+                    span: match &t.name {
+                        dz_ast::TieName::Named(n) => n.span,
+                        dz_ast::TieName::Elements(s) => *s,
+                    },
+                }),
                 // Already collected, in pass 1.
                 MemberKind::TypeAlias { .. } | MemberKind::Error => {}
+            }
+        }
+        // A tie standing for a whole field is the field's own, as fields tied together are
+        // one span of validity; everything that reads a field reads this (spec §6.7).
+        for t in &sig.ties {
+            let Some(name) = &t.name else { continue };
+            for p in t.paths.iter().filter(|p| p.steps.is_empty()) {
+                if let Some(f) = sig.fields.iter_mut().find(|f| f.name == p.root.name) {
+                    f.tie.get_or_insert_with(|| name.clone());
+                }
             }
         }
         sig
@@ -3038,7 +3077,8 @@ impl<'a> Ctx<'a> {
             // Dazzle has no bit-fields of its own; only an imported C struct brings them.
             bitfield: false,
             declared_in: None,
-            tie: f.tie.as_ref().map(|t| t.name.clone()),
+            // Filled in from the struct's `tie` declarations, once they are all read.
+            tie: None,
         }
     }
 

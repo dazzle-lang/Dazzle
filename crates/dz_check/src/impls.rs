@@ -251,6 +251,14 @@ impl Ctx<'_> {
                     "an `impl` holds the trait's methods and its associated-type choices; \
                      fields belong to the struct (spec §7.6)",
                 ),
+                MemberKind::Tie(t) => self.error_help(
+                    codes::TRAIT_MEMBER_MISMATCH,
+                    t.span,
+                    "a tie is declared by the struct whose memory it names",
+                    "not allowed in an `impl`",
+                    "write `tie` among the struct's members, beside the fields it names \
+                     (spec §6.7)",
+                ),
                 // A constructor was reported by the parser; an associated type was
                 // collected with the header.
                 _ => {}

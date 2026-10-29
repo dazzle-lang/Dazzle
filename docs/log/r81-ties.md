@@ -6,6 +6,55 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r84: a struct declares its ties itself (2026-10-29)
+
+The user's preference, settling the first open point of T-0107 and 2d's block on containers
+built from containers: rather than reaching into a field's ties, a struct exports its own.
+`tie @items = m_data` and `tie [*] = m_data[*]` are members; `in @name` on a field is gone.
+The syntax is provisional by the user's choice; what mattered was that it works.
+
+- **Front end.** `tie` is a keyword (lexer, completion, the VS Code grammar). A struct
+  member `MemberKind::Tie(TieDecl)` holds `@name` or `[*]` and a list of tie paths,
+  parsed by `parse_kills`, so a parenthesised list is accepted too. The formatter writes
+  `tie @x = a, b`. `in @x` after a field's type is read past and reported once as
+  `DZ0219`, with the `tie` to write. An `impl` holding a `tie` is `DZ0533`, as a field there is.
+- **Checker.** `StructSig::ties` keeps the declarations as written; `ties::export_path`
+  resolves one from the struct's own type, where its private fields are visible and no
+  visibility rank applies, and `ties::check_struct` reports a tie declared twice
+  (`DZ0567`), `tie [*]` on a type with no elements, a path from `self`, and a path through
+  another type's private field (`DZ0563`, telling that type to declare a tie). A tie
+  standing for whole fields still fills `FieldSig::tie`, so everything that read r83's
+  tied fields reads the same. Resolution was split from the function signature: a
+  `Walker` knows who names the path and what they may see. `[*]` on a pointer field names
+  the array behind it. A base's ties are its derived types'.
+- **Flow.** A tie normalizes to its first path's canonical place. `canonicalize`
+  rewrites every other path a tie lists to that one, and every path `[*]` lists to `[*]`;
+  normalized clauses, the ties compared for exactness, and places the body builds from
+  fields and pointer indexing all go through it. So inside `List`, `&m_data[i]` has its
+  element at `self[*]` and its address in `self@items`; growing ends the address and
+  leaves what the element owns. Inside `SlotMap`, a kill of `m_slot_of`'s array is a kill
+  of `self@items`.
+- **Still trusted.** A body indexing a tied pointer's elements is still not held to its
+  clause, as 2d decided. Its uses are followed now; its summary is not compared. Reading
+  them exactly, the analysis says `pop`, `swap` and the shifts kill `self[*]` (they move
+  elements), which is the open question of taking an element out.
+- **std.** `List`, `String`, `HashMap` and `Formatter` declare the ties they had.
+  `HashSet` (`@items = m_map@items`, `[*] = m_map[*]`) and `SlotMap` (`@items` over its
+  three lists, `[*] = m_values[*]`) gain ties and clauses: `insert`, `remove`, `reserve`
+  kill `self@items`; `clear` and `retain` kill `self@items, self[*]`; `SlotMap::get`,
+  `get_mut` and `values` are `in self@items`. Every body is exact but `SlotMap::retain`,
+  which calls a function value.
+
+Not adopted: making a declared tie opaque, so no path goes past it. r83's rule stands.
+
+Tests: the parse, fmt and error corpora have the new member, its mistakes (`DZ0219`, a
+missing `@`, a missing `=`) and the layout; `typed/` has a wrapper whose ties stand for a
+list's and a type with `tie [*]` over a pointer, `typeerrors/` one case per new mistake;
+`dz_flow/tests/ties.rs` has 37, new: `HashSet` and `SlotMap` held to their clauses, a view
+from `SlotMap::get` ended by `insert`, and inside a type, a pointer element's address ended
+by growth while what it owns survives growth and dies with `[*]`. `dz explain` has DZ0219
+and DZ0567.
+
 ## 2d, first part: `List`, `String` and `HashMap` declare their ties (2026-10-29)
 
 std's first clauses, following §6.7's table. Nothing is enforced yet, so a missing clause in

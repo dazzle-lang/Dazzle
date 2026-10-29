@@ -4,10 +4,14 @@
 /// new allocation from the same allocator. `b[i]` reads and writes an element, checked
 /// against the length; `as_slice()` views them all.
 pub struct List<T> {
-    m_data: own ^mut T in @items = null
+    m_data: own ^mut T = null
     m_len: usize = 0
     m_cap: usize = 0
     m_allocator: ^mut Allocator = Allocators::Global
+
+    /// The array of elements: it moves when the list grows.
+    tie @items = m_data
+    tie [*] = m_data[*]
 
     /// An empty list, with room for `capacity` elements already allocated when it is
     /// given.

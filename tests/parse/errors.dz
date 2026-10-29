@@ -29,8 +29,20 @@ fn tie_without_name(xs: &mut List<i32>) kills xs@ {}
 
 fn one_element(xs: &mut List<i32>) kills xs[1] {}
 
+// A field no longer declares a tie (r84): reported once, with the `tie` the struct writes,
+// and the default after it still parses.
+struct TieOnField {
+    m_data: own ^mut i32 in @items = null
+}
+
 struct TieWithoutAt {
-    m_data: own ^mut i32 in items = null
+    m_data: own ^mut i32 = null
+    tie items = m_data
+}
+
+struct TieWithoutPaths {
+    m_data: own ^mut i32 = null
+    tie [*]
 }
 
 struct MissingBrace {
