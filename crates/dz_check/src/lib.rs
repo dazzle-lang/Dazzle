@@ -178,6 +178,8 @@ pub struct FnSig {
     /// (spec §6.7).
     pub ret_tie: Option<dz_ast::TiePath>,
     pub kills: Vec<dz_ast::TiePath>,
+    /// The whole clause as written, `kills` through its last path (spec §6.7).
+    pub kills_span: Option<Span>,
     /// A C or C++ function, whose header says nothing of what it kills: a call to it kills
     /// everything reachable through its `&mut` and `^mut` arguments, and `kills` is empty.
     pub kills_unknown: bool,
@@ -1243,6 +1245,7 @@ impl Ctx<'_> {
                         has_body: true,
                         ret_tie: None,
                         kills: Vec::new(),
+                        kills_span: None,
                         kills_unknown: true,
                     }),
                     DeclKind::Struct { fields, opaque, is_union, methods, move_only } => {
@@ -1338,6 +1341,7 @@ impl Ctx<'_> {
                 has_body: true,
                 ret_tie: None,
                 kills: Vec::new(),
+                kills_span: None,
                 kills_unknown: true,
             };
             if m.is_ctor {
@@ -3149,6 +3153,7 @@ impl<'a> Ctx<'a> {
             variadic,
             ret_tie: f.ret_tie.clone(),
             kills: f.kills.clone(),
+            kills_span: f.kills_span,
             kills_unknown: false,
         }
     }

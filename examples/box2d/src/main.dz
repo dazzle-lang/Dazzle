@@ -25,7 +25,10 @@ struct Demo {
     m_things: List<Thing>
     m_mouse:  Vec2
 
-    pub fn init(&mut self) {
+    /// The bodies on screen: what adding one or starting over moves.
+    tie @things = m_things@items
+
+    pub fn init(&mut self) kills self@things {
         let logger = sk::sg_logger{ func: sk::slog_func }
         sk::sg_setup(&sk::sg_desc{ environment: sk::sglue_environment(), logger: logger })
         sk::sgl_setup(&sk::sgl_desc_t{ logger: sk::sgl_logger_t{ func: sk::slog_func } })
@@ -33,7 +36,7 @@ struct Demo {
     }
 
     /// A fresh world: the ground, and a pyramid on it.
-    fn reset(&mut self) {
+    fn reset(&mut self) kills self@things {
         if b2::b2World_IsValid(m_world) {
             b2::b2DestroyWorld(m_world)
         }
@@ -67,7 +70,7 @@ struct Demo {
         return sk::sapp_widthf() / SCALE
     }
 
-    fn add_box(&mut self, at: Vec2, half: f32, color: Vec3) {
+    fn add_box(&mut self, at: Vec2, half: f32, color: Vec3) kills self@things {
         let mut def = b2::b2DefaultBodyDef()
         def.type = b2::b2BodyType::b2_dynamicBody
         def.position = b2::b2Vec2{ x: at.x, y: at.y }
@@ -78,7 +81,7 @@ struct Demo {
         m_things.push(Thing{ body: body, half: Vec2{ x: half, y: half }, color: color })
     }
 
-    fn throw_ball(&mut self, from: Vec2) {
+    fn throw_ball(&mut self, from: Vec2) kills self@things {
         let mut def = b2::b2DefaultBodyDef()
         def.type = b2::b2BodyType::b2_dynamicBody
         def.position = b2::b2Vec2{ x: from.x, y: from.y }
@@ -127,7 +130,7 @@ struct Demo {
         sk::sg_commit()
     }
 
-    pub fn event(&mut self, e: &sk::sapp_event) {
+    pub fn event(&mut self, e: &sk::sapp_event) kills self@things {
         switch e.type {
             case SAPP_EVENTTYPE_MOUSE_MOVE {
                 m_mouse = Vec2{ x: e.mouse_x / SCALE, y: (sk::sapp_heightf() - e.mouse_y) / SCALE }
@@ -202,7 +205,7 @@ fn demo(data: ^mut void) -> ^mut Demo {
     }
 }
 
-fn init(data: ^mut void) {
+fn init(data: ^mut void) kills data {
     let d = demo(data) or return
     d.init()
 }
@@ -212,7 +215,7 @@ fn frame(data: ^mut void) {
     d.frame()
 }
 
-fn event(e: ^sk::sapp_event, data: ^mut void) {
+fn event(e: ^sk::sapp_event, data: ^mut void) kills data {
     let d = demo(data) or return
     let e = e or return
     d.event(e)

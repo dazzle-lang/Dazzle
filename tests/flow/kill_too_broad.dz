@@ -1,0 +1,11 @@
+// Spec §6.7: a clause names no more than what dies. `push` moves a list's array, not each
+// element's own memory.
+// expect: DZ0417
+
+fn add(xs: &mut List<String>) kills xs {
+    xs.push(String::from("x"))
+}
+
+fn exact(xs: &mut List<String>) kills xs@items {
+    xs.push(String::from("x"))
+}

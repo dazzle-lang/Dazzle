@@ -54,7 +54,7 @@ pub struct Game {
         self.rest_ball()
     }
 
-    fn build_wall(&mut self) {
+    fn build_wall(&mut self) kills self.bricks@items {
         bricks.clear()
         let gap: f32 = 6
         let brick_w = (width - gap * (BRICK_COLUMNS + 1) as f32) / BRICK_COLUMNS as f32
@@ -90,7 +90,7 @@ pub struct Game {
     }
 
     /// Advance the game by `dt` seconds.
-    pub fn update(&mut self, dt: f32, input: Input) {
+    pub fn update(&mut self, dt: f32, input: Input) kills self.bricks@items {
         if phase == Phase::Won || phase == Phase::Lost {
             return
         }
@@ -160,7 +160,7 @@ pub struct Game {
 
     /// At most one brick per frame, so the ball never tunnels through two at once and
     /// reverses twice.
-    fn hit_bricks(&mut self) {
+    fn hit_bricks(&mut self) kills self.bricks@items {
         let mut i: usize = 0
         while i < bricks.len() {
             if bricks[i].rect.touches_circle(ball, radius) {

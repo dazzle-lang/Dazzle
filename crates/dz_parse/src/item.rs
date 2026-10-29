@@ -418,7 +418,13 @@ impl<'a> Parser<'a> {
         };
         // `-> ^T in self@items` and `kills self@items` (spec §6.7).
         let ret_tie = if ret.is_some() { self.parse_in_tie() } else { None };
-        let kills = if self.eat(TokenKind::Kills) { self.parse_kills(false) } else { Vec::new() };
+        let kills_start = self.start();
+        let (kills, kills_span) = if self.eat(TokenKind::Kills) {
+            let paths = self.parse_kills(false);
+            (paths, Some(self.span_from(kills_start)))
+        } else {
+            (Vec::new(), None)
+        };
 
         let body = if self.at(TokenKind::LBrace) { Some(self.parse_block()) } else { None };
         FnDecl {
@@ -434,6 +440,7 @@ impl<'a> Parser<'a> {
             ret_tie,
             fallible,
             kills,
+            kills_span,
             body,
             base_init: None,
         }
@@ -867,6 +874,7 @@ impl<'a> Parser<'a> {
             fallible: false,
             // A constructor kills nothing: what it builds is not yet anyone's.
             kills: Vec::new(),
+            kills_span: None,
             body,
             base_init,
         }

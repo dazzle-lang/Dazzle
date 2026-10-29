@@ -424,5 +424,8 @@ alone.
 `List`; a map's `insert` and `replace` kill `self[*]` as well, since a value they replace is
 handed back or dropped.
 
-Not yet implemented: the checker, `std`'s clauses and the diagnostics are T-0107's steps 2
-and 3.
+The checker reports a use after a kill (`DZ0413`), a return outside its `in`
+(`DZ0414`), and a clause that leaves a kill out, names one that never happens, or names
+more than dies (`DZ0415`–`DZ0417`), each clause error with the clause the body needs,
+which `dz fix` writes. Not yet implemented: the editor showing a clause in a call's
+hover, and step 3's debug-build check of `std`'s trusted clauses (T-0107).

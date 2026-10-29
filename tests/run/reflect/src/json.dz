@@ -24,7 +24,7 @@ fn integer(value: ^u8, kind: TypeKind) -> i64 {
 }
 
 /// Every public field, by its tag's name when it has one.
-fn fields(out: &mut String, value: ^u8, all: []FieldInfo) {
+fn fields(out: &mut String, value: ^u8, all: []FieldInfo) kills out@text {
     out.push('{')
     let mut first = true
     for &f in all {
@@ -41,7 +41,7 @@ fn fields(out: &mut String, value: ^u8, all: []FieldInfo) {
     out.push('}')
 }
 
-pub fn write_json(out: &mut String, value: ^u8, id: TypeId) {
+pub fn write_json(out: &mut String, value: ^u8, id: TypeId) kills out@text {
     let info = typeinfo(id)
     switch info.kind {
         case Struct { fields(out, value, info.fields) }

@@ -23,7 +23,7 @@ struct Button {
     pub presses: i32 = 0
     pub state: ButtonState = .DefaultState{}
 
-    pub fn update(&mut self, ctx: &ButtonCtx, input: &Input) {
+    pub fn update(&mut self, ctx: &ButtonCtx, input: &Input) kills self.state {
         state.step(ctx, input, &mut self)
     }
 }

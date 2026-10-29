@@ -1,0 +1,15 @@
+// Spec §6.7: a returned reference points where its signature's `in` says.
+// expect: DZ0414
+
+pub struct Team {
+    pub names: List<String>
+    pub coach: String
+}
+
+fn first_name(t: &Team) -> str in t.names[*] {
+    return t.coach.as_str()
+}
+
+fn coach_name(t: &Team) -> str in t.coach {
+    return t.coach.as_str()
+}

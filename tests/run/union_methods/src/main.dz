@@ -41,7 +41,7 @@ union Gait {
     }
 
     // Replaces the whole union, through `self`.
-    pub fn faster(&mut self) {
+    pub fn faster(&mut self) kills self {
         let next: Gait = switch self {
             case Idle { .Walking{} }
             case Walking(w) { .Running{ speed: w.speed * 2 } }
@@ -50,7 +50,7 @@ union Gait {
         self = next
     }
 
-    pub fn stop(&mut self) {
+    pub fn stop(&mut self) kills self {
         self = .Idle{}
     }
 }

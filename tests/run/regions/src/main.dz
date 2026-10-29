@@ -32,7 +32,7 @@ fn evens(n: i32) -> List<i32> {
 }
 
 // Copies what it is lent into a store that outlives the lender's scope.
-fn keep(store: &mut Store, xs: &List<i32>) {
+fn keep(store: &mut Store, xs: &List<i32>) kills store.saved {
     store.saved = xs
 }
 
@@ -48,7 +48,7 @@ fn churn() -> i32 {
 
 // Grows a list it is lent while its own region is open: the list's memory must come from
 // the lender's region, not this one, which is gone when it returns.
-fn fill(xs: &mut List<i32>, n: i32) {
+fn fill(xs: &mut List<i32>, n: i32) kills xs@items {
     let mut scratch = List<i32>()
     for i in 0..n {
         scratch.push(i)
@@ -83,7 +83,7 @@ fn squares_in(n: i32, allocator: ^mut Allocator = #allocator) -> List<i32> {
 }
 
 // Placed: the scratch `String` dies here; the name kept is a copy, on the heap.
-fn label(store: &mut Store, prefix: str, n: i32) {
+fn label(store: &mut Store, prefix: str, n: i32) kills store.names@items {
     let mut text = String::from(prefix)
     text.push_str("-")
     text.push_str(format!("{}", n).as_str())
@@ -92,7 +92,7 @@ fn label(store: &mut Store, prefix: str, n: i32) {
 
 // T-0105: the scratch string dies here, so it is this scope's region's; the pushed one lives
 // as long as `names`, so it is built wherever `names` keeps what it stores.
-fn tag(names: &mut List<String>, prefix: str, n: i32) {
+fn tag(names: &mut List<String>, prefix: str, n: i32) kills names@items {
     let mut scratch = String::from(prefix)
     scratch.push_str("-")
     scratch.push_str(format!("{}", n).as_str())
@@ -100,13 +100,13 @@ fn tag(names: &mut List<String>, prefix: str, n: i32) {
 }
 
 // Lends `names` on: it keeps what it stores only if `tag` does.
-fn tag_twice(names: &mut List<String>, prefix: str) {
+fn tag_twice(names: &mut List<String>, prefix: str) kills names@items {
     tag(names, prefix, 1)
     tag(names, prefix, 2)
 }
 
 // Gives an element back, so a list lent here does not keep what it stores.
-fn take_last(names: &mut List<String>, into: &mut Store) {
+fn take_last(names: &mut List<String>, into: &mut Store) kills names@items, names[*], into.names@items {
     let last = names.pop() or return
     into.names.push(move(last))
 }

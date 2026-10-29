@@ -14,7 +14,7 @@ struct Panel<T: Copy> {
         return value
     }
 
-    pub fn set(&mut self, v: T) {
+    pub fn set(&mut self, v: T) kills self.value {
         value = v
     }
 

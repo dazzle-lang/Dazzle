@@ -10,9 +10,11 @@
 //! diagnostics and fixes are ready to enable together (T-0107 steps 2d/2e).
 
 mod body;
+mod report;
 pub use body::{
     analyse_body, BodyAnalysis, BodyKill, Incomplete, InvalidReturn, InvalidUse, KillKind,
 };
+pub use report::report;
 
 use dz_check::ties::{self, Root, Scope};
 use dz_check::TypeTable;
@@ -552,9 +554,18 @@ pub fn compare_ties(declared: &[Vec<Place>], actual: &[Vec<Place>]) -> Vec<Misma
 pub fn ties(scope: &Scope<'_>, place: &Place, root: &Ty) -> Vec<Place> {
     // A reference or pointer parameter's place is what it points at.
     let mut ty = Some(root.peeled().clone());
-    for step in &place.steps {
+    for (i, step) in place.steps.iter().enumerate() {
         ty = match (ty, step) {
-            (Some(t), Step::Field(name)) => field(scope, &t, name),
+            (Some(t), Step::Field(name)) => match field(scope, &t, name) {
+                Some(next) => Some(next),
+                // A field its type does not have, reached through a cast (a `^mut void`
+                // read as a struct): no path can name it, so what holds it is the tie,
+                // named whole, as a clause would write it.
+                None => {
+                    let held = Place { local: place.local, steps: place.steps[..i].to_vec() };
+                    return vec![canonical_place(scope.table, scope.res, root, &held)];
+                }
+            },
             (Some(t), Step::Elements) => ties::elements(scope, &t).flatten(),
             _ => None,
         };
@@ -576,7 +587,8 @@ fn collect_ties(scope: &Scope<'_>, place: &Place, ty: &Ty, out: &mut Vec<Place>,
         return;
     }
     match ty {
-        Ty::Optional(_) | Ty::Param(_) | Ty::Assoc(_) => out.push(place.clone()),
+        // What a `^mut void` points at may own anything, so it is named whole.
+        Ty::Optional(_) | Ty::Param(_) | Ty::Assoc(_) | Ty::Void => out.push(place.clone()),
         Ty::Array { elem, .. } => {
             collect_ties(scope, &place.followed_by(&[Step::Elements]), elem, out, depth + 1)
         }

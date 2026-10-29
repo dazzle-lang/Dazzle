@@ -18,7 +18,7 @@ union Light {
         }
     }
 
-    pub fn toggle(&mut self) {
+    pub fn toggle(&mut self) kills self {
         let next: Light = switch self {
             case Off { .On{ level: 3 } }
             case On { .Off{} }

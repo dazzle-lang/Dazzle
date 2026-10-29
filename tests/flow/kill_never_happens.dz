@@ -1,0 +1,11 @@
+// Spec §6.7: a clause says exactly what the body kills, so a path it never kills is an
+// error on the clause.
+// expect: DZ0416
+
+fn count(xs: &mut List<i32>) -> usize kills xs@items {
+    return xs.len()
+}
+
+fn adds(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}

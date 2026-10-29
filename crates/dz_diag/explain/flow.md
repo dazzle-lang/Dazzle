@@ -321,3 +321,159 @@ fn main() {
     println!("{}", b.len)
 }
 ```
+
+## DZ0413
+
+A reference, pointer or view points into some memory, its tie, and stays valid only while
+that memory does (spec §6.7). A call that can grow, shrink or free it — `push` on the list a
+reference points into, whose `kills` clause says so — ends every reference into it, and so
+does writing, moving or dropping what owns it. Using one afterwards would read memory that
+has moved. Use it before, or get it again after. Returning a view of a local, or of a
+parameter taken by value, is the same mistake: it dies as the function returns.
+
+```dz
+fn main() {
+    let mut scores = List<i32>()
+    scores.push(10)
+    let first = scores.first() or return
+    scores.push(20)
+    println!("{}", first)
+}
+```
+
+```dz
+fn main() {
+    let mut scores = List<i32>()
+    scores.push(10)
+    scores.push(20)
+    let first = scores.first() or return
+    println!("{}", first)
+}
+```
+
+## DZ0414
+
+A function returning a reference says where it points with `in`, and a caller keeps the
+result only as long as that memory lives (spec §6.7). Returning a view of something else
+breaks that promise: the caller would keep it past a kill it was never told about.
+
+```dz
+pub struct Team {
+    pub names: List<String>
+    pub coach: String
+}
+
+fn first_name(t: &Team) -> str in t.names[*] {
+    return t.coach.as_str()
+}
+
+fn main() {
+    let t = Team{ names: List<String>(), coach: String::from("Kim") }
+    println!("{}", first_name(&t))
+}
+```
+
+```dz
+pub struct Team {
+    pub names: List<String>
+    pub coach: String
+}
+
+fn coach_name(t: &Team) -> str in t.coach {
+    return t.coach.as_str()
+}
+
+fn main() {
+    let t = Team{ names: List<String>(), coach: String::from("Kim") }
+    println!("{}", coach_name(&t))
+}
+```
+
+## DZ0415
+
+Every function says in its signature what it may kill, so a caller knows which of its
+references survive the call without reading the body (spec §6.7). A body that kills what
+its `kills` clause leaves out is an error where it kills; `dz fix` writes the clause the
+body needs.
+
+```dz
+fn fill(xs: &mut List<i32>) {
+    xs.push(1)
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    fill(&mut xs)
+    println!("{}", xs.len())
+}
+```
+
+```dz
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    fill(&mut xs)
+    println!("{}", xs.len())
+}
+```
+
+## DZ0416
+
+A `kills` clause says exactly what the body kills (spec §6.7). A path the body never kills
+would end a caller's references for nothing, so it is an error; `dz fix` removes it.
+
+```dz
+fn count(xs: &mut List<i32>) -> usize kills xs@items {
+    return xs.len()
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    println!("{}", count(&mut xs))
+}
+```
+
+```dz
+fn count(xs: &mut List<i32>) -> usize {
+    return xs.len()
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    println!("{}", count(&mut xs))
+}
+```
+
+## DZ0417
+
+A `kills` clause names exactly what dies, no wider (spec §6.7). `kills xs` says everything
+the list owns may move, its array and each element's own memory; `push` only moves the
+array, so a caller's view into an element's text survives it, and the clause has to say
+`kills xs@items` for the caller to keep it. `dz fix` narrows the clause.
+
+```dz
+fn add(xs: &mut List<String>) kills xs {
+    xs.push(String::from("x"))
+}
+
+fn main() {
+    let mut xs = List<String>()
+    add(&mut xs)
+    println!("{}", xs.len())
+}
+```
+
+```dz
+fn add(xs: &mut List<String>) kills xs@items {
+    xs.push(String::from("x"))
+}
+
+fn main() {
+    let mut xs = List<String>()
+    add(&mut xs)
+    println!("{}", xs.len())
+}
+```
