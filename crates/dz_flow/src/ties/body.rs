@@ -63,7 +63,12 @@ pub struct BodyAnalysis {
     /// In source-clause order, in the same coordinates as `actual`.
     pub declared: Vec<Place>,
     pub mismatches: Vec<Mismatch>,
+    /// Where a kill may have been missed or widened, so the summary is not exact and the
+    /// clause is not compared with it.
     pub incomplete: Vec<Incomplete>,
+    /// Where a view could not be followed, so a use or a return went unchecked. This never
+    /// hides a kill: every way a kill reaches unknown memory is `incomplete` instead.
+    pub unchecked: Vec<Incomplete>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -228,7 +233,15 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
             }
             Err(_) => cx.incomplete(body.span, "the body's tie paths do not resolve"),
         }
-    } else {
+    } else if !matches!(
+        body.owner,
+        BodyOwner::Const(_)
+            | BodyOwner::Static(_)
+            | BodyOwner::AssocConst { .. }
+            | BodyOwner::FieldDefault { .. }
+    ) {
+        // An initialiser has no parameters and no clause, so nothing a caller sees can
+        // die in it and there is no summary to be incomplete; its uses are still walked.
         cx.incomplete(body.span, "this body has no callable signature");
     }
     if let Some(init) = body.base_init {
@@ -287,7 +300,7 @@ impl Analysis<'_> {
             _ => None,
         };
         let Some((sym, args, field)) = field else {
-            self.incomplete(self.body.expr(base).span, "field storage is not known");
+            self.unchecked(self.body.expr(base).span, "field storage is not known");
             return Value::default();
         };
         let sym = &sym;
@@ -329,7 +342,7 @@ impl Analysis<'_> {
             Ty::Named { .. } => {
                 let Some(signature) = index_signature(self.body.ty(base), self.table, self.res)
                 else {
-                    self.incomplete(span, "the indexed element's storage is unknown");
+                    self.unchecked(span, "the indexed element's storage is unknown");
                     return Vec::new();
                 };
                 let result = self.invoke(&signature, Some(value), &[], span);
@@ -363,7 +376,15 @@ impl Analysis<'_> {
     fn call(&mut self, callee: &Callee, args: &[ExprId], expression: ExprId) -> Value {
         let held_start = self.held.len();
         let recv = match callee {
-            Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => Some(self.expr(*recv)),
+            Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => {
+                let mut value = self.expr(*recv);
+                // A method called through a pointer acts on its pointee, never on the
+                // place holding the pointer: `c.p.add()` must not kill `c`.
+                if matches!(self.body.ty(*recv), Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
+                    value.places = value.views.clone();
+                }
+                Some(value)
+            }
             Callee::Value(value) => {
                 self.expr(*value);
                 None
@@ -397,15 +418,9 @@ impl Analysis<'_> {
         if let Some(signature) =
             call_signature(self.body, callee, args, expression, self.table, self.res)
         {
-            if signature.sig.params.iter().enumerate().any(|(i, p)| {
-                p.has_default
-                    && p.caller_default.is_none()
-                    && args.get(i).map_or(true, |e| {
-                        matches!(self.body.expr(*e).kind, hir::ExprKind::DefaultArg(_))
-                    })
-            }) {
-                self.incomplete(span, "default-argument effects are not modeled yet");
-            }
+            // A default left out is the callee's own expression, which cannot name the
+            // caller's places: it kills nothing here, and its provenance is unknown, which
+            // `invoke` reports only where a clause or tie depends on that parameter.
             let mut result = self.invoke(&signature, recv.as_ref(), &values, span);
             if let Callee::Method { owner, .. } = callee {
                 let index = self.table.prelude_trait_named("Index") == Some(*owner)
@@ -431,28 +446,43 @@ impl Analysis<'_> {
             return result;
         }
         // Function types do not yet carry clauses (T-0107). Until they do, use §6.7's
-        // opaque-call rule rather than guessing that an indirect call is kill-free.
+        // opaque-call rule rather than guessing that an indirect call is kill-free. It is
+        // exact for a pointer from C, and for any function type with no `&mut` or `^mut`
+        // parameter, since a clause names only those (DZ0564).
+        let ret = self.body.ty(expression);
+        let carries = super::points(ret) || super::contains_views(ret, self.table);
         if let Callee::Value(value) = callee {
             if let Ty::Fn { params, .. } = self.body.ty(*value) {
+                let mut mutable = false;
                 for (ty, value) in params.iter().zip(&values) {
                     if super::mutable_input(ty) {
+                        mutable = true;
                         if value.views.is_empty() && value.unknown {
                             self.incomplete(
                                 span,
                                 "indirect call through an argument with unknown provenance",
                             );
                         }
-                        self.kill_places(&value.views, span, KillKind::Call);
+                        // What is reachable through `&mut xs[0]` is that element, not
+                        // the array it is in.
+                        for origin in &value.views {
+                            self.kill(origin.target.clone(), span, KillKind::Call);
+                        }
                     }
                 }
-                self.incomplete(span, "function types do not yet carry their kills clauses");
+                if mutable {
+                    self.incomplete(span, "function types do not yet carry their kills clauses");
+                }
+                if carries {
+                    self.unchecked(span, "a view returned by an indirect call is unknown");
+                }
             } else {
                 self.incomplete(span, "the callee's signature is unknown");
             }
         } else {
             self.incomplete(span, "the callee's signature is unknown");
         }
-        Value { unknown: super::points(self.body.ty(expression)), ..Value::default() }
+        Value { unknown: carries, ..Value::default() }
     }
 
     fn invoke(
@@ -539,7 +569,7 @@ impl Analysis<'_> {
                         ReturnTie::Unknown => {
                             value.unknown = true;
                             if !receiver.is_empty() || params.iter().any(|p| !p.is_empty()) {
-                                self.incomplete(
+                                self.unchecked(
                                     span,
                                     "a returned view has no unambiguous input tie",
                                 );
@@ -757,11 +787,18 @@ impl Analysis<'_> {
     fn unwrapped(&mut self, operand: ExprId, value: Value, span: Span) -> Value {
         if let Ty::Optional(inner) = self.body.ty(operand).peeled_refs() {
             if super::contains_views(inner, self.table) && value.views.is_empty() {
-                self.incomplete(span, "optional view provenance is not modeled yet");
+                self.unchecked(span, "optional view provenance is not modeled yet");
                 return Value { unknown: true, ..Value::default() };
             }
         }
         value
+    }
+
+    fn unchecked(&mut self, span: Span, reason: &'static str) {
+        let item = Incomplete { span, reason };
+        if !self.result.unchecked.contains(&item) {
+            self.result.unchecked.push(item);
+        }
     }
 
     fn incomplete(&mut self, span: Span, reason: &'static str) {
@@ -811,7 +848,7 @@ impl Analysis<'_> {
             self.state.insert(local, Value { places: Vec::new(), ..value });
         } else {
             if super::contains_views(&self.body.local(local).ty, self.table) {
-                self.incomplete(
+                self.unchecked(
                     self.body.local(local).span,
                     "aggregate view bindings are not modeled yet",
                 );
@@ -870,7 +907,7 @@ impl Analysis<'_> {
             }
             hir::StmtKind::LetTuple { locals, init } => {
                 self.expr(init);
-                self.incomplete(node.span, "tuple view destructuring is not modeled yet");
+                self.unchecked(node.span, "tuple view destructuring is not modeled yet");
                 for local in locals.into_iter().flatten() {
                     self.bind(local, Value { unknown: true, ..Value::default() });
                     self.scopes.last_mut().unwrap().0.push(local);
@@ -932,7 +969,7 @@ impl Analysis<'_> {
                     })
                     .collect::<Vec<_>>();
                 if matches!(shape, hir::ForShape::Tuple) {
-                    self.incomplete(node.span, "tuple iterator bindings are not modeled yet");
+                    self.unchecked(node.span, "tuple iterator bindings are not modeled yet");
                 }
                 let iterator = Value {
                     views: self.targets(subject, &value),
@@ -1007,7 +1044,7 @@ impl Analysis<'_> {
             hir::ExprKind::Field { base, index } => self.field(base, index),
             hir::ExprKind::TupleIndex { base, .. } => {
                 self.expr(base);
-                self.incomplete(node.span, "tuple field provenance is not modeled yet");
+                self.unchecked(node.span, "tuple field provenance is not modeled yet");
                 Value { unknown: super::points(&node.ty), ..Value::default() }
             }
             hir::ExprKind::Index { base, index } => {
@@ -1045,6 +1082,9 @@ impl Analysis<'_> {
                     self.kill(Place::local(local), node.span, KillKind::Move);
                 } else {
                     self.kill_places(&value.places, node.span, KillKind::Move);
+                    if value.places.is_empty() {
+                        self.incomplete(node.span, "a move out of unknown storage");
+                    }
                 }
                 // The moved value's owned storage gets a new home. Views into its
                 // source are dead; preserving move-destination provenance is a later
@@ -1178,13 +1218,13 @@ impl Analysis<'_> {
                                     self.reported.insert(node.span);
                                 }
                                 if value.unknown {
-                                    self.incomplete(
+                                    self.unchecked(
                                         node.span,
                                         "the returned view's provenance is unknown",
                                     );
                                 }
                             }
-                            ReturnTie::Unknown if !value.views.is_empty() => self.incomplete(
+                            ReturnTie::Unknown if !value.views.is_empty() => self.unchecked(
                                 node.span,
                                 "the returned view has no unambiguous declared tie",
                             ),
@@ -1290,7 +1330,7 @@ impl Analysis<'_> {
                     self.expr(e);
                 }
                 if super::contains_views(&node.ty, self.table) {
-                    self.incomplete(node.span, "aggregate view provenance is not modeled yet");
+                    self.unchecked(node.span, "aggregate view provenance is not modeled yet");
                 }
                 Value::default()
             }
@@ -1306,9 +1346,14 @@ impl Analysis<'_> {
                 }
                 Value { unknown: super::points(&node.ty), ..Value::default() }
             }
-            hir::ExprKind::Static(_) => {
-                self.incomplete(node.span, "static storage is not modeled yet");
-                Value { unknown: true, ..Value::default() }
+            // A static is reached only in `unsafe`, and no clause can name one, so it is
+            // unchecked, like a pointer made there (§6.7): no place a kill could reach.
+            hir::ExprKind::Static(_) => Value {
+                unknown: super::points(&node.ty) || super::contains_views(&node.ty, self.table),
+                ..Value::default()
+            },
+            hir::ExprKind::DefaultArg(_) => {
+                Value { unknown: super::points(&node.ty), ..Value::default() }
             }
             _ => Value::default(),
         };

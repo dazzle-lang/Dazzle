@@ -628,6 +628,59 @@ fn opaque(f: fn(&mut World), w: &mut World) kills w {
 }
 
 #[test]
+fn indirect_calls_with_nothing_mutable_kill_nothing_whatever_their_clause() {
+    // A clause names only `&mut` and `^mut` parameters (DZ0564), so a function type
+    // with none of them can kill nothing, carried clause or not.
+    let fixture = Fixture::with_source(
+        r#"
+fn reads(f: fn(&World, i32) -> i32, w: &mut World) {
+    let p = w.first()
+    f(w, 1)
+    observe(p)
+}
+fn reads_with_clause(f: fn(&World) -> i32, w: &mut World) kills w { f(w) }
+"#,
+    );
+    clean(&fixture.analysis("reads"));
+    let a = fixture.analysis("reads_with_clause");
+    assert!(a.incomplete.is_empty(), "{a:#?}");
+    assert!(matches!(a.mismatches[..], [Mismatch::Unused { declared: 0 }]), "{a:#?}");
+}
+
+#[test]
+fn initialisers_and_defaults_have_no_effect_on_the_callers_places() {
+    let fixture = Fixture::with_source(
+        r#"
+pub struct Settings { pub n: i32 = 3 }
+const LIMIT: i32 = 4
+fn defaulted_view(w: &mut World, p: ^Text = null, n: i32 = 0) kills w.bag@items {}
+fn passes_default(w: &mut World) kills w.bag@items {
+    let p = w.first()
+    defaulted_view(w)
+    observe(p)
+}
+"#,
+    );
+    // An initialiser is complete: it has no summary to doubt.
+    let mut initialisers = 0;
+    for (_, body) in fixture.checked.hir.bodies() {
+        if matches!(
+            body.owner,
+            dz_hir::BodyOwner::Const(_) | dz_hir::BodyOwner::FieldDefault { .. }
+        ) {
+            let a = ties::analyse_body(body, &fixture.checked.table, &fixture.res);
+            assert!(a.incomplete.is_empty(), "{a:#?}");
+            initialisers += 1;
+        }
+    }
+    assert!(initialisers >= 2, "LIMIT and Settings::n at least");
+    let a = fixture.analysis("passes_default");
+    assert_eq!(a.invalid_uses.len(), 1, "{a:#?}");
+    assert!(a.incomplete.is_empty(), "{a:#?}");
+    assert!(a.mismatches.is_empty(), "{a:#?}");
+}
+
+#[test]
 fn calls_preserve_temporary_argument_and_receiver_provenance() {
     let fixture = Fixture::with_source(
         r#"
@@ -945,11 +998,25 @@ fn chase(p: &mut Link, flag: bool) kills p {
     while flag { let node = current or break; current = node.next() }
 }
 fn tuple_boundary(w: &mut World) kills w {
+    let pair = (&mut w.bag, 1)
+    let (b, n) = pair
+    grow(b)
+}
+pub struct Pile {
+    pub bag: Bag<Text> in @pile
+    pub fn add(&mut self) kills self@pile@items { grow(&mut bag) }
+}
+pub struct Cursor { pub p: ^mut Pile }
+fn field_pointer(p: &mut Pile) {
+    let c = Cursor{ p: p }
+    unsafe { c.p.add() }
+}
+fn tuple_view(w: &mut World) kills w {
     let pair = (w.first(), 1)
     let (p, n) = pair
     observe(p)
 }
-fn defaulted(w: &mut World, n: i32 = 0) {}
+fn defaulted(w: &mut World, other: ^mut World = null) kills other {}
 fn default_boundary(w: &mut World) kills w { defaulted(w) }
 fn annotated_replace(e: &mut Text in w, w: &mut World) kills e { e = Text{} }
 "#,
@@ -959,6 +1026,16 @@ fn annotated_replace(e: &mut Text in w, w: &mut World) kills e { e = Text{} }
         assert!(!a.incomplete.is_empty(), "{name}: {a:#?}");
         assert!(a.mismatches.is_empty(), "{name}: {a:#?}");
     }
+    // A view lost in a tuple leaves its use unchecked, but cannot hide a kill: the
+    // body kills nothing, which its clause is held to.
+    // A call through a pointer field acts on the pointee, never the local holding it,
+    // so its kill is not dropped from the summary as that local's; here it is unknown.
+    let a = fixture.analysis("field_pointer");
+    assert!(!a.incomplete.is_empty(), "{a:#?}");
+    assert!(a.mismatches.is_empty(), "{a:#?}");
+    let a = fixture.analysis("tuple_view");
+    assert!(a.incomplete.is_empty() && !a.unchecked.is_empty(), "{a:#?}");
+    assert!(matches!(a.mismatches[..], [Mismatch::Unused { declared: 0 }]), "{a:#?}");
     let a = fixture.analysis("annotated_replace");
     clean(&a);
     assert!(a.mismatches.is_empty(), "{a:#?}");

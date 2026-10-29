@@ -274,10 +274,12 @@ user's choice. In order, each step standing on its own:
      produce clause-narrowing/removal suggestions. **2026-10-29:** run over all 881 bodies
      of std and `examples/`, it had false uses after a kill in 62 and now has none (std is
      held to that by a test); writing plain data kills nothing (r82, the user's call), and
-     payload references through `case X(&c)` and `if let &v` are followed. **Still open:**
-     aggregate view storage and destructuring (an optional, struct or tuple holding a view
-     is unknown), general iterators, private pointer indexing to `[*]`, how a path names
-     one payload, default-argument effects, function-type clauses, and diagnostic/fix
+     payload references through `case X(&c)` and `if let &v` are followed. Gaps that
+     cannot hide a kill are now `unchecked` rather than `incomplete`, so 848 of the 881
+     have an exact summary held to their clause. **Still open:** aggregate view storage
+     and destructuring (an optional, struct or tuple holding a view is unknown, so its uses
+     are unchecked), general iterators, private pointer indexing to `[*]`, how a path names
+     one payload, function-type clauses (14 calls need them), and diagnostic/fix
      integration. Nothing new is enforced yet.
    - **2d. `std`'s clauses** on `List`, `HashMap`, `HashSet`, `SlotMap` and `String`, with
      `std` itself checking clean.
