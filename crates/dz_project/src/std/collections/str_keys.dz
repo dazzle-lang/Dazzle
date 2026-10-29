@@ -3,24 +3,24 @@
 /// the entry its `String` would.
 pub trait StrKeys<V> {
     /// The value for `key`, or `null` when there is none.
-    fn get_str(&self, key: str) -> ^V
+    fn get_str(&self, key: str) -> ^V in self
 
     /// The value for `key`, to change in place, or `null` when there is none.
-    fn get_mut_str(&mut self, key: str) -> ^mut V
+    fn get_mut_str(&mut self, key: str) -> ^mut V in self
 
     fn contains_str(&self, key: str) -> bool
 
     /// Take the entry for `key` out, returning its value, or `none` when there is none.
-    fn remove_str(&mut self, key: str) -> V?
+    fn remove_str(&mut self, key: str) -> V? kills self
 }
 
 impl<V> StrKeys<V> for HashMap<String, V> {
-    fn get_str(&self, key: str) -> ^V {
+    fn get_str(&self, key: str) -> ^V in self@items {
         let slot = self.find_by(&key, key_hash(&key), string_is) or return null
         return unsafe { &m_values[slot] }
     }
 
-    fn get_mut_str(&mut self, key: str) -> ^mut V {
+    fn get_mut_str(&mut self, key: str) -> ^mut V in self@items {
         let slot = self.find_by(&key, key_hash(&key), string_is) or return null
         return unsafe { &mut m_values[slot] }
     }
@@ -29,7 +29,7 @@ impl<V> StrKeys<V> for HashMap<String, V> {
         return self.find_by(&key, key_hash(&key), string_is) != none
     }
 
-    fn remove_str(&mut self, key: str) -> V? {
+    fn remove_str(&mut self, key: str) -> V? kills self@items {
         let slot = self.find_by(&key, key_hash(&key), string_is) or return none
         return self.remove_slot(slot)
     }

@@ -272,7 +272,7 @@ impl<'a> Dumper<'a> {
                     d.expr(rhs);
                 });
             }
-            ExprKind::Cast { operand } => {
+            ExprKind::Cast { operand, .. } => {
                 node!("cast");
                 self.nest(|d| d.expr(operand));
             }

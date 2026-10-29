@@ -29,8 +29,8 @@ pub struct Formatter {
     m_loc: SourceLocation
     m_hex: bool = false
     m_upper: bool = false
-    m_precision: u32? = none
-    m_width: u32? = none
+    m_precision: u32? in @spec = none
+    m_width: u32? in @spec = none
     m_zero: bool = false
     /// While an argument with a width is written: how many characters it has written so
     /// far, so what falls short of the width can be made up after it.
@@ -123,7 +123,7 @@ pub struct Formatter {
 
     /// The text since the last placeholder, then this one's spec, which the argument's
     /// `Format` reads; under a width, the argument's characters are counted from here.
-    fn begin_arg(&mut self, piece: str, spec: str) {
+    fn begin_arg(&mut self, piece: str, spec: str) kills self@spec {
         self.write_str(piece)
         self.set_spec(spec)
         if m_width != none {
@@ -141,7 +141,7 @@ pub struct Formatter {
 
     /// The text after the last placeholder, and on a stream the whole of it written out —
     /// before the arguments' temporaries are dropped.
-    fn finish(&mut self, piece: str) {
+    fn finish(&mut self, piece: str) kills self@spec {
         self.set_spec("")
         self.write_str(piece)
         self.flush()
@@ -301,7 +301,7 @@ pub struct Formatter {
     /// optional `0` and width, `N` or `0N`, then `x`, `X` or `.N` — or empty for `{}`. The
     /// formatting macros call this before each argument; an implementation may call it to
     /// write a part of itself differently.
-    pub fn set_spec(&mut self, spec: str) {
+    pub fn set_spec(&mut self, spec: str) kills self@spec {
         m_width = none
         m_zero = false
         let bytes = spec as []u8

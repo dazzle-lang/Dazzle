@@ -282,9 +282,13 @@ user's choice. In order, each step standing on its own:
      one payload, function-type clauses (14 calls need them), and diagnostic/fix
      integration. Nothing new is enforced yet.
    - **2d. `std`'s clauses** on `List`, `HashMap`, `HashSet`, `SlotMap` and `String`, with
-     `std` itself checking clean. `HashMap`'s three arrays are all `in @items`, which r83
-     allows (fields tied together, 2026-10-29). `Formatter::set_spec` writes two private
-     `usize?` fields, a payload change under r82, so it needs a tie on them and a clause.
+     `std` itself checking clean. **Started 2026-10-29** (`docs/log/r81-ties.md`): `List`,
+     `String`, `HashMap` (its three arrays all `in @items`, r83) and `Formatter` declare
+     their ties and clauses, bodies over a tied pointer are trusted as §6.7 says, and clauses
+     compare by the ties they name. **Blocked on the user:** `HashSet`, `StrSet` and
+     `SlotMap`, containers built from containers, whose `@items` and `[*]` are a field's;
+     and whether taking an element out (`pop`, `remove`, `swap_remove`, `replace`) kills
+     `self[*]` too, since nothing ends a view into the element when the caller drops it.
    - **2e. The fixes and the editor.** `dz fix` writes the clause a body needs, adding,
      removing or narrowing paths; the editor offers the same as a quick fix on each of 2c's
      errors, shows the clause a body needs while it is being written, and the clause in a

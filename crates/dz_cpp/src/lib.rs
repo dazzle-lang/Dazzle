@@ -4080,7 +4080,7 @@ impl<'a> Emitter<'a> {
                 let text = self.binary(*op, *lhs, *rhs);
                 self.narrow_result(e, text)
             }
-            hir::ExprKind::Cast { operand } => {
+            hir::ExprKind::Cast { operand, .. } => {
                 let t = self.cpp_ty(body.ty(e));
                 let v = self.expr(*operand);
                 format!("::dz::cast<{t}>({v})")
@@ -5058,7 +5058,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::DataPtr(base)
             | hir::ExprKind::Deref(base)
             | hir::ExprKind::Ref { place: base, .. }
-            | hir::ExprKind::Cast { operand: base } => self.collect_owners(*base, false, out),
+            | hir::ExprKind::Cast { operand: base, .. } => self.collect_owners(*base, false, out),
             _ => {}
         }
     }
@@ -5110,7 +5110,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::Move(base)
             | hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Unary { operand: base, .. }
-            | hir::ExprKind::Cast { operand: base } => self.has_effects(*base),
+            | hir::ExprKind::Cast { operand: base, .. } => self.has_effects(*base),
             hir::ExprKind::Index { base, index } => any(&[*base, *index]),
             hir::ExprKind::Binary { lhs, rhs, .. } => any(&[*lhs, *rhs]),
             hir::ExprKind::SliceRange { base, start, end } => {
@@ -5145,7 +5145,7 @@ impl<'a> Emitter<'a> {
             // A local reference cannot be re-seated, so it names the same thing throughout.
             hir::ExprKind::Local(_) => matches!(body.ty(e), Ty::Ref { .. }),
             hir::ExprKind::Ref { place, .. } => self.fixed_place(*place),
-            hir::ExprKind::Cast { operand } | hir::ExprKind::Unary { operand, .. } => {
+            hir::ExprKind::Cast { operand, .. } | hir::ExprKind::Unary { operand, .. } => {
                 self.order_stable(*operand)
             }
             hir::ExprKind::ArrayLit(elems) | hir::ExprKind::Tuple(elems) => {
@@ -5906,7 +5906,7 @@ impl Namer<'_> {
             | hir::ExprKind::Deref(base)
             | hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Unary { operand: base, .. }
-            | hir::ExprKind::Cast { operand: base }
+            | hir::ExprKind::Cast { operand: base, .. }
             | hir::ExprKind::Move(base) => self.expr(base),
             hir::ExprKind::Index { base, index } => {
                 self.expr(base);

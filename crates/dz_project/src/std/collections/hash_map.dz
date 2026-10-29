@@ -8,9 +8,9 @@
 /// A lookup returns a pointer, `null` when the key is absent (§9.1), so it is handled with
 /// `or`: `let hp = health.get(&id) or return`.
 pub struct HashMap<K: Hash + Eq, V> {
-    m_hashes: own ^mut u64 = null
-    m_keys: own ^mut K = null
-    m_values: own ^mut V = null
+    m_hashes: own ^mut u64 in @items = null
+    m_keys: own ^mut K in @items = null
+    m_values: own ^mut V in @items = null
     m_len: usize = 0
     m_slots: usize = 0
     m_allocator: ^mut Allocator = Allocators::Global
@@ -51,13 +51,13 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// Add `key` with `value`. When the key was already there its value is replaced, and
     /// the old one dropped; `replace` hands it back instead.
-    pub fn insert(&mut self, key: K, value: V, loc: SourceLocation = #location) {
+    pub fn insert(&mut self, key: K, value: V, loc: SourceLocation = #location) kills self@items {
         let _ = self.replace(move(key), move(value), loc)
     }
 
     /// Add `key` with `value`, returning the value it replaces, or `none` when the key is
     /// new.
-    pub fn replace(&mut self, key: K, value: V, loc: SourceLocation = #location) -> V? {
+    pub fn replace(&mut self, key: K, value: V, loc: SourceLocation = #location) -> V? kills self@items {
         let h = key_hash(&key)
         if let slot = self.find(&key, h) {
             let old = unsafe { move_out(m_values[slot]) }
@@ -79,7 +79,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     /// let n = counts.get_or_insert(word, 0)
     /// n += 1
     /// ```
-    pub fn get_or_insert(&mut self, key: K, default: V, loc: SourceLocation = #location) -> &mut V {
+    pub fn get_or_insert(&mut self, key: K, default: V, loc: SourceLocation = #location) -> &mut V in self@items kills self@items {
         let h = key_hash(&key)
         if let slot = self.find(&key, h) {
             return unsafe { &mut m_values[slot] }
@@ -93,13 +93,13 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// The value for `key`, or `null` when there is none.
-    pub fn get(&self, key: &K) -> ^V {
+    pub fn get(&self, key: &K) -> ^V in self@items {
         let slot = self.find(key, key_hash(key)) or return null
         return unsafe { &m_values[slot] }
     }
 
     /// The value for `key`, to change in place, or `null` when there is none.
-    pub fn get_mut(&mut self, key: &K) -> ^mut V {
+    pub fn get_mut(&mut self, key: &K) -> ^mut V in self@items {
         let slot = self.find(key, key_hash(key)) or return null
         return unsafe { &mut m_values[slot] }
     }
@@ -109,14 +109,14 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// Take the entry for `key` out, returning its value, or `none` when there is none.
-    pub fn remove(&mut self, key: &K) -> V? {
+    pub fn remove(&mut self, key: &K) -> V? kills self@items {
         let found = self.find(key, key_hash(key)) or return none
         return self.remove_slot(found)
     }
 
     /// Keep only the entries `keep` says yes to, and drop the rest. `keep` may change the
     /// value it is shown; each entry is asked once.
-    pub fn retain(&mut self, keep: fn(&K, &mut V) -> bool) {
+    pub fn retain(&mut self, keep: fn(&K, &mut V) -> bool) kills self@items, self[*] {
         self.retain_with(&keep, ask_entry<K, V>)
     }
 
@@ -143,7 +143,7 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// Drop every entry `keep(q, key, value)` says no to: `retain`, and a `HashSet`'s, which
     /// asks about the key alone.
-    pub(module) fn retain_with<Q>(&mut self, q: &Q, keep: fn(&Q, &K, &mut V) -> bool) {
+    pub(module) fn retain_with<Q>(&mut self, q: &Q, keep: fn(&Q, &K, &mut V) -> bool) kills self@items, self[*] {
         if m_len == 0 {
             return
         }
@@ -178,7 +178,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// Drop every entry and keep the allocation.
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self) kills self@items, self[*] {
         for i in 0..m_slots {
             if unsafe { m_hashes[i] } != 0 {
                 unsafe {
@@ -192,7 +192,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// Room for at least `additional` more entries without growing again.
-    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) {
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) kills self@items {
         if (m_len + additional) * 4 > m_slots * 3 {
             self.grow_to(m_len + additional, loc)
         }
@@ -206,7 +206,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// The key in `slot`, or `null` when the slot is empty.
-    pub fn key_at(&self, slot: usize) -> ^K {
+    pub fn key_at(&self, slot: usize) -> ^K in self@items {
         if self.checked_slot(slot) == 0 {
             return null
         }
@@ -214,7 +214,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// The value in `slot`, or `null` when the slot is empty.
-    pub fn value_at(&self, slot: usize) -> ^V {
+    pub fn value_at(&self, slot: usize) -> ^V in self@items {
         if self.checked_slot(slot) == 0 {
             return null
         }
@@ -222,7 +222,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// The value in `slot`, to change in place, or `null` when the slot is empty.
-    pub fn value_at_mut(&mut self, slot: usize) -> ^mut V {
+    pub fn value_at_mut(&mut self, slot: usize) -> ^mut V in self@items {
         if self.checked_slot(slot) == 0 {
             return null
         }
@@ -260,7 +260,7 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// Put an entry known not to be present into the first free slot of its run, and say
     /// which slot that was.
-    fn place(&mut self, key: K, value: V, h: u64) -> usize {
+    fn place(&mut self, key: K, value: V, h: u64) -> usize kills self@items {
         let mask = m_slots - 1
         let mut i = (h & (mask as u64)) as usize
         while unsafe { m_hashes[i] } != 0 {
@@ -275,7 +275,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// Take the entry in `found` out, returning its value.
-    pub(module) fn remove_slot(&mut self, found: usize) -> V {
+    pub(module) fn remove_slot(&mut self, found: usize) -> V kills self@items {
         let value = unsafe { move_out(m_values[found]) }
         unsafe {
             destroy(m_keys[found])
@@ -315,7 +315,7 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// Enough slots for `wanted` entries at three quarters full — a power of two, so a hash
     /// picks its slot with a mask — with every entry moved over.
-    fn grow_to(&mut self, wanted: usize, loc: SourceLocation) {
+    fn grow_to(&mut self, wanted: usize, loc: SourceLocation) kills self@items {
         let mut slots: usize = if m_slots == 0 { 8 } else { m_slots * 2 }
         while wanted * 4 > slots * 3 {
             slots *= 2

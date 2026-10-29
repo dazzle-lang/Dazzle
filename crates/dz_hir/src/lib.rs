@@ -418,6 +418,9 @@ pub enum ExprKind {
     },
     Cast {
         operand: ExprId,
+        /// Written `as`, rather than a conversion the checker inserted. Every explicit
+        /// pointer cast is `unsafe`, and what it makes is unchecked by ties (spec §6.7).
+        explicit: bool,
     },
     Range {
         start: Option<ExprId>,

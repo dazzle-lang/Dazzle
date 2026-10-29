@@ -6,6 +6,69 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## 2d, first part: `List`, `String` and `HashMap` declare their ties (2026-10-29)
+
+std's first clauses, following §6.7's table. Nothing is enforced yet, so a missing clause in
+a caller is still only a finding.
+
+- **`List`**: `m_data: own ^mut T in @items`. Growing, inserting, taking out and moving
+  elements (`push`, `insert`, `pop`, `remove`, `swap_remove`, `swap`, `reverse`,
+  `sort_by`, `reserve`) kill `self@items`; dropping elements (`clear`, `truncate`,
+  `remove_range`, `retain`, `resize`) kills `self@items, self[*]`; `append` kills
+  `self@items, other@items`, since the elements leave `other` with their own memory.
+  Indexing, `first`, `last` and the slices are `in self@items`. `Sort::sort` promises
+  `kills self` and `List`'s implementation kills `self@items`.
+- **`String`**: `m_bytes: List<u8> in @text`; every change kills `self@text`, and `as_str`,
+  `as_cstr` and the `cstr` conversion are `in self@text`.
+- **`HashMap`**: all three arrays are `in @items` (r83), with `List`'s pattern; `StrKeys`
+  promises `in self` and `kills self`, its implementation names `@items`.
+- **`Formatter`**: `m_width` and `m_precision` are `in @spec`, which `set_spec`,
+  `begin_arg` and `finish` kill: a `u32?` changing variant is a payload change (r82).
+- **Trusted bodies.** §6.7 says std's clauses are written by hand over `unsafe` code and
+  trusted, and its own table makes that necessary: `pop` kills only `self@items`, while the
+  checker, which cannot follow a view from a place to where it moved, kills everything
+  under a place moved out. A body indexing a tied pointer (`m_data[i]`) stays incomplete,
+  so its clause is not compared with it; step 3's debug checks are its test. Bodies built
+  on those types (`String` over `List`, `clear` over `truncate`) are compared exactly.
+- **A pointer made by a cast is unchecked** (§6.7), now as the spec says it: any explicit
+  `as` to a pointer, which is always `unsafe`, rather than only one to another pointee.
+  `HashMap::grow_to` keeps `m_hashes as ^mut u64` while it moves the entries out, and the
+  write that replaced `m_hashes` had made that read look like a use after a kill. HIR's
+  `Cast` gains `explicit`, so the checker's own `mut`-dropping conversions keep their tie.
+
+**Clauses compare by the ties they name** (§6.7: a path that ends without a tie means every
+tie under it). `push_str kills self@text` was "wider than what dies" against a body that
+kills `self@text@items`, though a `List<u8>` owns nothing else. `dz_flow::ties::ties`
+expands a place to its ties: the memory behind tied pointers, payloads, the elements of a
+type with `[*]` (behind a pointer they are not among the fields), an `Iterable`'s entries
+when they are references into it (a `String`'s `char`s are not), what a type parameter
+might own, and a value whose `drop` frees an untied `own` pointer, named whole.
+`compare_ties` compares those, so `kills n` equals `kills n.text` when `n`'s other fields
+are plain, and a clause naming only plain data names nothing (unused). `Drop` bodies are no
+longer held to a clause: the value is dying, and `Drop::drop` declares none.
+
+After this, across std and the examples: no use after a kill. The examples' mismatches are
+the clauses 2e writes (breakout's wall and bricks, box2d's `reset` and `spawn`, sdl3's mesh).
+std's are `HashSet`, `StrSet` and `SlotMap`, which are blocked; see below.
+
+**Open, for the user:**
+- *A container built from containers.* `SlotMap` is three `List`s and `HashSet` a
+  `HashMap`. §6.7 gives them `self@items` and `self[*]` like `List`, but their array is a
+  field's `@items` and their elements a field's `[*]`, and no declaration says so: tying
+  the field gives a tie for the whole field, which is wider than `@items` and fails the
+  exact clause. Either a type declares its ties as paths into its fields, or such
+  containers name their fields' ties (`kills self@values@items`), or their bodies are
+  trusted too.
+- *Taking an element out.* `pop`, `remove`, `swap_remove` and `HashMap::replace` kill only
+  `@items` (§6.7's table), so a view into the element's own memory survives. That is right
+  while the taken value lives, but nothing ends the view when the caller drops it: `let s =
+  xs[0].as_str(); let x = xs.swap_remove(0); drop(x)`, then `s` is freed text. Killing
+  `self[*]` as well closes it, at the cost of every other element's views.
+
+Tests: `dz_flow/tests/ties.rs` has 34. New: §6.7's scenarios against std's real clauses
+(`get_or_insert` then `insert`, `as_str` then `push_str`, a slot or an element's text across
+`push` and `clear`, two lists apart), and clauses compared over the ties they name.
+
 ## r83: fields tied together (2026-10-29)
 
 `HashMap` keeps hashes, keys and values in three arrays that grow as one, and 2b's

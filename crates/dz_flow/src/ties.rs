@@ -370,22 +370,33 @@ pub enum Mismatch {
 /// Trait requirements, extern declarations and function types use an upper bound instead
 /// and must not be checked for unused/broad declarations.
 pub fn compare(declared: &[Place], actual: &[Place]) -> Vec<Mismatch> {
+    let one = |places: &[Place]| places.iter().map(|p| vec![p.clone()]).collect::<Vec<_>>();
+    compare_ties(&one(declared), &one(actual))
+}
+
+/// [`compare`], over the ties each path names rather than the path as written ([`ties`]):
+/// `s@text` and `s@text@items` are one clause when a `List<u8>` owns nothing else.
+pub fn compare_ties(declared: &[Vec<Place>], actual: &[Vec<Place>]) -> Vec<Mismatch> {
     let mut out = Vec::new();
-    for (i, place) in actual.iter().enumerate() {
-        if !declared.iter().any(|d| d.covers(place)) {
+    for (i, leaves) in actual.iter().enumerate() {
+        if leaves.iter().any(|leaf| !declared.iter().flatten().any(|d| d.covers(leaf))) {
             out.push(Mismatch::Missing { actual: i });
         }
     }
     for (i, declared) in declared.iter().enumerate() {
         // A broader actual kill already produces Missing at the operation. The narrow
         // declaration does describe memory that dies; reporting Unused as well cascades.
-        if actual.iter().any(|a| a.covers(declared)) {
+        if !declared.is_empty()
+            && declared.iter().all(|d| actual.iter().flatten().any(|a| a.covers(d)))
+        {
             continue;
         }
         let under: Vec<usize> = actual
             .iter()
             .enumerate()
-            .filter_map(|(i, a)| declared.covers(a).then_some(i))
+            .filter_map(|(i, a)| {
+                a.iter().any(|a| declared.iter().any(|d| d.covers(a))).then_some(i)
+            })
             .collect();
         if under.is_empty() {
             out.push(Mismatch::Unused { declared: i });
@@ -394,4 +405,105 @@ pub fn compare(declared: &[Place], actual: &[Place]) -> Vec<Mismatch> {
         }
     }
     out
+}
+
+/// The ties `place` names, of type `root` at its local (spec §6.7: a path that ends
+/// without a tie means every tie under it). Each is the memory behind a tied pointer, a
+/// union's or optional's payload, the elements of a type with `[*]`, or what an unknown
+/// type might own; a plain field names none. Clauses are compared over these.
+pub fn ties(scope: &Scope<'_>, place: &Place, root: &Ty) -> Vec<Place> {
+    // A reference or pointer parameter's place is what it points at.
+    let mut ty = Some(root.peeled().clone());
+    for step in &place.steps {
+        ty = match (ty, step) {
+            (Some(t), Step::Field(name)) => field(scope, &t, name),
+            (Some(t), Step::Elements) => ties::elements(scope, &t).flatten(),
+            _ => None,
+        };
+    }
+    let mut out = Vec::new();
+    match ty {
+        Some(ty) => collect_ties(scope, place, &ty, &mut out, 0),
+        // Memory named whole: the storage behind a pointer, or an iterable's entries.
+        None => out.push(place.clone()),
+    }
+    out
+}
+
+fn collect_ties(scope: &Scope<'_>, place: &Place, ty: &Ty, out: &mut Vec<Place>, depth: usize) {
+    if depth > 6 {
+        out.push(place.clone());
+        return;
+    }
+    match ty {
+        Ty::Optional(_) | Ty::Param(_) | Ty::Assoc(_) => out.push(place.clone()),
+        Ty::Array { elem, .. } => {
+            collect_ties(scope, &place.followed_by(&[Step::Elements]), elem, out, depth + 1)
+        }
+        Ty::Tuple(_) if body::moves_memory(ty, scope.table) => out.push(place.clone()),
+        Ty::Named { sym, args } => match scope.table.get(*sym) {
+            Some(dz_check::ItemSig::Union { .. }) => {
+                if body::moves_memory(ty, scope.table) {
+                    out.push(place.clone());
+                }
+            }
+            Some(dz_check::ItemSig::Struct(s)) => {
+                let types = scope.table.field_types(*sym, args, &s.fields);
+                // A `drop` freeing memory behind an untied `own` pointer owns something no
+                // path inside it names, so the value is named whole.
+                if s.drop.is_some()
+                    && s.fields
+                        .iter()
+                        .zip(&types)
+                        .any(|(f, t)| f.tie.is_none() && matches!(t, Ty::OwnPtr { .. }))
+                {
+                    out.push(place.clone());
+                    return;
+                }
+                let mut seen = Vec::new();
+                for (f, t) in s.fields.iter().zip(types) {
+                    let name = canonical_field(scope.table, *sym, &f.name);
+                    if seen.contains(&name) {
+                        continue;
+                    }
+                    seen.push(name.clone());
+                    let at = place.followed_by(&[Step::Field(name)]);
+                    match t {
+                        Ty::Ptr { .. } | Ty::OwnPtr { .. } if f.tie.is_some() => {
+                            out.push(at.followed_by(&[Step::Storage]))
+                        }
+                        // An untied pointer is unchecked (§6.7).
+                        Ty::Ptr { .. } | Ty::OwnPtr { .. } => {}
+                        t => collect_ties(scope, &at, &t, out, depth + 1),
+                    }
+                }
+                // Behind a pointer, the elements are not among the fields, so `[*]` is
+                // reached through what `Index` or `Iterable` says (§6.7).
+                match ties::elements(scope, ty) {
+                    Some(Some(e)) => collect_ties(
+                        scope,
+                        &place.followed_by(&[Step::Elements]),
+                        &e,
+                        out,
+                        depth + 1,
+                    ),
+                    // Entries that are values computed on the way, as a `String`'s
+                    // characters are, are no memory of its own to name.
+                    Some(None) => {
+                        let item = ties::iterated(scope, ty);
+                        if item.map_or(true, |t| {
+                            points(&t)
+                                || contains_views(&t, scope.table)
+                                || body::moves_memory(&t, scope.table)
+                        }) {
+                            out.push(place.followed_by(&[Step::Elements]))
+                        }
+                    }
+                    None => {}
+                }
+            }
+            _ => {}
+        },
+        _ => {}
+    }
 }
