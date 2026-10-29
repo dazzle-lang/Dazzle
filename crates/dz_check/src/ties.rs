@@ -10,12 +10,12 @@
 
 use dz_ast::{TiePath, TieStep, Vis};
 use dz_diag::codes;
-use dz_hir::ty::{IntTy, Ty};
+use dz_hir::ty::{FnKills, IntTy, Ty};
 use dz_project::ModuleId;
 use dz_resolve::{Resolution, SymbolId};
 use dz_span::Span;
 
-use crate::{FnSig, TieSig, TraitRef, TypeTable};
+use crate::{FnSig, ParamSig, TieSig, TraitRef, TypeTable};
 
 /// A tie path with every name looked up.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -532,6 +532,108 @@ impl Walker<'_> {
             Vis::Private => self.privileged == Some(owner),
         };
         reachable && self.callers.map_or(true, |callers| rank(vis) >= rank(callers))
+    }
+}
+
+/// The signature a call through a value of function type reads (spec §6.7): its
+/// parameters, named as the type names them, its result, and its clause, the most a
+/// function stored in it may kill. A pointer from C has no clause to read.
+pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
+    let (names, paths, unknown): (&[String], &[TiePath], bool) = match kills {
+        FnKills::Known { names, paths } => (names, paths, false),
+        FnKills::Unknown => (&[], &[], true),
+    };
+    FnSig {
+        params: params
+            .iter()
+            .enumerate()
+            .map(|(i, ty)| ParamSig {
+                name: names.get(i).cloned().unwrap_or_default(),
+                ty: ty.clone(),
+                has_default: false,
+                caller_default: None,
+                c_cast: None,
+                tie: None,
+            })
+            .collect(),
+        ret: ret.clone(),
+        fallible: false,
+        takes_self: None,
+        is_mut: false,
+        is_unsafe: false,
+        // A type's clause names what anyone holding the type can see.
+        vis: Vis::Public,
+        span: Span::DUMMY,
+        generics: Vec::new(),
+        has_body: false,
+        ret_cast: false,
+        dispatch: dz_ast::Dispatch::Static,
+        variadic: None,
+        ret_tie: None,
+        kills: paths.to_vec(),
+        kills_unknown: unknown,
+    }
+}
+
+/// Every mistake in the clauses of the function types inside `ty`: a path that names
+/// nothing, or a kill through a parameter the function cannot change (spec §6.7).
+pub fn check_fn_types(
+    table: &TypeTable,
+    res: &Resolution,
+    module: ModuleId,
+    ty: &Ty,
+) -> Vec<Error> {
+    let mut out = Vec::new();
+    fn_types(table, res, module, ty, &mut out, 0);
+    out
+}
+
+fn fn_types(
+    table: &TypeTable,
+    res: &Resolution,
+    module: ModuleId,
+    ty: &Ty,
+    out: &mut Vec<Error>,
+    depth: usize,
+) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    let mut inner = |t: &Ty| fn_types(table, res, module, t, out, depth + 1);
+    match ty {
+        Ty::Fn { params, ret, kills } => {
+            for p in params {
+                inner(p);
+            }
+            inner(ret);
+            let sig = fn_type_sig(params, ret, kills);
+            let scope = Scope {
+                table,
+                res,
+                module,
+                name: "fn(…)",
+                sig: &sig,
+                self_ty: None,
+                privileged: None,
+            };
+            for path in &sig.kills {
+                match resolve(&scope, path) {
+                    Ok(tie) => out.extend(changeable(&scope, &tie, path).err()),
+                    Err(e) => out.push(e),
+                }
+            }
+        }
+        Ty::Ref { inner: t, .. }
+        | Ty::Ptr { inner: t, .. }
+        | Ty::OwnPtr { inner: t, .. }
+        | Ty::Optional(t)
+        | Ty::Fallible(t)
+        | Ty::Range(t)
+        | Ty::Array { elem: t, .. }
+        | Ty::Slice { elem: t, .. } => inner(t),
+        Ty::Tuple(parts) => parts.iter().for_each(inner),
+        Ty::Named { args, .. } => args.iter().for_each(inner),
+        _ => {}
     }
 }
 

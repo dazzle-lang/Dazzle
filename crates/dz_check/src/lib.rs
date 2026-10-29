@@ -34,7 +34,7 @@ pub mod ties;
 pub use dz_hir::ty;
 
 use check::plural;
-use ty::{FloatTy, IntTy, Ty};
+use ty::{FloatTy, FnKills, IntTy, Ty};
 
 // ---------------------------------------------------------------------------
 // signatures
@@ -1381,6 +1381,8 @@ impl Ctx<'_> {
             CType::Fn { params, ret } => Ty::Fn {
                 params: params.iter().map(|p| self.foreign_ty(module, p)).collect(),
                 ret: Rc::new(self.foreign_ty(module, ret)),
+                // A C function pointer says nothing of what it kills (spec §6.7).
+                kills: FnKills::Unknown,
             },
             CType::Named(n) => self.res.foreign(module, n).map(Ty::plain).unwrap_or(Ty::Error),
             // The importer leaves out whatever uses one, so this is never reached.
@@ -1588,7 +1590,7 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
         Ty::Tuple(elems) => {
             format!("({})", elems.iter().map(&name_of).collect::<Vec<_>>().join(", "))
         }
-        Ty::Fn { params, ret } => format!(
+        Ty::Fn { params, ret, .. } => format!(
             "fn({}) -> {}",
             params.iter().map(&name_of).collect::<Vec<_>>().join(", "),
             name_of(ret)
@@ -1868,6 +1870,12 @@ impl<'a> Ctx<'a> {
         self_ty: Option<Ty>,
         privileged: Option<SymbolId>,
     ) {
+        // The clauses of function types among its parameters and result (§6.7).
+        for t in sig.params.iter().map(|p| &p.ty).chain([&sig.ret]) {
+            for e in ties::check_fn_types(&self.table, self.res, self.module, t) {
+                self.error_help(e.code, e.span, e.message, e.label, e.help);
+            }
+        }
         if sig.kills.is_empty() && sig.ret_tie.is_none() && f.params.iter().all(|p| p.tie.is_none())
         {
             return;
@@ -2021,7 +2029,7 @@ impl<'a> Ctx<'a> {
             Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => self.abstract_by_value(i),
             Ty::Tuple(parts) => parts.iter().find_map(|p| self.abstract_by_value(p)),
             Ty::Named { args, .. } => args.iter().find_map(|a| self.abstract_by_value(a)),
-            Ty::Fn { params, ret } => {
+            Ty::Fn { params, ret, .. } => {
                 params.iter().chain(std::iter::once(&**ret)).find_map(|p| self.abstract_by_value(p))
             }
             _ => None,
@@ -2039,7 +2047,7 @@ impl<'a> Ctx<'a> {
             Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => self.opaque_by_value(i),
             Ty::Tuple(parts) => parts.iter().find_map(|p| self.opaque_by_value(p)),
             Ty::Named { args, .. } => args.iter().find_map(|a| self.opaque_by_value(a)),
-            Ty::Fn { params, ret } => {
+            Ty::Fn { params, ret, .. } => {
                 params.iter().chain(std::iter::once(&**ret)).find_map(|p| self.opaque_by_value(p))
             }
             _ => None,
@@ -2084,9 +2092,16 @@ impl<'a> Ctx<'a> {
             TypeKind::Tuple(elems) => {
                 Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect())
             }
-            TypeKind::Fn { params, ret, .. } => Ty::Fn {
+            TypeKind::Fn { params, param_names, ret, kills } => Ty::Fn {
                 params: params.iter().map(|p| self.lower_type_inner(p)).collect(),
                 ret: Rc::new(ret.as_ref().map(|r| self.lower_type_inner(r)).unwrap_or(Ty::Void)),
+                kills: FnKills::Known {
+                    names: param_names
+                        .iter()
+                        .map(|n| n.as_ref().map(|n| n.name.clone()).unwrap_or_default())
+                        .collect(),
+                    paths: kills.iter().cloned().collect(),
+                },
             },
             TypeKind::SelfType => Ty::SelfTy,
             TypeKind::Error => Ty::Error,

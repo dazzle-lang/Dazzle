@@ -28,9 +28,11 @@ instead of by an allocator the program names.
 | Signatures keep clauses as written: `FnSig::kills`, `ret_tie`, `kills_unknown`; `ParamSig::tie`; `StructSig::ties` (`TieSig`); `FieldSig::tie` (filled from whole-field ties at the end of `collect_struct`) | `dz_check/src/lib.rs` |
 | Resolving paths: `resolve` (signatures), `export_path` (a `tie`'s paths), `tie_decls` (with a base's), `elements_in`/`elements`, `iterated`; the `Walker` decides visibility | `dz_check/src/ties.rs` |
 | Reporting: `check` per signature (called from `check_ties` in `dz_check/src/lib.rs`), `check_struct` per struct (called at the end of `check_members` in `dz_check/src/check.rs`) | as left |
-| Codes `DZ0218`, `DZ0219`, `DZ0562`–`DZ0565`, `DZ0567`; `dz explain` text | `dz_diag/src/codes.rs`; `dz_diag/explain/parser.md`, `check.md` |
+| A function type's clause: `FnKills` in `Ty::Fn` (as written, with parameter names; not part of the type's identity), `FnKills::within`, used by `assignable` | `dz_hir/src/ty.rs`; built in `lower_type_inner` and `foreign_ty` (`dz_check/src/lib.rs`) and for a function item's value (`FnItem` in `dz_check/src/check.rs`); `DZ0568` reported in `expect` (`check.rs`) |
+| A function type's clause read as a signature: `fn_type_sig`; its paths checked by `check_fn_types`, from `check_ties` and for fields in `check_members` | `dz_check/src/ties.rs` |
+| Codes `DZ0218`, `DZ0219`, `DZ0562`–`DZ0565`, `DZ0567`, `DZ0568`; `dz explain` text | `dz_diag/src/codes.rs`; `dz_diag/explain/parser.md`, `check.md` |
 | Canonical places: `Place`, `Step` (`Field`, `Elements`, `Storage`), `normalize`, `canonical_steps`, `canonicalize` and `rewrites` (a tie's other paths to its first, `[*]`'s paths to `[*]`), `canonical_field`; call effects `call_effects`; exactness `ties`, `collect_ties`, `minimal`, `compare_ties` | `dz_flow/src/ties.rs` |
-| The body walk: `analyse_body`, `Origin` (target vs tie), `field`, `index_origins` (pointer indexing → `[*]`, and the trusted-body marker), `call`, `invoke`, `kill`, loops and branches | `dz_flow/src/ties/body.rs` |
+| The body walk: `analyse_body`, `Origin` (target vs tie), `field`, `index_origins` (pointer indexing → `[*]`, and the trusted-body marker), `call` (a call through a function value reads `fn_type_sig`), `invoke`, `kill`, loops and branches | `dz_flow/src/ties/body.rs` |
 | std's ties and clauses | `dz_project/src/std/collections/{list,hash_map,hash_set,slot_map,sort,str_keys}.dz`, `text/string.dz`, `core/formatter.dz` |
 | Tests | `tests/parse/ties.dz` and `errors.dz`, `tests/fmt/ties.dz`, `tests/workspace/typed/src/typed.dz` and `typeerrors/src/errors.dz` (search `Ties and`), `dz_flow/tests/ties.rs` (the analysis, std held to its clauses) |
 | Spec and history | spec §6.7; changelog rows r81–r84; build log `docs/log/r81-ties.md` |
@@ -300,15 +302,16 @@ user's choice. In order, each step standing on its own:
      have an exact summary held to their clause. **Still open:** aggregate view storage
      and destructuring (an optional, struct or tuple holding a view is unknown, so its uses
      are unchecked), general iterators, private pointer indexing to `[*]`, how a path names
-     one payload, function-type clauses (14 calls need them), and diagnostic/fix
-     integration. Nothing new is enforced yet.
+     one payload, and diagnostic/fix integration. Nothing new is enforced yet.
+     **2026-10-29 (r86):** function types carry their clause; a call through a function
+     value reads it, and storing a function checks it (`DZ0568`).
    - **2d. `std`'s clauses** on `List`, `HashMap`, `HashSet`, `SlotMap` and `String`, with
      `std` itself checking clean. **Started 2026-10-29** (`docs/log/r81-ties.md`): `List`,
      `String`, `HashMap` (its three arrays all `in @items`, r83) and `Formatter` declare
      their ties and clauses, bodies over a tied pointer are trusted as §6.7 says, and clauses
      compare by the ties they name. **2026-10-29 (r84):** `HashSet` and `SlotMap` declare
      ties standing for their fields' ties and have their clauses, every body exact (but
-     `SlotMap::retain`, through a function value). **2026-10-29 (r85), the user's call:**
+     `SlotMap::retain`, exact since r86). **2026-10-29 (r85), the user's call:**
      taking an element out kills `self[*]` too (`pop`, `remove`, `swap_remove`, the maps'
      `insert`, `replace` and `remove`, `StrKeys`/`StrSet::remove_str`), since nothing ends
      a view into the element when the caller drops it. std checks clean with them. **Left
@@ -343,9 +346,7 @@ it came with: making a declared tie opaque, so no path goes on past it. r83's ru
 (a path goes on past a tie whose places share a type), since tests and `s@text@items`
 rely on it; that is the user's call.
 
-Still open, to settle on the way: the clause of a function type,
-which 2b leaves unresolved and outside `Ty::Fn`, so storing a function in one does not yet
-compare their clauses; the elision rules for returned references (whether a pointer, slice
+Still open, to settle on the way: the elision rules for returned references (whether a pointer, slice
 or `str` input counts as one: until settled, one beside another leaves the result unknown),
 how a tagged union's payload is named in a tie, what `dz` shows for each placement (inlay
 hints and a listing), and whether stage 3 on the prototype branch is reverted now or left

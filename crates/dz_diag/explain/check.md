@@ -926,3 +926,51 @@ fn main() {
     p.recruit("Ann")
 }
 ```
+
+## DZ0568
+
+A function type's `kills` clause is the most a function stored in it may kill, and a call
+through a value of the type kills only that (spec §6.7). A function that kills more does not
+fit: a call through the value would end references the caller was told survive. A function
+type with no clause promises to kill nothing.
+
+```dz
+pub struct Party {
+    pub members: List<String>
+}
+
+fn recruit(p: &mut Party) kills p.members {
+    p.members.push(String::from("Ann"))
+}
+
+fn twice(f: fn(p: &mut Party), p: &mut Party) {
+    f(p)
+    f(p)
+}
+
+fn main() {
+    let mut p = Party{ members: List<String>() }
+    twice(recruit, &mut p)
+}
+```
+
+```dz
+pub struct Party {
+    pub members: List<String>
+}
+
+fn recruit(p: &mut Party) kills p.members {
+    p.members.push(String::from("Ann"))
+}
+
+fn twice(f: fn(p: &mut Party) kills p.members, p: &mut Party) kills p.members {
+    f(p)
+    f(p)
+}
+
+fn main() {
+    let mut p = Party{ members: List<String>() }
+    twice(recruit, &mut p)
+    println!("{}", p.members.len())
+}
+```

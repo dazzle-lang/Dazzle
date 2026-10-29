@@ -613,21 +613,37 @@ fn unreachable_kill(w: &mut World) {
     assert!(dead.actual.is_empty(), "{dead:#?}");
 }
 
+// spec §6.7: a call through a function value kills what the function type's clause says,
+// at the call's arguments, as a direct call kills what its callee's says. No clause is a
+// promise to kill nothing.
 #[test]
-fn unresolved_indirect_effects_cannot_suggest_removing_a_clause() {
+fn a_call_through_a_function_value_kills_what_its_type_says() {
     let fixture = Fixture::with_source(
         r#"
-fn opaque(f: fn(&mut World), w: &mut World) kills w {
+fn promised(f: fn(w: &mut World) kills w.bag@items, w: &mut World) kills w.bag@items {
     let p = w.first()
     f(w)
     observe(p)
 }
+fn nothing_promised(f: fn(&mut World), w: &mut World) {
+    let p = w.first()
+    f(w)
+    observe(p)
+}
+fn stored(w: &mut World) kills w.bag@items {
+    let f: fn(xs: &mut Bag<Text>) kills xs@items = grow
+    let p = w.first()
+    f(&mut w.bag)
+    observe(p)
+}
 "#,
     );
-    let analysis = fixture.analysis("opaque");
-    assert!(!analysis.incomplete.is_empty(), "{analysis:#?}");
-    assert!(analysis.mismatches.is_empty(), "{analysis:#?}");
-    assert_eq!(analysis.invalid_uses.len(), 1, "{analysis:#?}");
+    for name in ["promised", "stored"] {
+        let a = fixture.analysis(name);
+        assert_eq!(a.invalid_uses.len(), 1, "{name}: {a:#?}");
+        assert!(a.incomplete.is_empty() && a.mismatches.is_empty(), "{name}: {a:#?}");
+    }
+    clean(&fixture.analysis("nothing_promised"));
 }
 
 #[test]
@@ -848,7 +864,7 @@ fn wrapped_identity(w: &World) -> ^Text in w.bag@items { return identity(&w.bag[
 
 // spec §6.7, r84: a tie may stand for another type's tie, so `HashSet`, a `HashMap`, and
 // `SlotMap`, three `List`s, have their own `@items` and `[*]`, and every body is held to
-// its clause. `SlotMap::retain` calls a function value, whose clause is not carried yet.
+// its clause, `SlotMap::retain`'s call through its `keep` included.
 #[test]
 fn containers_built_from_containers_are_held_to_their_clauses() {
     let fixture = Fixture::new();
@@ -862,9 +878,7 @@ fn containers_built_from_containers_are_held_to_their_clauses() {
         seen += 1;
         let a = ties::analyse_body(body, &fixture.checked.table, &fixture.res);
         assert!(a.mismatches.is_empty() && a.invalid_uses.is_empty(), "{o}::{name}: {a:#?}");
-        if (o.as_str(), name.as_str()) != ("SlotMap", "retain") {
-            assert!(a.incomplete.is_empty(), "{o}::{name}: {a:#?}");
-        }
+        assert!(a.incomplete.is_empty(), "{o}::{name}: {a:#?}");
     }
     assert!(seen > 20, "both types' methods should have been analysed");
 }

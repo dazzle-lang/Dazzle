@@ -11,7 +11,7 @@ use dz_span::Span;
 
 use crate::build::{BodyBuilder, Checked, CheckedBlock};
 use crate::impls::might_overlap;
-use crate::ty::{self, assignable, join, IntTy, Ty};
+use crate::ty::{self, assignable, join, FnKills, IntTy, Ty};
 use crate::{
     const_int_literal, decode_raw_string_literal, decode_string_literal, parse_float_literal,
     parse_int_literal, type_name, Ctx, FnSig, ImplSig, ItemSig, ParamDef, TraitRef,
@@ -699,6 +699,17 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                 body.finish_value(c.value.span, checked);
             }
             MemberKind::Field(f) => {
+                // A field of function type, `on_spawn: fn(w: &mut World) kills w` (§6.7).
+                let declared = cx
+                    .table
+                    .struct_sig(sym)
+                    .and_then(|s| s.fields.iter().find(|x| x.name == f.name.name))
+                    .map(|x| x.ty.clone());
+                if let Some(t) = declared {
+                    for e in crate::ties::check_fn_types(&cx.table, cx.res, cx.module, &t) {
+                        cx.error_help(e.code, e.span, e.message, e.label, e.help);
+                    }
+                }
                 if let Some(default) = &f.default {
                     let found = cx
                         .table
@@ -1056,9 +1067,11 @@ impl<'a, 'c> Body<'a, 'c> {
             Ty::Named { sym, args } => {
                 Ty::Named { sym: *sym, args: args.iter().map(|a| self.subst(a)).collect() }
             }
-            Ty::Fn { params, ret } => {
-                Ty::Fn { params: params.iter().map(|p| self.subst(p)).collect(), ret: rc(ret) }
-            }
+            Ty::Fn { params, ret, kills } => Ty::Fn {
+                params: params.iter().map(|p| self.subst(p)).collect(),
+                ret: rc(ret),
+                kills: kills.clone(),
+            },
             Ty::Assoc(p) => self.cx.table.normalize(&Ty::Assoc(Rc::new(ty::Proj {
                 on: self.subst(&p.on),
                 trait_sym: p.trait_sym,
@@ -1211,6 +1224,35 @@ impl<'a, 'c> Body<'a, 'c> {
                 ),
             );
             return;
+        }
+        // A function that would fit but for what it kills (spec §6.7).
+        if let (Ty::Fn { params, ret, kills: wider }, Ty::Fn { kills: narrow, .. }) =
+            (&expected, &actual)
+        {
+            let any = Ty::Fn { params: params.clone(), ret: ret.clone(), kills: FnKills::Unknown };
+            if assignable(&any, &actual) {
+                let shown = |k: &FnKills| match k {
+                    FnKills::Known { paths, .. } if paths.is_empty() => "nothing".to_owned(),
+                    FnKills::Known { paths, .. } => paths
+                        .iter()
+                        .map(|p| format!("`{}`", dz_ast::dump::tie_path_str(p)))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    FnKills::Unknown => "whatever its `&mut` arguments reach".to_owned(),
+                };
+                let (may, allowed) = (shown(narrow), shown(wider));
+                self.cx.error_help(
+                    codes::FN_KILLS_TOO_MUCH,
+                    span,
+                    format!("this function kills {may}, and the function type allows {allowed}"),
+                    "kills more than the type allows",
+                    "a function type's `kills` clause is the most a function stored in it may \
+                     kill, and every call through it relies on that: name the kill in the \
+                     type, `fn(xs: &mut List<i32>) kills xs@items`, or store a function that \
+                     kills no more (spec §6.7)",
+                );
+                return;
+            }
         }
         let e = self.cx.name_of(&expected);
         let a = self.cx.name_of(&actual);
@@ -4183,7 +4225,7 @@ impl<'a, 'c> Body<'a, 'c> {
             for (def, t) in sig.generics.iter().zip(written) {
                 map.insert(def.param.id, t);
             }
-        } else if let Some(Ty::Fn { params, ret }) = expected.map(|t| self.subst(t)) {
+        } else if let Some(Ty::Fn { params, ret, .. }) = expected.map(|t| self.subst(t)) {
             for (p, a) in sig.params.iter().zip(params.iter()) {
                 unify(&p.ty, a, &mut map);
             }
@@ -5315,7 +5357,7 @@ impl<'a, 'c> Body<'a, 'c> {
         let c = self.expr(callee, None);
         let callee_ty = c.ty.clone();
         let (ty, arg_ids) = match &callee_ty {
-            Ty::Fn { params, ret } => {
+            Ty::Fn { params, ret, .. } => {
                 let params = params.clone();
                 if params.len() != args.len() {
                     let (want, got) = (params.len(), args.len());
@@ -6740,6 +6782,15 @@ impl<'a, 'c> Body<'a, 'c> {
                                 .map(|p| self.cx.table.subst(&p.ty, &map))
                                 .collect(),
                             ret: Rc::new(self.cx.table.subst(&sig.ret, &map)),
+                            // Its own clause, held to the type it is stored in (§6.7).
+                            kills: if sig.kills_unknown {
+                                FnKills::Unknown
+                            } else {
+                                FnKills::Known {
+                                    names: sig.params.iter().map(|p| p.name.clone()).collect(),
+                                    paths: sig.kills.iter().cloned().collect(),
+                                }
+                            },
                         },
                         hir::ExprKind::FnItem { sym, type_args },
                     )
@@ -8410,7 +8461,7 @@ fn unify(pattern: &Ty, actual: &Ty, out: &mut HashMap<u32, Ty>) {
                 unify(x, y, out);
             }
         }
-        (Ty::Fn { params: ps, ret: r1 }, Ty::Fn { params: qs, ret: r2 })
+        (Ty::Fn { params: ps, ret: r1, .. }, Ty::Fn { params: qs, ret: r2, .. })
             if ps.len() == qs.len() =>
         {
             for (x, y) in ps.iter().zip(qs) {

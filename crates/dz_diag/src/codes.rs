@@ -359,6 +359,9 @@ pub const TIE_ON_NON_REFERENCE: &str = "DZ0565";
 /// A struct declaring the same tie twice, `tie @items = …` then `tie @items = …` again: one
 /// declaration lists everything a tie stands for (spec §6.7).
 pub const TIE_DECLARED_TWICE: &str = "DZ0567";
+/// A function stored where a function type is wanted, that may kill more than the type's
+/// `kills` clause allows (spec §6.7).
+pub const FN_KILLS_TOO_MUCH: &str = "DZ0568";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

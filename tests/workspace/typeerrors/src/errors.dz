@@ -1322,3 +1322,21 @@ pub struct Drawer {
     tie @keys = m_map.m_keys
     tie @lost = m_sock
 }
+
+// A function type's clause (spec §6.7): a function stored where the type promises less than
+// it kills, a path naming no parameter of the type, and a kill through one it cannot change.
+fn spend(l: &mut Ledger) kills l.lines {
+    l.lines.push(1)
+}
+
+fn run_ledger(f: fn(l: &mut Ledger), l: &mut Ledger) {
+    f(l)
+}
+
+fn spends(l: &mut Ledger) {
+    run_ledger(spend, l)
+}
+
+fn misnamed(f: fn(l: &mut Ledger) kills ledger.lines) {}
+
+fn through_a_ref(f: fn(l: &Ledger) kills l.lines) {}

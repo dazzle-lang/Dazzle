@@ -561,7 +561,7 @@ impl Worklist<'_> {
                     self.visit_ty(p, at);
                 }
             }
-            Ty::Fn { params, ret } => {
+            Ty::Fn { params, ret, .. } => {
                 for p in params {
                     self.visit_ty(p, at);
                 }
@@ -682,7 +682,9 @@ fn depth(t: &Ty) -> usize {
         }
         Ty::Array { elem, .. } | Ty::Slice { elem, .. } => 1 + depth(elem),
         Ty::Tuple(parts) => 1 + parts.iter().map(depth).max().unwrap_or(0),
-        Ty::Fn { params, ret } => 1 + params.iter().chain([&**ret]).map(depth).max().unwrap_or(0),
+        Ty::Fn { params, ret, .. } => {
+            1 + params.iter().chain([&**ret]).map(depth).max().unwrap_or(0)
+        }
         _ => 0,
     }
 }

@@ -1830,6 +1830,23 @@ fn member_text(roster: &Roster, i: usize) -> str in roster.members[*] {
     return roster.members[i].as_str()
 }
 
+// A function fits a function type that promises at least what it kills; one that kills
+// nothing fits any (spec §6.7).
+fn score_once(r: &mut Roster) kills r@scores {
+    r.add_score(1)
+}
+
+fn leave_alone(r: &mut Roster) {}
+
+fn apply_to(f: fn(r: &mut Roster) kills r@scores, r: &mut Roster) kills r@scores {
+    f(r)
+}
+
+fn applies(r: &mut Roster) kills r@scores {
+    apply_to(score_once, r)
+    apply_to(leave_alone, r)
+}
+
 // Fields may be tied together, and a path goes on past their tie when they share a type.
 pub struct Record {
     m_wins: List<String>
