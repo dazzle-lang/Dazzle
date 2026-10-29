@@ -6,6 +6,39 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r86: a function type's clause is checked (2026-10-29)
+
+2b parsed a function type's clause and left it out of `Ty::Fn`, so a call through a function
+value fell back to the opaque rule and left its body's summary incomplete, and storing a
+function never compared clauses.
+
+- **The type.** `Ty::Fn` gains `kills: FnKills` (`dz_hir/src/ty.rs`): `Known` keeps the
+  paths as written and the parameters' names, like a signature's clause, since the paths
+  need every type's fields; `Unknown` is a pointer from C. It is not part of the type's
+  identity (its `PartialEq` is always true), so C++ emission, instances and inference are
+  untouched; `assignable` is where it counts, through `FnKills::within`: each path of the
+  value's clause is one of the type's, or under one, matched by parameter position. A
+  written type gets its clause in `lower_type_inner`, a function item's value its own
+  signature's, a C function pointer `Unknown`, which fits only a type with no `&mut` or
+  `^mut` parameter.
+- **Errors.** `expect` reports a function that would fit but for its kills as `DZ0568`,
+  naming both clauses. `ties::check_fn_types` resolves a function type's paths through a
+  signature `fn_type_sig` builds from the type, so a path naming no parameter is `DZ0562`
+  and a kill through `&` is `DZ0564`; it runs over every signature's parameters and
+  result, and every field.
+- **Flow.** A call through a function value builds the same `fn_type_sig` and goes through
+  `invoke`, as a direct call does: its kills bind to the arguments, its result elides as
+  a signature's would, and a C pointer's `kills_unknown` gives the opaque rule. Bodies
+  calling a function value are now exact: `SlotMap::retain` and `HashMap::retain_with`.
+
+Nothing in std or the examples stored a function that kills into a type that says
+otherwise; all of it checks.
+
+Tests: `typed/` stores a function that kills `r@scores` and one that kills nothing into a
+type promising `r@scores`; `typeerrors/` has the three mistakes. `dz_flow/tests/ties.rs`:
+a call through a value of a type that promises a kill ends a view, one through a type
+promising nothing does not, and the containers test holds `SlotMap::retain` exact too.
+
 ## r85: taking an element out kills `[*]` (2026-10-29)
 
 The user's call on 2d's open question, once it was clear the issue is a view into the

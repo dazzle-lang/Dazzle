@@ -1444,7 +1444,7 @@ impl<'a> Emitter<'a> {
             Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => m(inner),
             Ty::Array { elem, .. } | Ty::Slice { elem, .. } => m(elem),
             Ty::Tuple(parts) => parts.iter().any(m),
-            Ty::Fn { params, ret } => params.iter().any(m) || m(ret),
+            Ty::Fn { params, ret, .. } => params.iter().any(m) || m(ret),
             _ => false,
         }
     }
@@ -1742,7 +1742,7 @@ impl<'a> Emitter<'a> {
             }
             // Spelled out like a tuple: two function types as arguments — `HashMap`'s and
             // `HashSet`'s `retain_with` — once shared the fallback name and so one instance.
-            Ty::Fn { params, ret } => {
+            Ty::Fn { params, ret, .. } => {
                 let ps: Vec<String> = params.iter().map(m).collect();
                 format!("f{}_{}_{}", params.len(), ps.join("_"), m(ret))
             }
@@ -3090,7 +3090,7 @@ impl<'a> Emitter<'a> {
             Ty::Range(elem) => format!("::dz::Range<{}>", self.cpp_ty(elem)),
             // Through the shim's alias: C++'s own `R (*)(A)` puts the name inside the
             // parentheses, so it cannot be written as `T name` the way every other type is.
-            Ty::Fn { params, ret } => {
+            Ty::Fn { params, ret, .. } => {
                 let mut ps: Vec<String> = vec![self.cpp_ty(ret)];
                 ps.extend(params.iter().map(|p| self.cpp_ty(p)));
                 format!("::dz::fn<{}>", ps.join(", "))
@@ -5626,7 +5626,7 @@ fn mentions_self(t: &Ty) -> bool {
         }
         Ty::Array { elem, .. } | Ty::Slice { elem, .. } => mentions_self(elem),
         Ty::Tuple(parts) => parts.iter().any(mentions_self),
-        Ty::Fn { params, ret } => params.iter().any(mentions_self) || mentions_self(ret),
+        Ty::Fn { params, ret, .. } => params.iter().any(mentions_self) || mentions_self(ret),
         _ => false,
     }
 }

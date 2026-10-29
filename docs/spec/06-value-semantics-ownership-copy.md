@@ -332,6 +332,22 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
   `fn(world: &mut World) kills world`. There, more than one path is parenthesised,
   `kills (w.a@items, w.b@items)`, since a comma after a bare path would begin the next
   parameter of whatever the type is written in.
+- **A function fits a function type whose clause covers its own**: every path the
+  function's clause names is one the type names, or under one, parameter by position. A
+  function type with no clause promises to kill nothing, so only a function that kills
+  nothing fits it (`DZ0568` otherwise), and a call through a value of the type kills what
+  the type's clause names, at the call's arguments:
+
+  ```dz
+  fn spend(l: &mut Ledger) kills l.lines { l.lines.push(1) }
+  fn run(f: fn(l: &mut Ledger), l: &mut Ledger) { f(l) }
+  run(spend, l)                           // error: `spend` kills `l.lines`; the type, nothing
+  fn run(f: fn(l: &mut Ledger) kills l.lines, l: &mut Ledger) kills l.lines { f(l) }
+  ```
+
+  The clause is not part of the type's identity: two function types that differ only in it
+  are one C++ type. A pointer to a C function has no clause, and fits only a type with no
+  `&mut` or `^mut` parameter, which can kill nothing.
 - **A call with no clause to read** — a C or C++ function, a pointer from C — kills
   everything reachable through its `&mut` and `^mut` arguments.
 

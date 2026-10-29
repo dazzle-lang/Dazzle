@@ -19932,6 +19932,32 @@ body fn member_text -> str
           field #0: List<String>
             local _0 roster: &Roster
           local _1 i: usize
+body fn score_once -> void
+  param _0 r: &mut Roster
+  block
+    call-method Roster::add_score: void
+      local _0 r: &mut Roster
+      int 1: i32
+body fn leave_alone -> void
+  param _0 r: &mut Roster
+  block
+    (empty)
+body fn apply_to -> void
+  param _0 f: fn(&mut Roster) -> void
+  param _1 r: &mut Roster
+  block
+    call-value: void
+      local _0 f: fn(&mut Roster) -> void
+      local _1 r: &mut Roster
+body fn applies -> void
+  param _0 r: &mut Roster
+  block
+    call apply_to: void
+      fn-item score_once: fn(&mut Roster) -> void
+      local _0 r: &mut Roster
+    call apply_to: void
+      fn-item leave_alone: fn(&mut Roster) -> void
+      local _0 r: &mut Roster
 body method Record::forget -> void
   param _0 self: Record
   block

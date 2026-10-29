@@ -491,44 +491,47 @@ impl Analysis<'_> {
             }
             return result;
         }
-        // Function types do not yet carry clauses (T-0107). Until they do, use §6.7's
-        // opaque-call rule rather than guessing that an indirect call is kill-free. It is
-        // exact for a pointer from C, and for any function type with no `&mut` or `^mut`
-        // parameter, since a clause names only those (DZ0564).
+        // A call through a function value reads the function type's clause, the most a
+        // function stored in it may kill, as a direct call reads its callee's (§6.7). A
+        // pointer from C has none, and kills what its `&mut` arguments reach.
+        if let Callee::Value(value) = callee {
+            if let Ty::Fn { params, ret, kills } = self.body.ty(*value) {
+                let signature = Signature {
+                    sig: dz_check::ties::fn_type_sig(params, ret, kills),
+                    module: self.module(),
+                    name: "the function value".into(),
+                    self_ty: None,
+                    owner: None,
+                };
+                return self.invoke(&signature, None, &values, span);
+            }
+        }
+        self.incomplete(span, "the callee's signature is unknown");
         let ret = self.body.ty(expression);
         let carries = super::points(ret) || super::contains_views(ret, self.table);
-        if let Callee::Value(value) = callee {
-            if let Ty::Fn { params, .. } = self.body.ty(*value) {
-                let mut mutable = false;
-                for (ty, value) in params.iter().zip(&values) {
-                    if super::mutable_input(ty) {
-                        mutable = true;
-                        if value.views.is_empty() && value.unknown {
-                            self.incomplete(
-                                span,
-                                "indirect call through an argument with unknown provenance",
-                            );
-                        }
-                        // What is reachable through `&mut xs[0]` is that element, not
-                        // the array it is in.
-                        for origin in &value.views {
-                            self.kill(origin.target.clone(), span, KillKind::Call);
-                        }
-                    }
-                }
-                if mutable {
-                    self.incomplete(span, "function types do not yet carry their kills clauses");
-                }
-                if carries {
-                    self.unchecked(span, "a view returned by an indirect call is unknown");
-                }
-            } else {
-                self.incomplete(span, "the callee's signature is unknown");
-            }
-        } else {
-            self.incomplete(span, "the callee's signature is unknown");
-        }
         Value { unknown: carries, ..Value::default() }
+    }
+
+    /// The module this body is in, which a function type's clause is read in.
+    fn module(&self) -> ModuleId {
+        let sym = match &self.body.owner {
+            BodyOwner::Fn(s)
+            | BodyOwner::Copy(s)
+            | BodyOwner::Drop(s)
+            | BodyOwner::Const(s)
+            | BodyOwner::Static(s) => Some(*s),
+            BodyOwner::Method { owner, .. }
+            | BodyOwner::Ctor { owner, .. }
+            | BodyOwner::AssocConst { owner, .. }
+            | BodyOwner::FieldDefault { owner, .. }
+            | BodyOwner::TraitDefaults { owner, .. } => Some(*owner),
+            BodyOwner::ImplMethod { imp, .. } => {
+                return self.table.impls()[*imp as usize].module;
+            }
+            #[allow(unreachable_patterns)]
+            _ => None,
+        };
+        sym.map_or(ModuleId(0), |s| self.res.symbol(s).module)
     }
 
     fn invoke(

@@ -1658,3 +1658,27 @@ error[DZ0562]: `Drawer` has no field `m_sock`
      │                 ^^^^^^ no such field
      │
      = help: a tie path goes through a struct's fields (spec §6.7)
+
+error[DZ0568]: this function kills `l.lines`, and the function type allows nothing
+     ┌─ typeerrors/src/errors.dz:1337:16
+     │
+1337 │     run_ledger(spend, l)
+     │                ^^^^^ kills more than the type allows
+     │
+     = help: a function type's `kills` clause is the most a function stored in it may kill, and every call through it relies on that: name the kill in the type, `fn(xs: &mut List<i32>) kills xs@items`, or store a function that kills no more (spec §6.7)
+
+error[DZ0562]: `ledger` is not a parameter of `fn(…)`
+     ┌─ typeerrors/src/errors.dz:1340:41
+     │
+1340 │ fn misnamed(f: fn(l: &mut Ledger) kills ledger.lines) {}
+     │                                         ^^^^^^ no parameter of this name
+     │
+     = help: a tie path starts at one of the function's parameters, or at `self` in a method (spec §6.7)
+
+error[DZ0564]: `fn(…)` kills through `l`, which it cannot change
+     ┌─ typeerrors/src/errors.dz:1342:42
+     │
+1342 │ fn through_a_ref(f: fn(l: &Ledger) kills l.lines) {}
+     │                                          ^ taken as `&Ledger`
+     │
+     = help: a function kills only through a `&mut` or `^mut` parameter, or `&mut self`; what it takes by value is its own, and dies with it (spec §6.7)

@@ -186,6 +186,68 @@ pub struct Proj {
     pub name: Rc<str>,
 }
 
+/// A function type's `kills` clause (spec §6.7), as written, with the names of the
+/// parameters it is rooted at: a function type's clause is resolved where it is read, as a
+/// signature's is (`dz_check::ties::fn_type_sig`). A function item's value carries its own
+/// signature's clause, which is how storing it checks against the type's.
+#[derive(Clone, Debug)]
+pub enum FnKills {
+    /// No path is a promise to kill nothing.
+    Known { names: Rc<[String]>, paths: Rc<[dz_ast::TiePath]> },
+    /// A pointer to a C or C++ function, whose header says nothing: a call through it kills
+    /// everything reachable through its `&mut` and `^mut` arguments.
+    Unknown,
+}
+
+impl FnKills {
+    /// The clause of a function type that names none: it kills nothing.
+    pub fn none() -> Self {
+        FnKills::Known { names: Rc::from([]), paths: Rc::from([]) }
+    }
+
+    /// Whether a function promising `self` fits where `wider` is promised, for parameters
+    /// `params`: each path it names is one `wider` names, or under one. Unknown kills fit
+    /// only where nothing can be killed, a type with no `&mut` or `^mut` parameter.
+    pub fn within(&self, wider: &FnKills, params: &[Ty]) -> bool {
+        match (self, wider) {
+            (_, FnKills::Unknown) => true,
+            (FnKills::Unknown, FnKills::Known { .. }) => !params.iter().any(|p| {
+                matches!(p, Ty::Ref { mutable: true, .. } | Ty::Ptr { mutable: true, .. })
+            }),
+            (
+                FnKills::Known { names: mine, paths: narrow },
+                FnKills::Known { names: theirs, paths: broad },
+            ) => narrow.iter().all(|p| {
+                let at = mine.iter().position(|n| *n == p.root.name);
+                broad.iter().any(|q| {
+                    at.is_some()
+                        && theirs.iter().position(|n| *n == q.root.name) == at
+                        && q.steps.len() <= p.steps.len()
+                        && q.steps.iter().zip(&p.steps).all(|(a, b)| same_step(a, b))
+                })
+            }),
+        }
+    }
+}
+
+fn same_step(a: &dz_ast::TieStep, b: &dz_ast::TieStep) -> bool {
+    use dz_ast::TieStep::*;
+    match (a, b) {
+        (Field(x), Field(y)) | (Tie(x), Tie(y)) => x.name == y.name,
+        (Elements(_), Elements(_)) => true,
+        _ => false,
+    }
+}
+
+/// Not part of a type's identity (see [`Ty::Fn`]).
+impl PartialEq for FnKills {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for FnKills {}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Ty {
     /// A type that could not be determined. Already reported, and compatible with
@@ -239,6 +301,10 @@ pub enum Ty {
     Fn {
         params: Vec<Ty>,
         ret: Rc<Ty>,
+        /// The most a function stored in it may kill (spec §6.7). Not part of the type's
+        /// identity, so it changes neither the C++ type nor an instance; [`assignable`] is
+        /// where it counts.
+        kills: FnKills,
     },
     /// A struct, union, enum or trait, with its type arguments (spec §8.1).
     ///
@@ -385,7 +451,7 @@ impl Ty {
             Ty::Array { elem, .. } | Ty::Slice { elem, .. } => elem.has_params(),
             Ty::Tuple(parts) => parts.iter().any(Ty::has_params),
             Ty::Named { args, .. } | Ty::Variant(_, _, args) => args.iter().any(Ty::has_params),
-            Ty::Fn { params, ret } => params.iter().any(Ty::has_params) || ret.has_params(),
+            Ty::Fn { params, ret, .. } => params.iter().any(Ty::has_params) || ret.has_params(),
             _ => false,
         }
     }
@@ -441,9 +507,11 @@ pub fn substitute_with(
         Ty::Variant(sym, index, args) => {
             Ty::Variant(*sym, *index, args.iter().map(&substitute).collect())
         }
-        Ty::Fn { params, ret } => {
-            Ty::Fn { params: params.iter().map(&substitute).collect(), ret: rc(ret) }
-        }
+        Ty::Fn { params, ret, kills } => Ty::Fn {
+            params: params.iter().map(&substitute).collect(),
+            ret: rc(ret),
+            kills: kills.clone(),
+        },
         // The base may become concrete here, and then the projection has an answer — but
         // only the checker's type table knows the implementations, so finding it is
         // `TypeTable::normalize`'s job, run after this.
@@ -469,7 +537,7 @@ pub fn has_assoc(t: &Ty) -> bool {
         Ty::Array { elem, .. } | Ty::Slice { elem, .. } => has_assoc(elem),
         Ty::Tuple(parts) => parts.iter().any(has_assoc),
         Ty::Named { args, .. } | Ty::Variant(_, _, args) => args.iter().any(has_assoc),
-        Ty::Fn { params, ret } => params.iter().any(has_assoc) || has_assoc(ret),
+        Ty::Fn { params, ret, .. } => params.iter().any(has_assoc) || has_assoc(ret),
         _ => false,
     }
 }
@@ -490,7 +558,9 @@ pub fn map_parts(t: &Ty, f: &dyn Fn(&Ty) -> Ty) -> Ty {
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(f).collect()),
         Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(f).collect() },
         Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, args.iter().map(f).collect()),
-        Ty::Fn { params, ret } => Ty::Fn { params: params.iter().map(f).collect(), ret: rc(ret) },
+        Ty::Fn { params, ret, kills } => {
+            Ty::Fn { params: params.iter().map(f).collect(), ret: rc(ret), kills: kills.clone() }
+        }
         other => other.clone(),
     }
 }
@@ -528,7 +598,9 @@ pub fn replace(t: &Ty, from: &Ty, to: &Ty) -> Ty {
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(r).collect()),
         Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(r).collect() },
         Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, args.iter().map(r).collect()),
-        Ty::Fn { params, ret } => Ty::Fn { params: params.iter().map(r).collect(), ret: rc(ret) },
+        Ty::Fn { params, ret, kills } => {
+            Ty::Fn { params: params.iter().map(r).collect(), ret: rc(ret), kills: kills.clone() }
+        }
         Ty::Assoc(p) => Ty::Assoc(Rc::new(Proj {
             on: replace(&p.on, from, to),
             trait_sym: p.trait_sym,
@@ -618,10 +690,12 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
         (Ty::Tuple(a), Ty::Tuple(b)) => {
             a.len() == b.len() && a.iter().zip(b).all(|(x, y)| assignable(x, y))
         }
-        (Ty::Fn { params: p1, ret: r1 }, Ty::Fn { params: p2, ret: r2 }) => {
+        // A function fits a function type that promises at least what it kills (§6.7).
+        (Ty::Fn { params: p1, ret: r1, kills: k1 }, Ty::Fn { params: p2, ret: r2, kills: k2 }) => {
             p1.len() == p2.len()
                 && p1.iter().zip(p2).all(|(x, y)| assignable(x, y))
                 && assignable(r1, r2)
+                && k2.within(k1, p1)
         }
         _ => expected == actual,
     }
