@@ -350,8 +350,9 @@ pub const KILLS_NEEDS_MUT: &str = "DZ0564";
 /// `in` on a parameter or a result that points into nothing — an `i32`, a `List` taken by
 /// value — or a parameter said to point into itself (spec §6.7).
 pub const TIE_ON_NON_REFERENCE: &str = "DZ0565";
-/// Two fields of one type declaring the same tie (spec §6.7).
-pub const DUPLICATE_TIE: &str = "DZ0566";
+// DZ0566 was two fields of one type declaring the same tie. r83 made that how fields are
+// tied together, a `HashMap`'s three arrays under one `@items`, so the code can no longer
+// occur; codes are not reused, so the number is retired rather than reassigned.
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

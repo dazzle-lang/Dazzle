@@ -203,7 +203,6 @@ fn every_rule_has_a_failing_case() {
         TIE_PATH_NOT_VISIBLE,
         KILLS_NEEDS_MUT,
         TIE_ON_NON_REFERENCE,
-        DUPLICATE_TIE,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

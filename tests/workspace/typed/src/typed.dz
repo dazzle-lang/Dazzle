@@ -1828,3 +1828,20 @@ fn shout(name: &mut String in roster, roster: &mut Roster) kills roster.members 
 fn member_text(roster: &Roster, i: usize) -> str in roster.members[*] {
     return roster.members[i].as_str()
 }
+
+// Fields may be tied together, and a path goes on past their tie when they share a type.
+pub struct Record {
+    m_wins: List<String> in @games
+    m_losses: List<String> in @games
+
+    pub fn forget(&mut self) kills self@games {
+        m_wins.clear()
+        m_losses.clear()
+    }
+
+    pub fn rename(&mut self) kills self@games[*] {
+        for &mut w in m_wins {
+            w.push_str("!")
+        }
+    }
+}

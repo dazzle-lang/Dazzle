@@ -235,6 +235,12 @@ pub struct String {
 A tie belongs to the type, not to whoever uses it: it is not a generic parameter, and every
 `List` has its own.
 
+**Fields may be tied together**, by declaring the same tie on each. A `HashMap` keeps its
+hashes, keys and values in three arrays that grow as one, so all three are `in @items`. A
+path naming the tie names all of them, and they live and die together: a kill through any
+one ends a view into another. A path goes on past such a tie only where every field under
+it has the same type.
+
 **A tie path** names memory: a parameter or `self`, then fields visible wherever the
 function is, declared ties, and `[*]` for any element. A path that ends without a tie means
 every tie under it.

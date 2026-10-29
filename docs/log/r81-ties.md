@@ -6,6 +6,27 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r83: fields tied together (2026-10-29)
+
+`HashMap` keeps hashes, keys and values in three arrays that grow as one, and 2b's
+`DZ0566` allowed a tie on only one field, so it could not have its `@items`. Asked how std's
+container bodies should meet their clauses, the user answered that fields can be tied
+together. Nothing in §6.7 or D-0091 had said either way; `DZ0566` was 2b's own choice.
+
+- **The rule** (§6.7, r83): several fields may declare one tie, a path naming it names all
+  of them, and they live and die together. `DZ0566` is retired, not reused.
+- **Resolving** (`dz_check::ties`): a tie now resolves to every field declaring it. A path
+  stops there if any of them is a pointer, as one pointer tie already did, and also if their
+  types differ, since there is no one type to go on into (`DZ0562`).
+- **The analysis** (`dz_flow::ties`): every field tied together stands for the first one
+  declaring the tie, in paths and in a body's places alike (`canonical_field`), so a kill
+  through `keys` is a kill of the tie and ends a view into `values`.
+
+Tests: `typed/` gains two lists tied together, cleared through both and walked through one
+past the tie; `typeerrors/`' duplicate tie becomes a path going on past fields of different
+types; `dz_flow/tests/ties.rs` has 32, with a shared tie killed through either field and an
+unrelated tie left alone.
+
 ## 2c, fourth part: which gaps can hide a kill (2026-10-29)
 
 After the third part, 337 of the 881 bodies in std and `examples/` were still incomplete,

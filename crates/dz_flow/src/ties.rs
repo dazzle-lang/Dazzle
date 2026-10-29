@@ -106,8 +106,12 @@ pub fn normalize(scope: &Scope<'_>, path: &dz_ast::TiePath) -> Result<Path, ties
     for step in resolved.steps {
         match step {
             ties::Step::Field(name) => {
+                let canonical = match ty.peeled() {
+                    Ty::Named { sym, .. } => canonical_field(scope.table, *sym, &name),
+                    _ => name.clone(),
+                };
                 ty = field(scope, &ty, &name).ok_or_else(|| internal_path_error(path.span))?;
-                steps.push(Step::Field(name));
+                steps.push(Step::Field(canonical));
             }
             ties::Step::Tie(name) => {
                 let Ty::Named { sym, args } = ty.peeled() else {
@@ -135,6 +139,18 @@ pub fn normalize(scope: &Scope<'_>, path: &dz_ast::TiePath) -> Result<Path, ties
         }
     }
     Ok(Path { root: resolved.root, steps })
+}
+
+/// The field standing for `name` in `sym`'s places. Fields tied together are one span of
+/// validity (spec §6.7), so all of them are the first field declaring their tie: a kill
+/// through `m_keys` ends a view into `m_values`.
+pub(crate) fn canonical_field(table: &TypeTable, sym: dz_resolve::SymbolId, name: &str) -> String {
+    let Some(s) = table.struct_sig(sym) else { return name.to_owned() };
+    let tie = s.fields.iter().find(|f| f.name == name).and_then(|f| f.tie.as_ref());
+    match tie.and_then(|t| s.fields.iter().find(|f| f.tie.as_ref() == Some(t))) {
+        Some(first) => first.name.clone(),
+        None => name.to_owned(),
+    }
 }
 
 fn field(scope: &Scope<'_>, ty: &Ty, name: &str) -> Option<Ty> {
