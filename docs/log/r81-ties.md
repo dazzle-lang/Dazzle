@@ -6,6 +6,45 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## 2c, fourth part: which gaps can hide a kill (2026-10-29)
+
+After the third part, 337 of the 881 bodies in std and `examples/` were still incomplete,
+and an incomplete body's clause is never checked. Most of those reasons could not hide a
+kill, so they were keeping clauses unchecked for no gain. Now **848 are complete**, still
+with no use after a kill and the one mismatch, `set_spec`. Nothing is enforced yet.
+
+- **Two lists instead of one.** `incomplete` now means only that a kill may have been
+  missed or widened, so the summary is not exact and the clause is not compared with it.
+  `unchecked` is where a view could not be followed, so a use or a return went unchecked:
+  views in tuples, optionals and structs, returns of unknown provenance (an `unsafe` cast,
+  a `str` field), multi-input elision. A lost view cannot hide a kill, because every way a
+  kill reaches unknown memory has its own `incomplete` reason: a call whose argument's
+  origin is unknown, a write, `destroy` or `move` through unknown storage (the last one new).
+- **Initialisers** (`const`, `static`, field defaults) have no parameters and no clause, so
+  they are walked but never incomplete: 193 bodies.
+- **Indirect calls.** A function type with no `&mut` or `^mut` parameter can kill nothing,
+  whatever its clause, since a clause names only those (DZ0564); 81 of the 95 such calls.
+  For the rest, the opaque rule now kills what each argument refers to rather than also the
+  array an element is in.
+- **Default arguments** are the callee's own expressions and cannot name the caller's
+  places, so they kill nothing at the call. Their provenance is unknown, which matters only
+  where a clause or tie names that parameter.
+- **Statics** are reached only in `unsafe` and no clause can name one, so they are
+  unchecked, as a pointer made there is.
+- **Found on the way, a real hole:** a method called through a pointer field
+  (`unsafe { c.p.add() }`) recorded its kill on the local `c`, so it was dropped from the
+  summary as a local's, and the body looked complete. A pointer receiver now stands for
+  its pointee, here unknown, which makes the body incomplete.
+
+The 33 still incomplete: `destroy` through std's untied pointers (27, which 2d's ties and
+the `self[*]` mapping address), calls with arguments of unknown provenance (14), indirect
+calls through `&mut` parameters, which need function types to carry clauses (14), and one
+assignment through unknown storage.
+
+Tests: `dz_flow/tests/ties.rs` has 31: read-only indirect calls with and without a clause,
+initialisers and omitted defaults, the pointer-field receiver, and a view lost in a tuple
+leaving its use unchecked while the clause is still held to the body.
+
 ## 2c, third part: real code, and what a write kills (2026-10-29)
 
 The analysis was run over every body in std and `examples/` (881), with a scratch probe
