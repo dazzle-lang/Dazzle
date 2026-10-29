@@ -88,7 +88,7 @@ pub struct SlotMap<T> {
 
     /// Take the value `k` names out, or `none` when there is none. Every key to it reads as
     /// absent from now on.
-    pub fn remove(&mut self, k: Key<T>) -> T? kills self@items {
+    pub fn remove(&mut self, k: Key<T>) -> T? kills self@items, self[*] {
         let place = self.place_of(k) or return none
         self.free_slot(k.index())
         let v = m_values.swap_remove(place)

@@ -55,13 +55,13 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// Add `key` with `value`. When the key was already there its value is replaced, and
     /// the old one dropped; `replace` hands it back instead.
-    pub fn insert(&mut self, key: K, value: V, loc: SourceLocation = #location) kills self@items {
+    pub fn insert(&mut self, key: K, value: V, loc: SourceLocation = #location) kills self@items, self[*] {
         let _ = self.replace(move(key), move(value), loc)
     }
 
     /// Add `key` with `value`, returning the value it replaces, or `none` when the key is
     /// new.
-    pub fn replace(&mut self, key: K, value: V, loc: SourceLocation = #location) -> V? kills self@items {
+    pub fn replace(&mut self, key: K, value: V, loc: SourceLocation = #location) -> V? kills self@items, self[*] {
         let h = key_hash(&key)
         if let slot = self.find(&key, h) {
             let old = unsafe { move_out(m_values[slot]) }
@@ -113,7 +113,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// Take the entry for `key` out, returning its value, or `none` when there is none.
-    pub fn remove(&mut self, key: &K) -> V? kills self@items {
+    pub fn remove(&mut self, key: &K) -> V? kills self@items, self[*] {
         let found = self.find(key, key_hash(key)) or return none
         return self.remove_slot(found)
     }
@@ -279,7 +279,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// Take the entry in `found` out, returning its value.
-    pub(module) fn remove_slot(&mut self, found: usize) -> V kills self@items {
+    pub(module) fn remove_slot(&mut self, found: usize) -> V kills self@items, self[*] {
         let value = unsafe { move_out(m_values[found]) }
         unsafe {
             destroy(m_keys[found])

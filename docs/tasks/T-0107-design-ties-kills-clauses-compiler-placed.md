@@ -119,7 +119,7 @@ fn rebuild(world: &mut World) kills world          // coarse: anything reachable
   | | `self@items` | `self[*]` |
   |---|---|---|
   | `push`, `insert`, `reserve` | kills | — |
-  | `pop`, `remove`, `swap_remove` | kills | — (the element leaves; the others stay) |
+  | `pop`, `remove`, `swap_remove` | kills | kills (r85: the element leaves, and a view into it cannot be followed) |
   | `clear`, `truncate`, reassigning or dropping the container | kills | kills |
   | `sort_by`, `swap`, `reverse` | kills (elements move) | — |
   | `len`, `get`, `first`, indexing | — | — |
@@ -308,11 +308,16 @@ user's choice. In order, each step standing on its own:
      their ties and clauses, bodies over a tied pointer are trusted as §6.7 says, and clauses
      compare by the ties they name. **2026-10-29 (r84):** `HashSet` and `SlotMap` declare
      ties standing for their fields' ties and have their clauses, every body exact (but
-     `SlotMap::retain`, through a function value). **Blocked on the user:** whether taking
-     an element out (`pop`, `remove`, `swap_remove`, `replace`) kills `self[*]` too, since
-     nothing ends a view into the element when the caller drops it. With r84 the analysis
-     can read `List`'s own bodies, and says they do (a moved element is killed), so they
-     stay trusted until this is decided.
+     `SlotMap::retain`, through a function value). **2026-10-29 (r85), the user's call:**
+     taking an element out kills `self[*]` too (`pop`, `remove`, `swap_remove`, the maps'
+     `insert`, `replace` and `remove`, `StrKeys`/`StrSet::remove_str`), since nothing ends
+     a view into the element when the caller drops it. std checks clean with them. **Left
+     in 2d:** `List`'s bodies over `m_data` are still trusted, because the ones that only
+     move elements within the array (`swap`, `reverse`, `sort_by`, the shifts, growing,
+     `append`) read as killing `self[*]` to the analysis, which cannot tell a move within
+     the array from one out of it. Either the analysis learns that (a move from one slot
+     of `[*]` into another kills nothing), or those bodies stay trusted until step 3's
+     debug checks test them.
    - **2e. The fixes and the editor.** `dz fix` writes the clause a body needs, adding,
      removing or narrowing paths; the editor offers the same as a quick fix on each of 2c's
      errors, shows the clause a body needs while it is being written, and the clause in a

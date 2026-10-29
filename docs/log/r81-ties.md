@@ -6,6 +6,25 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r85: taking an element out kills `[*]` (2026-10-29)
+
+The user's call on 2d's open question, once it was clear the issue is a view into the
+element taken out, which outlives nothing the checker can see. `List::pop`, `remove`,
+`swap_remove`; `HashMap::insert`, `replace`, `remove` and `remove_slot`; `HashSet::insert`
+and `remove`; `SlotMap::remove`; and `StrKeys` and `StrSet`'s `remove_str` (whose trait
+promise is now `kills self`) kill `self@items, self[*]`. Every std body still matches its
+clause. For a container of plain data `[*]` names nothing, so its callers' clauses are
+unchanged; a `HashMap`'s `[*]` is named whole, so a caller inserting into one names
+`m[*]` now, as the `counting` scenario does.
+
+`List`'s bodies over `m_data` stay trusted: reading `pop` exactly now agrees with its
+clause, but `swap`, the shifts and growing move elements within the array, which the
+analysis reads as killing `[*]`.
+
+Tests: `dz_flow/tests/ties.rs`, 38: a view into an element's text ended by `swap_remove`
+(the value dropped in a block), by `pop`, and by a map's `insert` over an existing key,
+and a list of `i32` whose `pop` needs no `[*]` in its caller's clause.
+
 ## r84: a struct declares its ties itself (2026-10-29)
 
 The user's preference, settling the first open point of T-0107 and 2d's block on containers

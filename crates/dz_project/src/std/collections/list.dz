@@ -97,7 +97,7 @@ pub struct List<T> {
     }
 
     /// Take the last element out, or `none` when there is none.
-    pub fn pop(&mut self) -> T? kills self@items {
+    pub fn pop(&mut self) -> T? kills self@items, self[*] {
         if m_len == 0 {
             return none
         }
@@ -119,7 +119,7 @@ pub struct List<T> {
     }
 
     /// Take the element at `i` out, moving the ones after it down by one.
-    pub fn remove(&mut self, i: usize) -> T kills self@items {
+    pub fn remove(&mut self, i: usize) -> T kills self@items, self[*] {
         if i >= m_len {
             panic!("List::remove at {} for a length of {}", i, m_len)
         }
@@ -239,7 +239,7 @@ pub struct List<T> {
 
     /// Take the element at `i` out and put the last one in its place: no shifting, and the
     /// order is not kept.
-    pub fn swap_remove(&mut self, i: usize) -> T kills self@items {
+    pub fn swap_remove(&mut self, i: usize) -> T kills self@items, self[*] {
         if i >= m_len {
             panic!("List::swap_remove at {} for a length of {}", i, m_len)
         }

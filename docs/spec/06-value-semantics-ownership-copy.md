@@ -385,12 +385,28 @@ The ties of `std`'s containers:
 | | `self@items` | `self[*]` |
 |---|---|---|
 | `push`, `insert`, `reserve` | kills | — |
-| `pop`, `remove`, `swap_remove` | kills | — |
+| `pop`, `remove`, `swap_remove` | kills | kills |
 | `clear`, `truncate`; assigning or dropping the container | kills | kills |
 | `sort_by`, `swap`, `reverse` | kills | — |
 | `len`, `get`, `first`, indexing | — | — |
 
-`String`'s `push_str` and `push` kill `self@text`. `HashMap` and `HashSet` follow `List`.
+**Taking an element out kills `self[*]`.** The element leaves with its own memory, which
+stays valid while the value handed back lives; but a view into it was made through the
+container, and nothing can follow it to that value and end it when the value is dropped:
+
+```dz
+let s = names[0].as_str()
+let x = names.swap_remove(0)    // kills `names[*]`: `s` may point into `x`'s text
+use(s)                          // error, though `x` still lives; it may not by then
+```
+
+Since every element shares `[*]`, a view into another element's text ends too. Moving
+elements within the container (`swap`, `sort_by`) hands none out, so it leaves `[*]`
+alone.
+
+`String`'s `push_str` and `push` kill `self@text`. `HashMap`, `HashSet` and `SlotMap` follow
+`List`; a map's `insert` and `replace` kill `self[*]` as well, since a value they replace is
+handed back or dropped.
 
 Not yet implemented: the checker, `std`'s clauses and the diagnostics are T-0107's steps 2
 and 3.

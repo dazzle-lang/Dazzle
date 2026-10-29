@@ -29,7 +29,7 @@ impl<V> StrKeys<V> for HashMap<String, V> {
         return self.find_by(&key, key_hash(&key), string_is) != none
     }
 
-    fn remove_str(&mut self, key: str) -> V? kills self@items {
+    fn remove_str(&mut self, key: str) -> V? kills self@items, self[*] {
         let slot = self.find_by(&key, key_hash(&key), string_is) or return none
         return self.remove_slot(slot)
     }
