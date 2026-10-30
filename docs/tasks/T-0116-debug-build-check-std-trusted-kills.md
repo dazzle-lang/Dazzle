@@ -24,8 +24,23 @@ design.
 **Why it is this way.** The clauses cannot be checked statically without the analysis
 understanding `unsafe` pointer arithmetic, which it deliberately does not.
 
-**What it would take.** Compiler and runtime work (`docs/log/`): a debug-only field or side
-table per container allocation, views carrying the generation in debug builds (which changes
-their C++ layout in debug only), checks at each use, and tests that hand-break a clause and
-expect the trap. Design to settle first: what a view carries, and how release builds stay
-free of it.
+**What it would take.** Compiler and runtime work (`docs/log/`), and tests that hand-break a
+clause (`push` without `kills self@items`) and expect the trap.
+
+**Settled in r90: a view carries nothing; the clause is checked at the function's edges.**
+Generation counters carried by views would turn every C++ reference into a struct in debug
+builds. Instead, in a debug build, a body the analysis trusts (`index_origins` marks it:
+"a body over a tied pointer's elements is trusted") is checked where it starts and ends:
+
+- **On entry** it records the memory under every tie of its reference parameters that its
+  clause does not kill: each pointer field's address for a tie such as `@items`, and for
+  `[*]` the blocks the elements own.
+- **On each return** it compares. A difference traps, naming the function and the tie:
+  "`List::push` killed `self@items`, which its clause does not name".
+
+So views keep their layout, and release builds have none of it. `[*]` is checked exactly:
+elements moved within the array keep their blocks, and one taken out loses its own. That is
+the question [T-0115](T-0115-moving-elements-within-container-array-kills.md) left, which
+this takes over. A block freed and handed out again at the same address would read as
+unmoved, so the check wants a sequence number per allocation, which the memory tracker
+(`memory/tracker.dz`) does not keep yet.

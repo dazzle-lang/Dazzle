@@ -54,6 +54,15 @@ above — which calls `draw` — would still pay. A useful first step is therefo
 conservative one plus a whitelist: no assignment, no move, and only calls to functions that
 take no handle of the relevant type and are in this project (so their bodies are available).
 
+**Since ties (§6.7, r81–r88), the middle condition has an answer in signatures.** A call can
+drop the value only through a place its `kills` clause names, since dropping or writing a
+place kills every tie under it, and a call with no clause kills nothing. So the guard is
+needed only when something in the body kills the handle's place: an assignment, a move, or
+a call whose clause covers it. A C call kills everything its `&mut` arguments reach, and a
+static changes only in `unsafe`, so neither hides a drop. That needs no whitelist of
+project functions; it is `dz_flow`'s kill set for the body, read at the `if let` or `or`.
+(Noted 2026-10-30, r90.)
+
 **A compiler detail, not a language change.** §14.5's promise is unchanged either way; this
 is only about not paying for it where it cannot be observed. So **no §21 row** — it belongs
 in `docs/log/m12.md` — and it needs a test that pins the *behaviour* (the value still

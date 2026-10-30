@@ -2,11 +2,18 @@
 id: T-0099
 title: Allocators::Temp gives a growing container a malloc per resize past 64 KiB
 milestone: M12
-status: open
+status: dropped
+dropped: r90, 2026-10-30
 kind: feature
 area: stdlib
 where: `crates/dz_project/src/std/memory/temp_arena.dz`, `grow` and `realloc`
 ---
+
+**Dropped, 2026-10-30 (r90), by the user's choice: superseded by D-0091.** `Allocators::Temp`
+leaves user code ([T-0119](T-0119-remove-allocators-from-ordinary-code.md)), so nobody picks
+it for a growing container. What this task wanted, chunks that double, is now a requirement
+of the region arena in [T-0117](T-0117-memory-placed-by-compiler-regions-result.md), as the
+prototype's `ScopeArena` had it.
 
 **What it is.** The temporary arena hands out memory from 64 KiB chunks. An allocation that
 does not fit gets a chunk of exactly its own size from `malloc`, and the arena only reuses

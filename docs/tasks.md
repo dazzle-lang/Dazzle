@@ -61,7 +61,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (22 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (20 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -78,13 +78,11 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0052](tasks/T-0052-test-trait-default-method-that-builds.md)** Test a trait default method that builds a `Self` · deferral, generics
 - **[T-0053](tasks/T-0053-error-shares-static-ring-four-buffers.md)** `error(…)` shares a static ring of four buffers · deferral, codegen
 - **[T-0084](tasks/T-0084-remove-extern-fn-std-reaches-os.md)** Remove extern fn: std reaches the OS through header imports · feature, interop
-- **[T-0085](tasks/T-0085-optional-reference-passes-checker.md)** An optional of a reference passes the checker · design, checker
 - **[T-0088](tasks/T-0088-explicit-as-t-trait-user-defined.md)** An explicit As<T> trait: user-defined conversions written with as · feature, language
 - **[T-0089](tasks/T-0089-show-where-implicit-conversions-happen-for.md)** Show where implicit conversions happen, for LLMs and debugging · feature, llm-tooling
 - **[T-0094](tasks/T-0094-function-pointers-casts-null-optional-fn.md)** Function pointers: casts, null, optional fn, and C's function-pointer typedefs and globals · design, interop
 - **[T-0096](tasks/T-0096-list-sort-by-heapsort-through-function.md)** List::sort_by is a heapsort through a function pointer: five times slower than std::sort · feature, stdlib
 - **[T-0098](tasks/T-0098-str-cannot-be-cut-str-b.md)** A str cannot be cut: str[a..b] is refused, and only String has slice · feature, stdlib
-- **[T-0099](tasks/T-0099-allocators-temp-gives-growing-container-malloc.md)** Allocators::Temp gives a growing container a malloc per resize past 64 KiB · feature, stdlib
 
 ## M15 — `dz bench`, and the C++ comparison (4 open)
 
@@ -102,7 +100,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (30 open)
+## none — not scheduled (28 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -120,7 +118,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0091](tasks/T-0091-static-cannot-hold-struct-with-array.md)** A static cannot hold a struct with an array field that has no default · design, language
 - **[T-0092](tasks/T-0092-dz-fmt-collapses-multi-line-array.md)** dz fmt collapses a multi-line array literal and detaches its elements' comments · bug, tooling
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
-- **[T-0100](tasks/T-0100-choose-temporary-arena-where-it-faster.md)** Choose the temporary arena where it is faster, automatically or by a setting · design, stdlib
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
 - **[T-0109](tasks/T-0109-text-only-borrowed-str-const-str.md)** Text is borrowed: &str and const &str, and no view as a type argument · feature, language
 - **[T-0110](tasks/T-0110-slices-are-borrowed-t-mut-t.md)** Slices are borrowed: &[]T, &mut []T and const &[]T · feature, language
@@ -128,7 +125,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0112](tasks/T-0112-cstr-behind-pointer-text-at-c.md)** cstr behind a pointer, and text at the C and C++ boundary · feature, interop
 - **[T-0113](tasks/T-0113-function-types-write-in-on-their.md)** Function types write in on their result · feature, ownership
 - **[T-0114](tasks/T-0114-untied-pointer-becomes-reference-only-in.md)** An untied pointer becomes a reference only in unsafe · feature, ownership
-- **[T-0115](tasks/T-0115-moving-elements-within-container-array-kills.md)** Moving elements within a container's array kills nothing · deferral, ownership
 - **[T-0116](tasks/T-0116-debug-build-check-std-trusted-kills.md)** Debug-build check of std's trusted kills clauses · feature, ownership
 - **[T-0117](tasks/T-0117-memory-placed-by-compiler-regions-result.md)** Memory placed by the compiler: regions and the result placement · feature, ownership
 - **[T-0118](tasks/T-0118-skip-drops-that-only-free-region.md)** Skip drops that only free region memory · feature, ownership

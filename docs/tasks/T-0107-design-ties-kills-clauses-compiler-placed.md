@@ -14,14 +14,15 @@ design is decided (D-0091), and steps 1 and 2, the syntax and the checker, are b
 map of the ties code (**Where the code is**, below), which the new tasks point to:
 
 - **Making ties complete** ([D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md),
-  r89), next: [T-0109](T-0109-text-only-borrowed-str-const-str.md) (`&str`), then
-  [T-0110](T-0110-slices-are-borrowed-t-mut-t.md) (slices),
-  [T-0111](T-0111-view-structs-struct-that-holds-view.md) (view structs),
-  [T-0112](T-0112-cstr-behind-pointer-text-at-c.md) (`cstr` and the C boundary),
+  r89, refined in r90), in r90's order:
   [T-0113](T-0113-function-types-write-in-on-their.md) (`in` on function types),
+  [T-0111](T-0111-view-structs-struct-that-holds-view.md) (view structs and `view` type
+  parameters), [T-0109](T-0109-text-only-borrowed-str-const-str.md) (`&str`),
+  [T-0110](T-0110-slices-are-borrowed-t-mut-t.md) (slices),
+  [T-0112](T-0112-cstr-behind-pointer-text-at-c.md) (`cstr` and the C boundary),
   [T-0114](T-0114-untied-pointer-becomes-reference-only-in.md) (untied pointers in `unsafe`).
 - **Left from step 2:** [T-0115](T-0115-moving-elements-within-container-array-kills.md),
-  so `List`'s moving bodies are checked rather than trusted.
+  dropped in r90 and folded into T-0116, whose debug check tests `List`'s moving bodies.
 - **Steps 3–7:** [T-0116](T-0116-debug-build-check-std-trusted-kills.md) (debug check of
   trusted clauses), [T-0117](T-0117-memory-placed-by-compiler-regions-result.md)
   (placement), [T-0118](T-0118-skip-drops-that-only-free-region.md) (skipping drops),
@@ -29,8 +30,9 @@ map of the ties code (**Where the code is**, below), which the new tasks point t
   [T-0120](T-0120-owner-arenas-for-containers-cleared-all.md) (owner arenas).
 
 The open questions below are settled or moved: a union's payload needs no tie syntax
-(D-0093), `const []T` is T-0110, and placement's listing and the prototype's stage 3 are
-T-0117's.
+(D-0093), `const []T` is T-0110, and placement's listing and the prototype's stage 3 were
+settled in r90 (T-0117): the prototype is removed and kept at the tag `regions-prototype`,
+and placement is shown by inlay hints and `dz placements`.
 
 The full design behind [D-0091](../decisions/D-0091-ties-checked-reference-invalidation-memory-placed.md),
 as worked out with the user on 2026-10-27 after the regions prototype

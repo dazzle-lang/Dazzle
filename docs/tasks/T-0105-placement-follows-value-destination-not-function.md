@@ -155,3 +155,5 @@ when memory dies makes placement safe by construction, and the hand-written `STO
 `TAKES` tables here are what it would replace.
 
 **Done, 2026-10-27:** prototyped, and superseded by D-0091 (r81); T-0107 replaces the hand-written tables with `kills` clauses.
+
+**Removed, 2026-10-30 (r90):** the code described here left the branch, and is kept at the git tag `regions-prototype` (commit `548b771`).

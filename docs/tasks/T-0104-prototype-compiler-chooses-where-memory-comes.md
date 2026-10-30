@@ -233,3 +233,5 @@ measurements are in T-0105.
 (decision [D-0091](../decisions/D-0091-ties-checked-reference-invalidation-memory-placed.md), open).
 
 **Done, 2026-10-27:** the prototype answered its question. The user decided D-0091 (r81): placement becomes the compiler's, made safe by ties, and the remaining work is T-0107.
+
+**Removed, 2026-10-30 (r90):** the prototype's code left the branch, and is kept at the git tag `regions-prototype` (commit `548b771`) for [T-0117](T-0117-memory-placed-by-compiler-regions-result.md) to mine. The files named above (`regions.rs`, `scope_arena.dz`, `tests/run/regions`) are there.

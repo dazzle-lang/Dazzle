@@ -99,6 +99,7 @@ the title and appear in the backlog.
 
 ## Out of scope for good
 
-Not tasks, and not deferred: lifetimes — a `&T` cannot be stored in a field and that is the
-whole mechanism, a dangling `^T` is the programmer's problem (D-0003, spec §1.1) — and
-function overloading until a later language version (D-0005).
+Not tasks, and not deferred: lifetime parameters — a tie belongs to a type, never to a
+struct that holds references (§6.7, D-0091), and a reference lives only where references
+live, a view struct included (D-0003, D-0093); a raw `^T` is the programmer's problem, inside
+`unsafe` (spec §1.1) — and function overloading until a later language version (D-0005).

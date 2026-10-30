@@ -7,9 +7,9 @@ kind: feature
 area: ownership
 ---
 
-Step 5 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md); the steps are
-listed in [T-0109](T-0109-text-only-borrowed-str-const-str.md). Small, and independent of
-the others: it can land at any point.
+Step 1 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md), by r90's order;
+the steps are listed in [T-0109](T-0109-text-only-borrowed-str-const-str.md). Small, and
+independent of the others: it could land at any point, so it goes first.
 
 **What it is.** A function type names its parameters when its clause needs them (r81), but
 cannot say where its result points. With two view inputs its result is untied:

@@ -7,7 +7,7 @@ kind: feature
 area: language
 ---
 
-Step 2 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md), after
+Step 4 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md), after
 [T-0109](T-0109-text-only-borrowed-str-const-str.md), which lists every step.
 
 **What it is.** A slice is a view exactly as `str` is, and gets the same treatment: `[]T`
@@ -29,12 +29,16 @@ of whether `const []T` follows `const str`: static tables come with it.
 **What it would take.** A language change (§5.3, §6.7, §20, a §21 row). Every `[]T` in std,
 the examples and the corpora; `..xs` variadics, whose parameter is a `[]T` today
 (`FnSig::variadic`); slicing `xs[a..b]`, which now yields a `&[]T`. The iterators that hold a
-slice (`SliceIter`, `SliceIterMut`) cannot until [T-0111](T-0111-view-structs-struct-that-holds-view.md),
-so the two land together or `SliceIter` holds a pointer for one step.
+slice (`SliceIter`, `SliceIterMut`) are view structs by then, since
+[T-0111](T-0111-view-structs-struct-that-holds-view.md) lands first (r90), so their `m_slice`
+simply becomes `&[]T` and `&mut []T`. A slice that may be absent is `^[]T`, as text is
+`^str` (r90). Reflection's tables become static: `TypeInfo::fields` and `variants` and
+`VariantInfo::fields` are `const &[]FieldInfo` and `const &[]VariantInfo`.
 
 | Piece | Where |
 |---|---|
 | `Ty::Slice` | `dz_hir/src/ty.rs` |
+| Reflection's slices | `dz_project/src/std/reflect/{type_info,variant_info}.dz` |
 | The variadic parameter | `FnSig::variadic`, `variadic_elem` in `dz_check/src/lib.rs` |
 | `const` lowering, which today accepts only `str` (`DZ0569`) | `lower_type_inner` in `dz_check/src/lib.rs` |
 | The ties code as a whole | [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md)'s table |
