@@ -6,6 +6,41 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## 2c, sixth part: a tuple keeps its parts' ties (2026-10-30)
+
+Compiler work: §6.7 says every reference carries its tie, and its unchecked boundary is a
+pointer made in `unsafe` or stored in a struct. A tuple was neither, yet a view put into one
+lost its tie: `let t = (xs.first(), 1)`, then `xs.push(1)`, then `t.0` or `let (p, n) = t`
+compiled, and read freed memory.
+
+- **A value has parts.** `Value::parts` holds, for a tuple, each part's own views, so `t.1`
+  after a kill that ended the view in `t.0` is fine, and `(p.a[0], p.b[0])` keeps the two
+  lists apart. A tuple literal holds each part while the next is evaluated, as a call holds
+  its arguments, so `(xs.first(), grow(xs))` ends the first part.
+- **Everything that handles a value reaches into its parts**: `t.0` (`tuple_part`, which
+  reads only that part), `let (p, n) = t` (each name takes its part), `bind`, an optional
+  holding a tuple through `or` and `if let`, a `move`, branch and loop merges, kills,
+  reads, scope-exit drops and `return`, which now sees a view of a local in a returned tuple.
+  Assigning `t.0 = o.first()` repoints that part, as assigning a pointer local does.
+- **Where the parts are not known** (a tuple a call returns, a parameter, a field), the
+  tuple is unknown, so a merge with a known one cannot lose that; its uses stay unchecked as
+  before. A call returning a tuple of views still has no elision rule: that is the open
+  question in T-0107, and the user's direction that returned references keep their tie.
+- A destructuring with no views in it (`let (c, width) = decode_utf8(…)`) is no longer
+  counted as unchecked.
+
+Over std's 715 bodies, the nine tuple sites left unchecked (five literals, four
+destructurings) are all followed now. One of them reappears where it is returned
+(`-> (^T, …)` has no tie to hold it to), which is the elision question again. Every example
+and run program checks with no tie error; `examples/sdl3` and `tests/run/cmake` need Ninja,
+which the machine this was written on lacks, so CI checks those two.
+
+Tests: `dz_flow/tests/ties.rs` (`a_tuple_keeps_each_parts_ties`: a part, a destructuring,
+a nested part, a kill in a later part, an optional through `or`, a returned local, and
+the plain part, the other list and a repointed part staying clean), and the fixture that
+pinned tuples as unknown now expects them followed: a reference carried in one is exact
+enough for its clause to be too broad. `tests/flow/use_after_kill.dz` has the case end to end.
+
 ## 2c, fifth part: loops over containers (2026-10-30)
 
 Compiler work: §6.7 already listed `for &mut e in enemies { enemies.push(…) }` as an error,
