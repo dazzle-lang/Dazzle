@@ -13,18 +13,4 @@ pub trait Allocator {
         loc: SourceLocation = #location,
     ) -> ^mut u8 in (self, p)
     fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation = #location)
-
-    /// Whether what this allocator hands out is released when a scope ends, rather than
-    /// when it is freed. A copy of a container in such memory is made on the heap, since
-    /// nothing says the copy dies with the scope (T-0104 prototype).
-    fn scoped(&self) -> bool {
-        return false
-    }
-
-    /// Where what is stored in a container built here may get its memory, or `null` for
-    /// no opinion: the value's own default. Only a region lent to a container that the
-    /// compiler knows never gives an element back says itself (T-0105 prototype).
-    fn contents(&self) -> ^mut Allocator {
-        return null
-    }
 }

@@ -1,9 +1,0 @@
-[module]
-name    = "regions"
-sources = ["src/**/*.dz"]
-
-[dependencies]
-std = { open = true }
-
-[build]
-output = "executable"

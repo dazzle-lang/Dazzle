@@ -6,6 +6,35 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r90: the open questions closed, and the prototype removed (2026-10-30)
+
+The user asked for every open question on ties and regions to be settled, and accepted the
+answers proposed. Three were places where D-0093 (r89) did not fit the rest of the
+language, now recorded in D-0093 and r90's row: point 8 refused `T = SliceIter<i32>`, which
+§8.5's projections and two corpora rely on, so a type parameter or associated type may be
+marked `view`; `-> &T?` meant a reference to an optional, so an optional view is a pointer
+(`^T`, and `^str` for `str?`); and view structs hold references, which D-0003 said nothing
+may. The rest went into their tasks: `view` is contextual (T-0111), the untied-pointer check
+is `dz_flow`'s and a pointer parameter is untied (T-0114), `process_env` returns `^str`
+(T-0112), a trusted body is checked at its edges in debug builds (T-0116, which takes over
+T-0115), a drop that only frees is proven, not marked (T-0118), and placement is shown by
+inlay hints and `dz placements` (T-0117). T-0085 and T-0100 are done, T-0099 and T-0115
+dropped. D-0093's order changed: view structs before `&str`, since `Chars`, `Split`, `Lines`
+and `SplitWhitespace` hold a `str` field.
+
+**The prototype is removed** (compiler work; T-0117's question). All three stages: `dz_cpp`'s
+`regions.rs` and its hooks in the emitter (`Options::regions`, the block's `_dz_region`, the
+hidden result parameter, the copies into a container's contents), `DZ_REGIONS` in `dz build`,
+the `#allocator` intrinsic in `dz_ast`, `dz_check` and `dz_hir`, and in std `ScopeArena`,
+`ScopePool`, `ScopeShared`, `Allocator::scoped` and `contents`, `contents_allocator` on
+`List`, `HashMap` and `HashSet`, `String::copy_in`, and the copy guard that sent a copy of
+a scoped container to the heap. std's constructors default to `Allocators::Global` again, as
+before the prototype. `tests/run/regions` and `regions_change_nothing` went with it. Kept: a
+codegen fix stage 3 found, which declares each trait's `__dyn` handle ahead of its vtable, so
+a trait method may name the trait's own object type. The code is at the git tag
+`regions-prototype` (`548b771`) for T-0117 to mine; the measurements stay in T-0104 and
+T-0105. The HIR snapshot lost std's prototype bodies and nothing else.
+
 ## r88: every returned reference says where it points (2026-10-30)
 
 The user's direction from earlier the same day, references keep their tie, designed and

@@ -38,7 +38,6 @@ use dz_resolve::{ParsedFile, Resolution, SymbolId};
 use dz_span::{FileId, SourceMap, Span};
 
 mod reflect;
-mod regions;
 mod runtime;
 
 pub use runtime::{NATIVE_CPP, NATIVE_H, PRELUDE_H, RUNTIME_CPP, RUNTIME_H};
@@ -93,14 +92,11 @@ pub struct Options {
     /// A `#line` before each statement, naming its `.dz` line (spec §16.3). Off for
     /// `--no-line-directives`, when it is the generated C++ itself being debugged or read.
     pub line_directives: bool,
-    /// Place containers that never leave their scope in a region released when it ends
-    /// (T-0104 prototype, `regions.rs`).
-    pub regions: bool,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { mode: Mode::default(), line_directives: true, regions: false }
+        Options { mode: Mode::default(), line_directives: true }
     }
 }
 
@@ -158,9 +154,6 @@ pub fn emit(
         entry: None,
     };
     let reflection: reflect::Shared = Default::default();
-    let results = std::cell::RefCell::new(HashMap::new());
-    let keeps = std::cell::RefCell::new(HashMap::new());
-    let fn_values = regions::fn_values(hir);
 
     // An imported header generates nothing: its names are the header's own (spec §15.1).
     for module in ws.modules().filter(|m| m.foreign.is_none()) {
@@ -201,11 +194,6 @@ pub fn emit(
             mode,
             line_directives: options.line_directives,
             reflect: &reflection,
-            regions: options.regions,
-            placement: Default::default(),
-            results: &results,
-            keeps: &keeps,
-            fn_values: &fn_values,
         };
         e.module(module_files);
         e.finish_header();
@@ -338,11 +326,6 @@ pub fn emit(
             mode,
             line_directives: options.line_directives,
             reflect: &reflection,
-            regions: false,
-            placement: Default::default(),
-            results: &results,
-            keeps: &keeps,
-            fn_values: &fn_values,
         };
         if type_info == dz_project::TypeInfo::All {
             reflect::seed_all(&mut e, files);
@@ -612,17 +595,6 @@ struct Emitter<'a> {
     line_directives: bool,
     /// The types reflected on, shared by every module's emitter (spec §13).
     reflect: &'a reflect::Shared,
-    /// Whether containers that never leave their scope are placed in a region (T-0104
-    /// prototype), and which ones are in the current body.
-    regions: bool,
-    placement: regions::Placement,
-    /// Which functions have a result allocator, by body address, decided once for every
-    /// module; and the functions used as values, which cannot have one (`regions.rs`).
-    results: &'a std::cell::RefCell<HashMap<usize, bool>>,
-    /// Whether a function keeps everything stored in a container it is lent, by body
-    /// address and parameter (T-0105, `regions.rs`).
-    keeps: &'a std::cell::RefCell<HashMap<(usize, usize), bool>>,
-    fn_values: &'a std::collections::HashSet<SymbolId>,
 }
 
 impl<'a> Emitter<'a> {
@@ -1245,8 +1217,8 @@ impl<'a> Emitter<'a> {
         for &sym in traits {
             let name = sanitize(&self.res.symbol(sym).name);
             let methods = self.trait_methods(sym);
-            // A method may take or return the trait's own handle — `Allocator::contents` —
-            // which a function pointer's signature may name while it is incomplete.
+            // A method may take or return the trait's own handle, `fn parent(&self) -> ^mut
+            // Node`, which a function pointer's signature may name while it is incomplete.
             let _ = writeln!(self.header, "struct {name}__dyn;");
             let _ = writeln!(self.header, "struct {name}__vtable {{");
             for (m, sig) in &methods {
@@ -2654,20 +2626,16 @@ impl<'a> Emitter<'a> {
 
     fn free_fn(&mut self, sym: SymbolId, name: &str) {
         let owner = BodyOwner::Fn(sym);
-        let Some(body) = self.find_body(&owner) else { return };
-        let ret = self.body_ret_ty(&owner);
-        let mut decl = self.decl_params(&owner);
-        // Where what it returns is built, chosen at each call (T-0104, `regions.rs`).
-        if self.places_result(body) {
-            let ty = self.allocator_ty();
-            let comma = if decl.is_empty() { "" } else { ", " };
-            decl = format!("{decl}{comma}[[maybe_unused]] {ty} {}", regions::RESULT);
+        if self.find_body(&owner).is_none() {
+            return;
         }
+        let ret = self.body_ret_ty(&owner);
+        let decl = self.decl_params(&owner);
         // `current_fn` feeds `#function`, which names the Dazzle function, not the C++ one.
         let cpp = sanitize(name);
         let _ = writeln!(self.header, "{ret} {cpp}({decl});");
 
-        let params = decl;
+        let params = self.decl_params(&owner);
         self.current_fn = name.to_owned();
         let head = format!("{ret} {cpp}({params}) {{");
         self.emit_body(&owner, &head);
@@ -2699,17 +2667,6 @@ impl<'a> Emitter<'a> {
             params.join(", "),
             args.join(", ")
         );
-    }
-
-    /// `^mut Allocator` in C++: the trait object a result allocator is passed as.
-    fn allocator_ty(&mut self) -> String {
-        match self.res.lookup(self.res.prelude, "Allocator") {
-            Some(sym) => {
-                let inner = std::rc::Rc::new(Ty::Named { sym, args: Vec::new() });
-                self.cpp_ty(&Ty::Ptr { mutable: true, inner })
-            }
-            None => "void*".to_owned(),
-        }
     }
 
     /// The C++ return type of a body. A `!->` signature returns `dz::Res<T>`, since the
@@ -3024,15 +2981,10 @@ impl<'a> Emitter<'a> {
         }
         let saved_names = std::mem::replace(&mut self.names, names);
         let saved_file = std::mem::replace(&mut self.file, body.file);
-        // Always: passing a function's own `#allocator` on to what it returns is what the
-        // intrinsic means. Only the regions themselves wait for `self.regions`.
-        let placement = self.place_regions();
-        let saved_placement = std::mem::replace(&mut self.placement, placement);
         let result = self.capture(f);
         self.body = saved_body;
         self.names = saved_names;
         self.file = saved_file;
-        self.placement = saved_placement;
         result
     }
 
@@ -3177,21 +3129,6 @@ impl<'a> Emitter<'a> {
     /// Emit a block's statements, sending the value of its final expression to `dest`.
     fn block_into(&mut self, id: BlockId, dest: Dest<'_>) {
         let body = self.cur();
-        // First in the scope, so C++ destroys it after every value placed in it (T-0104).
-        if self.placement.blocks.contains(&id) {
-            if let Some(arena) = self.res.lookup(self.res.prelude, "ScopeArena") {
-                let ty = self.qualify(arena);
-                self.line(&format!("{ty} _dz_region{} {{}};", id.index()));
-            }
-            // The view lent to the containers that keep what they store (T-0105).
-            if self.placement.shares.contains(&id) {
-                if let Some(shared) = self.res.lookup(self.res.prelude, "ScopeShared") {
-                    let ty = self.qualify(shared);
-                    let n = id.index();
-                    self.line(&format!("{ty} _dz_share{n} {{::dz::addr(_dz_region{n})}};"));
-                }
-            }
-        }
         let stmts = &body.block(id).stmts;
         let last = stmts.len().saturating_sub(1);
         for (i, s) in stmts.iter().enumerate() {
@@ -4148,32 +4085,7 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Call { callee, args } => {
-                let mut allocator = match self.placement.sites.get(&e).copied() {
-                    Some((slot, source)) => {
-                        let text = match source {
-                            regions::Source::Region(b) => format!("_dz_region{}", b.index()),
-                            regions::Source::Shared(b) => format!("_dz_share{}", b.index()),
-                            regions::Source::Result => regions::RESULT.to_owned(),
-                            regions::Source::Into(store) => {
-                                let heap = self.intrinsic("allocator", node.span, None);
-                                self.stored_allocator(store, &heap)
-                            }
-                        };
-                        Some((slot, text))
-                    }
-                    None => None,
-                };
-                // A function with a result allocator is always passed one: the heap, when
-                // nothing better was decided.
-                if allocator.is_none() {
-                    if let Some(callee_body) = self.result_callee(callee) {
-                        if self.places_result(callee_body) {
-                            let heap = self.intrinsic("allocator", node.span, None);
-                            allocator = Some((regions::Slot::Hidden, heap));
-                        }
-                    }
-                }
-                self.call(callee, args, body.ty(e).clone(), node.span, allocator)
+                self.call(callee, args, body.ty(e).clone(), node.span)
             }
             hir::ExprKind::Move(inner) => {
                 /// Something `take` can reset: a local, or a field of one.
@@ -4532,16 +4444,8 @@ impl<'a> Emitter<'a> {
     }
 
     /// `node_ty` is the call's own type, which is what says *which* instance a generic
-    /// struct's constructor builds. `allocator` is the index of an `#allocator` argument and
-    /// what to pass there instead of the heap (T-0104, `regions.rs`).
-    fn call(
-        &mut self,
-        callee: &hir::Callee,
-        args: &[ExprId],
-        node_ty: Ty,
-        span: Span,
-        allocator: Option<(regions::Slot, String)>,
-    ) -> String {
+    /// struct's constructor builds.
+    fn call(&mut self, callee: &hir::Callee, args: &[ExprId], node_ty: Ty, span: Span) -> String {
         if let hir::Callee::Method { recv, owner, name, .. } = callee {
             if let Some(native) = self.native_trait_call(*recv, *owner, name, args) {
                 return native;
@@ -4691,7 +4595,6 @@ impl<'a> Emitter<'a> {
             hir::Callee::Value(_) => format!("({})", recv_text()),
         };
         let mut rendered: Vec<String> = recv_arg.into_iter().collect();
-        let first_arg = rendered.len();
         for (i, v) in self.emit_args(captured).into_iter().enumerate() {
             let cast =
                 imported.as_ref().and_then(|s| s.params.get(i)).and_then(|p| p.c_cast.clone());
@@ -4708,26 +4611,6 @@ impl<'a> Emitter<'a> {
             let Some((body, default)) = *d else { break };
             let v = self.render_default(body, default, span);
             rendered.push(v);
-        }
-        // A `String` copied into a container is copied where the container keeps its
-        // contents, or as any copy is when it has no opinion (T-0105, `regions.rs`).
-        for (i, a) in args.iter().enumerate() {
-            let Some(&store) = self.placement.copies.get(a) else { continue };
-            let null = format!("{}{{}}", self.allocator_ty());
-            let into = self.stored_allocator(store, &null);
-            if let Some(slot) = rendered.get_mut(first_arg + i) {
-                *slot = format!("::dz::obj({slot}).copy_in({into})");
-            }
-        }
-        // The index counts parameters, and a receiver passed as an argument comes first.
-        match allocator {
-            Some((regions::Slot::Param(index), text)) => {
-                if let Some(slot) = rendered.get_mut(first_arg + index) {
-                    *slot = text;
-                }
-            }
-            Some((regions::Slot::Hidden, text)) => rendered.push(text),
-            None => {}
         }
         let call = format!("{target}({})", rendered.join(", "));
         match imported {
@@ -5589,11 +5472,6 @@ impl<'a> Emitter<'a> {
                 format!("::dz::str(\"{n}\", {})", n.len())
             }
             "location" => self.source_location(span),
-            // A call the analysis has no better answer for: the heap (T-0104, `regions.rs`).
-            "allocator" => match self.res.lookup(self.res.prelude, "Allocators") {
-                Some(sym) => format!("{}::Global()", self.qualify(sym)),
-                None => "nullptr".to_owned(),
-            },
             "module" => {
                 let m = self.ws.module(self.module).name.clone();
                 format!("::dz::str({}, {})", quote_cpp(&m), m.len())

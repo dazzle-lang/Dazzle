@@ -13,7 +13,7 @@ pub struct HashSet<T: Hash + Eq> {
     /// An empty set, with room for `capacity` elements already allocated when it is given.
     HashSet(
         capacity: usize = 0,
-        allocator: ^mut Allocator = #allocator,
+        allocator: ^mut Allocator = Allocators::Global,
         loc: SourceLocation = #location,
     ) {
         m_map = HashMap<T, bool>(capacity, allocator, loc)
@@ -25,11 +25,6 @@ pub struct HashSet<T: Hash + Eq> {
 
     pub fn is_empty(&self) -> bool {
         return m_map.is_empty()
-    }
-
-    /// Where a value stored in this set may get its memory (T-0105 prototype).
-    pub fn contents_allocator(&self, fallback: ^mut Allocator) -> ^mut Allocator in (self, fallback) {
-        return m_map.contents_allocator(fallback)
     }
 
     /// How many elements fit before the set grows again.
