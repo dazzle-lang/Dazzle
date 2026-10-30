@@ -1415,18 +1415,26 @@ impl<'a> Query<'a> {
         (kind, detail)
     }
 
+    /// A signature as its declaration writes it, ties and `kills` clause included: what a
+    /// call may end is part of what a caller needs to know before choosing it (spec §6.7).
     fn signature(&self, name: &str, f: &FnSig) -> String {
+        let in_tie = |t: &Option<dz_ast::TiePath>| match t {
+            Some(t) => format!(" in {}", dz_ast::dump::tie_path_str(t)),
+            None => String::new(),
+        };
         let params = f
             .params
             .iter()
-            .map(|p| format!("{}: {}", p.name, type_name(self.res, &p.ty)))
+            .map(|p| format!("{}: {}{}", p.name, type_name(self.res, &p.ty), in_tie(&p.tie)))
             .collect::<Vec<_>>()
             .join(", ");
+        let kills = dz_ast::dump::kills_str(&f.kills, false);
         if f.ret == Ty::Void && !f.fallible {
-            return format!("fn {name}({params})");
+            return format!("fn {name}({params}){kills}");
         }
         let arrow = if f.fallible { "!->" } else { "->" };
-        format!("fn {name}({params}) {arrow} {}", type_name(self.res, &f.ret))
+        let ret = type_name(self.res, &f.ret);
+        format!("fn {name}({params}) {arrow} {ret}{}{kills}", in_tie(&f.ret_tie))
     }
 
     /// Fields and methods of a struct, or a union's methods (spec §7.5); its private ones
@@ -2027,6 +2035,9 @@ pub enum HintKind {
     Type,
     /// `name:` before a value in a positional struct literal, naming the field it fills.
     Field,
+    /// `kills …` where a function that writes no clause needs one: what its body kills, the
+    /// clause `DZ0415`'s fix would insert, shown where it goes (spec §6.7).
+    Clause,
 }
 
 /// `: T` after every `let`, `for` and `case` binding in `range` that leaves its type to
@@ -2073,8 +2084,40 @@ pub fn inlay_hints(a: &Analysis, file: FileId, range: Span) -> Vec<Hint> {
             field_hints(body, table, text, range, &mut out);
         }
     }
+    clause_hints(a, file, range, &mut seen, &mut out);
     out.sort_by_key(|h| h.offset);
     out
+}
+
+/// The clause a body needs, before its `{`, when the function writes none.
+///
+/// The flow pass has already worked it out: each kill the clause leaves out is a `DZ0415`
+/// whose fix inserts the whole clause there, so the hint is that insertion, and can never
+/// disagree with what `dz fix` writes. A clause that is written but wrong is not hinted:
+/// its errors sit on the clause itself and say what it should be.
+fn clause_hints(
+    a: &Analysis,
+    file: FileId,
+    range: Span,
+    seen: &mut HashSet<u32>,
+    out: &mut Vec<Hint>,
+) {
+    for d in a.diags.iter().filter(|d| d.code == Some(dz_diag::codes::KILL_NOT_DECLARED)) {
+        let Some(fix) = &d.fix else { continue };
+        let [edit] = fix.edits.as_slice() else { continue };
+        let at = edit.span.start;
+        if edit.file != file || !edit.span.is_empty() || at < range.start || at > range.end {
+            continue;
+        }
+        // Every kill left out repeats the same clause, so one hint per function.
+        if seen.insert(at) {
+            out.push(Hint {
+                offset: at,
+                label: edit.text.trim_end().to_owned(),
+                kind: HintKind::Clause,
+            });
+        }
+    }
 }
 
 /// The field each positional value of a struct literal or union payload lands in.

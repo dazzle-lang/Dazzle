@@ -28,12 +28,15 @@ use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_hir::ty::Ty;
 use dz_hir::{self as hir, BlockId, ExprId, Hir, LocalId, StmtId};
 use dz_resolve::Resolution;
-use dz_span::{FileId, Span};
+use dz_span::{FileId, SourceMap, Span};
 
 pub mod ties;
 
 /// Check every body in the program.
-pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
+///
+/// `map` is read only to lay out a fix's edit, as in `dz_check::check`: a tie the fix
+/// declares goes on a line of its own among the type's members (spec §6.7).
+pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution, map: &SourceMap) -> Diagnostics {
     let mut diags = Diagnostics::new();
     // The prelude is the compiler's own code: a warning there is noise in every program.
     let prelude: std::collections::HashSet<FileId> =
@@ -53,7 +56,7 @@ pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
         // References used after their memory was killed, and clauses that do not say what
         // the body kills (spec §6.7).
         let analysis = ties::analyse_body(body, table, res);
-        ties::report(body, table, res, &analysis, &mut diags);
+        ties::report(body, table, res, map, &analysis, &mut diags);
         // A trait method's parameters are declarations, not bindings anything could read:
         // its body exists only to hold their defaults (spec §7.6).
         let signature_only = matches!(body.owner, dz_hir::BodyOwner::TraitDefaults { .. });

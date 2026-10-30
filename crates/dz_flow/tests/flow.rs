@@ -80,7 +80,7 @@ fn analyse(dir: &Path) -> Outcome {
     let checked = dz_check::check(&ws, &resolution, &files, &map);
     diags.extend(checked.diagnostics.clone());
     if !checked.diagnostics.has_errors() {
-        diags.extend(dz_flow::check(&checked.hir, &checked.table, &resolution));
+        diags.extend(dz_flow::check(&checked.hir, &checked.table, &resolution, &map));
     }
     diags.sort_by_position();
 

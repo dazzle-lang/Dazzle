@@ -304,7 +304,7 @@ pub fn analyse_prepared(
             // it failed: a body whose types are unknown moves values of unknown kinds, and
             // every answer this pass gave would be a guess.
             if checked_cleanly {
-                diags.extend(dz_flow::check(&checked.hir, &checked.table, &r));
+                diags.extend(dz_flow::check(&checked.hir, &checked.table, &r, &map));
                 lap = timings.lap("ownership", lap);
                 // Instantiation runs here rather than at codegen so that `dz check`
                 // reports a runaway instantiation (DZ0536) too; it is a property of the
