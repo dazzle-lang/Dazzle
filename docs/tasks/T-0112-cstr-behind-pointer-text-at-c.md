@@ -7,7 +7,7 @@ kind: feature
 area: interop
 ---
 
-Step 4 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md); the steps are
+Step 5 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md); the steps are
 listed in [T-0109](T-0109-text-only-borrowed-str-const-str.md).
 
 **What it is.** A `cstr` is today a view with no tie at all, stored anywhere:
@@ -33,8 +33,11 @@ and an `extern fn` result with no input: the only untied results left are raw po
 **What it would take.** A language change (§5.3, §15, §16, a §21 row). The C importer's
 mapping of `const char*` (`foreign_ty` in `dz_check/src/lib.rs`, `dz_cppimport`), the
 literal-to-`cstr` rule, `ImplicitAs<&cstr>` for `String` and `Path`, and the examples, which
-pass text to raylib, SDL and sokol everywhere. `process_env` returns a copy or a `^str`
-rather than eliding to its argument.
+pass text to raylib, SDL and sokol everywhere. **Settled in r90:** `process_env` returns
+`^str` rather than eliding to its argument, as point 4 says for text an `extern fn` does not
+own (it is valid until the next call); `Process::env`, its one caller, converts it in
+`unsafe` and copies it. The memory tracker's `Allocation` (`memory/allocation.dz`) keeps
+source files in `cstr` fields, which become `const &cstr`.
 
 | Piece | Where |
 |---|---|

@@ -2,11 +2,17 @@
 id: T-0100
 title: Choose the temporary arena where it is faster, automatically or by a setting
 milestone: none
-status: open
+status: done
+done: r81, 2026-10-27
 kind: design
 area: stdlib
 where: `crates/dz_project/src/std/memory/allocators.dz`; the containers' `allocator` parameters
 ---
+
+**Done: decided by D-0091 (r81, 2026-10-27), closed 2026-10-30 (r90).** The user chose option
+5 below: the compiler places memory, and ordinary code names no allocator (spec §14.6). The
+work is [T-0117](T-0117-memory-placed-by-compiler-regions-result.md) and
+[T-0119](T-0119-remove-allocators-from-ordinary-code.md).
 
 **What it is.** A program picks its allocator by hand, one container at a time:
 

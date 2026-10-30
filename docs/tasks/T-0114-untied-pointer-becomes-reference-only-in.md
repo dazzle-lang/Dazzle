@@ -31,10 +31,20 @@ is used.
 
 **What it would take.** A language change (§5.2, §6.7, a §21 row, revising D-0016/D-0037's
 safe conversion as needed). The checker must know whether a pointer value is tied, which is
-`dz_flow`'s knowledge, not the type checker's: either the conversion's check moves into
-`dz_flow` (a new code there), or the type checker treats any pointer not straight from a
-call as untied. To settle when it is built. Every context struct in the examples gains
-`unsafe` at its uses.
+`dz_flow`'s knowledge, not the type checker's.
+
+**Settled in r90:**
+
+- **The check is `dz_flow`'s**, a new code there, since only it knows a pointer's origin. The
+  other way, the type checker treating any pointer not straight from a call as untied, would
+  refuse `let p: ^mut Player = &mut world.players[0]` and then `p or return`, which §5.2
+  shows as safe.
+- **A pointer parameter is untied.** If it were tied to itself, passing `ctx.world` to it
+  would be safe, and the hole would only move to the call.
+- **The cost is small.** In `examples/`, two conversions of `examples/ownership`'s
+  `m_allocator`. In std, `Formatter::m_out` and the allocators' own fields; the map
+  iterators' `m_map` become references in view structs first
+  ([T-0111](T-0111-view-structs-struct-that-holds-view.md)).
 
 | Piece | Where |
 |---|---|

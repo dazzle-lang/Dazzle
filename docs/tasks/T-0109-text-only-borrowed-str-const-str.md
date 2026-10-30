@@ -7,18 +7,22 @@ kind: feature
 area: language
 ---
 
-**Next, by the user's choice (2026-10-30).** Step 1 of
-[D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md) (r89, decided, not yet
-implemented), which settles how the ties of D-0091 become complete. The steps, in order,
-each landing on its own:
+**Step 3, after view structs (r90's order, 2026-10-30).** It was next until r90 found that
+`Chars`, `Split`, `Lines` and `SplitWhitespace` hold a `str` field, which only a view struct
+may hold once `str` is borrowed. A step of
+[D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md) (r89, refined in r90; decided,
+not yet implemented), which settles how the ties of D-0091 become complete. The steps, in
+order, each landing on its own:
 
-1. **This task:** `&str`, `const &str`, and no view as a type argument.
-2. [T-0110](T-0110-slices-are-borrowed-t-mut-t.md): slices are `&[]T`, `&mut []T`,
+1. [T-0113](T-0113-function-types-write-in-on-their.md): function types write `in`. Small and
+   independent.
+2. [T-0111](T-0111-view-structs-struct-that-holds-view.md): view structs, `view` type
+   parameters, and the iterators.
+3. **This task:** `&str`, `const &str`, and no view as a type argument.
+4. [T-0110](T-0110-slices-are-borrowed-t-mut-t.md): slices are `&[]T`, `&mut []T`,
    `const &[]T`.
-3. [T-0111](T-0111-view-structs-struct-that-holds-view.md): view structs, and the iterators.
-4. [T-0112](T-0112-cstr-behind-pointer-text-at-c.md): `cstr` behind a pointer, and text at
+5. [T-0112](T-0112-cstr-behind-pointer-text-at-c.md): `cstr` behind a pointer, and text at
    the C and C++ boundary.
-5. [T-0113](T-0113-function-types-write-in-on-their.md): function types write `in`.
 6. [T-0114](T-0114-untied-pointer-becomes-reference-only-in.md): an untied pointer becomes a
    reference only in `unsafe`.
 
@@ -42,6 +46,20 @@ fn label() -> const &str
 A `String` passes where a `&str` is wanted through `ImplicitAs<&str>`, at arguments only,
 borrowed and tied to the `String` (D-0093, point 7).
 
+**Settled in r90.** Text that may be absent is `^str`, not `str?` (an optional of a
+reference is not a type, §5.6): `strip_prefix`, `strip_suffix`, `tag_value`,
+`String::slice` and `process_env` in std, and two in `tests/`. `^str` then means the text
+pointer itself, a `{ ptr, len }` that may be null, where today it is a pointer to a `str`
+value: `tests/run/reflect/src/json.dz` reads a `str` field through `(value as ^str)^`, which
+needs another spelling. From [T-0085](T-0085-optional-reference-passes-checker.md), closed
+by r90: `(&T)?` written out is an error offering `^T`, and `T = &i32` is refused as a type
+argument by point 8, so neither reaches C++ as a `::dz::Opt<const T&>`.
+
+```dz
+fn strip_prefix(&self, prefix: &str) -> ^str in self      // was `-> str? in self`
+let rest = line.strip_prefix("--") or continue             // tied, so safe
+```
+
 **Why it matters.** A `str` is a reference that does not look like one, and every rule about
 references has had to special-case it. With it gone and no view as a type argument, no `T`
 is ever a view, so r88's exemption for results that are views only through `T` (`pop() ->
@@ -64,4 +82,7 @@ the corpora changes (about 150 mentions in std, 260 in `tests/`, 17 containers o
 | `DZ0517`, a reference in a field | `dz_check/src/lib.rs` (`REF_IN_FIELD`) |
 | `ImplicitAs` at arguments | `dz_check/src/check.rs` (`implicit_as`, near line 5508); std's in `core/implicit_as.dz`, `text/string.dz` |
 | r88's generic exemption, to remove | `untied_result` in `dz_check/src/ties.rs`; `Signature::effects`, `generic_result` in `dz_flow/src/ties/body.rs` |
+| `(&T)?` written out (T-0085) | `lower_type_inner`, `TypeKind::Optional`, in `dz_check/src/lib.rs` |
+| The `str?` results that become `^str` | `text/text.dz` (`strip_prefix`, `strip_suffix`), `reflect/field_info.dz` (`tag_value`), `text/string.dz` (`slice`), `io/process.dz` (`process_env`) |
+| Reflection reading a text field | `tests/run/reflect/src/json.dz` (`(value as ^str)^`) |
 | C++ emission, unchanged (`::dz::str`) | `dz_cpp` |

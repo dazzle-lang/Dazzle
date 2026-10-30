@@ -51,3 +51,5 @@ the user now leans to option 1 (no allocator in ordinary code), made safe by the
 [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md) describes, rather than option 2.
 
 **Done, 2026-10-27:** the user chose option 1, no allocators in ordinary code, in D-0091 (r81).
+
+**Removed, 2026-10-30 (r90):** `#allocator` left the branch with the rest of the prototype, which is kept at the git tag `regions-prototype`.

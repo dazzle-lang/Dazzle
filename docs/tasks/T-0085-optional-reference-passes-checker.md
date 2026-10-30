@@ -2,10 +2,22 @@
 id: T-0085
 title: An optional of a reference passes the checker
 milestone: M12
-status: open
+status: done
+done: r90, 2026-10-30
 kind: design
 area: checker
 ---
+
+**Done: decided in r90 (2026-10-30), by the user, with D-0093.** Each case below has an
+answer and a task that builds it:
+
+- **`(&i32)?` written out** is an error that offers `^i32`
+  ([T-0109](T-0109-text-only-borrowed-str-const-str.md)).
+- **`wrap(&n)`, where `T` would be `&i32`**, is refused at the call, since no view is a type
+  argument (D-0093, point 8; T-0109).
+- **`T::Item?` whose instance is a reference** is that pointer: option 3 below, for
+  projections only, since a plain `T` is never a reference
+  ([T-0111](T-0111-view-structs-struct-that-holds-view.md)).
 
 **What is wrong.** Spec §5.6 says `?` applies to value types only: there is no `(&T)?` and
 no `(^T)?` (`[DECIDED]`). The checker does not enforce it, in three places:

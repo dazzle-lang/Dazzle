@@ -26,7 +26,7 @@ wrong, and ordinary code stops carrying allocator parameters.
 **Why it is this way.** It cannot come before placement, or code would lose the speed hand
 placement gives it now.
 
-**What it would take.** std's container constructors and every caller, the examples, the
-benchmarks, and the prototype's `STORES`/`TAKES` tables and `#allocator`. Measured against
-hand-placed `Temp` as in T-0104: stage 3 reached `words`' keys but gained 2%, with
-hand-placed `Temp` 6–7% ahead, which this must not lose.
+**What it would take.** std's container constructors and every caller, the examples and the
+benchmarks; the prototype's `STORES`/`TAKES` tables and `#allocator` went with it in r90
+(T-0117). Measured against hand-placed `Temp` as in T-0104: stage 3 reached `words`' keys but
+gained 2%, with hand-placed `Temp` 6–7% ahead, which this must not lose.

@@ -2,10 +2,18 @@
 id: T-0115
 title: Moving elements within a container's array kills nothing
 milestone: none
-status: open
+status: dropped
+dropped: r90, 2026-10-30
 kind: deferral
 area: ownership
 ---
+
+**Dropped, 2026-10-30 (r90), by the user's choice: folded into
+[T-0116](T-0116-debug-build-check-std-trusted-kills.md).** T-0116's debug check tests these
+bodies, `[*]` exactly. Teaching the analysis instead would special-case a `move_out` paired
+with a `construct`, and still leave the bodies trusted: `memmove` shifts and `memcpy` appends
+are pointer arithmetic, and growing (`move_to`) moves every element into a fresh buffer that
+becomes `m_data` only afterwards, which the analysis cannot follow.
 
 Left over from T-0107's step 2d ([T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md)).
 

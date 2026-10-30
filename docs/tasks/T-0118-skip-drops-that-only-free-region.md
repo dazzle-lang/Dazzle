@@ -20,6 +20,12 @@ value to free memory the region frees anyway gives part of it back.
 
 **Why it is this way.** It needs placement first, and a way to know a drop only frees memory.
 
-**What it would take.** Compiler work (`docs/log/`), unless marking a drop as "only frees"
-needs syntax, which would be a language change: how a type says it, or how the compiler
-proves it from the body, is to settle.
+**What it would take.** Compiler work only (`docs/log/`).
+
+**Settled in r90: no syntax; the compiler proves it.** A drop only frees when its body does
+nothing but free memory the value owns, through `Allocator::free`, and drop parts whose own
+drops only free. It is worked out per type instance, with monomorphization, since `List<T>`
+depends on `T`: `List<String>` and `Box<String>` qualify; `File` (it closes a handle), `Rc`
+(a count other owners see) and any drop that calls C, a function value or another trait
+object do not. A marker a type wrote would be trusted, and wrong the day its drop gains an
+effect. The placement hint says when a drop is skipped.
