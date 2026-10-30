@@ -845,6 +845,50 @@ fn for_replaced_text(xs: &mut [2]Text) kills xs {
     assert_eq!(a.invalid_uses.len(), 1, "{a:#?}");
     assert!(a.incomplete.is_empty(), "{a:#?}");
 }
+/// A container's loop goes through the `iter()` the checker writes for it, whose result is a
+/// struct holding a view; the elements and the iterator are followed from the container
+/// instead, as `&xs[i]` would be through `Index`, or whole at `[*]` without one (§6.7).
+#[test]
+fn loops_over_containers_follow_their_elements_and_the_iteration() {
+    let fixture = Fixture::with_source(
+        r#"
+fn walk_grow(xs: &mut List<Text>) kills xs@items {
+    for &mut e in xs { xs.push(Text{}); e.examine(1) }
+}
+fn walk_grow_unused(xs: &mut List<Text>) kills xs@items {
+    for &e in xs { xs.push(Text{}) }
+}
+fn walk_grow_once(xs: &mut List<Text>, flag: bool) kills xs@items {
+    for &e in xs { if flag { xs.push(Text{}); break }; observe(e) }
+}
+fn walk_write(xs: &mut List<Text>) { for &mut e in xs { e.examine(2) } }
+fn walk_map(m: &mut HashMap<i32, i32>) kills m@items, m[*] {
+    for k, &mut v in m { m.insert(k, 0) }
+}
+fn walk_map_read(m: &HashMap<i32, i32>) { for _, &v in m { let _ = v } }
+fn copy_out(xs: &mut List<i32>) kills xs@items { for &x in xs { xs.push(x); break } }
+"#,
+    );
+    let a = fixture.analysis("walk_grow");
+    let mut passes: Vec<bool> = a.invalid_uses.iter().map(|u| u.next_pass).collect();
+    passes.sort();
+    assert_eq!(passes, [false, true], "`e`, and the loop's next pass: {a:#?}");
+    for name in ["walk_grow_unused", "walk_map"] {
+        let a = fixture.analysis(name);
+        assert!(
+            a.invalid_uses.len() == 1 && a.invalid_uses[0].next_pass,
+            "{name}: only the loop goes on over what died: {a:#?}"
+        );
+    }
+    // A `break` after the call leaves no next pass; a write through an element moves
+    // nothing; a value copied out of the container cannot dangle inside the call.
+    for name in ["walk_grow_once", "walk_write", "walk_map_read", "copy_out"] {
+        let a = fixture.analysis(name);
+        clean(&a);
+        assert!(a.unchecked.is_empty(), "{name}: {a:#?}");
+    }
+}
+
 #[test]
 fn returned_ties_are_checked_against_each_possible_source() {
     let fixture = Fixture::with_source(

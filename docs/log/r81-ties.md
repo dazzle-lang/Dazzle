@@ -6,6 +6,38 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## 2c, fifth part: loops over containers (2026-10-30)
+
+Compiler work: §6.7 already listed `for &mut e in enemies { enemies.push(…) }` as an error,
+and it compiled. The checker writes `for e in xs` as a loop over `xs.iter()` (or
+`iter_mut()`), whose result is a struct holding a view, which no elision rule reaches; so the
+elements had no origin and their uses went unchecked.
+
+- **The elements.** `iterated_container` sees through that call (only the prelude's
+  `Iterable::iter` and `IterableMut::iter_mut`) to the container, and `iterated_origins`
+  gives each element what `&xs[i]` would have through the type's `Index`, slot and owned
+  memory apart. A type that can only be iterated (`HashMap`) has its elements named whole
+  at `[*]`, as §6.7 says, so any kill under the container ends them. Tuple bindings
+  (`for k, &mut v in m`) take the same origins, since every part points into the container.
+- **The loop.** The iterator dies with the elements' storage, and `loop_body` already read
+  it each pass, so a kill in the body that the loop goes on past is a `DZ0413` at the
+  subject, with its own message ("the loop goes on over memory its body killed"), told
+  apart by `InvalidUse::next_pass`. A `break` after the call leaves no next pass.
+- **A value argument is a copy.** With elements followed, `counts.insert(n, 0)` inside a
+  loop over `counts` was reported: the call kills where `n` points, and `n` was an
+  argument. But a value parameter is copied before the callee runs (C++ passes it by
+  value), so only an argument to a parameter that points is checked against the call's kills.
+
+A census over every body of std, the examples and the run corpus (1,100-odd) counted
+`unchecked` sites by reason: loops were 23 of the 97 call sites whose returned view had no
+input tie, and 8 of the 12 tuple loop bindings. What remains is listed in T-0107. No
+example or run program had a loop that kills its container.
+
+Tests: `tests/flow/loop_kills_its_container.dz` (a `List` and a `HashMap` that grow while
+walked, a `break` after the push, and a write through an element); `dz_flow/tests/ties.rs`
+pins the same, the next-pass flag, and a value copied out of a container into a call that
+grows it.
+
 ## 2e, second part: the editor, and the tie a fix declares (2026-10-30)
 
 Compiler and editor work; nothing about the language changed.

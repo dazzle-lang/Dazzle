@@ -1,0 +1,37 @@
+// Spec §6.7: a loop over a container walks the container's memory, and each element it
+// hands out points into it. A call in the body that moves that memory ends the element
+// and the loop itself; one that moves nothing, or a `break` right after it, is fine.
+// expect: DZ0413, DZ0413, DZ0413
+
+struct Enemy {
+    pub hp: i32
+}
+
+fn spawn_while_walking(enemies: &mut List<Enemy>) kills enemies@items {
+    for &mut e in enemies {
+        enemies.push(Enemy{ hp: 1 })
+        e.hp -= 1
+    }
+}
+
+fn rehash_while_walking(counts: &mut HashMap<i32, i32>) kills counts@items, counts[*] {
+    for _, &mut n in counts {
+        counts.insert(n, 0)
+    }
+}
+
+fn spawn_once(enemies: &mut List<Enemy>) kills enemies@items {
+    for &e in enemies {
+        if e.hp == 0 {
+            enemies.push(Enemy{ hp: 1 })
+            break
+        }
+    }
+}
+
+fn wound(enemies: &mut List<Enemy>, others: &mut List<Enemy>) kills others@items {
+    for &mut e in enemies {
+        e.hp -= 1
+        others.push(Enemy{ hp: e.hp })
+    }
+}
