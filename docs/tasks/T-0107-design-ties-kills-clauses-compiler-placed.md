@@ -379,3 +379,10 @@ or `str` input counts as one: until settled, one beside another leaves the resul
 how a tagged union's payload is named in a tie, what `dz` shows for each placement (inlay
 hints and a listing), and whether stage 3 on the prototype branch is reverted now or left
 until step 4.
+
+**Direction from the user, 2026-10-30, for later:** references keep their tie, so
+anything that returns a reference returns a tied reference. That bears on the elision
+question above: a returned reference whose tie is unknown (today's answer when there is
+more than one view input, or for a struct or optional holding a view) is what this rules
+out. Not yet designed or in the spec; the census in `docs/log/r81-ties.md` (2c, fifth
+part) counts 74 call sites that leave a returned view untied today.
