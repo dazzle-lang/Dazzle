@@ -1,7 +1,7 @@
 // Spec §6.7: a reference is valid while the memory it points into is. A call whose clause
 // kills that memory ends it, and so does returning a view of what the function owns; a
-// reference into memory nothing killed stays valid.
-// expect: DZ0413, DZ0413
+// reference into memory nothing killed stays valid. A view kept in a tuple keeps its tie.
+// expect: DZ0413, DZ0413, DZ0413
 
 fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items, counts[*] {
     let n = counts.get_or_insert(k, 0)
@@ -17,4 +17,11 @@ fn apart(a: &mut List<i32>, b: &mut List<i32>) kills b@items {
     let first = a.first() or return
     b.push(1)
     let _ = first
+}
+
+fn kept_in_a_tuple(a: &mut List<i32>) kills a@items {
+    let t = (a.first(), a.len())
+    a.push(1)
+    let _ = t.1
+    let _ = t.0
 }

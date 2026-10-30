@@ -148,6 +148,52 @@ struct Value {
     places: Vec<Origin>,
     views: Vec<Origin>,
     unknown: bool,
+    /// A tuple's parts, each with the views it holds, kept apart so that reading `t.1`
+    /// does not read the view in `t.0`. Empty where the parts are not known, as for a
+    /// tuple a call returns, whose views are then unknown if it has any.
+    parts: Vec<Value>,
+}
+
+impl Value {
+    /// Part `index` of a tuple; an unknown tuple leaves each part unknown too.
+    fn part(&self, index: usize) -> Value {
+        let mut part = self.parts.get(index).cloned().unwrap_or_default();
+        part.unknown |= self.unknown;
+        part
+    }
+
+    fn origins(&self) -> Vec<&Origin> {
+        let mut all: Vec<_> = self.views.iter().chain(&self.places).collect();
+        for part in &self.parts {
+            all.extend(part.origins());
+        }
+        all
+    }
+
+    fn origins_mut(&mut self) -> Vec<&mut Origin> {
+        let Value { places, views, parts, .. } = self;
+        let mut all: Vec<_> = views.iter_mut().chain(places.iter_mut()).collect();
+        for part in parts {
+            all.extend(part.origins_mut());
+        }
+        all
+    }
+
+    /// Every view the value holds, its parts' included: what returning it hands out.
+    fn held_views(&self) -> Vec<Origin> {
+        let mut all = self.views.clone();
+        for part in &self.parts {
+            all.extend(part.held_views());
+        }
+        all
+    }
+
+    /// A value kept in a local or held while others are evaluated: only its views
+    /// matter, not the place it was read from.
+    fn held(self) -> Value {
+        let parts = self.parts.into_iter().map(Value::held).collect();
+        Value { places: Vec::new(), parts, ..self }
+    }
 }
 
 type State = HashMap<LocalId, Value>;
@@ -353,7 +399,66 @@ impl Analysis<'_> {
         }
         let places = places.into_iter().map(|o| self.canonical(o)).collect();
         let views = views.into_iter().map(|o| self.canonical(o)).collect();
-        Value { places, views, unknown }
+        Value { places, views, unknown, parts: Vec::new() }
+    }
+
+    /// The local tuple `t.0.1` is a part of, and the indices down to it.
+    fn tuple_path(&self, id: ExprId) -> Option<(LocalId, Vec<usize>)> {
+        match self.body.expr(id).kind {
+            hir::ExprKind::TupleIndex { base, index } => {
+                let (local, mut path) = self.tuple_path(base)?;
+                path.push(index);
+                Some((local, path))
+            }
+            hir::ExprKind::Local(local) if matches!(self.body.ty(id), Ty::Tuple(_)) => {
+                Some((local, Vec::new()))
+            }
+            _ => None,
+        }
+    }
+
+    /// `t.0`: the views that part holds, apart from the other parts', and its place in
+    /// `t`. The tuple is not read as a whole, so `t.1` is fine after a kill that ended
+    /// the view in `t.0`; reading the part is left to the caller, which knows the span.
+    fn tuple_part(&mut self, id: ExprId) -> Value {
+        let hir::ExprKind::TupleIndex { base, index } = self.body.expr(id).kind else {
+            return self.expr(id);
+        };
+        let by_value = matches!(self.body.ty(base), Ty::Tuple(_));
+        let value = match self.body.expr(base).kind {
+            hir::ExprKind::Local(local) if by_value => {
+                let mut value = self.state.get(&local).cloned().unwrap_or_default();
+                value.places = vec![Origin::at(Place::local(local))];
+                value
+            }
+            hir::ExprKind::TupleIndex { .. } => self.tuple_part(base),
+            _ => self.expr(base),
+        };
+        let ty = self.body.ty(id).clone();
+        let carries = super::points(&ty) || super::contains_views(&ty, self.table);
+        let mut part = if by_value && (!value.parts.is_empty() || !carries) {
+            value.part(index)
+        } else {
+            if carries {
+                self.unchecked(
+                    self.body.expr(id).span,
+                    "tuple field provenance is not modeled yet",
+                );
+            }
+            Value { unknown: carries, ..Value::default() }
+        };
+        // Only a local tuple's parts are places a kill names: `t.0` inside a parameter's
+        // field would be a path no clause can spell.
+        let local = matches!(
+            self.body.expr(base).kind,
+            hir::ExprKind::Local(_) | hir::ExprKind::TupleIndex { .. }
+        );
+        part.places = if by_value && local {
+            value.places.iter().map(|o| o.field(Step::Field(index.to_string()))).collect()
+        } else {
+            Vec::new()
+        };
+        part
     }
 
     /// `origin` with its places spelt as the ties that name them ([`super::canonicalize`]):
@@ -831,18 +936,7 @@ impl Analysis<'_> {
             }
             let mut bounded = false;
             for value in next.values_mut().chain(&mut held_next) {
-                for origins in [&mut value.places, &mut value.views] {
-                    if origins.len() > 64
-                        || origins
-                            .iter()
-                            .any(|o| o.target.steps.len() > 64 || o.tie.steps.len() > 64)
-                    {
-                        origins.truncate(64);
-                        origins.retain(|o| o.target.steps.len() <= 64 && o.tie.steps.len() <= 64);
-                        bounded = true;
-                        value.unknown = true;
-                    }
-                }
+                bounded |= bound(value);
             }
             if bounded {
                 self.incomplete(
@@ -877,11 +971,15 @@ impl Analysis<'_> {
         Value { views, unknown: value.unknown, ..Value::default() }
     }
 
-    /// The payload of an optional, taken out by value. An optional does not carry the
-    /// views of what it holds yet, so a view taken out of one has unknown provenance.
+    /// The payload of an optional, taken out by value. An optional carries the views of
+    /// what it holds where they were followed into it; otherwise a view taken out of one
+    /// has unknown provenance.
     fn unwrapped(&mut self, operand: ExprId, value: Value, span: Span) -> Value {
         if let Ty::Optional(inner) = self.body.ty(operand).peeled_refs() {
-            if super::contains_views(inner, self.table) && value.views.is_empty() {
+            if super::contains_views(inner, self.table)
+                && value.views.is_empty()
+                && value.parts.is_empty()
+            {
                 self.unchecked(span, "optional view provenance is not modeled yet");
                 return Value { unknown: true, ..Value::default() };
             }
@@ -907,7 +1005,7 @@ impl Analysis<'_> {
         if self.reported.contains(&span) {
             return;
         }
-        if let Some(origin) = value.views.iter().chain(&value.places).find(|o| o.dead.is_some()) {
+        if let Some(origin) = value.origins().into_iter().find(|o| o.dead.is_some()) {
             // `observe(&c.r)` reads `c` first; the argument around it is the same mistake.
             let killed = origin.dead.as_ref().unwrap();
             if self.result.invalid_uses.iter().any(|u| {
@@ -928,7 +1026,7 @@ impl Analysis<'_> {
     fn kill(&mut self, place: Place, span: Span, kind: KillKind) {
         let killed = BodyKill { place, span, kind };
         for value in self.state.values_mut().chain(&mut self.held) {
-            for origin in value.views.iter_mut().chain(&mut value.places) {
+            for origin in value.origins_mut() {
                 if origin.dead.is_none() && origin.ended_by(&killed.place, killed.kind.reach()) {
                     origin.dead = Some(killed.clone());
                 }
@@ -942,6 +1040,15 @@ impl Analysis<'_> {
     fn bind(&mut self, local: LocalId, value: Value) {
         if super::points(&self.body.local(local).ty) {
             self.state.insert(local, Value { places: Vec::new(), ..value });
+        } else if !value.parts.is_empty() {
+            // A tuple, or an optional holding one, keeps each part's views apart.
+            if value.unknown {
+                self.unchecked(
+                    self.body.local(local).span,
+                    "aggregate view bindings are not modeled yet",
+                );
+            }
+            self.state.insert(local, value.held());
         } else {
             if super::contains_views(&self.body.local(local).ty, self.table) {
                 self.unchecked(
@@ -968,7 +1075,7 @@ impl Analysis<'_> {
         for local in locals.into_iter().rev() {
             self.kill(Place::local(local), self.body.block(block).span, KillKind::Drop);
             self.state.remove(&local);
-            for origin in value.views.iter_mut().chain(&mut value.places) {
+            for origin in value.origins_mut() {
                 if origin.dead.is_none() && origin.ended_by(&Place::local(local), Reach::All) {
                     origin.dead = Some(BodyKill {
                         place: Place::local(local),
@@ -1002,11 +1109,22 @@ impl Analysis<'_> {
                 }
             }
             hir::StmtKind::LetTuple { locals, init } => {
-                self.expr(init);
-                self.unchecked(node.span, "tuple view destructuring is not modeled yet");
-                for local in locals.into_iter().flatten() {
-                    self.bind(local, Value { unknown: true, ..Value::default() });
-                    self.scopes.last_mut().unwrap().0.push(local);
+                // Each name takes its own part's views, as `t.0` would.
+                let value = self.expr(init);
+                let known = !value.parts.is_empty();
+                if !known && super::contains_views(self.body.ty(init), self.table) {
+                    self.unchecked(node.span, "tuple view destructuring is not modeled yet");
+                }
+                for (i, local) in locals.into_iter().enumerate() {
+                    if let Some(local) = local {
+                        let part = if known {
+                            value.part(i)
+                        } else {
+                            Value { unknown: true, ..Value::default() }
+                        };
+                        self.bind(local, part);
+                        self.scopes.last_mut().unwrap().0.push(local);
+                    }
                 }
             }
             hir::StmtKind::Assign { target, op, value } => {
@@ -1020,6 +1138,18 @@ impl Analysis<'_> {
                             // to a reference writes the referent instead.
                             self.bind(local, value);
                             return Value::default();
+                        }
+                    }
+                    // So does assigning one of a local tuple's parts: `t.0 = b.first()`.
+                    if super::points(ty) && !matches!(ty, Ty::Ref { .. }) {
+                        if let Some((local, path)) = self.tuple_path(target) {
+                            let part = self.state.get_mut(&local).and_then(|value| {
+                                path.iter().try_fold(value, |v, &i| v.parts.get_mut(i))
+                            });
+                            if let Some(part) = part {
+                                *part = value.held();
+                                return Value::default();
+                            }
                         }
                     }
                 }
@@ -1156,10 +1286,10 @@ impl Analysis<'_> {
                 Value { places: value.views, unknown: value.unknown, ..Value::default() }
             }
             hir::ExprKind::Field { base, index } => self.field(base, index),
-            hir::ExprKind::TupleIndex { base, .. } => {
-                self.expr(base);
-                self.unchecked(node.span, "tuple field provenance is not modeled yet");
-                Value { unknown: super::points(&node.ty), ..Value::default() }
+            hir::ExprKind::TupleIndex { .. } => {
+                let value = self.tuple_part(id);
+                self.read(&value, node.span);
+                value
             }
             hir::ExprKind::Index { base, index } => {
                 let value = self.expr(base);
@@ -1293,9 +1423,11 @@ impl Analysis<'_> {
                 let held_start = self.held.len();
                 if let Some(value) = value {
                     let value = self.expr(value);
+                    // A tuple hands out the views in its parts as well.
+                    let returned = value.held_views();
                     // Scope-exit kills are applied below; returning a view of a local
                     // must be diagnosed before that local disappears from the state.
-                    for origin in &value.views {
+                    for origin in &returned {
                         let caller_owned = self.body.params.contains(&origin.target.local)
                             && (super::points(&self.body.local(origin.target.local).ty)
                                 || self.body.local(origin.target.local).name == "self");
@@ -1343,7 +1475,7 @@ impl Analysis<'_> {
                                     );
                                 }
                             }
-                            ReturnTie::Unknown if !value.views.is_empty() => self.unchecked(
+                            ReturnTie::Unknown if !returned.is_empty() => self.unchecked(
                                 node.span,
                                 "the returned view has no unambiguous declared tie",
                             ),
@@ -1352,7 +1484,7 @@ impl Analysis<'_> {
                     }
                     // A result returned by value moves out before the locals drop; only
                     // its views must survive the drops and defers that follow.
-                    self.held.push(Value { places: Vec::new(), ..value });
+                    self.held.push(value.held());
                 }
                 self.unwind(0);
                 for value in self.held.split_off(held_start) {
@@ -1447,7 +1579,21 @@ impl Analysis<'_> {
                 }
                 Value::default()
             }
-            hir::ExprKind::Tuple(parts) | hir::ExprKind::ArrayLit(parts) => {
+            hir::ExprKind::Tuple(parts) => {
+                // Each part is held while the next is evaluated, as a call's arguments
+                // are, so a kill in a later part ends a view in an earlier one.
+                let held_start = self.held.len();
+                for e in parts {
+                    let value = self.expr(e);
+                    self.held.push(value.held());
+                }
+                let parts = self.held.split_off(held_start);
+                if !self.live {
+                    return Value::default();
+                }
+                Value { parts, ..Value::default() }
+            }
+            hir::ExprKind::ArrayLit(parts) => {
                 for e in parts {
                     self.expr(e);
                 }
@@ -1485,6 +1631,15 @@ impl Analysis<'_> {
         // A place expression of reference type denotes the pointee as well.
         if matches!(node.ty, Ty::Ref { .. }) && value.places.is_empty() {
             value.places = value.views.clone();
+        }
+        // A tuple whose parts were not followed (a parameter's, a field's) holds views
+        // from anywhere, which a merge with one whose parts are known must not lose.
+        let tuple = match &node.ty {
+            Ty::Optional(inner) => matches!(**inner, Ty::Tuple(_)),
+            ty => matches!(ty, Ty::Tuple(_)),
+        };
+        if tuple && value.parts.is_empty() && super::contains_views(&node.ty, self.table) {
+            value.unknown = true;
         }
         value
     }
@@ -1543,6 +1698,30 @@ fn merge_value(to: &mut Value, from: &Value) {
         }
     }
     to.unknown |= from.unknown;
+    if to.parts.is_empty() {
+        to.parts = from.parts.clone();
+    } else {
+        merge_held(&mut to.parts, &from.parts);
+    }
+}
+
+/// Cut a loop's provenance down to the analysis bound, parts included; whether it had to.
+fn bound(value: &mut Value) -> bool {
+    let mut bounded = false;
+    for origins in [&mut value.places, &mut value.views] {
+        if origins.len() > 64
+            || origins.iter().any(|o| o.target.steps.len() > 64 || o.tie.steps.len() > 64)
+        {
+            origins.truncate(64);
+            origins.retain(|o| o.target.steps.len() <= 64 && o.tie.steps.len() <= 64);
+            bounded = true;
+            value.unknown = true;
+        }
+    }
+    for part in &mut value.parts {
+        bounded |= bound(part);
+    }
+    bounded
 }
 
 fn merge_held(to: &mut [Value], from: &[Value]) {

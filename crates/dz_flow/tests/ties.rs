@@ -1332,24 +1332,98 @@ fn default_boundary(w: &mut World) kills w { defaulted(w) }
 fn annotated_replace(e: &mut Text in w, w: &mut World) kills e { e = Text{} }
 "#,
     );
-    for name in ["chase", "tuple_boundary", "default_boundary"] {
+    for name in ["chase", "default_boundary"] {
         let a = fixture.analysis(name);
         assert!(!a.incomplete.is_empty(), "{name}: {a:#?}");
         assert!(a.mismatches.is_empty(), "{name}: {a:#?}");
     }
-    // A view lost in a tuple leaves its use unchecked, but cannot hide a kill: the
-    // body kills nothing, which its clause is held to.
+    // A reference carried through a tuple is followed, so the kill through it is exact
+    // and the clause is held to it: `w` is wider than `w.bag@items`.
+    let a = fixture.analysis("tuple_boundary");
+    assert!(a.incomplete.is_empty() && a.unchecked.is_empty(), "{a:#?}");
+    assert!(matches!(a.mismatches[..], [Mismatch::TooBroad { declared: 0, .. }]), "{a:#?}");
     // A call through a pointer field acts on the pointee, never the local holding it,
     // so its kill is not dropped from the summary as that local's; here it is unknown.
     let a = fixture.analysis("field_pointer");
     assert!(!a.incomplete.is_empty(), "{a:#?}");
     assert!(a.mismatches.is_empty(), "{a:#?}");
+    // A view in a tuple keeps its tie: its use is checked, and the body kills nothing,
+    // which its clause is held to.
     let a = fixture.analysis("tuple_view");
-    assert!(a.incomplete.is_empty() && !a.unchecked.is_empty(), "{a:#?}");
+    assert!(a.incomplete.is_empty() && a.unchecked.is_empty(), "{a:#?}");
     assert!(matches!(a.mismatches[..], [Mismatch::Unused { declared: 0 }]), "{a:#?}");
     let a = fixture.analysis("annotated_replace");
     clean(&a);
     assert!(a.mismatches.is_empty(), "{a:#?}");
+}
+
+#[test]
+fn a_tuple_keeps_each_parts_ties() {
+    let fixture = Fixture::with_source(
+        r#"
+pub struct Pair { pub a: Bag<Text>; pub b: Bag<Text> }
+fn part(w: &mut World) kills w.bag@items {
+    let t = (w.first(), 1)
+    grow(&mut w.bag)
+    observe(t.0)
+}
+fn destructured(w: &mut World) kills w.bag@items {
+    let t = (w.first(), 1)
+    let (p, n) = t
+    grow(&mut w.bag)
+    observe(p)
+}
+fn plain_part(w: &mut World) kills w.bag@items {
+    let t = (w.first(), 1)
+    grow(&mut w.bag)
+    let n = t.1
+}
+fn sibling(p: &mut Pair) kills p.b@items {
+    let t = (&p.a[0], &p.b[0])
+    grow(&mut p.b)
+    observe(t.0)
+}
+fn inner(w: &mut World) kills w.bag@items {
+    let t = ((w.first(), 1), 2)
+    grow(&mut w.bag)
+    let n = (t.0).1
+    observe((t.0).0)
+}
+fn later_part(w: &mut World) kills w.bag@items {
+    let t = (w.first(), grown(w))
+    observe(t.0)
+}
+fn grown(w: &mut World) -> i32 kills w.bag@items { grow(&mut w.bag); return 1 }
+fn repointed(w: &mut World, o: &World) kills w.bag@items {
+    let mut t = (w.first(), 1)
+    t.0 = o.first()
+    grow(&mut w.bag)
+    observe(t.0)
+}
+fn optional(w: &mut World) kills w.bag@items {
+    let o: (^Text, i32)? = (w.first(), 1)
+    grow(&mut w.bag)
+    let (p, n) = o or return
+}
+fn local_returned() -> (^Text, i32) {
+    let w = World{ bag: Bag<Text>{ values: [Text{}, Text{}] } }
+    return (w.first(), 1)
+}
+"#,
+    );
+    for name in ["part", "destructured", "inner", "later_part", "optional"] {
+        let a = fixture.analysis(name);
+        assert_eq!(a.invalid_uses.len(), 1, "{name}: {a:#?}");
+        assert!(a.incomplete.is_empty() && a.mismatches.is_empty(), "{name}: {a:#?}");
+    }
+    // Reading one part does not read the others, and a part pointed elsewhere starts fresh.
+    for name in ["plain_part", "sibling", "repointed"] {
+        let a = fixture.analysis(name);
+        clean(&a);
+        assert!(a.unchecked.is_empty() && a.mismatches.is_empty(), "{name}: {a:#?}");
+    }
+    let a = fixture.analysis("local_returned");
+    assert_eq!(a.invalid_uses.len(), 1, "{a:#?}");
 }
 
 impl Followed for Place {
