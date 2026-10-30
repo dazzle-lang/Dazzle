@@ -9,7 +9,8 @@ against the ties a call kills, every function declares its `kills` clause, and o
 names no allocator: the compiler places memory. The syntax is T-0107's, as the user accepted
 it: `@name` for a tie, `in` for where something points, `kills` a keyword. Spec: §6.7 (ties),
 §14.6 (placement), revising §1.1, §5.2, §6.4, §14 and §14.1, §2.7 and §20; supersedes D-0010
-and, in part, D-0047. Not yet implemented: T-0107 is the plan, in order, the checker first.
+and, in part, D-0047. T-0107 was the plan; the checker is built (r81–r88), and what is left
+is split into T-0109–T-0120, listed at the top of T-0107. D-0093 makes the ties complete.
 
 **Settled on the way, 2026-10-30 (r88, by the user):** every returned reference is tied.
 With several view inputs and no `in` the signature must say which (an error, not a rule
