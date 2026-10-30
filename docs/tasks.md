@@ -102,7 +102,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (20 open)
+## none — not scheduled (30 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -122,5 +122,15 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
 - **[T-0100](tasks/T-0100-choose-temporary-arena-where-it-faster.md)** Choose the temporary arena where it is faster, automatically or by a setting · design, stdlib
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
-- **[T-0107](tasks/T-0107-design-ties-kills-clauses-compiler-placed.md)** Design ties, kills clauses and compiler-placed memory · design, ownership
-- **[T-0109](tasks/T-0109-text-only-borrowed-str-const-str.md)** Text is only borrowed: &str and const &str, no bare str · design, language
+- **[T-0109](tasks/T-0109-text-only-borrowed-str-const-str.md)** Text is borrowed: &str and const &str, and no view as a type argument · feature, language
+- **[T-0110](tasks/T-0110-slices-are-borrowed-t-mut-t.md)** Slices are borrowed: &[]T, &mut []T and const &[]T · feature, language
+- **[T-0111](tasks/T-0111-view-structs-struct-that-holds-view.md)** View structs: a struct that holds a view, such as an iterator · feature, ownership
+- **[T-0112](tasks/T-0112-cstr-behind-pointer-text-at-c.md)** cstr behind a pointer, and text at the C and C++ boundary · feature, interop
+- **[T-0113](tasks/T-0113-function-types-write-in-on-their.md)** Function types write in on their result · feature, ownership
+- **[T-0114](tasks/T-0114-untied-pointer-becomes-reference-only-in.md)** An untied pointer becomes a reference only in unsafe · feature, ownership
+- **[T-0115](tasks/T-0115-moving-elements-within-container-array-kills.md)** Moving elements within a container's array kills nothing · deferral, ownership
+- **[T-0116](tasks/T-0116-debug-build-check-std-trusted-kills.md)** Debug-build check of std's trusted kills clauses · feature, ownership
+- **[T-0117](tasks/T-0117-memory-placed-by-compiler-regions-result.md)** Memory placed by the compiler: regions and the result placement · feature, ownership
+- **[T-0118](tasks/T-0118-skip-drops-that-only-free-region.md)** Skip drops that only free region memory · feature, ownership
+- **[T-0119](tasks/T-0119-remove-allocators-from-ordinary-code.md)** Remove allocators from ordinary code · feature, stdlib
+- **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
