@@ -141,7 +141,7 @@ impl Allocator for ScopeArena {
         new_size: usize,
         align: usize,
         loc: SourceLocation,
-    ) -> ^mut u8 {
+    ) -> ^mut u8 in (self, p) {
         // The last small allocation grows in place when the chunk has room and it stays
         // small: freeing it later by its size must not take it for a large block.
         if p != null && m_chunk != null && !ScopeArena::is_large(new_size, align) {

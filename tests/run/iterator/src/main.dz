@@ -117,7 +117,7 @@ impl<T> Iterate for ListIterator<T> {
 }
 
 // §18.35: `m` is a `&Movie`, and returning it where a `Movie` is wanted copies the element.
-fn find_movie(list: &mut List<Movie>, name: str) -> Movie? {
+fn find_movie(list: &mut List<Movie>, name: str) -> Movie? in list {
     for m in list.iter() {
         if m.name == name {
             return m

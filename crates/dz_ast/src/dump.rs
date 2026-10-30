@@ -261,11 +261,7 @@ impl<'a> Dumper<'a> {
             format!("{recv}, {}", params.join(", "))
         };
         // Where a returned reference points, and what the function kills (spec §6.7).
-        let ties = format!(
-            "{}{}",
-            f.ret_tie.as_ref().map(|t| format!(" in {}", tie_path_str(t))).unwrap_or_default(),
-            kills_str(&f.kills, false)
-        );
+        let ties = format!("{}{}", in_str(&f.ret_ties), kills_str(&f.kills, false));
         self.line(format_args!(
             "{vis}{}{}{}{} {}{}({}){}{ties}",
             match f.dispatch {
@@ -844,6 +840,17 @@ pub fn tie_decl_str(t: &TieDecl) -> String {
     };
     let paths = t.paths.iter().map(tie_path_str).collect::<Vec<_>>().join(", ");
     format!("tie {name} = {paths}")
+}
+
+/// ` in a`, ` in (a, b)`, or nothing when there are none: where a returned view points. More
+/// than one path is always parenthesised, since a comma there would read as `kills`'s list.
+pub fn in_str(ties: &[TiePath]) -> String {
+    let paths: Vec<String> = ties.iter().map(tie_path_str).collect();
+    match paths.len() {
+        0 => String::new(),
+        1 => format!(" in {}", paths[0]),
+        _ => format!(" in ({})", paths.join(", ")),
+    }
 }
 
 /// ` kills a, b`, or nothing when there are none. In a function type, more than one path is

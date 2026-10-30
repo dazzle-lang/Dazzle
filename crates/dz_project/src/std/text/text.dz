@@ -38,7 +38,7 @@ pub trait Text {
 
     /// The text after `prefix`, or `none` when it does not start with it:
     /// `line.strip_prefix("name=") or continue`.
-    fn strip_prefix(&self, prefix: str) -> str? {
+    fn strip_prefix(&self, prefix: str) -> str? in self {
         let t = self.text()
         if !t.starts_with(prefix) {
             return none
@@ -47,7 +47,7 @@ pub trait Text {
     }
 
     /// The text before `suffix`, or `none` when it does not end with it.
-    fn strip_suffix(&self, suffix: str) -> str? {
+    fn strip_suffix(&self, suffix: str) -> str? in self {
         let t = self.text()
         if !t.ends_with(suffix) {
             return none
@@ -57,7 +57,7 @@ pub trait Text {
 
     /// The text before and after the first `separator`, or `none` when there is none:
     /// `let (key, value) = line.split_once("=") or continue`.
-    fn split_once(&self, separator: str) -> (str, str)? {
+    fn split_once(&self, separator: str) -> (str, str)? in self {
         let t = self.text()
         let at = find_bytes(t, separator, 0) or return none
         return (sub(t, 0, at), sub(t, at + separator.len, t.len))
@@ -117,7 +117,7 @@ pub trait Text {
 
     /// The pieces between each `separator`: `"a,,b".split(",")` gives `"a"`, `""`, `"b"`.
     /// An empty separator gives the whole text as one piece.
-    fn split(&self, separator: str) -> Split {
+    fn split(&self, separator: str) -> Split in self {
         return Split(self.text(), separator)
     }
 

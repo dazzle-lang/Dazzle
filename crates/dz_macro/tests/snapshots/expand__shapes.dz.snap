@@ -20,7 +20,7 @@ macro record -> decl {
                 return [#for f in $fields[,] { $f.name }]
             }
 
-            pub fn about() -> str {
+            pub fn about() -> const str {
                 return #if $doc { $doc } #else { "no description" }
             }
 
@@ -40,7 +40,7 @@ struct Size {
     pub fn values(&self) -> [3]f32 {
         return [w, h, d]
     }
-    pub fn about() -> str {
+    pub fn about() -> const str {
         return "a box"
     }
     pub fn checked(&self) -> bool {
@@ -55,7 +55,7 @@ struct Plain {
     pub fn values(&self) -> [3]f32 {
         return [a, b, c]
     }
-    pub fn about() -> str {
+    pub fn about() -> const str {
         return "no description"
     }
     pub fn checked(&self) -> bool {

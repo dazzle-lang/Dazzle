@@ -21,7 +21,7 @@ fn words() -> List<String> {
     return l
 }
 
-fn returned() -> str {
+fn returned(fallback: str) -> str {
     return make().as_str()
 }
 

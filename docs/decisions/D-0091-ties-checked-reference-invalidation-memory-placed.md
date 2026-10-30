@@ -11,6 +11,12 @@ it: `@name` for a tie, `in` for where something points, `kills` a keyword. Spec:
 §14.6 (placement), revising §1.1, §5.2, §6.4, §14 and §14.1, §2.7 and §20; supersedes D-0010
 and, in part, D-0047. Not yet implemented: T-0107 is the plan, in order, the checker first.
 
+**Settled on the way, 2026-10-30 (r88, by the user):** every returned reference is tied.
+With several view inputs and no `in` the signature must say which (an error, not a rule
+picking `self`); `in (a, b)` names several; a reference, slice or `str` result with no view
+input is an error, a raw pointer's is not; and a struct, tuple or optional holding a view
+follows the same rules. A view only through a type parameter stays unchecked.
+
 **The question.** Should Dazzle check that a reference is never used after the memory it
 points into has moved or been freed, and, with that check in place, take the choice of
 allocator out of ordinary code altogether?

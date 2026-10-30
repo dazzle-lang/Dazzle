@@ -49,7 +49,7 @@ fn arithmetic(a: i32, b: i32) -> i32 {
     return (a + b) * 2 - a / b % 3
 }
 
-fn conditionals(n: i32) -> str {
+fn conditionals(n: i32) -> const str {
     if n < 0 {
         return "negative"
     } else if n == 0 {
@@ -100,7 +100,7 @@ fn casts(n: i32, l: Layer) -> i64 {
     return wide + tag as i64
 }
 
-fn layer_name(l: Layer) -> str {
+fn layer_name(l: Layer) -> const str {
     switch l {
         case Background {
             return "background"
@@ -138,7 +138,7 @@ fn sum_slice(xs: []i32) -> i32 {
 }
 
 // §7.4: `.World` where the enum is already known, on either side of a comparison.
-fn dotted_variant(l: Layer) -> str {
+fn dotted_variant(l: Layer) -> const str {
     if .Background == l {
         return "background"
     }

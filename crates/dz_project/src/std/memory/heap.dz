@@ -34,7 +34,7 @@ impl Allocator for Heap {
         new_size: usize,
         align: usize,
         loc: SourceLocation,
-    ) -> ^mut u8 {
+    ) -> ^mut u8 in self {
         let q = self.alloc(new_size, align, loc)
         if p != null {
             let kept = if old_size < new_size { old_size } else { new_size }

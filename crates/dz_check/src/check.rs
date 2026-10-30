@@ -767,7 +767,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     generics: Vec::new(),
                     has_body: f.body.is_some(),
                     // A constructor returns nothing and kills nothing (spec §6.7).
-                    ret_tie: None,
+                    ret_ties: Vec::new(),
                     kills: Vec::new(),
                     kills_span: None,
                     kills_unknown: false,

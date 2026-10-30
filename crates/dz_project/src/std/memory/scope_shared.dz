@@ -27,7 +27,7 @@ impl Allocator for ScopeShared {
         new_size: usize,
         align: usize,
         loc: SourceLocation,
-    ) -> ^mut u8 {
+    ) -> ^mut u8 in (self, p) {
         let a = m_arena or panic!("a ScopeShared with no region")
         return a.realloc(p, old_size, new_size, align, loc)
     }

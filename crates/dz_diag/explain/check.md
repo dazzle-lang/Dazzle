@@ -1004,3 +1004,72 @@ fn main() {
     println!("{}", label(true))
 }
 ```
+
+## DZ0570
+
+Every reference a function returns says where it points, so a caller knows which of its own
+calls can end it (spec §6.7). With one view input — a reference, a pointer, a slice or a
+`str` — a result that holds a view is in that input, and nothing needs writing. With more
+than one, the signature must say which with `in`, or name several in parentheses when the
+result may be in any of them. The same goes for a struct, tuple or optional holding a view,
+such as an iterator. The fix offered names every input; narrow it to what the body returns.
+
+```dz
+fn longer(a: str, b: str) -> str {
+    if a.len >= b.len {
+        return a
+    }
+    return b
+}
+
+fn main() {
+    println!("{}", longer("ab", "c"))
+}
+```
+
+```dz
+fn longer(a: str, b: str) -> str in (a, b) {
+    if a.len >= b.len {
+        return a
+    }
+    return b
+}
+
+fn main() {
+    println!("{}", longer("ab", "c"))
+}
+```
+
+## DZ0571
+
+A function that returns a reference, a slice or a `str`, or something holding one, with no
+view among its inputs, returns a view of something its caller cannot see die (spec §6.7):
+its own local, which is gone, or memory no signature names. Text that never dies is a
+`const str`, and anything else is returned owned, or the memory it points into is passed in.
+A raw pointer or a `cstr` from nothing stays untied, since it may own what it points at.
+
+```dz
+fn greeting(formal: bool) -> str {
+    if formal {
+        return "good day"
+    }
+    return "hi"
+}
+
+fn main() {
+    println!("{}", greeting(true))
+}
+```
+
+```dz
+fn greeting(formal: bool) -> const str {
+    if formal {
+        return "good day"
+    }
+    return "hi"
+}
+
+fn main() {
+    println!("{}", greeting(true))
+}
+```

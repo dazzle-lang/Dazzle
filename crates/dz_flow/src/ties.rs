@@ -323,7 +323,8 @@ pub struct Kill {
 /// whole rather than the narrower memory an explicit annotation could name (§6.7).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReturnTie {
-    Explicit(Place),
+    /// `in a` or `in (a, b)`: the result may point into any of them.
+    Explicit(Vec<Place>),
     Elided(Place),
     /// No reference-like result.
     None,
@@ -341,13 +342,17 @@ pub enum ParameterTie {
 
 impl ReturnTie {
     pub fn ended_by(&self, killed: &Place) -> bool {
+        // An `in` path ending at a value means all ties beneath that value, so a kill
+        // inside it may end this view as well. Pointer ties are terminal.
+        self.places().iter().any(|place| killed.covers(place) || place.covers(killed))
+    }
+
+    /// Where the result may point; empty when that is nowhere or unknown.
+    pub fn places(&self) -> &[Place] {
         match self {
-            // An `in` path ending at a value means all ties beneath that value, so a
-            // kill inside it may end this view as well. Pointer ties are terminal.
-            Self::Explicit(place) | Self::Elided(place) => {
-                killed.covers(place) || place.covers(killed)
-            }
-            Self::None | Self::Unknown => false,
+            Self::Explicit(places) => places,
+            Self::Elided(place) => std::slice::from_ref(place),
+            Self::None | Self::Unknown => &[],
         }
     }
 }
@@ -404,19 +409,29 @@ pub fn call_effects(scope: &Scope<'_>, bindings: &Bindings) -> Result<CallEffect
         };
         effects.parameter_ties.push(tied);
     }
-    effects.result = if let Some(path) = &scope.sig.ret_tie {
-        match normalize(scope, path)?.bind(bindings) {
-            Some(place) => ReturnTie::Explicit(place),
-            None => ReturnTie::Unknown,
+    effects.result = if !scope.sig.ret_ties.is_empty() {
+        let mut places = Vec::new();
+        for path in &scope.sig.ret_ties {
+            if let Some(place) = normalize(scope, path)?.bind(bindings) {
+                places.push(place);
+            }
         }
-    } else if points(&scope.sig.ret) {
+        if places.len() == scope.sig.ret_ties.len() {
+            ReturnTie::Explicit(places)
+        } else {
+            ReturnTie::Unknown
+        }
+    } else if dz_check::ties::holds_view(scope.table, &scope.sig.ret, false) {
+        // With no `in`, a result holding a view is in its one view input, whole: a
+        // reference, or a struct, tuple or optional holding one (`iter()`'s `SliceIter`).
+        // The checker rejects none or several (`DZ0570`, `DZ0571`), and what it leaves
+        // alone, a raw pointer from nothing, stays unknown here. A signature read at a
+        // call has its type parameters substituted, so a `T?` that became a `str?` lands
+        // here too; `Signature::effects` takes that back, since `T` was the element.
         let mut inputs = Vec::new();
         if scope.sig.takes_self.is_some() {
             inputs.push(bindings.receiver.as_ref());
         }
-        // §6.7 elides only with one reference input. Whether a pointer, slice or `str`
-        // input counts is not settled (T-0107), so one beside another input leaves the
-        // result unknown rather than choosing between them.
         for (i, param) in scope.sig.params.iter().enumerate() {
             if points(&param.ty) {
                 inputs.push(bindings.params.get(i).and_then(Option::as_ref));
@@ -427,8 +442,8 @@ pub fn call_effects(scope: &Scope<'_>, bindings: &Bindings) -> Result<CallEffect
             _ => ReturnTie::Unknown,
         }
     } else if contains_views(&scope.sig.ret, scope.table) {
-        // A struct, tuple or optional holding a view (`SliceIter`'s slice) has no
-        // elision rule yet, so where it points is unknown rather than nowhere.
+        // A view only through a type parameter: `T` may be one, and where it points is
+        // wherever the value came from, which no signature says.
         ReturnTie::Unknown
     } else {
         ReturnTie::None
@@ -453,31 +468,10 @@ fn points(ty: &Ty) -> bool {
     matches!(ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::Slice { .. } | Ty::Str | Ty::CStr)
 }
 
-/// Whether a value of `ty` holds a view somewhere inside it, other than through a
-/// pointer field, which stays unchecked (spec §6.7).
+/// Whether a value of `ty` may hold a view somewhere inside it, other than through a
+/// pointer field, which stays unchecked (spec §6.7). A type parameter may.
 pub(crate) fn contains_views(ty: &Ty, table: &TypeTable) -> bool {
-    fn contains(ty: &Ty, table: &TypeTable, depth: usize) -> bool {
-        if depth > 8 {
-            return true;
-        }
-        match ty {
-            Ty::Tuple(parts) => parts.iter().any(|p| contains(p, table, depth + 1)),
-            Ty::Optional(inner) | Ty::Array { elem: inner, .. } => {
-                contains(inner, table, depth + 1)
-            }
-            Ty::Named { sym, args } => table.struct_sig(*sym).is_some_and(|s| {
-                table.field_types(*sym, args, &s.fields).iter().any(|f| {
-                    // Pointer fields are the explicit unchecked boundary in §6.7;
-                    // str/slice fields still make an aggregate a view.
-                    !matches!(f, Ty::Ptr { .. } | Ty::OwnPtr { .. })
-                        && contains(f, table, depth + 1)
-                })
-            }),
-            Ty::Param(_) => true,
-            _ => points(ty),
-        }
-    }
-    contains(ty, table, 0)
+    dz_check::ties::holds_view(table, ty, true)
 }
 
 /// The narrowest set of places describing a collection of effects, in first-occurrence

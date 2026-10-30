@@ -62,7 +62,7 @@ fn longest(acc: usize, c: &str) -> usize {
     return if c.len > acc { c.len } else { acc }
 }
 
-fn as_str(b: bool) -> str {
+fn as_str(b: bool) -> const str {
     return if b { "yes" } else { "no" }
 }
 

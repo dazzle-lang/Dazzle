@@ -11,7 +11,7 @@ pub trait Allocator {
         new_size: usize,
         align: usize,
         loc: SourceLocation = #location,
-    ) -> ^mut u8
+    ) -> ^mut u8 in (self, p)
     fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation = #location)
 
     /// Whether what this allocator hands out is released when a scope ends, rather than

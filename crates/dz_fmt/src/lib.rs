@@ -721,14 +721,7 @@ impl<'a> Printer<'a> {
         };
         // Where a returned reference points, and what the function kills: part of what it
         // means, so they stay exactly as written (spec §6.7).
-        let ret = format!(
-            "{ret}{}{}",
-            f.ret_tie
-                .as_ref()
-                .map(|t| format!(" in {}", dump::tie_path_str(t)))
-                .unwrap_or_default(),
-            dump::kills_str(&f.kills, false)
-        );
+        let ret = format!("{ret}{}{}", dump::in_str(&f.ret_ties), dump::kills_str(&f.kills, false));
         let empty_body =
             f.body.as_ref().is_some_and(|b| b.stmts.is_empty() && !self.comment_inside(b.span));
         let open = match &f.body {

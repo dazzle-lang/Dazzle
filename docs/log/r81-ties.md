@@ -6,6 +6,55 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r88: every returned reference says where it points (2026-10-30)
+
+The user's direction from earlier the same day, references keep their tie, designed and
+built. The user settled four questions: several view inputs and no `in` is an error, not
+Rust's rule that `self` wins; `in` takes several paths in parentheses; a reference, slice or
+`str` result from no view input is an error, a raw pointer's is not; and a struct, tuple or
+optional holding a view follows the same rules.
+
+- **Syntax.** `FnDecl::ret_ties` (was `ret_tie`) is a list, parsed by `parse_in_list` as one
+  path or several in parentheses, printed by `dump::in_str` (dump, formatter, completion).
+- **The checker.** `ties::untied_result` holds every signature to it, bodiless ones
+  included, from `check_ties`: `DZ0570` with several inputs, offering `in (a, b, …)` (every
+  input, never wrong, for the author to narrow, so only offered); `DZ0571` with none,
+  offering `const str` for a `str` result. `ties::holds_view` says whether a type holds a
+  view, with a flag for what a type parameter counts as; `dz_flow`'s `contains_views` is it
+  with `T` counting. Left alone, each for a reason: a view only through a type parameter
+  (`pop() -> T?` is the element, which points wherever it did), a raw pointer or `cstr` from
+  nothing (it may own what it points at: `c_malloc`), an `extern fn` with no input (C's
+  memory: `dir_next`'s text lives until the next call on a `usize` handle, which no tie can
+  name), and a result with a parameter that holds a view by value (no rule for it yet). An
+  `in` is allowed on any result that may hold a view.
+- **The analysis.** `ReturnTie::Explicit` holds every place `in` names, and a call's result
+  views each; the return check accepts any. A result holding a view elides like a reference
+  (`call_effects`), except one that was a view only through `T` before substitution, which
+  `Signature::effects` leaves unknown (`generic_result`). Then four places that dropped a
+  known aggregate view keep it: `bind` keeps a struct local's views (`let it = xs.iter()`),
+  a tuple a call returned is no longer marked unknown when its whole tie is known, and
+  `t.0` and `let (a, b) =` on it give each part the whole's views. Assigning over a whole
+  struct or tuple local rebinds it, as a pointer local was, rather than reading the old,
+  possibly dead, views.
+- **A gap this closed that predates it.** A call on a local view (`v.trim()`, `v.split_once`
+  where `v = s.as_str()`) tied its result to the local `v`, not to the text `v` views, so
+  `s.push_str` never ended it. `invoke` now adds what such a local views.
+- **What it changed.** In std, `strip_prefix`, `strip_suffix`, `split_once`, `split` and
+  `tag_value` are `in self`; `Allocator::realloc` and the arenas' are `in (self, p)`, since
+  `ScopeArena` and `TempArena` hand `p` back when it shrinks in place (the first try, `in
+  self`, was a `DZ0414` in each); `Heap`'s is `in self`; `contents_allocator` is `in (self,
+  fallback)`. Eleven test programs, and the `#record` macro in `tests/expand/shapes.dz`
+  (reported at each invocation, with no fix, since the `str` is the macro's), returned
+  literals as `str` and now return `const str`;
+  `find_movie` is `in list`; `typed/`'s `Counter.label` is a `const str`. Over std's 692
+  bodies, the 13 returns "with no unambiguous declared tie" are now 0.
+
+Tests: `dz_flow/tests/ties.rs` (`every_returned_view_says_where_it_points`, both codes and
+what stays allowed; `a_returned_aggregate_keeps_its_inputs_tie`, an iterator, a split, a
+two-path result and `pop`); `tests/flow/use_after_kill.dz` and `clean.dz` end to end;
+`typed/` and `typeerrors/`; the parse corpus (and an unclosed list in `errors.dz`) and the
+fmt corpus; `dz explain` for both codes.
+
 ## 2c, sixth part: a tuple keeps its parts' ties (2026-10-30)
 
 Compiler work: §6.7 says every reference carries its tie, and its unchecked boundary is a

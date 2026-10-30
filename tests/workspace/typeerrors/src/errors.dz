@@ -348,7 +348,7 @@ fn array_literal_stored_as_a_slice() -> i32 {
     return s[0]
 }
 
-fn array_literal_returned_as_a_slice() -> []i32 {
+fn array_literal_returned_as_a_slice(xs: []i32) -> []i32 {
     return [1, 2, 3]
 }
 
@@ -1307,6 +1307,24 @@ fn through_a_view(ledger: &Ledger) kills ledger.lines {}
 
 fn count_lines(ledger: &Ledger) -> usize in ledger {
     return ledger.lines.len()
+}
+
+// A returned view with no `in`: several view inputs it could be in, and none at all, for a
+// reference and for a tuple holding one (spec §6.7).
+fn pick_line(a: &Ledger, b: &Ledger) -> &List<i32> {
+    return &a.lines
+}
+
+fn split_note(s: str, sep: str) -> (str, str)? {
+    return s.split_once(sep)
+}
+
+fn title() -> str {
+    return "ledger"
+}
+
+fn titled() -> (i32, str) {
+    return (1, "ledger")
 }
 
 // A struct's `tie` declarations (spec §6.7): one declared twice, `[*]` on a type with no

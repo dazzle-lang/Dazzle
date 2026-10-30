@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use dz_ast::TiePath;
 use dz_check::{FnSig, ItemSig, TypeTable};
 use dz_hir::ty::{self, Ty};
 use dz_hir::{self as hir, BlockId, Body, BodyOwner, Callee, ExprId, LocalId, StmtId};
@@ -44,7 +45,8 @@ pub struct InvalidUse {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InvalidReturn {
     pub span: Span,
-    pub expected: Place,
+    /// Every place the signature's `in` names; one when elided.
+    pub expected: Vec<Place>,
     pub actual: Place,
 }
 
@@ -263,7 +265,7 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
             }
         }
         let scope = signature.scope(table, res);
-        match super::call_effects(&scope, &bindings) {
+        match signature.effects(&scope, &bindings) {
             Ok(effects) => {
                 cx.expected_return = effects.result;
                 cx.result.declared = effects.kills.into_iter().map(|k| k.place).collect();
@@ -438,6 +440,9 @@ impl Analysis<'_> {
         let carries = super::points(&ty) || super::contains_views(&ty, self.table);
         let mut part = if by_value && (!value.parts.is_empty() || !carries) {
             value.part(index)
+        } else if by_value && !value.unknown && !value.views.is_empty() {
+            // A tuple a call returned is in the call's tie as a whole (§6.7).
+            Value { views: value.views.clone(), ..Value::default() }
         } else {
             if carries {
                 self.unchecked(
@@ -644,6 +649,7 @@ impl Analysis<'_> {
                     name: "the function value".into(),
                     self_ty: None,
                     owner: None,
+                    generic_result: false,
                 };
                 return self.invoke(&signature, None, &values, span);
             }
@@ -722,7 +728,7 @@ impl Analysis<'_> {
         let mut value = Value::default();
         let mut kills = Vec::new();
         for bindings in variants {
-            match super::call_effects(&scope, &bindings) {
+            match signature.effects(&scope, &bindings) {
                 Ok(effects) => {
                     if effects.incomplete {
                         self.incomplete(span, "a call effect has unknown provenance");
@@ -732,25 +738,46 @@ impl Analysis<'_> {
                             kills.push(kill.place);
                         }
                     }
-                    match effects.result {
-                        ReturnTie::Explicit(place) | ReturnTie::Elided(place) => {
-                            let broad = !matches!(place.steps.last(), Some(Step::Storage));
-                            let origin = Origin {
-                                target: logical_result(signature, &scope, &bindings, &place),
-                                tie: place,
-                                broad,
-                                payload: None,
-                                dead: None,
+                    match &effects.result {
+                        ReturnTie::Explicit(_) | ReturnTie::Elided(_) => {
+                            // `in (a, b)`: the result may be in either, so it holds a view
+                            // of each, and a kill of any ends it.
+                            let paths: Vec<Option<&TiePath>> = match &effects.result {
+                                ReturnTie::Explicit(_) => {
+                                    signature.sig.ret_ties.iter().map(Some).collect()
+                                }
+                                _ => vec![None],
                             };
-                            if !value.views.contains(&origin) {
-                                value.views.push(origin);
+                            for (place, path) in effects.result.places().iter().zip(paths) {
+                                let broad = !matches!(place.steps.last(), Some(Step::Storage));
+                                let origin = Origin {
+                                    target: logical_result(
+                                        signature, &scope, &bindings, path, place,
+                                    ),
+                                    tie: place.clone(),
+                                    broad,
+                                    payload: None,
+                                    dead: None,
+                                };
+                                if !value.views.contains(&origin) {
+                                    value.views.push(origin);
+                                }
                             }
-                            if let Some(root) = result_root(signature, &scope) {
+                            for root in result_roots(signature, &scope) {
                                 let input = match root {
                                     dz_check::ties::Root::SelfValue => &receiver,
                                     dz_check::ties::Root::Param(i) => &params[i],
                                 };
-                                for origin in input {
+                                // A result in an input that is a local view, a `str` say,
+                                // is in what that local views too: `v.trim()` dies with
+                                // the text `v` points into, not only with `v`.
+                                let held: Vec<Origin> = input
+                                    .iter()
+                                    .filter(|o| o.target.steps.is_empty())
+                                    .filter_map(|o| self.state.get(&o.target.local))
+                                    .flat_map(|v| v.views.iter().cloned())
+                                    .collect();
+                                for origin in input.iter().chain(&held) {
                                     if !value.views.contains(origin) {
                                         value.views.push(origin.clone());
                                     }
@@ -1049,6 +1076,13 @@ impl Analysis<'_> {
                 );
             }
             self.state.insert(local, value.held());
+        } else if !value.unknown
+            && !value.views.is_empty()
+            && super::contains_views(&self.body.local(local).ty, self.table)
+        {
+            // A struct holding a view a call returned (`xs.iter()`'s `SliceIter`) is in
+            // that call's tie, so reading the local after a kill of it is a use (§6.7).
+            self.state.insert(local, value.held());
         } else {
             if super::contains_views(&self.body.local(local).ty, self.table) {
                 self.unchecked(
@@ -1112,13 +1146,18 @@ impl Analysis<'_> {
                 // Each name takes its own part's views, as `t.0` would.
                 let value = self.expr(init);
                 let known = !value.parts.is_empty();
-                if !known && super::contains_views(self.body.ty(init), self.table) {
+                // A tuple a call returns is in the call's tie as a whole (§6.7), so each
+                // part that can hold a view may point anywhere the whole does.
+                let whole = !known && !value.unknown && !value.views.is_empty();
+                if !known && !whole && super::contains_views(self.body.ty(init), self.table) {
                     self.unchecked(node.span, "tuple view destructuring is not modeled yet");
                 }
                 for (i, local) in locals.into_iter().enumerate() {
                     if let Some(local) = local {
                         let part = if known {
                             value.part(i)
+                        } else if whole {
+                            Value { views: value.views.clone(), ..Value::default() }
                         } else {
                             Value { unknown: true, ..Value::default() }
                         };
@@ -1136,6 +1175,15 @@ impl Analysis<'_> {
                         if super::points(ty) && !matches!(ty, Ty::Ref { .. }) {
                             // Pointer/slice/str assignment retargets the local; assigning
                             // to a reference writes the referent instead.
+                            self.bind(local, value);
+                            return Value::default();
+                        }
+                        if !super::points(ty) && super::contains_views(ty, self.table) {
+                            // A struct or tuple holding views takes the new value's, so
+                            // the old ones are not read; what the old value owned dies.
+                            if moves_memory(ty, self.table) {
+                                self.kill(Place::local(local), node.span, KillKind::Assign);
+                            }
                             self.bind(local, value);
                             return Value::default();
                         }
@@ -1449,7 +1497,9 @@ impl Analysis<'_> {
                     }
                     if !self.reported.contains(&node.span) {
                         match &self.expected_return {
-                            ReturnTie::Explicit(expected) | ReturnTie::Elided(expected) => {
+                            ReturnTie::Explicit(_) | ReturnTie::Elided(_) => {
+                                let expected = self.expected_return.places();
+                                let covered = |p: &Place| expected.iter().any(|e| e.covers(p));
                                 // Spelt as the ties that name them, as the signature's
                                 // `in` is: `self.m_books[*]` is `self[*]` (§6.7).
                                 let views: Vec<Origin> =
@@ -1457,13 +1507,12 @@ impl Analysis<'_> {
                                 if let Some(origin) = views.iter().find(|o| {
                                     !views.iter().any(|other| {
                                         other.target == o.target
-                                            && (expected.covers(&other.tie)
-                                                || expected.covers(&other.target))
+                                            && (covered(&other.tie) || covered(&other.target))
                                     })
                                 }) {
                                     self.result.invalid_returns.push(InvalidReturn {
                                         span: node.span,
-                                        expected: expected.clone(),
+                                        expected: expected.to_vec(),
                                         actual: origin.tie.clone(),
                                     });
                                     self.reported.insert(node.span);
@@ -1633,12 +1682,17 @@ impl Analysis<'_> {
             value.places = value.views.clone();
         }
         // A tuple whose parts were not followed (a parameter's, a field's) holds views
-        // from anywhere, which a merge with one whose parts are known must not lose.
+        // from anywhere, which a merge with one whose parts are known must not lose. One a
+        // call returned is in the call's tie as a whole, and its views say so.
         let tuple = match &node.ty {
             Ty::Optional(inner) => matches!(**inner, Ty::Tuple(_)),
             ty => matches!(ty, Ty::Tuple(_)),
         };
-        if tuple && value.parts.is_empty() && super::contains_views(&node.ty, self.table) {
+        if tuple
+            && value.parts.is_empty()
+            && value.views.is_empty()
+            && super::contains_views(&node.ty, self.table)
+        {
             value.unknown = true;
         }
         value
@@ -1742,9 +1796,27 @@ pub(super) struct Signature {
     pub(super) name: String,
     self_ty: Option<Ty>,
     owner: Option<SymbolId>,
+    /// The declared result holds a view only through a type parameter (`-> T?`), which
+    /// `sig` has substituted: what `pop` hands back points wherever the element did, not
+    /// into the list, so elision does not reach it (spec §6.7).
+    generic_result: bool,
 }
 
 impl Signature {
+    /// [`super::call_effects`], with a result that was a view only through a type
+    /// parameter left unknown rather than elided.
+    pub(super) fn effects(
+        &self,
+        scope: &dz_check::ties::Scope<'_>,
+        bindings: &Bindings,
+    ) -> Result<super::CallEffects, dz_check::ties::Error> {
+        let mut effects = super::call_effects(scope, bindings)?;
+        if self.generic_result && matches!(effects.result, ReturnTie::Elided(_)) {
+            effects.result = ReturnTie::Unknown;
+        }
+        Ok(effects)
+    }
+
     pub(super) fn scope<'a>(
         &'a self,
         table: &'a TypeTable,
@@ -1793,6 +1865,7 @@ pub(super) fn body_signature(
                 name: "constructor".into(),
                 self_ty: body.params.first().map(|l| body.local(*l).ty.clone()),
                 owner: Some(*owner),
+                generic_result: false,
             });
         }
         BodyOwner::Copy(owner) => (table.struct_sig(*owner)?.copy.as_ref()?, *owner, "copy".into()),
@@ -1808,6 +1881,7 @@ pub(super) fn body_signature(
                     Ty::Named { sym, .. } => Some(*sym),
                     _ => None,
                 },
+                generic_result: false,
             });
         }
         _ => return None,
@@ -1819,6 +1893,9 @@ pub(super) fn body_signature(
         name,
         self_ty: self_local.map(|l| l.ty.peeled().clone()),
         owner: self_local.map(|_| home),
+        // A body reads its own signature unsubstituted, where `call_effects` already
+        // leaves a `T` result unknown.
+        generic_result: false,
     })
 }
 
@@ -1853,6 +1930,7 @@ fn call_signature(
                                 Ty::Named { sym, .. } => Some(*sym),
                                 _ => None,
                             },
+                            generic_result: generic_result(sig, table),
                         });
                     }
                 }
@@ -1916,8 +1994,23 @@ fn call_signature(
         .zip(type_args)
         .collect::<HashMap<_, _>>();
     map.extend(sig.generics.iter().map(|p| p.param.id).zip(method_args));
+    let generic_result = generic_result(&sig, table);
     sig = substitute_signature(&sig, &map, self_ty.as_ref());
-    Some(Signature { sig, module: res.symbol(home).module, name, self_ty, owner: Some(home) })
+    Some(Signature {
+        sig,
+        module: res.symbol(home).module,
+        name,
+        self_ty,
+        owner: Some(home),
+        generic_result,
+    })
+}
+
+/// Whether `sig`, as declared, returns a view only through a type parameter, with no `in`.
+fn generic_result(sig: &FnSig, table: &TypeTable) -> bool {
+    sig.ret_ties.is_empty()
+        && !dz_check::ties::holds_view(table, &sig.ret, false)
+        && dz_check::ties::holds_view(table, &sig.ret, true)
 }
 
 fn substitute_signature(sig: &FnSig, map: &HashMap<u32, Ty>, self_ty: Option<&Ty>) -> FnSig {
@@ -1930,14 +2023,21 @@ fn substitute_signature(sig: &FnSig, map: &HashMap<u32, Ty>, self_ty: Option<&Ty
 }
 
 /// A whole-input result retains the input reference's address dependency. Otherwise
-/// `identity(&xs[i])` would lose xs@items when its return tie is elided.
-fn result_root(
+/// `identity(&xs[i])` would lose xs@items when its return tie is elided. With `in (a, b)`,
+/// each input named whole.
+fn result_roots(
     signature: &Signature,
     scope: &dz_check::ties::Scope<'_>,
-) -> Option<dz_check::ties::Root> {
-    if let Some(path) = &signature.sig.ret_tie {
-        let path = super::normalize(scope, path).ok()?;
-        return path.steps.is_empty().then_some(path.root);
+) -> Vec<dz_check::ties::Root> {
+    if !signature.sig.ret_ties.is_empty() {
+        return signature
+            .sig
+            .ret_ties
+            .iter()
+            .filter_map(|path| super::normalize(scope, path).ok())
+            .filter(|path| path.steps.is_empty())
+            .map(|path| path.root)
+            .collect();
     }
     let mut roots = Vec::new();
     if signature.sig.takes_self.is_some() {
@@ -1949,22 +2049,25 @@ fn result_root(
             roots.push(dz_check::ties::Root::Param(i));
         }
     }
-    match roots.as_slice() {
-        [root] => Some(*root),
-        _ => None,
+    if roots.len() == 1 {
+        roots
+    } else {
+        Vec::new()
     }
 }
 
 /// Returned pointers into an indexed container get the same logical [*] target as
 /// indexing, while retaining the allocation tie for address validity. This also works
-/// through wrappers such as World::first.
+/// through wrappers such as World::first. `path` is the `in` path `place` came from, none
+/// when elided.
 fn logical_result(
     signature: &Signature,
     scope: &dz_check::ties::Scope<'_>,
     bindings: &Bindings,
+    path: Option<&TiePath>,
     place: &Place,
 ) -> Place {
-    let Some(path) = &signature.sig.ret_tie else { return place.clone() };
+    let Some(path) = path else { return place.clone() };
     let Ok(path) = super::normalize(scope, path) else { return place.clone() };
     let Some(mut target) = bindings.get(path.root).cloned() else { return place.clone() };
     let mut ty = match path.root {
@@ -2017,6 +2120,8 @@ fn index_signature(recv: &Ty, table: &TypeTable, res: &Resolution) -> Option<Sig
                     Ty::Named { sym, .. } => Some(*sym),
                     _ => None,
                 },
+                // `index` returns a reference, which elides whatever its type.
+                generic_result: false,
             });
         }
     }
@@ -2027,5 +2132,6 @@ fn index_signature(recv: &Ty, table: &TypeTable, res: &Resolution) -> Option<Sig
         name: "index".into(),
         self_ty: Some(recv.clone()),
         owner: Some(trait_sym),
+        generic_result: false,
     })
 }

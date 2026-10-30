@@ -416,8 +416,12 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        // `-> ^T in self@items` and `kills self@items` (spec §6.7).
-        let ret_tie = if ret.is_some() { self.parse_in_tie() } else { None };
+        // `-> ^T in self@items`, `-> str in (a, b)` and `kills self@items` (spec §6.7).
+        let ret_ties = if ret.is_some() && self.eat(TokenKind::In) {
+            self.parse_in_list()
+        } else {
+            Vec::new()
+        };
         let kills_start = self.start();
         let (kills, kills_span) = if self.eat(TokenKind::Kills) {
             let paths = self.parse_kills(false);
@@ -437,7 +441,7 @@ impl<'a> Parser<'a> {
             self_param,
             params,
             ret,
-            ret_tie,
+            ret_ties,
             fallible,
             kills,
             kills_span,
@@ -522,6 +526,24 @@ impl<'a> Parser<'a> {
         if parenthesised {
             self.expect_in(TokenKind::RParen, "to close the `kills` list");
         }
+        paths
+    }
+
+    /// The paths after a result's `in`, the keyword already consumed: one path, or several
+    /// in parentheses, since a bare comma would read as the next path of a `kills` clause
+    /// (spec §6.7).
+    fn parse_in_list(&mut self) -> Vec<TiePath> {
+        if !self.eat(TokenKind::LParen) {
+            return self.parse_tie_path().into_iter().collect();
+        }
+        let mut paths = Vec::new();
+        while let Some(p) = self.parse_tie_path() {
+            paths.push(p);
+            if !self.eat(TokenKind::Comma) || self.at(TokenKind::RParen) {
+                break;
+            }
+        }
+        self.expect_in(TokenKind::RParen, "to close the `in` list");
         paths
     }
 
@@ -870,7 +892,7 @@ impl<'a> Parser<'a> {
             self_param,
             params,
             ret: None,
-            ret_tie: None,
+            ret_ties: Vec::new(),
             fallible: false,
             // A constructor kills nothing: what it builds is not yet anyone's.
             kills: Vec::new(),

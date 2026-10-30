@@ -35,7 +35,7 @@ fn scaled(x: i32, by: i32 = if LIMIT > 100 { 1 } else { 3 }) -> i32 {
     return x * by
 }
 
-fn classify(n: i32) -> str {
+fn classify(n: i32) -> const str {
     return switch n {
         case 0 { "zero" }
         case 1, 2, 3 { "few" }

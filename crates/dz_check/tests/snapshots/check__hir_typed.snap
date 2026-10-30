@@ -17230,7 +17230,7 @@ body fn takes_cstr -> cstr
   block
     return: !
       local _0 s: cstr
-body fn cstr_from_literals -> str
+body fn cstr_from_literals -> usize
   block
     let _0 a: cstr
       str "annotated": cstr
@@ -17245,8 +17245,9 @@ body fn cstr_from_literals -> str
     let _: _
       local _1 b: cstr
     return: !
-      cast: str
-        local _2 c: cstr
+      len: usize
+        cast: str
+          local _2 c: cstr
 body fn read_only_pointers -> f32
   param _0 v: &Vec3
   param _1 w: ^mut Vec3
@@ -19932,6 +19933,61 @@ body fn member_text -> str
           field #0: List<String>
             local _0 roster: &Roster
           local _1 i: usize
+body fn first_or -> str
+  param _0 a: str
+  param _1 b: str
+  block
+    return: !
+      if: str
+        binary >: bool
+          len: usize
+            local _0 a: str
+          int 0: usize
+        block
+          local _0 a: str
+        block
+          block-value: str
+            block
+              local _1 b: str
+body fn after -> str?
+  param _0 s: str
+  param _1 prefix: str
+  block
+    return: !
+      call-method Text::strip_prefix: str?
+        local _0 s: str
+        local _1 prefix: str
+body fn halves -> (str, str)?
+  param _0 s: str
+  block
+    return: !
+      call-method Text::split_once: (str, str)?
+        local _0 s: str
+        str "=": str
+body fn walk -> SliceIter<i32>
+  param _0 xs: &List<i32>
+  block
+    return: !
+      call-method Iterable::iter: SliceIter<i32>
+        local _0 xs: &List<i32>
+body fn greeting -> (const str, i32)
+  block
+    return: !
+      tuple: (const str, i32)
+        str "hello": const str
+        int 5: i32
+body fn fresh_bytes -> ^mut u8
+  block
+    return: !
+      null: ^mut u8
+body fn either_value -> T
+  param _0 a: &Roster
+  param _1 b: &Roster
+  param _2 v: T
+  block
+    return: !
+      move: T
+        local _2 v: T
 body fn score_once -> void
   param _0 r: &mut Roster
   block

@@ -1434,7 +1434,7 @@ impl<'a> Query<'a> {
         }
         let arrow = if f.fallible { "!->" } else { "->" };
         let ret = type_name(self.res, &f.ret);
-        format!("fn {name}({params}) {arrow} {ret}{}{kills}", in_tie(&f.ret_tie))
+        format!("fn {name}({params}) {arrow} {ret}{}{kills}", dz_ast::dump::in_str(&f.ret_ties))
     }
 
     /// Fields and methods of a struct, or a union's methods (spec §7.5); its private ones

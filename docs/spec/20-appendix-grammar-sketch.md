@@ -25,9 +25,10 @@ visibility    = "pub" [ "(" "module" ")" ] ;
 attribute     = "#" "[" ident [ "(" token_tree ")" ] "]" ;
 
 fn_decl       = [ "unsafe" ] [ "mut" ] "fn" ident [ generics ] "(" [ params ] ")"
-                [ ( "->" | "!->" ) type [ "in" tie_path ] ]
+                [ ( "->" | "!->" ) type [ "in" in_list ] ]
                 [ "kills" kill_list ] block ;   (* §6.7 *)
 kill_list     = tie_path { "," tie_path } | "(" tie_path { "," tie_path } ")" ;
+in_list       = tie_path | "(" tie_path { "," tie_path } ")" ;
 params        = param { "," param } ;
 param         = [ "&" | "&mut" ] "self" | ident ":" type [ "in" tie_path ] [ "=" expr ] ;
 tie_path      = ( ident | "self" ) { "." ident | "[" "*" "]" | "@" ident } ;
