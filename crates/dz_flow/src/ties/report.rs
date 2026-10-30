@@ -55,6 +55,23 @@ pub fn report(
             KillKind::Move => "this move kills",
             KillKind::Drop => "this drop kills",
         };
+        // The loop itself, going on over what its body moved: no use is written there.
+        if u.next_pass {
+            diags.push(
+                Diagnostic::error(
+                    codes::USE_AFTER_KILL,
+                    format!("the loop goes on over memory its body killed: `{tie}`"),
+                )
+                .at(file, u.span, format!("the next pass reads `{tie}`"))
+                .with_secondary(file, u.killed.span, format!("{how} `{killed}`"))
+                .with_help(
+                    "a loop walks its container's memory, so moving that memory ends the \
+                     loop: `break` right after the call, or collect what to do and do it \
+                     once the loop is over (spec §6.7)",
+                ),
+            );
+            continue;
+        }
         diags.push(
             Diagnostic::error(
                 codes::USE_AFTER_KILL,

@@ -36,6 +36,9 @@ pub struct InvalidUse {
     pub span: Span,
     pub tie: Place,
     pub killed: BodyKill,
+    /// A loop's next pass over its container, rather than a use the program writes: the
+    /// iterator `for` keeps reads the memory a call in the body killed (spec §6.7).
+    pub next_pass: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -419,6 +422,40 @@ impl Analysis<'_> {
         }
     }
 
+    /// The container a `for` walks through `Iterable::iter` or `IterableMut::iter_mut`, the
+    /// call the checker writes for `for e in xs` (spec §10.4); `None` for anything else.
+    fn iterated_container(&self, subject: ExprId) -> Option<ExprId> {
+        let hir::ExprKind::Call { callee: Callee::Method { recv, owner, name, .. }, args } =
+            &self.body.expr(subject).kind
+        else {
+            return None;
+        };
+        let walks = [("Iterable", "iter"), ("IterableMut", "iter_mut")]
+            .iter()
+            .any(|(t, m)| name == m && self.table.prelude_trait_named(t) == Some(*owner));
+        (walks && args.is_empty()).then_some(*recv)
+    }
+
+    /// Where each element of the container `base` denotes is, as a loop over it sees them.
+    /// Through `Index` they are what `&xs[i]` points into, slot and owned memory apart;
+    /// a type that can only be iterated has its elements named whole at `[*]` (§6.7), so
+    /// any kill under the container ends them.
+    fn iterated_origins(&mut self, base: ExprId, value: &Value, span: Span) -> Vec<Origin> {
+        if index_signature(self.body.ty(base), self.table, self.res).is_some() {
+            return self.index_origins(base, value, span);
+        }
+        self.targets(base, value)
+            .iter()
+            .map(|o| Origin {
+                target: o.target.followed_by(&[Step::Elements]),
+                tie: o.target.clone(),
+                broad: true,
+                payload: None,
+                dead: o.dead.clone(),
+            })
+            .collect()
+    }
+
     fn call(&mut self, callee: &Callee, args: &[ExprId], expression: ExprId) -> Value {
         let held_start = self.held.len();
         let recv = match callee {
@@ -648,6 +685,7 @@ impl Analysis<'_> {
                         self.result.invalid_uses.push(InvalidUse {
                             span,
                             tie: origin.tie.clone(),
+                            next_pass: false,
                             killed: BodyKill { place: kill.clone(), span, kind: KillKind::Call },
                         });
                     }
@@ -662,12 +700,16 @@ impl Analysis<'_> {
                 }) || (signature.sig.kills_unknown
                     && super::mutable_input(&signature.sig.params[i].ty)
                     && origins.iter().any(|o| o.target == kill));
-                if !owns_kill {
+                // A value parameter is a copy made before the callee runs, so where it was
+                // read from cannot dangle inside the call: `counts.insert(*n, 0)`.
+                let holds = super::points(&signature.sig.params[i].ty);
+                if !owns_kill && holds {
                     for origin in origins {
                         if origin.ended_by(&kill, Reach::Owned) && self.reported.insert(span) {
                             self.result.invalid_uses.push(InvalidUse {
                                 span,
                                 tie: origin.tie.clone(),
+                                next_pass: false,
                                 killed: BodyKill {
                                     place: kill.clone(),
                                     span,
@@ -754,7 +796,11 @@ impl Analysis<'_> {
             }
             if let (Some(key), Some((span, _))) = (iterator_key, &iterator) {
                 if let Some(value) = self.state.get(&key).cloned() {
+                    let found = self.result.invalid_uses.len();
                     self.read(&value, *span);
+                    for u in &mut self.result.invalid_uses[found..] {
+                        u.next_pass = true;
+                    }
                 }
             }
             let condition_exit = self.state.clone();
@@ -872,6 +918,7 @@ impl Analysis<'_> {
             self.result.invalid_uses.push(InvalidUse {
                 span,
                 tie: origin.tie.clone(),
+                next_pass: false,
                 killed: origin.dead.clone().unwrap(),
             });
             self.reported.insert(span);
@@ -1003,8 +1050,29 @@ impl Analysis<'_> {
                 self.loop_body(Some(cond), body, label.map(|l| l.id), &[], None);
             }
             hir::StmtKind::For { bindings, subject, body, label, shape } => {
-                let value = self.expr(subject);
-                let element = self.index_origins(subject, &value, self.body.stmt(id).span);
+                let span = self.body.stmt(id).span;
+                // A container is walked through the `iter()` its loop calls, whose result
+                // is a struct holding a view. Its elements are the container's `[*]`
+                // (§6.7), so they and the iterator are followed from the container itself.
+                let walked = self.iterated_container(subject);
+                let (element, iterator) = match walked {
+                    Some(container) => {
+                        let value = self.expr(container);
+                        let element = self.iterated_origins(container, &value, span);
+                        let iterator = Value { views: element.clone(), ..Value::default() };
+                        (element, iterator)
+                    }
+                    None => {
+                        let value = self.expr(subject);
+                        let element = self.index_origins(subject, &value, span);
+                        let iterator = Value {
+                            views: self.targets(subject, &value),
+                            unknown: value.unknown,
+                            ..Value::default()
+                        };
+                        (element, iterator)
+                    }
+                };
                 let fresh = bindings
                     .into_iter()
                     .flatten()
@@ -1017,14 +1085,11 @@ impl Analysis<'_> {
                         (local, value)
                     })
                     .collect::<Vec<_>>();
-                if matches!(shape, hir::ForShape::Tuple) {
+                // The parts of a container's element all point into it; an iterator's
+                // tuple of views could point anywhere.
+                if matches!(shape, hir::ForShape::Tuple) && walked.is_none() {
                     self.unchecked(node.span, "tuple iterator bindings are not modeled yet");
                 }
-                let iterator = Value {
-                    views: self.targets(subject, &value),
-                    unknown: value.unknown,
-                    ..Value::default()
-                };
                 self.loop_body(
                     None,
                     body,
@@ -1244,6 +1309,7 @@ impl Analysis<'_> {
                                 self.result.invalid_uses.push(InvalidUse {
                                     span: node.span,
                                     tie: origin.tie.clone(),
+                                    next_pass: false,
                                     killed,
                                 });
                             }

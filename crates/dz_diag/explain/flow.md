@@ -329,7 +329,10 @@ that memory does (spec §6.7). A call that can grow, shrink or free it — `push
 reference points into, whose `kills` clause says so — ends every reference into it, and so
 does writing, moving or dropping what owns it. Using one afterwards would read memory that
 has moved. Use it before, or get it again after. Returning a view of a local, or of a
-parameter taken by value, is the same mistake: it dies as the function returns.
+parameter taken by value, is the same mistake: it dies as the function returns. So is a
+loop that grows the container it walks: each element, and the loop's own next pass, points
+into memory the call moved; `break` right after the call, or make the change once the loop
+is over.
 
 ```dz
 fn main() {

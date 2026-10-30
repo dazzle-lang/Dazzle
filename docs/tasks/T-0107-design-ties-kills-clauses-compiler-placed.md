@@ -35,7 +35,7 @@ instead of by an allocator the program names.
 | Canonical places: `Place`, `Step` (`Field`, `Elements`, `Storage`), `normalize`, `canonical_steps`, `canonicalize` and `rewrites` (a tie's other paths to its first, `[*]`'s paths to `[*]`), `canonical_field`; call effects `call_effects`; exactness `ties`, `collect_ties`, `minimal`, `compare_ties` | `dz_flow/src/ties.rs` |
 | Findings as diagnostics: `report` (use after kill, bad return, the three clause mismatches, each clause error with the clause the body needs as a fix), `tie_path` (a place spelt with declared ties); called from `check` in `dz_flow/src/lib.rs`. The fix replaces `FnSig::kills_span` (the whole clause, from `FnDecl::kills_span`) or inserts before the body's `{`. A path through a field callers cannot see gets a fix that also declares a tie for it on the field's type (`NewTies`: named after the field without its `m_`, laid out from the source, which is why `dz_flow::check` takes the `SourceMap`), only offered since the name is the author's; a function a macro wrote gets no fix | `dz_flow/src/ties/report.rs` |
 | The editor: hover and signature help quote the declaration, clause included; completion's detail adds it (`Query::signature`); the clause a body that writes none needs is an inlay hint before its `{` (`clause_hints`, `HintKind::Clause`, read off `DZ0415`'s fix), which the server makes insertable | `dz_lsp/src/ide.rs`; `inlay_hints` in `dz_lsp/src/lib.rs` |
-| The body walk: `analyse_body`, `Origin` (target vs tie), `field`, `index_origins` (pointer indexing → `[*]`, and the trusted-body marker), `call` (a call through a function value reads `fn_type_sig`), `invoke`, `kill`, loops and branches | `dz_flow/src/ties/body.rs` |
+| The body walk: `analyse_body`, `Origin` (target vs tie), `field`, `index_origins` (pointer indexing → `[*]`, and the trusted-body marker), `call` (a call through a function value reads `fn_type_sig`), `invoke` (a call's kills against its reference arguments; a value argument is a copy and is left alone), `kill`, loops and branches; a container's `for` through `iterated_container` and `iterated_origins`, its iterator a pseudo-local `loop_body` reads each pass, flagged `InvalidUse::next_pass` | `dz_flow/src/ties/body.rs` |
 | std's ties and clauses | `dz_project/src/std/collections/{list,hash_map,hash_set,slot_map,sort,str_keys}.dz`, `text/string.dz`, `core/formatter.dz` |
 | Tests | `tests/parse/ties.dz` and `errors.dz`, `tests/fmt/ties.dz`, `tests/workspace/typed/src/typed.dz` and `typeerrors/src/errors.dz` (search `Ties and`), `dz_flow/tests/ties.rs` (the analysis, std held to its clauses), `tests/flow/` (one file per code), `dz/tests/fix.rs` (the tie a fix declares), `dz_lsp/tests/ide.rs` (`a_call_shows_what_it_kills`, `inlay_hints_show_the_clause_a_body_needs`) |
 | Spec and history | spec §6.7; changelog rows r81–r84; build log `docs/log/r81-ties.md` |
@@ -307,7 +307,17 @@ user's choice. In order, each step standing on its own:
      are unchecked), general iterators, private pointer indexing to `[*]`, how a path names
      one payload, and diagnostic/fix integration. Nothing new is enforced yet.
      **2026-10-29 (r86):** function types carry their clause; a call through a function
-     value reads it, and storing a function checks it (`DZ0568`).
+     value reads it, and storing a function checks it (`DZ0568`). **2026-10-30:** a `for`
+     over a container is followed: its elements point where `&xs[i]` would (whole at `[*]`
+     for a type with no `Index`), and its iterator dies with them, so §6.7's
+     `for &mut e in enemies { enemies.push(…) }` is two `DZ0413`s, `e` and the loop's next
+     pass. Diagnostics and fixes are 2e's, done. **Still open, by a census of the 1,100
+     bodies of std, the examples and the run corpus** (`unchecked` sites): a call returning
+     a view with no unambiguous input tie, 74 — mostly the open elision question below,
+     generic results (`-> V?`), C functions and iterator structs such as `split` and
+     `chars`; a generic `T` value bound (49) or built into an aggregate (31), which can
+     only stay unchecked in a generic body; optional (19) and tuple (25) views; and field
+     storage behind a cast (31).
    - **2d. `std`'s clauses** on `List`, `HashMap`, `HashSet`, `SlotMap` and `String`, with
      `std` itself checking clean. **Started 2026-10-29** (`docs/log/r81-ties.md`): `List`,
      `String`, `HashMap` (its three arrays all `in @items`, r83) and `Formatter` declare
