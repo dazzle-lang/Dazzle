@@ -122,3 +122,31 @@ fn exhaustive_switch_returns(n: i32) -> i32 {
     }
     return total
 }
+
+// A returned view is in its input (spec §6.7): an iterator used before its list grows, a
+// view in either of two lists after only an unrelated one changes, and a reassigned
+// iterator, are fine. `pop` hands back the element, which points wherever it did, not into
+// the list.
+fn walked_then_grown(xs: &mut List<i32>) kills xs@items {
+    let mut it = xs.iter()
+    let _ = it.valid()
+    xs.push(1)
+    it = xs.iter()
+    let _ = it.valid()
+}
+
+fn pick(a: &List<i32>, b: &List<i32>) -> &List<i32> in (a, b) {
+    return b
+}
+
+fn only_another_changes(a: &List<i32>, b: &List<i32>, c: &mut List<i32>) kills c@items {
+    let x = pick(a, b)
+    c.push(1)
+    let _ = x.len()
+}
+
+fn popped_text_survives(names: &mut List<str>) kills names@items {
+    let s = names.pop() or return
+    names.push("x")
+    let _ = s.len
+}

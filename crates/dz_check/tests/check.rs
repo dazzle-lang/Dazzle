@@ -629,9 +629,9 @@ fn comparing_a_struct_needs_eq() {
 #[test]
 fn an_impl_belongs_with_its_trait_or_its_type() {
     let own_trait = snippet(
-        "trait Named {\n fn name(&self) -> str\n}\n\
-         impl Named for f32 {\n fn name(&self) -> str {\n  return \"f32\"\n }\n}\n\
-         fn f(x: f32) -> str {\n return x.name()\n}\n",
+        "trait Named {\n fn name(&self) -> const str\n}\n\
+         impl Named for f32 {\n fn name(&self) -> const str {\n  return \"f32\"\n }\n}\n\
+         fn f(x: f32) -> const str {\n return x.name()\n}\n",
     );
     assert!(own_trait.is_empty(), "a module's own trait for `f32`, got {own_trait:?}");
     let neither = snippet(

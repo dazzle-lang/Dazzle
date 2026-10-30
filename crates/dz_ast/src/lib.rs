@@ -190,8 +190,9 @@ pub struct FnDecl {
     pub self_param: Option<SelfParam>,
     pub params: Vec<Param>,
     pub ret: Option<Type>,
-    /// `-> ^T in self@items`: where a returned reference points (spec §6.7).
-    pub ret_tie: Option<TiePath>,
+    /// `-> ^T in self@items`, or `-> str in (a, b)`: where a returned view points (spec
+    /// §6.7). Empty when no `in` is written.
+    pub ret_ties: Vec<TiePath>,
     /// `!->` in place of `->`: this function may fail (spec §9). Fallibility lives on the
     /// signature and never on a type, so there is no `Fallible` in [`TypeKind`].
     pub fallible: bool,

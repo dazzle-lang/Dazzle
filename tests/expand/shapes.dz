@@ -16,7 +16,7 @@ macro record -> decl {
                 return [#for f in $fields[,] { $f.name }]
             }
 
-            pub fn about() -> str {
+            pub fn about() -> const str {
                 return #if $doc { $doc } #else { "no description" }
             }
 

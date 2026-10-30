@@ -284,10 +284,34 @@ a path at a tie standing for a pointer field, which names that memory as a whole
 
 **Every reference carries a tie**, known where it is made, except a `const str`, which
 points into static storage that nothing kills (§5.3): `&mut world.enemies[i]` is in
-`world.enemies@items`. A function returning a reference or a pointer says where it points
-with `in`: `pub fn first(&self) -> ^T in self@items`. With exactly one reference input and no
-`in`, the result is in that input as a whole. A reference parameter may say where it points
-too, which is then checked inside the function: `e: &mut Enemy in world`.
+`world.enemies@items`. A reference parameter may say where it points, which is then checked
+inside the function: `e: &mut Enemy in world`.
+
+**So does every reference a function returns.** The signature says where it points with
+`in`: `pub fn first(&self) -> ^T in self@items`. A result that may be in any of several
+places names them in parentheses, and a kill of any one ends it:
+
+```dz
+fn longer(a: str, b: str) -> str in (a, b) { … }
+```
+
+With no `in`, a result is in its **one view input** — a reference, a pointer, a slice or a
+`str` parameter, or `self` — as a whole. With more than one, the signature must say which
+(`DZ0570`); with none, a reference, slice or `str` result points into nothing the caller can
+see die (`DZ0571`), and text that never dies is a `const str` instead.
+
+```dz
+fn strip_prefix(&self, prefix: str) -> str? in self      // `prefix` is an input too
+fn title() -> const str                                   // `-> str` is DZ0571
+```
+
+The same holds for a result that **holds** a view: a struct (an iterator such as `iter()`'s
+`SliceIter`), a tuple or an optional with one inside, other than behind a pointer field. So
+`let it = xs.iter()`, then `xs.push(1)`, then using `it` is a use after a kill, and so is
+a half of `s.split_once("=")` after `s` changes. Three results stay untied: one that holds a
+view only through a type parameter (`pop(&mut self) -> T?` hands back the element, which
+points wherever it did, not into the list), a raw pointer or `cstr` with no input, which may
+own what it points at, and an `extern fn`'s with no input, which is C's memory.
 
 **A `kills` clause** says which ties a function may end, after the return type:
 
@@ -428,5 +452,6 @@ handed back or dropped.
 The checker reports a use after a kill (`DZ0413`), a return outside its `in`
 (`DZ0414`), and a clause that leaves a kill out, names one that never happens, or names
 more than dies (`DZ0415`–`DZ0417`), each clause error with the clause the body needs,
-which `dz fix` writes. Not yet implemented: the editor showing a clause in a call's
-hover, and step 3's debug-build check of `std`'s trusted clauses (T-0107).
+which `dz fix` writes; and a returned view that does not say where it points (`DZ0570`,
+`DZ0571`). Not yet implemented: step 3's debug-build check of `std`'s trusted clauses
+(T-0107).

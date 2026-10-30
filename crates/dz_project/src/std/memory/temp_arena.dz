@@ -102,7 +102,7 @@ impl Allocator for TempArena {
         new_size: usize,
         align: usize,
         loc: SourceLocation,
-    ) -> ^mut u8 {
+    ) -> ^mut u8 in (self, p) {
         // The last allocation grows in place when the chunk has room.
         if p != null && m_chunk != null {
             let offset = (p as usize) - (m_chunk as usize)

@@ -132,9 +132,9 @@ pub fn check(scope: &Scope<'_>, params: &[dz_ast::Param]) -> Vec<Error> {
             Err(e) => out.push(e),
         }
     }
-    if let Some(path) = &scope.sig.ret_tie {
+    for path in &scope.sig.ret_ties {
         match resolve(scope, path) {
-            Ok(_) if !points(&scope.sig.ret) => {
+            Ok(_) if !holds_view(scope.table, &scope.sig.ret, true) => {
                 out.push(points_nowhere(scope, "the result", &scope.sig.ret, path.span))
             }
             Ok(_) => {}
@@ -208,6 +208,122 @@ pub fn check_struct(table: &TypeTable, res: &Resolution, sym: SymbolId) -> Vec<E
 /// or a `str`.
 fn points(t: &Ty) -> bool {
     matches!(t, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::Slice { .. } | Ty::Str | Ty::CStr)
+}
+
+/// Whether a value of `t` holds a view: it points itself, or it is a struct, tuple,
+/// optional or array with one inside, other than behind a pointer field, which stays
+/// unchecked (spec §6.7). `generic` is what a type parameter counts as, since it may be
+/// given a view or not.
+pub fn holds_view(table: &TypeTable, t: &Ty, generic: bool) -> bool {
+    holds(table, t, generic, points, 0)
+}
+
+/// Whether a value of `t` holds a view whose `leaf` is true, as [`holds_view`] walks it.
+fn holds(table: &TypeTable, t: &Ty, generic: bool, leaf: fn(&Ty) -> bool, depth: usize) -> bool {
+    if depth > MAX_DEPTH {
+        return true;
+    }
+    match t {
+        Ty::Tuple(parts) => parts.iter().any(|p| holds(table, p, generic, leaf, depth + 1)),
+        Ty::Optional(inner) | Ty::Array { elem: inner, .. } => {
+            holds(table, inner, generic, leaf, depth + 1)
+        }
+        Ty::Named { sym, args } => table.struct_sig(*sym).is_some_and(|s| {
+            table.field_types(*sym, args, &s.fields).iter().any(|f| {
+                !matches!(f, Ty::Ptr { .. } | Ty::OwnPtr { .. })
+                    && holds(table, f, generic, leaf, depth + 1)
+            })
+        }),
+        Ty::Param(_) => generic,
+        _ => leaf(t),
+    }
+}
+
+/// A result that holds a view and says nothing of where: wrong unless there is exactly one
+/// view input for it to be in (spec §6.7).
+pub struct UntiedResult {
+    pub error: Error,
+    /// ` in (a, b)`, to insert after the result's type: every input, which is never wrong,
+    /// for the author to narrow. `None` where the source cannot take it.
+    pub fix: Option<(Span, String)>,
+}
+
+/// Every reference a function returns is tied to something its caller can see die: with no
+/// `in`, the result is in its one view input, so none or several is an error. A result that
+/// holds a view only through a type parameter stays unchecked, since `T` may not be one; so
+/// do a raw pointer or `cstr` with no input, which may own what it points at, as one made in
+/// `unsafe` does, a result that may come out of a view a parameter holds by value, and an
+/// `extern fn` with no input, whose result is C's memory, outside what the checker sees.
+pub fn untied_result(scope: &Scope<'_>, f: &dz_ast::FnDecl) -> Option<UntiedResult> {
+    let ret = &scope.sig.ret;
+    if !scope.sig.ret_ties.is_empty() || !holds_view(scope.table, ret, false) {
+        return None;
+    }
+    let ret_span = f.ret.as_ref().map_or(f.name.span, |r| r.span);
+    // Every token a macro wrote is at its invocation (§12), so the result's type does not
+    // follow the function's name, and a fix belongs in the macro.
+    let fixable = ret_span.end > f.name.span.end;
+    let mut inputs = Vec::new();
+    if scope.sig.takes_self.is_some() {
+        inputs.push("self".to_owned());
+    }
+    inputs.extend(scope.sig.params.iter().filter(|p| points(&p.ty)).map(|p| p.name.clone()));
+    let shown = crate::type_name(scope.res, ret);
+    let name = scope.name;
+    match inputs.len() {
+        1 => None,
+        0 => {
+            // Only a reference, slice or `str` must be tied; raw pointers and `cstr`s, on
+            // their own or in an aggregate, may not be views at all.
+            let tied = |t: &Ty| matches!(t, Ty::Ref { .. } | Ty::Slice { .. } | Ty::Str);
+            if !holds(scope.table, ret, false, tied, 0)
+                || (f.is_extern && f.body.is_none())
+                || scope.sig.params.iter().any(|p| holds_view(scope.table, &p.ty, true))
+            {
+                return None;
+            }
+            // Text from nowhere is usually a literal's, which is what `const str` says;
+            // but the body may build it some other way, so it is only offered.
+            let fix = (fixable && *ret == Ty::Str).then(|| (ret_span, "const str".to_owned()));
+            Some(UntiedResult {
+                error: error(
+                    codes::RESULT_TIED_TO_NOTHING,
+                    ret_span,
+                    format!(
+                        "`{name}` returns `{shown}`, which holds a view, but takes nothing it \
+                         could point into"
+                    ),
+                    "points into nothing its caller can see",
+                    "return text that never dies as `const str`, return something owned \
+                     (`String`, `List`), or take what the result points into as a parameter \
+                     (spec §6.7)",
+                ),
+                fix,
+            })
+        }
+        _ => {
+            let listed = inputs.iter().map(|i| format!("`{i}`")).collect::<Vec<_>>().join(" or ");
+            let all = format!("in ({})", inputs.join(", "));
+            let fix = fixable.then(|| (Span::at(ret_span.end as usize), format!(" {all}")));
+            Some(UntiedResult {
+                error: error(
+                    codes::RESULT_TIE_AMBIGUOUS,
+                    ret_span,
+                    format!(
+                        "`{name}` returns `{shown}`, which may point into {listed}: the \
+                         signature must say which"
+                    ),
+                    "no `in` says where this points",
+                    format!(
+                        "say what the result points into after its type: `in {}`, or `{all}` \
+                         if it may be in any of them (spec §6.7)",
+                        inputs[0]
+                    ),
+                ),
+                fix,
+            })
+        }
+    }
 }
 
 fn points_nowhere(scope: &Scope<'_>, what: &str, t: &Ty, span: Span) -> Error {
@@ -569,7 +685,7 @@ pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
         ret_cast: false,
         dispatch: dz_ast::Dispatch::Static,
         variadic: None,
-        ret_tie: None,
+        ret_ties: Vec::new(),
         kills: paths.to_vec(),
         kills_span: None,
         kills_unknown: unknown,

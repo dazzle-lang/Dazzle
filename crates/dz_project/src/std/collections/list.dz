@@ -33,7 +33,7 @@ pub struct List<T> {
     /// Where a value stored in this list may get its memory: the list's own region when
     /// the compiler built it as one that never gives an element back, `fallback` otherwise
     /// (T-0105 prototype).
-    pub fn contents_allocator(&self, fallback: ^mut Allocator) -> ^mut Allocator {
+    pub fn contents_allocator(&self, fallback: ^mut Allocator) -> ^mut Allocator in (self, fallback) {
         let a = m_allocator or return fallback
         let c = a.contents() or return fallback
         return c

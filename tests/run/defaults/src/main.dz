@@ -16,7 +16,7 @@ struct Greeter {
     }
 }
 
-fn default_name() -> str {
+fn default_name() -> const str {
     return "world"
 }
 

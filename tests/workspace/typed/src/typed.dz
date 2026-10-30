@@ -30,7 +30,7 @@ pub struct Vec3 {
 pub struct Counter {
     m_count:    u32
     pub(module) shared: u32
-    pub label:  str
+    pub label:  const str
     pub origin: Vec3
     pub cursor: ^Vec3 = null
 
@@ -712,13 +712,13 @@ fn takes_cstr(s: cstr) -> cstr {
 
 // A string literal is a `cstr` wherever one is wanted, and `as` says so explicitly; a
 // `cstr` is measured into a `str` with `as`.
-fn cstr_from_literals() -> str {
+fn cstr_from_literals() -> usize {
     let a: cstr = "annotated"
     let b = "cast" as cstr
     let c = takes_cstr("argument")
     let _ = a
     let _ = b
-    return c as str
+    return (c as str).len
 }
 
 // --- r18: `^T` and `^mut T` (spec §5.2, §18.37) ----------------------------------------
@@ -1828,6 +1828,38 @@ fn shout(name: &mut String in roster, roster: &mut Roster) kills name@text, rost
 
 fn member_text(roster: &Roster, i: usize) -> str in roster.members[*] {
     return roster.members[i].as_str()
+}
+
+// Every returned view says where it points: one view input is enough, `in` picks between
+// several or names them all, it may be on a result that holds a view, and text from nowhere
+// is a `const str`. A raw pointer from nothing may own what it points at, and a `T` may not
+// be a view at all (spec §6.7).
+fn first_or(a: str, b: str) -> str in (a, b) {
+    return if a.len > 0 { a } else { b }
+}
+
+fn after(s: str, prefix: str) -> str? in s {
+    return s.strip_prefix(prefix)
+}
+
+fn halves(s: str) -> (str, str)? {
+    return s.split_once("=")
+}
+
+fn walk(xs: &List<i32>) -> SliceIter<i32> {
+    return xs.iter()
+}
+
+fn greeting() -> (const str, i32) {
+    return ("hello", 5)
+}
+
+fn fresh_bytes() -> ^mut u8 {
+    return null
+}
+
+fn either_value<T>(a: &Roster, b: &Roster, v: T) -> T {
+    return move(v)
 }
 
 // A function fits a function type that promises at least what it kills; one that kills

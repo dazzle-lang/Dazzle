@@ -178,7 +178,7 @@ fn fn_decl<H: Hooks>(h: &mut H, f: &mut FnDecl) {
     // A function type's clause names that type's own parameters, which are not binders, so
     // only a declaration's tie paths are walked.
     let ties = f.params.iter_mut().filter_map(|p| p.tie.as_mut());
-    for t in ties.chain(f.ret_tie.as_mut()).chain(f.kills.iter_mut()) {
+    for t in ties.chain(f.ret_ties.iter_mut()).chain(f.kills.iter_mut()) {
         h.tie_root(&mut t.root);
     }
     if let Some(b) = &mut f.base_init {

@@ -22,23 +22,24 @@ instead of by an allocator the program names.
 | Piece | Where |
 |---|---|
 | Keywords `kills`, `tie`; the `@` token | `dz_lex/src/token.rs`; completion in `dz_lsp/src/ide.rs` (`KEYWORDS`); colour in `editors/vscode/syntaxes/dazzle.tmLanguage.json` |
-| Syntax tree: `TiePath`, `TieStep`, `TieDecl`, `TieName`, `MemberKind::Tie`; `FnDecl::kills`/`ret_tie`, `Param::tie` | `dz_ast/src/lib.rs`; printed by `tie_path_str`, `tie_decl_str`, `kills_str` in `dz_ast/src/dump.rs` |
-| Parsing: `parse_tie_path`, `parse_kills`, `parse_in_tie`, `parse_tie_decl`, the `DZ0219` report in `parse_field` | `dz_parse/src/item.rs`; a function type's clause in `dz_parse/src/ty.rs` |
+| Syntax tree: `TiePath`, `TieStep`, `TieDecl`, `TieName`, `MemberKind::Tie`; `FnDecl::kills`/`ret_ties` (`in a` or `in (a, b)`), `Param::tie` | `dz_ast/src/lib.rs`; printed by `tie_path_str`, `tie_decl_str`, `in_str`, `kills_str` in `dz_ast/src/dump.rs` |
+| Parsing: `parse_tie_path`, `parse_kills`, `parse_in_list` (a result's), `parse_in_tie` (a parameter's), `parse_tie_decl`, the `DZ0219` report in `parse_field` | `dz_parse/src/item.rs`; a function type's clause in `dz_parse/src/ty.rs` |
 | Formatting a `tie` member and clauses | `dz_fmt/src/lib.rs` (`member`, `signature`) |
-| Signatures keep clauses as written: `FnSig::kills`, `ret_tie`, `kills_unknown`; `ParamSig::tie`; `StructSig::ties` (`TieSig`); `FieldSig::tie` (filled from whole-field ties at the end of `collect_struct`) | `dz_check/src/lib.rs` |
+| Signatures keep clauses as written: `FnSig::kills`, `ret_ties`, `kills_unknown`; `ParamSig::tie`; `StructSig::ties` (`TieSig`); `FieldSig::tie` (filled from whole-field ties at the end of `collect_struct`) | `dz_check/src/lib.rs` |
 | Resolving paths: `resolve` (signatures), `export_path` (a `tie`'s paths), `tie_decls` (with a base's), `elements_in`/`elements`, `iterated`; the `Walker` decides visibility | `dz_check/src/ties.rs` |
+| Every returned view tied (r88): `untied_result` (`DZ0570`, `DZ0571` and their offered fixes, reported from `check_ties` in `dz_check/src/lib.rs`); `holds_view` (whether a type holds a view; `dz_flow`'s `contains_views` is it with `T` counting) | `dz_check/src/ties.rs` |
 | Reporting: `check` per signature (called from `check_ties` in `dz_check/src/lib.rs`), `check_struct` per struct (called at the end of `check_members` in `dz_check/src/check.rs`) | as left |
 | A function type's clause: `FnKills` in `Ty::Fn` (as written, with parameter names; not part of the type's identity), `FnKills::within`, used by `assignable` | `dz_hir/src/ty.rs`; built in `lower_type_inner` and `foreign_ty` (`dz_check/src/lib.rs`) and for a function item's value (`FnItem` in `dz_check/src/check.rs`); `DZ0568` reported in `expect` (`check.rs`) |
 | A function type's clause read as a signature: `fn_type_sig`; its paths checked by `check_fn_types`, from `check_ties` and for fields in `check_members` | `dz_check/src/ties.rs` |
 | `const str` (r87): `Ty::ConstStr` (`dz_hir/src/ty.rs`; `assignable` lets it be a `str`), `TypeKind::Const` (`dz_ast`, parsed in `dz_parse/src/ty.rs`), lowered in `lower_type_inner` (`DZ0569` otherwise); a literal becomes one in `expr_inner`'s `ExprKind::Str`; it reads as a `str` in `expr` (`dz_check/src/check.rs`), except as an assignment's target, under `&mut`, and as an untyped `let`'s value; `impl_applies` gives it `str`'s implementations; `field_type` its `.len`. Not a view to the tie analysis (`points` leaves it out) | `dz_check`, `dz_hir`, `dz_cpp` (emitted as `::dz::str`) |
-| Codes `DZ0218`, `DZ0219`, `DZ0413`–`DZ0417`, `DZ0562`–`DZ0565`, `DZ0567`, `DZ0568`; `dz explain` text (`flow.md` for `DZ041x`) | `dz_diag/src/codes.rs`; `dz_diag/explain/parser.md`, `check.md` |
-| Canonical places: `Place`, `Step` (`Field`, `Elements`, `Storage`), `normalize`, `canonical_steps`, `canonicalize` and `rewrites` (a tie's other paths to its first, `[*]`'s paths to `[*]`), `canonical_field`; call effects `call_effects`; exactness `ties`, `collect_ties`, `minimal`, `compare_ties` | `dz_flow/src/ties.rs` |
+| Codes `DZ0218`, `DZ0219`, `DZ0413`–`DZ0417`, `DZ0562`–`DZ0565`, `DZ0567`, `DZ0568`, `DZ0570`, `DZ0571`; `dz explain` text (`flow.md` for `DZ041x`) | `dz_diag/src/codes.rs`; `dz_diag/explain/parser.md`, `check.md` |
+| Canonical places: `Place`, `Step` (`Field`, `Elements`, `Storage`), `normalize`, `canonical_steps`, `canonicalize` and `rewrites` (a tie's other paths to its first, `[*]`'s paths to `[*]`), `canonical_field`; call effects `call_effects` (`ReturnTie::Explicit` holds every `in` place; a result holding a view elides like a reference); exactness `ties`, `collect_ties`, `minimal`, `compare_ties` | `dz_flow/src/ties.rs` |
 | Findings as diagnostics: `report` (use after kill, bad return, the three clause mismatches, each clause error with the clause the body needs as a fix), `tie_path` (a place spelt with declared ties); called from `check` in `dz_flow/src/lib.rs`. The fix replaces `FnSig::kills_span` (the whole clause, from `FnDecl::kills_span`) or inserts before the body's `{`. A path through a field callers cannot see gets a fix that also declares a tie for it on the field's type (`NewTies`: named after the field without its `m_`, laid out from the source, which is why `dz_flow::check` takes the `SourceMap`), only offered since the name is the author's; a function a macro wrote gets no fix | `dz_flow/src/ties/report.rs` |
 | The editor: hover and signature help quote the declaration, clause included; completion's detail adds it (`Query::signature`); the clause a body that writes none needs is an inlay hint before its `{` (`clause_hints`, `HintKind::Clause`, read off `DZ0415`'s fix), which the server makes insertable | `dz_lsp/src/ide.rs`; `inlay_hints` in `dz_lsp/src/lib.rs` |
-| The body walk: `analyse_body`, `Origin` (target vs tie), `field`, `index_origins` (pointer indexing → `[*]`, and the trusted-body marker), `call` (a call through a function value reads `fn_type_sig`), `invoke` (a call's kills against its reference arguments; a value argument is a copy and is left alone), `kill`, loops and branches; a container's `for` through `iterated_container` and `iterated_origins`, its iterator a pseudo-local `loop_body` reads each pass, flagged `InvalidUse::next_pass`; a tuple's views per part in `Value::parts` (`tuple_part` for `t.0`, `tuple_path` for assigning one, `LetTuple` in `stmt`) | `dz_flow/src/ties/body.rs` |
+| The body walk: `analyse_body`, `Origin` (target vs tie), `field`, `index_origins` (pointer indexing → `[*]`, and the trusted-body marker), `call` (a call through a function value reads `fn_type_sig`), `invoke` (a call's kills against its reference arguments; a value argument is a copy and is left alone; a result in a local view is in what it views too), `Signature::effects` (leaves a result that was a view only through `T` unknown: `generic_result`), `result_roots`, `logical_result`, `kill`, loops and branches; a struct local holding a returned view in `bind`; a container's `for` through `iterated_container` and `iterated_origins`, its iterator a pseudo-local `loop_body` reads each pass, flagged `InvalidUse::next_pass`; a tuple's views per part in `Value::parts` (`tuple_part` for `t.0`, `tuple_path` for assigning one, `LetTuple` in `stmt`) | `dz_flow/src/ties/body.rs` |
 | std's ties and clauses | `dz_project/src/std/collections/{list,hash_map,hash_set,slot_map,sort,str_keys}.dz`, `text/string.dz`, `core/formatter.dz` |
-| Tests | `tests/parse/ties.dz` and `errors.dz`, `tests/fmt/ties.dz`, `tests/workspace/typed/src/typed.dz` and `typeerrors/src/errors.dz` (search `Ties and`), `dz_flow/tests/ties.rs` (the analysis, std held to its clauses), `tests/flow/` (one file per code), `dz/tests/fix.rs` (the tie a fix declares), `dz_lsp/tests/ide.rs` (`a_call_shows_what_it_kills`, `inlay_hints_show_the_clause_a_body_needs`) |
-| Spec and history | spec §6.7; changelog rows r81–r84; build log `docs/log/r81-ties.md` |
+| Tests | `tests/parse/ties.dz` and `errors.dz`, `tests/fmt/ties.dz`, `tests/workspace/typed/src/typed.dz` and `typeerrors/src/errors.dz` (search `Ties and`, and `Every returned view` / `A returned view with no`), `dz_flow/tests/ties.rs` (the analysis, std held to its clauses, `every_returned_view_says_where_it_points`, `a_returned_aggregate_keeps_its_inputs_tie`), `tests/flow/` (one file per code; `use_after_kill.dz` and `clean.dz` for returned aggregates), `dz/tests/fix.rs` (the tie a fix declares), `dz_lsp/tests/ide.rs` (`a_call_shows_what_it_kills`, `inlay_hints_show_the_clause_a_body_needs`) |
+| Spec and history | spec §6.7; changelog rows r81–r88; build log `docs/log/r81-ties.md` |
 
 Enforced since 2e (2026-10-29): `dz_flow::check` runs the analysis on every body and
 `ties::report` turns its findings into `DZ0413`–`DZ0417`.
@@ -377,15 +378,20 @@ a view that points into nothing is a `const str`, a type: text in static storage
 carries no tie and may be returned from anything or held in a field.
 
 Still open, to settle on the way: whether `const []T` follows `const str` (static
-tables), once a program needs it. The elision rules for returned references (whether a pointer, slice
-or `str` input counts as one: until settled, one beside another leaves the result unknown),
-how a tagged union's payload is named in a tie, what `dz` shows for each placement (inlay
-hints and a listing), and whether stage 3 on the prototype branch is reverted now or left
-until step 4.
+tables), once a program needs it. How a tagged union's payload is named in a tie, what
+`dz` shows for each placement (inlay hints and a listing), and whether stage 3 on the
+prototype branch is reverted now or left until step 4.
 
-**Direction from the user, 2026-10-30, for later:** references keep their tie, so
-anything that returns a reference returns a tied reference. That bears on the elision
-question above: a returned reference whose tie is unknown (today's answer when there is
-more than one view input, or for a struct or optional holding a view) is what this rules
-out. Not yet designed or in the spec; the census in `docs/log/r81-ties.md` (2c, fifth
-part) counts 74 call sites that leave a returned view untied today.
+**Settled 2026-10-30 (r88), the user's direction that references keep their tie:** every
+view input counts (a reference, pointer, slice or `str`, or `self`); with one, a result
+holding a view is in it, and with several the signature must write `in` (`DZ0570`), which
+may name several in parentheses, `-> str in (a, b)`; a reference, slice or `str` result
+with none is `DZ0571`. A struct, tuple or optional holding a view follows the same rules,
+so `iter()`'s `SliceIter` and `split_once`'s halves are followed. **Still untied, each
+for a reason in `untied_result`:** a view only through a type parameter (`pop() -> T?`);
+a raw pointer or `cstr` from nothing; an `extern fn`'s result from nothing (`dir_next`'s
+text, valid until the next call on a `usize` handle, has no tie to name); a result with a
+parameter holding a view by value; and a function type's result with several inputs,
+since a function type cannot write `in` yet. `process_env(name: str) -> str?` elides to
+`name`, which is not where its text lives (valid until the next call): harmless for
+`std`'s one caller, which copies it, but not true.

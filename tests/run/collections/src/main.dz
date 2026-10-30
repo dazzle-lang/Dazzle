@@ -45,7 +45,7 @@ impl Allocator for Counting {
         new_size: usize,
         align: usize,
         loc: SourceLocation = #location,
-    ) -> ^mut u8 {
+    ) -> ^mut u8 in self {
         allocs += 1
         return Allocators::Global.realloc(p, old_size, new_size, align, loc)
     }

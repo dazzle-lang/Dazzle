@@ -13,7 +13,7 @@ pub struct FieldInfo {
     /// The value `key` has in the tag, when the tag holds `key:"value"` — the convention
     /// Odin and Go use, pairs separated by spaces. `f.tag_value("json")` is `"hp"` above, and
     /// `none` for a key the tag does not mention.
-    pub fn tag_value(&self, key: str) -> str? {
+    pub fn tag_value(&self, key: str) -> str? in self {
         let bytes = tag as []u8
         let want = key as []u8
         let mut i: usize = 0

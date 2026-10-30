@@ -23,6 +23,23 @@ impl Fixture {
     }
 
     fn with_source(extra: &str) -> Self {
+        let (fixture, map, diags) = Self::load(extra);
+        let rendered = dz_diag::render_to_string(&map, &diags);
+        assert!(!diags.has_errors(), "{rendered}");
+        fixture
+    }
+
+    /// The codes of the errors the checker reports for `extra` beside the fixture.
+    fn codes(extra: &str) -> Vec<String> {
+        let (_, _, diags) = Self::load(extra);
+        diags
+            .iter()
+            .filter(|d| d.severity == dz_diag::Severity::Error)
+            .filter_map(|d| d.code.map(str::to_owned))
+            .collect()
+    }
+
+    fn load(extra: &str) -> (Self, SourceMap, Diagnostics) {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
             "dz_flow_ties_{}_{}",
@@ -58,10 +75,8 @@ impl Fixture {
         diags.extend(res.diagnostics.clone());
         let checked = dz_check::check(&ws, &res, &files, &map);
         diags.extend(checked.diagnostics.clone());
-        let rendered = dz_diag::render_to_string(&map, &diags);
         std::fs::remove_dir_all(&dir).unwrap();
-        assert!(!diags.has_errors(), "{rendered}");
-        Self { checked, res }
+        (Self { checked, res }, map, diags)
     }
 
     fn scope<'a>(&'a self, name: &'a str) -> Scope<'a> {
@@ -127,8 +142,10 @@ fn view(w: &World) -> ^Text in w@bag@items { return w.bag.data }
 fn broad_view(w: &World) -> ^Text in w@bag { return w.bag.data }
 fn tied(e: &mut Text in w.bag[*], w: &mut World) kills w.bag@items {}
 fn identity(x: &Text) -> &Text { return x }
-fn ambiguous(x: &Text, y: &Text) -> &Text { return x }
-fn literal() -> str { return "static" }
+fn in_either(x: &Text, y: &Text) -> &Text in (x, y) { return x }
+fn literal() -> const str { return "static" }
+fn paired(x: &Text) -> (&Text, i32) { return (x, 1) }
+fn generic<T>(x: &Text, v: T) -> T? { return v }
 fn read(w: &World) -> i32 { return 1 }
 fn foreign(a: &mut World, b: ^mut World, c: &World, d: ^World, v: World) {}
 fn arrays(xs: &mut [2]Text) kills xs[*]@chars {}
@@ -191,7 +208,7 @@ fn explicit_and_elided_return_ties_preserve_what_can_end_them() {
     let storage = world.followed(&[field("bag"), field("data"), Step::Storage]);
     let text = world.followed(&[field("bag"), Step::Elements, field("data"), Step::Storage]);
     let view = fixture.effects("view", &bindings);
-    assert_eq!(view.result, ReturnTie::Explicit(storage.clone()));
+    assert_eq!(view.result, ReturnTie::Explicit(vec![storage.clone()]));
     assert!(view.result.ended_by(&storage));
     assert!(view.result.ended_by(&world));
     assert!(!view.result.ended_by(&text));
@@ -207,10 +224,82 @@ fn explicit_and_elided_return_ties_preserve_what_can_end_them() {
     assert_eq!(read.result, ReturnTie::None);
     assert!(read.kills.is_empty());
     assert!(!read.incomplete);
-    let ambiguous = fixture.effects("ambiguous", &args(vec![Some(world.clone()), Some(world)]));
-    assert_eq!(ambiguous.result, ReturnTie::Unknown);
-    assert!(!ambiguous.incomplete);
-    assert_eq!(fixture.effects("literal", &Bindings::default()).result, ReturnTie::Unknown);
+    // `in (x, y)`: in either, so a kill of either ends it.
+    let other = Place::local(LocalId(5));
+    let either =
+        fixture.effects("in_either", &args(vec![Some(world.clone()), Some(other.clone())]));
+    assert_eq!(either.result, ReturnTie::Explicit(vec![world.clone(), other.clone()]));
+    assert!(either.result.ended_by(&storage) && either.result.ended_by(&other));
+    assert!(!either.incomplete);
+    // A `const str` views nothing that dies.
+    assert_eq!(fixture.effects("literal", &Bindings::default()).result, ReturnTie::None);
+    // A tuple holding a view is in its one input, as a reference is.
+    let paired = fixture.effects("paired", &bindings);
+    assert_eq!(paired.result, ReturnTie::Elided(world.clone()));
+    // A view only through `T` is wherever the value came from, which no signature says.
+    let generic = fixture.effects("generic", &args(vec![Some(world), None]));
+    assert_eq!(generic.result, ReturnTie::Unknown);
+}
+
+#[test]
+fn every_returned_view_says_where_it_points() {
+    // The checker holds signatures to it: none or several inputs and no `in` (§6.7).
+    let rejected = [
+        ("fn two(x: &Text, y: &Text) -> &Text { return x }", "DZ0570"),
+        ("fn two_aggregate(x: str, y: str) -> str? { return x }", "DZ0570"),
+        ("fn nothing() -> str { return \"x\" }", "DZ0571"),
+        ("fn nothing_held() -> (i32, str) { return (1, \"x\") }", "DZ0571"),
+    ];
+    for (source, code) in rejected {
+        let codes = Fixture::codes(source);
+        assert_eq!(codes, [code], "{source}");
+    }
+    let accepted = [
+        // One input elides; a pointer from nothing may own what it points at.
+        "fn one(x: &Text, n: i32) -> (&Text, i32) { return (x, n) }",
+        "fn fresh() -> ^mut u8 { return null }",
+        "fn chosen(x: &Text, y: &Text) -> &Text in y { return y }",
+        "fn generic_value<T>(x: &Text, y: &Text, v: T) -> T { return v }",
+    ];
+    for source in accepted {
+        assert_eq!(Fixture::codes(source), Vec::<String>::new(), "{source}");
+    }
+}
+
+#[test]
+fn a_returned_aggregate_keeps_its_inputs_tie() {
+    let fixture = Fixture::with_source(
+        r#"
+fn walked(xs: &mut List<i32>) kills xs@items {
+    let it = xs.iter()
+    xs.push(1)
+    let _ = it.valid()
+}
+fn halves(s: &mut String) kills s@text {
+    let (a, b) = s.as_str().split_once("=") or return
+    s.push_str("x")
+    println!("{}", a)
+}
+fn popped(names: &mut List<str>) kills names@items {
+    let s = names.pop() or return
+    names.push("x")
+    println!("{}", s)
+}
+fn either_dies(a: &mut List<i32>, b: &mut List<i32>) kills b@items {
+    let x = pick(a, b)
+    b.push(1)
+    println!("{}", x.len())
+}
+fn pick(a: &List<i32>, b: &List<i32>) -> &List<i32> in (a, b) { return b }
+"#,
+    );
+    for name in ["walked", "halves", "either_dies"] {
+        let a = fixture.analysis(name);
+        assert_eq!(a.invalid_uses.len(), 1, "{name}: {a:#?}");
+    }
+    // `pop` hands back a `T`, which points wherever the element did, not into the list.
+    let a = fixture.analysis("popped");
+    assert!(a.invalid_uses.is_empty(), "{a:#?}");
 }
 
 #[test]
@@ -282,7 +371,7 @@ fn receiver_paths_and_public_tie_aliases_normalize_like_fields() {
     let effects = ties::call_effects(&scope, &bindings).unwrap_or_else(|e| panic!("{}", e.message));
     assert_eq!(
         effects.result,
-        ReturnTie::Explicit(receiver.followed(&[field("bag"), field("data"), Step::Storage]))
+        ReturnTie::Explicit(vec![receiver.followed(&[field("bag"), field("data"), Step::Storage])])
     );
     scope.name = "elided";
     scope.sig = &methods.methods["elided"];

@@ -378,6 +378,12 @@ pub const TIE_DECLARED_TWICE: &str = "DZ0567";
 pub const FN_KILLS_TOO_MUCH: &str = "DZ0568";
 /// `const` before a type other than `str`: `const i32`, `const []u8` (spec §5.3).
 pub const CONST_NOT_STR: &str = "DZ0569";
+/// A result holding a view, with no `in` and more than one view input to point into:
+/// which one is the signature's to say (spec §6.7).
+pub const RESULT_TIE_AMBIGUOUS: &str = "DZ0570";
+/// A result holding a reference, slice or `str`, with no `in` and no view input it could
+/// point into: it views nothing a caller can see die (spec §6.7).
+pub const RESULT_TIED_TO_NOTHING: &str = "DZ0571";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

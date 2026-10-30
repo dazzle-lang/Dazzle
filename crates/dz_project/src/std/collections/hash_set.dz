@@ -28,7 +28,7 @@ pub struct HashSet<T: Hash + Eq> {
     }
 
     /// Where a value stored in this set may get its memory (T-0105 prototype).
-    pub fn contents_allocator(&self, fallback: ^mut Allocator) -> ^mut Allocator {
+    pub fn contents_allocator(&self, fallback: ^mut Allocator) -> ^mut Allocator in (self, fallback) {
         return m_map.contents_allocator(fallback)
     }
 

@@ -29,6 +29,10 @@ fn tie_without_name(xs: &mut List<i32>) kills xs@ {}
 
 fn one_element(xs: &mut List<i32>) kills xs[1] {}
 
+fn in_list_unclosed(a: str, b: str) -> str in (a, b {
+    return a
+}
+
 // A field no longer declares a tie (r84): reported once, with the `tie` the struct writes,
 // and the default after it still parses.
 struct TieOnField {

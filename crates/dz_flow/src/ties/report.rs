@@ -87,7 +87,11 @@ pub fn report(
         );
     }
     for r in &a.invalid_returns {
-        let (actual, expected) = (show(&r.actual), show(&r.expected));
+        let actual = show(&r.actual);
+        let expected = match r.expected.as_slice() {
+            [one] => show(one),
+            many => format!("({})", many.iter().map(&show).collect::<Vec<_>>().join(", ")),
+        };
         diags.push(
             Diagnostic::error(
                 codes::RETURN_OUTSIDE_TIE,

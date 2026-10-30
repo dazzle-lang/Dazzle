@@ -45,6 +45,14 @@ fn view(list: &List<String>, i: usize) -> str in list[*]@text {
     return list[i].as_str()
 }
 
+fn longer(a: str, b: str) -> str in (a, b) {
+    return a
+}
+
+fn halves(s: str, sep: str) -> (str, str)? in s kills cache@items {
+    return none
+}
+
 struct Hooks {
     pub on_spawn: fn(world: &mut World, e: Enemy) kills world.spawned@items
     pub on_reset: fn(world: &mut World) kills (world.enemies@items, world.spawned@items)

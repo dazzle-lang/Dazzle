@@ -24,6 +24,10 @@ fn tie_without_name(xs: &mut List<i32>) kills xs
   block
 fn one_element(xs: &mut List<i32>) kills xs[*]
   block
+fn in_list_unclosed(a: str, b: str) -> str in (a, b)
+  block
+    return
+      path a
 struct TieOnField
   field m_data: own ^mut i32
     default
@@ -139,98 +143,104 @@ error[DZ0218]: expected a tie path, found `1`
    │
    = help: a tie path is a parameter or `self`, then fields, `[*]` for any element and `@name` for a tie: `self@items`, `world.enemies@items` (spec §6.7)
 
-error[DZ0219]: a field does not declare a tie
-   ┌─ tests/parse/errors.dz:35:26
+error[DZ0201]: expected `)` to close the `in` list, found `{`
+   ┌─ tests/parse/errors.dz:32:53
    │
-35 │     m_data: own ^mut i32 in @items = null
+32 │ fn in_list_unclosed(a: str, b: str) -> str in (a, b {
+   │                                                     ^ expected `)` here
+
+error[DZ0219]: a field does not declare a tie
+   ┌─ tests/parse/errors.dz:39:26
+   │
+39 │     m_data: own ^mut i32 in @items = null
    │                          ^^^^^^^^^ the struct declares it
    │
    = help: write `tie @items = m_data` among the struct's members, which says what memory `@items` stands for (spec §6.7)
 
 error[DZ0218]: expected a tie path, found `items`
-   ┌─ tests/parse/errors.dz:40:9
+   ┌─ tests/parse/errors.dz:44:9
    │
-40 │     tie items = m_data
+44 │     tie items = m_data
    │         ^^^^^ expected `@name` or `[*]`: the tie being declared
    │
    = help: a tie path is a parameter or `self`, then fields, `[*]` for any element and `@name` for a tie: `self@items`, `world.enemies@items` (spec §6.7)
 
 error[DZ0201]: expected `=` before the memory the tie stands for, found end of line
-   ┌─ tests/parse/errors.dz:45:12
+   ┌─ tests/parse/errors.dz:49:12
    │  
-45 │       tie [*]
+49 │       tie [*]
    │ ╭───────────^
-46 │ │ }
+50 │ │ }
    │ ╰^ expected `=` here
 
 error[DZ0205]: comparison operators cannot be chained
-   ┌─ tests/parse/errors.dz:56:21
+   ┌─ tests/parse/errors.dz:60:21
    │
-56 │     let bad = a < b < c
+60 │     let bad = a < b < c
    │                     ^ this comparison follows another
    │
    = help: comparison is non-associative — write `(a < b) && (b < c)`
 
 error[DZ0203]: expected an expression, found keyword `let`
-   ┌─ tests/parse/errors.dz:61:5
+   ┌─ tests/parse/errors.dz:65:5
    │
-61 │     let b = 2
+65 │     let b = 2
    │     ^^^ expected an expression here
 
 error[DZ0201]: expected end of statement, found `b`
-   ┌─ tests/parse/errors.dz:61:9
+   ┌─ tests/parse/errors.dz:65:9
    │
-61 │     let b = 2
+65 │     let b = 2
    │         ^ expected a newline or `;` here
    │
    = help: statements are separated by newlines; `;` is optional (spec §2.2)
 
 error[DZ0202]: expected a member, found keyword `struct`
-   ┌─ tests/parse/errors.dz:68:1
+   ┌─ tests/parse/errors.dz:72:1
    │
-68 │ struct BadMember {
+72 │ struct BadMember {
    │ ^^^^^^ expected a field, method or constructor
 
 error[DZ0204]: `let` needs a type or an initialiser
-   ┌─ tests/parse/errors.dz:75:5
+   ┌─ tests/parse/errors.dz:79:5
    │
-75 │     let a
+79 │     let a
    │     ^^^^^ neither a type nor a value is given
    │
    = help: write `let x: T` to default-initialise (spec §6.2), or `let x = value`
 
 error[DZ0209]: assignment is not an expression
-   ┌─ tests/parse/errors.dz:79:11
+   ┌─ tests/parse/errors.dz:83:11
    │
-79 │     a = b = c
+83 │     a = b = c
    │           ^ a second assignment cannot appear here
    │
    = help: assignment is a statement (spec §11.1) — split this into two lines
 
 error[DZ0201]: expected `)` to close the argument list, found `}`
-   ┌─ tests/parse/errors.dz:84:1
+   ┌─ tests/parse/errors.dz:88:1
    │
-84 │ }
+88 │ }
    │ ^ expected `)` here
 
 error[DZ0204]: `mut` is not allowed on a fixed-size array
-   ┌─ tests/parse/errors.dz:88:31
+   ┌─ tests/parse/errors.dz:92:31
    │
-88 │ fn mut_on_a_fixed_array(a: [4]mut i32) -> i32 {
+92 │ fn mut_on_a_fixed_array(a: [4]mut i32) -> i32 {
    │                               ^^^ only a slice carries its writability in its type
    │
    = help: a `[N]T` is a value: write `let mut a: [N]T` to make it writable, or `[]mut T` for a writable view (spec §5.3)
 
 error[DZ0212]: `break` does not take a value
-   ┌─ tests/parse/errors.dz:95:15
+   ┌─ tests/parse/errors.dz:99:15
    │
-95 │         break 5
+99 │         break 5
    │               ^ a value here
    │
    = help: a loop is a statement, not an expression — to leave one with a result, assign it to a variable declared before the loop (spec §10.2)
 
 error[DZ0201]: expected `}` to close the body, found end of file
-    ┌─ tests/parse/errors.dz:102:1
+    ┌─ tests/parse/errors.dz:106:1
     │
-102 │ 
+106 │ 
     │ ^ expected `}` here

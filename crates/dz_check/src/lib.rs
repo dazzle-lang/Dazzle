@@ -173,10 +173,10 @@ pub struct FnSig {
     /// the body sees, and a call gives it any number of `T`s — or one slice spread with
     /// `..xs`. Any parameters after it are passed by name.
     pub variadic: Option<usize>,
-    /// `-> ^T in self@items` and `kills self@items`, as written: a signature is collected
-    /// before every type's fields are, so [`ties::resolve`] reads them once they are
-    /// (spec §6.7).
-    pub ret_tie: Option<dz_ast::TiePath>,
+    /// `-> ^T in self@items` (or `in (a, b)`) and `kills self@items`, as written: a
+    /// signature is collected before every type's fields are, so [`ties::resolve`] reads
+    /// them once they are (spec §6.7).
+    pub ret_ties: Vec<dz_ast::TiePath>,
     pub kills: Vec<dz_ast::TiePath>,
     /// The whole clause as written, `kills` through its last path (spec §6.7).
     pub kills_span: Option<Span>,
@@ -1243,7 +1243,7 @@ impl Ctx<'_> {
                         span: span(d.loc),
                         generics: Vec::new(),
                         has_body: true,
-                        ret_tie: None,
+                        ret_ties: Vec::new(),
                         kills: Vec::new(),
                         kills_span: None,
                         kills_unknown: true,
@@ -1339,7 +1339,7 @@ impl Ctx<'_> {
                 span,
                 generics: Vec::new(),
                 has_body: true,
-                ret_tie: None,
+                ret_ties: Vec::new(),
                 kills: Vec::new(),
                 kills_span: None,
                 kills_unknown: true,
@@ -1881,10 +1881,6 @@ impl<'a> Ctx<'a> {
                 self.error_help(e.code, e.span, e.message, e.label, e.help);
             }
         }
-        if sig.kills.is_empty() && sig.ret_tie.is_none() && f.params.iter().all(|p| p.tie.is_none())
-        {
-            return;
-        }
         let scope = ties::Scope {
             table: &self.table,
             res: self.res,
@@ -1894,6 +1890,31 @@ impl<'a> Ctx<'a> {
             self_ty,
             privileged,
         };
+        if let Some(untied) = ties::untied_result(&scope, f) {
+            let e = untied.error;
+            let mut d = Diagnostic::error(e.code, e.message)
+                .at(self.file, e.span, e.label)
+                .with_help(e.help);
+            if let Some((span, text)) = untied.fix {
+                // Every input is never wrong, but which one the result is in is the
+                // author's to narrow, and a `const str` is right only for static text,
+                // so either is offered rather than applied.
+                let title = if e.code == codes::RESULT_TIE_AMBIGUOUS {
+                    format!("say where it points:{text}")
+                } else {
+                    format!("return `{text}`")
+                };
+                let edit = Edit { file: self.file, span, text };
+                d = d.with_suggestion(title, vec![edit]);
+            }
+            self.diags.push(d);
+        }
+        if sig.kills.is_empty()
+            && sig.ret_ties.is_empty()
+            && f.params.iter().all(|p| p.tie.is_none())
+        {
+            return;
+        }
         for e in ties::check(&scope, &f.params) {
             self.error_help(e.code, e.span, e.message, e.label, e.help);
         }
@@ -3170,7 +3191,7 @@ impl<'a> Ctx<'a> {
             generics,
             has_body: f.body.is_some(),
             variadic,
-            ret_tie: f.ret_tie.clone(),
+            ret_ties: f.ret_ties.clone(),
             kills: f.kills.clone(),
             kills_span: f.kills_span,
             kills_unknown: false,

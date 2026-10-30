@@ -52,6 +52,14 @@ fn view(list: &List<String>, i: usize) -> str in list[*]@text
           index
             path list
             path i
+fn longer(a: str, b: str) -> str in (a, b)
+  block
+    return
+      path a
+fn halves(s: str, sep: str) -> (str, str)? in s kills cache@items
+  block
+    return
+      none
 struct Hooks
   field on_spawn: fn(world: &mut World, e: Enemy) kills world.spawned@items
   field on_reset: fn(world: &mut World) kills (world.enemies@items, world.spawned@items)
