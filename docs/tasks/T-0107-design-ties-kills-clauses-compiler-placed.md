@@ -33,10 +33,11 @@ instead of by an allocator the program names.
 | `const str` (r87): `Ty::ConstStr` (`dz_hir/src/ty.rs`; `assignable` lets it be a `str`), `TypeKind::Const` (`dz_ast`, parsed in `dz_parse/src/ty.rs`), lowered in `lower_type_inner` (`DZ0569` otherwise); a literal becomes one in `expr_inner`'s `ExprKind::Str`; it reads as a `str` in `expr` (`dz_check/src/check.rs`), except as an assignment's target, under `&mut`, and as an untyped `let`'s value; `impl_applies` gives it `str`'s implementations; `field_type` its `.len`. Not a view to the tie analysis (`points` leaves it out) | `dz_check`, `dz_hir`, `dz_cpp` (emitted as `::dz::str`) |
 | Codes `DZ0218`, `DZ0219`, `DZ0413`–`DZ0417`, `DZ0562`–`DZ0565`, `DZ0567`, `DZ0568`; `dz explain` text (`flow.md` for `DZ041x`) | `dz_diag/src/codes.rs`; `dz_diag/explain/parser.md`, `check.md` |
 | Canonical places: `Place`, `Step` (`Field`, `Elements`, `Storage`), `normalize`, `canonical_steps`, `canonicalize` and `rewrites` (a tie's other paths to its first, `[*]`'s paths to `[*]`), `canonical_field`; call effects `call_effects`; exactness `ties`, `collect_ties`, `minimal`, `compare_ties` | `dz_flow/src/ties.rs` |
-| Findings as diagnostics: `report` (use after kill, bad return, the three clause mismatches, each clause error with the clause the body needs as a fix), `tie_path` (a place spelt with declared ties); called from `check` in `dz_flow/src/lib.rs`. The fix replaces `FnSig::kills_span` (the whole clause, from `FnDecl::kills_span`) or inserts before the body's `{`; a path callers cannot see, or a function a macro wrote, gets no automatic fix | `dz_flow/src/ties/report.rs` |
+| Findings as diagnostics: `report` (use after kill, bad return, the three clause mismatches, each clause error with the clause the body needs as a fix), `tie_path` (a place spelt with declared ties); called from `check` in `dz_flow/src/lib.rs`. The fix replaces `FnSig::kills_span` (the whole clause, from `FnDecl::kills_span`) or inserts before the body's `{`. A path through a field callers cannot see gets a fix that also declares a tie for it on the field's type (`NewTies`: named after the field without its `m_`, laid out from the source, which is why `dz_flow::check` takes the `SourceMap`), only offered since the name is the author's; a function a macro wrote gets no fix | `dz_flow/src/ties/report.rs` |
+| The editor: hover and signature help quote the declaration, clause included; completion's detail adds it (`Query::signature`); the clause a body that writes none needs is an inlay hint before its `{` (`clause_hints`, `HintKind::Clause`, read off `DZ0415`'s fix), which the server makes insertable | `dz_lsp/src/ide.rs`; `inlay_hints` in `dz_lsp/src/lib.rs` |
 | The body walk: `analyse_body`, `Origin` (target vs tie), `field`, `index_origins` (pointer indexing → `[*]`, and the trusted-body marker), `call` (a call through a function value reads `fn_type_sig`), `invoke`, `kill`, loops and branches | `dz_flow/src/ties/body.rs` |
 | std's ties and clauses | `dz_project/src/std/collections/{list,hash_map,hash_set,slot_map,sort,str_keys}.dz`, `text/string.dz`, `core/formatter.dz` |
-| Tests | `tests/parse/ties.dz` and `errors.dz`, `tests/fmt/ties.dz`, `tests/workspace/typed/src/typed.dz` and `typeerrors/src/errors.dz` (search `Ties and`), `dz_flow/tests/ties.rs` (the analysis, std held to its clauses) |
+| Tests | `tests/parse/ties.dz` and `errors.dz`, `tests/fmt/ties.dz`, `tests/workspace/typed/src/typed.dz` and `typeerrors/src/errors.dz` (search `Ties and`), `dz_flow/tests/ties.rs` (the analysis, std held to its clauses), `tests/flow/` (one file per code), `dz/tests/fix.rs` (the tie a fix declares), `dz_lsp/tests/ide.rs` (`a_call_shows_what_it_kills`, `inlay_hints_show_the_clause_a_body_needs`) |
 | Spec and history | spec §6.7; changelog rows r81–r84; build log `docs/log/r81-ties.md` |
 
 Enforced since 2e (2026-10-29): `dz_flow::check` runs the analysis on every body and
@@ -331,11 +332,14 @@ user's choice. In order, each step standing on its own:
      nothing in the repository stops compiling. **Started 2026-10-29**
      (`docs/log/r81-ties.md`): the five findings are errors (`DZ0413`–`DZ0417`), each
      clause error carries the clause the body needs and `dz fix` writes it, and the
-     examples, the run, workspace and bench corpora have their clauses. **Left:** the
-     clause in a call's hover and the needed clause shown while a body is being written;
-     a fix that declares the tie a `pub` method needs (today only offered, with help
-     saying to declare one); and `examples/sdl3` and `tests/run/cmake`, whose clauses
-     were written by hand on a machine without Ninja, need `dz check` where it is.
+     examples, the run, workspace and bench corpora have their clauses. **Done
+     2026-10-30:** a call's clause shows in hover, signature help and completion; a body
+     that writes no clause is shown the one it needs as an inlay hint, which inserts it;
+     a `pub` method's clause through a private field is offered with the tie it needs
+     (`tie @things = m_things@items`), declared on the field's type; and `examples/sdl3`
+     and `tests/run/cmake` check clean with Ninja. One limit, shared with every flow
+     error: the hint appears only while the program type-checks, since `dz_flow` does not
+     run over a body whose types are unknown (§17.2).
 3. A debug-build check of `std`'s trusted clauses: generation counters on arena memory, so a
    wrong declaration fails a test instead of shipping.
 4. Placement on top of the checker: stages 1 and 2 re-based on ties, the result convention

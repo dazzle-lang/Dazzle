@@ -6,6 +6,37 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## 2e, second part: the editor, and the tie a fix declares (2026-10-30)
+
+Compiler and editor work; nothing about the language changed.
+
+- **A call's clause, wherever a signature is shown.** Hover and signature help quote the
+  declaration from its source, so they had it already, and now a test says so; completion's
+  detail is rebuilt from `FnSig`, and now writes `in` ties and the `kills` clause too
+  (`fn push(v: T, loc: SourceLocation) kills self@items`).
+- **The clause a body needs, as an inlay hint.** A function that writes no clause, over a
+  body that kills, shows `kills …` before its `{`. It is read off `DZ0415`'s fix rather
+  than worked out again, so it cannot disagree with `dz fix`, and the server attaches the
+  insertion so accepting the hint writes it. A clause that is written but wrong gets no hint:
+  its own errors say what it should be. Like every flow error, it appears only while the
+  program type-checks.
+- **The tie a `pub` method needs.** A clause through a field the function's callers cannot
+  see was offered as it stood, which named the private field and so was itself an error.
+  The fix now declares a tie for the field on its type and names that: `tie @things =
+  m_things@items` and `kills self@things`, as `box2d` was fixed by hand. The tie is named
+  after the field without its `m_`; every path through one field becomes one tie (`tie
+  @names = m_names@items, m_names[*]`, r83); it goes after the type's ties, or after its
+  fields with a blank line, indented like them. Still only offered, since the name is the
+  author's. With no tie to declare (an inherited field, a name the type already uses, a
+  type on one line) the old offer stands. Laying the line out needs the source, so
+  `dz_flow::check` takes the `SourceMap`, as `dz_check::check` does.
+- **`examples/sdl3` and `tests/run/cmake`**, whose clauses 2e's first part wrote by hand
+  without Ninja, check clean on a machine with it.
+
+Tests: `dz/tests/fix.rs` takes each offered fix in turn on a type with two private lists
+and ends with no diagnostics; `dz_lsp/tests/ide.rs` has a call's clause in hover, signature
+help and completion, and the hint (once per function, none for a clause already written).
+
 ## r87: `const str` (2026-10-29)
 
 D-0092, the user's spelling of the fix for 2e's open gap: `describe(&self) -> str`

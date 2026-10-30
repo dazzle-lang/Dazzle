@@ -460,6 +460,52 @@ fn inlay_hints_qualify_an_imported_type_the_way_the_file_must_write_it() {
     assert_eq!(label.as_deref(), Some(": mini::MiniVec2"), "{hints:?}");
 }
 
+/// What a call may end is part of its signature (spec §6.7), so every place that shows one
+/// shows the `kills` clause: hover, signature help, and a method's completion detail.
+#[test]
+fn a_call_shows_what_it_kills() {
+    let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/containers"));
+    assert!(!a.diags.has_errors(), "the fixture must check cleanly");
+    let f = main_file(&a);
+    let push = "names.push(String(\"ada\"))";
+
+    let hover = info(&a, f, push, 6).hover.unwrap();
+    assert!(hover.contains("fn push(&mut self, v: T") && hover.contains(") kills self@items"));
+
+    let sig = ide::signature_help(&a, f, at(&a, f, push, 11)).unwrap();
+    assert!(sig.label.ends_with("kills self@items"), "{}", sig.label);
+
+    let text = a.map.get(f).text();
+    let offset = at(&a, f, push, 6) as usize;
+    let items = ide::complete(Some((&a, f)), None, text, offset);
+    let detail = |name: &str| {
+        items.iter().find(|c| c.label == name).and_then(|c| c.detail.clone()).unwrap_or_default()
+    };
+    assert_eq!(detail("push"), "fn push(v: T, loc: SourceLocation) kills self@items");
+    assert_eq!(detail("clear"), "fn clear() kills self@items, self[*]");
+    assert_eq!(detail("len"), "fn len() -> usize", "a function that kills nothing says nothing");
+}
+
+/// A function that writes no clause, over a body that kills, is shown the clause it needs
+/// where it goes — the one its `DZ0415` fix inserts.
+#[test]
+fn inlay_hints_show_the_clause_a_body_needs() {
+    let (a, f, text) = edited(|t: &str| {
+        format!(
+            "{t}\nfn grow(xs: &mut Buffer<i32>, ys: &mut List<i32>) {{\n    ys.push(1)\n    \
+             ys.push(2)\n}}\n\nfn fine(ys: &mut List<i32>) kills ys@items {{\n    ys.push(1)\n}}\n"
+        )
+    });
+    let hints = ide::inlay_hints(&a, f, dz_span::Span::new(0, text.len()));
+    let clauses: Vec<(u32, &str)> = hints
+        .iter()
+        .filter(|h| h.kind == ide::HintKind::Clause)
+        .map(|h| (h.offset, h.label.as_str()))
+        .collect();
+    let brace = offset_in(&text, "List<i32>) {", 11);
+    assert_eq!(clauses, [(brace, "kills ys@items")], "one hint, before `grow`'s body: {hints:?}");
+}
+
 #[test]
 fn inlay_hints_name_the_fields_of_a_positional_literal() {
     let (a, f, text) = edited(typed_above("ints.push(10)", "let hinted = Vec2{ 1.5, 2.5 }"));

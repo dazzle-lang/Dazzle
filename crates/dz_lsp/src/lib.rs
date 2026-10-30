@@ -32,16 +32,17 @@ use lsp_types::{
     DocumentHighlight, DocumentHighlightParams, DocumentSymbol, DocumentSymbolParams,
     DocumentSymbolResponse, Documentation, GotoDefinitionParams, GotoDefinitionResponse, Hover,
     HoverContents, HoverParams, HoverProviderCapability, InlayHint, InlayHintKind, InlayHintLabel,
-    InlayHintParams, Location, LogMessageParams, MarkupContent, MarkupKind, MessageType,
-    NumberOrString, OneOf, ParameterInformation, ParameterLabel, Position, PrepareRenameResponse,
-    PublishDiagnosticsParams, Range, ReferenceParams, RenameOptions, RenameParams, SaveOptions,
-    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
-    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelp,
-    SignatureHelpOptions, SignatureHelpParams, SignatureInformation, SymbolInformation,
-    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Url, WorkspaceEdit,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    InlayHintParams, InlayHintTooltip, Location, LogMessageParams, MarkupContent, MarkupKind,
+    MessageType, NumberOrString, OneOf, ParameterInformation, ParameterLabel, Position,
+    PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams, RenameOptions,
+    RenameParams, SaveOptions, SemanticToken, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
+    ServerCapabilities, SignatureHelp, SignatureHelpOptions, SignatureHelpParams,
+    SignatureInformation, SymbolInformation, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
+    WorkspaceSymbolResponse,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -806,20 +807,33 @@ impl Server {
             ide::inlay_hints(&analysis, file, range)
                 .into_iter()
                 .map(|h| {
-                    let field = h.kind == ide::HintKind::Field;
-                    InlayHint {
-                        position: convert::position(source, h.offset),
-                        label: InlayHintLabel::String(h.label),
-                        kind: Some(if field {
-                            InlayHintKind::PARAMETER
-                        } else {
-                            InlayHintKind::TYPE
-                        }),
-                        text_edits: None,
-                        tooltip: None,
-                        padding_left: None,
+                    let position = convert::position(source, h.offset);
+                    let (kind, before, tooltip, text_edits) = match h.kind {
                         // `id: 1`, not `id:1`: the hint sits before the value it names.
-                        padding_right: field.then_some(true),
+                        ide::HintKind::Field => (Some(InlayHintKind::PARAMETER), true, None, None),
+                        ide::HintKind::Type => (Some(InlayHintKind::TYPE), false, None, None),
+                        // Before the body's `{`, and accepting it writes it, as the quick
+                        // fix would.
+                        ide::HintKind::Clause => (
+                            None,
+                            true,
+                            Some(InlayHintTooltip::String(
+                                "the clause this body needs (DZ0415)".to_owned(),
+                            )),
+                            Some(vec![TextEdit {
+                                range: Range { start: position, end: position },
+                                new_text: format!("{} ", h.label),
+                            }]),
+                        ),
+                    };
+                    InlayHint {
+                        position,
+                        label: InlayHintLabel::String(h.label),
+                        kind,
+                        text_edits,
+                        tooltip,
+                        padding_left: None,
+                        padding_right: before.then_some(true),
                         data: None,
                     }
                 })
