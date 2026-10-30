@@ -570,7 +570,6 @@ pub const INTRINSICS: &[&str] = &[
     "function",
     "module",
     "location",
-    "allocator",
     "expr_text",
     "print",
     "println",

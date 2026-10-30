@@ -3311,15 +3311,6 @@ impl<'a, 'c> Body<'a, 'c> {
                     "line" | "column" => Ty::Int(IntTy::U32),
                     "file" | "function" | "module" | "expr_text" => Ty::Str,
                     "location" => Ty::Builtin(dz_hir::ty::BuiltinTy::SourceLocation),
-                    // The allocator for what the call being made will return: the scope's
-                    // region, the caller's own `#allocator`, or the heap (T-0104 prototype).
-                    "allocator" => match self.cx.res.lookup(self.cx.res.prelude, "Allocator") {
-                        Some(sym) => Ty::Ptr {
-                            mutable: true,
-                            inner: Rc::new(Ty::Named { sym, args: Vec::new() }),
-                        },
-                        None => Ty::Error,
-                    },
                     _ => Ty::Error,
                 };
                 let kind = hir::ExprKind::Intrinsic { name: name.name.clone(), args };

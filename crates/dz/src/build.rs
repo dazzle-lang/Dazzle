@@ -25,12 +25,6 @@ pub fn emit_cpp(
     root: &Path,
     options: dz_cpp::Options,
 ) -> Result<BuildOutput, Diagnostics> {
-    // The regions prototype (T-0104) is switched on from outside, so the benchmark script
-    // can build the same program both ways without a flag of its own.
-    let options = dz_cpp::Options {
-        regions: options.regions || std::env::var_os("DZ_REGIONS").is_some(),
-        ..options
-    };
     let (Some(ws), Some(resolution), Some(table), Some(hir), Some(mono)) =
         (&analysis.ws, &analysis.resolution, &analysis.table, &analysis.hir, &analysis.mono)
     else {

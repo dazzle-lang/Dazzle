@@ -403,7 +403,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     // does not relink somebody else's entry point.
     let dir = if benching { "bench" } else { "test" };
     let root = project_root(path).join("build").join(dir);
-    let emit = dz_cpp::Options { mode: kind, line_directives, ..Default::default() };
+    let emit = dz_cpp::Options { mode: kind, line_directives };
     let out = match build::emit_cpp(&analysis, &root, emit) {
         Ok(o) => o,
         Err(d) => {
@@ -630,8 +630,7 @@ fn cmd_pipeline(
     // into it, so a harness can put its own elsewhere without nesting a second `build/`
     // inside the first.
     let root = project_root(entry).join("build");
-    let emit =
-        dz_cpp::Options { mode: dz_cpp::Mode::Program, line_directives, ..Default::default() };
+    let emit = dz_cpp::Options { mode: dz_cpp::Mode::Program, line_directives };
     let started = std::time::Instant::now();
     let out = match build::emit_cpp(&analysis, &root, emit) {
         Ok(o) => o,

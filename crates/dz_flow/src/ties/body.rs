@@ -521,9 +521,9 @@ impl Analysis<'_> {
                 } else if targets.iter().any(|o| o.target.steps.last() == Some(&Step::Storage)) {
                     // Uses are followed through `[*]` all the same; only the summary is not
                     // held to the clause. std's clauses over raw storage are written by hand
-                    // and trusted (§6.7): `pop` moves an element out, which the checker
-                    // would read as killing `self[*]`, and whether it should is still open
-                    // (T-0107).
+                    // and trusted (§6.7): a move from one slot of `[*]` to another, or into a
+                    // fresh buffer that becomes `m_data`, would read as killing `self[*]`.
+                    // deferred: T-0116 checks these clauses in debug builds instead.
                     self.incomplete(span, "a body over a tied pointer's elements is trusted");
                 }
                 elements

@@ -17,7 +17,7 @@ pub struct List<T> {
     /// given.
     List(
         capacity: usize = 0,
-        allocator: ^mut Allocator = #allocator,
+        allocator: ^mut Allocator = Allocators::Global,
         loc: SourceLocation = #location,
     ) {
         m_allocator = allocator
@@ -28,15 +28,6 @@ pub struct List<T> {
 
     pub fn len(&self) -> usize {
         return m_len
-    }
-
-    /// Where a value stored in this list may get its memory: the list's own region when
-    /// the compiler built it as one that never gives an element back, `fallback` otherwise
-    /// (T-0105 prototype).
-    pub fn contents_allocator(&self, fallback: ^mut Allocator) -> ^mut Allocator in (self, fallback) {
-        let a = m_allocator or return fallback
-        let c = a.contents() or return fallback
-        return c
     }
 
     pub fn capacity(&self) -> usize {
@@ -396,12 +387,6 @@ impl<T> Drop for List<T> {
 impl<T: Copy> Copy for List<T> {
     fn copy(&mut self, other: &Self) {
         m_allocator = other.m_allocator
-        // The copy may outlive the scope a region belongs to, so it goes to the heap.
-        if let &from = other.m_allocator {
-            if from.scoped() {
-                m_allocator = Allocators::Global
-            }
-        }
         if other.m_len == 0 {
             return
         }

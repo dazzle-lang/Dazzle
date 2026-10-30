@@ -22,7 +22,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     /// An empty map, with room for `capacity` entries already allocated when it is given.
     HashMap(
         capacity: usize = 0,
-        allocator: ^mut Allocator = #allocator,
+        allocator: ^mut Allocator = Allocators::Global,
         loc: SourceLocation = #location,
     ) {
         m_allocator = allocator
@@ -37,15 +37,6 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     pub fn is_empty(&self) -> bool {
         return m_len == 0
-    }
-
-    /// Where a key or value stored in this map may get its memory: the map's own region
-    /// when the compiler built it as one that never gives an entry back, `fallback`
-    /// otherwise (T-0105 prototype).
-    pub fn contents_allocator(&self, fallback: ^mut Allocator) -> ^mut Allocator in (self, fallback) {
-        let a = m_allocator or return fallback
-        let c = a.contents() or return fallback
-        return c
     }
 
     /// How many entries fit before the map grows again.
@@ -407,12 +398,6 @@ impl<K, V> Drop for HashMap<K, V> {
 impl<K: Hash + Eq + Copy, V: Copy> Copy for HashMap<K, V> {
     fn copy(&mut self, other: &Self) {
         m_allocator = other.m_allocator
-        // The copy may outlive the scope a region belongs to, so it goes to the heap.
-        if let &from = other.m_allocator {
-            if from.scoped() {
-                m_allocator = Allocators::Global
-            }
-        }
         if other.m_len == 0 {
             return
         }

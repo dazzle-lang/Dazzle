@@ -136,29 +136,6 @@ fn every_program_produces_its_expected_output() {
     });
 }
 
-/// The regions prototype (T-0104) changes where memory comes from and nothing else, so
-/// `tests/run/regions` — escapes, a copy made through a borrow, a region per pass of a loop,
-/// a lent list grown inside a callee — prints its `expected.txt` with it on as well. The
-/// variable is set here rather than inherited, so the test means the same everywhere.
-#[test]
-fn regions_change_nothing() {
-    if !have_compiler() {
-        eprintln!("skipping: no C++ compiler available");
-        return;
-    }
-    let dir = copy_fixture("regions", "dz_regions_on");
-    let expected =
-        normalise(&std::fs::read_to_string(run_dir("regions").join("expected.txt")).unwrap());
-    let out = Command::new(dz())
-        .args(["run", dir.to_str().unwrap()])
-        .env("DZ_REGIONS", "1")
-        .output()
-        .expect("failed to run dz");
-    assert!(out.status.success(), "dz run failed\n{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), expected);
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
 /// The examples, guarded. Most open a window or an audio device, so none can carry an
 /// `expected.txt`; without this, M7b's own criterion would go
 /// untested — a break in `import cpp`, in a `[cpp.libs]` recipe, in the single-header
