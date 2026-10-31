@@ -14,6 +14,7 @@ mod report;
 pub use body::{
     analyse_body, BodyAnalysis, BodyKill, Incomplete, InvalidReturn, InvalidUse, KillKind,
 };
+pub(crate) use body::{analyse_regions, Refusal, RegionRefusal};
 pub use report::report;
 
 use dz_check::ties::{self, Root, Scope};

@@ -197,6 +197,7 @@ dependencies = [
  "dz_ast",
  "dz_check",
  "dz_diag",
+ "dz_driver",
  "dz_hir",
  "dz_lex",
  "dz_parse",

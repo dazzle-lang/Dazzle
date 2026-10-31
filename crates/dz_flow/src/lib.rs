@@ -30,6 +30,7 @@ use dz_hir::{self as hir, BlockId, ExprId, Hir, LocalId, StmtId};
 use dz_resolve::Resolution;
 use dz_span::{FileId, SourceMap, Span};
 
+pub mod placement;
 pub mod ties;
 
 /// Check every body in the program.

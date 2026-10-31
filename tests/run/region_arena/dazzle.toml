@@ -1,0 +1,9 @@
+[module]
+name    = "region_arena"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

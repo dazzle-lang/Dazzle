@@ -1,0 +1,13 @@
+small 10000 intact true aligned true
+given back true grown in place true
+align 64 true
+list 20000 sum 199990000
+string 21000 ends true
+chunk reused true block reused true
+freed block reused true aligned true
+huge 3
+churned 2000
+list 100 sum 4950
+text kept text
+map 20 keys 190 squares 2470
+grown 100 kept text! 400

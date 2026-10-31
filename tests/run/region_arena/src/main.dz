@@ -1,0 +1,183 @@
+// The region arena (spec §14.6, T-0117): `ScopeArena`, the memory the compiler will place
+// values in, used here by hand. Its chunks come from a per-thread pool and double; an
+// allocation of 16 KiB or more is a block of its own, freed at once and pooled by size; and
+// a copy of a container in a region goes to the heap, since the copy may outlive it.
+
+struct Kept {
+    pub list: List<i32>
+    pub text: String
+    pub map: HashMap<i32, i32>
+}
+
+// Copies what it is lent into something that outlives the lender's region.
+fn keep(
+    into: &mut Kept,
+    xs: &List<i32>,
+    s: &String,
+    m: &HashMap<i32, i32>,
+) kills into.list, into.text, into.map {
+    into.list = xs
+    into.text = s
+    into.map = m
+}
+
+// Many small allocations, across several chunks: each keeps what was written to it.
+fn small_allocations() {
+    let mut arena = ScopeArena{}
+    let mut at = List<usize>()
+    for i in 0..10000 {
+        let p = arena.alloc(24, 8)
+        unsafe {
+            p[0] = (i % 251) as u8
+            p[23] = (i % 7) as u8
+        }
+        at.push(p as usize)
+    }
+    let mut intact = true
+    let mut aligned = true
+    for i in 0..at.len() {
+        let addr: usize = at[i]
+        let p = unsafe { addr as ^mut u8 }
+        if unsafe { p[0] != (i % 251) as u8 || p[23] != (i % 7) as u8 } {
+            intact = false
+        }
+        if addr % 8 != 0 {
+            aligned = false
+        }
+    }
+    println!("small {} intact {} aligned {}", at.len(), intact, aligned)
+
+    // The last small allocation is given back, and grows in place.
+    let a = arena.alloc(40, 8)
+    arena.free(a, 40, 8)
+    let b = arena.alloc(40, 8)
+    let c = arena.realloc(b, 40, 80, 8)
+    println!("given back {} grown in place {}", a == b, b == c)
+
+    // Stricter alignment than a large block keeps stays in a chunk.
+    let wide = arena.alloc(32, 64)
+    println!("align 64 {}", (wide as usize) % 64 == 0)
+}
+
+// A list and a string grown past 16 KiB: their arrays become large blocks of their own.
+fn grown_containers() {
+    let mut arena = ScopeArena{}
+    let mut xs = List<i32>(0, &mut arena)
+    for i in 0..20000 {
+        xs.push(i)
+    }
+    let mut sum: i64 = 0
+    for &x in xs {
+        sum += x as i64
+    }
+    let mut s = String("", &mut arena)
+    for _ in 0..3000 {
+        s.push_str("region ")
+    }
+    println!("list {} sum {}", xs.len(), sum)
+    println!("string {} ends {}", s.len(), s.as_str().ends_with("region "))
+}
+
+// Two arenas one after the other: the second takes the first's chunk and large block back
+// from the pool.
+fn pool_reuse() {
+    let mut first_chunk: usize = 0
+    let mut first_block: usize = 0
+    {
+        let mut arena = ScopeArena{}
+        first_chunk = arena.alloc(100, 8) as usize
+        first_block = arena.alloc(20000, 8) as usize
+    }
+    let mut arena = ScopeArena{}
+    let chunk = arena.alloc(100, 8) as usize
+    let block = arena.alloc(20000, 8) as usize
+    println!("chunk reused {} block reused {}", chunk == first_chunk, block == first_block)
+
+    // A large block freed is pooled at once, and the next of its size takes it.
+    let big = arena.alloc(30000, 16)
+    arena.free(big, 30000, 16)
+    let again = arena.alloc(30000, 16)
+    println!("freed block reused {} aligned {}", big == again, (again as usize) % 16 == 0)
+
+    // Past 4 MiB a block is the heap's, not the pool's; it still works.
+    let huge = arena.alloc(5000000, 8)
+    unsafe {
+        huge[0] = 1
+        huge[4999999] = 2
+    }
+    println!("huge {}", unsafe { huge[0] + huge[4999999] })
+}
+
+// Writes over every small piece of memory a new region hands out, as a later scope would.
+fn churn() -> i32 {
+    let mut arena = ScopeArena{}
+    let mut pieces = 0
+    for _ in 0..2000 {
+        let p = arena.alloc(64, 8)
+        for i in 0..64 {
+            unsafe { p[i] = 0xEE }
+        }
+        pieces += 1
+    }
+    let mut junk = List<i32>(0, &mut arena)
+    for _ in 0..1000 {
+        junk.push(-1)
+    }
+    return pieces
+}
+
+fn copies_go_to_the_heap() {
+    let mut kept = Kept{ list: List<i32>(), text: String(), map: HashMap<i32, i32>() }
+    {
+        let mut arena = ScopeArena{}
+        let mut xs = List<i32>(0, &mut arena)
+        for i in 0..100 {
+            xs.push(i)
+        }
+        let mut s = String("", &mut arena)
+        s.push_str("kept text")
+        let mut m = HashMap<i32, i32>(0, &mut arena)
+        for i in 0..20 {
+            m.insert(i, i * i)
+        }
+        keep(&mut kept, &xs, &s, &m)
+    }
+    // The region is gone and its chunk reused; the copies must not have been in it.
+    println!("churned {}", churn())
+    let mut sum = 0
+    for &x in kept.list {
+        sum += x
+    }
+    println!("list {} sum {}", kept.list.len(), sum)
+    println!("text {}", kept.text)
+    // Walked rather than looked up: a lookup in an overwritten table can probe forever.
+    let mut keys = 0
+    let mut squares = 0
+    for &k, &v in kept.map {
+        keys += k
+        squares += v
+    }
+    println!("map {} keys {} squares {}", kept.map.len(), keys, squares)
+    if sum != 4950 || keys != 190 || squares != 2470 {
+        // Growing a copy that was in the region would write through a dead arena.
+        println!("the copies were in the region")
+        return
+    }
+
+    // The copies are the heap's: they still grow after the region is gone.
+    kept.list.push(100)
+    kept.text.push_str("!")
+    kept.map.insert(20, 400)
+    let mut last = -1
+    if let &v = kept.map.get(&20) {
+        last = v
+    }
+    println!("grown {} {} {}", kept.list[100], kept.text, last)
+}
+
+fn main() {
+    small_allocations()
+    grown_containers()
+    pool_reuse()
+    copies_go_to_the_heap()
+}

@@ -6,6 +6,30 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0117, stage 1, round 1: the region arena, and where each allocation goes (2026-10-31)
+
+Compiler and std work; no language change, and no program runs differently yet. The user
+set the order: scope regions alone, behind a go/no-go gate (T-0117), and the work stopped
+after this round by the user's choice.
+
+- **The arena** is back from the tag `regions-prototype`: `ScopeArena` and `ScopePool`
+  (`std/memory/`), brought up to the ties rules. A large block that is outgrown no longer
+  grows in place, which the prototype allowed by checking only the new size.
+- **Copies go to the heap.** `Allocator::scoped` is new, and `List::copy` and
+  `HashMap::copy` read it; everything else in std that copies goes through those two.
+- **Placement is decided in analysis**, per body, so it can never disagree between the
+  editor, `dz placements` and codegen: `dz_flow::placement` proposes by the prototype's
+  stage-1 rule, and the tie walk, run again with each region as a tie that dies at the end
+  of its block, refuses what it cannot follow. The two share no rule; over the corpus the
+  check refuses nothing the proposer places, and with every site proposed it alone refuses
+  each wrong case in the tests. `Analysis::placements` holds the answer, and `--timings`
+  gained a `placement` phase.
+- **The gate's stopwatch** is `tools/bench_regions.py`, ready for when codegen reads
+  `DZ_REGIONS`.
+
+Tests: `dz_flow/tests/placement.rs` and `tests/run/region_arena`. What is left, and the
+question the gate raises, are in T-0117.
+
 ## r102: `[*]` checked too, with `check_trusted` (2026-10-31)
 
 T-0116's second half, opt-in by the user's choice: walking every element on each call makes
