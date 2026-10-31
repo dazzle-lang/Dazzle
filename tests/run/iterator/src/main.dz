@@ -14,7 +14,7 @@ struct Buffer<T> {
 
     Buffer(cap: usize, allocator: ^mut Allocator = Allocators::Global) {
         m_allocator = allocator
-        let a = m_allocator or panic!("a Buffer needs an allocator")
+        let a = unsafe { m_allocator or panic!("a Buffer needs an allocator") }
         unsafe {
             m_data = a.alloc(cap * sizeof(T), alignof(T)) as ^mut T
         }
@@ -54,7 +54,7 @@ impl<T> Drop for Buffer<T> {
         if m_data == null {
             return
         }
-        let a = m_allocator or return
+        let a = unsafe { m_allocator or return }
         unsafe {
             a.free(m_data as ^mut u8, m_cap * sizeof(T), alignof(T))
         }

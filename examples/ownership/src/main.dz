@@ -67,7 +67,7 @@ struct Shelf<T> {
 
     /// Room for `cap` books, from the shelf's allocator.
     fn take(&mut self, cap: usize) -> ^mut T {
-        let a = m_allocator or panic!("a shelf with no allocator cannot grow")
+        let a = unsafe { m_allocator or panic!("a shelf with no allocator cannot grow") }
         unsafe {
             return a.alloc(cap * sizeof(T), alignof(T)) as ^mut T
         }
@@ -79,7 +79,7 @@ struct Shelf<T> {
         if m_data == null {
             return
         }
-        let a = m_allocator or return
+        let a = unsafe { m_allocator or return }
         unsafe {
             a.free(m_data as ^mut u8, m_cap * sizeof(T), alignof(T))
         }

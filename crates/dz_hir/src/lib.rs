@@ -179,6 +179,10 @@ pub struct Body {
     /// body's arena, so its arguments see the constructor's parameters, but not reachable
     /// from `root`, because C++ runs it before the body (spec §7.3, 18.32).
     pub base_init: Option<ExprId>,
+    /// The blocks written `unsafe { … }`, where what the checker cannot see is the
+    /// programmer's word: ties allow an untied pointer to become a reference there (spec
+    /// §5.2, §6.7). An `unsafe fn`'s whole body is one, which its signature says.
+    pub unsafe_blocks: Vec<BlockId>,
 }
 
 impl Body {

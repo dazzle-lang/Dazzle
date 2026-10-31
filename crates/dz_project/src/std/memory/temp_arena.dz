@@ -92,7 +92,7 @@ impl Allocator for TempArena {
         }
         m_used = start + size
         let p: ^mut u8 = unsafe { &mut m_chunk[start] }
-        return p
+        return unsafe { p }
     }
 
     fn realloc(

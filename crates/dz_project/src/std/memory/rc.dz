@@ -20,7 +20,7 @@ pub struct Rc<T> {
 
     /// A new value, in one allocation with its counts, from `allocator`.
     Rc(value: T, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
-        let a = allocator or panic!("an Rc needs an allocator")
+        let a = unsafe { allocator or panic!("an Rc needs an allocator") }
         let size = RcBlock<T>::size
         let align = RcBlock<T>::align
         let block = unsafe { a.alloc(size, align, loc) as ^mut RcBlock<T> }
@@ -41,20 +41,20 @@ pub struct Rc<T> {
 
     /// How many `Rc`s share the value; 0 for a null one.
     pub fn count(&self) -> usize {
-        let h = m_header or return 0
+        let h = unsafe { m_header or return 0 }
         return h.strong
     }
 
     /// How many `Weak`s refer to the value; 0 for a null `Rc`.
     pub fn weak_count(&self) -> usize {
-        let h = m_header or return 0
+        let h = unsafe { m_header or return 0 }
         return h.weak
     }
 }
 
 impl<T> Drop for Rc<T> {
     fn drop(&mut self) {
-        let h = m_header or return
+        let h = unsafe { m_header or return }
         h.strong -= 1
         if h.strong > 0 {
             return
@@ -64,7 +64,7 @@ impl<T> Drop for Rc<T> {
         let drop_value = h.drop_value
         drop_value(unsafe { m_value as ^mut u8 })
         if h.weak == 0 {
-            let a = h.allocator or return
+            let a = unsafe { h.allocator or return }
             a.free(unsafe { m_header as ^mut u8 }, h.size, h.align)
         }
     }
@@ -74,7 +74,7 @@ impl<T> Copy for Rc<T> {
     fn copy(&mut self, other: &Self) {
         m_header = other.m_header
         m_value = other.m_value
-        let h = m_header or return
+        let h = unsafe { m_header or return }
         h.strong += 1
     }
 }
@@ -93,6 +93,6 @@ impl<T> Nullable for Rc<T> {
     }
 
     fn ptr(&self) -> ^mut T {
-        return m_value
+        return unsafe { m_value }
     }
 }

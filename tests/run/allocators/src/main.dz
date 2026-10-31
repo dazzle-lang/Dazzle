@@ -10,7 +10,7 @@ struct Bytes {
 }
 
 fn make(a: ^mut Allocator, len: usize, fill: u8) -> Bytes {
-    let al = a or return Bytes{}
+    let al = unsafe { a or return Bytes{} }
     let p = al.alloc(len, 1)
     let mut i: usize = 0
     while i < len {
@@ -21,7 +21,7 @@ fn make(a: ^mut Allocator, len: usize, fill: u8) -> Bytes {
 }
 
 fn release(b: &Bytes) {
-    let al = b.from or return
+    let al = unsafe { b.from or return }
     al.free(b.ptr, b.len, 1)
 }
 

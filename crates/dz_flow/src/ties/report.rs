@@ -86,6 +86,45 @@ pub fn report(
             ),
         );
     }
+    // Wrapping the code in `unsafe` vouches for it, which only its author can: offered,
+    // never applied by `dz fix`.
+    let vouch = |at: &Span| {
+        vec![
+            Edit { file, span: Span { start: at.start, end: at.start }, text: "unsafe { ".into() },
+            Edit { file, span: Span { start: at.end, end: at.end }, text: " }".into() },
+        ]
+    };
+    for (span, whole) in &a.untied_conversions {
+        diags.push(
+            Diagnostic::error(
+                codes::UNTIED_POINTER_CONVERTED,
+                "this pointer has no tie, so it cannot become a reference here",
+            )
+            .at(file, *span, "untied: nothing says what it points into")
+            .with_suggestion("vouch for it in `unsafe`", vouch(whole))
+            .with_help(
+                "a pointer parameter, a pointer field with no tie, a cast or C's pointer may \
+                 point at memory already gone, which nothing here can check; write the \
+                 conversion in `unsafe { … }` to vouch for it, or get the pointer from a call \
+                 that says where it points with `in` (spec §5.2, §6.7)",
+            ),
+        );
+    }
+    for (span, value) in &a.untied_returns {
+        diags.push(
+            Diagnostic::error(
+                codes::UNTIED_POINTER_RETURNED,
+                "this returns a pointer with no tie as if it had one",
+            )
+            .at(file, *span, "nothing says what this points into")
+            .with_suggestion("vouch for it in `unsafe`", vouch(value))
+            .with_help(
+                "a caller trusts the result's tie, and would turn it into a reference safely; \
+                 return it from `unsafe { … }` to vouch for it, or return what the signature's \
+                 `in` names (spec §6.7)",
+            ),
+        );
+    }
     for r in &a.invalid_returns {
         let actual = show(&r.actual);
         let expected = match r.expected.as_slice() {

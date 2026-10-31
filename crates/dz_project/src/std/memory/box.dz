@@ -22,7 +22,7 @@ pub struct Box<T> {
 
     /// `value`, moved into an allocation from `allocator`.
     Box(value: T, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
-        let a = allocator or panic!("a Box needs an allocator")
+        let a = unsafe { allocator or panic!("a Box needs an allocator") }
         m_allocator = allocator
         m_size = sizeof(T)
         m_align = alignof(T)
@@ -39,7 +39,7 @@ impl<T> Drop for Box<T> {
         }
         let drop_value = m_drop
         drop_value(unsafe { m_ptr as ^mut u8 })
-        let a = m_allocator or return
+        let a = unsafe { m_allocator or return }
         a.free(unsafe { m_ptr as ^mut u8 }, m_size, m_align)
     }
 }
@@ -57,6 +57,6 @@ impl<T> Nullable for Box<T> {
     }
 
     fn ptr(&self) -> ^mut T {
-        return m_ptr
+        return unsafe { m_ptr }
     }
 }

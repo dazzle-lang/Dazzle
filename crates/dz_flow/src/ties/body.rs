@@ -74,6 +74,12 @@ pub struct BodyAnalysis {
     /// Where a view could not be followed, so a use or a return went unchecked. This never
     /// hides a kill: every way a kill reaches unknown memory is `incomplete` instead.
     pub unchecked: Vec<Incomplete>,
+    /// `p or …` outside `unsafe` on a pointer with no tie (T-0114): the pointer, then the
+    /// whole `or`.
+    pub untied_conversions: Vec<(Span, Span)>,
+    /// A pointer of unknown provenance returned under a tie, outside `unsafe` (T-0114): the
+    /// `return`, then the value.
+    pub untied_returns: Vec<(Span, Span)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -154,6 +160,10 @@ struct Value {
     /// does not read the view in `t.0`. Empty where the parts are not known, as for a
     /// tuple a call returns, whose views are then unknown if it has any.
     parts: Vec<Value>,
+    /// What a safe call returned under a tie its signature declares: trusted as tied, since
+    /// the callee's own body is held to that tie (`DZ0419`), whatever its inputs were
+    /// (spec §6.7, T-0114).
+    vouched: bool,
 }
 
 impl Value {
@@ -222,6 +232,9 @@ struct Analysis<'a> {
     result: BodyAnalysis,
     expected_return: ReturnTie,
     reported: HashSet<Span>,
+    /// How many `unsafe` blocks enclose what is walked; an `unsafe fn`'s body starts at one.
+    /// Inside, an untied pointer may become a reference (spec §5.2, T-0114).
+    unsafe_depth: u32,
 }
 
 /// Analyse one checked function, using only other functions' signatures. Findings are
@@ -239,8 +252,12 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
         result: BodyAnalysis::default(),
         expected_return: ReturnTie::None,
         reported: HashSet::new(),
+        unsafe_depth: 0,
     };
     let signature = body_signature(body, table, res);
+    if signature.as_ref().is_some_and(|s| s.sig.is_unsafe) {
+        cx.unsafe_depth = 1;
+    }
     let mut external = HashSet::new();
     for local in &body.params {
         let l = body.local(*local);
@@ -405,7 +422,7 @@ impl Analysis<'_> {
         }
         let places = places.into_iter().map(|o| self.canonical(o)).collect();
         let views = views.into_iter().map(|o| self.canonical(o)).collect();
-        Value { places, views, unknown, parts: Vec::new() }
+        Value { places, views, unknown, parts: Vec::new(), vouched: false }
     }
 
     /// The local tuple `t.0.1` is a part of, and the indices down to it.
@@ -831,6 +848,9 @@ impl Analysis<'_> {
                     }
                     match &effects.result {
                         ReturnTie::Explicit(_) | ReturnTie::Elided(_) => {
+                            // A Dazzle body held to its tie, not C's or an `unsafe fn`'s.
+                            value.vouched = !signature.sig.is_unsafe
+                                && (signature.sig.has_body || signature.sig.takes_self.is_some());
                             // `in (a, b)`: the result may be in either, so it holds a view
                             // of each, and a kill of any ends it.
                             let paths: Vec<Option<&TiePath>> = match &effects.result {
@@ -980,6 +1000,19 @@ impl Analysis<'_> {
             }
             self.kill(kill, span, KillKind::Call);
         }
+        // Trusted whatever was known of the inputs: the callee's body is held to the tie its
+        // signature declares, `in` or elided to its one view input (T-0114).
+        let inputs = usize::from(signature.sig.takes_self.is_some())
+            + signature
+                .sig
+                .params
+                .iter()
+                .filter(|p| dz_check::ties::view_input(self.table, &p.ty))
+                .count();
+        let declares = !signature.sig.ret_ties.is_empty() || inputs == 1;
+        value.vouched |= declares
+            && !signature.sig.is_unsafe
+            && (signature.sig.has_body || signature.sig.takes_self.is_some());
         value
     }
 
@@ -1221,6 +1254,33 @@ impl Analysis<'_> {
     }
 
     fn block(&mut self, block: BlockId) -> Value {
+        let marked = self.body.unsafe_blocks.contains(&block);
+        self.unsafe_depth += u32::from(marked);
+        let value = self.block_inner(block);
+        self.unsafe_depth -= u32::from(marked);
+        value
+    }
+
+    /// Whether `value`, a pointer, has a tie a caller can trust: a view of a place, or what
+    /// a safe call returned with `in`. A pointer parameter, a pointer field with no tie, a
+    /// cast and C's pointers are untied (spec §5.2, §6.7, T-0114).
+    fn tied_pointer(&self, value: &Value) -> bool {
+        value.vouched
+            || !value.unknown
+                && !value.views.is_empty()
+                && value.views.iter().all(|o| {
+                    !(o.target.steps.is_empty()
+                        && self.body.params.contains(&o.target.local)
+                        && super::or_pointer(&self.body.local(o.target.local).ty))
+                })
+    }
+
+    /// An expression written `unsafe { … }`, whose value the programmer vouches for.
+    fn vouched(&self, e: ExprId) -> bool {
+        matches!(self.body.expr(e).kind, hir::ExprKind::Block(b) if self.body.unsafe_blocks.contains(&b))
+    }
+
+    fn block_inner(&mut self, block: BlockId) -> Value {
         self.scopes.push((Vec::new(), Vec::new()));
         let mut value = Value::default();
         for stmt in self.body.block(block).stmts.clone() {
@@ -1582,6 +1642,15 @@ impl Analysis<'_> {
                 if !self.live {
                     return Value::default();
                 }
+                // Only a tied pointer becomes a reference safely; an untied one is the
+                // programmer's word, in `unsafe` (spec §5.2, D-0093 point 11).
+                if super::or_pointer(self.body.ty(operand))
+                    && self.unsafe_depth == 0
+                    && !self.vouched(operand)
+                    && !self.tied_pointer(&value)
+                {
+                    self.result.untied_conversions.push((self.body.expr(operand).span, node.span));
+                }
                 let mut value = self.unwrapped(operand, value, node.span);
                 let entry = self.state.clone();
                 let held_entry = self.held.clone();
@@ -1670,6 +1739,16 @@ impl Analysis<'_> {
                                     self.reported.insert(node.span);
                                 }
                                 if value.unknown {
+                                    // A pointer whose tie is unknown, returned under one,
+                                    // would make it look tied to the caller: an untied one
+                                    // laundered into a safe `or` (T-0114).
+                                    if super::or_pointer(&returned_ty)
+                                        && self.unsafe_depth == 0
+                                        && !self.vouched(returned_id)
+                                    {
+                                        let at = self.body.expr(returned_id).span;
+                                        self.result.untied_returns.push((node.span, at));
+                                    }
                                     self.unchecked(
                                         node.span,
                                         "the returned view's provenance is unknown",
@@ -1804,6 +1883,7 @@ impl Analysis<'_> {
                 Value::default()
             }
             hir::ExprKind::Builtin { name, args } | hir::ExprKind::Intrinsic { name, args } => {
+                let mut first = Value::default();
                 for (i, arg) in args.into_iter().enumerate() {
                     let value = self.expr(arg);
                     if i == 0 && matches!(name.as_str(), "destroy" | "move_out") {
@@ -1812,6 +1892,17 @@ impl Analysis<'_> {
                             self.incomplete(node.span, "destruction through unknown storage");
                         }
                     }
+                    if i == 0 {
+                        first = value;
+                    }
+                }
+                // `str::from_utf8(bytes)` is the bytes, as text: it views what they view.
+                if name == "str_from_utf8" {
+                    return Value {
+                        views: first.held_views(),
+                        unknown: first.unknown,
+                        ..Value::default()
+                    };
                 }
                 Value { unknown: super::points(&node.ty), ..Value::default() }
             }
@@ -1904,6 +1995,7 @@ fn merge_value(to: &mut Value, from: &Value) {
         }
     }
     to.unknown |= from.unknown;
+    to.vouched &= from.vouched;
     if to.parts.is_empty() {
         to.parts = from.parts.clone();
     } else {

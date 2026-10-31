@@ -17,6 +17,6 @@ impl<T> Nullable for Unguarded<T> {
     }
 
     fn ptr(&self) -> ^mut T {
-        return m_ptr
+        return unsafe { m_ptr }
     }
 }

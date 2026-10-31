@@ -35,7 +35,7 @@ struct Counting {
 impl Allocator for Counting {
     fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation = #location) -> ^mut u8 {
         allocs += 1
-        return Allocators::Global.alloc(size, align, loc)
+        return unsafe { Allocators::Global.alloc(size, align, loc) }
     }
 
     fn realloc(
@@ -47,7 +47,7 @@ impl Allocator for Counting {
         loc: SourceLocation = #location,
     ) -> ^mut u8 in self {
         allocs += 1
-        return Allocators::Global.realloc(p, old_size, new_size, align, loc)
+        return unsafe { Allocators::Global.realloc(p, old_size, new_size, align, loc) }
     }
 
     fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation = #location) {

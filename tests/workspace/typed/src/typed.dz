@@ -688,7 +688,7 @@ fn pointer_rules(p: ^mut i32) -> bool {
 // §5.2: `p or …` checks for null once, and the reference it gives may be written through
 // when the pointer may.
 fn checked_pointer(v: ^mut Vec3) -> f32 {
-    let r = v or return 0.0
+    let r = unsafe { v or return 0.0 }
     r.x = 2.0
     return r.x
 }
@@ -742,7 +742,7 @@ fn read_only_ptr(xs: &[]i32) -> i32 {
 
 // `or` on a `^T` gives a `&T`; through a read-only pointer's pointee the pointer may widen.
 fn read_through(p: ^Vec3, pp: ^^mut Vec3) -> f32 {
-    let r = p or return 0.0
+    let r = unsafe { p or return 0.0 }
     let widened: ^^Vec3 = pp
     return r.x
 }
@@ -1167,7 +1167,7 @@ fn measured_through_an_object(m: &Measured) -> i32 {
 
 fn trait_objects(s: &Square) -> i32 {
     let g = Gauge{ reading: s }
-    let r = g.reading or return 0
+    let r = unsafe { g.reading or return 0 }
     return measured_through_an_object(s) + r.measure()
 }
 
@@ -2153,7 +2153,7 @@ fn c_text_of(s: &String) -> &cstr in s {
 fn c_kinds(s: &String) -> bool {
     let b = Banner{}
     let raw: ^cstr = c_text_of(s)
-    let back = raw or return false
+    let back = unsafe { raw or return false }
     let nothing: ^cstr = null
     let measured = unsafe { raw as &str }
     return nothing == null && measured.len > 0 && (back as &str).len > 0 && (b.text as &str).len > 0

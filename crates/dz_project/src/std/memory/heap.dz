@@ -24,7 +24,7 @@ impl Allocator for Heap {
         #if TRACK_MEMORY {
             unsafe { TRACKER.record(p, size, align, loc) }
         }
-        return p
+        return unsafe { p }
     }
 
     fn realloc(

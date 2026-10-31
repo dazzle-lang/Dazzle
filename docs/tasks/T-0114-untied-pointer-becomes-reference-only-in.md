@@ -2,10 +2,13 @@
 id: T-0114
 title: An untied pointer becomes a reference only in unsafe
 milestone: none
-status: open
+status: done
+done: r101, 2026-10-31
 kind: feature
 area: ownership
 ---
+
+**Done, r101 (2026-10-31).** In `dz_flow`'s ties walk, as r90 settled: `Or` on a pointer (`or_pointer`: `^T`, `own ^T`, `^cstr`, `^str`, `^[]T`) outside `unsafe` whose value is not tied (`tied_pointer`) is `DZ0418`. A value is tied when a safe call returned it under a declared or elided tie (`Value::vouched`, set in `invoke`, since the callee is held to it) or it views places none of which is a pointer parameter. The laundering hole found 2026-10-31 is `DZ0419`: a pointer of unknown provenance returned under a tie outside `unsafe`. Both offer `unsafe { … }` as a suggestion, never a certain fix. The HIR now records `unsafe` blocks (`Body::unsafe_blocks`), and an `unsafe fn` body counts as one. `str::from_utf8` views its bytes. std needed 27 `unsafe` conversions, all over its own allocator and handle fields; the corpora 19.
 
 Step 6 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md), the last; the
 steps are listed in [T-0109](T-0109-text-only-borrowed-str-const-str.md).

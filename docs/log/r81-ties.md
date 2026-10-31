@@ -6,6 +6,37 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r101: an untied pointer becomes a reference only in `unsafe` (2026-10-31)
+
+T-0114, D-0093's last step. The check is `dz_flow`'s, as r90 settled, since only the ties
+walk knows where a pointer came from.
+
+- **What `unsafe` covers.** The HIR had no trace of `unsafe { … }`: the checker counted its
+  depth and lowered it to a plain block. `Body::unsafe_blocks` now lists them
+  (`BodyBuilder::mark_unsafe`), and the walk keeps an `unsafe_depth`, starting at one in an
+  `unsafe fn`. An expression that *is* such a block is `vouched`.
+- **Tied.** `tied_pointer`: the value came from a safe call under a declared or elided tie
+  (`Value::vouched`, set at the end of `invoke` from the signature alone, since the callee's
+  body is held to the tie whatever was known of the arguments; not for an `extern fn` or an
+  `unsafe fn`), or it views known places, none a pointer parameter. Otherwise `p or …` on an
+  `or_pointer` type outside `unsafe` is `DZ0418`.
+- **The laundering hole** found at the start of this session: a `return` of a pointer whose
+  provenance is unknown, under the signature's tie, outside `unsafe`, is `DZ0419`. It was
+  only an `unchecked` note before, which let `world_of(&ctx) or return` look tied.
+- **Both** carry `unsafe { … }` as a suggestion: an editor offers it, `dz fix` never adds
+  it, since vouching is the author's call.
+- **On the way:** `str::from_utf8` now views its bytes in the walk, so `str::from_utf8(b) or
+  …` is tied.
+
+std needed 27 conversions in `unsafe`, every one over its own allocator, header or value
+pointer fields (`List`, `HashMap`, `Box`, `Rc`, `Weak`, `TempArena`, `Unguarded`, `Heap`);
+the corpora 19, mostly C callbacks' user data, `examples/ownership`'s `m_allocator` (the two
+r90 counted) and test allocators. They were applied from the suggestions by a scratch
+script, std first with a rebuild between rounds.
+
+Tests: `tests/flow/untied_pointer.dz` (both codes, and the tied and vouched forms that pass),
+`dz explain DZ0418` and `DZ0419`.
+
 ## r100: a C string is borrowed (2026-10-31)
 
 T-0112, D-0093's fifth step. `cstr` was a view with no tie, kept anywhere; it is now three
