@@ -312,14 +312,14 @@ Like the math, these are associated functions and methods of types, not free fun
 operations, literals included: `starts_with`, `ends_with`, `find` and `rfind` (a byte
 offset, `usize?`), `contains`, `trim`, `trim_start`, `trim_end`, `strip_prefix` and
 `strip_suffix` (a `str?`, `none` when the text does not start or end so), `split_once(sep)`
-(the text before and after the first `sep`, a `(str, str)?`), `split(separator)`,
+(the text before and after the first `sep`, a `(&str, &str)?`), `split(separator)`,
 `split_whitespace()` and `lines()` (iterators of `str` views), `eq_ignore_ascii_case`,
 `replace(from, to)`, `to_ascii_lowercase`, `to_ascii_uppercase`, `repeat(n)` (new
 `String`s), and `parse_i64`, `parse_u64`, `parse_f64`, `parse_f32` — the whole text as a
 number, or `none` for anything else, including surrounding spaces and a value that does not
 fit. Pieces are views of the text they came from, never copies. **`Join`** writes pieces
 with a separator between them into a new `String`: `names.join(", ")` on a `[]str`, a
-`List<str>` or a `List<String>`.
+`List<const &str>` or a `List<String>`.
 
 ```dz
 let text = File::read_text(&config) or return

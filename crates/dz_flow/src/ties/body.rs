@@ -653,7 +653,6 @@ impl Analysis<'_> {
                     name: "the function value".into(),
                     self_ty: None,
                     owner: None,
-                    generic_result: false,
                 };
                 return self.invoke(&signature, None, &values, span);
             }
@@ -1949,25 +1948,17 @@ pub(super) struct Signature {
     pub(super) name: String,
     self_ty: Option<Ty>,
     owner: Option<SymbolId>,
-    /// The declared result holds a view only through a type parameter (`-> T?`), which
-    /// `sig` has substituted: what `pop` hands back points wherever the element did, not
-    /// into the list, so elision does not reach it (spec §6.7).
-    generic_result: bool,
 }
 
 impl Signature {
-    /// [`super::call_effects`], with a result that was a view only through a type
-    /// parameter left unknown rather than elided.
+    /// [`super::call_effects`]. A result that is a view only through a plain `T` needs no
+    /// exemption since T-0109: no plain `T` is a view (D-0093, point 8).
     pub(super) fn effects(
         &self,
         scope: &dz_check::ties::Scope<'_>,
         bindings: &Bindings,
     ) -> Result<super::CallEffects, dz_check::ties::Error> {
-        let mut effects = super::call_effects(scope, bindings)?;
-        if self.generic_result && matches!(effects.result, ReturnTie::Elided(_)) {
-            effects.result = ReturnTie::Unknown;
-        }
-        Ok(effects)
+        super::call_effects(scope, bindings)
     }
 
     pub(super) fn scope<'a>(
@@ -2018,7 +2009,6 @@ pub(super) fn body_signature(
                 name: "constructor".into(),
                 self_ty: body.params.first().map(|l| body.local(*l).ty.clone()),
                 owner: Some(*owner),
-                generic_result: false,
             });
         }
         BodyOwner::Copy(owner) => (table.struct_sig(*owner)?.copy.as_ref()?, *owner, "copy".into()),
@@ -2034,7 +2024,6 @@ pub(super) fn body_signature(
                     Ty::Named { sym, .. } => Some(*sym),
                     _ => None,
                 },
-                generic_result: false,
             });
         }
         _ => return None,
@@ -2048,7 +2037,6 @@ pub(super) fn body_signature(
         owner: self_local.map(|_| home),
         // A body reads its own signature unsubstituted, where `call_effects` already
         // leaves a `T` result unknown.
-        generic_result: false,
     })
 }
 
@@ -2083,7 +2071,6 @@ fn call_signature(
                                 Ty::Named { sym, .. } => Some(*sym),
                                 _ => None,
                             },
-                            generic_result: generic_result(sig, table),
                         });
                     }
                 }
@@ -2156,23 +2143,8 @@ fn call_signature(
         .zip(type_args)
         .collect::<HashMap<_, _>>();
     map.extend(sig.generics.iter().map(|p| p.param.id).zip(method_args));
-    let generic_result = generic_result(&sig, table);
     sig = substitute_signature(&sig, &map, self_ty.as_ref());
-    Some(Signature {
-        sig,
-        module: res.symbol(home).module,
-        name,
-        self_ty,
-        owner: Some(home),
-        generic_result,
-    })
-}
-
-/// Whether `sig`, as declared, returns a view only through a type parameter, with no `in`.
-fn generic_result(sig: &FnSig, table: &TypeTable) -> bool {
-    sig.ret_ties.is_empty()
-        && !dz_check::ties::holds_view(table, &sig.ret, false)
-        && dz_check::ties::holds_view(table, &sig.ret, true)
+    Some(Signature { sig, module: res.symbol(home).module, name, self_ty, owner: Some(home) })
 }
 
 fn substitute_signature(sig: &FnSig, map: &HashMap<u32, Ty>, self_ty: Option<&Ty>) -> FnSig {
@@ -2283,7 +2255,6 @@ fn index_signature(recv: &Ty, table: &TypeTable, res: &Resolution) -> Option<Sig
                     _ => None,
                 },
                 // `index` returns a reference, which elides whatever its type.
-                generic_result: false,
             });
         }
     }
@@ -2294,6 +2265,5 @@ fn index_signature(recv: &Ty, table: &TypeTable, res: &Resolution) -> Option<Sig
         name: "index".into(),
         self_ty: Some(recv.clone()),
         owner: Some(trait_sym),
-        generic_result: false,
     })
 }

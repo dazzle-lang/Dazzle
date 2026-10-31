@@ -18,16 +18,16 @@ struct Panel<T: Copy> {
         value = v
     }
 
-    pub virtual fn describe(&self) -> str {
+    pub virtual fn describe(&self) -> &str {
         return "panel"
     }
 }
 
 // A concrete instance as the base.
 struct Button : Panel<i32> {
-    pub label: str = ""
+    pub label: const &str = ""
 
-    Button(label: str, clicks: i32) : Panel(clicks) {
+    Button(label: const &str, clicks: i32) : Panel(clicks) {
         self.label = label
     }
 
@@ -35,7 +35,7 @@ struct Button : Panel<i32> {
         self.set(self.get() + 1)
     }
 
-    pub override fn describe(&self) -> str {
+    pub override fn describe(&self) -> &str {
         return "button"
     }
 }
@@ -48,7 +48,7 @@ struct Slider<T: Copy> : Panel<T> {
         self.step = step
     }
 
-    pub override fn describe(&self) -> str {
+    pub override fn describe(&self) -> &str {
         return Panel::describe(self)
     }
 }
@@ -58,7 +58,7 @@ fn read(p: &Panel<i32>) -> i32 {
     return p.get()
 }
 
-fn name_of(p: &Panel<f32>) -> str {
+fn name_of(p: &Panel<f32>) -> &str {
     return p.describe()
 }
 

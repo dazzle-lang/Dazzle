@@ -397,7 +397,7 @@ fn signature_help_stays_on_a_variadic_parameter() {
     let f = main_file(&a);
     let sig = ide::signature_help(&a, f, at(&a, f, "tell(\"mixed\", c, n, Cat", 17)).unwrap();
     let params: Vec<&str> = sig.params.iter().map(|&(s, e)| &sig.label[s..e]).collect();
-    assert_eq!(params, ["prefix: str", "things: ..&Describe"]);
+    assert_eq!(params, ["prefix: &str", "things: ..&Describe"]);
     assert_eq!(sig.active, 1, "the third argument is still `things`");
 }
 
@@ -559,7 +559,7 @@ fn members_of_builtin_types_still_hover_and_colour() {
     assert!(!a.diags.has_errors(), "the fixture must check cleanly");
     let f = main_file(&a);
     let hover = info(&a, f, "e.message)", 3).hover.unwrap();
-    assert!(hover.contains("message: str"), "{hover}");
+    assert!(hover.contains("message: &str"), "{hover}");
     let off = at(&a, f, "e.message)", 3);
     let tokens = ide::semantic_tokens(&a, f);
     let message = tokens.iter().find(|t| t.span.start <= off && off < t.span.end);

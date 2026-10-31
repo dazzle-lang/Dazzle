@@ -46,7 +46,7 @@ fn main() {
     // `cstr` measures into a `str` with `as` (§18.39).
     println!("name {}", mini::mini_name())
     println!("length {}", mini::mini_length("hello"))
-    let name = mini::mini_name() as str
+    let name = mini::mini_name() as &str
     println!("measured {}", name)
     // A `String` is a `cstr` for the call it is passed to (§7.2), through `std`'s
     // `ImplicitAs<cstr>`: a built one, and a `format!` that lives until the call returns.

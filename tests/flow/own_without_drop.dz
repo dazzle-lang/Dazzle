@@ -4,5 +4,5 @@
 
 pub struct Leaky {
     m_p: own ^mut i32
-    pub label: str
+    pub label: const &str
 }

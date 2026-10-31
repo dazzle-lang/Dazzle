@@ -19,7 +19,7 @@ pub struct Vec3 {
 
 pub struct Counter {
     count:      u32
-    pub label:  str
+    pub label:  const &str
     borrowed:   &Vec3
 
     pub fn get(&self) -> u32 {
@@ -419,11 +419,11 @@ fn format_spec_does_not_fit(f: f32) {
 }
 
 // §12.9: a zero fill suits only a number.
-fn format_zero_fill_does_not_fit(s: str) {
+fn format_zero_fill_does_not_fit(s: &str) {
     println!("{:08}", s)
 }
 
-fn format_not_a_literal(s: str) {
+fn format_not_a_literal(s: &str) {
     println!(s)
 }
 
@@ -468,7 +468,7 @@ fn pointer_cast_outside_unsafe(p: ^i32) -> ^u8 {
 
 // --- r21: a runtime `str` has no terminating zero, so it is not a `cstr` (§5.3, §18.39) ---
 
-fn runtime_str_to_cstr(s: str) -> cstr {
+fn runtime_str_to_cstr(s: &str) -> cstr {
     return s as cstr
 }
 
@@ -886,14 +886,14 @@ fn calls_an_associated_function_on_a_value(f: Factory) -> Factory {
 
 // §7.6: only a type that implements the trait becomes a trait object of it.
 trait Named {
-    fn name(&self) -> str
+    fn name(&self) -> &str
 }
 
-fn named(n: &Named) -> str {
+fn named(n: &Named) -> &str {
     return n.name()
 }
 
-fn not_an_implementer(f: &Factory) -> str {
+fn not_an_implementer(f: &Factory) -> &str {
     return named(f)
 }
 
@@ -908,8 +908,8 @@ fn forged(n: usize) -> ^mut u8 {
 }
 
 // §5.3: bytes taken as text unchecked is `unsafe`; `str::from_utf8` is the checked way.
-fn unchecked_text(bytes: []u8) -> str {
-    return bytes as str
+fn unchecked_text(bytes: []u8) -> &str {
+    return bytes as &str
 }
 
 // §5.3: a pointer carries no length, so its slice needs an end.
@@ -969,7 +969,7 @@ struct Unwritten {
     pub n: i32
 }
 
-fn bad_format_calls(fmt: str, h: Unwritten) -> usize {
+fn bad_format_calls(fmt: &str, h: Unwritten) -> usize {
     let a = format!("{} {}", 1)
     let b = format!(fmt, 1)
     let c = format!("{:x}", 1.5)
@@ -1039,7 +1039,7 @@ fn handle_downcast(base: Rc<Panel>, framed: Rc<Framed>) -> Rc<Framed> {
 }
 
 // §14.4: parsing may find no number, so the result is an optional that must be unwrapped.
-fn parse_without_or(s: str) -> i64 {
+fn parse_without_or(s: &str) -> i64 {
     return s.parse_i64()
 }
 
@@ -1211,7 +1211,7 @@ struct Frame<T: Copy> {
 }
 
 struct Badge : Frame<i32> {
-    pub text: str = ""
+    pub text: const &str = ""
 }
 
 struct Unnamed : Frame {
@@ -1273,7 +1273,7 @@ fn takes_cstr(s: cstr) {}
 // A `let` is not an argument: it takes the type it is given, converted or not.
 fn not_an_argument(s: &String) -> usize {
     let c: cstr = s
-    return (c as str).len
+    return (c as &str).len
 }
 
 // `Pounds` converts to `Ounces`, and `Ounces` to `cstr`, but not one after the other.
@@ -1315,15 +1315,15 @@ fn pick_line(a: &Ledger, b: &Ledger) -> &List<i32> {
     return &a.lines
 }
 
-fn split_note(s: str, sep: str) -> (str, str)? {
+fn split_note(s: &str, sep: &str) -> (&str, &str)? {
     return s.split_once(sep)
 }
 
-fn title() -> str {
+fn title() -> &str {
     return "ledger"
 }
 
-fn titled() -> (i32, str) {
+fn titled() -> (i32, &str) {
     return (1, "ledger")
 }
 
@@ -1364,7 +1364,7 @@ fn through_a_ref(f: fn(l: &Ledger) kills l.lines) {}
 // type allows.
 fn pick_either(f: fn(a: &Ledger, b: &Ledger) -> &Ledger) {}
 
-fn named_by(f: fn() -> str) {}
+fn named_by(f: fn() -> &str) {}
 
 fn either_ledger(a: &Ledger, b: &Ledger) -> &Ledger in (a, b) {
     return a
@@ -1485,14 +1485,14 @@ impl Iterate for Ticks {
 // `const str` (spec §5.3): text that may die where static text is wanted, written to a field
 // and returned, and `const` before a type that is not `str`.
 pub struct Plaque {
-    pub text: const str
+    pub text: const &str
 }
 
 fn engrave(p: &mut Plaque, s: &String) {
     p.text = s.as_str()
 }
 
-fn borrowed(s: &String) -> const str {
+fn borrowed(s: &String) -> const &str {
     return s.as_str()
 }
 
@@ -1556,4 +1556,36 @@ fn final_item<view T: Iterate>(it: T) -> T::Item? {
 
 fn wants_optional(xs: &List<i32>) {
     let o: i32? = final_item(xs.iter())
+}
+
+// Text is borrowed (spec 5.3, 5.6, D-0093): a bare `str`, `const str`, `str?`, `&mut str`,
+// `none` for a `^str`, an optional of a reference written out, and borrowed text stored in
+// a field or a container.
+fn bare_text(s: str) -> usize {
+    return s.len
+}
+
+const OLD_STATIC: const str = "old"
+
+fn maybe_text(s: &str) -> str? in s {
+    return s
+}
+
+fn written_text(s: &mut str) {}
+
+fn empty_text(s: &str) -> ^str in s {
+    return none
+}
+
+fn optional_ref(xs: &List<i32>) -> (&i32)? in xs {
+    return xs.first()
+}
+
+struct Note {
+    pub text: &str
+}
+
+fn stored_text(s: &str) {
+    let mut all = List<&str>()
+    all.push(s)
 }

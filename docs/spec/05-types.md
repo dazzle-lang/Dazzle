@@ -222,12 +222,22 @@ gives four `f32`s rather than four `i32`s converted (there are no implicit conve
 says. `[DECIDED — §18.24]`
 
 ```dz
-str             a UTF-8 string slice: { ptr: ^u8, len: usize }. Never owns.
-                Not null-terminated. Immutable.
-const str       a str whose bytes are in static storage: a literal's, a constant's.
+&str            UTF-8 text borrowed from what owns it: { ptr: ^u8, len: usize }. Never
+                owns. Not null-terminated. Immutable.
+const &str      text whose bytes are in static storage: a literal's, a constant's.
+^str            text that may be absent: the same { ptr, len }, which may be null.
 String          stdlib: owning, growable, allocator-aware. Written in Dazzle, not builtin.
 cstr            a null-terminated ^u8, for C interop only.
 ```
+
+**Text is borrowed** (D-0093): it points into memory a `String` or a literal owns, so it
+is written as a reference, `&str`, and lives only where a reference does — a local, a
+parameter, a result — never in a field, a container or a type argument (`DZ0517`), except
+inside a `view struct` (§6.7). A bare `str`, `str?` for `^str`, `const str` for `const
+&str` and `&mut str` are `DZ0575`, which `dz fix` respells. Text to keep is a `String`, or
+`const &str` when it is static. `^str`'s empty case is `null`, and `or` gives the `&str`
+back. A `String` passed where a `&str` is wanted is its text, borrowed for the call (§7.2).
+An implementation for text is written for `&str`: `impl Format for &str`.
 
 **A slice of part of a sequence** is written with a range: `xs[a..b]`, `xs[a..]`, `xs[..b]`.
 On an array or a slice both ends are checked when it runs, as an index is; on a pointer it is
@@ -235,10 +245,10 @@ On an array or a slice both ends are checked when it runs, as an index is; on a 
 slice is as writable as what it views — a `[]mut T`, a `^mut T`, or an array that may be
 written gives a `[]mut T`. `[DECIDED — §18.50]`
 
-**A `str` is `{ ptr, len }`**, and `s.len` and `s.ptr` read them. Its bytes are `s as []u8`.
-The way back is `str::from_utf8(bytes)`, a `str?` that is `none` when the bytes are not
-well-formed UTF-8; `bytes as str` skips the check and is `unsafe`, as is `p as cstr` for a
-`^u8`. `[DECIDED — §18.50]`
+**A `&str` is `{ ptr, len }`**, and `s.len` and `s.ptr` read them. Its bytes are `s as
+[]u8`. The way back is `str::from_utf8(bytes)`, a `^str` that is `null` when the bytes are
+not well-formed UTF-8; `bytes as &str` skips the check and is `unsafe`, as is `p as cstr`
+for a `^u8`. `[DECIDED — §18.50]`
 
 String literals live in static storage, with a zero after the last byte. **A string literal
 is a `cstr` wherever a `cstr` is wanted** — a parameter, an annotated `let`, a field — and
@@ -251,29 +261,30 @@ owning C string is a `String`, which keeps a zero after its bytes and frees them
 `String` passed as an argument where a `cstr` is wanted is borrowed that way on its own
 (§7.2). `s.as_str()` borrows the text. `[DECIDED — §18.39, D-0081, D-0089]`
 
-**A `const str` is text that never dies**: its bytes are in static storage, a literal's or
-a constant's. It is the same `{ ptr, len }` as a `str` and the same C++ type, and reads as a
-`str` wherever a `const str` is not wanted — a call, a comparison, `{}`, `.len` — so every
-implementation for `str` is one for `const str`. A `str` never becomes a `const str`, since
-it may view a `String`. **A string literal is a `const str` wherever one is wanted**, as it
-is a `cstr`; elsewhere it is a `str`, so `let mut label = "none"` can later take any text,
-while a `let` with no type keeps a `const str` value's type. Because nothing kills it, a
-`const str` carries no tie (§6.7): it can be returned from anything, held in a field and
-put in a container, where a `str` there would be unchecked.
+**A `const &str` is text that never dies**: its bytes are in static storage, a literal's or
+a constant's. The constness is the reference's, since what it points at never dies. It is
+the same `{ ptr, len }` as a `&str` and the same C++ type, and reads as a `&str` wherever a
+`const &str` is not wanted — a call, a comparison, `{}`, `.len` — so every implementation
+for `&str` is one for `const &str`. A `&str` never becomes a `const &str`, since it may view
+a `String`. **A string literal is a `const &str` wherever one is wanted**, as it is a
+`cstr`; elsewhere it is a `&str`, so `let mut label = "none"` can later take any text, while
+a `let` with no type keeps a `const &str` value's type. Because nothing kills it, a `const
+&str` carries no tie (§6.7) and is no view: it can be returned from anything, held in a
+field and put in a container, `List<const &str>`, where a `&str` may not.
 
 ```dz
-pub fn name(&self) -> const str {
+pub fn name(&self) -> const &str {
     switch self {
         case Idle { return "idle" }
         case Walking { return "walking" }
     }
 }
-pub struct Enemy { pub kind: const str }
+pub struct Enemy { pub kind: const &str }
 let was = enemy.state.name()
 enemy.state = State::Idle{}         // `was` is still valid: it points into nothing that dies
 ```
 
-Only `str` may follow `const`: `const i32` is `DZ0569`. `[DECIDED — D-0092]`
+Only `&str` may follow `const`: `const i32` is `DZ0569`. `[DECIDED — D-0092, D-0093]`
 
 Because `?` binds to the type name, `[]T?` is a slice **of optionals**. An optional slice
 is `([]T)?` — parenthesised, because it is far rarer and the parentheses say which level
@@ -342,6 +353,7 @@ A generic result may still be an optional of a projection, `T::Item?`, whose ins
 reference: a list's iterator has `Item = &i32`. Such a result is the pointer an optional
 reference would be, `^i32` (`^mut i32` for `&mut i32`), at the call, tied as the reference
 would be, so `last(xs.iter()) or return` gives the `&i32` back. Inside the generic body it
-is an optional as for every other instance (D-0093).
+is an optional as for every other instance (D-0093). Written out, `(&T)?` is `DZ0576`,
+which `dz fix` respells as `^T`; text that may be absent is `^str` (§5.3).
 
 Fallibility is not on this table because it is not a property of a value. See §9.

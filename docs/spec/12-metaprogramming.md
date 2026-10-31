@@ -271,7 +271,7 @@ Dazzle spells it, `Counter::bump` for a method. `#module` is the caller's module
 `[DECIDED — §18.48]`
 
 ```dz
-pub fn assert(cond: bool, msg: str = "", loc: SourceLocation = #location) {
+pub fn assert(cond: bool, msg: &str = "", loc: SourceLocation = #location) {
     if !cond {
         panic!("assertion failed: {}", msg, loc)   // reports `loc`, the caller's line (§9.8)
     }

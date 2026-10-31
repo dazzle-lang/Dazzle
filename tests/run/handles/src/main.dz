@@ -3,7 +3,7 @@
 // bindings on optionals and pointers (18.61). Every drop prints, so each is seen once.
 
 struct Texture {
-    pub name: str = ""
+    pub name: const &str = ""
     pub width: i32 = 0
 }
 

@@ -203,11 +203,11 @@ error[DZ0523]: `i32?` has no failure value to bind as `e`
     │
     = help: only a fallible call carries an `Error`; write `or { … }` with no binding (spec §9.4)
 
-error[DZ0523]: this `or` clause produces `str`, but `i32` is needed
+error[DZ0523]: this `or` clause produces `&str`, but `i32` is needed
     ┌─ typeerrors/src/errors.dz:175:24
     │
 175 │     let v = maybe() or "not an i32"
-    │                        ^^^^^^^^^^^^ this is `str`
+    │                        ^^^^^^^^^^^^ this is `&str`
     │
     = help: an `or` clause must produce the success type or diverge (spec §9.4)
 
@@ -371,11 +371,11 @@ error[DZ0501]: expected `[8]i32`, found 2 elements
     │
     = help: an array literal lists exactly as many elements as its type has; `let mut a: [N]T` gives a zeroed one instead (spec §5.3, §6.2)
 
-error[DZ0501]: this array's elements disagree: `i32` and `str`
+error[DZ0501]: this array's elements disagree: `i32` and `&str`
     ┌─ typeerrors/src/errors.dz:335:17
     │
 335 │     let a = [1, "two", 3]
-    │                 ^^^^^ expected `i32`, found `str`
+    │                 ^^^^^ expected `i32`, found `&str`
     │
     = help: every element of an array has the same type; annotate the binding to say which (spec §5.3)
 
@@ -479,7 +479,7 @@ error[DZ0526]: `{:x}` does not suit `f32`
     │
     = help: `{:x}` and `{:X}` write an integer in hex, `{:.N}` a float with N decimals, `{:p}` a pointer's address; `{:N}` pads anything to N characters, and `{:0N}` a number with zeros, as in `{:08x}` (spec §12.9)
 
-error[DZ0526]: `{:08}` does not suit `str`
+error[DZ0526]: `{:08}` does not suit `&str`
     ┌─ typeerrors/src/errors.dz:423:15
     │
 423 │     println!("{:08}", s)
@@ -1010,8 +1010,8 @@ error[DZ0528]: making a pointer from an address is unsafe
 error[DZ0528]: taking bytes as a `str` without checking them is unsafe
     ┌─ typeerrors/src/errors.dz:912:12
     │
-912 │     return bytes as str
-    │            ^^^^^^^^^^^^ outside an `unsafe` block
+912 │     return bytes as &str
+    │            ^^^^^^^^^^^^^ outside an `unsafe` block
     │
     = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
 
@@ -1307,7 +1307,7 @@ error[DZ0501]: expected `fn(&i32, &i32) -> bool`, found `fn(i32, i32) -> bool`
 1049 │     ys.sort_by(by_value)
      │                ^^^^^^^^ this is `fn(i32, i32) -> bool`
 
-error[DZ0514]: cannot compare `i32` with `str`
+error[DZ0514]: cannot compare `i32` with `&str`
      ┌─ typeerrors/src/errors.dz:1058:12
      │
 1058 │     return x == "three"
@@ -1627,29 +1627,29 @@ error[DZ0570]: `pick_line` returns `&List<i32>`, which may point into `a` or `b`
      │
      = help: say what the result points into after its type: `in a`, or `in (a, b)` if it may be in any of them (spec §6.7)
 
-error[DZ0570]: `split_note` returns `(str, str)?`, which may point into `s` or `sep`: the signature must say which
-     ┌─ typeerrors/src/errors.dz:1318:36
+error[DZ0570]: `split_note` returns `(&str, &str)?`, which may point into `s` or `sep`: the signature must say which
+     ┌─ typeerrors/src/errors.dz:1318:38
      │
-1318 │ fn split_note(s: str, sep: str) -> (str, str)? {
-     │                                    ^^^^^^^^^^^ no `in` says where this points
+1318 │ fn split_note(s: &str, sep: &str) -> (&str, &str)? {
+     │                                      ^^^^^^^^^^^^^ no `in` says where this points
      │
      = help: say what the result points into after its type: `in s`, or `in (s, sep)` if it may be in any of them (spec §6.7)
 
-error[DZ0571]: `title` returns `str`, which holds a view, but takes nothing it could point into
+error[DZ0571]: `title` returns `&str`, which holds a view, but takes nothing it could point into
      ┌─ typeerrors/src/errors.dz:1322:15
      │
-1322 │ fn title() -> str {
-     │               ^^^ points into nothing its caller can see
+1322 │ fn title() -> &str {
+     │               ^^^^ points into nothing its caller can see
      │
-     = help: return text that never dies as `const str`, return something owned (`String`, `List`), or take what the result points into as a parameter (spec §6.7)
+     = help: return text that never dies as `const &str`, return something owned (`String`, `List`), or take what the result points into as a parameter (spec §6.7)
 
-error[DZ0571]: `titled` returns `(i32, str)`, which holds a view, but takes nothing it could point into
+error[DZ0571]: `titled` returns `(i32, &str)`, which holds a view, but takes nothing it could point into
      ┌─ typeerrors/src/errors.dz:1326:16
      │
-1326 │ fn titled() -> (i32, str) {
-     │                ^^^^^^^^^^ points into nothing its caller can see
+1326 │ fn titled() -> (i32, &str) {
+     │                ^^^^^^^^^^^ points into nothing its caller can see
      │
-     = help: return text that never dies as `const str`, return something owned (`String`, `List`), or take what the result points into as a parameter (spec §6.7)
+     = help: return text that never dies as `const &str`, return something owned (`String`, `List`), or take what the result points into as a parameter (spec §6.7)
 
 error[DZ0567]: `Drawer` declares `@socks` twice
      ┌─ typeerrors/src/errors.dz:1337:10
@@ -1723,13 +1723,13 @@ error[DZ0570]: this function type returns `&Ledger`, which may point into `a` or
      │
      = help: say what the result points into after its type: `in a`, or `in (a, b)` if it may be in any of them (spec §6.7)
 
-error[DZ0571]: this function type returns `str`, which holds a view, but takes nothing it could point into
+error[DZ0571]: this function type returns `&str`, which holds a view, but takes nothing it could point into
      ┌─ typeerrors/src/errors.dz:1367:16
      │
-1367 │ fn named_by(f: fn() -> str) {}
-     │                ^^^^^^^^^^^ points into nothing its caller can see
+1367 │ fn named_by(f: fn() -> &str) {}
+     │                ^^^^^^^^^^^^ points into nothing its caller can see
      │
-     = help: a function stored here could only return memory that never dies: make the result `const str`, something owned (`String`, `List`), or take what it points into as a parameter (spec §6.7)
+     = help: a function stored here could only return memory that never dies: make the result `const &str`, something owned (`String`, `List`), or take what it points into as a parameter (spec §6.7)
 
 error[DZ0572]: this function's result may point into any of `a`, `b`, and the function type's into `a`
      ┌─ typeerrors/src/errors.dz:1378:21
@@ -1835,29 +1835,29 @@ error[DZ0533]: `view` is said by the trait, not by `impl Iterate for Ticks`
      │
      = help: write `type Item` here; the trait declares `view type Item` when an implementation may choose a view for it (spec §6.7)
 
-error[DZ0501]: expected `const str`, found `str`
+error[DZ0501]: expected `const &str`, found `&str`
      ┌─ typeerrors/src/errors.dz:1492:14
      │
 1492 │     p.text = s.as_str()
      │              ^^^^^^^^^^ this text may point into memory that dies
      │
-     = help: a `const str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
+     = help: a `const &str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
 
-error[DZ0501]: expected `const str`, found `str`
+error[DZ0501]: expected `const &str`, found `&str`
      ┌─ typeerrors/src/errors.dz:1496:12
      │
 1496 │     return s.as_str()
      │            ^^^^^^^^^^ this text may point into memory that dies
      │
-     = help: a `const str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
+     = help: a `const &str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
 
 error[DZ0569]: `const i32` is not a type
      ┌─ typeerrors/src/errors.dz:1499:16
      │
 1499 │ fn not_text(x: const i32) {}
-     │                ^^^^^^^^^ only `const str` is
+     │                ^^^^^^^^^ only `const &str` is
      │
-     = help: `const` before a type says its memory is static, and only text has that so far: `const str`, a literal or a constant's (spec §5.3)
+     = help: `const` before a type says its memory is static, and only text has that so far: `const &str`, a literal or a constant's (spec §5.3)
 
 error[DZ0574]: this constructor does not bind `m_crate` first
      ┌─ typeerrors/src/errors.dz:1512:5
@@ -1912,3 +1912,67 @@ error[DZ0501]: expected `i32?`, found `^i32`
      │
 1558 │     let o: i32? = final_item(xs.iter())
      │                   ^^^^^^^^^^^^^^^^^^^^^ this is `^i32`
+
+error[DZ0575]: `str` is not a type
+     ┌─ typeerrors/src/errors.dz:1564:17
+     │
+1564 │ fn bare_text(s: str) -> usize {
+     │                 ^^^ write `&str`
+     │
+     = help: text is borrowed from what owns it, so it is written as a reference (spec §5.3)
+
+error[DZ0575]: `const str` is not a type
+     ┌─ typeerrors/src/errors.dz:1568:19
+     │
+1568 │ const OLD_STATIC: const str = "old"
+     │                   ^^^^^^^^^ write `const &str`
+     │
+     = help: static text is borrowed too, from memory that never dies (spec §5.3)
+
+error[DZ0575]: `str?` is not a type
+     ┌─ typeerrors/src/errors.dz:1570:27
+     │
+1570 │ fn maybe_text(s: &str) -> str? in s {
+     │                           ^^^^ write `^str`
+     │
+     = help: text that may be absent is a text pointer, which may be null (spec §5.3)
+
+error[DZ0575]: `&mut str` is not a type
+     ┌─ typeerrors/src/errors.dz:1574:20
+     │
+1574 │ fn written_text(s: &mut str) {}
+     │                    ^^^^^^^^ write `&str`
+     │
+     = help: text is only read through a reference; to change it, change the `String` that owns it (spec §5.3)
+
+error[DZ0575]: `^str` is empty as `null`
+     ┌─ typeerrors/src/errors.dz:1577:12
+     │
+1577 │     return none
+     │            ^^^^ write `null`
+     │
+     = help: text that may be absent is a text pointer, and a pointer's empty case is `null` (spec §5.6)
+
+error[DZ0576]: an optional of a reference is not a type
+     ┌─ typeerrors/src/errors.dz:1580:36
+     │
+1580 │ fn optional_ref(xs: &List<i32>) -> (&i32)? in xs {
+     │                                    ^^^^^^^ write `^i32`
+     │
+     = help: a pointer already says a reference may be absent, and `or` turns it back into one (spec §5.6)
+
+error[DZ0517]: a struct field cannot hold `&str`, which is a view
+     ┌─ typeerrors/src/errors.dz:1585:15
+     │
+1585 │     pub text: &str
+     │               ^^^^ a view lives only where a reference does
+     │
+     = help: declare `Note` a `view struct`, which is itself placed as a reference is, or keep the view in a local (spec §6.7)
+
+error[DZ0517]: `&str` is a view, and `T` is not a `view` parameter
+     ┌─ typeerrors/src/errors.dz:1589:19
+     │
+1589 │     let mut all = List<&str>()
+     │                   ^^^^^^^^^^^^ a view given where it could be stored
+     │
+     = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)

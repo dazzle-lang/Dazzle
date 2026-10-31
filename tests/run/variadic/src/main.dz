@@ -4,21 +4,21 @@
 // arguments of different types through `..&Trait`, each borrowed for the call.
 
 trait Describe {
-    fn describe(&self) -> str
+    fn describe(&self) -> &str
 }
 
 struct Cat {
-    pub name: str = "cat"
+    pub name: const &str = "cat"
 }
 
 impl Describe for Cat {
-    fn describe(&self) -> str {
+    fn describe(&self) -> &str {
         return name
     }
 }
 
 impl Describe for i32 {
-    fn describe(&self) -> str {
+    fn describe(&self) -> &str {
         return "a number"
     }
 }
@@ -31,7 +31,7 @@ fn sum(xs: ..i32) -> i32 {
     return t
 }
 
-fn tell(prefix: str, things: ..&Describe) {
+fn tell(prefix: &str, things: ..&Describe) {
     println!("{} {} things", prefix, things.len)
     for &t in things {
         println!("  {}", t.describe())

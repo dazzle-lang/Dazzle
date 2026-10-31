@@ -15,7 +15,7 @@ pub struct Process {
     }
 
     /// The environment variable `name`, or `none` when it is not set.
-    pub fn env(name: str) -> String? {
+    pub fn env(name: &str) -> String? {
         let value = process_env(name) or return none
         return String(value)
     }
@@ -30,9 +30,9 @@ pub struct Process {
 extern fn process_arg_count() -> usize
 
 /// Valid for the whole run.
-extern fn process_arg(index: usize) -> str
+extern fn process_arg(index: usize) -> &str
 
 /// Valid until the next call.
-extern fn process_env(name: str) -> str?
+extern fn process_env(name: &str) -> ^str
 
 extern fn process_exit(code: i32)

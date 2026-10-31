@@ -10,7 +10,7 @@ fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills count
     n += 1
 }
 
-fn own_text(name: String, fallback: str) -> str {
+fn own_text(name: String, fallback: &str) -> &str {
     return name.as_str()
 }
 

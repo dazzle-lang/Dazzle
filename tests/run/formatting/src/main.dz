@@ -42,7 +42,7 @@ fn unit() -> i32 {
 
 /// Every parameter after the variadic one is passed by name; leaving out the first and
 /// giving the second still evaluates the first's default.
-fn total(label: str, xs: ..i32, scale: i32 = unit(), offset: i32 = 0, loc: SourceLocation = #location) -> i32 {
+fn total(label: &str, xs: ..i32, scale: i32 = unit(), offset: i32 = 0, loc: SourceLocation = #location) -> i32 {
     let mut t = 0
     for x in xs {
         t += x

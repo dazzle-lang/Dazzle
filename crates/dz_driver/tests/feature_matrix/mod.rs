@@ -51,7 +51,7 @@ pub struct Pt {
 }
 
 pub const LIMIT = 10
-pub const NAME: str = \"go\"
+pub const NAME: &str = \"go\"
 
 pub fn none_i32() -> i32? {
     return none
@@ -136,7 +136,7 @@ pub const CONSTRUCTS: &[(&str, &str, i32)] = &[
     ),
     (
         "str_switch",
-        "let w: str = \"go\"\nswitch w {\n    case \"stop\" { r = 1 }\n    case NAME { r = 3 }\n    default { r = 4 }\n}",
+        "let w: &str = \"go\"\nswitch w {\n    case \"stop\" { r = 1 }\n    case NAME { r = 3 }\n    default { r = 4 }\n}",
         3,
     ),
     (
@@ -295,7 +295,7 @@ pub const MISTAKES: &[(&str, &str, &str)] = &[
     ("break_to_unknown_label", "for i in 0..2 {\n    r += i\n    break nowhere\n}", "DZ0550"),
     ("continue_to_unknown_label", "while r < 2 {\n    r += 1\n    continue nowhere\n}", "DZ0550"),
     ("generic_method_bound", "let c = Counter{ n: 1 }\nlet (a, _) = c.twice(Res{ n: 1 })\nr = a.n", "DZ0531"),
-    ("projection_is_the_chosen_type", "let xs = List<i32>()\nlet s: str = first_of(&xs.iter())", "DZ0501"),
+    ("projection_is_the_chosen_type", "let xs = List<i32>()\nlet s: &str = first_of(&xs.iter())", "DZ0501"),
 ];
 
 /// `(name, wrapper)`: `BODY` is replaced by the case, indented to fit, and `NAME` by a

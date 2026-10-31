@@ -396,6 +396,12 @@ pub const IMPL_CLAUSE_WIDER: &str = "DZ0573";
 /// not bind it in its opening statements, a default written on it, or a value of the type
 /// left to its defaults. A reference has no zero value (spec 6.2, 6.7).
 pub const REF_FIELD_UNBOUND: &str = "DZ0574";
+/// Text spelled as a value: `str` for `&str`, `const str` for `const &str`, `str?` for
+/// `^str`, or `&mut str`, which nothing can write through. Text is borrowed (spec 5.3).
+pub const STR_NOT_BORROWED: &str = "DZ0575";
+/// An optional of a reference written out, `(&T)?`, which is no type: a pointer is the
+/// optional reference, `^T` (spec 5.6).
+pub const OPTIONAL_REFERENCE: &str = "DZ0576";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

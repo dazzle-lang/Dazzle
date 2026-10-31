@@ -80,7 +80,7 @@ fn main() {
     println!("{}", 1)
 }
 
-const TEXT: str = `begins and never ends
+const TEXT: &str = `begins and never ends
 ```
 
 ```dz
@@ -88,7 +88,7 @@ fn main() {
     println!("{}", TEXT)
 }
 
-const TEXT: str = `begins
+const TEXT: &str = `begins
 and ends`
 ```
 

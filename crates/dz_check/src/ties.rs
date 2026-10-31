@@ -266,8 +266,8 @@ pub struct UntiedResult {
 
 /// Every reference a function returns is tied to something its caller can see die: with no
 /// `in`, the result is in its one view input, so none or several is an error. A result that
-/// holds a view only through a type parameter stays unchecked, since `T` may not be one; so
-/// do a raw pointer or `cstr` with no input, which may own what it points at, as one made in
+/// holds a view only through a plain type parameter needs no tie, since `T` is never a view
+/// (D-0093, point 8); a raw pointer or `cstr` with no input, which may own what it points at, as one made in
 /// `unsafe` does, a result that may come out of a view a parameter holds by value, and an
 /// `extern fn` with no input, whose result is C's memory, outside what the checker sees.
 pub fn untied_result(scope: &Scope<'_>, f: &dz_ast::FnDecl) -> Option<UntiedResult> {
@@ -297,13 +297,13 @@ pub fn untied_result(scope: &Scope<'_>, f: &dz_ast::FnDecl) -> Option<UntiedResu
             let tied = |t: &Ty| matches!(t, Ty::Ref { .. } | Ty::Slice { .. } | Ty::Str);
             if !holds(scope.table, ret, false, tied, false, 0)
                 || (f.is_extern && f.body.is_none())
-                || scope.sig.params.iter().any(|p| holds_view(scope.table, &p.ty, true))
+                || scope.sig.params.iter().any(|p| holds_view(scope.table, &p.ty, false))
             {
                 return None;
             }
-            // Text from nowhere is usually a literal's, which is what `const str` says;
+            // Text from nowhere is usually a literal's, which is what `const &str` says;
             // but the body may build it some other way, so it is only offered.
-            let fix = (fixable && *ret == Ty::Str).then(|| (ret_span, "const str".to_owned()));
+            let fix = (fixable && *ret == Ty::Str).then(|| (ret_span, "const &str".to_owned()));
             Some(UntiedResult {
                 error: error(
                     codes::RESULT_TIED_TO_NOTHING,
@@ -313,7 +313,7 @@ pub fn untied_result(scope: &Scope<'_>, f: &dz_ast::FnDecl) -> Option<UntiedResu
                          could point into"
                     ),
                     "points into nothing its caller can see",
-                    "return text that never dies as `const str`, return something owned \
+                    "return text that never dies as `const &str`, return something owned \
                      (`String`, `List`), or take what the result points into as a parameter \
                      (spec §6.7)",
                 ),
@@ -382,7 +382,7 @@ fn untied_fn_type(scope: &Scope<'_>, names: &[String], span: Span) -> Option<Err
                 ),
                 "points into nothing its caller can see",
                 "a function stored here could only return memory that never dies: make the \
-                 result `const str`, something owned (`String`, `List`), or take what it \
+                 result `const &str`, something owned (`String`, `List`), or take what it \
                  points into as a parameter (spec §6.7)",
             ))
         }

@@ -18,13 +18,13 @@ union Item {
 }
 
 struct Player {
-    pub name:    str = "Aria"      `json:"player_name"`
+    pub name:    const &str = "Aria"      `json:"player_name"`
     pub level:   u32 = 7
     pub class:   Class = Class::Mage
     pub alive:   bool = true
     pub stats:   Stats = Stats{}
     pub scores:  [3]i32 = [0, 0, 0]
-    pub pet:     str? = none
+    pub pet:     u32? = none
     pub held:    Item = Item::Potion{ heal: 5 }
     m_session:   u64 = 99
 }
@@ -34,7 +34,7 @@ fn main() {
     p.stats.strength = 12
     p.stats.agility = 1.5
     p.scores = [10, 20, 30]
-    p.pet = "Ember"
+    p.pet = 3
     p.held = Item::Sword{ damage: 40 }
     println!("{}", to_json(&p).as_str())
 

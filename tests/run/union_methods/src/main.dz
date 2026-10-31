@@ -18,7 +18,7 @@ union Gait {
         return .Walking{ speed: 2 }
     }
 
-    pub fn name(&self) -> str {
+    pub fn name(&self) -> &str {
         return switch self {
             case Idle { "idle" }
             case Walking { "walking" }

@@ -1,19 +1,19 @@
 /// A field of a struct, a tuple, a union variant's payload, or the parts of a `str`, slice
 /// or optional (spec §13.1).
 pub struct FieldInfo {
-    pub name: str
+    pub name: const &str
     pub type_id: TypeId
     /// Bytes from the start of the value holding it.
     pub offset: usize
     pub vis: Visibility
     pub owning: bool
     /// The field's tag, without its backticks: `json:"hp" save:"-"`. Empty when it has none.
-    pub tag: str
+    pub tag: const &str
 
     /// The value `key` has in the tag, when the tag holds `key:"value"` — the convention
     /// Odin and Go use, pairs separated by spaces. `f.tag_value("json")` is `"hp"` above, and
     /// `none` for a key the tag does not mention.
-    pub fn tag_value(&self, key: str) -> str? in self {
+    pub fn tag_value(&self, key: &str) -> ^str in self {
         let bytes = tag as []u8
         let want = key as []u8
         let mut i: usize = 0
@@ -42,6 +42,6 @@ pub struct FieldInfo {
             }
             i += 1
         }
-        return none
+        return null
     }
 }

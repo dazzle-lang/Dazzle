@@ -208,9 +208,9 @@ pub struct UiElement {
 }
 
 pub struct Button : UiElement {
-    pub label: str = ""
+    pub label: const &str = ""
 
-    Button(r: Rect, text: str) : UiElement(r) { label = text }
+    Button(r: Rect, text: const &str) : UiElement(r) { label = text }
 
     pub override fn draw(&self) { ... }
     pub override fn hit(&self, p: Vec2) -> bool {
@@ -233,7 +233,7 @@ exactly as its own are, and a base's field or method may not be redeclared — a
 one thing in a type, whichever declaration it came from.
 
 **Constructors.** A base with a constructor must be constructed through it, written after
-the derived constructor's parameters: `Button(r: Rect, text: str) : UiElement(r) { … }`.
+the derived constructor's parameters: `Button(r: Rect, text: const &str) : UiElement(r) { … }`.
 Leaving it out is an error. A base without a constructor is default-initialised (§6.2) and
 needs nothing written, though `: Base()` may be written to say so. A type that has a
 constructor — its own, or an inherited one — is **not** built with a struct literal: the
@@ -368,7 +368,7 @@ union ButtonState {
     TransitionState
     ChangeSprite
 
-    pub fn name(&self) -> str {
+    pub fn name(&self) -> &str {
         return switch self {
             case DefaultState { "default" }
             case TransitionState { "transition" }

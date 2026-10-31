@@ -242,7 +242,7 @@ fn a_module_cannot_be_named_under_std() {
 #[test]
 fn builtin_types_and_functions_resolve() {
     let codes = check_snippet(
-        "fn f(a: i32, b: f32, c: str, d: bool) -> usize {\n    \
+        "fn f(a: i32, b: f32, c: &str, d: bool) -> usize {\n    \
              println!(\"{}\", a)\n    \
              return sizeof(i32)\n\
          }\n",

@@ -6,10 +6,10 @@ pub struct Team {
     pub coach: String
 }
 
-fn first_name(t: &Team) -> str in t.names[*] {
+fn first_name(t: &Team) -> &str in t.names[*] {
     return t.coach.as_str()
 }
 
-fn coach_name(t: &Team) -> str in t.coach {
+fn coach_name(t: &Team) -> &str in t.coach {
     return t.coach.as_str()
 }

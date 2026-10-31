@@ -74,14 +74,14 @@ pub struct Formatter {
     }
 
     /// Append `s`.
-    pub fn write_str(&mut self, s: str) {
+    pub fn write_str(&mut self, s: &str) {
         if m_counting {
             if m_held_len > 0 {
                 // Something follows the number, so it was not the whole argument.
                 let held = m_held
                 let n = m_held_len
                 m_held_len = 0
-                self.write_str(unsafe { held[0..n] as str })
+                self.write_str(unsafe { held[0..n] as &str })
             }
             let bytes = s as []u8
             for b in bytes {
@@ -116,7 +116,7 @@ pub struct Formatter {
     pub fn write_char(&mut self, c: char) {
         let mut encoded: [4]u8 = [0, 0, 0, 0]
         let n = encode_utf8(c, &mut encoded)
-        self.write_str(unsafe { encoded[0..n] as str })
+        self.write_str(unsafe { encoded[0..n] as &str })
     }
 
     // A formatting macro lowers to these (spec §12.9): for each placeholder `begin_arg`, the
@@ -126,7 +126,7 @@ pub struct Formatter {
 
     /// The text since the last placeholder, then this one's spec, which the argument's
     /// `Format` reads; under a width, the argument's characters are counted from here.
-    fn begin_arg(&mut self, piece: str, spec: str) kills self@spec {
+    fn begin_arg(&mut self, piece: &str, spec: &str) kills self@spec {
         self.write_str(piece)
         self.set_spec(spec)
         if m_width != none {
@@ -144,7 +144,7 @@ pub struct Formatter {
 
     /// The text after the last placeholder, and on a stream the whole of it written out —
     /// before the arguments' temporaries are dropped.
-    fn finish(&mut self, piece: str) kills self@spec {
+    fn finish(&mut self, piece: &str) kills self@spec {
         self.set_spec("")
         self.write_str(piece)
         self.flush()
@@ -179,14 +179,14 @@ pub struct Formatter {
         at -= 2
         buf[at] = '0' as u8
         buf[at + 1] = 'x' as u8
-        self.write_number(unsafe { buf[at..18] as str })
+        self.write_number(unsafe { buf[at..18] as &str })
     }
 
     /// Write a number's text — its sign, if any, then its digits — honouring `{:N}` and
     /// `{:0N}`. A number that is the whole of its argument is right-aligned in the width,
     /// with zeros after the sign under `{:0N}`; one inside a larger value, such as a field
     /// of a type's own `Format`, is written as it is, and the value as a whole is padded.
-    pub(module) fn write_number(&mut self, text: str) {
+    pub(module) fn write_number(&mut self, text: &str) {
         if m_counting && m_written == 0 && m_held_len == 0 && text.len <= 64 {
             let bytes = text as []u8
             for i in 0..bytes.len {
@@ -211,7 +211,7 @@ pub struct Formatter {
         let held = m_held
         let n = m_held_len
         m_held_len = 0
-        let text = unsafe { held[0..n] as str }
+        let text = unsafe { held[0..n] as &str }
         if n >= width {
             self.write_str(text)
             return
@@ -240,7 +240,7 @@ pub struct Formatter {
     /// Write out what a formatter on a stream holds. Dropping it does the same.
     pub fn flush(&mut self) {
         if m_used > 0 && m_stream != 2 {
-            stream_write(m_stream, unsafe { m_buf[0..m_used] as str })
+            stream_write(m_stream, unsafe { m_buf[0..m_used] as &str })
             m_used = 0
         }
     }
@@ -253,12 +253,12 @@ pub struct Formatter {
     }
 
     /// What a `message()` formatter holds.
-    fn message_text(&self) -> str {
-        return unsafe { m_buf[0..m_used] as str }
+    fn message_text(&self) -> &str {
+        return unsafe { m_buf[0..m_used] as &str }
     }
 
     /// As much of `s` as still fits in the buffer, cut where a character begins.
-    fn keep(&mut self, s: str) {
+    fn keep(&mut self, s: &str) {
         let bytes = s as []u8
         let mut n = bytes.len
         if m_used + n > 512 {
@@ -304,7 +304,7 @@ pub struct Formatter {
     /// optional `0` and width, `N` or `0N`, then `x`, `X` or `.N` — or empty for `{}`. The
     /// formatting macros call this before each argument; an implementation may call it to
     /// write a part of itself differently.
-    pub fn set_spec(&mut self, spec: str) kills self@spec {
+    pub fn set_spec(&mut self, spec: &str) kills self@spec {
         m_width = none
         m_zero = false
         let bytes = spec as []u8
@@ -341,4 +341,4 @@ impl Drop for Formatter {
 }
 
 /// Write `text` to standard output (`which` 0) or standard error (1).
-extern fn stream_write(which: i32, text: str)
+extern fn stream_write(which: i32, text: &str)

@@ -8,10 +8,10 @@
 static DROPS: i32 = 0
 
 struct Enemy {
-    pub name: str = ""
+    pub name: const &str = ""
     pub hp: i32 = 0
 
-    Enemy(name: str, hp: i32) {
+    Enemy(name: const &str, hp: i32) {
         self.name = name
         self.hp = hp
     }

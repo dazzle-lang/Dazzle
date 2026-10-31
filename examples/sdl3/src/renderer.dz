@@ -57,7 +57,7 @@ fn compile(kind: u32, parts: []cstr) -> u32 {
             log.ptr as ^mut i8
         })
         panic!("a shader did not compile:\n{}", unsafe {
-            log[0..len as usize] as str
+            log[0..len as usize] as &str
         })
     }
     return shader
@@ -81,7 +81,7 @@ fn link(vertex: []cstr, fragment: []cstr) -> u32 {
             log.ptr as ^mut i8
         })
         panic!("a shader program did not link:\n{}", unsafe {
-            log[0..len as usize] as str
+            log[0..len as usize] as &str
         })
     }
     return program

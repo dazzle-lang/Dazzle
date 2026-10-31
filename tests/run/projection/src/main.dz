@@ -5,7 +5,7 @@
 // makes its items, `Vec2` for a `Vec2 * f32`.
 
 struct Monster {
-    pub name: str = ""
+    pub name: const &str = ""
     pub hp: i32 = 0
 }
 

@@ -1,6 +1,6 @@
 /// An enum's or a union's variant (spec §13.1).
 pub struct VariantInfo {
-    pub name: str
+    pub name: const &str
     /// An enum variant's value, or the tag a union holds while this variant is active.
     pub value: i64
     /// A union variant's payload, with offsets from the start of the union. A variant that

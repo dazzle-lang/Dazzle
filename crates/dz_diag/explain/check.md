@@ -787,7 +787,7 @@ declare a tie for the field instead: the tie is a public name for that private m
 pub struct Party {
     m_members: List<String> = List<String>()
 
-    pub fn recruit(&mut self, name: str) kills self.m_members {
+    pub fn recruit(&mut self, name: &str) kills self.m_members {
         m_members.push(String::from(name))
     }
 }
@@ -803,7 +803,7 @@ pub struct Party {
     m_members: List<String> = List<String>()
     tie @members = m_members@items
 
-    pub fn recruit(&mut self, name: str) kills self@members {
+    pub fn recruit(&mut self, name: &str) kills self@members {
         m_members.push(String::from(name))
     }
 }
@@ -899,7 +899,7 @@ pub struct Party {
     tie @members = m_members@items
     tie @members = m_guests
 
-    pub fn recruit(&mut self, name: str) kills self@members {
+    pub fn recruit(&mut self, name: &str) kills self@members {
         m_members.push(String::from(name))
     }
 }
@@ -916,7 +916,7 @@ pub struct Party {
     m_guests: List<String> = List<String>()
     tie @members = m_members@items, m_guests@items
 
-    pub fn recruit(&mut self, name: str) kills self@members {
+    pub fn recruit(&mut self, name: &str) kills self@members {
         m_members.push(String::from(name))
     }
 }
@@ -993,7 +993,7 @@ fn main() {
 ```
 
 ```dz
-fn label(big: bool) -> const str {
+fn label(big: bool) -> const &str {
     if big {
         return "large"
     }
@@ -1015,7 +1015,7 @@ result may be in any of them. The same goes for a struct, tuple or optional hold
 such as an iterator. The fix offered names every input; narrow it to what the body returns.
 
 ```dz
-fn longer(a: str, b: str) -> str {
+fn longer(a: &str, b: &str) -> &str {
     if a.len >= b.len {
         return a
     }
@@ -1028,7 +1028,7 @@ fn main() {
 ```
 
 ```dz
-fn longer(a: str, b: str) -> str in (a, b) {
+fn longer(a: &str, b: &str) -> &str in (a, b) {
     if a.len >= b.len {
         return a
     }
@@ -1049,7 +1049,7 @@ its own local, which is gone, or memory no signature names. Text that never dies
 A raw pointer or a `cstr` from nothing stays untied, since it may own what it points at.
 
 ```dz
-fn greeting(formal: bool) -> str {
+fn greeting(formal: bool) -> &str {
     if formal {
         return "good day"
     }
@@ -1062,7 +1062,7 @@ fn main() {
 ```
 
 ```dz
-fn greeting(formal: bool) -> const str {
+fn greeting(formal: bool) -> const &str {
     if formal {
         return "good day"
     }
@@ -1083,18 +1083,18 @@ result past the death of memory the type never named. With no `in`, a function t
 result is in its one view input, as a declaration's is.
 
 ```dz
-fn longer(a: str, b: str) -> str in (a, b) {
+fn longer(a: &str, b: &str) -> &str in (a, b) {
     if a.len >= b.len {
         return a
     }
     return b
 }
 
-fn first(a: str, b: str) -> str in a {
+fn first(a: &str, b: &str) -> &str in a {
     return a
 }
 
-fn show(f: fn(a: str, b: str) -> str in a) {
+fn show(f: fn(a: &str, b: &str) -> &str in a) {
     println!("{}", f("ab", "c"))
 }
 
@@ -1105,18 +1105,18 @@ fn main() {
 ```
 
 ```dz
-fn longer(a: str, b: str) -> str in (a, b) {
+fn longer(a: &str, b: &str) -> &str in (a, b) {
     if a.len >= b.len {
         return a
     }
     return b
 }
 
-fn first(a: str, b: str) -> str in a {
+fn first(a: &str, b: &str) -> &str in a {
     return a
 }
 
-fn show(f: fn(a: str, b: str) -> str in (a, b)) {
+fn show(f: fn(a: &str, b: &str) -> &str in (a, b)) {
     println!("{}", f("ab", "c"))
 }
 
@@ -1237,5 +1237,73 @@ fn main() {
     let b = Bag{}
     let p = Peek(&b)
     println!("{}", p.n())
+}
+```
+
+## DZ0575
+
+Text is borrowed from what owns it, a `String` or a literal's static memory, so it is
+written as a reference (spec 5.3, D-0093): `&str`, never a bare `str`. Static text is
+`const &str`, since the constness is the reference's. Text that may be absent is the text
+pointer `^str`, whose empty case is `null`, where it was `str?`. There is no `&mut str`:
+text is changed through the `String` that owns it. `dz fix` respells each of these.
+
+```dz
+fn greet(name: str) -> ^str in name {
+    if name.len == 0 {
+        return null
+    }
+    return name
+}
+
+fn main() {
+    let n = greet("ada") or return
+    println!("{}", n)
+}
+```
+
+```dz
+fn greet(name: &str) -> ^str in name {
+    if name.len == 0 {
+        return null
+    }
+    return name
+}
+
+fn main() {
+    let n = greet("ada") or return
+    println!("{}", n)
+}
+```
+
+## DZ0576
+
+`?` applies to values, and a reference is not one: an optional of a reference, `(&T)?`, is
+no type (spec 5.6). A pointer already says that a reference may be absent, so write `^T`,
+and turn it back into the reference with `or` where it is used. `dz fix` respells it.
+
+```dz
+fn first(xs: &List<i32>) -> (&i32)? in xs {
+    return xs.first()
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    xs.push(3)
+    let x = first(&xs) or return
+    println!("{}", x)
+}
+```
+
+```dz
+fn first(xs: &List<i32>) -> ^i32 in xs {
+    return xs.first()
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    xs.push(3)
+    let x = first(&xs) or return
+    println!("{}", x)
 }
 ```

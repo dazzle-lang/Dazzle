@@ -6,6 +6,39 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r98: text is borrowed (2026-10-31)
+
+T-0109, D-0093's third step. The language change is a spelling and a placement; the
+representation did not move.
+
+- **Lowering** (`lower_type_inner`): `&str` is `Ty::Str`, `const &str` `Ty::ConstStr`,
+  `^str` `Ty::Optional(Str)`. The old spellings and `&mut str` are `DZ0575` with a certain
+  fix, `(&T)?` (a one-element tuple to the parser, read through `grouped`) is `DZ0576`
+  respelled `^T`. `written_fix` attaches an edit only where the source says what the
+  message does, so a macro's expansion, whose tokens sit at its invocation, gets none.
+- **Display** (`type_name_at`): `&str`, `const &str`, `^str`; every message that said `const
+  str` says `const &str`.
+- **`null` and `^str`**: `null` where a `^str` is wanted is its empty case, `x == null`
+  compares as `x == none` did, and `none` for one is `DZ0575`.
+- **Placement**: `placed_as_view(Ty::Str)`, so `DZ0517` covers a text field, element, type
+  argument, static and union payload; `check_view_arg` exempts a trait's arguments.
+- **std**: `impl ImplicitAs<&str> for String`; `find_by<view Q: Copy>` takes the key itself;
+  `key_hash<view K>`; `Join for List<const &str>`; reflection's names `const &str`.
+- **Ties**: `generic_result` and its `Signature` field are gone, and `untied_result` no
+  longer lets a plain `T` parameter excuse an untied result.
+
+The migration ran the compiler over itself: a scratch script applied every certain `DZ0575`
+and `DZ0576` fix to std (rebuilding `dz` between rounds, since std is compiled in), then to
+every project in `tests/` and `examples/` and to the single-file corpora; a second pass
+turned each stored `&str` (`DZ0517`) into `const &str`, and what still failed was changed by
+hand, mostly to `String` where runtime text had been stored. Rust test snippets, `explain`
+and the spec's examples were respelled by pattern. `tests/bench_programs/expr` was the one
+real rewrite: its tokens and names viewed the program, so they now keep spans, the parser is
+a view struct holding `&String`, and names are `String` keys looked up with `get_str`.
+
+Tests: `typed/`'s `text_kinds`, `typeerrors/`'s spellings, `(&i32)?`, a text field and
+`List<&str>`, `dz explain DZ0575` and `DZ0576`.
+
 ## r97: an optional reference item is a pointer (2026-10-31)
 
 T-0111's second item, T-0085's option 3. `last<view T: Iterate>(it: T) -> T::Item?` over a

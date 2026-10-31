@@ -5,7 +5,7 @@
 
 /// Books on a shelf that grows as it fills.
 struct Shelf<T> {
-    pub label:   str
+    pub label:   const &str
     // `own`: a Shelf frees this pointer itself. That makes Shelf move-only unless it says
     // how to copy, and it is a compile error for Shelf not to have a `drop`.
     m_data:      own ^mut T
@@ -16,7 +16,7 @@ struct Shelf<T> {
     m_allocator: ^mut Allocator = Allocators::Global
 
     // The constructor: named after the struct, no return type.
-    Shelf(label: str, cap: usize, allocator: ^mut Allocator = Allocators::Global) {
+    Shelf(label: const &str, cap: usize, allocator: ^mut Allocator = Allocators::Global) {
         self.label = label
         m_allocator = allocator
         m_data = self.take(cap)
@@ -122,7 +122,7 @@ impl<T: Copy> Copy for Shelf<T> {
 }
 
 struct Book {
-    pub title: str
+    pub title: const &str
     pub year:  i32
 }
 

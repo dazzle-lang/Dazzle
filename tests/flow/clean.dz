@@ -142,7 +142,7 @@ fn first_of(xs: &List<i32>) -> &i32 {
     return it.get()
 }
 
-fn first_piece(line: &String) -> str {
+fn first_piece(line: &String) -> &str {
     let parts = line.as_str().split(",")
     return parts.get()
 }
@@ -157,7 +157,7 @@ fn only_another_changes(a: &List<i32>, b: &List<i32>, c: &mut List<i32>) kills c
     let _ = x.len()
 }
 
-fn popped_text_survives(names: &mut List<str>) kills names@items {
+fn popped_text_survives(names: &mut List<const &str>) kills names@items {
     let s = names.pop() or return
     names.push("x")
     let _ = s.len

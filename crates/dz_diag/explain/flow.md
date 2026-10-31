@@ -217,11 +217,11 @@ reference or pointer — may be passed to a call in that same statement, but kee
 
 ```dz
 fn text_len(c: cstr) -> usize {
-    return (c as str).len
+    return (c as &str).len
 }
 
 fn main() {
-    let name: str = "hero"
+    let name: &str = "hero"
     let c = String::from(name).as_cstr()
     println!("{}", text_len(c))
 }
@@ -229,11 +229,11 @@ fn main() {
 
 ```dz
 fn text_len(c: cstr) -> usize {
-    return (c as str).len
+    return (c as &str).len
 }
 
 fn main() {
-    let name: str = "hero"
+    let name: &str = "hero"
     let owned = String::from(name)
     let c = owned.as_cstr()
     println!("{}", text_len(c))
@@ -366,7 +366,7 @@ pub struct Team {
     pub coach: String
 }
 
-fn first_name(t: &Team) -> str in t.names[*] {
+fn first_name(t: &Team) -> &str in t.names[*] {
     return t.coach.as_str()
 }
 
@@ -382,7 +382,7 @@ pub struct Team {
     pub coach: String
 }
 
-fn coach_name(t: &Team) -> str in t.coach {
+fn coach_name(t: &Team) -> &str in t.coach {
     return t.coach.as_str()
 }
 

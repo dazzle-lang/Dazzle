@@ -4,7 +4,7 @@
 // wrong-size free, and `a_tracked_build_reports_leaks_and_bad_frees` runs this fixture.
 
 struct Label {
-    pub text: str = ""
+    pub text: const &str = ""
 }
 
 impl Drop for Label {

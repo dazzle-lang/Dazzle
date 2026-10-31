@@ -5,18 +5,18 @@
 // function name (T-0047).
 
 // T-0058: the default calls a function declared after it, in a free function and a method.
-fn greet(name: str = default_name()) -> str {
+fn greet(name: &str = default_name()) -> &str {
     return name
 }
 
 struct Greeter {
-    pub fn greet(&self, name: str = default_name(), times: i32 = default_times()) -> i32 {
+    pub fn greet(&self, name: &str = default_name(), times: i32 = default_times()) -> i32 {
         println!("{} x{}", name, times)
         return times
     }
 }
 
-fn default_name() -> const str {
+fn default_name() -> const &str {
     return "world"
 }
 

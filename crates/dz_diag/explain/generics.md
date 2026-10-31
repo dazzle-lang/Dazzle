@@ -337,20 +337,20 @@ to choose between them (spec §7.6). Keep one.
 
 ```dz
 trait Named {
-    fn name(&self) -> str
+    fn name(&self) -> &str
 }
 
 struct Unit {
 }
 
 impl Named for Unit {
-    fn name(&self) -> str {
+    fn name(&self) -> &str {
         return "unit"
     }
 }
 
 impl Named for Unit {
-    fn name(&self) -> str {
+    fn name(&self) -> &str {
         return "also unit"
     }
 }
@@ -360,14 +360,14 @@ fn main() {}
 
 ```dz
 trait Named {
-    fn name(&self) -> str
+    fn name(&self) -> &str
 }
 
 struct Unit {
 }
 
 impl Named for Unit {
-    fn name(&self) -> str {
+    fn name(&self) -> &str {
         return "unit"
     }
 }

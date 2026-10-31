@@ -21,12 +21,12 @@ fn words() -> List<String> {
     return l
 }
 
-fn returned(fallback: str) -> str {
+fn returned(fallback: &str) -> &str {
     return make().as_str()
 }
 
 fn takes(c: cstr) -> usize {
-    return (c as str).len
+    return (c as &str).len
 }
 
 fn main() {

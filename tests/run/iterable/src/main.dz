@@ -4,7 +4,7 @@
 // user container joins in by implementing the two traits.
 
 struct Monster {
-    pub name: str = ""
+    pub name: const &str = ""
     pub hp: i32 = 0
 }
 
@@ -55,7 +55,7 @@ fn main() {
         println!("{} has {}", m.name, m.hp)
     }
 
-    let mut scores = HashMap<str, i32>()
+    let mut scores = HashMap<const &str, i32>()
     scores.insert("ada", 10)
     scores.insert("grace", 20)
     scores.insert("linus", 30)

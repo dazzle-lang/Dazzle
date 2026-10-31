@@ -21,8 +21,8 @@ pub enum TypeKind : u8 {
 }
 
 pub struct TypeInfo {
-    pub name:       str             // `Transform`, `List<i32>`, `[]u8` — as Dazzle writes it
-    pub module_name: str            // the declaring module of a named type; empty otherwise
+    pub name:       const &str             // `Transform`, `List<i32>`, `[]u8` — as Dazzle writes it
+    pub module_name: const &str            // the declaring module of a named type; empty otherwise
     pub size:       usize
     pub align:      usize
     pub kind:       TypeKind
@@ -35,18 +35,18 @@ pub struct TypeInfo {
 }
 
 pub struct FieldInfo {
-    pub name:    str
+    pub name:    const &str
     pub type_id: TypeId
     pub offset:  usize              // bytes from the start of the value
     pub vis:     Visibility         // Private, Protected, Module, Public
     pub owning:  bool               // an `own` field
-    pub tag:     str                // the field's tag, `json:"hp"`, or empty
+    pub tag:     const &str                // the field's tag, `json:"hp"`, or empty
 
-    pub fn tag_value(&self, key: str) -> str?   // `f.tag_value("json")` → `"hp"`
+    pub fn tag_value(&self, key: &str) -> ^str   // `f.tag_value("json")` → `"hp"`
 }
 
 pub struct VariantInfo {
-    pub name:   str
+    pub name:   const &str
     pub value:  i64                 // an enum variant's value; a union variant's tag
     pub fields: []FieldInfo         // a union variant's payload, offsets from the union's start
 }

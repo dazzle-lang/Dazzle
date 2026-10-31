@@ -1411,9 +1411,9 @@ impl<'a, 'c> Body<'a, 'c> {
             self.cx.error_help(
                 codes::TYPE_MISMATCH,
                 span,
-                "expected `const str`, found `str`",
+                "expected `const &str`, found `&str`",
                 "this text may point into memory that dies",
-                "a `const str` is text in static storage, a literal or a constant's, and nothing \
+                "a `const &str` is text in static storage, a literal or a constant's, and nothing \
                  ever kills it; a `str` may view a `String`, so it cannot become one. Keep the \
                  text as a `String`, or make the field or result a `str` (spec §5.3)",
             );
@@ -1931,7 +1931,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         (d.clone(), None)
                     }
                     (None, Some(init)) => {
-                        // The binding takes the value's own type: a `const str` stays one (§5.3).
+                        // The binding takes the value's own type: a `const &str` stays one (§5.3).
                         let c = self.expr_inner(init, None);
                         if matches!(c.ty, Ty::Void) {
                             self.cx.error(
@@ -1980,7 +1980,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         }
                     }
                 }
-                // `expr_inner`: a `const str` place takes only a `const str` (spec §5.3).
+                // `expr_inner`: a `const &str` place takes only a `const &str` (spec §5.3).
                 let mut t = self.expr_inner(target, None);
                 // Assigning to a `&mut T` writes the `T` it refers to (spec §5.2). A `&T` is
                 // typed the same way, so the one error about it is that it is read-only.
@@ -2826,7 +2826,7 @@ impl<'a, 'c> Body<'a, 'c> {
     /// read — and reports `DZ0402` when `T` is move-only — and codegen sees the copy.
     fn expr(&mut self, e: &Expr, expected: Option<&Ty>) -> Checked {
         let mut checked = self.expr_inner(e, expected);
-        // A `const str` read where no `const str` is wanted is a plain `str`: one C++ type,
+        // A `const &str` read where no `const &str` is wanted is a plain `str`: one C++ type,
         // so nothing converts, and every operation on text applies (spec §5.3). Where a place
         // of it is written, its type is kept (`assign`, `&mut`).
         if checked.ty == Ty::ConstStr
@@ -2925,7 +2925,7 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Str(text) => {
                 let ty = match expected.map(|t| self.subst(t)) {
                     Some(Ty::CStr) => Ty::CStr,
-                    // And a `const str` wherever one is wanted: it never dies (spec §5.3).
+                    // And a `const &str` wherever one is wanted: it never dies (spec §5.3).
                     Some(Ty::ConstStr) => Ty::ConstStr,
                     _ => Ty::Str,
                 };
@@ -2947,6 +2947,13 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             ExprKind::Bool(b) => self.mk(e, Ty::Bool, hir::ExprKind::Bool(*b)),
             ExprKind::Null => {
+                // Text that may be absent is the text pointer, so `null` is its empty case
+                // (spec §5.6): the same value as an empty optional.
+                if let Some(t) = expected.map(|t| self.subst(t)) {
+                    if matches!(&t, Ty::Optional(inner) if matches!(**inner, Ty::Str)) {
+                        return self.mk(e, t, hir::ExprKind::NoneOpt);
+                    }
+                }
                 let ty = match expected.map(|t| self.subst(t)) {
                     Some(t @ (Ty::Ptr { .. } | Ty::OwnPtr { .. })) => t,
                     // An empty `Rc`, `Weak` or `Box` — the handle's default (spec §14.5).
@@ -2973,6 +2980,21 @@ impl<'a, 'c> Body<'a, 'c> {
                         }
                     },
                 };
+                // `^str` is a pointer, whose empty case is `null` (spec §5.6).
+                if matches!(&ty, Ty::Optional(inner) if matches!(**inner, Ty::Str)) {
+                    let d = Diagnostic::error(codes::STR_NOT_BORROWED, "`^str` is empty as `null`")
+                        .at(self.cx.file, e.span, "write `null`")
+                        .with_help(
+                            "text that may be absent is a text pointer, and a pointer's empty \
+                             case is `null` (spec §5.6)",
+                        );
+                    // Not in a macro's expansion, whose tokens are at its invocation.
+                    let d = match self.cx.written_fix(e.span, "none", "null") {
+                        Some(edit) => d.with_fix("write `null`", vec![edit]),
+                        None => d,
+                    };
+                    self.cx.diags.push(d);
+                }
                 self.mk(e, ty, hir::ExprKind::NoneOpt)
             }
             ExprKind::Path(p) => self.path_expr(p, e, expected),
@@ -3010,7 +3032,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                     _ => None,
                 };
-                // Through a `&mut`, a `const str` place is written, so it keeps its type.
+                // Through a `&mut`, a `const &str` place is written, so it keeps its type.
                 let inner = if *mutable && wanted.is_none() {
                     self.expr_inner(expr, None)
                 } else {
@@ -3669,7 +3691,12 @@ impl<'a, 'c> Body<'a, 'c> {
                 // A `T?` is compared only with `none`, which asks whether it is empty (spec
                 // §9). Two optionals have no comparison in the spec, and used to reach C++
                 // as `Opt == Opt`, which does not compile (invariant 7).
-                let is_none = |x: &Expr| matches!(x.kind, ExprKind::None);
+                // `null` too, for `^str`, the text pointer (§5.6).
+                let text = matches!(&a.ty, Ty::Optional(i) if matches!(**i, Ty::Str))
+                    || matches!(&b.ty, Ty::Optional(i) if matches!(**i, Ty::Str));
+                let is_none = |x: &Expr| {
+                    matches!(x.kind, ExprKind::None) || (text && matches!(x.kind, ExprKind::Null))
+                };
                 let optional = matches!(a.ty, Ty::Optional(_)) || matches!(b.ty, Ty::Optional(_));
                 if optional && !(matches!(op, Eq | Ne) && (is_none(lhs) || is_none(rhs))) {
                     let (x, y) = (self.cx.name_of(&a.ty), self.cx.name_of(&b.ty));

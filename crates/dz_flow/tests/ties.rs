@@ -143,7 +143,7 @@ fn broad_view(w: &World) -> ^Text in w@bag { return w.bag.data }
 fn tied(e: &mut Text in w.bag[*], w: &mut World) kills w.bag@items {}
 fn identity(x: &Text) -> &Text { return x }
 fn in_either(x: &Text, y: &Text) -> &Text in (x, y) { return x }
-fn literal() -> const str { return "static" }
+fn literal() -> const &str { return "static" }
 fn paired(x: &Text) -> (&Text, i32) { return (x, 1) }
 fn generic<T>(x: &Text, v: T) -> T? { return v }
 fn read(w: &World) -> i32 { return 1 }
@@ -246,9 +246,9 @@ fn every_returned_view_says_where_it_points() {
     // The checker holds signatures to it: none or several inputs and no `in` (§6.7).
     let rejected = [
         ("fn two(x: &Text, y: &Text) -> &Text { return x }", "DZ0570"),
-        ("fn two_aggregate(x: str, y: str) -> str? { return x }", "DZ0570"),
-        ("fn nothing() -> str { return \"x\" }", "DZ0571"),
-        ("fn nothing_held() -> (i32, str) { return (1, \"x\") }", "DZ0571"),
+        ("fn two_aggregate(x: &str, y: &str) -> ^str { return x }", "DZ0570"),
+        ("fn nothing() -> &str { return \"x\" }", "DZ0571"),
+        ("fn nothing_held() -> (i32, &str) { return (1, \"x\") }", "DZ0571"),
     ];
     for (source, code) in rejected {
         let codes = Fixture::codes(source);
@@ -280,7 +280,7 @@ fn halves(s: &mut String) kills s@text {
     s.push_str("x")
     println!("{}", a)
 }
-fn popped(names: &mut List<str>) kills names@items {
+fn popped(names: &mut List<const &str>) kills names@items {
     let s = names.pop() or return
     names.push("x")
     println!("{}", s)
@@ -1049,7 +1049,7 @@ fn containers_built_from_containers_are_held_to_their_clauses() {
 fn taking_an_element_out_ends_views_into_what_elements_own() {
     let fixture = Fixture::with_source(
         r#"
-fn use_str(s: str) {}
+fn use_str(s: &str) {}
 fn dropped(xs: &mut List<String>) kills xs@items, xs[*] {
     let s = xs[0].as_str()
     {
@@ -1267,7 +1267,7 @@ fn outside(b: &mut Body) kills b {
 fn std_clauses_catch_the_scenarios_of_spec_6_7() {
     let fixture = Fixture::with_source(
         r#"
-fn use_str(s: str) {}
+fn use_str(s: &str) {}
 fn use_int(n: &mut i32) {}
 fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items, counts[*] {
     let n = counts.get_or_insert(k, 0)
