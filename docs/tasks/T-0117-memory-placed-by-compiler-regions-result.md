@@ -42,6 +42,26 @@ what `dz` shows for each placement. Should follow D-0093's steps, since placemen
 about the same views. Then [T-0118](T-0118-skip-drops-that-only-free-region.md) and
 [T-0119](T-0119-remove-allocators-from-ordinary-code.md).
 
+**Agreed 2026-10-31: scope regions first, behind a go/no-go gate.** Ties stay whatever
+happens here; regions are kept only if they earn it. Build scope regions alone (no result
+placement yet), then measure:
+
+| Gate | Passes when |
+|---|---|
+| a loop reassigning a `String` 1M times (`s = format!(…)`) | peak memory stays flat |
+| `tests/bench_programs` `astar`, `words`, `expr` | each faster than the heap |
+| peak memory on the same | within 10% of the heap's |
+| every wrong placement | the ties check refuses it, and the value goes to the heap |
+
+If any gate fails, regions are dropped: allocators stay as §14 to §14.2 write them, and
+T-0118 and T-0119 close as not doing.
+
+**The loop rule, from T-0104, missing until now:** an allocation that can run more than once
+while its region is alive goes to the heap, unless the value it makes dies within the same
+pass. Without it, `s = format!(…)` in a loop, or `self.items = List()` every frame, grows the
+outer region without bound, which is where region inference failed before (the ML Kit). The
+first gate row tests it.
+
 **Settled in r90:**
 
 - **The prototype is removed, all three stages**, and kept at the git tag
