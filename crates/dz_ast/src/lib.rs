@@ -164,6 +164,10 @@ impl Generics {
 #[derive(Clone, Debug)]
 pub struct GenericParam {
     pub span: Span,
+    /// `view T`: the parameter may be given a view, and the generic body treats a value of
+    /// it as one (spec §6.7, D-0093). `view` is a keyword only here, before `struct` and
+    /// before `type`.
+    pub is_view: bool,
     pub name: Ident,
     /// `T: Hash + Eq`
     pub bounds: Vec<Path>,
@@ -275,6 +279,9 @@ pub enum TieStep {
 #[derive(Clone, Debug)]
 pub struct StructDecl {
     pub span: Span,
+    /// `view struct`: a struct that may hold views, and is itself one, placed only where a
+    /// reference may be (spec §6.7, D-0093).
+    pub is_view: bool,
     pub name: Ident,
     pub generics: Generics,
     /// `struct Button : UiElement` — the one base a struct may inherit from (spec §7.3).
@@ -314,6 +321,9 @@ pub enum MemberKind {
     /// which names a type without choosing it; `type Item = &T` on an implementer, which
     /// chooses one.
     TypeAlias {
+        /// `view type Item` on a trait: an implementation may choose a view for it, and a
+        /// projection of it is treated as one (spec §6.7, D-0093).
+        is_view: bool,
         name: Ident,
         bounds: Vec<Path>,
         ty: Option<Type>,

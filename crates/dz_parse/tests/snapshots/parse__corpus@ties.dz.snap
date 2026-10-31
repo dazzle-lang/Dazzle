@@ -70,6 +70,22 @@ fn each(f: fn(xs: &mut List<i32>) kills xs@items, n: i32)
   block
 fn each_first(f: fn(xs: &List<i32>) -> ^i32 in xs, n: i32)
   block
+pub view struct Cursor<view I: Iterate, T>
+  field inner: I
+  field view: i32
+    default
+      int 0
+trait Walk
+  view type Steps: Iterate
+  type Plain
+fn count<view T: Iterate, view>(it: T, view: i32) -> i32
+  block
+    let view
+      binary +
+        path view
+        int 1
+    return
+      path view
 
 === DIAGNOSTICS ===
 (none)

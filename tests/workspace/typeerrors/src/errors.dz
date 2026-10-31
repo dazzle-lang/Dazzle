@@ -1378,6 +1378,85 @@ fn picks_wide(a: &Ledger, b: &Ledger) -> &Ledger in a {
     return run_pick(either_ledger, a, b)
 }
 
+// Views placed where only a reference may go (spec §6.7, D-0093): an iterator, a `view
+// struct`, in a plain struct's field, in a container, and given to a plain type parameter; a
+// `view` parameter on a plain struct and on a trait; an implementation reaching a `view`
+// parameter through a plain one; a view chosen for a plain associated type; and `view`
+// written on an implementation's choice.
+struct HoldsIter {
+    pub it: SliceIter<i32>
+}
+
+fn keep<T>(x: T) -> T {
+    return move(x)
+}
+
+fn stores_views(xs: &List<i32>) {
+    let _kept = keep(xs.iter())
+    let _many = List<SliceIter<i32>>()
+}
+
+struct Wrapper<view I: Iterate> {
+    pub inner: I
+}
+
+trait Takes<view T> {
+    fn take(&self, t: T)
+}
+
+view struct Around<view I: Iterate> {
+    pub inner: I
+}
+
+impl<I: Iterate> Iterate for Around<I> {
+    type Item = I::Item
+
+    fn valid(&self) -> bool {
+        return inner.valid()
+    }
+
+    fn get(&self) -> I::Item {
+        return inner.get()
+    }
+
+    fn advance(&mut self) {
+        inner.advance()
+    }
+}
+
+trait Source {
+    type Out
+    fn out(&self) -> Out
+}
+
+impl Source for Ledger {
+    type Out = SliceIter<i32>
+
+    fn out(&self) -> SliceIter<i32> {
+        return lines.iter()
+    }
+}
+
+struct Ticks {
+    pub left: i32 = 0
+}
+
+impl Iterate for Ticks {
+    view type Item = i32
+
+    fn valid(&self) -> bool {
+        return left > 0
+    }
+
+    fn get(&self) -> i32 {
+        return left
+    }
+
+    fn advance(&mut self) {
+        left -= 1
+    }
+}
+
 // `const str` (spec §5.3): text that may die where static text is wanted, written to a field
 // and returned, and `const` before a type that is not `str`.
 pub struct Plaque {

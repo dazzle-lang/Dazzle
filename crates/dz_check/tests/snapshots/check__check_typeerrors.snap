@@ -1739,26 +1739,90 @@ error[DZ0572]: this function's result may point into any of `a`, `b`, and the fu
      │
      = help: a function type's `in` is everything the result of a function stored in it may point into, and every call through it relies on that: widen the type, `fn(a: &T, b: &T) -> &T in (a, b)`, or store a function whose result points into no more (spec §6.7)
 
-error[DZ0501]: expected `const str`, found `str`
-     ┌─ typeerrors/src/errors.dz:1388:14
+error[DZ0517]: a struct field cannot hold `SliceIter<i32>`, which is a view
+     ┌─ typeerrors/src/errors.dz:1387:13
      │
-1388 │     p.text = s.as_str()
+1387 │     pub it: SliceIter<i32>
+     │             ^^^^^^^^^^^^^^ a view lives only where a reference does
+     │
+     = help: declare `HoldsIter` a `view struct`, which is itself placed as a reference is, or keep the view in a local (spec §6.7)
+
+error[DZ0517]: `SliceIter<i32>` is a view, and `T` is not a `view` parameter
+     ┌─ typeerrors/src/errors.dz:1395:17
+     │
+1395 │     let _kept = keep(xs.iter())
+     │                 ^^^^^^^^^^^^^^^ a view given where it could be stored
+     │
+     = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
+
+error[DZ0517]: `SliceIter<i32>` is a view, and `T` is not a `view` parameter
+     ┌─ typeerrors/src/errors.dz:1396:17
+     │
+1396 │     let _many = List<SliceIter<i32>>()
+     │                 ^^^^^^^^^^^^^^^^^^^^^^ a view given where it could be stored
+     │
+     = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
+
+error[DZ0517]: `I` is a `view` parameter, so `Wrapper` may hold a view
+     ┌─ typeerrors/src/errors.dz:1399:16
+     │
+1399 │ struct Wrapper<view I: Iterate> {
+     │                ^^^^^^^^^^^^^^^ may be given a view
+     │
+     = help: declare it `view struct Wrapper`, which is placed as a reference is, or drop `view` if `I` is never given one (spec §6.7)
+
+error[DZ0517]: `T` is a `view` parameter, so `Takes` may hold a view
+     ┌─ typeerrors/src/errors.dz:1403:13
+     │
+1403 │ trait Takes<view T> {
+     │             ^^^^^^ may be given a view
+     │
+     = help: only a function, an `impl` or a `view struct` takes a `view` parameter, and a trait is none of them (spec §6.7)
+
+error[DZ0517]: `I` reaches `Around`'s `view` parameter, so it may be a view
+     ┌─ typeerrors/src/errors.dz:1411:6
+     │
+1411 │ impl<I: Iterate> Iterate for Around<I> {
+     │      ^ not declared `view`
+     │
+     = help: write `impl<view I: …>`, so the implementation treats a value of `I` as the view it may be (spec §6.7)
+
+error[DZ0517]: `SliceIter<i32>` is a view, and `Source`'s `Out` is not a `view type`
+     ┌─ typeerrors/src/errors.dz:1433:10
+     │
+1433 │     type Out = SliceIter<i32>
+     │          ^^^ a view chosen where it could be stored
+     │
+     = help: generic code may store a value of `Out` anywhere; only a trait that declares `view type Out` takes a view for it (spec §6.7)
+
+error[DZ0533]: `view` is said by the trait, not by `impl Iterate for Ticks`
+     ┌─ typeerrors/src/errors.dz:1445:15
+     │
+1445 │     view type Item = i32
+     │               ^^^^ `view` written on a choice
+     │
+     = help: write `type Item` here; the trait declares `view type Item` when an implementation may choose a view for it (spec §6.7)
+
+error[DZ0501]: expected `const str`, found `str`
+     ┌─ typeerrors/src/errors.dz:1467:14
+     │
+1467 │     p.text = s.as_str()
      │              ^^^^^^^^^^ this text may point into memory that dies
      │
      = help: a `const str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
 
 error[DZ0501]: expected `const str`, found `str`
-     ┌─ typeerrors/src/errors.dz:1392:12
+     ┌─ typeerrors/src/errors.dz:1471:12
      │
-1392 │     return s.as_str()
+1471 │     return s.as_str()
      │            ^^^^^^^^^^ this text may point into memory that dies
      │
      = help: a `const str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
 
 error[DZ0569]: `const i32` is not a type
-     ┌─ typeerrors/src/errors.dz:1395:16
+     ┌─ typeerrors/src/errors.dz:1474:16
      │
-1395 │ fn not_text(x: const i32) {}
+1474 │ fn not_text(x: const i32) {}
      │                ^^^^^^^^^ only `const str` is
      │
      = help: `const` before a type says its memory is static, and only text has that so far: `const str`, a literal or a constant's (spec §5.3)

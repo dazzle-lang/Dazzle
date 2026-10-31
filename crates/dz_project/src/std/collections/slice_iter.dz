@@ -1,5 +1,5 @@
 /// Steps through a slice, handing out a reference to each element.
-pub struct SliceIter<T> {
+pub view struct SliceIter<T> {
     m_slice: []T
     m_index: usize = 0
 

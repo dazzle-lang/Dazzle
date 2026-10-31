@@ -193,7 +193,7 @@ Mul<f32> for Mat4` has `type Output = Mat4` (§11.2). `[DECIDED — §18.29]`
 `T`'s implementation chooses, whatever that turns out to be:
 
 ```dz
-fn first<T: Iterate>(it: &T) -> T::Item {
+fn first<view T: Iterate>(it: &T) -> T::Item {
     return it.get()
 }
 
@@ -201,11 +201,15 @@ fn each<C: Iterable>(xs: &C, f: fn(C::Iter::Item)) {
     for x in xs { f(move(x)) }                // x is a C::Iter::Item
 }
 
-impl<I: Iterate> Iterate for Numbered<I> {
+impl<view I: Iterate> Iterate for Numbered<I> {
     type Item = (usize, I::Item)              // built from the inner iterator's
     …
 }
 ```
+
+A container's iterator is a view of it, a `view struct`, so a generic that may be given one
+takes a `view` parameter, and the associated types `Iterate::Item` and `Iterable::Iter` are
+`view type`s (§6.7, D-0093). A plain `T` is never a view.
 
 - **It comes from a bound.** `T::Item` is valid because `T: Iterate` and `Iterate` declares
   `type Item`; supertraits count. A name no bound declares is an error (`DZ0560`), and so is

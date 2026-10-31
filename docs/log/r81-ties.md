@@ -6,6 +6,39 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r92: view structs and `view` parameters (2026-10-31)
+
+T-0111's first part, D-0093's points 3 and 8 as r90 refined them. Its placement rule only;
+the ties through a view struct's fields come next.
+
+- **Syntax.** `view` is contextual, like `type`: a keyword only before `struct` (an item,
+  `pub view struct`), before `type` among a trait's members, and before a type parameter's
+  name. The lexer is unchanged, and a field, a local, a parameter or a generic parameter may
+  still be named `view` (the parse corpus has each). The syntax tree carries it as
+  `StructDecl::is_view`, `GenericParam::is_view` and `MemberKind::TypeAlias::is_view`; the
+  dump and the formatter print it back.
+- **What is a view, for placement.** `TypeTable::placed_as_view`: a `view struct` (known from
+  pass 0, so any declaration may name one), a `view` parameter (`ty::Param::view`, set where
+  pass 0 allocates it, a trait's associated types included), a projection of a `view type`,
+  or a tuple, optional or array of one. References, slices and `str` are left to T-0109 and
+  T-0110.
+- **Where one may not go**, each `DZ0517`: a plain struct's field (`collect_struct`); a type
+  argument written for a plain parameter (`check_view_arg`, from `type_args`) or inferred
+  for one (`check_bounds`); a choice for an associated type the trait does not declare
+  `view`. Three rules keep a plain parameter from ever receiving a view: a `view` parameter
+  is refused on a plain struct, a union and a trait (pass 0); an implementation's parameter
+  that reaches its type's `view` parameter must be `view` itself (`impl_header`); and `view`
+  written on an implementation's choice is an error (`DZ0533`), since the trait decides.
+- **std.** `Iterate::Item`, `Iterable::Iter` and `IterableMut::IterMut` are `view type`s,
+  and the thirteen iterators are view structs: the slice, map and slot-map ones, `Chars`,
+  `Split`, `Lines`, `SplitWhitespace`. Nothing in std, the examples or the run corpus stored
+  one or gave one to a plain parameter; the projection tests (`tests/run/projection`,
+  `typed/`, the feature matrix) and the DZ0560 explanation took `view`, and their adapters
+  became view structs.
+
+Tests: `typed/` (a user's view struct over a `view` parameter, and a trait's `view type`
+chosen as an iterator), `typeerrors/` (one case per rule), and the parse and fmt corpora.
+
 ## r91: a function type says where its result points (2026-10-30)
 
 T-0113, the first of D-0093's steps in r90's order. A function type could name its

@@ -31,6 +31,31 @@ impl Ctx<'_> {
         let mut defs = self.impl_params.get(&key).cloned().unwrap_or_default();
         self.push_params(&defs);
         let self_ty = self.lower_type(&i.self_ty);
+        // A parameter that reaches the type's `view` parameter may be given a view, so the
+        // implementation must treat it as one (spec §6.7): `impl<view I: Iterate> Iterate
+        // for Numbered<I>`. Otherwise its body could store an `I` anywhere.
+        if let Ty::Named { sym, args } = &self_ty {
+            let wanted: Vec<bool> =
+                self.table.type_params(*sym).iter().map(|p| p.param.view).collect();
+            for (arg, view) in args.iter().zip(wanted) {
+                let Ty::Param(p) = arg else { continue };
+                let Some(def) = defs.iter().find(|d| d.param.id == p.id) else { continue };
+                if view && !p.view {
+                    let name = self.res.symbol(*sym).name.clone();
+                    let pn = def.name().to_owned();
+                    self.error_help(
+                        codes::REF_IN_FIELD,
+                        def.span,
+                        format!("`{pn}` reaches `{name}`'s `view` parameter, so it may be a view"),
+                        "not declared `view`",
+                        format!(
+                            "write `impl<view {pn}: …>`, so the implementation treats a value of \
+                             `{pn}` as the view it may be (spec §6.7)"
+                        ),
+                    );
+                }
+            }
+        }
         for (def, p) in defs.iter_mut().zip(&i.generics.params) {
             let on = Ty::Param(def.param.clone());
             def.bounds = p.bounds.iter().filter_map(|b| self.trait_bound(b, &on)).collect();

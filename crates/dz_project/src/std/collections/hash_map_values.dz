@@ -1,5 +1,5 @@
 /// Steps through a map's values in slot order, handing out `&V`: `for v in map.values()`.
-pub struct HashMapValues<K: Hash + Eq, V> {
+pub view struct HashMapValues<K: Hash + Eq, V> {
     m_map: ^HashMap<K, V> = null
     m_slot: usize = 0
 

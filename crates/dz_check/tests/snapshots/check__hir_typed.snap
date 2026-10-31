@@ -18811,6 +18811,47 @@ body fn ignore_int -> void
   param _0 x: &i32
   block
     (empty)
+body field-default Cursor.1 -> void
+  block
+    int 0: i32
+body fn seen_all -> i32
+  param _0 c: &mut Cursor<I>
+  block
+    while
+      call-method Iterate::valid: bool
+        field #0: I
+          local _0 c: &mut Cursor<I>
+      block
+        assign +=
+          field #1: i32
+            local _0 c: &mut Cursor<I>
+          int 1: i32
+        call-method Iterate::advance: void
+          field #0: I
+            local _0 c: &mut Cursor<I>
+    return: !
+      field #1: i32
+        local _0 c: &mut Cursor<I>
+body impl#158 method steps -> SliceIter<String>
+  param _0 self: Roster
+  block
+    return: !
+      call-method Iterable::iter: SliceIter<String>
+        field #0: List<String>
+          local _0 self: Roster
+body fn walked -> i32
+  param _0 r: &Roster
+  block
+    let _1 c: Cursor<SliceIter<String>>
+      struct-lit Cursor: Cursor<SliceIter<String>>
+        #0
+          call-method Walk::steps: SliceIter<String>
+            local _0 r: &Roster
+        #1 (default)
+    return: !
+      call seen_all: i32
+        ref mut: &mut Cursor<SliceIter<String>>
+          local _1 c: Cursor<SliceIter<String>>
 body fn projections -> i32
   param _0 xs: &List<i32>
   block
@@ -18839,13 +18880,13 @@ body fn projections -> i32
         call count_items: i32
           local _0 xs: &List<i32>
           fn-item ignore_int: fn(&i32) -> void
-body impl#158 method mul -> Scale
+body impl#159 method mul -> Scale
   param _0 self: f32
   param _1 rhs: Scale
   block
     return: !
       local _1 rhs: Scale
-body impl#159 method convert -> Grams
+body impl#160 method convert -> Grams
   param _0 self: f32
   block
     return: !
@@ -19117,7 +19158,7 @@ body drop Bookshelf -> void
   param _0 self: Bookshelf
   block
     (empty)
-body impl#161 method index -> &String
+body impl#162 method index -> &String
   param _0 self: Bookshelf
   param _1 i: usize
   block
@@ -19135,7 +19176,7 @@ body drop Rack -> void
   param _0 self: Rack
   block
     (empty)
-body impl#163 method iter -> SliceIter<i32>
+body impl#164 method iter -> SliceIter<i32>
   param _0 self: Rack
   block
     return: !

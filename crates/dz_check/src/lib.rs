@@ -289,6 +289,9 @@ pub struct AssocType {
     /// `type Item : Format` — what an implementer's choice must satisfy (spec §8.5).
     pub bounds: Vec<TraitRef>,
     pub span: Span,
+    /// `view type Item`: written on a trait, an implementation may choose a view for it
+    /// (spec §6.7). Written on an implementation, it is an error.
+    pub is_view: bool,
 }
 
 /// One `impl Trait for Type` (spec §7.6). An implementation has no name, so it is addressed
@@ -396,11 +399,35 @@ pub struct TypeTable {
     /// The standard library's traits by name, for the ones the primitives implement
     /// (spec §11.2, §14.4).
     prelude_names: HashMap<SymbolId, String>,
+    /// Every `view struct`, known from pass 0 (spec §6.7).
+    view_structs: std::collections::HashSet<SymbolId>,
 }
 
 impl TypeTable {
     pub fn get(&self, id: SymbolId) -> Option<&ItemSig> {
         self.sigs.get(&id)
+    }
+
+    /// Whether `sym` is a `view struct`, placed only where a reference may be (spec §6.7).
+    pub fn is_view_struct(&self, sym: SymbolId) -> bool {
+        self.view_structs.contains(&sym)
+    }
+
+    /// Whether a value of `t` is a view only a view may hold, as D-0093 places one: a `view
+    /// struct`, a `view` type parameter, an associated type a trait declares `view`, or a
+    /// tuple, optional or array of one (spec §6.7). References, slices and `str` join these
+    /// with T-0109 and T-0110; until then they are values.
+    pub fn placed_as_view(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Named { sym, .. } => self.is_view_struct(*sym),
+            Ty::Param(p) => p.view,
+            Ty::Assoc(p) => {
+                self.assoc_params(p.trait_sym).iter().any(|(n, q)| *n == *p.name && q.view)
+            }
+            Ty::Tuple(parts) => parts.iter().any(|p| self.placed_as_view(p)),
+            Ty::Optional(inner) | Ty::Array { elem: inner, .. } => self.placed_as_view(inner),
+            _ => false,
+        }
     }
 
     /// The generic parameters of a type declaration, empty if it has none.
@@ -1127,6 +1154,7 @@ impl<'a> Ctx<'a> {
                 drop_impls: HashMap::new(),
                 copy_impls: HashMap::new(),
                 prelude_names: HashMap::new(),
+                view_structs: std::collections::HashSet::new(),
             },
             hir: Hir::default(),
             module: ModuleId(0),
@@ -1652,7 +1680,7 @@ impl<'a> Ctx<'a> {
             let id = self.next_param;
             self.next_param += 1;
             defs.push(ParamDef {
-                param: ty::Param { name: Rc::from(name.as_str()), id },
+                param: ty::Param { name: Rc::from(name.as_str()), id, view: p.is_view },
                 bounds: Vec::new(),
                 default: None,
                 span: p.name.span,
@@ -2294,6 +2322,10 @@ impl<'a> Ctx<'a> {
         let wanted = self.table.type_params(sym).len();
         let args: Vec<Ty> = seg.generics.iter().map(|t| self.lower_type(t)).collect();
         if args.len() == wanted {
+            let params: Vec<ParamDef> = self.table.type_params(sym).to_vec();
+            for ((def, arg), written) in params.iter().zip(&args).zip(&seg.generics) {
+                self.check_view_arg(sym, def, arg, written.span);
+            }
             return args;
         }
         let name = self.res.symbol(sym).name.clone();
@@ -2333,6 +2365,28 @@ impl<'a> Ctx<'a> {
             format!("`{name}` is declared with {wanted} type {}", plural(wanted, "parameter")),
         );
         vec![Ty::Error; wanted]
+    }
+
+    /// A view given to a type parameter that is not `view` (spec §6.7, D-0093): a container's
+    /// element, a `Box`'s contents, a plain generic's argument. `owner` declares `def`.
+    pub(crate) fn check_view_arg(&mut self, owner: SymbolId, def: &ParamDef, arg: &Ty, span: Span) {
+        if def.param.view || !self.table.placed_as_view(arg) {
+            return;
+        }
+        let shown = self.name_of(arg);
+        let name = self.res.symbol(owner).name.clone();
+        let p = def.name();
+        self.error_help(
+            codes::REF_IN_FIELD,
+            span,
+            format!("`{shown}` is a view, and `{name}`'s `{p}` is not a `view` parameter"),
+            "a view given where it could be stored",
+            format!(
+                "a view lives only where a reference does, never in a container or another \
+                 value's field; keep it in a local, or declare the parameter `view {p}` where \
+                 `{name}` only passes it on (spec §6.7)"
+            ),
+        );
     }
 
     /// Lower `Name<A, B>` once the declaration it names is known.
@@ -2389,6 +2443,45 @@ impl<'a> Ctx<'a> {
             ItemKind::Fn(f) => &f.generics,
             _ => return,
         };
+        // Known before any field or signature is read, since any of them may name the type
+        // (spec §6.7).
+        if let ItemKind::Struct(s) = &item.kind {
+            if s.is_view {
+                self.table.view_structs.insert(sym);
+            }
+        }
+        // A `view` parameter may be given a view, so only something placed as a reference
+        // may hold one: a `view struct`, or a function, whose parameters are references'
+        // places already (spec §6.7).
+        let holder = match &item.kind {
+            ItemKind::Struct(s) if !s.is_view => Some(("struct", s.name.name.as_str())),
+            ItemKind::Trait(t) => Some(("trait", t.name.name.as_str())),
+            ItemKind::Union(u) => Some(("union", u.name.name.as_str())),
+            _ => None,
+        };
+        if let Some((what, name)) = holder {
+            for p in generics.params.iter().filter(|p| p.is_view) {
+                let help = if what == "struct" {
+                    format!(
+                        "declare it `view struct {name}`, which is placed as a reference is, or \
+                         drop `view` if `{}` is never given one (spec §6.7)",
+                        p.name.name
+                    )
+                } else {
+                    format!(
+                        "only a function, an `impl` or a `view struct` takes a `view` \
+                         parameter, and a {what} is none of them (spec §6.7)"
+                    )
+                };
+                self.error_help(
+                    codes::REF_IN_FIELD,
+                    p.span,
+                    format!("`{}` is a `view` parameter, so `{name}` may hold a view", p.name.name),
+                    "may be given a view",
+                    help,
+                );
+            }
+        }
         if !generics.is_empty() {
             let params = self.declare_params(generics);
             self.table.type_params.insert(sym, params);
@@ -2396,7 +2489,7 @@ impl<'a> Ctx<'a> {
         if let ItemKind::Trait(t) = &item.kind {
             let mut assoc = Vec::new();
             for m in &t.items {
-                let MemberKind::TypeAlias { name, ty, .. } = &m.kind else { continue };
+                let MemberKind::TypeAlias { is_view, name, ty, .. } = &m.kind else { continue };
                 // `type Item = X` on a trait chooses it for every implementer, so it is an
                 // alias rather than a parameter and needs no id.
                 if ty.is_some() {
@@ -2406,7 +2499,7 @@ impl<'a> Ctx<'a> {
                 self.next_param += 1;
                 assoc.push((
                     name.name.clone(),
-                    ty::Param { name: Rc::from(name.name.as_str()), id },
+                    ty::Param { name: Rc::from(name.name.as_str()), id, view: *is_view },
                 ));
             }
             if !assoc.is_empty() {
@@ -2713,7 +2806,7 @@ impl<'a> Ctx<'a> {
     pub(crate) fn collect_assoc_types(&mut self, members: &[Member]) -> Vec<AssocType> {
         let mut out: Vec<AssocType> = Vec::new();
         for m in members {
-            let MemberKind::TypeAlias { name, bounds, ty } = &m.kind else { continue };
+            let MemberKind::TypeAlias { is_view, name, bounds, ty } = &m.kind else { continue };
             if out.iter().any(|a| a.name == name.name) {
                 let n = name.name.clone();
                 self.error(
@@ -2731,6 +2824,7 @@ impl<'a> Ctx<'a> {
                 ty: ty.as_ref().map(|t| self.lower_type(t)),
                 bounds,
                 span: name.span,
+                is_view: *is_view,
             });
         }
         out
@@ -3039,8 +3133,31 @@ impl<'a> Ctx<'a> {
                     let mut field = self.field_sig(f);
                     // Visibility lives on the member, not the field node.
                     field.vis = m.vis;
+                    // A view lives only where a reference does, so only a `view struct`,
+                    // placed as a reference is, may hold one (spec §6.7, D-0093). A struct
+                    // with a `view` parameter has been told so at the parameter already.
+                    let told = self.table.type_params(sym).iter().any(|p| p.param.view);
+                    if !self.table.is_view_struct(sym)
+                        && !told
+                        && self.table.placed_as_view(&field.ty)
+                    {
+                        let shown = self.name_of(&field.ty);
+                        let owner = self.res.symbol(sym).name.clone();
+                        self.error_help(
+                            codes::REF_IN_FIELD,
+                            f.ty.span,
+                            format!("a struct field cannot hold `{shown}`, which is a view"),
+                            "a view lives only where a reference does",
+                            format!(
+                                "declare `{owner}` a `view struct`, which is itself placed as a \
+                                 reference is, or keep the view in a local (spec §6.7)"
+                            ),
+                        );
+                    }
                     // A reference cannot be stored in a field (spec §5.2, §18.3). This one
-                    // rule is what lets Dazzle skip lifetime analysis entirely.
+                    // rule is what lets Dazzle skip lifetime analysis entirely. A `view
+                    // struct` may hold one by D-0093, once the C++ for a reference member
+                    // exists (T-0111).
                     if let Ty::Ref { .. } = field.ty {
                         let shown = self.name_of(&field.ty);
                         self.error_help(

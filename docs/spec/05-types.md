@@ -39,7 +39,10 @@ Five ways to refer to something — the model your samples already use, plus `&m
 - **`&T` / `&mut T`** are what you pass to functions. They are guaranteed non-null and
   **cannot be stored in a struct field**, cannot be heap-allocated, and cannot be `own`ed.
   A reference therefore only ever lives on the stack, so it cannot outlive its frame by
-  being smuggled into a heap object. `[DECIDED — §18.3]`
+  being smuggled into a heap object. `[DECIDED — §18.3]` A `view struct` is the one
+  exception D-0093 makes: it may hold views and is itself placed as a reference is (§6.7);
+  until the C++ for a reference member exists, it holds `str`, slices and other views, but
+  not a `&T` (T-0111).
 
   Non-null is enforced at the point of conversion, not by analysis — a `&T` whose target has
   since been freed is still your problem (§1.1).

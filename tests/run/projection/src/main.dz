@@ -44,11 +44,13 @@ impl Iterate for Countdown {
     }
 }
 
-fn first<T: Iterate>(it: &T) -> T::Item {
+// A list's iterator is a view of the list, so a generic function over iterators takes a
+// `view` parameter, which may be given one (spec §6.7).
+fn first<view T: Iterate>(it: &T) -> T::Item {
     return it.get()
 }
 
-fn count<T: Iterate>(it: T) -> usize {
+fn count<view T: Iterate>(it: T) -> usize {
     let mut n: usize = 0
     for _ in move(it) {
         n += 1
@@ -62,7 +64,7 @@ fn each<C: Iterable>(xs: &C, f: fn(C::Iter::Item)) {
     }
 }
 
-fn drain<T: Iterate>(it: T, f: fn(T::Item)) {
+fn drain<view T: Iterate>(it: T, f: fn(T::Item)) {
     for x in move(it) {
         f(move(x))
     }
@@ -73,13 +75,14 @@ fn total<C: Iterable>(xs: &C) -> usize {
 }
 
 // An adapter: the inner iterator's items, numbered — its `Item` is built from the inner
-// one's, which is what a projection is for.
-struct Numbered<I: Iterate> {
+// one's, which is what a projection is for. It holds an iterator, which may be a view, so it
+// is a view too.
+view struct Numbered<view I: Iterate> {
     pub inner: I
     m_index: usize = 0
 }
 
-impl<I: Iterate> Iterate for Numbered<I> {
+impl<view I: Iterate> Iterate for Numbered<I> {
     type Item = (usize, I::Item)
 
     fn valid(&self) -> bool {

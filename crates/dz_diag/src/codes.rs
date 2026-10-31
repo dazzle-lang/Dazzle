@@ -217,7 +217,9 @@ pub const NOT_INDEXABLE: &str = "DZ0515";
 /// An `or return` whose failure has nowhere to go: the enclosing signature cannot carry
 /// it (spec §9.5). Named for `try` in v0.4, which is what this code originally reported.
 pub const TRY_OUTSIDE_FALLIBLE: &str = "DZ0516";
-/// A `&T` stored in a struct field (spec §5.2, §18.3).
+/// A `&T` stored in a struct field, or a view where only a reference may go: a `view struct`
+/// or a `view` parameter's value in a field, a container or a plain type argument (spec
+/// §5.2, §6.7, §18.3).
 pub const REF_IN_FIELD: &str = "DZ0517";
 /// `^` applied to something that is not a pointer.
 pub const NOT_DEREFERENCEABLE: &str = "DZ0518";

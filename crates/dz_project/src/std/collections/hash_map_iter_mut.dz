@@ -1,7 +1,7 @@
 /// Steps through a map's entries in slot order, handing out `(&K, &mut V)`: `for k, &mut v
 /// in map` changes the values in place. Keys stay read-only, since changing one would put
 /// it in the wrong slot.
-pub struct HashMapIterMut<K: Hash + Eq, V> {
+pub view struct HashMapIterMut<K: Hash + Eq, V> {
     m_map: ^mut HashMap<K, V> = null
     m_slot: usize = 0
 

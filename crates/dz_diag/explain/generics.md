@@ -915,7 +915,7 @@ exists because `T: Iterate` and `Iterate` declares `type Item` (spec §8.5). A n
 declares is not a type, and an unbounded parameter has no associated types at all.
 
 ```dz
-fn first<T: Iterate>(it: &T) -> T::Element {
+fn first<view T: Iterate>(it: &T) -> T::Element {
     return it.get()
 }
 
@@ -923,7 +923,7 @@ fn main() {}
 ```
 
 ```dz
-fn first<T: Iterate>(it: &T) -> T::Item {
+fn first<view T: Iterate>(it: &T) -> T::Item {
     return it.get()
 }
 

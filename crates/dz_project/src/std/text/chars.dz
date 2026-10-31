@@ -4,7 +4,7 @@
 /// A byte that does not begin valid UTF-8 — only possible in text made with the unchecked
 /// `bytes as str` — reads as U+FFFD, the replacement character, and is stepped over alone,
 /// so iteration always ends (spec §14.4).
-pub struct Chars {
+pub view struct Chars {
     m_text: str
     m_at: usize = 0
 

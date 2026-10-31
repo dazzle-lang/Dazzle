@@ -1707,7 +1707,7 @@ fn slot_maps(points: &mut SlotMap<Vec3>, scores: &mut List<Score>) -> f32 kills 
 // §8.5: an associated type named off a bound — `T::Item`, `C::Iter::Item` — in a signature,
 // in a `for` over a generic iterator and a generic container, and in an adapter's `Item`,
 // which each instance reads as the implementation's choice.
-fn first_item<T: Iterate>(it: &T) -> T::Item {
+fn first_item<view T: Iterate>(it: &T) -> T::Item {
     return it.get()
 }
 
@@ -1720,11 +1720,11 @@ fn count_items<C: Iterable>(xs: &C, seen: fn(C::Iter::Item)) -> i32 {
     return n
 }
 
-struct Flagged<I: Iterate> {
+view struct Flagged<view I: Iterate> {
     pub inner: I
 }
 
-impl<I: Iterate> Iterate for Flagged<I> {
+impl<view I: Iterate> Iterate for Flagged<I> {
     type Item = (I::Item, bool)
 
     fn valid(&self) -> bool {
@@ -1741,6 +1741,39 @@ impl<I: Iterate> Iterate for Flagged<I> {
 }
 
 fn ignore_int(x: &i32) {}
+
+// A `view struct` holds views and is placed as one; a `view` parameter, or a trait's `view
+// type`, may be given one (spec §6.7, D-0093).
+view struct Cursor<view I: Iterate> {
+    pub inner: I
+    pub seen: i32 = 0
+}
+
+fn seen_all<view I: Iterate>(c: &mut Cursor<I>) -> i32 {
+    while c.inner.valid() {
+        c.seen += 1
+        c.inner.advance()
+    }
+    return c.seen
+}
+
+trait Walk {
+    view type Steps : Iterate
+    fn steps(&self) -> Steps
+}
+
+impl Walk for Roster {
+    type Steps = SliceIter<String>
+
+    fn steps(&self) -> SliceIter<String> {
+        return members.iter()
+    }
+}
+
+fn walked(r: &Roster) -> i32 {
+    let mut c = Cursor<SliceIter<String>>{ inner: r.steps() }
+    return seen_all(&mut c)
+}
 
 fn projections(xs: &List<i32>) -> i32 {
     let a: &i32 = first_item(&xs.iter())

@@ -1,6 +1,6 @@
 /// Steps through a map's values in slot order, handing out `&mut V`: `for &mut v in
 /// map.values_mut()` changes them in place.
-pub struct HashMapValuesMut<K: Hash + Eq, V> {
+pub view struct HashMapValuesMut<K: Hash + Eq, V> {
     m_map: ^mut HashMap<K, V> = null
     m_slot: usize = 0
 

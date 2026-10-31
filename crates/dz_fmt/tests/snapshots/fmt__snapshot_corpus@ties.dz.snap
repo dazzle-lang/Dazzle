@@ -37,3 +37,15 @@ struct Hooks {
     pub pick:     fn(a: &Enemy, b: &Enemy) -> &Enemy in (a, b)
     pub first:    fn(xs: &List<i32>) -> ^i32 in xs@items
 }
+
+pub view struct Cursor<view I: Iterate> {
+    pub inner: I
+}
+
+trait Walk {
+    view type Steps: Iterate
+}
+
+fn count<view T: Iterate>(it: T, view: i32) -> i32 {
+    return view
+}

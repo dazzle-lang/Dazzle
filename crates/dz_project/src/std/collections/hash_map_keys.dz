@@ -1,6 +1,6 @@
 /// Steps through a map's keys in slot order, handing out `&K`: `for k in map.keys()`. A
 /// `HashSet` is looped over with one.
-pub struct HashMapKeys<K: Hash + Eq, V> {
+pub view struct HashMapKeys<K: Hash + Eq, V> {
     m_map: ^HashMap<K, V> = null
     m_slot: usize = 0
 
