@@ -244,7 +244,9 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
     let mut external = HashSet::new();
     for local in &body.params {
         let l = body.local(*local);
-        if super::points(&l.ty) || l.name == "self" {
+        // A view taken by value is a view input too: what it views is the caller's
+        // (spec §6.7, D-0093).
+        if super::points(&l.ty) || l.name == "self" || table.placed_as_view(&l.ty) {
             let origin = Origin::at(Place::local(*local));
             cx.state.insert(*local, Value { views: vec![origin], ..Value::default() });
         }
@@ -302,10 +304,12 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
         cx.expr(init);
     }
     cx.block(body.root);
-    // By-value parameters are owned by this body and drop after its local scopes.
+    // By-value parameters are owned by this body and drop after its local scopes. A view
+    // taken by value stands for what it views, which is the caller's and outlives the call;
+    // a view of its own storage cannot be returned (`own_storage`).
     for local in body.params.iter().rev() {
         let l = body.local(*local);
-        if l.name != "self" && !super::points(&l.ty) {
+        if l.name != "self" && !super::points(&l.ty) && !table.placed_as_view(&l.ty) {
             cx.kill(Place::local(*local), body.span, KillKind::Drop);
         }
     }
@@ -682,6 +686,41 @@ impl Analysis<'_> {
         sym.map_or(ModuleId(0), |s| self.res.symbol(s).module)
     }
 
+    /// Whether `p` is a view struct's own storage, as distinct from what it views (D-0093,
+    /// option A of r95): a field holding no view, or the struct itself behind a reference
+    /// that `returned` is. A result elided to a view struct, or `in` it whole, is in what it
+    /// views, so it may be neither.
+    fn own_storage(&self, p: &Place, returned: &Ty) -> bool {
+        let ty = &self.body.local(p.local).ty;
+        if !self.table.placed_as_view(ty.peeled()) {
+            return false;
+        }
+        match p.steps.first() {
+            None => matches!(
+                returned,
+                Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } if self.table.placed_as_view(inner)
+            ),
+            Some(Step::Field(name)) => super::field_of(self.table, ty, name)
+                .is_some_and(|f| !dz_check::ties::holds_view(self.table, &f, true)),
+            Some(_) => false,
+        }
+    }
+
+    /// What an origin denoting a view struct itself stands for, as a result's input (D-0093,
+    /// option A of r95): what the struct views. `None` for an origin that is not a view
+    /// struct local, or whose views are not known; it stands for itself then.
+    fn what_it_views(&self, origin: &Origin) -> Option<Vec<Origin>> {
+        if !origin.target.steps.is_empty() {
+            return None;
+        }
+        let local = origin.target.local;
+        if !self.table.placed_as_view(self.body.local(local).ty.peeled()) {
+            return None;
+        }
+        let value = self.state.get(&local)?;
+        (!value.unknown && !value.views.is_empty()).then(|| value.views.clone())
+    }
+
     /// What a result `in` a path through a view struct's view field points into (spec
     /// §6.7, D-0093): `tie @items = m_slice` on a `view struct` and `-> &T in self@items`
     /// name what `m_slice` views, so the result is in what the receiver holds, and outlives
@@ -748,12 +787,17 @@ impl Analysis<'_> {
         let receiver = recv
             .map(|r| if r.places.is_empty() { r.views.clone() } else { r.places.clone() })
             .unwrap_or_default();
+        // A view taken by value is bound by what it views, as a reference is by what it
+        // refers to (D-0093).
         let params = signature
             .sig
             .params
             .iter()
             .enumerate()
-            .map(|(i, p)| args.get(i).map(|v| origins(v, super::points(&p.ty))).unwrap_or_default())
+            .map(|(i, p)| {
+                let view = super::points(&p.ty) || self.table.placed_as_view(&p.ty);
+                args.get(i).map(|v| origins(v, view)).unwrap_or_default()
+            })
             .collect::<Vec<_>>();
         let first = |origins: &[Origin]| origins.first().map(|o| o.target.clone());
         let initial = Bindings {
@@ -809,6 +853,21 @@ impl Analysis<'_> {
                                     }
                                     continue;
                                 }
+                                // In a view struct whole: in what it views (D-0093).
+                                let whole = path.map_or(true, |p| {
+                                    super::normalize(&scope, p).is_ok_and(|n| n.steps.is_empty())
+                                });
+                                if let Some(held) = whole
+                                    .then(|| self.what_it_views(&Origin::at(place.clone())))
+                                    .flatten()
+                                {
+                                    for origin in held {
+                                        if !value.views.contains(&origin) {
+                                            value.views.push(origin);
+                                        }
+                                    }
+                                    continue;
+                                }
                                 let broad = !matches!(place.steps.last(), Some(Step::Storage));
                                 let origin = Origin {
                                     target: logical_result(
@@ -830,16 +889,24 @@ impl Analysis<'_> {
                                 };
                                 // A result in an input that is a local view, a `str` say,
                                 // is in what that local views too: `v.trim()` dies with
-                                // the text `v` points into, not only with `v`.
-                                let held: Vec<Origin> = input
-                                    .iter()
-                                    .filter(|o| o.target.steps.is_empty())
-                                    .filter_map(|o| self.state.get(&o.target.local))
-                                    .flat_map(|v| v.views.iter().cloned())
-                                    .collect();
-                                for origin in input.iter().chain(&held) {
-                                    if !value.views.contains(origin) {
-                                        value.views.push(origin.clone());
+                                // the text `v` points into, not only with `v`. A view
+                                // struct stands for what it views alone (D-0093).
+                                let mut all = Vec::new();
+                                for origin in input {
+                                    if let Some(held) = self.what_it_views(origin) {
+                                        all.extend(held);
+                                        continue;
+                                    }
+                                    all.push(origin.clone());
+                                    if origin.target.steps.is_empty() {
+                                        if let Some(v) = self.state.get(&origin.target.local) {
+                                            all.extend(v.views.iter().cloned());
+                                        }
+                                    }
+                                }
+                                for origin in all {
+                                    if !value.views.contains(&origin) {
+                                        value.views.push(origin);
                                     }
                                 }
                             }
@@ -1387,7 +1454,16 @@ impl Analysis<'_> {
             }
             hir::ExprKind::Ref { place, .. } => {
                 let value = self.expr(place);
-                Value { views: value.places, unknown: value.unknown, ..Value::default() }
+                // A reference to a temporary view struct has no place to point at; it
+                // stands for what the temporary views, which is all a result given it may
+                // be in (spec §6.7, D-0093).
+                let views =
+                    if value.places.is_empty() && self.table.placed_as_view(self.body.ty(place)) {
+                        value.views
+                    } else {
+                        value.places
+                    };
+                Value { views, unknown: value.unknown, ..Value::default() }
             }
             hir::ExprKind::Deref(inner) => {
                 let value = self.expr(inner);
@@ -1529,16 +1605,19 @@ impl Analysis<'_> {
             }
             hir::ExprKind::Return(value) => {
                 let held_start = self.held.len();
-                if let Some(value) = value {
-                    let value = self.expr(value);
+                if let Some(returned_id) = value {
+                    let returned_ty = self.body.ty(returned_id).clone();
+                    let value = self.expr(returned_id);
                     // A tuple hands out the views in its parts as well.
                     let returned = value.held_views();
                     // Scope-exit kills are applied below; returning a view of a local
                     // must be diagnosed before that local disappears from the state.
                     for origin in &returned {
+                        let local = self.body.local(origin.target.local);
                         let caller_owned = self.body.params.contains(&origin.target.local)
-                            && (super::points(&self.body.local(origin.target.local).ty)
-                                || self.body.local(origin.target.local).name == "self");
+                            && (super::points(&local.ty)
+                                || local.name == "self"
+                                || self.table.placed_as_view(&local.ty));
                         if !caller_owned {
                             let killed = BodyKill {
                                 place: Place::local(origin.target.local),
@@ -1559,7 +1638,15 @@ impl Analysis<'_> {
                         match &self.expected_return {
                             ReturnTie::Explicit(_) | ReturnTie::Elided(_) => {
                                 let expected = self.expected_return.places();
-                                let covered = |p: &Place| expected.iter().any(|e| e.covers(p));
+                                // A result in a view struct whole is in what it views, so
+                                // its own storage is not covered by it (D-0093).
+                                let covered = |p: &Place| {
+                                    expected.iter().any(|e| {
+                                        e.covers(p)
+                                            && !(e.steps.is_empty()
+                                                && self.own_storage(p, &returned_ty))
+                                    })
+                                };
                                 // Spelt as the ties that name them, as the signature's
                                 // `in` is: `self.m_books[*]` is `self[*]` (§6.7).
                                 let views: Vec<Origin> =
@@ -2105,7 +2192,7 @@ fn result_roots(
     }
     // The same inputs `call_effects` elides over.
     for (i, param) in signature.sig.params.iter().enumerate() {
-        if super::points(&param.ty) {
+        if dz_check::ties::view_input(scope.table, &param.ty) {
             roots.push(dz_check::ties::Root::Param(i));
         }
     }

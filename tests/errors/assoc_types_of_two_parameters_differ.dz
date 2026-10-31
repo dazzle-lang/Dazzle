@@ -3,7 +3,7 @@
 // Two parameters' projections are two types: `T::Item` and `U::Item` are chosen by two
 // implementations that need not agree (spec §8.5).
 
-fn swap_in<T: Iterate, U: Iterate>(a: &T, b: &U) -> T::Item {
+fn swap_in<T: Iterate, U: Iterate>(a: &T, b: &U) -> T::Item in a {
     return b.get()
 }
 

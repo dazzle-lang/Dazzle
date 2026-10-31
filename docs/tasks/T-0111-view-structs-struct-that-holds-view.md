@@ -25,18 +25,16 @@ declare such ties; a union payload and a static may not hold a view. **Left:**
    ([T-0085](T-0085-optional-reference-passes-checker.md), option 3).
 3. ~~An implementation's `in` is not held to its trait's.~~ Done, r94: `clauses_within_trait`
    in `dz_check/src/check.rs`, `DZ0573`, for `kills` and `in` alike.
-4. **A view-struct parameter taken by value is not yet a view input** to the return check
-   (`caller_owned` in `dz_flow/src/ties/body.rs`), so returning what it views is refused.
-   The catch: a result in such a parameter, elided, may be in what it views or in its own
-   fields, which are the callee's copy; the place `it` alone cannot tell the two apart.
-5. **To settle with the user: where a result through a `view` parameter points.**
-   `fn first<view T: Iterate>(it: &T) -> T::Item` returns what `it.get()` gives, which for
-   a `SliceIter` is in the list, not in the iterator; but the signature can only say `in
-   it`, the iterator. Today `T::Item` counts as no view at all (`holds_view` leaves a
-   projection out), so the result is untied and nothing is refused. Tying it to `it` would
-   refuse `let a = first(&xs.iter())`, a view of a temporary iterator, which `typed/` does.
-   It needs a way to say "in what `it` views", such as eliding a view-struct input to what it
-   views rather than to itself.
+4. ~~A view-struct parameter taken by value is not a view input.~~ Done, r95.
+5. ~~Where a result through a `view` parameter points.~~ Settled by the user, 2026-10-31,
+   as option A, and built in r95: a view struct given to a function stands for what it
+   views, so a result elided to it is in what it views (`what_it_views` in
+   `dz_flow/src/ties/body.rs`); its own storage cannot be returned that way
+   (`own_storage`); a by-value view is a view input (`dz_check::ties::view_input`); and a
+   `view` parameter's or `view type` projection's result holds a view (`holds_view`).
+   Option B, the struct itself, would have refused `first(&xs.iter())`. One limit: a
+   function *type*'s elision (`result_places` in `dz_hir/src/ty.rs`) has no type table, so
+   it does not count a by-value view struct as an input.
 
 **What it is.** A struct holding a view (`Chars`'s `m_text: str`, `SliceIter`'s
 `m_slice: []T`) is tied as a whole today, but nothing stops one being stored. Once views are

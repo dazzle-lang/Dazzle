@@ -469,7 +469,26 @@ fn first(xs: &List<i32>) -> &i32 {
 
 A struct's views are one tie (D-0093, point 3), so such a result is in everything the
 struct views. std's `SliceIter`, `SliceIterMut`, `Split`, `Lines` and `SplitWhitespace`
-declare theirs. `view` is a keyword only before `struct`, `type` and a type
+declare theirs.
+
+**A view struct given to a function stands for what it views**, as a slice or a `str` does.
+A view input is a reference, a pointer, a slice or a `str` parameter, or `self`, and also a
+view taken by value: a view struct, or a value of a `view` parameter. A result elided to a
+view struct, or `in` it whole, is in what the struct views, so it outlives the struct, and a
+temporary iterator's item can be kept:
+
+```dz
+fn first<view T: Iterate>(it: &T) -> T::Item { return it.get() }
+let a = first(&xs.iter())       // in `xs`; dies when `xs` grows
+fn at_of(p: &Peek) -> &usize { return &p.at }           // error: `at` is `p`'s own
+fn at_named(p: &Peek) -> &usize in p.at { return &p.at } // fine: tied to `p` itself
+```
+
+What such a result may not be is the struct's own storage — a field holding no view, or the
+struct itself behind a reference — since a caller ties it to what the struct views; naming
+the field in `in` ties it to the struct instead (`DZ0414` otherwise). A result of a `view`
+parameter's type, or of a projection of a `view type` (`T::Item`), holds a view by the same
+rule, and is tied as one. `view` is a keyword only before `struct`, `type` and a type
 parameter, so `let view = camera.view_matrix()` still means what it did. References,
 slices and `str` become views by this rule with T-0109 and T-0110; until then they are
 values.

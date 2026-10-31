@@ -215,26 +215,42 @@ fn points(t: &Ty) -> bool {
 /// unchecked (spec §6.7). `generic` is what a type parameter counts as, since it may be
 /// given a view or not.
 pub fn holds_view(table: &TypeTable, t: &Ty, generic: bool) -> bool {
-    holds(table, t, generic, points, 0)
+    holds(table, t, generic, points, true, 0)
+}
+
+/// Whether an input of type `t` is one a result may be in: a reference, a pointer, a slice
+/// or a `str`, or a view taken by value, a view struct or a `view` parameter's value, which
+/// stands for what it views (spec §6.7, D-0093).
+pub fn view_input(table: &TypeTable, t: &Ty) -> bool {
+    points(t) || table.placed_as_view(t)
 }
 
 /// Whether a value of `t` holds a view whose `leaf` is true, as [`holds_view`] walks it.
-fn holds(table: &TypeTable, t: &Ty, generic: bool, leaf: fn(&Ty) -> bool, depth: usize) -> bool {
+/// `view_params` counts a `view` parameter and a projection of a `view type` as views,
+/// since either may be given one.
+fn holds(
+    table: &TypeTable,
+    t: &Ty,
+    generic: bool,
+    leaf: fn(&Ty) -> bool,
+    view_params: bool,
+    depth: usize,
+) -> bool {
     if depth > MAX_DEPTH {
         return true;
     }
+    let inner = |t: &Ty| holds(table, t, generic, leaf, view_params, depth + 1);
     match t {
-        Ty::Tuple(parts) => parts.iter().any(|p| holds(table, p, generic, leaf, depth + 1)),
-        Ty::Optional(inner) | Ty::Array { elem: inner, .. } => {
-            holds(table, inner, generic, leaf, depth + 1)
-        }
+        Ty::Tuple(parts) => parts.iter().any(inner),
+        Ty::Optional(t) | Ty::Array { elem: t, .. } => inner(t),
         Ty::Named { sym, args } => table.struct_sig(*sym).is_some_and(|s| {
-            table.field_types(*sym, args, &s.fields).iter().any(|f| {
-                !matches!(f, Ty::Ptr { .. } | Ty::OwnPtr { .. })
-                    && holds(table, f, generic, leaf, depth + 1)
-            })
+            table
+                .field_types(*sym, args, &s.fields)
+                .iter()
+                .any(|f| !matches!(f, Ty::Ptr { .. } | Ty::OwnPtr { .. }) && inner(f))
         }),
-        Ty::Param(_) => generic,
+        Ty::Param(p) => generic || (view_params && p.view),
+        Ty::Assoc(_) => view_params && table.placed_as_view(t),
         _ => leaf(t),
     }
 }
@@ -267,16 +283,19 @@ pub fn untied_result(scope: &Scope<'_>, f: &dz_ast::FnDecl) -> Option<UntiedResu
     if scope.sig.takes_self.is_some() {
         inputs.push("self".to_owned());
     }
-    inputs.extend(scope.sig.params.iter().filter(|p| points(&p.ty)).map(|p| p.name.clone()));
+    inputs.extend(
+        scope.sig.params.iter().filter(|p| view_input(scope.table, &p.ty)).map(|p| p.name.clone()),
+    );
     let shown = crate::type_name(scope.res, ret);
     let name = scope.name;
     match inputs.len() {
         1 => None,
         0 => {
             // Only a reference, slice or `str` must be tied; raw pointers and `cstr`s, on
-            // their own or in an aggregate, may not be views at all.
+            // their own or in an aggregate, may not be views at all, and neither may what
+            // a `view` parameter is given.
             let tied = |t: &Ty| matches!(t, Ty::Ref { .. } | Ty::Slice { .. } | Ty::Str);
-            if !holds(scope.table, ret, false, tied, 0)
+            if !holds(scope.table, ret, false, tied, false, 0)
                 || (f.is_extern && f.body.is_none())
                 || scope.sig.params.iter().any(|p| holds_view(scope.table, &p.ty, true))
             {
@@ -338,7 +357,7 @@ fn untied_fn_type(scope: &Scope<'_>, names: &[String], span: Span) -> Option<Err
         .params
         .iter()
         .enumerate()
-        .filter(|(_, p)| points(&p.ty))
+        .filter(|(_, p)| view_input(scope.table, &p.ty))
         .map(|(i, _)| match names.get(i).filter(|n| !n.is_empty()) {
             Some(n) => format!("`{n}`"),
             None => format!("its parameter {}", i + 1),
@@ -349,7 +368,7 @@ fn untied_fn_type(scope: &Scope<'_>, names: &[String], span: Span) -> Option<Err
         1 => None,
         0 => {
             let tied = |t: &Ty| matches!(t, Ty::Ref { .. } | Ty::Slice { .. } | Ty::Str);
-            if !holds(scope.table, &sig.ret, false, tied, 0)
+            if !holds(scope.table, &sig.ret, false, tied, false, 0)
                 || sig.params.iter().any(|p| holds_view(scope.table, &p.ty, true))
             {
                 return None;
@@ -373,7 +392,7 @@ fn untied_fn_type(scope: &Scope<'_>, names: &[String], span: Span) -> Option<Err
                 let all = sig
                     .params
                     .iter()
-                    .filter(|p| points(&p.ty))
+                    .filter(|p| view_input(scope.table, &p.ty))
                     .map(|p| p.name.as_str())
                     .collect::<Vec<_>>();
                 format!(

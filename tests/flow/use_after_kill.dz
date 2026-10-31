@@ -2,7 +2,7 @@
 // kills that memory ends it, and so does returning a view of what the function owns; a
 // reference into memory nothing killed stays valid. A view kept in a tuple keeps its tie,
 // and so does one a call returns inside a struct or a tuple: an iterator, a split.
-// expect: DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413
+// expect: DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413
 
 fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items, counts[*] {
     let n = counts.get_or_insert(k, 0)
@@ -33,6 +33,18 @@ fn item_while_growing(xs: &mut List<i32>) -> i32 kills xs@items {
     let first = it.get()
     xs.push(1)
     return first
+}
+
+// The same through a generic function given a temporary iterator, which stands for what it
+// views (D-0093).
+fn first_item<view T: Iterate>(it: &T) -> T::Item {
+    return it.get()
+}
+
+fn item_of_temporary(xs: &mut List<i32>) -> i32 kills xs@items {
+    let a = first_item(&xs.iter())
+    xs.push(1)
+    return a
 }
 
 fn walked_while_growing(xs: &mut List<i32>) kills xs@items {

@@ -162,3 +162,20 @@ fn popped_text_survives(names: &mut List<str>) kills names@items {
     names.push("x")
     let _ = s.len
 }
+
+// A view struct given to a function stands for what it views (spec §6.7, D-0093): an item
+// of a temporary iterator outlives it, in the list, and so does one from an iterator taken
+// by value.
+fn first_item<view T: Iterate>(it: &T) -> T::Item {
+    return it.get()
+}
+
+fn taken<view T: Iterate>(it: T) -> T::Item {
+    return it.get()
+}
+
+fn kept_items(xs: &List<i32>) -> i32 {
+    let a = first_item(&xs.iter())
+    let b = taken(xs.iter())
+    return a + b
+}
