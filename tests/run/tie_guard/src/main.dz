@@ -1,0 +1,73 @@
+// A debug build checks a trusted body's clause at its edges (spec §6.7, T-0116). `Stack`'s`n// bodies index its array, so the checker trusts their clauses; `push_wrong` grows the array`n// and its clause does not say so, which the guard catches on the way out.
+struct Stack {
+    m_data: own ^mut i32 = null
+    m_len:  usize = 0
+    m_cap:  usize = 0
+    tie @items = m_data
+
+    pub fn push(&mut self, v: i32) kills self@items {
+        self.grow()
+        unsafe {
+            m_data[m_len] = v
+        }
+        m_len += 1
+    }
+
+    pub fn push_wrong(&mut self, v: i32) {
+        self.grow()
+        unsafe {
+            m_data[m_len] = v
+        }
+        m_len += 1
+    }
+
+    pub fn get(&self, i: usize) -> i32 {
+        return unsafe {
+            m_data[i]
+        }
+    }
+
+    fn grow(&mut self) kills self@items {
+        if m_len < m_cap {
+            return
+        }
+        let cap = if m_cap == 0 {
+            4
+        } else {
+            m_cap * 2
+        }
+        unsafe {
+            let fresh = Allocators::Global.alloc(cap * 4, 4, #location) as ^mut i32
+            let mut i: usize = 0
+            while i < m_len {
+                fresh[i] = m_data[i]
+                i += 1
+            }
+            if m_data != null {
+                Allocators::Global.free(m_data as ^mut u8, m_cap * 4, 4, #location)
+            }
+            m_data = fresh
+        }
+        m_cap = cap
+    }
+}
+
+impl Drop for Stack {
+    fn drop(&mut self) {
+        if m_data != null {
+            unsafe {
+                Allocators::Global.free(m_data as ^mut u8, m_cap * 4, 4, #location)
+            }
+        }
+    }
+}
+
+fn main() {
+    let mut s = Stack{}
+    for i in 0..4 {
+        s.push(i)
+    }
+    println!("pushed {}", s.get(3))
+    s.push_wrong(9)
+    println!("not reached {}", s.get(4))
+}

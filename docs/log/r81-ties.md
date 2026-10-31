@@ -6,6 +6,31 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0116, first part: std's trusted clauses checked in debug builds (2026-10-31)
+
+Compiler and runtime work; no language change. r90 settled the shape: a view carries
+nothing, and a body is checked at its edges. This does the pointer-field half.
+
+- **Which ties.** `tie_guards` (`dz_cpp/src/lib.rs`), called at the top of every emitted
+  body in a debug build: for each `&mut` input, `&mut self` included, whose struct has a
+  pointer field standing for a tie (`FieldSig::tie`), and for each such tie the `kills`
+  clause leaves out (a path rooted at the input that is the input whole, the tie, or the
+  field, counts; `[*]` does not), one guard. A function whose clause is unknown gets none.
+- **The guard.** `::dz::TieGuard` remembers the field's value and compares it in its
+  destructor, which C++ runs on every way out, after the result is built; a change calls
+  `tie_killed`, which prints the function and the tie and aborts, as a panic does.
+- **Where.** Every such function, not only the bodies `dz_flow` marks trusted: the trusted
+  marker is the analysis's, which codegen does not see, and a compare per call is nothing in
+  a debug build. Release builds emit none.
+
+Nothing in std tripped one over the whole corpus, so its clauses over `m_data`, `m_hashes`
+and the like hold where they are exercised. Not done: `[*]`, the blocks elements own, and
+an allocation sequence number so a block freed and reused at the same address is not
+taken for unmoved.
+
+Tests: `tests/run/tie_guard`, a container whose `push_wrong` grows its array without a
+clause, expected to trap.
+
 ## r101: an untied pointer becomes a reference only in `unsafe` (2026-10-31)
 
 T-0114, D-0093's last step. The check is `dz_flow`'s, as r90 settled, since only the ties

@@ -64,6 +64,26 @@ const void* reflect_entry(uint32_t id);
 /// A place the compiler proved is not reached: the failure side of `or unreachable`
 /// (spec §9.4), and the end of a function whose every Dazzle path already returned.
 [[noreturn]] void unreachable(SourceLocation where);
+/// A function changed the memory under a tie its `kills` clause promises to keep, found
+/// by a debug build's `TieGuard` (spec §6.7, T-0116).
+[[noreturn]] void tie_killed(const char* function, const char* tie);
+
+/// Remembers a pointer field's value when a function begins and, on every way out, traps
+/// if it changed: the function moved what the tie names, and its clause does not say so.
+/// Only debug builds make one, and only where a clause leaves a tie out (T-0116).
+struct TieGuard {
+    const void* const* at;
+    const void* was;
+    const char* function;
+    const char* tie;
+    TieGuard(const void* const* a, const char* f, const char* t)
+        : at(a), was(*a), function(f), tie(t) {}
+    ~TieGuard() {
+        if (*at != was) { tie_killed(function, tie); }
+    }
+    TieGuard(const TieGuard&) = delete;
+    TieGuard& operator=(const TieGuard&) = delete;
+};
 
 // --- strings and slices (spec §5.3) ---------------------------------------
 
@@ -745,6 +765,12 @@ static void write_location(SourceLocation where) {
 void panic(const char* message, SourceLocation where) {
     fprintf(stderr, "panic: %s\n", message);
     write_location(where);
+    flush_all();
+    abort();
+}
+
+void tie_killed(const char* function, const char* tie) {
+    fprintf(stderr, "panic: `%s` killed `%s`, which its clause does not name\n", function, tie);
     flush_all();
     abort();
 }

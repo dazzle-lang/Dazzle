@@ -1,0 +1,3 @@
+panic!
+panic: `Stack::push_wrong` killed `self@items`, which its clause does not name
+pushed 3

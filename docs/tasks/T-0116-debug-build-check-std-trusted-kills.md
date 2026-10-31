@@ -7,6 +7,8 @@ kind: feature
 area: ownership
 ---
 
+**First part done (2026-10-31): pointer-field ties.** In a debug build, every function with a `&mut` input (`&mut self` included) whose type ties a pointer field (`tie @items = m_data`) gets a `::dz::TieGuard` per such tie its `kills` clause leaves out: the field's value is remembered on entry and compared on every way out, and a change traps with `panic: `List::push` killed `self@items`, which its clause does not name`. It is emitted for every such function, trusted or not, since a pointer compare costs nothing worth sparing in debug (`tie_guards` in `dz_cpp/src/lib.rs`; `TieGuard` and `tie_killed` in `runtime.rs`). std's clauses all held: 78 guards in `tests/run/collections` alone, and the whole corpus passes. `tests/run/tie_guard` breaks a clause on purpose and expects the trap. **Left:** `[*]`, the blocks the elements own, which wants a sequence number per allocation in `memory/tracker.dz` so a block freed and handed out again at the same address does not read as unmoved; the same caveat applies to a pointer field today.
+
 Step 3 of D-0091's plan, split out of [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md).
 
 **What it is.** `std`'s containers write their `kills` clauses by hand over `unsafe` code,
