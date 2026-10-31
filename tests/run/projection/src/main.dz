@@ -50,6 +50,17 @@ fn first<view T: Iterate>(it: &T) -> T::Item {
     return it.get()
 }
 
+// The last item or nothing. For a list's iterator the item is a reference, and an optional
+// of one is the pointer, `^i32` at the call (spec §5.6, D-0093); for `Countdown`, an owned
+// `Token?`.
+fn last<view T: Iterate>(it: T) -> T::Item? {
+    let mut found: T::Item? = none
+    for x in move(it) {
+        found = move(x)
+    }
+    return move(found)
+}
+
 fn count<view T: Iterate>(it: T) -> usize {
     let mut n: usize = 0
     for _ in move(it) {
@@ -154,6 +165,12 @@ fn main() {
     let counting = Countdown{ left: 3 }
     let top = first(&counting)
     println!("first token {}", top.id)
+
+    let tail: ^i32 = last(xs.iter())
+    let empty = List<i32>()
+    println!("last {} {}", tail or return, last(empty.iter()) == null)
+    let final_token = last(Countdown{ left: 2 }) or return
+    println!("last token {}", final_token.id)
 
     println!("plus {} {}", plus(2, 3), plus(1.5, 2.25))
     let v = doubled(Vec2{ x: 1.0, y: -0.5 })

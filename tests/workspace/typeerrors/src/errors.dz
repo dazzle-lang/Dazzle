@@ -1543,3 +1543,17 @@ fn no_defaults() {
 struct PlainHolder {
     m_crate: &Crate
 }
+
+// `T::Item?` whose instance is a reference is a pointer at the call, not an optional of a
+// reference (spec 5.6, D-0093).
+fn final_item<view T: Iterate>(it: T) -> T::Item? {
+    let mut found: T::Item? = none
+    for x in move(it) {
+        found = move(x)
+    }
+    return move(found)
+}
+
+fn wants_optional(xs: &List<i32>) {
+    let o: i32? = final_item(xs.iter())
+}

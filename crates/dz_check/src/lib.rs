@@ -1889,7 +1889,7 @@ impl<'a> Ctx<'a> {
                     tie: p.tie.clone(),
                 })
                 .collect(),
-            ret: self.instantiate(sym, args, &sig.ret),
+            ret: ty::optional_reference_as_pointer(&sig.ret, self.instantiate(sym, args, &sig.ret)),
             ..sig.clone()
         }
     }

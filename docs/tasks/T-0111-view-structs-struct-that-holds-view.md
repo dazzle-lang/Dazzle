@@ -2,7 +2,8 @@
 id: T-0111
 title: View structs: a struct that holds a view, such as an iterator
 milestone: none
-status: open
+status: done
+done: r97, 2026-10-31
 kind: feature
 area: ownership
 ---
@@ -28,8 +29,14 @@ declare such ties; a union payload and a static may not hold a view. **Left:**
    iterators hold `&`/`&mut` and declare `tie @items = m_map`. A constructor with two
    view inputs still leaves its result unknown, as a function's would (`DZ0570` is not
    asked of constructors, which cannot write `in`).
-2. **`T::Item?` whose instance is a reference** emitted as that pointer
-   ([T-0085](T-0085-optional-reference-passes-checker.md), option 3).
+2. ~~**`T::Item?` whose instance is a reference**~~ Done, r97 (2026-10-31): at the call it
+   is the pointer, `^i32` (`optional_reference_as_pointer` in `dz_hir/src/ty.rs`, applied
+   where a generic function's signature is solved in `dz_check/src/check.rs` and in
+   `Ctx::instantiate_sig`); in C++ the generic body's `Opt<const T&>` is the runtime's
+   `Opt<T&>` specialisation, a pointer with an optional's face that converts to and from
+   `T*`, and codegen reads a payload through `::dz::opt_get`. Only a result's top level is
+   rewritten; an optional of a reference nested in a tuple stays one, which C++ now
+   accepts.
 3. ~~An implementation's `in` is not held to its trait's.~~ Done, r94: `clauses_within_trait`
    in `dz_check/src/check.rs`, `DZ0573`, for `kills` and `in` alike.
 4. ~~A view-struct parameter taken by value is not a view input.~~ Done, r95.

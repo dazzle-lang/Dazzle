@@ -241,6 +241,32 @@ struct Addr {
 
 template <class T> DZ_INLINE Addr<T> addr(T& x) { return Addr<T>{&x}; }
 
+/// An optional whose payload is a reference: `T::Item?` in a generic body, instantiated for
+/// an iterator whose `Item` is `&T`. It is the pointer `^T` the checker calls it at the call
+/// (spec §5.6, D-0093), with an optional's face for the generic body, which is emitted one
+/// way for every instance; it converts to and from that pointer at the boundary. A C++
+/// reference member could not be empty or reassigned.
+template <class T>
+struct Opt<T&> {
+    T* ptr;
+    bool has;
+
+    constexpr Opt() : ptr(nullptr), has(false) {}
+    Opt(T& v) : ptr(&v), has(true) {}
+    template <class U> Opt(Addr<U> a) : ptr(a.p), has(true) {}
+    Opt(T* p) : ptr(p), has(p != nullptr) {}
+    DZ_INLINE operator T*() const { return ptr; }
+    static Opt some(T& v) { return Opt(v); }
+    static Opt none() { return Opt(); }
+};
+
+/// An optional's payload, once `has` says there is one: the value, or for an optional
+/// reference what it refers to.
+template <class T> DZ_INLINE T& opt_get(Opt<T>& o) { return o.value; }
+template <class T> DZ_INLINE const T& opt_get(const Opt<T>& o) { return o.value; }
+template <class T> DZ_INLINE T& opt_get(Opt<T&>& o) { return *o.ptr; }
+template <class T> DZ_INLINE T& opt_get(const Opt<T&>& o) { return *o.ptr; }
+
 /// An `Addr` settled into the one form the parameter it is passed to wants. The proxy is
 /// ambiguous where a header offers both, as sokol's does in C++: `sg_begin_pass(const
 /// sg_pass*)` beside an inline `sg_begin_pass(const sg_pass&)` (spec §15.3).

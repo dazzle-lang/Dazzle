@@ -338,4 +338,10 @@ already encodes absence — `^T` *is* the optional pointer, and layering `?` on 
 you two spellings for one type. This is why the niche optimisation that earlier drafts
 promised for `?^T` no longer appears anywhere: it has nothing to optimise. `[DECIDED]`
 
+A generic result may still be an optional of a projection, `T::Item?`, whose instance is a
+reference: a list's iterator has `Item = &i32`. Such a result is the pointer an optional
+reference would be, `^i32` (`^mut i32` for `&mut i32`), at the call, tied as the reference
+would be, so `last(xs.iter()) or return` gives the `&i32` back. Inside the generic body it
+is an optional as for every other instance (D-0093).
+
 Fallibility is not on this table because it is not a property of a value. See §9.

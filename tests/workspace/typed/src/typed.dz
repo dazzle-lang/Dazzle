@@ -2068,3 +2068,19 @@ fn teller() -> i32 {
     let g = Glance{ ledger: &book }
     return seen + g.ledger.total
 }
+
+// `T::Item?` whose instance is a reference is the pointer (spec 5.6, D-0093): `^i32` for a
+// list's iterator, which `or` turns back into the reference.
+fn final_of<view T: Iterate>(it: T) -> T::Item? {
+    let mut found: T::Item? = none
+    for x in move(it) {
+        found = move(x)
+    }
+    return move(found)
+}
+
+fn final_number(xs: &List<i32>) -> i32 {
+    let p: ^i32 = final_of(xs.iter())
+    let r = p or return 0
+    return r
+}
