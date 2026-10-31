@@ -85,6 +85,27 @@ struct TieGuard {
     TieGuard& operator=(const TieGuard&) = delete;
 };
 
+/// With `check_trusted`, remembers the blocks a container's elements own when a function
+/// begins and, on every way out, traps if one was freed or handed out again: the function
+/// killed `[*]`, and its clause does not say so (spec §6.7, T-0116). The walk and the check
+/// are the memory tracker's, `trusted_elements` and `trusted_elements_kept` in
+/// `std/memory/tracker.dz`, passed in by the generated code, which knows their names.
+struct ElementsGuard {
+    bool (*kept)(size_t);
+    size_t handle;
+    const char* function;
+    const char* tie;
+    ElementsGuard(size_t (*snapshot)(size_t, size_t, const size_t*, size_t), bool (*k)(size_t),
+                  size_t root, size_t size, const size_t* skip, size_t nskip, const char* f,
+                  const char* t)
+        : kept(k), handle(snapshot(root, size, skip, nskip)), function(f), tie(t) {}
+    ~ElementsGuard() {
+        if (!kept(handle)) { tie_killed(function, tie); }
+    }
+    ElementsGuard(const ElementsGuard&) = delete;
+    ElementsGuard& operator=(const ElementsGuard&) = delete;
+};
+
 // --- strings and slices (spec §5.3) ---------------------------------------
 
 struct str {

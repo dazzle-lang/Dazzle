@@ -2,10 +2,13 @@
 id: T-0116
 title: Debug-build check of std's trusted kills clauses
 milestone: none
-status: open
+status: done
+done: r102, 2026-10-31
 kind: feature
 area: ownership
 ---
+
+**Done, r102 (2026-10-31): `[*]` too,** behind `[build] check_trusted = true`, the user's choice, since it walks every element on each call. Each tracked allocation has a number (`Allocation::seq`). On entry, `trusted_elements` (`std/memory/tracker.dz`) collects every live tracked block reachable from the input's bytes by words pointing at a block's start, leaving out the container's own arrays, which its pointer ties are; on every way out, `trusted_elements_kept` checks each is still the same live allocation. `::dz::ElementsGuard` holds the handle, and the generated code passes the two functions in. The check is physical: an element moved within the array, or out to another owner, keeps its blocks and passes; one freed, or freed and reused, traps. `tests/run/elements_guard` breaks a clause, and `std_clauses_hold_under_check_trusted` in `dz/tests/run.rs` runs eleven container programs with it on.
 
 **First part done (2026-10-31): pointer-field ties.** In a debug build, every function with a `&mut` input (`&mut self` included) whose type ties a pointer field (`tie @items = m_data`) gets a `::dz::TieGuard` per such tie its `kills` clause leaves out: the field's value is remembered on entry and compared on every way out, and a change traps with `panic: `List::push` killed `self@items`, which its clause does not name`. It is emitted for every such function, trusted or not, since a pointer compare costs nothing worth sparing in debug (`tie_guards` in `dz_cpp/src/lib.rs`; `TieGuard` and `tie_killed` in `runtime.rs`). std's clauses all held: 78 guards in `tests/run/collections` alone, and the whole corpus passes. `tests/run/tie_guard` breaks a clause on purpose and expects the trap. **Left:** `[*]`, the blocks the elements own, which wants a sequence number per allocation in `memory/tracker.dz` so a block freed and handed out again at the same address does not read as unmoved; the same caveat applies to a pointer field today.
 

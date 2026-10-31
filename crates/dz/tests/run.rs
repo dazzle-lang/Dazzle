@@ -1710,3 +1710,47 @@ fn the_access_helpers_cost_nothing_in_the_generated_code() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// std's `kills` clauses over `unsafe` code are trusted by the checker, and checked when a
+/// build sets `check_trusted` (spec §6.7, T-0116): every guarded function walks the blocks
+/// its containers' elements own and traps if one it promised to keep was freed or handed
+/// out again. The programs that exercise the containers run with it on and must print what
+/// they print without it, which is the corpus holding std to its clauses.
+#[test]
+fn std_clauses_hold_under_check_trusted() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    for fixture in [
+        "collections",
+        "hashmap",
+        "slot_map",
+        "iterable",
+        "ref_fields",
+        "sorting",
+        "text",
+        "projection",
+        "iterator",
+        "containers",
+        "optionals",
+    ] {
+        let dir = copy_fixture(fixture, &format!("dz_check_trusted_{fixture}"));
+        let manifest = dir.join("dazzle.toml");
+        let text = std::fs::read_to_string(&manifest).unwrap();
+        let text = if text.contains("[build]") {
+            text.replacen("[build]", "[build]\ncheck_trusted = true", 1)
+        } else {
+            format!("{text}\n[build]\ncheck_trusted = true\n")
+        };
+        std::fs::write(&manifest, text).unwrap();
+        let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("run dz");
+        let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{fixture} under check_trusted:\n{stderr}");
+        let expected =
+            normalise(&std::fs::read_to_string(run_dir(fixture).join("expected.txt")).unwrap());
+        assert_eq!(stdout, expected, "{fixture} under check_trusted");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
