@@ -41,6 +41,10 @@ pub struct BuildConfig {
     /// `track_memory = true`: turn on the prelude's `TRACK_MEMORY` flag, which the
     /// standard allocators read (spec §12.10, §14.2). Only the root manifest's counts.
     pub track_memory: bool,
+    /// `check_trusted = true`: a debug build also checks that a function keeps the memory
+    /// its elements own when its `kills` clause says it does (spec §6.7, T-0116). It walks
+    /// every element on each call, so it is for test runs; it turns `track_memory` on.
+    pub check_trusted: bool,
 }
 
 /// The flags the compiler defines in every package, set from the build mode and the host
@@ -66,6 +70,7 @@ impl Default for BuildConfig {
             optimize: Optimize::Debug,
             type_info: TypeInfo::Used,
             track_memory: false,
+            check_trusted: false,
         }
     }
 }
@@ -1898,6 +1903,12 @@ impl<'a> Loader<'a> {
             match v {
                 Value::Bool(b, _) => cfg.track_memory = *b,
                 other => self.type_error(file, other, "build.track_memory", "true or false"),
+            }
+        }
+        if let Some(v) = table.get("check_trusted") {
+            match v {
+                Value::Bool(b, _) => cfg.check_trusted = *b,
+                other => self.type_error(file, other, "build.check_trusted", "true or false"),
             }
         }
         if let Some(v) = table.get("type_info") {

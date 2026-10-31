@@ -108,7 +108,7 @@ pub fn resolve_flags(ws: &Workspace, opts: &BuildOptions, diags: &mut Diagnostic
             );
         }
     }
-    if opts.track_memory || root.build.track_memory {
+    if opts.track_memory || root.build.track_memory || root.build.check_trusted {
         on.entry(ws.prelude).or_default().insert("TRACK_MEMORY".to_owned());
     }
     Flags { on }

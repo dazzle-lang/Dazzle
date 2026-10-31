@@ -1,0 +1,10 @@
+[module]
+name    = "elements_guard"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"
+check_trusted = true

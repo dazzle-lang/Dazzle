@@ -90,6 +90,17 @@ standard library's `TRACK_MEMORY` flag (§12.10), and the tracker does not exist
 - **a free whose size or alignment differs** from the allocation panics;
 - **`Temp.reset()` poisons** what it releases with `0xDD`, so a stale read shows.
 
+**Checking std's trusted clauses.** `std`'s containers write their `kills` clauses by hand
+over `unsafe` code, and §6.7's checker trusts them. A debug build tests the half that costs
+nothing: a function whose clause leaves a `&mut` input's pointer tie out (`@items`) traps if
+the pointer changed by the time it returns — `` `List::push` killed `self@items`, which its
+clause does not name ``. `[build] check_trusted = true` adds the other half, for test runs:
+on entry it finds every tracked block the input's elements own, by following the words that
+point at a live block's start, and on return it traps if one of them was freed or handed out
+again, unless the clause kills `[*]`. Each allocation is numbered, so a block freed and
+reused at the same address is not taken for the same one. It walks every element on every
+call and turns tracking on, so it is for tests, not for builds a person plays.
+
 **`List<T>`** is the growable array, in `std`. `List<i32>()` is empty and allocates
 nothing; `List<T>(capacity, allocator)` takes both. It doubles when it grows; `push`,
 `pop` (a `T?`), `insert`, `remove`, `swap_remove`, `remove_range(from, to)`, `clear`,

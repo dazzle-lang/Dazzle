@@ -3004,6 +3004,43 @@ impl<'a> Emitter<'a> {
                 ));
                 n += 1;
             }
+            // `[*]`, with `check_trusted`: the blocks the elements own, found by walking the
+            // tracker's live blocks from the input, must all still be the same allocations
+            // when the function ends, unless the clause kills `[*]` (T-0116). The container's
+            // own arrays are its pointer ties', so they are left out.
+            let elements_killed = sig.kills.iter().any(|path| {
+                path.root.name == param
+                    && matches!(path.steps.first(), None | Some(dz_ast::TieStep::Elements(_)))
+            });
+            let arrays: Vec<String> = s
+                .fields
+                .iter()
+                .filter(|f| f.tie.is_some() && matches!(f.ty, Ty::Ptr { .. } | Ty::OwnPtr { .. }))
+                .map(|f| sanitize(&f.name))
+                .collect();
+            if self.ws.module(self.ws.root).build.check_trusted
+                && !elements_killed
+                && !arrays.is_empty()
+            {
+                let skip: Vec<String> = arrays
+                    .iter()
+                    .map(|f| format!("reinterpret_cast<size_t>(::dz::obj({cpp}).{f})"))
+                    .collect();
+                let count = skip.len();
+                let prelude = self.ws.prelude;
+                let (Some(snap), Some(kept)) = (
+                    self.res.lookup(prelude, "trusted_elements"),
+                    self.res.lookup(prelude, "trusted_elements_kept"),
+                ) else {
+                    continue;
+                };
+                let (snap, kept) = (self.qualify(snap), self.qualify(kept));
+                self.line(&format!("const size_t _dz_skip{n}[] = {{ {} }};", skip.join(", ")));
+                self.line(&format!(
+                    "::dz::ElementsGuard _dz_elems{n}(&{snap}, &{kept}, reinterpret_cast<size_t>(&::dz::obj({cpp})), sizeof(::dz::obj({cpp})), _dz_skip{n}, {count}, \"{name}\", \"{param}[*]\");"
+                ));
+                n += 1;
+            }
         }
     }
 

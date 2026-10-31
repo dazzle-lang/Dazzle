@@ -6,6 +6,32 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r102: `[*]` checked too, with `check_trusted` (2026-10-31)
+
+T-0116's second half, opt-in by the user's choice: walking every element on each call makes
+a loop of `push` quadratic, which only a test run can afford.
+
+- **The option.** `[build] check_trusted = true` (`BuildConfig::check_trusted`), which
+  turns `TRACK_MEMORY` on (`dz_driver/src/cfg.rs`).
+- **Numbers.** The tracker numbers each allocation (`Tracker::m_seq`, `Allocation::seq`).
+- **Which blocks.** No per-type walk was needed, nor new instances from `dz_mono`, which
+  enumerating elements through `Iterable` would have taken: `Tracker::reach` reads the
+  input's bytes and every block found as words, and a word equal to a live block's start is
+  a block reached. The container's own arrays, the targets of its tied pointer fields, are
+  left out, since `@items` is the pointer guard's.
+- **What is checked.** Physically: every block found on entry must still be the same live
+  allocation on the way out. An element moved within the array, or out to another owner as
+  `append` does, keeps its blocks; one dropped, or replaced, frees them. So `append` needs no
+  `kills other[*]`, which a reachability check would have asked for.
+- **Codegen.** `tie_guards` emits an `ElementsGuard` per `&mut` input with tied pointer
+  fields whose clause kills neither `[*]` nor the input whole, passing it the tracker's two
+  functions by their qualified names, which only the emitter knows.
+
+Conservative: a word that happens to equal a block's start, or a raw pointer into an
+unrelated block freed meanwhile, could trap where nothing is wrong. Nothing in the eleven
+programs run with it does. Tests: `tests/run/elements_guard`, and
+`std_clauses_hold_under_check_trusted`.
+
 ## T-0116, first part: std's trusted clauses checked in debug builds (2026-10-31)
 
 Compiler and runtime work; no language change. r90 settled the shape: a view carries

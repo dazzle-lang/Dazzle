@@ -12,5 +12,8 @@
         pub line: u32 = 0
         pub freed_file: const &cstr = ""
         pub freed_line: u32 = 0
+        /// Which allocation this is, counting from one: a block freed and handed out again
+        /// at the same address is a different one (spec §6.7, T-0116).
+        pub seq: u64 = 0
     }
 }

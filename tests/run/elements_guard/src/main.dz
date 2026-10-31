@@ -1,0 +1,68 @@
+// With `check_trusted`, a debug build checks a trusted body keeps what its elements own`n// unless its clause kills `[*]` (spec §6.7, T-0116). `clear_wrong` frees every element's`n// text and says nothing, which the guard catches on the way out.
+struct Names {
+    m_data: own ^mut String = null
+    m_len:  usize = 0
+    tie @items = m_data
+
+    pub fn add(&mut self, s: String) kills self@items {
+        unsafe {
+            let fresh = Allocators::Global.alloc((m_len + 1) * sizeof(String), alignof(String), #location) as ^mut String
+            let mut i: usize = 0
+            while i < m_len {
+                construct(fresh[i], move_out(m_data[i]))
+                i += 1
+            }
+            construct(fresh[m_len], move(s))
+            if m_data != null {
+                Allocators::Global.free(m_data as ^mut u8, m_len * sizeof(String), alignof(String), #location)
+            }
+            m_data = fresh
+        }
+        m_len += 1
+    }
+
+    pub fn first_len(&self) -> usize {
+        return unsafe {
+            m_data[0].len()
+        }
+    }
+
+    pub fn clear_wrong(&mut self) {
+        let mut i: usize = 0
+        while i < m_len {
+            unsafe {
+                destroy(m_data[i])
+            }
+            unsafe {
+                construct(m_data[i], String())
+            }
+            i += 1
+        }
+    }
+}
+
+fn main() {
+    let mut n = Names{}
+    n.add(String("ada"))
+    n.add(String("grace"))
+    println!("first {}", n.first_len())
+    n.clear_wrong()
+    println!("not reached")
+}
+
+impl Drop for Names {
+    fn drop(&mut self) {
+        let mut i: usize = 0
+        while i < m_len {
+            unsafe {
+                destroy(m_data[i])
+            }
+            i += 1
+        }
+        if m_data != null {
+            unsafe {
+                Allocators::Global.free(m_data as ^mut u8, m_len * sizeof(String), alignof(String), #location)
+            }
+        }
+    }
+}

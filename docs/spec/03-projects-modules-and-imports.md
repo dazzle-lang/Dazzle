@@ -37,6 +37,7 @@ output       = "static-lib"   # "executable" | "static-lib" | "shared-lib"
 optimize     = "debug"        # "debug" | "release" | "shipping"
 type_info    = "used"         # "none" | "used" | "all"   (§13)
 track_memory = false          # the allocators' tracking (§14.2); the root's counts
+check_trusted = false         # test runs: check std's trusted clauses (§14.2); the root's counts
 
 [cpp.libs.raylib]                  # a C or C++ library, vendored as source (§15.1)
 root         = "vendor/raylib/src"
