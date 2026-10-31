@@ -183,6 +183,12 @@ pub const KILL_NEVER_HAPPENS: &str = "DZ0416";
 /// A `kills` path wider than what the body kills: `kills w` where only `w.enemies@items`
 /// dies (spec §6.7).
 pub const KILL_TOO_BROAD: &str = "DZ0417";
+/// `p or …` turning a pointer with no tie into a reference outside `unsafe`: a pointer
+/// parameter, a field with no tie, a cast or C's (spec 5.2, 6.7).
+pub const UNTIED_POINTER_CONVERTED: &str = "DZ0418";
+/// A pointer whose tie is unknown returned under one, outside `unsafe`: the caller would
+/// trust it as tied (spec 6.7).
+pub const UNTIED_POINTER_RETURNED: &str = "DZ0419";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 

@@ -88,7 +88,7 @@ fn main() {
 
     // A static behind a handle: the shape of `Allocators::Global` (spec §14.2).
     let global: ^mut Shape = unsafe { &mut SHARED }
-    let g = global or return
+    let g = unsafe { global or return }
     g.grow(1)
     println!("{} {}", g.area(), SHARED.side)
 }

@@ -473,6 +473,16 @@ fn points(ty: &Ty) -> bool {
     matches!(ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::Slice { .. } | Ty::Str | Ty::CStr)
 }
 
+/// A pointer `or` turns into a reference: `^T`, `own ^T`, C's `^cstr`, and the text and slice
+/// pointers `^str` and `^[]T` (spec §5.2, §5.6).
+fn or_pointer(ty: &Ty) -> bool {
+    match ty {
+        Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::RawCStr => true,
+        Ty::Optional(i) => matches!(**i, Ty::Str | Ty::Slice { .. }),
+        _ => false,
+    }
+}
+
 /// Whether a value of `ty` may hold a view somewhere inside it, other than through a
 /// pointer field, which stays unchecked (spec §6.7). A type parameter may.
 pub(crate) fn contains_views(ty: &Ty, table: &TypeTable) -> bool {

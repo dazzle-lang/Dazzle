@@ -48,6 +48,7 @@ pub(crate) struct BodyBuilder {
     stmts: Vec<hir::Stmt>,
     blocks: Vec<hir::Block>,
     base_init: Option<ExprId>,
+    unsafe_blocks: Vec<BlockId>,
 }
 
 impl BodyBuilder {
@@ -64,7 +65,13 @@ impl BodyBuilder {
             stmts: Vec::new(),
             blocks: Vec::new(),
             base_init: None,
+            unsafe_blocks: Vec::new(),
         }
+    }
+
+    /// Record that `b` was written `unsafe { … }` (spec §5.2).
+    pub(crate) fn mark_unsafe(&mut self, b: BlockId) {
+        self.unsafe_blocks.push(b);
     }
 
     /// Record a constructor's `: Base(…)` (spec §7.3, 18.32). It lives in this body's
@@ -215,6 +222,7 @@ impl BodyBuilder {
             blocks: self.blocks,
             root,
             base_init: self.base_init,
+            unsafe_blocks: self.unsafe_blocks,
         }
     }
 }

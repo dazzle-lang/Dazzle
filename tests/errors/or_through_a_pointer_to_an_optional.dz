@@ -6,7 +6,7 @@
 // separate rules and it is worth seeing both spelled out:
 //
 //   a: ^u32?    a pointer to an optional, not an optional pointer (§18.15)
-//   p: &u32?    `or` on a `^T` gives a `&T` (§18.37)
+//   p: &u32?    `or` on a `^T` gives a `&T` (§18.37), in `unsafe` for a parameter's, which`n//               has no tie (T-0114)
 //   c: u32      `or` on a `&T?` reads the optional it refers to, by copy, because `u32`
 //               is copyable (§18.35) — a `Token` here is `DZ0402` instead
 //
@@ -15,13 +15,13 @@
 // (`let_reference_binding.dz`).
 
 fn by_copy(a: ^u32?) -> u32 {
-    let p = a or return 0
+    let p = unsafe { a or return 0 }
     let c = p or return 0
     return c
 }
 
 fn by_reference(a: ^u32?) -> u32 {
-    let p = a or return 0
+    let p = unsafe { a or return 0 }
     if let &c = p {
         return c
     }

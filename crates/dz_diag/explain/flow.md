@@ -480,3 +480,96 @@ fn main() {
     println!("{}", xs.len())
 }
 ```
+
+## DZ0418
+
+`or` turns a pointer into a reference safely only when the pointer has a tie: it was made
+from a place (`&mut world.players[0]`), or a safe call returned it with `in`, or elided to its
+one view input (spec 5.2, 6.7). A pointer parameter, a pointer field with no tie, a cast or
+C's pointer has none: it may point at memory already gone, aliasing a reference the checker
+sees, and nothing here can tell. The conversion is then the programmer's word, written in
+`unsafe { … }`, which an editor offers to do.
+
+```dz
+pub struct World {
+    pub hp: i32 = 0
+}
+
+fn hurt(p: ^mut World) {
+    let w = p or return
+    w.hp -= 1
+}
+
+fn main() {
+    let mut world = World{}
+    hurt(&mut world)
+    println!("{}", world.hp)
+}
+```
+
+```dz
+pub struct World {
+    pub hp: i32 = 0
+}
+
+fn hurt(p: ^mut World) {
+    let w = unsafe { p or return }
+    w.hp -= 1
+}
+
+fn main() {
+    let mut world = World{}
+    hurt(&mut world)
+    println!("{}", world.hp)
+}
+```
+
+## DZ0419
+
+A function's result tie is a promise its callers rely on: they turn a pointer it returns
+into a reference safely (`DZ0418` does not ask them for `unsafe`), because the body is held
+to the tie. Returning a pointer whose tie is unknown — read from a field with no tie, or
+cast — under that promise would launder an untied pointer into a tied one (spec 6.7). The
+body vouches for it in `unsafe { … }` instead, or returns what its `in` names.
+
+```dz
+pub struct World {
+    pub hp: i32 = 0
+}
+
+pub struct Ctx {
+    pub world: ^mut World = null
+}
+
+fn world_of(ctx: &Ctx) -> ^mut World in ctx {
+    return ctx.world
+}
+
+fn main() {
+    let mut world = World{}
+    let ctx = Ctx{ world: &mut world }
+    let w = world_of(&ctx) or return
+    println!("{}", w.hp)
+}
+```
+
+```dz
+pub struct World {
+    pub hp: i32 = 0
+}
+
+pub struct Ctx {
+    pub world: ^mut World = null
+}
+
+fn world_of(ctx: &Ctx) -> ^mut World in ctx {
+    return unsafe { ctx.world }
+}
+
+fn main() {
+    let mut world = World{}
+    let ctx = Ctx{ world: &mut world }
+    let w = world_of(&ctx) or return
+    println!("{}", w.hp)
+}
+```

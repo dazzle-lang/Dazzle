@@ -53,7 +53,7 @@ fn main() {
 
     // A `&mut` built by a block and stored as a pointer points at the static itself.
     let h = Holder{ p: unsafe { &mut COUNT } }
-    let c = h.p or return
+    let c = unsafe { h.p or return }
     c.hits += 100
     println!("{} {} {} {}", COUNT.hits, TABLE[0], TABLE[3], SCRATCH)
     println!("{} {}", NAMES[1], NAMES.len)

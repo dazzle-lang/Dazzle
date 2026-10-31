@@ -1,0 +1,48 @@
+// Spec §5.2, §6.7, D-0093 point 11 (T-0114): only a tied pointer becomes a reference safely.
+// A pointer parameter and a pointer field with no tie are untied, so `or` on one needs
+// `unsafe`; a pointer a safe call returns under a tie, or one made from a place, is tied.
+// A function may not return an untied pointer under a tie it cannot back, which is how one
+// would otherwise be laundered into a safe `or`.
+// expect: DZ0418, DZ0419
+
+pub struct World {
+    pub hp: i32 = 0
+}
+
+pub struct Ctx {
+    pub world: ^mut World = null
+}
+
+fn from_param(p: ^mut World) {
+    let w = p or return
+    w.hp = 1
+}
+
+fn vouched(p: ^mut World) {
+    let w = unsafe { p or return }
+    w.hp = 2
+}
+
+fn laundered(ctx: &Ctx) -> ^mut World in ctx {
+    return ctx.world
+}
+
+fn honest(ctx: &Ctx) -> ^mut World in ctx {
+    return unsafe { ctx.world }
+}
+
+fn main() {
+    let mut world = World{}
+    let ctx = Ctx{ world: &mut world }
+    let p: ^mut World = &mut world
+    let a = p or return
+    a.hp = 3
+    let mut xs = List<i32>()
+    xs.push(1)
+    let first = xs.first() or return
+    let through = honest(&ctx) or return
+    from_param(p)
+    vouched(p)
+    println!("{} {} {}", a.hp, first, through.hp)
+    let _ = laundered(&ctx)
+}

@@ -19,17 +19,17 @@ pub struct Weak<T> {
     Weak(rc: &Rc<T>) {
         m_header = rc.m_header
         m_value = rc.m_value
-        let h = m_header or return
+        let h = unsafe { m_header or return }
         h.weak += 1
     }
 }
 
 impl<T> Drop for Weak<T> {
     fn drop(&mut self) {
-        let h = m_header or return
+        let h = unsafe { m_header or return }
         h.weak -= 1
         if h.weak == 0 && h.strong == 0 {
-            let a = h.allocator or return
+            let a = unsafe { h.allocator or return }
             a.free(unsafe { m_header as ^mut u8 }, h.size, h.align)
         }
     }
@@ -39,7 +39,7 @@ impl<T> Copy for Weak<T> {
     fn copy(&mut self, other: &Self) {
         m_header = other.m_header
         m_value = other.m_value
-        let h = m_header or return
+        let h = unsafe { m_header or return }
         h.weak += 1
     }
 }
@@ -49,14 +49,14 @@ impl<T> Nullable for Weak<T> {
     type Guard = Rc<T>
 
     fn is_null(&self) -> bool {
-        let h = m_header or return true
+        let h = unsafe { m_header or return true }
         return h.strong == 0
     }
 
     /// A strong `Rc` to the value, or a null one when it is gone.
     fn guard(&self) -> Rc<T> {
         let mut r: Rc<T> = null
-        let h = m_header or return r
+        let h = unsafe { m_header or return r }
         if h.strong == 0 {
             return r
         }
@@ -67,10 +67,10 @@ impl<T> Nullable for Weak<T> {
     }
 
     fn ptr(&self) -> ^mut T {
-        let h = m_header or return null
+        let h = unsafe { m_header or return null }
         if h.strong == 0 {
             return null
         }
-        return m_value
+        return unsafe { m_value }
     }
 }

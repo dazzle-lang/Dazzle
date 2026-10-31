@@ -1068,11 +1068,13 @@ body method HashMap::grow_to -> void
           local _3 slots: usize
           int 2: usize
     let _4 a: &mut Allocator
-      or: &mut Allocator
-        field #5: ^mut Allocator
-          local _0 self: HashMap<K, V>
-        builtin panic: !
-          str "a HashMap with no allocator cannot grow": &str
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #5: ^mut Allocator
+              local _0 self: HashMap<K, V>
+            builtin panic: !
+              str "a HashMap with no allocator cannot grow": &str
     let _5 old_hashes: ^mut u64
       block-value: ^mut u64
         block
@@ -1297,10 +1299,12 @@ body drop HashMap -> void
     call-method HashMap::clear: void
       local _0 self: HashMap<K, V>
     let _1 a: &mut Allocator
-      or: &mut Allocator
-        field #5: ^mut Allocator
-          local _0 self: HashMap<K, V>
-        return: !
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #5: ^mut Allocator
+              local _0 self: HashMap<K, V>
+            return: !
     call-method Allocator::free: void
       local _1 a: &mut Allocator
       block-value: ^mut u8
@@ -1354,11 +1358,13 @@ body copy HashMap -> void
       block
         return: !
     let _2 a: &mut Allocator
-      or: &mut Allocator
-        field #5: ^mut Allocator
-          local _0 self: HashMap<K, V>
-        builtin panic: !
-          str "a HashMap with no allocator cannot be copied": &str
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #5: ^mut Allocator
+              local _0 self: HashMap<K, V>
+            builtin panic: !
+              str "a HashMap with no allocator cannot be copied": &str
     assign =
       field #4: usize
         local _0 self: HashMap<K, V>
@@ -3108,11 +3114,13 @@ body method List::move_to -> void
   param _2 loc: SourceLocation
   block
     let _3 a: &mut Allocator
-      or: &mut Allocator
-        field #3: ^mut Allocator
-          local _0 self: List<T>
-        builtin panic: !
-          str "a List with no allocator cannot grow": &str
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #3: ^mut Allocator
+              local _0 self: List<T>
+            builtin panic: !
+              str "a List with no allocator cannot grow": &str
     if: void
       binary ==: bool
         local _1 cap: usize
@@ -3255,10 +3263,12 @@ body drop List -> void
                       local _0 self: List<T>
                     local _1 i: usize
     let _2 a: &mut Allocator
-      or: &mut Allocator
-        field #3: ^mut Allocator
-          local _0 self: List<T>
-        return: !
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #3: ^mut Allocator
+              local _0 self: List<T>
+            return: !
     call-method Allocator::free: void
       local _2 a: &mut Allocator
       block-value: ^mut u8
@@ -3288,11 +3298,13 @@ body copy List -> void
       block
         return: !
     let _2 a: &mut Allocator
-      or: &mut Allocator
-        field #3: ^mut Allocator
-          local _0 self: List<T>
-        builtin panic: !
-          str "a List with no allocator cannot be copied": &str
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #3: ^mut Allocator
+              local _0 self: List<T>
+            builtin panic: !
+              str "a List with no allocator cannot be copied": &str
     assign =
       field #0: own ^mut T
         local _0 self: List<T>
@@ -10620,10 +10632,12 @@ body ctor Box#0 -> void
   param _3 loc: SourceLocation
   block
     let _4 a: &mut Allocator
-      or: &mut Allocator
-        local _2 allocator: ^mut Allocator
-        builtin panic: !
-          str "a Box needs an allocator": &str
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            local _2 allocator: ^mut Allocator
+            builtin panic: !
+              str "a Box needs an allocator": &str
     assign =
       field #1: ^mut Allocator
         local _0 self: Box<T>
@@ -10683,10 +10697,12 @@ body drop Box -> void
             field #0: own ^mut T
               local _0 self: Box<T>
     let _2 a: &mut Allocator
-      or: &mut Allocator
-        field #1: ^mut Allocator
-          local _0 self: Box<T>
-        return: !
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #1: ^mut Allocator
+              local _0 self: Box<T>
+            return: !
     call-method Allocator::free: void
       local _2 a: &mut Allocator
       block-value: ^mut u8
@@ -10718,8 +10734,10 @@ body impl#93 method ptr -> ^mut T
   param _0 self: Box<T>
   block
     return: !
-      field #0: own ^mut T
-        local _0 self: Box<T>
+      block-value: own ^mut T
+        block
+          field #0: own ^mut T
+            local _0 self: Box<T>
 body fn c_malloc -> ^mut u8
   param _0 size: usize
   param _1 loc: SourceLocation
@@ -10862,7 +10880,9 @@ body impl#94 method alloc -> ^mut u8
                     local _6 at: usize
     error
     return: !
-      local _7 p: ^mut u8
+      block-value: ^mut u8
+        block
+          local _7 p: ^mut u8
 body impl#94 method realloc -> ^mut u8
   param _0 self: Heap
   param _1 p: ^mut u8
@@ -10954,10 +10974,12 @@ body ctor Rc#0 -> void
   param _3 loc: SourceLocation
   block
     let _4 a: &mut Allocator
-      or: &mut Allocator
-        local _2 allocator: ^mut Allocator
-        builtin panic: !
-          str "an Rc needs an allocator": &str
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            local _2 allocator: ^mut Allocator
+            builtin panic: !
+              str "an Rc needs an allocator": &str
     let _5 size: usize
       type-query RcBlock<T>::size: usize
     let _6 align: usize
@@ -11017,11 +11039,13 @@ body method Rc::count -> usize
   param _0 self: Rc<T>
   block
     let _1 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Rc<T>
-        return: !
-          int 0: usize
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Rc<T>
+            return: !
+              int 0: usize
     return: !
       field #0: usize
         local _1 h: &mut RcHeader
@@ -11029,11 +11053,13 @@ body method Rc::weak_count -> usize
   param _0 self: Rc<T>
   block
     let _1 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Rc<T>
-        return: !
-          int 0: usize
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Rc<T>
+            return: !
+              int 0: usize
     return: !
       field #1: usize
         local _1 h: &mut RcHeader
@@ -11041,10 +11067,12 @@ body drop Rc -> void
   param _0 self: Rc<T>
   block
     let _1 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Rc<T>
-        return: !
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Rc<T>
+            return: !
     assign -=
       field #0: usize
         local _1 h: &mut RcHeader
@@ -11073,10 +11101,12 @@ body drop Rc -> void
         int 0: usize
       block
         let _3 a: &mut Allocator
-          or: &mut Allocator
-            field #2: ^mut Allocator
-              local _1 h: &mut RcHeader
-            return: !
+          block-value: &mut Allocator
+            block
+              or: &mut Allocator
+                field #2: ^mut Allocator
+                  local _1 h: &mut RcHeader
+                return: !
         call-method Allocator::free: void
           local _3 a: &mut Allocator
           block-value: ^mut u8
@@ -11103,10 +11133,12 @@ body copy Rc -> void
       field #1: ^mut T
         local _1 other: &Rc<T>
     let _2 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Rc<T>
-        return: !
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Rc<T>
+            return: !
     assign +=
       field #0: usize
         local _2 h: &mut RcHeader
@@ -11128,8 +11160,10 @@ body impl#97 method ptr -> ^mut T
   param _0 self: Rc<T>
   block
     return: !
-      field #1: ^mut T
-        local _0 self: Rc<T>
+      block-value: ^mut T
+        block
+          field #1: ^mut T
+            local _0 self: Rc<T>
 body field-default RcHeader.0 -> void
   block
     int 0: usize
@@ -11413,7 +11447,9 @@ body impl#98 method alloc -> ^mut u8
                 local _0 self: TempArena
               local _4 start: usize
     return: !
-      local _5 p: ^mut u8
+      block-value: ^mut u8
+        block
+          local _5 p: ^mut u8
 body impl#98 method realloc -> ^mut u8
   param _0 self: TempArena
   param _1 p: ^mut u8
@@ -11543,8 +11579,10 @@ body impl#100 method ptr -> ^mut T
   param _0 self: Unguarded<T>
   block
     return: !
-      field #0: ^mut T
-        local _0 self: Unguarded<T>
+      block-value: ^mut T
+        block
+          field #0: ^mut T
+            local _0 self: Unguarded<T>
 body field-default Weak.0 -> void
   block
     null: ^mut RcHeader
@@ -11566,10 +11604,12 @@ body ctor Weak#0 -> void
       field #1: ^mut T
         local _1 rc: &Rc<T>
     let _2 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Weak<T>
-        return: !
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Weak<T>
+            return: !
     assign +=
       field #1: usize
         local _2 h: &mut RcHeader
@@ -11578,10 +11618,12 @@ body drop Weak -> void
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Weak<T>
-        return: !
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Weak<T>
+            return: !
     assign -=
       field #1: usize
         local _1 h: &mut RcHeader
@@ -11598,10 +11640,12 @@ body drop Weak -> void
           int 0: usize
       block
         let _2 a: &mut Allocator
-          or: &mut Allocator
-            field #2: ^mut Allocator
-              local _1 h: &mut RcHeader
-            return: !
+          block-value: &mut Allocator
+            block
+              or: &mut Allocator
+                field #2: ^mut Allocator
+                  local _1 h: &mut RcHeader
+                return: !
         call-method Allocator::free: void
           local _2 a: &mut Allocator
           block-value: ^mut u8
@@ -11628,10 +11672,12 @@ body copy Weak -> void
       field #1: ^mut T
         local _1 other: &Weak<T>
     let _2 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Weak<T>
-        return: !
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Weak<T>
+            return: !
     assign +=
       field #1: usize
         local _2 h: &mut RcHeader
@@ -11640,11 +11686,13 @@ body impl#103 method is_null -> bool
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Weak<T>
-        return: !
-          bool true: bool
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Weak<T>
+            return: !
+              bool true: bool
     return: !
       binary ==: bool
         field #0: usize
@@ -11656,11 +11704,13 @@ body impl#103 method guard -> Rc<T>
     let _1 r: Rc<T>
       null: Rc<T>
     let _2 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Weak<T>
-        return: !
-          local _1 r: Rc<T>
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Weak<T>
+            return: !
+              local _1 r: Rc<T>
     if: void
       binary ==: bool
         field #0: usize
@@ -11689,11 +11739,13 @@ body impl#103 method ptr -> ^mut T
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
-      or: &mut RcHeader
-        field #0: ^mut RcHeader
-          local _0 self: Weak<T>
-        return: !
-          null: ^mut T
+      block-value: &mut RcHeader
+        block
+          or: &mut RcHeader
+            field #0: ^mut RcHeader
+              local _0 self: Weak<T>
+            return: !
+              null: ^mut T
     if: void
       binary ==: bool
         field #0: usize
@@ -11703,8 +11755,10 @@ body impl#103 method ptr -> ^mut T
         return: !
           null: ^mut T
     return: !
-      field #1: ^mut T
-        local _0 self: Weak<T>
+      block-value: ^mut T
+        block
+          field #1: ^mut T
+            local _0 self: Weak<T>
 body method Random::seed -> void
   param _0 seed: u64
   block
@@ -16119,10 +16173,12 @@ body fn checked_pointer -> f32
   param _0 v: ^mut Vec3
   block
     let _1 r: &mut Vec3
-      or: &mut Vec3
-        local _0 v: ^mut Vec3
-        return: !
-          float 0: f32
+      block-value: &mut Vec3
+        block
+          or: &mut Vec3
+            local _0 v: ^mut Vec3
+            return: !
+              float 0: f32
     assign =
       field #0: f32
         local _1 r: &mut Vec3
@@ -16218,10 +16274,12 @@ body fn read_through -> f32
   param _1 pp: ^^mut Vec3
   block
     let _2 r: &Vec3
-      or: &Vec3
-        local _0 p: ^Vec3
-        return: !
-          float 0: f32
+      block-value: &Vec3
+        block
+          or: &Vec3
+            local _0 p: ^Vec3
+            return: !
+              float 0: f32
     let _3 widened: ^^Vec3
       local _1 pp: ^^mut Vec3
     return: !
@@ -16918,11 +16976,13 @@ body fn trait_objects -> i32
         #0
           local _0 s: &Square
     let _2 r: &Measured
-      or: &Measured
-        field #0: ^Measured
-          local _1 g: Gauge
-        return: !
-          int 0: i32
+      block-value: &Measured
+        block
+          or: &Measured
+            field #0: ^Measured
+              local _1 g: Gauge
+            return: !
+              int 0: i32
     return: !
       binary +: i32
         call measured_through_an_object: i32
@@ -19393,10 +19453,12 @@ body fn c_kinds -> bool
       call c_text_of: &cstr
         local _0 s: &String
     let _3 back: &cstr
-      or: &cstr
-        local _2 raw: ^cstr
-        return: !
-          bool false: bool
+      block-value: &cstr
+        block
+          or: &cstr
+            local _2 raw: ^cstr
+            return: !
+              bool false: bool
     let _4 nothing: ^cstr
       null: ^cstr
     let _5 measured: &str

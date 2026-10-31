@@ -101,11 +101,14 @@ through an `or` clause like any other fallible thing (§9.4), because a pointer 
 and a reference may not:
 
 ```dz
-let btn = ctx.btn or return                     // propagate
-let btn = ctx.btn or panic!("button missing")    // assert, with a message
-let btn = ctx.btn or unreachable                // checked in debug, free in release
+let btn = unsafe { ctx.btn or return }                  // propagate
+let btn = unsafe { ctx.btn or panic!("button missing") } // assert, with a message
+let btn = unsafe { ctx.btn or unreachable }             // checked in debug, free in release
 draw(ctx.btn)                                   // error[DZ0522]: expected &Button, found ^Button
 ```
+
+`ctx.btn` is a field with no tie, so each conversion is in `unsafe`; a tied pointer, as
+below, converts without one.
 
 The reference it produces is as writable as the pointer: a `^mut T` gives a `&mut T`, and a
 `^T` gives a `&T`. Non-null is the only guarantee a reference carries that a pointer does
@@ -132,9 +135,22 @@ unsafe {
 Unsafe, and only these: `p^`, `.` and `[i]` through a `^T`, a pointer cast (§10.6),
 `construct`, `destroy`, `move_out`, `memcpy` and `memmove` (§14.3), and calling an `unsafe
 fn`. Everything else stays safe — forming, copying, storing, comparing and passing pointers,
-and the `or` conversion, whose null check is the one thing that *can* be checked. An `unsafe fn` is
-one whose callers must uphold something the compiler cannot see; its body is an `unsafe`
-block, and calling it needs one:
+and the `or` conversion of a **tied** pointer, whose null check is the one thing that *can*
+be checked.
+
+**An untied pointer becomes a reference only in `unsafe`** (D-0093 point 11, T-0114). A
+pointer is tied when it was made from a place, as `p` above is, or a safe call returned it
+under a tie, `in` or elided — `xs.first() or return` stays safe, since the callee's body is
+held to that tie. A pointer parameter, a pointer field with no tie, a cast and C's pointers
+are untied: `ctx.btn or return` is `DZ0418`, and `unsafe { ctx.btn or return }` is the
+programmer's word for it. So a context struct's `^mut World` needs `unsafe` to use, which is
+honest: that aliasing is what §6.7 cannot check. A function may not hand an untied pointer
+out under a tie it cannot back, `return ctx.world` from `-> ^mut World in ctx` (`DZ0419`);
+`return unsafe { ctx.world }` vouches for it. With this, everything unchecked is written
+`unsafe`.
+
+An `unsafe fn` is one whose callers must uphold something the compiler cannot see; its body
+is an `unsafe` block, and calling it needs one:
 
 ```dz
 unsafe fn poke(p: ^mut i32, v: i32) { p^ = v }

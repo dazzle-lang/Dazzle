@@ -73,7 +73,7 @@ struct Buffer<T> {
     // The raw-memory work is `unsafe` (spec §5.2); what `Buffer` offers its users is not.
     Buffer(cap: usize, allocator: ^mut Allocator = Allocators::Global) {
         m_allocator = allocator
-        let a = m_allocator or panic!("a Buffer needs an allocator")
+        let a = unsafe { m_allocator or panic!("a Buffer needs an allocator") }
         // Allocating is safe; calling the bytes `T`s is the part nothing checks.
         unsafe { m_data = a.alloc(cap * sizeof(T), alignof(T)) as ^mut T }
         m_cap = cap
@@ -105,7 +105,7 @@ struct Buffer<T> {
 impl<T: Copy> Copy for Buffer<T> {
     fn copy(&mut self, other: &Self) {
         m_allocator = other.m_allocator
-        let a = m_allocator or panic!("a Buffer needs an allocator")
+        let a = unsafe { m_allocator or panic!("a Buffer needs an allocator") }
         unsafe {
             m_data = a.alloc(other.m_cap * sizeof(T), alignof(T)) as ^mut T
             if T::is_trivially_copyable {
@@ -134,7 +134,7 @@ impl<T> Drop for Buffer<T> {
         if m_data == null {
             return
         }
-        let a = m_allocator or return
+        let a = unsafe { m_allocator or return }
         unsafe { a.free(m_data as ^mut u8, m_cap * sizeof(T), alignof(T)) }
     }
 }

@@ -345,7 +345,7 @@ pub struct List<T> {
     /// A new allocation of exactly `cap` elements, at least the length, with the elements
     /// moved into it; none at all when `cap` is zero.
     fn move_to(&mut self, cap: usize, loc: SourceLocation) kills self@items {
-        let a = m_allocator or panic!("a List with no allocator cannot grow")
+        let a = unsafe { m_allocator or panic!("a List with no allocator cannot grow") }
         if cap == 0 {
             if m_data != null {
                 a.free(unsafe { m_data as ^mut u8 }, m_cap * sizeof(T), alignof(T), loc)
@@ -379,7 +379,7 @@ impl<T> Drop for List<T> {
                 unsafe { destroy(m_data[i]) }
             }
         }
-        let a = m_allocator or return
+        let a = unsafe { m_allocator or return }
         a.free(unsafe { m_data as ^mut u8 }, m_cap * sizeof(T), alignof(T))
     }
 }
@@ -390,7 +390,7 @@ impl<T: Copy> Copy for List<T> {
         if other.m_len == 0 {
             return
         }
-        let a = m_allocator or panic!("a List with no allocator cannot be copied")
+        let a = unsafe { m_allocator or panic!("a List with no allocator cannot be copied") }
         m_data = unsafe { a.alloc(other.m_len * sizeof(T), alignof(T)) as ^mut T }
         m_cap = other.m_len
         for i in 0..other.m_len {

@@ -3465,6 +3465,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.unsafe_depth += 1;
                 let c = self.block(b, expected);
                 self.unsafe_depth -= 1;
+                self.hir.mark_unsafe(c.id);
                 self.mk(e, c.ty, hir::ExprKind::Block(c.id))
             }
             ExprKind::If(i) => {
