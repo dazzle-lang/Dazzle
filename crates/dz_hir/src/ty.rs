@@ -186,47 +186,118 @@ pub struct Proj {
     pub name: Rc<str>,
 }
 
-/// A function type's `kills` clause (spec §6.7), as written, with the names of the
-/// parameters it is rooted at: a function type's clause is resolved where it is read, as a
-/// signature's is (`dz_check::ties::fn_type_sig`). A function item's value carries its own
-/// signature's clause, which is how storing it checks against the type's.
+/// A function type's `in` and `kills` clauses (spec §6.7), as written, with the names of the
+/// parameters they are rooted at: a function type's clauses are resolved where they are
+/// read, as a signature's are (`dz_check::ties::fn_type_sig`). A function item's value
+/// carries its own signature's clauses, which is how storing it checks against the type's.
 #[derive(Clone, Debug)]
 pub enum FnKills {
-    /// No path is a promise to kill nothing.
-    Known { names: Rc<[String]>, paths: Rc<[dz_ast::TiePath]> },
+    /// No `kills` path is a promise to kill nothing; no `in` path, that the result is in
+    /// its one view input, as a declaration's is.
+    Known { names: Rc<[String]>, results: Rc<[dz_ast::TiePath]>, paths: Rc<[dz_ast::TiePath]> },
     /// A pointer to a C or C++ function, whose header says nothing: a call through it kills
     /// everything reachable through its `&mut` and `^mut` arguments.
     Unknown,
 }
 
 impl FnKills {
-    /// The clause of a function type that names none: it kills nothing.
+    /// The clauses of a function type that names none: it kills nothing.
     pub fn none() -> Self {
-        FnKills::Known { names: Rc::from([]), paths: Rc::from([]) }
+        FnKills::Known { names: Rc::from([]), results: Rc::from([]), paths: Rc::from([]) }
     }
 
     /// Whether a function promising `self` fits where `wider` is promised, for parameters
-    /// `params`: each path it names is one `wider` names, or under one. Unknown kills fit
-    /// only where nothing can be killed, a type with no `&mut` or `^mut` parameter.
+    /// `params`: it kills no more ([`FnKills::kills_within`]), and its result points into no
+    /// more ([`FnKills::results_within`]).
     pub fn within(&self, wider: &FnKills, params: &[Ty]) -> bool {
+        self.kills_within(wider, params) && self.results_within(wider, params)
+    }
+
+    /// Whether every path `self` kills is one `wider` names, or under one. Unknown kills
+    /// fit only where nothing can be killed, a type with no `&mut` or `^mut` parameter.
+    pub fn kills_within(&self, wider: &FnKills, params: &[Ty]) -> bool {
         match (self, wider) {
             (_, FnKills::Unknown) => true,
             (FnKills::Unknown, FnKills::Known { .. }) => !params.iter().any(|p| {
                 matches!(p, Ty::Ref { mutable: true, .. } | Ty::Ptr { mutable: true, .. })
             }),
             (
-                FnKills::Known { names: mine, paths: narrow },
-                FnKills::Known { names: theirs, paths: broad },
-            ) => narrow.iter().all(|p| {
-                let at = mine.iter().position(|n| *n == p.root.name);
-                broad.iter().any(|q| {
-                    at.is_some()
-                        && theirs.iter().position(|n| *n == q.root.name) == at
-                        && q.steps.len() <= p.steps.len()
-                        && q.steps.iter().zip(&p.steps).all(|(a, b)| same_step(a, b))
+                FnKills::Known { names: mine, paths: narrow, .. },
+                FnKills::Known { names: theirs, paths: broad, .. },
+            ) => covered(mine, narrow, theirs, broad),
+        }
+    }
+
+    /// Whether everything `self`'s result may point into, by its `in` or by elision, is
+    /// something `wider`'s may point into, or under it. Where either side cannot say (no
+    /// `in` and other than one view input, or a pointer from C), it fits: that signature
+    /// has its own error, or points into C's memory, which no tie names.
+    pub fn results_within(&self, wider: &FnKills, params: &[Ty]) -> bool {
+        let (
+            FnKills::Known { names: mine, results: narrow, .. },
+            FnKills::Known { names: theirs, results: broad, .. },
+        ) = (self, wider)
+        else {
+            return true;
+        };
+        match (result_places(mine, narrow, params), result_places(theirs, broad, params)) {
+            (Some(narrow), Some(broad)) => narrow.iter().all(|(at, steps)| {
+                broad.iter().any(|(there, wide)| {
+                    at == there
+                        && wide.len() <= steps.len()
+                        && wide.iter().zip(*steps).all(|(a, b)| same_step(a, b))
                 })
             }),
+            _ => true,
         }
+    }
+}
+
+/// Whether every path in `narrow`, rooted at a name in `mine`, is under one in `broad`,
+/// rooted at the same parameter's position in `theirs`.
+fn covered(
+    mine: &[String],
+    narrow: &[dz_ast::TiePath],
+    theirs: &[String],
+    broad: &[dz_ast::TiePath],
+) -> bool {
+    narrow.iter().all(|p| {
+        let at = mine.iter().position(|n| *n == p.root.name);
+        broad.iter().any(|q| {
+            at.is_some()
+                && theirs.iter().position(|n| *n == q.root.name) == at
+                && q.steps.len() <= p.steps.len()
+                && q.steps.iter().zip(&p.steps).all(|(a, b)| same_step(a, b))
+        })
+    })
+}
+
+/// Where a result may point, as parameter positions and the steps below them: each `in`
+/// path, or, with none written, the one parameter that is a view, as a whole (spec §6.7).
+/// `None` when that cannot be said: a path naming no parameter, or no `in` and other than
+/// one view input.
+fn result_places<'a>(
+    names: &[String],
+    written: &'a [dz_ast::TiePath],
+    params: &[Ty],
+) -> Option<Vec<(usize, &'a [dz_ast::TieStep])>> {
+    if !written.is_empty() {
+        return written
+            .iter()
+            .map(|p| names.iter().position(|n| *n == p.root.name).map(|at| (at, &p.steps[..])))
+            .collect();
+    }
+    let views: Vec<usize> = params
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| {
+            matches!(t, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::Slice { .. } | Ty::Str | Ty::CStr)
+        })
+        .map(|(i, _)| i)
+        .collect();
+    match views[..] {
+        [one] => Some(vec![(one, &[][..])]),
+        _ => None,
     }
 }
 

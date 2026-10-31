@@ -630,9 +630,12 @@ pub enum TypeKind {
     Fn {
         params: Vec<Type>,
         /// Each parameter's name, where one is written: `fn(world: &mut World)`. A function
-        /// type needs one only when its `kills` clause names it (spec §6.7).
+        /// type needs one only when its `in` or `kills` clause names it (spec §6.7).
         param_names: Vec<Option<Ident>>,
         ret: Option<Box<Type>>,
+        /// `-> &T in (a, b)`: where the result of a function stored in it may point (spec
+        /// §6.7). Empty when no `in` is written.
+        ret_ties: Vec<TiePath>,
         kills: Vec<TiePath>,
     },
     /// `const str`: text in static storage (spec §5.3). Only `str` may follow `const`; the

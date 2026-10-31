@@ -706,7 +706,8 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     .and_then(|s| s.fields.iter().find(|x| x.name == f.name.name))
                     .map(|x| x.ty.clone());
                 if let Some(t) = declared {
-                    for e in crate::ties::check_fn_types(&cx.table, cx.res, cx.module, &t) {
+                    let span = f.ty.span;
+                    for e in crate::ties::check_fn_types(&cx.table, cx.res, cx.module, &t, span) {
                         cx.error_help(e.code, e.span, e.message, e.label, e.help);
                     }
                 }
@@ -1239,11 +1240,40 @@ impl<'a, 'c> Body<'a, 'c> {
             );
             return;
         }
-        // A function that would fit but for what it kills (spec §6.7).
+        // A function that would fit but for its clauses (spec §6.7): what it kills, or
+        // where its result points.
         if let (Ty::Fn { params, ret, kills: wider }, Ty::Fn { kills: narrow, .. }) =
             (&expected, &actual)
         {
             let any = Ty::Fn { params: params.clone(), ret: ret.clone(), kills: FnKills::Unknown };
+            if assignable(&any, &actual) && !narrow.results_within(wider, params) {
+                let shown = |k: &FnKills| match k {
+                    FnKills::Known { results, .. } if !results.is_empty() => {
+                        let paths: Vec<String> =
+                            results.iter().map(dz_ast::dump::tie_path_str).collect();
+                        match paths.len() {
+                            1 => format!("`{}`", paths[0]),
+                            _ => format!("any of `{}`", paths.join("`, `")),
+                        }
+                    }
+                    _ => "its one view input".to_owned(),
+                };
+                let (may, allowed) = (shown(narrow), shown(wider));
+                self.cx.error_help(
+                    codes::FN_RESULT_TOO_WIDE,
+                    span,
+                    format!(
+                        "this function's result may point into {may}, and the function type's \
+                         into {allowed}"
+                    ),
+                    "its result may point where the type does not allow",
+                    "a function type's `in` is everything the result of a function stored in it \
+                     may point into, and every call through it relies on that: widen the type, \
+                     `fn(a: &T, b: &T) -> &T in (a, b)`, or store a function whose result points \
+                     into no more (spec §6.7)",
+                );
+                return;
+            }
             if assignable(&any, &actual) {
                 let shown = |k: &FnKills| match k {
                     FnKills::Known { paths, .. } if paths.is_empty() => "nothing".to_owned(),
@@ -6810,12 +6840,13 @@ impl<'a, 'c> Body<'a, 'c> {
                                 .map(|p| self.cx.table.subst(&p.ty, &map))
                                 .collect(),
                             ret: Rc::new(self.cx.table.subst(&sig.ret, &map)),
-                            // Its own clause, held to the type it is stored in (§6.7).
+                            // Its own clauses, held to the type it is stored in (§6.7).
                             kills: if sig.kills_unknown {
                                 FnKills::Unknown
                             } else {
                                 FnKills::Known {
                                     names: sig.params.iter().map(|p| p.name.clone()).collect(),
+                                    results: sig.ret_ties.iter().cloned().collect(),
                                     paths: sig.kills.iter().cloned().collect(),
                                 }
                             },

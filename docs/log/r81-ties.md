@@ -6,6 +6,36 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r91: a function type says where its result points (2026-10-30)
+
+T-0113, the first of D-0093's steps in r90's order. A function type could name its
+parameters for a `kills` clause (r81) but not say where its result points, so a function
+value returning a view from two inputs left every call through it unchecked.
+
+- **Syntax.** `TypeKind::Fn::ret_ties`, parsed after the result with the declaration's
+  `parse_in_list`: one path, or several in parentheses. The type parser takes it, so an `in`
+  after a function type's result is the type's, never the enclosing parameter's tie. The
+  dump and the formatter print it with `in_str`, between the result and `kills`.
+- **The type.** `FnKills::Known` gains `results`, as written, beside `paths`. A function
+  item's value carries its signature's `ret_ties`; `fn_type_sig` hands them to whoever reads
+  the type as a signature, so `dz_flow`'s `call_effects` ties a call's result to the
+  arguments the `in` names with no change of its own.
+- **The checks.** `check_fn_types` now takes the span of the type it walks (a parameter's,
+  the result's, a field's): it resolves the `in` paths, reports an `in` on a result holding
+  no view, and holds the result to r88's rule through `untied_fn_type`, so several view
+  inputs and no `in` is `DZ0570` and a view from none `DZ0571`, with the same exemptions and
+  no fix (the type's parameters may be unnamed). Fitting a function to a type is
+  `FnKills::within`, now split into `kills_within` and `results_within`, which compares the
+  places by parameter position after elision (`result_places`: the `in` paths, or the one
+  view input whole). `expect` tells the two apart: `DZ0568` for kills, the new `DZ0572` for
+  a result that may point into more than the type allows.
+
+Nothing in std, the examples or the corpora had a function type whose result holds a view,
+so nothing else changed. Tests: the parse and fmt corpora, `a_function_types_result_takes_in`,
+`typed/`'s `pick_with` (a narrower function into a wider type, and elision on both sides),
+`typeerrors/`'s three cases, `a_call_through_a_function_value_ties_its_result_as_its_type_says`
+in `dz_flow`, and `dz explain DZ0572`.
+
 ## r90: the open questions closed, and the prototype removed (2026-10-30)
 
 The user asked for every open question on ties and regions to be settled, and accepted the

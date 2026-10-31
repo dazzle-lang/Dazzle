@@ -1879,6 +1879,31 @@ fn applies(r: &mut Roster) kills r@scores {
     apply_to(leave_alone, r)
 }
 
+// A function type says where its result points, as a declaration does: a function whose
+// result is in one input fits a type whose result may be in either, and with one view input
+// neither side writes `in` (spec §6.7).
+fn first_of(a: &Roster, b: &Roster) -> &Roster in a {
+    return a
+}
+
+fn the_roster(r: &Roster) -> &Roster {
+    return r
+}
+
+fn pick_with(
+    f: fn(a: &Roster, b: &Roster) -> &Roster in (a, b),
+    a: &Roster,
+    b: &Roster,
+) -> &Roster in (a, b) {
+    return f(a, b)
+}
+
+fn picks(a: &Roster, b: &Roster) -> usize {
+    let one = pick_with(first_of, a, b)
+    let only: fn(r: &Roster) -> &Roster = the_roster
+    return one.members.len() + only(b).members.len()
+}
+
 // Fields may be tied together, and a path goes on past their tie when they share a type.
 pub struct Record {
     m_wins: List<String>

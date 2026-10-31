@@ -902,8 +902,8 @@ impl<'a> Printer<'a> {
             TypeKind::Tuple(elems) => {
                 format!("({})", elems.iter().map(|e| self.ty(e)).collect::<Vec<_>>().join(", "))
             }
-            TypeKind::Fn { params, param_names, ret, kills } => format!(
-                "fn({}){}{}",
+            TypeKind::Fn { params, param_names, ret, ret_ties, kills } => format!(
+                "fn({}){}{}{}",
                 params
                     .iter()
                     .zip(param_names)
@@ -914,6 +914,7 @@ impl<'a> Printer<'a> {
                     .collect::<Vec<_>>()
                     .join(", "),
                 ret.as_ref().map(|r| format!(" -> {}", self.ty(r))).unwrap_or_default(),
+                dump::in_str(ret_ties),
                 dump::kills_str(kills, true)
             ),
             TypeKind::Path(p) => self.path(p),

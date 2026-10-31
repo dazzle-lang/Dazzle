@@ -56,10 +56,12 @@ access_type   = "^" type | "&" [ "mut" ] type
               | "[" [ expr ] "]" type
               | "own" "^" type
               | "const" type    (* only `const str`, §5.3 *)
-              | "fn" "(" [ fn_type_params ] ")" [ ( "->" | "!->" ) type ]
+              | "fn" "(" [ fn_type_params ] ")"
+                [ ( "->" | "!->" ) type [ "in" ( tie_path | "(" tie_path { "," tie_path } ")" ) ] ]
                 [ "kills" ( tie_path | "(" tie_path { "," tie_path } ")" ) ]
                 (* names needed only by a clause, §6.7; a comma after a bare path begins the
-                   next parameter, so more than one path is parenthesised here *)
+                   next parameter, so more than one path is parenthesised here; an `in`
+                   after the result is the type's, not an enclosing parameter's *)
               | "(" type_list ")"
               | path [ "<" type_list ">" ] ;
 path          = ident { "::" ident } ;

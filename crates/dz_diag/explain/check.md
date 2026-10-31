@@ -1073,3 +1073,55 @@ fn main() {
     println!("{}", greeting(true))
 }
 ```
+
+## DZ0572
+
+A function type's `in` is everything the result of a function stored in it may point into,
+and a call through a value of the type ends that result only when one of those dies (spec
+§6.7). A function whose result may point into more does not fit: a caller could keep the
+result past the death of memory the type never named. With no `in`, a function type's
+result is in its one view input, as a declaration's is.
+
+```dz
+fn longer(a: str, b: str) -> str in (a, b) {
+    if a.len >= b.len {
+        return a
+    }
+    return b
+}
+
+fn first(a: str, b: str) -> str in a {
+    return a
+}
+
+fn show(f: fn(a: str, b: str) -> str in a) {
+    println!("{}", f("ab", "c"))
+}
+
+fn main() {
+    show(first)
+    show(longer)
+}
+```
+
+```dz
+fn longer(a: str, b: str) -> str in (a, b) {
+    if a.len >= b.len {
+        return a
+    }
+    return b
+}
+
+fn first(a: str, b: str) -> str in a {
+    return a
+}
+
+fn show(f: fn(a: str, b: str) -> str in (a, b)) {
+    println!("{}", f("ab", "c"))
+}
+
+fn main() {
+    show(first)
+    show(longer)
+}
+```

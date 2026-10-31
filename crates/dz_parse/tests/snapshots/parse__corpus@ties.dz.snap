@@ -64,7 +64,11 @@ struct Hooks
   field on_spawn: fn(world: &mut World, e: Enemy) kills world.spawned@items
   field on_reset: fn(world: &mut World) kills (world.enemies@items, world.spawned@items)
   field plain: fn(i32, f32) -> bool
+  field pick: fn(a: &Enemy, b: &Enemy) -> &Enemy in (a, b)
+  field grow: fn(xs: &mut List<i32>) -> ^i32 in xs@items kills xs@items
 fn each(f: fn(xs: &mut List<i32>) kills xs@items, n: i32)
+  block
+fn each_first(f: fn(xs: &List<i32>) -> ^i32 in xs, n: i32)
   block
 
 === DIAGNOSTICS ===
