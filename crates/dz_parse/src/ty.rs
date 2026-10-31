@@ -163,9 +163,16 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
+                // `-> &T in (a, b)`, as a declaration writes it. Taken here, so an `in` after
+                // a function type's result is the type's, never an enclosing parameter's.
+                let ret_ties = if ret.is_some() && self.eat(TokenKind::In) {
+                    self.parse_in_list()
+                } else {
+                    Vec::new()
+                };
                 let kills =
                     if self.eat(TokenKind::Kills) { self.parse_kills(true) } else { Vec::new() };
-                TypeKind::Fn { params, param_names, ret, kills }
+                TypeKind::Fn { params, param_names, ret, ret_ties, kills }
             }
             TokenKind::SelfType => {
                 self.bump();

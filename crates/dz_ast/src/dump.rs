@@ -793,8 +793,8 @@ pub fn type_str(t: &Type) -> String {
         TypeKind::Tuple(elems) => {
             format!("({})", elems.iter().map(type_str).collect::<Vec<_>>().join(", "))
         }
-        TypeKind::Fn { params, param_names, ret, kills } => format!(
-            "fn({}){}{}",
+        TypeKind::Fn { params, param_names, ret, ret_ties, kills } => format!(
+            "fn({}){}{}{}",
             params
                 .iter()
                 .zip(param_names)
@@ -805,6 +805,7 @@ pub fn type_str(t: &Type) -> String {
                 .collect::<Vec<_>>()
                 .join(", "),
             ret.as_ref().map(|r| format!(" -> {}", type_str(r))).unwrap_or_default(),
+            in_str(ret_ties),
             kills_str(kills, true)
         ),
         TypeKind::Const(inner) => format!("const {}", type_str(inner)),

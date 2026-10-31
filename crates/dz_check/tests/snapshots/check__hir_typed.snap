@@ -19024,6 +19024,48 @@ body fn applies -> void
     call apply_to: void
       fn-item leave_alone: fn(&mut Roster) -> void
       local _0 r: &mut Roster
+body fn first_of -> &Roster
+  param _0 a: &Roster
+  param _1 b: &Roster
+  block
+    return: !
+      local _0 a: &Roster
+body fn the_roster -> &Roster
+  param _0 r: &Roster
+  block
+    return: !
+      local _0 r: &Roster
+body fn pick_with -> &Roster
+  param _0 f: fn(&Roster, &Roster) -> &Roster
+  param _1 a: &Roster
+  param _2 b: &Roster
+  block
+    return: !
+      call-value: &Roster
+        local _0 f: fn(&Roster, &Roster) -> &Roster
+        local _1 a: &Roster
+        local _2 b: &Roster
+body fn picks -> usize
+  param _0 a: &Roster
+  param _1 b: &Roster
+  block
+    let _2 one: &Roster
+      call pick_with: &Roster
+        fn-item first_of: fn(&Roster, &Roster) -> &Roster
+        local _0 a: &Roster
+        local _1 b: &Roster
+    let _3 only: fn(&Roster) -> &Roster
+      fn-item the_roster: fn(&Roster) -> &Roster
+    return: !
+      binary +: usize
+        call-method List::len: usize
+          field #0: List<String>
+            local _2 one: &Roster
+        call-method List::len: usize
+          field #0: List<String>
+            call-value: &Roster
+              local _3 only: fn(&Roster) -> &Roster
+              local _1 b: &Roster
 body method Record::forget -> void
   param _0 self: Record
   block

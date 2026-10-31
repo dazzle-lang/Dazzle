@@ -77,7 +77,8 @@ Anything untied is a raw `^` pointer, and turning a raw pointer into a tied refe
 8. **No view is a type argument** (DZ0517 extended): `List<&str>` and `T = SliceIter<i32>`
    are errors, `List<const &str>` is not. A `T` is then never a view, so generic bodies are
    fully checked. (r90: except a parameter or associated type marked `view`, above.)
-9. **Function types write `in`**: `fn(a: &T, b: &T) -> &T in (a, b)`.
+9. **Function types write `in`**: `fn(a: &T, b: &T) -> &T in (a, b)`. (Built in r91,
+   T-0113.)
 10. **A tagged union's payload needs no tie syntax**: a write that may change the variant
     kills every payload (r82), so `in u` and `kills u` are already exact. Closes T-0107's
     question.

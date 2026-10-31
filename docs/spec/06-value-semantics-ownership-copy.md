@@ -373,6 +373,14 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
   The clause is not part of the type's identity: two function types that differ only in it
   are one C++ type. A pointer to a C function has no clause, and fits only a type with no
   `&mut` or `^mut` parameter, which can kill nothing.
+- **A function type says where its result points**, as a declaration does: with `in` after
+  the result, `fn(a: &Enemy, b: &Enemy) -> &Enemy in (a, b)`, or in its one view input when
+  it writes none. Several view inputs and no `in` is `DZ0570`, and a view from none is
+  `DZ0571`, as for a declaration. A call through a value of the type gives a result tied as
+  the type says, and a function fits only a type whose `in` covers its own, parameter by
+  position (`DZ0572` otherwise): `first(a, b) -> &T in a` fits `-> &T in (a, b)`, and not the
+  other way round. An `in` after a function type's result belongs to the type, never to a
+  parameter holding it.
 - **A call with no clause to read** — a C or C++ function, a pointer from C — kills
   everything reachable through its `&mut` and `^mut` arguments.
 
@@ -452,6 +460,7 @@ handed back or dropped.
 The checker reports a use after a kill (`DZ0413`), a return outside its `in`
 (`DZ0414`), and a clause that leaves a kill out, names one that never happens, or names
 more than dies (`DZ0415`–`DZ0417`), each clause error with the clause the body needs,
-which `dz fix` writes; and a returned view that does not say where it points (`DZ0570`,
-`DZ0571`). Not yet implemented: step 3's debug-build check of `std`'s trusted clauses
-(T-0107).
+which `dz fix` writes; a returned view that does not say where it points (`DZ0570`,
+`DZ0571`); and a function stored where its function type's clauses promise less than its
+own (`DZ0568` for `kills`, `DZ0572` for `in`). Not yet implemented: the debug-build check
+of `std`'s trusted clauses (T-0116).

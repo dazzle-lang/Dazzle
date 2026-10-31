@@ -384,6 +384,9 @@ pub const RESULT_TIE_AMBIGUOUS: &str = "DZ0570";
 /// A result holding a reference, slice or `str`, with no `in` and no view input it could
 /// point into: it views nothing a caller can see die (spec §6.7).
 pub const RESULT_TIED_TO_NOTHING: &str = "DZ0571";
+/// A function stored where a function type is wanted, whose result may point into more
+/// than the type's `in` allows (spec §6.7).
+pub const FN_RESULT_TOO_WIDE: &str = "DZ0572";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

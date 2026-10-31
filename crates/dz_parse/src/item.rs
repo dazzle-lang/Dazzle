@@ -531,8 +531,8 @@ impl<'a> Parser<'a> {
 
     /// The paths after a result's `in`, the keyword already consumed: one path, or several
     /// in parentheses, since a bare comma would read as the next path of a `kills` clause
-    /// (spec §6.7).
-    fn parse_in_list(&mut self) -> Vec<TiePath> {
+    /// (spec §6.7). A function type's result takes the same list.
+    pub(crate) fn parse_in_list(&mut self) -> Vec<TiePath> {
         if !self.eat(TokenKind::LParen) {
             return self.parse_tie_path().into_iter().collect();
         }

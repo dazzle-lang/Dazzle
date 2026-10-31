@@ -29,4 +29,6 @@ fn only(a: str)->str in (a) {
 struct Hooks {
     pub on_spawn: fn(world:&mut World) kills (world.spawned@items)
     pub on_reset: fn(world: &mut World) kills (world.enemies@items,world.spawned@items)
+    pub pick: fn(a:&Enemy,b:&Enemy)->&Enemy   in  ( a ,b )
+    pub first: fn(xs: &List<i32>)->^i32 in (xs@items)
 }

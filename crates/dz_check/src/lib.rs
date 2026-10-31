@@ -1875,9 +1875,12 @@ impl<'a> Ctx<'a> {
         self_ty: Option<Ty>,
         privileged: Option<SymbolId>,
     ) {
-        // The clauses of function types among its parameters and result (§6.7).
-        for t in sig.params.iter().map(|p| &p.ty).chain([&sig.ret]) {
-            for e in ties::check_fn_types(&self.table, self.res, self.module, t) {
+        // The clauses of function types among its parameters and result (§6.7), reported
+        // at the type that holds them.
+        let ret_span = f.ret.as_ref().map_or(f.name.span, |r| r.span);
+        let spans = f.params.iter().map(|p| p.ty.span).chain(std::iter::repeat(ret_span));
+        for (t, span) in sig.params.iter().map(|p| &p.ty).chain([&sig.ret]).zip(spans) {
+            for e in ties::check_fn_types(&self.table, self.res, self.module, t, span) {
                 self.error_help(e.code, e.span, e.message, e.label, e.help);
             }
         }
@@ -2118,7 +2121,7 @@ impl<'a> Ctx<'a> {
             TypeKind::Tuple(elems) => {
                 Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect())
             }
-            TypeKind::Fn { params, param_names, ret, kills } => Ty::Fn {
+            TypeKind::Fn { params, param_names, ret, ret_ties, kills } => Ty::Fn {
                 params: params.iter().map(|p| self.lower_type_inner(p)).collect(),
                 ret: Rc::new(ret.as_ref().map(|r| self.lower_type_inner(r)).unwrap_or(Ty::Void)),
                 kills: FnKills::Known {
@@ -2126,6 +2129,7 @@ impl<'a> Ctx<'a> {
                         .iter()
                         .map(|n| n.as_ref().map(|n| n.name.clone()).unwrap_or_default())
                         .collect(),
+                    results: ret_ties.iter().cloned().collect(),
                     paths: kills.iter().cloned().collect(),
                 },
             },

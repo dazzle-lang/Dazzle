@@ -2,10 +2,16 @@
 id: T-0113
 title: Function types write in on their result
 milestone: none
-status: open
+status: done
+done: r91, 2026-10-30
 kind: feature
 area: ownership
 ---
+
+**Done, r91 (2026-10-30).** A function type writes `in`, is held to `DZ0570` and `DZ0571`
+as a declaration is, and a stored function must fit its `in` (`DZ0572`). Built as below;
+`docs/log/r81-ties.md` has the detail. Next is
+[T-0111](T-0111-view-structs-struct-that-holds-view.md).
 
 Step 1 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md), by r90's order;
 the steps are listed in [T-0109](T-0109-text-only-borrowed-str-const-str.md). Small, and
@@ -33,6 +39,7 @@ through a function value.
 
 | Piece | Where |
 |---|---|
-| A function type's clause | `TypeKind::Fn` (`dz_ast`); `dz_parse/src/ty.rs`; `FnKills` in `dz_hir/src/ty.rs` |
-| Read as a signature | `fn_type_sig`, `check_fn_types` in `dz_check/src/ties.rs` |
-| Fitting a function to a type | `assignable` (`dz_hir/src/ty.rs`), `DZ0568` in `expect` (`dz_check/src/check.rs`) |
+| A function type's `in` | `TypeKind::Fn::ret_ties` (`dz_ast`), printed by `type_str` and the formatter's `ty`; parsed in `dz_parse/src/ty.rs` with `parse_in_list`; `FnKills::Known::results` in `dz_hir/src/ty.rs` |
+| Read as a signature | `fn_type_sig` (fills `ret_ties`), `check_fn_types` (its paths, and `DZ0570`/`DZ0571` through `untied_fn_type`, at the span of the type holding it) in `dz_check/src/ties.rs` |
+| Fitting a function to a type | `FnKills::kills_within` and `results_within` (elision by `result_places`), both in `within`, used by `assignable` (`dz_hir/src/ty.rs`); `DZ0568` and `DZ0572` in `expect` (`dz_check/src/check.rs`) |
+| Tests | `tests/parse/ties.dz`, `tests/fmt/ties.dz`, `a_function_types_result_takes_in` (`dz_parse/tests/parse.rs`), `typed/` (`pick_with`), `typeerrors/` (`pick_either`, `named_by`, `picks_wide`), `a_call_through_a_function_value_ties_its_result_as_its_type_says` (`dz_flow/tests/ties.rs`), `dz explain DZ0572` |

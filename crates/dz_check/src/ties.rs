@@ -326,6 +326,82 @@ pub fn untied_result(scope: &Scope<'_>, f: &dz_ast::FnDecl) -> Option<UntiedResu
     }
 }
 
+/// [`untied_result`] for a function type, written at `span`: a result holding a view, with
+/// no `in`, is in the type's one view input, so none or several is an error, with the same
+/// exemptions. There is no fix to offer, since the type's parameters may have no names.
+fn untied_fn_type(scope: &Scope<'_>, names: &[String], span: Span) -> Option<Error> {
+    let sig = scope.sig;
+    if !sig.ret_ties.is_empty() || !holds_view(scope.table, &sig.ret, false) {
+        return None;
+    }
+    let inputs: Vec<String> = sig
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| points(&p.ty))
+        .map(|(i, _)| match names.get(i).filter(|n| !n.is_empty()) {
+            Some(n) => format!("`{n}`"),
+            None => format!("its parameter {}", i + 1),
+        })
+        .collect();
+    let shown = crate::type_name(scope.res, &sig.ret);
+    match inputs.len() {
+        1 => None,
+        0 => {
+            let tied = |t: &Ty| matches!(t, Ty::Ref { .. } | Ty::Slice { .. } | Ty::Str);
+            if !holds(scope.table, &sig.ret, false, tied, 0)
+                || sig.params.iter().any(|p| holds_view(scope.table, &p.ty, true))
+            {
+                return None;
+            }
+            Some(error(
+                codes::RESULT_TIED_TO_NOTHING,
+                span,
+                format!(
+                    "this function type returns `{shown}`, which holds a view, but takes nothing \
+                     it could point into"
+                ),
+                "points into nothing its caller can see",
+                "a function stored here could only return memory that never dies: make the \
+                 result `const str`, something owned (`String`, `List`), or take what it \
+                 points into as a parameter (spec §6.7)",
+            ))
+        }
+        _ => {
+            let named = names.len() == sig.params.len() && names.iter().all(|n| !n.is_empty());
+            let help = if named {
+                let all = sig
+                    .params
+                    .iter()
+                    .filter(|p| points(&p.ty))
+                    .map(|p| p.name.as_str())
+                    .collect::<Vec<_>>();
+                format!(
+                    "say what the result points into after its type: `in {}`, or `in ({})` if \
+                     it may be in any of them (spec §6.7)",
+                    all[0],
+                    all.join(", ")
+                )
+            } else {
+                "name the parameters and say which the result points into: `fn(a: &T, b: &T) \
+                 -> &T in a`, or `in (a, b)` if it may be in either (spec §6.7)"
+                    .to_owned()
+            };
+            Some(error(
+                codes::RESULT_TIE_AMBIGUOUS,
+                span,
+                format!(
+                    "this function type returns `{shown}`, which may point into {}: the type \
+                     must say which",
+                    inputs.join(" or ")
+                ),
+                "no `in` says where this points",
+                help,
+            ))
+        }
+    }
+}
+
 fn points_nowhere(scope: &Scope<'_>, what: &str, t: &Ty, span: Span) -> Error {
     let n = crate::type_name(scope.res, t);
     error(
@@ -652,12 +728,12 @@ impl Walker<'_> {
 }
 
 /// The signature a call through a value of function type reads (spec §6.7): its
-/// parameters, named as the type names them, its result, and its clause, the most a
-/// function stored in it may kill. A pointer from C has no clause to read.
+/// parameters, named as the type names them, its result and where it points, and its
+/// clause, the most a function stored in it may kill. A pointer from C has no clause to read.
 pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
-    let (names, paths, unknown): (&[String], &[TiePath], bool) = match kills {
-        FnKills::Known { names, paths } => (names, paths, false),
-        FnKills::Unknown => (&[], &[], true),
+    let (names, results, paths, unknown): (&[String], &[TiePath], &[TiePath], bool) = match kills {
+        FnKills::Known { names, results, paths } => (names, results, paths, false),
+        FnKills::Unknown => (&[], &[], &[], true),
     };
     FnSig {
         params: params
@@ -685,23 +761,26 @@ pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
         ret_cast: false,
         dispatch: dz_ast::Dispatch::Static,
         variadic: None,
-        ret_ties: Vec::new(),
+        ret_ties: results.to_vec(),
         kills: paths.to_vec(),
         kills_span: None,
         kills_unknown: unknown,
     }
 }
 
-/// Every mistake in the clauses of the function types inside `ty`: a path that names
-/// nothing, or a kill through a parameter the function cannot change (spec §6.7).
+/// Every mistake in the clauses of the function types inside `ty`, written at `span`: a
+/// path that names nothing, a kill through a parameter the function cannot change, an `in`
+/// on a result that holds no view, and a result holding a view that does not say where it
+/// points, as a declaration's must (spec §6.7).
 pub fn check_fn_types(
     table: &TypeTable,
     res: &Resolution,
     module: ModuleId,
     ty: &Ty,
+    span: Span,
 ) -> Vec<Error> {
     let mut out = Vec::new();
-    fn_types(table, res, module, ty, &mut out, 0);
+    fn_types(table, res, module, ty, span, &mut out, 0);
     out
 }
 
@@ -710,13 +789,14 @@ fn fn_types(
     res: &Resolution,
     module: ModuleId,
     ty: &Ty,
+    span: Span,
     out: &mut Vec<Error>,
     depth: usize,
 ) {
     if depth > MAX_DEPTH {
         return;
     }
-    let mut inner = |t: &Ty| fn_types(table, res, module, t, out, depth + 1);
+    let mut inner = |t: &Ty| fn_types(table, res, module, t, span, out, depth + 1);
     match ty {
         Ty::Fn { params, ret, kills } => {
             for p in params {
@@ -738,6 +818,18 @@ fn fn_types(
                     Ok(tie) => out.extend(changeable(&scope, &tie, path).err()),
                     Err(e) => out.push(e),
                 }
+            }
+            for path in &sig.ret_ties {
+                match resolve(&scope, path) {
+                    Ok(_) if !holds_view(table, ret, true) => {
+                        out.push(points_nowhere(&scope, "the result", ret, path.span))
+                    }
+                    Ok(_) => {}
+                    Err(e) => out.push(e),
+                }
+            }
+            if let FnKills::Known { names, .. } = kills {
+                out.extend(untied_fn_type(&scope, names, span));
             }
         }
         Ty::Ref { inner: t, .. }

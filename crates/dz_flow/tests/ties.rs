@@ -735,6 +735,31 @@ fn stored(w: &mut World) kills w.bag@items {
     clean(&fixture.analysis("nothing_promised"));
 }
 
+// spec §6.7: a function type says where its result points, as a declaration does, and a
+// call through a value of it reads that: a result `in (x, y)` ends when either dies, one
+// `in x` only when `x` does.
+#[test]
+fn a_call_through_a_function_value_ties_its_result_as_its_type_says() {
+    let fixture = Fixture::with_source(
+        r#"
+fn either(f: fn(x: &Text, y: &Text) -> &Text in (x, y), w: &World, v: &mut World) kills v.bag@items {
+    let r = f(&w.bag[0], &v.bag[0])
+    grow(&mut v.bag)
+    r.examine(1)
+}
+fn first_only(f: fn(x: &Text, y: &Text) -> &Text in x, w: &World, v: &mut World) kills v.bag@items {
+    let r = f(&w.bag[0], &v.bag[0])
+    grow(&mut v.bag)
+    r.examine(1)
+}
+"#,
+    );
+    let a = fixture.analysis("either");
+    assert_eq!(a.invalid_uses.len(), 1, "{a:#?}");
+    assert!(a.incomplete.is_empty() && a.mismatches.is_empty(), "{a:#?}");
+    clean(&fixture.analysis("first_only"));
+}
+
 #[test]
 fn indirect_calls_with_nothing_mutable_kill_nothing_whatever_their_clause() {
     // A clause names only `&mut` and `^mut` parameters (DZ0564), so a function type

@@ -286,6 +286,19 @@ fn a_comma_after_a_kills_path_in_a_function_type_begins_the_next_parameter() {
     assert!(p.dump.contains("kills a@x, b@y"), "{}", p.dump);
 }
 
+/// A function type's result says where it points as a declaration's does: one path, or
+/// several in parentheses. A comma after a single path begins the next parameter, and the
+/// `in` belongs to the function type, not to the parameter holding it (spec §6.7).
+#[test]
+fn a_function_types_result_takes_in() {
+    let p = parse_str("fn each(f: fn(xs: &List<i32>) -> ^i32 in xs, n: i32) {}\n");
+    assert!(p.codes.is_empty(), "{:?}", p.codes);
+    assert!(p.dump.contains("fn each(f: fn(xs: &List<i32>) -> ^i32 in xs, n: i32)"), "{}", p.dump);
+    let p = parse_str("fn f(g: fn(a: &T, b: &T) -> &T in (a, b) kills a@x) {}\n");
+    assert!(p.codes.is_empty(), "{:?}", p.codes);
+    assert!(p.dump.contains("fn(a: &T, b: &T) -> &T in (a, b) kills a@x"), "{}", p.dump);
+}
+
 /// `kills` is a keyword, so it can no longer name anything (spec §2.7).
 #[test]
 fn kills_is_not_a_name() {
