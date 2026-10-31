@@ -1906,3 +1906,9 @@ error[DZ0517]: a struct field cannot hold `&Crate`
      │              ^^^^^^ references live only on the stack
      │
      = help: use `^T` for a stored pointer — a reference in a field could outlive what it points at, and Dazzle has no lifetimes to catch that (spec §5.2)
+
+error[DZ0501]: expected `i32?`, found `^i32`
+     ┌─ typeerrors/src/errors.dz:1558:19
+     │
+1558 │     let o: i32? = final_item(xs.iter())
+     │                   ^^^^^^^^^^^^^^^^^^^^^ this is `^i32`

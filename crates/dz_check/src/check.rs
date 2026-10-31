@@ -4491,7 +4491,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     tie: p.tie.clone(),
                 })
                 .collect(),
-            ret: self.cx.table.subst(&sig.ret, &map),
+            ret: ty::optional_reference_as_pointer(&sig.ret, self.cx.table.subst(&sig.ret, &map)),
             generics: Vec::new(),
             ..sig.clone()
         };

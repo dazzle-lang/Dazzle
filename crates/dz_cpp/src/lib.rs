@@ -3597,7 +3597,7 @@ impl<'a> Emitter<'a> {
                         self.line(&format!("auto&& {tmp} = {v};"));
                         self.line(&format!("if ({tmp}.has) {{"));
                         self.indent += 1;
-                        self.line(&format!("{unused}{binding_cpp} {name} = {tmp}.value;"));
+                        self.line(&format!("{unused}{binding_cpp} {name} = ::dz::opt_get({tmp});"));
                     }
                     Ty::Optional(inner) => {
                         let cpp = self.cpp_ty(&inner);
@@ -3609,9 +3609,9 @@ impl<'a> Emitter<'a> {
                         self.line(&format!("if ({tmp}.has) {{"));
                         self.indent += 1;
                         let value = if self.table.copyable(&inner) {
-                            format!("{tmp}.value")
+                            format!("::dz::opt_get({tmp})")
                         } else {
-                            format!("::dz::mv({tmp}.value)")
+                            format!("::dz::mv(::dz::opt_get({tmp}))")
                         };
                         self.line(&format!("{unused}{cpp} {name} = {value};"));
                     }
@@ -3621,7 +3621,7 @@ impl<'a> Emitter<'a> {
                         self.line(&format!("auto&& {tmp} = {v};"));
                         self.line(&format!("if ({tmp}.has) {{"));
                         self.indent += 1;
-                        self.line(&format!("{unused}{binding_cpp} {name} = {tmp}.value;"));
+                        self.line(&format!("{unused}{binding_cpp} {name} = ::dz::opt_get({tmp});"));
                     }
                     Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
                         let ptr = self.ptr_ty(mutable, &inner);
@@ -5176,7 +5176,7 @@ impl<'a> Emitter<'a> {
                 self.line(&format!("::dz::Opt<{opt_ty}> {tmp} = {v};"));
                 self.line(&format!("if ({tmp}.has) {{"));
                 self.indent += 1;
-                self.move_or_copy_into(&format!("{tmp}.value"), &inner, dest);
+                self.move_or_copy_into(&format!("::dz::opt_get({tmp})"), &inner, dest);
                 self.indent -= 1;
                 self.line("} else {");
                 self.indent += 1;

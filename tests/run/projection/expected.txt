@@ -13,6 +13,10 @@ drop token 2
 kept 1
 drop token 1
 first token 3
+last 40 true
+drop token 2
+last token 1
 plus 5 3.75
 doubled 2 -1
+drop token 1
 drop token 3

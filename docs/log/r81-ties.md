@@ -6,6 +6,27 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r97: an optional reference item is a pointer (2026-10-31)
+
+T-0111's second item, T-0085's option 3. `last<view T: Iterate>(it: T) -> T::Item?` over a
+list's iterator emitted `::dz::Opt<const int32_t&>`, which C++ refuses (a reference member
+has no default and no assignment), so the user got `DZ0803`.
+
+- **The call.** `ty::optional_reference_as_pointer` turns a result written as an optional
+  of a projection, once solved to an optional of a reference, into `^T` or `^mut T`. It is
+  applied where a generic function's signature is solved (`check.rs`) and in
+  `instantiate_sig`, for a method of a generic type; not in `trait_method`, which the
+  conformance check also reads, where an implementation's `(&T)?` would then mismatch.
+- **The body.** Unchanged and still an optional: one body serves every instance. The
+  runtime's `Opt<T&>` holds a `T*` and `has`, converts to `T*` for the caller and from one
+  for an argument, and `opt_get` reads either kind's payload, which codegen now uses in
+  `if let` and `or` where it read `.value`.
+- **Ties.** Nothing new: the `^i32` is tied by elision as the reference was, so
+  `last(xs.iter())` followed by `xs.push(5)` ends it.
+
+Tests: `tests/run/projection` (`last` over a list, an empty one and `Countdown`'s owned
+tokens), `typed/`'s `final_number`, and `typeerrors/`'s `i32?` given a `^i32`.
+
 ## r96: a view struct holds a reference (2026-10-31)
 
 T-0111's first item. A reference has no zero value, which §6.2's "every value starts at its

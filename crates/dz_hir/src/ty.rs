@@ -603,6 +603,21 @@ pub fn substitute_with(
     }
 }
 
+/// A result `written` as an optional of a projection, `T::Item?`, whose instance `ret`
+/// makes it an optional of a reference: that is the pointer, `^i32` for a `SliceIter<i32>`,
+/// tied as the reference would be (spec §5.6, D-0093). An optional of a reference is no
+/// type of its own. Any other result is `ret` unchanged.
+pub fn optional_reference_as_pointer(written: &Ty, ret: Ty) -> Ty {
+    let projected = matches!(written, Ty::Optional(i) if matches!(**i, Ty::Assoc(_)));
+    match &ret {
+        Ty::Optional(i) if projected => match &**i {
+            Ty::Ref { mutable, inner } => Ty::Ptr { mutable: *mutable, inner: inner.clone() },
+            _ => ret,
+        },
+        _ => ret,
+    }
+}
+
 /// Does `t` contain a projection anywhere? A type that does not is already normal, which
 /// lets the checker skip the walk for almost every type it sees.
 pub fn has_assoc(t: &Ty) -> bool {

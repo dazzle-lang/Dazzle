@@ -19196,3 +19196,34 @@ body fn teller -> i32
         field #0: i32
           field #0: &Ledger
             local _4 g: Glance
+body fn final_of -> T::Item?
+  param _0 it: T
+  block
+    let _1 found: T::Item?
+      none: T::Item?
+    for _2 x (consuming)
+      move: T
+        local _0 it: T
+      block
+        assign =
+          local _1 found: T::Item?
+          move: T::Item
+            local _2 x: T::Item
+    return: !
+      move: T::Item?
+        local _1 found: T::Item?
+body fn final_number -> i32
+  param _0 xs: &List<i32>
+  block
+    let _1 p: ^i32
+      call final_of: ^i32
+        call-method Iterable::iter: SliceIter<i32>
+          local _0 xs: &List<i32>
+    let _2 r: &i32
+      or: &i32
+        local _1 p: ^i32
+        return: !
+          int 0: i32
+    return: !
+      deref: i32
+        local _2 r: &i32
