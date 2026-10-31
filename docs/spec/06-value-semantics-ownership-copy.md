@@ -347,7 +347,11 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
   never breaks a caller somewhere else without the signature changing too.
 - **Where there is no body to hold it to**, the clause is a promise instead: a trait method
   without a default, an `extern fn`, a function type. An implementation's own clause is
-  exact for its body, as anywhere, and may name no more than the trait's.
+  exact for its body, as anywhere, and may name no more than the trait's; so may its
+  result's `in`, which with none written is in its one view input (`DZ0573` otherwise). A
+  call through the trait reads only the trait's, so `kills self@items` under a trait's
+  `kills self`, or `in self@items` under a trait's elided `self`, is fine, and the reverse is
+  not.
 - **A clause names only what is visible wherever the function is.** A private method may
   name a private field (`kills self.m_things@items`); a `pub` one names a tie the struct
   declares for it (`tie @things = m_things@items`, then `kills self@things`).

@@ -1437,6 +1437,24 @@ impl Source for Ledger {
     }
 }
 
+// An implementation's clauses promise no more than its trait's (spec §6.7): one that kills
+// what the trait's method promises not to, and one whose result may point into what the
+// trait's does not name.
+trait Tally {
+    fn add(&mut self, n: i32)
+    fn pick(&self, other: &Ledger) -> &Ledger in other
+}
+
+impl Tally for Ledger {
+    fn add(&mut self, n: i32) kills self.lines@items {
+        lines.push(n)
+    }
+
+    fn pick(&self, other: &Ledger) -> &Ledger in (self, other) {
+        return other
+    }
+}
+
 union Walked {
     Steps { it: SliceIter<i32> }
     Done {}

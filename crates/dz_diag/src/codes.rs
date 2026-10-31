@@ -389,6 +389,9 @@ pub const RESULT_TIED_TO_NOTHING: &str = "DZ0571";
 /// A function stored where a function type is wanted, whose result may point into more
 /// than the type's `in` allows (spec §6.7).
 pub const FN_RESULT_TOO_WIDE: &str = "DZ0572";
+/// An implementation's `kills` clause or result `in` naming more than its trait's, which a
+/// call through the trait relies on (spec §6.7).
+pub const IMPL_CLAUSE_WIDER: &str = "DZ0573";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 
