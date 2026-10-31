@@ -56,6 +56,22 @@ placement yet), then measure:
 If any gate fails, regions are dropped: allocators stay as §14 to §14.2 write them, and
 T-0118 and T-0119 close as not doing.
 
+**Stage 1 plan (2026-10-31), in order:**
+
+1. Bring back the region arena from the tag `regions-prototype` (`548b771`): `ScopeArena`
+   (chunks doubling), `ScopePool` (per thread), in `std/memory/`, under `unsafe`, for the
+   compiler only.
+2. At `let x = List()`, `String(…)` and any call taking an allocator parameter it leaves at
+   its default, give the call the scope's region when `x` is only borrowed afterwards (the
+   prototype's rule, `dz_cpp/src/regions.rs` at the tag); declare the region first in the
+   block, so it is released after everything in it drops. Reassignments keep the heap, which
+   is the loop rule.
+3. A copy of a region value goes to the heap (the prototype's stage-1 hole, solved there by
+   `Allocator::scoped`): `List::copy` and `String::copy` must not inherit a region.
+4. Show each placement: an inlay hint, and `dz placements <dir>` as text or JSON, from the
+   one pass that decides.
+5. Run the gate above and record the numbers here; keep regions or drop them.
+
 **The loop rule, from T-0104, missing until now:** an allocation that can run more than once
 while its region is alive goes to the heap, unless the value it makes dies within the same
 pass. Without it, `s = format!(…)` in a loop, or `self.items = List()` every frame, grows the
