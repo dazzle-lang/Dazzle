@@ -45,8 +45,8 @@ extern fn dir_remove(path: &str) -> bool
 /// A handle, or 0.
 extern fn dir_open(path: &str) -> usize
 
-/// The next entry's name, without `.` and `..`; empty at the end. Valid until the next call
+/// The next entry's name, without `.` and `..`; `null` at the end. Valid until the next call
 /// on the same handle.
-extern fn dir_next(handle: usize) -> &str
+extern fn dir_next(handle: usize) -> ^str
 
 extern fn dir_close(handle: usize)

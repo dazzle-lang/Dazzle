@@ -31,10 +31,8 @@ pub struct Directory {
         }
         let mut entries = List<Path>()
         while true {
-            let name = dir_next(handle)
-            if name.len == 0 {
-                break
-            }
+            // C's memory, valid until the next call, so it is copied into a `Path` first.
+            let name = unsafe { dir_next(handle) or break }
             entries.push(path.join(name))
         }
         dir_close(handle)

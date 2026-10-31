@@ -4557,13 +4557,13 @@ body impl#46 method format -> void
       local _1 f: &mut Formatter
       local _0 self: &str
 body impl#47 method format -> void
-  param _0 self: cstr
+  param _0 self: &cstr
   param _1 f: &mut Formatter
   block
     call-method Formatter::write_str: void
       local _1 f: &mut Formatter
       call cstr_text: &str
-        local _0 self: cstr
+        local _0 self: &cstr
 body fn write_signed -> void
   param _0 f: &mut Formatter
   param _1 value: i64
@@ -4749,7 +4749,7 @@ body fn format_float -> usize
   block
     (empty)
 body fn cstr_text -> &str
-  param _0 s: cstr
+  param _0 s: &cstr
   block
     (empty)
 body field-default Formatter.0 -> void
@@ -5701,15 +5701,12 @@ body method Directory::list !-> List<Path>
       bool true: bool
       block
         let _3 name: &str
-          call dir_next: &str
-            local _1 handle: usize
-        if: void
-          binary ==: bool
-            len: usize
-              local _3 name: &str
-            int 0: usize
-          block
-            break: !
+          block-value: &str
+            block
+              or: &str
+                call dir_next: ^str
+                  local _1 handle: usize
+                break: !
         call-method List::push: void
           local _2 entries: List<Path>
           call-method Path::join: Path
@@ -6061,7 +6058,7 @@ body fn dir_open -> usize
   param _0 path: &str
   block
     (empty)
-body fn dir_next -> &str
+body fn dir_next -> ^str
   param _0 handle: usize
   block
     (empty)
@@ -6429,11 +6426,11 @@ body method Path::with_extension -> Path
       call-ctor Path#0: Path
         call-method String::as_str: &str
           local _6 out: String
-body method Path::as_cstr -> cstr
+body method Path::as_cstr -> &cstr
   param _0 self: Path
   block
     return: !
-      call-method String::as_cstr: cstr
+      call-method String::as_cstr: &cstr
         field #0: String
           local _0 self: Path
 body method Path::modified !-> Duration
@@ -6515,11 +6512,11 @@ body impl#53 method hash -> u64
       call-method Hash::hash: u64
         call-method Path::as_str: &str
           local _0 self: Path
-body impl#54 method convert -> cstr
+body impl#54 method convert -> &cstr
   param _0 self: Path
   block
     return: !
-      call-method Path::as_cstr: cstr
+      call-method Path::as_cstr: &cstr
         local _0 self: Path
 body fn is_separator -> bool
   param _0 b: u8
@@ -6669,7 +6666,7 @@ body method Process::exit -> void
 body fn process_arg_count -> usize
   block
     (empty)
-body fn process_arg -> &str
+body fn process_arg -> const &str
   param _0 index: usize
   block
     (empty)
@@ -10751,8 +10748,8 @@ body fn c_malloc -> ^mut u8
                 ref: &usize
                   local _0 size: usize
               bind _4 arg·
-                ref: &cstr
-                  field #0: cstr
+                ref: &&cstr
+                  field #0: &cstr
                     local _1 loc: SourceLocation
               bind _5 arg·
                 ref: &u32
@@ -10775,8 +10772,8 @@ body fn c_malloc -> ^mut u8
                   str " bytes at ": &str
                   str "": &str
                 call-method Format::format: void
-                  deref: cstr
-                    local _4 arg·: &cstr
+                  deref: &cstr
+                    local _4 arg·: &&cstr
                   ref mut: &mut Formatter
                     local _6 fmt·: Formatter
                 call-method Formatter::begin_arg: void
@@ -12443,7 +12440,7 @@ body method String::as_str -> &str
               int 0: usize
               call-method String::len: usize
                 local _0 self: String
-body method String::as_cstr -> cstr
+body method String::as_cstr -> &cstr
   param _0 self: String
   block
     if: void
@@ -12454,11 +12451,11 @@ body method String::as_cstr -> cstr
         int 0: usize
       block
         return: !
-          str "": cstr
+          str "": &cstr
     return: !
-      block-value: cstr
+      block-value: &cstr
         block
-          cast: cstr
+          cast: &cstr
             data-ptr: ^u8
               call-method List::as_slice: &[]u8
                 field #0: List<u8>
@@ -12905,11 +12902,11 @@ body impl#112 method iter -> Chars
     return: !
       call-method String::chars: Chars
         local _0 self: String
-body impl#113 method convert -> cstr
+body impl#113 method convert -> &cstr
   param _0 self: String
   block
     return: !
-      call-method String::as_cstr: cstr
+      call-method String::as_cstr: &cstr
         local _0 self: String
 body impl#114 method convert -> &str
   param _0 self: String
@@ -16155,29 +16152,29 @@ body fn unchecked -> i32
             int 0: usize
     return: !
       local _2 n: i32
-body fn takes_cstr -> cstr
-  param _0 s: cstr
+body fn takes_cstr -> &cstr
+  param _0 s: &cstr
   block
     return: !
-      local _0 s: cstr
+      local _0 s: &cstr
 body fn cstr_from_literals -> usize
   block
-    let _0 a: cstr
-      str "annotated": cstr
-    let _1 b: cstr
-      cast: cstr
-        str "cast": cstr
-    let _2 c: cstr
-      call takes_cstr: cstr
-        str "argument": cstr
+    let _0 a: &cstr
+      str "annotated": &cstr
+    let _1 b: &cstr
+      cast: &cstr
+        str "cast": &cstr
+    let _2 c: &cstr
+      call takes_cstr: &cstr
+        str "argument": &cstr
     let _: _
-      local _0 a: cstr
+      local _0 a: &cstr
     let _: _
-      local _1 b: cstr
+      local _1 b: &cstr
     return: !
       len: usize
         cast: &str
-          local _2 c: cstr
+          local _2 c: &cstr
 body fn read_only_pointers -> f32
   param _0 v: &Vec3
   param _1 w: ^mut Vec3
@@ -16564,7 +16561,7 @@ body method Widget::origin -> i32
           local _0 self: Widget
 body field-default Panel.2 -> void
   block
-    str "": cstr
+    str "": const &str
 body method Panel::area -> i32
   param _0 self: Panel
   block
@@ -18821,27 +18818,27 @@ body fn weigh -> f32
     return: !
       field #0: f32
         local _0 w: Grams
-body fn c_text -> cstr
-  param _0 s: cstr
+body fn c_text -> &cstr
+  param _0 s: &cstr
   block
     return: !
-      local _0 s: cstr
+      local _0 s: &cstr
 body fn conversions -> f32
   param _0 name: &String
   param _1 owned: String
   param _2 x: f32
   block
     let _: _
-      call c_text: cstr
-        call-method ImplicitAs::convert: cstr
+      call c_text: &cstr
+        call-method ImplicitAs::convert: &cstr
           local _0 name: &String
     let _: _
-      call c_text: cstr
-        call-method ImplicitAs::convert: cstr
+      call c_text: &cstr
+        call-method ImplicitAs::convert: &cstr
           local _1 owned: String
     let _: _
-      call c_text: cstr
-        call-method ImplicitAs::convert: cstr
+      call c_text: &cstr
+        call-method ImplicitAs::convert: &cstr
           call-assoc String::from: String
             str "x": &str
     return: !
@@ -19377,3 +19374,55 @@ body fn slice_kinds -> i32
         cast: i32
           len: usize
             local _2 fields: &[]FieldInfo
+body field-default Banner.0 -> void
+  block
+    str "hello": const &cstr
+body fn c_text_of -> &cstr
+  param _0 s: &String
+  block
+    return: !
+      call-method String::as_cstr: &cstr
+        local _0 s: &String
+body fn c_kinds -> bool
+  param _0 s: &String
+  block
+    let _1 b: Banner
+      struct-lit Banner: Banner
+        #0 (default)
+    let _2 raw: ^cstr
+      call c_text_of: &cstr
+        local _0 s: &String
+    let _3 back: &cstr
+      or: &cstr
+        local _2 raw: ^cstr
+        return: !
+          bool false: bool
+    let _4 nothing: ^cstr
+      null: ^cstr
+    let _5 measured: &str
+      block-value: &str
+        block
+          cast: &str
+            local _2 raw: ^cstr
+    return: !
+      binary &&: bool
+        binary &&: bool
+          binary &&: bool
+            binary ==: bool
+              local _4 nothing: ^cstr
+              null: ^cstr
+            binary >: bool
+              len: usize
+                local _5 measured: &str
+              int 0: usize
+          binary >: bool
+            len: usize
+              cast: &str
+                local _3 back: &cstr
+            int 0: usize
+        binary >: bool
+          len: usize
+            cast: &str
+              field #0: &cstr
+                local _1 b: Banner
+          int 0: usize

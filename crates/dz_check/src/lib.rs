@@ -421,7 +421,9 @@ impl TypeTable {
     pub fn placed_as_view(&self, t: &Ty) -> bool {
         match t {
             // A slice is borrowed too (T-0110); a static table, `const &[]T`, is not.
-            Ty::Str | Ty::Slice { .. } => true,
+            // A C string is borrowed too, `&cstr` (T-0112); C's `^cstr` is untied, and a
+            // literal's `const &cstr` never dies, so neither is a view.
+            Ty::Str | Ty::Slice { .. } | Ty::CStr => true,
             Ty::Named { sym, .. } => self.is_view_struct(*sym),
             Ty::Param(p) => p.view,
             Ty::Assoc(p) => {
@@ -1430,7 +1432,8 @@ impl Ctx<'_> {
             CType::Size { signed: false } => Ty::Int(IntTy::Usize),
             CType::Float { bits: 32 } => Ty::Float(FloatTy::F32),
             CType::Float { .. } => Ty::Float(FloatTy::F64),
-            CType::CStr => Ty::CStr,
+            // C's `const char*`, which C owns: untied, and it may be null (spec §15.2).
+            CType::CStr => Ty::RawCStr,
             CType::Ptr { mutable, pointee } => {
                 Ty::Ptr { mutable: *mutable, inner: Rc::new(self.foreign_ty(module, pointee)) }
             }
@@ -1630,7 +1633,9 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
         Ty::Float(f) => f.name().to_owned(),
         Ty::Str => "&str".to_owned(),
         Ty::ConstStr => "const &str".to_owned(),
-        Ty::CStr => "cstr".to_owned(),
+        Ty::CStr => "&cstr".to_owned(),
+        Ty::ConstCStr => "const &cstr".to_owned(),
+        Ty::RawCStr => "^cstr".to_owned(),
         Ty::IntLit => "{integer}".to_owned(),
         Ty::FloatLit => "{float}".to_owned(),
         Ty::Ptr { mutable, inner } => {
@@ -2165,6 +2170,22 @@ impl<'a> Ctx<'a> {
         self.diags.push(d);
     }
 
+    /// A C string spelled as a value, `DZ0578`, respelled as `wanted` (spec §5.3, T-0112).
+    fn cstr_spelling(&mut self, at: Span, wrote: &str, wanted: &str) {
+        let d = Diagnostic::error(codes::CSTR_NOT_BORROWED, format!("`{wrote}` is not a type"))
+            .at(self.file, at, format!("write `{wanted}`"))
+            .with_help(
+                "a C string is borrowed from what owns it, so it is written as a reference: \
+                 `&cstr`; a literal's is `const &cstr`, and C's own pointer `^cstr` (spec §5.3, \
+                 §15.2)",
+            );
+        let d = match self.written_fix(at, wrote, wanted) {
+            Some(edit) => d.with_fix(format!("write `{wanted}`"), vec![edit]),
+            None => d,
+        };
+        self.diags.push(d);
+    }
+
     /// A slice spelled as a value, `DZ0577`, with the edit that respells it as `wanted`:
     /// the whole type is rewritten, so the edit is offered only where the source is
     /// written in this file, not a macro's expansion (spec §5.3, T-0110).
@@ -2333,6 +2354,34 @@ impl<'a> Ctx<'a> {
                 let shown = self.name_of(&Ty::ConstSlice(elem.clone()));
                 self.slice_spelling(t.span, false, &shown);
                 Ty::ConstSlice(elem)
+            }
+            // A C string is borrowed, as text is: `&cstr`; a literal's is `const &cstr`, and
+            // C's own pointer `^cstr` (spec §5.3, §15.2, T-0112).
+            TypeKind::Path(p) if is_bare_named(p, "cstr") => {
+                self.cstr_spelling(t.span, "cstr", "&cstr");
+                Ty::CStr
+            }
+            TypeKind::Ref { mutable, inner } if is_bare_cstr_type(inner) => {
+                if *mutable {
+                    self.cstr_spelling(t.span, "&mut cstr", "&cstr");
+                }
+                Ty::CStr
+            }
+            TypeKind::Ptr { mutable, inner } if is_bare_cstr_type(inner) => {
+                if *mutable {
+                    self.cstr_spelling(t.span, "^mut cstr", "^cstr");
+                }
+                Ty::RawCStr
+            }
+            TypeKind::Const(inner)
+                if matches!(&inner.kind, TypeKind::Ref { mutable: false, inner }
+                    if is_bare_cstr_type(inner)) =>
+            {
+                Ty::ConstCStr
+            }
+            TypeKind::Const(inner) if is_bare_cstr_type(inner) => {
+                self.cstr_spelling(t.span, "const cstr", "const &cstr");
+                Ty::ConstCStr
             }
             TypeKind::Path(p) => self.lower_path_type(p, t.span),
             TypeKind::Ptr { mutable, inner } => {
@@ -3664,7 +3713,15 @@ impl<'a> Ctx<'a> {
 
 /// `str` written alone, which names the text type only behind a reference (spec §5.3).
 fn is_bare_str(p: &Path) -> bool {
-    matches!(&p.segments[..], [seg] if seg.name.name == "str" && seg.generics.is_empty())
+    is_bare_named(p, "str")
+}
+
+fn is_bare_named(p: &Path, name: &str) -> bool {
+    matches!(&p.segments[..], [seg] if seg.name.name == name && seg.generics.is_empty())
+}
+
+fn is_bare_cstr_type(t: &Type) -> bool {
+    matches!(&t.kind, TypeKind::Path(p) if is_bare_named(p, "cstr"))
 }
 
 fn is_bare_str_type(t: &Type) -> bool {

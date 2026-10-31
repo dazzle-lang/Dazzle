@@ -706,15 +706,15 @@ fn unchecked(xs: &mut []i32) -> i32 {
 
 // --- r21: making a `cstr` (spec §5.3, §18.39) --------------------------------------------
 
-fn takes_cstr(s: cstr) -> cstr {
+fn takes_cstr(s: &cstr) -> &cstr {
     return s
 }
 
 // A string literal is a `cstr` wherever one is wanted, and `as` says so explicitly; a
 // `cstr` is measured into a `str` with `as`.
 fn cstr_from_literals() -> usize {
-    let a: cstr = "annotated"
-    let b = "cast" as cstr
+    let a: &cstr = "annotated"
+    let b = "cast" as &cstr
     let c = takes_cstr("argument")
     let _ = a
     let _ = b
@@ -942,7 +942,7 @@ pub struct Widget {
 }
 
 pub struct Panel : Widget {
-    pub title: cstr = ""
+    pub title: const &str = ""
 
     pub fn area(&self) -> i32 {
         return left * top
@@ -1808,7 +1808,7 @@ fn weigh(w: Grams) -> f32 {
     return w.g
 }
 
-fn c_text(s: cstr) -> cstr {
+fn c_text(s: &cstr) -> &cstr {
     return s
 }
 
@@ -2138,4 +2138,23 @@ fn slice_kinds() -> i32 {
     let some = nonempty(a[..]) or return 0
     let fields = typeinfo_of<Caption>().fields
     return sum_of(some) + fields.len as i32
+}
+
+// A C string is borrowed (spec 5.3, 15.2, T-0112): `&cstr` tied to its `String`, a literal's
+// `const &cstr` stored, and C's `^cstr`, which `or` turns into a `&cstr` and `null` empties.
+pub struct Banner {
+    pub text: const &cstr = "hello"
+}
+
+fn c_text_of(s: &String) -> &cstr in s {
+    return s.as_cstr()
+}
+
+fn c_kinds(s: &String) -> bool {
+    let b = Banner{}
+    let raw: ^cstr = c_text_of(s)
+    let back = raw or return false
+    let nothing: ^cstr = null
+    let measured = unsafe { raw as &str }
+    return nothing == null && measured.len > 0 && (back as &str).len > 0 && (b.text as &str).len > 0
 }

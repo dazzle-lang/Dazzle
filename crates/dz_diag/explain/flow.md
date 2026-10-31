@@ -216,7 +216,7 @@ reference or pointer — may be passed to a call in that same statement, but kee
 `let` would leave it pointing at freed memory. Bind the owner first.
 
 ```dz
-fn text_len(c: cstr) -> usize {
+fn text_len(c: &cstr) -> usize {
     return (c as &str).len
 }
 
@@ -228,7 +228,7 @@ fn main() {
 ```
 
 ```dz
-fn text_len(c: cstr) -> usize {
+fn text_len(c: &cstr) -> usize {
     return (c as &str).len
 }
 

@@ -405,6 +405,9 @@ pub const OPTIONAL_REFERENCE: &str = "DZ0576";
 /// A slice spelled as a value: `[]T` for `&[]T`, `[]mut T` for `&mut []T`, `const []T` for
 /// `const &[]T`. A slice is borrowed, as text is (spec 5.3).
 pub const SLICE_NOT_BORROWED: &str = "DZ0577";
+/// A C string spelled as a value: `cstr` for `&cstr`, a borrowed C string; `const &cstr` is
+/// a literal's, `^cstr` C's own pointer (spec 5.3, 15.2).
+pub const CSTR_NOT_BORROWED: &str = "DZ0578";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

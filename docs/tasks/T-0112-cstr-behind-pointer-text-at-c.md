@@ -2,10 +2,13 @@
 id: T-0112
 title: cstr behind a pointer, and text at the C and C++ boundary
 milestone: none
-status: open
+status: done
+done: r100, 2026-10-31
 kind: feature
 area: interop
 ---
+
+**Done, r100 (2026-10-31).** `Ty::CStr` is `&cstr`, a view; the new `Ty::ConstCStr` and `Ty::RawCStr` are `const &cstr` and `^cstr`, all three `const char*` in C++. `foreign_ty` maps `const char*` to `^cstr`, which takes the other two by assignability and a `String` or `Path` by `ImplicitAs<&cstr>` (`implicit_as` asks for `&cstr` when `^cstr` is wanted). `or` on a `^cstr` gives a `&cstr` (`or_expr`, and its C++), and measuring one as `&str` is `unsafe`. `untied_result` now asks a `&cstr` result for a tie and no longer exempts an `extern fn`; a `^str` or `^[]T` result is a pointer and may stay untied. std: `dir_next` returns `^str`, `null` at the end, and its runtime `Opt<str>`; `process_arg` is `const &str`; the memory tracker's files are `const &cstr`. **Not done:** a C++ `std::string_view` parameter or result (`&str`, `^str`), since the importer has no `string_view` mapping yet.
 
 Step 5 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md); the steps are
 listed in [T-0109](T-0109-text-only-borrowed-str-const-str.md).

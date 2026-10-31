@@ -25,7 +25,7 @@ fn returned(fallback: &str) -> &str {
     return make().as_str()
 }
 
-fn takes(c: cstr) -> usize {
+fn takes(c: &cstr) -> usize {
     return (c as &str).len
 }
 
