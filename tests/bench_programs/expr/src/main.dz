@@ -145,7 +145,7 @@ fn is_letter(c: u8) -> bool {
 }
 
 fn tokenize(source: &String) !-> List<Token> {
-    let bytes = source.as_str() as []u8
+    let bytes = source.as_str() as &[]u8
     let mut tokens = List<Token>()
     let mut i: usize = 0
     while i < bytes.len {
@@ -215,7 +215,7 @@ union Expr {
 /// A recursive-descent parser over one statement's tokens, in the program they came from.
 view struct Parser {
     m_source: &String
-    m_tokens: []Token
+    m_tokens: &[]Token
     m_at:     usize = 0
     /// Where the tree's nodes go.
     m_allocator: ^mut Allocator = Allocators::Global
@@ -223,7 +223,7 @@ view struct Parser {
     /// What the program holds, so a name's text outlives the parser (spec 6.7).
     tie @source = m_source
 
-    Parser(source: &String, tokens: []Token, allocator: ^mut Allocator) {
+    Parser(source: &String, tokens: &[]Token, allocator: ^mut Allocator) {
         m_source = source
         m_tokens = tokens
         m_allocator = allocator
@@ -241,7 +241,7 @@ view struct Parser {
         if self.peek() != Kind::Operator {
             return none
         }
-        let op = (m_source.as_str() as []u8)[m_tokens[m_at].start]
+        let op = (m_source.as_str() as &[]u8)[m_tokens[m_at].start]
         if op == a || op == b || op == c {
             return op
         }

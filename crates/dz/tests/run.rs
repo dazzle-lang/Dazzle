@@ -1672,7 +1672,7 @@ fn the_access_helpers_cost_nothing_in_the_generated_code() {
     let dir = scratch(
         "dz_zero_overhead",
         "[module]\nname = \"perf\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
-        "fn sum(xs: []i32) -> i32 {\n    let mut total = 0\n    for i in 0..xs.len {\n        \
+        "fn sum(xs: &[]i32) -> i32 {\n    let mut total = 0\n    for i in 0..xs.len {\n        \
          total += xs[i]\n    }\n    return total\n}\n\nfn main() {\n    println!(\"{}\", 0)\n}\n",
     );
     let out = Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().unwrap();

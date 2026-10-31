@@ -20,7 +20,7 @@ pub struct File {
     }
 
     /// Up to `buf.len` bytes into `buf`: how many were read, and 0 at the end of the file.
-    pub fn read(&mut self, buf: []mut u8) !-> usize {
+    pub fn read(&mut self, buf: &mut []u8) !-> usize {
         let n = file_read(m_handle, buf)
         if n < buf.len && io_last_error() != 0 {
             return error(io_last_error(), "cannot read from the file")
@@ -29,7 +29,7 @@ pub struct File {
     }
 
     /// All of `data`, at the current position.
-    pub fn write(&mut self, data: []u8) !-> void {
+    pub fn write(&mut self, data: &[]u8) !-> void {
         if file_write(m_handle, data) != data.len {
             return error(io_last_error(), "cannot write to the file")
         }
@@ -96,14 +96,14 @@ pub struct File {
 
     /// Replace the file's contents with `data`, creating it if needed. The directory it is
     /// in must exist.
-    pub fn write_bytes(path: &Path, data: []u8) !-> void {
+    pub fn write_bytes(path: &Path, data: &[]u8) !-> void {
         let mut f = File::open(path, .Write) or return
         f.write(data) or return
         f.flush() or return
     }
 
     pub fn write_text(path: &Path, text: &str) !-> void {
-        File::write_bytes(path, text as []u8) or return
+        File::write_bytes(path, text as &[]u8) or return
     }
 
     /// Delete the file. A directory is `Directory::remove`'s.

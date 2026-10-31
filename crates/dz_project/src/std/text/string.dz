@@ -20,7 +20,7 @@ pub struct String {
     }
 
     /// A copy of `bytes` when they are valid UTF-8, and `none` when they are not.
-    pub fn from_utf8(bytes: []u8, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String? {
+    pub fn from_utf8(bytes: &[]u8, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String? {
         let text = str::from_utf8(bytes) or return none
         return String(text, allocator, loc)
     }
@@ -65,7 +65,7 @@ pub struct String {
         }
         let _ = m_bytes.pop()
         m_bytes.reserve(s.len + 1, loc)
-        let bytes = s as []u8
+        let bytes = s as &[]u8
         for b in bytes {
             m_bytes.push(b, loc)
         }
@@ -92,7 +92,7 @@ pub struct String {
             self.push_str(s, loc)
             return
         }
-        m_bytes.insert_slice(at, s as []u8)
+        m_bytes.insert_slice(at, s as &[]u8)
     }
 
     /// Put one character in at byte `at`, encoded as UTF-8.
@@ -108,7 +108,7 @@ pub struct String {
         if at >= self.len() || !self.is_char_boundary(at) {
             panic!("remove at byte {}, not the start of a character", at, loc)
         }
-        let (c, width) = decode_utf8(self.as_str() as []u8, at)
+        let (c, width) = decode_utf8(self.as_str() as &[]u8, at)
         m_bytes.remove_range(at, at + width)
         return c
     }
@@ -126,7 +126,7 @@ pub struct String {
     /// How many characters the text holds. It walks the text, so it takes time in
     /// proportion to its length.
     pub fn char_count(&self) -> usize {
-        let bytes = self.as_str() as []u8
+        let bytes = self.as_str() as &[]u8
         let mut n: usize = 0
         for b in bytes {
             if ((b as u32) & 0xC0) != 0x80 {
@@ -142,7 +142,7 @@ pub struct String {
         if len == 0 {
             return none
         }
-        let bytes = self.as_str() as []u8
+        let bytes = self.as_str() as &[]u8
         let mut start = len - 1
         while start > 0 && !is_utf8_boundary(bytes, start) {
             start -= 1
@@ -155,13 +155,13 @@ pub struct String {
     /// Whether byte `index` is where a character starts, or the end of the text: the only
     /// places text may be cut.
     pub fn is_char_boundary(&self, index: usize) -> bool {
-        return is_utf8_boundary(self.as_str() as []u8, index)
+        return is_utf8_boundary(self.as_str() as &[]u8, index)
     }
 
     /// Bytes `from..to` of the text, borrowed, or `none` when either end falls inside a
     /// character or past the end — so the piece is always text.
     pub fn slice(&self, from: usize, to: usize) -> ^str {
-        let bytes = self.as_str() as []u8
+        let bytes = self.as_str() as &[]u8
         if from > to || to > bytes.len || !is_utf8_boundary(bytes, from) || !is_utf8_boundary(bytes, to) {
             return null
         }
@@ -196,7 +196,7 @@ impl Eq for String {
 /// By bytes, which for UTF-8 is by code point: not a language's alphabetical order.
 impl Ord for String {
     fn cmp(&self, rhs: &String) -> Ordering {
-        return compare_bytes(self.as_str() as []u8, rhs.as_str() as []u8)
+        return compare_bytes(self.as_str() as &[]u8, rhs.as_str() as &[]u8)
     }
 }
 

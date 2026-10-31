@@ -277,13 +277,13 @@ error[DZ0507]: cannot assign to an element of a read-only slice
     │
     = help: `[]i32` is a read-only view; write `[]mut i32` to allow assignment through it (spec §5.3)
 
-error[DZ0501]: expected `[]mut i32`, found `[]i32`
+error[DZ0501]: expected `&mut []i32`, found `&[]i32`
     ┌─ typeerrors/src/errors.dz:236:11
     │
 236 │     fills(xs)
-    │           ^^ this is `[]i32`
+    │           ^^ this is `&[]i32`
 
-error[DZ0507]: cannot view `storage` as `[]mut i32`
+error[DZ0507]: cannot view `storage` as `&mut []i32`
     ┌─ typeerrors/src/errors.dz:246:11
     │
 246 │     fills(storage)
@@ -387,15 +387,15 @@ error[DZ0521]: cannot infer the element type of an empty array
     │
     = help: annotate the binding, e.g. `let a: [0]i32 = []` (spec §5.3)
 
-error[DZ0507]: cannot store a temporary array as `[]i32`
-    ┌─ typeerrors/src/errors.dz:347:20
+error[DZ0507]: cannot store a temporary array as `&[]i32`
+    ┌─ typeerrors/src/errors.dz:347:21
     │
-347 │     let s: []i32 = [1, 2, 3]
-    │                    ^^^^^^^^^ this array does not outlive the statement
+347 │     let s: &[]i32 = [1, 2, 3]
+    │                     ^^^^^^^^^ this array does not outlive the statement
     │
     = help: a slice is a view, so it would point at storage that is already gone — bind the array first, then take a slice of the binding (spec §5.3)
 
-error[DZ0507]: cannot store a temporary array as `[]i32`
+error[DZ0507]: cannot store a temporary array as `&[]i32`
     ┌─ typeerrors/src/errors.dz:352:12
     │
 352 │     return [1, 2, 3]
@@ -1387,11 +1387,11 @@ error[DZ0510]: fallible call not consumed
      │
      = help: add an `or` clause: `or return` to propagate, `or <value>` to fall back, or `or ignore` to drop it deliberately (spec §9.7)
 
-error[DZ0501]: expected `[]mut u8`, found `[]u8`
+error[DZ0501]: expected `&mut []u8`, found `&[]u8`
      ┌─ typeerrors/src/errors.dz:1098:20
      │
 1098 │     let _ = f.read(buf[..]) or return
-     │                    ^^^^^^^ this is `[]u8`
+     │                    ^^^^^^^ this is `&[]u8`
 
 error[DZ0531]: `-` cannot be applied to `Plain`
      ┌─ typeerrors/src/errors.dz:1103:12
@@ -1945,7 +1945,7 @@ error[DZ0575]: `&mut str` is not a type
      │
      = help: text is only read through a reference; to change it, change the `String` that owns it (spec §5.3)
 
-error[DZ0575]: `^str` is empty as `null`
+error[DZ0575]: a text or slice pointer is empty as `null`
      ┌─ typeerrors/src/errors.dz:1577:12
      │
 1577 │     return none
@@ -1974,5 +1974,45 @@ error[DZ0517]: `&str` is a view, and `T` is not a `view` parameter
      │
 1589 │     let mut all = List<&str>()
      │                   ^^^^^^^^^^^^ a view given where it could be stored
+     │
+     = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
+
+error[DZ0577]: `[]i32` is not a type
+     ┌─ typeerrors/src/errors.dz:1595:19
+     │
+1595 │ fn bare_slice(xs: []i32) -> usize {
+     │                   ^^^^^ write `&[]i32`
+     │
+     = help: a slice is borrowed from what owns its elements, so it is written as a reference (spec §5.3)
+
+error[DZ0577]: `[]mut i32` is not a type
+     ┌─ typeerrors/src/errors.dz:1599:23
+     │
+1599 │ fn bare_mut_slice(xs: []mut i32) {}
+     │                       ^^^^^^^^^ write `&mut []i32`
+     │
+     = help: a slice is borrowed from what owns its elements, so it is written as a reference, and the reference says it may write them (spec §5.3)
+
+error[DZ0577]: `&[]mut i32` is not a type
+     ┌─ typeerrors/src/errors.dz:1601:22
+     │
+1601 │ fn misplaced_mut(xs: &[]mut i32) {}
+     │                      ^^^^^^^^^^ write `&mut []i32`
+     │
+     = help: a slice is borrowed from what owns its elements, so it is written as a reference, and the reference says it may write them (spec §5.3)
+
+error[DZ0517]: a struct field cannot hold `&[]i32`, which is a view
+     ┌─ typeerrors/src/errors.dz:1604:16
+     │
+1604 │     pub items: &[]i32
+     │                ^^^^^^ a view lives only where a reference does
+     │
+     = help: declare `Window` a `view struct`, which is itself placed as a reference is, or keep the view in a local (spec §6.7)
+
+error[DZ0517]: `&[]i32` is a view, and `T` is not a `view` parameter
+     ┌─ typeerrors/src/errors.dz:1608:19
+     │
+1608 │     let mut all = List<&[]i32>()
+     │                   ^^^^^^^^^^^^^^ a view given where it could be stored
      │
      = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)

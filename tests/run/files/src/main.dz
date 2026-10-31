@@ -41,7 +41,7 @@ fn disk(root: &Path) !-> void {
     File::write_text(&log_path, "abc") or return
     {
         let mut log = File::open(&log_path, .Append) or return
-        log.write("defgh" as []u8) or return
+        log.write("defgh" as &[]u8) or return
     }
     {
         // In a block of its own: the file closes at its end, and Windows will not delete a

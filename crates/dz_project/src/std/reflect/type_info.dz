@@ -10,9 +10,9 @@ pub struct TypeInfo {
     pub kind: TypeKind
     /// What a value is made of: a struct's fields, bases first; a tuple's elements; a `str`'s,
     /// slice's or optional's parts.
-    pub fields: []FieldInfo
+    pub fields: const &[]FieldInfo
     /// An enum's variants and their values, or a union's with their payloads.
-    pub variants: []VariantInfo
+    pub variants: const &[]VariantInfo
     /// What a pointer, slice, array or optional holds; an enum's backing integer type.
     pub elem: TypeId
     /// An array's length.

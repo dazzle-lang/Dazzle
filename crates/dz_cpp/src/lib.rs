@@ -1710,6 +1710,7 @@ impl<'a> Emitter<'a> {
             Ty::Slice { mutable, elem } => {
                 format!("{}_{}", if *mutable { "sm" } else { "s" }, m(elem))
             }
+            Ty::ConstSlice(elem) => format!("cs_{}", m(elem)),
             Ty::Tuple(parts) => {
                 let ps: Vec<String> = parts.iter().map(m).collect();
                 format!("t{}_{}", parts.len(), ps.join("_"))
@@ -3053,7 +3054,8 @@ impl<'a> Emitter<'a> {
             // the checker does and a mistake that slipped past us is caught rather than
             // miscompiled (spec §5.3, §18.22).
             Ty::Slice { mutable: true, elem } => format!("::dz::Slice<{}>", self.cpp_ty(elem)),
-            Ty::Slice { mutable: false, elem } => {
+            // A static table is a read-only slice to C++ (spec §5.3).
+            Ty::Slice { mutable: false, elem } | Ty::ConstSlice(elem) => {
                 format!("::dz::Slice<{}>", const_of(&self.cpp_ty(elem)))
             }
             Ty::Tuple(parts) => {

@@ -100,7 +100,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (25 open)
+## none — not scheduled (24 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -119,7 +119,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0092](tasks/T-0092-dz-fmt-collapses-multi-line-array.md)** dz fmt collapses a multi-line array literal and detaches its elements' comments · bug, tooling
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
-- **[T-0110](tasks/T-0110-slices-are-borrowed-t-mut-t.md)** Slices are borrowed: &[]T, &mut []T and const &[]T · feature, language
 - **[T-0112](tasks/T-0112-cstr-behind-pointer-text-at-c.md)** cstr behind a pointer, and text at the C and C++ boundary · feature, interop
 - **[T-0114](tasks/T-0114-untied-pointer-becomes-reference-only-in.md)** An untied pointer becomes a reference only in unsafe · feature, ownership
 - **[T-0116](tasks/T-0116-debug-build-check-std-trusted-kills.md)** Debug-build check of std's trusted kills clauses · feature, ownership

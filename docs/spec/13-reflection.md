@@ -26,8 +26,8 @@ pub struct TypeInfo {
     pub size:       usize
     pub align:      usize
     pub kind:       TypeKind
-    pub fields:     []FieldInfo     // what a value is made of; see below
-    pub variants:   []VariantInfo   // an enum's or a union's
+    pub fields:     const &[]FieldInfo   // what a value is made of; see below
+    pub variants:   const &[]VariantInfo // an enum's or a union's
     pub elem:       TypeId          // what a pointer, slice, array or optional holds; an enum's backing type
     pub len:        usize           // an array's length
     pub mutable:    bool            // a `^mut`, `&mut` or `[]mut`
@@ -48,7 +48,7 @@ pub struct FieldInfo {
 pub struct VariantInfo {
     pub name:   const &str
     pub value:  i64                 // an enum variant's value; a union variant's tag
-    pub fields: []FieldInfo         // a union variant's payload, offsets from the union's start
+    pub fields: const &[]FieldInfo   // a union variant's payload, offsets from the union's start
 }
 
 pub fn typeinfo_of<T>() -> &TypeInfo    // resolved at compile time; a static reference

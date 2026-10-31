@@ -461,7 +461,12 @@ impl CallEffects {
 }
 
 fn mutable_input(ty: &Ty) -> bool {
-    matches!(ty, Ty::Ref { mutable: true, .. } | Ty::Ptr { mutable: true, .. })
+    matches!(
+        ty,
+        Ty::Ref { mutable: true, .. }
+            | Ty::Ptr { mutable: true, .. }
+            | Ty::Slice { mutable: true, .. }
+    )
 }
 
 fn points(ty: &Ty) -> bool {

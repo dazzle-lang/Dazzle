@@ -24,7 +24,7 @@ fn integer(value: ^u8, kind: TypeKind) -> i64 {
 }
 
 /// Every public field, by its tag's name when it has one.
-fn fields(out: &mut String, value: ^u8, all: []FieldInfo) kills out@text {
+fn fields(out: &mut String, value: ^u8, all: &[]FieldInfo) kills out@text {
     out.push('{')
     let mut first = true
     for &f in all {
@@ -103,7 +103,7 @@ pub fn write_json(out: &mut String, value: ^u8, id: TypeId) kills out@text {
 }
 
 /// Any value as JSON: the one generic entry point, which is all the type table needs.
-pub fn to_json<T>(value: &T) -> String {
+pub fn to_json<view T>(value: &T) -> String {
     let mut out = String()
     let p: ^T = value
     write_json(&mut out, unsafe { p as ^u8 }, typeid_of<T>())

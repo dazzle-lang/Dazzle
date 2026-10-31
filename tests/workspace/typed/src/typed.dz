@@ -126,7 +126,7 @@ fn references(v: &Vec3, w: &mut Vec3) -> f32 {
     return v.x + w.y
 }
 
-fn arrays_and_slices(fixed: [4]i32, slice: []i32) -> i32 {
+fn arrays_and_slices(fixed: [4]i32, slice: &[]i32) -> i32 {
     let a = fixed[0]
     let b = slice[1]
     let n = slice.len
@@ -136,14 +136,14 @@ fn arrays_and_slices(fixed: [4]i32, slice: []i32) -> i32 {
 // A slice carries its writability in its type, so `[]mut T` may be written through no
 // matter how the slice itself is bound — it is a view, and the binding governs the view
 // and not the elements (spec §5.3, §18.22).
-fn fill(dst: []mut i32, value: i32) {
+fn fill(dst: &mut []i32, value: i32) {
     for i in 0..dst.len {
         dst[i] = value
     }
 }
 
 // ...and `[]mut T` satisfies `[]T`, exactly as `&mut T` satisfies `&T`.
-fn sum(xs: []i32) -> i32 {
+fn sum(xs: &[]i32) -> i32 {
     let mut total = 0
     for x in xs {
         total += x
@@ -170,7 +170,7 @@ fn ranges(count: i32) -> i32 {
     return total
 }
 
-fn iterating(items: []Vec3) -> f32 {
+fn iterating(items: &[]Vec3) -> f32 {
     // Annotated `f32`: an unannotated `0.0` would be `f64` (spec §2.5) and then adding an
     // `f32` field would be an error, because there are no implicit conversions.
     let mut total: f32 = 0
@@ -222,7 +222,7 @@ fn maybe_find(n: i32) -> i32? {
     return n
 }
 
-fn find_ptr(xs: []i32) -> ^i32 {
+fn find_ptr(xs: &[]i32) -> ^i32 {
     return null
 }
 
@@ -269,12 +269,12 @@ fn takes_ref(x: &i32) -> i32 {
     return 0
 }
 
-fn checks_a_pointer(xs: []i32) -> i32 {
+fn checks_a_pointer(xs: &[]i32) -> i32 {
     let a = find_ptr(xs) or return 0
     return takes_ref(a)
 }
 
-fn asserts_a_pointer(xs: []i32) -> i32 {
+fn asserts_a_pointer(xs: &[]i32) -> i32 {
     let a = find_ptr(xs) or unreachable
     return takes_ref(a)
 }
@@ -694,7 +694,7 @@ fn checked_pointer(v: ^mut Vec3) -> f32 {
 }
 
 // §5.3: `.ptr` is the unchecked way into a view; forming it is safe.
-fn unchecked(xs: []mut i32) -> i32 {
+fn unchecked(xs: &mut []i32) -> i32 {
     let raw = xs.ptr
     let mut n = 0
     unsafe {
@@ -733,7 +733,7 @@ fn read_only_pointers(v: &Vec3, w: ^mut Vec3) -> f32 {
 }
 
 // A read-only view's `.ptr` is a `^T`, which reads.
-fn read_only_ptr(xs: []i32) -> i32 {
+fn read_only_ptr(xs: &[]i32) -> i32 {
     let raw: ^i32 = xs.ptr
     let mut n = 0
     unsafe { n = raw[0] }
@@ -1201,9 +1201,9 @@ fn addresses(w: ^mut Walking) -> bool {
 fn slices_and_text(name: &str) -> usize {
     let mut arr: [4]i32 = [1, 2, 3, 4]
     let middle = arr[1..3]
-    let writable: []mut i32 = arr[..2]
+    let writable: &mut []i32 = arr[..2]
     writable[0] = middle[1]
-    let bytes = name as []u8
+    let bytes = name as &[]u8
     let text = str::from_utf8(bytes[0..name.len]) or ""
     let mut b = List<i32>(4)
     b.push(arr[0])
@@ -1324,7 +1324,7 @@ fn names(items: ..&Named) -> usize {
     return items.len
 }
 
-fn variadic_calls(h: Heading, xs: []i32) -> i32 {
+fn variadic_calls(h: Heading, xs: &[]i32) -> i32 {
     let n = names(h, Heading{ degrees: 90 }) + names()
     return total_of(1) + total_of(1, 2, 3) + total_of(0, ..xs) + n as i32
 }
@@ -1339,7 +1339,7 @@ fn weighted(xs: ..i32, scale: i32 = 1, offset: i32 = 0, label: &str) -> i32 {
     return t * scale + offset + label.len as i32
 }
 
-fn named_calls(xs: []i32) -> i32 {
+fn named_calls(xs: &[]i32) -> i32 {
     let a = weighted(1, 2, label = "a")
     let b = weighted(label = "b", scale = 2)
     let c = weighted(3, offset = 1, label = "c")
@@ -2106,4 +2106,36 @@ fn text_kinds(owner: &String) -> usize {
     let first = initial_of(owner) or return 0
     let none_here = initial_of("") == null
     return first.len + l.text.len + (if none_here { 1 } else { 0 })
+}
+
+// A slice is borrowed (spec 5.3, D-0093, T-0110): `&[]T` and `&mut []T` in signatures,
+// `^[]T` for a slice that may be absent, empty as `null`, and reflection's static tables,
+// `const &[]FieldInfo`, read as slices.
+fn sum_of(xs: &[]i32) -> i32 {
+    let mut t = 0
+    for x in xs {
+        t += x
+    }
+    return t
+}
+
+fn zero_first(xs: &mut []i32) {
+    if xs.len > 0 {
+        xs[0] = 0
+    }
+}
+
+fn nonempty(xs: &[]i32) -> ^[]i32 in xs {
+    if xs.len == 0 {
+        return null
+    }
+    return xs
+}
+
+fn slice_kinds() -> i32 {
+    let mut a = [1, 2, 3]
+    zero_first(a[..])
+    let some = nonempty(a[..]) or return 0
+    let fields = typeinfo_of<Caption>().fields
+    return sum_of(some) + fields.len as i32
 }

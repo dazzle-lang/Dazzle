@@ -149,7 +149,7 @@ fn generic<T>(x: &Text, v: T) -> T? { return v }
 fn read(w: &World) -> i32 { return 1 }
 fn foreign(a: &mut World, b: ^mut World, c: &World, d: ^World, v: World) {}
 fn arrays(xs: &mut [2]Text) kills xs[*]@chars {}
-fn slices(xs: &mut []mut Text) kills xs[*]@chars {}
+fn slices(xs: &mut []Text) kills xs[*]@chars {}
 fn iterable(xs: &mut HashMap<i32, i32>) kills xs[*] {}
 fn observe(p: ^Text) {}
 fn observe_byte(p: ^u8) {}

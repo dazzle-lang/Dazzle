@@ -402,6 +402,9 @@ pub const STR_NOT_BORROWED: &str = "DZ0575";
 /// An optional of a reference written out, `(&T)?`, which is no type: a pointer is the
 /// optional reference, `^T` (spec 5.6).
 pub const OPTIONAL_REFERENCE: &str = "DZ0576";
+/// A slice spelled as a value: `[]T` for `&[]T`, `[]mut T` for `&mut []T`, `const []T` for
+/// `const &[]T`. A slice is borrowed, as text is (spec 5.3).
+pub const SLICE_NOT_BORROWED: &str = "DZ0577";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

@@ -10,7 +10,7 @@ struct Point {
     pub x: i32
 }
 
-fn first<T: Point>(xs: []T) -> T {
+fn first<T: Point>(xs: &[]T) -> T {
     return xs[0]
 }
 
@@ -18,7 +18,7 @@ fn main() {}
 ```
 
 ```dz
-fn first<T: Copy>(xs: []T) -> T {
+fn first<T: Copy>(xs: &[]T) -> T {
     return xs[0]
 }
 

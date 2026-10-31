@@ -50,7 +50,7 @@ fn generate(words: i64) -> String {
             let pick = rng.below(rng.below(24) + 1) as usize
             let syllable = SYLLABLES[pick]
             if s == 0 && capital {
-                for j, b in (syllable as []u8).indexed() {
+                for j, b in (syllable as &[]u8).indexed() {
                     text.push(if j == 0 {
                         b - 32
                     } else {
@@ -105,7 +105,7 @@ fn main() {
     let mut word = String("", Allocators::Temp)
     for piece in text.split_whitespace() {
         word.clear()
-        for b in piece as []u8 {
+        for b in piece as &[]u8 {
             if b >= 'a' as u8 && b <= 'z' as u8 {
                 word.push(b as char)
             } else if b >= 'A' as u8 && b <= 'Z' as u8 {
@@ -131,7 +131,7 @@ fn main() {
 
     let mut checksum: u64 = 1469598103934665603
     for e in entries {
-        for b in e.word.as_str() as []u8 {
+        for b in e.word.as_str() as &[]u8 {
             checksum = (checksum ^^ b as u64) * 1099511628211
         }
         checksum = (checksum ^^ e.count as u64) * 1099511628211

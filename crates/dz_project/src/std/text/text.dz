@@ -70,8 +70,8 @@ pub trait Text {
 
     /// Whether the two are the same text when `A`–`Z` and `a`–`z` are not told apart.
     fn eq_ignore_ascii_case(&self, other: &str) -> bool {
-        let a = self.text() as []u8
-        let b = other as []u8
+        let a = self.text() as &[]u8
+        let b = other as &[]u8
         if a.len != b.len {
             return false
         }
@@ -161,7 +161,7 @@ pub trait Text {
     /// The whole text as a signed integer — an optional `+` or `-`, then decimal digits —
     /// or `none` for anything else, including spaces and a value that does not fit.
     fn parse_i64(&self) -> i64? {
-        let bytes = self.text() as []u8
+        let bytes = self.text() as &[]u8
         if bytes.len == 0 {
             return none
         }
@@ -192,7 +192,7 @@ pub trait Text {
     /// The whole text as an unsigned integer: decimal digits and nothing else, and `none`
     /// when it does not fit.
     fn parse_u64(&self) -> u64? {
-        let bytes = self.text() as []u8
+        let bytes = self.text() as &[]u8
         if bytes.len == 0 {
             return none
         }
@@ -319,7 +319,7 @@ impl Iterate for Lines {
 
     fn get(&self) -> &str in self@text {
         let mut end = m_end
-        if end > m_start && (m_text as []u8)[end - 1] == '\r' as u8 {
+        if end > m_start && (m_text as &[]u8)[end - 1] == '\r' as u8 {
             end -= 1
         }
         return sub(m_text, m_start, end)
@@ -348,7 +348,7 @@ pub view struct SplitWhitespace {
 
     /// Skip the whitespace from `at` on, then find where the word after it ends.
     fn find_word(&mut self, at: usize) {
-        let bytes = m_text as []u8
+        let bytes = m_text as &[]u8
         let mut i = at
         while i < bytes.len && is_space(bytes[i]) {
             i += 1
@@ -379,8 +379,8 @@ impl Iterate for SplitWhitespace {
 
 /// Where `needle` last occurs in `hay`.
 fn rfind_bytes(hay: &str, needle: &str) -> usize? {
-    let h = hay as []u8
-    let n = needle as []u8
+    let h = hay as &[]u8
+    let n = needle as &[]u8
     if n.len > h.len {
         return none
     }
@@ -409,8 +409,8 @@ fn ascii_lower(b: u8) -> u8 {
 /// Where `needle` first occurs in `hay` at or after `from`. Matching whole UTF-8 sequences
 /// byte for byte, a match always starts on a character boundary.
 fn find_bytes(hay: &str, needle: &str, from: usize) -> usize? {
-    let h = hay as []u8
-    let n = needle as []u8
+    let h = hay as &[]u8
+    let n = needle as &[]u8
     if n.len == 0 {
         return if from <= h.len { from } else { none }
     }
@@ -436,7 +436,7 @@ fn is_space(b: u8) -> bool {
 }
 
 fn trim_start_at(t: &str) -> usize {
-    let bytes = t as []u8
+    let bytes = t as &[]u8
     let mut i: usize = 0
     while i < bytes.len && is_space(bytes[i]) {
         i += 1
@@ -445,7 +445,7 @@ fn trim_start_at(t: &str) -> usize {
 }
 
 fn trim_end_at(t: &str) -> usize {
-    let bytes = t as []u8
+    let bytes = t as &[]u8
     let mut end = bytes.len
     while end > 0 && is_space(bytes[end - 1]) {
         end -= 1
@@ -472,7 +472,7 @@ fn ascii_case(t: &str, lower: bool) -> String {
 /// `[+-] digits [. digits] [(e|E) [+-] digits]`, with a digit on at least one side of the
 /// point.
 fn is_decimal_number(t: &str) -> bool {
-    let b = t as []u8
+    let b = t as &[]u8
     let mut i: usize = 0
     if i < b.len && (b[i] == '+' as u8 || b[i] == '-' as u8) {
         i += 1

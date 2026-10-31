@@ -1,12 +1,12 @@
 /// Steps through a slice, handing out a reference to each element.
 pub view struct SliceIter<T> {
-    m_slice: []T
+    m_slice: &[]T
     m_index: usize = 0
 
     /// What the slice views, so an element outlives the iterator it came from (spec §6.7).
     tie @items = m_slice
 
-    SliceIter(slice: []T) {
+    SliceIter(slice: &[]T) {
         m_slice = slice
     }
 }

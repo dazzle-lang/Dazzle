@@ -226,17 +226,17 @@ fn unknown_error_field() -> i32 {
 // --- M6: slices carry their writability (spec §5.3, §18.22) -----------------
 
 // A `[]T` is a read-only view; its elements cannot be written however it is bound.
-fn writes_through_a_read_only_slice(xs: []i32) {
+fn writes_through_a_read_only_slice(xs: &[]i32) {
     xs[0] = 1
 }
 
 // `[]T` does not satisfy `[]mut T` — that direction would gain the right to write.
-fn narrow_then_widen(xs: []i32) {
+fn narrow_then_widen(xs: &[]i32) {
     writes_through_a_read_only_slice(xs)
     fills(xs)
 }
 
-fn fills(dst: []mut i32) {
+fn fills(dst: &mut []i32) {
     dst[0] = 0
 }
 
@@ -344,11 +344,11 @@ fn empty_array_literal_without_context() -> i32 {
 
 // A temporary array cannot be stored as a slice: the slice would already dangle.
 fn array_literal_stored_as_a_slice() -> i32 {
-    let s: []i32 = [1, 2, 3]
+    let s: &[]i32 = [1, 2, 3]
     return s[0]
 }
 
-fn array_literal_returned_as_a_slice(xs: []i32) -> []i32 {
+fn array_literal_returned_as_a_slice(xs: &[]i32) -> &[]i32 {
     return [1, 2, 3]
 }
 
@@ -475,7 +475,7 @@ fn runtime_str_to_cstr(s: &str) -> cstr {
 // --- r18: `^T` and `^mut T` (spec §5.2, §18.37) ------------------------------------------
 
 // `.ptr` is as writable as its view, so a read-only slice gives a `^T` (spec §5.3).
-fn writable_pointer_from_a_read_only_slice(xs: []i32) -> ^mut i32 {
+fn writable_pointer_from_a_read_only_slice(xs: &[]i32) -> ^mut i32 {
     return xs.ptr
 }
 
@@ -908,12 +908,12 @@ fn forged(n: usize) -> ^mut u8 {
 }
 
 // §5.3: bytes taken as text unchecked is `unsafe`; `str::from_utf8` is the checked way.
-fn unchecked_text(bytes: []u8) -> &str {
+fn unchecked_text(bytes: &[]u8) -> &str {
     return bytes as &str
 }
 
 // §5.3: a pointer carries no length, so its slice needs an end.
-fn pointer_slice_without_end(p: ^i32) -> []i32 {
+fn pointer_slice_without_end(p: ^i32) -> &[]i32 {
     return unsafe { p[1..] }
 }
 
@@ -942,7 +942,7 @@ fn adds(xs: ..i32) -> usize {
     return xs.len
 }
 
-fn bad_variadic_calls(xs: []i32, n: i32) -> usize {
+fn bad_variadic_calls(xs: &[]i32, n: i32) -> usize {
     return adds(1, ..xs) + adds(..n) + adds(1, true)
 }
 
@@ -992,7 +992,7 @@ fn bad_pointer_formats(n: i32, p: ^i32) !-> i32 {
     return error("{}", p)
 }
 
-fn bad_print_calls(s: Shade, o: i32?, p: ^^i32, xs: []i32) {
+fn bad_print_calls(s: Shade, o: i32?, p: ^^i32, xs: &[]i32) {
     println!("{} {} {}", s, o, p)
     println!("{}", 1, allocator = Allocators::Temp)
     let t = format!("{}", 1, colour = 2)
@@ -1588,4 +1588,23 @@ struct Note {
 fn stored_text(s: &str) {
     let mut all = List<&str>()
     all.push(s)
+}
+
+// A slice is borrowed (spec 5.3, T-0110): a bare `[]T`, `[]mut T`, `&[]mut T`, and a slice
+// stored in a field or a container.
+fn bare_slice(xs: []i32) -> usize {
+    return xs.len
+}
+
+fn bare_mut_slice(xs: []mut i32) {}
+
+fn misplaced_mut(xs: &[]mut i32) {}
+
+struct Window {
+    pub items: &[]i32
+}
+
+fn stored_slice(xs: &[]i32) {
+    let mut all = List<&[]i32>()
+    all.push(xs)
 }

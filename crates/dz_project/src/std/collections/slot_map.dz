@@ -133,11 +133,11 @@ pub struct SlotMap<T> {
     }
 
     /// Every value, in no particular order. Valid until the map next changes size.
-    pub fn values(&self) -> []T in self@items {
+    pub fn values(&self) -> &[]T in self@items {
         return m_values.as_slice()
     }
 
-    pub fn values_mut(&mut self) -> []mut T in self@items {
+    pub fn values_mut(&mut self) -> &mut []T in self@items {
         return m_values.as_mut_slice()
     }
 

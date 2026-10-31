@@ -28,7 +28,7 @@ pub struct Tally {
     pub count: i32 = 0
 
     /// A non-generic type, mutated by a generic method.
-    pub fn add_all<N: Copy>(&mut self, xs: []N, weight: fn(N) -> i32) {
+    pub fn add_all<N: Copy>(&mut self, xs: &[]N, weight: fn(N) -> i32) {
         for x in xs {
             count += weight(x)
         }
