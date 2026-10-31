@@ -2913,7 +2913,10 @@ impl<'a> Emitter<'a> {
         self.line(head);
         self.indent += 1;
         self.take_ownership_of_params(body);
-        let (text, ()) = self.in_body(body, |e| e.block_into(body.root, Dest::None));
+        let (text, ()) = self.in_body(body, |e| {
+            e.tie_guards(owner, body);
+            e.block_into(body.root, Dest::None)
+        });
         self.write_captured(&text);
         // A `!-> void` still has to say it succeeded.
         if body.fallible && matches!(body.ret, Ty::Void) {
@@ -2928,6 +2931,80 @@ impl<'a> Emitter<'a> {
         self.indent -= 1;
         self.line("}");
         self.out.push('\n');
+    }
+
+    /// In a debug build, a guard per tie a function's clause promises not to kill (spec §6.7,
+    /// T-0116): for each `&mut` input whose type ties a pointer field (`tie @items = m_data`,
+    /// or `own ^mut T in @items`), the field's address is remembered on entry, and on every
+    /// way out a different one traps, naming the function and the tie. It is how `std`'s
+    /// clauses over `unsafe` code, which the checker trusts, are tested: `push` forgetting
+    /// `kills self@items` fails the first test that grows a list. Release builds have none.
+    fn tie_guards(&mut self, owner: &BodyOwner, body: &'a hir::Body) {
+        if self.ws.module(self.ws.root).build.optimize != dz_project::Optimize::Debug {
+            return;
+        }
+        let (sig, name) = match owner {
+            BodyOwner::Method { owner, name } => {
+                let Some(sig) = self.table.methods_sig(*owner).and_then(|s| s.methods.get(name))
+                else {
+                    return;
+                };
+                (sig.clone(), format!("{}::{name}", self.res.symbol(*owner).name))
+            }
+            BodyOwner::Fn(sym) => {
+                let Some(ItemSig::Fn(sig)) = self.table.get(*sym) else { return };
+                (sig.clone(), self.res.symbol(*sym).name.clone())
+            }
+            _ => return,
+        };
+        if sig.kills_unknown {
+            return;
+        }
+        // Each `&mut` input: its name in the clause, the C++ that reaches it, and the struct.
+        let mut inputs: Vec<(String, String, SymbolId)> = Vec::new();
+        for p in &body.params {
+            let local = body.local(*p);
+            let (writable, pointee) = match &local.ty {
+                Ty::Named { .. } if local.name == "self" => {
+                    (sig.takes_self == Some(true), local.ty.clone())
+                }
+                Ty::Ref { mutable, inner } => (*mutable, (**inner).clone()),
+                _ => continue,
+            };
+            let Ty::Named { sym, .. } = pointee else { continue };
+            if writable {
+                inputs.push((local.name.clone(), self.names[p.index()].clone(), sym));
+            }
+        }
+        let mut n = 0usize;
+        for (param, cpp, sym) in inputs {
+            let Some(s) = self.table.struct_sig(sym) else { continue };
+            let fields: Vec<(String, String)> = s
+                .fields
+                .iter()
+                .filter(|f| matches!(f.ty, Ty::Ptr { .. } | Ty::OwnPtr { .. }))
+                .filter_map(|f| f.tie.clone().map(|t| (t, sanitize(&f.name))))
+                .collect();
+            for (tie, field) in fields {
+                let killed = sig.kills.iter().any(|path| {
+                    path.root.name == param
+                        && match path.steps.first() {
+                            None => true,
+                            Some(dz_ast::TieStep::Tie(t)) => t.name == tie,
+                            Some(dz_ast::TieStep::Field(f)) => sanitize(&f.name) == field,
+                            Some(dz_ast::TieStep::Elements(_)) => false,
+                        }
+                });
+                if killed {
+                    continue;
+                }
+                let label = format!("{param}@{tie}");
+                self.line(&format!(
+                    "::dz::TieGuard _dz_tie{n}(reinterpret_cast<const void* const*>(&::dz::obj({cpp}).{field}), \"{name}\", \"{label}\");"
+                ));
+                n += 1;
+            }
+        }
     }
 
     /// Move each by-value parameter that owns something into a local of its own.

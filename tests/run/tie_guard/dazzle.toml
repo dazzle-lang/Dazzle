@@ -1,0 +1,9 @@
+[module]
+name    = "tie_guard"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"
