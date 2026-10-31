@@ -1035,6 +1035,12 @@ struct Body<'a, 'c> {
     /// `continue` and the labels they name (spec §10.2).
     loops: Vec<LoopFrame>,
     next_loop: u32,
+    /// In a view struct's constructor, the reference fields its opening statements have yet
+    /// to bind, by index and name (spec §6.7). Empty everywhere else.
+    unbound: Vec<(usize, String)>,
+    /// Whether the statement about to be checked is still among the constructor's opening
+    /// ones, where `m_map = map` binds a reference field rather than writing through it.
+    binding_prefix: bool,
     hir: BodyBuilder,
 }
 
@@ -1076,6 +1082,8 @@ impl<'a, 'c> Body<'a, 'c> {
             self_local_ty: None,
             loops: Vec::new(),
             next_loop: 0,
+            unbound: Vec::new(),
+            binding_prefix: false,
             hir,
         }
     }
@@ -1143,6 +1151,74 @@ impl<'a, 'c> Body<'a, 'c> {
 
     fn local(&self, name: &str) -> Option<&Local> {
         self.scopes.iter().rev().find_map(|s| s.get(name))
+    }
+
+    /// The field of `self` an assignment's target names, `m_map` or `self.m_map`.
+    fn self_field_target(&self, target: &Expr) -> Option<usize> {
+        let single = |p: &Path| match &p.segments[..] {
+            [seg] if seg.generics.is_empty() => Some(seg.name.name.clone()),
+            _ => None,
+        };
+        match &target.kind {
+            ExprKind::Path(p) => match self.local(&single(p)?)?.slot {
+                Slot::SelfField { index } => Some(index),
+                _ => None,
+            },
+            ExprKind::Field { base, name, .. } => {
+                let ExprKind::Path(p) = &base.kind else { return None };
+                let local = self.local(&single(p)?)?;
+                match (local.slot, self.self_local) {
+                    (Slot::Local(id), Some(me)) if id == me => {
+                        self.unbound.iter().find(|(_, n)| *n == name.name).map(|(i, _)| *i)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// `m_map = map` among a view struct's constructor's opening statements binds the
+    /// reference field, where any later assignment writes through it (spec §5.2, §6.7).
+    /// `None` when `target` is not a reference field still to be bound, which ends the
+    /// opening statements.
+    fn bind_ref_field(&mut self, target: &Expr, value: &Expr) -> Option<hir::StmtKind> {
+        let index = self.self_field_target(target)?;
+        let at = self.unbound.iter().position(|(i, _)| *i == index)?;
+        let (_, name) = self.unbound.remove(at);
+        let t = self.expr_inner(target, None);
+        let v = self.expr(value, Some(&t.ty));
+        self.expect(&t.ty, &v.ty, value.span);
+        // `m_first = &m_items[0]` would refer into the struct itself, which a copy or a
+        // move leaves behind.
+        if let ExprKind::Ref { expr, .. } = &value.kind {
+            let mut root = &**expr;
+            while let ExprKind::Field { base, .. } | ExprKind::Index { base, .. } = &root.kind {
+                root = base;
+            }
+            let own = match &root.kind {
+                ExprKind::Path(p) if p.segments.len() == 1 => {
+                    let n = &p.segments[0].name.name;
+                    match self.local(n).map(|l| l.slot) {
+                        Some(Slot::SelfField { .. }) => true,
+                        Some(Slot::Local(id)) => Some(id) == self.self_local,
+                        _ => false,
+                    }
+                }
+                _ => false,
+            };
+            if own {
+                self.cx.error_help(
+                    codes::REF_FIELD_UNBOUND,
+                    value.span,
+                    format!("`{name}` cannot refer into the struct that holds it"),
+                    "refers into `self`",
+                    "a copy or a move of the struct would leave it referring to the old one; \
+                     bind it to something the struct views (spec §6.7)",
+                );
+            }
+        }
+        Some(hir::StmtKind::Assign { target: t.id, op: AssignOp::Assign, value: v.id, bind: true })
     }
 
     /// `Self` means the enclosing type.
@@ -1552,6 +1628,16 @@ impl<'a, 'c> Body<'a, 'c> {
                         }
                         None => Vec::new(),
                     };
+                    // A constructor runs on a value at its defaults, and a reference field
+                    // has none, so its opening statements bind each one (spec §6.2, §6.7).
+                    if self.hir.owner_is_ctor() && self.cx.table.is_view_struct(*sym) {
+                        self.unbound = fields
+                            .iter()
+                            .filter(|(_, _, t)| matches!(t, Ty::Ref { .. }))
+                            .map(|(i, n, _)| (*i, n.clone()))
+                            .collect();
+                        self.binding_prefix = !self.unbound.is_empty();
+                    }
                     for (index, name, ty) in fields {
                         self.bind_self_field(&name, ty, is_mut, index);
                     }
@@ -1579,6 +1665,25 @@ impl<'a, 'c> Body<'a, 'c> {
             Some(body) => self.block(body, None).id,
             None => self.hir.block(f.name.span, Vec::new()),
         };
+        self.binding_prefix = false;
+        if !self.unbound.is_empty() {
+            let names: Vec<String> =
+                self.unbound.drain(..).map(|(_, n)| format!("`{n}`")).collect();
+            let owner = self.self_ty.map(|s| self.cx.res.symbol(s).name.clone());
+            let first = names[0].trim_matches('`').to_owned();
+            self.cx.error_help(
+                codes::REF_FIELD_UNBOUND,
+                f.name.span,
+                format!("this constructor does not bind {} first", names.join(", ")),
+                "a reference field left with nothing to refer to",
+                format!(
+                    "a reference has no default, so `{}`'s constructor begins by binding \
+                     each reference field, before any other statement: `{first} = …` \
+                     (spec §6.7)",
+                    owner.unwrap_or_default()
+                ),
+            );
+        }
         self.pop();
         root
     }
@@ -1741,6 +1846,9 @@ impl<'a, 'c> Body<'a, 'c> {
         let mut stmts = Vec::new();
         let last = b.stmts.len().saturating_sub(1);
         for (i, s) in b.stmts.iter().enumerate() {
+            // Only the constructor's own opening statements bind: taken here, so a block
+            // nested in one of them, or anything after the first other statement, does not.
+            let binding = std::mem::take(&mut self.binding_prefix);
             if i == last {
                 if let StmtKind::Expr(e) = &s.kind {
                     // The final expression is the block's value only when something wants
@@ -1772,7 +1880,18 @@ impl<'a, 'c> Body<'a, 'c> {
                     continue;
                 }
             }
-            let id = self.stmt(s);
+            let id = match &s.kind {
+                StmtKind::Assign { target, op: AssignOp::Assign, value } if binding => {
+                    match self.bind_ref_field(target, value) {
+                        Some(kind) => {
+                            self.binding_prefix = !self.unbound.is_empty();
+                            self.hir.stmt(s.span, kind)
+                        }
+                        None => self.stmt(s),
+                    }
+                }
+                _ => self.stmt(s),
+            };
             stmts.push(id);
         }
         self.pop();
@@ -1795,7 +1914,22 @@ impl<'a, 'c> Body<'a, 'c> {
                         self.reject_temporary_slice(d, init, &c.ty);
                         (d.clone(), Some(c.id))
                     }
-                    (Some(d), None) => (d.clone(), None),
+                    (Some(d), None) => {
+                        // `let it: HashMapIter<K, V>` would start at its defaults, and a
+                        // reference field has none (spec §6.2, §6.7).
+                        if self.cx.table.holds_reference(d) {
+                            let shown = self.cx.name_of(d);
+                            self.cx.error_help(
+                                codes::REF_FIELD_UNBOUND,
+                                l.pat.span,
+                                format!("`{shown}` holds a reference, so it has no defaults"),
+                                "declared with no value",
+                                "a reference field must refer to something from the start; \
+                                 give the binding a value: `let x = …` (spec §6.2, §6.7)",
+                            );
+                        }
+                        (d.clone(), None)
+                    }
                     (None, Some(init)) => {
                         // The binding takes the value's own type: a `const str` stays one (§5.3).
                         let c = self.expr_inner(init, None);
@@ -1830,14 +1964,32 @@ impl<'a, 'c> Body<'a, 'c> {
                     _ => hir::StmtKind::Let { local: locals.into_iter().next().flatten(), init },
                 }
             }
-            StmtKind::Assign { target, op, value } => {
+            StmtKind::Assign { target, op, value } => 'assign: {
+                // A reference field a constructor binds too late is one mistake, reported
+                // once at the constructor (`DZ0574`), not again as a write through it.
+                if *op == AssignOp::Assign && !self.unbound.is_empty() {
+                    let late = self
+                        .self_field_target(target)
+                        .and_then(|index| self.unbound.iter().find(|(i, _)| *i == index))
+                        .cloned();
+                    if let Some(entry) = late {
+                        let kind = self.bind_ref_field(target, value);
+                        self.unbound.push(entry);
+                        if let Some(kind) = kind {
+                            break 'assign kind;
+                        }
+                    }
+                }
                 // `expr_inner`: a `const str` place takes only a `const str` (spec §5.3).
                 let mut t = self.expr_inner(target, None);
                 // Assigning to a `&mut T` writes the `T` it refers to (spec §5.2). A `&T` is
                 // typed the same way, so the one error about it is that it is read-only.
                 // `b[i] = v` through `IndexMut` is the same: its `index_mut` returns the `&mut`.
-                if let (ExprKind::Path(_) | ExprKind::Index { .. }, Ty::Ref { inner, .. }) =
-                    (&target.kind, &t.ty)
+                // So is a view struct's reference field, once bound (§6.7).
+                if let (
+                    ExprKind::Path(_) | ExprKind::Index { .. } | ExprKind::Field { .. },
+                    Ty::Ref { inner, .. },
+                ) = (&target.kind, &t.ty)
                 {
                     t.ty = (**inner).clone();
                 }
@@ -1860,7 +2012,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                     self.expect(&t.ty, &v.ty, value.span);
                 }
-                hir::StmtKind::Assign { target: t.id, op: *op, value: v.id }
+                hir::StmtKind::Assign { target: t.id, op: *op, value: v.id, bind: false }
             }
             StmtKind::Expr(e) => {
                 self.stmt_position = true;
@@ -2474,7 +2626,8 @@ impl<'a, 'c> Body<'a, 'c> {
                 match self.local(name) {
                     // A `&mut T` cannot be pointed elsewhere, so assigning to one writes
                     // through it — `for &mut e in xs { e += 1 }` (spec §5.2, §10.4).
-                    Some(Local { ty: Ty::Ref { mutable: true, .. }, .. }) => Some(true),
+                    // A view struct's reference field, unqualified, is the same (6.7).
+                    Some(Local { ty: Ty::Ref { mutable, .. }, .. }) => Some(*mutable),
                     Some(l) => Some(l.mutable),
                     // A `static` is a variable, written inside `unsafe` (§7.7); a
                     // module-level `const` is never assignable.
@@ -2488,6 +2641,11 @@ impl<'a, 'c> Body<'a, 'c> {
                 _ => Some(false),
             },
             ExprKind::Field { base, .. } => {
+                // A view struct's reference field is written through, as the reference
+                // allows, whatever holds it (spec 5.2, 6.7).
+                if let Ty::Ref { mutable, .. } = self.expr_quiet(e) {
+                    return Some(mutable);
+                }
                 let base_ty = self.expr_quiet(base);
                 match &base_ty {
                     Ty::Ptr { mutable, .. }

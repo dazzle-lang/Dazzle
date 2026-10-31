@@ -430,6 +430,33 @@ impl TypeTable {
         }
     }
 
+    /// Whether a value of `t` holds a reference field somewhere inline: a view struct's
+    /// `&T`, directly or in a field, tuple or array of one. Such a value has no defaults to
+    /// start from, since a reference has no zero value (spec §6.2, §6.7). An optional does
+    /// not count: its default is `none`.
+    pub fn holds_reference(&self, t: &Ty) -> bool {
+        self.holds_reference_within(t, 0)
+    }
+
+    fn holds_reference_within(&self, t: &Ty, depth: usize) -> bool {
+        // A struct cannot hold itself inline, so a real type ends long before this; the
+        // bound only keeps a checker bug from looping.
+        if depth > 32 {
+            return false;
+        }
+        match t {
+            Ty::Named { sym, args } if self.is_view_struct(*sym) => {
+                let Some(sig) = self.struct_sig(*sym) else { return false };
+                self.field_types(*sym, args, &sig.fields).iter().any(|f| {
+                    matches!(f, Ty::Ref { .. }) || self.holds_reference_within(f, depth + 1)
+                })
+            }
+            Ty::Tuple(parts) => parts.iter().any(|p| self.holds_reference_within(p, depth + 1)),
+            Ty::Array { elem, .. } => self.holds_reference_within(elem, depth + 1),
+            _ => false,
+        }
+    }
+
     /// The generic parameters of a type declaration, empty if it has none.
     pub fn type_params(&self, id: SymbolId) -> &[ParamDef] {
         self.type_params.get(&id).map_or(&[], |v| v.as_slice())
@@ -3185,9 +3212,21 @@ impl<'a> Ctx<'a> {
                     }
                     // A reference cannot be stored in a field (spec §5.2, §18.3). This one
                     // rule is what lets Dazzle skip lifetime analysis entirely. A `view
-                    // struct` may hold one by D-0093, once the C++ for a reference member
-                    // exists (T-0111).
-                    if let Ty::Ref { .. } = field.ty {
+                    // struct` may hold one (D-0093), since it is placed as a reference is.
+                    let in_view = self.table.is_view_struct(sym);
+                    if let (Ty::Ref { .. }, true, Some(d)) = (&field.ty, in_view, &f.default) {
+                        // Bound by the constructor or the literal, never by a default: the
+                        // constructor's opening statements are where it is bound (§6.7).
+                        self.error_help(
+                            codes::REF_FIELD_UNBOUND,
+                            d.span,
+                            format!("reference field `{}` cannot have a default", field.name),
+                            "a default here",
+                            "a reference field is given its referent by each literal, or by \
+                             the constructor's opening statements (spec §6.7)",
+                        );
+                    }
+                    if let (Ty::Ref { .. }, false) = (&field.ty, in_view) {
                         let shown = self.name_of(&field.ty);
                         self.error_help(
                             codes::REF_IN_FIELD,

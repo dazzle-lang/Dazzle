@@ -43,8 +43,14 @@ safe conversion as needed). The checker must know whether a pointer value is tie
   would be safe, and the hole would only move to the call.
 - **The cost is small.** In `examples/`, two conversions of `examples/ownership`'s
   `m_allocator`. In std, `Formatter::m_out` and the allocators' own fields; the map
-  iterators' `m_map` become references in view structs first
+  iterators' `m_map` are references in view structs since r96
   ([T-0111](T-0111-view-structs-struct-that-holds-view.md)).
+- **Open, found 2026-10-31: a pointer laundered through a safe call.** A safe function can
+  return an untied pointer field with `-> ^mut World in ctx`, and the body's return is only
+  marked unchecked (`dz_flow/src/ties/body.rs`, "the returned view's provenance is
+  unknown"). Once `p or return` trusts a tied pointer, that call would make the untied one
+  safe again. This task should make a returned pointer of unknown provenance an error under
+  an `in` outside `unsafe`, after counting the std bodies it hits.
 
 | Piece | Where |
 |---|---|

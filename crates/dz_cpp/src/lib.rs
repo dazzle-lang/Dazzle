@@ -2036,7 +2036,7 @@ impl<'a> Emitter<'a> {
                 defaults.push(d);
                 continue;
             }
-            let ty = self.cpp_ty(fty);
+            let ty = self.member_ty(fty);
             match self.field_default(sym, index) {
                 Some(d) => {
                     let _ = writeln!(self.header, "    {ty} {fname} = {d};");
@@ -3005,6 +3005,25 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// Whether `t`, a field's type, is a view struct's reference field, which is a pointer
+    /// member: a C++ reference member could not be reset by a move or a copy assignment, and
+    /// iterators are moved into a loop (spec §6.7, §16). Reading the field reads through it.
+    /// A reference to a trait object is a handle whatever holds it, so it stays one.
+    fn ref_member(&mut self, t: &Ty) -> bool {
+        match t {
+            Ty::Ref { inner, .. } => self.trait_object(inner).is_none(),
+            _ => false,
+        }
+    }
+
+    /// A field's C++ type: its own, except that a reference field is a pointer.
+    fn member_ty(&mut self, t: &Ty) -> String {
+        match t {
+            Ty::Ref { mutable, inner } if self.ref_member(t) => self.ptr_ty(*mutable, inner),
+            _ => self.cpp_ty(t),
+        }
+    }
+
     fn cpp_ty(&mut self, t: &Ty) -> String {
         match t {
             Ty::Error | Ty::Never | Ty::Void => "void".to_owned(),
@@ -3271,7 +3290,20 @@ impl<'a> Emitter<'a> {
                     }
                 }
             }
-            hir::StmtKind::Assign { target, op, value } => {
+            hir::StmtKind::Assign { target, value, bind: true, .. } => {
+                // A constructor binding a reference field: the pointer member is set to what
+                // the reference refers to, where a later `=` writes through it (spec §6.7).
+                let hir::ExprKind::Field { base, index } = body.expr(*target).kind else {
+                    self.unsupported(s.span, "binding something other than a field", "a bug");
+                    return;
+                };
+                let name = self.field_name(base, index);
+                let (pre_v, v) = self.capture(|e| e.expr(*value));
+                self.write_captured(&pre_v);
+                let b = self.expr(base);
+                self.line(&format!("::dz::obj({b}).{name} = &::dz::as_ref({v});"));
+            }
+            hir::StmtKind::Assign { target, op, value, .. } => {
                 let moved = *op == AssignOp::Assign
                     && !self.table.copyable(body.ty(*value))
                     && matches!(body.expr(*value).kind, hir::ExprKind::Move(_));
@@ -3922,6 +3954,10 @@ impl<'a> Emitter<'a> {
                 let deref =
                     matches!(body.ty(*base).peeled(), Ty::Builtin(dz_hir::ty::BuiltinTy::Error))
                         && name == "location";
+                // A view struct's reference field is a pointer member (`member_ty`), read
+                // through here, so it is the C++ reference everything else expects.
+                let field_ty = body.ty(e).clone();
+                let deref = deref || self.ref_member(&field_ty);
                 let b = self.expr(*base);
                 if deref {
                     format!("(*::dz::obj({b}).{name})")
@@ -4331,6 +4367,14 @@ impl<'a> Emitter<'a> {
         }
         let order = self.field_list(sym);
         let values = self.literal_fields(fields, |i| order.get(i).map(|f| f.1.clone()), true);
+        // A reference field is a pointer member, set to what the reference refers to.
+        let values: Vec<(usize, String)> = values
+            .into_iter()
+            .map(|(i, v)| match order.get(i) {
+                Some((_, t)) if self.ref_member(t) => (i, format!("&::dz::as_ref({v})")),
+                _ => (i, v),
+            })
+            .collect();
 
         // C++20 designated initialisers read far better, but they apply only to
         // aggregates — a type with a constructor or a user special member is not one, and

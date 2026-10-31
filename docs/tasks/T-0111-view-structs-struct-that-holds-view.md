@@ -18,9 +18,16 @@ view field names what the field views, so `let it = xs.iter(); return it.get()` 
 (`through_view_field` in `dz_flow/src/ties/body.rs`); std's slice and text iterators
 declare such ties; a union payload and a static may not hold a view. **Left:**
 
-1. **`&T` fields in a view struct**, so the map iterators hold `&HashMap` rather than an
-   untied `^HashMap`. Needs the C++ for a reference member: emitted as a pointer, read
-   through at each use, since a C++ reference member cannot be reset by a move.
+1. ~~**`&T` fields in a view struct**.~~ Done, r96 (2026-10-31), by the user's choice of
+   binding in the constructor's opening statements: a pointer member in C++ (`member_ty`,
+   `ref_member` in `dz_cpp/src/lib.rs`), read through at each use; `StmtKind::Assign::bind`
+   for the constructor's binding (`bind_ref_field` in `dz_check/src/check.rs`); `DZ0574`
+   for a late binding, a default, a self-reference or a value left to defaults
+   (`TypeTable::holds_reference`); a view struct's constructor call elided to its one view
+   input (`call_signature` in `dz_flow/src/ties/body.rs`). The seven map and slot-map
+   iterators hold `&`/`&mut` and declare `tie @items = m_map`. A constructor with two
+   view inputs still leaves its result unknown, as a function's would (`DZ0570` is not
+   asked of constructors, which cannot write `in`).
 2. **`T::Item?` whose instance is a reference** emitted as that pointer
    ([T-0085](T-0085-optional-reference-passes-checker.md), option 3).
 3. ~~An implementation's `in` is not held to its trait's.~~ Done, r94: `clauses_within_trait`

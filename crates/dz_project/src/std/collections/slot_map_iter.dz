@@ -1,7 +1,10 @@
 /// Steps through a slot map's values, handing out `(Key<T>, &T)`: `for k, &v in map`.
 pub view struct SlotMapIter<T> {
-    m_map: ^SlotMap<T> = null
+    m_map:   &SlotMap<T>
     m_index: usize = 0
+
+    /// What the map holds, so a value outlives the iterator it came from (spec 6.7).
+    tie @items = m_map
 
     SlotMapIter(map: &SlotMap<T>) {
         m_map = map
@@ -12,13 +15,11 @@ impl<T> Iterate for SlotMapIter<T> {
     type Item = (Key<T>, &T)
 
     fn valid(&self) -> bool {
-        let map = m_map or return false
-        return m_index < map.len()
+        return m_index < m_map.len()
     }
 
-    fn get(&self) -> (Key<T>, &T) {
-        let map = m_map or unreachable
-        return (map.key_at(m_index), &map.values()[m_index])
+    fn get(&self) -> (Key<T>, &T) in self@items {
+        return (m_map.key_at(m_index), &m_map.values()[m_index])
     }
 
     fn advance(&mut self) {

@@ -1454,9 +1454,6 @@ body copy HashMap -> void
         local _0 self: HashMap<K, V>
       field #3: usize
         local _1 other: &HashMap<K, V>
-body field-default HashMapIter.0 -> void
-  block
-    null: ^HashMap<K, V>
 body field-default HashMapIter.1 -> void
   block
     int 0: usize
@@ -1464,8 +1461,8 @@ body ctor HashMapIter#0 -> void
   param _0 self: HashMapIter<K, V>
   param _1 map: &HashMap<K, V>
   block
-    assign =
-      field #0: ^HashMap<K, V>
+    bind
+      field #0: &HashMap<K, V>
         local _0 self: HashMapIter<K, V>
       local _1 map: &HashMap<K, V>
     assign =
@@ -1477,60 +1474,45 @@ body ctor HashMapIter#0 -> void
 body impl#5 method valid -> bool
   param _0 self: HashMapIter<K, V>
   block
-    let _1 map: &HashMap<K, V>
-      or: &HashMap<K, V>
-        field #0: ^HashMap<K, V>
-          local _0 self: HashMapIter<K, V>
-        return: !
-          bool false: bool
     return: !
       binary <: bool
         field #1: usize
           local _0 self: HashMapIter<K, V>
         call-method HashMap::slot_count: usize
-          local _1 map: &HashMap<K, V>
+          field #0: &HashMap<K, V>
+            local _0 self: HashMapIter<K, V>
 body impl#5 method get -> (&K, &V)
   param _0 self: HashMapIter<K, V>
   block
-    let _1 map: &HashMap<K, V>
-      or: &HashMap<K, V>
-        field #0: ^HashMap<K, V>
-          local _0 self: HashMapIter<K, V>
-        unreachable
     return: !
       tuple: (&K, &V)
         or: &K
           call-method HashMap::key_at: ^K
-            local _1 map: &HashMap<K, V>
+            field #0: &HashMap<K, V>
+              local _0 self: HashMapIter<K, V>
             field #1: usize
               local _0 self: HashMapIter<K, V>
           unreachable
         or: &V
           call-method HashMap::value_at: ^V
-            local _1 map: &HashMap<K, V>
+            field #0: &HashMap<K, V>
+              local _0 self: HashMapIter<K, V>
             field #1: usize
               local _0 self: HashMapIter<K, V>
           unreachable
 body impl#5 method advance -> void
   param _0 self: HashMapIter<K, V>
   block
-    let _1 map: &HashMap<K, V>
-      or: &HashMap<K, V>
-        field #0: ^HashMap<K, V>
-          local _0 self: HashMapIter<K, V>
-        return: !
     assign =
       field #1: usize
         local _0 self: HashMapIter<K, V>
       call first_entry_from: usize
-        local _1 map: &HashMap<K, V>
+        field #0: &HashMap<K, V>
+          local _0 self: HashMapIter<K, V>
         binary +: usize
           field #1: usize
             local _0 self: HashMapIter<K, V>
           int 1: usize
-body field-default HashMapIterMut.0 -> void
-  block
-    null: ^mut HashMap<K, V>
 body field-default HashMapIterMut.1 -> void
   block
     int 0: usize
@@ -1538,73 +1520,58 @@ body ctor HashMapIterMut#0 -> void
   param _0 self: HashMapIterMut<K, V>
   param _1 map: &mut HashMap<K, V>
   block
+    bind
+      field #0: &mut HashMap<K, V>
+        local _0 self: HashMapIterMut<K, V>
+      local _1 map: &mut HashMap<K, V>
     assign =
       field #1: usize
         local _0 self: HashMapIterMut<K, V>
       call first_entry_from: usize
         local _1 map: &mut HashMap<K, V>
         int 0: usize
-    assign =
-      field #0: ^mut HashMap<K, V>
-        local _0 self: HashMapIterMut<K, V>
-      local _1 map: &mut HashMap<K, V>
 body impl#6 method valid -> bool
   param _0 self: HashMapIterMut<K, V>
   block
-    let _1 map: &mut HashMap<K, V>
-      or: &mut HashMap<K, V>
-        field #0: ^mut HashMap<K, V>
-          local _0 self: HashMapIterMut<K, V>
-        return: !
-          bool false: bool
     return: !
       binary <: bool
         field #1: usize
           local _0 self: HashMapIterMut<K, V>
         call-method HashMap::slot_count: usize
-          local _1 map: &mut HashMap<K, V>
+          field #0: &mut HashMap<K, V>
+            local _0 self: HashMapIterMut<K, V>
 body impl#6 method get -> (&K, &mut V)
   param _0 self: HashMapIterMut<K, V>
   block
-    let _1 map: &mut HashMap<K, V>
-      or: &mut HashMap<K, V>
-        field #0: ^mut HashMap<K, V>
-          local _0 self: HashMapIterMut<K, V>
-        unreachable
     return: !
       tuple: (&K, &mut V)
         or: &K
           call-method HashMap::key_at: ^K
-            local _1 map: &mut HashMap<K, V>
+            field #0: &mut HashMap<K, V>
+              local _0 self: HashMapIterMut<K, V>
             field #1: usize
               local _0 self: HashMapIterMut<K, V>
           unreachable
         or: &mut V
           call-method HashMap::value_at_mut: ^mut V
-            local _1 map: &mut HashMap<K, V>
+            field #0: &mut HashMap<K, V>
+              local _0 self: HashMapIterMut<K, V>
             field #1: usize
               local _0 self: HashMapIterMut<K, V>
           unreachable
 body impl#6 method advance -> void
   param _0 self: HashMapIterMut<K, V>
   block
-    let _1 map: &mut HashMap<K, V>
-      or: &mut HashMap<K, V>
-        field #0: ^mut HashMap<K, V>
-          local _0 self: HashMapIterMut<K, V>
-        return: !
     assign =
       field #1: usize
         local _0 self: HashMapIterMut<K, V>
       call first_entry_from: usize
-        local _1 map: &mut HashMap<K, V>
+        field #0: &mut HashMap<K, V>
+          local _0 self: HashMapIterMut<K, V>
         binary +: usize
           field #1: usize
             local _0 self: HashMapIterMut<K, V>
           int 1: usize
-body field-default HashMapKeys.0 -> void
-  block
-    null: ^HashMap<K, V>
 body field-default HashMapKeys.1 -> void
   block
     int 0: usize
@@ -1612,8 +1579,8 @@ body ctor HashMapKeys#0 -> void
   param _0 self: HashMapKeys<K, V>
   param _1 map: &HashMap<K, V>
   block
-    assign =
-      field #0: ^HashMap<K, V>
+    bind
+      field #0: &HashMap<K, V>
         local _0 self: HashMapKeys<K, V>
       local _1 map: &HashMap<K, V>
     assign =
@@ -1625,53 +1592,37 @@ body ctor HashMapKeys#0 -> void
 body impl#7 method valid -> bool
   param _0 self: HashMapKeys<K, V>
   block
-    let _1 map: &HashMap<K, V>
-      or: &HashMap<K, V>
-        field #0: ^HashMap<K, V>
-          local _0 self: HashMapKeys<K, V>
-        return: !
-          bool false: bool
     return: !
       binary <: bool
         field #1: usize
           local _0 self: HashMapKeys<K, V>
         call-method HashMap::slot_count: usize
-          local _1 map: &HashMap<K, V>
+          field #0: &HashMap<K, V>
+            local _0 self: HashMapKeys<K, V>
 body impl#7 method get -> &K
   param _0 self: HashMapKeys<K, V>
   block
-    let _1 map: &HashMap<K, V>
-      or: &HashMap<K, V>
-        field #0: ^HashMap<K, V>
-          local _0 self: HashMapKeys<K, V>
-        unreachable
     return: !
       or: &K
         call-method HashMap::key_at: ^K
-          local _1 map: &HashMap<K, V>
+          field #0: &HashMap<K, V>
+            local _0 self: HashMapKeys<K, V>
           field #1: usize
             local _0 self: HashMapKeys<K, V>
         unreachable
 body impl#7 method advance -> void
   param _0 self: HashMapKeys<K, V>
   block
-    let _1 map: &HashMap<K, V>
-      or: &HashMap<K, V>
-        field #0: ^HashMap<K, V>
-          local _0 self: HashMapKeys<K, V>
-        return: !
     assign =
       field #1: usize
         local _0 self: HashMapKeys<K, V>
       call first_entry_from: usize
-        local _1 map: &HashMap<K, V>
+        field #0: &HashMap<K, V>
+          local _0 self: HashMapKeys<K, V>
         binary +: usize
           field #1: usize
             local _0 self: HashMapKeys<K, V>
           int 1: usize
-body field-default HashMapValues.0 -> void
-  block
-    null: ^HashMap<K, V>
 body field-default HashMapValues.1 -> void
   block
     int 0: usize
@@ -1679,8 +1630,8 @@ body ctor HashMapValues#0 -> void
   param _0 self: HashMapValues<K, V>
   param _1 map: &HashMap<K, V>
   block
-    assign =
-      field #0: ^HashMap<K, V>
+    bind
+      field #0: &HashMap<K, V>
         local _0 self: HashMapValues<K, V>
       local _1 map: &HashMap<K, V>
     assign =
@@ -1692,53 +1643,37 @@ body ctor HashMapValues#0 -> void
 body impl#8 method valid -> bool
   param _0 self: HashMapValues<K, V>
   block
-    let _1 map: &HashMap<K, V>
-      or: &HashMap<K, V>
-        field #0: ^HashMap<K, V>
-          local _0 self: HashMapValues<K, V>
-        return: !
-          bool false: bool
     return: !
       binary <: bool
         field #1: usize
           local _0 self: HashMapValues<K, V>
         call-method HashMap::slot_count: usize
-          local _1 map: &HashMap<K, V>
+          field #0: &HashMap<K, V>
+            local _0 self: HashMapValues<K, V>
 body impl#8 method get -> &V
   param _0 self: HashMapValues<K, V>
   block
-    let _1 map: &HashMap<K, V>
-      or: &HashMap<K, V>
-        field #0: ^HashMap<K, V>
-          local _0 self: HashMapValues<K, V>
-        unreachable
     return: !
       or: &V
         call-method HashMap::value_at: ^V
-          local _1 map: &HashMap<K, V>
+          field #0: &HashMap<K, V>
+            local _0 self: HashMapValues<K, V>
           field #1: usize
             local _0 self: HashMapValues<K, V>
         unreachable
 body impl#8 method advance -> void
   param _0 self: HashMapValues<K, V>
   block
-    let _1 map: &HashMap<K, V>
-      or: &HashMap<K, V>
-        field #0: ^HashMap<K, V>
-          local _0 self: HashMapValues<K, V>
-        return: !
     assign =
       field #1: usize
         local _0 self: HashMapValues<K, V>
       call first_entry_from: usize
-        local _1 map: &HashMap<K, V>
+        field #0: &HashMap<K, V>
+          local _0 self: HashMapValues<K, V>
         binary +: usize
           field #1: usize
             local _0 self: HashMapValues<K, V>
           int 1: usize
-body field-default HashMapValuesMut.0 -> void
-  block
-    null: ^mut HashMap<K, V>
 body field-default HashMapValuesMut.1 -> void
   block
     int 0: usize
@@ -1746,59 +1681,46 @@ body ctor HashMapValuesMut#0 -> void
   param _0 self: HashMapValuesMut<K, V>
   param _1 map: &mut HashMap<K, V>
   block
+    bind
+      field #0: &mut HashMap<K, V>
+        local _0 self: HashMapValuesMut<K, V>
+      local _1 map: &mut HashMap<K, V>
     assign =
       field #1: usize
         local _0 self: HashMapValuesMut<K, V>
       call first_entry_from: usize
         local _1 map: &mut HashMap<K, V>
         int 0: usize
-    assign =
-      field #0: ^mut HashMap<K, V>
-        local _0 self: HashMapValuesMut<K, V>
-      local _1 map: &mut HashMap<K, V>
 body impl#9 method valid -> bool
   param _0 self: HashMapValuesMut<K, V>
   block
-    let _1 map: &mut HashMap<K, V>
-      or: &mut HashMap<K, V>
-        field #0: ^mut HashMap<K, V>
-          local _0 self: HashMapValuesMut<K, V>
-        return: !
-          bool false: bool
     return: !
       binary <: bool
         field #1: usize
           local _0 self: HashMapValuesMut<K, V>
         call-method HashMap::slot_count: usize
-          local _1 map: &mut HashMap<K, V>
+          field #0: &mut HashMap<K, V>
+            local _0 self: HashMapValuesMut<K, V>
 body impl#9 method get -> &mut V
   param _0 self: HashMapValuesMut<K, V>
   block
-    let _1 map: &mut HashMap<K, V>
-      or: &mut HashMap<K, V>
-        field #0: ^mut HashMap<K, V>
-          local _0 self: HashMapValuesMut<K, V>
-        unreachable
     return: !
       or: &mut V
         call-method HashMap::value_at_mut: ^mut V
-          local _1 map: &mut HashMap<K, V>
+          field #0: &mut HashMap<K, V>
+            local _0 self: HashMapValuesMut<K, V>
           field #1: usize
             local _0 self: HashMapValuesMut<K, V>
         unreachable
 body impl#9 method advance -> void
   param _0 self: HashMapValuesMut<K, V>
   block
-    let _1 map: &mut HashMap<K, V>
-      or: &mut HashMap<K, V>
-        field #0: ^mut HashMap<K, V>
-          local _0 self: HashMapValuesMut<K, V>
-        return: !
     assign =
       field #1: usize
         local _0 self: HashMapValuesMut<K, V>
       call first_entry_from: usize
-        local _1 map: &mut HashMap<K, V>
+        field #0: &mut HashMap<K, V>
+          local _0 self: HashMapValuesMut<K, V>
         binary +: usize
           field #1: usize
             local _0 self: HashMapValuesMut<K, V>
@@ -4124,9 +4046,6 @@ body impl#25 method iter_mut -> SlotMapIterMut<T>
 body const NO_SLOT -> void
   block
     int 4294967295: u32
-body field-default SlotMapIter.0 -> void
-  block
-    null: ^SlotMap<T>
 body field-default SlotMapIter.1 -> void
   block
     int 0: usize
@@ -4134,43 +4053,35 @@ body ctor SlotMapIter#0 -> void
   param _0 self: SlotMapIter<T>
   param _1 map: &SlotMap<T>
   block
-    assign =
-      field #0: ^SlotMap<T>
+    bind
+      field #0: &SlotMap<T>
         local _0 self: SlotMapIter<T>
       local _1 map: &SlotMap<T>
 body impl#26 method valid -> bool
   param _0 self: SlotMapIter<T>
   block
-    let _1 map: &SlotMap<T>
-      or: &SlotMap<T>
-        field #0: ^SlotMap<T>
-          local _0 self: SlotMapIter<T>
-        return: !
-          bool false: bool
     return: !
       binary <: bool
         field #1: usize
           local _0 self: SlotMapIter<T>
         call-method SlotMap::len: usize
-          local _1 map: &SlotMap<T>
+          field #0: &SlotMap<T>
+            local _0 self: SlotMapIter<T>
 body impl#26 method get -> (Key<T>, &T)
   param _0 self: SlotMapIter<T>
   block
-    let _1 map: &SlotMap<T>
-      or: &SlotMap<T>
-        field #0: ^SlotMap<T>
-          local _0 self: SlotMapIter<T>
-        unreachable
     return: !
       tuple: (Key<T>, &T)
         call-method SlotMap::key_at: Key<T>
-          local _1 map: &SlotMap<T>
+          field #0: &SlotMap<T>
+            local _0 self: SlotMapIter<T>
           field #1: usize
             local _0 self: SlotMapIter<T>
         ref: &T
           index: T
             call-method SlotMap::values: []T
-              local _1 map: &SlotMap<T>
+              field #0: &SlotMap<T>
+                local _0 self: SlotMapIter<T>
             field #1: usize
               local _0 self: SlotMapIter<T>
 body impl#26 method advance -> void
@@ -4180,9 +4091,6 @@ body impl#26 method advance -> void
       field #1: usize
         local _0 self: SlotMapIter<T>
       int 1: usize
-body field-default SlotMapIterMut.0 -> void
-  block
-    null: ^mut SlotMap<T>
 body field-default SlotMapIterMut.1 -> void
   block
     int 0: usize
@@ -4190,43 +4098,35 @@ body ctor SlotMapIterMut#0 -> void
   param _0 self: SlotMapIterMut<T>
   param _1 map: &mut SlotMap<T>
   block
-    assign =
-      field #0: ^mut SlotMap<T>
+    bind
+      field #0: &mut SlotMap<T>
         local _0 self: SlotMapIterMut<T>
       local _1 map: &mut SlotMap<T>
 body impl#27 method valid -> bool
   param _0 self: SlotMapIterMut<T>
   block
-    let _1 map: &mut SlotMap<T>
-      or: &mut SlotMap<T>
-        field #0: ^mut SlotMap<T>
-          local _0 self: SlotMapIterMut<T>
-        return: !
-          bool false: bool
     return: !
       binary <: bool
         field #1: usize
           local _0 self: SlotMapIterMut<T>
         call-method SlotMap::len: usize
-          local _1 map: &mut SlotMap<T>
+          field #0: &mut SlotMap<T>
+            local _0 self: SlotMapIterMut<T>
 body impl#27 method get -> (Key<T>, &mut T)
   param _0 self: SlotMapIterMut<T>
   block
-    let _1 map: &mut SlotMap<T>
-      or: &mut SlotMap<T>
-        field #0: ^mut SlotMap<T>
-          local _0 self: SlotMapIterMut<T>
-        unreachable
     return: !
       tuple: (Key<T>, &mut T)
         call-method SlotMap::key_at: Key<T>
-          local _1 map: &mut SlotMap<T>
+          field #0: &mut SlotMap<T>
+            local _0 self: SlotMapIterMut<T>
           field #1: usize
             local _0 self: SlotMapIterMut<T>
         ref mut: &mut T
           index: T
             call-method SlotMap::values_mut: []mut T
-              local _1 map: &mut SlotMap<T>
+              field #0: &mut SlotMap<T>
+                local _0 self: SlotMapIterMut<T>
             field #1: usize
               local _0 self: SlotMapIterMut<T>
 body impl#27 method advance -> void
@@ -19225,3 +19125,74 @@ body fn signs -> usize
             local _2 shown: str
         len: usize
           local _3 label: str
+body field-default Ledger.0 -> void
+  block
+    int 0: i32
+body field-default Teller.1 -> void
+  block
+    int 1: i32
+body ctor Teller#0 -> void
+  param _0 self: Teller
+  param _1 ledger: &mut Ledger
+  param _2 step: i32
+  block
+    bind
+      field #0: &mut Ledger
+        local _0 self: Teller
+      local _1 ledger: &mut Ledger
+    assign =
+      field #1: i32
+        local _0 self: Teller
+      local _2 step: i32
+    assign +=
+      field #0: i32
+        field #0: &mut Ledger
+          local _0 self: Teller
+      local _2 step: i32
+body method Teller::deposit -> void
+  param _0 self: Teller
+  block
+    assign +=
+      field #0: i32
+        field #0: &mut Ledger
+          local _0 self: Teller
+      field #1: i32
+        local _0 self: Teller
+body method Teller::total -> &i32
+  param _0 self: Teller
+  block
+    return: !
+      ref: &i32
+        field #0: i32
+          field #0: &mut Ledger
+            local _0 self: Teller
+body fn teller -> i32
+  block
+    let _0 book: Ledger
+      struct-lit Ledger: Ledger
+        #0 (default)
+    let _1 t: Teller
+      call-ctor Teller#0: Teller
+        ref mut: &mut Ledger
+          local _0 book: Ledger
+        int 2: i32
+    call-method Teller::deposit: void
+      local _1 t: Teller
+    let _2 moved: Teller
+      move: Teller
+        local _1 t: Teller
+    let _3 seen: &i32
+      call-method Teller::total: &i32
+        local _2 moved: Teller
+    let _4 g: Glance
+      struct-lit Glance: Glance
+        #0
+          ref: &Ledger
+            local _0 book: Ledger
+    return: !
+      binary +: i32
+        deref: i32
+          local _3 seen: &i32
+        field #0: i32
+          field #0: &Ledger
+            local _4 g: Glance

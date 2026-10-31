@@ -368,7 +368,7 @@ impl<'a> Flow<'a> {
                 }
                 diverges
             }
-            hir::StmtKind::Assign { target, op, value } => {
+            hir::StmtKind::Assign { target, op, value, .. } => {
                 let diverges = self.value(*value);
                 // Plain assignment overwrites, so it re-initialises a moved-from place.
                 // A compound assignment *reads* the target first, so it does not.
