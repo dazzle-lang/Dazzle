@@ -1293,9 +1293,15 @@ impl Analysis<'_> {
                     }
                 }
             }
-            hir::StmtKind::Assign { target, op, value } => {
+            hir::StmtKind::Assign { target, op, value, bind } => {
                 // The emitter evaluates the RHS before the destination.
                 let value = self.expr(value);
+                // A constructor binding a reference field: nothing was there to kill, and the
+                // struct being built is in what the constructor's elided result names
+                // (§6.7).
+                if bind {
+                    return Value::default();
+                }
                 let ty = self.body.ty(target);
                 if op == hir::AssignOp::Assign {
                     if let hir::ExprKind::Local(local) = self.body.expr(target).kind {
@@ -2112,8 +2118,17 @@ fn call_signature(
             type_args.clone(),
             method_args.clone(),
         ),
+        // A constructor's signature returns nothing, since it fills in `self`; called, it
+        // makes the struct, which a view struct's constructor elides to its one view input,
+        // as a function returning it would (spec §6.7).
         Callee::Ctor { owner, index } => (
-            table.struct_sig(*owner)?.ctors.get(*index)?.clone(),
+            {
+                let mut sig = table.struct_sig(*owner)?.ctors.get(*index)?.clone();
+                if table.is_view_struct(*owner) {
+                    sig.ret = body.ty(expression).clone();
+                }
+                sig
+            },
             *owner,
             None,
             "constructor".into(),

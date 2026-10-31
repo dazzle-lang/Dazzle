@@ -1178,3 +1178,64 @@ fn main() {
     println!("{}", b.items.len())
 }
 ```
+
+## DZ0574
+
+A view struct may hold a reference, but a reference has no zero value, so a value of the
+struct has no defaults to start from (spec 6.2, 6.7). A literal names every reference
+field, and a constructor binds each one in its opening statements, before any other: `m_map
+= map` there makes the field refer to `map`, where any later assignment writes through it.
+So a reference field takes no default, a binding of such a struct needs a value, and the
+field may not refer into the struct itself, which a copy or a move would leave behind.
+
+```dz
+pub struct Bag {
+    pub n: i32 = 3
+}
+
+view struct Peek {
+    m_count: i32 = 0
+    m_bag: &Bag
+
+    pub Peek(bag: &Bag) {
+        m_count = 1
+        m_bag = bag
+    }
+
+    pub fn n(&self) -> i32 {
+        return m_bag.n + m_count
+    }
+}
+
+fn main() {
+    let b = Bag{}
+    let p = Peek(&b)
+    println!("{}", p.n())
+}
+```
+
+```dz
+pub struct Bag {
+    pub n: i32 = 3
+}
+
+view struct Peek {
+    m_count: i32 = 0
+    m_bag: &Bag
+
+    pub Peek(bag: &Bag) {
+        m_bag = bag
+        m_count = 1
+    }
+
+    pub fn n(&self) -> i32 {
+        return m_bag.n + m_count
+    }
+}
+
+fn main() {
+    let b = Bag{}
+    let p = Peek(&b)
+    println!("{}", p.n())
+}
+```

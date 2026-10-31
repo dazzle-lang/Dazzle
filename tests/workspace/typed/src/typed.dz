@@ -2026,3 +2026,45 @@ fn signs() -> usize {
     label = sign_text(&s)
     return all.len() + shown.len + label.len
 }
+
+// A view struct's reference field (spec 6.7): bound by a constructor's opening statements
+// or named by a literal, read through, written through when `&mut`, and copied or moved
+// with the struct. An item it hands out is in what the field refers to.
+pub struct Ledger {
+    pub total: i32 = 0
+}
+
+view struct Teller {
+    m_ledger: &mut Ledger
+    m_step: i32 = 1
+
+    tie @book = m_ledger
+
+    Teller(ledger: &mut Ledger, step: i32) {
+        m_ledger = ledger
+        m_step = step
+        m_ledger.total += step
+    }
+
+    pub fn deposit(&mut self) {
+        m_ledger.total += m_step
+    }
+
+    pub fn total(&self) -> &i32 in self@book {
+        return &m_ledger.total
+    }
+}
+
+view struct Glance {
+    pub ledger: &Ledger
+}
+
+fn teller() -> i32 {
+    let mut book = Ledger{}
+    let mut t = Teller(&mut book, 2)
+    t.deposit()
+    let moved = move(t)
+    let seen = moved.total()
+    let g = Glance{ ledger: &book }
+    return seen + g.ledger.total
+}

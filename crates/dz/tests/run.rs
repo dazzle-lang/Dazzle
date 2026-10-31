@@ -1111,6 +1111,7 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
             "collections",
             "projection",
             "implicit_as",
+            "ref_fields",
         ],
         |fixture| check_warning_clean(cxx, fixture),
     );

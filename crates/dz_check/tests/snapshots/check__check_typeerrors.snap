@@ -1858,3 +1858,51 @@ error[DZ0569]: `const i32` is not a type
      │                ^^^^^^^^^ only `const str` is
      │
      = help: `const` before a type says its memory is static, and only text has that so far: `const str`, a literal or a constant's (spec §5.3)
+
+error[DZ0574]: this constructor does not bind `m_crate` first
+     ┌─ typeerrors/src/errors.dz:1512:5
+     │
+1512 │     LateBound(c: &Crate) {
+     │     ^^^^^^^^^ a reference field left with nothing to refer to
+     │
+     = help: a reference has no default, so `LateBound`'s constructor begins by binding each reference field, before any other statement: `m_crate = …` (spec §6.7)
+
+error[DZ0574]: reference field `m_crate` cannot have a default
+     ┌─ typeerrors/src/errors.dz:1519:23
+     │
+1519 │     m_crate: &Crate = &Crate{}
+     │                       ^^^^^^^^ a default here
+     │
+     = help: a reference field is given its referent by each literal, or by the constructor's opening statements (spec §6.7)
+
+error[DZ0574]: `m_first` cannot refer into the struct that holds it
+     ┌─ typeerrors/src/errors.dz:1527:19
+     │
+1527 │         m_first = &m_crates[0]
+     │                   ^^^^^^^^^^^^ refers into `self`
+     │
+     = help: a copy or a move of the struct would leave it referring to the old one; bind it to something the struct views (spec §6.7)
+
+error[DZ0507]: cannot assign to `c`
+     ┌─ typeerrors/src/errors.dz:1535:9
+     │
+1535 │         c = Crate{}
+     │         ^ not mutable
+     │
+     = help: declare it as `let mut c` to allow assignment
+
+error[DZ0574]: `ReadOnly` holds a reference, so it has no defaults
+     ┌─ typeerrors/src/errors.dz:1540:9
+     │
+1540 │     let r: ReadOnly
+     │         ^ declared with no value
+     │
+     = help: a reference field must refer to something from the start; give the binding a value: `let x = …` (spec §6.2, §6.7)
+
+error[DZ0517]: a struct field cannot hold `&Crate`
+     ┌─ typeerrors/src/errors.dz:1544:14
+     │
+1544 │     m_crate: &Crate
+     │              ^^^^^^ references live only on the stack
+     │
+     = help: use `^T` for a stored pointer — a reference in a field could outlive what it points at, and Dazzle has no lifetimes to catch that (spec §5.2)

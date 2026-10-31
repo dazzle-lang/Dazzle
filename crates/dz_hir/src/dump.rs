@@ -147,8 +147,12 @@ impl<'a> Dumper<'a> {
                 self.line(format_args!("let ({})", names.join(", ")));
                 self.nest(|d| d.expr(init));
             }
-            StmtKind::Assign { target, op, value } => {
-                self.line(format_args!("assign {}", op.as_str()));
+            StmtKind::Assign { target, op, value, bind } => {
+                if bind {
+                    self.line(format_args!("bind"));
+                } else {
+                    self.line(format_args!("assign {}", op.as_str()));
+                }
                 self.nest(|d| {
                     d.expr(target);
                     d.expr(value);

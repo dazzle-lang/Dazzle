@@ -46,7 +46,9 @@ let b: Buffer<u8>    // all fields at defaults: a valid, empty, allocator-less b
 ```
 
 A field's default is its `= expr` initialiser if it has one, otherwise the zero value of
-its type. Defaults are evaluated in declaration order.
+its type. Defaults are evaluated in declaration order. A reference has no zero value, so a
+view struct holding one has no defaults: it is built by a literal or a constructor, which
+binds the reference first (§6.7).
 
 `let f: File` is legal only if `File` can be default-initialised — that is, if it has no
 constructor, or has one callable with zero arguments. Otherwise the error names the
@@ -445,7 +447,8 @@ let its = List<SliceIter<i32>>()    // error: a container's element is no place 
 
 A struct with a `view` parameter must be a view struct, and an implementation whose type's
 `view` parameter it reaches takes that parameter as `view` too. Neither a union's payload nor
-a static holds a view. All of these are `DZ0517`, the same as a `&T` field.
+a static holds a view. All of these are `DZ0517`, the same as a `&T` field of a struct that
+is not a view struct.
 
 **A view struct's tie on a view field names what the field views**, not the field: a method
 returning through it gives a result that outlives the view struct, in whatever the struct
@@ -469,7 +472,37 @@ fn first(xs: &List<i32>) -> &i32 {
 
 A struct's views are one tie (D-0093, point 3), so such a result is in everything the
 struct views. std's `SliceIter`, `SliceIterMut`, `Split`, `Lines` and `SplitWhitespace`
-declare theirs.
+declare theirs, and so do the map iterators, which hold a reference.
+
+**A view struct may hold a reference**, `&T` or `&mut T`, and is placed as one is, so the
+reference still lives only where references live. A reference has no zero value, so such a
+struct has no defaults (§6.2): a literal names each reference field, a binding of the type
+needs a value (`let it: HashMapIter<K, V>` alone is an error), and a reference field takes
+no `= default`. A constructor binds each reference field in its opening statements, before
+any other: there, `m_map = map` makes the field refer to `map`; anywhere else, assigning to
+it writes through it, as for a local reference (§5.2), and through a `&T` that is an error.
+A reference field may not refer into the struct that holds it, which a copy or a move would
+leave behind. Each of these is `DZ0574`. A tie on the field names what it refers to:
+
+```dz
+pub view struct HashMapKeys<K: Hash + Eq, V> {
+    m_map: &HashMap<K, V>
+    m_slot: usize = 0
+    tie @items = m_map
+
+    HashMapKeys(map: &HashMap<K, V>) {
+        m_map = map                     // binds: the first statements
+        m_slot = first_entry_from(map, 0)
+    }
+}
+impl<K: Hash + Eq, V> Iterate for HashMapKeys<K, V> {
+    fn get(&self) -> &K in self@items { return m_map.key_at(m_slot) or unreachable }
+    …
+}
+```
+
+A constructor's result, like a function's, is in its one view input, so `HashMapKeys(&map)`
+is in `map`.
 
 **A view struct given to a function stands for what it views**, as a slice or a `str` does.
 A view input is a reference, a pointer, a slice or a `str` parameter, or `self`, and also a

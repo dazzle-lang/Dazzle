@@ -298,6 +298,10 @@ pub enum StmtKind {
         target: ExprId,
         op: AssignOp,
         value: ExprId,
+        /// A view struct's constructor binding a reference field in its opening statements,
+        /// `m_map = map`: the field now refers to the value, where any other assignment to
+        /// a reference writes through it (spec §5.2, §6.7). Only ever with `AssignOp::Assign`.
+        bind: bool,
     },
     Expr(ExprId),
     While {

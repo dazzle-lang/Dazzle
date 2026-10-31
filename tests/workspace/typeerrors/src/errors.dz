@@ -1497,3 +1497,49 @@ fn borrowed(s: &String) -> const str {
 }
 
 fn not_text(x: const i32) {}
+
+// A view struct's reference field (spec 6.2, 6.7): bound too late by its constructor, given a
+// default, referring into its own struct, written through when read-only, and a value of
+// the struct left to defaults it does not have. A plain struct still cannot hold one.
+pub struct Crate {
+    pub n: i32 = 3
+}
+
+view struct LateBound {
+    m_n: i32 = 0
+    m_crate: &Crate
+
+    LateBound(c: &Crate) {
+        m_n = 1
+        m_crate = c
+    }
+}
+
+view struct DefaultBound {
+    m_crate: &Crate = &Crate{}
+}
+
+view struct SelfBound {
+    m_crates: [2]Crate
+    m_first: &Crate
+
+    SelfBound() {
+        m_first = &m_crates[0]
+    }
+}
+
+view struct ReadOnly {
+    pub c: &Crate
+
+    pub fn reset(&mut self) {
+        c = Crate{}
+    }
+}
+
+fn no_defaults() {
+    let r: ReadOnly
+}
+
+struct PlainHolder {
+    m_crate: &Crate
+}

@@ -392,6 +392,10 @@ pub const FN_RESULT_TOO_WIDE: &str = "DZ0572";
 /// An implementation's `kills` clause or result `in` naming more than its trait's, which a
 /// call through the trait relies on (spec §6.7).
 pub const IMPL_CLAUSE_WIDER: &str = "DZ0573";
+/// A view struct's reference field left without what it refers to: a constructor that does
+/// not bind it in its opening statements, a default written on it, or a value of the type
+/// left to its defaults. A reference has no zero value (spec 6.2, 6.7).
+pub const REF_FIELD_UNBOUND: &str = "DZ0574";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

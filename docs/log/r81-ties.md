@@ -6,6 +6,38 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r96: a view struct holds a reference (2026-10-31)
+
+T-0111's first item. A reference has no zero value, which §6.2's "every value starts at its
+defaults" did not allow for, so the user chose how one is set: a constructor binds it in
+its opening statements, over a literal-only rule that would have cost the seven map
+iterators their constructors.
+
+- **Checker.** `collect_struct` accepts a `&T` field in a view struct and refuses a
+  default on one. `function` collects a view struct constructor's reference fields into
+  `Body::unbound`; `block_valued` hands each statement the `binding_prefix`, and
+  `bind_ref_field` turns `m_map = map` (or `self.m_map = map`) into an `Assign` with `bind:
+  true`, until a statement that is not one ends the prefix. A late binding is reported once,
+  at the constructor, not again as a write through a `&T`. `TypeTable::holds_reference`
+  refuses `let x: T` with no value. `place_mutability` takes a reference field's writability
+  from the reference, so writing through a `&T` field is `DZ0507` as for a local; that also
+  makes `let mut r = &x; r = y` an error, which §5.2 already said it was.
+- **HIR.** `StmtKind::Assign` gains `bind`; `dz_flow`'s ownership pass treats it as an
+  assignment, and the ties walk as setting nothing to kill.
+- **C++.** A reference field is a pointer member (`member_ty`), since a C++ reference member
+  cannot be reassigned by the move a `for` makes; a read is `(*obj(b).f)` (`ref_member` in
+  the `Field` arm), a binding and a literal's value are `&::dz::as_ref(v)`, which takes both a
+  C++ reference and the `Addr` proxy `&x` makes. Warning-clean under clang++ and g++.
+- **Ties.** A view struct's constructor call now returns the struct in `call_signature`, so
+  `Peek(&b)` is elided to `b` and an item through `tie @bag = m_bag` outlives the iterator.
+  Before, a constructor's result held no views, so `let p = Peek(xs[..]); let r = p.n();
+  move(p)` reported `r` as killed even for a slice field.
+
+std's seven map and slot-map iterators hold `&`/`&mut` and `tie @items = m_map`, with
+`get` `in self@items`, and lose their `or return` guards. Tests: `tests/run/ref_fields`
+(also in the `-Wall -Wextra` set), `typed/`'s `Teller` and `Glance`, `typeerrors/`'s five
+`DZ0574`s and a plain struct's `DZ0517`, and `dz explain DZ0574`.
+
 ## r95: a view struct stands for what it views (2026-10-31)
 
 The user's choice between two answers to where a result through a view struct points:

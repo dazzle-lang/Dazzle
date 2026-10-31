@@ -1,0 +1,97 @@
+// A view struct's reference field (spec 6.7): bound by a constructor, named by a literal,
+// read and written through, and carried along when the struct is moved, as an iterator is
+// into a `for`.
+
+struct Bag {
+    pub n: i32 = 3
+}
+
+view struct Peek {
+    m_bag: &Bag
+    tie @bag = m_bag
+
+    pub Peek(bag: &Bag) {
+        m_bag = bag
+    }
+
+    pub fn n(&self) -> &i32 in self@bag {
+        return &m_bag.n
+    }
+}
+
+view struct Counter {
+    m_count: &mut i32
+    m_step:  i32 = 1
+
+    pub Counter(count: &mut i32, step: i32) {
+        m_count = count
+        m_step = step
+        m_count += 1
+    }
+
+    pub fn bump(&mut self) {
+        m_count += m_step
+    }
+}
+
+view struct Pair {
+    pub a: &Bag
+    pub b: &Bag
+}
+
+fn first(p: Peek) -> &i32 {
+    return p.n()
+}
+
+fn main() {
+    let b = Bag{}
+    let c = Bag{ n: 10 }
+
+    let mut count = 0
+    let mut k = Counter(&mut count, 5)
+    k.bump()
+    let mut k2 = move(k)
+    k2.bump()
+    println!("count {}", count)
+
+    let p = Peek(&b)
+    let r = p.n()
+    let moved = move(p)
+    println!("peek {} {}", r, first(move(moved)))
+
+    let q = Pair{ a: &b, b: &c }
+    let copy = q
+    println!("pair {}", copy.a.n + copy.b.n)
+
+    let mut ages = HashMap<str, i32>()
+    ages.insert("ada", 36)
+    ages.insert("alan", 41)
+    let mut sum = 0
+    for _, &age in ages {
+        sum += age
+    }
+    for &mut age in ages.values_mut() {
+        age += 1
+    }
+    let mut keys: usize = 0
+    for k in ages.keys() {
+        keys += k.len
+    }
+    let mut after = 0
+    for v in ages.values() {
+        after += v
+    }
+    println!("map {} {} {}", sum, keys, after)
+
+    let mut slots = SlotMap<i32>()
+    slots.insert(4)
+    slots.insert(6)
+    for _, &mut v in slots {
+        v *= 2
+    }
+    let mut total = 0
+    for _, &v in slots {
+        total += v
+    }
+    println!("slots {}", total)
+}

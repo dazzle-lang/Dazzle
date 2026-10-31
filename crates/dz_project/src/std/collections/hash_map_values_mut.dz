@@ -1,12 +1,15 @@
 /// Steps through a map's values in slot order, handing out `&mut V`: `for &mut v in
 /// map.values_mut()` changes them in place.
 pub view struct HashMapValuesMut<K: Hash + Eq, V> {
-    m_map: ^mut HashMap<K, V> = null
+    m_map:  &mut HashMap<K, V>
     m_slot: usize = 0
 
+    /// What the map holds, so a value outlives the iterator it came from (spec 6.7).
+    tie @items = m_map
+
     HashMapValuesMut(map: &mut HashMap<K, V>) {
-        m_slot = first_entry_from(map, 0)
         m_map = map
+        m_slot = first_entry_from(map, 0)
     }
 }
 
@@ -14,17 +17,14 @@ impl<K: Hash + Eq, V> Iterate for HashMapValuesMut<K, V> {
     type Item = &mut V
 
     fn valid(&self) -> bool {
-        let map = m_map or return false
-        return m_slot < map.slot_count()
+        return m_slot < m_map.slot_count()
     }
 
-    fn get(&self) -> &mut V {
-        let map = m_map or unreachable
-        return map.value_at_mut(m_slot) or unreachable
+    fn get(&self) -> &mut V in self@items {
+        return m_map.value_at_mut(m_slot) or unreachable
     }
 
     fn advance(&mut self) {
-        let map = m_map or return
-        m_slot = first_entry_from(map, m_slot + 1)
+        m_slot = first_entry_from(m_map, m_slot + 1)
     }
 }
