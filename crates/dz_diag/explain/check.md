@@ -1125,3 +1125,56 @@ fn main() {
     show(longer)
 }
 ```
+
+## DZ0573
+
+A trait method's `kills` clause is the most any implementation may kill, and its `in` the
+most an implementation's result may point into (spec §6.7). A call through the trait — in
+generic code, or on a trait object — reads only the trait's, so an implementation that
+kills more, or returns a view of something the trait does not name, would end or keep
+references that nobody was told about. An implementation may promise less: `kills
+self@items` under a trait's `kills self` is fine.
+
+```dz
+pub struct Bag {
+    pub items: List<i32>
+}
+
+trait Fill {
+    fn fill(&mut self)
+}
+
+impl Fill for Bag {
+    fn fill(&mut self) kills self.items@items {
+        items.push(1)
+    }
+}
+
+fn main() {
+    let mut b = Bag{ items: List<i32>() }
+    b.fill()
+    println!("{}", b.items.len())
+}
+```
+
+```dz
+pub struct Bag {
+    pub items: List<i32>
+}
+
+trait Fill {
+    fn fill(&mut self) kills self
+}
+
+impl Fill for Bag {
+    fn fill(&mut self) kills self.items@items {
+        items.push(1)
+    }
+}
+
+fn main() {
+    let mut b = Bag{ items: List<i32>() }
+    b.fill()
+    println!("{}", b.items.len())
+}
+```

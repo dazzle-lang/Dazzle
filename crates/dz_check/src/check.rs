@@ -356,6 +356,8 @@ fn check_impl_conformance(cx: &mut Ctx, imp: &ImplSig, trait_name: &str, me: &st
                         .at(cx.file, got.span, why)
                         .with_help(format!("`{trait_name}` declares `{shown}`")),
                     );
+                } else {
+                    clauses_within_trait(cx, method, trait_name, &want, got);
                 }
             }
         }
@@ -625,6 +627,74 @@ fn report_duplicate_methods(cx: &mut Ctx, sym: SymbolId) {
             "declared again here",
             "a struct declares each method once; to implement one trait at several arguments, \
              like `Mul<f32>` and `Mul<Vec2>`, write one `impl` for each (spec §18.27)",
+        );
+    }
+}
+
+/// An implementation's clauses promise no more than its trait's (spec §6.7): a call through
+/// the trait reads the trait's, so a kill or a result tie the trait does not name would go
+/// unseen. Each path the implementation names is one the trait names, or under one, by
+/// parameter position, `self` first; with no `in`, either side's result is in its one view
+/// input, as everywhere.
+fn clauses_within_trait(cx: &mut Ctx, method: &str, trait_name: &str, want: &FnSig, got: &FnSig) {
+    let names = |s: &FnSig| -> Rc<[String]> {
+        s.takes_self
+            .map(|_| "self".to_owned())
+            .into_iter()
+            .chain(s.params.iter().map(|p| p.name.clone()))
+            .collect()
+    };
+    let clauses = |s: &FnSig| FnKills::Known {
+        names: names(s),
+        results: s.ret_ties.iter().cloned().collect(),
+        paths: s.kills.iter().cloned().collect(),
+    };
+    let params: Vec<Ty> = got
+        .takes_self
+        .map(|mutable| Ty::Ref { mutable, inner: Rc::new(Ty::SelfTy) })
+        .into_iter()
+        .chain(got.params.iter().map(|p| p.ty.clone()))
+        .collect();
+    let (mine, theirs) = (clauses(got), clauses(want));
+    let listed = |paths: &[dz_ast::TiePath]| match paths.len() {
+        0 => "nothing".to_owned(),
+        _ => paths
+            .iter()
+            .map(|p| format!("`{}`", dz_ast::dump::tie_path_str(p)))
+            .collect::<Vec<_>>()
+            .join(", "),
+    };
+    if !mine.kills_within(&theirs, &params) {
+        let (may, allowed) = (listed(&got.kills), listed(&want.kills));
+        let span = got.kills_span.unwrap_or(got.span);
+        cx.error_help(
+            codes::IMPL_CLAUSE_WIDER,
+            span,
+            format!("`{method}` kills {may}, and `{trait_name}::{method}` allows {allowed}"),
+            "kills more than the trait allows",
+            format!(
+                "a call through `{trait_name}` relies on the trait's clause: kill no more, or \
+                 widen `{trait_name}::{method}`'s `kills` (spec §6.7)"
+            ),
+        );
+    } else if !mine.results_within(&theirs, &params) {
+        let shown = |s: &FnSig| match s.ret_ties.len() {
+            0 => "its one view input".to_owned(),
+            _ => listed(&s.ret_ties),
+        };
+        let (may, allowed) = (shown(got), shown(want));
+        cx.error_help(
+            codes::IMPL_CLAUSE_WIDER,
+            got.span,
+            format!(
+                "`{method}`'s result may point into {may}, and `{trait_name}::{method}`'s into \
+                 {allowed}"
+            ),
+            "its result may point where the trait's may not",
+            format!(
+                "a call through `{trait_name}` relies on the trait's `in`: point into no more, \
+                 or widen `{trait_name}::{method}`'s (spec §6.7)"
+            ),
         );
     }
 }

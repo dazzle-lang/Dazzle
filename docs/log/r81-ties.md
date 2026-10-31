@@ -6,6 +6,22 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r94: an implementation promises no more than its trait (2026-10-31)
+
+Found while giving `SliceIter::get` an `in` its trait's method does not have: §6.7 said an
+implementation's clause may name no more than the trait's, and nothing checked it, for
+`kills` or for `in`. A call through the trait reads only the trait's, so an implementation
+naming more would end or keep references nobody was told about.
+
+`clauses_within_trait` (`dz_check/src/check.rs`), called from the conformance check once a
+method's types match, builds both sides' clauses as `FnKills`, names rooted at `self` and
+then the parameters, and asks `kills_within` and `results_within` (r91's, from
+`dz_hir/src/ty.rs`), so elision is the same as for a function type's. `DZ0573` for either,
+with `dz explain`. std's three trait methods with clauses (`Sort::sort`,
+`StrKeys::remove_str`, `StrSet::remove_str`) already promised enough, and no
+implementation in std, the examples or the corpora named more. Tests: `typeerrors/`
+(`Tally`: a kill and a result tie the trait does not allow).
+
 ## r93: an item outlives its iterator (2026-10-31)
 
 T-0111's second part. r88 tied a method's result on a local view struct to the local and to

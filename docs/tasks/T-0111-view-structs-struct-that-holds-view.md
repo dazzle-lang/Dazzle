@@ -23,13 +23,20 @@ declare such ties; a union payload and a static may not hold a view. **Left:**
    through at each use, since a C++ reference member cannot be reset by a move.
 2. **`T::Item?` whose instance is a reference** emitted as that pointer
    ([T-0085](T-0085-optional-reference-passes-checker.md), option 3).
-3. **An implementation's `in` is not held to its trait's.** `SliceIter::get` says `in
-   self@items` where `Iterate::get` elides to `self`, which is narrower and so safe; but
-   nothing stops an implementation naming something the trait does not, which a call
-   through the trait would then trust. The same goes for `kills`, which §6.7 says may name
-   no more than the trait's. A check beside the conformance check in `dz_check/src/check.rs`.
+3. ~~An implementation's `in` is not held to its trait's.~~ Done, r94: `clauses_within_trait`
+   in `dz_check/src/check.rs`, `DZ0573`, for `kills` and `in` alike.
 4. **A view-struct parameter taken by value is not yet a view input** to the return check
    (`caller_owned` in `dz_flow/src/ties/body.rs`), so returning what it views is refused.
+   The catch: a result in such a parameter, elided, may be in what it views or in its own
+   fields, which are the callee's copy; the place `it` alone cannot tell the two apart.
+5. **To settle with the user: where a result through a `view` parameter points.**
+   `fn first<view T: Iterate>(it: &T) -> T::Item` returns what `it.get()` gives, which for
+   a `SliceIter` is in the list, not in the iterator; but the signature can only say `in
+   it`, the iterator. Today `T::Item` counts as no view at all (`holds_view` leaves a
+   projection out), so the result is untied and nothing is refused. Tying it to `it` would
+   refuse `let a = first(&xs.iter())`, a view of a temporary iterator, which `typed/` does.
+   It needs a way to say "in what `it` views", such as eliding a view-struct input to what it
+   views rather than to itself.
 
 **What it is.** A struct holding a view (`Chars`'s `m_text: str`, `SliceIter`'s
 `m_slice: []T`) is tied as a whole today, but nothing stops one being stored. Once views are
