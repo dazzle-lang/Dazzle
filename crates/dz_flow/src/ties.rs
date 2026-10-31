@@ -433,7 +433,7 @@ pub fn call_effects(scope: &Scope<'_>, bindings: &Bindings) -> Result<CallEffect
             inputs.push(bindings.receiver.as_ref());
         }
         for (i, param) in scope.sig.params.iter().enumerate() {
-            if points(&param.ty) {
+            if dz_check::ties::view_input(scope.table, &param.ty) {
                 inputs.push(bindings.params.get(i).and_then(Option::as_ref));
             }
         }

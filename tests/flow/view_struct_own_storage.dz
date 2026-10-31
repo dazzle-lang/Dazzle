@@ -1,0 +1,21 @@
+// Spec §6.7, D-0093: a result in a view struct whole is in what the struct views, so its
+// own storage, a field holding no view, cannot be returned through it. Naming the field
+// in `in` says so, and is fine.
+// expect: DZ0414
+
+pub view struct Peek {
+    pub items: []i32
+    pub at: usize = 0
+}
+
+fn at_of(p: &Peek) -> &usize {
+    return &p.at
+}
+
+fn at_named(p: &Peek) -> &usize in p.at {
+    return &p.at
+}
+
+fn item_of(p: &Peek) -> &i32 {
+    return &p.items[p.at]
+}

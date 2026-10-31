@@ -6,6 +6,39 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r95: a view struct stands for what it views (2026-10-31)
+
+The user's choice between two answers to where a result through a view struct points:
+option A, what it views, over B, the struct. Under B, `let a = first(&xs.iter())` was a
+view of a temporary iterator; and since a projection did not count as a view, `first`'s
+`T::Item` result was in fact untied, so nothing was refused and nothing was checked.
+
+- **Inputs.** `dz_check::ties::view_input` is what elision counts: `points`, or a view
+  taken by value (`placed_as_view`). `untied_result`, `untied_fn_type`, `dz_flow`'s
+  `call_effects` and `result_roots` all use it, and `invoke` binds such an argument by the
+  views it holds, as it binds a reference by what it refers to.
+- **What holds a view.** `holds` counts a `view` parameter and a projection of a `view
+  type`, so `-> T::Item` is tied by elision. The DZ0571 test does not, since what a `view`
+  parameter is given need not be a view. `generic_result` is unchanged and still leaves a
+  plain `T` result untied.
+- **What a result is in.** `what_it_views`: an origin that is a view-struct local itself,
+  whole, stands for the views its state holds. `invoke` uses it for an elided result and
+  for an `in` naming an input whole, in place of the input's place, beside r93's
+  `through_view_field` for a path through a view field. A reference to a temporary view
+  struct (`&xs.iter()`) carries the temporary's views, since it has no place.
+- **The callee's side.** A by-value view parameter is seeded as a view input, caller-owned
+  in the return check, and not dropped as a place at the end. `own_storage` keeps a result
+  elided to a view struct, or `in` it whole, from being its own storage: a field holding no
+  view, or the struct behind a reference. `in p.at` names the field and ties to the struct.
+
+Nothing in std or the examples needed a change. One program in `tests/errors` did:
+`swap_in<T: Iterate, U: Iterate>(a: &T, b: &U) -> T::Item` returns a view now, from two
+view inputs, so it says `in a` (the program is about the projections' types, `DZ0501`).
+Tests: `tests/flow/clean.dz`
+(an item of a temporary iterator and of one taken by value), `use_after_kill.dz` (that item
+dies with the list), and the new `view_struct_own_storage.dz` (`DZ0414` for a field of the
+struct's own, and the `in` that allows it).
+
 ## r94: an implementation promises no more than its trait (2026-10-31)
 
 Found while giving `SliceIter::get` an `in` its trait's method does not have: §6.7 said an
