@@ -294,7 +294,7 @@ inside the function: `e: &mut Enemy in world`.
 places names them in parentheses, and a kill of any one ends it:
 
 ```dz
-fn longer(a: str, b: str) -> str in (a, b) { … }
+fn longer(a: &str, b: &str) -> &str in (a, b) { … }
 ```
 
 With no `in`, a result is in its **one view input** — a reference, a pointer, a slice or a
@@ -303,8 +303,8 @@ With no `in`, a result is in its **one view input** — a reference, a pointer, 
 see die (`DZ0571`), and text that never dies is a `const str` instead.
 
 ```dz
-fn strip_prefix(&self, prefix: str) -> str? in self      // `prefix` is an input too
-fn title() -> const str                                   // `-> str` is DZ0571
+fn strip_prefix(&self, prefix: &str) -> ^str in self      // `prefix` is an input too
+fn title() -> const &str                                   // `-> str` is DZ0571
 ```
 
 The same holds for a result that **holds** a view: a struct (an iterator such as `iter()`'s
@@ -522,8 +522,8 @@ struct itself behind a reference — since a caller ties it to what the struct v
 the field in `in` ties it to the struct instead (`DZ0414` otherwise). A result of a `view`
 parameter's type, or of a projection of a `view type` (`T::Item`), holds a view by the same
 rule, and is tied as one. `view` is a keyword only before `struct`, `type` and a type
-parameter, so `let view = camera.view_matrix()` still means what it did. References,
-slices and `str` become views by this rule with T-0109 and T-0110; until then they are
+parameter, so `let view = camera.view_matrix()` still means what it did. Text is a view
+by this rule, `&str` and `^str` (§5.3); slices become views with T-0110, and until then are
 values.
 
 **What stays allowed** is aliasing. `&mut xs[i]` beside `&xs[j]`, a write through a `&mut`

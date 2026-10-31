@@ -63,7 +63,7 @@ fn main() {
     let copy = q
     println!("pair {}", copy.a.n + copy.b.n)
 
-    let mut ages = HashMap<str, i32>()
+    let mut ages = HashMap<const &str, i32>()
     ages.insert("ada", 36)
     ages.insert("alan", 41)
     let mut sum = 0

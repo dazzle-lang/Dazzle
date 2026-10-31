@@ -5,10 +5,10 @@
 /// `bytes as str` — reads as U+FFFD, the replacement character, and is stepped over alone,
 /// so iteration always ends (spec §14.4).
 pub view struct Chars {
-    m_text: str
+    m_text: &str
     m_at: usize = 0
 
-    Chars(text: str) {
+    Chars(text: &str) {
         m_text = text
     }
 

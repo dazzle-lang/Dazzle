@@ -9,13 +9,13 @@ pub struct String {
     tie @text = m_bytes
 
     /// A copy of `s`.
-    String(s: str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
+    String(s: &str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
         m_bytes = List<u8>(0, allocator, loc)
         self.push_str(s, loc)
     }
 
     /// A copy of `s`: `String::from("name")`.
-    pub fn from(s: str, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
+    pub fn from(s: &str, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
         return String(s, allocator, loc)
     }
 
@@ -43,9 +43,9 @@ pub struct String {
     }
 
     /// The text, borrowed. Valid until the `String` next changes or is dropped.
-    pub fn as_str(&self) -> str in self@text {
+    pub fn as_str(&self) -> &str in self@text {
         let bytes = m_bytes.as_slice()
-        return unsafe { bytes[0..self.len()] as str }
+        return unsafe { bytes[0..self.len()] as &str }
     }
 
     /// The text as a C string, borrowed, for C and C++ functions that want one. Valid until
@@ -59,7 +59,7 @@ pub struct String {
     }
 
     /// Append `s`.
-    pub fn push_str(&mut self, s: str, loc: SourceLocation = #location) kills self@text {
+    pub fn push_str(&mut self, s: &str, loc: SourceLocation = #location) kills self@text {
         if s.len == 0 {
             return
         }
@@ -76,12 +76,12 @@ pub struct String {
     pub fn push(&mut self, c: char, loc: SourceLocation = #location) kills self@text {
         let mut encoded: [4]u8 = [0, 0, 0, 0]
         let n = encode_utf8(c, &mut encoded)
-        let text = unsafe { encoded[0..n] as str }
+        let text = unsafe { encoded[0..n] as &str }
         self.push_str(text, loc)
     }
 
     /// Put `s` in at byte `at`, which must be where a character starts or the end.
-    pub fn insert_str(&mut self, at: usize, s: str, loc: SourceLocation = #location) kills self@text {
+    pub fn insert_str(&mut self, at: usize, s: &str, loc: SourceLocation = #location) kills self@text {
         if !self.is_char_boundary(at) {
             panic!("insert at byte {}, inside a character or past the end", at, loc)
         }
@@ -99,7 +99,7 @@ pub struct String {
     pub fn insert(&mut self, at: usize, c: char, loc: SourceLocation = #location) kills self@text {
         let mut encoded: [4]u8 = [0, 0, 0, 0]
         let n = encode_utf8(c, &mut encoded)
-        self.insert_str(at, unsafe { encoded[0..n] as str }, loc)
+        self.insert_str(at, unsafe { encoded[0..n] as &str }, loc)
     }
 
     /// Take out the character starting at byte `at` and hand it back. Panics when `at` is
@@ -160,12 +160,12 @@ pub struct String {
 
     /// Bytes `from..to` of the text, borrowed, or `none` when either end falls inside a
     /// character or past the end — so the piece is always text.
-    pub fn slice(&self, from: usize, to: usize) -> str? {
+    pub fn slice(&self, from: usize, to: usize) -> ^str {
         let bytes = self.as_str() as []u8
         if from > to || to > bytes.len || !is_utf8_boundary(bytes, from) || !is_utf8_boundary(bytes, to) {
-            return none
+            return null
         }
-        return unsafe { bytes[from..to] as str }
+        return unsafe { bytes[from..to] as &str }
     }
 
     /// Keep the first `len` bytes. Panics when `len` falls inside a character, which would
@@ -216,7 +216,15 @@ impl ImplicitAs<cstr> for String {
     }
 }
 
-/// The same hash as the text as a `str`.
+/// A `String` passed where a `&str` is wanted is its text, borrowed for the call:
+/// `greet(name)` for a `name: String` (spec §7.2, D-0093).
+impl ImplicitAs<&str> for String {
+    fn convert(&self) -> &str in self@text {
+        return self.as_str()
+    }
+}
+
+/// The same hash as the text as a `&str`.
 impl Hash for String {
     fn hash(&self) -> u64 {
         return self.as_str().hash()

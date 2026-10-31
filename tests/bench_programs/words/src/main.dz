@@ -36,7 +36,7 @@ struct Rng {
     }
 }
 
-const SYLLABLES: [24]str = ["ka", "lo", "mi", "ra", "ten", "sho", "vu", "en", "dar", "is", "po", "qua", "zel", "ne", "fi", "gor", "ul", "be", "tha", "xo", "rin", "ma", "cu", "dei"]
+const SYLLABLES: [24]&str = ["ka", "lo", "mi", "ra", "ten", "sho", "vu", "en", "dar", "is", "po", "qua", "zel", "ne", "fi", "gor", "ul", "be", "tha", "xo", "rin", "ma", "cu", "dei"]
 
 /// `words` words of one to four syllables. A syllable is picked as `below(below(24) + 1)`,
 /// which favours the first few, so some words are very common and most are rare.

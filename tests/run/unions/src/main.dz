@@ -33,7 +33,7 @@ union Asset {
     Sound
 }
 
-fn describe(c: &Command) -> str {
+fn describe(c: &Command) -> &str {
     return switch c {
         case Say(&s) { s.text.as_str() }
         case Move { "move" }

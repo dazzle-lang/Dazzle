@@ -415,10 +415,12 @@ impl TypeTable {
 
     /// Whether a value of `t` is a view only a view may hold, as D-0093 places one: a `view
     /// struct`, a `view` type parameter, an associated type a trait declares `view`, or a
-    /// tuple, optional or array of one (spec §6.7). References, slices and `str` join these
-    /// with T-0109 and T-0110; until then they are values.
+    /// tuple, optional or array of one (spec §6.7). Text is one too, `&str` and `^str`, since
+    /// it is borrowed (T-0109); static text, `const &str`, is not. Slices join these with
+    /// T-0110; until then they are values.
     pub fn placed_as_view(&self, t: &Ty) -> bool {
         match t {
+            Ty::Str => true,
             Ty::Named { sym, .. } => self.is_view_struct(*sym),
             Ty::Param(p) => p.view,
             Ty::Assoc(p) => {
@@ -1625,8 +1627,8 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
         Ty::Char => "char".to_owned(),
         Ty::Int(i) => i.name().to_owned(),
         Ty::Float(f) => f.name().to_owned(),
-        Ty::Str => "str".to_owned(),
-        Ty::ConstStr => "const str".to_owned(),
+        Ty::Str => "&str".to_owned(),
+        Ty::ConstStr => "const &str".to_owned(),
         Ty::CStr => "cstr".to_owned(),
         Ty::IntLit => "{integer}".to_owned(),
         Ty::FloatLit => "{float}".to_owned(),
@@ -1639,6 +1641,8 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
         Ty::Ref { mutable, inner } => {
             format!("&{}{}", if *mutable { "mut " } else { "" }, name_of(inner))
         }
+        // Text that may be absent is the text pointer (spec §5.6).
+        Ty::Optional(i) if matches!(**i, Ty::Str) => "^str".to_owned(),
         Ty::Optional(i) => format!("{}?", name_of(i)),
         // Not writable in source: the type of a `!->` call before its `or` (spec §9).
         Ty::Fallible(i) => format!("!-> {}", name_of(i)),
@@ -1955,7 +1959,7 @@ impl<'a> Ctx<'a> {
                 .with_help(e.help);
             if let Some((span, text)) = untied.fix {
                 // Every input is never wrong, but which one the result is in is the
-                // author's to narrow, and a `const str` is right only for static text,
+                // author's to narrow, and a `const &str` is right only for static text,
                 // so either is offered rather than applied.
                 let title = if e.code == codes::RESULT_TIE_AMBIGUOUS {
                     format!("say where it points:{text}")
@@ -2138,8 +2142,104 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// A spelling of text that is no longer one, `DZ0575`, with the edit that respells it:
+    /// `edit` replaces `at` (spec §5.3, D-0093).
+    fn str_spelling(&mut self, at: Span, wrote: &str, wanted: &str, why: &str) {
+        let d = Diagnostic::error(codes::STR_NOT_BORROWED, format!("`{wrote}` is not a type"))
+            .at(self.file, at, format!("write `{wanted}`"))
+            .with_help(format!("{why} (spec §5.3)"));
+        let d = match self.written_fix(at, wrote, wanted) {
+            Some(edit) => d.with_fix(format!("write `{wanted}`"), vec![edit]),
+            None => d,
+        };
+        self.diags.push(d);
+    }
+
+    /// The edit replacing `at` with `wanted`, when `at` is written as `wrote` in the file:
+    /// a macro's tokens are at its invocation (§12), where the edit would land on the
+    /// invocation instead.
+    pub(crate) fn written_fix(&self, at: Span, wrote: &str, wanted: &str) -> Option<Edit> {
+        let text = self.map.try_get(self.file)?.text();
+        let here = text.get(at.start as usize..at.end as usize)?;
+        let same = here.split_whitespace().eq(wrote.split_whitespace());
+        same.then(|| Edit { file: self.file, span: at, text: wanted.to_owned() })
+    }
+
     fn lower_type_inner(&mut self, t: &Type) -> Ty {
         match &t.kind {
+            // Text is borrowed: `&str`, never a bare `str` (spec §5.3, D-0093).
+            TypeKind::Path(p) if is_bare_str(p) => {
+                self.str_spelling(
+                    t.span,
+                    "str",
+                    "&str",
+                    "text is borrowed from what owns it, so it is written as a reference",
+                );
+                Ty::Str
+            }
+            // `^str` is text that may be absent: the text pointer itself, which may be
+            // null. It is the optional reference `str?` would have been (spec §5.6).
+            TypeKind::Ptr { mutable, inner } if is_bare_str_type(inner) => {
+                if *mutable {
+                    self.str_spelling(
+                        t.span,
+                        "^mut str",
+                        "^str",
+                        "text is only read through, so it has no writable pointer",
+                    );
+                }
+                Ty::Optional(Rc::new(Ty::Str))
+            }
+            TypeKind::Ref { mutable, inner } if is_bare_str_type(inner) => {
+                if *mutable {
+                    self.str_spelling(
+                        t.span,
+                        "&mut str",
+                        "&str",
+                        "text is only read through a reference; to change it, change the \
+                         `String` that owns it",
+                    );
+                }
+                Ty::Str
+            }
+            TypeKind::Optional(i) if is_bare_str_type(grouped(i)) || is_str_ref(grouped(i)) => {
+                self.str_spelling(
+                    t.span,
+                    if is_bare_str_type(grouped(i)) { "str?" } else { "(&str)?" },
+                    "^str",
+                    "text that may be absent is a text pointer, which may be null",
+                );
+                Ty::Optional(Rc::new(Ty::Str))
+            }
+            TypeKind::Optional(i) if matches!(grouped(i).kind, TypeKind::Ref { .. }) => {
+                let inner = self.lower_type_inner(grouped(i));
+                let Ty::Ref { mutable, inner } = inner else { return Ty::Error };
+                let pointer = Ty::Ptr { mutable, inner };
+                let shown = self.name_of(&pointer);
+                let d = Diagnostic::error(
+                    codes::OPTIONAL_REFERENCE,
+                    "an optional of a reference is not a type",
+                )
+                .at(self.file, t.span, format!("write `{shown}`"))
+                .with_help(
+                    "a pointer already says a reference may be absent, and `or` turns it back \
+                     into one (spec §5.6)",
+                );
+                // Only where the type is written in this file, not in a macro's expansion.
+                let written = self
+                    .map
+                    .try_get(self.file)
+                    .and_then(|f| f.text().get(t.span.start as usize..t.span.end as usize))
+                    .is_some_and(|s| s.starts_with('(') && s.ends_with('?'));
+                let d = if written {
+                    let edit = Edit { file: self.file, span: t.span, text: shown.clone() };
+                    d.with_fix(format!("write `{shown}`"), vec![edit])
+                } else {
+                    d
+                };
+                self.diags.push(d);
+                pointer
+            }
             TypeKind::Path(p) => self.lower_path_type(p, t.span),
             TypeKind::Ptr { mutable, inner } => {
                 Ty::Ptr { mutable: *mutable, inner: Rc::new(self.lower_type_inner(inner)) }
@@ -2188,8 +2288,19 @@ impl<'a> Ctx<'a> {
                     paths: kills.iter().cloned().collect(),
                 },
             },
-            // `const str`, and nothing else yet: static slices wait for a program that
+            // `const &str`, and nothing else yet: static slices wait for a program that
             // needs them (spec §5.3).
+            // `const &str`: the constness is the reference's, since what it points at never
+            // dies (spec §5.3, D-0093).
+            TypeKind::Const(inner) if is_bare_str_type(inner) => {
+                self.str_spelling(
+                    t.span,
+                    "const str",
+                    "const &str",
+                    "static text is borrowed too, from memory that never dies",
+                );
+                Ty::ConstStr
+            }
             TypeKind::Const(inner) => match self.lower_type_inner(inner) {
                 Ty::Str => Ty::ConstStr,
                 Ty::Error => Ty::Error,
@@ -2199,9 +2310,9 @@ impl<'a> Ctx<'a> {
                         codes::CONST_NOT_STR,
                         t.span,
                         format!("`const {shown}` is not a type"),
-                        "only `const str` is",
+                        "only `const &str` is",
                         "`const` before a type says its memory is static, and only text has \
-                         that so far: `const str`, a literal or a constant's (spec §5.3)",
+                         that so far: `const &str`, a literal or a constant's (spec §5.3)",
                     );
                     Ty::Error
                 }
@@ -2415,6 +2526,11 @@ impl<'a> Ctx<'a> {
     /// element, a `Box`'s contents, a plain generic's argument. `owner` declares `def`.
     pub(crate) fn check_view_arg(&mut self, owner: SymbolId, def: &ParamDef, arg: &Ty, span: Span) {
         if def.param.view || !self.table.placed_as_view(arg) {
+            return;
+        }
+        // A trait's argument stores nothing: `ImplicitAs<&str>` names a conversion, and
+        // `Div<&str>` an operand (D-0093, point 7).
+        if self.res.symbol(owner).kind == SymbolKind::Trait {
             return;
         }
         let shown = self.name_of(arg);
@@ -3452,6 +3568,28 @@ impl<'a> Ctx<'a> {
             ItemKind::Impl(_) | ItemKind::MacroInvocation(_) | ItemKind::Error => return None,
         };
         self.res.lookup(self.module, name)
+    }
+}
+
+/// `str` written alone, which names the text type only behind a reference (spec §5.3).
+fn is_bare_str(p: &Path) -> bool {
+    matches!(&p.segments[..], [seg] if seg.name.name == "str" && seg.generics.is_empty())
+}
+
+fn is_bare_str_type(t: &Type) -> bool {
+    matches!(&t.kind, TypeKind::Path(p) if is_bare_str(p))
+}
+
+/// `&str`.
+fn is_str_ref(t: &Type) -> bool {
+    matches!(&t.kind, TypeKind::Ref { inner, .. } if is_bare_str_type(inner))
+}
+
+/// `(T)`, which parses as a tuple of one, read as the `T` it groups.
+fn grouped(t: &Type) -> &Type {
+    match &t.kind {
+        TypeKind::Tuple(parts) if parts.len() == 1 => &parts[0],
+        _ => t,
     }
 }
 

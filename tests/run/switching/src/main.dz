@@ -28,14 +28,14 @@ struct Config {
         case Go { 1 }
         case Stop { 2 }
     }
-    pub name: str = MODE_NAME
+    pub name: const &str = MODE_NAME
 }
 
 fn scaled(x: i32, by: i32 = if LIMIT > 100 { 1 } else { 3 }) -> i32 {
     return x * by
 }
 
-fn classify(n: i32) -> const str {
+fn classify(n: i32) -> const &str {
     return switch n {
         case 0 { "zero" }
         case 1, 2, 3 { "few" }
@@ -45,7 +45,7 @@ fn classify(n: i32) -> const str {
     }
 }
 
-fn word(s: str) -> i32 {
+fn word(s: &str) -> i32 {
     switch s {
         case "idle" { return 1 }
         case GREETING { return 2 }
@@ -81,12 +81,12 @@ fn unwrap_or<T: Copy>(m: Maybe<T>, fallback: T) -> T {
 
 // Below everything that uses them, and `MODE_NAME` above the `MODE` it reads: Dazzle has no
 // declaration order (spec §3), so C++ gets them in the order they need.
-const MODE_NAME: str = switch MODE {
+const MODE_NAME: const &str = switch MODE {
     case Go { "go" }
     case Stop { "stop" }
 }
 const LIMIT = 40
-const GREETING: str = "hello"
+const GREETING: &str = "hello"
 const MODE: Step = Step::Stop
 const PICK: i32 = if LIMIT > 10 { 7 } else { 8 }
 

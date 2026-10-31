@@ -15,7 +15,7 @@ const VOLUME: f32 = 0.5
 /// Eighth notes per second, at 140 beats a minute.
 const STEPS_PER_SECOND: f32 = 140.0 / 60.0 * 2
 
-const CHORD_NAMES: [4]str = ["Am", "F", "C", "G"]
+const CHORD_NAMES: [4]&str = ["Am", "F", "C", "G"]
 
 /// Each chord in `CHORD_NAMES` as semitones above A3, which the arpeggio climbs twice.
 const CHORDS: [4][4]i32 = [[0, 3, 7, 12], [-4, 0, 3, 8], [3, 7, 10, 15], [-2, 2, 5, 10]]

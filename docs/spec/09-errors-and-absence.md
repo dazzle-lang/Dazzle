@@ -221,7 +221,7 @@ signature can carry it:
 | `^T` | `-> U?` | returns `none` ✅ |
 
 ```dz
-pub fn load_level(path: str, alloc: ^Allocator) !-> Level {
+pub fn load_level(path: &str, alloc: ^Allocator) !-> Level {
     let file = File::open(path) or return
     let hdr  = file.read_header() or return
 

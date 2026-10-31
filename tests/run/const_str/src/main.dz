@@ -6,7 +6,7 @@ union State {
     Walking {}
     Attacking {}
 
-    pub fn name(&self) -> const str {
+    pub fn name(&self) -> const &str {
         switch self {
             case Idle {
                 return "idle"
@@ -22,12 +22,12 @@ union State {
 }
 
 pub struct Enemy {
-    pub kind:  const str
+    pub kind:  const &str
     pub state: State
 }
 
 trait Describe {
-    fn describe(&self) -> const str
+    fn describe(&self) -> const &str
 }
 
 pub struct Crate {
@@ -35,13 +35,13 @@ pub struct Crate {
 }
 
 impl Describe for Crate {
-    fn describe(&self) -> const str {
+    fn describe(&self) -> const &str {
         return "a crate"
     }
 }
 
 // Each argument dies here, and what it describes outlives it.
-fn heaviest(a: Crate, b: Crate) -> const str {
+fn heaviest(a: Crate, b: Crate) -> const &str {
     if a.weight > b.weight {
         return a.describe()
     }
@@ -54,7 +54,7 @@ fn main() {
     e.state = State::Attacking{}
     println!("{} was {} and is {}", e.kind, was, e.state.name())
 
-    let mut seen: List<const str> = List<const str>()
+    let mut seen: List<const &str> = List<const &str>()
     seen.push(e.kind)
     seen.push(was)
     for &name in seen {
@@ -68,7 +68,7 @@ fn main() {
     println!("label {}", label)
 
     // Keys hashed and compared as the text they are.
-    let mut counts: HashMap<const str, i32> = HashMap<const str, i32>()
+    let mut counts: HashMap<const &str, i32> = HashMap<const &str, i32>()
     counts.insert(e.kind, 1)
     counts.insert("orc", 2)
     counts.insert(e.kind, 3)

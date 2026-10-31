@@ -1,7 +1,7 @@
 // `Text` (spec §14.4): searching, trimming, splitting, lines, replacing, case and number
 // parsing — on a `str`, a literal and a `String` alike, and on UTF-8 that is not ASCII.
 
-fn show(label: str, v: i64?) {
+fn show(label: &str, v: i64?) {
     if let n = v {
         println!("{} {}", label, n)
     } else {
@@ -9,7 +9,7 @@ fn show(label: str, v: i64?) {
     }
 }
 
-fn show_f(label: str, v: f64?) {
+fn show_f(label: &str, v: f64?) {
     if let n = v {
         println!("{} {}", label, n)
     } else {
@@ -25,7 +25,7 @@ void main() {}`
 fn raw_strings() {
     let s = `C:\no\escapes`
     let c: cstr = `as cstr`
-    println!("raw {} {} [{}] [{}]", s, s.len, c as str, SHADER as str)
+    println!("raw {} {} [{}] [{}]", s, s.len, c as &str, SHADER as &str)
 }
 
 fn main() {

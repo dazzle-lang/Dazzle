@@ -446,7 +446,7 @@ can also name a field's tie, `tie @items = m_list@items`, or several places at o
 pub struct Party {
     m_members: List<String> in @members = List<String>()
 
-    pub fn recruit(&mut self, name: str) kills self@members {
+    pub fn recruit(&mut self, name: &str) kills self@members {
         m_members.push(String::from(name))
     }
 }
@@ -462,7 +462,7 @@ pub struct Party {
     m_members: List<String> = List<String>()
     tie @members = m_members@items
 
-    pub fn recruit(&mut self, name: str) kills self@members {
+    pub fn recruit(&mut self, name: &str) kills self@members {
         m_members.push(String::from(name))
     }
 }

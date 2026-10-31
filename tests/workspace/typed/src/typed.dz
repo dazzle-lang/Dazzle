@@ -30,11 +30,11 @@ pub struct Vec3 {
 pub struct Counter {
     m_count:    u32
     pub(module) shared: u32
-    pub label:  const str
+    pub label:  const &str
     pub origin: Vec3
     pub cursor: ^Vec3 = null
 
-    Counter(start: u32, label: str = "counter") {
+    Counter(start: u32, label: &str = "counter") {
         m_count = start
         shared = 0
     }
@@ -378,7 +378,7 @@ fn inferred_variant() -> Shape {
 // exhaustiveness required.
 const SWITCH_LIMIT = 10
 
-fn switch_on_constants(n: i32, s: str, c: char) -> i32 {
+fn switch_on_constants(n: i32, s: &str, c: char) -> i32 {
     let a = switch n {
         case 0 { 1 }
         case 1, 2, SWITCH_LIMIT, SWITCH_LIMIT * 2 { 2 }
@@ -434,7 +434,7 @@ fn reads_the_error() -> i32 {
 // A trait of one's own, alongside the prelude's. `Weigh : Describe` means every `Weigh` is
 // a `Describe`, and conformance is checked at the declaration below.
 trait Describe {
-    fn describe(&self) -> const str
+    fn describe(&self) -> const &str
 }
 
 trait Weigh : Describe {
@@ -455,7 +455,7 @@ struct Crate {
 }
 
 impl Describe for Crate {
-    fn describe(&self) -> const str {
+    fn describe(&self) -> const &str {
         return "crate"
     }
 }
@@ -468,14 +468,14 @@ impl Weigh for Crate {
 
 // §8.1: the body is checked once, against `T: Weigh` and nothing else. `weight` is legal
 // because `Weigh` provides it; `describe` is legal because `Weigh : Describe` does.
-fn heaviest<T: Weigh>(a: T, b: T) -> const str {
+fn heaviest<T: Weigh>(a: T, b: T) -> const &str {
     if a.weight() > b.weight() {
         return a.describe()
     }
     return b.describe()
 }
 
-fn uses_heaviest() -> const str {
+fn uses_heaviest() -> const &str {
     return heaviest(Crate(3), Crate(7))
 }
 
@@ -626,7 +626,7 @@ fn formatting(x: i32, f: f32) {
 }
 
 // §12.9: a width suits anything; a zero fill a number, before `x`, `X` or `.N` too.
-fn widths<T: Format>(x: i32, f: f32, s: str, t: T) {
+fn widths<T: Format>(x: i32, f: f32, s: &str, t: T) {
     println!("{:8} {:08} {:8x} {:08X} {:10.3} {:010.3}", x, x, x, x, f, f)
     println!("{:12} {:5} {:3} {:6}", s, true, 'c', t)
 }
@@ -718,7 +718,7 @@ fn cstr_from_literals() -> usize {
     let c = takes_cstr("argument")
     let _ = a
     let _ = b
-    return (c as str).len
+    return (c as &str).len
 }
 
 // --- r18: `^T` and `^mut T` (spec §5.2, §18.37) ----------------------------------------
@@ -794,22 +794,22 @@ fn scale_by_both_flipped<T: Mul<f32> + Mul<Scale>>(a: &T) {
 
 // §7.6: a trait of this module implemented for a type this program did not write.
 trait Label {
-    fn label(&self) -> const str
+    fn label(&self) -> const &str
 
-    fn shout(&self) -> const str {
+    fn shout(&self) -> const &str {
         return self.label()
     }
 }
 
 impl Label for f32 {
-    fn label(&self) -> const str {
+    fn label(&self) -> const &str {
         return "a float"
     }
 }
 
 // `Label::shout` is a default, reached through `impl Label for f32`; naming the trait is
 // needed only because `Loud` below provides a `shout` too.
-fn labels(x: f32) -> const str {
+fn labels(x: f32) -> const &str {
     return Label::shout(&x)
 }
 
@@ -819,27 +819,27 @@ pub struct Wrap<T> {
 }
 
 impl<T: Label> Label for Wrap<T> {
-    fn label(&self) -> const str {
+    fn label(&self) -> const &str {
         return inner.label()
     }
 }
 
-fn wrapped(w: Wrap<f32>) -> const str {
+fn wrapped(w: Wrap<f32>) -> const &str {
     return w.label()
 }
 
 // §7.6: two traits both provide `shout`, so the call names the one it means.
 trait Loud {
-    fn shout(&self) -> const str
+    fn shout(&self) -> const &str
 }
 
 impl Loud for f32 {
-    fn shout(&self) -> const str {
+    fn shout(&self) -> const &str {
         return "LOUD"
     }
 }
 
-fn chooses(x: f32) -> const str {
+fn chooses(x: f32) -> const &str {
     return Loud::shout(&x)
 }
 
@@ -1198,7 +1198,7 @@ fn addresses(w: ^mut Walking) -> bool {
 
 // §5.3: slices of part of an array, a string's bytes and length, and the checked way back
 // from bytes to text; §11.2: `b[i]` on a `List` through `Index` and `IndexMut`.
-fn slices_and_text(name: str) -> usize {
+fn slices_and_text(name: &str) -> usize {
     let mut arr: [4]i32 = [1, 2, 3, 4]
     let middle = arr[1..3]
     let writable: []mut i32 = arr[..2]
@@ -1213,7 +1213,7 @@ fn slices_and_text(name: str) -> usize {
 
 // §9.8, §12.7: a final `SourceLocation` is where `panic` says it happened — how a helper
 // like `assert` reports its caller's line.
-fn require(ok: bool, what: str, loc: SourceLocation = #location) {
+fn require(ok: bool, what: &str, loc: SourceLocation = #location) {
     if !ok {
         panic!("missing {}", what, loc)
     }
@@ -1311,11 +1311,11 @@ fn total_of(first: i32, rest: ..i32) -> i32 {
 }
 
 trait Named {
-    fn named(&self) -> str
+    fn named(&self) -> &str
 }
 
 impl Named for Heading {
-    fn named(&self) -> str {
+    fn named(&self) -> &str {
         return "heading"
     }
 }
@@ -1331,7 +1331,7 @@ fn variadic_calls(h: Heading, xs: []i32) -> i32 {
 
 // §7.2: parameters after a variadic one, passed by name in any order, with or without a
 // default — one left out before one given still gets its default.
-fn weighted(xs: ..i32, scale: i32 = 1, offset: i32 = 0, label: str) -> i32 {
+fn weighted(xs: ..i32, scale: i32 = 1, offset: i32 = 0, label: &str) -> i32 {
     let mut t = 0
     for x in xs {
         t += x
@@ -1402,13 +1402,13 @@ fn generic_methods(s: &Shelf<bool>) -> i32 {
     let a = s.paired(3)
     let b = s.paired<u8>(4)
     let c = Shelf<bool>::take(5, 6)
-    let d = Shelf<str>::take<i64>(7, 8)
+    let d = Shelf<const &str>::take<i64>(7, 8)
     let less = s.item < true
     return a.0 + b.1 as i32 + c + d as i32 + (if less { 1 } else { 0 })
 }
 
 // §14.4: `Text` on a `str`, a `String` and a literal.
-fn reading_text(line: &String, raw: str) -> i64 {
+fn reading_text(line: &String, raw: &str) -> i64 {
     let mut total: i64 = 0
     for field in line.trim().split(",") {
         total += field.parse_i64() or 0
@@ -1494,7 +1494,7 @@ fn file_system(dir: &Path) !-> usize {
 }
 
 // §10.4, 18.51: a container is looped over through `Iterable` and `IterableMut`.
-fn iterating_containers(names: &HashMap<str, i32>) -> i32 {
+fn iterating_containers(names: &HashMap<const &str, i32>) -> i32 {
     let mut xs = List<i32>(4)
     xs.push(1)
     for &mut x in xs {
@@ -1518,12 +1518,12 @@ fn enum_traits(l: Layer) -> bool {
     return by_layer.contains(&top) || l.hash() == top.hash() || l.cmp(&top) == Ordering::Less
 }
 
-fn hashing(name: str) -> bool {
-    let mut by_tile = HashMap<Tile, str>()
-    by_tile.insert(Tile{ x: 1, y: 2 }, name)
-    let mut by_name = HashMap<str, i32>(8)
-    by_name.insert(name, 3)
-    let three = by_name.replace(name, 4) or 0
+fn hashing(name: &str) -> bool {
+    let mut by_tile = HashMap<Tile, String>()
+    by_tile.insert(Tile{ x: 1, y: 2 }, String::from(name))
+    let mut by_name = HashMap<String, i32>(8)
+    by_name.insert(String::from(name), 3)
+    let three = by_name.replace(String::from(name), 4) or 0
     let counts = HashMap<u8, bool>()
     let at = Tile{ x: 1, y: 2 }
     assert(three == 3)
@@ -1601,7 +1601,7 @@ fn collections_pass(names: &mut HashMap<String, i32>, words: &List<String>) -> u
     hero += 1
     let count = names.get_or_insert(String::from("wall"), 0)
     count += 1
-    let mut seen = HashSet<str>()
+    let mut seen = HashSet<const &str>()
     let fresh = seen.insert("a") && !seen.contains(&"b")
     let line = words.join(", ")
     let (k, _) = line.split_once(",") or ("", "")
@@ -1665,7 +1665,7 @@ struct IntHolder : Holder<i32> {
 }
 
 struct Labelled<T: Copy> : Holder<T> {
-    pub label: str = ""
+    pub label: const &str = ""
 
     Labelled(v: T) : Holder(v) {}
 }
@@ -1859,7 +1859,7 @@ fn shout(name: &mut String in roster, roster: &mut Roster) kills name@text, rost
     roster.members.clear()
 }
 
-fn member_text(roster: &Roster, i: usize) -> str in roster.members[*] {
+fn member_text(roster: &Roster, i: usize) -> &str in roster.members[*] {
     return roster.members[i].as_str()
 }
 
@@ -1867,15 +1867,15 @@ fn member_text(roster: &Roster, i: usize) -> str in roster.members[*] {
 // several or names them all, it may be on a result that holds a view, and text from nowhere
 // is a `const str`. A raw pointer from nothing may own what it points at, and a `T` may not
 // be a view at all (spec §6.7).
-fn first_or(a: str, b: str) -> str in (a, b) {
+fn first_or(a: &str, b: &str) -> &str in (a, b) {
     return if a.len > 0 { a } else { b }
 }
 
-fn after(s: str, prefix: str) -> str? in s {
+fn after(s: &str, prefix: &str) -> ^str in s {
     return s.strip_prefix(prefix)
 }
 
-fn halves(s: str) -> (str, str)? {
+fn halves(s: &str) -> (&str, &str)? {
     return s.split_once("=")
 }
 
@@ -1883,7 +1883,7 @@ fn walk(xs: &List<i32>) -> SliceIter<i32> {
     return xs.iter()
 }
 
-fn greeting() -> (const str, i32) {
+fn greeting() -> (const &str, i32) {
     return ("hello", 5)
 }
 
@@ -1968,7 +1968,7 @@ pub struct Bookshelf {
         m_books.push(title)
     }
 
-    pub fn title(&self, i: usize) -> str in self[*]@text {
+    pub fn title(&self, i: usize) -> &str in self[*]@text {
         return m_books[i].as_str()
     }
 
@@ -2010,18 +2010,18 @@ impl Iterable for Rack {
 // `const str` (spec §5.3): text in static storage. A literal is one wherever one is wanted, a
 // field and a container may hold one, and it reads as a `str` anywhere else.
 pub struct Sign {
-    pub text: const str
+    pub text: const &str
 }
 
-fn sign_text(s: &Sign) -> const str {
+fn sign_text(s: &Sign) -> const &str {
     return s.text
 }
 
 fn signs() -> usize {
-    let mut all: List<const str> = List<const str>()
+    let mut all: List<const &str> = List<const &str>()
     let s = Sign{ text: "exit" }
     all.push(s.text)
-    let shown: str = s.text
+    let shown: &str = s.text
     let mut label = "none"
     label = sign_text(&s)
     return all.len() + shown.len + label.len
@@ -2083,4 +2083,27 @@ fn final_number(xs: &List<i32>) -> i32 {
     let p: ^i32 = final_of(xs.iter())
     let r = p or return 0
     return r
+}
+
+// Text is borrowed (spec 5.3, D-0093): `&str` in a signature, `const &str` stored, `^str`
+// for text that may be absent, empty as `null`, and a `String` passed where a `&str` is
+// wanted.
+pub struct Caption {
+    pub text: const &str = "none"
+}
+
+fn initial_of(s: &str) -> ^str in s {
+    if s.len == 0 {
+        return null
+    }
+    return s.strip_prefix("")
+}
+
+fn text_kinds(owner: &String) -> usize {
+    let mut names = List<const &str>()
+    names.push("ada")
+    let l = Caption{ text: names[0] }
+    let first = initial_of(owner) or return 0
+    let none_here = initial_of("") == null
+    return first.len + l.text.len + (if none_here { 1 } else { 0 })
 }

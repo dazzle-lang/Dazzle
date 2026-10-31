@@ -148,15 +148,15 @@ fn main() {
     println!("= width {}", width)
 }
 
-fn measure(text: str, extra: i32) -> usize {
+fn measure(text: &str, extra: i32) -> usize {
     return text.len + extra as usize
 }
 
 struct Poisoned {
     pub bytes: [5]u8 = [104, 101, 108, 108, 111]
 
-    pub fn view(&self) -> str {
-        return unsafe { bytes[..] as str }
+    pub fn view(&self) -> &str {
+        return unsafe { bytes[..] as &str }
     }
 }
 

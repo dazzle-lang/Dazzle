@@ -51,9 +51,9 @@ struct Color {
 }
 
 struct Widget {
-    pub label: str
+    pub label: const &str
 
-    Widget(label: str) {
+    Widget(label: const &str) {
         self.label = label
     }
 
@@ -65,7 +65,7 @@ struct Widget {
 struct Button : Widget {
     pub pressed: bool
 
-    Button(label: str) : Widget(label) {
+    Button(label: const &str) : Widget(label) {
         self.pressed = false
     }
 

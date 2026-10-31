@@ -99,10 +99,10 @@ fn removal() {
 }
 
 fn text_keys() {
-    let mut ages = HashMap<str, i32>()
+    let mut ages = HashMap<const &str, i32>()
     ages.insert("ada", 36)
     ages.insert("grace", 85)
-    let who = "grace"
+    let who: const &str = "grace"
     println!("grace {}", ages.get(&who) or return)
 
     let mut owned = HashMap<String, i32>()
@@ -117,7 +117,7 @@ fn text_keys() {
     let c = 'x'
     println!("x {}", flags.get(&c) or return)
 
-    let mut grid = HashMap<Cell, str>()
+    let mut grid = HashMap<Cell, const &str>()
     grid.insert(Cell{ x: 1, y: 2 }, "tree")
     grid.insert(Cell{ x: 2, y: 1 }, "rock")
     let at = Cell{ x: 2, y: 1 }

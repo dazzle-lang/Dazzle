@@ -2,9 +2,9 @@
 /// something depends on `kind`; the rest are empty.
 pub struct TypeInfo {
     /// As Dazzle writes it: `Transform`, `List<i32>`, `[]u8`.
-    pub name: str
+    pub name: const &str
     /// The module that declares a named type; empty for the others.
-    pub module_name: str
+    pub module_name: const &str
     pub size: usize
     pub align: usize
     pub kind: TypeKind

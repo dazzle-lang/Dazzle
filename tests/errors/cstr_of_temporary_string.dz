@@ -5,11 +5,11 @@
 // then `owned.as_cstr()` (spec §6.5, §14.4).
 
 fn text_len(c: cstr) -> usize {
-    return (c as str).len
+    return (c as &str).len
 }
 
 fn main() {
-    let name: str = "hero"
+    let name: &str = "hero"
     let c = String::from(name).as_cstr()
     println!("{}", text_len(c))
 }

@@ -12,14 +12,14 @@ struct Config {
         case Go { 1 }
         case Stop { 2 }
     }
-    pub name: str = NAME
+    pub name: const &str = NAME
 }
 
 fn scaled(x: i32, by: i32 = if LIMIT > 1 { 2 } else { 3 }) -> i32 {
     return x * by
 }
 
-const NAME: str = switch MODE {
+const NAME: const &str = switch MODE {
     case Go { "go" }
     case Stop { "stop" }
 }

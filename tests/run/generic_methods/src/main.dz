@@ -5,7 +5,7 @@
 import shapes::{ Grid, Tally }
 
 struct Loud {
-    pub name: str
+    pub name: const &str
 
     pub fn say(&self) {
         println!("loud {}", name)
@@ -58,11 +58,11 @@ fn sum(acc: i32, c: &i32) -> i32 {
     return acc + c
 }
 
-fn longest(acc: usize, c: &str) -> usize {
+fn longest(acc: usize, c: &const &str) -> usize {
     return if c.len > acc { c.len } else { acc }
 }
 
-fn as_str(b: bool) -> const str {
+fn as_str(b: bool) -> const &str {
     return if b { "yes" } else { "no" }
 }
 
@@ -81,12 +81,12 @@ fn main() {
 
     let l = Maker::keep(Loud{ name: "a" })
     l.say()
-    let s = Maker::swap<i32, str>(3, "three")
+    let s = Maker::swap<i32, const &str>(3, "three")
     println!("swap: {} {}", s.0, s.1)
 
     let g = Grid<i32>::filled(4, 3, double)
     println!("fold: {}", g.fold(100, sum))
-    let names = Grid<str>::filled<bool>(2, true, as_str)
+    let names = Grid<const &str>::filled<bool>(2, true, as_str)
     println!("longest: {}", names.fold<usize>(0, longest))
 
     let mut tally = Tally{}

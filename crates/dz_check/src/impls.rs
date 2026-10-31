@@ -466,7 +466,7 @@ impl TypeTable {
     /// Buffer<T>` applies to `Buffer<f32>` with `T = f32`, and not to `Buffer<File>`,
     /// whose argument fails the bound.
     pub fn impl_applies(&self, imp: &ImplSig, ty: &Ty) -> Option<HashMap<u32, Ty>> {
-        // Static text is text: every implementation for `str` is one for `const str` (§5.3).
+        // Static text is text: every implementation for `str` is one for `const &str` (§5.3).
         let ty = if *ty == Ty::ConstStr { &Ty::Str } else { ty };
         let params: Vec<u32> = imp.generics.iter().map(|g| g.param.id).collect();
         let mut map = HashMap::new();

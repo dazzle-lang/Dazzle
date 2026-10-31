@@ -4,7 +4,7 @@
 
 struct Counter {
     pub hits: i32 = 0
-    pub name: str = "counter"
+    pub name: const &str = "counter"
 
     pub fn bump(&mut self) -> i32 {
         hits += 1
@@ -16,7 +16,7 @@ const START: i32 = 1
 
 /// A `str` cannot be built at C++ compile time, inside an array no more than alone, so
 /// this is an `inline const` rather than a `constexpr`.
-const NAMES: [3]str = ["red", "green", "blue"]
+const NAMES: [3]&str = ["red", "green", "blue"]
 
 // A constant whose elements are casts: the C++ is a `constexpr` array, so the cast it
 // lowers to must be usable in one.

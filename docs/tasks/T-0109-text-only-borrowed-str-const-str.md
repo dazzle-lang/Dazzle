@@ -2,10 +2,13 @@
 id: T-0109
 title: Text is borrowed: &str and const &str, and no view as a type argument
 milestone: none
-status: open
+status: done
+done: r98, 2026-10-31
 kind: feature
 area: language
 ---
+
+**Done, r98 (2026-10-31).** Built as decided, with these choices on the way: inside the compiler `&str` is still `Ty::Str`, so C++ and every rule that read `str` are unchanged, and only the spellings and the placement moved (`lower_type_inner`, `placed_as_view`); `^str` is `Ty::Optional(Str)` shown as `^str`, which `null` empties and `none` is refused for; a trait's argument may be a view (`check_view_arg`); an implementation for text is written `impl X for &str`; a `const` item may still be typed `&str`. std's `find_by` takes its key as a `view Q: Copy`, `Join` is for `List<const &str>`, reflection's names are `const &str`, and `String` gained `ImplicitAs<&str>`. The migration was the compiler's own certain fixes (`DZ0575`, `DZ0576`) applied over std, tests and examples, then `const &str` for stored literals and `String` where runtime text was stored (`tests/bench_programs/expr` now keeps token spans). r88's exemption is gone: `generic_result` in `dz_flow`, and `untied_result`'s `T` parameter case.
 
 **Step 3, after view structs (r90's order, 2026-10-30).** It was next until r90 found that
 `Chars`, `Split`, `Lines` and `SplitWhitespace` hold a `str` field, which only a view struct

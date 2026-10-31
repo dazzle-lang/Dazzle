@@ -8,8 +8,8 @@
 // by zero — and the failure travels back through `!->` and `or return` to the statement
 // loop, which counts it and carries on.
 //
-// What it exercises: `String` building through a `Formatter`, `str` views into it as
-// tokens and as `HashMap` keys, a tagged union holding `Box`es (so a tree that owns its
+// What it exercises: `String` building through a `Formatter`, tokens that name their text
+// by where it is in the program, `String` keys looked up by `&str` with nothing built, a tagged union holding `Box`es (so a tree that owns its
 // children and drops them with it), each statement's tree in `Allocators::Temp` and
 // released at once before the next, recursion, and the error path.
 //
@@ -123,8 +123,10 @@ enum Kind : u8 {
 
 struct Token {
     pub kind: Kind = Kind::End
-    /// The token's text: a view of the program, never a copy.
-    pub text:  str = ""
+    /// Where the token's text is in the program, never a copy of it: a container holds no
+    /// view (spec 6.7).
+    pub start: usize = 0
+    pub end:   usize = 0
     pub value: i64 = 0
 }
 
@@ -159,7 +161,7 @@ fn tokenize(source: &String) !-> List<Token> {
                 value = value * 10 + (bytes[i] - '0' as u8) as i64
                 i += 1
             }
-            tokens.push(Token{ kind: .Number, text: source.slice(start, i) or unreachable, value: value })
+            tokens.push(Token{ kind: .Number, start: start, end: i, value: value })
             continue
         }
         if is_letter(c) {
@@ -172,7 +174,7 @@ fn tokenize(source: &String) !-> List<Token> {
             } else {
                 Kind::Name
             }
-            tokens.push(Token{ kind: kind, text: word })
+            tokens.push(Token{ kind: kind, start: start, end: i })
             continue
         }
         i += 1
@@ -196,7 +198,7 @@ fn tokenize(source: &String) !-> List<Token> {
                 return error(Failure::Syntax, "unexpected character")
             }
         }
-        tokens.push(Token{ kind: kind, text: source.slice(start, i) or unreachable })
+        tokens.push(Token{ kind: kind, start: start, end: i })
     }
     return move(tokens)
 }
@@ -205,19 +207,24 @@ fn tokenize(source: &String) !-> List<Token> {
 
 union Expr {
     Number { value: i64 }
-    Name { text: str }
+    Name { start: usize, end: usize }
     Negate { inner: Box<Expr> }
     Binary { op: u8, lhs: Box<Expr>, rhs: Box<Expr> }
 }
 
-/// A recursive-descent parser over one statement's tokens.
-struct Parser {
+/// A recursive-descent parser over one statement's tokens, in the program they came from.
+view struct Parser {
+    m_source: &String
     m_tokens: []Token
     m_at:     usize = 0
     /// Where the tree's nodes go.
     m_allocator: ^mut Allocator = Allocators::Global
 
-    Parser(tokens: []Token, allocator: ^mut Allocator) {
+    /// What the program holds, so a name's text outlives the parser (spec 6.7).
+    tie @source = m_source
+
+    Parser(source: &String, tokens: []Token, allocator: ^mut Allocator) {
+        m_source = source
         m_tokens = tokens
         m_allocator = allocator
     }
@@ -234,7 +241,7 @@ struct Parser {
         if self.peek() != Kind::Operator {
             return none
         }
-        let op = (m_tokens[m_at].text as []u8)[0]
+        let op = (m_source.as_str() as []u8)[m_tokens[m_at].start]
         if op == a || op == b || op == c {
             return op
         }
@@ -250,13 +257,13 @@ struct Parser {
     }
 
     /// `let name = expr`, then the end of the line.
-    pub fn statement(&mut self) !-> (str, Expr) {
+    pub fn statement(&mut self) !-> (&str, Expr) in self@source {
         let _ = self.expect(.Let) or return
         let name = self.expect(.Name) or return
         let _ = self.expect(.Assign) or return
         let value = self.expr() or return
         let _ = self.expect(.End) or return
-        return (name.text, move(value))
+        return (m_source.slice(name.start, name.end) or unreachable, move(value))
     }
 
     fn expr(&mut self) !-> Expr {
@@ -306,7 +313,8 @@ struct Parser {
             }
             case Name {
                 m_at += 1
-                return Expr::Name{ text: m_tokens[m_at - 1].text }
+                let t = m_tokens[m_at - 1]
+                return Expr::Name{ start: t.start, end: t.end }
             }
             case Open {
                 m_at += 1
@@ -326,22 +334,23 @@ struct Parser {
 /// Every result is reduced by this, so no value overflows and both halves agree exactly.
 const MODULUS: i64 = 1000003
 
-fn eval(e: &Expr, names: &HashMap<str, i64>) !-> i64 {
+fn eval(e: &Expr, source: &String, names: &HashMap<String, i64>) !-> i64 {
     switch e {
         case Number(&n) {
             return n.value
         }
         case Name(&n) {
-            let value = names.get(&n.text) or return error(Failure::UnknownName, "unknown name")
+            let text = source.slice(n.start, n.end) or unreachable
+            let value = names.get_str(text) or return error(Failure::UnknownName, "unknown name")
             return value
         }
         case Negate(&n) {
             let inner = n.inner or unreachable
-            return -(eval(inner, names) or return)
+            return -(eval(inner, source, names) or return)
         }
         case Binary(&b) {
-            let lhs = eval(b.lhs or unreachable, names) or return
-            let rhs = eval(b.rhs or unreachable, names) or return
+            let lhs = eval(b.lhs or unreachable, source, names) or return
+            let rhs = eval(b.rhs or unreachable, source, names) or return
             let op = b.op as char
             if (op == '/' || op == '%') && rhs == 0 {
                 return error(Failure::DivideByZero, "division by zero")
@@ -382,7 +391,7 @@ fn main() {
     }
     let all = tokens.as_slice()
 
-    let mut names = HashMap<str, i64>()
+    let mut names = HashMap<String, i64>()
     let mut checksum: u64 = 0
     let mut failures: [4]i64
     let mut start: usize = 0
@@ -400,7 +409,7 @@ fn main() {
         // The previous statement's tree was dropped at the end of the last iteration; its
         // nodes are given back all at once, and this one's are bumped out of the same memory.
         Allocators::Temp.reset()
-        let mut parser = Parser(all[start..end], Allocators::Temp)
+        let mut parser = Parser(&program, all[start..end], Allocators::Temp)
         start = end
 
         let (name, tree) = parser.statement() or { e ->
@@ -410,12 +419,17 @@ fn main() {
         }
         // A statement that fails still defines its name, as one, so one failure does not
         // make every statement that mentions it fail too.
-        let value = eval(&tree, &names) or { e ->
+        let value = eval(&tree, &program, &names) or { e ->
             failures[e.code as usize] += 1
             checksum = checksum * 31 + e.code as u64
             1
         }
-        names.insert(name, value)
+        // A name defined again keeps its key; only a new one builds a `String`.
+        if let &mut v = names.get_mut_str(name) {
+            v = value
+        } else {
+            names.insert(String(name), value)
+        }
         checksum = checksum * 31 + value as u64
     }
     println!("{} bytes, {} tokens, {} names, {} unknown-name, {} divide-by-zero, {} syntax", program.len(), all.len, names.len(), failures[2], failures[3], failures[1])

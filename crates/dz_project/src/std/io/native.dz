@@ -8,7 +8,7 @@
 extern fn io_last_error() -> u32
 
 /// A handle, or 0.
-extern fn file_open(path: str, mode: u32) -> usize
+extern fn file_open(path: &str, mode: u32) -> usize
 
 extern fn file_close(handle: usize)
 
@@ -26,27 +26,27 @@ extern fn file_size(handle: usize) -> u64
 
 extern fn file_flush(handle: usize) -> bool
 
-extern fn file_remove(path: str) -> bool
+extern fn file_remove(path: &str) -> bool
 
-extern fn path_exists(path: str) -> bool
+extern fn path_exists(path: &str) -> bool
 
-extern fn path_is_file(path: str) -> bool
+extern fn path_is_file(path: &str) -> bool
 
-extern fn path_is_dir(path: str) -> bool
+extern fn path_is_dir(path: &str) -> bool
 
 /// Nanoseconds since the Unix epoch of the last write; 0, with the error set, on a failure.
-extern fn path_modified_nanos(path: str) -> u64
+extern fn path_modified_nanos(path: &str) -> u64
 
 /// One directory, not its parents; `false` when it already exists.
-extern fn dir_create(path: str) -> bool
+extern fn dir_create(path: &str) -> bool
 
-extern fn dir_remove(path: str) -> bool
+extern fn dir_remove(path: &str) -> bool
 
 /// A handle, or 0.
-extern fn dir_open(path: str) -> usize
+extern fn dir_open(path: &str) -> usize
 
 /// The next entry's name, without `.` and `..`; empty at the end. Valid until the next call
 /// on the same handle.
-extern fn dir_next(handle: usize) -> str
+extern fn dir_next(handle: usize) -> &str
 
 extern fn dir_close(handle: usize)

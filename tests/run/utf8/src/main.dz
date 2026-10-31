@@ -50,7 +50,7 @@ fn main() {
     let cut: [2]u8 = [0xE2, 0x9C]
     let valid = String::from_utf8(good[..]) or String("none")
     println!("from_utf8 {} {}", valid.as_str(), String::from_utf8(cut[..]) == none)
-    let broken = unsafe { cut[..] as str }
+    let broken = unsafe { cut[..] as &str }
     let mut replaced = String()
     for c in Chars(broken) {
         replaced.push(c)

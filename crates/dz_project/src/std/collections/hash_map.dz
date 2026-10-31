@@ -117,7 +117,7 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// The slot holding the key `same` says is `key`, whose hash is `h`: a lookup by
     /// something other than a `K`, such as a `str` for a `String` key.
-    pub(module) fn find_by<Q>(&self, key: &Q, h: u64, same: fn(&K, &Q) -> bool) -> usize? {
+    pub(module) fn find_by<view Q: Copy>(&self, key: Q, h: u64, same: fn(&K, Q) -> bool) -> usize? {
         if m_len == 0 {
             return none
         }
@@ -374,7 +374,7 @@ fn ask_entry<K, V>(keep: &fn(&K, &mut V) -> bool, key: &K, value: &mut V) -> boo
 }
 
 /// A key's hash, never zero: zero marks an empty slot.
-fn key_hash<K: Hash>(key: &K) -> u64 {
+fn key_hash<view K: Hash>(key: &K) -> u64 {
     let h = key.hash()
     if h == 0 {
         return 1

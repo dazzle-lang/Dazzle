@@ -15,7 +15,7 @@
 pub struct Path {
     m_text: String
 
-    Path(text: str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
+    Path(text: &str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
         let bytes = text as []u8
         let mut end = bytes.len
         while end > 1 && is_separator(bytes[end - 1]) && !(end == 3 && bytes[1] == ':' as u8) {
@@ -37,7 +37,7 @@ pub struct Path {
     }
 
     /// The text, borrowed.
-    pub fn as_str(&self) -> str {
+    pub fn as_str(&self) -> &str {
         return m_text.as_str()
     }
 
@@ -53,7 +53,7 @@ pub struct Path {
 
     /// `part` under this path. An absolute `part` replaces the path, as a shell would.
     /// Also written `path / part`.
-    pub fn join(&self, part: str) -> Path {
+    pub fn join(&self, part: &str) -> Path {
         let here = self.as_str()
         let other = Path(part)
         if here.len == 0 || other.is_absolute() {
@@ -71,7 +71,7 @@ pub struct Path {
     }
 
     /// The last part: `"hero.png"` of `"assets/hero.png"`; empty for a root.
-    pub fn file_name(&self) -> str {
+    pub fn file_name(&self) -> &str {
         let text = self.as_str()
         if let at = last_separator(text) {
             return sub(text, at + 1, text.len)
@@ -84,7 +84,7 @@ pub struct Path {
 
     /// After the last `.` of the file name: `"png"`. Empty when there is none, and for a
     /// name that only starts with one, such as `.gitignore`.
-    pub fn extension(&self) -> str {
+    pub fn extension(&self) -> &str {
         let name = self.file_name()
         if let at = last_dot(name) {
             return sub(name, at + 1, name.len)
@@ -93,7 +93,7 @@ pub struct Path {
     }
 
     /// The file name without its extension: `"hero"`.
-    pub fn stem(&self) -> str {
+    pub fn stem(&self) -> &str {
         let name = self.file_name()
         if let at = last_dot(name) {
             return sub(name, 0, at)
@@ -118,7 +118,7 @@ pub struct Path {
     }
 
     /// The same path with its extension replaced by `ext`, or removed when `ext` is empty.
-    pub fn with_extension(&self, ext: str) -> Path {
+    pub fn with_extension(&self, ext: &str) -> Path {
         let text = self.as_str()
         let name = self.file_name()
         let mut base = text
@@ -164,9 +164,9 @@ pub struct Path {
     }
 }
 
-impl Div<str> for Path {
+impl Div<&str> for Path {
     type Output = Path
-    fn div(&self, rhs: str) -> Path {
+    fn div(&self, rhs: &str) -> Path {
         return self.join(rhs)
     }
 }
@@ -202,17 +202,17 @@ fn is_separator(b: u8) -> bool {
     return b == '/' as u8 || b == '\\' as u8
 }
 
-fn ends_with_separator(s: str) -> bool {
+fn ends_with_separator(s: &str) -> bool {
     return s.len > 0 && (s as []u8)[s.len - 1] == '/' as u8
 }
 
 /// Bytes `from..to` of `s`. Only ever cut at an ASCII `/` or `.`, which never falls inside a
 /// UTF-8 sequence, so the result is still text.
-fn sub(s: str, from: usize, to: usize) -> str {
-    return unsafe { (s as []u8)[from..to] as str }
+fn sub(s: &str, from: usize, to: usize) -> &str {
+    return unsafe { (s as []u8)[from..to] as &str }
 }
 
-fn last_separator(s: str) -> usize? {
+fn last_separator(s: &str) -> usize? {
     let bytes = s as []u8
     let mut i = bytes.len
     while i > 0 {
@@ -225,7 +225,7 @@ fn last_separator(s: str) -> usize? {
 }
 
 /// The last `.` of a file name that has something before it.
-fn last_dot(name: str) -> usize? {
+fn last_dot(name: &str) -> usize? {
     let bytes = name as []u8
     let mut i = bytes.len
     while i > 1 {

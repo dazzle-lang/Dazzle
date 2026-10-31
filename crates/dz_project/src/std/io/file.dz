@@ -102,7 +102,7 @@ pub struct File {
         f.flush() or return
     }
 
-    pub fn write_text(path: &Path, text: str) !-> void {
+    pub fn write_text(path: &Path, text: &str) !-> void {
         File::write_bytes(path, text as []u8) or return
     }
 

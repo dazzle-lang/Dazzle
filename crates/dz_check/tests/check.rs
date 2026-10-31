@@ -318,7 +318,7 @@ fn switch_on_a_scalar_matches_constants() {
     // spec §10.3 — no exhaustiveness on an integer, but a label must be known while
     // compiling, and each value may be matched once.
     use dz_diag::codes::{BAD_CASE_LABEL, DUPLICATE_CASE, TYPE_MISMATCH};
-    let ok = "const N = 4\nfn f(n: i32, b: u8, s: str) {\n switch n {\n  case 1, N, N + 1 {}\n }\n switch b {\n  case 255 {}\n }\n switch s {\n  case \"a\" {}\n  default {}\n }\n}\n";
+    let ok = "const N = 4\nfn f(n: i32, b: u8, s: &str) {\n switch n {\n  case 1, N, N + 1 {}\n }\n switch b {\n  case 255 {}\n }\n switch s {\n  case \"a\" {}\n  default {}\n }\n}\n";
     assert!(snippet(ok).is_empty(), "{:?}", snippet(ok));
     let run_time = "fn f(n: i32, m: i32) {\n switch n {\n  case m {}\n }\n}\n";
     assert_eq!(snippet(run_time), vec![BAD_CASE_LABEL]);
@@ -448,9 +448,9 @@ fn a_string_literal_is_a_cstr_where_one_is_wanted() {
     // spec §5.3, §18.39 — a literal is zero-terminated static storage already.
     assert!(snippet("fn f(s: cstr) {\n}\nfn g() {\n f(\"x\")\n}\n").is_empty());
     assert!(snippet("fn g() {\n let c: cstr = \"x\"\n let d = \"y\" as cstr\n}\n").is_empty());
-    assert!(snippet("fn g(c: cstr) -> str {\n return c as str\n}\n").is_empty());
+    assert!(snippet("fn g(c: cstr) -> &str {\n return c as &str\n}\n").is_empty());
     // A runtime `str` has no terminating zero, so it needs a copy — not yet.
-    assert!(snippet("fn g(s: str) -> cstr {\n return s as cstr\n}\n")
+    assert!(snippet("fn g(s: &str) -> cstr {\n return s as cstr\n}\n")
         .contains(&dz_diag::codes::INVALID_CAST));
     // Without a `cstr` wanted, a literal is a `str` as before.
     assert!(snippet("fn f(s: cstr) {\n}\nfn g() {\n let s = \"x\"\n f(s)\n}\n")
@@ -629,9 +629,9 @@ fn comparing_a_struct_needs_eq() {
 #[test]
 fn an_impl_belongs_with_its_trait_or_its_type() {
     let own_trait = snippet(
-        "trait Named {\n fn name(&self) -> const str\n}\n\
-         impl Named for f32 {\n fn name(&self) -> const str {\n  return \"f32\"\n }\n}\n\
-         fn f(x: f32) -> const str {\n return x.name()\n}\n",
+        "trait Named {\n fn name(&self) -> const &str\n}\n\
+         impl Named for f32 {\n fn name(&self) -> const &str {\n  return \"f32\"\n }\n}\n\
+         fn f(x: f32) -> const &str {\n return x.name()\n}\n",
     );
     assert!(own_trait.is_empty(), "a module's own trait for `f32`, got {own_trait:?}");
     let neither = snippet(

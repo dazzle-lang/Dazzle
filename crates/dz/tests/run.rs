@@ -266,7 +266,7 @@ fn formatting_dispatches_statically_and_keeps_temporaries() {
     let dir = scratch(
         "dz_static_format",
         "[module]\nname = \"statics\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
-        "struct Loud {\n    pub label: String\n\n    pub fn text(&self) -> str {\n        return self.label.as_str()\n    }\n}\n\nimpl Drop for Loud {\n    fn drop(&mut self) {\n        println!(\"drop {}\", self.label)\n    }\n}\n\nfn make(s: str) -> Loud {\n    return Loud{ label: String(s) }\n}\n\nfn main() {\n    let n = 7\n    let p: ^i32 = &n\n    println!(\"{} {} {}\", make(\"a\").text(), make(\"b\").text(), p)\n}\n",
+        "struct Loud {\n    pub label: String\n\n    pub fn text(&self) -> &str {\n        return self.label.as_str()\n    }\n}\n\nimpl Drop for Loud {\n    fn drop(&mut self) {\n        println!(\"drop {}\", self.label)\n    }\n}\n\nfn make(s: &str) -> Loud {\n    return Loud{ label: String(s) }\n}\n\nfn main() {\n    let n = 7\n    let p: ^i32 = &n\n    println!(\"{} {} {}\", make(\"a\").text(), make(\"b\").text(), p)\n}\n",
     );
     let out =
         Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().expect("failed to run dz");

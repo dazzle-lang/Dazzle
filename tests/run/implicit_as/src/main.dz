@@ -4,7 +4,7 @@
 
 /// Takes a C string, as an imported C function does.
 fn c_len(s: cstr) -> usize {
-    return (s as str).len
+    return (s as &str).len
 }
 
 pub struct Meters {

@@ -166,9 +166,9 @@ impl Iterate for Countdown {
 
 // §7.6: a default method, inherited by a type that does not write it.
 trait Describe {
-    fn name(&self) -> str
+    fn name(&self) -> &str
 
-    fn shout(&self) -> str {
+    fn shout(&self) -> &str {
         return self.name()
     }
 }
@@ -178,7 +178,7 @@ struct Crate {
 }
 
 impl Describe for Crate {
-    fn name(&self) -> str {
+    fn name(&self) -> &str {
         return "crate"
     }
 }
@@ -232,11 +232,11 @@ fn weigh_both<T: Weigh<f32> + Weigh<i32>>(a: &T) -> f32 {
 // §7.6: an implementation for a type the program did not write — here `i32`, which has no
 // members of its own — adds behaviour without touching it.
 trait Describe2 {
-    fn label(&self) -> str
+    fn label(&self) -> &str
 }
 
 impl Describe2 for i32 {
-    fn label(&self) -> str {
+    fn label(&self) -> &str {
         return "an i32"
     }
 }
@@ -248,7 +248,7 @@ struct Boxed<T> {
 }
 
 impl<T: Describe2> Describe2 for Boxed<T> {
-    fn label(&self) -> str {
+    fn label(&self) -> &str {
         return inner.label()
     }
 }

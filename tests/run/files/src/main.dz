@@ -81,7 +81,7 @@ fn disk(root: &Path) !-> void {
     File::write_text(&log_path, "changed") or return
     let after = log_path.modified() or return
     println!("modified is recent {} and not earlier {}", before.as_secs() > 1_700_000_000, after >= before)
-    println!("as_cstr length {}", (log_path.as_cstr() as str).len == log_path.as_str().len)
+    println!("as_cstr length {}", (log_path.as_cstr() as &str).len == log_path.as_str().len)
 
     File::remove(&text_path) or return
     File::remove(&bin_path) or return

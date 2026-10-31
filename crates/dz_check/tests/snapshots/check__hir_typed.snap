@@ -37,8 +37,8 @@ body impl#0 method insert_slice -> void
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _5 fmt·: Formatter
-                  str "List::insert_slice at ": str
-                  str "": str
+                  str "List::insert_slice at ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -46,8 +46,8 @@ body impl#0 method insert_slice -> void
                     local _5 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _5 fmt·: Formatter
-                  str " past the length ": str
-                  str "": str
+                  str " past the length ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _4 arg·: &usize
@@ -55,9 +55,9 @@ body impl#0 method insert_slice -> void
                     local _5 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _5 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _5 fmt·: Formatter
     if: void
       binary ==: bool
@@ -411,9 +411,9 @@ body method HashMap::retain -> void
       fn-item ask_entry<K, V>: fn(&fn(&K, &mut V) -> bool, &K, &mut V) -> bool
 body method HashMap::find_by -> usize?
   param _0 self: HashMap<K, V>
-  param _1 key: &Q
+  param _1 key: Q
   param _2 h: u64
-  param _3 same: fn(&K, &Q) -> bool
+  param _3 same: fn(&K, Q) -> bool
   block
     if: void
       binary ==: bool
@@ -457,7 +457,7 @@ body method HashMap::find_by -> usize?
               local _6 stored: u64
               local _2 h: u64
             call-value: bool
-              local _3 same: fn(&K, &Q) -> bool
+              local _3 same: fn(&K, Q) -> bool
               block-value: &K
                 block
                   ref: &K
@@ -465,7 +465,7 @@ body method HashMap::find_by -> usize?
                       field #1: own ^mut K
                         local _0 self: HashMap<K, V>
                       local _5 i: usize
-              local _1 key: &Q
+              local _1 key: Q
           block
             return: !
               local _5 i: usize
@@ -730,8 +730,8 @@ body method HashMap::checked_slot -> u64
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str "slot ": str
-                  str "": str
+                  str "slot ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _2 arg·: &usize
@@ -739,8 +739,8 @@ body method HashMap::checked_slot -> u64
                     local _4 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str " is out of bounds for a HashMap of ": str
-                  str "": str
+                  str " is out of bounds for a HashMap of ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -748,9 +748,9 @@ body method HashMap::checked_slot -> u64
                     local _4 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _4 fmt·: Formatter
-                  str " slots": str
+                  str " slots": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _4 fmt·: Formatter
     return: !
       block-value: u64
@@ -1072,7 +1072,7 @@ body method HashMap::grow_to -> void
         field #5: ^mut Allocator
           local _0 self: HashMap<K, V>
         builtin panic: !
-          str "a HashMap with no allocator cannot grow": str
+          str "a HashMap with no allocator cannot grow": &str
     let _5 old_hashes: ^mut u64
       block-value: ^mut u64
         block
@@ -1358,7 +1358,7 @@ body copy HashMap -> void
         field #5: ^mut Allocator
           local _0 self: HashMap<K, V>
         builtin panic: !
-          str "a HashMap with no allocator cannot be copied": str
+          str "a HashMap with no allocator cannot be copied": &str
     assign =
       field #4: usize
         local _0 self: HashMap<K, V>
@@ -1917,7 +1917,7 @@ body impl#13 method format -> void
       block
         call-method Formatter::write_str: void
           local _1 f: &mut Formatter
-          str "null": str
+          str "null": &str
         return: !
     call-method Format::format: void
       field #0: u32
@@ -2171,8 +2171,8 @@ body method List::insert -> void
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str "List::insert at ": str
-                  str "": str
+                  str "List::insert at ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _4 arg·: &usize
@@ -2180,8 +2180,8 @@ body method List::insert -> void
                     local _6 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str " past the length ": str
-                  str "": str
+                  str " past the length ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _5 arg·: &usize
@@ -2189,9 +2189,9 @@ body method List::insert -> void
                     local _6 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _6 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _6 fmt·: Formatter
     if: void
       binary ==: bool
@@ -2249,8 +2249,8 @@ body method List::remove -> T
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str "List::remove at ": str
-                  str "": str
+                  str "List::remove at ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _2 arg·: &usize
@@ -2258,8 +2258,8 @@ body method List::remove -> T
                     local _4 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str " for a length of ": str
-                  str "": str
+                  str " for a length of ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -2267,9 +2267,9 @@ body method List::remove -> T
                     local _4 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _4 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _4 fmt·: Formatter
     let _5 v: T
       block-value: T
@@ -2325,8 +2325,8 @@ body method List::remove_range -> void
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str "List::remove_range of ": str
-                  str "": str
+                  str "List::remove_range of ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -2334,8 +2334,8 @@ body method List::remove_range -> void
                     local _6 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str "..": str
-                  str "": str
+                  str "..": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _4 arg·: &usize
@@ -2343,8 +2343,8 @@ body method List::remove_range -> void
                     local _6 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str " for a length of ": str
-                  str "": str
+                  str " for a length of ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _5 arg·: &usize
@@ -2352,9 +2352,9 @@ body method List::remove_range -> void
                     local _6 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _6 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _6 fmt·: Formatter
     if: void
       binary ==: bool
@@ -2705,8 +2705,8 @@ body method List::swap_remove -> T
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str "List::swap_remove at ": str
-                  str "": str
+                  str "List::swap_remove at ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _2 arg·: &usize
@@ -2714,8 +2714,8 @@ body method List::swap_remove -> T
                     local _4 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str " for a length of ": str
-                  str "": str
+                  str " for a length of ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -2723,9 +2723,9 @@ body method List::swap_remove -> T
                     local _4 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _4 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _4 fmt·: Formatter
     let _5 v: T
       block-value: T
@@ -2795,8 +2795,8 @@ body method List::swap -> void
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str "List::swap of ": str
-                  str "": str
+                  str "List::swap of ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -2804,8 +2804,8 @@ body method List::swap -> void
                     local _6 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str " and ": str
-                  str "": str
+                  str " and ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _4 arg·: &usize
@@ -2813,8 +2813,8 @@ body method List::swap -> void
                     local _6 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str " for a length of ": str
-                  str "": str
+                  str " for a length of ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _5 arg·: &usize
@@ -2822,9 +2822,9 @@ body method List::swap -> void
                     local _6 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _6 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _6 fmt·: Formatter
     if: void
       binary ==: bool
@@ -3112,7 +3112,7 @@ body method List::move_to -> void
         field #3: ^mut Allocator
           local _0 self: List<T>
         builtin panic: !
-          str "a List with no allocator cannot grow": str
+          str "a List with no allocator cannot grow": &str
     if: void
       binary ==: bool
         local _1 cap: usize
@@ -3292,7 +3292,7 @@ body copy List -> void
         field #3: ^mut Allocator
           local _0 self: List<T>
         builtin panic: !
-          str "a List with no allocator cannot be copied": str
+          str "a List with no allocator cannot be copied": &str
     assign =
       field #0: own ^mut T
         local _0 self: List<T>
@@ -3422,8 +3422,8 @@ body impl#18 method index -> &T
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str "index ": str
-                  str "": str
+                  str "index ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _2 arg·: &usize
@@ -3431,8 +3431,8 @@ body impl#18 method index -> &T
                     local _4 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str " is out of bounds for a List of length ": str
-                  str "": str
+                  str " is out of bounds for a List of length ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -3440,9 +3440,9 @@ body impl#18 method index -> &T
                     local _4 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _4 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _4 fmt·: Formatter
     return: !
       block-value: &T
@@ -3491,8 +3491,8 @@ body impl#21 method index_mut -> &mut T
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str "index ": str
-                  str "": str
+                  str "index ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _2 arg·: &usize
@@ -3500,8 +3500,8 @@ body impl#21 method index_mut -> &mut T
                     local _4 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _4 fmt·: Formatter
-                  str " is out of bounds for a List of length ": str
-                  str "": str
+                  str " is out of bounds for a List of length ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -3509,9 +3509,9 @@ body impl#21 method index_mut -> &mut T
                     local _4 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _4 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _4 fmt·: Formatter
     return: !
       block-value: &mut T
@@ -3683,8 +3683,8 @@ body method SlotMap::insert -> Key<T>
                       call-assoc Formatter::message: Formatter
                     call-method Formatter::begin_arg: void
                       local _6 fmt·: Formatter
-                      str "a SlotMap cannot hold more than ": str
-                      str "": str
+                      str "a SlotMap cannot hold more than ": &str
+                      str "": &str
                     call-method Format::format: void
                       deref: u32
                         local _5 arg·: &u32
@@ -3692,9 +3692,9 @@ body method SlotMap::insert -> Key<T>
                         local _6 fmt·: Formatter
                     call-method Formatter::finish: void
                       local _6 fmt·: Formatter
-                      str " slots": str
+                      str " slots": &str
                     builtin panic: !
-                      call-method Formatter::message_text: str
+                      call-method Formatter::message_text: &str
                         local _6 fmt·: Formatter
         assign =
           local _4 slot: u32
@@ -4267,17 +4267,16 @@ body impl#29 method advance -> void
       int 1: usize
 body impl#30 method get_str -> ^V
   param _0 self: HashMap<String, V>
-  param _1 key: str
+  param _1 key: &str
   block
     let _2 slot: usize
       or: usize
-        call-method HashMap::find_by<str>: usize?
+        call-method HashMap::find_by<&str>: usize?
           local _0 self: HashMap<String, V>
-          ref: &str
-            local _1 key: str
+          local _1 key: &str
           call key_hash: u64
-            ref: &str
-              local _1 key: str
+            ref: &&str
+              local _1 key: &str
           fn-item string_is: fn(&String, &str) -> bool
         return: !
           null: ^V
@@ -4291,17 +4290,16 @@ body impl#30 method get_str -> ^V
               local _2 slot: usize
 body impl#30 method get_mut_str -> ^mut V
   param _0 self: HashMap<String, V>
-  param _1 key: str
+  param _1 key: &str
   block
     let _2 slot: usize
       or: usize
-        call-method HashMap::find_by<str>: usize?
+        call-method HashMap::find_by<&str>: usize?
           local _0 self: HashMap<String, V>
-          ref: &str
-            local _1 key: str
+          local _1 key: &str
           call key_hash: u64
-            ref: &str
-              local _1 key: str
+            ref: &&str
+              local _1 key: &str
           fn-item string_is: fn(&String, &str) -> bool
         return: !
           null: ^mut V
@@ -4315,32 +4313,30 @@ body impl#30 method get_mut_str -> ^mut V
               local _2 slot: usize
 body impl#30 method contains_str -> bool
   param _0 self: HashMap<String, V>
-  param _1 key: str
+  param _1 key: &str
   block
     return: !
       binary !=: bool
-        call-method HashMap::find_by<str>: usize?
+        call-method HashMap::find_by<&str>: usize?
           local _0 self: HashMap<String, V>
-          ref: &str
-            local _1 key: str
+          local _1 key: &str
           call key_hash: u64
-            ref: &str
-              local _1 key: str
+            ref: &&str
+              local _1 key: &str
           fn-item string_is: fn(&String, &str) -> bool
         none: usize?
 body impl#30 method remove_str -> V?
   param _0 self: HashMap<String, V>
-  param _1 key: str
+  param _1 key: &str
   block
     let _2 slot: usize
       or: usize
-        call-method HashMap::find_by<str>: usize?
+        call-method HashMap::find_by<&str>: usize?
           local _0 self: HashMap<String, V>
-          ref: &str
-            local _1 key: str
+          local _1 key: &str
           call key_hash: u64
-            ref: &str
-              local _1 key: str
+            ref: &&str
+              local _1 key: &str
           fn-item string_is: fn(&String, &str) -> bool
         return: !
           none: V?
@@ -4354,33 +4350,32 @@ body fn string_is -> bool
   block
     return: !
       binary ==: bool
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _0 k: &String
-        deref: str
-          local _1 s: &str
+        local _1 s: &str
 body impl#31 method contains_str -> bool
   param _0 self: HashSet<String>
-  param _1 v: str
+  param _1 v: &str
   block
     return: !
       call-method StrKeys::contains_str: bool
         field #0: HashMap<String, bool>
           local _0 self: HashSet<String>
-        local _1 v: str
+        local _1 v: &str
 body impl#31 method remove_str -> bool
   param _0 self: HashSet<String>
-  param _1 v: str
+  param _1 v: &str
   block
     return: !
       binary !=: bool
         call-method StrKeys::remove_str: bool?
           field #0: HashMap<String, bool>
             local _0 self: HashSet<String>
-          local _1 v: str
+          local _1 v: &str
         none: bool?
 body fn assert -> void
   param _0 cond: bool
-  param _1 msg: str
+  param _1 msg: &str
   param _2 loc: SourceLocation
   block
     if: void
@@ -4390,18 +4385,18 @@ body fn assert -> void
     if: void
       binary ==: bool
         len: usize
-          local _1 msg: str
+          local _1 msg: &str
         int 0: usize
       block
         builtin panic: !
-          str "assertion failed": str
+          str "assertion failed": &str
           local _2 loc: SourceLocation
     block-value: !
       block
         formatted: !
           bind _3 arg·
-            ref: &str
-              local _1 msg: str
+            ref: &&str
+              local _1 msg: &str
           bind _4 arg·
             local _2 loc: SourceLocation
           block
@@ -4409,18 +4404,18 @@ body fn assert -> void
               call-assoc Formatter::message: Formatter
             call-method Formatter::begin_arg: void
               local _5 fmt·: Formatter
-              str "assertion failed: ": str
-              str "": str
+              str "assertion failed: ": &str
+              str "": &str
             call-method Format::format: void
-              deref: str
-                local _3 arg·: &str
+              deref: &str
+                local _3 arg·: &&str
               ref mut: &mut Formatter
                 local _5 fmt·: Formatter
             call-method Formatter::finish: void
               local _5 fmt·: Formatter
-              str "": str
+              str "": &str
             builtin panic: !
-              call-method Formatter::message_text: str
+              call-method Formatter::message_text: &str
                 local _5 fmt·: Formatter
               local _4 arg·: SourceLocation
 body impl#32 method format -> void
@@ -4539,14 +4534,14 @@ body impl#44 method format -> void
   block
     call-method Formatter::write_str: void
       local _1 f: &mut Formatter
-      if: str
+      if: &str
         local _0 self: bool
         block
-          str "true": str
+          str "true": &str
         block
-          block-value: str
+          block-value: &str
             block
-              str "false": str
+              str "false": &str
 body impl#45 method format -> void
   param _0 self: char
   param _1 f: &mut Formatter
@@ -4555,19 +4550,19 @@ body impl#45 method format -> void
       local _1 f: &mut Formatter
       local _0 self: char
 body impl#46 method format -> void
-  param _0 self: str
+  param _0 self: &str
   param _1 f: &mut Formatter
   block
     call-method Formatter::write_str: void
       local _1 f: &mut Formatter
-      local _0 self: str
+      local _0 self: &str
 body impl#47 method format -> void
   param _0 self: cstr
   param _1 f: &mut Formatter
   block
     call-method Formatter::write_str: void
       local _1 f: &mut Formatter
-      call cstr_text: str
+      call cstr_text: &str
         local _0 self: cstr
 body fn write_signed -> void
   param _0 f: &mut Formatter
@@ -4704,9 +4699,9 @@ body fn write_digits -> void
             char '-': char
     call-method Formatter::write_number: void
       local _0 f: &mut Formatter
-      block-value: str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []mut u8
               local _4 buf: [21]u8
               local _5 at: usize
@@ -4740,9 +4735,9 @@ body fn write_float -> void
           int 64: usize
     call-method Formatter::write_number: void
       local _0 f: &mut Formatter
-      block-value: str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []mut u8
               local _2 buf: [64]u8
               int 0: usize
@@ -4753,7 +4748,7 @@ body fn format_float -> usize
   param _2 out: []mut u8
   block
     (empty)
-body fn cstr_text -> str
+body fn cstr_text -> &str
   param _0 s: cstr
   block
     (empty)
@@ -4831,7 +4826,7 @@ body method Formatter::stream -> Formatter
         local _1 f: Formatter
 body method Formatter::write_str -> void
   param _0 self: Formatter
-  param _1 s: str
+  param _1 s: &str
   block
     if: void
       field #10: bool
@@ -4855,16 +4850,16 @@ body method Formatter::write_str -> void
               int 0: usize
             call-method Formatter::write_str: void
               local _0 self: Formatter
-              block-value: str
+              block-value: &str
                 block
-                  cast: str
+                  cast: &str
                     slice: []u8
                       local _2 held: [64]u8
                       int 0: usize
                       local _3 n: usize
         let _4 bytes: []u8
           cast: []u8
-            local _1 s: str
+            local _1 s: &str
         for _5 b
           local _4 bytes: []u8
           block
@@ -4891,7 +4886,7 @@ body method Formatter::write_str -> void
             call-method String::push_str: void
               field #0: ^mut String
                 local _0 self: Formatter
-              local _1 s: str
+              local _1 s: &str
               field #4: SourceLocation
                 local _0 self: Formatter
         return: !
@@ -4903,7 +4898,7 @@ body method Formatter::write_str -> void
       block
         call-method Formatter::keep: void
           local _0 self: Formatter
-          local _1 s: str
+          local _1 s: &str
         return: !
     if: void
       binary >: bool
@@ -4911,7 +4906,7 @@ body method Formatter::write_str -> void
           field #3: usize
             local _0 self: Formatter
           len: usize
-            local _1 s: str
+            local _1 s: &str
         int 512: usize
       block
         call-method Formatter::flush: void
@@ -4919,17 +4914,17 @@ body method Formatter::write_str -> void
     if: void
       binary >: bool
         len: usize
-          local _1 s: str
+          local _1 s: &str
         int 512: usize
       block
         call stream_write: void
           field #1: i32
             local _0 self: Formatter
-          local _1 s: str
+          local _1 s: &str
         return: !
     let _6 bytes: []u8
       cast: []u8
-        local _1 s: str
+        local _1 s: &str
     for _7 i
       range: usize..usize
         int 0: i32
@@ -4969,24 +4964,24 @@ body method Formatter::write_char -> void
           local _2 encoded: [4]u8
     call-method Formatter::write_str: void
       local _0 self: Formatter
-      block-value: str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []mut u8
               local _2 encoded: [4]u8
               int 0: usize
               local _3 n: usize
 body method Formatter::begin_arg -> void
   param _0 self: Formatter
-  param _1 piece: str
-  param _2 spec: str
+  param _1 piece: &str
+  param _2 spec: &str
   block
     call-method Formatter::write_str: void
       local _0 self: Formatter
-      local _1 piece: str
+      local _1 piece: &str
     call-method Formatter::set_spec: void
       local _0 self: Formatter
-      local _2 spec: str
+      local _2 spec: &str
     if: void
       binary !=: bool
         field #8: u32?
@@ -5015,14 +5010,14 @@ body method Formatter::end_arg -> void
             local _1 width: u32
 body method Formatter::finish -> void
   param _0 self: Formatter
-  param _1 piece: str
+  param _1 piece: &str
   block
     call-method Formatter::set_spec: void
       local _0 self: Formatter
-      str "": str
+      str "": &str
     call-method Formatter::write_str: void
       local _0 self: Formatter
-      local _1 piece: str
+      local _1 piece: &str
     call-method Formatter::flush: void
       local _0 self: Formatter
 body method Formatter::write_pointee -> void
@@ -5036,7 +5031,7 @@ body method Formatter::write_pointee -> void
       block
         call-method Formatter::write_str: void
           local _0 self: Formatter
-          str "null": str
+          str "null": &str
         return: !
     block-value: void
       block
@@ -5119,16 +5114,16 @@ body method Formatter::write_address -> void
         char 'x': char
     call-method Formatter::write_number: void
       local _0 self: Formatter
-      block-value: str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []mut u8
               local _2 buf: [18]u8
               local _3 at: usize
               int 18: usize
 body method Formatter::write_number -> void
   param _0 self: Formatter
-  param _1 text: str
+  param _1 text: &str
   block
     if: void
       binary &&: bool
@@ -5146,12 +5141,12 @@ body method Formatter::write_number -> void
             int 0: usize
         binary <=: bool
           len: usize
-            local _1 text: str
+            local _1 text: &str
           int 64: usize
       block
         let _2 bytes: []u8
           cast: []u8
-            local _1 text: str
+            local _1 text: &str
         for _3 i
           range: usize..usize
             int 0: i32
@@ -5174,7 +5169,7 @@ body method Formatter::write_number -> void
         return: !
     call-method Formatter::write_str: void
       local _0 self: Formatter
-      local _1 text: str
+      local _1 text: &str
 body method Formatter::end_padded -> void
   param _0 self: Formatter
   param _1 width: usize
@@ -5213,10 +5208,10 @@ body method Formatter::end_padded -> void
       field #13: usize
         local _0 self: Formatter
       int 0: usize
-    let _4 text: str
-      block-value: str
+    let _4 text: &str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []u8
               local _2 held: [64]u8
               int 0: usize
@@ -5228,7 +5223,7 @@ body method Formatter::end_padded -> void
       block
         call-method Formatter::write_str: void
           local _0 self: Formatter
-          local _4 text: str
+          local _4 text: &str
         return: !
     let _5 sign: usize
       if: usize
@@ -5274,8 +5269,8 @@ body method Formatter::end_padded -> void
       block
         call-method Formatter::write_str: void
           local _0 self: Formatter
-          call sub: str
-            local _4 text: str
+          call sub: &str
+            local _4 text: &str
             int 0: usize
             local _5 sign: usize
         call-method Formatter::write_fill: void
@@ -5286,8 +5281,8 @@ body method Formatter::end_padded -> void
             local _3 n: usize
         call-method Formatter::write_str: void
           local _0 self: Formatter
-          call sub: str
-            local _4 text: str
+          call sub: &str
+            local _4 text: &str
             local _5 sign: usize
             local _3 n: usize
       block
@@ -5301,7 +5296,7 @@ body method Formatter::end_padded -> void
                 local _3 n: usize
             call-method Formatter::write_str: void
               local _0 self: Formatter
-              local _4 text: str
+              local _4 text: &str
 body method Formatter::write_fill -> void
   param _0 self: Formatter
   param _1 c: char
@@ -5332,9 +5327,9 @@ body method Formatter::flush -> void
         call stream_write: void
           field #1: i32
             local _0 self: Formatter
-          block-value: str
+          block-value: &str
             block
-              cast: str
+              cast: &str
                 slice: []mut u8
                   field #2: [512]u8
                     local _0 self: Formatter
@@ -5350,13 +5345,13 @@ body method Formatter::message -> Formatter
     return: !
       call-assoc Formatter::stream: Formatter
         int 2: i32
-body method Formatter::message_text -> str
+body method Formatter::message_text -> &str
   param _0 self: Formatter
   block
     return: !
-      block-value: str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []u8
               field #2: [512]u8
                 local _0 self: Formatter
@@ -5365,11 +5360,11 @@ body method Formatter::message_text -> str
                 local _0 self: Formatter
 body method Formatter::keep -> void
   param _0 self: Formatter
-  param _1 s: str
+  param _1 s: &str
   block
     let _2 bytes: []u8
       cast: []u8
-        local _1 s: str
+        local _1 s: &str
     let _3 n: usize
       len: usize
         local _2 bytes: []u8
@@ -5463,7 +5458,7 @@ body method Formatter::fill -> char
               char ' ': char
 body method Formatter::set_spec -> void
   param _0 self: Formatter
-  param _1 spec: str
+  param _1 spec: &str
   block
     assign =
       field #8: u32?
@@ -5475,7 +5470,7 @@ body method Formatter::set_spec -> void
       bool false: bool
     let _2 bytes: []u8
       cast: []u8
-        local _1 spec: str
+        local _1 spec: &str
     let _3 at: usize
       int 0: usize
     if: void
@@ -5530,8 +5525,8 @@ body method Formatter::set_spec -> void
       block
         if-let: void
           call-method Text::parse_u64: u64?
-            call sub: str
-              local _1 spec: str
+            call sub: &str
+              local _1 spec: &str
               local _4 start: usize
               local _3 at: usize
           bind _5 n
@@ -5541,28 +5536,28 @@ body method Formatter::set_spec -> void
                 local _0 self: Formatter
               cast: u32
                 local _5 n: u64
-    let _6 rest: str
-      call sub: str
-        local _1 spec: str
+    let _6 rest: &str
+      call sub: &str
+        local _1 spec: &str
         local _3 at: usize
         len: usize
-          local _1 spec: str
+          local _1 spec: &str
     assign =
       field #5: bool
         local _0 self: Formatter
       binary ||: bool
         binary ==: bool
-          local _6 rest: str
-          str "x": str
+          local _6 rest: &str
+          str "x": &str
         binary ==: bool
-          local _6 rest: str
-          str "X": str
+          local _6 rest: &str
+          str "X": &str
     assign =
       field #6: bool
         local _0 self: Formatter
       binary ==: bool
-        local _6 rest: str
-        str "X": str
+        local _6 rest: &str
+        str "X": &str
     assign =
       field #7: u32?
         local _0 self: Formatter
@@ -5571,19 +5566,19 @@ body method Formatter::set_spec -> void
       binary &&: bool
         binary >: bool
           len: usize
-            local _6 rest: str
+            local _6 rest: &str
           int 1: usize
         call-method Text::starts_with: bool
-          local _6 rest: str
-          str ".": str
+          local _6 rest: &str
+          str ".": &str
       block
         if-let: void
           call-method Text::parse_u64: u64?
-            call sub: str
-              local _6 rest: str
+            call sub: &str
+              local _6 rest: &str
               int 1: usize
               len: usize
-                local _6 rest: str
+                local _6 rest: &str
           bind _7 n
           block
             assign =
@@ -5598,7 +5593,7 @@ body drop Formatter -> void
       local _0 self: Formatter
 body fn stream_write -> void
   param _0 which: i32
-  param _1 text: str
+  param _1 text: &str
   block
     (empty)
 body fn hash_combine -> u64
@@ -5655,7 +5650,7 @@ body method Directory::create !-> void
       binary &&: bool
         unary !: bool
           call dir_create: bool
-            call-method Path::as_str: str
+            call-method Path::as_str: &str
               local _0 path: &Path
         unary !: bool
           call-method Path::is_dir: bool
@@ -5664,8 +5659,8 @@ body method Directory::create !-> void
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot create the directory {}": str
-            call-method Path::as_str: str
+            str "cannot create the directory {}": &str
+            call-method Path::as_str: &str
               local _0 path: &Path
 body method Directory::remove !-> void
   param _0 path: &Path
@@ -5673,21 +5668,21 @@ body method Directory::remove !-> void
     if: void
       unary !: bool
         call dir_remove: bool
-          call-method Path::as_str: str
+          call-method Path::as_str: &str
             local _0 path: &Path
       block
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot remove the directory {}": str
-            call-method Path::as_str: str
+            str "cannot remove the directory {}": &str
+            call-method Path::as_str: &str
               local _0 path: &Path
 body method Directory::list !-> List<Path>
   param _0 path: &Path
   block
     let _1 handle: usize
       call dir_open: usize
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _0 path: &Path
     if: void
       binary ==: bool
@@ -5697,21 +5692,21 @@ body method Directory::list !-> List<Path>
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot list the directory {}": str
-            call-method Path::as_str: str
+            str "cannot list the directory {}": &str
+            call-method Path::as_str: &str
               local _0 path: &Path
     let _2 entries: List<Path>
       call-ctor List#0: List<Path>
     while
       bool true: bool
       block
-        let _3 name: str
-          call dir_next: str
+        let _3 name: &str
+          call dir_next: &str
             local _1 handle: usize
         if: void
           binary ==: bool
             len: usize
-              local _3 name: str
+              local _3 name: &str
             int 0: usize
           block
             break: !
@@ -5719,7 +5714,7 @@ body method Directory::list !-> List<Path>
           local _2 entries: List<Path>
           call-method Path::join: Path
             local _0 path: &Path
-            local _3 name: str
+            local _3 name: &str
     call dir_close: void
       local _1 handle: usize
     call-method Sort::sort: void
@@ -5736,7 +5731,7 @@ body method File::open !-> File
   block
     let _2 handle: usize
       call file_open: usize
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _0 path: &Path
         cast: u32
           local _1 mode: FileMode
@@ -5748,8 +5743,8 @@ body method File::open !-> File
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot open {}": str
-            call-method Path::as_str: str
+            str "cannot open {}": &str
+            call-method Path::as_str: &str
               local _0 path: &Path
     return: !
       struct-lit File: File
@@ -5777,7 +5772,7 @@ body method File::read !-> usize
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot read from the file": str
+            str "cannot read from the file": &str
     return: !
       local _2 n: usize
 body method File::write !-> void
@@ -5796,7 +5791,7 @@ body method File::write !-> void
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot write to the file": str
+            str "cannot write to the file": &str
 body method File::seek !-> void
   param _0 self: File
   param _1 position: u64
@@ -5811,7 +5806,7 @@ body method File::seek !-> void
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot seek in the file": str
+            str "cannot seek in the file": &str
 body method File::position !-> u64
   param _0 self: File
   block
@@ -5827,7 +5822,7 @@ body method File::position !-> u64
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot tell the position in the file": str
+            str "cannot tell the position in the file": &str
     return: !
       local _1 at: u64
 body method File::size !-> u64
@@ -5845,7 +5840,7 @@ body method File::size !-> u64
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot tell the size of the file": str
+            str "cannot tell the size of the file": &str
     return: !
       local _1 n: u64
 body method File::flush !-> void
@@ -5860,7 +5855,7 @@ body method File::flush !-> void
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot flush the file": str
+            str "cannot flush the file": &str
 body method File::read_bytes !-> List<u8>
   param _0 path: &Path
   block
@@ -5923,9 +5918,9 @@ body method File::read_text !-> String
         call-assoc File::read_bytes: !-> List<u8>
           local _0 path: &Path
         return: !
-    let _2 text: str
-      or: str
-        builtin str_from_utf8: str?
+    let _2 text: &str
+      or: &str
+        builtin str_from_utf8: ^str
           call-method List::as_slice: []u8
             local _1 bytes: List<u8>
         clause _
@@ -5933,12 +5928,12 @@ body method File::read_text !-> String
             return: !
               builtin error: !-> !
                 enum-variant IoError#3: IoError
-                str "{} is not UTF-8 text": str
-                call-method Path::as_str: str
+                str "{} is not UTF-8 text": &str
+                call-method Path::as_str: &str
                   local _0 path: &Path
     return: !
       call-assoc String::from: String
-        local _2 text: str
+        local _2 text: &str
 body method File::write_bytes !-> void
   param _0 path: &Path
   param _1 data: []u8
@@ -5960,13 +5955,13 @@ body method File::write_bytes !-> void
       return: !
 body method File::write_text !-> void
   param _0 path: &Path
-  param _1 text: str
+  param _1 text: &str
   block
     or: void
       call-assoc File::write_bytes: !-> void
         local _0 path: &Path
         cast: []u8
-          local _1 text: str
+          local _1 text: &str
       return: !
 body method File::remove !-> void
   param _0 path: &Path
@@ -5974,14 +5969,14 @@ body method File::remove !-> void
     if: void
       unary !: bool
         call file_remove: bool
-          call-method Path::as_str: str
+          call-method Path::as_str: &str
             local _0 path: &Path
       block
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot remove {}": str
-            call-method Path::as_str: str
+            str "cannot remove {}": &str
+            call-method Path::as_str: &str
               local _0 path: &Path
 body drop File -> void
   param _0 self: File
@@ -5999,7 +5994,7 @@ body fn io_last_error -> u32
   block
     (empty)
 body fn file_open -> usize
-  param _0 path: str
+  param _0 path: &str
   param _1 mode: u32
   block
     (empty)
@@ -6035,38 +6030,38 @@ body fn file_flush -> bool
   block
     (empty)
 body fn file_remove -> bool
-  param _0 path: str
+  param _0 path: &str
   block
     (empty)
 body fn path_exists -> bool
-  param _0 path: str
+  param _0 path: &str
   block
     (empty)
 body fn path_is_file -> bool
-  param _0 path: str
+  param _0 path: &str
   block
     (empty)
 body fn path_is_dir -> bool
-  param _0 path: str
+  param _0 path: &str
   block
     (empty)
 body fn path_modified_nanos -> u64
-  param _0 path: str
+  param _0 path: &str
   block
     (empty)
 body fn dir_create -> bool
-  param _0 path: str
+  param _0 path: &str
   block
     (empty)
 body fn dir_remove -> bool
-  param _0 path: str
+  param _0 path: &str
   block
     (empty)
 body fn dir_open -> usize
-  param _0 path: str
+  param _0 path: &str
   block
     (empty)
-body fn dir_next -> str
+body fn dir_next -> &str
   param _0 handle: usize
   block
     (empty)
@@ -6076,13 +6071,13 @@ body fn dir_close -> void
     (empty)
 body ctor Path#0 -> void
   param _0 self: Path
-  param _1 text: str
+  param _1 text: &str
   param _2 allocator: ^mut Allocator
   param _3 loc: SourceLocation
   block
     let _4 bytes: []u8
       cast: []u8
-        local _1 text: str
+        local _1 text: &str
     let _5 end: usize
       len: usize
         local _4 bytes: []u8
@@ -6117,7 +6112,7 @@ body ctor Path#0 -> void
       field #0: String
         local _0 self: Path
       call-ctor String#0: String
-        str "": str
+        str "": &str
         local _2 allocator: ^mut Allocator
         local _3 loc: SourceLocation
     call-method String::reserve: void
@@ -6145,8 +6140,8 @@ body ctor Path#0 -> void
             call-method String::push_str: void
               field #0: String
                 local _0 self: Path
-              call sub: str
-                local _1 text: str
+              call sub: &str
+                local _1 text: &str
                 local _6 from: usize
                 local _7 i: usize
               local _3 loc: SourceLocation
@@ -6166,16 +6161,16 @@ body ctor Path#0 -> void
     call-method String::push_str: void
       field #0: String
         local _0 self: Path
-      call sub: str
-        local _1 text: str
+      call sub: &str
+        local _1 text: &str
         local _6 from: usize
         local _5 end: usize
       local _3 loc: SourceLocation
-body method Path::as_str -> str
+body method Path::as_str -> &str
   param _0 self: Path
   block
     return: !
-      call-method String::as_str: str
+      call-method String::as_str: &str
         field #0: String
           local _0 self: Path
 body method Path::is_empty -> bool
@@ -6190,7 +6185,7 @@ body method Path::is_absolute -> bool
   block
     let _1 bytes: []u8
       cast: []u8
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _0 self: Path
     return: !
       binary ||: bool
@@ -6218,19 +6213,19 @@ body method Path::is_absolute -> bool
               char ':': char
 body method Path::join -> Path
   param _0 self: Path
-  param _1 part: str
+  param _1 part: &str
   block
-    let _2 here: str
-      call-method Path::as_str: str
+    let _2 here: &str
+      call-method Path::as_str: &str
         local _0 self: Path
     let _3 other: Path
       call-ctor Path#0: Path
-        local _1 part: str
+        local _1 part: &str
     if: void
       binary ||: bool
         binary ==: bool
           len: usize
-            local _2 here: str
+            local _2 here: &str
           int 0: usize
         call-method Path::is_absolute: bool
           local _3 other: Path
@@ -6244,111 +6239,111 @@ body method Path::join -> Path
       block
         return: !
           call-ctor Path#0: Path
-            local _2 here: str
+            local _2 here: &str
     let _4 joined: String
       call-ctor String#0: String
-        local _2 here: str
+        local _2 here: &str
     if: void
       unary !: bool
         call ends_with_separator: bool
-          local _2 here: str
+          local _2 here: &str
       block
         call-method String::push: void
           local _4 joined: String
           char '/': char
     call-method String::push_str: void
       local _4 joined: String
-      call-method Path::as_str: str
+      call-method Path::as_str: &str
         local _3 other: Path
     return: !
       call-ctor Path#0: Path
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _4 joined: String
-body method Path::file_name -> str
+body method Path::file_name -> &str
   param _0 self: Path
   block
-    let _1 text: str
-      call-method Path::as_str: str
+    let _1 text: &str
+      call-method Path::as_str: &str
         local _0 self: Path
     if-let: void
       call last_separator: usize?
-        local _1 text: str
+        local _1 text: &str
       bind _2 at
       block
         return: !
-          call sub: str
-            local _1 text: str
+          call sub: &str
+            local _1 text: &str
             binary +: usize
               local _2 at: usize
               int 1: usize
             len: usize
-              local _1 text: str
+              local _1 text: &str
     if: void
       binary &&: bool
         binary ==: bool
           len: usize
-            local _1 text: str
+            local _1 text: &str
           int 2: usize
         binary ==: bool
           index: u8
             cast: []u8
-              local _1 text: str
+              local _1 text: &str
             int 1: usize
           cast: u8
             char ':': char
       block
         return: !
-          str "": str
+          str "": &str
     return: !
-      local _1 text: str
-body method Path::extension -> str
+      local _1 text: &str
+body method Path::extension -> &str
   param _0 self: Path
   block
-    let _1 name: str
-      call-method Path::file_name: str
+    let _1 name: &str
+      call-method Path::file_name: &str
         local _0 self: Path
     if-let: void
       call last_dot: usize?
-        local _1 name: str
+        local _1 name: &str
       bind _2 at
       block
         return: !
-          call sub: str
-            local _1 name: str
+          call sub: &str
+            local _1 name: &str
             binary +: usize
               local _2 at: usize
               int 1: usize
             len: usize
-              local _1 name: str
+              local _1 name: &str
     return: !
-      str "": str
-body method Path::stem -> str
+      str "": &str
+body method Path::stem -> &str
   param _0 self: Path
   block
-    let _1 name: str
-      call-method Path::file_name: str
+    let _1 name: &str
+      call-method Path::file_name: &str
         local _0 self: Path
     if-let: void
       call last_dot: usize?
-        local _1 name: str
+        local _1 name: &str
       bind _2 at
       block
         return: !
-          call sub: str
-            local _1 name: str
+          call sub: &str
+            local _1 name: &str
             int 0: usize
             local _2 at: usize
     return: !
-      local _1 name: str
+      local _1 name: &str
 body method Path::parent -> Path
   param _0 self: Path
   block
-    let _1 text: str
-      call-method Path::as_str: str
+    let _1 text: &str
+      call-method Path::as_str: &str
         local _0 self: Path
     if-let: void
       call last_separator: usize?
-        local _1 text: str
+        local _1 text: &str
       bind _2 at
       block
         if: void
@@ -6358,7 +6353,7 @@ body method Path::parent -> Path
           block
             return: !
               call-ctor Path#0: Path
-                str "/": str
+                str "/": &str
         if: void
           binary &&: bool
             binary ==: bool
@@ -6367,61 +6362,61 @@ body method Path::parent -> Path
             binary ==: bool
               index: u8
                 cast: []u8
-                  local _1 text: str
+                  local _1 text: &str
                 int 1: usize
               cast: u8
                 char ':': char
           block
             return: !
               call-ctor Path#0: Path
-                call sub: str
-                  local _1 text: str
+                call sub: &str
+                  local _1 text: &str
                   int 0: usize
                   int 3: usize
         return: !
           call-ctor Path#0: Path
-            call sub: str
-              local _1 text: str
+            call sub: &str
+              local _1 text: &str
               int 0: usize
               local _2 at: usize
     return: !
       call-ctor Path#0: Path
 body method Path::with_extension -> Path
   param _0 self: Path
-  param _1 ext: str
+  param _1 ext: &str
   block
-    let _2 text: str
-      call-method Path::as_str: str
+    let _2 text: &str
+      call-method Path::as_str: &str
         local _0 self: Path
-    let _3 name: str
-      call-method Path::file_name: str
+    let _3 name: &str
+      call-method Path::file_name: &str
         local _0 self: Path
-    let _4 base: str
-      local _2 text: str
+    let _4 base: &str
+      local _2 text: &str
     if-let: void
       call last_dot: usize?
-        local _3 name: str
+        local _3 name: &str
       bind _5 at
       block
         assign =
-          local _4 base: str
-          call sub: str
-            local _2 text: str
+          local _4 base: &str
+          call sub: &str
+            local _2 text: &str
             int 0: usize
             binary -: usize
               len: usize
-                local _2 text: str
+                local _2 text: &str
               binary -: usize
                 len: usize
-                  local _3 name: str
+                  local _3 name: &str
                 local _5 at: usize
     let _6 out: String
       call-ctor String#0: String
-        local _4 base: str
+        local _4 base: &str
     if: void
       binary >: bool
         len: usize
-          local _1 ext: str
+          local _1 ext: &str
         int 0: usize
       block
         call-method String::push: void
@@ -6429,10 +6424,10 @@ body method Path::with_extension -> Path
           char '.': char
         call-method String::push_str: void
           local _6 out: String
-          local _1 ext: str
+          local _1 ext: &str
     return: !
       call-ctor Path#0: Path
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _6 out: String
 body method Path::as_cstr -> cstr
   param _0 self: Path
@@ -6446,7 +6441,7 @@ body method Path::modified !-> Duration
   block
     let _1 nanos: u64
       call path_modified_nanos: u64
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _0 self: Path
     if: void
       binary !=: bool
@@ -6456,8 +6451,8 @@ body method Path::modified !-> Duration
         return: !
           builtin error: !-> !
             call io_last_error: u32
-            str "cannot read when {} was modified": str
-            call-method Path::as_str: str
+            str "cannot read when {} was modified": &str
+            call-method Path::as_str: &str
               local _0 self: Path
     return: !
       call-assoc Duration::from_nanos: Duration
@@ -6467,39 +6462,39 @@ body method Path::exists -> bool
   block
     return: !
       call path_exists: bool
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _0 self: Path
 body method Path::is_file -> bool
   param _0 self: Path
   block
     return: !
       call path_is_file: bool
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _0 self: Path
 body method Path::is_dir -> bool
   param _0 self: Path
   block
     return: !
       call path_is_dir: bool
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _0 self: Path
 body impl#50 method div -> Path
   param _0 self: Path
-  param _1 rhs: str
+  param _1 rhs: &str
   block
     return: !
       call-method Path::join: Path
         local _0 self: Path
-        local _1 rhs: str
+        local _1 rhs: &str
 body impl#51 method eq -> bool
   param _0 self: Path
   param _1 rhs: &Path
   block
     return: !
       binary ==: bool
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _0 self: Path
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _1 rhs: &Path
 body impl#52 method cmp -> Ordering
   param _0 self: Path
@@ -6508,17 +6503,17 @@ body impl#52 method cmp -> Ordering
     return: !
       call compare_bytes: Ordering
         cast: []u8
-          call-method Path::as_str: str
+          call-method Path::as_str: &str
             local _0 self: Path
         cast: []u8
-          call-method Path::as_str: str
+          call-method Path::as_str: &str
             local _1 rhs: &Path
 body impl#53 method hash -> u64
   param _0 self: Path
   block
     return: !
       call-method Hash::hash: u64
-        call-method Path::as_str: str
+        call-method Path::as_str: &str
           local _0 self: Path
 body impl#54 method convert -> cstr
   param _0 self: Path
@@ -6540,44 +6535,44 @@ body fn is_separator -> bool
           cast: u8
             char '\\': char
 body fn ends_with_separator -> bool
-  param _0 s: str
+  param _0 s: &str
   block
     return: !
       binary &&: bool
         binary >: bool
           len: usize
-            local _0 s: str
+            local _0 s: &str
           int 0: usize
         binary ==: bool
           index: u8
             cast: []u8
-              local _0 s: str
+              local _0 s: &str
             binary -: usize
               len: usize
-                local _0 s: str
+                local _0 s: &str
               int 1: usize
           cast: u8
             char '/': char
-body fn sub -> str
-  param _0 s: str
+body fn sub -> &str
+  param _0 s: &str
   param _1 from: usize
   param _2 to: usize
   block
     return: !
-      block-value: str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []u8
               cast: []u8
-                local _0 s: str
+                local _0 s: &str
               local _1 from: usize
               local _2 to: usize
 body fn last_separator -> usize?
-  param _0 s: str
+  param _0 s: &str
   block
     let _1 bytes: []u8
       cast: []u8
-        local _0 s: str
+        local _0 s: &str
     let _2 i: usize
       len: usize
         local _1 bytes: []u8
@@ -6602,11 +6597,11 @@ body fn last_separator -> usize?
     return: !
       none: usize?
 body fn last_dot -> usize?
-  param _0 name: str
+  param _0 name: &str
   block
     let _1 bytes: []u8
       cast: []u8
-        local _0 name: str
+        local _0 name: &str
     let _2 i: usize
       len: usize
         local _1 bytes: []u8
@@ -6646,7 +6641,7 @@ body method Process::args -> List<String>
         call-method List::push: void
           local _0 out: List<String>
           call-ctor String#0: String
-            call process_arg: str
+            call process_arg: &str
               local _2 i: usize
         assign +=
           local _2 i: usize
@@ -6655,17 +6650,17 @@ body method Process::args -> List<String>
       move: List<String>
         local _0 out: List<String>
 body method Process::env -> String?
-  param _0 name: str
+  param _0 name: &str
   block
-    let _1 value: str
-      or: str
-        call process_env: str?
-          local _0 name: str
+    let _1 value: &str
+      or: &str
+        call process_env: ^str
+          local _0 name: &str
         return: !
           none: String?
     return: !
       call-ctor String#0: String
-        local _1 value: str
+        local _1 value: &str
 body method Process::exit -> void
   param _0 code: i32
   block
@@ -6674,12 +6669,12 @@ body method Process::exit -> void
 body fn process_arg_count -> usize
   block
     (empty)
-body fn process_arg -> str
+body fn process_arg -> &str
   param _0 index: usize
   block
     (empty)
-body fn process_env -> str?
-  param _0 name: str
+body fn process_env -> ^str
+  param _0 name: &str
   block
     (empty)
 body fn process_exit -> void
@@ -7310,8 +7305,8 @@ body method Mat4::row -> Vec4
                       call-assoc Formatter::message: Formatter
                     call-method Formatter::begin_arg: void
                       local _3 fmt·: Formatter
-                      str "row ": str
-                      str "": str
+                      str "row ": &str
+                      str "": &str
                     call-method Format::format: void
                       deref: usize
                         local _2 arg·: &usize
@@ -7319,9 +7314,9 @@ body method Mat4::row -> Vec4
                         local _3 fmt·: Formatter
                     call-method Formatter::finish: void
                       local _3 fmt·: Formatter
-                      str " of a Mat4, which has 4": str
+                      str " of a Mat4, which has 4": &str
                     builtin panic: !
-                      call-method Formatter::message_text: str
+                      call-method Formatter::message_text: &str
                         local _3 fmt·: Formatter
 body method Mat4::transpose -> Mat4
   param _0 self: Mat4
@@ -10631,7 +10626,7 @@ body ctor Box#0 -> void
       or: &mut Allocator
         local _2 allocator: ^mut Allocator
         builtin panic: !
-          str "a Box needs an allocator": str
+          str "a Box needs an allocator": &str
     assign =
       field #1: ^mut Allocator
         local _0 self: Box<T>
@@ -10768,8 +10763,8 @@ body fn c_malloc -> ^mut u8
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str "out of memory allocating ": str
-                  str "": str
+                  str "out of memory allocating ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -10777,8 +10772,8 @@ body fn c_malloc -> ^mut u8
                     local _6 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str " bytes at ": str
-                  str "": str
+                  str " bytes at ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: cstr
                     local _4 arg·: &cstr
@@ -10786,8 +10781,8 @@ body fn c_malloc -> ^mut u8
                     local _6 fmt·: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str ":": str
-                  str "": str
+                  str ":": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: u32
                     local _5 arg·: &u32
@@ -10795,9 +10790,9 @@ body fn c_malloc -> ^mut u8
                     local _6 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _6 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _6 fmt·: Formatter
     return: !
       block-value: ^mut u8
@@ -10965,7 +10960,7 @@ body ctor Rc#0 -> void
       or: &mut Allocator
         local _2 allocator: ^mut Allocator
         builtin panic: !
-          str "an Rc needs an allocator": str
+          str "an Rc needs an allocator": &str
     let _5 size: usize
       type-query RcBlock<T>::size: usize
     let _6 align: usize
@@ -11880,17 +11875,17 @@ body static RANDOM -> void
     struct-lit RandomState: RandomState
       #0 (default)
       #1 (default)
-body method FieldInfo::tag_value -> str?
+body method FieldInfo::tag_value -> ^str
   param _0 self: FieldInfo
-  param _1 key: str
+  param _1 key: &str
   block
     let _2 bytes: []u8
       cast: []u8
-        field #5: str
+        field #5: &str
           local _0 self: FieldInfo
     let _3 want: []u8
       cast: []u8
-        local _1 key: str
+        local _1 key: &str
     let _4 i: usize
       int 0: usize
     while
@@ -12002,7 +11997,7 @@ body method FieldInfo::tag_value -> str?
                       local _10 end: usize
                       int 1: usize
                 return: !
-                  builtin str_from_utf8: str?
+                  builtin str_from_utf8: ^str
                     slice: []u8
                       local _2 bytes: []u8
                       local _9 start: usize
@@ -12011,7 +12006,7 @@ body method FieldInfo::tag_value -> str?
           local _4 i: usize
           int 1: usize
     return: !
-      none: str?
+      none: ^str
 body impl#104 method eq -> bool
   param _0 self: TypeId
   param _1 rhs: &TypeId
@@ -12034,12 +12029,12 @@ body field-default Chars.1 -> void
     int 0: usize
 body ctor Chars#0 -> void
   param _0 self: Chars
-  param _1 text: str
+  param _1 text: &str
   block
     assign =
-      field #0: str
+      field #0: &str
         local _0 self: Chars
-      local _1 text: str
+      local _1 text: &str
 body method Chars::offset -> usize
   param _0 self: Chars
   block
@@ -12054,7 +12049,7 @@ body impl#106 method valid -> bool
         field #1: usize
           local _0 self: Chars
         len: usize
-          field #0: str
+          field #0: &str
             local _0 self: Chars
 body impl#106 method get -> char
   param _0 self: Chars
@@ -12062,7 +12057,7 @@ body impl#106 method get -> char
     let (_1 c, _)
       call decode_utf8: (char, usize)
         cast: []u8
-          field #0: str
+          field #0: &str
             local _0 self: Chars
         field #1: usize
           local _0 self: Chars
@@ -12074,7 +12069,7 @@ body impl#106 method advance -> void
     let (_, _1 width)
       call decode_utf8: (char, usize)
         cast: []u8
-          field #0: str
+          field #0: &str
             local _0 self: Chars
         field #1: usize
           local _0 self: Chars
@@ -12274,8 +12269,8 @@ body fn is_utf8_boundary -> bool
           int 192: u32
         int 128: u32
 body impl#107 method join -> String
-  param _0 self: []str
-  param _1 separator: str
+  param _0 self: []&str
+  param _1 separator: &str
   block
     let _2 out: String
       call-ctor String#0: String
@@ -12283,7 +12278,7 @@ body impl#107 method join -> String
       range: usize..usize
         int 0: i32
         len: usize
-          local _0 self: []str
+          local _0 self: []&str
       block
         if: void
           binary >: bool
@@ -12292,26 +12287,45 @@ body impl#107 method join -> String
           block
             call-method String::push_str: void
               local _2 out: String
-              local _1 separator: str
+              local _1 separator: &str
         call-method String::push_str: void
           local _2 out: String
-          index: str
-            local _0 self: []str
+          index: &str
+            local _0 self: []&str
             local _3 i: usize
     return: !
       local _2 out: String
 body impl#108 method join -> String
-  param _0 self: List<str>
-  param _1 separator: str
+  param _0 self: List<const &str>
+  param _1 separator: &str
   block
+    let _2 out: String
+      call-ctor String#0: String
+    for _3 i
+      range: usize..usize
+        int 0: i32
+        call-method List::len: usize
+          local _0 self: List<const &str>
+      block
+        if: void
+          binary >: bool
+            local _3 i: usize
+            int 0: usize
+          block
+            call-method String::push_str: void
+              local _2 out: String
+              local _1 separator: &str
+        call-method String::push_str: void
+          local _2 out: String
+          deref: const &str
+            call-method Index::index: &const &str
+              local _0 self: List<const &str>
+              local _3 i: usize
     return: !
-      call-method Join::join: String
-        call-method List::as_slice: []str
-          local _0 self: List<str>
-        local _1 separator: str
+      local _2 out: String
 body impl#109 method join -> String
   param _0 self: List<String>
-  param _1 separator: str
+  param _1 separator: &str
   block
     let _2 out: String
       call-ctor String#0: String
@@ -12328,10 +12342,10 @@ body impl#109 method join -> String
           block
             call-method String::push_str: void
               local _2 out: String
-              local _1 separator: str
+              local _1 separator: &str
         call-method String::push_str: void
           local _2 out: String
-          call-method String::as_str: str
+          call-method String::as_str: &str
             call-method Index::index: &String
               local _0 self: List<String>
               local _3 i: usize
@@ -12339,7 +12353,7 @@ body impl#109 method join -> String
       local _2 out: String
 body ctor String#0 -> void
   param _0 self: String
-  param _1 s: str
+  param _1 s: &str
   param _2 allocator: ^mut Allocator
   param _3 loc: SourceLocation
   block
@@ -12352,16 +12366,16 @@ body ctor String#0 -> void
         local _3 loc: SourceLocation
     call-method String::push_str: void
       local _0 self: String
-      local _1 s: str
+      local _1 s: &str
       local _3 loc: SourceLocation
 body method String::from -> String
-  param _0 s: str
+  param _0 s: &str
   param _1 allocator: ^mut Allocator
   param _2 loc: SourceLocation
   block
     return: !
       call-ctor String#0: String
-        local _0 s: str
+        local _0 s: &str
         local _1 allocator: ^mut Allocator
         local _2 loc: SourceLocation
 body method String::from_utf8 -> String?
@@ -12369,15 +12383,15 @@ body method String::from_utf8 -> String?
   param _1 allocator: ^mut Allocator
   param _2 loc: SourceLocation
   block
-    let _3 text: str
-      or: str
-        builtin str_from_utf8: str?
+    let _3 text: &str
+      or: &str
+        builtin str_from_utf8: ^str
           local _0 bytes: []u8
         return: !
           none: String?
     return: !
       call-ctor String#0: String
-        local _3 text: str
+        local _3 text: &str
         local _1 allocator: ^mut Allocator
         local _2 loc: SourceLocation
 body method String::len -> usize
@@ -12413,7 +12427,7 @@ body method String::capacity -> usize
       call-method List::capacity: usize
         field #0: List<u8>
           local _0 self: String
-body method String::as_str -> str
+body method String::as_str -> &str
   param _0 self: String
   block
     let _1 bytes: []u8
@@ -12421,9 +12435,9 @@ body method String::as_str -> str
         field #0: List<u8>
           local _0 self: String
     return: !
-      block-value: str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []u8
               local _1 bytes: []u8
               int 0: usize
@@ -12451,13 +12465,13 @@ body method String::as_cstr -> cstr
                   local _0 self: String
 body method String::push_str -> void
   param _0 self: String
-  param _1 s: str
+  param _1 s: &str
   param _2 loc: SourceLocation
   block
     if: void
       binary ==: bool
         len: usize
-          local _1 s: str
+          local _1 s: &str
         int 0: usize
       block
         return: !
@@ -12470,12 +12484,12 @@ body method String::push_str -> void
         local _0 self: String
       binary +: usize
         len: usize
-          local _1 s: str
+          local _1 s: &str
         int 1: usize
       local _2 loc: SourceLocation
     let _3 bytes: []u8
       cast: []u8
-        local _1 s: str
+        local _1 s: &str
     for _4 b
       local _3 bytes: []u8
       block
@@ -12505,22 +12519,22 @@ body method String::push -> void
         local _1 c: char
         ref mut: &mut [4]u8
           local _3 encoded: [4]u8
-    let _5 text: str
-      block-value: str
+    let _5 text: &str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []mut u8
               local _3 encoded: [4]u8
               int 0: usize
               local _4 n: usize
     call-method String::push_str: void
       local _0 self: String
-      local _5 text: str
+      local _5 text: &str
       local _2 loc: SourceLocation
 body method String::insert_str -> void
   param _0 self: String
   param _1 at: usize
-  param _2 s: str
+  param _2 s: &str
   param _3 loc: SourceLocation
   block
     if: void
@@ -12542,8 +12556,8 @@ body method String::insert_str -> void
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _6 fmt·: Formatter
-                  str "insert at byte ": str
-                  str "": str
+                  str "insert at byte ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _4 arg·: &usize
@@ -12551,15 +12565,15 @@ body method String::insert_str -> void
                     local _6 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _6 fmt·: Formatter
-                  str ", inside a character or past the end": str
+                  str ", inside a character or past the end": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _6 fmt·: Formatter
                   local _5 arg·: SourceLocation
     if: void
       binary ==: bool
         len: usize
-          local _2 s: str
+          local _2 s: &str
         int 0: usize
       block
         return: !
@@ -12572,7 +12586,7 @@ body method String::insert_str -> void
       block
         call-method String::push_str: void
           local _0 self: String
-          local _2 s: str
+          local _2 s: &str
           local _3 loc: SourceLocation
         return: !
     call-method Extend::insert_slice: void
@@ -12580,7 +12594,7 @@ body method String::insert_str -> void
         local _0 self: String
       local _1 at: usize
       cast: []u8
-        local _2 s: str
+        local _2 s: &str
 body method String::insert -> void
   param _0 self: String
   param _1 at: usize
@@ -12601,9 +12615,9 @@ body method String::insert -> void
     call-method String::insert_str: void
       local _0 self: String
       local _1 at: usize
-      block-value: str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []mut u8
               local _4 encoded: [4]u8
               int 0: usize
@@ -12638,8 +12652,8 @@ body method String::remove -> char
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _5 fmt·: Formatter
-                  str "remove at byte ": str
-                  str "": str
+                  str "remove at byte ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -12647,15 +12661,15 @@ body method String::remove -> char
                     local _5 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _5 fmt·: Formatter
-                  str ", not the start of a character": str
+                  str ", not the start of a character": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _5 fmt·: Formatter
                   local _4 arg·: SourceLocation
     let (_6 c, _7 width)
       call decode_utf8: (char, usize)
         cast: []u8
-          call-method String::as_str: str
+          call-method String::as_str: &str
             local _0 self: String
         local _1 at: usize
     call-method List::remove_range: void
@@ -12678,14 +12692,14 @@ body method String::chars -> Chars
   block
     return: !
       call-ctor Chars#0: Chars
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _0 self: String
 body method String::char_count -> usize
   param _0 self: String
   block
     let _1 bytes: []u8
       cast: []u8
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _0 self: String
     let _2 n: usize
       int 0: usize
@@ -12720,7 +12734,7 @@ body method String::pop -> char?
           none: char?
     let _2 bytes: []u8
       cast: []u8
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _0 self: String
     let _3 start: usize
       binary -: usize
@@ -12755,17 +12769,17 @@ body method String::is_char_boundary -> bool
     return: !
       call is_utf8_boundary: bool
         cast: []u8
-          call-method String::as_str: str
+          call-method String::as_str: &str
             local _0 self: String
         local _1 index: usize
-body method String::slice -> str?
+body method String::slice -> ^str
   param _0 self: String
   param _1 from: usize
   param _2 to: usize
   block
     let _3 bytes: []u8
       cast: []u8
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _0 self: String
     if: void
       binary ||: bool
@@ -12788,11 +12802,11 @@ body method String::slice -> str?
             local _2 to: usize
       block
         return: !
-          none: str?
+          none: ^str
     return: !
-      block-value: str
+      block-value: &str
         block
-          cast: str
+          cast: &str
             slice: []u8
               local _3 bytes: []u8
               local _1 from: usize
@@ -12828,8 +12842,8 @@ body method String::truncate -> void
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _5 fmt·: Formatter
-                  str "truncate at byte ": str
-                  str "": str
+                  str "truncate at byte ": &str
+                  str "": &str
                 call-method Format::format: void
                   deref: usize
                     local _3 arg·: &usize
@@ -12837,9 +12851,9 @@ body method String::truncate -> void
                     local _5 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _5 fmt·: Formatter
-                  str ", inside a character": str
+                  str ", inside a character": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _5 fmt·: Formatter
                   local _4 arg·: SourceLocation
     call-method List::truncate: void
@@ -12869,9 +12883,9 @@ body impl#110 method eq -> bool
   block
     return: !
       binary ==: bool
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _0 self: String
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _1 rhs: &String
 body impl#111 method cmp -> Ordering
   param _0 self: String
@@ -12880,10 +12894,10 @@ body impl#111 method cmp -> Ordering
     return: !
       call compare_bytes: Ordering
         cast: []u8
-          call-method String::as_str: str
+          call-method String::as_str: &str
             local _0 self: String
         cast: []u8
-          call-method String::as_str: str
+          call-method String::as_str: &str
             local _1 rhs: &String
 body impl#112 method iter -> Chars
   param _0 self: String
@@ -12897,20 +12911,26 @@ body impl#113 method convert -> cstr
     return: !
       call-method String::as_cstr: cstr
         local _0 self: String
-body impl#114 method hash -> u64
+body impl#114 method convert -> &str
+  param _0 self: String
+  block
+    return: !
+      call-method String::as_str: &str
+        local _0 self: String
+body impl#115 method hash -> u64
   param _0 self: String
   block
     return: !
       call-method Hash::hash: u64
-        call-method String::as_str: str
+        call-method String::as_str: &str
           local _0 self: String
-body impl#115 method format -> void
+body impl#116 method format -> void
   param _0 self: String
   param _1 f: &mut Formatter
   block
     call-method Formatter::write_str: void
       local _1 f: &mut Formatter
-      call-method String::as_str: str
+      call-method String::as_str: &str
         local _0 self: String
 body fn encode_utf8 -> usize
   param _0 c: char
@@ -13046,172 +13066,172 @@ body fn encode_utf8 -> usize
       int 4: usize
 body method Text::starts_with -> bool
   param _0 self: Text
-  param _1 prefix: str
+  param _1 prefix: &str
   block
-    let _2 t: str
-      call-method Text::text: str
+    let _2 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     return: !
       binary &&: bool
         binary >=: bool
           len: usize
-            local _2 t: str
+            local _2 t: &str
           len: usize
-            local _1 prefix: str
+            local _1 prefix: &str
         binary ==: bool
-          call sub: str
-            local _2 t: str
+          call sub: &str
+            local _2 t: &str
             int 0: usize
             len: usize
-              local _1 prefix: str
-          local _1 prefix: str
+              local _1 prefix: &str
+          local _1 prefix: &str
 body method Text::ends_with -> bool
   param _0 self: Text
-  param _1 suffix: str
+  param _1 suffix: &str
   block
-    let _2 t: str
-      call-method Text::text: str
+    let _2 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     return: !
       binary &&: bool
         binary >=: bool
           len: usize
-            local _2 t: str
+            local _2 t: &str
           len: usize
-            local _1 suffix: str
+            local _1 suffix: &str
         binary ==: bool
-          call sub: str
-            local _2 t: str
+          call sub: &str
+            local _2 t: &str
             binary -: usize
               len: usize
-                local _2 t: str
+                local _2 t: &str
               len: usize
-                local _1 suffix: str
+                local _1 suffix: &str
             len: usize
-              local _2 t: str
-          local _1 suffix: str
+              local _2 t: &str
+          local _1 suffix: &str
 body method Text::find -> usize?
   param _0 self: Text
-  param _1 needle: str
+  param _1 needle: &str
   block
     return: !
       call find_bytes: usize?
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
-        local _1 needle: str
+        local _1 needle: &str
         int 0: usize
 body method Text::contains -> bool
   param _0 self: Text
-  param _1 needle: str
+  param _1 needle: &str
   block
     return: !
       binary !=: bool
         call-method Text::find: usize?
           local _0 self: Text
-          local _1 needle: str
+          local _1 needle: &str
         none: usize?
 body method Text::rfind -> usize?
   param _0 self: Text
-  param _1 needle: str
+  param _1 needle: &str
   block
     return: !
       call rfind_bytes: usize?
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
-        local _1 needle: str
-body method Text::strip_prefix -> str?
+        local _1 needle: &str
+body method Text::strip_prefix -> ^str
   param _0 self: Text
-  param _1 prefix: str
+  param _1 prefix: &str
   block
-    let _2 t: str
-      call-method Text::text: str
+    let _2 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     if: void
       unary !: bool
         call-method Text::starts_with: bool
-          local _2 t: str
-          local _1 prefix: str
+          local _2 t: &str
+          local _1 prefix: &str
       block
         return: !
-          none: str?
+          none: ^str
     return: !
-      call sub: str
-        local _2 t: str
+      call sub: &str
+        local _2 t: &str
         len: usize
-          local _1 prefix: str
+          local _1 prefix: &str
         len: usize
-          local _2 t: str
-body method Text::strip_suffix -> str?
+          local _2 t: &str
+body method Text::strip_suffix -> ^str
   param _0 self: Text
-  param _1 suffix: str
+  param _1 suffix: &str
   block
-    let _2 t: str
-      call-method Text::text: str
+    let _2 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     if: void
       unary !: bool
         call-method Text::ends_with: bool
-          local _2 t: str
-          local _1 suffix: str
+          local _2 t: &str
+          local _1 suffix: &str
       block
         return: !
-          none: str?
+          none: ^str
     return: !
-      call sub: str
-        local _2 t: str
+      call sub: &str
+        local _2 t: &str
         int 0: usize
         binary -: usize
           len: usize
-            local _2 t: str
+            local _2 t: &str
           len: usize
-            local _1 suffix: str
-body method Text::split_once -> (str, str)?
+            local _1 suffix: &str
+body method Text::split_once -> (&str, &str)?
   param _0 self: Text
-  param _1 separator: str
+  param _1 separator: &str
   block
-    let _2 t: str
-      call-method Text::text: str
+    let _2 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     let _3 at: usize
       or: usize
         call find_bytes: usize?
-          local _2 t: str
-          local _1 separator: str
+          local _2 t: &str
+          local _1 separator: &str
           int 0: usize
         return: !
-          none: (str, str)?
+          none: (&str, &str)?
     return: !
-      tuple: (str, str)
-        call sub: str
-          local _2 t: str
+      tuple: (&str, &str)
+        call sub: &str
+          local _2 t: &str
           int 0: usize
           local _3 at: usize
-        call sub: str
-          local _2 t: str
+        call sub: &str
+          local _2 t: &str
           binary +: usize
             local _3 at: usize
             len: usize
-              local _1 separator: str
+              local _1 separator: &str
           len: usize
-            local _2 t: str
+            local _2 t: &str
 body method Text::split_whitespace -> SplitWhitespace
   param _0 self: Text
   block
     return: !
       call-ctor SplitWhitespace#0: SplitWhitespace
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
 body method Text::eq_ignore_ascii_case -> bool
   param _0 self: Text
-  param _1 other: str
+  param _1 other: &str
   block
     let _2 a: []u8
       cast: []u8
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
     let _3 b: []u8
       cast: []u8
-        local _1 other: str
+        local _1 other: &str
     if: void
       binary !=: bool
         len: usize
@@ -13246,8 +13266,8 @@ body method Text::repeat -> String
   param _0 self: Text
   param _1 n: usize
   block
-    let _2 t: str
-      call-method Text::text: str
+    let _2 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     let _3 out: String
       call-ctor String#0: String
@@ -13255,7 +13275,7 @@ body method Text::repeat -> String
       local _3 out: String
       binary *: usize
         len: usize
-          local _2 t: str
+          local _2 t: &str
         local _1 n: usize
     for _
       range: usize..usize
@@ -13264,93 +13284,93 @@ body method Text::repeat -> String
       block
         call-method String::push_str: void
           local _3 out: String
-          local _2 t: str
+          local _2 t: &str
     return: !
       local _3 out: String
-body method Text::trim -> str
+body method Text::trim -> &str
   param _0 self: Text
   block
-    let _1 t: str
-      call-method Text::text: str
+    let _1 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     let _2 start: usize
       call trim_start_at: usize
-        local _1 t: str
+        local _1 t: &str
     let _3 end: usize
       call trim_end_at: usize
-        local _1 t: str
+        local _1 t: &str
     if: void
       binary >=: bool
         local _2 start: usize
         local _3 end: usize
       block
         return: !
-          str "": str
+          str "": &str
     return: !
-      call sub: str
-        local _1 t: str
+      call sub: &str
+        local _1 t: &str
         local _2 start: usize
         local _3 end: usize
-body method Text::trim_start -> str
+body method Text::trim_start -> &str
   param _0 self: Text
   block
-    let _1 t: str
-      call-method Text::text: str
+    let _1 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     return: !
-      call sub: str
-        local _1 t: str
+      call sub: &str
+        local _1 t: &str
         call trim_start_at: usize
-          local _1 t: str
+          local _1 t: &str
         len: usize
-          local _1 t: str
-body method Text::trim_end -> str
+          local _1 t: &str
+body method Text::trim_end -> &str
   param _0 self: Text
   block
-    let _1 t: str
-      call-method Text::text: str
+    let _1 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     return: !
-      call sub: str
-        local _1 t: str
+      call sub: &str
+        local _1 t: &str
         int 0: usize
         call trim_end_at: usize
-          local _1 t: str
+          local _1 t: &str
 body method Text::split -> Split
   param _0 self: Text
-  param _1 separator: str
+  param _1 separator: &str
   block
     return: !
       call-ctor Split#0: Split
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
-        local _1 separator: str
+        local _1 separator: &str
 body method Text::lines -> Lines
   param _0 self: Text
   block
     return: !
       call-ctor Lines#0: Lines
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
 body method Text::replace -> String
   param _0 self: Text
-  param _1 from: str
-  param _2 to: str
+  param _1 from: &str
+  param _2 to: &str
   block
-    let _3 t: str
-      call-method Text::text: str
+    let _3 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     let _4 out: String
       call-ctor String#0: String
     if: void
       binary ==: bool
         len: usize
-          local _1 from: str
+          local _1 from: &str
         int 0: usize
       block
         call-method String::push_str: void
           local _4 out: String
-          local _3 t: str
+          local _3 t: &str
         return: !
           local _4 out: String
     let _5 at: usize
@@ -13361,35 +13381,35 @@ body method Text::replace -> String
         let _6 found: usize
           or: usize
             call find_bytes: usize?
-              local _3 t: str
-              local _1 from: str
+              local _3 t: &str
+              local _1 from: &str
               local _5 at: usize
             clause _
               block
                 call-method String::push_str: void
                   local _4 out: String
-                  call sub: str
-                    local _3 t: str
+                  call sub: &str
+                    local _3 t: &str
                     local _5 at: usize
                     len: usize
-                      local _3 t: str
+                      local _3 t: &str
                 return: !
                   local _4 out: String
         call-method String::push_str: void
           local _4 out: String
-          call sub: str
-            local _3 t: str
+          call sub: &str
+            local _3 t: &str
             local _5 at: usize
             local _6 found: usize
         call-method String::push_str: void
           local _4 out: String
-          local _2 to: str
+          local _2 to: &str
         assign =
           local _5 at: usize
           binary +: usize
             local _6 found: usize
             len: usize
-              local _1 from: str
+              local _1 from: &str
     return: !
       local _4 out: String
 body method Text::to_ascii_lowercase -> String
@@ -13397,7 +13417,7 @@ body method Text::to_ascii_lowercase -> String
   block
     return: !
       call ascii_case: String
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
         bool true: bool
 body method Text::to_ascii_uppercase -> String
@@ -13405,7 +13425,7 @@ body method Text::to_ascii_uppercase -> String
   block
     return: !
       call ascii_case: String
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
         bool false: bool
 body method Text::parse_i64 -> i64?
@@ -13413,7 +13433,7 @@ body method Text::parse_i64 -> i64?
   block
     let _1 bytes: []u8
       cast: []u8
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
     if: void
       binary ==: bool
@@ -13517,7 +13537,7 @@ body method Text::parse_u64 -> u64?
   block
     let _1 bytes: []u8
       cast: []u8
-        call-method Text::text: str
+        call-method Text::text: &str
           local _0 self: Text
     if: void
       binary ==: bool
@@ -13569,19 +13589,19 @@ body method Text::parse_u64 -> u64?
 body method Text::parse_f64 -> f64?
   param _0 self: Text
   block
-    let _1 t: str
-      call-method Text::text: str
+    let _1 t: &str
+      call-method Text::text: &str
         local _0 self: Text
     if: void
       unary !: bool
         call is_decimal_number: bool
-          local _1 t: str
+          local _1 t: &str
       block
         return: !
           none: f64?
     return: !
       call text_parse_f64: f64?
-        local _1 t: str
+        local _1 t: &str
 body method Text::parse_f32 -> f32?
   param _0 self: Text
   block
@@ -13594,16 +13614,16 @@ body method Text::parse_f32 -> f32?
     return: !
       cast: f32
         local _1 v: f64
-body impl#116 method text -> str
-  param _0 self: str
+body impl#117 method text -> &str
+  param _0 self: &str
   block
     return: !
-      local _0 self: str
-body impl#117 method text -> str
+      local _0 self: &str
+body impl#118 method text -> &str
   param _0 self: String
   block
     return: !
-      call-method String::as_str: str
+      call-method String::as_str: &str
         local _0 self: String
 body field-default Split.2 -> void
   block
@@ -13616,17 +13636,17 @@ body field-default Split.4 -> void
     bool false: bool
 body ctor Split#0 -> void
   param _0 self: Split
-  param _1 text: str
-  param _2 separator: str
+  param _1 text: &str
+  param _2 separator: &str
   block
     assign =
-      field #0: str
+      field #0: &str
         local _0 self: Split
-      local _1 text: str
+      local _1 text: &str
     assign =
-      field #1: str
+      field #1: &str
         local _0 self: Split
-      local _2 separator: str
+      local _2 separator: &str
     call-method Split::find_end: void
       local _0 self: Split
 body method Split::find_end -> void
@@ -13635,7 +13655,7 @@ body method Split::find_end -> void
     if: void
       binary ==: bool
         len: usize
-          field #1: str
+          field #1: &str
             local _0 self: Split
         int 0: usize
       block
@@ -13643,14 +13663,14 @@ body method Split::find_end -> void
           field #3: usize
             local _0 self: Split
           len: usize
-            field #0: str
+            field #0: &str
               local _0 self: Split
         return: !
     if-let: void
       call find_bytes: usize?
-        field #0: str
+        field #0: &str
           local _0 self: Split
-        field #1: str
+        field #1: &str
           local _0 self: Split
         field #2: usize
           local _0 self: Split
@@ -13667,27 +13687,27 @@ body method Split::find_end -> void
               field #3: usize
                 local _0 self: Split
               len: usize
-                field #0: str
+                field #0: &str
                   local _0 self: Split
-body impl#118 method valid -> bool
+body impl#119 method valid -> bool
   param _0 self: Split
   block
     return: !
       unary !: bool
         field #4: bool
           local _0 self: Split
-body impl#118 method get -> str
+body impl#119 method get -> &str
   param _0 self: Split
   block
     return: !
-      call sub: str
-        field #0: str
+      call sub: &str
+        field #0: &str
           local _0 self: Split
         field #2: usize
           local _0 self: Split
         field #3: usize
           local _0 self: Split
-body impl#118 method advance -> void
+body impl#119 method advance -> void
   param _0 self: Split
   block
     if: void
@@ -13696,11 +13716,11 @@ body impl#118 method advance -> void
           field #3: usize
             local _0 self: Split
           len: usize
-            field #0: str
+            field #0: &str
               local _0 self: Split
         binary ==: bool
           len: usize
-            field #1: str
+            field #1: &str
               local _0 self: Split
           int 0: usize
       block
@@ -13716,7 +13736,7 @@ body impl#118 method advance -> void
         field #3: usize
           local _0 self: Split
         len: usize
-          field #1: str
+          field #1: &str
             local _0 self: Split
     call-method Split::find_end: void
       local _0 self: Split
@@ -13728,12 +13748,12 @@ body field-default Lines.2 -> void
     int 0: usize
 body ctor Lines#0 -> void
   param _0 self: Lines
-  param _1 text: str
+  param _1 text: &str
   block
     assign =
-      field #0: str
+      field #0: &str
         local _0 self: Lines
-      local _1 text: str
+      local _1 text: &str
     call-method Lines::find_end: void
       local _0 self: Lines
 body method Lines::find_end -> void
@@ -13741,9 +13761,9 @@ body method Lines::find_end -> void
   block
     if-let: void
       call find_bytes: usize?
-        field #0: str
+        field #0: &str
           local _0 self: Lines
-        str "\n": str
+        str "\n": &str
         field #1: usize
           local _0 self: Lines
       bind _1 at
@@ -13759,9 +13779,9 @@ body method Lines::find_end -> void
               field #2: usize
                 local _0 self: Lines
               len: usize
-                field #0: str
+                field #0: &str
                   local _0 self: Lines
-body impl#119 method valid -> bool
+body impl#120 method valid -> bool
   param _0 self: Lines
   block
     return: !
@@ -13769,9 +13789,9 @@ body impl#119 method valid -> bool
         field #1: usize
           local _0 self: Lines
         len: usize
-          field #0: str
+          field #0: &str
             local _0 self: Lines
-body impl#119 method get -> str
+body impl#120 method get -> &str
   param _0 self: Lines
   block
     let _1 end: usize
@@ -13786,7 +13806,7 @@ body impl#119 method get -> str
         binary ==: bool
           index: u8
             cast: []u8
-              field #0: str
+              field #0: &str
                 local _0 self: Lines
             binary -: usize
               local _1 end: usize
@@ -13798,13 +13818,13 @@ body impl#119 method get -> str
           local _1 end: usize
           int 1: usize
     return: !
-      call sub: str
-        field #0: str
+      call sub: &str
+        field #0: &str
           local _0 self: Lines
         field #1: usize
           local _0 self: Lines
         local _1 end: usize
-body impl#119 method advance -> void
+body impl#120 method advance -> void
   param _0 self: Lines
   block
     assign =
@@ -13824,12 +13844,12 @@ body field-default SplitWhitespace.2 -> void
     int 0: usize
 body ctor SplitWhitespace#0 -> void
   param _0 self: SplitWhitespace
-  param _1 text: str
+  param _1 text: &str
   block
     assign =
-      field #0: str
+      field #0: &str
         local _0 self: SplitWhitespace
-      local _1 text: str
+      local _1 text: &str
     call-method SplitWhitespace::find_word: void
       local _0 self: SplitWhitespace
       int 0: usize
@@ -13839,7 +13859,7 @@ body method SplitWhitespace::find_word -> void
   block
     let _2 bytes: []u8
       cast: []u8
-        field #0: str
+        field #0: &str
           local _0 self: SplitWhitespace
     let _3 i: usize
       local _1 at: usize
@@ -13880,7 +13900,7 @@ body method SplitWhitespace::find_word -> void
       field #2: usize
         local _0 self: SplitWhitespace
       local _3 i: usize
-body impl#120 method valid -> bool
+body impl#121 method valid -> bool
   param _0 self: SplitWhitespace
   block
     return: !
@@ -13888,20 +13908,20 @@ body impl#120 method valid -> bool
         field #1: usize
           local _0 self: SplitWhitespace
         len: usize
-          field #0: str
+          field #0: &str
             local _0 self: SplitWhitespace
-body impl#120 method get -> str
+body impl#121 method get -> &str
   param _0 self: SplitWhitespace
   block
     return: !
-      call sub: str
-        field #0: str
+      call sub: &str
+        field #0: &str
           local _0 self: SplitWhitespace
         field #1: usize
           local _0 self: SplitWhitespace
         field #2: usize
           local _0 self: SplitWhitespace
-body impl#120 method advance -> void
+body impl#121 method advance -> void
   param _0 self: SplitWhitespace
   block
     call-method SplitWhitespace::find_word: void
@@ -13909,15 +13929,15 @@ body impl#120 method advance -> void
       field #2: usize
         local _0 self: SplitWhitespace
 body fn rfind_bytes -> usize?
-  param _0 hay: str
-  param _1 needle: str
+  param _0 hay: &str
+  param _1 needle: &str
   block
     let _2 h: []u8
       cast: []u8
-        local _0 hay: str
+        local _0 hay: &str
     let _3 n: []u8
       cast: []u8
-        local _1 needle: str
+        local _1 needle: &str
     if: void
       binary >: bool
         len: usize
@@ -13995,16 +14015,16 @@ body fn ascii_lower -> u8
     return: !
       local _0 b: u8
 body fn find_bytes -> usize?
-  param _0 hay: str
-  param _1 needle: str
+  param _0 hay: &str
+  param _1 needle: &str
   param _2 from: usize
   block
     let _3 h: []u8
       cast: []u8
-        local _0 hay: str
+        local _0 hay: &str
     let _4 n: []u8
       cast: []u8
-        local _1 needle: str
+        local _1 needle: &str
     if: void
       binary ==: bool
         len: usize
@@ -14109,11 +14129,11 @@ body fn is_space -> bool
           local _0 b: u8
           int 12: u8
 body fn trim_start_at -> usize
-  param _0 t: str
+  param _0 t: &str
   block
     let _1 bytes: []u8
       cast: []u8
-        local _0 t: str
+        local _0 t: &str
     let _2 i: usize
       int 0: usize
     while
@@ -14133,11 +14153,11 @@ body fn trim_start_at -> usize
     return: !
       local _2 i: usize
 body fn trim_end_at -> usize
-  param _0 t: str
+  param _0 t: &str
   block
     let _1 bytes: []u8
       cast: []u8
-        local _0 t: str
+        local _0 t: &str
     let _2 end: usize
       len: usize
         local _1 bytes: []u8
@@ -14159,7 +14179,7 @@ body fn trim_end_at -> usize
     return: !
       local _2 end: usize
 body fn ascii_case -> String
-  param _0 t: str
+  param _0 t: &str
   param _1 lower: bool
   block
     let _2 out: String
@@ -14167,10 +14187,10 @@ body fn ascii_case -> String
     call-method String::reserve: void
       local _2 out: String
       len: usize
-        local _0 t: str
+        local _0 t: &str
     for _3 c
       call-ctor Chars#0: Chars
-        local _0 t: str
+        local _0 t: &str
       block
         let _4 code: u32
           cast: u32
@@ -14224,11 +14244,11 @@ body fn ascii_case -> String
     return: !
       local _2 out: String
 body fn is_decimal_number -> bool
-  param _0 t: str
+  param _0 t: &str
   block
     let _1 b: []u8
       cast: []u8
-        local _0 t: str
+        local _0 t: &str
     let _2 i: usize
       int 0: usize
     if: void
@@ -14418,7 +14438,7 @@ body fn is_decimal_number -> bool
         len: usize
           local _1 b: []u8
 body fn text_parse_f64 -> f64?
-  param _0 text: str
+  param _0 text: &str
   block
     (empty)
 body field-default Duration.0 -> void
@@ -14537,7 +14557,7 @@ body method Duration::is_zero -> bool
         field #0: u64
           local _0 self: Duration
         int 0: u64
-body impl#121 method add -> Duration
+body impl#122 method add -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -14549,7 +14569,7 @@ body impl#121 method add -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#122 method sub -> Duration
+body impl#123 method sub -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -14561,7 +14581,7 @@ body impl#122 method sub -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#123 method eq -> bool
+body impl#124 method eq -> bool
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -14571,7 +14591,7 @@ body impl#123 method eq -> bool
           local _0 self: Duration
         field #0: u64
           local _1 rhs: &Duration
-body impl#124 method cmp -> Ordering
+body impl#125 method cmp -> Ordering
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -14582,7 +14602,7 @@ body impl#124 method cmp -> Ordering
         ref: &u64
           field #0: u64
             local _1 rhs: &Duration
-body impl#125 method hash -> u64
+body impl#126 method hash -> u64
   param _0 self: Duration
   block
     return: !
@@ -14618,7 +14638,7 @@ body method Instant::since -> Duration
             local _0 self: Instant
           field #0: u64
             local _1 earlier: Instant
-body impl#126 method sub -> Duration
+body impl#127 method sub -> Duration
   param _0 self: Instant
   param _1 rhs: Instant
   block
@@ -14626,7 +14646,7 @@ body impl#126 method sub -> Duration
       call-method Instant::since: Duration
         local _0 self: Instant
         local _1 rhs: Instant
-body impl#127 method add -> Instant
+body impl#128 method add -> Instant
   param _0 self: Instant
   param _1 rhs: Duration
   block
@@ -14638,7 +14658,7 @@ body impl#127 method add -> Instant
               local _0 self: Instant
             call-method Duration::as_nanos: u64
               local _1 rhs: Duration
-body impl#128 method eq -> bool
+body impl#129 method eq -> bool
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -14648,7 +14668,7 @@ body impl#128 method eq -> bool
           local _0 self: Instant
         field #0: u64
           local _1 rhs: &Instant
-body impl#129 method cmp -> Ordering
+body impl#130 method cmp -> Ordering
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -14688,7 +14708,7 @@ body const PI -> void
     float 3.14159: f64
 body const NAME -> void
   block
-    str "dazzle": str
+    str "dazzle": &str
 body field-default Vec3.2 -> void
   block
     float 0: f32
@@ -14719,7 +14739,7 @@ body field-default Counter.4 -> void
 body ctor Counter#0 -> void
   param _0 self: Counter
   param _1 start: u32
-  param _2 label: str
+  param _2 label: &str
   block
     assign =
       field #0: u32
@@ -14851,7 +14871,7 @@ body fn defaults_are_optional -> Counter
     let _1 c2: Counter
       call-ctor Counter#0: Counter
         int 0: u32
-        str "named": str
+        str "named": &str
     return: !
       local _1 c2: Counter
 body fn struct_literals -> Vec3
@@ -15069,7 +15089,7 @@ body fn may_fail !-> i32
       block
         return: !
           builtin error: !-> !
-            str "negative": str
+            str "negative": &str
     return: !
       local _0 n: i32
 body fn maybe_find -> i32?
@@ -15349,7 +15369,7 @@ body const SWITCH_LIMIT -> void
     int 10: i32
 body fn switch_on_constants -> i32
   param _0 n: i32
-  param _1 s: str
+  param _1 s: &str
   param _2 c: char
   block
     let _3 a: i32
@@ -15376,9 +15396,9 @@ body fn switch_on_constants -> i32
           block
             int 0: i32
     switch: !
-      local _1 s: str
+      local _1 s: &str
       case  bind _
-        str "idle": str
+        str "idle": &str
         block
           return: !
             local _3 a: i32
@@ -15475,18 +15495,18 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#133 method describe -> const str
+body impl#134 method describe -> const &str
   param _0 self: Crate
   block
     return: !
-      str "crate": const str
-body impl#134 method weight -> i32
+      str "crate": const &str
+body impl#135 method weight -> i32
   param _0 self: Crate
   block
     return: !
       field #0: i32
         local _0 self: Crate
-body fn heaviest -> const str
+body fn heaviest -> const &str
   param _0 a: T
   param _1 b: T
   block
@@ -15498,15 +15518,15 @@ body fn heaviest -> const str
           local _1 b: T
       block
         return: !
-          call-method Describe::describe: const str
+          call-method Describe::describe: const &str
             local _0 a: T
     return: !
-      call-method Describe::describe: const str
+      call-method Describe::describe: const &str
         local _1 b: T
-body fn uses_heaviest -> const str
+body fn uses_heaviest -> const &str
   block
     return: !
-      call heaviest: const str
+      call heaviest: const &str
         call-ctor Crate#0: Crate
           int 3: i32
         call-ctor Crate#0: Crate
@@ -15624,7 +15644,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#135 method eq -> bool
+body impl#136 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -15634,7 +15654,7 @@ body impl#135 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#136 method cmp -> Ordering
+body impl#137 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -15701,7 +15721,7 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
-body impl#137 method add -> Vec2
+body impl#138 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -15719,7 +15739,7 @@ body impl#137 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#138 method mul -> Vec2
+body impl#139 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -15826,8 +15846,8 @@ body fn formatting -> void
             int 0: i32
         call-method Formatter::begin_arg: void
           local _6 fmt·: Formatter
-          str "": str
-          str "": str
+          str "": &str
+          str "": &str
         call-method Format::format: void
           deref: i32
             local _2 arg·: &i32
@@ -15835,8 +15855,8 @@ body fn formatting -> void
             local _6 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _6 fmt·: Formatter
-          str " ": str
-          str "x": str
+          str " ": &str
+          str "x": &str
         call-method Format::format: void
           deref: i32
             local _3 arg·: &i32
@@ -15844,8 +15864,8 @@ body fn formatting -> void
             local _6 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _6 fmt·: Formatter
-          str " ": str
-          str "X": str
+          str " ": &str
+          str "X": &str
         call-method Format::format: void
           deref: i32
             local _4 arg·: &i32
@@ -15853,8 +15873,8 @@ body fn formatting -> void
             local _6 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _6 fmt·: Formatter
-          str " ": str
-          str ".3": str
+          str " ": &str
+          str ".3": &str
         call-method Format::format: void
           deref: f32
             local _5 arg·: &f32
@@ -15862,11 +15882,11 @@ body fn formatting -> void
             local _6 fmt·: Formatter
         call-method Formatter::finish: void
           local _6 fmt·: Formatter
-          str " {literal}\n": str
+          str " {literal}\n": &str
 body fn widths -> void
   param _0 x: i32
   param _1 f: f32
-  param _2 s: str
+  param _2 s: &str
   param _3 t: T
   block
     formatted: void
@@ -15894,8 +15914,8 @@ body fn widths -> void
             int 0: i32
         call-method Formatter::begin_arg: void
           local _10 fmt·: Formatter
-          str "": str
-          str "8": str
+          str "": &str
+          str "8": &str
         call-method Format::format: void
           deref: i32
             local _4 arg·: &i32
@@ -15905,8 +15925,8 @@ body fn widths -> void
           local _10 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _10 fmt·: Formatter
-          str " ": str
-          str "08": str
+          str " ": &str
+          str "08": &str
         call-method Format::format: void
           deref: i32
             local _5 arg·: &i32
@@ -15916,8 +15936,8 @@ body fn widths -> void
           local _10 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _10 fmt·: Formatter
-          str " ": str
-          str "8x": str
+          str " ": &str
+          str "8x": &str
         call-method Format::format: void
           deref: i32
             local _6 arg·: &i32
@@ -15927,8 +15947,8 @@ body fn widths -> void
           local _10 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _10 fmt·: Formatter
-          str " ": str
-          str "08X": str
+          str " ": &str
+          str "08X": &str
         call-method Format::format: void
           deref: i32
             local _7 arg·: &i32
@@ -15938,8 +15958,8 @@ body fn widths -> void
           local _10 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _10 fmt·: Formatter
-          str " ": str
-          str "10.3": str
+          str " ": &str
+          str "10.3": &str
         call-method Format::format: void
           deref: f32
             local _8 arg·: &f32
@@ -15949,8 +15969,8 @@ body fn widths -> void
           local _10 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _10 fmt·: Formatter
-          str " ": str
-          str "010.3": str
+          str " ": &str
+          str "010.3": &str
         call-method Format::format: void
           deref: f32
             local _9 arg·: &f32
@@ -15960,11 +15980,11 @@ body fn widths -> void
           local _10 fmt·: Formatter
         call-method Formatter::finish: void
           local _10 fmt·: Formatter
-          str "\n": str
+          str "\n": &str
     formatted: void
       bind _11 arg·
-        ref: &str
-          local _2 s: str
+        ref: &&str
+          local _2 s: &str
       bind _12 arg·
         ref: &bool
           bool true: bool
@@ -15980,19 +16000,19 @@ body fn widths -> void
             int 0: i32
         call-method Formatter::begin_arg: void
           local _15 fmt·: Formatter
-          str "": str
-          str "12": str
+          str "": &str
+          str "12": &str
         call-method Format::format: void
-          deref: str
-            local _11 arg·: &str
+          deref: &str
+            local _11 arg·: &&str
           ref mut: &mut Formatter
             local _15 fmt·: Formatter
         call-method Formatter::end_arg: void
           local _15 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _15 fmt·: Formatter
-          str " ": str
-          str "5": str
+          str " ": &str
+          str "5": &str
         call-method Format::format: void
           deref: bool
             local _12 arg·: &bool
@@ -16002,8 +16022,8 @@ body fn widths -> void
           local _15 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _15 fmt·: Formatter
-          str " ": str
-          str "3": str
+          str " ": &str
+          str "3": &str
         call-method Format::format: void
           deref: char
             local _13 arg·: &char
@@ -16013,8 +16033,8 @@ body fn widths -> void
           local _15 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _15 fmt·: Formatter
-          str " ": str
-          str "6": str
+          str " ": &str
+          str "6": &str
         call-method Format::format: void
           deref: T
             local _14 arg·: &T
@@ -16024,8 +16044,8 @@ body fn widths -> void
           local _15 fmt·: Formatter
         call-method Formatter::finish: void
           local _15 fmt·: Formatter
-          str "\n": str
-body impl#139 method valid -> bool
+          str "\n": &str
+body impl#140 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -16034,13 +16054,13 @@ body impl#139 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#139 method get -> i32
+body impl#140 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#139 method advance -> void
+body impl#140 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -16156,7 +16176,7 @@ body fn cstr_from_literals -> usize
       local _1 b: cstr
     return: !
       len: usize
-        cast: str
+        cast: &str
           local _2 c: cstr
 body fn read_only_pointers -> f32
   param _0 v: &Vec3
@@ -16228,7 +16248,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#140 method mul -> Scale
+body impl#141 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -16239,7 +16259,7 @@ body impl#140 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#141 method mul -> f32
+body impl#142 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -16275,46 +16295,46 @@ body fn scale_by_both_flipped -> void
       call-method Mul::mul: T::Output
         local _0 a: &T
         float 2: f32
-body method Label::shout -> const str
+body method Label::shout -> const &str
   param _0 self: Label
   block
     return: !
-      call-method Label::label: const str
+      call-method Label::label: const &str
         local _0 self: Label
-body impl#142 method label -> const str
+body impl#143 method label -> const &str
   param _0 self: f32
   block
     return: !
-      str "a float": const str
-body fn labels -> const str
+      str "a float": const &str
+body fn labels -> const &str
   param _0 x: f32
   block
     return: !
-      call-method Label::shout: const str
+      call-method Label::shout: const &str
         local _0 x: f32
-body impl#143 method label -> const str
+body impl#144 method label -> const &str
   param _0 self: Wrap<T>
   block
     return: !
-      call-method Label::label: const str
+      call-method Label::label: const &str
         field #0: T
           local _0 self: Wrap<T>
-body fn wrapped -> const str
+body fn wrapped -> const &str
   param _0 w: Wrap<f32>
   block
     return: !
-      call-method Label::label: const str
+      call-method Label::label: const &str
         local _0 w: Wrap<f32>
-body impl#144 method shout -> const str
+body impl#145 method shout -> const &str
   param _0 self: f32
   block
     return: !
-      str "LOUD": const str
-body fn chooses -> const str
+      str "LOUD": const &str
+body fn chooses -> const &str
   param _0 x: f32
   block
     return: !
-      call-method Loud::shout: const str
+      call-method Loud::shout: const &str
         local _0 x: f32
 body drop Held -> void
   param _0 self: Held<T>
@@ -16748,7 +16768,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#147 method measure -> i32
+body impl#148 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -16766,7 +16786,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#148 method measure -> i32
+body impl#149 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -16974,7 +16994,7 @@ body fn addresses -> bool
           const Limits::MAX: i32
           int 0: i32
 body fn slices_and_text -> usize
-  param _0 name: str
+  param _0 name: &str
   block
     let _1 arr: [4]i32
       array: [4]i32
@@ -17000,16 +17020,16 @@ body fn slices_and_text -> usize
         int 1: usize
     let _4 bytes: []u8
       cast: []u8
-        local _0 name: str
-    let _5 text: str
-      or: str
-        builtin str_from_utf8: str?
+        local _0 name: &str
+    let _5 text: &str
+      or: &str
+        builtin str_from_utf8: ^str
           slice: []u8
             local _4 bytes: []u8
             int 0: usize
             len: usize
-              local _0 name: str
-        str "": str
+              local _0 name: &str
+        str "": &str
     let _6 b: List<i32>
       call-ctor List#0: List<i32>
         int 4: usize
@@ -17027,7 +17047,7 @@ body fn slices_and_text -> usize
       binary +: usize
         binary +: usize
           len: usize
-            local _5 text: str
+            local _5 text: &str
           call-method List::len: usize
             local _6 b: List<i32>
         cast: usize
@@ -17036,7 +17056,7 @@ body fn slices_and_text -> usize
             int 0: usize
 body fn require -> void
   param _0 ok: bool
-  param _1 what: str
+  param _1 what: &str
   param _2 loc: SourceLocation
   block
     if: void
@@ -17047,8 +17067,8 @@ body fn require -> void
           block
             formatted: !
               bind _3 arg·
-                ref: &str
-                  local _1 what: str
+                ref: &&str
+                  local _1 what: &str
               bind _4 arg·
                 local _2 loc: SourceLocation
               block
@@ -17056,18 +17076,18 @@ body fn require -> void
                   call-assoc Formatter::message: Formatter
                 call-method Formatter::begin_arg: void
                   local _5 fmt·: Formatter
-                  str "missing ": str
-                  str "": str
+                  str "missing ": &str
+                  str "": &str
                 call-method Format::format: void
-                  deref: str
-                    local _3 arg·: &str
+                  deref: &str
+                    local _3 arg·: &&str
                   ref mut: &mut Formatter
                     local _5 fmt·: Formatter
                 call-method Formatter::finish: void
                   local _5 fmt·: Formatter
-                  str "": str
+                  str "": &str
                 builtin panic: !
-                  call-method Formatter::message_text: str
+                  call-method Formatter::message_text: &str
                     local _5 fmt·: Formatter
                   local _4 arg·: SourceLocation
 body field-default Tile.0 -> void
@@ -17076,7 +17096,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#149 method eq -> bool
+body impl#150 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -17092,7 +17112,7 @@ body impl#149 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#150 method hash -> u64
+body impl#151 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -17103,7 +17123,7 @@ body impl#150 method hash -> u64
         call-method Hash::hash: u64
           field #1: i32
             local _0 self: Tile
-body impl#151 method eq -> bool
+body impl#152 method eq -> bool
   param _0 self: TileRef
   param _1 rhs: &TileRef
   block
@@ -17113,7 +17133,7 @@ body impl#151 method eq -> bool
           local _0 self: TileRef
         field #0: ^Tile
           local _1 rhs: &TileRef
-body impl#152 method hash -> u64
+body impl#153 method hash -> u64
   param _0 self: TileRef
   block
     return: !
@@ -17195,7 +17215,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#153 method neg -> Heading
+body impl#154 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -17204,7 +17224,7 @@ body impl#153 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#154 method eq -> bool
+body impl#155 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -17248,11 +17268,11 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#155 method named -> str
+body impl#156 method named -> &str
   param _0 self: Heading
   block
     return: !
-      str "heading": str
+      str "heading": &str
 body fn names -> usize
   param _0 items: []&Named
   block
@@ -17296,7 +17316,7 @@ body fn weighted -> i32
   param _0 xs: []i32
   param _1 scale: i32
   param _2 offset: i32
-  param _3 label: str
+  param _3 label: &str
   block
     let _4 t: i32
       int 0: i32
@@ -17315,7 +17335,7 @@ body fn weighted -> i32
           local _2 offset: i32
         cast: i32
           len: usize
-            local _3 label: str
+            local _3 label: &str
 body fn named_calls -> i32
   param _0 xs: []i32
   block
@@ -17326,20 +17346,20 @@ body fn named_calls -> i32
           int 2: i32
         default-arg 1: i32
         default-arg 2: i32
-        str "a": str
+        str "a": &str
     let _2 b: i32
       call weighted: i32
         array: []i32
         int 2: i32
         default-arg 2: i32
-        str "b": str
+        str "b": &str
     let _3 c: i32
       call weighted: i32
         array: [1]i32
           int 3: i32
         default-arg 1: i32
         int 1: i32
-        str "c": str
+        str "c": &str
     return: !
       binary +: i32
         binary +: i32
@@ -17351,8 +17371,8 @@ body fn named_calls -> i32
           local _0 xs: []i32
           int 3: i32
           int 2: i32
-          str "d": str
-body impl#156 method format -> void
+          str "d": &str
+body impl#157 method format -> void
   param _0 self: Heading
   param _1 f: &mut Formatter
   block
@@ -17362,7 +17382,7 @@ body impl#156 method format -> void
       local _1 f: &mut Formatter
     call-method Formatter::write_str: void
       local _1 f: &mut Formatter
-      str " degrees": str
+      str " degrees": &str
 body fn formatted -> usize
   param _0 h: Heading
   block
@@ -17383,7 +17403,7 @@ body fn formatted -> usize
         block
           let _6 text·: String
             call-ctor String#0: String
-              str "": str
+              str "": &str
           block-value: void
             block
               let _5 fmt·: Formatter
@@ -17392,8 +17412,8 @@ body fn formatted -> usize
                     local _6 text·: String
               call-method Formatter::begin_arg: void
                 local _5 fmt·: Formatter
-                str "": str
-                str "": str
+                str "": &str
+                str "": &str
               call-method Format::format: void
                 deref: Heading
                   local _1 arg·: &Heading
@@ -17401,8 +17421,8 @@ body fn formatted -> usize
                   local _5 fmt·: Formatter
               call-method Formatter::begin_arg: void
                 local _5 fmt·: Formatter
-                str " at ": str
-                str ".1": str
+                str " at ": &str
+                str ".1": &str
               call-method Format::format: void
                 deref: f64
                   local _2 arg·: &f64
@@ -17410,8 +17430,8 @@ body fn formatted -> usize
                   local _5 fmt·: Formatter
               call-method Formatter::begin_arg: void
                 local _5 fmt·: Formatter
-                str " ": str
-                str "x": str
+                str " ": &str
+                str "x": &str
               call-method Format::format: void
                 deref: i32
                   local _3 arg·: &i32
@@ -17419,8 +17439,8 @@ body fn formatted -> usize
                   local _5 fmt·: Formatter
               call-method Formatter::begin_arg: void
                 local _5 fmt·: Formatter
-                str " ": str
-                str "": str
+                str " ": &str
+                str "": &str
               call-method Format::format: void
                 deref: bool
                   local _4 arg·: &bool
@@ -17428,12 +17448,12 @@ body fn formatted -> usize
                   local _5 fmt·: Formatter
               call-method Formatter::finish: void
                 local _5 fmt·: Formatter
-                str "": str
+                str "": &str
           move: String
             local _6 text·: String
     let _8 b: String
       call-ctor String#0: String
-        str "{}": str
+        str "{}": &str
         const Allocators::Temp: &mut TempArena
     let _13 c: String
       formatted: String
@@ -17446,7 +17466,7 @@ body fn formatted -> usize
         block
           let _12 text·: String
             call-ctor String#0: String
-              str "": str
+              str "": &str
           block-value: void
             block
               let _11 fmt·: Formatter
@@ -17455,8 +17475,8 @@ body fn formatted -> usize
                     local _12 text·: String
               call-method Formatter::begin_arg: void
                 local _11 fmt·: Formatter
-                str "": str
-                str "": str
+                str "": &str
+                str "": &str
               call-method Format::format: void
                 deref: String
                   local _9 arg·: &String
@@ -17464,8 +17484,8 @@ body fn formatted -> usize
                   local _11 fmt·: Formatter
               call-method Formatter::begin_arg: void
                 local _11 fmt·: Formatter
-                str " and ": str
-                str "": str
+                str " and ": &str
+                str "": &str
               call-method Format::format: void
                 deref: Heading
                   local _10 arg·: &Heading
@@ -17473,7 +17493,7 @@ body fn formatted -> usize
                   local _11 fmt·: Formatter
               call-method Formatter::finish: void
                 local _11 fmt·: Formatter
-                str "": str
+                str "": &str
           move: String
             local _12 text·: String
     return: !
@@ -17504,8 +17524,8 @@ body fn printed -> void
             int 0: i32
         call-method Formatter::begin_arg: void
           local _6 fmt·: Formatter
-          str "": str
-          str "": str
+          str "": &str
+          str "": &str
         call-method Format::format: void
           deref: Heading
             local _4 arg·: &Heading
@@ -17513,8 +17533,8 @@ body fn printed -> void
             local _6 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _6 fmt·: Formatter
-          str " ": str
-          str "x": str
+          str " ": &str
+          str "x": &str
         call-method Format::format: void
           deref: Heading
             local _5 arg·: &Heading
@@ -17522,7 +17542,7 @@ body fn printed -> void
             local _6 fmt·: Formatter
         call-method Formatter::finish: void
           local _6 fmt·: Formatter
-          str " ": str
+          str " ": &str
     formatted: void
       bind _7 arg·
         local _1 r: &Heading
@@ -17538,8 +17558,8 @@ body fn printed -> void
             int 0: i32
         call-method Formatter::begin_arg: void
           local _10 fmt·: Formatter
-          str "": str
-          str "": str
+          str "": &str
+          str "": &str
         call-method Format::format: void
           deref: Heading
             local _7 arg·: &Heading
@@ -17547,8 +17567,8 @@ body fn printed -> void
             local _10 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _10 fmt·: Formatter
-          str " ": str
-          str "": str
+          str " ": &str
+          str "": &str
         call-method Format::format: void
           deref: String
             local _8 arg·: &String
@@ -17556,8 +17576,8 @@ body fn printed -> void
             local _10 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _10 fmt·: Formatter
-          str " ": str
-          str "": str
+          str " ": &str
+          str "": &str
         call-method Format::format: void
           deref: T
             local _9 arg·: &T
@@ -17565,7 +17585,7 @@ body fn printed -> void
             local _10 fmt·: Formatter
         call-method Formatter::finish: void
           local _10 fmt·: Formatter
-          str "\n": str
+          str "\n": &str
     formatted: void
       bind _11 arg·
         ref: &i32
@@ -17576,8 +17596,8 @@ body fn printed -> void
             int 1: i32
         call-method Formatter::begin_arg: void
           local _12 fmt·: Formatter
-          str "": str
-          str "": str
+          str "": &str
+          str "": &str
         call-method Format::format: void
           deref: i32
             local _11 arg·: &i32
@@ -17585,30 +17605,30 @@ body fn printed -> void
             local _12 fmt·: Formatter
         call-method Formatter::finish: void
           local _12 fmt·: Formatter
-          str "": str
+          str "": &str
     call stream_write: void
       int 1: i32
-      str "\n": str
+      str "\n": &str
     formatted: void
       bind _13 arg·
-        ref: &str
-          str "{": str
+        ref: &&str
+          str "{": &str
       block
         let _14 fmt·: Formatter
           call-assoc Formatter::stream: Formatter
             int 0: i32
         call-method Formatter::begin_arg: void
           local _14 fmt·: Formatter
-          str "raw ": str
-          str "": str
+          str "raw ": &str
+          str "": &str
         call-method Format::format: void
-          deref: str
-            local _13 arg·: &str
+          deref: &str
+            local _13 arg·: &&str
           ref mut: &mut Formatter
             local _14 fmt·: Formatter
         call-method Formatter::finish: void
           local _14 fmt·: Formatter
-          str "\n": str
+          str "\n": &str
 body fn pointed !-> usize
   param _0 h: ^Heading
   param _1 m: ^mut Heading
@@ -17636,29 +17656,29 @@ body fn pointed !-> usize
             int 0: i32
         call-method Formatter::begin_arg: void
           local _9 fmt·: Formatter
-          str "": str
-          str "": str
+          str "": &str
+          str "": &str
         call-method Formatter::write_pointee<Heading>: void
           local _9 fmt·: Formatter
           local _3 arg·: ^Heading
         call-method Formatter::begin_arg: void
           local _9 fmt·: Formatter
-          str " ": str
-          str "": str
+          str " ": &str
+          str "": &str
         call-method Formatter::write_pointee<Heading>: void
           local _9 fmt·: Formatter
           local _4 arg·: ^Heading
         call-method Formatter::begin_arg: void
           local _9 fmt·: Formatter
-          str " ": str
-          str "x": str
+          str " ": &str
+          str "x": &str
         call-method Formatter::write_pointee<i32>: void
           local _9 fmt·: Formatter
           local _5 arg·: ^i32
         call-method Formatter::begin_arg: void
           local _9 fmt·: Formatter
-          str " [": str
-          str "6": str
+          str " [": &str
+          str "6": &str
         call-method Formatter::write_pointee<i32>: void
           local _9 fmt·: Formatter
           local _6 arg·: ^i32
@@ -17666,15 +17686,15 @@ body fn pointed !-> usize
           local _9 fmt·: Formatter
         call-method Formatter::begin_arg: void
           local _9 fmt·: Formatter
-          str "] ": str
-          str "p": str
+          str "] ": &str
+          str "p": &str
         call-method Formatter::write_address: void
           local _9 fmt·: Formatter
           local _7 arg·: usize
         call-method Formatter::begin_arg: void
           local _9 fmt·: Formatter
-          str " ": str
-          str "18p": str
+          str " ": &str
+          str "18p": &str
         call-method Formatter::write_address: void
           local _9 fmt·: Formatter
           local _8 arg·: usize
@@ -17682,7 +17702,7 @@ body fn pointed !-> usize
           local _9 fmt·: Formatter
         call-method Formatter::finish: void
           local _9 fmt·: Formatter
-          str "\n": str
+          str "\n": &str
     let _13 s: String
       formatted: String
         bind _10 arg·
@@ -17691,7 +17711,7 @@ body fn pointed !-> usize
         block
           let _12 text·: String
             call-ctor String#0: String
-              str "": str
+              str "": &str
           block-value: void
             block
               let _11 fmt·: Formatter
@@ -17700,14 +17720,14 @@ body fn pointed !-> usize
                     local _12 text·: String
               call-method Formatter::begin_arg: void
                 local _11 fmt·: Formatter
-                str "": str
-                str "p": str
+                str "": &str
+                str "p": &str
               call-method Formatter::write_address: void
                 local _11 fmt·: Formatter
                 local _10 arg·: usize
               call-method Formatter::finish: void
                 local _11 fmt·: Formatter
-                str "": str
+                str "": &str
           move: String
             local _12 text·: String
     if: void
@@ -17718,7 +17738,7 @@ body fn pointed !-> usize
       block
         return: !
           builtin error: !-> !
-            str "nothing at {:p} [{:12p}]": str
+            str "nothing at {:p} [{:12p}]": &str
             local _2 n: ^i32
             local _0 h: ^Heading
     return: !
@@ -17789,35 +17809,35 @@ body fn generic_methods -> i32
                 int 0: i32
 body fn reading_text -> i64
   param _0 line: &String
-  param _1 raw: str
+  param _1 raw: &str
   block
     let _2 total: i64
       int 0: i64
     for _3 field
       call-method Text::split: Split
-        call-method Text::trim: str
+        call-method Text::trim: &str
           local _0 line: &String
-        str ",": str
+        str ",": &str
       block
         assign +=
           local _2 total: i64
           or: i64
             call-method Text::parse_i64: i64?
-              local _3 field: str
+              local _3 field: &str
             int 0: i64
     for _4 l
       call-method Text::lines: Lines
-        local _1 raw: str
+        local _1 raw: &str
       block
         if: void
           binary ||: bool
             call-method Text::starts_with: bool
-              local _4 l: str
-              str "#": str
+              local _4 l: &str
+              str "#": &str
             unary !: bool
               call-method Text::contains: bool
-                local _4 l: str
-                str "=": str
+                local _4 l: &str
+                str "=": &str
           block
             continue: !
         assign +=
@@ -17825,11 +17845,11 @@ body fn reading_text -> i64
           int 1: i64
     let _5 loud: String
       call-method Text::to_ascii_uppercase: String
-        str "quiet": str
+        str "quiet": &str
     let _6 scale: f64
       or: f64
         call-method Text::parse_f64: f64?
-          str "1.5": str
+          str "1.5": &str
         float 1: f64
     return: !
       binary +: i64
@@ -17839,8 +17859,8 @@ body fn reading_text -> i64
             call-method String::len: usize
               call-method Text::replace: String
                 local _5 loud: String
-                str "Q": str
-                str "": str
+                str "Q": &str
+                str "": &str
         cast: i64
           local _6 scale: f64
 body fn later_first -> bool
@@ -17893,13 +17913,13 @@ body fn text_by_character -> usize
       block
         let _: _
           local _3 c: char
-    let _4 head: str
-      or: str
-        call-method String::slice: str?
+    let _4 head: &str
+      or: &str
+        call-method String::slice: ^str
           local _0 name: &String
           int 0: usize
           int 1: usize
-        str "": str
+        str "": &str
     return: !
       binary +: usize
         binary +: usize
@@ -17907,7 +17927,7 @@ body fn text_by_character -> usize
           call-method String::char_count: usize
             local _0 name: &String
         len: usize
-          local _4 head: str
+          local _4 head: &str
 body const SUFFIXED_LIMIT -> void
   block
     int 250: u8
@@ -17993,7 +18013,7 @@ body fn file_system !-> usize
     let _1 config: Path
       call-method Div::div: Path
         local _0 dir: &Path
-        str "config.txt": str
+        str "config.txt": &str
     or: void
       call-assoc Directory::create: !-> void
         local _0 dir: &Path
@@ -18002,7 +18022,7 @@ body fn file_system !-> usize
       call-assoc File::write_text: !-> void
         ref: &Path
           local _1 config: Path
-        str "hello": str
+        str "hello": &str
       return: !
     let _2 text: String
       or: String
@@ -18041,10 +18061,10 @@ body fn file_system !-> usize
           call-method List::len: usize
             local _6 entries: List<Path>
         len: usize
-          call-method Path::extension: str
+          call-method Path::extension: &str
             local _1 config: Path
 body fn iterating_containers -> i32
-  param _0 names: &HashMap<str, i32>
+  param _0 names: &HashMap<const &str, i32>
   block
     let _1 xs: List<i32>
       call-ctor List#0: List<i32>
@@ -18069,8 +18089,8 @@ body fn iterating_containers -> i32
           local _3 total: i32
           local _4 x: i32
     for _, _5 v (tuple)
-      call-method Iterable::iter: HashMapIter<str, i32>
-        local _0 names: &HashMap<str, i32>
+      call-method Iterable::iter: HashMapIter<const &str, i32>
+        local _0 names: &HashMap<const &str, i32>
       block
         assign +=
           local _3 total: i32
@@ -18110,30 +18130,33 @@ body fn enum_traits -> bool
               local _2 top: Layer
           enum-variant Ordering#0: Ordering
 body fn hashing -> bool
-  param _0 name: str
+  param _0 name: &str
   block
-    let _1 by_tile: HashMap<Tile, str>
-      call-ctor HashMap#0: HashMap<Tile, str>
+    let _1 by_tile: HashMap<Tile, String>
+      call-ctor HashMap#0: HashMap<Tile, String>
     call-method HashMap::insert: void
-      local _1 by_tile: HashMap<Tile, str>
+      local _1 by_tile: HashMap<Tile, String>
       struct-lit Tile: Tile
         #0
           int 1: i32
         #1
           int 2: i32
-      local _0 name: str
-    let _2 by_name: HashMap<str, i32>
-      call-ctor HashMap#0: HashMap<str, i32>
+      call-assoc String::from: String
+        local _0 name: &str
+    let _2 by_name: HashMap<String, i32>
+      call-ctor HashMap#0: HashMap<String, i32>
         int 8: usize
     call-method HashMap::insert: void
-      local _2 by_name: HashMap<str, i32>
-      local _0 name: str
+      local _2 by_name: HashMap<String, i32>
+      call-assoc String::from: String
+        local _0 name: &str
       int 3: i32
     let _3 three: i32
       or: i32
         call-method HashMap::replace: i32?
-          local _2 by_name: HashMap<str, i32>
-          local _0 name: str
+          local _2 by_name: HashMap<String, i32>
+          call-assoc String::from: String
+            local _0 name: &str
           int 4: i32
         int 0: i32
     let _4 counts: HashMap<u8, bool>
@@ -18151,14 +18174,14 @@ body fn hashing -> bool
     call assert: void
       binary >: bool
         len: usize
-          local _0 name: str
+          local _0 name: &str
         int 0: usize
-      str "a name": str
+      str "a name": &str
     let _6 found: bool
       binary &&: bool
         binary &&: bool
           call-method HashMap::contains: bool
-            local _1 by_tile: HashMap<Tile, str>
+            local _1 by_tile: HashMap<Tile, String>
             ref: &Tile
               local _5 at: Tile
           binary ==: bool
@@ -18180,9 +18203,9 @@ body fn hashing -> bool
             call-method Hash::hash: u64
               bool true: bool
         call-method Eq::eq: bool
-          local _0 name: str
-          ref: &str
-            local _0 name: str
+          local _0 name: &str
+          ref: &&str
+            local _0 name: &str
 body fn reflect_on_a_type -> bool
   block
     let _0 info: &TypeInfo
@@ -18197,11 +18220,11 @@ body fn reflect_on_a_type -> bool
         local _0 info: &TypeInfo
       block
         let _: _
-          or: str
-            call-method FieldInfo::tag_value: str?
+          or: &str
+            call-method FieldInfo::tag_value: ^str
               local _3 f: &FieldInfo
-              str "json": str
-            field #0: str
+              str "json": &str
+            field #0: &str
               local _3 f: &FieldInfo
     return: !
       binary &&: bool
@@ -18314,9 +18337,8 @@ body fn operators_read_through -> bool
             deref: Layer
               local _2 l: &Layer
         binary ==: bool
-          deref: str
-            local _3 s: &str
-          str "x": str
+          local _3 s: &str
+          str "x": &str
 body fn collections_pass -> usize
   param _0 names: &mut HashMap<String, i32>
   param _1 words: &List<String>
@@ -18363,7 +18385,7 @@ body fn collections_pass -> usize
       or: &mut i32
         call-method StrKeys::get_mut_str: ^mut i32
           local _0 names: &mut HashMap<String, i32>
-          str "hero": str
+          str "hero": &str
         return: !
           int 0: usize
     assign +=
@@ -18373,44 +18395,44 @@ body fn collections_pass -> usize
       call-method HashMap::get_or_insert: &mut i32
         local _0 names: &mut HashMap<String, i32>
         call-assoc String::from: String
-          str "wall": str
+          str "wall": &str
         int 0: i32
     assign +=
       local _8 count: &mut i32
       int 1: i32
-    let _9 seen: HashSet<str>
-      call-ctor HashSet#0: HashSet<str>
+    let _9 seen: HashSet<const &str>
+      call-ctor HashSet#0: HashSet<const &str>
     let _10 fresh: bool
       binary &&: bool
         call-method HashSet::insert: bool
-          local _9 seen: HashSet<str>
-          str "a": str
+          local _9 seen: HashSet<const &str>
+          str "a": const &str
         unary !: bool
           call-method HashSet::contains: bool
-            local _9 seen: HashSet<str>
-            ref: &str
-              str "b": str
+            local _9 seen: HashSet<const &str>
+            ref: &const &str
+              str "b": const &str
     let _11 line: String
       call-method Join::join: String
         local _1 words: &List<String>
-        str ", ": str
+        str ", ": &str
     let (_12 k, _)
-      or: (str, str)
-        call-method Text::split_once: (str, str)?
+      or: (&str, &str)
+        call-method Text::split_once: (&str, &str)?
           local _11 line: String
-          str ",": str
-        tuple: (str, str)
-          str "": str
-          str "": str
-    let _13 tail: str
-      or: str
-        call-method Text::strip_prefix: str?
+          str ",": &str
+        tuple: (&str, &str)
+          str "": &str
+          str "": &str
+    let _13 tail: &str
+      or: &str
+        call-method Text::strip_prefix: ^str
           local _11 line: String
-          local _12 k: str
-        str "": str
+          local _12 k: &str
+        str "": &str
     let _14 s: String
       call-assoc String::from: String
-        local _13 tail: str
+        local _13 tail: &str
     call-method String::insert: void
       local _14 s: String
       int 0: usize
@@ -18422,8 +18444,8 @@ body fn collections_pass -> usize
     let _16 comma: usize
       or: usize
         call-method Text::rfind: usize?
-          local _13 tail: str
-          str ",": str
+          local _13 tail: &str
+          str ",": &str
         int 0: usize
     return: !
       binary +: usize
@@ -18431,7 +18453,7 @@ body fn collections_pass -> usize
           binary +: usize
             local _4 at: usize
             len: usize
-              local _12 k: str
+              local _12 k: &str
           local _16 comma: usize
         if: usize
           binary &&: bool
@@ -18545,7 +18567,7 @@ body ctor IntHolder#0 -> void
     (empty)
 body field-default Labelled.1 -> void
   block
-    str "": str
+    str "": const &str
 body ctor Labelled#0 -> void
   param _0 self: Labelled<T>
   param _1 v: T
@@ -18685,14 +18707,14 @@ body fn count_items -> i32
           int 1: i32
     return: !
       local _2 n: i32
-body impl#157 method valid -> bool
+body impl#158 method valid -> bool
   param _0 self: Flagged<I>
   block
     return: !
       call-method Iterate::valid: bool
         field #0: I
           local _0 self: Flagged<I>
-body impl#157 method get -> (I::Item, bool)
+body impl#158 method get -> (I::Item, bool)
   param _0 self: Flagged<I>
   block
     return: !
@@ -18701,7 +18723,7 @@ body impl#157 method get -> (I::Item, bool)
           field #0: I
             local _0 self: Flagged<I>
         bool true: bool
-body impl#157 method advance -> void
+body impl#158 method advance -> void
   param _0 self: Flagged<I>
   block
     call-method Iterate::advance: void
@@ -18732,7 +18754,7 @@ body fn seen_all -> i32
     return: !
       field #1: i32
         local _0 c: &mut Cursor<I>
-body impl#158 method steps -> SliceIter<String>
+body impl#159 method steps -> SliceIter<String>
   param _0 self: Roster
   block
     return: !
@@ -18780,13 +18802,13 @@ body fn projections -> i32
         call count_items: i32
           local _0 xs: &List<i32>
           fn-item ignore_int: fn(&i32) -> void
-body impl#159 method mul -> Scale
+body impl#160 method mul -> Scale
   param _0 self: f32
   param _1 rhs: Scale
   block
     return: !
       local _1 rhs: Scale
-body impl#160 method convert -> Grams
+body impl#161 method convert -> Grams
   param _0 self: f32
   block
     return: !
@@ -18821,7 +18843,7 @@ body fn conversions -> f32
       call c_text: cstr
         call-method ImplicitAs::convert: cstr
           call-assoc String::from: String
-            str "x": str
+            str "x": &str
     return: !
       binary +: f32
         call weigh: f32
@@ -18863,69 +18885,69 @@ body method Roster::rename_all -> void
       block
         call-method String::push_str: void
           local _1 m: &mut String
-          str "!": str
+          str "!": &str
 body fn shout -> void
   param _0 name: &mut String
   param _1 roster: &mut Roster
   block
     call-method String::push_str: void
       local _0 name: &mut String
-      str "!": str
+      str "!": &str
     call-method List::clear: void
       field #0: List<String>
         local _1 roster: &mut Roster
-body fn member_text -> str
+body fn member_text -> &str
   param _0 roster: &Roster
   param _1 i: usize
   block
     return: !
-      call-method String::as_str: str
+      call-method String::as_str: &str
         call-method Index::index: &String
           field #0: List<String>
             local _0 roster: &Roster
           local _1 i: usize
-body fn first_or -> str
-  param _0 a: str
-  param _1 b: str
+body fn first_or -> &str
+  param _0 a: &str
+  param _1 b: &str
   block
     return: !
-      if: str
+      if: &str
         binary >: bool
           len: usize
-            local _0 a: str
+            local _0 a: &str
           int 0: usize
         block
-          local _0 a: str
+          local _0 a: &str
         block
-          block-value: str
+          block-value: &str
             block
-              local _1 b: str
-body fn after -> str?
-  param _0 s: str
-  param _1 prefix: str
+              local _1 b: &str
+body fn after -> ^str
+  param _0 s: &str
+  param _1 prefix: &str
   block
     return: !
-      call-method Text::strip_prefix: str?
-        local _0 s: str
-        local _1 prefix: str
-body fn halves -> (str, str)?
-  param _0 s: str
+      call-method Text::strip_prefix: ^str
+        local _0 s: &str
+        local _1 prefix: &str
+body fn halves -> (&str, &str)?
+  param _0 s: &str
   block
     return: !
-      call-method Text::split_once: (str, str)?
-        local _0 s: str
-        str "=": str
+      call-method Text::split_once: (&str, &str)?
+        local _0 s: &str
+        str "=": &str
 body fn walk -> SliceIter<i32>
   param _0 xs: &List<i32>
   block
     return: !
       call-method Iterable::iter: SliceIter<i32>
         local _0 xs: &List<i32>
-body fn greeting -> (const str, i32)
+body fn greeting -> (const &str, i32)
   block
     return: !
-      tuple: (const str, i32)
-        str "hello": const str
+      tuple: (const &str, i32)
+        str "hello": const &str
         int 5: i32
 body fn fresh_bytes -> ^mut u8
   block
@@ -19026,7 +19048,7 @@ body method Record::rename -> void
       block
         call-method String::push_str: void
           local _1 w: &mut String
-          str "!": str
+          str "!": &str
 body field-default Bookshelf.1 -> void
   block
     null: own ^mut i32
@@ -19038,12 +19060,12 @@ body method Bookshelf::add -> void
       field #0: List<String>
         local _0 self: Bookshelf
       local _1 title: String
-body method Bookshelf::title -> str
+body method Bookshelf::title -> &str
   param _0 self: Bookshelf
   param _1 i: usize
   block
     return: !
-      call-method String::as_str: str
+      call-method String::as_str: &str
         call-method Index::index: &String
           field #0: List<String>
             local _0 self: Bookshelf
@@ -19058,7 +19080,7 @@ body drop Bookshelf -> void
   param _0 self: Bookshelf
   block
     (empty)
-body impl#162 method index -> &String
+body impl#163 method index -> &String
   param _0 self: Bookshelf
   param _1 i: usize
   block
@@ -19076,7 +19098,7 @@ body drop Rack -> void
   param _0 self: Rack
   block
     (empty)
-body impl#164 method iter -> SliceIter<i32>
+body impl#165 method iter -> SliceIter<i32>
   param _0 self: Rack
   block
     return: !
@@ -19088,43 +19110,43 @@ body impl#164 method iter -> SliceIter<i32>
                 local _0 self: Rack
               int 0: usize
               int 0: usize
-body fn sign_text -> const str
+body fn sign_text -> const &str
   param _0 s: &Sign
   block
     return: !
-      field #0: const str
+      field #0: const &str
         local _0 s: &Sign
 body fn signs -> usize
   block
-    let _0 all: List<const str>
-      call-ctor List#0: List<const str>
+    let _0 all: List<const &str>
+      call-ctor List#0: List<const &str>
     let _1 s: Sign
       struct-lit Sign: Sign
         #0
-          str "exit": const str
+          str "exit": const &str
     call-method List::push: void
-      local _0 all: List<const str>
-      field #0: const str
+      local _0 all: List<const &str>
+      field #0: const &str
         local _1 s: Sign
-    let _2 shown: str
-      field #0: str
+    let _2 shown: &str
+      field #0: &str
         local _1 s: Sign
-    let _3 label: str
-      str "none": str
+    let _3 label: &str
+      str "none": &str
     assign =
-      local _3 label: str
-      call sign_text: str
+      local _3 label: &str
+      call sign_text: &str
         ref: &Sign
           local _1 s: Sign
     return: !
       binary +: usize
         binary +: usize
           call-method List::len: usize
-            local _0 all: List<const str>
+            local _0 all: List<const &str>
           len: usize
-            local _2 shown: str
+            local _2 shown: &str
         len: usize
-          local _3 label: str
+          local _3 label: &str
 body field-default Ledger.0 -> void
   block
     int 0: i32
@@ -19227,3 +19249,64 @@ body fn final_number -> i32
     return: !
       deref: i32
         local _2 r: &i32
+body field-default Caption.0 -> void
+  block
+    str "none": const &str
+body fn initial_of -> ^str
+  param _0 s: &str
+  block
+    if: void
+      binary ==: bool
+        len: usize
+          local _0 s: &str
+        int 0: usize
+      block
+        return: !
+          none: ^str
+    return: !
+      call-method Text::strip_prefix: ^str
+        local _0 s: &str
+        str "": &str
+body fn text_kinds -> usize
+  param _0 owner: &String
+  block
+    let _1 names: List<const &str>
+      call-ctor List#0: List<const &str>
+    call-method List::push: void
+      local _1 names: List<const &str>
+      str "ada": const &str
+    let _2 l: Caption
+      struct-lit Caption: Caption
+        #0
+          deref: const &str
+            call-method IndexMut::index_mut: &mut const &str
+              local _1 names: List<const &str>
+              int 0: usize
+    let _3 first: &str
+      or: &str
+        call initial_of: ^str
+          call-method ImplicitAs::convert: &str
+            local _0 owner: &String
+        return: !
+          int 0: usize
+    let _4 none_here: bool
+      binary ==: bool
+        call initial_of: ^str
+          str "": &str
+        none: ^str
+    return: !
+      binary +: usize
+        binary +: usize
+          len: usize
+            local _3 first: &str
+          len: usize
+            field #0: &str
+              local _2 l: Caption
+        if: usize
+          local _4 none_here: bool
+          block
+            int 1: usize
+          block
+            block-value: usize
+              block
+                int 0: usize

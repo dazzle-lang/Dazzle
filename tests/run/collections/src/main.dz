@@ -95,7 +95,7 @@ fn short_word(w: &String) -> bool {
 }
 
 fn text_len(c: cstr) -> usize {
-    return (c as str).len
+    return (c as &str).len
 }
 
 fn lists() {
@@ -173,7 +173,7 @@ fn lists() {
     r.push(2)
     r.push(1)
     println!("p == q {} | p == r {} | hashes equal {}", p == q, p == r, p.hash() == q.hash())
-    let mut by_path = HashMap<List<i32>, str>()
+    let mut by_path = HashMap<List<i32>, const &str>()
     by_path.insert(p, "one-two")
     let found = by_path.get(&q) or return
     println!("by path: {}", found)
@@ -181,13 +181,13 @@ fn lists() {
 
 fn maps() {
     // Counting words, one lookup each.
-    let mut counts = HashMap<str, i32>()
+    let mut counts = HashMap<String, i32>()
     for word in "the cat and the hat and the bat".split_whitespace() {
-        let n = counts.get_or_insert(word, 0)
+        let n = counts.get_or_insert(String(word), 0)
         n += 1
     }
-    let the = counts.get(&"the") or return
-    let and = counts.get(&"and") or return
+    let the = counts.get_str("the") or return
+    let and = counts.get_str("and") or return
     println!("the {} and {} distinct {}", the, and, counts.len())
 
     // Keys and values, in no particular order, so summed.
@@ -278,14 +278,14 @@ fn strings() {
     let e = s.remove(3)
     println!("{} | removed {} | {} bytes", s, e, s.len())
 
-    let parts: [3]str = ["a", "b", "c"]
+    let parts: [3]&str = ["a", "b", "c"]
     let mut names = List<String>()
     names.push(String("ada"))
     names.push(String("grace"))
-    let mut views = List<str>()
+    let mut views = List<const &str>()
     views.push("x")
     views.push("y")
-    println!("{} | {} | {} | [{}]", parts[0..3].join(", "), names.join(" & "), views.join(""), List<str>().join(","))
+    println!("{} | {} | {} | [{}]", parts[0..3].join(", "), names.join(" & "), views.join(""), List<const &str>().join(","))
 
     let path = "assets/sprites/hero.png"
     let slash = path.rfind("/") or 0
