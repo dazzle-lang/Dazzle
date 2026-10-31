@@ -174,7 +174,7 @@ libclang pass runs once and not on every build.
 | `T&` | `&mut T` |
 | `const T&` | `&T` |
 | `T&&` | not imported: `&&` is C++'s spelling of a move, and §6.4 has its own |
-| `const char*` | `cstr` |
+| `const char*` | `^cstr`: C's pointer, untied; a parameter takes a `&cstr` or a `const &cstr` too (T-0112) |
 | `struct` / `class` | `struct`, public fields mapped, private and protected C++ members become opaque padding — they stay in the type, since Dazzle never redeclares it, but cannot be named. A field whose type Dazzle cannot name yet is left out the same way. Every field defaults to zero, as `{}` makes it, so a literal names only the fields it sets |
 | `typedef` of a struct or enum | a second name for the same type |
 | a field of a struct with no name, `struct { ma_format format; … } playback;` | an ordinary field: `config.playback.format = …`. The struct is imported as `ma_device_config_playback` (the owner's name and the field's), which C++ spells `decltype(::ma_device_config::playback)`; one nested inside it takes the same rule one level down. An anonymous `struct { … };` with no field name is different, and its members belong to the enclosing struct |

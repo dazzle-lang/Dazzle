@@ -2835,6 +2835,13 @@ impl<'a, 'c> Body<'a, 'c> {
             self.hir.set_expr_type(checked.id, Ty::Str);
             checked.ty = Ty::Str;
         }
+        // And static C text a borrowed C string (T-0112).
+        if checked.ty == Ty::ConstCStr
+            && !matches!(expected.map(|t| self.subst(t)), Some(Ty::ConstCStr | Ty::RawCStr))
+        {
+            self.hir.set_expr_type(checked.id, Ty::CStr);
+            checked.ty = Ty::CStr;
+        }
         // So is a static table a read-only slice (§5.3, T-0110).
         if let Ty::ConstSlice(elem) = checked.ty.clone() {
             if !matches!(expected.map(|t| self.subst(t)), Some(Ty::ConstSlice(_))) {
@@ -2932,7 +2939,7 @@ impl<'a, 'c> Body<'a, 'c> {
             // sees the literal itself (spec §5.3, §18.39).
             ExprKind::Str(text) => {
                 let ty = match expected.map(|t| self.subst(t)) {
-                    Some(Ty::CStr) => Ty::CStr,
+                    Some(t @ (Ty::CStr | Ty::ConstCStr | Ty::RawCStr)) => t,
                     // And a `const &str` wherever one is wanted: it never dies (spec §5.3).
                     Some(Ty::ConstStr) => Ty::ConstStr,
                     _ => Ty::Str,
@@ -2942,7 +2949,7 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             ExprKind::RawStr(text) => {
                 let ty = match expected.map(|t| self.subst(t)) {
-                    Some(Ty::CStr) => Ty::CStr,
+                    Some(t @ (Ty::CStr | Ty::ConstCStr | Ty::RawCStr)) => t,
                     Some(Ty::ConstStr) => Ty::ConstStr,
                     _ => Ty::Str,
                 };
@@ -2963,7 +2970,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     }
                 }
                 let ty = match expected.map(|t| self.subst(t)) {
-                    Some(t @ (Ty::Ptr { .. } | Ty::OwnPtr { .. })) => t,
+                    Some(t @ (Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::RawCStr)) => t,
                     // An empty `Rc`, `Weak` or `Box` — the handle's default (spec §14.5).
                     Some(t) if self.nullable(&t, e.span).is_some() => t,
                     _ => Ty::ptr(true, Ty::Error),
@@ -3874,12 +3881,23 @@ impl<'a, 'c> Body<'a, 'c> {
             _ => matches!(
                 (from, to),
                 (Ty::Ptr { .. } | Ty::OwnPtr { .. }, Ty::Ptr { .. })
-                    // `"x" as cstr`: the literal already became one from the `as`.
-                    | (Ty::CStr, Ty::CStr)
+                    // `"x" as &cstr`: the literal already became one from the `as`.
+                    | (Ty::CStr | Ty::ConstCStr, Ty::CStr | Ty::ConstCStr)
+                    | (Ty::RawCStr, Ty::RawCStr)
                     // Measuring a C string costs nothing but a `strlen` (spec §5.3).
-                    | (Ty::CStr, Ty::Str)
+                    | (Ty::CStr | Ty::ConstCStr, Ty::Str)
             ),
         };
+        // C's own pointer may be null, and points into memory nothing here tracks, so
+        // reading it as text is the programmer's word (spec §15.2, T-0112).
+        let ok = ok
+            || match (from, to) {
+                (Ty::RawCStr, Ty::Str) => {
+                    self.require_unsafe(span, "reading C's `^cstr` as text");
+                    true
+                }
+                _ => false,
+            };
         // A string's bytes, viewed; and bytes or a pointer taken as text, which nothing
         // checks is UTF-8 or terminated — `str::from_utf8` is the checked way (spec §5.3).
         let u8_slice =
@@ -3894,8 +3912,8 @@ impl<'a, 'c> Body<'a, 'c> {
                     self.require_unsafe(span, "taking bytes as a `str` without checking them");
                     true
                 }
-                (f, Ty::CStr) if u8_ptr(f) => {
-                    self.require_unsafe(span, "taking a pointer as a `cstr`");
+                (f, Ty::CStr | Ty::RawCStr) if u8_ptr(f) => {
+                    self.require_unsafe(span, "taking a pointer as a C string");
                     true
                 }
                 _ => false,
@@ -5868,6 +5886,9 @@ impl<'a, 'c> Body<'a, 'c> {
         if assignable(&want, &got) || self.base_convertible(&want, &got) {
             return None;
         }
+        // A C `const char*` parameter, `^cstr`, takes a borrowed `&cstr`, so a `String` or a
+        // `Path` converts to that for it (spec §7.2, §15.2).
+        let want = if want == Ty::RawCStr { Ty::CStr } else { want };
         let tsym = self.cx.prelude_trait("ImplicitAs")?;
         let source = match &got {
             Ty::Ref { inner, .. } => (**inner).clone(),
@@ -8601,6 +8622,8 @@ impl<'a, 'c> Body<'a, 'c> {
             Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } => {
                 (Ty::Ref { mutable: *mutable, inner: inner.clone() }, None)
             }
+            // So is C's `^cstr` to a borrowed `&cstr` (spec §15.2, T-0112).
+            Ty::RawCStr => (Ty::CStr, None),
             t if t.is_wildcard() => (Ty::Error, None),
             t => {
                 let n = self.cx.name_of(t);

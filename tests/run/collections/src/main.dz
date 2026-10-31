@@ -94,7 +94,7 @@ fn short_word(w: &String) -> bool {
     return w.len() <= 4
 }
 
-fn text_len(c: cstr) -> usize {
+fn text_len(c: &cstr) -> usize {
     return (c as &str).len
 }
 

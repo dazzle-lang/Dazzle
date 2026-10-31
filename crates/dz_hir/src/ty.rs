@@ -133,8 +133,8 @@ impl BuiltinTy {
                 ),
             ],
             BuiltinTy::SourceLocation => vec![
-                ("file", Ty::CStr),
-                ("function", Ty::CStr),
+                ("file", Ty::ConstCStr),
+                ("function", Ty::ConstCStr),
                 ("line", Ty::Int(IntTy::U32)),
                 ("column", Ty::Int(IntTy::U32)),
             ],
@@ -348,7 +348,15 @@ pub enum Ty {
     /// nothing ever kills it and it is no view (spec §5.3, §6.7). The same C++ type as a
     /// read-only slice, and read as one wherever a `const &[]T` is not wanted.
     ConstSlice(Rc<Ty>),
+    /// `&cstr`: a C string borrowed from what owns it, a `String` say, and tied to it like
+    /// any reference (spec §5.3, D-0093). The C++ is `const char*`.
     CStr,
+    /// `const &cstr`: a C string in static storage, a literal's, which nothing kills. Read as
+    /// a `&cstr` wherever a `const &cstr` is not wanted.
+    ConstCStr,
+    /// `^cstr`: C's own pointer to a C string, which may be null and has no tie: what a C
+    /// function returns, and what a C `const char*` parameter takes (spec §15.2).
+    RawCStr,
     /// An integer literal that has not met a typing context yet (spec §2.5).
     IntLit,
     /// A float literal that has not met a typing context yet.
@@ -796,6 +804,9 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
         (Ty::Range(a), Ty::Range(b)) => assignable(a, b),
         // Static text is text; text is not static (spec §5.3).
         (Ty::Str, Ty::ConstStr) => true,
+        // Static C text is C text, and any C text may be handed to C, untied (§15.2).
+        (Ty::CStr, Ty::ConstCStr) => true,
+        (Ty::RawCStr, Ty::CStr | Ty::ConstCStr) => true,
         // So is a static table a read-only slice (§5.3).
         (Ty::Slice { mutable: false, elem: a }, Ty::ConstSlice(b)) => assignable(a, b),
         (Ty::Tuple(a), Ty::Tuple(b)) => {

@@ -8,9 +8,9 @@
         pub size: usize = 0
         pub align: usize = 0
         pub live: bool = false
-        pub file: cstr = ""
+        pub file: const &cstr = ""
         pub line: u32 = 0
-        pub freed_file: cstr = ""
+        pub freed_file: const &cstr = ""
         pub freed_line: u32 = 0
     }
 }

@@ -873,6 +873,8 @@ impl<'a> Emitter<'a> {
                 | Ty::Str
                 | Ty::ConstStr
                 | Ty::CStr
+                | Ty::ConstCStr
+                | Ty::RawCStr
                 | Ty::Ptr { .. }
                 | Ty::Fn { .. } => true,
                 Ty::Array { elem, .. } => early(table, elem),
@@ -1695,6 +1697,8 @@ impl<'a> Emitter<'a> {
             Ty::Str => "str".to_owned(),
             Ty::ConstStr => "const_str".to_owned(),
             Ty::CStr => "cstr".to_owned(),
+            Ty::ConstCStr => "const_cstr".to_owned(),
+            Ty::RawCStr => "raw_cstr".to_owned(),
             Ty::Void => "void".to_owned(),
             Ty::Ptr { mutable, inner } => {
                 format!("{}_{}", if *mutable { "pm" } else { "p" }, m(inner))
@@ -3034,7 +3038,7 @@ impl<'a> Emitter<'a> {
             Ty::Float(FloatTy::F32) => "float".to_owned(),
             Ty::Float(FloatTy::F64) => "double".to_owned(),
             Ty::Str | Ty::ConstStr => "::dz::str".to_owned(),
-            Ty::CStr => "const char*".to_owned(),
+            Ty::CStr | Ty::ConstCStr | Ty::RawCStr => "const char*".to_owned(),
             // `finish()` settles every literal, so these can only be a checker bug.
             Ty::IntLit => "int32_t".to_owned(),
             Ty::FloatLit => "double".to_owned(),
@@ -3910,7 +3914,11 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Bool(b) => b.to_string(),
             hir::ExprKind::Char(c) => format!("U'\\U{:08X}'", *c as u32),
             // A literal typed `cstr` is the C string literal itself (spec §5.3, §18.39).
-            hir::ExprKind::Str(s) if matches!(body.ty(e), Ty::CStr) => quote_cpp(s),
+            hir::ExprKind::Str(s)
+                if matches!(body.ty(e), Ty::CStr | Ty::ConstCStr | Ty::RawCStr) =>
+            {
+                quote_cpp(s)
+            }
             hir::ExprKind::Str(s) => format!("::dz::str({}, {})", quote_cpp(s), s.len()),
             // `null` for an `Rc`, `Weak` or `Box` is the handle's default (spec §14.5).
             hir::ExprKind::Null => match body.ty(e).clone() {
@@ -4618,6 +4626,8 @@ impl<'a> Emitter<'a> {
                 let primitive = matches!(
                     self.cur().ty(*recv),
                     Ty::CStr
+                        | Ty::ConstCStr
+                        | Ty::RawCStr
                         | Ty::Str
                         | Ty::ConstStr
                         | Ty::Int(_)
@@ -4937,7 +4947,12 @@ impl<'a> Emitter<'a> {
             return false;
         }
         match ty {
-            Ty::Str | Ty::CStr | Ty::Slice { .. } | Ty::Ref { .. } | Ty::Ptr { .. } => true,
+            Ty::Str
+            | Ty::CStr
+            | Ty::RawCStr
+            | Ty::Slice { .. }
+            | Ty::Ref { .. }
+            | Ty::Ptr { .. } => true,
             Ty::Optional(inner) => self.borrows_within(inner, depth + 1),
             Ty::Tuple(parts) => parts.iter().any(|p| self.borrows_within(p, depth + 1)),
             Ty::Array { elem, .. } => self.borrows_within(elem, depth + 1),
@@ -5179,6 +5194,24 @@ impl<'a> Emitter<'a> {
                 self.line(&format!("if ({tmp}.has) {{"));
                 self.indent += 1;
                 self.move_or_copy_into(&format!("::dz::opt_get({tmp})"), &inner, dest);
+                self.indent -= 1;
+                self.line("} else {");
+                self.indent += 1;
+                self.clause(clause, dest, None, span);
+                self.indent -= 1;
+                self.line("}");
+            }
+            // `^cstr or …`: the same `const char*`, once it is not null (spec §15.2).
+            Ty::RawCStr => {
+                let tmp = self.fresh("ptr");
+                let v = self.expr(operand);
+                self.line(&format!("const char* {tmp} = {v};"));
+                self.line(&format!("if ({tmp} != nullptr) {{"));
+                self.indent += 1;
+                match dest {
+                    Dest::Ptr(name) | Dest::Var(name) => self.line(&format!("{name} = {tmp};")),
+                    Dest::None => {}
+                }
                 self.indent -= 1;
                 self.line("} else {");
                 self.indent += 1;

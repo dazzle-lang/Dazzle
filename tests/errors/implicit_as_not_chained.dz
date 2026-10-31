@@ -18,13 +18,13 @@ impl ImplicitAs<Ounces> for Pounds {
     }
 }
 
-impl ImplicitAs<cstr> for Ounces {
-    fn convert(&self) -> cstr {
+impl ImplicitAs<&cstr> for Ounces {
+    fn convert(&self) -> &cstr {
         return "oz"
     }
 }
 
-fn show(s: cstr) {
+fn show(s: &cstr) {
     println!("{}", s)
 }
 

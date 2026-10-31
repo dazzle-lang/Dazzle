@@ -322,7 +322,7 @@ fn describe(e: &mut Emitter<'_>, ty: &Ty) -> TypeRow {
             ];
             "Str"
         }
-        Ty::CStr => "Cstr",
+        Ty::CStr | Ty::ConstCStr | Ty::RawCStr => "Cstr",
         Ty::Ptr { mutable, inner } | Ty::OwnPtr { mutable, inner } | Ty::Ref { mutable, inner } => {
             if matches!(ty, Ty::Ref { .. }) {
                 row.size = "sizeof(void*)".to_owned();

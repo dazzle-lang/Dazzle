@@ -366,7 +366,7 @@ would take time in proportion to the text's length on every use. `[DECIDED — �
 **A C string from text.** A `str` has no zero after it, so it is not a `cstr`; a literal
 is (§5.3). A `String` keeps a zero after its bytes, and `as_cstr()` borrows the text as a
 `cstr` with no copy — so text from anywhere reaches a C function through one. Passed as an
-argument, a `String` or a `Path` *is* one, through `std`'s `ImplicitAs<cstr>` (§7.2):
+argument, a `String` or a `Path` *is* one, through `std`'s `ImplicitAs<&cstr>` (§7.2):
 
 ```dz
 let owned = String::from(name)

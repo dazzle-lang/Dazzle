@@ -6,6 +6,6 @@
 
 fn main() {
     let name = String::from("Dazzle")
-    let c: cstr = name
+    let c: &cstr = name
     println!("{}", c)
 }

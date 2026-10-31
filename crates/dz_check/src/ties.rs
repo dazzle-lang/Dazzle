@@ -294,9 +294,12 @@ pub fn untied_result(scope: &Scope<'_>, f: &dz_ast::FnDecl) -> Option<UntiedResu
             // Only a reference, slice or `str` must be tied; raw pointers and `cstr`s, on
             // their own or in an aggregate, may not be views at all, and neither may what
             // a `view` parameter is given.
-            let tied = |t: &Ty| matches!(t, Ty::Ref { .. } | Ty::Slice { .. } | Ty::Str);
-            if !holds(scope.table, ret, false, tied, false, 0)
-                || (f.is_extern && f.body.is_none())
+            let tied = |t: &Ty| matches!(t, Ty::Ref { .. } | Ty::Slice { .. } | Ty::Str | Ty::CStr);
+            // `^str` and `^[]T` are pointers, which may be untied as any pointer may.
+            let pointer =
+                matches!(ret, Ty::Optional(i) if matches!(**i, Ty::Str | Ty::Slice { .. }));
+            if pointer
+                || !holds(scope.table, ret, false, tied, false, 0)
                 || scope.sig.params.iter().any(|p| holds_view(scope.table, &p.ty, false))
             {
                 return None;
@@ -367,7 +370,7 @@ fn untied_fn_type(scope: &Scope<'_>, names: &[String], span: Span) -> Option<Err
     match inputs.len() {
         1 => None,
         0 => {
-            let tied = |t: &Ty| matches!(t, Ty::Ref { .. } | Ty::Slice { .. } | Ty::Str);
+            let tied = |t: &Ty| matches!(t, Ty::Ref { .. } | Ty::Slice { .. } | Ty::Str | Ty::CStr);
             if !holds(scope.table, &sig.ret, false, tied, false, 0)
                 || sig.params.iter().any(|p| holds_view(scope.table, &p.ty, true))
             {

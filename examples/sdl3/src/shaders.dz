@@ -1,10 +1,10 @@
 // The GLSL, as raw strings. `glShaderSource` takes a shader as several strings, so the
 // version line and `COMMON` are written once and put in front of each shader that needs them.
 
-const VERSION: cstr = "#version 330 core\n"
+const VERSION: &cstr = "#version 330 core\n"
 
 /// Random numbers from a position, for the grass's placement and colour.
-const NOISE: cstr = `
+const NOISE: &cstr = `
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
@@ -22,7 +22,7 @@ float noise(vec2 p) {
 /// What every fragment shader shares: the sky, which the fog fades each surface into so the
 /// floor meets the horizon with no seam; the glow of the air round each lamp; and the tone
 /// mapping that brings the lighting's high range into the screen's.
-const COMMON: cstr = `
+const COMMON: &cstr = `
 uniform vec3 u_sun_dir;         // towards the sun
 uniform vec3 u_lamp_pos[3];
 uniform vec3 u_lamp_color[3];
@@ -100,7 +100,7 @@ vec3 finish(vec3 c) {
 
 /// What the lit surfaces and the grass share: the sun's shadow, and the light from the sky
 /// and the ground that reaches everything.
-const LIGHTING: cstr = `
+const LIGHTING: &cstr = `
 uniform sampler2DShadow u_shadow_map;
 uniform vec3 u_sun_color;
 
@@ -129,7 +129,7 @@ vec3 ambient(vec3 n) {
 /// green: where the field thins out under the fog there is no edge to see. Stylized rather
 /// than physical: broad patches of yellow-green and blue-green, and blades shaded as the
 /// ground they stand on rather than one by one.
-const GRASS: cstr = `
+const GRASS: &cstr = `
 // The colour at a height up the blade, 0 at the root and 1 at the tip: only a little
 // darker at the root, which is also the ground's colour.
 vec3 grass_albedo(vec2 xz, float along) {
@@ -159,7 +159,7 @@ vec3 grass_light(vec3 albedo, vec3 n, vec3 v, vec3 pos, float shadow, float alon
 `
 
 /// A triangle that covers the screen, from `gl_VertexID` alone: no vertex buffer.
-const SKY_VS: cstr = `
+const SKY_VS: &cstr = `
 out vec2 v_ndc;
 void main() {
     v_ndc = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2.0 - 1.0;
@@ -167,7 +167,7 @@ void main() {
 }
 `
 
-const SKY_FS: cstr = `
+const SKY_FS: &cstr = `
 in vec2 v_ndc;
 out vec4 frag;
 uniform mat4 u_inv_view_proj;
@@ -180,7 +180,7 @@ void main() {
 `
 
 /// Depth only, from the sun's point of view.
-const SHADOW_VS: cstr = `
+const SHADOW_VS: &cstr = `
 layout(location = 0) in vec3 a_pos;
 uniform mat4 u_model;
 uniform mat4 u_light_view_proj;
@@ -189,11 +189,11 @@ void main() {
 }
 `
 
-const SHADOW_FS: cstr = `
+const SHADOW_FS: &cstr = `
 void main() {}
 `
 
-const LIT_VS: cstr = `
+const LIT_VS: &cstr = `
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec3 a_normal;
 uniform mat4 u_model;
@@ -213,7 +213,7 @@ void main() {
 
 /// Per-pixel lighting: a sun that casts soft shadows, three coloured lamps, a sky and a
 /// ground that light what faces them, and fog.
-const LIT_FS: cstr = `
+const LIT_FS: &cstr = `
 in vec3 v_pos;
 in vec3 v_normal;
 in vec4 v_light;
@@ -273,7 +273,7 @@ void main() {
 /// A field of grass with no vertex buffer at all: each blade is one instance, placed from
 /// `gl_InstanceID` on a jittered grid, and each of its seven vertices is found from
 /// `gl_VertexID`, a strip of three quads narrowing to a point. The wind stirs only the tips.
-const GRASS_VS: cstr = `
+const GRASS_VS: &cstr = `
 uniform mat4  u_view_proj;
 uniform mat4  u_light_view_proj;
 uniform float u_time;
@@ -329,7 +329,7 @@ void main() {
 }
 `
 
-const GRASS_FS: cstr = `
+const GRASS_FS: &cstr = `
 in vec3  v_pos;
 in vec3  v_normal;
 in vec4  v_light;

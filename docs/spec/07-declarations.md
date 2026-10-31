@@ -61,7 +61,7 @@ for every compound assignment alike. `[DECIDED — §18.49]`
 by calling its `convert(&self) -> T`:
 
 ```dz
-impl ImplicitAs<cstr> for String { fn convert(&self) -> cstr { return self.as_cstr() } }  // in std
+impl ImplicitAs<&cstr> for String { fn convert(&self) -> &cstr { return self.as_cstr() } }  // in std
 
 rl::DrawText(format!("score {}", score), 10, 12, 24, rl::LIGHTGRAY)   // a String, as a cstr
 rl::LoadTexture(path)                                                 // a Path, likewise

@@ -1345,3 +1345,33 @@ fn main() {
     println!("{}", total(a[..]))
 }
 ```
+
+## DZ0578
+
+A C string is borrowed as text is (spec 5.3, 15.2, D-0093): `&cstr` views what owns it,
+a `String` say, and is tied to it, so it cannot outlive the `String`'s growth. A literal's is
+`const &cstr`, which never dies, and C's own pointer is `^cstr`, untied and possibly null:
+what a C function returns, and what a C `const char*` parameter takes. A bare `cstr`, `const
+cstr`, `&mut cstr` and `^mut cstr` are respelled by `dz fix`.
+
+```dz
+fn shout(s: &String) -> cstr in s {
+    return s.as_cstr()
+}
+
+fn main() {
+    let s = String("hey")
+    println!("{}", shout(&s))
+}
+```
+
+```dz
+fn shout(s: &String) -> &cstr in s {
+    return s.as_cstr()
+}
+
+fn main() {
+    let s = String("hey")
+    println!("{}", shout(&s))
+}
+```

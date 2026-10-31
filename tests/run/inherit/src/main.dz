@@ -13,7 +13,7 @@ pub struct Widget {
 }
 
 pub struct Panel : Widget {
-    pub title: cstr = "panel"
+    pub title: const &str = "panel"
 
     // A base's fields are in scope unqualified here, exactly as this type's own are.
     pub fn area(&self) -> i32 {

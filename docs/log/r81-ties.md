@@ -6,6 +6,30 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r100: a C string is borrowed (2026-10-31)
+
+T-0112, D-0093's fifth step. `cstr` was a view with no tie, kept anywhere; it is now three
+types, one C++ `const char*`. `Ty::CStr` is `&cstr`, a view (`placed_as_view`); the new
+`Ty::ConstCStr` is a literal's `const &cstr`, read as a `&cstr` where none is wanted; the
+new `Ty::RawCStr` is C's `^cstr`, which takes either by assignability and is what
+`foreign_ty` gives a C `const char*`. `implicit_as` converts a `String` or `Path` to
+`&cstr` where a `^cstr` is wanted. `or` on a `^cstr` is a null check giving the `&cstr`
+(`or_expr`, and a C++ arm that does not dereference); `null` empties one; `^cstr as &str`
+is `unsafe`. `DZ0578` respells the old forms (`cstr_spelling`).
+
+`untied_result` ties a `&cstr` result and no longer exempts an `extern fn` with no input,
+so std's `dir_next` returns `^str` (its runtime `Opt<str>`, `null` at the end, read in
+`unsafe` by `Directory::list`) and `process_arg` `const &str`, valid for the whole run. A
+`^str` or `^[]T` result stays exempt: it is a pointer. `SourceLocation`'s `file` and
+`function` are `const &cstr`, as are the memory tracker's.
+
+The migration was r99's script with `DZ0578`, now skipping `typeerrors/` so its deliberate
+mistakes stay; its older `cstr` spellings were respelled apart. `examples/sdl3` and
+`tests/run/cinterop` read C's error and name text in `unsafe`. Not done: a C++
+`std::string_view`, which the importer does not map yet.
+
+Tests: `typed/`'s `c_kinds`, `typeerrors/`' C string block, `dz explain DZ0578`.
+
 ## r99: slices are borrowed (2026-10-31)
 
 T-0110, D-0093's fourth step, built as r98 was. `lower_type_inner` reads `&[]T` and `&mut

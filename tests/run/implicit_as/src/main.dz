@@ -3,7 +3,7 @@
 // take the type they are given.
 
 /// Takes a C string, as an imported C function does.
-fn c_len(s: cstr) -> usize {
+fn c_len(s: &cstr) -> usize {
     return (s as &str).len
 }
 
@@ -48,8 +48,8 @@ pub struct Label {
     pub text: String
 }
 
-impl ImplicitAs<cstr> for Label {
-    fn convert(&self) -> cstr {
+impl ImplicitAs<&cstr> for Label {
+    fn convert(&self) -> &cstr {
         return text.as_cstr()
     }
 }
@@ -61,7 +61,7 @@ impl ImplicitAs<Meters> for Label {
 }
 
 /// A bound: whatever `S` is, it converts, and each instance calls its own `convert`.
-fn length_of<S: ImplicitAs<cstr>>(s: &S) -> usize {
+fn length_of<S: ImplicitAs<&cstr>>(s: &S) -> usize {
     return c_len(s)
 }
 

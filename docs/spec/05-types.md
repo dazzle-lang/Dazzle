@@ -235,7 +235,9 @@ says. `[DECIDED — §18.24]`
 const &str      text whose bytes are in static storage: a literal's, a constant's.
 ^str            text that may be absent: the same { ptr, len }, which may be null.
 String          stdlib: owning, growable, allocator-aware. Written in Dazzle, not builtin.
-cstr            a null-terminated ^u8, for C interop only.
+&cstr           a null-terminated C string borrowed from what owns it, for C interop.
+const &cstr     a literal's C string, in static storage.
+^cstr           C's own pointer to a C string: untied, and it may be null.
 ```
 
 **Text is borrowed** (D-0093): it points into memory a `String` or a literal owns, so it
@@ -255,18 +257,27 @@ written gives a `[]mut T`. `[DECIDED — §18.50]`
 
 **A `&str` is `{ ptr, len }`**, and `s.len` and `s.ptr` read them. Its bytes are `s as
 []u8`. The way back is `str::from_utf8(bytes)`, a `^str` that is `null` when the bytes are
-not well-formed UTF-8; `bytes as &str` skips the check and is `unsafe`, as is `p as cstr`
+not well-formed UTF-8; `bytes as &str` skips the check and is `unsafe`, as is `p as &cstr`
 for a `^u8`. `[DECIDED — §18.50]`
 
+**A C string is borrowed too** (D-0093, T-0112), in three forms that are all a `const char*`
+to C++: `&cstr` views what owns it, a `String` say, and is tied to it as any reference is,
+so it is a view (`DZ0517` in a field); `const &cstr` is a literal's, which never dies and
+may be stored; `^cstr` is C's own pointer, untied and possibly null — what a C function
+returns, and what a C `const char*` parameter takes, from any of the three. `or` turns a
+`^cstr` into a `&cstr`, and `null` empties one. A bare `cstr`, `const cstr`, `&mut cstr`
+and `^mut cstr` are `DZ0578`, which `dz fix` respells.
+
 String literals live in static storage, with a zero after the last byte. **A string literal
-is a `cstr` wherever a `cstr` is wanted** — a parameter, an annotated `let`, a field — and
+is a C string wherever one is wanted** — a parameter, an annotated `let`, a field — and
 costs nothing: C++ sees the literal itself, so `rl::InitWindow(1280, 720, "Dazzle")` is the
-call it looks like. `"x" as cstr` says the same explicitly. The other way, `c as str`
-measures a C string and copies nothing. A runtime `str` cannot become a `cstr`: nothing
+call it looks like. `"x" as &cstr` says the same explicitly. The other way, `c as &str`
+measures a C string and copies nothing; measuring C's `^cstr` is `unsafe`, since C owns
+what it points at and it may be null. A runtime `&str` cannot become a `&cstr`: nothing
 follows its last byte, so a C string needs a copy, and a copy has to be owned and freed. That
 owning C string is a `String`, which keeps a zero after its bytes and frees them when dropped:
-`String::from(name)` copies, and its `as_cstr()` borrows the copy as a `cstr` (§14.4); a
-`String` passed as an argument where a `cstr` is wanted is borrowed that way on its own
+`String::from(name)` copies, and its `as_cstr()` borrows the copy as a `&cstr` (§14.4); a
+`String` passed as an argument where a C string is wanted is borrowed that way on its own
 (§7.2). `s.as_str()` borrows the text. `[DECIDED — §18.39, D-0081, D-0089]`
 
 **A `const &str` is text that never dies**: its bytes are in static storage, a literal's or

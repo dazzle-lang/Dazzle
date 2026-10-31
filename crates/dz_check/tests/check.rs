@@ -446,14 +446,14 @@ fn a_dot_variant_needs_an_enum_or_union_to_come_from() {
 #[test]
 fn a_string_literal_is_a_cstr_where_one_is_wanted() {
     // spec §5.3, §18.39 — a literal is zero-terminated static storage already.
-    assert!(snippet("fn f(s: cstr) {\n}\nfn g() {\n f(\"x\")\n}\n").is_empty());
-    assert!(snippet("fn g() {\n let c: cstr = \"x\"\n let d = \"y\" as cstr\n}\n").is_empty());
-    assert!(snippet("fn g(c: cstr) -> &str {\n return c as &str\n}\n").is_empty());
+    assert!(snippet("fn f(s: &cstr) {\n}\nfn g() {\n f(\"x\")\n}\n").is_empty());
+    assert!(snippet("fn g() {\n let c: &cstr = \"x\"\n let d = \"y\" as &cstr\n}\n").is_empty());
+    assert!(snippet("fn g(c: &cstr) -> &str {\n return c as &str\n}\n").is_empty());
     // A runtime `str` has no terminating zero, so it needs a copy — not yet.
-    assert!(snippet("fn g(s: &str) -> cstr {\n return s as cstr\n}\n")
+    assert!(snippet("fn g(s: &str) -> &cstr {\n return s as &cstr\n}\n")
         .contains(&dz_diag::codes::INVALID_CAST));
     // Without a `cstr` wanted, a literal is a `str` as before.
-    assert!(snippet("fn f(s: cstr) {\n}\nfn g() {\n let s = \"x\"\n f(s)\n}\n")
+    assert!(snippet("fn f(s: &cstr) {\n}\nfn g() {\n let s = \"x\"\n f(s)\n}\n")
         .contains(&dz_diag::codes::TYPE_MISMATCH));
     // `cstr("x")` is one mistake at the type name, not a silent error that surfaces later as
     // "`{unknown}` cannot be formatted".

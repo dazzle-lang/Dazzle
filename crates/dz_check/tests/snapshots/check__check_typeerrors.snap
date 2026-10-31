@@ -562,8 +562,8 @@ error[DZ0528]: a pointer cast is unsafe
 error[DZ0511]: a runtime `str` cannot become a `cstr` yet
     ┌─ typeerrors/src/errors.dz:472:12
     │
-472 │     return s as cstr
-    │            ^^^^^^^^^ not a string literal
+472 │     return s as &cstr
+    │            ^^^^^^^^^^ not a string literal
     │
     = help: a `str` has no zero after its last byte, so a C string needs a copy of it — an owning one, which arrives with the stdlib's `String` (spec §5.3, §19 M12). A string literal is a `cstr` as it is
 
@@ -1555,27 +1555,27 @@ error[DZ0560]: `T` has no associated type `Size`
      │
      = help: an associated type comes from a bound: none of `T`'s declares `type Size` (spec §8.5)
 
-error[DZ0501]: expected `cstr`, found `&String`
-     ┌─ typeerrors/src/errors.dz:1275:19
+error[DZ0501]: expected `&cstr`, found `&String`
+     ┌─ typeerrors/src/errors.dz:1275:20
      │
-1275 │     let c: cstr = s
-     │                   ^ this is `&String`
+1275 │     let c: &cstr = s
+     │                    ^ this is `&String`
      │
-     = help: `String` converts to `cstr` on its own only where it is passed as an argument, so that what the conversion borrows is not kept past the call (spec §7.2); here, convert it yourself
+     = help: `String` converts to `&cstr` on its own only where it is passed as an argument, so that what the conversion borrows is not kept past the call (spec §7.2); here, convert it yourself
 
-error[DZ0501]: expected `cstr`, found `Pounds`
+error[DZ0501]: expected `&cstr`, found `Pounds`
      ┌─ typeerrors/src/errors.dz:1281:16
      │
 1281 │     takes_cstr(p)
      │                ^ this is `Pounds`
      │
-     = help: `Pounds` converts to `Ounces` and `Ounces` to `cstr`, but an argument is converted once at most (spec §7.2); convert it to `Ounces` yourself first
+     = help: `Pounds` converts to `Ounces` and `Ounces` to `&cstr`, but an argument is converted once at most (spec §7.2); convert it to `Ounces` yourself first
 
 error[DZ0539]: `impl ImplicitAs for i32` belongs with `ImplicitAs` or with `i32`
      ┌─ typeerrors/src/errors.dz:1285:6
      │
-1285 │ impl ImplicitAs<cstr> for i32 {
-     │      ^^^^^^^^^^^^^^^^ neither it, the type, nor a type it is given is declared in this module
+1285 │ impl ImplicitAs<&cstr> for i32 {
+     │      ^^^^^^^^^^^^^^^^^ neither it, the type, nor a type it is given is declared in this module
      │
      = help: a trait taking type arguments may also be implemented where one of them is declared, as `impl ImplicitAs<Vec2> for rl::Vector2` is with `Vec2`; otherwise wrap the type in a struct of your own (spec §7.6)
 
@@ -2016,3 +2016,35 @@ error[DZ0517]: `&[]i32` is a view, and `T` is not a `view` parameter
      │                   ^^^^^^^^^^^^^^ a view given where it could be stored
      │
      = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
+
+error[DZ0578]: `cstr` is not a type
+     ┌─ typeerrors/src/errors.dz:1614:14
+     │
+1614 │ fn bare_c(c: cstr) {}
+     │              ^^^^ write `&cstr`
+     │
+     = help: a C string is borrowed from what owns it, so it is written as a reference: `&cstr`; a literal's is `const &cstr`, and C's own pointer `^cstr` (spec §5.3, §15.2)
+
+error[DZ0578]: `&mut cstr` is not a type
+     ┌─ typeerrors/src/errors.dz:1616:17
+     │
+1616 │ fn written_c(c: &mut cstr) {}
+     │                 ^^^^^^^^^ write `&cstr`
+     │
+     = help: a C string is borrowed from what owns it, so it is written as a reference: `&cstr`; a literal's is `const &cstr`, and C's own pointer `^cstr` (spec §5.3, §15.2)
+
+error[DZ0517]: a struct field cannot hold `&cstr`, which is a view
+     ┌─ typeerrors/src/errors.dz:1619:15
+     │
+1619 │     pub text: &cstr
+     │               ^^^^^ a view lives only where a reference does
+     │
+     = help: declare `CHolder` a `view struct`, which is itself placed as a reference is, or keep the view in a local (spec §6.7)
+
+error[DZ0528]: reading C's `^cstr` as text is unsafe
+     ┌─ typeerrors/src/errors.dz:1623:12
+     │
+1623 │     return (c as &str).len
+     │            ^^^^^^^^^^^ outside an `unsafe` block
+     │
+     = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)

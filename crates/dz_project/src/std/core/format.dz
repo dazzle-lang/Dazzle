@@ -95,7 +95,7 @@ impl Format for &str {
     }
 }
 
-impl Format for cstr {
+impl Format for &cstr {
     fn format(&self, f: &mut Formatter) {
         f.write_str(cstr_text(self))
     }
@@ -156,4 +156,4 @@ fn write_float(f: &mut Formatter, value: f64) {
 extern fn format_float(value: f64, precision: i32, out: &mut []u8) -> usize
 
 /// The text of a C string, up to its zero, as a view of the same bytes.
-extern fn cstr_text(s: cstr) -> &str
+extern fn cstr_text(s: &cstr) -> &str

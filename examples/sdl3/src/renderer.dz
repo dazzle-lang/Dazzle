@@ -44,7 +44,7 @@ fn upload(g: &Geometry) -> Mesh {
     return m
 }
 
-fn compile(kind: u32, parts: &[]cstr) -> u32 {
+fn compile(kind: u32, parts: &[]&cstr) -> u32 {
     let shader = gl::glCreateShader(kind)
     gl::glShaderSource(shader, parts.len as i32, parts.ptr, null)
     gl::glCompileShader(shader)
@@ -63,7 +63,7 @@ fn compile(kind: u32, parts: &[]cstr) -> u32 {
     return shader
 }
 
-fn link(vertex: &[]cstr, fragment: &[]cstr) -> u32 {
+fn link(vertex: &[]&cstr, fragment: &[]&cstr) -> u32 {
     let vs = compile(gl::GL_VERTEX_SHADER, vertex)
     let fs = compile(gl::GL_FRAGMENT_SHADER, fragment)
     let program = gl::glCreateProgram()
@@ -166,35 +166,35 @@ pub struct Renderer {
         gl::glUseProgram(program)
     }
 
-    fn location(&self, name: cstr) -> i32 {
+    fn location(&self, name: &cstr) -> i32 {
         return gl::glGetUniformLocation(m_current, name)
     }
 
-    fn set_mat4(&self, name: cstr, m: &Mat4) {
+    fn set_mat4(&self, name: &cstr, m: &Mat4) {
         let p: ^Mat4 = m
         gl::glUniformMatrix4fv(self.location(name), 1, 0, unsafe {
             p as ^f32
         })
     }
 
-    fn set_vec3s(&self, name: cstr, vs: &[]Vec3) {
+    fn set_vec3s(&self, name: &cstr, vs: &[]Vec3) {
         gl::glUniform3fv(self.location(name), vs.len as i32, unsafe {
             vs.ptr as ^f32
         })
     }
 
-    fn set_vec3(&self, name: cstr, v: &Vec3) {
+    fn set_vec3(&self, name: &cstr, v: &Vec3) {
         let p: ^Vec3 = v
         gl::glUniform3fv(self.location(name), 1, unsafe {
             p as ^f32
         })
     }
 
-    fn set_f32(&self, name: cstr, v: f32) {
+    fn set_f32(&self, name: &cstr, v: f32) {
         gl::glUniform1f(self.location(name), v)
     }
 
-    fn set_i32(&self, name: cstr, v: i32) {
+    fn set_i32(&self, name: &cstr, v: i32) {
         gl::glUniform1i(self.location(name), v)
     }
 

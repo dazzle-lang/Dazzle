@@ -42,11 +42,11 @@ fn main() {
     mini::mini_fill(xs.ptr, 4, 6)
     println!("total {}", mini::mini_sum(xs.ptr, 4))
 
-    // `const char *` is a `cstr`. A string literal is one wherever one is wanted, and a
-    // `cstr` measures into a `str` with `as` (§18.39).
-    println!("name {}", mini::mini_name())
+    // `const char *` is C's `^cstr`. A string literal is one wherever one is wanted, and
+    // C's text measures into a `&str` with `as`, in `unsafe`: C owns it (§15.2, §18.39).
+    println!("name {}", unsafe { mini::mini_name() as &str })
     println!("length {}", mini::mini_length("hello"))
-    let name = mini::mini_name() as &str
+    let name = unsafe { mini::mini_name() as &str }
     println!("measured {}", name)
     // A `String` is a `cstr` for the call it is passed to (§7.2), through `std`'s
     // `ImplicitAs<cstr>`: a built one, and a `format!` that lives until the call returns.

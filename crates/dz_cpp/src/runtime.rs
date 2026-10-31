@@ -838,7 +838,7 @@ Opt<str> process_env(str name);
 void process_exit(int32_t code);
 bool dir_remove(str path);
 size_t dir_open(str path);
-str dir_next(size_t handle);
+Opt<str> dir_next(size_t handle);
 void dir_close(size_t handle);
 }  // namespace native
 }  // namespace dz
@@ -1172,7 +1172,7 @@ size_t dir_open(str path) {
     return reinterpret_cast<size_t>(d);
 }
 
-str dir_next(size_t handle) {
+Opt<str> dir_next(size_t handle) {
     DirState* d = reinterpret_cast<DirState*>(handle);
     while (d != nullptr) {
         if (!d->pending && !FindNextFileW(d->find, &d->data)) { break; }
@@ -1183,7 +1183,7 @@ str dir_next(size_t handle) {
         if (n <= 1) { continue; }
         return str(d->name, static_cast<size_t>(n - 1));
     }
-    return str();
+    return Opt<str>();
 }
 
 void dir_close(size_t handle) {
@@ -1252,7 +1252,7 @@ size_t dir_open(str path) {
     return reinterpret_cast<size_t>(d);
 }
 
-str dir_next(size_t handle) {
+Opt<str> dir_next(size_t handle) {
     DIR* d = reinterpret_cast<DIR*>(handle);
     while (d != nullptr) {
         struct dirent* e = readdir(d);
@@ -1260,7 +1260,7 @@ str dir_next(size_t handle) {
         if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) { continue; }
         return str(e->d_name, strlen(e->d_name));
     }
-    return str();
+    return Opt<str>();
 }
 
 void dir_close(size_t handle) {

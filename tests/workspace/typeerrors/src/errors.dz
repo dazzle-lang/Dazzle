@@ -468,8 +468,8 @@ fn pointer_cast_outside_unsafe(p: ^i32) -> ^u8 {
 
 // --- r21: a runtime `str` has no terminating zero, so it is not a `cstr` (§5.3, §18.39) ---
 
-fn runtime_str_to_cstr(s: &str) -> cstr {
-    return s as cstr
+fn runtime_str_to_cstr(s: &str) -> &cstr {
+    return s as &cstr
 }
 
 // --- r18: `^T` and `^mut T` (spec §5.2, §18.37) ------------------------------------------
@@ -1262,17 +1262,17 @@ impl ImplicitAs<Ounces> for Pounds {
     }
 }
 
-impl ImplicitAs<cstr> for Ounces {
-    fn convert(&self) -> cstr {
+impl ImplicitAs<&cstr> for Ounces {
+    fn convert(&self) -> &cstr {
         return "oz"
     }
 }
 
-fn takes_cstr(s: cstr) {}
+fn takes_cstr(s: &cstr) {}
 
 // A `let` is not an argument: it takes the type it is given, converted or not.
 fn not_an_argument(s: &String) -> usize {
-    let c: cstr = s
+    let c: &cstr = s
     return (c as &str).len
 }
 
@@ -1282,7 +1282,7 @@ fn not_chained(p: Pounds) {
 }
 
 // Neither `ImplicitAs` nor `i32` nor `cstr` is declared here.
-impl ImplicitAs<cstr> for i32 {
+impl ImplicitAs<&cstr> for i32 {
     fn convert(&self) -> cstr {
         return "int"
     }
@@ -1607,4 +1607,18 @@ struct Window {
 fn stored_slice(xs: &[]i32) {
     let mut all = List<&[]i32>()
     all.push(xs)
+}
+
+// A C string is borrowed (spec 5.3, 15.2, T-0112): a bare `cstr`, `&mut cstr`, a `&cstr`
+// kept in a field, and C's `^cstr` read as text outside `unsafe`.
+fn bare_c(c: cstr) {}
+
+fn written_c(c: &mut cstr) {}
+
+struct CHolder {
+    pub text: &cstr
+}
+
+fn measured_raw(c: ^cstr) -> usize {
+    return (c as &str).len
 }
