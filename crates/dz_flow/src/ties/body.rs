@@ -164,6 +164,11 @@ struct Value {
     /// the callee's own body is held to that tie (`DZ0419`), whatever its inputs were
     /// (spec §6.7, T-0114).
     vouched: bool,
+    /// The proposed placements whose region this value's own memory is in, by index into
+    /// [`Regions::sites`] (spec §14.6). Always empty outside [`analyse_regions`], so the
+    /// tie analysis proper never sees one; a region is a tie no type declares, which is
+    /// why it is followed for a `List<i32>` as much as for a view.
+    owned: Vec<usize>,
 }
 
 impl Value {
@@ -206,6 +211,64 @@ impl Value {
         let parts = self.parts.into_iter().map(Value::held).collect();
         Value { places: Vec::new(), parts, ..self }
     }
+
+    /// Every region the value's memory is in, its parts' included.
+    fn all_owned(&self) -> Vec<usize> {
+        let mut all = self.owned.clone();
+        for part in &self.parts {
+            for site in part.all_owned() {
+                if !all.contains(&site) {
+                    all.push(site);
+                }
+            }
+        }
+        all
+    }
+
+    /// The value with no region in it, parts included: a copy (see [`Analysis::passed`]).
+    fn without_owned(mut self) -> Value {
+        self.owned.clear();
+        self.parts = self.parts.into_iter().map(Value::without_owned).collect();
+        self
+    }
+}
+
+/// Why the region check sends a proposed placement to the heap (spec §14.6). The words
+/// are `placement`'s, which can name what the program wrote.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    /// The value is returned, so it outlives every region of the body.
+    Returned,
+    /// Assigned into this place, which is not rooted at a local of the region's block.
+    Stored(ExprId),
+    /// Passed by value to this call, builtin or formatting macro, which may keep it.
+    Passed(ExprId),
+    /// Something still holds the value when the region of this block is released.
+    Outlives(BlockId),
+    /// Made on every pass of a loop the region outlives.
+    EveryPass,
+    /// Used where the walk does not follow it.
+    Unfollowed(&'static str),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RegionRefusal {
+    pub why: Refusal,
+    pub at: Span,
+}
+
+/// The facts [`analyse_regions`] adds to the walk.
+#[derive(Default)]
+struct Regions {
+    /// Each proposed site's call, and the block whose region it is in.
+    sites: Vec<(ExprId, BlockId)>,
+    by_call: HashMap<ExprId, usize>,
+    /// The region blocks being walked, each with its frame in `scopes`.
+    active: HashMap<BlockId, usize>,
+    /// The frame each local was declared in. A parameter has none: it outlives them all.
+    frames: HashMap<LocalId, usize>,
+    /// The first refusal of each site.
+    refused: Vec<Option<RegionRefusal>>,
 }
 
 type State = HashMap<LocalId, Value>;
@@ -235,11 +298,52 @@ struct Analysis<'a> {
     /// How many `unsafe` blocks enclose what is walked; an `unsafe fn`'s body starts at one.
     /// Inside, an untied pointer may become a reference (spec §5.2, T-0114).
     unsafe_depth: u32,
+    /// Set only by [`analyse_regions`].
+    regions: Option<Regions>,
 }
 
 /// Analyse one checked function, using only other functions' signatures. Findings are
 /// available independently of enforcement so std and editor support can land together.
 pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAnalysis {
+    analyse(body, table, res, None).0
+}
+
+/// The region check (spec §14.6): the walk again, with each of `sites` (a call, and the
+/// block whose region it is proposed for) as a fact, and which of them it refuses, in the
+/// order given. Its other findings are dropped: they are [`analyse_body`]'s, and this run
+/// must not change what the analysis reports.
+///
+/// A region is modelled as a tie no type declares. The value a placed call makes holds it,
+/// and so does every value that value is moved into: a local, a struct or tuple, an
+/// optional, an `or`, a block's value. It dies when its block ends, after the block's own
+/// locals drop. Whatever still holds it then, or takes it anywhere a block's end cannot
+/// follow — a return, a place not rooted at a local of the block, a call's by-value
+/// argument — is refused.
+///
+/// A copy carries no region: copying a value out of a region builds the copy on the heap
+/// (T-0117 step 3, in `List::copy` and `HashMap::copy`), a rule this check trusts as it
+/// trusts std's hand-written clauses (§6.7).
+pub(crate) fn analyse_regions(
+    body: &Body,
+    table: &TypeTable,
+    res: &Resolution,
+    sites: &[(ExprId, BlockId)],
+) -> Vec<Option<RegionRefusal>> {
+    let regions = Regions {
+        sites: sites.to_vec(),
+        by_call: sites.iter().enumerate().map(|(i, (call, _))| (*call, i)).collect(),
+        refused: vec![None; sites.len()],
+        ..Regions::default()
+    };
+    analyse(body, table, res, Some(regions)).1.map(|r| r.refused).unwrap_or_default()
+}
+
+fn analyse(
+    body: &Body,
+    table: &TypeTable,
+    res: &Resolution,
+    regions: Option<Regions>,
+) -> (BodyAnalysis, Option<Regions>) {
     let mut cx = Analysis {
         body,
         table,
@@ -253,6 +357,7 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
         expected_return: ReturnTie::None,
         reported: HashSet::new(),
         unsafe_depth: 0,
+        regions,
     };
     let signature = body_signature(body, table, res);
     if signature.as_ref().is_some_and(|s| s.sig.is_unsafe) {
@@ -353,7 +458,7 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
         cx.result.mismatches =
             super::compare_ties(&ties(&cx.result.declared), &ties(&cx.result.actual));
     }
-    cx.result
+    (cx.result, cx.regions)
 }
 
 impl Analysis<'_> {
@@ -388,6 +493,7 @@ impl Analysis<'_> {
         };
         let Some((sym, args, field)) = field else {
             self.unchecked(self.body.expr(base).span, "field storage is not known");
+            self.lost(&value.owned, "a field the check cannot follow", self.body.expr(base).span);
             return Value::default();
         };
         let sym = &sym;
@@ -422,7 +528,8 @@ impl Analysis<'_> {
         }
         let places = places.into_iter().map(|o| self.canonical(o)).collect();
         let views = views.into_iter().map(|o| self.canonical(o)).collect();
-        Value { places, views, unknown, parts: Vec::new(), vouched: false }
+        // A field of a value in a region is in it too: moving one out takes region memory.
+        Value { places, views, unknown, parts: Vec::new(), vouched: false, owned: value.owned }
     }
 
     /// The local tuple `t.0.1` is a part of, and the indices down to it.
@@ -628,6 +735,10 @@ impl Analysis<'_> {
         }
         for (arg, value) in args.iter().zip(&values) {
             self.read(value, self.body.expr(*arg).span);
+            // A value given to a call by value is the callee's, which may keep it anywhere:
+            // `push`, a constructor, a function of the program's own. A receiver is always
+            // borrowed (spec §7.3), and a reference argument carries no region.
+            self.sink(*arg, value, Refusal::Passed(expression));
         }
         if let Some(signature) =
             call_signature(self.body, callee, args, expression, self.table, self.res)
@@ -1173,6 +1284,182 @@ impl Analysis<'_> {
         value
     }
 
+    // --- regions (spec §14.6) ---------------------------------------------------------
+
+    /// Whether `e` reads a place by value without moving it, which for a copyable type is
+    /// a copy (spec §6.3): `counts.insert(word, 1)`, `let y = x`. `move(x)` is not one,
+    /// and a move-only place read by value is `DZ0403` before this runs.
+    fn is_copy(&self, e: ExprId) -> bool {
+        matches!(
+            self.body.expr(e).kind,
+            hir::ExprKind::Local(_)
+                | hir::ExprKind::Field { .. }
+                | hir::ExprKind::TupleIndex { .. }
+                | hir::ExprKind::Index { .. }
+                | hir::ExprKind::Deref(_)
+        ) && self.table.copyable(self.body.ty(e))
+    }
+
+    /// `value`, as computed by `e`, where it is taken by value: a copy carries no region,
+    /// since copying out of a region builds on the heap (T-0117 step 3). The check trusts
+    /// that rule of `List::copy` and `HashMap::copy` as it trusts std's clauses (§6.7).
+    fn passed(&self, e: ExprId, value: Value) -> Value {
+        if self.regions.is_some() && self.is_copy(e) {
+            value.without_owned()
+        } else {
+            value
+        }
+    }
+
+    /// `value`, computed by `e`, goes where the walk does not follow it: every region in it
+    /// is refused, unless it is a copy.
+    fn sink(&mut self, e: ExprId, value: &Value, why: Refusal) {
+        if self.regions.is_none() || self.is_copy(e) {
+            return;
+        }
+        let owned = value.all_owned();
+        self.refuse(&owned, why, self.body.expr(e).span);
+    }
+
+    /// Regions lost where the walk gives up on a value.
+    fn lost(&mut self, owned: &[usize], what: &'static str, at: Span) {
+        self.refuse(owned, Refusal::Unfollowed(what), at);
+    }
+
+    fn refuse(&mut self, owned: &[usize], why: Refusal, at: Span) {
+        let Some(regions) = &mut self.regions else { return };
+        for site in owned {
+            if let Some(slot @ None) = regions.refused.get_mut(*site) {
+                *slot = Some(RegionRefusal { why: why.clone(), at });
+            }
+        }
+    }
+
+    /// A call's result: in its region when the call is a proposed site. A site that can
+    /// run more than once while its region lives is refused (T-0117's loop rule): that is
+    /// one inside a loop its region's block encloses, such as a `while` condition.
+    fn region_site(&mut self, call: ExprId, mut value: Value) -> Value {
+        let Some(regions) = &self.regions else { return value };
+        let Some(&site) = regions.by_call.get(&call) else { return value };
+        let block = regions.sites[site].1;
+        let span = self.body.expr(call).span;
+        match regions.active.get(&block).copied() {
+            None => self.refuse(&[site], Refusal::Unfollowed("outside its region's block"), span),
+            Some(frame) => {
+                if self.loops.last().is_some_and(|l| frame < l.scope_depth) {
+                    self.refuse(&[site], Refusal::EveryPass, span);
+                }
+            }
+        }
+        value.owned.push(site);
+        value
+    }
+
+    /// `target = value`: a region may go only into a place rooted at a local declared
+    /// inside its block, reached without a pointer, a reference or an index. Anything else
+    /// — a field of `self` or of a parameter, an element, a static — outlives the block.
+    fn region_assign(&mut self, target: ExprId, op: hir::AssignOp, value: &Value, span: Span) {
+        if self.regions.is_none() {
+            return;
+        }
+        let owned = value.all_owned();
+        let whole = op == hir::AssignOp::Assign
+            && matches!(self.body.expr(target).kind, hir::ExprKind::Local(_));
+        let root = self.local_root(target);
+        if owned.is_empty() {
+            // The old value, and whatever region it was in, is gone.
+            if let (true, Some(local)) = (whole, root) {
+                if let Some(v) = self.state.get_mut(&local) {
+                    v.owned.clear();
+                }
+            }
+            return;
+        }
+        if op != hir::AssignOp::Assign {
+            self.lost(&owned, "used by an operator", span);
+            return;
+        }
+        let regions = self.regions.as_ref().unwrap();
+        let declared = root.and_then(|l| regions.frames.get(&l).copied());
+        let refused: Vec<usize> = owned
+            .iter()
+            .copied()
+            .filter(|site| {
+                let block = regions.sites[*site].1;
+                match (declared, regions.active.get(&block)) {
+                    (Some(at), Some(frame)) => at < *frame,
+                    _ => true,
+                }
+            })
+            .collect();
+        self.refuse(&refused, Refusal::Stored(target), span);
+        if let Some(local) = root {
+            let v = self.state.entry(local).or_default();
+            if whole {
+                v.owned.clear();
+            }
+            for site in owned {
+                if !v.owned.contains(&site) {
+                    v.owned.push(site);
+                }
+            }
+        }
+    }
+
+    /// The local a place is a field path of, by value all the way: none through a
+    /// reference, a pointer or an index, and none for `self`, a parameter or a static.
+    fn local_root(&self, e: ExprId) -> Option<LocalId> {
+        match self.body.expr(e).kind {
+            hir::ExprKind::Local(local) => {
+                let l = self.body.local(local);
+                let own = l.name != "self"
+                    && !self.body.params.contains(&local)
+                    && !matches!(l.ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::OwnPtr { .. });
+                own.then_some(local)
+            }
+            hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. } => {
+                if matches!(self.body.ty(base), Ty::Ref { .. } | Ty::Ptr { .. } | Ty::OwnPtr { .. })
+                {
+                    return None;
+                }
+                self.local_root(base)
+            }
+            _ => None,
+        }
+    }
+
+    /// `block`'s region is released: anything outside it still holding the region — a
+    /// local of an enclosing block, a value being evaluated, the block's own value — would
+    /// be used or dropped after its memory is gone.
+    fn region_end(&mut self, block: BlockId, frame: usize, value: Option<&Value>) {
+        let Some(regions) = &self.regions else { return };
+        let mine: Vec<usize> =
+            (0..regions.sites.len()).filter(|s| regions.sites[*s].1 == block).collect();
+        let mut found = Vec::new();
+        let mut take = |v: &Value| {
+            for site in v.all_owned() {
+                if mine.contains(&site) && !found.contains(&site) {
+                    found.push(site);
+                }
+            }
+        };
+        for (local, v) in &self.state {
+            // A binding made inside the block dies with it.
+            if regions.frames.get(local).is_some_and(|f| *f >= frame) {
+                continue;
+            }
+            take(v);
+        }
+        for v in &self.held {
+            take(v);
+        }
+        if let Some(v) = value {
+            take(v);
+        }
+        let span = self.body.block(block).span;
+        self.refuse(&found, Refusal::Outlives(block), span);
+    }
+
     fn unchecked(&mut self, span: Span, reason: &'static str) {
         let item = Incomplete { span, reason };
         if !self.result.unchecked.contains(&item) {
@@ -1224,6 +1511,25 @@ impl Analysis<'_> {
     }
 
     fn bind(&mut self, local: LocalId, value: Value) {
+        let owned = value.owned.clone();
+        self.bind_views(local, value);
+        if let Some(regions) = &mut self.regions {
+            // A binding lives in the frame it is made in: a `let`'s block, or the one around
+            // an `if let`, a `for` or a formatting macro.
+            if !self.body.params.contains(&local) {
+                let frame = self.scopes.len().saturating_sub(1);
+                regions.frames.entry(local).or_insert(frame);
+            }
+            // Whatever its type: a `List<i32>` holds no view, but it may hold a region.
+            if !owned.is_empty() {
+                self.state.entry(local).or_default().owned = owned;
+            } else if let Some(v) = self.state.get_mut(&local) {
+                v.owned.clear();
+            }
+        }
+    }
+
+    fn bind_views(&mut self, local: LocalId, value: Value) {
         if super::points(&self.body.local(local).ty) {
             self.state.insert(local, Value { places: Vec::new(), ..value });
         } else if !value.parts.is_empty() {
@@ -1281,6 +1587,24 @@ impl Analysis<'_> {
     }
 
     fn block_inner(&mut self, block: BlockId) -> Value {
+        let frame = self.scopes.len();
+        if let Some(regions) = &mut self.regions {
+            if regions.sites.iter().any(|(_, b)| *b == block) {
+                regions.active.insert(block, frame);
+            }
+        }
+        let value = self.block_scope(block);
+        // The region is released after everything in the block has dropped (spec §14.6).
+        if self.regions.as_ref().is_some_and(|r| r.active.contains_key(&block)) {
+            self.region_end(block, frame, Some(&value));
+            if let Some(regions) = &mut self.regions {
+                regions.active.remove(&block);
+            }
+        }
+        value
+    }
+
+    fn block_scope(&mut self, block: BlockId) -> Value {
         self.scopes.push((Vec::new(), Vec::new()));
         let mut value = Value::default();
         for stmt in self.body.block(block).stmts.clone() {
@@ -1323,6 +1647,10 @@ impl Analysis<'_> {
         match node.kind {
             hir::StmtKind::Let { local, init } => {
                 let value = init.map(|e| self.expr(e)).unwrap_or_default();
+                let value = match init {
+                    Some(e) => self.passed(e, value),
+                    None => value,
+                };
                 if let Some(local) = local {
                     self.bind(local, value);
                     self.scopes.last_mut().unwrap().0.push(local);
@@ -1331,6 +1659,7 @@ impl Analysis<'_> {
             hir::StmtKind::LetTuple { locals, init } => {
                 // Each name takes its own part's views, as `t.0` would.
                 let value = self.expr(init);
+                let value = self.passed(init, value);
                 let known = !value.parts.is_empty();
                 // A tuple a call returns is in the call's tie as a whole (§6.7), so each
                 // part that can hold a view may point anywhere the whole does.
@@ -1347,20 +1676,30 @@ impl Analysis<'_> {
                         } else {
                             Value { unknown: true, ..Value::default() }
                         };
+                        // A region held by the tuple as a whole may be any part's.
+                        let mut part = part;
+                        for site in &value.owned {
+                            if !part.owned.contains(site) {
+                                part.owned.push(*site);
+                            }
+                        }
                         self.bind(local, part);
                         self.scopes.last_mut().unwrap().0.push(local);
                     }
                 }
             }
-            hir::StmtKind::Assign { target, op, value, bind } => {
+            hir::StmtKind::Assign { target, op, value: value_expr, bind } => {
                 // The emitter evaluates the RHS before the destination.
-                let value = self.expr(value);
+                let value = self.expr(value_expr);
+                let value = self.passed(value_expr, value);
                 // A constructor binding a reference field: nothing was there to kill, and the
                 // struct being built is in what the constructor's elided result names
                 // (§6.7).
                 if bind {
+                    self.lost(&value.all_owned(), "a reference field", node.span);
                     return Value::default();
                 }
+                self.region_assign(target, op, &value, node.span);
                 let ty = self.body.ty(target);
                 if op == hir::AssignOp::Assign {
                     if let hir::ExprKind::Local(local) = self.body.expr(target).kind {
@@ -1495,6 +1834,14 @@ impl Analysis<'_> {
                 self.kill(Place::local(local), self.body.local(local).span, KillKind::Drop);
                 self.state.remove(&local);
             }
+            // A jump out of a region's block releases the region too.
+            let released = self
+                .regions
+                .as_ref()
+                .and_then(|r| r.active.iter().find(|(_, f)| **f == index).map(|(b, _)| *b));
+            if let Some(block) = released {
+                self.region_end(block, index, None);
+            }
             for stmt in deferred.into_iter().rev() {
                 self.stmt(stmt);
             }
@@ -1542,7 +1889,8 @@ impl Analysis<'_> {
             }
             hir::ExprKind::Index { base, index } => {
                 let value = self.expr(base);
-                self.expr(index);
+                let at = self.expr(index);
+                self.sink(index, &at, Refusal::Unfollowed("used as an index"));
                 Value {
                     places: self.index_origins(base, &value, node.span),
                     unknown: value.unknown,
@@ -1585,7 +1933,10 @@ impl Analysis<'_> {
                 value.places.clear();
                 value
             }
-            hir::ExprKind::Call { callee, args } => self.call(&callee, &args, id),
+            hir::ExprKind::Call { callee, args } => {
+                let value = self.call(&callee, &args, id);
+                self.region_site(id, value)
+            }
             hir::ExprKind::Block(block) => self.block(block),
             hir::ExprKind::If { cond, then, else_branch } => {
                 self.expr(cond);
@@ -1610,6 +1961,7 @@ impl Analysis<'_> {
                     }
                     _ => self.unwrapped(operand, value, node.span),
                 };
+                let bound = self.passed(operand, bound);
                 self.bind(binding, bound);
                 self.branches(&[Some(then), else_branch])
             }
@@ -1682,6 +2034,15 @@ impl Analysis<'_> {
                 if let Some(returned_id) = value {
                     let returned_ty = self.body.ty(returned_id).clone();
                     let value = self.expr(returned_id);
+                    // `return x` moves a local out in C++ even where Dazzle copies it, so a
+                    // local returned is never a copy here.
+                    let kept =
+                        if matches!(self.body.expr(returned_id).kind, hir::ExprKind::Local(_)) {
+                            value.all_owned()
+                        } else {
+                            self.passed(returned_id, value.clone()).all_owned()
+                        };
+                    self.refuse(&kept, Refusal::Returned, node.span);
                     // A tuple hands out the views in its parts as well.
                     let returned = value.held_views();
                     // Scope-exit kills are applied below; returning a view of a local
@@ -1790,20 +2151,24 @@ impl Analysis<'_> {
                 self.live = false;
                 Value::default()
             }
-            hir::ExprKind::Guarded { guard, init, value } => {
-                let init = self.expr(init);
-                self.bind(guard, init);
+            hir::ExprKind::Guarded { guard, init: init_expr, value } => {
+                let init = self.expr(init_expr);
+                self.sink(init_expr, &init, Refusal::Unfollowed("held by a guard"));
+                self.bind(guard, init.without_owned());
                 self.expr(value)
             }
             hir::ExprKind::Formatted { args, params, body } => {
                 for (arg, param) in args.into_iter().zip(params) {
                     let value = self.expr(arg);
-                    self.bind(param, value);
+                    // The macro's body is a C++ lambda its arguments are passed to by value.
+                    self.sink(arg, &value, Refusal::Passed(id));
+                    self.bind(param, value.without_owned());
                 }
                 self.block(body)
             }
             hir::ExprKind::Unary { operand, .. } => {
-                self.expr(operand);
+                let value = self.expr(operand);
+                self.sink(operand, &value, Refusal::Unfollowed("used by an operator"));
                 Value::default()
             }
             hir::ExprKind::Cast { operand, explicit } => {
@@ -1823,7 +2188,8 @@ impl Analysis<'_> {
                 }
             }
             hir::ExprKind::Binary { op, lhs, rhs } => {
-                self.expr(lhs);
+                let left = self.expr(lhs);
+                self.sink(lhs, &left, Refusal::Unfollowed("used by an operator"));
                 if !self.live {
                     return Value::default();
                 }
@@ -1831,7 +2197,8 @@ impl Analysis<'_> {
                     let entry = self.state.clone();
                     let held_entry = self.held.clone();
                     let scope_entry = self.scopes.clone();
-                    self.expr(rhs);
+                    let right = self.expr(rhs);
+                    self.sink(rhs, &right, Refusal::Unfollowed("used by an operator"));
                     if self.live {
                         merge_state(&mut self.state, &entry);
                         merge_held(&mut self.held, &held_entry);
@@ -1842,22 +2209,31 @@ impl Analysis<'_> {
                         self.live = true;
                     }
                 } else {
-                    self.expr(rhs);
+                    let right = self.expr(rhs);
+                    self.sink(rhs, &right, Refusal::Unfollowed("used by an operator"));
                 }
                 Value::default()
             }
             hir::ExprKind::Range { start, end, .. } => {
                 for e in [start, end].into_iter().flatten() {
-                    self.expr(e);
+                    let value = self.expr(e);
+                    self.sink(e, &value, Refusal::Unfollowed("used by an operator"));
                 }
                 Value::default()
             }
             hir::ExprKind::StructLit { fields, .. }
             | hir::ExprKind::UnionVariant { payload: fields, .. } => {
+                // The struct holds what is moved into it, region and all.
+                let mut owned = Vec::new();
                 for e in fields.into_iter().flatten() {
-                    self.expr(e);
+                    let value = self.expr(e);
+                    for site in self.passed(e, value).all_owned() {
+                        if !owned.contains(&site) {
+                            owned.push(site);
+                        }
+                    }
                 }
-                Value::default()
+                Value { owned, ..Value::default() }
             }
             hir::ExprKind::Tuple(parts) => {
                 // Each part is held while the next is evaluated, as a call's arguments
@@ -1865,6 +2241,7 @@ impl Analysis<'_> {
                 let held_start = self.held.len();
                 for e in parts {
                     let value = self.expr(e);
+                    let value = self.passed(e, value);
                     self.held.push(value.held());
                 }
                 let parts = self.held.split_off(held_start);
@@ -1874,18 +2251,31 @@ impl Analysis<'_> {
                 Value { parts, ..Value::default() }
             }
             hir::ExprKind::ArrayLit(parts) => {
+                let mut owned = Vec::new();
                 for e in parts {
-                    self.expr(e);
+                    let value = self.expr(e);
+                    for site in self.passed(e, value).all_owned() {
+                        if !owned.contains(&site) {
+                            owned.push(site);
+                        }
+                    }
                 }
                 if super::contains_views(&node.ty, self.table) {
                     self.unchecked(node.span, "aggregate view provenance is not modeled yet");
                 }
-                Value::default()
+                Value { owned, ..Value::default() }
             }
             hir::ExprKind::Builtin { name, args } | hir::ExprKind::Intrinsic { name, args } => {
                 let mut first = Value::default();
                 for (i, arg) in args.into_iter().enumerate() {
                     let value = self.expr(arg);
+                    // `construct(dst, …)`, `destroy(dst)` and `move_out(dst)` act on `dst`
+                    // in place; anything else given to a builtin may be kept by it.
+                    let in_place =
+                        i == 0 && matches!(name.as_str(), "construct" | "destroy" | "move_out");
+                    if !in_place {
+                        self.sink(arg, &value, Refusal::Passed(id));
+                    }
                     if i == 0 && matches!(name.as_str(), "destroy" | "move_out") {
                         self.kill_places(&value.places, node.span, KillKind::Drop);
                         if value.places.is_empty() {
@@ -1992,6 +2382,11 @@ fn merge_value(to: &mut Value, from: &Value) {
             if !to.contains(origin) {
                 to.push(origin.clone());
             }
+        }
+    }
+    for site in &from.owned {
+        if !to.owned.contains(site) {
+            to.owned.push(*site);
         }
     }
     to.unknown |= from.unknown;

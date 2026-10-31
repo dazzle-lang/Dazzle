@@ -411,9 +411,16 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
 
     // The containers too: a tracked build of a program that frees everything prints exactly
     // what an untracked one does, so any leak report would break the comparison.
-    for fixture in
-        ["allocators", "hashmap", "handles", "files", "handle_upcast", "sorting", "collections"]
-    {
+    for fixture in [
+        "allocators",
+        "hashmap",
+        "handles",
+        "files",
+        "handle_upcast",
+        "sorting",
+        "collections",
+        "region_arena",
+    ] {
         let clean = copy_fixture(fixture, &format!("dz_tracked_clean_{fixture}"));
         let out = run(&clean);
         let expected =
@@ -707,6 +714,7 @@ fn timings_name_every_phase_on_standard_error() {
         "resolve names",
         "type check",
         "ownership",
+        "placement",
         "instantiate generics",
         "emit C++",
         "C and C++ libraries",
@@ -1112,6 +1120,7 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
             "projection",
             "implicit_as",
             "ref_fields",
+            "region_arena",
         ],
         |fixture| check_warning_clean(cxx, fixture),
     );

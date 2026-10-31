@@ -1,0 +1,527 @@
+//! Where each allocation goes (spec §14.6, T-0117 stage 1): the proposer's rule, the
+//! region check that is its safety net, and the two together over every program that checks.
+//!
+//! The cases are the prototype's (`tests/run/regions` at the tag `regions-prototype`), each a
+//! function of [`SOURCE`] whose sites are looked up by the function's name.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use dz_driver::Analysis;
+use dz_flow::placement::{self, Decision, Placements, Proposer, Site};
+use dz_hir::BodyOwner;
+
+const SOURCE: &str = r#"
+struct Store {
+    pub saved: List<i32>
+    pub names: List<String>
+}
+
+// Placed: only borrowed, by its own methods and a `for`.
+fn sum_squares(n: i32) -> i32 {
+    let mut xs = List<i32>()
+    for i in 0..n {
+        xs.push(i * i)
+    }
+    let mut total = 0
+    for &x in xs {
+        total += x
+    }
+    return total
+}
+
+// Placed: a region per pass of the loop. What is pushed keeps the heap.
+fn rounds() -> i32 {
+    let mut longest = 0
+    for round in 0..50 {
+        let mut words = List<String>()
+        for i in 0..round {
+            words.push(String::from("w"))
+            if i > longest {
+                longest = i
+            }
+        }
+    }
+    return longest
+}
+
+fn fill(xs: &mut List<i32>, n: i32) kills xs@items {
+    for i in 0..n {
+        xs.push(i)
+    }
+}
+
+// Placed: lent to a callee that grows it.
+fn lend() -> i32 {
+    let mut grown = List<i32>()
+    fill(&mut grown, 10)
+    return grown.len() as i32
+}
+
+// Placed: printed, and copied, into a map and into another local; a copy is a new value.
+fn printed() -> i32 {
+    let s = String::from("a")
+    println!("{}", s)
+    let mut counts = HashMap<String, i32>()
+    let word = String::from("w")
+    counts.insert(word, 1)
+    let copy = word
+    return counts.len() as i32 + copy.len() as i32
+}
+
+// Placed: in the region of an `if`, and of a nested block.
+fn nested(flag: bool) -> usize {
+    let mut n: usize = 0
+    if flag {
+        let path = Path("a/b")
+        n = path.as_str().len
+    }
+    {
+        let set = HashSet<i32>()
+        n += set.len()
+    }
+    return n
+}
+
+// Heap: returned.
+fn evens() -> List<i32> {
+    let mut xs = List<i32>()
+    xs.push(2)
+    return xs
+}
+
+// Heap: moved into a field of a parameter.
+fn keep(store: &mut Store) kills store.saved {
+    let xs = List<i32>()
+    store.saved = move(xs)
+}
+
+// Heap: pushed into a container.
+fn tag(names: &mut List<String>) kills names@items {
+    let s = String::from("a")
+    names.push(move(s))
+}
+
+fn consume(xs: List<i32>) -> usize {
+    return xs.len()
+}
+
+// Heap: passed by value.
+fn give() -> usize {
+    let xs = List<i32>()
+    return consume(move(xs))
+}
+
+// Heap: moved to an outer local, which is placed itself.
+fn outer() -> usize {
+    let mut kept = List<i32>()
+    {
+        let inner = List<i32>()
+        kept = move(inner)
+    }
+    return kept.len()
+}
+
+// Heap: reassigned in a loop (the loop rule).
+fn looped() -> usize {
+    let mut s = String()
+    for _ in 0..3 {
+        s = String::from("x")
+    }
+    return s.len()
+}
+
+// Heap: the program's own allocator-taking function.
+fn squares_in(n: i32, allocator: ^mut Allocator = Allocators::Global) -> List<i32> {
+    let mut xs = List<i32>(0, allocator)
+    xs.push(n)
+    return move(xs)
+}
+
+fn own_fn() -> usize {
+    let d = squares_in(3)
+    return d.len()
+}
+
+// Heap: an `Rc`, which a `Weak` can outlive.
+fn counted() -> i32 {
+    let _r = Rc<i32>(1)
+    return 1
+}
+
+fn main() {
+    println!("{} {} {} {} {}", sum_squares(3), rounds(), lend(), printed(), nested(true))
+    let mut store = Store{ saved: List<i32>(), names: List<String>() }
+    keep(&mut store)
+    tag(&mut store.names)
+    println!("{} {} {} {} {} {}", evens().len(), give(), outer(), looped(), own_fn(), counted())
+}
+"#;
+
+fn scratch() -> PathBuf {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    std::env::temp_dir().join(format!(
+        "dz_flow_placement_{}_{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+/// The whole pipeline over `source`, which must check clean.
+fn analyse(source: &str) -> Analysis {
+    let dir = scratch();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(
+        dir.join("dazzle.toml"),
+        "[module]\nname = \"placement\"\nsources = [\"src/**/*.dz\"]\n\n\
+         [dependencies]\nstd = { open = true }\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("src/main.dz"), source).unwrap();
+    let a = dz_driver::analyse(&dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!a.diags.has_errors(), "{}", dz_diag::render_to_string(&a.map, &a.diags));
+    a
+}
+
+fn place(a: &Analysis, proposer: Proposer) -> Placements {
+    placement::place_with(
+        a.hir.as_ref().unwrap(),
+        a.table.as_ref().unwrap(),
+        a.resolution.as_ref().unwrap(),
+        proposer,
+    )
+}
+
+/// The sites of the function `name`, in source order.
+fn sites<'p>(a: &Analysis, p: &'p Placements, name: &str) -> Vec<&'p Site> {
+    let res = a.resolution.as_ref().unwrap();
+    let (_, body) = p
+        .iter()
+        .find(|(owner, _)| {
+            matches!(owner, BodyOwner::Fn(s) if res.symbol(*s).name == name
+                && res.symbol(*s).module != res.prelude)
+        })
+        .unwrap_or_else(|| panic!("`{name}` has no sites"));
+    body.sites.iter().collect()
+}
+
+/// `name`'s sites as `callee: region scope` or `callee: heap why`.
+fn decisions(a: &Analysis, p: &Placements, name: &str) -> Vec<String> {
+    sites(a, p, name)
+        .into_iter()
+        .map(|s| match &s.decision {
+            Decision::Region { scope, .. } => format!("{}: region: {scope}", s.callee),
+            Decision::Heap { why, .. } => format!("{}: heap: {why}", s.callee),
+        })
+        .collect()
+}
+
+fn body<'p>(a: &Analysis, p: &'p Placements, name: &str) -> &'p placement::BodyPlacement {
+    let res = a.resolution.as_ref().unwrap();
+    p.iter()
+        .find(|(owner, _)| {
+            matches!(owner, BodyOwner::Fn(s) if res.symbol(*s).name == name
+                && res.symbol(*s).module != res.prelude)
+        })
+        .map(|(_, b)| b)
+        .unwrap_or_else(|| panic!("`{name}` has no sites"))
+}
+
+/// Each case: the function, and what its sites print, in source order.
+const PLACED: &[(&str, &[&str])] = &[
+    ("sum_squares", &["List<i32>: region: `sum_squares`"]),
+    (
+        "rounds",
+        &[
+            "List<String>: region: each pass of a loop in `rounds`",
+            "String::from: heap: passed to `words.push`",
+        ],
+    ),
+    ("lend", &["List<i32>: region: `lend`"]),
+    (
+        "printed",
+        &[
+            "String::from: region: `printed`",
+            "HashMap<String, i32>: region: `printed`",
+            "String::from: region: `printed`",
+        ],
+    ),
+    ("nested", &["Path: region: an `if` in `nested`", "HashSet<i32>: region: a block in `nested`"]),
+];
+
+/// The wrong placements: the function, its site's index, and the proposer's reason.
+const WRONG: &[(&str, usize, &str)] = &[
+    ("evens", 0, "List<i32>: heap: returned"),
+    ("keep", 0, "List<i32>: heap: stored in `store.saved`"),
+    ("tag", 0, "String::from: heap: passed to `names.push`"),
+    ("give", 0, "List<i32>: heap: passed to `consume`"),
+    ("outer", 1, "List<i32>: heap: stored in `kept`"),
+    ("looped", 1, "String::from: heap: assigned to `s` on every pass of a loop"),
+];
+
+/// Heap by a fixed rule, whatever is proposed.
+const FIXED: &[(&str, &str)] = &[
+    ("own_fn", "squares_in: heap: made inside `squares_in`"),
+    ("counted", "Rc<i32>: heap: a `Weak` can outlive the scope"),
+];
+
+#[test]
+fn values_that_stay_in_their_scope_get_its_region() {
+    let a = analyse(SOURCE);
+    let p = place(&a, Proposer::Rules);
+    for (f, expected) in PLACED {
+        assert_eq!(decisions(&a, &p, f), *expected, "in `{f}`");
+        assert!(body(&a, &p, f).demoted().is_empty(), "the check refused a placement in `{f}`");
+    }
+    // `outer` keeps its own list in its region; only the inner one, moved out, is heap.
+    assert_eq!(decisions(&a, &p, "outer")[0], "List<i32>: region: `outer`");
+    // The region's block and the allocator argument, as codegen reads them.
+    let lend = body(&a, &p, "lend");
+    let site = &lend.sites[0];
+    let Decision::Region { block, .. } = site.decision else { panic!() };
+    assert_eq!(lend.region_for(site.call), Some((1, block)));
+    assert_eq!(lend.region_blocks(), vec![block]);
+    let printed = body(&a, &p, "printed");
+    assert_eq!(printed.sites[0].arg, 1, "`String::from(s, allocator, loc)`");
+}
+
+#[test]
+fn values_that_leave_their_scope_keep_the_heap_and_say_why() {
+    let a = analyse(SOURCE);
+    let p = place(&a, Proposer::Rules);
+    for (f, index, expected) in WRONG {
+        let decided = decisions(&a, &p, f);
+        assert_eq!(decided[*index], *expected, "in `{f}`");
+        let Decision::Heap { at, .. } = &sites(&a, &p, f)[*index].decision else { panic!() };
+        assert!(at.is_some(), "`{f}`: a reason found at a use says where");
+    }
+    for (f, expected) in FIXED {
+        assert_eq!(decisions(&a, &p, f), [*expected], "in `{f}`");
+    }
+    // The aggregates `main` builds are moved into a struct literal.
+    assert_eq!(
+        decisions(&a, &p, "main"),
+        ["List<i32>: heap: moved into a `Store`", "List<String>: heap: moved into a `Store`"]
+    );
+}
+
+/// The gate's last row (T-0117): with everything proposed, the region check alone refuses
+/// every wrong placement, and still places every right one.
+#[test]
+fn the_region_check_alone_refuses_every_wrong_placement() {
+    let a = analyse(SOURCE);
+    let p = place(&a, Proposer::Everything);
+    let checked: &[(&str, usize, &str)] = &[
+        ("evens", 0, "List<i32>: heap: returned"),
+        ("keep", 0, "List<i32>: heap: stored in `store.saved`"),
+        ("tag", 0, "String::from: heap: passed to `names.push`"),
+        ("give", 0, "List<i32>: heap: passed to `consume`"),
+        ("outer", 1, "List<i32>: heap: stored in `kept`"),
+        // The loop rule, from the check: the value goes into a local the pass outlives.
+        ("looped", 1, "String::from: heap: stored in `s`"),
+        ("rounds", 1, "String::from: heap: passed to `words.push`"),
+    ];
+    for (f, index, expected) in checked {
+        assert_eq!(decisions(&a, &p, f)[*index], *expected, "in `{f}`");
+        let site = sites(&a, &p, f)[*index];
+        assert!(body(&a, &p, f).demoted().contains(&site.call), "`{f}`: refused by the check");
+    }
+    for (f, expected) in PLACED {
+        assert_eq!(decisions(&a, &p, f), *expected, "in `{f}`");
+    }
+    for (f, expected) in FIXED {
+        assert_eq!(decisions(&a, &p, f), [*expected], "in `{f}`");
+    }
+}
+
+/// More wrong placements, each refused by the check with everything proposed: through a
+/// block's value, an `or`, a struct moved out, a `while` condition and an element.
+#[test]
+fn the_region_check_follows_a_region_through_values() {
+    let a = analyse(
+        r#"
+struct Holder {
+    pub items: List<i32>
+}
+fn block_value() -> List<i32> {
+    let xs = {
+        let inner = List<i32>()
+        move(inner)
+    }
+    return move(xs)
+}
+fn wrapped() -> Holder {
+    let h = Holder{ items: List<i32>() }
+    return move(h)
+}
+fn into_element(lists: &mut List<List<i32>>) kills lists[*] {
+    let xs = List<i32>()
+    lists[0] = move(xs)
+}
+fn condition() -> i32 {
+    let mut n = 0
+    while List<i32>().len() > 10 {
+        n += 1
+    }
+    return n
+}
+fn optional() -> List<i32>? {
+    let xs: List<i32>? = List<i32>()
+    return move(xs)
+}
+fn kept_inside() -> usize {
+    let mut outer = List<i32>()
+    let h = Holder{ items: List<i32>() }
+    outer = h.items
+    return outer.len() + h.items.len()
+}
+fn main() {
+    let mut lists = List<List<i32>>()
+    lists.push(List<i32>())
+    into_element(&mut lists)
+    println!("{} {} {} {} {}", block_value().len(), wrapped().items.len(), condition(), (optional() or List<i32>()).len(), kept_inside())
+}
+"#,
+    );
+    let p = place(&a, Proposer::Everything);
+    let refused = |f: &str, index: usize, why: &str| {
+        let site = sites(&a, &p, f)[index];
+        let Decision::Heap { why: found, .. } = &site.decision else {
+            panic!("`{f}`: site {index} was placed")
+        };
+        assert_eq!(found, why, "in `{f}`");
+        assert!(body(&a, &p, f).demoted().contains(&site.call), "`{f}`: refused by the check");
+    };
+    refused("block_value", 0, "outlives a block in `block_value`");
+    refused("wrapped", 0, "returned");
+    refused("into_element", 0, "stored in `lists[…]`");
+    refused("condition", 0, "made on every pass of a loop");
+    refused("optional", 0, "returned");
+    // A copy carries no region: `h.items` copied into `outer` leaves both in place.
+    assert_eq!(
+        decisions(&a, &p, "kept_inside"),
+        ["List<i32>: region: `kept_inside`", "List<i32>: region: `kept_inside`"]
+    );
+}
+
+fn corpus_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// Every project directly under `dir`.
+fn projects(dir: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> =
+        std::fs::read_dir(dir).map(|r| r.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+    out.retain(|p| p.join("dazzle.toml").is_file());
+    out.sort();
+    out
+}
+
+/// The corpus: std and every program that checks clean. The check must refuse nothing the
+/// proposer placed; if it does, one of the two is wrong.
+#[test]
+fn the_region_check_refuses_nothing_the_proposer_places_in_the_corpus() {
+    let root = corpus_root();
+    let mut dirs = Vec::new();
+    for sub in ["examples", "tests/run", "tests/bench_programs"] {
+        dirs.extend(projects(&root.join(sub)));
+    }
+    let mut checked = 0;
+    let mut std_seen = false;
+    let mut refused = Vec::new();
+    let mut std_sites = (0, 0);
+    for dir in &dirs {
+        let a = dz_driver::analyse(dir);
+        // A vendor submodule missing from a fresh checkout, or a library this machine lacks.
+        if a.diags.has_errors() || a.placements.is_none() {
+            continue;
+        }
+        checked += 1;
+        let res = a.resolution.as_ref().unwrap();
+        let p = a.placements.as_ref().unwrap();
+        let (mut sites, mut placed) = (0, 0);
+        for (owner, b) in p.iter() {
+            let prelude = owner_module(owner, &a) == res.prelude;
+            if prelude && std_seen {
+                continue;
+            }
+            for call in b.demoted() {
+                let site = b.sites.iter().find(|s| s.call == *call).unwrap();
+                let file = a.map.get(b.file);
+                let at = file.location(site.span.start as usize);
+                refused.push(format!(
+                    "{}:{}:{} {} {:?}",
+                    file.name(),
+                    at.line,
+                    at.column,
+                    site.callee,
+                    site.decision
+                ));
+            }
+            if prelude {
+                std_sites.0 += b.sites.len();
+                std_sites.1 += b
+                    .sites
+                    .iter()
+                    .filter(|s| matches!(s.decision, Decision::Region { .. }))
+                    .count();
+            } else {
+                sites += b.sites.len();
+                placed += b
+                    .sites
+                    .iter()
+                    .filter(|s| matches!(s.decision, Decision::Region { .. }))
+                    .count();
+            }
+        }
+        std_seen = true;
+        if dir.parent().is_some_and(|d| d.ends_with("bench_programs")) {
+            eprintln!(
+                "{}: {placed} of {sites} sites placed",
+                dir.file_name().unwrap().to_string_lossy()
+            );
+        }
+    }
+    assert!(checked > 0, "no program in the corpus checked");
+    eprintln!("{checked} of {} programs checked", dirs.len());
+    eprintln!("std: {} of {} sites placed", std_sites.1, std_sites.0);
+    assert!(
+        refused.is_empty(),
+        "the check refused what the proposer placed:\n{}",
+        refused.join("\n")
+    );
+}
+
+/// `astar`'s maps and path are locals of the functions that build them (T-0104).
+#[test]
+fn astar_places_its_maps_and_its_path() {
+    let a = dz_driver::analyse(&corpus_root().join("tests/bench_programs/astar"));
+    assert!(!a.diags.has_errors(), "{}", dz_diag::render_to_string(&a.map, &a.diags));
+    let p = a.placements.as_ref().unwrap();
+    assert_eq!(
+        decisions(&a, p, "find_path"),
+        ["HashMap<Cell, i32>: region: `find_path`", "HashMap<Cell, Cell>: region: `find_path`",]
+    );
+    assert_eq!(decisions(&a, p, "trace"), ["List<Cell>: region: `trace`"]);
+}
+
+fn owner_module(owner: &BodyOwner, a: &Analysis) -> dz_project::ModuleId {
+    let res = a.resolution.as_ref().unwrap();
+    let sym = match owner {
+        BodyOwner::Fn(s)
+        | BodyOwner::Copy(s)
+        | BodyOwner::Drop(s)
+        | BodyOwner::Const(s)
+        | BodyOwner::Static(s) => *s,
+        BodyOwner::Method { owner, .. }
+        | BodyOwner::Ctor { owner, .. }
+        | BodyOwner::AssocConst { owner, .. }
+        | BodyOwner::FieldDefault { owner, .. }
+        | BodyOwner::TraitDefaults { owner, .. } => *owner,
+        BodyOwner::ImplMethod { imp, .. } => {
+            return a.table.as_ref().unwrap().impls()[*imp as usize].module;
+        }
+    };
+    res.symbol(sym).module
+}

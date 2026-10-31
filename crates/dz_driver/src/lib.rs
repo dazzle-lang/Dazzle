@@ -89,6 +89,9 @@ pub struct Analysis {
     /// Which generic instantiations each module needs, with a concrete copy of every body
     /// (spec §8.4). `None` when checking failed, since there is nothing sound to instantiate.
     pub mono: Option<dz_mono::Mono>,
+    /// Where each allocation goes, region or heap, and why (spec §14.6): the one answer the
+    /// editor, `dz placements` and codegen read. `None` when ownership did not run.
+    pub placements: Option<dz_flow::placement::Placements>,
     pub diags: Diagnostics,
     /// Every file lexed and parsed without an error. In [`Mode::Editor`] the later phases
     /// run either way; this says whether what they saw was the whole program.
@@ -167,6 +170,7 @@ pub fn analyse_prepared(
             hir: None,
             table: None,
             mono: None,
+            placements: None,
             diags,
             parsed_cleanly: false,
             timings,
@@ -270,6 +274,7 @@ pub fn analyse_prepared(
     let mut hir = None;
     let mut table = None;
     let mut mono = None;
+    let mut placements = None;
     if parsed_cleanly || tolerant {
         let r = dz_resolve::resolve(&ws, &files);
         lap = timings.lap("resolve names", lap);
@@ -306,6 +311,9 @@ pub fn analyse_prepared(
             if checked_cleanly {
                 diags.extend(dz_flow::check(&checked.hir, &checked.table, &r, &map));
                 lap = timings.lap("ownership", lap);
+                // Placement reads the same bodies, one at a time, as the editor can (§14.6).
+                placements = Some(dz_flow::placement::place(&checked.hir, &checked.table, &r));
+                lap = timings.lap("placement", lap);
                 // Instantiation runs here rather than at codegen so that `dz check`
                 // reports a runaway instantiation (DZ0536) too; it is a property of the
                 // program, not of the C++ (spec §8.4).
@@ -331,6 +339,7 @@ pub fn analyse_prepared(
         hir,
         table,
         mono,
+        placements,
         diags,
         parsed_cleanly,
         timings,

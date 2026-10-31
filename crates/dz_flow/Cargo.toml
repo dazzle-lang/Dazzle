@@ -18,3 +18,5 @@ dz_project.workspace = true
 [dev-dependencies]
 dz_lex.workspace = true
 dz_parse.workspace = true
+# The whole pipeline, macros included, for the placement corpus (tests/placement.rs).
+dz_driver.workspace = true

@@ -154,6 +154,7 @@ DAZZLE_PHASES = [
     "resolve names",
     "type check",
     "ownership",
+    "placement",
     "instantiate generics",
     "emit C++",
 ]
@@ -292,7 +293,7 @@ def report(info, results, mode, runs):
         f"median of {builds} builds from clean: for Dazzle, `dz build`, which compiles the "
         "program and the standard library; for C++, one compiler invocation. Dazzle's own "
         "phases are reading the manifests, parsing, macros, resolving names, type checking, "
-        "ownership, instantiating generics and emitting the C++. Other is what no phase "
+        "ownership, placement, instantiating generics and emitting the C++. Other is what no phase "
         "accounts for, mostly starting `dz` and linking the vendored libraries. Peak memory is "
         "the largest resident set of any run.",
         "",
