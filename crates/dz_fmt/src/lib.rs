@@ -428,8 +428,12 @@ impl<'a> Printer<'a> {
             ItemKind::Struct(s) => {
                 let base =
                     s.base.as_ref().map(|b| format!(" : {}", self.path(b))).unwrap_or_default();
-                let head =
-                    format!("{vis}struct {}{}{base} {{", s.name.name, generics_str(&s.generics));
+                let view = if s.is_view { "view " } else { "" };
+                let head = format!(
+                    "{vis}{view}struct {}{}{base} {{",
+                    s.name.name,
+                    generics_str(&s.generics)
+                );
                 self.line(&head);
                 self.indent += 1;
                 self.members(&s.members);
@@ -641,9 +645,10 @@ impl<'a> Printer<'a> {
             }
             MemberKind::Fn(f) => self.fn_decl(vis, f),
             MemberKind::Ctor(f) => self.special_member(vis, f),
-            MemberKind::TypeAlias { name, bounds, ty } => {
+            MemberKind::TypeAlias { is_view, name, bounds, ty } => {
                 let s = format!(
-                    "{vis}type {}{}{}",
+                    "{vis}{}type {}{}{}",
+                    if *is_view { "view " } else { "" },
                     name.name,
                     if bounds.is_empty() {
                         String::new()
@@ -1347,7 +1352,8 @@ fn generics_str(g: &Generics) -> String {
         .params
         .iter()
         .map(|p| {
-            let mut s = p.name.name.clone();
+            let mut s =
+                if p.is_view { format!("view {}", p.name.name) } else { p.name.name.clone() };
             if !p.bounds.is_empty() {
                 let b: Vec<String> = p.bounds.iter().map(dump::path_str).collect();
                 s = format!("{s}: {}", b.join(" + "));

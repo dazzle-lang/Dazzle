@@ -177,6 +177,13 @@ impl<'a> Parser<'a> {
             TokenKind::Unsafe if self.at_unsafe_fn() => ItemKind::Fn(self.parse_fn()),
             TokenKind::Extern if self.peek_at(1) == TokenKind::Fn => ItemKind::Fn(self.parse_fn()),
             TokenKind::Struct => ItemKind::Struct(self.parse_struct()),
+            // `view struct` (spec §6.7): `view` is a keyword only before `struct`, `type`
+            // and a type parameter, so it stays a name everywhere else.
+            TokenKind::Ident
+                if self.cur_text() == "view" && self.peek_at(1) == TokenKind::Struct =>
+            {
+                ItemKind::Struct(self.parse_struct())
+            }
             TokenKind::Union => ItemKind::Union(self.parse_union()),
             TokenKind::Enum => ItemKind::Enum(self.parse_enum()),
             TokenKind::Trait => ItemKind::Trait(self.parse_trait()),
@@ -327,6 +334,14 @@ impl<'a> Parser<'a> {
                 continue;
             }
             let p_start = self.start();
+            // `view T` (spec §6.7): `view` followed by a name, so a parameter named `view`
+            // is still one.
+            let is_view = self.at(TokenKind::Ident)
+                && self.cur_text() == "view"
+                && self.peek_at(1) == TokenKind::Ident;
+            if is_view {
+                self.bump();
+            }
             let name = self.parse_ident_or_error();
             let mut bounds = Vec::new();
             if self.eat(TokenKind::Colon) {
@@ -340,7 +355,13 @@ impl<'a> Parser<'a> {
             }
             // `Rhs = Self` (spec §11.2).
             let default = if self.eat(TokenKind::Eq) { Some(self.parse_type()) } else { None };
-            params.push(GenericParam { span: self.span_from(p_start), name, bounds, default });
+            params.push(GenericParam {
+                span: self.span_from(p_start),
+                is_view,
+                name,
+                bounds,
+                default,
+            });
             if !self.eat(TokenKind::Comma) {
                 break;
             }
@@ -642,6 +663,10 @@ impl<'a> Parser<'a> {
 
     fn parse_struct(&mut self) -> StructDecl {
         let start = self.start();
+        let is_view = self.at(TokenKind::Ident) && self.cur_text() == "view";
+        if is_view {
+            self.bump(); // `view`
+        }
         self.bump(); // `struct`
         let name = self.parse_ident_or_error();
         let generics = self.parse_generics();
@@ -662,7 +687,7 @@ impl<'a> Parser<'a> {
             }
         }
         let members = self.parse_members(&name.name);
-        StructDecl { span: self.span_from(start), name, generics, base, members }
+        StructDecl { span: self.span_from(start), is_view, name, generics, base, members }
     }
 
     /// `impl Trait for Type { … }`, `impl<T: Copy> Copy for Buffer<T> { … }` (spec §7.6).
@@ -751,8 +776,18 @@ impl<'a> Parser<'a> {
             TokenKind::Virtual | TokenKind::Override if self.at_dispatched_fn() => {
                 MemberKind::Fn(self.parse_fn())
             }
-            // `type Item`, `type Item : Format`, `type Item = &T` (spec §8.5)
-            TokenKind::Ident if self.cur_text() == "type" => {
+            // `type Item`, `type Item : Format`, `type Item = &T` (spec §8.5), and `view
+            // type Item`, which an implementation may choose a view for (spec §6.7)
+            TokenKind::Ident
+                if self.cur_text() == "type"
+                    || (self.cur_text() == "view"
+                        && self.peek_at(1) == TokenKind::Ident
+                        && self.text_after(1) == "type") =>
+            {
+                let is_view = self.cur_text() == "view";
+                if is_view {
+                    self.bump();
+                }
                 self.bump();
                 let name = self.parse_ident_or_error();
                 let mut bounds = Vec::new();
@@ -765,7 +800,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 let ty = if self.eat(TokenKind::Eq) { Some(self.parse_type()) } else { None };
-                MemberKind::TypeAlias { name, bounds, ty }
+                MemberKind::TypeAlias { is_view, name, bounds, ty }
             }
             // `own m_data: ^T`
             TokenKind::Own => MemberKind::Field(self.parse_field()),

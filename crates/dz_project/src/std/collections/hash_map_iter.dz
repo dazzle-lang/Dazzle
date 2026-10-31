@@ -1,5 +1,5 @@
 /// Steps through a map's entries in slot order, handing out `(&K, &V)`: `for k, &v in map`.
-pub struct HashMapIter<K: Hash + Eq, V> {
+pub view struct HashMapIter<K: Hash + Eq, V> {
     m_map: ^HashMap<K, V> = null
     m_slot: usize = 0
 

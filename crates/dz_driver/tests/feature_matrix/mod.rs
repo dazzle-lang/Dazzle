@@ -89,7 +89,7 @@ pub fn pair() -> (i32, i32) {
     return (3, 9)
 }
 
-pub fn first_of<T: Iterate>(it: &T) -> T::Item {
+pub fn first_of<view T: Iterate>(it: &T) -> T::Item {
     return it.get()
 }
 

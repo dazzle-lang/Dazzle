@@ -5,8 +5,11 @@
 /// `[]^Entity` would stop at its first null element and one over `[]T?` at its first
 /// `none`. Keeping "is there one" apart from "what is it" lets `Item` be any type at all —
 /// `&T`, `&mut T`, `^T`, `T?`, a tuple. See §8.5 for the full argument.
+///
+/// `Item` is a `view type`: an iterator may hand out references into what it walks, so
+/// generic code treats an item as the view it may be (§6.7).
 pub trait Iterate {
-    type Item
+    view type Item
 
     fn valid(&self) -> bool
     fn get(&self) -> Item
@@ -17,12 +20,12 @@ pub trait Iterate {
 /// its position in itself and the container must not (§10.4, 18.51). `for &e in xs` calls
 /// `iter()`.
 pub trait Iterable {
-    type Iter : Iterate
+    view type Iter : Iterate
     fn iter(&self) -> Iter
 }
 
 /// A container whose elements a loop may change: `for &mut e in xs` calls `iter_mut()`.
 pub trait IterableMut {
-    type IterMut : Iterate
+    view type IterMut : Iterate
     fn iter_mut(&mut self) -> IterMut
 }

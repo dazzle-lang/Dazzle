@@ -157,6 +157,9 @@ impl BuiltinTy {
 pub struct Param {
     pub id: u32,
     pub name: Rc<str>,
+    /// `view T`, or a trait's `view type Item`: it may be given a view, so a value of it is
+    /// placed as a reference is (spec §6.7, D-0093). Not part of the identity.
+    pub view: bool,
 }
 
 impl PartialEq for Param {

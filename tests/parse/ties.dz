@@ -64,3 +64,20 @@ struct Hooks {
 fn each(f: fn(xs: &mut List<i32>) kills xs@items, n: i32) {}
 
 fn each_first(f: fn(xs: &List<i32>) -> ^i32 in xs, n: i32) {}
+
+// `view` (spec §6.7) is a keyword only before `struct`, `type` and a type parameter, so it
+// stays a name everywhere else: a parameter, a local, a field.
+pub view struct Cursor<view I: Iterate, T> {
+    pub inner: I
+    pub view: i32 = 0
+}
+
+trait Walk {
+    view type Steps : Iterate
+    type Plain
+}
+
+fn count<view T: Iterate, view>(it: T, view: i32) -> i32 {
+    let view = view + 1
+    return view
+}

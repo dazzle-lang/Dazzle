@@ -417,6 +417,35 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
   think(&mut boss, &mut world)               // fine: `boss` is not in `world`
   ```
 
+**A view lives only where a reference does** (D-0093): in a local, a parameter, a result
+or a temporary, never in a field, a container or a type argument. A struct that must hold
+one, such as an iterator, is declared `view struct`, and is then a view itself, placed by
+the same rule; std's iterators are view structs. A generic that may be given a view says so
+with `view` on the type parameter, and its body treats a value of it as one; a trait's
+associated type that an implementation may choose a view for is a `view type`, as
+`Iterate::Item` and `Iterable::Iter` are. A plain type parameter is never a view.
+
+```dz
+view struct Numbered<view I: Iterate> {
+    pub inner: I
+    m_index: usize = 0
+}
+impl<view I: Iterate> Iterate for Numbered<I> { … }
+
+fn count<view T: Iterate>(it: T) -> usize { … }
+count(xs.iter())                    // fine: `T` may be a view
+fn keep<T>(x: T) -> T { … }
+keep(xs.iter())                     // error: `SliceIter<i32>` is a view, and `T` is not `view`
+let its = List<SliceIter<i32>>()    // error: a container's element is no place for a view
+```
+
+A struct with a `view` parameter must be a view struct, and an implementation whose type's
+`view` parameter it reaches takes that parameter as `view` too. All of these are `DZ0517`,
+the same as a `&T` field. `view` is a keyword only before `struct`, `type` and a type
+parameter, so `let view = camera.view_matrix()` still means what it did. References,
+slices and `str` become views by this rule with T-0109 and T-0110; until then they are
+values.
+
 **What stays allowed** is aliasing. `&mut xs[i]` beside `&xs[j]`, a write through a `&mut`
 that moves nothing (`p.x += 1`), a borrow of one field while another changes: none of these
 kills anything. A use is an error only when a call in between can move the memory the

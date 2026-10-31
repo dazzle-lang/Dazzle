@@ -1,5 +1,5 @@
 /// Steps through a writable slice, handing out a writable reference to each element.
-pub struct SliceIterMut<T> {
+pub view struct SliceIterMut<T> {
     m_slice: []mut T
     m_index: usize = 0
 

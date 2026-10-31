@@ -1,5 +1,5 @@
 /// Steps through a slot map's values, handing out `(Key<T>, &T)`: `for k, &v in map`.
-pub struct SlotMapIter<T> {
+pub view struct SlotMapIter<T> {
     m_map: ^SlotMap<T> = null
     m_index: usize = 0
 

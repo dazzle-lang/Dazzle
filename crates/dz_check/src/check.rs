@@ -401,7 +401,7 @@ fn check_impl_conformance(cx: &mut Ctx, imp: &ImplSig, trait_name: &str, me: &st
         }
     }
     for chosen in &imp.assoc_types {
-        if !spec.assoc_types.iter().any(|a| a.name == chosen.name) {
+        let Some(declared) = spec.assoc_types.iter().find(|a| a.name == chosen.name) else {
             cx.error_help(
                 codes::TRAIT_MEMBER_MISMATCH,
                 chosen.span,
@@ -409,6 +409,39 @@ fn check_impl_conformance(cx: &mut Ctx, imp: &ImplSig, trait_name: &str, me: &st
                 "not in the trait",
                 "an implementation chooses the associated types its trait names (spec §8.5)",
             );
+            continue;
+        };
+        // Whether a choice may be a view is the trait's to say (spec §6.7).
+        if chosen.is_view {
+            cx.error_help(
+                codes::TRAIT_MEMBER_MISMATCH,
+                chosen.span,
+                format!("`view` is said by the trait, not by `impl {trait_name} for {me}`"),
+                "`view` written on a choice",
+                format!(
+                    "write `type {}` here; the trait declares `view type {}` when an \
+                     implementation may choose a view for it (spec §6.7)",
+                    chosen.name, chosen.name
+                ),
+            );
+        } else if !declared.is_view {
+            if let Some(t) = chosen.ty.as_ref().filter(|t| cx.table.placed_as_view(t)) {
+                let shown = cx.name_of(t);
+                cx.error_help(
+                    codes::REF_IN_FIELD,
+                    chosen.span,
+                    format!(
+                        "`{shown}` is a view, and `{trait_name}`'s `{}` is not a `view type`",
+                        chosen.name
+                    ),
+                    "a view chosen where it could be stored",
+                    format!(
+                        "generic code may store a value of `{}` anywhere; only a trait that \
+                         declares `view type {}` takes a view for it (spec §6.7)",
+                        chosen.name, chosen.name
+                    ),
+                );
+            }
         }
     }
 }
@@ -4357,6 +4390,24 @@ impl<'a, 'c> Body<'a, 'c> {
     /// substituted before it is checked.
     fn check_bounds(&mut self, def: &ParamDef, chosen: &Ty, span: Span) {
         if chosen.is_wildcard() {
+            return;
+        }
+        // A plain parameter is never a view, so its body may store one anywhere; only a
+        // `view` parameter may be given a view (spec §6.7, D-0093).
+        if !def.param.view && self.cx.table.placed_as_view(chosen) {
+            let shown = self.cx.name_of(chosen);
+            let p = def.name();
+            self.cx.error_help(
+                codes::REF_IN_FIELD,
+                span,
+                format!("`{shown}` is a view, and `{p}` is not a `view` parameter"),
+                "a view given where it could be stored",
+                format!(
+                    "a view lives only where a reference does, and a value of `{p}` may be \
+                     stored in a container or a field; keep the view in a local, or declare \
+                     the parameter `view {p}` where it is only passed on (spec §6.7)"
+                ),
+            );
             return;
         }
         let mut map = HashMap::new();

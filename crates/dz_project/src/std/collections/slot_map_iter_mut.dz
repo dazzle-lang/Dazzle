@@ -1,6 +1,6 @@
 /// Steps through a slot map's values, handing out `(Key<T>, &mut T)`: `for k, &mut v in
 /// map` changes them in place.
-pub struct SlotMapIterMut<T> {
+pub view struct SlotMapIterMut<T> {
     m_map: ^mut SlotMap<T> = null
     m_index: usize = 0
 

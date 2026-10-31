@@ -33,9 +33,10 @@ params        = param { "," param } ;
 param         = [ "&" | "&mut" ] "self" | ident ":" type [ "in" tie_path ] [ "=" expr ] ;
 tie_path      = ( ident | "self" ) { "." ident | "[" "*" "]" | "@" ident } ;
 generics      = "<" gparam { "," gparam } ">" ;
-gparam        = ident [ ":" bound { "+" bound } ] ;
+gparam        = [ "view" ] ident [ ":" bound { "+" bound } ] ;
+                (* `view` is a keyword only here, before `struct` and before `type`, §6.7 *)
 
-struct_decl   = "struct" ident [ generics ] [ ":" path ] "{" { member } "}" ;  (* one base *)
+struct_decl   = [ "view" ] "struct" ident [ generics ] [ ":" path ] "{" { member } "}" ;  (* one base *)
 member        = field | fn_decl | ctor | tie_decl ;
 field         = { attribute } [ visibility ] [ "own" ] ident ":" type
                 [ "=" expr ] [ raw_string ] TERM ;  (* the tag, §13.1 *)
@@ -49,7 +50,7 @@ variant       = ident [ "{" field_list "}" ] TERM ;   (* a bare ident carries th
 enum_decl     = "enum" ident [ ":" type ] "{" { ident [ "=" expr ] TERM } "}" ;
 trait_decl    = "trait" ident [ generics ] [ ":" trait_list ] "{" { trait_item } "}" ;
 trait_list    = path [ "<" type_list ">" ] { "+" path [ "<" type_list ">" ] } ;
-trait_item    = "type" ident TERM | fn_decl_sig | fn_decl ;
+trait_item    = [ "view" ] "type" ident TERM | fn_decl_sig | fn_decl ;
 
 type          = access_type [ "?" ] ;
 access_type   = "^" type | "&" [ "mut" ] type
