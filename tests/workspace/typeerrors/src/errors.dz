@@ -1437,6 +1437,13 @@ impl Source for Ledger {
     }
 }
 
+union Walked {
+    Steps { it: SliceIter<i32> }
+    Done {}
+}
+
+static FOREVER: Chars? = none
+
 struct Ticks {
     pub left: i32 = 0
 }

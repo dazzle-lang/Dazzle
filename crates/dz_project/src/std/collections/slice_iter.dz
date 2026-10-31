@@ -3,6 +3,9 @@ pub view struct SliceIter<T> {
     m_slice: []T
     m_index: usize = 0
 
+    /// What the slice views, so an element outlives the iterator it came from (spec §6.7).
+    tie @items = m_slice
+
     SliceIter(slice: []T) {
         m_slice = slice
     }
@@ -15,7 +18,7 @@ impl<T> Iterate for SliceIter<T> {
         return m_index < m_slice.len
     }
 
-    fn get(&self) -> &T {
+    fn get(&self) -> &T in self@items {
         return &m_slice[m_index]
     }
 

@@ -3,6 +3,9 @@ pub view struct SliceIterMut<T> {
     m_slice: []mut T
     m_index: usize = 0
 
+    /// What the slice views, so an element outlives the iterator it came from (spec §6.7).
+    tie @items = m_slice
+
     SliceIterMut(slice: []mut T) {
         m_slice = slice
     }
@@ -15,7 +18,7 @@ impl<T> Iterate for SliceIterMut<T> {
         return m_index < m_slice.len
     }
 
-    fn get(&self) -> &mut T {
+    fn get(&self) -> &mut T in self@items {
         return &mut m_slice[m_index]
     }
 
