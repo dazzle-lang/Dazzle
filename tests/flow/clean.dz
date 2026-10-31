@@ -135,6 +135,18 @@ fn walked_then_grown(xs: &mut List<i32>) kills xs@items {
     let _ = it.valid()
 }
 
+// An item outlives the iterator it came from: it is in what the iterator views, through the
+// tie a view struct declares on its view field (spec §6.7). So is a piece of a split.
+fn first_of(xs: &List<i32>) -> &i32 {
+    let it = xs.iter()
+    return it.get()
+}
+
+fn first_piece(line: &String) -> str {
+    let parts = line.as_str().split(",")
+    return parts.get()
+}
+
 fn pick(a: &List<i32>, b: &List<i32>) -> &List<i32> in (a, b) {
     return b
 }

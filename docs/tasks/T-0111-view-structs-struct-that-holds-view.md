@@ -13,19 +13,23 @@ the small T-0113, by r90's order; the steps are listed in
 
 **First part done, r92 (2026-10-31):** `view struct`, `view` type parameters and `view type`,
 their placement held to `DZ0517`, std's iterators marked, and the projection tests given
-`view` (`docs/log/r81-ties.md`). **Left, in this order:**
+`view` (`docs/log/r81-ties.md`). **Second part, r93 (2026-10-31):** a view struct's tie on a
+view field names what the field views, so `let it = xs.iter(); return it.get()` is in `xs`
+(`through_view_field` in `dz_flow/src/ties/body.rs`); std's slice and text iterators
+declare such ties; a union payload and a static may not hold a view. **Left:**
 
-1. **A result that outlives its view struct.** `tie @items = m_slice` on a view struct,
-   and `-> ^T in self@items`, so `return it.get()` from a function that made `it` is in
-   what `it` views, not in the local. Today a method result on a local view struct is
-   tied to the local and to what it views (r88's `invoke`), which is safe and too strict.
-2. **`&T` fields in a view struct**, so the map iterators hold `&HashMap` rather than an
+1. **`&T` fields in a view struct**, so the map iterators hold `&HashMap` rather than an
    untied `^HashMap`. Needs the C++ for a reference member: emitted as a pointer, read
    through at each use, since a C++ reference member cannot be reset by a move.
-3. **`T::Item?` whose instance is a reference** emitted as that pointer
+2. **`T::Item?` whose instance is a reference** emitted as that pointer
    ([T-0085](T-0085-optional-reference-passes-checker.md), option 3).
-4. A union payload holding a view, and a static of a view struct's type, which `DZ0517`
-   does not reach yet.
+3. **An implementation's `in` is not held to its trait's.** `SliceIter::get` says `in
+   self@items` where `Iterate::get` elides to `self`, which is narrower and so safe; but
+   nothing stops an implementation naming something the trait does not, which a call
+   through the trait would then trust. The same goes for `kills`, which §6.7 says may name
+   no more than the trait's. A check beside the conformance check in `dz_check/src/check.rs`.
+4. **A view-struct parameter taken by value is not yet a view input** to the return check
+   (`caller_owned` in `dz_flow/src/ties/body.rs`), so returning what it views is refused.
 
 **What it is.** A struct holding a view (`Chars`'s `m_text: str`, `SliceIter`'s
 `m_slice: []T`) is tied as a whole today, but nothing stops one being stored. Once views are

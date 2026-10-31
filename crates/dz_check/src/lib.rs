@@ -2367,6 +2367,23 @@ impl<'a> Ctx<'a> {
         vec![Ty::Error; wanted]
     }
 
+    /// A view stored where it may outlive what it views (spec §6.7, D-0093): `place` is
+    /// what holds it, "a static" or "a union's payload".
+    fn check_view_storage(&mut self, ty: &Ty, span: Span, place: &str) {
+        if !self.table.placed_as_view(ty) {
+            return;
+        }
+        let shown = self.name_of(ty);
+        self.error_help(
+            codes::REF_IN_FIELD,
+            span,
+            format!("{place} cannot hold `{shown}`, which is a view"),
+            "a view lives only where a reference does",
+            "a view lives in a local, a parameter or a result; keep it there, or store what \
+             it views (spec §6.7)",
+        );
+    }
+
     /// A view given to a type parameter that is not `view` (spec §6.7, D-0093): a container's
     /// element, a `Box`'s contents, a plain generic's argument. `owner` declares `def`.
     pub(crate) fn check_view_arg(&mut self, owner: SymbolId, def: &ParamDef, arg: &Ty, span: Span) {
@@ -2921,7 +2938,7 @@ impl<'a> Ctx<'a> {
             }
             ItemKind::Union(u) => {
                 self.push_declared_params(sym);
-                let variants = u
+                let variants: Vec<VariantSig> = u
                     .variants
                     .iter()
                     .map(|v| VariantSig {
@@ -2931,6 +2948,16 @@ impl<'a> Ctx<'a> {
                         carries: if v.has_payload { None } else { self.carried_struct(v) },
                     })
                     .collect();
+                // A union is stored like any value, so its payload holds no view (§6.7).
+                for (v, sig) in u.variants.iter().zip(&variants) {
+                    for (f, field) in v.fields.iter().zip(&sig.fields) {
+                        self.check_view_storage(&field.ty, f.ty.span, "a union's payload");
+                    }
+                    if let Some(carried) = sig.carries {
+                        let ty = Ty::Named { sym: carried, args: Vec::new() };
+                        self.check_view_storage(&ty, v.name.span, "a union's payload");
+                    }
+                }
                 let methods = self.collect_struct(sym, &u.methods);
                 self.reserved_union_method(&methods);
                 self.table.sigs.insert(sym, ItemSig::Union { variants, methods });
@@ -2992,6 +3019,8 @@ impl<'a> Ctx<'a> {
             }
             ItemKind::Static(s) => {
                 let ty = self.lower_type(&s.ty);
+                // A static lives for the whole program, which no view's tie does (§6.7).
+                self.check_view_storage(&ty, s.ty.span, "a static");
                 self.table.sigs.insert(sym, ItemSig::Static(ty));
             }
             ItemKind::Impl(_)

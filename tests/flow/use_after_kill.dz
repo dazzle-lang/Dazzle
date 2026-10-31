@@ -2,7 +2,7 @@
 // kills that memory ends it, and so does returning a view of what the function owns; a
 // reference into memory nothing killed stays valid. A view kept in a tuple keeps its tie,
 // and so does one a call returns inside a struct or a tuple: an iterator, a split.
-// expect: DZ0413, DZ0413, DZ0413, DZ0413, DZ0413
+// expect: DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413
 
 fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items, counts[*] {
     let n = counts.get_or_insert(k, 0)
@@ -25,6 +25,14 @@ fn kept_in_a_tuple(a: &mut List<i32>) kills a@items {
     a.push(1)
     let _ = t.1
     let _ = t.0
+}
+
+// The item outlives the iterator, but not the list's array, which it is in.
+fn item_while_growing(xs: &mut List<i32>) -> i32 kills xs@items {
+    let it = xs.iter()
+    let first = it.get()
+    xs.push(1)
+    return first
 }
 
 fn walked_while_growing(xs: &mut List<i32>) kills xs@items {

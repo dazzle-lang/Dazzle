@@ -244,6 +244,9 @@ pub view struct Split {
     m_end: usize = 0
     m_done: bool = false
 
+    /// The text being split, so a piece outlives the iterator it came from (spec §6.7).
+    tie @text = m_text
+
     Split(text: str, separator: str) {
         m_text = text
         m_separator = separator
@@ -270,7 +273,7 @@ impl Iterate for Split {
         return !m_done
     }
 
-    fn get(&self) -> str {
+    fn get(&self) -> str in self@text {
         return sub(m_text, m_start, m_end)
     }
 
@@ -289,6 +292,9 @@ pub view struct Lines {
     m_text: str
     m_start: usize = 0
     m_end: usize = 0
+
+    /// The text, so a line outlives the iterator it came from (spec §6.7).
+    tie @text = m_text
 
     Lines(text: str) {
         m_text = text
@@ -311,7 +317,7 @@ impl Iterate for Lines {
         return m_start < m_text.len
     }
 
-    fn get(&self) -> str {
+    fn get(&self) -> str in self@text {
         let mut end = m_end
         if end > m_start && (m_text as []u8)[end - 1] == '\r' as u8 {
             end -= 1
@@ -331,6 +337,9 @@ pub view struct SplitWhitespace {
     m_text: str
     m_start: usize = 0
     m_end: usize = 0
+
+    /// The text, so a word outlives the iterator it came from (spec §6.7).
+    tie @text = m_text
 
     SplitWhitespace(text: str) {
         m_text = text
@@ -359,7 +368,7 @@ impl Iterate for SplitWhitespace {
         return m_start < m_text.len
     }
 
-    fn get(&self) -> str {
+    fn get(&self) -> str in self@text {
         return sub(m_text, m_start, m_end)
     }
 

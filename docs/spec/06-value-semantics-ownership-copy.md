@@ -440,8 +440,32 @@ let its = List<SliceIter<i32>>()    // error: a container's element is no place 
 ```
 
 A struct with a `view` parameter must be a view struct, and an implementation whose type's
-`view` parameter it reaches takes that parameter as `view` too. All of these are `DZ0517`,
-the same as a `&T` field. `view` is a keyword only before `struct`, `type` and a type
+`view` parameter it reaches takes that parameter as `view` too. Neither a union's payload nor
+a static holds a view. All of these are `DZ0517`, the same as a `&T` field.
+
+**A view struct's tie on a view field names what the field views**, not the field: a method
+returning through it gives a result that outlives the view struct, in whatever the struct
+was made from.
+
+```dz
+pub view struct SliceIter<T> {
+    m_slice: []T
+    m_index: usize = 0
+    tie @items = m_slice
+}
+impl<T> Iterate for SliceIter<T> {
+    fn get(&self) -> &T in self@items { return &m_slice[m_index] }
+    …
+}
+fn first(xs: &List<i32>) -> &i32 {
+    let it = xs.iter()
+    return it.get()                 // fine: in `xs`, not in the local `it`
+}
+```
+
+A struct's views are one tie (D-0093, point 3), so such a result is in everything the
+struct views. std's `SliceIter`, `SliceIterMut`, `Split`, `Lines` and `SplitWhitespace`
+declare theirs. `view` is a keyword only before `struct`, `type` and a type
 parameter, so `let view = camera.view_matrix()` still means what it did. References,
 slices and `str` become views by this rule with T-0109 and T-0110; until then they are
 values.

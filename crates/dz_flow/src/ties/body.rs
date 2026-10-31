@@ -682,6 +682,54 @@ impl Analysis<'_> {
         sym.map_or(ModuleId(0), |s| self.res.symbol(s).module)
     }
 
+    /// What a result `in` a path through a view struct's view field points into (spec
+    /// §6.7, D-0093): `tie @items = m_slice` on a `view struct` and `-> &T in self@items`
+    /// name what `m_slice` views, so the result is in what the receiver holds, and outlives
+    /// the local holding it. `None` where the path is not through such a field, or what the
+    /// input holds is not known; the place then stands.
+    fn through_view_field(
+        &self,
+        signature: &Signature,
+        scope: &dz_check::ties::Scope<'_>,
+        path: &TiePath,
+        recv: Option<&Value>,
+        args: &[Value],
+    ) -> Option<Vec<Origin>> {
+        let normalized = super::normalize(scope, path).ok()?;
+        let (root_ty, input) = match normalized.root {
+            dz_check::ties::Root::SelfValue => (signature.self_ty.clone()?, recv?),
+            dz_check::ties::Root::Param(i) => {
+                (signature.sig.params.get(i)?.ty.clone(), args.get(i)?)
+            }
+        };
+        let Ty::Named { sym, .. } = root_ty.peeled() else { return None };
+        if !self.table.is_view_struct(*sym) {
+            return None;
+        }
+        let Some(Step::Field(name)) = normalized.steps.first() else { return None };
+        let field_ty = super::field_of(self.table, &root_ty, name)?;
+        if !dz_check::ties::holds_view(self.table, &field_ty, true) {
+            return None;
+        }
+        // A temporary has no place, only the views it holds; a local's are in the state.
+        // The struct's views are kept whole, which is its one tie (D-0093, point 3).
+        if input.places.is_empty() {
+            return (!input.views.is_empty()).then(|| input.views.clone());
+        }
+        let mut held = Vec::new();
+        for origin in &input.places {
+            if !origin.target.steps.is_empty() {
+                return None;
+            }
+            let value = self.state.get(&origin.target.local)?;
+            if value.unknown || value.views.is_empty() {
+                return None;
+            }
+            held.extend(value.views.iter().cloned());
+        }
+        Some(held)
+    }
+
     fn invoke(
         &mut self,
         signature: &Signature,
@@ -749,6 +797,18 @@ impl Analysis<'_> {
                                 _ => vec![None],
                             };
                             for (place, path) in effects.result.places().iter().zip(paths) {
+                                // Through a view struct's view field: in what the input
+                                // holds, not in the local holding it (spec §6.7).
+                                if let Some(held) = path.and_then(|p| {
+                                    self.through_view_field(signature, &scope, p, recv, args)
+                                }) {
+                                    for origin in held {
+                                        if !value.views.contains(&origin) {
+                                            value.views.push(origin);
+                                        }
+                                    }
+                                    continue;
+                                }
                                 let broad = !matches!(place.steps.last(), Some(Step::Storage));
                                 let origin = Origin {
                                     target: logical_result(

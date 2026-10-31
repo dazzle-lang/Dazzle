@@ -1795,34 +1795,50 @@ error[DZ0517]: `SliceIter<i32>` is a view, and `Source`'s `Out` is not a `view t
      │
      = help: generic code may store a value of `Out` anywhere; only a trait that declares `view type Out` takes a view for it (spec §6.7)
 
-error[DZ0533]: `view` is said by the trait, not by `impl Iterate for Ticks`
-     ┌─ typeerrors/src/errors.dz:1445:15
+error[DZ0517]: a union's payload cannot hold `SliceIter<i32>`, which is a view
+     ┌─ typeerrors/src/errors.dz:1441:17
      │
-1445 │     view type Item = i32
+1441 │     Steps { it: SliceIter<i32> }
+     │                 ^^^^^^^^^^^^^^ a view lives only where a reference does
+     │
+     = help: a view lives in a local, a parameter or a result; keep it there, or store what it views (spec §6.7)
+
+error[DZ0517]: a static cannot hold `Chars?`, which is a view
+     ┌─ typeerrors/src/errors.dz:1445:17
+     │
+1445 │ static FOREVER: Chars? = none
+     │                 ^^^^^^ a view lives only where a reference does
+     │
+     = help: a view lives in a local, a parameter or a result; keep it there, or store what it views (spec §6.7)
+
+error[DZ0533]: `view` is said by the trait, not by `impl Iterate for Ticks`
+     ┌─ typeerrors/src/errors.dz:1452:15
+     │
+1452 │     view type Item = i32
      │               ^^^^ `view` written on a choice
      │
      = help: write `type Item` here; the trait declares `view type Item` when an implementation may choose a view for it (spec §6.7)
 
 error[DZ0501]: expected `const str`, found `str`
-     ┌─ typeerrors/src/errors.dz:1467:14
+     ┌─ typeerrors/src/errors.dz:1474:14
      │
-1467 │     p.text = s.as_str()
+1474 │     p.text = s.as_str()
      │              ^^^^^^^^^^ this text may point into memory that dies
      │
      = help: a `const str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
 
 error[DZ0501]: expected `const str`, found `str`
-     ┌─ typeerrors/src/errors.dz:1471:12
+     ┌─ typeerrors/src/errors.dz:1478:12
      │
-1471 │     return s.as_str()
+1478 │     return s.as_str()
      │            ^^^^^^^^^^ this text may point into memory that dies
      │
      = help: a `const str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
 
 error[DZ0569]: `const i32` is not a type
-     ┌─ typeerrors/src/errors.dz:1474:16
+     ┌─ typeerrors/src/errors.dz:1481:16
      │
-1474 │ fn not_text(x: const i32) {}
+1481 │ fn not_text(x: const i32) {}
      │                ^^^^^^^^^ only `const str` is
      │
      = help: `const` before a type says its memory is static, and only text has that so far: `const str`, a literal or a constant's (spec §5.3)

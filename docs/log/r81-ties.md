@@ -6,6 +6,30 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r93: an item outlives its iterator (2026-10-31)
+
+T-0111's second part. r88 tied a method's result on a local view struct to the local and to
+what it views, so `let it = xs.iter(); return it.get()` was a view of a local. A view
+struct's views are one tie (D-0093, point 3), so a tie it declares on a view field can only
+mean what the field views.
+
+- **`through_view_field`** (`dz_flow/src/ties/body.rs`), asked by `invoke` for each `in`
+  path of a call's result: a path whose root is a view struct and whose first step is a field
+  holding a view gives the result what the input holds, in place of the bound place. A local
+  input's views are its state's; a temporary's, the views it carries. Where they are not
+  known, or the input is a parameter or a field, the bound place stands, as before.
+- **std.** `SliceIter` and `SliceIterMut` declare `tie @items = m_slice` and `get` is `in
+  self@items`; `Split`, `Lines` and `SplitWhitespace` declare `tie @text = m_text`, and their
+  `get` is `in self@text`. The trait's `Iterate::get` still elides to `self`; an
+  implementation's narrower `in` is safe, and nothing yet checks one against the trait's
+  (T-0111's list).
+- **Storage.** `check_view_storage` refuses a view in a union's payload, a carried struct
+  included, and in a static.
+
+Tests: `tests/flow/clean.dz` (an item returned past its local iterator, a piece of a split),
+`use_after_kill.dz` (the item still dies when the list grows), `typeerrors/` (the union
+payload and the static).
+
 ## r92: view structs and `view` parameters (2026-10-31)
 
 T-0111's first part, D-0093's points 3 and 8 as r90 refined them. Its placement rule only;
