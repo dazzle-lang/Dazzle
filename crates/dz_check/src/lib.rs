@@ -420,7 +420,8 @@ impl TypeTable {
     /// T-0110; until then they are values.
     pub fn placed_as_view(&self, t: &Ty) -> bool {
         match t {
-            Ty::Str => true,
+            // A slice is borrowed too (T-0110); a static table, `const &[]T`, is not.
+            Ty::Str | Ty::Slice { .. } => true,
             Ty::Named { sym, .. } => self.is_view_struct(*sym),
             Ty::Param(p) => p.view,
             Ty::Assoc(p) => {
@@ -1643,13 +1644,22 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
         }
         // Text that may be absent is the text pointer (spec §5.6).
         Ty::Optional(i) if matches!(**i, Ty::Str) => "^str".to_owned(),
+        // So is a slice that may be absent (§5.3, T-0110).
+        Ty::Optional(i) if matches!(**i, Ty::Slice { .. }) => match &**i {
+            Ty::Slice { mutable, elem } => {
+                format!("^{}[]{}", if *mutable { "mut " } else { "" }, name_of(elem))
+            }
+            _ => unreachable!(),
+        },
         Ty::Optional(i) => format!("{}?", name_of(i)),
         // Not writable in source: the type of a `!->` call before its `or` (spec §9).
         Ty::Fallible(i) => format!("!-> {}", name_of(i)),
         Ty::Array { len, elem } => format!("[{len}]{}", name_of(elem)),
+        // A slice is borrowed, as text is (spec §5.3, D-0093).
         Ty::Slice { mutable, elem } => {
-            format!("[]{}{}", if *mutable { "mut " } else { "" }, name_of(elem))
+            format!("&{}[]{}", if *mutable { "mut " } else { "" }, name_of(elem))
         }
+        Ty::ConstSlice(elem) => format!("const &[]{}", name_of(elem)),
         Ty::Range(e) => format!("{}..{}", name_of(e), name_of(e)),
         Ty::Tuple(elems) => {
             format!("({})", elems.iter().map(&name_of).collect::<Vec<_>>().join(", "))
@@ -2155,6 +2165,41 @@ impl<'a> Ctx<'a> {
         self.diags.push(d);
     }
 
+    /// A slice spelled as a value, `DZ0577`, with the edit that respells it as `wanted`:
+    /// the whole type is rewritten, so the edit is offered only where the source is
+    /// written in this file, not a macro's expansion (spec §5.3, T-0110).
+    fn slice_spelling(&mut self, at: Span, mutable: bool, wanted: &str) {
+        let wrote = self
+            .map
+            .try_get(self.file)
+            .and_then(|f| f.text().get(at.start as usize..at.end as usize).map(str::to_owned));
+        let shown = wrote.clone().unwrap_or_else(|| wanted.trim_start_matches('&').to_owned());
+        let d = Diagnostic::error(codes::SLICE_NOT_BORROWED, format!("`{shown}` is not a type"))
+            .at(self.file, at, format!("write `{wanted}`"))
+            .with_help(if mutable {
+                "a slice is borrowed from what owns its elements, so it is written as a \
+                 reference, and the reference says it may write them (spec §5.3)"
+            } else {
+                "a slice is borrowed from what owns its elements, so it is written as a \
+                 reference (spec §5.3)"
+            });
+        // Only where the type is written out, `[]` and all, in this file.
+        let d = match wrote {
+            Some(w)
+                if w.trim_start().starts_with("[]")
+                    || w.starts_with("&[]")
+                    || w.starts_with("const") =>
+            {
+                d.with_fix(
+                    format!("write `{wanted}`"),
+                    vec![Edit { file: self.file, span: at, text: wanted.to_owned() }],
+                )
+            }
+            _ => d,
+        };
+        self.diags.push(d);
+    }
+
     /// The edit replacing `at` with `wanted`, when `at` is written as `wrote` in the file:
     /// a macro's tokens are at its invocation (§12), where the edit would land on the
     /// invocation instead.
@@ -2213,8 +2258,12 @@ impl<'a> Ctx<'a> {
             }
             TypeKind::Optional(i) if matches!(grouped(i).kind, TypeKind::Ref { .. }) => {
                 let inner = self.lower_type_inner(grouped(i));
-                let Ty::Ref { mutable, inner } = inner else { return Ty::Error };
-                let pointer = Ty::Ptr { mutable, inner };
+                // `(&[]T)?` is the slice pointer, `^[]T` (T-0110).
+                let pointer = match inner {
+                    Ty::Ref { mutable, inner } => Ty::Ptr { mutable, inner },
+                    slice @ Ty::Slice { .. } => Ty::Optional(Rc::new(slice)),
+                    _ => return Ty::Error,
+                };
                 let shown = self.name_of(&pointer);
                 let d = Diagnostic::error(
                     codes::OPTIONAL_REFERENCE,
@@ -2239,6 +2288,51 @@ impl<'a> Ctx<'a> {
                 };
                 self.diags.push(d);
                 pointer
+            }
+            // A slice is borrowed, as text is: `&[]T`, `&mut []T`, never a bare `[]T`
+            // (spec §5.3, D-0093, T-0110).
+            TypeKind::Slice { mutable, elem } => {
+                let elem = self.lower_type_inner(elem);
+                let shown =
+                    self.name_of(&Ty::Slice { mutable: *mutable, elem: Rc::new(elem.clone()) });
+                self.slice_spelling(t.span, *mutable, &shown);
+                Ty::Slice { mutable: *mutable, elem: Rc::new(elem) }
+            }
+            TypeKind::Ref { mutable, inner } if matches!(inner.kind, TypeKind::Slice { .. }) => {
+                let TypeKind::Slice { mutable: inner_mut, elem } = &inner.kind else {
+                    return Ty::Error;
+                };
+                let elem = Rc::new(self.lower_type_inner(elem));
+                if *inner_mut {
+                    // `&[]mut T`: the writability is the reference's, `&mut []T`.
+                    let shown = self.name_of(&Ty::Slice { mutable: true, elem: elem.clone() });
+                    self.slice_spelling(t.span, true, &shown);
+                }
+                Ty::Slice { mutable: *mutable || *inner_mut, elem }
+            }
+            // A slice that may be absent is the slice pointer, which may be null (§5.6).
+            TypeKind::Ptr { mutable, inner } if matches!(inner.kind, TypeKind::Slice { .. }) => {
+                let TypeKind::Slice { elem, .. } = &inner.kind else { return Ty::Error };
+                let elem = Rc::new(self.lower_type_inner(elem));
+                Ty::Optional(Rc::new(Ty::Slice { mutable: *mutable, elem }))
+            }
+            // `const &[]T`, a table in static storage.
+            TypeKind::Const(inner)
+                if matches!(&inner.kind, TypeKind::Ref { mutable: false, inner }
+                    if matches!(inner.kind, TypeKind::Slice { mutable: false, .. })) =>
+            {
+                let TypeKind::Ref { inner, .. } = &inner.kind else { return Ty::Error };
+                let TypeKind::Slice { elem, .. } = &inner.kind else { return Ty::Error };
+                Ty::ConstSlice(Rc::new(self.lower_type_inner(elem)))
+            }
+            TypeKind::Const(inner)
+                if matches!(inner.kind, TypeKind::Slice { mutable: false, .. }) =>
+            {
+                let TypeKind::Slice { elem, .. } = &inner.kind else { return Ty::Error };
+                let elem = Rc::new(self.lower_type_inner(elem));
+                let shown = self.name_of(&Ty::ConstSlice(elem.clone()));
+                self.slice_spelling(t.span, false, &shown);
+                Ty::ConstSlice(elem)
             }
             TypeKind::Path(p) => self.lower_path_type(p, t.span),
             TypeKind::Ptr { mutable, inner } => {
@@ -2269,9 +2363,6 @@ impl<'a> Ctx<'a> {
                         Ty::Error
                     }
                 }
-            }
-            TypeKind::Slice { mutable, elem } => {
-                Ty::Slice { mutable: *mutable, elem: Rc::new(self.lower_type_inner(elem)) }
             }
             TypeKind::Tuple(elems) => {
                 Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect())

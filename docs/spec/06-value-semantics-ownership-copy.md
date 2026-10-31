@@ -456,7 +456,7 @@ was made from.
 
 ```dz
 pub view struct SliceIter<T> {
-    m_slice: []T
+    m_slice: &[]T
     m_index: usize = 0
     tie @items = m_slice
 }

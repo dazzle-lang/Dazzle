@@ -153,7 +153,7 @@ fn write_float(f: &mut Formatter, value: f64) {
 
 /// `value` written by C's `snprintf` into `out`, with `%.*f` when `precision` is not
 /// negative and `%g` when it is; how many bytes it wrote, cut to fit.
-extern fn format_float(value: f64, precision: i32, out: []mut u8) -> usize
+extern fn format_float(value: f64, precision: i32, out: &mut []u8) -> usize
 
 /// The text of a C string, up to its zero, as a view of the same bytes.
 extern fn cstr_text(s: cstr) -> &str

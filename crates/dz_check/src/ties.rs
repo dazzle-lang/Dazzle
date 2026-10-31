@@ -445,7 +445,12 @@ fn changeable(scope: &Scope<'_>, tie: &Tie, path: &TiePath) -> Result<(), Error>
         }
         Root::Param(i) => {
             let p = &scope.sig.params[i];
-            if matches!(p.ty, Ty::Ref { mutable: true, .. } | Ty::Ptr { mutable: true, .. }) {
+            if matches!(
+                p.ty,
+                Ty::Ref { mutable: true, .. }
+                    | Ty::Ptr { mutable: true, .. }
+                    | Ty::Slice { mutable: true, .. }
+            ) {
                 return Ok(());
             }
             let n = crate::type_name(scope.res, &p.ty);

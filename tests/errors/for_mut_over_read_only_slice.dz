@@ -2,7 +2,7 @@
 //
 // A `[]i32` is a read-only view whatever its binding says (spec §5.3).
 
-fn clear(xs: []i32) {
+fn clear(xs: &[]i32) {
     for &mut x in xs {
         x = 0
     }

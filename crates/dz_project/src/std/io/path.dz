@@ -16,7 +16,7 @@ pub struct Path {
     m_text: String
 
     Path(text: &str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
-        let bytes = text as []u8
+        let bytes = text as &[]u8
         let mut end = bytes.len
         while end > 1 && is_separator(bytes[end - 1]) && !(end == 3 && bytes[1] == ':' as u8) {
             end -= 1
@@ -47,7 +47,7 @@ pub struct Path {
 
     /// Starts at a root: `/` or a drive, `C:/`.
     pub fn is_absolute(&self) -> bool {
-        let bytes = self.as_str() as []u8
+        let bytes = self.as_str() as &[]u8
         return (bytes.len > 0 && bytes[0] == '/' as u8) || (bytes.len > 1 && bytes[1] == ':' as u8)
     }
 
@@ -76,7 +76,7 @@ pub struct Path {
         if let at = last_separator(text) {
             return sub(text, at + 1, text.len)
         }
-        if text.len == 2 && (text as []u8)[1] == ':' as u8 {
+        if text.len == 2 && (text as &[]u8)[1] == ':' as u8 {
             return ""
         }
         return text
@@ -109,7 +109,7 @@ pub struct Path {
             if at == 0 {
                 return Path("/")
             }
-            if at == 2 && (text as []u8)[1] == ':' as u8 {
+            if at == 2 && (text as &[]u8)[1] == ':' as u8 {
                 return Path(sub(text, 0, 3))
             }
             return Path(sub(text, 0, at))
@@ -180,7 +180,7 @@ impl Eq for Path {
 /// By the text's bytes, so a sorted list of paths puts a directory's entries together.
 impl Ord for Path {
     fn cmp(&self, rhs: &Path) -> Ordering {
-        return compare_bytes(self.as_str() as []u8, rhs.as_str() as []u8)
+        return compare_bytes(self.as_str() as &[]u8, rhs.as_str() as &[]u8)
     }
 }
 
@@ -203,17 +203,17 @@ fn is_separator(b: u8) -> bool {
 }
 
 fn ends_with_separator(s: &str) -> bool {
-    return s.len > 0 && (s as []u8)[s.len - 1] == '/' as u8
+    return s.len > 0 && (s as &[]u8)[s.len - 1] == '/' as u8
 }
 
 /// Bytes `from..to` of `s`. Only ever cut at an ASCII `/` or `.`, which never falls inside a
 /// UTF-8 sequence, so the result is still text.
 fn sub(s: &str, from: usize, to: usize) -> &str {
-    return unsafe { (s as []u8)[from..to] as &str }
+    return unsafe { (s as &[]u8)[from..to] as &str }
 }
 
 fn last_separator(s: &str) -> usize? {
-    let bytes = s as []u8
+    let bytes = s as &[]u8
     let mut i = bytes.len
     while i > 0 {
         i -= 1
@@ -226,7 +226,7 @@ fn last_separator(s: &str) -> usize? {
 
 /// The last `.` of a file name that has something before it.
 fn last_dot(name: &str) -> usize? {
-    let bytes = name as []u8
+    let bytes = name as &[]u8
     let mut i = bytes.len
     while i > 1 {
         i -= 1

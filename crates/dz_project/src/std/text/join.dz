@@ -5,7 +5,7 @@ pub trait Join {
     fn join(&self, separator: &str) -> String
 }
 
-impl Join for []&str {
+impl Join for &[]&str {
     fn join(&self, separator: &str) -> String {
         let mut out = String()
         for i in 0..self.len {

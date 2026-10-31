@@ -13,10 +13,10 @@ extern fn file_open(path: &str, mode: u32) -> usize
 extern fn file_close(handle: usize)
 
 /// How many bytes were read; fewer than asked at the end of the file or on a failure.
-extern fn file_read(handle: usize, buf: []mut u8) -> usize
+extern fn file_read(handle: usize, buf: &mut []u8) -> usize
 
 /// How many bytes were written; fewer than asked only on a failure.
-extern fn file_write(handle: usize, data: []u8) -> usize
+extern fn file_write(handle: usize, data: &[]u8) -> usize
 
 extern fn file_seek(handle: usize, position: u64) -> bool
 

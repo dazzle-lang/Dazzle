@@ -73,7 +73,7 @@ pub fn keep<T>(x: T) -> T {
     return move(x)
 }
 
-pub fn sum(xs: []i32) -> i32 {
+pub fn sum(xs: &[]i32) -> i32 {
     let mut t = 0
     for x in xs {
         t += x

@@ -20,7 +20,7 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     return a + (b - a) * t
 }
 
-pub fn find(items: []Entity, id: EntityId) -> ^Entity { ... }
+pub fn find(items: &[]Entity, id: EntityId) -> ^Entity { ... }
 
 fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
 ```
@@ -111,7 +111,7 @@ sum(..numbers)      // spread: an existing slice or array, passed as it is
   the call. `..^Describe` works too, though a call through a `^T` is `unsafe` (§5.2).
 - Methods, constructors and generic functions may be variadic; `fn biggest<T: Ord>(first:
   T, rest: ..T)` infers `T` from the arguments.
-- As a value, a variadic function is a plain `fn([]T) -> R` that takes its slice.
+- As a value, a variadic function is a plain `fn(&[]T) -> R` that takes its slice.
 
 C variadic functions (`printf`) are still not imported (§15.2). `[DECIDED — §18.56]`
 

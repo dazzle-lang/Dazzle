@@ -4,17 +4,17 @@ expression: r.hir
 ---
 body impl#0 method extend -> void
   param _0 self: List<T>
-  param _1 xs: []T
+  param _1 xs: &[]T
   block
     call-method Extend::insert_slice: void
       local _0 self: List<T>
       field #1: usize
         local _0 self: List<T>
-      local _1 xs: []T
+      local _1 xs: &[]T
 body impl#0 method insert_slice -> void
   param _0 self: List<T>
   param _1 i: usize
-  param _2 xs: []T
+  param _2 xs: &[]T
   block
     if: void
       binary >: bool
@@ -62,24 +62,24 @@ body impl#0 method insert_slice -> void
     if: void
       binary ==: bool
         len: usize
-          local _2 xs: []T
+          local _2 xs: &[]T
         int 0: usize
       block
         return: !
     call-method List::reserve: void
       local _0 self: List<T>
       len: usize
-        local _2 xs: []T
+        local _2 xs: &[]T
     call-method List::shift_up: void
       local _0 self: List<T>
       local _1 i: usize
       len: usize
-        local _2 xs: []T
+        local _2 xs: &[]T
     for _6 k
       range: usize..usize
         int 0: i32
         len: usize
-          local _2 xs: []T
+          local _2 xs: &[]T
       block
         block-value: void
           block
@@ -91,13 +91,13 @@ body impl#0 method insert_slice -> void
                   local _1 i: usize
                   local _6 k: usize
               index: T
-                local _2 xs: []T
+                local _2 xs: &[]T
                 local _6 k: usize
     assign +=
       field #1: usize
         local _0 self: List<T>
       len: usize
-        local _2 xs: []T
+        local _2 xs: &[]T
 body impl#0 method fill -> void
   param _0 self: List<T>
   param _1 v: T
@@ -1981,25 +1981,25 @@ body method List::is_empty -> bool
         field #1: usize
           local _0 self: List<T>
         int 0: usize
-body method List::as_slice -> []T
+body method List::as_slice -> &[]T
   param _0 self: List<T>
   block
     return: !
-      block-value: []mut T
+      block-value: &mut []T
         block
-          slice: []mut T
+          slice: &mut []T
             field #0: own ^mut T
               local _0 self: List<T>
             int 0: usize
             field #1: usize
               local _0 self: List<T>
-body method List::as_mut_slice -> []mut T
+body method List::as_mut_slice -> &mut []T
   param _0 self: List<T>
   block
     return: !
-      block-value: []mut T
+      block-value: &mut []T
         block
-          slice: []mut T
+          slice: &mut []T
             field #0: own ^mut T
               local _0 self: List<T>
             int 0: usize
@@ -3457,14 +3457,14 @@ body impl#19 method iter -> SliceIter<T>
   block
     return: !
       call-ctor SliceIter#0: SliceIter<T>
-        call-method List::as_slice: []T
+        call-method List::as_slice: &[]T
           local _0 self: List<T>
 body impl#20 method iter_mut -> SliceIterMut<T>
   param _0 self: List<T>
   block
     return: !
       call-ctor SliceIterMut#0: SliceIterMut<T>
-        call-method List::as_mut_slice: []mut T
+        call-method List::as_mut_slice: &mut []T
           local _0 self: List<T>
 body impl#21 method index_mut -> &mut T
   param _0 self: List<T>
@@ -3562,12 +3562,12 @@ body field-default SliceIter.1 -> void
     int 0: usize
 body ctor SliceIter#0 -> void
   param _0 self: SliceIter<T>
-  param _1 slice: []T
+  param _1 slice: &[]T
   block
     assign =
-      field #0: []T
+      field #0: &[]T
         local _0 self: SliceIter<T>
-      local _1 slice: []T
+      local _1 slice: &[]T
 body impl#23 method valid -> bool
   param _0 self: SliceIter<T>
   block
@@ -3576,7 +3576,7 @@ body impl#23 method valid -> bool
         field #1: usize
           local _0 self: SliceIter<T>
         len: usize
-          field #0: []T
+          field #0: &[]T
             local _0 self: SliceIter<T>
 body impl#23 method get -> &T
   param _0 self: SliceIter<T>
@@ -3584,7 +3584,7 @@ body impl#23 method get -> &T
     return: !
       ref: &T
         index: T
-          field #0: []T
+          field #0: &[]T
             local _0 self: SliceIter<T>
           field #1: usize
             local _0 self: SliceIter<T>
@@ -3930,18 +3930,18 @@ body method SlotMap::reserve -> void
         local _0 self: SlotMap<T>
       local _1 additional: usize
       local _2 loc: SourceLocation
-body method SlotMap::values -> []T
+body method SlotMap::values -> &[]T
   param _0 self: SlotMap<T>
   block
     return: !
-      call-method List::as_slice: []T
+      call-method List::as_slice: &[]T
         field #0: List<T>
           local _0 self: SlotMap<T>
-body method SlotMap::values_mut -> []mut T
+body method SlotMap::values_mut -> &mut []T
   param _0 self: SlotMap<T>
   block
     return: !
-      call-method List::as_mut_slice: []mut T
+      call-method List::as_mut_slice: &mut []T
         field #0: List<T>
           local _0 self: SlotMap<T>
 body method SlotMap::key_at -> Key<T>
@@ -4079,7 +4079,7 @@ body impl#26 method get -> (Key<T>, &T)
             local _0 self: SlotMapIter<T>
         ref: &T
           index: T
-            call-method SlotMap::values: []T
+            call-method SlotMap::values: &[]T
               field #0: &SlotMap<T>
                 local _0 self: SlotMapIter<T>
             field #1: usize
@@ -4124,7 +4124,7 @@ body impl#27 method get -> (Key<T>, &mut T)
             local _0 self: SlotMapIterMut<T>
         ref mut: &mut T
           index: T
-            call-method SlotMap::values_mut: []mut T
+            call-method SlotMap::values_mut: &mut []T
               field #0: &mut SlotMap<T>
                 local _0 self: SlotMapIterMut<T>
             field #1: usize
@@ -4153,24 +4153,24 @@ body fn ord_before -> bool
           local _1 b: &T
         enum-variant Ordering#0: Ordering
 body fn compare_bytes -> Ordering
-  param _0 a: []u8
-  param _1 b: []u8
+  param _0 a: &[]u8
+  param _1 b: &[]u8
   block
     let _2 n: usize
       if: usize
         binary <: bool
           len: usize
-            local _0 a: []u8
+            local _0 a: &[]u8
           len: usize
-            local _1 b: []u8
+            local _1 b: &[]u8
         block
           len: usize
-            local _0 a: []u8
+            local _0 a: &[]u8
         block
           block-value: usize
             block
               len: usize
-                local _1 b: []u8
+                local _1 b: &[]u8
     let _3 i: usize
       int 0: usize
     while
@@ -4181,20 +4181,20 @@ body fn compare_bytes -> Ordering
         if: void
           binary !=: bool
             index: u8
-              local _0 a: []u8
+              local _0 a: &[]u8
               local _3 i: usize
             index: u8
-              local _1 b: []u8
+              local _1 b: &[]u8
               local _3 i: usize
           block
             return: !
               if: Ordering
                 binary <: bool
                   index: u8
-                    local _0 a: []u8
+                    local _0 a: &[]u8
                     local _3 i: usize
                   index: u8
-                    local _1 b: []u8
+                    local _1 b: &[]u8
                     local _3 i: usize
                 block
                   enum-variant Ordering#0: Ordering
@@ -4208,9 +4208,9 @@ body fn compare_bytes -> Ordering
     if: void
       binary ==: bool
         len: usize
-          local _0 a: []u8
+          local _0 a: &[]u8
         len: usize
-          local _1 b: []u8
+          local _1 b: &[]u8
       block
         return: !
           enum-variant Ordering#1: Ordering
@@ -4218,9 +4218,9 @@ body fn compare_bytes -> Ordering
       if: Ordering
         binary <: bool
           len: usize
-            local _0 a: []u8
+            local _0 a: &[]u8
           len: usize
-            local _1 b: []u8
+            local _1 b: &[]u8
         block
           enum-variant Ordering#0: Ordering
         block
@@ -4232,12 +4232,12 @@ body field-default SliceIterMut.1 -> void
     int 0: usize
 body ctor SliceIterMut#0 -> void
   param _0 self: SliceIterMut<T>
-  param _1 slice: []mut T
+  param _1 slice: &mut []T
   block
     assign =
-      field #0: []mut T
+      field #0: &mut []T
         local _0 self: SliceIterMut<T>
-      local _1 slice: []mut T
+      local _1 slice: &mut []T
 body impl#29 method valid -> bool
   param _0 self: SliceIterMut<T>
   block
@@ -4246,7 +4246,7 @@ body impl#29 method valid -> bool
         field #1: usize
           local _0 self: SliceIterMut<T>
         len: usize
-          field #0: []mut T
+          field #0: &mut []T
             local _0 self: SliceIterMut<T>
 body impl#29 method get -> &mut T
   param _0 self: SliceIterMut<T>
@@ -4254,7 +4254,7 @@ body impl#29 method get -> &mut T
     return: !
       ref mut: &mut T
         index: T
-          field #0: []mut T
+          field #0: &mut []T
             local _0 self: SliceIterMut<T>
           field #1: usize
             local _0 self: SliceIterMut<T>
@@ -4702,7 +4702,7 @@ body fn write_digits -> void
       block-value: &str
         block
           cast: &str
-            slice: []mut u8
+            slice: &mut []u8
               local _4 buf: [21]u8
               local _5 at: usize
               int 21: usize
@@ -4729,7 +4729,7 @@ body fn write_float -> void
       call format_float: usize
         local _1 value: f64
         local _4 precision: i32
-        slice: []mut u8
+        slice: &mut []u8
           local _2 buf: [64]u8
           int 0: usize
           int 64: usize
@@ -4738,14 +4738,14 @@ body fn write_float -> void
       block-value: &str
         block
           cast: &str
-            slice: []mut u8
+            slice: &mut []u8
               local _2 buf: [64]u8
               int 0: usize
               local _5 n: usize
 body fn format_float -> usize
   param _0 value: f64
   param _1 precision: i32
-  param _2 out: []mut u8
+  param _2 out: &mut []u8
   block
     (empty)
 body fn cstr_text -> &str
@@ -4853,15 +4853,15 @@ body method Formatter::write_str -> void
               block-value: &str
                 block
                   cast: &str
-                    slice: []u8
+                    slice: &[]u8
                       local _2 held: [64]u8
                       int 0: usize
                       local _3 n: usize
-        let _4 bytes: []u8
-          cast: []u8
+        let _4 bytes: &[]u8
+          cast: &[]u8
             local _1 s: &str
         for _5 b
-          local _4 bytes: []u8
+          local _4 bytes: &[]u8
           block
             if: void
               binary !=: bool
@@ -4922,14 +4922,14 @@ body method Formatter::write_str -> void
             local _0 self: Formatter
           local _1 s: &str
         return: !
-    let _6 bytes: []u8
-      cast: []u8
+    let _6 bytes: &[]u8
+      cast: &[]u8
         local _1 s: &str
     for _7 i
       range: usize..usize
         int 0: i32
         len: usize
-          local _6 bytes: []u8
+          local _6 bytes: &[]u8
       block
         assign =
           index: u8
@@ -4940,13 +4940,13 @@ body method Formatter::write_str -> void
                 local _0 self: Formatter
               local _7 i: usize
           index: u8
-            local _6 bytes: []u8
+            local _6 bytes: &[]u8
             local _7 i: usize
     assign +=
       field #3: usize
         local _0 self: Formatter
       len: usize
-        local _6 bytes: []u8
+        local _6 bytes: &[]u8
 body method Formatter::write_char -> void
   param _0 self: Formatter
   param _1 c: char
@@ -4967,7 +4967,7 @@ body method Formatter::write_char -> void
       block-value: &str
         block
           cast: &str
-            slice: []mut u8
+            slice: &mut []u8
               local _2 encoded: [4]u8
               int 0: usize
               local _3 n: usize
@@ -5117,7 +5117,7 @@ body method Formatter::write_address -> void
       block-value: &str
         block
           cast: &str
-            slice: []mut u8
+            slice: &mut []u8
               local _2 buf: [18]u8
               local _3 at: usize
               int 18: usize
@@ -5144,14 +5144,14 @@ body method Formatter::write_number -> void
             local _1 text: &str
           int 64: usize
       block
-        let _2 bytes: []u8
-          cast: []u8
+        let _2 bytes: &[]u8
+          cast: &[]u8
             local _1 text: &str
         for _3 i
           range: usize..usize
             int 0: i32
             len: usize
-              local _2 bytes: []u8
+              local _2 bytes: &[]u8
           block
             assign =
               index: u8
@@ -5159,13 +5159,13 @@ body method Formatter::write_number -> void
                   local _0 self: Formatter
                 local _3 i: usize
               index: u8
-                local _2 bytes: []u8
+                local _2 bytes: &[]u8
                 local _3 i: usize
         assign =
           field #13: usize
             local _0 self: Formatter
           len: usize
-            local _2 bytes: []u8
+            local _2 bytes: &[]u8
         return: !
     call-method Formatter::write_str: void
       local _0 self: Formatter
@@ -5212,7 +5212,7 @@ body method Formatter::end_padded -> void
       block-value: &str
         block
           cast: &str
-            slice: []u8
+            slice: &[]u8
               local _2 held: [64]u8
               int 0: usize
               local _3 n: usize
@@ -5330,7 +5330,7 @@ body method Formatter::flush -> void
           block-value: &str
             block
               cast: &str
-                slice: []mut u8
+                slice: &mut []u8
                   field #2: [512]u8
                     local _0 self: Formatter
                   int 0: usize
@@ -5352,7 +5352,7 @@ body method Formatter::message_text -> &str
       block-value: &str
         block
           cast: &str
-            slice: []u8
+            slice: &[]u8
               field #2: [512]u8
                 local _0 self: Formatter
               int 0: usize
@@ -5362,12 +5362,12 @@ body method Formatter::keep -> void
   param _0 self: Formatter
   param _1 s: &str
   block
-    let _2 bytes: []u8
-      cast: []u8
+    let _2 bytes: &[]u8
+      cast: &[]u8
         local _1 s: &str
     let _3 n: usize
       len: usize
-        local _2 bytes: []u8
+        local _2 bytes: &[]u8
     if: void
       binary >: bool
         binary +: usize
@@ -5391,7 +5391,7 @@ body method Formatter::keep -> void
               binary &: u32
                 cast: u32
                   index: u8
-                    local _2 bytes: []u8
+                    local _2 bytes: &[]u8
                     local _3 n: usize
                 int 192: u32
               int 128: u32
@@ -5413,7 +5413,7 @@ body method Formatter::keep -> void
                 local _0 self: Formatter
               local _4 i: usize
           index: u8
-            local _2 bytes: []u8
+            local _2 bytes: &[]u8
             local _4 i: usize
     assign +=
       field #3: usize
@@ -5468,8 +5468,8 @@ body method Formatter::set_spec -> void
       field #9: bool
         local _0 self: Formatter
       bool false: bool
-    let _2 bytes: []u8
-      cast: []u8
+    let _2 bytes: &[]u8
+      cast: &[]u8
         local _1 spec: &str
     let _3 at: usize
       int 0: usize
@@ -5477,11 +5477,11 @@ body method Formatter::set_spec -> void
       binary &&: bool
         binary >: bool
           len: usize
-            local _2 bytes: []u8
+            local _2 bytes: &[]u8
           int 1: usize
         binary ==: bool
           index: u8
-            local _2 bytes: []u8
+            local _2 bytes: &[]u8
             int 0: usize
           cast: u8
             char '0': char
@@ -5501,16 +5501,16 @@ body method Formatter::set_spec -> void
           binary <: bool
             local _3 at: usize
             len: usize
-              local _2 bytes: []u8
+              local _2 bytes: &[]u8
           binary >=: bool
             index: u8
-              local _2 bytes: []u8
+              local _2 bytes: &[]u8
               local _3 at: usize
             cast: u8
               char '0': char
         binary <=: bool
           index: u8
-            local _2 bytes: []u8
+            local _2 bytes: &[]u8
             local _3 at: usize
           cast: u8
             char '9': char
@@ -5752,19 +5752,19 @@ body method File::open !-> File
           local _2 handle: usize
 body method File::read !-> usize
   param _0 self: File
-  param _1 buf: []mut u8
+  param _1 buf: &mut []u8
   block
     let _2 n: usize
       call file_read: usize
         field #0: usize
           local _0 self: File
-        local _1 buf: []mut u8
+        local _1 buf: &mut []u8
     if: void
       binary &&: bool
         binary <: bool
           local _2 n: usize
           len: usize
-            local _1 buf: []mut u8
+            local _1 buf: &mut []u8
         binary !=: bool
           call io_last_error: u32
           int 0: u32
@@ -5777,16 +5777,16 @@ body method File::read !-> usize
       local _2 n: usize
 body method File::write !-> void
   param _0 self: File
-  param _1 data: []u8
+  param _1 data: &[]u8
   block
     if: void
       binary !=: bool
         call file_write: usize
           field #0: usize
             local _0 self: File
-          local _1 data: []u8
+          local _1 data: &[]u8
         len: usize
-          local _1 data: []u8
+          local _1 data: &[]u8
       block
         return: !
           builtin error: !-> !
@@ -5890,8 +5890,8 @@ body method File::read_bytes !-> List<u8>
           or: usize
             call-method File::read: !-> usize
               local _1 f: File
-              slice: []mut u8
-                call-method List::as_mut_slice: []mut u8
+              slice: &mut []u8
+                call-method List::as_mut_slice: &mut []u8
                   local _3 bytes: List<u8>
                 local _4 got: usize
             return: !
@@ -5921,7 +5921,7 @@ body method File::read_text !-> String
     let _2 text: &str
       or: &str
         builtin str_from_utf8: ^str
-          call-method List::as_slice: []u8
+          call-method List::as_slice: &[]u8
             local _1 bytes: List<u8>
         clause _
           block
@@ -5936,7 +5936,7 @@ body method File::read_text !-> String
         local _2 text: &str
 body method File::write_bytes !-> void
   param _0 path: &Path
-  param _1 data: []u8
+  param _1 data: &[]u8
   block
     let _2 f: File
       or: File
@@ -5947,7 +5947,7 @@ body method File::write_bytes !-> void
     or: void
       call-method File::write: !-> void
         local _2 f: File
-        local _1 data: []u8
+        local _1 data: &[]u8
       return: !
     or: void
       call-method File::flush: !-> void
@@ -5960,7 +5960,7 @@ body method File::write_text !-> void
     or: void
       call-assoc File::write_bytes: !-> void
         local _0 path: &Path
-        cast: []u8
+        cast: &[]u8
           local _1 text: &str
       return: !
 body method File::remove !-> void
@@ -6004,12 +6004,12 @@ body fn file_close -> void
     (empty)
 body fn file_read -> usize
   param _0 handle: usize
-  param _1 buf: []mut u8
+  param _1 buf: &mut []u8
   block
     (empty)
 body fn file_write -> usize
   param _0 handle: usize
-  param _1 data: []u8
+  param _1 data: &[]u8
   block
     (empty)
 body fn file_seek -> bool
@@ -6075,12 +6075,12 @@ body ctor Path#0 -> void
   param _2 allocator: ^mut Allocator
   param _3 loc: SourceLocation
   block
-    let _4 bytes: []u8
-      cast: []u8
+    let _4 bytes: &[]u8
+      cast: &[]u8
         local _1 text: &str
     let _5 end: usize
       len: usize
-        local _4 bytes: []u8
+        local _4 bytes: &[]u8
     while
       binary &&: bool
         binary &&: bool
@@ -6089,7 +6089,7 @@ body ctor Path#0 -> void
             int 1: usize
           call is_separator: bool
             index: u8
-              local _4 bytes: []u8
+              local _4 bytes: &[]u8
               binary -: usize
                 local _5 end: usize
                 int 1: usize
@@ -6100,7 +6100,7 @@ body ctor Path#0 -> void
               int 3: usize
             binary ==: bool
               index: u8
-                local _4 bytes: []u8
+                local _4 bytes: &[]u8
                 int 1: usize
               cast: u8
                 char ':': char
@@ -6132,7 +6132,7 @@ body ctor Path#0 -> void
         if: void
           binary ==: bool
             index: u8
-              local _4 bytes: []u8
+              local _4 bytes: &[]u8
               local _7 i: usize
             cast: u8
               char '\\': char
@@ -6183,8 +6183,8 @@ body method Path::is_empty -> bool
 body method Path::is_absolute -> bool
   param _0 self: Path
   block
-    let _1 bytes: []u8
-      cast: []u8
+    let _1 bytes: &[]u8
+      cast: &[]u8
         call-method Path::as_str: &str
           local _0 self: Path
     return: !
@@ -6192,22 +6192,22 @@ body method Path::is_absolute -> bool
         binary &&: bool
           binary >: bool
             len: usize
-              local _1 bytes: []u8
+              local _1 bytes: &[]u8
             int 0: usize
           binary ==: bool
             index: u8
-              local _1 bytes: []u8
+              local _1 bytes: &[]u8
               int 0: usize
             cast: u8
               char '/': char
         binary &&: bool
           binary >: bool
             len: usize
-              local _1 bytes: []u8
+              local _1 bytes: &[]u8
             int 1: usize
           binary ==: bool
             index: u8
-              local _1 bytes: []u8
+              local _1 bytes: &[]u8
               int 1: usize
             cast: u8
               char ':': char
@@ -6286,7 +6286,7 @@ body method Path::file_name -> &str
           int 2: usize
         binary ==: bool
           index: u8
-            cast: []u8
+            cast: &[]u8
               local _1 text: &str
             int 1: usize
           cast: u8
@@ -6361,7 +6361,7 @@ body method Path::parent -> Path
               int 2: usize
             binary ==: bool
               index: u8
-                cast: []u8
+                cast: &[]u8
                   local _1 text: &str
                 int 1: usize
               cast: u8
@@ -6502,10 +6502,10 @@ body impl#52 method cmp -> Ordering
   block
     return: !
       call compare_bytes: Ordering
-        cast: []u8
+        cast: &[]u8
           call-method Path::as_str: &str
             local _0 self: Path
-        cast: []u8
+        cast: &[]u8
           call-method Path::as_str: &str
             local _1 rhs: &Path
 body impl#53 method hash -> u64
@@ -6545,7 +6545,7 @@ body fn ends_with_separator -> bool
           int 0: usize
         binary ==: bool
           index: u8
-            cast: []u8
+            cast: &[]u8
               local _0 s: &str
             binary -: usize
               len: usize
@@ -6562,20 +6562,20 @@ body fn sub -> &str
       block-value: &str
         block
           cast: &str
-            slice: []u8
-              cast: []u8
+            slice: &[]u8
+              cast: &[]u8
                 local _0 s: &str
               local _1 from: usize
               local _2 to: usize
 body fn last_separator -> usize?
   param _0 s: &str
   block
-    let _1 bytes: []u8
-      cast: []u8
+    let _1 bytes: &[]u8
+      cast: &[]u8
         local _0 s: &str
     let _2 i: usize
       len: usize
-        local _1 bytes: []u8
+        local _1 bytes: &[]u8
     while
       binary >: bool
         local _2 i: usize
@@ -6587,7 +6587,7 @@ body fn last_separator -> usize?
         if: void
           binary ==: bool
             index: u8
-              local _1 bytes: []u8
+              local _1 bytes: &[]u8
               local _2 i: usize
             cast: u8
               char '/': char
@@ -6599,12 +6599,12 @@ body fn last_separator -> usize?
 body fn last_dot -> usize?
   param _0 name: &str
   block
-    let _1 bytes: []u8
-      cast: []u8
+    let _1 bytes: &[]u8
+      cast: &[]u8
         local _0 name: &str
     let _2 i: usize
       len: usize
-        local _1 bytes: []u8
+        local _1 bytes: &[]u8
     while
       binary >: bool
         local _2 i: usize
@@ -6616,7 +6616,7 @@ body fn last_dot -> usize?
         if: void
           binary ==: bool
             index: u8
-              local _1 bytes: []u8
+              local _1 bytes: &[]u8
               local _2 i: usize
             cast: u8
               char '.': char
@@ -11879,12 +11879,12 @@ body method FieldInfo::tag_value -> ^str
   param _0 self: FieldInfo
   param _1 key: &str
   block
-    let _2 bytes: []u8
-      cast: []u8
+    let _2 bytes: &[]u8
+      cast: &[]u8
         field #5: &str
           local _0 self: FieldInfo
-    let _3 want: []u8
-      cast: []u8
+    let _3 want: &[]u8
+      cast: &[]u8
         local _1 key: &str
     let _4 i: usize
       int 0: usize
@@ -11892,7 +11892,7 @@ body method FieldInfo::tag_value -> ^str
       binary <: bool
         local _4 i: usize
         len: usize
-          local _2 bytes: []u8
+          local _2 bytes: &[]u8
       block
         let _5 at_start: bool
           binary ||: bool
@@ -11901,7 +11901,7 @@ body method FieldInfo::tag_value -> ^str
               int 0: usize
             binary ==: bool
               index: u8
-                local _2 bytes: []u8
+                local _2 bytes: &[]u8
                 binary -: usize
                   local _4 i: usize
                   int 1: usize
@@ -11912,10 +11912,10 @@ body method FieldInfo::tag_value -> ^str
               binary +: usize
                 local _4 i: usize
                 len: usize
-                  local _3 want: []u8
+                  local _3 want: &[]u8
               int 1: usize
             len: usize
-              local _2 bytes: []u8
+              local _2 bytes: &[]u8
         if: void
           binary &&: bool
             binary &&: bool
@@ -11924,20 +11924,20 @@ body method FieldInfo::tag_value -> ^str
                 local _6 fits: bool
               binary ==: bool
                 index: u8
-                  local _2 bytes: []u8
+                  local _2 bytes: &[]u8
                   binary +: usize
                     local _4 i: usize
                     len: usize
-                      local _3 want: []u8
+                      local _3 want: &[]u8
                 int 58: u8
             binary ==: bool
               index: u8
-                local _2 bytes: []u8
+                local _2 bytes: &[]u8
                 binary +: usize
                   binary +: usize
                     local _4 i: usize
                     len: usize
-                      local _3 want: []u8
+                      local _3 want: &[]u8
                   int 1: usize
               int 34: u8
           block
@@ -11949,17 +11949,17 @@ body method FieldInfo::tag_value -> ^str
               binary <: bool
                 local _8 k: usize
                 len: usize
-                  local _3 want: []u8
+                  local _3 want: &[]u8
               block
                 if: void
                   binary !=: bool
                     index: u8
-                      local _2 bytes: []u8
+                      local _2 bytes: &[]u8
                       binary +: usize
                         local _4 i: usize
                         local _8 k: usize
                     index: u8
-                      local _3 want: []u8
+                      local _3 want: &[]u8
                       local _8 k: usize
                   block
                     assign =
@@ -11977,7 +11977,7 @@ body method FieldInfo::tag_value -> ^str
                     binary +: usize
                       local _4 i: usize
                       len: usize
-                        local _3 want: []u8
+                        local _3 want: &[]u8
                     int 2: usize
                 let _10 end: usize
                   local _9 start: usize
@@ -11986,10 +11986,10 @@ body method FieldInfo::tag_value -> ^str
                     binary <: bool
                       local _10 end: usize
                       len: usize
-                        local _2 bytes: []u8
+                        local _2 bytes: &[]u8
                     binary !=: bool
                       index: u8
-                        local _2 bytes: []u8
+                        local _2 bytes: &[]u8
                         local _10 end: usize
                       int 34: u8
                   block
@@ -11998,8 +11998,8 @@ body method FieldInfo::tag_value -> ^str
                       int 1: usize
                 return: !
                   builtin str_from_utf8: ^str
-                    slice: []u8
-                      local _2 bytes: []u8
+                    slice: &[]u8
+                      local _2 bytes: &[]u8
                       local _9 start: usize
                       local _10 end: usize
         assign +=
@@ -12056,7 +12056,7 @@ body impl#106 method get -> char
   block
     let (_1 c, _)
       call decode_utf8: (char, usize)
-        cast: []u8
+        cast: &[]u8
           field #0: &str
             local _0 self: Chars
         field #1: usize
@@ -12068,7 +12068,7 @@ body impl#106 method advance -> void
   block
     let (_, _1 width)
       call decode_utf8: (char, usize)
-        cast: []u8
+        cast: &[]u8
           field #0: &str
             local _0 self: Chars
         field #1: usize
@@ -12078,7 +12078,7 @@ body impl#106 method advance -> void
         local _0 self: Chars
       local _1 width: usize
 body fn decode_utf8 -> (char, usize)
-  param _0 bytes: []u8
+  param _0 bytes: &[]u8
   param _1 at: usize
   block
     let _2 bad: (char, usize)
@@ -12089,7 +12089,7 @@ body fn decode_utf8 -> (char, usize)
     let _3 first: u32
       cast: u32
         index: u8
-          local _0 bytes: []u8
+          local _0 bytes: &[]u8
           local _1 at: usize
     if: void
       binary <: bool
@@ -12163,7 +12163,7 @@ body fn decode_utf8 -> (char, usize)
           local _1 at: usize
           local _4 width: usize
         len: usize
-          local _0 bytes: []u8
+          local _0 bytes: &[]u8
       block
         return: !
           local _2 bad: (char, usize)
@@ -12177,7 +12177,7 @@ body fn decode_utf8 -> (char, usize)
         let _7 b: u32
           cast: u32
             index: u8
-              local _0 bytes: []u8
+              local _0 bytes: &[]u8
               binary +: usize
                 local _1 at: usize
                 local _6 k: usize
@@ -12236,7 +12236,7 @@ body fn decode_utf8 -> (char, usize)
           local _5 cp: u32
         local _4 width: usize
 body fn is_utf8_boundary -> bool
-  param _0 bytes: []u8
+  param _0 bytes: &[]u8
   param _1 at: usize
   block
     if: void
@@ -12247,7 +12247,7 @@ body fn is_utf8_boundary -> bool
         binary ==: bool
           local _1 at: usize
           len: usize
-            local _0 bytes: []u8
+            local _0 bytes: &[]u8
       block
         return: !
           bool true: bool
@@ -12255,7 +12255,7 @@ body fn is_utf8_boundary -> bool
       binary >: bool
         local _1 at: usize
         len: usize
-          local _0 bytes: []u8
+          local _0 bytes: &[]u8
       block
         return: !
           bool false: bool
@@ -12264,12 +12264,12 @@ body fn is_utf8_boundary -> bool
         binary &: u32
           cast: u32
             index: u8
-              local _0 bytes: []u8
+              local _0 bytes: &[]u8
               local _1 at: usize
           int 192: u32
         int 128: u32
 body impl#107 method join -> String
-  param _0 self: []&str
+  param _0 self: &[]&str
   param _1 separator: &str
   block
     let _2 out: String
@@ -12278,7 +12278,7 @@ body impl#107 method join -> String
       range: usize..usize
         int 0: i32
         len: usize
-          local _0 self: []&str
+          local _0 self: &[]&str
       block
         if: void
           binary >: bool
@@ -12291,7 +12291,7 @@ body impl#107 method join -> String
         call-method String::push_str: void
           local _2 out: String
           index: &str
-            local _0 self: []&str
+            local _0 self: &[]&str
             local _3 i: usize
     return: !
       local _2 out: String
@@ -12379,14 +12379,14 @@ body method String::from -> String
         local _1 allocator: ^mut Allocator
         local _2 loc: SourceLocation
 body method String::from_utf8 -> String?
-  param _0 bytes: []u8
+  param _0 bytes: &[]u8
   param _1 allocator: ^mut Allocator
   param _2 loc: SourceLocation
   block
     let _3 text: &str
       or: &str
         builtin str_from_utf8: ^str
-          local _0 bytes: []u8
+          local _0 bytes: &[]u8
         return: !
           none: String?
     return: !
@@ -12430,16 +12430,16 @@ body method String::capacity -> usize
 body method String::as_str -> &str
   param _0 self: String
   block
-    let _1 bytes: []u8
-      call-method List::as_slice: []u8
+    let _1 bytes: &[]u8
+      call-method List::as_slice: &[]u8
         field #0: List<u8>
           local _0 self: String
     return: !
       block-value: &str
         block
           cast: &str
-            slice: []u8
-              local _1 bytes: []u8
+            slice: &[]u8
+              local _1 bytes: &[]u8
               int 0: usize
               call-method String::len: usize
                 local _0 self: String
@@ -12460,7 +12460,7 @@ body method String::as_cstr -> cstr
         block
           cast: cstr
             data-ptr: ^u8
-              call-method List::as_slice: []u8
+              call-method List::as_slice: &[]u8
                 field #0: List<u8>
                   local _0 self: String
 body method String::push_str -> void
@@ -12487,11 +12487,11 @@ body method String::push_str -> void
           local _1 s: &str
         int 1: usize
       local _2 loc: SourceLocation
-    let _3 bytes: []u8
-      cast: []u8
+    let _3 bytes: &[]u8
+      cast: &[]u8
         local _1 s: &str
     for _4 b
-      local _3 bytes: []u8
+      local _3 bytes: &[]u8
       block
         call-method List::push: void
           field #0: List<u8>
@@ -12523,7 +12523,7 @@ body method String::push -> void
       block-value: &str
         block
           cast: &str
-            slice: []mut u8
+            slice: &mut []u8
               local _3 encoded: [4]u8
               int 0: usize
               local _4 n: usize
@@ -12593,7 +12593,7 @@ body method String::insert_str -> void
       field #0: List<u8>
         local _0 self: String
       local _1 at: usize
-      cast: []u8
+      cast: &[]u8
         local _2 s: &str
 body method String::insert -> void
   param _0 self: String
@@ -12618,7 +12618,7 @@ body method String::insert -> void
       block-value: &str
         block
           cast: &str
-            slice: []mut u8
+            slice: &mut []u8
               local _4 encoded: [4]u8
               int 0: usize
               local _5 n: usize
@@ -12668,7 +12668,7 @@ body method String::remove -> char
                   local _4 arg·: SourceLocation
     let (_6 c, _7 width)
       call decode_utf8: (char, usize)
-        cast: []u8
+        cast: &[]u8
           call-method String::as_str: &str
             local _0 self: String
         local _1 at: usize
@@ -12697,14 +12697,14 @@ body method String::chars -> Chars
 body method String::char_count -> usize
   param _0 self: String
   block
-    let _1 bytes: []u8
-      cast: []u8
+    let _1 bytes: &[]u8
+      cast: &[]u8
         call-method String::as_str: &str
           local _0 self: String
     let _2 n: usize
       int 0: usize
     for _3 b
-      local _1 bytes: []u8
+      local _1 bytes: &[]u8
       block
         if: void
           binary !=: bool
@@ -12732,8 +12732,8 @@ body method String::pop -> char?
       block
         return: !
           none: char?
-    let _2 bytes: []u8
-      cast: []u8
+    let _2 bytes: &[]u8
+      cast: &[]u8
         call-method String::as_str: &str
           local _0 self: String
     let _3 start: usize
@@ -12747,7 +12747,7 @@ body method String::pop -> char?
           int 0: usize
         unary !: bool
           call is_utf8_boundary: bool
-            local _2 bytes: []u8
+            local _2 bytes: &[]u8
             local _3 start: usize
       block
         assign -=
@@ -12755,7 +12755,7 @@ body method String::pop -> char?
           int 1: usize
     let (_4 c, _)
       call decode_utf8: (char, usize)
-        local _2 bytes: []u8
+        local _2 bytes: &[]u8
         local _3 start: usize
     call-method String::truncate: void
       local _0 self: String
@@ -12768,7 +12768,7 @@ body method String::is_char_boundary -> bool
   block
     return: !
       call is_utf8_boundary: bool
-        cast: []u8
+        cast: &[]u8
           call-method String::as_str: &str
             local _0 self: String
         local _1 index: usize
@@ -12777,8 +12777,8 @@ body method String::slice -> ^str
   param _1 from: usize
   param _2 to: usize
   block
-    let _3 bytes: []u8
-      cast: []u8
+    let _3 bytes: &[]u8
+      cast: &[]u8
         call-method String::as_str: &str
           local _0 self: String
     if: void
@@ -12791,14 +12791,14 @@ body method String::slice -> ^str
             binary >: bool
               local _2 to: usize
               len: usize
-                local _3 bytes: []u8
+                local _3 bytes: &[]u8
           unary !: bool
             call is_utf8_boundary: bool
-              local _3 bytes: []u8
+              local _3 bytes: &[]u8
               local _1 from: usize
         unary !: bool
           call is_utf8_boundary: bool
-            local _3 bytes: []u8
+            local _3 bytes: &[]u8
             local _2 to: usize
       block
         return: !
@@ -12807,8 +12807,8 @@ body method String::slice -> ^str
       block-value: &str
         block
           cast: &str
-            slice: []u8
-              local _3 bytes: []u8
+            slice: &[]u8
+              local _3 bytes: &[]u8
               local _1 from: usize
               local _2 to: usize
 body method String::truncate -> void
@@ -12893,10 +12893,10 @@ body impl#111 method cmp -> Ordering
   block
     return: !
       call compare_bytes: Ordering
-        cast: []u8
+        cast: &[]u8
           call-method String::as_str: &str
             local _0 self: String
-        cast: []u8
+        cast: &[]u8
           call-method String::as_str: &str
             local _1 rhs: &String
 body impl#112 method iter -> Chars
@@ -13225,19 +13225,19 @@ body method Text::eq_ignore_ascii_case -> bool
   param _0 self: Text
   param _1 other: &str
   block
-    let _2 a: []u8
-      cast: []u8
+    let _2 a: &[]u8
+      cast: &[]u8
         call-method Text::text: &str
           local _0 self: Text
-    let _3 b: []u8
-      cast: []u8
+    let _3 b: &[]u8
+      cast: &[]u8
         local _1 other: &str
     if: void
       binary !=: bool
         len: usize
-          local _2 a: []u8
+          local _2 a: &[]u8
         len: usize
-          local _3 b: []u8
+          local _3 b: &[]u8
       block
         return: !
           bool false: bool
@@ -13245,17 +13245,17 @@ body method Text::eq_ignore_ascii_case -> bool
       range: usize..usize
         int 0: i32
         len: usize
-          local _2 a: []u8
+          local _2 a: &[]u8
       block
         if: void
           binary !=: bool
             call ascii_lower: u8
               index: u8
-                local _2 a: []u8
+                local _2 a: &[]u8
                 local _4 i: usize
             call ascii_lower: u8
               index: u8
-                local _3 b: []u8
+                local _3 b: &[]u8
                 local _4 i: usize
           block
             return: !
@@ -13431,14 +13431,14 @@ body method Text::to_ascii_uppercase -> String
 body method Text::parse_i64 -> i64?
   param _0 self: Text
   block
-    let _1 bytes: []u8
-      cast: []u8
+    let _1 bytes: &[]u8
+      cast: &[]u8
         call-method Text::text: &str
           local _0 self: Text
     if: void
       binary ==: bool
         len: usize
-          local _1 bytes: []u8
+          local _1 bytes: &[]u8
         int 0: usize
       block
         return: !
@@ -13446,7 +13446,7 @@ body method Text::parse_i64 -> i64?
     let _2 negative: bool
       binary ==: bool
         index: u8
-          local _1 bytes: []u8
+          local _1 bytes: &[]u8
           int 0: usize
         cast: u8
           char '-': char
@@ -13455,7 +13455,7 @@ body method Text::parse_i64 -> i64?
         local _2 negative: bool
         binary ==: bool
           index: u8
-            local _1 bytes: []u8
+            local _1 bytes: &[]u8
             int 0: usize
           cast: u8
             char '+': char
@@ -13472,7 +13472,7 @@ body method Text::parse_i64 -> i64?
       binary ==: bool
         local _4 digits: usize
         len: usize
-          local _1 bytes: []u8
+          local _1 bytes: &[]u8
       block
         return: !
           none: i64?
@@ -13484,13 +13484,13 @@ body method Text::parse_i64 -> i64?
       binary <: bool
         local _6 i: usize
         len: usize
-          local _1 bytes: []u8
+          local _1 bytes: &[]u8
       block
         let _7 d: i64
           binary -: i64
             cast: i64
               index: u8
-                local _1 bytes: []u8
+                local _1 bytes: &[]u8
                 local _6 i: usize
             cast: i64
               char '0': char
@@ -13535,14 +13535,14 @@ body method Text::parse_i64 -> i64?
 body method Text::parse_u64 -> u64?
   param _0 self: Text
   block
-    let _1 bytes: []u8
-      cast: []u8
+    let _1 bytes: &[]u8
+      cast: &[]u8
         call-method Text::text: &str
           local _0 self: Text
     if: void
       binary ==: bool
         len: usize
-          local _1 bytes: []u8
+          local _1 bytes: &[]u8
         int 0: usize
       block
         return: !
@@ -13550,7 +13550,7 @@ body method Text::parse_u64 -> u64?
     let _2 value: u64
       int 0: u64
     for _3 b
-      local _1 bytes: []u8
+      local _1 bytes: &[]u8
       block
         if: void
           binary ||: bool
@@ -13805,7 +13805,7 @@ body impl#120 method get -> &str
             local _0 self: Lines
         binary ==: bool
           index: u8
-            cast: []u8
+            cast: &[]u8
               field #0: &str
                 local _0 self: Lines
             binary -: usize
@@ -13857,8 +13857,8 @@ body method SplitWhitespace::find_word -> void
   param _0 self: SplitWhitespace
   param _1 at: usize
   block
-    let _2 bytes: []u8
-      cast: []u8
+    let _2 bytes: &[]u8
+      cast: &[]u8
         field #0: &str
           local _0 self: SplitWhitespace
     let _3 i: usize
@@ -13868,10 +13868,10 @@ body method SplitWhitespace::find_word -> void
         binary <: bool
           local _3 i: usize
           len: usize
-            local _2 bytes: []u8
+            local _2 bytes: &[]u8
         call is_space: bool
           index: u8
-            local _2 bytes: []u8
+            local _2 bytes: &[]u8
             local _3 i: usize
       block
         assign +=
@@ -13886,11 +13886,11 @@ body method SplitWhitespace::find_word -> void
         binary <: bool
           local _3 i: usize
           len: usize
-            local _2 bytes: []u8
+            local _2 bytes: &[]u8
         unary !: bool
           call is_space: bool
             index: u8
-              local _2 bytes: []u8
+              local _2 bytes: &[]u8
               local _3 i: usize
       block
         assign +=
@@ -13932,18 +13932,18 @@ body fn rfind_bytes -> usize?
   param _0 hay: &str
   param _1 needle: &str
   block
-    let _2 h: []u8
-      cast: []u8
+    let _2 h: &[]u8
+      cast: &[]u8
         local _0 hay: &str
-    let _3 n: []u8
-      cast: []u8
+    let _3 n: &[]u8
+      cast: &[]u8
         local _1 needle: &str
     if: void
       binary >: bool
         len: usize
-          local _3 n: []u8
+          local _3 n: &[]u8
         len: usize
-          local _2 h: []u8
+          local _2 h: &[]u8
       block
         return: !
           none: usize?
@@ -13951,9 +13951,9 @@ body fn rfind_bytes -> usize?
       binary +: usize
         binary -: usize
           len: usize
-            local _2 h: []u8
+            local _2 h: &[]u8
           len: usize
-            local _3 n: []u8
+            local _3 n: &[]u8
         int 1: usize
     while
       binary >: bool
@@ -13970,15 +13970,15 @@ body fn rfind_bytes -> usize?
             binary <: bool
               local _5 k: usize
               len: usize
-                local _3 n: []u8
+                local _3 n: &[]u8
             binary ==: bool
               index: u8
-                local _2 h: []u8
+                local _2 h: &[]u8
                 binary +: usize
                   local _4 i: usize
                   local _5 k: usize
               index: u8
-                local _3 n: []u8
+                local _3 n: &[]u8
                 local _5 k: usize
           block
             assign +=
@@ -13988,7 +13988,7 @@ body fn rfind_bytes -> usize?
           binary ==: bool
             local _5 k: usize
             len: usize
-              local _3 n: []u8
+              local _3 n: &[]u8
           block
             return: !
               local _4 i: usize
@@ -14019,16 +14019,16 @@ body fn find_bytes -> usize?
   param _1 needle: &str
   param _2 from: usize
   block
-    let _3 h: []u8
-      cast: []u8
+    let _3 h: &[]u8
+      cast: &[]u8
         local _0 hay: &str
-    let _4 n: []u8
-      cast: []u8
+    let _4 n: &[]u8
+      cast: &[]u8
         local _1 needle: &str
     if: void
       binary ==: bool
         len: usize
-          local _4 n: []u8
+          local _4 n: &[]u8
         int 0: usize
       block
         return: !
@@ -14036,7 +14036,7 @@ body fn find_bytes -> usize?
             binary <=: bool
               local _2 from: usize
               len: usize
-                local _3 h: []u8
+                local _3 h: &[]u8
             block
               local _2 from: usize
             block
@@ -14046,9 +14046,9 @@ body fn find_bytes -> usize?
     if: void
       binary >: bool
         len: usize
-          local _4 n: []u8
+          local _4 n: &[]u8
         len: usize
-          local _3 h: []u8
+          local _3 h: &[]u8
       block
         return: !
           none: usize?
@@ -14059,9 +14059,9 @@ body fn find_bytes -> usize?
         binary +: usize
           local _5 i: usize
           len: usize
-            local _4 n: []u8
+            local _4 n: &[]u8
         len: usize
-          local _3 h: []u8
+          local _3 h: &[]u8
       block
         let _6 k: usize
           int 0: usize
@@ -14070,15 +14070,15 @@ body fn find_bytes -> usize?
             binary <: bool
               local _6 k: usize
               len: usize
-                local _4 n: []u8
+                local _4 n: &[]u8
             binary ==: bool
               index: u8
-                local _3 h: []u8
+                local _3 h: &[]u8
                 binary +: usize
                   local _5 i: usize
                   local _6 k: usize
               index: u8
-                local _4 n: []u8
+                local _4 n: &[]u8
                 local _6 k: usize
           block
             assign +=
@@ -14088,7 +14088,7 @@ body fn find_bytes -> usize?
           binary ==: bool
             local _6 k: usize
             len: usize
-              local _4 n: []u8
+              local _4 n: &[]u8
           block
             return: !
               local _5 i: usize
@@ -14131,8 +14131,8 @@ body fn is_space -> bool
 body fn trim_start_at -> usize
   param _0 t: &str
   block
-    let _1 bytes: []u8
-      cast: []u8
+    let _1 bytes: &[]u8
+      cast: &[]u8
         local _0 t: &str
     let _2 i: usize
       int 0: usize
@@ -14141,10 +14141,10 @@ body fn trim_start_at -> usize
         binary <: bool
           local _2 i: usize
           len: usize
-            local _1 bytes: []u8
+            local _1 bytes: &[]u8
         call is_space: bool
           index: u8
-            local _1 bytes: []u8
+            local _1 bytes: &[]u8
             local _2 i: usize
       block
         assign +=
@@ -14155,12 +14155,12 @@ body fn trim_start_at -> usize
 body fn trim_end_at -> usize
   param _0 t: &str
   block
-    let _1 bytes: []u8
-      cast: []u8
+    let _1 bytes: &[]u8
+      cast: &[]u8
         local _0 t: &str
     let _2 end: usize
       len: usize
-        local _1 bytes: []u8
+        local _1 bytes: &[]u8
     while
       binary &&: bool
         binary >: bool
@@ -14168,7 +14168,7 @@ body fn trim_end_at -> usize
           int 0: usize
         call is_space: bool
           index: u8
-            local _1 bytes: []u8
+            local _1 bytes: &[]u8
             binary -: usize
               local _2 end: usize
               int 1: usize
@@ -14246,8 +14246,8 @@ body fn ascii_case -> String
 body fn is_decimal_number -> bool
   param _0 t: &str
   block
-    let _1 b: []u8
-      cast: []u8
+    let _1 b: &[]u8
+      cast: &[]u8
         local _0 t: &str
     let _2 i: usize
       int 0: usize
@@ -14256,17 +14256,17 @@ body fn is_decimal_number -> bool
         binary <: bool
           local _2 i: usize
           len: usize
-            local _1 b: []u8
+            local _1 b: &[]u8
         binary ||: bool
           binary ==: bool
             index: u8
-              local _1 b: []u8
+              local _1 b: &[]u8
               local _2 i: usize
             cast: u8
               char '+': char
           binary ==: bool
             index: u8
-              local _1 b: []u8
+              local _1 b: &[]u8
               local _2 i: usize
             cast: u8
               char '-': char
@@ -14282,16 +14282,16 @@ body fn is_decimal_number -> bool
           binary <: bool
             local _2 i: usize
             len: usize
-              local _1 b: []u8
+              local _1 b: &[]u8
           binary >=: bool
             index: u8
-              local _1 b: []u8
+              local _1 b: &[]u8
               local _2 i: usize
             cast: u8
               char '0': char
         binary <=: bool
           index: u8
-            local _1 b: []u8
+            local _1 b: &[]u8
             local _2 i: usize
           cast: u8
             char '9': char
@@ -14307,10 +14307,10 @@ body fn is_decimal_number -> bool
         binary <: bool
           local _2 i: usize
           len: usize
-            local _1 b: []u8
+            local _1 b: &[]u8
         binary ==: bool
           index: u8
-            local _1 b: []u8
+            local _1 b: &[]u8
             local _2 i: usize
           cast: u8
             char '.': char
@@ -14324,16 +14324,16 @@ body fn is_decimal_number -> bool
               binary <: bool
                 local _2 i: usize
                 len: usize
-                  local _1 b: []u8
+                  local _1 b: &[]u8
               binary >=: bool
                 index: u8
-                  local _1 b: []u8
+                  local _1 b: &[]u8
                   local _2 i: usize
                 cast: u8
                   char '0': char
             binary <=: bool
               index: u8
-                local _1 b: []u8
+                local _1 b: &[]u8
                 local _2 i: usize
               cast: u8
                 char '9': char
@@ -14356,17 +14356,17 @@ body fn is_decimal_number -> bool
         binary <: bool
           local _2 i: usize
           len: usize
-            local _1 b: []u8
+            local _1 b: &[]u8
         binary ||: bool
           binary ==: bool
             index: u8
-              local _1 b: []u8
+              local _1 b: &[]u8
               local _2 i: usize
             cast: u8
               char 'e': char
           binary ==: bool
             index: u8
-              local _1 b: []u8
+              local _1 b: &[]u8
               local _2 i: usize
             cast: u8
               char 'E': char
@@ -14379,17 +14379,17 @@ body fn is_decimal_number -> bool
             binary <: bool
               local _2 i: usize
               len: usize
-                local _1 b: []u8
+                local _1 b: &[]u8
             binary ||: bool
               binary ==: bool
                 index: u8
-                  local _1 b: []u8
+                  local _1 b: &[]u8
                   local _2 i: usize
                 cast: u8
                   char '+': char
               binary ==: bool
                 index: u8
-                  local _1 b: []u8
+                  local _1 b: &[]u8
                   local _2 i: usize
                 cast: u8
                   char '-': char
@@ -14405,16 +14405,16 @@ body fn is_decimal_number -> bool
               binary <: bool
                 local _2 i: usize
                 len: usize
-                  local _1 b: []u8
+                  local _1 b: &[]u8
               binary >=: bool
                 index: u8
-                  local _1 b: []u8
+                  local _1 b: &[]u8
                   local _2 i: usize
                 cast: u8
                   char '0': char
             binary <=: bool
               index: u8
-                local _1 b: []u8
+                local _1 b: &[]u8
                 local _2 i: usize
               cast: u8
                 char '9': char
@@ -14436,7 +14436,7 @@ body fn is_decimal_number -> bool
       binary ==: bool
         local _2 i: usize
         len: usize
-          local _1 b: []u8
+          local _1 b: &[]u8
 body fn text_parse_f64 -> f64?
   param _0 text: &str
   block
@@ -14950,7 +14950,7 @@ body fn references -> f32
           local _1 w: &mut Vec3
 body fn arrays_and_slices -> i32
   param _0 fixed: [4]i32
-  param _1 slice: []i32
+  param _1 slice: &[]i32
   block
     let _2 a: i32
       index: i32
@@ -14958,37 +14958,37 @@ body fn arrays_and_slices -> i32
         int 0: usize
     let _3 b: i32
       index: i32
-        local _1 slice: []i32
+        local _1 slice: &[]i32
         int 1: usize
     let _4 n: usize
       len: usize
-        local _1 slice: []i32
+        local _1 slice: &[]i32
     return: !
       binary +: i32
         local _2 a: i32
         local _3 b: i32
 body fn fill -> void
-  param _0 dst: []mut i32
+  param _0 dst: &mut []i32
   param _1 value: i32
   block
     for _2 i
       range: usize..usize
         int 0: i32
         len: usize
-          local _0 dst: []mut i32
+          local _0 dst: &mut []i32
       block
         assign =
           index: i32
-            local _0 dst: []mut i32
+            local _0 dst: &mut []i32
             local _2 i: usize
           local _1 value: i32
 body fn sum -> i32
-  param _0 xs: []i32
+  param _0 xs: &[]i32
   block
     let _1 total: i32
       int 0: i32
     for _2 x
-      local _0 xs: []i32
+      local _0 xs: &[]i32
       block
         assign +=
           local _1 total: i32
@@ -15029,19 +15029,19 @@ body fn ranges -> i32
     return: !
       local _1 total: i32
 body fn iterating -> f32
-  param _0 items: []Vec3
+  param _0 items: &[]Vec3
   block
     let _1 total: f32
       float 0: f32
     for _2 v
-      local _0 items: []Vec3
+      local _0 items: &[]Vec3
       block
         assign +=
           local _1 total: f32
           field #0: f32
             local _2 v: Vec3
     for _3 i, _4 v (indexed)
-      local _0 items: []Vec3
+      local _0 items: &[]Vec3
       block
         assign +=
           local _1 total: f32
@@ -15105,7 +15105,7 @@ body fn maybe_find -> i32?
     return: !
       local _0 n: i32
 body fn find_ptr -> ^i32
-  param _0 xs: []i32
+  param _0 xs: &[]i32
   block
     return: !
       null: ^i32
@@ -15188,24 +15188,24 @@ body fn takes_ref -> i32
     return: !
       int 0: i32
 body fn checks_a_pointer -> i32
-  param _0 xs: []i32
+  param _0 xs: &[]i32
   block
     let _1 a: &i32
       or: &i32
         call find_ptr: ^i32
-          local _0 xs: []i32
+          local _0 xs: &[]i32
         return: !
           int 0: i32
     return: !
       call takes_ref: i32
         local _1 a: &i32
 body fn asserts_a_pointer -> i32
-  param _0 xs: []i32
+  param _0 xs: &[]i32
   block
     let _1 a: &i32
       or: &i32
         call find_ptr: ^i32
-          local _0 xs: []i32
+          local _0 xs: &[]i32
         unreachable
     return: !
       call takes_ref: i32
@@ -16134,11 +16134,11 @@ body fn checked_pointer -> f32
       field #0: f32
         local _1 r: &mut Vec3
 body fn unchecked -> i32
-  param _0 xs: []mut i32
+  param _0 xs: &mut []i32
   block
     let _1 raw: ^mut i32
       data-ptr: ^mut i32
-        local _0 xs: []mut i32
+        local _0 xs: &mut []i32
     let _2 n: i32
       int 0: i32
     block-value: void
@@ -16200,11 +16200,11 @@ body fn read_only_pointers -> f32
     return: !
       local _4 total: f32
 body fn read_only_ptr -> i32
-  param _0 xs: []i32
+  param _0 xs: &[]i32
   block
     let _1 raw: ^i32
       data-ptr: ^i32
-        local _0 xs: []i32
+        local _0 xs: &[]i32
     let _2 n: i32
       int 0: i32
     block-value: void
@@ -17002,30 +17002,30 @@ body fn slices_and_text -> usize
         int 2: i32
         int 3: i32
         int 4: i32
-    let _2 middle: []mut i32
-      slice: []mut i32
+    let _2 middle: &mut []i32
+      slice: &mut []i32
         local _1 arr: [4]i32
         int 1: usize
         int 3: usize
-    let _3 writable: []mut i32
-      slice: []mut i32
+    let _3 writable: &mut []i32
+      slice: &mut []i32
         local _1 arr: [4]i32
         int 2: usize
     assign =
       index: i32
-        local _3 writable: []mut i32
+        local _3 writable: &mut []i32
         int 0: usize
       index: i32
-        local _2 middle: []mut i32
+        local _2 middle: &mut []i32
         int 1: usize
-    let _4 bytes: []u8
-      cast: []u8
+    let _4 bytes: &[]u8
+      cast: &[]u8
         local _0 name: &str
     let _5 text: &str
       or: &str
         builtin str_from_utf8: ^str
-          slice: []u8
-            local _4 bytes: []u8
+          slice: &[]u8
+            local _4 bytes: &[]u8
             int 0: usize
             len: usize
               local _0 name: &str
@@ -17256,12 +17256,12 @@ body fn negations -> bool
           int 0: i8
 body fn total_of -> i32
   param _0 first: i32
-  param _1 rest: []i32
+  param _1 rest: &[]i32
   block
     let _2 t: i32
       local _0 first: i32
     for _3 x
-      local _1 rest: []i32
+      local _1 rest: &[]i32
       block
         assign +=
           local _2 t: i32
@@ -17274,14 +17274,14 @@ body impl#156 method named -> &str
     return: !
       str "heading": &str
 body fn names -> usize
-  param _0 items: []&Named
+  param _0 items: &[]&Named
   block
     return: !
       len: usize
-        local _0 items: []&Named
+        local _0 items: &[]&Named
 body fn variadic_calls -> i32
   param _0 h: Heading
-  param _1 xs: []i32
+  param _1 xs: &[]i32
   block
     let _2 n: usize
       binary +: usize
@@ -17294,14 +17294,14 @@ body fn variadic_calls -> i32
                 #0
                   int 90: i32
         call names: usize
-          array: []&Named
+          array: &[]&Named
     return: !
       binary +: i32
         binary +: i32
           binary +: i32
             call total_of: i32
               int 1: i32
-              array: []i32
+              array: &[]i32
             call total_of: i32
               int 1: i32
               array: [2]i32
@@ -17309,11 +17309,11 @@ body fn variadic_calls -> i32
                 int 3: i32
           call total_of: i32
             int 0: i32
-            local _1 xs: []i32
+            local _1 xs: &[]i32
         cast: i32
           local _2 n: usize
 body fn weighted -> i32
-  param _0 xs: []i32
+  param _0 xs: &[]i32
   param _1 scale: i32
   param _2 offset: i32
   param _3 label: &str
@@ -17321,7 +17321,7 @@ body fn weighted -> i32
     let _4 t: i32
       int 0: i32
     for _5 x
-      local _0 xs: []i32
+      local _0 xs: &[]i32
       block
         assign +=
           local _4 t: i32
@@ -17337,7 +17337,7 @@ body fn weighted -> i32
           len: usize
             local _3 label: &str
 body fn named_calls -> i32
-  param _0 xs: []i32
+  param _0 xs: &[]i32
   block
     let _1 a: i32
       call weighted: i32
@@ -17349,7 +17349,7 @@ body fn named_calls -> i32
         str "a": &str
     let _2 b: i32
       call weighted: i32
-        array: []i32
+        array: &[]i32
         int 2: i32
         default-arg 2: i32
         str "b": &str
@@ -17368,7 +17368,7 @@ body fn named_calls -> i32
             local _2 b: i32
           local _3 c: i32
         call weighted: i32
-          local _0 xs: []i32
+          local _0 xs: &[]i32
           int 3: i32
           int 2: i32
           str "d": &str
@@ -18043,7 +18043,7 @@ body fn file_system !-> usize
       or: usize
         call-method File::read: !-> usize
           local _3 f: File
-          slice: []mut u8
+          slice: &mut []u8
             local _4 buf: [8]u8
         return: !
     let _6 entries: List<Path>
@@ -18216,7 +18216,7 @@ body fn reflect_on_a_type -> bool
       builtin typeinfo: &TypeInfo
         local _1 id: TypeId
     for _3 f
-      field #5: []FieldInfo
+      field #5: &[]FieldInfo
         local _0 info: &TypeInfo
       block
         let _: _
@@ -18351,14 +18351,14 @@ body fn collections_pass -> usize
         int 2: i32
     call-method Extend::extend: void
       local _2 xs: List<i32>
-      slice: []i32
+      slice: &[]i32
         local _3 more: [2]i32
         int 0: usize
         int 2: usize
     call-method Extend::insert_slice: void
       local _2 xs: List<i32>
       int 0: usize
-      slice: []i32
+      slice: &[]i32
         local _3 more: [2]i32
         int 0: usize
         int 1: usize
@@ -19103,9 +19103,9 @@ body impl#165 method iter -> SliceIter<i32>
   block
     return: !
       call-ctor SliceIter#0: SliceIter<i32>
-        block-value: []mut i32
+        block-value: &mut []i32
           block
-            slice: []mut i32
+            slice: &mut []i32
               field #0: own ^mut i32
                 local _0 self: Rack
               int 0: usize
@@ -19310,3 +19310,70 @@ body fn text_kinds -> usize
             block-value: usize
               block
                 int 0: usize
+body fn sum_of -> i32
+  param _0 xs: &[]i32
+  block
+    let _1 t: i32
+      int 0: i32
+    for _2 x
+      local _0 xs: &[]i32
+      block
+        assign +=
+          local _1 t: i32
+          local _2 x: i32
+    return: !
+      local _1 t: i32
+body fn zero_first -> void
+  param _0 xs: &mut []i32
+  block
+    if: void
+      binary >: bool
+        len: usize
+          local _0 xs: &mut []i32
+        int 0: usize
+      block
+        assign =
+          index: i32
+            local _0 xs: &mut []i32
+            int 0: usize
+          int 0: i32
+body fn nonempty -> ^[]i32
+  param _0 xs: &[]i32
+  block
+    if: void
+      binary ==: bool
+        len: usize
+          local _0 xs: &[]i32
+        int 0: usize
+      block
+        return: !
+          none: ^[]i32
+    return: !
+      local _0 xs: &[]i32
+body fn slice_kinds -> i32
+  block
+    let _0 a: [3]i32
+      array: [3]i32
+        int 1: i32
+        int 2: i32
+        int 3: i32
+    call zero_first: void
+      slice: &mut []i32
+        local _0 a: [3]i32
+    let _1 some: &[]i32
+      or: &[]i32
+        call nonempty: ^[]i32
+          slice: &mut []i32
+            local _0 a: [3]i32
+        return: !
+          int 0: i32
+    let _2 fields: const &[]FieldInfo
+      field #5: const &[]FieldInfo
+        typeinfo-of Caption: &TypeInfo
+    return: !
+      binary +: i32
+        call sum_of: i32
+          local _1 some: &[]i32
+        cast: i32
+          len: usize
+            local _2 fields: &[]FieldInfo

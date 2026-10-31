@@ -23,7 +23,7 @@ impl Drop for Token {
     }
 }
 
-fn sum(xs: []i32) -> i32 {
+fn sum(xs: &[]i32) -> i32 {
     let mut t = 0
     for x in xs {
         t += x
@@ -77,7 +77,7 @@ fn main() {
     println!("{} {}", scratch[999], Allocators::Temp.used() > 0)
 
     // Bytes to text, checked.
-    let text = str::from_utf8(s.as_str() as []u8) or "invalid"
-    let cut = str::from_utf8((s.as_str() as []u8)[0..14]) or "invalid"
+    let text = str::from_utf8(s.as_str() as &[]u8) or "invalid"
+    let cut = str::from_utf8((s.as_str() as &[]u8)[0..14]) or "invalid"
     println!("{} {}", text.len, cut)
 }

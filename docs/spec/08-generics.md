@@ -140,7 +140,7 @@ Two implementers, two different `Item`s:
 
 ```dz
 struct SliceIter<T> {
-    m_slice: []T
+    m_slice: &[]T
     m_index: usize
 }
 

@@ -2835,6 +2835,14 @@ impl<'a, 'c> Body<'a, 'c> {
             self.hir.set_expr_type(checked.id, Ty::Str);
             checked.ty = Ty::Str;
         }
+        // So is a static table a read-only slice (§5.3, T-0110).
+        if let Ty::ConstSlice(elem) = checked.ty.clone() {
+            if !matches!(expected.map(|t| self.subst(t)), Some(Ty::ConstSlice(_))) {
+                let read = Ty::Slice { mutable: false, elem };
+                self.hir.set_expr_type(checked.id, read.clone());
+                checked.ty = read;
+            }
+        }
         if let Some(exp) = expected {
             let (want, got) = (self.subst(exp), self.subst(&checked.ty));
             // A `T?` is filled from a `T` later, where the value is wrapped, so the read has
@@ -2950,7 +2958,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 // Text that may be absent is the text pointer, so `null` is its empty case
                 // (spec §5.6): the same value as an empty optional.
                 if let Some(t) = expected.map(|t| self.subst(t)) {
-                    if matches!(&t, Ty::Optional(inner) if matches!(**inner, Ty::Str)) {
+                    if view_pointer(&t) {
                         return self.mk(e, t, hir::ExprKind::NoneOpt);
                     }
                 }
@@ -2981,13 +2989,16 @@ impl<'a, 'c> Body<'a, 'c> {
                     },
                 };
                 // `^str` is a pointer, whose empty case is `null` (spec §5.6).
-                if matches!(&ty, Ty::Optional(inner) if matches!(**inner, Ty::Str)) {
-                    let d = Diagnostic::error(codes::STR_NOT_BORROWED, "`^str` is empty as `null`")
-                        .at(self.cx.file, e.span, "write `null`")
-                        .with_help(
-                            "text that may be absent is a text pointer, and a pointer's empty \
+                if view_pointer(&ty) {
+                    let d = Diagnostic::error(
+                        codes::STR_NOT_BORROWED,
+                        "a text or slice pointer is empty as `null`",
+                    )
+                    .at(self.cx.file, e.span, "write `null`")
+                    .with_help(
+                        "text that may be absent is a text pointer, and a pointer's empty \
                              case is `null` (spec §5.6)",
-                        );
+                    );
                     // Not in a macro's expansion, whose tokens are at its invocation.
                     let d = match self.cx.written_fix(e.span, "none", "null") {
                         Some(edit) => d.with_fix("write `null`", vec![edit]),
@@ -3692,8 +3703,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 // §9). Two optionals have no comparison in the spec, and used to reach C++
                 // as `Opt == Opt`, which does not compile (invariant 7).
                 // `null` too, for `^str`, the text pointer (§5.6).
-                let text = matches!(&a.ty, Ty::Optional(i) if matches!(**i, Ty::Str))
-                    || matches!(&b.ty, Ty::Optional(i) if matches!(**i, Ty::Str));
+                let text = view_pointer(&a.ty) || view_pointer(&b.ty);
                 let is_none = |x: &Expr| {
                     matches!(x.kind, ExprKind::None) || (text && matches!(x.kind, ExprKind::Null))
                 };
@@ -8740,6 +8750,11 @@ impl<'a, 'c> Body<'a, 'c> {
             "an `or` clause must produce the success type or diverge (spec §9.4)",
         );
     }
+}
+
+/// `^str` or `^[]T`: text or a slice that may be absent, whose empty case is `null`. It is`n/// held as an optional (spec §5.3, §5.6).
+fn view_pointer(t: &Ty) -> bool {
+    matches!(t, Ty::Optional(i) if matches!(**i, Ty::Str | Ty::Slice { .. }))
 }
 
 /// The type a call expression has.

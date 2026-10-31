@@ -84,7 +84,7 @@ fn step(n: i32) -> i32 {
 fn main() {
     println!("sums {} {} {}", sum(), sum(4), sum(1, 2, 3))
     let numbers = [10, 20, 30]
-    let view: []i32 = numbers[1..]
+    let view: &[]i32 = numbers[1..]
     println!("spread {} {}", sum(..numbers), sum(..view))
 
     println!("in order:")

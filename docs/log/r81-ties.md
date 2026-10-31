@@ -6,6 +6,26 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r99: slices are borrowed (2026-10-31)
+
+T-0110, D-0093's fourth step, built as r98 was. `lower_type_inner` reads `&[]T` and `&mut
+[]T` as `Ty::Slice`, `^[]T` as an optional slice and `const &[]T` as the new
+`Ty::ConstSlice`; the old forms are `DZ0577` (`slice_spelling`, whose edit is offered only
+where the type is written out in the file). `ConstSlice` is a read-only slice to C++, is
+assignable to `&[]T` and read as one wherever it is not wanted (`expr`, `field_type`), and
+is no view. `placed_as_view` counts a slice. `view_pointer` lets `null` empty a `^str` or a
+`^[]T` and compare with one. A `&mut []T` parameter is a mutable input to `kills`
+(`dz_check::ties`, `dz_flow::ties::mutable_input`, `FnKills::kills_within`): what was a
+`[]mut T` by value is now a borrow, and may kill through its elements.
+
+The migration was r98's script with `DZ0577` added: 69 edits in std, 58 in the corpora.
+Reflection's three tables became `const &[]`, and reflect's `to_json` takes a `view T`,
+since the test serialises a slice. Rust snippets, `explain` and the spec were respelled by
+pattern, leaving macro syntax (`$xs: []K`) alone. One slip, caught by the snapshot: the
+script also "fixed" `typeerrors/`' deliberate `DZ0575` cases, which were put back.
+
+Tests: `typed/`'s `slice_kinds`, `typeerrors/`' bare and stored slices, `dz explain DZ0577`.
+
 ## r98: text is borrowed (2026-10-31)
 
 T-0109, D-0093's third step. The language change is a spelling and a placement; the

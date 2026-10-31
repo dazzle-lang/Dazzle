@@ -5,5 +5,5 @@ pub struct VariantInfo {
     pub value: i64
     /// A union variant's payload, with offsets from the start of the union. A variant that
     /// carries an existing struct has one field, named after that struct.
-    pub fields: []FieldInfo
+    pub fields: const &[]FieldInfo
 }

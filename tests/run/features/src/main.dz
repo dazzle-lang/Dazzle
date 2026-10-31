@@ -129,7 +129,7 @@ fn typed_array_literal() -> f32 {
 }
 
 // A literal may be passed where a slice is wanted: the temporary outlives the call (§5.3).
-fn sum_slice(xs: []i32) -> i32 {
+fn sum_slice(xs: &[]i32) -> i32 {
     let mut total = 0
     for x in xs {
         total += x

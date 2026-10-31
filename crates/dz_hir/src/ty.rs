@@ -222,7 +222,12 @@ impl FnKills {
         match (self, wider) {
             (_, FnKills::Unknown) => true,
             (FnKills::Unknown, FnKills::Known { .. }) => !params.iter().any(|p| {
-                matches!(p, Ty::Ref { mutable: true, .. } | Ty::Ptr { mutable: true, .. })
+                matches!(
+                    p,
+                    Ty::Ref { mutable: true, .. }
+                        | Ty::Ptr { mutable: true, .. }
+                        | Ty::Slice { mutable: true, .. }
+                )
             }),
             (
                 FnKills::Known { names: mine, paths: narrow, .. },
@@ -339,6 +344,10 @@ pub enum Ty {
     /// so nothing ever kills it (spec §5.3, §6.7). The same C++ type as `str`; a value of it
     /// reads as a `str` wherever a `const str` is not wanted.
     ConstStr,
+    /// `const &[]T`: a slice of elements in static storage, such as reflection's tables, so
+    /// nothing ever kills it and it is no view (spec §5.3, §6.7). The same C++ type as a
+    /// read-only slice, and read as one wherever a `const &[]T` is not wanted.
+    ConstSlice(Rc<Ty>),
     CStr,
     /// An integer literal that has not met a typing context yet (spec §2.5).
     IntLit,
@@ -485,7 +494,7 @@ impl Ty {
     /// Element type of something indexable.
     pub fn element(&self) -> Option<&Ty> {
         match self.peeled() {
-            Ty::Array { elem, .. } | Ty::Slice { elem, .. } => Some(elem),
+            Ty::Array { elem, .. } | Ty::Slice { elem, .. } | Ty::ConstSlice(elem) => Some(elem),
             Ty::Range(elem) => Some(elem),
             _ => None,
         }
@@ -526,7 +535,9 @@ impl Ty {
             Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
                 inner.has_params()
             }
-            Ty::Array { elem, .. } | Ty::Slice { elem, .. } => elem.has_params(),
+            Ty::Array { elem, .. } | Ty::Slice { elem, .. } | Ty::ConstSlice(elem) => {
+                elem.has_params()
+            }
             Ty::Tuple(parts) => parts.iter().any(Ty::has_params),
             Ty::Named { args, .. } | Ty::Variant(_, _, args) => args.iter().any(Ty::has_params),
             Ty::Fn { params, ret, .. } => params.iter().any(Ty::has_params) || ret.has_params(),
@@ -578,6 +589,7 @@ pub fn substitute_with(
         Ty::Range(i) => Ty::Range(rc(i)),
         Ty::Array { len, elem } => Ty::Array { len: *len, elem: rc(elem) },
         Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
+        Ty::ConstSlice(elem) => Ty::ConstSlice(rc(elem)),
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(&substitute).collect()),
         Ty::Named { sym, args } => {
             Ty::Named { sym: *sym, args: args.iter().map(&substitute).collect() }
@@ -627,7 +639,7 @@ pub fn has_assoc(t: &Ty) -> bool {
         Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
             has_assoc(inner)
         }
-        Ty::Array { elem, .. } | Ty::Slice { elem, .. } => has_assoc(elem),
+        Ty::Array { elem, .. } | Ty::Slice { elem, .. } | Ty::ConstSlice(elem) => has_assoc(elem),
         Ty::Tuple(parts) => parts.iter().any(has_assoc),
         Ty::Named { args, .. } | Ty::Variant(_, _, args) => args.iter().any(has_assoc),
         Ty::Fn { params, ret, .. } => params.iter().any(has_assoc) || has_assoc(ret),
@@ -648,6 +660,7 @@ pub fn map_parts(t: &Ty, f: &dyn Fn(&Ty) -> Ty) -> Ty {
         Ty::Range(i) => Ty::Range(rc(i)),
         Ty::Array { len, elem } => Ty::Array { len: *len, elem: rc(elem) },
         Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
+        Ty::ConstSlice(elem) => Ty::ConstSlice(rc(elem)),
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(f).collect()),
         Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(f).collect() },
         Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, args.iter().map(f).collect()),
@@ -688,6 +701,7 @@ pub fn replace(t: &Ty, from: &Ty, to: &Ty) -> Ty {
         Ty::Range(i) => Ty::Range(rc(i)),
         Ty::Array { len, elem } => Ty::Array { len: *len, elem: rc(elem) },
         Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
+        Ty::ConstSlice(elem) => Ty::ConstSlice(rc(elem)),
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(r).collect()),
         Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(r).collect() },
         Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, args.iter().map(r).collect()),
@@ -782,6 +796,8 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
         (Ty::Range(a), Ty::Range(b)) => assignable(a, b),
         // Static text is text; text is not static (spec §5.3).
         (Ty::Str, Ty::ConstStr) => true,
+        // So is a static table a read-only slice (§5.3).
+        (Ty::Slice { mutable: false, elem: a }, Ty::ConstSlice(b)) => assignable(a, b),
         (Ty::Tuple(a), Ty::Tuple(b)) => {
             a.len() == b.len() && a.iter().zip(b).all(|(x, y)| assignable(x, y))
         }

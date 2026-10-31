@@ -1307,3 +1307,41 @@ fn main() {
     println!("{}", x)
 }
 ```
+
+## DZ0577
+
+A slice is a view of elements something else owns, so it is borrowed as text is and written
+as a reference (spec 5.3, D-0093): `&[]T`, and `&mut []T` when its elements may be written,
+never a bare `[]T` or `[]mut T`. The writability is the reference's, so `&[]mut T` is
+written `&mut []T`. A table in static storage is `const &[]T`, and a slice that may be
+absent is the slice pointer `^[]T`, empty as `null`. `dz fix` respells each of these.
+
+```dz
+fn total(xs: []i32) -> i32 {
+    let mut t = 0
+    for x in xs {
+        t += x
+    }
+    return t
+}
+
+fn main() {
+    let a = [1, 2, 3]
+    println!("{}", total(a[..]))
+}
+```
+
+```dz
+fn total(xs: &[]i32) -> i32 {
+    let mut t = 0
+    for x in xs {
+        t += x
+    }
+    return t
+}
+
+fn main() {
+    let a = [1, 2, 3]
+    println!("{}", total(a[..]))
+}
+```

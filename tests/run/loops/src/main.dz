@@ -101,7 +101,7 @@ fn maybe(n: i32) -> i32? {
     return n
 }
 
-fn sum(xs: []i32) -> i32 {
+fn sum(xs: &[]i32) -> i32 {
     let mut n = 0
     for x in xs {
         n += x
@@ -109,13 +109,13 @@ fn sum(xs: []i32) -> i32 {
     return n
 }
 
-fn double(xs: []mut i32) {
+fn double(xs: &mut []i32) {
     for &mut x in xs {
         x *= 2
     }
 }
 
-fn count<T: Copy>(xs: []T, stop: Step) -> i32 {
+fn count<T: Copy>(xs: &[]T, stop: Step) -> i32 {
     let mut n = 0
     for i, &_x in xs.indexed() {
         switch stop {

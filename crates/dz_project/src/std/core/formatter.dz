@@ -83,7 +83,7 @@ pub struct Formatter {
                 m_held_len = 0
                 self.write_str(unsafe { held[0..n] as &str })
             }
-            let bytes = s as []u8
+            let bytes = s as &[]u8
             for b in bytes {
                 if ((b as u32) & 0xC0) != 0x80 {
                     m_written += 1
@@ -105,7 +105,7 @@ pub struct Formatter {
             stream_write(m_stream, s)
             return
         }
-        let bytes = s as []u8
+        let bytes = s as &[]u8
         for i in 0..bytes.len {
             m_buf[m_used + i] = bytes[i]
         }
@@ -188,7 +188,7 @@ pub struct Formatter {
     /// of a type's own `Format`, is written as it is, and the value as a whole is padded.
     pub(module) fn write_number(&mut self, text: &str) {
         if m_counting && m_written == 0 && m_held_len == 0 && text.len <= 64 {
-            let bytes = text as []u8
+            let bytes = text as &[]u8
             for i in 0..bytes.len {
                 m_held[i] = bytes[i]
             }
@@ -259,7 +259,7 @@ pub struct Formatter {
 
     /// As much of `s` as still fits in the buffer, cut where a character begins.
     fn keep(&mut self, s: &str) {
-        let bytes = s as []u8
+        let bytes = s as &[]u8
         let mut n = bytes.len
         if m_used + n > 512 {
             n = 512 - m_used
@@ -307,7 +307,7 @@ pub struct Formatter {
     pub fn set_spec(&mut self, spec: &str) kills self@spec {
         m_width = none
         m_zero = false
-        let bytes = spec as []u8
+        let bytes = spec as &[]u8
         let mut at: usize = 0
         if bytes.len > 1 && bytes[0] == '0' as u8 {
             m_zero = true

@@ -161,20 +161,28 @@ can modify the argument. `[PROPOSED]`
 
 ```dz
 [8]f32          fixed-size array; a value type, copied on assignment
-[]f32           slice: { ptr: ^f32, len: usize }; a read-only view, never owns
-[]mut f32       the same view, through which elements may be written
+&[]f32          slice: { ptr: ^f32, len: usize }; a read-only view, never owns
+&mut []f32      the same view, through which elements may be written
+const &[]f32    a slice of elements in static storage, such as reflection's tables
+^[]f32          a slice that may be absent: the same view, which may be null
 [N]T            N may be any compile-time constant expression
 ```
 
-**A slice carries its own writability, exactly as a reference does.** `[]T` and `[]mut T`
-stand to each other as `&T` and `&mut T` do (§5.2): the elements of a `[]T` cannot be
-assigned or `&mut`-borrowed no matter how the slice itself is bound, and a `[]mut T`
-satisfies a `[]T` parameter while the reverse is rejected. Both are two words wide and
+**A slice is borrowed** (D-0093, T-0110): it views elements something else owns, so it is
+written as a reference and lives only where one does, as text does (`DZ0517` in a field, a
+container or a type argument, outside a `view struct`). A bare `[]T`, `[]mut T`, `const
+[]T` and `&[]mut T` are `DZ0577`, which `dz fix` respells. A `const &[]T` is no view and may
+be stored; for now only the compiler makes one, for reflection's tables.
+
+**A slice carries its own writability, exactly as a reference does.** `&[]T` and `&mut []T`
+stand to each other as `&T` and `&mut T` do (§5.2): the elements of a `&[]T` cannot be
+assigned or `&mut`-borrowed no matter how the slice itself is bound, and a `&mut []T`
+satisfies a `&[]T` parameter while the reverse is rejected. Both are two words wide and
 identical at runtime; the distinction is entirely in the type.
 
 The alternative — one `[]T` whose writability follows the binding that holds it — was
 rejected because a slice is a *view*, so the binding says nothing about the elements: a
-`fn fill(dst: []f32)` could then never be written, and there would be no spelling for
+`fn fill(dst: &[]f32)` could then never be written, and there would be no spelling for
 "you may read these and not write them", which is the whole reason `&`/`&mut` exists.
 `[DECIDED — §18.22]`
 
@@ -211,9 +219,9 @@ Three rules, each of which exists to keep the literal readable rather than cleve
   a non-zero fill is a loop or the stdlib's `fill`. A `[0; 8]` spelling is in any case not
   available: §2.2 makes `;` a terminator and suppresses terminators after `[`, so it could
   not be told apart from a line break inside the literal.
-- **A literal may not be stored as a slice.** `let s: []i32 = [1, 2, 3]` is rejected: the
+- **A literal may not be stored as a slice.** `let s: &[]i32 = [1, 2, 3]` is rejected: the
   array is a temporary, so the slice would point at storage that is already gone. Passing
-  one is fine — `f([1, 2, 3])` on an `fn f(xs: []i32)` — because the temporary outlives the
+  one is fine — `f([1, 2, 3])` on an `fn f(xs: &[]i32)` — because the temporary outlives the
   call. This is not lifetime analysis; it is one rule about one certain mistake.
 
 The element type comes from the annotation when there is one, so `[4]f32 = [1, 2, 3, 4]`
@@ -286,9 +294,9 @@ enemy.state = State::Idle{}         // `was` is still valid: it points into noth
 
 Only `&str` may follow `const`: `const i32` is `DZ0569`. `[DECIDED — D-0092, D-0093]`
 
-Because `?` binds to the type name, `[]T?` is a slice **of optionals**. An optional slice
-is `([]T)?` — parenthesised, because it is far rarer and the parentheses say which level
-is optional. `[PROPOSED]`
+Because `?` binds to the type name, `&[]T?` is a slice **of optionals**. A slice that may
+be absent is the slice pointer, `^[]T`, which may be null, as text that may be absent is
+`^str` (D-0093, T-0110).
 
 ## 5.4 Compound types
 

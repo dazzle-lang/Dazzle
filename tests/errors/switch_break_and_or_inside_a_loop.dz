@@ -14,7 +14,7 @@ fn maybe(n: i32) -> i32? {
     return n
 }
 
-fn count<T: Copy>(xs: []T, stop: Step) -> i32 {
+fn count<T: Copy>(xs: &[]T, stop: Step) -> i32 {
     let mut n = 0
     for i, &x in xs.indexed() {
         switch stop {

@@ -1,12 +1,12 @@
 /// Steps through a writable slice, handing out a writable reference to each element.
 pub view struct SliceIterMut<T> {
-    m_slice: []mut T
+    m_slice: &mut []T
     m_index: usize = 0
 
     /// What the slice views, so an element outlives the iterator it came from (spec §6.7).
     tie @items = m_slice
 
-    SliceIterMut(slice: []mut T) {
+    SliceIterMut(slice: &mut []T) {
         m_slice = slice
     }
 }

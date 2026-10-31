@@ -2,10 +2,13 @@
 id: T-0110
 title: Slices are borrowed: &[]T, &mut []T and const &[]T
 milestone: none
-status: open
+status: done
+done: r99, 2026-10-31
 kind: feature
 area: language
 ---
+
+**Done, r99 (2026-10-31),** as T-0109 was: `&[]T` and `&mut []T` are still `Ty::Slice`, a new `Ty::ConstSlice` is `const &[]T` (assignable to `&[]T`, read as one where it is not wanted, the same C++ type), and `^[]T` is an optional slice, empty as `null` (`view_pointer` in `dz_check/src/check.rs`). `DZ0577` respells the old forms; `placed_as_view` counts a slice; a `&mut []T` is a mutable input for `kills`. Reflection's tables are `const &[]`. **Left:** a `const &[]T` cannot yet be written by a program: `const PRIMES: const &[]i32 = &[2, 3, 5, 7]` needs the literal emitted as static storage, since a `const` is evaluated where it is named. Slicing a `const` array, `PRIMES[..]`, gives a `&[]T`.
 
 Step 4 of [D-0093](../decisions/D-0093-views-are-borrowed-no-bare-str.md), after
 [T-0109](T-0109-text-only-borrowed-str-const-str.md), which lists every step.

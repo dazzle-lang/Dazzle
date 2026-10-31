@@ -71,7 +71,7 @@ struct Counter {
 }
 
 // A generic function's default, and a generic type's constructor's.
-fn first_or<T: Copy>(xs: []T, fallback: T, limit: usize = 1) -> T {
+fn first_or<T: Copy>(xs: &[]T, fallback: T, limit: usize = 1) -> T {
     if xs.len < limit {
         return fallback
     }
@@ -106,7 +106,7 @@ fn main() {
     println!("{} hits", c.hits)
 
     let xs = [7, 8, 9]
-    let empty: []i32 = xs[0..0]
+    let empty: &[]i32 = xs[0..0]
     println!("{} {}", first_or(xs[..], 0), first_or(empty, 42))
     let b = Boxed<f32>(1.5)
     println!("{} {}", b.value, b.scale)
