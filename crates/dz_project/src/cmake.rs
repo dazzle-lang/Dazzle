@@ -35,6 +35,48 @@ impl CmakeBuild {
     pub fn install_dir(&self) -> PathBuf {
         self.dir.join("install")
     }
+
+    /// The file `dz` writes once a build has installed: a line saying what went into the
+    /// build, a line saying what was built from, and the build's [`location`].
+    pub fn stamp_path(&self) -> PathBuf {
+        self.dir.join("dz-stamp")
+    }
+
+    /// Where this build lives; see [`location`].
+    pub fn location(&self) -> String {
+        location(&self.dir)
+    }
+
+    /// Whether the last install was made where this build lives. CMake writes absolute
+    /// paths into its cache and into the install's pkg-config file, so one made in another
+    /// folder, by a checkout moved or copied, names that folder throughout: `dz` builds it
+    /// again, and until then it is not read.
+    pub fn built_here(&self) -> bool {
+        std::fs::read_to_string(self.stamp_path())
+            .is_ok_and(|stamp| stamp.lines().nth(2) == Some(self.location().as_str()))
+    }
+}
+
+/// Where a build in `dir` lives, written the same way however the project was named on the
+/// command line (`examples/sdl3`, `./`, `src/..`): the nearest folder that exists, made
+/// canonical, then the rest as written, since the build's own folder may not exist yet.
+pub fn location(dir: &Path) -> String {
+    let mut rest = Vec::new();
+    let mut at = dir;
+    loop {
+        if let Ok(found) = std::fs::canonicalize(at) {
+            let mut out = found;
+            out.extend(rest.iter().rev());
+            return out.to_string_lossy().into_owned();
+        }
+        match (at.file_name(), at.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name.to_owned());
+                at = parent;
+            }
+            _ => return dir.to_string_lossy().into_owned(),
+        }
+    }
 }
 
 /// The CMake configuration a build mode builds (D-0090). Release and shipping share one:
@@ -366,6 +408,22 @@ mod tests {
     fn a_variable_may_hold_a_colon_and_a_field_an_equals_sign() {
         let pc = parse_pc("prefix=C:/sdk\nCflags: -I${prefix}/include -DLEVEL=2\n");
         assert_eq!(pc.cflags, ["-IC:/sdk/include", "-DLEVEL=2"]);
+    }
+
+    #[test]
+    fn a_location_is_the_same_however_the_folder_is_named() {
+        let base = std::env::temp_dir().join(format!("dz-cmake-location-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("src")).unwrap();
+        let build = base.join("build").join("cmake").join("tally").join("Debug");
+        // Before the build folder exists, and after: one location.
+        let before = location(&build);
+        std::fs::create_dir_all(&build).unwrap();
+        assert_eq!(location(&build), before);
+        let dotted = base.join("src").join("..").join("build/cmake/tally/Debug");
+        assert_eq!(location(&dotted), before);
+        assert_ne!(location(&base.join("elsewhere")), before);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

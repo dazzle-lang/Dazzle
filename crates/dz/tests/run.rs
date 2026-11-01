@@ -1471,6 +1471,46 @@ fn a_cmake_library_is_built_once_and_again_when_its_source_changes() {
 }
 
 #[test]
+fn a_cmake_library_is_built_again_when_its_project_moves() {
+    // spec §15.1, D-0090 — CMake writes absolute paths into its cache and into the
+    // install's pkg-config file, so a build made in another folder, by a checkout moved or
+    // copied, is built again rather than used: its headers would be looked for where the
+    // project was.
+    if !have_compiler() || !have_cmake() {
+        return;
+    }
+    fn copy_all(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                copy_all(&p, &to.join(e.file_name()));
+            } else {
+                std::fs::copy(&p, to.join(e.file_name())).unwrap();
+            }
+        }
+    }
+    let build = |dir: &Path| {
+        let out = Command::new(dz()).arg("build").arg(dir).output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(out.status.success(), "{stderr}");
+        stderr.contains("building tally with CMake")
+    };
+    let from = copy_fixture("cmake", "dz_cmake_moved_from");
+    assert!(build(&from), "the first build did not run CMake");
+    // Moved: copied with its build folder, then the original removed.
+    let to = std::env::temp_dir().join("dz_cmake_moved_to");
+    let _ = std::fs::remove_dir_all(&to);
+    copy_all(&from, &to);
+    let _ = std::fs::remove_dir_all(&from);
+    assert!(build(&to), "the moved project used the build made where it was");
+    assert!(!build(&to), "an unchanged library was built again");
+    // The same folder named another way is the same build.
+    assert!(!build(&to.join("src").join("..")), "another spelling of the folder rebuilt it");
+    let _ = std::fs::remove_dir_all(&to);
+}
+
+#[test]
 fn a_cmake_build_that_fails_is_reported_at_its_recipe() {
     // DZ0708, with CMake's own words in the note, and nothing after it: every header the
     // build should have installed would only be reported missing too (D-0090).

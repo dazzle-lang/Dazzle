@@ -382,8 +382,12 @@ pub fn build_cmake_libraries(ws: &Workspace, chosen: Option<&str>, diags: &mut D
     let cc = c_compiler_for(&cxx);
 
     for (module, lib, build) in libs {
+        // Where the build lives is part of how it was set up: CMake writes absolute paths
+        // into its cache and into the install's pkg-config file, so a tree made in another
+        // folder, by a checkout moved or copied, can be neither used nor reconfigured here.
+        let location = build.location();
         let setup = format!(
-            "{cxx}\0{}\0{}\0{}",
+            "{cxx}\0{}\0{}\0{}\0{location}",
             cc.as_deref().unwrap_or(""),
             generator.unwrap_or(""),
             build.config
@@ -393,14 +397,17 @@ pub fn build_cmake_libraries(ws: &Workspace, chosen: Option<&str>, diags: &mut D
             key.extend_from_slice(format!("\0{k}={v}").as_bytes());
         }
         key.extend_from_slice(&tree_hash(&build.source).to_le_bytes());
-        let stamp = format!("{:016x}\n{:016x}\n", fnv1a(setup.as_bytes()), fnv1a(&key));
-        let stamp_path = build.dir.join("dz-stamp");
+        // The location also as written, so analysis can tell an install made here from one
+        // made elsewhere without knowing the compilers (`CmakeBuild::built_here`).
+        let stamp = format!("{:016x}\n{:016x}\n{location}\n", fnv1a(setup.as_bytes()), fnv1a(&key));
+        let stamp_path = build.stamp_path();
         let old = std::fs::read_to_string(&stamp_path).unwrap_or_default();
         if old == stamp && build.install_dir().is_dir() {
             continue;
         }
-        // A tree configured by another compiler or generator cannot be reconfigured in
-        // place; CMake refuses. A changed option or source is an ordinary re-run.
+        // A tree configured by another compiler or generator, or in another folder, cannot
+        // be reconfigured in place; CMake refuses. A changed option or source is an ordinary
+        // re-run.
         if old.lines().next() != stamp.lines().next() {
             let _ = std::fs::remove_dir_all(&build.dir);
         }

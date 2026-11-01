@@ -48,6 +48,28 @@ fn a_cmake_library_no_build_has_installed_is_reported_as_not_built() {
 }
 
 #[test]
+fn an_install_made_in_another_folder_is_reported_as_not_built() {
+    // A project moved or copied keeps what its build installed where it was, and that
+    // install's pkg-config file names the old folder throughout. Analysis never builds, so
+    // it does not read that install either, and says why instead of "file not found".
+    let dir = project(
+        "moved",
+        &[
+            ("dazzle.toml", MANIFEST),
+            ("src/main.dz", MAIN),
+            ("vendor/tally/CMakeLists.txt", CMAKELISTS),
+            ("build/cmake/tally/Debug/install/include/tally.h", "int tally_add(int a, int b);\n"),
+            ("build/cmake/tally/Debug/dz-stamp", "0\n0\n/the/folder/the/project/left\n"),
+        ],
+    );
+    for mode in [Mode::Build, Mode::Editor] {
+        let found = codes(&dir, mode);
+        assert!(found.contains(&"DZ0709"), "{mode:?}: {found:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_cmake_library_is_read_from_its_install() {
     // What a debug build of the library leaves in `build/cmake/tally/Debug/install`: the
     // header requires the define the pkg-config file gives, so it reads only if both the
@@ -71,6 +93,10 @@ fn a_cmake_library_is_read_from_its_install() {
     let install = dir.join("build/cmake/tally/Debug/install");
     let pc = pc.replace("${pcfiledir}/../..", &install.to_string_lossy().replace('\\', "/"));
     std::fs::write(install.join("lib/pkgconfig/tally.pc"), pc).unwrap();
+    // What `dz` writes once a build has installed, whose last line says where it was made.
+    let build = dir.join("build/cmake/tally/Debug");
+    let stamp = format!("0\n0\n{}\n", dz_project::cmake::location(&build));
+    std::fs::write(build.join("dz-stamp"), stamp).unwrap();
 
     let analysis = analyse_with(&dir, &|_| None, Mode::Build);
     if analysis.diags.iter().any(|d| d.code == Some("DZ0703")) {

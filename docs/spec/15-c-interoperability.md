@@ -93,9 +93,11 @@ defines = ["JPH_PROFILE_ENABLED=0"]
   `ON` and `OFF`. `link_libs` and `frameworks` add to what the pkg-config file says, and a
   target section may add `options`. Debug builds CMake's `Debug` configuration; release
   and shipping build `Release`. A library is reconfigured and rebuilt only when a file
-  under `cmake`, an option, the compilers or the configuration changed. CMake is needed
-  only by a project that has such a recipe. The editor never runs it, so a library's
-  headers can be read only once a build has installed them. `[DECIDED — D-0090]`
+  under `cmake`, an option, the compilers or the configuration changed, or the project is
+  no longer where it was built: CMake writes absolute paths into its build and its install,
+  so a moved or copied checkout builds the library again. CMake is needed only by a project
+  that has such a recipe. The editor never runs it, so a library's headers can be read only
+  once a build has installed them in the project's folder. `[DECIDED — D-0090]`
 
   ```toml
   [cpp.libs.sdl3]

@@ -718,6 +718,12 @@ fn read_cmake_installs(ws: &mut Workspace) {
     for m in ws.modules_mut() {
         for lib in &mut m.cpp.libs {
             let Some(c) = &mut lib.cmake else { continue };
+            // An install made in another folder, by a checkout moved or copied, names that
+            // folder throughout. `dz` builds it again; until then it is not read, so the
+            // import says the library is not built rather than that a header is missing.
+            if !c.built_here() {
+                continue;
+            }
             let Some(usage) = cmake::read_install(&c.install_dir(), &lib.name) else { continue };
             c.installed = true;
             lib.include_dirs = usage.include_dirs;
@@ -838,13 +844,17 @@ fn import_headers(
                 .map_or(manifest, |m| m.manifest);
             let (pf_file, header) = (header_file, header);
             // A CMake library's headers are the ones its build installed, and only `dz`
-            // builds it: the editor never runs CMake (D-0090). Until a build has, there is
-            // nothing to read, and clang's "file not found" would not say why.
+            // builds it: the editor never runs CMake (D-0090). Until a build has, in this
+            // folder, there is nothing to read, and clang's "file not found" would not say
+            // why.
             if recipe.cmake.as_ref().is_some_and(|c| !c.installed) {
                 diags.push(
                     Diagnostic::error(
                         codes::CPP_NOT_BUILT,
-                        format!("`{}` is built with CMake and has not been built yet", recipe.name),
+                        format!(
+                            "`{}` is built with CMake and has not been built in this folder yet",
+                            recipe.name
+                        ),
                     )
                     .at(pf_file, header, "its build installs this header")
                     .with_help(
