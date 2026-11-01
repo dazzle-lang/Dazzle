@@ -294,15 +294,12 @@ fn values_that_leave_their_scope_keep_the_heap_and_say_why() {
     for (f, expected) in FIXED {
         assert_eq!(decisions(&a, &p, f), [*expected], "in `{f}`");
     }
-    // The aggregates `main` builds are moved into a struct literal, and `evens().len()`
-    // reads a temporary, which no block keeps yet.
+    // The lists `main` builds are a struct literal's fields, placed where the struct is:
+    // `store` is only lent, so in `main`'s region (round 3). `evens().len()` reads a
+    // temporary, which no block keeps yet.
     assert_eq!(
         decisions(&a, &p, "main"),
-        [
-            "List<i32>: heap: moved into a `Store`",
-            "List<String>: heap: moved into a `Store`",
-            "evens: heap: a temporary"
-        ]
+        ["List<i32>: region: `main`", "List<String>: region: `main`", "evens: heap: a temporary"]
     );
 }
 
@@ -496,6 +493,211 @@ fn main() {
     assert_eq!(fresh_call.arg, 0, "`self` is not counted");
 }
 
+/// Stage 2, round 3 (T-0117): a value's owned parts live where the value lives. A struct
+/// literal's fields, a tuple's parts and a `Box`'s contents are placed by what becomes of
+/// the value holding them, followed into the local a `let` moves it to; and the check
+/// follows a region into a `Box` as into a struct, so every escape of the holder is still
+/// refused, by the check alone too.
+#[test]
+fn owned_parts_live_where_their_value_lives() {
+    let source = r#"
+struct Pair {
+    pub left: List<i32>
+    pub right: List<i32>
+}
+
+struct Holder {
+    pub kept: Pair = Pair{ left: List<i32>(), right: List<i32>() }
+}
+
+// Only lent: both fields in the block's region.
+fn lent() -> usize {
+    let p = Pair{ left: List<i32>(), right: List<i32>() }
+    return p.left.len() + p.right.len()
+}
+
+// Moved on to another local, which is only lent.
+fn handed_on() -> usize {
+    let first = List<i32>()
+    let p = Pair{ left: move(first), right: List<i32>() }
+    return p.left.len()
+}
+
+// Returned: both fields where the caller keeps the pair.
+fn built() -> Pair {
+    return Pair{ left: List<i32>(), right: List<i32>() }
+}
+
+// A box and its contents, placed together.
+fn boxed() -> usize {
+    let b = Box(List<i32>())
+    let held = &b
+    return if held.is_null() { 0 } else { 1 }
+}
+
+// Stored where the block's region cannot reach: the heap, by the proposer and the check.
+fn stored(h: &mut Holder) kills h.kept {
+    let p = Pair{ left: List<i32>(), right: List<i32>() }
+    h.kept = move(p)
+}
+
+// A box given away: its contents with it.
+fn given(xs: &mut List<Box<List<i32>>>) kills xs@items {
+    let b = Box(List<i32>())
+    xs.push(move(b))
+}
+
+fn main() {
+    let mut h = Holder{}
+    stored(&mut h)
+    let mut boxes = List<Box<List<i32>>>()
+    given(&mut boxes)
+    let p = built()
+    println!("{} {} {} {} {}", lent(), handed_on(), boxed(), p.left.len(), boxes.len())
+}
+"#;
+    let a = analyse(source);
+    let p = place(&a, Proposer::Rules);
+    assert_eq!(
+        decisions(&a, &p, "lent"),
+        ["List<i32>: region: `lent`", "List<i32>: region: `lent`"]
+    );
+    assert_eq!(
+        decisions(&a, &p, "handed_on"),
+        ["List<i32>: region: `handed_on`", "List<i32>: region: `handed_on`"]
+    );
+    assert_eq!(
+        decisions(&a, &p, "built"),
+        [
+            "List<i32>: result: where `built`'s caller keeps it",
+            "List<i32>: result: where `built`'s caller keeps it"
+        ]
+    );
+    assert_eq!(
+        decisions(&a, &p, "boxed"),
+        ["Box<List<i32>>: region: `boxed`", "List<i32>: region: `boxed`"]
+    );
+    for d in decisions(&a, &p, "stored") {
+        assert!(d.ends_with("heap: stored in `h.kept`"), "{d}");
+    }
+    for d in decisions(&a, &p, "given") {
+        assert!(d.ends_with("heap: passed to `xs.push`"), "{d}");
+    }
+
+    // The check alone, with every site proposed for its block.
+    let p = place(&a, Proposer::Everything);
+    for d in decisions(&a, &p, "stored") {
+        assert!(d.ends_with("heap: stored in `h.kept`"), "the check: {d}");
+    }
+    for d in decisions(&a, &p, "given") {
+        assert!(d.ends_with("heap: passed to `xs.push`"), "the check: {d}");
+    }
+    assert_eq!(
+        decisions(&a, &p, "boxed"),
+        ["Box<List<i32>>: region: `boxed`", "List<i32>: region: `boxed`"]
+    );
+}
+
+/// Stage 2, round 3 (T-0117): a constructor builds its fields where the value it makes is
+/// placed, so it takes a placement as a result function does and each call passes one.
+/// A field rebuilt on every pass of a loop, and a value passed away, are refused. A
+/// constructor can neither move a field out of `self` nor change what its parameters
+/// reach, so those escapes cannot be written.
+#[test]
+fn a_constructor_builds_where_its_value_is_placed() {
+    let a = analyse(
+        r#"
+struct Bag {
+    pub items: List<i32>
+    pub spare: List<i32>
+
+    Bag(n: i32) {
+        items = List<i32>()
+        for i in 0..n {
+            items.push(i)
+        }
+        spare = List<i32>()
+    }
+}
+
+struct Looping {
+    pub items: List<i32>
+
+    // Rebuilt on every pass: the placement would grow with each.
+    Looping(n: i32) {
+        items = List<i32>()
+        for _ in 0..n {
+            items = List<i32>()
+        }
+    }
+}
+
+fn consume(xs: List<i32>) -> usize {
+    return xs.len()
+}
+
+struct Giving {
+    pub count: usize
+    pub items: List<i32>
+
+    // Passed away by value: whoever takes it may keep it anywhere.
+    Giving() {
+        count = consume(List<i32>())
+        items = List<i32>()
+    }
+}
+
+fn kept() -> usize {
+    let b = Bag(3)
+    return b.items.len()
+}
+
+fn made() -> Bag {
+    return Bag(2)
+}
+
+fn main() {
+    let l = Looping(3)
+    let b = made()
+    let g = Giving()
+    println!("{} {} {} {}", kept(), l.items.len(), b.items.len(), g.count + g.items.len())
+}
+"#,
+    );
+    let p = place(&a, Proposer::Rules);
+    let ctor = |owner: &str| {
+        let res = a.resolution.as_ref().unwrap();
+        p.iter()
+            .find(|(o, _)| {
+                matches!(o, BodyOwner::Ctor { owner: s, .. } if res.symbol(*s).name == owner)
+            })
+            .map(|(o, b)| {
+                assert!(p.takes_result(o), "`{owner}`'s constructor takes a placement");
+                b.sites.iter().map(|s| format!("{}: {}", s.callee, s.decision.label())).collect()
+            })
+            .unwrap_or_else(Vec::<String>::new)
+    };
+    assert_eq!(
+        ctor("Bag"),
+        [
+            "List<i32>: result: where the `Bag` constructor's caller keeps it",
+            "List<i32>: result: where the `Bag` constructor's caller keeps it"
+        ]
+    );
+    // The field rebuilt in a loop is refused by the check, and the value passed away by
+    // the proposer; what is built into `self` once and stays there is placed.
+    let looping = ctor("Looping");
+    assert!(looping[0].contains("result:"), "{looping:?}");
+    assert!(looping[1].contains("heap: made on every pass of a loop"), "{looping:?}");
+    let giving = ctor("Giving");
+    assert!(giving[0].contains("heap: passed to `consume`"), "{giving:?}");
+    assert!(giving[1].contains("result:"), "{giving:?}");
+
+    // Each call passes where the value goes.
+    assert_eq!(decisions(&a, &p, "kept"), ["Bag: region: `kept`"]);
+    assert_eq!(decisions(&a, &p, "made"), ["Bag: result: where `made`'s caller keeps it"]);
+}
+
 /// The gate's last row (T-0117): with everything proposed, the region check alone refuses
 /// every wrong placement, and still places every right one.
 #[test]
@@ -685,13 +887,18 @@ fn the_region_check_refuses_nothing_the_proposer_places_in_the_corpus() {
 
 /// `astar`'s maps and path are locals of the functions that build them (T-0104).
 #[test]
-fn astar_places_its_maps_and_its_path() {
+fn astar_places_its_queue_maps_and_path() {
     let a = dz_driver::analyse(&corpus_root().join("tests/bench_programs/astar"));
     assert!(!a.diags.has_errors(), "{}", dz_diag::render_to_string(&a.map, &a.diags));
     let p = a.placements.as_ref().unwrap();
     assert_eq!(
         decisions(&a, p, "find_path"),
-        ["HashMap<Cell, i32>: region: `find_path`", "HashMap<Cell, Cell>: region: `find_path`",]
+        [
+            // The queue: its constructor builds its list where the queue is (round 3).
+            "MinHeap<Node>: region: `find_path`",
+            "HashMap<Cell, i32>: region: `find_path`",
+            "HashMap<Cell, Cell>: region: `find_path`",
+        ]
     );
     assert_eq!(decisions(&a, p, "trace"), ["List<Cell>: region: `trace`"]);
 }

@@ -183,6 +183,49 @@ fn same<T>(x: T) -> T {
     return move(x)
 }
 
+// A constructor builds its fields where the value it makes is placed, and a value's
+// fields and a box's contents live where the value lives.
+struct Bag {
+    pub items: List<i32>
+    pub label: String
+
+    Bag() {
+        items = List<i32>()
+        label = String::from("empty")
+    }
+
+    Bag(n: i32) {
+        items = List<i32>()
+        for i in 0..n {
+            items.push(i)
+        }
+        label = String::from("bag")
+    }
+}
+
+// Kept and only lent: the bag and its fields in this block's region.
+fn bag_total(n: i32) -> i32 {
+    let b = Bag(n)
+    return sum_of(&b.items)
+}
+
+// Returned: built where the caller keeps it.
+fn make_bag(n: i32) -> Bag {
+    return Bag(n)
+}
+
+// A literal's fields, and a box's contents, where the literal and the box are.
+fn pair_total() -> i32 {
+    let s = Store{ saved: squares(4), names: List<String>() }
+    let boxed = Box(squares(3))
+    let held = &boxed
+    return sum_of(&s.saved) + if held.is_null() {
+        0
+    } else {
+        1
+    }
+}
+
 fn main() {
     let mut kept = List<String>()
     tag_twice(&mut kept, "kept")
@@ -284,4 +327,10 @@ fn main() {
     let g = same<String>
     let text = g(String::from("adapted"))
     println!("values {} {} {}", sum_of(&made), called.len(), text)
+
+    let kept_bag = make_bag(4)
+    let empty: Bag
+    let mut bags = List<Bag>()
+    bags.push(Bag(2))
+    println!("bags {} {} {} {} {} {}", bag_total(5), sum_of(&kept_bag.items), kept_bag.label, empty.label, bags[0].items.len(), pair_total())
 }

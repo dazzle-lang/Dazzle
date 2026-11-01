@@ -29,6 +29,9 @@ below, built it).
 | Stage 2 in codegen: the hidden parameter in `decl_params` (`RESULT_PLACEMENT`, `allocator_ty`), the argument in `call` (`placement_arg`, `heap_placement`, `call_takes_result`) | `dz_cpp/src/lib.rs` |
 | Stage 2, round 2: trait methods by the trait's signature and function types by their result (`result_functions`, `keeps_allocator`, `owner_sig`; `callable` on `Callee::Value`); results followed through `or` (`unwrapped`, `returned`) | `dz_flow/src/placement.rs` |
 | Stage 2, round 2 in codegen: a function type's parameter (`cpp_ty`, `Ty::Fn`), a vtable slot's (`dyn_signature`), `passes_result`, and the adapter for a function value whose function takes none (`result_adapter`) | `dz_cpp/src/lib.rs` |
+| Stage 2, round 3: what holds a value places it (`fate`, `holder`, `holds`, `escape_of` following a `let`, `temporary`); `boxes_argument`; constructors in `result_functions`, `self_field` | `dz_flow/src/placement.rs` |
+| Stage 2, round 3 in the check: a `Box`'s contents carried into its value (`contents`, in `call` and the `Call` node); a constructor's result site stored into a field of `self`, then held by `self` (`region_assign`, `self_local`) | `dz_flow/src/ties/body.rs` |
+| Stage 2, round 3 in codegen: a constructor's heap overload, declared and delegating (`heap_ctor`, in `struct_decl` and `struct_bodies`) | `dz_cpp/src/lib.rs` |
 | The inlay hint: `HintKind::Placement`, `placement_hints`; sent, with its tooltip, by `inlay_hints` | `dz_lsp/src/ide.rs`, `dz_lsp/src/lib.rs` |
 | `dz placements [path] [--format=json]`: `cmd_placements` | `crates/dz/src/main.rs` |
 | Tests | `dz_flow/tests/placement.rs` (stage 2: `a_returned_value_is_built_where_the_caller_keeps_it`); `tests/run/region_arena` (the arena by hand and the copy guard, also under `--track-memory` and `-Wall -Wextra`); `tests/run/regions` and `regions_change_nothing` (every run program with regions on, warning-clean on clang++ and g++) and `dz_placements_prints_each_site` in `dz/tests/run.rs`; `inlay_hints_show_where_each_allocation_goes` in `dz_lsp/tests/ide.rs` |
@@ -319,6 +322,44 @@ round 1 left both out; now nothing is left out but `virtual` methods.
   hiding a free function of the same name), which fails with regions off as well.
 - **Still out**: `virtual` and `override` methods, until a base and its overrides are
   decided together; a function exported to C (`#[export]` is not implemented).
+
+**Stage 2, round 3, built 2026-11-01: a value's owned parts live where it lives.**
+
+- **What holds a value places it.** The proposer follows a site's value through
+  everything that takes it whole — `move`, `or` (its operand or its fallback), a struct or
+  union literal, a tuple, an array, the value a `Box` is made of — and into the local a
+  `let` moves it to, then decides by where that ends up: a block's region, the caller's
+  placement, or the heap (`fate`, `holder`). So `let p = Pair{ left: List(), … }` lent only
+  puts both lists in the block's region, `return Pair{ … }` builds them where the caller
+  keeps the pair, and `let first = List(); let p = Pair{ left: move(first), … }` follows
+  `first` into `p`. A `move` is never a copy, even of a copyable `String`.
+- **A `Box`'s contents** go where the `Box` goes: the check carries the regions of the
+  value a `Box` is made of into the box's own value, as a struct literal does its fields',
+  so every escape of the box refuses them both.
+- **A constructor** whose struct has a field that keeps an allocator takes a placement
+  for the value it makes, and builds there what it assigns to a field of `self`. The check
+  lets a result site into a field of `self` in a constructor, and then holds it in `self`,
+  so a later escape through the field is followed. A constructor cannot move a field out
+  of `self`, nor change what its parameters reach (T-0122), so those escapes cannot be
+  written. Each constructor taking a placement also gets a C++ overload without it, which
+  delegates with the heap, for `let v: T` and a derived type's base initialiser.
+- **`copy` is not done**, and is left for after the gate. A copy is made by C++'s copy
+  constructor and copy assignment, which can take no placement, so placing one means a
+  second, placed copy per type (`List`, `HashMap`, and every struct with a `copy` or with
+  fields that have one), emitted where a copy is bound by `let`. Copies are correct as they
+  are, on the heap (stage 1's step 3), so this is speed only.
+- **Not reached, by design**: `expr`'s nodes. Its `Box`es name the parser's allocator,
+  which only T-0119 takes out of ordinary code, and each new node is assigned to `lhs`,
+  which outlives the loop that builds it, so the loop rule sends it to the heap.
+- **Checked**: `owned_parts_live_where_their_value_lives` and
+  `a_constructor_builds_where_its_value_is_placed` in `dz_flow/tests/placement.rs`, each
+  escape refused by the check alone too; `tests/run/regions` gains a struct with two
+  constructors (one taking nothing, so `let v: T` runs the heap overload), a literal's
+  fields and a box's contents, and prints the same both ways: 54 sites, 33 in a region.
+  `astar` now places its priority queue as well as its two maps: `MinHeap`'s constructor
+  builds its list where the queue is (`astar_places_its_queue_maps_and_path`).
+- **Found**: T-0122, a constructor cannot declare a `kills` clause, so one that changes
+  what a `&mut` parameter reaches cannot be written. A grammar question, the user's call.
 
 `tools/bench_regions.py` builds the heap version of each benchmark (every
 `Allocators::Temp` taken out, as T-0104 did) twice, without and with `DZ_REGIONS=1`, checks

@@ -93,6 +93,35 @@ pub fn callee_owner(res: &Resolution, callee: &Callee) -> Option<(SymbolId, Body
     })
 }
 
+/// Whether a call is `std`'s `Box(value)`, whose first argument becomes the box's own
+/// contents: it lives where the box lives, as a struct literal's fields live where the
+/// struct does (spec §14.6, "a `Box`'s contents go where the `Box` goes").
+pub(crate) fn boxes_argument(res: &Resolution, callee: &Callee) -> bool {
+    match callee {
+        Callee::Ctor { owner, .. } => {
+            let s = res.symbol(*owner);
+            s.name == "Box" && s.module == res.prelude
+        }
+        _ => false,
+    }
+}
+
+/// Whether `e` is a field of `self`, by fields alone: `m_items`, `self.a.b`. What a
+/// constructor builds there lives where the value it makes is placed.
+pub(crate) fn self_field(body: &Body, e: ExprId) -> bool {
+    fn root(body: &Body, e: ExprId) -> bool {
+        match body.expr(e).kind {
+            hir::ExprKind::Local(l) => body.local(l).name == "self",
+            hir::ExprKind::Deref(inner) => {
+                matches!(body.expr(inner).kind, hir::ExprKind::Local(l) if body.local(l).name == "self")
+            }
+            hir::ExprKind::Field { base, .. } => root(body, base),
+            _ => false,
+        }
+    }
+    matches!(body.expr(e).kind, hir::ExprKind::Field { base, .. } if root(body, base))
+}
+
 /// The functions that take a hidden result placement (spec §14.6, T-0117 stage 2): each
 /// whose result keeps an allocator ([`keeps_allocator`]), looking through `?`, decided
 /// from signatures alone so that a declaration and every call agree:
@@ -141,6 +170,15 @@ pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashS
     }
 
     for (_, body) in hir.bodies() {
+        // A constructor builds into wherever its value is placed (round 3), when a field
+        // keeps an allocator: it takes that placement and builds its fields there.
+        if let BodyOwner::Ctor { owner, .. } = &body.owner {
+            let fields = table.struct_sig(*owner).map(|s| s.fields.as_slice()).unwrap_or(&[]);
+            if fields.iter().any(|f| holds(&f.ty)) && allocator_param(res, body).is_none() {
+                out.insert(body.owner.clone());
+            }
+            continue;
+        }
         let sig = match &body.owner {
             BodyOwner::Fn(sym) => match table.get(*sym) {
                 Some(ItemSig::Fn(sig)) => sig,
@@ -184,6 +222,7 @@ fn owner_sig<'t>(table: &'t TypeTable, owner: &BodyOwner) -> Option<&'t dz_check
             table.methods_sig(*owner)?.methods.get(name)
         }
         BodyOwner::ImplMethod { imp, name } => table.impls().get(*imp as usize)?.methods.get(name),
+        BodyOwner::Ctor { owner, index } => table.struct_sig(*owner)?.ctors.get(*index),
         _ => None,
     }
 }
@@ -805,30 +844,36 @@ impl<'a> Cx<'a> {
         if proposer == Proposer::Everything {
             return Ok(Target::Block(block));
         }
-        // `return List()`, `return make()`: built where the caller keeps it.
-        if self.returns_result && self.returned(e) {
-            return Ok(Target::Result);
-        }
-        // `make() or return …` hands on what `make` built, so it is placed by what becomes
-        // of the `or`'s value: `let x = make() or …` is decided as `let x = make()` is.
-        let e = self.unwrapped(e);
-        let node = self.body.expr(e);
-        match self.up.get(&e) {
+        // What holds the site's value — `make() or …`, `Store{ names: List() }`,
+        // `Box(Node{ … })` — places it: a value's owned parts live where it lives.
+        let top = self.holder(e);
+        match self.up.get(&top) {
             Some(Up::Stmt(s)) => match &self.body.stmt(*s).kind {
-                hir::StmtKind::Let { local: Some(x), init: Some(init) } if *init == e => {
+                hir::StmtKind::Let { local: Some(x), init: Some(init) } if *init == top => {
                     let local = self.body.local(*x);
-                    if local.ty != node.ty {
+                    if local.ty != *self.body.ty(top) {
                         let ty = dz_check::type_name(self.res, &local.ty);
                         return Err((format!("kept as `{ty}`"), Some(local.span)));
                     }
-                    match self.escape_of(*x) {
+                    let block = self.stmt_block.get(s).copied().unwrap_or(block);
+                    match self.escape_of(*x, 0) {
                         Escape::Stays => Ok(Target::Block(block)),
                         Escape::Returned => Ok(Target::Result),
                         Escape::Leaves(found) => Err(found),
                     }
                 }
                 hir::StmtKind::Let { .. } => Err(("not kept by `let`".to_owned(), None)),
-                hir::StmtKind::Assign { target, value, .. } if *value == e => {
+                hir::StmtKind::Assign { target, value, op, .. } if *value == top => {
+                    // A constructor building a field of the value it makes: where that
+                    // value is placed (round 3).
+                    let ctor = matches!(self.body.owner, BodyOwner::Ctor { .. });
+                    if ctor
+                        && self.returns_result
+                        && *op == hir::AssignOp::Assign
+                        && self_field(self.body, *target)
+                    {
+                        return Ok(Target::Result);
+                    }
                     let name = place_name(self.res, self.body, Some(self.table), *target);
                     let why = if self.in_loop(block) {
                         format!("assigned to `{name}` on every pass of a loop")
@@ -837,12 +882,18 @@ impl<'a> Cx<'a> {
                     };
                     Err((why, Some(self.body.stmt(*s).span)))
                 }
-                _ => Err(self.fate(e).unwrap_or_else(|| ("a temporary".to_owned(), None))),
+                _ => self.temporary(top),
             },
-            _ => match self.fate(e) {
-                Some(found) => Err(found),
-                None => Err(("a temporary".to_owned(), None)),
-            },
+            _ => self.temporary(top),
+        }
+    }
+
+    /// A value no `let` keeps: placed only when it is what the body returns.
+    fn temporary(&self, e: ExprId) -> Proposal {
+        match self.fate(e, 0) {
+            Escape::Returned => Ok(Target::Result),
+            Escape::Leaves(found) => Err(found),
+            Escape::Stays => Err(("a temporary".to_owned(), None)),
         }
     }
 
@@ -857,9 +908,9 @@ impl<'a> Cx<'a> {
     }
 
     /// What the uses of `x` do with it: the first that takes it from where it is, in source
-    /// order. In a result function, returning it does not count as leaving: it is built
-    /// where the caller keeps it instead.
-    fn escape_of(&self, x: LocalId) -> Escape {
+    /// order; else whether one returns it. `depth` bounds following one local into the
+    /// next.
+    fn escape_of(&self, x: LocalId, depth: u32) -> Escape {
         let mut uses: Vec<ExprId> = (0..self.body.exprs.len() as u32)
             .map(ExprId)
             .filter(|e| matches!(self.body.expr(*e).kind, hir::ExprKind::Local(l) if l == x))
@@ -867,12 +918,10 @@ impl<'a> Cx<'a> {
         uses.sort_by_key(|e| (self.body.expr(*e).span.start, e.0));
         let mut returned = false;
         for u in uses {
-            if self.returns_result && self.returned(u) {
-                returned = true;
-                continue;
-            }
-            if let Some(found) = self.fate(u) {
-                return Escape::Leaves(found);
+            match self.fate(u, depth) {
+                Escape::Stays => {}
+                Escape::Returned => returned = true,
+                Escape::Leaves(found) => return Escape::Leaves(found),
             }
         }
         if returned {
@@ -882,30 +931,36 @@ impl<'a> Cx<'a> {
         }
     }
 
-    /// Whether `e`'s value is what the body returns: `return e`, `return move(e)`, or
-    /// `return e or …`.
-    fn returned(&self, mut e: ExprId) -> bool {
-        loop {
-            let Some(Up::Expr(p)) = self.up.get(&e) else { return false };
-            match self.body.expr(*p).kind {
-                hir::ExprKind::Move(_) => e = *p,
-                hir::ExprKind::Or { operand, .. } if operand == e => e = *p,
-                hir::ExprKind::Return(_) => return true,
-                _ => return false,
-            }
-        }
-    }
-
-    /// `e`, or the `or` that unwraps it — `e or …`, `e or … or …` — whose value is what
-    /// `e` built when it has one.
-    fn unwrapped(&self, mut e: ExprId) -> ExprId {
+    /// The outermost value holding `e`'s, through what moves it whole into another: a
+    /// `move`, an `or` (its operand or its fallback), a struct or union literal, a tuple, an
+    /// array, and the value a `Box` is made of.
+    fn holder(&self, mut e: ExprId) -> ExprId {
         while let Some(Up::Expr(p)) = self.up.get(&e) {
-            match self.body.expr(*p).kind {
-                hir::ExprKind::Or { operand, .. } if operand == e => e = *p,
-                _ => break,
+            if self.holds(*p, e) {
+                e = *p;
+            } else {
+                break;
             }
         }
         e
+    }
+
+    /// Whether `parent` holds `e`'s value as its own: what [`Self::holder`] climbs.
+    fn holds(&self, parent: ExprId, e: ExprId) -> bool {
+        match &self.body.expr(parent).kind {
+            hir::ExprKind::Move(_)
+            | hir::ExprKind::StructLit { .. }
+            | hir::ExprKind::UnionVariant { .. }
+            | hir::ExprKind::Tuple(_)
+            | hir::ExprKind::ArrayLit(_) => true,
+            hir::ExprKind::Or { operand, clause } => {
+                *operand == e || matches!(clause, hir::OrClause::Value(v) if *v == e)
+            }
+            hir::ExprKind::Call { callee, args } => {
+                args.first() == Some(&e) && boxes_argument(self.res, callee)
+            }
+            _ => false,
+        }
     }
 
     /// Whether `e` reads a place by value without moving it: for a copyable type, a copy.
@@ -920,19 +975,34 @@ impl<'a> Cx<'a> {
         ) && self.table.copyable(self.body.ty(e))
     }
 
-    /// What the code around `e` does with its value: `None` when it stays where it is or is
-    /// copied, else why it leaves and where.
-    fn fate(&self, e: ExprId) -> Option<(String, Option<Span>)> {
+    /// What becomes of `e`'s value, followed through whatever holds it ([`Self::holds`])
+    /// and into a local a `let` moves it to: it stays where it is (borrowed, copied,
+    /// assigned to, dropped with its block), it is returned, or it leaves, and why and
+    /// where. A return is [`Escape::Returned`] only in a result function; elsewhere the
+    /// value leaves with it. `depth` bounds following one local into the next.
+    fn fate(&self, e: ExprId, depth: u32) -> Escape {
         let copy = self.is_copy(e);
         let span = |x: ExprId| Some(self.body.expr(x).span);
-        let leaves = |why: String, at: Option<Span>| if copy { None } else { Some((why, at)) };
+        let leaves = |why: String, at: Option<Span>| {
+            if copy {
+                Escape::Stays
+            } else {
+                Escape::Leaves((why, at))
+            }
+        };
         let Some(up) = self.up.get(&e) else {
-            return Some(("used where this cannot follow it".to_owned(), span(e)));
+            return Escape::Leaves(("used where this cannot follow it".to_owned(), span(e)));
         };
         match *up {
             Up::Stmt(s) => {
                 let stmt = self.body.stmt(s);
                 match &stmt.kind {
+                    hir::StmtKind::Let { local: Some(y), init: Some(init) }
+                        if *init == e && !copy && depth < 8 =>
+                    {
+                        // Moved into another local, which holds it from here on.
+                        self.escape_of(*y, depth + 1)
+                    }
                     hir::StmtKind::Let { local, .. } => {
                         let name =
                             local.map_or("_".to_owned(), |l| self.body.local(l).name.clone());
@@ -941,21 +1011,27 @@ impl<'a> Cx<'a> {
                     hir::StmtKind::LetTuple { .. } => {
                         leaves("moved into a tuple".to_owned(), Some(stmt.span))
                     }
-                    hir::StmtKind::Assign { target, .. } if *target == e => None,
+                    hir::StmtKind::Assign { target, .. } if *target == e => Escape::Stays,
                     hir::StmtKind::Assign { target, .. } => {
                         let name = place_name(self.res, self.body, Some(self.table), *target);
                         leaves(format!("stored in `{name}`"), Some(stmt.span))
                     }
                     hir::StmtKind::Expr(_) if self.is_tail_value(s) => {
-                        Some(("the value of a block".to_owned(), span(e)))
+                        Escape::Leaves(("the value of a block".to_owned(), span(e)))
                     }
                     hir::StmtKind::For { shape: hir::ForShape::Consuming, .. } => {
-                        Some(("consumed by a `for`".to_owned(), Some(stmt.span)))
+                        Escape::Leaves(("consumed by a `for`".to_owned(), Some(stmt.span)))
                     }
-                    _ => None,
+                    _ => Escape::Stays,
                 }
             }
             Up::Expr(p) => {
+                // `move(x)` takes `x` whole, copyable or not; anything else that holds a
+                // copy holds a copy, which leaves `x` where it is.
+                let moved = matches!(self.body.expr(p).kind, hir::ExprKind::Move(_));
+                if (moved || !copy) && self.holds(p, e) {
+                    return self.fate(p, depth);
+                }
                 let parent = self.body.expr(p);
                 match &parent.kind {
                     hir::ExprKind::Ref { .. }
@@ -963,45 +1039,39 @@ impl<'a> Cx<'a> {
                     | hir::ExprKind::DataPtr(_)
                     | hir::ExprKind::Deref(_)
                     | hir::ExprKind::Switch { .. }
-                    | hir::ExprKind::If { .. } => None,
+                    | hir::ExprKind::If { .. } => Escape::Stays,
                     hir::ExprKind::Index { base, .. } | hir::ExprKind::SliceRange { base, .. }
                         if *base == e =>
                     {
-                        None
+                        Escape::Stays
                     }
                     // A field read follows the field: a copy of it leaves the value alone.
-                    hir::ExprKind::Field { .. } | hir::ExprKind::TupleIndex { .. } => self.fate(p),
+                    hir::ExprKind::Field { .. } | hir::ExprKind::TupleIndex { .. } => {
+                        self.fate(p, depth)
+                    }
                     hir::ExprKind::Call { callee, .. } => match callee {
                         // Every Dazzle method borrows its receiver (spec §7.3).
                         Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. }
                             if *recv == e =>
                         {
-                            None
+                            Escape::Stays
                         }
                         _ => leaves(format!("passed to `{}`", self.call_name(p)), span(p)),
                     },
-                    hir::ExprKind::Move(_) => self.fate(p),
                     hir::ExprKind::Return(_) => {
-                        // C++ moves a local it returns, so this is never a copy.
-                        if matches!(self.body.expr(e).kind, hir::ExprKind::Local(_)) {
-                            Some(("returned".to_owned(), span(p)))
+                        // C++ moves a local it returns, so that is never a copy.
+                        let moved = matches!(self.body.expr(e).kind, hir::ExprKind::Local(_));
+                        if copy && !moved {
+                            Escape::Stays
+                        } else if self.returns_result {
+                            Escape::Returned
                         } else {
-                            leaves("returned".to_owned(), span(p))
+                            Escape::Leaves(("returned".to_owned(), span(p)))
                         }
                     }
-                    hir::ExprKind::StructLit { ty, .. } => {
-                        let name = self.res.symbol(*ty).name.clone();
-                        leaves(format!("moved into a `{name}`"), span(p))
-                    }
-                    hir::ExprKind::UnionVariant { owner, .. } => {
-                        let name = self.res.symbol(*owner).name.clone();
-                        leaves(format!("moved into a `{name}`"), span(p))
-                    }
-                    hir::ExprKind::Tuple(_) => leaves("moved into a tuple".to_owned(), span(p)),
-                    hir::ExprKind::ArrayLit(_) => leaves("moved into an array".to_owned(), span(p)),
                     hir::ExprKind::IfLet { binding, .. } => {
                         if matches!(self.body.local(*binding).ty, Ty::Ref { .. }) {
-                            None
+                            Escape::Stays
                         } else {
                             leaves("taken out by `if let`".to_owned(), span(p))
                         }
@@ -1015,7 +1085,7 @@ impl<'a> Cx<'a> {
                         let in_place = args.first() == Some(&e)
                             && matches!(name.as_str(), "construct" | "destroy" | "move_out");
                         if in_place {
-                            None
+                            Escape::Stays
                         } else {
                             leaves(format!("passed to `{name}`"), span(p))
                         }

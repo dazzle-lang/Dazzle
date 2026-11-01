@@ -6,6 +6,28 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0117, stage 2, round 3: owned parts live where their value lives (2026-11-01)
+
+Compiler work; no language change. Behind `DZ_REGIONS`.
+
+- **The proposer follows a value through what holds it**: `move`, `or`, struct and union
+  literals, tuples, arrays and a `Box`'s contents, and into the local a `let` moves it to.
+  One function, `fate`, now answers "stays, returned, or leaves" for every use, where the
+  old one answered only "leaves" and the return case was special-cased beside it. A
+  `move` is never a copy: treating `move(text)` of a copyable `String` as one sent
+  `expr`'s `generate` back to the heap until it was fixed.
+- **The check carries a `Box`'s contents** into the box's value.
+- **Constructors** take a placement for the value they make and build their fields
+  there; the check lets a result site into a field of `self` and holds it in `self`. Each
+  also gets a heap overload that delegates, so constructions that pass no placement — the
+  default constructor, a base initialiser — still compile.
+- **`copy` is left**: C++'s copy constructor cannot take a placement, so it would need a
+  placed copy per type. Copies stay on the heap, correct as before.
+- Found T-0122: a constructor cannot declare a `kills` clause.
+
+Tests: `owned_parts_live_where_their_value_lives`, `a_constructor_builds_where_its_value_is_placed`;
+`tests/run/regions` gains constructors, a literal's fields and a box's contents.
+
 ## T-0117, stage 2, round 2: trait methods, function values, and results through `or` (2026-11-01)
 
 Compiler work; no language change. Behind `DZ_REGIONS`.

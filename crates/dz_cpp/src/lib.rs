@@ -2105,7 +2105,17 @@ impl<'a> Emitter<'a> {
                     let owner = BodyOwner::Ctor { owner: sym, index: ctors };
                     ctors += 1;
                     let params = self.decl_params(&owner);
-                    let _ = writeln!(self.header, "    {name}({params});");
+                    match self.heap_ctor(&owner, &name) {
+                        Some((list, _)) => {
+                            // Taking only a placement, it must not convert one to a value.
+                            let explicit = if list.is_empty() { "explicit " } else { "" };
+                            let _ = writeln!(self.header, "    {explicit}{name}({params});");
+                            let _ = writeln!(self.header, "    {name}({list});");
+                        }
+                        None => {
+                            let _ = writeln!(self.header, "    {name}({params});");
+                        }
+                    }
                 }
                 MemberKind::Fn(f) => {
                     let key =
@@ -2310,6 +2320,9 @@ impl<'a> Emitter<'a> {
                     let init = self.base_init(&owner);
                     let head = format!("{inline}{name}::{name}({params}){init} {{");
                     self.emit_body(&owner, &head);
+                    if let Some((_, def)) = self.heap_ctor(&owner, &name) {
+                        let _ = writeln!(self.out, "{inline}{name}::{def}\n");
+                    }
                     // `let v: T` runs a constructor every argument of which has a default
                     // (spec §6.2), so C++'s default constructor delegates to it with them.
                     let sig = self.table.struct_sig(sym).cloned().unwrap_or_default();
@@ -2740,6 +2753,28 @@ impl<'a> Emitter<'a> {
             parts.push(format!("[[maybe_unused]] {ty} {RESULT_PLACEMENT}"));
         }
         parts.join(", ")
+    }
+
+    /// A constructor that takes a placement for the value it makes (T-0117 stage 2, round
+    /// 3) also gets one that does not, building on the heap, for every C++ construction
+    /// that passes none: `let v: T`'s default constructor, a derived type's base
+    /// initialiser. Its declaration's parameters, and its definition, which delegates.
+    fn heap_ctor(&mut self, owner: &BodyOwner, name: &str) -> Option<(String, String)> {
+        if !self.placements.is_some_and(|p| p.takes_result(owner)) {
+            return None;
+        }
+        let body = self.find_body(owner)?;
+        let has_self = body.params.first().is_some_and(|p| body.local(*p).name == "self");
+        let mut list = Vec::new();
+        let mut args = Vec::new();
+        for (i, p) in body.params.iter().skip(usize::from(has_self)).enumerate() {
+            let t = self.cpp_ty(&body.local(*p).ty);
+            list.push(format!("{t} a{i}"));
+            args.push(format!("static_cast<{t}&&>(a{i})"));
+        }
+        args.push(self.heap_placement());
+        let list = list.join(", ");
+        Some((list.clone(), format!("{name}({list}) : {name}({}) {{}}", args.join(", "))))
     }
 
     /// Whether a function returning `ret` takes a result placement, by its type alone: a
