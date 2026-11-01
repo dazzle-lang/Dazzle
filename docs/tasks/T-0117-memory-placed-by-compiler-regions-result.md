@@ -26,7 +26,9 @@ below, built it).
 | One wording for every reader: `Decision::label` | `dz_flow/src/placement.rs` |
 | Stage 2, result placement: `result_functions` (which take one; `holds_allocator`, `allocator_param`), `Placements::takes_result`, `callee_owner`, `Decision::Result`, `Placed`, `BodyPlacement::placed`; the proposer's `Target::Result`, `Escape`, `returned` | `dz_flow/src/placement.rs` |
 | Stage 2 in the check: `Regions::results`, exempt from `region_end` and from the `return` refusal | `dz_flow/src/ties/body.rs` |
-| Stage 2 in codegen: the hidden parameter in `decl_params` (`RESULT_PLACEMENT`, `allocator_ty`), the argument in `call` (`placement_arg`, `heap_placement`) | `dz_cpp/src/lib.rs` |
+| Stage 2 in codegen: the hidden parameter in `decl_params` (`RESULT_PLACEMENT`, `allocator_ty`), the argument in `call` (`placement_arg`, `heap_placement`, `call_takes_result`) | `dz_cpp/src/lib.rs` |
+| Stage 2, round 2: trait methods by the trait's signature and function types by their result (`result_functions`, `keeps_allocator`, `owner_sig`; `callable` on `Callee::Value`); results followed through `or` (`unwrapped`, `returned`) | `dz_flow/src/placement.rs` |
+| Stage 2, round 2 in codegen: a function type's parameter (`cpp_ty`, `Ty::Fn`), a vtable slot's (`dyn_signature`), `passes_result`, and the adapter for a function value whose function takes none (`result_adapter`) | `dz_cpp/src/lib.rs` |
 | The inlay hint: `HintKind::Placement`, `placement_hints`; sent, with its tooltip, by `inlay_hints` | `dz_lsp/src/ide.rs`, `dz_lsp/src/lib.rs` |
 | `dz placements [path] [--format=json]`: `cmd_placements` | `crates/dz/src/main.rs` |
 | Tests | `dz_flow/tests/placement.rs` (stage 2: `a_returned_value_is_built_where_the_caller_keeps_it`); `tests/run/region_arena` (the arena by hand and the copy guard, also under `--track-memory` and `-Wall -Wextra`); `tests/run/regions` and `regions_change_nothing` (every run program with regions on, warning-clean on clang++ and g++) and `dz_placements_prints_each_site` in `dz/tests/run.rs`; `inlay_hints_show_where_each_allocation_goes` in `dz_lsp/tests/ide.rs` |
@@ -278,10 +280,10 @@ as stage 1; with it unset no declaration or call changes.
   generated text and `expr`'s generated source and token list are now built in `main`'s
   region, as is `Process::args()` in all three. `expr`'s parser nodes are not: each
   `self.expr() or return …` is kept through `or`, which keeps the heap.
-- **Not yet**: trait methods, functions used as values (round 2); constructors and `copy`
-  (round 3); a result kept through `or`, which is what reaches `expr`'s nodes (the
-  prototype followed `let x = make() or …`); and a temporary (`evens().len()`) or a value
-  assigned rather than bound by `let`, which keep the heap as in stage 1.
+- **Not yet** at round 1: trait methods, functions used as values, a result kept through
+  `or` (all three done since, below); constructors and `copy` (round 3); and a temporary
+  (`evens().len()`) or a value assigned rather than bound by `let`, which keep the heap as
+  in stage 1.
 - **Checked**: `regions_change_nothing` (every `tests/run` program, std's own result
   functions included, prints its `expected.txt` with regions on, warning-clean on clang++
   and g++); `a_returned_value_is_built_where_the_caller_keeps_it` (callee and caller
@@ -289,6 +291,34 @@ as stage 1; with it unset no declaration or call changes.
   implementation, a generic `-> T?`); the corpus test, where the check refuses no result
   placement the proposer makes. `tests/run/regions` places 16 of its 29 sites, three of
   them in a result placement.
+- **Missed at the commit (`daf89df`)**: the fixture's comments were edited after
+  `dz_placements_prints_each_site` last ran, which moved its lines, so that test failed
+  at that commit. Fixed in round 2's.
+
+**Stage 2, round 1, follow-up (2026-11-01): a result kept through `or`.** `let x = make()
+or …` and `return make() or …` are decided as `let x = make()` and `return make()` are;
+the check already followed a value through `or`. In `expr` this places `primary`'s and
+`unary`'s results where their callers keep them; most of its nodes then go into a `Box`
+as a constructor argument, which is round 3's.
+
+**Stage 2, round 2, built 2026-11-01: trait methods and function values.** The rule in
+round 1 left both out; now nothing is left out but `virtual` methods.
+
+- **A trait method** takes a placement when the *trait's* signature's result keeps an
+  allocator, so all its implementations (their bodies and the defaults `dz_mono` copies
+  into them), the trait object's vtable slot (`dyn_signature`), and a call through a
+  bound or an object agree. A trait returning `Self` takes none, for any implementation.
+- **A function type** whose result keeps an allocator passes one, `::dz::fn<R, P…,
+  Allocator__dyn>`, and a call through a value is a site like any other. A function named
+  as a value whose own declaration takes none — a generic `same<T>(x: T) -> T` named as
+  `same<String>`, or a function with an allocator parameter of its own — is wrapped in a
+  capture-less adapter that takes one and calls it as before (`result_adapter`).
+- `tests/run/regions` gains a trait with a default method, called directly, through a
+  bound and through a trait object, a function value passed and called, and the adapter;
+  41 sites, 22 in a region. Building it found T-0121, a codegen bug of its own (a local
+  hiding a free function of the same name), which fails with regions off as well.
+- **Still out**: `virtual` and `override` methods, until a base and its overrides are
+  decided together; a function exported to C (`#[export]` is not implemented).
 
 `tools/bench_regions.py` builds the heap version of each benchmark (every
 `Allocators::Temp` taken out, as T-0104 did) twice, without and with `DZ_REGIONS=1`, checks

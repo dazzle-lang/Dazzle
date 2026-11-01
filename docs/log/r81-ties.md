@@ -6,6 +6,28 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0117, stage 2, round 2: trait methods, function values, and results through `or` (2026-11-01)
+
+Compiler work; no language change. Behind `DZ_REGIONS`.
+
+- **Through `or`**: `let x = make() or …` and `return make() or …` are placed as the
+  `or`'s value is used; the check already followed values through `or`.
+- **Trait methods** take a placement by the trait's own signature, so every
+  implementation, the defaults copied into them, the vtable slot and a call through a
+  bound or an object agree. A trait method returning `Self` takes none.
+- **Function types** with a result that keeps an allocator pass one, so a function value is
+  called like a function. A function named as a value that takes none itself (a generic
+  `-> T`, one with its own allocator parameter) is wrapped in a capture-less adapter. This
+  removes round 1's "never used as a value" rule; only `virtual` methods are left out.
+- Found on the way: T-0121, a local hiding a free function of the same name in the C++,
+  with regions off too. And `dz_placements_prints_each_site` had been failing since round
+  1's commit, whose last fixture edit moved its lines.
+
+Tests: `tests/run/regions` gains each path (a trait's method directly, through a bound and
+through an object, a default method, a function value passed and called, the adapter);
+`a_returned_value_is_built_where_the_caller_keeps_it` covers `or`, trait implementations
+and function values.
+
 ## T-0117, stage 2, round 1: a returned value built where the caller keeps it (2026-11-01)
 
 Compiler work; no language change (§14.6 already says it). Behind `DZ_REGIONS`, as stage 1.

@@ -94,29 +94,55 @@ pub fn callee_owner(res: &Resolution, callee: &Callee) -> Option<(SymbolId, Body
 }
 
 /// The functions that take a hidden result placement (spec §14.6, T-0117 stage 2): each
-/// whose result keeps an allocator ([`holds_allocator`]), looking through `?`, that is a
-/// free function, or a struct's
-/// or union's method that is neither `virtual` nor `override`, and that takes no allocator
-/// parameter of its own (a stage 1 site already says where it builds).
+/// whose result keeps an allocator ([`keeps_allocator`]), looking through `?`, decided
+/// from signatures alone so that a declaration and every call agree:
 ///
-/// Left out until their calling conventions carry it (stage 2's round 2): trait methods,
-/// whose implementations share a vtable slot, and any function used as a value anywhere in
-/// the program, whose C++ type would change. A function C calls has no way to pass one
-/// either, and is reached only as a value today.
+/// - a free function, or a struct's or union's method that is neither `virtual` nor
+///   `override`, that takes no allocator parameter of its own (a stage 1 site already says
+///   where it builds);
+/// - a trait's method, decided by the trait's signature, so every implementation (its
+///   `ImplMethod` body, and the default `dz_mono` copies into it), the trait object's
+///   vtable slot and a call through a bound all take one or none alike.
+///
+/// A function type takes one by the same rule ([`keeps_allocator`] on its result), so a
+/// function value is called like a function; where the function it names takes none,
+/// codegen adapts it. `virtual` methods are left out until a base and its overrides can be
+/// decided together.
 pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashSet<BodyOwner> {
-    let mut values = HashSet::new();
+    let allocator = res.lookup(res.prelude, "Allocator");
+    let holds = |t: &Ty| holds_allocator(table, allocator, t, &mut Vec::new());
+    let mut out = HashSet::new();
+
+    let mut traits: HashSet<SymbolId> =
+        table.impls().iter().map(|i| i.trait_ref.trait_sym).collect();
     for (_, body) in hir.bodies() {
-        for e in &body.exprs {
-            if let hir::ExprKind::FnItem { sym, .. } = e.kind {
-                values.insert(sym);
+        if let BodyOwner::TraitDefaults { owner, .. } | BodyOwner::Method { owner, .. } =
+            &body.owner
+        {
+            if res.symbol(*owner).kind == dz_resolve::SymbolKind::Trait {
+                traits.insert(*owner);
             }
         }
     }
-    let allocator = res.lookup(res.prelude, "Allocator");
-    let mut out = HashSet::new();
+    for t in traits {
+        let Some(s) = table.methods_sig(t) else { continue };
+        for (name, sig) in &s.methods {
+            if !holds(&sig.ret) {
+                continue;
+            }
+            out.insert(BodyOwner::TraitDefaults { owner: t, name: name.clone() });
+            out.insert(BodyOwner::Method { owner: t, name: name.clone() });
+            for (idx, imp) in table.impls().iter().enumerate() {
+                if imp.trait_ref.trait_sym == t {
+                    out.insert(BodyOwner::ImplMethod { imp: idx as u32, name: name.clone() });
+                }
+            }
+        }
+    }
+
     for (_, body) in hir.bodies() {
         let sig = match &body.owner {
-            BodyOwner::Fn(sym) if !values.contains(sym) => match table.get(*sym) {
+            BodyOwner::Fn(sym) => match table.get(*sym) {
                 Some(ItemSig::Fn(sig)) => sig,
                 _ => continue,
             },
@@ -131,7 +157,7 @@ pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashS
             _ => continue,
         };
         if sig.dispatch != Dispatch::Static
-            || !holds_allocator(table, allocator, &body.ret, &mut Vec::new())
+            || !holds(&body.ret)
             || allocator_param(res, body).is_some()
         {
             continue;
@@ -139,6 +165,27 @@ pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashS
         out.insert(body.owner.clone());
     }
     out
+}
+
+/// Whether a function returning `ty` takes a result placement, and a function type with
+/// that result passes one: `ty` keeps an allocator, through its fields, `?` or `!`.
+pub fn keeps_allocator(table: &TypeTable, res: &Resolution, ty: &Ty) -> bool {
+    holds_allocator(table, res.lookup(res.prelude, "Allocator"), ty, &mut Vec::new())
+}
+
+/// A function's signature by its body's owner, `self` not among its parameters.
+fn owner_sig<'t>(table: &'t TypeTable, owner: &BodyOwner) -> Option<&'t dz_check::FnSig> {
+    match owner {
+        BodyOwner::Fn(sym) => match table.get(*sym)? {
+            ItemSig::Fn(sig) => Some(sig),
+            _ => None,
+        },
+        BodyOwner::Method { owner, name } | BodyOwner::TraitDefaults { owner, name } => {
+            table.methods_sig(*owner)?.methods.get(name)
+        }
+        BodyOwner::ImplMethod { imp, name } => table.impls().get(*imp as usize)?.methods.get(name),
+        _ => None,
+    }
 }
 
 /// Whether a value of `ty` keeps an allocator, in a field or a field's field: what a
@@ -191,13 +238,6 @@ fn allocator_param(res: &Resolution, body: &Body) -> Option<usize> {
             )
         })
     })
-}
-
-/// How many parameters a function's declaration writes, `self` not counted: where its
-/// hidden result placement goes.
-fn written_params(body: &Body) -> usize {
-    let has_self = body.params.first().is_some_and(|p| body.local(*p).name == "self");
-    body.params.len() - usize::from(has_self)
 }
 
 /// One body's sites, in source order.
@@ -368,7 +408,7 @@ fn place_body(
     let mut found = Vec::new();
     for i in 0..body.exprs.len() {
         let e = ExprId(i as u32);
-        if let Some(c) = callable(hir, res, results, body, e) {
+        if let Some(c) = callable(hir, table, res, results, body, e) {
             found.push((e, c));
         }
     }
@@ -429,6 +469,7 @@ fn place_body(
 /// `Allocators::Global` that the call leaves out, or a call to a result function.
 fn callable(
     hir: &Hir,
+    table: &TypeTable,
     res: &Resolution,
     results: &HashSet<BodyOwner>,
     body: &Body,
@@ -436,15 +477,24 @@ fn callable(
 ) -> Option<Callable> {
     let node = body.expr(e);
     let hir::ExprKind::Call { callee, args } = &node.kind else { return None };
+    let name = callee_name(res, body, callee, &node.ty);
+    // A function value passes a placement when its type's result keeps an allocator: what
+    // it calls is out of sight, but whatever it is takes one, adapted if need be.
+    if let Callee::Value(v) = callee {
+        let Ty::Fn { params, ret, .. } = body.ty(*v).peeled() else { return None };
+        if !keeps_allocator(table, res, ret) {
+            return None;
+        }
+        return Some(Callable { arg: params.len(), std: false, result: true, rc: false, name });
+    }
     let (sym, owner) = callee_owner(res, callee)?;
-    let callee_body = hir.find(&owner)?;
     let s = res.symbol(sym);
     let std = s.module == res.prelude;
-    let name = callee_name(res, body, callee, &node.ty);
     if results.contains(&owner) {
-        let arg = written_params(callee_body);
+        let arg = owner_sig(table, &owner).map(|sig| sig.params.len())?;
         return Some(Callable { arg, std, result: true, rc: false, name });
     }
+    let callee_body = hir.find(&owner)?;
     let arg = allocator_param(res, callee_body)?;
     let left_out = match args.get(arg) {
         None => true,
@@ -759,6 +809,9 @@ impl<'a> Cx<'a> {
         if self.returns_result && self.returned(e) {
             return Ok(Target::Result);
         }
+        // `make() or return …` hands on what `make` built, so it is placed by what becomes
+        // of the `or`'s value: `let x = make() or …` is decided as `let x = make()` is.
+        let e = self.unwrapped(e);
         let node = self.body.expr(e);
         match self.up.get(&e) {
             Some(Up::Stmt(s)) => match &self.body.stmt(*s).kind {
@@ -786,9 +839,6 @@ impl<'a> Cx<'a> {
                 }
                 _ => Err(self.fate(e).unwrap_or_else(|| ("a temporary".to_owned(), None))),
             },
-            Some(Up::Expr(p)) if matches!(self.body.expr(*p).kind, hir::ExprKind::Or { .. }) => {
-                Err(("kept through `or`".to_owned(), Some(self.body.expr(*p).span)))
-            }
             _ => match self.fate(e) {
                 Some(found) => Err(found),
                 None => Err(("a temporary".to_owned(), None)),
@@ -832,16 +882,30 @@ impl<'a> Cx<'a> {
         }
     }
 
-    /// Whether `e`'s value is what the body returns: `return e`, or `return move(e)`.
+    /// Whether `e`'s value is what the body returns: `return e`, `return move(e)`, or
+    /// `return e or …`.
     fn returned(&self, mut e: ExprId) -> bool {
         loop {
             let Some(Up::Expr(p)) = self.up.get(&e) else { return false };
             match self.body.expr(*p).kind {
                 hir::ExprKind::Move(_) => e = *p,
+                hir::ExprKind::Or { operand, .. } if operand == e => e = *p,
                 hir::ExprKind::Return(_) => return true,
                 _ => return false,
             }
         }
+    }
+
+    /// `e`, or the `or` that unwraps it — `e or …`, `e or … or …` — whose value is what
+    /// `e` built when it has one.
+    fn unwrapped(&self, mut e: ExprId) -> ExprId {
+        while let Some(Up::Expr(p)) = self.up.get(&e) {
+            match self.body.expr(*p).kind {
+                hir::ExprKind::Or { operand, .. } if operand == e => e = *p,
+                _ => break,
+            }
+        }
+        e
     }
 
     /// Whether `e` reads a place by value without moving it: for a copyable type, a copy.
