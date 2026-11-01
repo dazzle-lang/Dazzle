@@ -534,7 +534,7 @@ fn inlay_hints_show_where_each_allocation_goes() {
         "{all:?}"
     );
     assert_eq!(
-        placed("List<String>()", 4).as_deref(),
+        placed("List<String>()", 5).as_deref(),
         Some("region: each pass of a loop in `main`"),
         "{all:?}"
     );

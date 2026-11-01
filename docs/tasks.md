@@ -101,7 +101,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (21 open)
+## none — not scheduled (22 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -124,3 +124,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0118](tasks/T-0118-skip-drops-that-only-free-region.md)** Skip drops that only free region memory · feature, ownership
 - **[T-0119](tasks/T-0119-remove-allocators-from-ordinary-code.md)** Remove allocators from ordinary code · feature, stdlib
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
+- **[T-0122](tasks/T-0122-constructor-cannot-declare-kills-clause.md)** A constructor cannot declare a kills clause · bug, ownership

@@ -304,6 +304,9 @@ struct Analysis<'a> {
     unsafe_depth: u32,
     /// Set only by [`analyse_regions`].
     regions: Option<Regions>,
+    /// The regions a `Box` call's contents hold, from `call` to the `Call` node that adds
+    /// them to the box's own value. Empty between calls.
+    contents: Vec<usize>,
 }
 
 /// Analyse one checked function, using only other functions' signatures. Findings are
@@ -368,6 +371,7 @@ fn analyse(
         expected_return: ReturnTie::None,
         reported: HashSet::new(),
         unsafe_depth: 0,
+        contents: Vec::new(),
         regions,
     };
     let signature = body_signature(body, table, res);
@@ -744,8 +748,17 @@ impl Analysis<'_> {
                 self.read(value, self.body.expr(*recv).span);
             }
         }
-        for (arg, value) in args.iter().zip(&values) {
+        let boxed = self.regions.is_some() && crate::placement::boxes_argument(self.res, callee);
+        for (i, (arg, value)) in args.iter().zip(&values).enumerate() {
             self.read(value, self.body.expr(*arg).span);
+            // What a `Box` is made of is its contents, in the box's own memory: it holds
+            // the region as a struct literal holds its fields' (spec §14.6). The call's
+            // value carries it, through `contents`.
+            if boxed && i == 0 {
+                let owned = self.passed(*arg, value.clone()).all_owned();
+                self.contents.extend(owned);
+                continue;
+            }
             // A value given to a call by value is the callee's, which may keep it anywhere:
             // `push`, a constructor, a function of the program's own. A receiver is always
             // borrowed (spec §7.3), and a reference argument carries no region.
@@ -1392,10 +1405,19 @@ impl Analysis<'_> {
         }
         let regions = self.regions.as_ref().unwrap();
         let declared = root.and_then(|l| regions.frames.get(&l).copied());
+        // A constructor building a field of the value it makes (round 3): what is in the
+        // result placement may go there, since the value lives where it does. `self`
+        // then holds it, so moving the field out later is followed like any other value.
+        let into_self = root.is_none()
+            && matches!(self.body.owner, BodyOwner::Ctor { .. })
+            && crate::placement::self_field(self.body, target);
         let refused: Vec<usize> = owned
             .iter()
             .copied()
             .filter(|site| {
+                if into_self && regions.results[*site] {
+                    return false;
+                }
                 let block = regions.sites[*site].1;
                 match (declared, regions.active.get(&block)) {
                     (Some(at), Some(frame)) => at < *frame,
@@ -1404,6 +1426,7 @@ impl Analysis<'_> {
             })
             .collect();
         self.refuse(&refused, Refusal::Stored(target), span);
+        let root = if into_self { self.self_local() } else { root };
         if let Some(local) = root {
             let v = self.state.entry(local).or_default();
             if whole {
@@ -1415,6 +1438,11 @@ impl Analysis<'_> {
                 }
             }
         }
+    }
+
+    /// The body's `self`, if it has one.
+    fn self_local(&self) -> Option<LocalId> {
+        self.body.params.iter().copied().find(|p| self.body.local(*p).name == "self")
     }
 
     /// The local a place is a field path of, by value all the way: none through a
@@ -1947,7 +1975,12 @@ impl Analysis<'_> {
                 value
             }
             hir::ExprKind::Call { callee, args } => {
-                let value = self.call(&callee, &args, id);
+                let mut value = self.call(&callee, &args, id);
+                for site in std::mem::take(&mut self.contents) {
+                    if !value.owned.contains(&site) {
+                        value.owned.push(site);
+                    }
+                }
                 self.region_site(id, value)
             }
             hir::ExprKind::Block(block) => self.block(block),
