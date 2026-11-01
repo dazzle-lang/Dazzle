@@ -217,7 +217,9 @@ fn frame(data: ^mut void) {
 
 fn event(e: ^sk::sapp_event, data: ^mut void) kills data {
     let d = demo(data) or return
-    let e = unsafe { e or return }
+    let e = unsafe {
+        e or return
+    }
     d.event(e)
 }
 
