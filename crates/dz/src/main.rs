@@ -24,6 +24,8 @@ usage:
     dz check --format=json      the same, every diagnostic as JSON on stdout
     dz fix   [path]             apply the fixes the compiler is certain of
     dz fix --dry-run [path]     list them, changing nothing
+    dz placements [path]        where each allocation goes: a region or the heap, and why
+    dz placements --format=json the same, as JSON on stdout
     dz hir   [path]             check and print the typed tree
     dz lex   <file.dz>          tokenize and print the token stream
     dz parse <file.dz>          parse and print the syntax tree
@@ -91,6 +93,10 @@ fn main() -> ExitCode {
         },
         Some("fix") => match build_args(&args) {
             Ok(b) => cmd_fix(&b.path, &b.options, b.cxx.as_deref(), b.dry_run),
+            Err(code) => code,
+        },
+        Some("placements") => match build_args(&args) {
+            Ok(b) => cmd_placements(&b.path, &b.options, b.cxx.as_deref(), b.json),
             Err(code) => code,
         },
         Some("hir") => match build_args(&args) {
@@ -319,6 +325,87 @@ fn cmd_fix(
     }
 }
 
+/// `dz placements`: where each allocation left to the default allocator goes, a scope's
+/// region or the heap, and why (spec §14.6, T-0117). Read off `Analysis::placements`, the
+/// answer codegen and the editor's hint read, through the same label. Only the project's
+/// own files: `std`'s sites are decided too, but are not the reader's to change.
+fn cmd_placements(
+    entry: &str,
+    options: &dz_driver::BuildOptions,
+    cxx: Option<&str>,
+    json: bool,
+) -> ExitCode {
+    let analysis = analyse_for_build(entry, options, cxx);
+    if analysis.diags.has_errors() {
+        dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
+        return failure(&analysis.diags);
+    }
+    let map = &analysis.map;
+    let mut sites: Vec<(&dz_span::SourceFile, &dz_flow::placement::Site)> = Vec::new();
+    if let Some(placements) = &analysis.placements {
+        for (_, body) in placements.iter() {
+            let Some(file) = map.try_get(body.file).filter(|f| f.path().is_file()) else {
+                continue;
+            };
+            sites.extend(body.sites.iter().map(|s| (file, s)));
+        }
+    }
+    sites.sort_by_key(|(file, s)| (file.name(), s.span.start));
+
+    let place = |file: &dz_span::SourceFile, offset: u32| {
+        let loc = file.location(offset as usize);
+        (file.name().replace('\\', "/"), loc.line, loc.column)
+    };
+    if json {
+        let out: Vec<serde_json::Value> = sites
+            .iter()
+            .map(|(file, s)| {
+                let (name, line, column) = place(file, s.span.start);
+                let mut v = serde_json::json!({
+                    "file": name,
+                    "line": line,
+                    "column": column,
+                    "callee": s.callee,
+                    "label": s.decision.label(),
+                });
+                match &s.decision {
+                    dz_flow::placement::Decision::Region { scope, .. } => {
+                        v["placement"] = "region".into();
+                        v["scope"] = scope.as_str().into();
+                    }
+                    dz_flow::placement::Decision::Heap { why, at } => {
+                        v["placement"] = "heap".into();
+                        v["why"] = why.as_str().into();
+                        if let Some(at) = at {
+                            let (_, line, column) = place(file, at.start);
+                            v["at"] = serde_json::json!({ "line": line, "column": column });
+                        }
+                    }
+                }
+                v
+            })
+            .collect();
+        let doc = serde_json::json!({ "sites": out });
+        println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_default());
+        return ExitCode::SUCCESS;
+    }
+
+    let regions = sites
+        .iter()
+        .filter(|(_, s)| matches!(s.decision, dz_flow::placement::Decision::Region { .. }))
+        .count();
+    for (file, s) in &sites {
+        let (name, line, column) = place(file, s.span.start);
+        println!("{name}:{line}:{column}: {}  {}", s.callee, s.decision.label());
+    }
+    println!(
+        "{} allocation{}, {regions} in a region",
+        sites.len(),
+        if sites.len() == 1 { "" } else { "s" }
+    );
+    ExitCode::SUCCESS
+}
+
 /// `dz test` and `dz bench` — build a harness binary and drive it (spec §19 M14, M15).
 ///
 /// Each test runs in its own process. A failing test panics, a panic aborts (§9.8) and
@@ -403,7 +490,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     // does not relink somebody else's entry point.
     let dir = if benching { "bench" } else { "test" };
     let root = project_root(path).join("build").join(dir);
-    let emit = dz_cpp::Options { mode: kind, line_directives };
+    let emit = dz_cpp::Options { mode: kind, line_directives, ..Default::default() };
     let out = match build::emit_cpp(&analysis, &root, emit) {
         Ok(o) => o,
         Err(d) => {
@@ -532,7 +619,9 @@ fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
         match a.as_str() {
-            "--format" | "--format=json" | "--format=human" if args[0] == "check" => {
+            "--format" | "--format=json" | "--format=human"
+                if matches!(args[0].as_str(), "check" | "placements") =>
+            {
                 let value = match a.strip_prefix("--format=") {
                     Some(v) => Some(v),
                     None => rest.next().map(String::as_str),
@@ -630,7 +719,8 @@ fn cmd_pipeline(
     // into it, so a harness can put its own elsewhere without nesting a second `build/`
     // inside the first.
     let root = project_root(entry).join("build");
-    let emit = dz_cpp::Options { mode: dz_cpp::Mode::Program, line_directives };
+    let emit =
+        dz_cpp::Options { mode: dz_cpp::Mode::Program, line_directives, ..Default::default() };
     let started = std::time::Instant::now();
     let out = match build::emit_cpp(&analysis, &root, emit) {
         Ok(o) => o,

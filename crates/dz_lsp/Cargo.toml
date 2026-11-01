@@ -18,6 +18,7 @@ dz_resolve.workspace = true
 dz_hir.workspace = true
 dz_check.workspace = true
 dz_driver.workspace = true
+dz_flow.workspace = true
 lsp-server.workspace = true
 lsp-types.workspace = true
 serde.workspace = true

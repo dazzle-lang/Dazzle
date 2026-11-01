@@ -6,6 +6,32 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0117, stage 1, round 2: codegen behind `DZ_REGIONS`, and each placement shown (2026-11-01)
+
+Compiler work; no language change. With `DZ_REGIONS` unset, every program builds exactly as
+before.
+
+- **Codegen reads the placements** when `dz_cpp::Options::regions` is on, which `dz` sets
+  from `DZ_REGIONS` (any value but `0`) for every command that emits C++, so
+  `tools/bench_regions.py` builds one source both ways. `emit` is handed
+  `Analysis::placements`; a body's are found by its owner, which an instance from `dz_mono`
+  shares with its generic body. A block with a region declares `ScopeArena _dz_regionN{}`
+  first, so C++ releases it after the block's own locals, and a placed call passes
+  `::dz::addr(_dz_regionN)` where its default allocator went.
+- **Round 1's two codegen hazards do not arise**: `List`'s C++ copy constructor and copy
+  assignment both go through `List::copy` (and `String`, `Path`, `HashSet`, `SlotMap` copy
+  through `List` or `HashMap`), and codegen turns no last use into a C++ move.
+- **Each placement is shown**, from one wording, `Decision::label`: an inlay hint after
+  each site (`HintKind::Placement`), and `dz placements <dir>`, a line per site in the
+  project's own files and a count, or `--format=json`. `serde_json` became a normal
+  dependency of `dz`, which already built it for the language server.
+
+Tests: `regions_change_nothing` runs every `tests/run` program with regions on against its
+`expected.txt`, and compiles the region C++ warning-clean on clang++ and g++;
+`tests/run/regions` is the prototype's case list less its stage 2, and places 13 of its 24
+sites; `inlay_hints_show_where_each_allocation_goes` and `dz_placements_prints_each_site`.
+The run fixtures' warning-clean list is one constant, `WARNING_CLEAN`, shared by both tests.
+
 ## T-0117, stage 1, round 1: the region arena, and where each allocation goes (2026-10-31)
 
 Compiler and std work; no language change, and no program runs differently yet. The user

@@ -506,6 +506,36 @@ fn inlay_hints_show_the_clause_a_body_needs() {
     assert_eq!(clauses, [(brace, "kills ys@items")], "one hint, before `grow`'s body: {hints:?}");
 }
 
+/// Each allocation left to the default allocator shows where its memory goes, after the
+/// call: the label `dz placements` prints, from the one analysis codegen reads (spec §14.6).
+#[test]
+fn inlay_hints_show_where_each_allocation_goes() {
+    let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/regions"));
+    assert!(!a.diags.has_errors(), "the fixture must check cleanly");
+    let f = main_file(&a);
+    let text = a.map.get(f).text();
+    let hints = ide::inlay_hints(&a, f, dz_span::Span::new(0, text.len()));
+    let placed = |needle: &str, nth: usize| {
+        let mut from = 0;
+        for _ in 0..nth {
+            from += text[from..].find(needle).unwrap() + needle.len();
+        }
+        let end = (from + text[from..].find(needle).unwrap() + needle.len()) as u32;
+        hints
+            .iter()
+            .find(|h| h.offset == end && h.kind == ide::HintKind::Placement)
+            .map(|h| h.label.clone())
+    };
+    let all: Vec<_> = hints.iter().filter(|h| h.kind == ide::HintKind::Placement).collect();
+    assert_eq!(placed("List<i32>()", 0).as_deref(), Some("region: `sum_squares`"), "{all:?}");
+    assert_eq!(placed("List<i32>()", 1).as_deref(), Some("heap: returned"), "{all:?}");
+    assert_eq!(
+        placed("List<String>()", 4).as_deref(),
+        Some("region: each pass of a loop in `main`"),
+        "{all:?}"
+    );
+}
+
 #[test]
 fn inlay_hints_name_the_fields_of_a_positional_literal() {
     let (a, f, text) = edited(typed_above("ints.push(10)", "let hinted = Vec2{ 1.5, 2.5 }"));

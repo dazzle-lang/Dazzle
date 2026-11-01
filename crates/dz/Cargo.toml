@@ -26,7 +26,7 @@ dz_mono.workspace = true
 dz_cpp.workspace = true
 dz_driver.workspace = true
 dz_lsp.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
-serde_json.workspace = true

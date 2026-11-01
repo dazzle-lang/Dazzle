@@ -116,6 +116,17 @@ pub enum Decision {
     Heap { why: String, at: Option<Span> },
 }
 
+impl Decision {
+    /// What the editor's hint and `dz placements` print: "region: `update`", "heap:
+    /// returned". One spelling, so the two cannot disagree.
+    pub fn label(&self) -> String {
+        match self {
+            Decision::Region { scope, .. } => format!("region: {scope}"),
+            Decision::Heap { why, .. } => format!("heap: {why}"),
+        }
+    }
+}
+
 /// Which proposals the region check is given.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Proposer {

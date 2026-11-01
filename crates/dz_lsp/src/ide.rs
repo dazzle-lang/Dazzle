@@ -2038,6 +2038,9 @@ pub enum HintKind {
     /// `kills …` where a function that writes no clause needs one: what its body kills, the
     /// clause `DZ0415`'s fix would insert, shown where it goes (spec §6.7).
     Clause,
+    /// `region: …` or `heap: …` after a call that allocates with its allocator left to the
+    /// default: where the compiler places that memory, and why (spec §14.6, T-0117).
+    Placement,
 }
 
 /// `: T` after every `let`, `for` and `case` binding in `range` that leaves its type to
@@ -2085,8 +2088,24 @@ pub fn inlay_hints(a: &Analysis, file: FileId, range: Span) -> Vec<Hint> {
         }
     }
     clause_hints(a, file, range, &mut seen, &mut out);
+    placement_hints(a, file, range, &mut out);
     out.sort_by_key(|h| h.offset);
     out
+}
+
+/// Where each allocation in `range` goes, after its call: read off `Analysis::placements`,
+/// the one answer codegen and `dz placements` read too (spec §14.6).
+fn placement_hints(a: &Analysis, file: FileId, range: Span, out: &mut Vec<Hint>) {
+    let Some(placements) = a.placements.as_ref() else { return };
+    for (_, body) in placements.iter().filter(|(_, b)| b.file == file) {
+        for site in &body.sites {
+            let at = site.span.end;
+            if at < range.start || at > range.end {
+                continue;
+            }
+            out.push(Hint { offset: at, label: site.decision.label(), kind: HintKind::Placement });
+        }
+    }
 }
 
 /// The clause a body needs, before its `{`, when the function writes none.

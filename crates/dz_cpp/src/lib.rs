@@ -31,6 +31,7 @@ use dz_ast::{
 };
 use dz_check::{ItemSig, TypeTable};
 use dz_diag::{codes, Diagnostic, Diagnostics};
+use dz_flow::placement::{BodyPlacement, Placements};
 use dz_hir::ty::{FloatTy, IntTy, Ty};
 use dz_hir::{self as hir, BlockId, BodyOwner, ExprId, Hir, LocalId, StmtId};
 use dz_project::{ModuleId, Workspace};
@@ -92,15 +93,19 @@ pub struct Options {
     /// A `#line` before each statement, naming its `.dz` line (spec §16.3). Off for
     /// `--no-line-directives`, when it is the generated C++ itself being debugged or read.
     pub line_directives: bool,
+    /// Put each allocation the analysis placed in a scope's region there, rather than on
+    /// the heap (spec §14.6, T-0117). Off unless `DZ_REGIONS` is set, until the gate
+    /// decides whether regions stay.
+    pub regions: bool,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { mode: Mode::default(), line_directives: true }
+        Options { mode: Mode::default(), line_directives: true, regions: false }
     }
 }
 
-// Eight inputs because emission needs every earlier phase's output plus the options;
+// Nine inputs because emission needs every earlier phase's output plus the options;
 // bundling them into a struct would only move the list somewhere else.
 #[allow(clippy::too_many_arguments)]
 pub fn emit(
@@ -109,11 +114,15 @@ pub fn emit(
     table: &TypeTable,
     hir: &Hir,
     mono: &dz_mono::Mono,
+    placements: Option<&Placements>,
     map: &SourceMap,
     files: &HashMap<ModuleId, Vec<ParsedFile>>,
     options: Options,
 ) -> Emitted {
     let mode = options.mode;
+    // The analysis decides every site whether or not regions are on; the switch only says
+    // whether codegen reads the answer.
+    let placements = placements.filter(|_| options.regions);
     // Every struct's declaration by symbol, across all modules, so an instance of a generic
     // declared in another module can still be emitted from its own AST (spec §8.4).
     let mut struct_asts: HashMap<SymbolId, (FileId, &StructDecl)> = HashMap::new();
@@ -194,6 +203,9 @@ pub fn emit(
             mode,
             line_directives: options.line_directives,
             reflect: &reflection,
+            placements,
+            placement: None,
+            regions: Vec::new(),
         };
         e.module(module_files);
         e.finish_header();
@@ -326,6 +338,9 @@ pub fn emit(
             mode,
             line_directives: options.line_directives,
             reflect: &reflection,
+            placements: None,
+            placement: None,
+            regions: Vec::new(),
         };
         if type_info == dz_project::TypeInfo::All {
             reflect::seed_all(&mut e, files);
@@ -595,6 +610,14 @@ struct Emitter<'a> {
     line_directives: bool,
     /// The types reflected on, shared by every module's emitter (spec §13).
     reflect: &'a reflect::Shared,
+    /// Where each allocation goes, when regions are on (spec §14.6, T-0117); `None` puts
+    /// everything on the heap, as the program wrote it.
+    placements: Option<&'a Placements>,
+    /// The current body's placements, found by its owner: an instance from `dz_mono` is a
+    /// copy of its generic body, with the same expression and block ids.
+    placement: Option<&'a BodyPlacement>,
+    /// The current body's blocks that declare a region.
+    regions: Vec<BlockId>,
 }
 
 impl<'a> Emitter<'a> {
@@ -3100,10 +3123,16 @@ impl<'a> Emitter<'a> {
         }
         let saved_names = std::mem::replace(&mut self.names, names);
         let saved_file = std::mem::replace(&mut self.file, body.file);
+        let placement = self.placements.and_then(|p| p.body(&body.owner));
+        let saved_placement = std::mem::replace(&mut self.placement, placement);
+        let regions = placement.map(BodyPlacement::region_blocks).unwrap_or_default();
+        let saved_regions = std::mem::replace(&mut self.regions, regions);
         let result = self.capture(f);
         self.body = saved_body;
         self.names = saved_names;
         self.file = saved_file;
+        self.placement = saved_placement;
+        self.regions = saved_regions;
         result
     }
 
@@ -3268,6 +3297,14 @@ impl<'a> Emitter<'a> {
     /// Emit a block's statements, sending the value of its final expression to `dest`.
     fn block_into(&mut self, id: BlockId, dest: Dest<'_>) {
         let body = self.cur();
+        // A region is declared first in its block, so C++ destroys it after every value
+        // the block placed in it has been dropped (spec §14.6, T-0117).
+        if self.regions.contains(&id) {
+            if let Some(arena) = self.res.lookup(self.res.prelude, "ScopeArena") {
+                let ty = self.qualify(arena);
+                self.line(&format!("{ty} {}{{}};", region_name(id)));
+            }
+        }
         let stmts = &body.block(id).stmts;
         let last = stmts.len().saturating_sub(1);
         for (i, s) in stmts.iter().enumerate() {
@@ -4245,7 +4282,8 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Call { callee, args } => {
-                self.call(callee, args, body.ty(e).clone(), node.span)
+                let region = self.placement.and_then(|p| p.region_for(e));
+                self.call(callee, args, body.ty(e).clone(), node.span, region)
             }
             hir::ExprKind::Move(inner) => {
                 /// Something `take` can reset: a local, or a field of one.
@@ -4612,8 +4650,17 @@ impl<'a> Emitter<'a> {
     }
 
     /// `node_ty` is the call's own type, which is what says *which* instance a generic
-    /// struct's constructor builds.
-    fn call(&mut self, callee: &hir::Callee, args: &[ExprId], node_ty: Ty, span: Span) -> String {
+    /// struct's constructor builds. `region` is where the analysis placed the call: its
+    /// allocator parameter's index, not counting a receiver, and the block whose region
+    /// is passed there in place of the default (spec §14.6, T-0117).
+    fn call(
+        &mut self,
+        callee: &hir::Callee,
+        args: &[ExprId],
+        node_ty: Ty,
+        span: Span,
+        region: Option<(usize, BlockId)>,
+    ) -> String {
         if let hir::Callee::Method { recv, owner, name, .. } = callee {
             if let Some(native) = self.native_trait_call(*recv, *owner, name, args) {
                 return native;
@@ -4764,6 +4811,7 @@ impl<'a> Emitter<'a> {
             }
             hir::Callee::Value(_) => format!("({})", recv_text()),
         };
+        let rendered_receiver = recv_arg.is_some();
         let mut rendered: Vec<String> = recv_arg.into_iter().collect();
         for (i, v) in self.emit_args(captured).into_iter().enumerate() {
             let cast =
@@ -4781,6 +4829,12 @@ impl<'a> Emitter<'a> {
             let Some((body, default)) = *d else { break };
             let v = self.render_default(body, default, span);
             rendered.push(v);
+        }
+        if let Some((index, block)) = region {
+            let receiver = usize::from(rendered_receiver);
+            if let Some(slot) = rendered.get_mut(index + receiver) {
+                *slot = format!("::dz::addr({})", region_name(block));
+            }
         }
         let call = format!("{target}({})", rendered.join(", "));
         match imported {
@@ -5737,6 +5791,12 @@ fn ends_in_return(body: &hir::Body) -> bool {
 
 /// One C++ identifier per local.
 ///
+/// The C++ name of a block's region. A block's id is unique in its body, and `_dz_` names
+/// are never a program's own.
+fn region_name(block: BlockId) -> String {
+    format!("_dz_region{}", block.index())
+}
+
 /// Dazzle lets a `let` shadow an earlier one in the same block and C++ does not, so a name
 /// that is *still in scope* when a second local claims it gets its arena index appended.
 /// Two loops that both say `for i in …` keep their `i`, because the first one's is gone by

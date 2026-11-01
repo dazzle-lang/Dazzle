@@ -11,7 +11,7 @@ Step 4 of D-0091's plan (spec §14.6), split out of
 [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md), which has the full design and
 the scenarios it was checked against.
 
-**Where the code is** (keep this current; stage 1's round 1, below, built it).
+**Where the code is** (keep this current; stage 1's rounds 1 and 2, below, built it).
 
 | Piece | Where |
 |---|---|
@@ -20,9 +20,13 @@ the scenarios it was checked against.
 | Sites, the proposer and the reasons' words: `place`, `place_with` (`Proposer::Rules`, `Proposer::Everything`), `Placements`, `BodyPlacement` (`region_blocks`, `region_for`, `demoted`), `Site`, `Decision` | `dz_flow/src/placement.rs` |
 | The ties check: `analyse_regions`; `Value::owned`, `Regions`, `Refusal`; `region_site` (the loop rule), `region_assign`, `region_end`, `sink`, `passed` (a copy carries no region) | `dz_flow/src/ties/body.rs` |
 | One answer for every reader: `Analysis::placements`, computed after ownership and timed as `placement` | `dz_driver/src/lib.rs` |
-| Tests | `dz_flow/tests/placement.rs`; `tests/run/region_arena` (the arena by hand and the copy guard, also under `--track-memory` and `-Wall -Wextra`) |
+| Codegen, behind the switch: `Options::regions`; `emit` takes `Option<&Placements>`; `Emitter::placement` and `regions`, set in `in_body` by the body's owner; the region declared in `block_into`, passed in `call` (`region`), named by `region_name` | `dz_cpp/src/lib.rs` |
+| The switch: `DZ_REGIONS` (any value but `0`), for every command that emits C++ | `emit_cpp`, `crates/dz/src/build.rs` |
+| One wording for every reader: `Decision::label` | `dz_flow/src/placement.rs` |
+| The inlay hint: `HintKind::Placement`, `placement_hints`; sent, with its tooltip, by `inlay_hints` | `dz_lsp/src/ide.rs`, `dz_lsp/src/lib.rs` |
+| `dz placements [path] [--format=json]`: `cmd_placements` | `crates/dz/src/main.rs` |
+| Tests | `dz_flow/tests/placement.rs`; `tests/run/region_arena` (the arena by hand and the copy guard, also under `--track-memory` and `-Wall -Wextra`); `tests/run/regions` and `regions_change_nothing` (every run program with regions on, warning-clean on clang++ and g++) and `dz_placements_prints_each_site` in `dz/tests/run.rs`; `inlay_hints_show_where_each_allocation_goes` in `dz_lsp/tests/ide.rs` |
 | The gate's stopwatch | `tools/bench_regions.py` |
-| Not built yet: codegen, the inlay hint, `dz placements` | round 2, below |
 
 **What it is.** No allocator appears in ordinary code: the compiler puts each value in the
 most efficient place it can prove safe, the heap last.
@@ -92,7 +96,7 @@ outer region without bound, which is where region inference failed before (the M
 first gate row tests it.
 
 **Stage 1, round 1, built 2026-10-31: steps 1 and 3, and the analysis half of step 2.**
-Uncommitted on the branch `t-0104-regions-prototype`. No program runs differently yet:
+Committed on the branch `t-0104-regions-prototype` (`3b82370`). No program ran differently yet:
 nothing reads the placements but the tests.
 
 - **Step 1, the arena.** The tag's `ScopeArena` and `ScopePool`, brought up to today's std
@@ -143,26 +147,30 @@ nothing reads the placements but the tests.
     its own memory), a `switch` subject, or a `case` binding taken by value. A generic body
     is decided once, with `T` taken as not copyable.
 
-**What is left of stage 1, in order.**
+**Stage 1, round 2, built 2026-11-01: codegen behind the switch, and each placement shown.**
 
-1. **Round 2, two items that can run side by side.**
-   - **Codegen, behind a switch.** `dz_cpp::Options::regions`, on with `DZ_REGIONS=1`, read
-     by `dz build` and `dz run` as the prototype's `crates/dz/src/build.rs` did, so
-     `tools/bench_regions.py` builds one source both ways. `emit` is handed
-     `Analysis::placements`. In `block_into`, a block in `region_blocks()` first declares
-     `ScopeArena _dz_regionN{};`, qualified from the prelude, so C++ releases it after the
-     block's locals; in `call`, `region_for(e)` puts the region where the allocator argument
-     was. An instance body from `dz_mono` keeps the generic body's `ExprId`s, so decisions
-     are looked up by the body's `BodyOwner`. The prototype's version of both is commit
-     `1c94649`. Tests: `regions_change_nothing` (every `tests/run` program prints its
-     `expected.txt` with regions on, on clang++ and g++, warning-clean), and the prototype's
-     `tests/run/regions` cases, taken from the tag.
-   - **Showing each placement.** An inlay hint at each site, `region: …` or `heap: …`: a
-     new `HintKind` beside `clause_hints` in `dz_lsp/src/ide.rs`, sent by `inlay_hints` in
-     `dz_lsp/src/lib.rs`. And `dz placements <dir>`, as text or with `--format=json`, in
-     `crates/dz/src/main.rs`. Both print `Site::decision` as it is. Tests in
-     `dz_lsp/tests/ide.rs` and for the command.
-2. **Round 3, the gate.** `cargo build --release -p dz`, then `python tools/bench_regions.py`
+- **Codegen.** `dz_cpp::Options::regions`, set by `emit_cpp` from `DZ_REGIONS` (any value
+  but `0`) for every command that emits C++, so `tools/bench_regions.py` builds one source
+  both ways. A block with a region declares `ScopeArena _dz_regionN{};` first, and a placed
+  call passes `::dz::addr(_dz_regionN)` in place of its default allocator. A body's
+  placements are found by its owner, which `dz_mono`'s instances share with their generic
+  body. With the switch off nothing changes.
+- **Round 1's codegen edges hold**: `List`'s C++ copy constructor and copy assignment both
+  call `List::copy`, which every other std container copies through, and codegen turns no
+  last use into a C++ move.
+- **Shown** by an inlay hint after each site and by `dz placements [path]` (text, or
+  `--format=json`), both through `Decision::label`. The command lists the project's own
+  files only; `std`'s sites are decided but not listed.
+- **Checked**: `regions_change_nothing`, every `tests/run` program with regions on against
+  its `expected.txt`, and the region C++ of the `WARNING_CLEAN` fixtures compiled
+  `-Wall -Wextra` on clang++ and g++; `tests/run/regions` (the prototype's cases less stage
+  2) places 13 of its 24 sites and prints the same both ways. The rest of `dz/tests/run.rs`
+  passes but `every_example_builds`, for want of the vendor submodules. The `dz_lsp`,
+  `dz_flow`, `dz_driver` and `dz_cpp` tests, clippy with `-D warnings`, and `cargo fmt`.
+
+**What is left of stage 1.**
+
+1. **Round 3, the gate.** `cargo build --release -p dz`, then `python tools/bench_regions.py`
    (clang++ and g++, ten runs each; `--markdown` and `--json` keep the report) for the
    first three rows; `the_region_check_alone_refuses_every_wrong_placement` is the last.
    Record the numbers here. Then the user keeps regions or drops them.
@@ -171,8 +179,8 @@ nothing reads the placements but the tests.
 `Allocators::Temp` taken out, as T-0104 did) twice, without and with `DZ_REGIONS=1`, checks
 that both print the same checksum, and reports the medians and peak memory; and a loop that
 reassigns a `String`, a `List` and a `format!` result, whose peak at a million passes must
-be within 1 MiB of its peak at ten thousand. It runs today, but measures nothing until
-codegen reads the switch.
+be within 1 MiB of its peak at ten thousand. Since round 2 codegen reads
+the switch, so it measures regions.
 
 **Open before the gate: the user's call.** T-0104 measured stage 1 alone: `words` took
 400 ms against 398 on the heap, and `expr` 370 against 371. Stage 1 does not reach their
