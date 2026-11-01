@@ -181,7 +181,7 @@ value.
 ```dz
 math::PI                        // module member
 Sprites::Selected               // enum member
-Allocators::Global              // associated constant of a type
+Textures::Missing               // associated constant of a type
 T::is_trivially_copyable        // compile-time type query
 Buffer<f32>::with_capacity(8)   // associated function of an instantiation
 

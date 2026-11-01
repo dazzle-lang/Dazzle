@@ -30,11 +30,11 @@ fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
   rather than on the return type so that it lands at a fixed column near the left edge,
   which is the same argument §9.5 makes for a leading propagation keyword.
 - Default arguments must be trailing, and are evaluated at the **call site** — which is what
-  makes `allocator: ^Allocator = Allocators::Global` behave the way you expect.
+  makes `loc: SourceLocation = #location` name the caller's line rather than the function's.
 - **There is no function overloading.** `[DECIDED — §18.5]` One name, one function.
   Imported C++ overloads are the exception (§15.3), because we do not control those headers.
-- Constructors may be overloaded on arity and parameter types, since `Buffer(8)` and
-  `Buffer(8, arena)` are genuinely the same operation. A call — and a base initialiser,
+- Constructors may be overloaded on arity and parameter types, since `Rect(w, h)` and
+  `Rect(x, y, w, h)` are genuinely the same operation. A call — and a base initialiser,
   `: Base(…)` (§7.3) — reaches the constructor that takes that many arguments, **counting
   those its defaults supply**, and whose parameters the arguments fit. Where several fit,
   the one every argument's type matches exactly is chosen, an untyped literal matching the
@@ -125,7 +125,6 @@ fn total(xs: ..i32, scale: i32 = 1, loc: SourceLocation = #location) -> i32 { �
 total(1, 2, 3)                        // scale = 1, loc = this line
 total(1, 2, scale = 10)
 total(loc = here, scale = 2)          // any order; no variadic arguments at all
-format!("{} hp", hp, allocator = Allocators::Temp)
 ```
 
 - Only these parameters are passed by name, and only by name. Naming any other parameter —
@@ -170,8 +169,8 @@ It has no `self`, so the type's fields are not in scope in it, and calling one o
 `Buffer<T>`, as everywhere else there.
 
 **A `const` declared in a type is an associated constant**, named through the type:
-`Allocators::Global`. It writes its type, and its value is a constant or the address of a
-static — `unsafe { &mut HEAP }` — and nothing that runs code (DZ0553). It is evaluated where
+`Textures::Missing`. It writes its type, and its value is a constant or the address of a
+static — `unsafe { &mut MISSING_TEXTURE }` — and nothing that runs code (DZ0553). It is evaluated where
 it is named, so the address of a `#[thread_local]` static is the naming thread's own.
 
 **A struct is laid out as C++ lays out the same struct.** Its fields are in memory in the
@@ -502,7 +501,7 @@ implementing type's and the trait's fully qualified names — rather than only b
 That costs nothing now and is what makes dynamic dispatch re-resolvable after a hot-reload
 swap (§17.6).
 
-The cost is that `^Allocator` is 16 bytes while `^Arena` is 8. The compiler will not let you
+The cost is that `^Drawable` is 16 bytes while `^Sprite` is 8. The compiler will not let you
 silently confuse them, and the LSP shows the fat-pointer-ness on hover.
 
 ## 7.7 Statics

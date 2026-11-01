@@ -7,3 +7,10 @@ output = "executable"
 
 [dependencies]
 std = {open = true}
+c = {cpp = "cstdlib"}
+
+# C's own heap, which the shelf takes its memory from. Dazzle code names no allocator, so a
+# container written outside `std` imports `malloc` and `free` like any other C function
+# (spec §14, §15.1).
+[cpp.libs.cstdlib]
+import = ["stdlib.h"]

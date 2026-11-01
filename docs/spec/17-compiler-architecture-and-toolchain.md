@@ -136,7 +136,7 @@ be exactly what reload needs, and must stay that way:
 |---|---|
 | One module = one translation unit (§16.1) | gives a natural DLL boundary with no extra build config |
 | No global constructors in generated code (§16.4) | a reloaded module has no hidden init order to re-run |
-| Explicit allocators (§14) | memory allocated by the old DLL is freed by an allocator owned by the host, so a swap never orphans an allocation |
+| Memory only from `std`'s allocators (§14.6) | memory allocated by the old DLL is freed by an allocator owned by the host, so a swap never orphans an allocation |
 | The static type table (§13) | field names, types, and offsets are exactly what a state-migration pass needs |
 | `#[export]` (§15.5) | already the declared, stable interface between host and module |
 

@@ -19,14 +19,14 @@ If you read nothing else, read this. Everything after it is detail.
 // no imports: dazzle.toml names what every file can use — `std`, `engine`, `rl` (§3.2)
 
 pub struct Buffer<T> {                // private by default; pub / pub(module) / (nothing)
-    m_allocator: ^Allocator = null    // ^T  nullable pointer
-    m_data:      own ^mut T           // own ^mut T  this struct frees it -> Buffer is move-only
-    m_len:       u32                  // fields default-initialise; no uninitialised memory
+    m_data: own ^mut T                // own ^mut T  this struct frees it -> Buffer is move-only
+    m_len:  u32                       // fields default-initialise; no uninitialised memory
+    tie @items = m_data               // a public name for the memory it owns (§6.7)
 
-    Buffer(cap: u32, a: ^Allocator = Allocators::Global) { ... }   // constructor
+    Buffer(cap: u32) { ... }          // constructor; no allocator: the compiler places memory
 
-    pub fn length(&self)      -> u32 { return m_len }       // &self     = reads
-    pub fn resize(&mut self, n: u32) { ... }                // &mut self = mutates
+    pub fn length(&self) -> u32 { return m_len }                    // &self     = reads
+    pub fn resize(&mut self, n: u32) kills self@items { ... }       // &mut self = mutates
 }
 
 impl<T> Drop for Buffer<T> {                    // destructor -> deterministic, C++ handles it
@@ -58,6 +58,7 @@ impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable 
 | Compiles to | C++17, `-fno-exceptions -fno-rtti` | with `#line` back to `.dz`, so debuggers and profilers show your source |
 
 **The five rules that shape everything else:** private by default · no implicit numeric
-conversions · every value is initialised · moved-from values reset to defaults · `&`
-references can never be stored in a field (this is why ties, §6.7, never appear on a struct
-that holds references).
+conversions · every value is initialised · moved-from values reset to defaults · a
+reference lives only where references live — a local, a parameter, a result, or a view
+struct — never in an ordinary field or a container (this is why no struct carries a
+lifetime, and ties, §6.7, are enough).

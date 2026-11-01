@@ -329,7 +329,7 @@ offset, `usize?`), `contains`, `trim`, `trim_start`, `trim_end`, `strip_prefix` 
 `String`s), and `parse_i64`, `parse_u64`, `parse_f64`, `parse_f32` — the whole text as a
 number, or `none` for anything else, including surrounding spaces and a value that does not
 fit. Pieces are views of the text they came from, never copies. **`Join`** writes pieces
-with a separator between them into a new `String`: `names.join(", ")` on a `[]str`, a
+with a separator between them into a new `String`: `names.join(", ")` on a `&[]&str`, a
 `List<const &str>` or a `List<String>`.
 
 ```dz
@@ -526,8 +526,9 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
   went and why ("heap: popped elements leave `queue`").
 - **A memory budget or a program with no heap** is not expressible yet.
 
-`Allocator`, `Allocators`, `TempArena` and the region arena stay in `std`, for writing
-containers, under `unsafe`.
+`Allocator`, `Allocators`, `TempArena` and the region arena stay in `std`, for its own
+containers, under `unsafe`. A program that builds a container of its own takes raw memory
+from C, importing `stdlib.h` itself (§14, D-0084), as `examples/ownership` does.
 
 Not yet implemented: until T-0107's steps 4 to 6 land, containers still take an allocator
 as §14 to §14.2 describe, and a value used after `Allocators::Temp.reset()` is not caught.

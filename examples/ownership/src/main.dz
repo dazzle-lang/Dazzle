@@ -1,24 +1,20 @@
 // A growable array written from scratch, to show what the standard library's `List` is
-// made of: an `own` pointer, memory from an allocator, the three special members (a
+// made of: an `own` pointer, raw memory from C's heap, the three special members (a
 // constructor, `drop` and `copy`), and moves. `dz cpp .` writes the C++ this becomes into
 // `build/cpp/`.
 
 /// Books on a shelf that grows as it fills.
 struct Shelf<T> {
-    pub label:   const &str
+    pub label: const &str
     // `own`: a Shelf frees this pointer itself. That makes Shelf move-only unless it says
     // how to copy, and it is a compile error for Shelf not to have a `drop`.
-    m_data:      own ^mut T
-    m_len:       usize
-    m_cap:       usize
-    // Where the memory comes from. `Allocators::Global` is the C heap; a caller can hand
-    // in another, such as `Allocators::Temp` for a shelf that lives one frame.
-    m_allocator: ^mut Allocator = Allocators::Global
+    m_data:    own ^mut T
+    m_len:     usize
+    m_cap:     usize
 
     // The constructor: named after the struct, no return type.
-    Shelf(label: const &str, cap: usize, allocator: ^mut Allocator = Allocators::Global) {
+    Shelf(label: const &str, cap: usize) {
         self.label = label
-        m_allocator = allocator
         m_data = self.take(cap)
         m_cap = cap
     }
@@ -65,27 +61,28 @@ struct Shelf<T> {
         m_cap = cap
     }
 
-    /// Room for `cap` books, from the shelf's allocator.
+    /// Room for `cap` books, from C's `malloc`. Dazzle code names no allocator, so a
+    /// container written outside `std` takes its raw memory from C (spec §14.6).
     fn take(&mut self, cap: usize) -> ^mut T {
-        let a = unsafe {
-            m_allocator or panic!("a shelf with no allocator cannot grow")
+        if cap == 0 {
+            return null
+        }
+        let p = c::malloc(cap * sizeof(T))
+        if p == null {
+            panic!("out of memory for {} books", cap)
         }
         unsafe {
-            return a.alloc(cap * sizeof(T), alignof(T)) as ^mut T
+            return p as ^mut T
         }
     }
 
-    /// Hand the current memory back. An allocator is told the size and alignment it gave
-    /// out, so it never has to store them (spec §14).
+    /// Hand the current memory back to C.
     fn give_back(&mut self) {
         if m_data == null {
             return
         }
-        let a = unsafe {
-            m_allocator or return
-        }
         unsafe {
-            a.free(m_data as ^mut u8, m_cap * sizeof(T), alignof(T))
+            c::free(m_data as ^mut void)
         }
     }
 }
@@ -108,12 +105,10 @@ impl<T> Drop for Shelf<T> {
 }
 
 // The copy constructor, for the shelves whose books can be copied. It always runs on a
-// defaults-initialised `self`, so returning early would leave a valid, empty shelf. The
-// copy draws from the same allocator as the original.
+// defaults-initialised `self`, so returning early would leave a valid, empty shelf.
 impl<T: Copy> Copy for Shelf<T> {
     fn copy(&mut self, other: &Self) {
         label = other.label
-        m_allocator = other.m_allocator
         m_data = self.take(other.m_cap)
         unsafe {
             for i in 0..other.m_len {

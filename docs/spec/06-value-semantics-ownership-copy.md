@@ -42,7 +42,7 @@ whatever C++ needs from these three (§6.6).
 let f: File          // fully constructed, fields at their declared defaults
 let n: i32           // 0
 let p: ^Player       // null
-let b: Buffer<u8>    // all fields at defaults: a valid, empty, allocator-less buffer
+let b: Buffer<u8>    // all fields at defaults: a valid, empty buffer
 ```
 
 A field's default is its `= expr` initialiser if it has one, otherwise the zero value of
@@ -96,7 +96,7 @@ because that is the thing with a `drop` to run. Anything else would make `if han
 inside `File::drop` a move out of `self`. `[DECIDED]`
 
 Acquiring ownership is an ordinary assignment: a plain `^T` may be stored into an `own ^T`
-field, which is what an allocator's `alloc` returning `^mut u8` (§14) has to mean. The reverse is also allowed
+field, which is what keeping the pointer a C library's create function or `malloc` returned (§14, §15) has to mean. The reverse is also allowed
 — an `own ^T` satisfies a `^T` — so `own` narrows nothing at the use site. `[DECIDED]`
 
 ## 6.4 Move semantics

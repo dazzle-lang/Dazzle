@@ -250,7 +250,7 @@ says. `[DECIDED — §18.24]`
                 owns. Not null-terminated. Immutable.
 const &str      text whose bytes are in static storage: a literal's, a constant's.
 ^str            text that may be absent: the same { ptr, len }, which may be null.
-String          stdlib: owning, growable, allocator-aware. Written in Dazzle, not builtin.
+String          stdlib: owning, growable. Written in Dazzle, not builtin.
 &cstr           a null-terminated C string borrowed from what owns it, for C interop.
 const &cstr     a literal's C string, in static storage.
 ^cstr           C's own pointer to a C string: untied, and it may be null.

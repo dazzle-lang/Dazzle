@@ -398,14 +398,15 @@ own choosing (`{:<8}`, `{:>8}`) is not part of the set.
 anything is written, and a temporary one of them makes lives until the text is written. An
 argument is read, never moved: `println!("{}", name)` leaves `name` where it was.
 
-**Text you keep is a `String`.** `format!` builds a new `String`, in memory from
-`Allocators::Global` unless an allocator is passed by name (§7.2), the one argument any of
-these macros takes by name:
+**Text you keep is a `String`.** `format!` builds a new `String`, which the compiler
+places like any other value (§14.6):
 
 ```dz
 let hud = format!("Score {}   Lives {}", g.score, g.lives)
-let msg = format!("{} took {:.1} ms", name, ms, allocator = Allocators::Temp)
 ```
+
+Until allocators leave ordinary code (T-0119), one may still be passed by name,
+`allocator = …` (§7.2), the one argument any of these macros takes by name.
 
 **`Format` is how a value writes itself.** Anything that implements the trait can be an
 argument — the numbers, `bool`, `char`, `str`, `cstr` and `String` implement it in `std`,

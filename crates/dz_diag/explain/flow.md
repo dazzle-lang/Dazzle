@@ -285,40 +285,45 @@ An `own` field declares that the struct is responsible for releasing what it poi
 (spec §6.5, §18.4), so the struct needs an `impl Drop` that does.
 
 ```dz
-struct Buffer {
-    m_data: own ^mut u8 = null
-    pub len: usize
+struct Window {
+    m_handle: own ^mut u8 = null    // what a C library's create_window returned
+    pub width: i32
 
-    Buffer(len: usize) {
-        self.len = len
+    Window(width: i32) {
+        self.width = width
     }
 }
 
 fn main() {
-    let b = Buffer(0)
-    println!("{}", b.len)
+    let w = Window(640)
+    println!("{}", w.width)
 }
 ```
 
 ```dz
-struct Buffer {
-    m_data: own ^mut u8 = null
-    pub len: usize
+struct Window {
+    m_handle: own ^mut u8 = null    // what a C library's create_window returned
+    pub width: i32
 
-    Buffer(len: usize) {
-        self.len = len
+    Window(width: i32) {
+        self.width = width
     }
 }
 
-impl Drop for Buffer {
+impl Drop for Window {
     fn drop(&mut self) {
-        Allocators::Global.free(m_data, len, 1)
+        destroy_window(m_handle)
     }
+}
+
+// Stands in for the C library's own, which a real program imports from its header.
+fn destroy_window(handle: ^mut u8) {
+    let _ = handle
 }
 
 fn main() {
-    let b = Buffer(0)
-    println!("{}", b.len)
+    let w = Window(640)
+    println!("{}", w.width)
 }
 ```
 

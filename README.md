@@ -6,9 +6,10 @@
 
 Dazzle is an upgrade of C++ for the places C++ is used today: games and engines, embedded
 systems, tools and real-time code. It keeps C++'s control and drops forty years of
-accumulated syntax: RAII reduced to three special members, encapsulation the compiler
-enforces, errors as values instead of exceptions, generics checked where they are written,
-and C and C++ libraries used directly from their source, with no wrapper or build system.
+accumulated syntax: RAII reduced to three special members, references checked without
+lifetime annotations, no allocator to pass around, encapsulation the compiler enforces,
+errors as values instead of exceptions, generics checked where they are written, and C and
+C++ libraries used directly from their source, with no wrapper or build system.
 
 Its goal is close to [Carbon](https://github.com/carbon-language/carbon-lang)'s, with a
 different route: instead of bringing its own LLVM-based toolchain, Dazzle compiles to
@@ -17,35 +18,43 @@ uses keeps working, and Dazzle code links into that project without changing any
 around it. The compiler is written in Rust.
 
 ```rust
-struct Buffer {
-    pub len: usize
-    m_data:  own ^mut u8                     // Buffer frees this, so it is move-only
+struct Enemy {
+    pub hp: i32 = 10
+}
 
-    Buffer(len: usize) {
-        self.len = len
-        m_data = Allocators::Global.alloc(len, 1)
+struct Level {
+    pub name:  String
+    m_enemies: List<Enemy>                   // no allocator: the compiler places the memory
+    tie @enemies = m_enemies@items           // a public name for that private memory
+
+    Level(name: &str) {
+        self.name = String::from(name)
+    }
+
+    pub fn spawn(&mut self, e: Enemy) kills self@enemies {   // says what it may move
+        m_enemies.push(e)
+    }
+
+    pub fn first(&self) -> ^Enemy in self@enemies {          // says where it points
+        return m_enemies.first()
     }
 }
 
-impl Drop for Buffer {                       // runs once, at the end of the owner's scope
-    fn drop(&mut self) {
-        Allocators::Global.free(m_data, len, 1)
-    }
-}
-
-fn load(path: str) !-> Buffer {              // `!->`: this can fail
+fn load(path: &str) !-> Level {              // `!->`: this can fail
     if path.len == 0 {
         return error(1, "no path given")
     }
-    return Buffer(64)
+    return Level(path)
 }
 
 fn main() {
-    let a = load("level1.dat") or panic!("cannot load")   // handled where it is called
-    let b = move(a)                          // `a` is reset; using it again is an error
-    let c = load("") or Buffer(0)            // or replaced by a fallback
-    println!("{} {}", b.len, c.len)
-}                                            // c and b are freed here, exactly once
+    let mut level = load("level1.dat") or panic!("cannot load")   // handled where it is called
+    level.spawn(Enemy{})
+    let boss = level.first() or return       // a reference into the level's array
+    println!("{} {}", level.name, boss.hp)
+    level.spawn(Enemy{ hp: 50 })             // may move that array, which ends `boss`:
+    // println!("{}", boss.hp)               //   reading it now is error[DZ0413]
+}                                            // `level` is freed here, exactly once
 ```
 
 > **Status: pre-release.** The language is **0.1, unreleased**. It compiles, runs, checks
@@ -74,9 +83,12 @@ that make it hard. Its principles, in priority order:
    existing C or C++ library is used as it is, from its own source and headers.
 6. **Compile fast.**
 
-Dazzle is **not** trying to be memory-safe in Rust's sense. It prevents use-after-move and
-double-free, and it marks every raw-pointer access with `unsafe` so you can find it, but it
-has no lifetimes and no borrow checker.
+Dazzle checks memory without Rust's rules. Use after move, double free, and a reference used
+after a call moved or freed what it points into are compile-time errors. Yet a `&mut` and a
+`&` may point at the same value, and no struct carries a lifetime parameter. Raw pointers are
+read and written only inside `unsafe`, so every unchecked access can be found. Closing the
+holes that remain, so that safe code has no undefined behaviour on one thread, is an open
+decision ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)).
 
 ### Where it fits
 
@@ -129,7 +141,7 @@ enum ErrorCode : u32 {
     TooLong
 }
 
-fn parse_name(text: str) !-> str {
+fn parse_name(text: &str) !-> &str {        // the name is a view of `text`
     if text.len == 0 {
         return error(ErrorCode::Empty as u32, "a name cannot be empty")
     }
@@ -139,7 +151,7 @@ fn parse_name(text: str) !-> str {
     return text
 }
 
-fn greet(text: str) !-> i32 {
+fn greet(text: &str) !-> i32 {
     let name = parse_name(text) or return          // propagate
     println!("hello, {}", name)
     return 0
@@ -183,53 +195,48 @@ A struct has at most three special members, and that is the whole list: a **cons
 (named after the struct), a **`drop`** (the destructor) and a **`copy`** (the copy
 constructor). There is no move constructor, no move assignment, no copy assignment and no
 default constructor to write; the compiler derives them. A field marked **`own`** is a
-pointer the struct is responsible for releasing:
+pointer the struct is responsible for releasing, such as a handle a C library gave it:
 
 ```rust
 struct Image {
-    pub width:  u32
-    pub height: u32
-    m_pixels:   own ^mut u8          // Image frees this; private, like every unmarked field
+    pub width:  i32
+    pub height: i32
+    m_surface:  own ^mut sdl::SDL_Surface   // Image frees this; private, like every unmarked field
 
-    Image(width: u32, height: u32) { // the constructor
+    Image(width: i32, height: i32) {         // the constructor
         self.width = width
         self.height = height
-        m_pixels = Allocators::Global.alloc(self.bytes(), 4)
-    }
-
-    fn bytes(&self) -> usize {
-        return width as usize * height as usize * 4
+        m_surface = sdl::SDL_CreateSurface(width, height, .SDL_PIXELFORMAT_RGBA8888)
     }
 }
 
-impl Drop for Image {                // runs exactly once, at the end of the owner's scope
+impl Drop for Image {                        // runs exactly once, at the end of the owner's scope
     fn drop(&mut self) {
-        Allocators::Global.free(m_pixels, self.bytes(), 4)
+        sdl::SDL_DestroySurface(m_surface)
     }
 }
 
-impl Copy for Image {                // opt-in: without it, Image is move-only
+impl Copy for Image {                        // opt-in: without it, Image is move-only
     fn copy(&mut self, other: &Self) {
         width = other.width
         height = other.height
-        m_pixels = Allocators::Global.alloc(self.bytes(), 4)
-        unsafe {
-            memcpy(m_pixels, other.m_pixels, self.bytes())
-        }
+        m_surface = sdl::SDL_DuplicateSurface(other.m_surface)
     }
 }
 
 fn main() {
     let a = Image(64, 64)
-    let b = a                        // a copy: runs `copy`
-    let c = move(a)                  // a move: `a` is reset to its defaults
+    let b = a                                // a copy: runs `copy`
+    let c = move(a)                          // a move: `a` is reset to its defaults
     println!("{} {}", b.width, c.width)
-}                                    // c, b and a are dropped, in that order
+}                                            // c, b and a are dropped, in that order
 ```
 
-Memory comes from an allocator, here the C heap, and an allocator is told the size and
-alignment it handed out, so it never has to store them. `dz run --track-memory` reports no
-leaks for this program.
+`own` is for what Dazzle does not manage itself: here a surface SDL3 allocated, elsewhere a
+file, a window or a GPU buffer from a C library, used as it is from its own source
+([below](#use-c-and-c-libraries-as-they-are)). Dazzle code never names an allocator, and its
+own data needs none of the three members: a struct of `List` and `String` fields is freed,
+copied and moved with no code at all.
 
 The rules that hold this together:
 
@@ -243,23 +250,23 @@ The rules that hold this together:
   error[DZ0412]: `Image` owns a resource but never releases it
     ┌─ src/main.dz:4:5
     │
-  4 │     m_pixels:   own ^mut u8          // Image frees this; private, like every unmarked field
-    │     ^^^^^^^^ this field is marked `own`
+  4 │     m_surface:  own ^mut sdl::SDL_Surface   // Image frees this; private, like every unmarked field
+    │     ^^^^^^^^^ this field is marked `own`
     │
-    = help: add a `drop()` that releases `m_pixels`, or remove `own` if Image does not own this pointer (spec §6.5)
+    = help: add a `drop()` that releases `m_surface`, or remove `own` if Image does not own this pointer (spec §6.5)
   ```
 
 - **A moved-from value is reset to its defaults**, not left in C++'s "valid but
-  unspecified" state. Its `drop` still runs, and does nothing, because `m_pixels` is now
-  null. Reading it again is an error:
+  unspecified" state. Its `drop` still runs, and releases nothing, because `m_surface` is
+  now null. Reading it again is an error:
 
   ```text
   error[DZ0401]: `a` was moved and cannot be used again
-     ┌─ src/main.dz:38:26
+     ┌─ src/main.dz:31:26
      │
-  37 │     let c = move(a)                  // a move: `a` is reset to its defaults
+  30 │     let c = move(a)                          // a move: `a` is reset to its defaults
      │             ------- moved here
-  38 │     println!("{} {} {}", a.width, b.width, c.width)
+  31 │     println!("{} {} {}", a.width, b.width, c.width)
      │                          ^^^^^^^ used here after the move
      │
      = help: a moved-from value is left at its defaults, and reading it back would almost never be what was meant (spec §6.4)
@@ -275,12 +282,11 @@ the deleted copy of a move-only type. Abridged from `dz cpp`'s output for `Image
 
 ```cpp
 struct Image {
-    uint32_t width{};
-    uint32_t height{};
-    uint8_t* m_pixels{};
+    int32_t width{};
+    int32_t height{};
+    ::SDL_Surface* m_surface{};
 
-    Image(uint32_t width, uint32_t height);   // the constructor
-    size_t bytes() const;                     // a `&self` method is `const`
+    Image(int32_t width, int32_t height);     // the constructor
     Image() = default;                        // every field at its default
     ~Image();                                 // drop
     Image(const Image& other);                // copy
@@ -292,7 +298,7 @@ struct Image {
 Image::Image(Image&& other) {
     width = other.width;
     height = other.height;
-    m_pixels = other.m_pixels;
+    m_surface = other.m_surface;
     other.reset_to_defaults__();              // the moved-from Image is empty, not unspecified
 }
 
@@ -307,7 +313,7 @@ Image& Image::operator=(const Image& other) {
 
 | Dazzle | C++ |
 |---|---|
-| `Image(w, h)` | `Image(uint32_t w, uint32_t h)` |
+| `Image(w, h)` | `Image(int32_t w, int32_t h)` |
 | `impl Drop`'s `drop` | `~Image()` |
 | `impl Copy`'s `copy` | `Image(const Image&)`, run on a defaults-initialised `*this` |
 | move | `Image(Image&&)`: memberwise steal, then reset the source to its defaults |
@@ -319,9 +325,43 @@ the C++ compiler would refuse the copy. [`examples/ownership`](examples/ownershi
 growable array this way, and [spec §6](docs/spec/06-value-semantics-ownership-copy.md) has
 the full rules.
 
-`&T` and `&mut T` are references that can never be stored in a field, so no lifetimes are
-needed. `^T` is a C pointer, and reading or writing through one happens inside `unsafe`. The
-standard library has `Rc`, `Weak` and `Box` for everything in between.
+`&T` and `&mut T` are references, checked as the next section describes. `^T` is a C
+pointer, and reading or writing through one happens inside `unsafe`. The standard library
+has `Rc`, `Weak` and `Box` for everything in between.
+
+### References checked by ties, memory placed by the compiler
+
+A reference lives only where references live: a local, a parameter, a result, or a *view
+struct* such as an iterator. It never sits in an ordinary field or a container, so no
+struct needs a lifetime parameter. What is checked is the bug C++ code actually has: a
+reference used after a call grew, shrank or freed the memory it points into.
+
+A type names its memory with **ties**, and every function says in its signature which ties
+it may end, with a **`kills`** clause. A call ends every reference into what it kills:
+
+```rust
+// in std's List: each signature says what a call may end
+pub fn push(&mut self, v: T) kills self@items      // may move the array
+pub fn len(&self) -> usize                         // no clause: kills nothing
+
+// in your code
+let n = counts.get_or_insert(word, 0)              // a reference into the table
+counts.insert(other, 1)                            // may grow the table
+n += 1        // error[DZ0413]: `insert` kills `counts@items`, and `n` points into it
+```
+
+The compiler checks each clause against its function's body, both ways, and `dz fix`
+writes the clause a body needs. Aliasing stays legal: `&mut xs[i]` beside `&xs[j]`, or a
+`&mut` and a `&` to one value, is fine, as long as nothing in between can move the memory.
+
+**Ordinary code names no allocator.** `List<Enemy>()` and `String::from(name)` get their
+memory where the compiler can prove it safe: the region of the scope that owns them,
+released in one step when the scope ends; wherever the caller keeps a result; or else the
+heap. The same ties check every placement, the editor shows where each allocation went, and
+`dz placements` lists them. Placement is built and being measured behind `DZ_REGIONS`;
+until it is on by default, values go to the heap.
+[Spec §6.7](docs/spec/06-value-semantics-ownership-copy.md) and
+[§14.6](docs/spec/14-memory-and-allocators.md) have the rules.
 
 ### Modules and imports: declared once, in the manifest
 
@@ -530,7 +570,7 @@ planned.
 |---|---|
 | A current stable **Rust** toolchain | to build `dz` |
 | **clang++** or **g++** with C++17 | `dz` compiles the C++ it generates with it |
-| **libclang** (any recent LLVM) | to read C and C++ headers: a program's own, and `stdlib.h`, which the standard library's allocator calls `malloc` from |
+| **libclang** (any recent LLVM) | to read C and C++ headers: a program's own, and `stdlib.h`, whose `malloc` the standard library takes its memory from |
 
 ```bash
 git clone --recursive https://github.com/dazzle-lang/Dazzle.git
@@ -645,9 +685,9 @@ different C library, built from source and called with no bindings:
 
 | | |
 |---|---|
-| **Done** | lexer, parser, formatter · modules and visibility · type checker · C++ code generation · ownership · generics and traits · C and C++ interop from source · tagged unions and `switch` · macros · reflection · `dz test` · `dz bench` and the C++ comparison suite · `dz fix` and `dz explain` · CI on three platforms |
+| **Done** | lexer, parser, formatter · modules and visibility · type checker · C++ code generation · ownership · ties and `kills` clauses · borrowed views · generics and traits · C and C++ interop from source · tagged unions and `switch` · macros · reflection · `dz test` · `dz bench` and the C++ comparison suite · `dz fix` and `dz explain` · CI on three platforms |
 | **Mostly done** | the language server and VS Code extension: still to come are incremental analysis and the remaining quick fixes |
-| **Now** | the standard library. Its criterion, a game written without any C++, is met: [`examples/breakout`](examples/breakout) |
+| **Now** | memory placed by the compiler, behind `DZ_REGIONS` while it is measured; closing the holes safe code still has ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)); and the standard library, whose criterion, a game written without any C++, is met: [`examples/breakout`](examples/breakout) |
 | **Later** | dependencies fetched from git, Dazzle packages and C libraries alike, pinned by a lockfile; hot reload; an installer that bundles libclang |
 
 The open work, milestone by milestone, is the backlog in [`docs/tasks.md`](docs/tasks.md).

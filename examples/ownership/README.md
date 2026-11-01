@@ -1,8 +1,9 @@
 # Ownership
 
 A growable array written from scratch, to show what the standard library's `List` is made of:
-an `own` pointer, memory from an allocator, the three special members (a constructor, `drop`
-and `copy`), copies, and moves. No C or C++ library is involved.
+an `own` pointer, raw memory from C's heap, the three special members (a constructor, `drop`
+and `copy`), copies, and moves. The only C it calls is `malloc` and `free`, from the C
+library's own `stdlib.h`.
 
 ```bash
 dz run examples/ownership
@@ -26,8 +27,10 @@ dropping `backup` (3 books)
 - **Copies and moves you can see.** `let backup = fiction` copies, because `Book` is
   copyable; `move(fiction)` moves, and reading `fiction` afterwards would not compile
   (`DZ0401`). The output shows each `drop` running exactly once, at the end of `main`.
-- **Allocators**, passed in rather than hidden: `Allocators::Global` by default, or any other
-  for a shelf that should live in an arena.
+- **Raw memory from C.** Dazzle code names no allocator: a `List` or a `String` gets its
+  memory where the compiler places it (spec §14.6). So a container written outside `std`
+  takes its memory from C's `malloc`, imported from `stdlib.h` like any C header (see
+  `dazzle.toml`), and turns it into a typed pointer inside `unsafe`.
 
 `dz cpp examples/ownership` writes the C++ this becomes into `build/cpp/`, where the
 synthesised move constructor and assignments can be read.

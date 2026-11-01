@@ -22,10 +22,9 @@ Consecutive terminators collapse into one, and terminators are suppressed:
 That is what lets a call wrap across lines without a continuation character:
 
 ```dz
-m_data = m_allocator.realloc(m_data as ^mut u8,
-                             m_capacity * sizeof(T),
-                             new_size * sizeof(T),
-                             alignof(T)) as ^mut T
+let view = Mat4::look_at(Vec3{ x: 0, y: 2, z: 5 },
+                         target,
+                         Vec3{ x: 0, y: 1, z: 0 })
 ```
 
 Semicolons are legal but never required, and `dz fmt` removes them. `[PROPOSED]`

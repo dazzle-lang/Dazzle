@@ -54,7 +54,7 @@ fn read_header(f: &mut File) !-> Header {
 ```dz
 pub struct Error {
     pub code:     u32                // 0 = unspecified; use your own enum `as u32`
-    pub message:  str                // static storage, or a formatted temp
+    pub message:  &str               // static storage, or a formatted temp
     pub location: &SourceLocation    // where the error was created; static storage
 }
 ```
@@ -221,7 +221,7 @@ signature can carry it:
 | `^T` | `-> U?` | returns `none` ✅ |
 
 ```dz
-pub fn load_level(path: &str, alloc: ^Allocator) !-> Level {
+pub fn load_level(path: &str) !-> Level {
     let file = File::open(path) or return
     let hdr  = file.read_header() or return
 
@@ -229,7 +229,7 @@ pub fn load_level(path: &str, alloc: ^Allocator) !-> Level {
         return error(ErrorCode::BadMagic, "not a level file: {}", path)
     }
 
-    let mut data = List<u8>::try_new(hdr.size, alloc) or return
+    let mut data = List<u8>::try_new(hdr.size) or return
     file.read_into(&mut data) or return
 
     return Level::parse(data)
