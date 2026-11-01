@@ -136,6 +136,97 @@ fn every_program_produces_its_expected_output() {
     });
 }
 
+/// Scope regions (spec §14.6, T-0117) change where memory comes from and nothing else, so
+/// every program here prints its `expected.txt` with them on, and the C++ that places
+/// values in regions is warning-clean on every compiler present (invariant 7). The switch
+/// is set here rather than inherited, so the test means the same everywhere; each program
+/// is a copy, so it does not race the run test building the same directory.
+#[test]
+fn regions_change_nothing() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let compilers: Vec<&str> = ["clang++", "g++"]
+        .into_iter()
+        .filter(
+            |c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()),
+        )
+        .collect();
+    let found = projects();
+    parallel::for_each(&found, |(name, dir)| {
+        if needs_cmake(dir) && !have_cmake() {
+            eprintln!("skipping {name}: it builds a library with CMake, which is not installed");
+            return;
+        }
+        let expected = normalise(&std::fs::read_to_string(dir.join("expected.txt")).unwrap());
+        let copy = copy_fixture(name, &format!("dz_regions_{name}"));
+        let out = Command::new(dz())
+            .args(["run", copy.to_str().unwrap()])
+            .env("DZ_REGIONS", "1")
+            .output()
+            .expect("failed to run dz");
+        let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        match expected.strip_prefix("panic!\n") {
+            Some(body) => {
+                assert!(!out.status.success(), "{name}: expected a panic with regions on");
+                for line in body.lines() {
+                    assert!(
+                        stderr.contains(line.trim()) || stdout.contains(line.trim()),
+                        "{name}: expected {line:?} with regions on\nstdout:\n{stdout}\nstderr:\n{stderr}"
+                    );
+                }
+            }
+            None => {
+                assert!(out.status.success(), "{name}: dz run failed with regions on\n{stderr}");
+                assert_eq!(stdout, expected, "{name}: stdout differs with regions on");
+            }
+        }
+        if WARNING_CLEAN.contains(&name.as_str()) {
+            for cxx in &compilers {
+                assert_cpp_warning_clean(cxx, &copy.join("build/cpp"));
+            }
+        }
+        let _ = std::fs::remove_dir_all(&copy);
+    });
+}
+
+/// `dz placements` prints every site in the project's own files with the editor hint's
+/// label, and none of `std`'s; `--format=json` says the same for a program to read
+/// (spec §14.6, T-0117). It only analyses, so it needs no C++ compiler.
+#[test]
+fn dz_placements_prints_each_site() {
+    let dir = run_dir("regions");
+    let out = Command::new(dz())
+        .args(["placements", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = normalise(&String::from_utf8_lossy(&out.stdout));
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines.iter().all(|l| !l.contains("<std>")), "{text}");
+    assert!(lines[0].ends_with("src/main.dz:13:18: List<i32>  region: `sum_squares`"), "{text}");
+    assert!(lines[1].ends_with("src/main.dz:26:18: List<i32>  heap: returned"), "{text}");
+    assert_eq!(lines.last().copied(), Some("24 allocations, 13 in a region"), "{text}");
+
+    let out = Command::new(dz())
+        .args(["placements", "--format=json", dir.to_str().unwrap()])
+        .output()
+        .expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON on stdout");
+    let sites = doc["sites"].as_array().unwrap();
+    assert_eq!(sites.len(), 24);
+    assert_eq!(sites[0]["placement"], "region");
+    assert_eq!(sites[0]["scope"], "`sum_squares`");
+    assert_eq!(sites[0]["line"], 13);
+    assert_eq!(sites[1]["placement"], "heap");
+    assert_eq!(sites[1]["why"], "returned");
+    assert_eq!(sites[1]["label"], "heap: returned");
+    assert!(sites[1]["at"]["line"].is_u64(), "a heap decision says where: {}", sites[1]);
+}
+
 /// The examples, guarded. Most open a window or an audio device, so none can carry an
 /// `expected.txt`; without this, M7b's own criterion would go
 /// untested — a break in `import cpp`, in a `[cpp.libs]` recipe, in the single-header
@@ -1063,6 +1154,55 @@ fn generated_cpp_snapshot() {
     insta::assert_snapshot!("hello_cpp", format!("{header}\n// ---\n{cpp}"));
 }
 
+/// The run fixtures whose C++ is compiled alone, warnings as errors: every one that
+/// needs no include path beyond the generated files. `ownership` is the only program that
+/// exercises the generated special members, and `failure` the only one that exercises `or`,
+/// tagged unions and tuples. A warning in generated code is a compiler bug (invariant 7).
+const WARNING_CLEAN: &[&str] = &[
+    "features",
+    "ownership",
+    "failure",
+    "hello",
+    "keywords",
+    "inherit",
+    "switching",
+    "loops",
+    "button",
+    "statics",
+    "assoc",
+    "dynamic",
+    "flags",
+    "location",
+    "allocators",
+    "containers",
+    "argorder",
+    "hashmap",
+    "optionals",
+    "unions",
+    "iterable",
+    "math",
+    "variadic",
+    "reflect",
+    "handles",
+    "time",
+    "generic_methods",
+    "random",
+    "files",
+    "utf8",
+    "handle_upcast",
+    "sorting",
+    "breakout_sim",
+    "text",
+    "process",
+    "formatting",
+    "collections",
+    "projection",
+    "implicit_as",
+    "ref_fields",
+    "region_arena",
+    "regions",
+];
+
 #[test]
 fn the_generated_code_builds_clean_under_wall_wextra() {
     // spec §16.5 — nothing generated may need exceptions or RTTI, and it must not warn.
@@ -1073,57 +1213,8 @@ fn the_generated_code_builds_clean_under_wall_wextra() {
         return;
     };
 
-    // Every run fixture, not just one: `ownership` is the only program that exercises
-    // the generated special members, and `failure` the only one that exercises `or`,
-    // tagged unions and tuples. A warning in generated code is a compiler bug
-    // (invariant 7), so the check has to see all of it.
     // A scratch copy per fixture and one `dz cpp` each, so the whole list goes at once.
-    parallel::for_each(
-        &[
-            "features",
-            "ownership",
-            "failure",
-            "hello",
-            "keywords",
-            "inherit",
-            "switching",
-            "loops",
-            "button",
-            "statics",
-            "assoc",
-            "dynamic",
-            "flags",
-            "location",
-            "allocators",
-            "containers",
-            "argorder",
-            "hashmap",
-            "optionals",
-            "unions",
-            "iterable",
-            "math",
-            "variadic",
-            "reflect",
-            "handles",
-            "time",
-            "generic_methods",
-            "random",
-            "files",
-            "utf8",
-            "handle_upcast",
-            "sorting",
-            "breakout_sim",
-            "text",
-            "process",
-            "formatting",
-            "collections",
-            "projection",
-            "implicit_as",
-            "ref_fields",
-            "region_arena",
-        ],
-        |fixture| check_warning_clean(cxx, fixture),
-    );
+    parallel::for_each(WARNING_CLEAN, |fixture| check_warning_clean(cxx, fixture));
 }
 
 /// Generate one fixture's C++ and compile every translation unit with warnings as errors.
@@ -1136,9 +1227,12 @@ fn check_warning_clean(cxx: &str, fixture: &str) {
     let out =
         Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_cpp_warning_clean(cxx, &dir.join("build/cpp"));
+}
 
-    let dir = dir.join("build/cpp");
-    for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+/// Compile every translation unit in `dir` with warnings as errors (invariant 7).
+fn assert_cpp_warning_clean(cxx: &str, dir: &Path) {
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
         let p = entry.path();
         if p.extension().is_some_and(|e| e == "cpp") {
             let out = Command::new(cxx)

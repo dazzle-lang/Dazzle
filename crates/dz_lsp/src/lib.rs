@@ -808,6 +808,8 @@ impl Server {
                 .into_iter()
                 .map(|h| {
                     let position = convert::position(source, h.offset);
+                    // `List<i32>() region: …`, apart from the `)` it follows.
+                    let after_call = h.kind == ide::HintKind::Placement;
                     let (kind, before, tooltip, text_edits) = match h.kind {
                         // `id: 1`, not `id:1`: the hint sits before the value it names.
                         ide::HintKind::Field => (Some(InlayHintKind::PARAMETER), true, None, None),
@@ -825,6 +827,17 @@ impl Server {
                                 new_text: format!("{} ", h.label),
                             }]),
                         ),
+                        // After the call, and nothing to accept: it is not source.
+                        ide::HintKind::Placement => (
+                            None,
+                            false,
+                            Some(InlayHintTooltip::String(
+                                "where the compiler places this memory (spec §14.6); a build \
+                                 uses it only with DZ_REGIONS=1 for now"
+                                    .to_owned(),
+                            )),
+                            None,
+                        ),
                     };
                     InlayHint {
                         position,
@@ -832,7 +845,7 @@ impl Server {
                         kind,
                         text_edits,
                         tooltip,
-                        padding_left: None,
+                        padding_left: after_call.then_some(true),
                         padding_right: before.then_some(true),
                         data: None,
                     }

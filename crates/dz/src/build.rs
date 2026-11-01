@@ -30,8 +30,23 @@ pub fn emit_cpp(
     else {
         return Err(Diagnostics::new());
     };
-    let emitted =
-        dz_cpp::emit(ws, resolution, table, hir, mono, &analysis.map, &analysis.files, options);
+    // Regions are switched on from outside until T-0117's gate decides whether they stay, so
+    // `tools/bench_regions.py` builds one source both ways without a flag of its own.
+    let options = dz_cpp::Options {
+        regions: options.regions || std::env::var_os("DZ_REGIONS").is_some_and(|v| v != "0"),
+        ..options
+    };
+    let emitted = dz_cpp::emit(
+        ws,
+        resolution,
+        table,
+        hir,
+        mono,
+        analysis.placements.as_ref(),
+        &analysis.map,
+        &analysis.files,
+        options,
+    );
     if emitted.diagnostics.has_errors() {
         return Err(emitted.diagnostics);
     }
