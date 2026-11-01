@@ -1,7 +1,8 @@
-// Scope regions (spec §14.6, T-0117): a value a block builds and never lets out gets its
-// memory from a region released when the block ends. The output must be the same with
-// regions on (`DZ_REGIONS=1`, `regions_change_nothing` in crates/dz/tests/run.rs) and off.
-// The cases are the regions prototype's (T-0104), less its stage 2.
+// Placement by the compiler (spec §14.6, T-0117): a value a block builds and never lets out
+// gets its memory from a region released when the block ends, and a value a function
+// returns is built wherever its caller keeps it. The output must be the same with regions
+// on (`DZ_REGIONS=1`, `regions_change_nothing` in crates/dz/tests/run.rs) and off. The
+// cases are the prototype's (T-0104), less its `#allocator`.
 
 struct Store {
     pub saved: List<i32>
@@ -21,7 +22,7 @@ fn sum_squares(n: i32) -> i32 {
     return total
 }
 
-// Not placed: returned, so it outlives the call.
+// Returned: built where the caller keeps it, `main`'s region below.
 fn evens(n: i32) -> List<i32> {
     let mut xs = List<i32>()
     for i in 0..n {
@@ -58,8 +59,8 @@ fn fill(xs: &mut List<i32>, n: i32) kills xs@items {
     xs.push(scratch.len() as i32)
 }
 
-// Not placed: what it returns is built on the heap until results have a placement of their
-// own (stage 2).
+// Returned: built where the caller keeps it. `main` keeps one in its region and stores
+// one in `store`, which gets the heap.
 fn squares(n: i32) -> List<i32> {
     let mut xs = List<i32>()
     for i in 0..n {
@@ -68,6 +69,7 @@ fn squares(n: i32) -> List<i32> {
     return move(xs)
 }
 
+// Passes its own caller's placement on to `squares`.
 fn more_squares(n: i32) -> List<i32> {
     return squares(n)
 }

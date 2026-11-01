@@ -373,6 +373,10 @@ fn cmd_placements(
                         v["placement"] = "region".into();
                         v["scope"] = scope.as_str().into();
                     }
+                    dz_flow::placement::Decision::Result { function } => {
+                        v["placement"] = "result".into();
+                        v["function"] = function.as_str().into();
+                    }
                     dz_flow::placement::Decision::Heap { why, at } => {
                         v["placement"] = "heap".into();
                         v["why"] = why.as_str().into();

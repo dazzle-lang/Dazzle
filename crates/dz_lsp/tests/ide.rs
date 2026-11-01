@@ -528,7 +528,11 @@ fn inlay_hints_show_where_each_allocation_goes() {
     };
     let all: Vec<_> = hints.iter().filter(|h| h.kind == ide::HintKind::Placement).collect();
     assert_eq!(placed("List<i32>()", 0).as_deref(), Some("region: `sum_squares`"), "{all:?}");
-    assert_eq!(placed("List<i32>()", 1).as_deref(), Some("heap: returned"), "{all:?}");
+    assert_eq!(
+        placed("List<i32>()", 1).as_deref(),
+        Some("result: where `evens`'s caller keeps it"),
+        "{all:?}"
+    );
     assert_eq!(
         placed("List<String>()", 4).as_deref(),
         Some("region: each pass of a loop in `main`"),

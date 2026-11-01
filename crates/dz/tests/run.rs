@@ -207,8 +207,15 @@ fn dz_placements_prints_each_site() {
     let lines: Vec<&str> = text.lines().collect();
     assert!(lines.iter().all(|l| !l.contains("<std>")), "{text}");
     assert!(lines[0].ends_with("src/main.dz:13:18: List<i32>  region: `sum_squares`"), "{text}");
-    assert!(lines[1].ends_with("src/main.dz:26:18: List<i32>  heap: returned"), "{text}");
-    assert_eq!(lines.last().copied(), Some("24 allocations, 13 in a region"), "{text}");
+    assert!(
+        lines[1].ends_with("src/main.dz:26:18: List<i32>  result: where `evens`'s caller keeps it"),
+        "{text}"
+    );
+    assert!(
+        lines[8].ends_with("src/main.dz:80:22: String::from  heap: passed to `store.names.push`"),
+        "{text}"
+    );
+    assert_eq!(lines.last().copied(), Some("29 allocations, 16 in a region"), "{text}");
 
     let out = Command::new(dz())
         .args(["placements", "--format=json", dir.to_str().unwrap()])
@@ -217,14 +224,16 @@ fn dz_placements_prints_each_site() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON on stdout");
     let sites = doc["sites"].as_array().unwrap();
-    assert_eq!(sites.len(), 24);
+    assert_eq!(sites.len(), 29);
     assert_eq!(sites[0]["placement"], "region");
     assert_eq!(sites[0]["scope"], "`sum_squares`");
     assert_eq!(sites[0]["line"], 13);
-    assert_eq!(sites[1]["placement"], "heap");
-    assert_eq!(sites[1]["why"], "returned");
-    assert_eq!(sites[1]["label"], "heap: returned");
-    assert!(sites[1]["at"]["line"].is_u64(), "a heap decision says where: {}", sites[1]);
+    assert_eq!(sites[1]["placement"], "result");
+    assert_eq!(sites[1]["function"], "`evens`");
+    assert_eq!(sites[8]["placement"], "heap");
+    assert_eq!(sites[8]["why"], "passed to `store.names.push`");
+    assert_eq!(sites[8]["label"], "heap: passed to `store.names.push`");
+    assert!(sites[8]["at"]["line"].is_u64(), "a heap decision says where: {}", sites[8]);
 }
 
 /// The examples, guarded. Most open a window or an audio device, so none can carry an

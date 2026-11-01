@@ -6,6 +6,31 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0117, stage 2, round 1: a returned value built where the caller keeps it (2026-11-01)
+
+Compiler work; no language change (§14.6 already says it). Behind `DZ_REGIONS`, as stage 1.
+
+- **A result function** takes a hidden last parameter, `_dz_result`, its caller's choice of
+  where the result is built. It is a free function or a non-virtual struct or union method
+  whose result keeps an allocator, that takes no allocator of its own and is never used as
+  a function value. That is decided from signatures alone (`result_functions`), so the
+  declaration and every call agree, and codegen reads it from `Placements::takes_result`.
+  The first version keyed on `needs_drop`, which gave every `println!` a placement through
+  `Formatter`; "keeps an allocator, through its fields" is the property that matters. A
+  bare `T` result does not count, since `pop` and `get` build nothing.
+- **Inside one**, a site whose value is returned gets `Decision::Result` and is built in
+  `_dz_result`. The region check models the placement as a region of the outermost block
+  that its end does not release and that `return` may take, so every other escape is still
+  refused, including a value made on every pass of a loop.
+- **At a call**, the call is a site like stage 1's: the caller's region when it keeps the
+  result and only borrows it, its own placement when it returns it, the heap otherwise.
+- The split of `local_names`' doc comment by `region_name`, from stage 1's round 2, is
+  repaired.
+
+Tests: `a_returned_value_is_built_where_the_caller_keeps_it` in `dz_flow/tests/placement.rs`;
+`regions_change_nothing` with the hidden parameter on every std and program result
+function; `tests/run/regions` now shows it (`evens`, `squares`, `more_squares`).
+
 ## T-0117, stage 1, round 2: codegen behind `DZ_REGIONS`, and each placement shown (2026-11-01)
 
 Compiler work; no language change. With `DZ_REGIONS` unset, every program builds exactly as
