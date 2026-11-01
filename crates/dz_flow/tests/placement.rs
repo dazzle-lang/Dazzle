@@ -306,6 +306,27 @@ fn values_that_leave_their_scope_keep_the_heap_and_say_why() {
     );
 }
 
+/// A trait's symbol, by name, in the program's own module.
+fn trait_sym(a: &Analysis, name: &str) -> dz_resolve::SymbolId {
+    let res = a.resolution.as_ref().unwrap();
+    let hir = a.hir.as_ref().unwrap();
+    hir.bodies()
+        .find_map(|(_, b)| match &b.owner {
+            BodyOwner::TraitDefaults { owner, .. } | BodyOwner::Method { owner, .. }
+                if res.symbol(*owner).name == name =>
+            {
+                Some(*owner)
+            }
+            _ => None,
+        })
+        .or_else(|| {
+            a.table.as_ref().unwrap().impls().iter().find_map(|i| {
+                (res.symbol(i.trait_ref.trait_sym).name == name).then_some(i.trait_ref.trait_sym)
+            })
+        })
+        .unwrap_or_else(|| panic!("no trait `{name}`"))
+}
+
 /// Stage 2 (T-0117): a result function builds what it returns where its caller keeps it,
 /// and each caller says where that is — its region, its own result placement, the heap.
 /// What takes a result placement is decided from signatures alone, so every call agrees.
@@ -327,7 +348,7 @@ trait Maker {
 }
 
 impl Maker for Keeper {
-    // Not yet: a trait method's implementations share one calling convention (round 2).
+    // Decided by the trait: every implementation and the vtable slot take one alike.
     fn make(&self) -> List<i32> {
         return List<i32>()
     }
@@ -355,7 +376,24 @@ fn found(n: i32) -> List<i32> {
     return List<i32>()
 }
 
-// Used as a function value, so it takes no placement: its C++ type stays as written.
+// An optional result: what `or` unwraps is what was built, placed as the `or` is.
+fn maybe(n: i32) -> List<i32>? {
+    if n > 0 {
+        return List<i32>()
+    }
+    return none
+}
+
+fn forward(n: i32) -> List<i32>? {
+    let xs = maybe(n) or return none
+    return xs
+}
+
+fn direct(n: i32) -> List<i32>? {
+    return maybe(n) or return none
+}
+
+// Used as a function value: its type passes a placement as a call by name does.
 fn valued() -> List<i32> {
     return List<i32>()
 }
@@ -375,8 +413,10 @@ fn main() {
     let other = k.make()
     let mut nums = List<i32>()
     let popped = last(&mut nums)
-    println!("{} {} {} {} {} {}", kept.len(), made.len(), from_value.len(), other.len(),
-        found(4).len(), popped or 0)
+    let unwrapped = maybe(1) or List<i32>()
+    let n = unwrapped.len() + (forward(1) or List<i32>()).len() + (direct(1) or List<i32>()).len()
+    println!("{} {} {} {} {} {} {}", kept.len(), made.len(), from_value.len(), other.len(),
+        found(4).len(), popped or 0, n)
 }
 "#,
     );
@@ -394,10 +434,10 @@ fn main() {
             })
         }
     };
-    for f in ["evens", "again", "found"] {
+    for f in ["evens", "again", "found", "valued"] {
         assert!(takes(f), "`{f}` takes a result placement");
     }
-    for f in ["valued", "last", "main"] {
+    for f in ["last", "main"] {
         assert!(!takes(f), "`{f}` takes none");
     }
 
@@ -411,9 +451,17 @@ fn main() {
         ]
     );
     assert!(body(&a, &p, "found").demoted().contains(&sites(&a, &p, "found")[0].call));
-    assert_eq!(decisions(&a, &p, "valued"), ["List<i32>: heap: returned"]);
+    assert_eq!(
+        decisions(&a, &p, "valued"),
+        ["List<i32>: result: where `valued`'s caller keeps it"]
+    );
+    assert_eq!(decisions(&a, &p, "maybe"), ["List<i32>: result: where `maybe`'s caller keeps it"]);
+    assert_eq!(decisions(&a, &p, "forward"), ["maybe: result: where `forward`'s caller keeps it"]);
+    assert_eq!(decisions(&a, &p, "direct"), ["maybe: result: where `direct`'s caller keeps it"]);
+    let main = decisions(&a, &p, "main");
+    assert!(main.contains(&"maybe: region: `main`".into()), "through `or`: {main:?}");
 
-    // The method's body, and the trait implementation's, which stays on the heap.
+    // The method's body, and the trait implementation's.
     let method = |pick: fn(&BodyOwner) -> bool| {
         p.iter().find(|(o, _)| pick(o)).map(|(_, b)| b.sites[0].decision.label()).unwrap()
     };
@@ -421,13 +469,26 @@ fn main() {
         method(|o| matches!(o, BodyOwner::Method { name, .. } if name == "fresh")),
         "result: where `fresh`'s caller keeps it"
     );
-    assert_eq!(method(|o| matches!(o, BodyOwner::ImplMethod { .. })), "heap: returned");
+    assert_eq!(
+        method(|o| matches!(o, BodyOwner::ImplMethod { name, .. } if name == "make")),
+        "result: where `make`'s caller keeps it"
+    );
+    let trait_methods = |name: &str| {
+        p.takes_result(&BodyOwner::TraitDefaults {
+            owner: trait_sym(&a, "Maker"),
+            name: name.into(),
+        })
+    };
+    assert!(trait_methods("make"), "the trait's own slot");
 
     // Each caller says where: kept and borrowed, its region; stored, the heap.
     let main = decisions(&a, &p, "main");
     assert_eq!(main[0], "evens: region: `main`");
     assert!(main.contains(&"again: heap: assigned to `k.saved`; only a `let` gets a region".into()));
     assert!(main.contains(&"k.fresh: region: `main`".into()), "{main:?}");
+    // Through a trait method and a function value, as by name.
+    assert!(main.contains(&"k.make: region: `main`".into()), "{main:?}");
+    assert!(main.contains(&"a function value: region: `main`".into()), "{main:?}");
     // The arguments: one past each callee's last written parameter.
     let evens_call = sites(&a, &p, "main")[0];
     assert_eq!(evens_call.arg, 0);

@@ -1231,7 +1231,12 @@ impl<'a> Emitter<'a> {
     fn dyn_signature(&mut self, sig: &dz_check::FnSig) -> (String, Vec<String>) {
         let ret = self.cpp_ty(&sig.ret);
         let ret = if sig.fallible { format!("::dz::Res<{ret}>") } else { ret };
-        let params = sig.params.iter().map(|p| self.cpp_ty(&p.ty)).collect();
+        let mut params: Vec<String> = sig.params.iter().map(|p| self.cpp_ty(&p.ty)).collect();
+        // The slot takes where its result goes, as every implementation does: both are
+        // decided by the trait's signature (spec §14.6, T-0117 stage 2).
+        if self.passes_result(&sig.ret) {
+            params.push(self.allocator_ty());
+        }
         (ret, params)
     }
 
@@ -2737,6 +2742,47 @@ impl<'a> Emitter<'a> {
         parts.join(", ")
     }
 
+    /// Whether a function returning `ret` takes a result placement, by its type alone: a
+    /// function type, a trait object's method. The same rule as `result_functions`.
+    fn passes_result(&self, ret: &Ty) -> bool {
+        self.placements.is_some() && dz_flow::placement::keeps_allocator(self.table, self.res, ret)
+    }
+
+    /// Whether a call passes a result placement: what it calls takes one.
+    fn call_takes_result(&self, callee: &hir::Callee) -> bool {
+        let Some(p) = self.placements else { return false };
+        match callee {
+            hir::Callee::Value(v) => match self.cur().ty(*v).peeled() {
+                Ty::Fn { ret, .. } => self.passes_result(ret),
+                _ => false,
+            },
+            _ => dz_flow::placement::callee_owner(self.res, callee)
+                .is_some_and(|(_, owner)| p.takes_result(&owner)),
+        }
+    }
+
+    /// A function named as a value, `e`, whose type passes a result placement while the
+    /// function takes none — a generic `fn id<T>(x: T) -> T` as a `fn(String) -> String`, a
+    /// function with an allocator of its own — becomes a function that takes one and builds
+    /// on the heap, as the function always did: `+[](P0 a0, Allocator__dyn) -> R { … }`.
+    fn result_adapter(&mut self, e: ExprId, sym: SymbolId, name: &str) -> Option<String> {
+        let Ty::Fn { params, ret, .. } = self.cur().ty(e).peeled().clone() else { return None };
+        let takes = self.placements.is_some_and(|p| p.takes_result(&BodyOwner::Fn(sym)));
+        if takes || !self.passes_result(&ret) {
+            return None;
+        }
+        let ret = self.cpp_ty(&ret);
+        let mut list = Vec::new();
+        let mut args = Vec::new();
+        for (i, p) in params.iter().enumerate() {
+            let t = self.cpp_ty(p);
+            list.push(format!("{t} a{i}"));
+            args.push(format!("static_cast<{t}&&>(a{i})"));
+        }
+        list.push(self.allocator_ty());
+        Some(format!("+[]({}) -> {ret} {{ return {name}({}); }}", list.join(", "), args.join(", ")))
+    }
+
     /// `^mut Allocator` in C++: the trait object handle every placement is passed as.
     fn allocator_ty(&mut self) -> String {
         match self.res.lookup(self.res.prelude, "Allocator") {
@@ -3246,6 +3292,10 @@ impl<'a> Emitter<'a> {
             Ty::Fn { params, ret, .. } => {
                 let mut ps: Vec<String> = vec![self.cpp_ty(ret)];
                 ps.extend(params.iter().map(|p| self.cpp_ty(p)));
+                // A function value passes where its result goes, as a call by name does.
+                if self.passes_result(ret) {
+                    ps.push(self.allocator_ty());
+                }
                 format!("::dz::fn<{}>", ps.join(", "))
             }
             // Both live in the shim, so they keep their `dz::` name (spec §9.2, §16.4).
@@ -4130,12 +4180,15 @@ impl<'a> Emitter<'a> {
                 };
                 format!("{cast}<{t}>({})", self.qualify(*sym))
             }
-            hir::ExprKind::FnItem { sym, type_args } if !type_args.is_empty() => {
-                self.qualify_instance(*sym, type_args)
+            hir::ExprKind::FnItem { sym, type_args } => {
+                let name = if type_args.is_empty() {
+                    self.qualify(*sym)
+                } else {
+                    self.qualify_instance(*sym, type_args)
+                };
+                self.result_adapter(e, *sym, &name).unwrap_or(name)
             }
-            hir::ExprKind::Const(sym)
-            | hir::ExprKind::Static(sym)
-            | hir::ExprKind::FnItem { sym, .. } => self.qualify(*sym),
+            hir::ExprKind::Const(sym) | hir::ExprKind::Static(sym) => self.qualify(*sym),
             hir::ExprKind::AssocConst { owner, name } => {
                 format!("{}::{}()", self.qualify(*owner), sanitize(name))
             }
@@ -4862,11 +4915,7 @@ impl<'a> Emitter<'a> {
             let v = self.render_default(body, default, span);
             rendered.push(v);
         }
-        let takes_result = self.placements.is_some_and(|p| {
-            dz_flow::placement::callee_owner(self.res, callee)
-                .is_some_and(|(_, owner)| p.takes_result(&owner))
-        });
-        if takes_result {
+        if self.call_takes_result(callee) {
             let arg = match placed {
                 Some((_, at)) => Self::placement_arg(at),
                 None => self.heap_placement(),
