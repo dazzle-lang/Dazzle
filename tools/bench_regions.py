@@ -45,6 +45,9 @@ PROGRAMS = ["astar", "words", "expr"]
 
 # The gate's thresholds, from T-0117.
 PEAK_SLACK = 0.10  # peak memory within 10% of the heap's
+# Stage 1's checkpoint asks `words` and `expr`, whose hot allocations stage 1 cannot reach,
+# only not to be slower: a median at most this much above the heap's is run-to-run noise.
+NOISE = 0.02
 FLAT_SLACK_KIB = 1024  # a million passes may peak at most 1 MiB above ten thousand
 
 
@@ -210,6 +213,7 @@ def bench(dz, program, cxx, mode, runs, args, work, measure):
         "heap": {**bp.summarise(walls["heap"]), "peak_kib": peaks["heap"] or None},
         "regions": {**bp.summarise(walls["regions"]), "peak_kib": peaks["regions"] or None},
         "faster": regions < heap,
+        "not_slower": regions <= heap * (1 + NOISE),
         "peak_within": bool(peaks["heap"])
         and peaks["regions"] <= peaks["heap"] * (1 + PEAK_SLACK),
     }
@@ -248,15 +252,16 @@ def verdict(ok):
 def report(info, results, loops, mode, runs):
     lines = [
         "| Program | Compiler | Heap | Regions | Regions / heap | Peak (heap / regions) "
-        "| Faster | Peak within 10% |",
-        "|---|---|---:|---:|---:|---:|---|---|",
+        "| Faster | Not slower (2%) | Peak within 10% |",
+        "|---|---|---:|---:|---:|---:|---|---|---|",
     ]
     for r in results:
         h, g = r["heap"], r["regions"]
         lines.append(
             f"| {r['program']} | {r['cxx']} | {bp.ms(h['median'])} | {bp.ms(g['median'])} "
             f"| {g['median'] / h['median']:.3f} | {bp.mib(h['peak_kib'])} / "
-            f"{bp.mib(g['peak_kib'])} | {verdict(r['faster'])} | {verdict(r['peak_within'])} |"
+            f"{bp.mib(g['peak_kib'])} | {verdict(r['faster'])} | {verdict(r['not_slower'])} "
+            f"| {verdict(r['peak_within'])} |"
         )
     lines += [
         "",
