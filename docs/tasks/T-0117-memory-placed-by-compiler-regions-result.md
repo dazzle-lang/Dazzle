@@ -11,7 +11,8 @@ Step 4 of D-0091's plan (spec §14.6), split out of
 [T-0107](T-0107-design-ties-kills-clauses-compiler-placed.md), which has the full design and
 the scenarios it was checked against.
 
-**Where the code is** (keep this current; stage 1's rounds 1 and 2, below, built it).
+**Where the code is** (keep this current; stage 1's rounds 1 and 2 and stage 2's round 1,
+below, built it).
 
 | Piece | Where |
 |---|---|
@@ -23,9 +24,12 @@ the scenarios it was checked against.
 | Codegen, behind the switch: `Options::regions`; `emit` takes `Option<&Placements>`; `Emitter::placement` and `regions`, set in `in_body` by the body's owner; the region declared in `block_into`, passed in `call` (`region`), named by `region_name` | `dz_cpp/src/lib.rs` |
 | The switch: `DZ_REGIONS` (any value but `0`), for every command that emits C++ | `emit_cpp`, `crates/dz/src/build.rs` |
 | One wording for every reader: `Decision::label` | `dz_flow/src/placement.rs` |
+| Stage 2, result placement: `result_functions` (which take one; `holds_allocator`, `allocator_param`), `Placements::takes_result`, `callee_owner`, `Decision::Result`, `Placed`, `BodyPlacement::placed`; the proposer's `Target::Result`, `Escape`, `returned` | `dz_flow/src/placement.rs` |
+| Stage 2 in the check: `Regions::results`, exempt from `region_end` and from the `return` refusal | `dz_flow/src/ties/body.rs` |
+| Stage 2 in codegen: the hidden parameter in `decl_params` (`RESULT_PLACEMENT`, `allocator_ty`), the argument in `call` (`placement_arg`, `heap_placement`) | `dz_cpp/src/lib.rs` |
 | The inlay hint: `HintKind::Placement`, `placement_hints`; sent, with its tooltip, by `inlay_hints` | `dz_lsp/src/ide.rs`, `dz_lsp/src/lib.rs` |
 | `dz placements [path] [--format=json]`: `cmd_placements` | `crates/dz/src/main.rs` |
-| Tests | `dz_flow/tests/placement.rs`; `tests/run/region_arena` (the arena by hand and the copy guard, also under `--track-memory` and `-Wall -Wextra`); `tests/run/regions` and `regions_change_nothing` (every run program with regions on, warning-clean on clang++ and g++) and `dz_placements_prints_each_site` in `dz/tests/run.rs`; `inlay_hints_show_where_each_allocation_goes` in `dz_lsp/tests/ide.rs` |
+| Tests | `dz_flow/tests/placement.rs` (stage 2: `a_returned_value_is_built_where_the_caller_keeps_it`); `tests/run/region_arena` (the arena by hand and the copy guard, also under `--track-memory` and `-Wall -Wextra`); `tests/run/regions` and `regions_change_nothing` (every run program with regions on, warning-clean on clang++ and g++) and `dz_placements_prints_each_site` in `dz/tests/run.rs`; `inlay_hints_show_where_each_allocation_goes` in `dz_lsp/tests/ide.rs` |
 | The gate's stopwatch | `tools/bench_regions.py` |
 
 **What it is.** No allocator appears in ordinary code: the compiler puts each value in the
@@ -225,6 +229,66 @@ class; or give large blocks straight back to the heap and pool only chunks.
 
 1. **The peak-memory bug** above: confirm the cause, fix it, and run the checkpoint again.
    The keep-or-drop verdict waits for stage 2.
+
+**Stage 2 plan (2026-11-01), the result placement, in three rounds.** The user put
+benchmarks aside on a busy machine: what matters is that placement is automatic, checked,
+and right.
+
+1. **Round 1: free functions and methods.** A *result function* takes a hidden last
+   parameter, `_dz_result`, the `^mut Allocator` its result is built in. It is one whose
+   return type owns memory (looking through `?`), which is a free function or a struct or
+   union method that is not `virtual` or `override`, has a body, takes no allocator
+   parameter of its own (those are stage 1's sites), and is never used as a function value
+   anywhere in the program. `Placements::takes_result` is the one answer, read by codegen
+   for every declaration (`decl_params`) and every call.
+   - **Callee side**: a site whose value is returned (`return List()`, `let xs = List();
+     …; return move(xs)`, `return make()`) is decided `Decision::Result` and passes
+     `_dz_result` on. The check treats it as a region on the body's outermost block that is
+     never released: returning it is allowed, and storing it anywhere else, passing it by
+     value, or making it on every pass of a loop is refused, as for a region.
+   - **Caller side**: a call to a result function is a site like stage 1's, decided the
+     same way: the caller's region when the result is kept and only borrowed, its own
+     `_dz_result` when it is returned again, the heap otherwise. Every call passes one.
+2. **Round 2: trait methods and function values.** Their C++ shape changes (a vtable
+   slot, a function type), so the hidden parameter is part of the trait's and the function
+   type's calling convention. A function called from C or C++ returns on the heap.
+3. **Round 3: constructors and `copy`** build into wherever `self` is placed, so a value's
+   owned parts live where it lives, and `Box`'s contents go where the `Box` goes.
+
+The user's frame-region idea (one region per pass of an update loop, shared by the
+functions it calls) needs the same hidden parameter, and is a design question for after
+round 1.
+
+**Stage 2, round 1, built 2026-11-01: free functions and methods.** Behind `DZ_REGIONS`,
+as stage 1; with it unset no declaration or call changes.
+
+- **Which functions take a placement** (`result_functions`): decided from signatures and
+  the program's function values alone, so every caller and the declaration agree. The
+  result must *keep an allocator* (`holds_allocator`): `List`, `String`, `HashMap` and what
+  holds them, through fields and `?`. Needing a drop is not enough — `Formatter` and `File`
+  need one and allocate nothing, and taking `needs_drop` put a placement on every
+  `println!`. A bare type parameter does not count either: `pop`, `get` and `take` return
+  a `T` that exists already, and an instance must not be called differently from another.
+- **What is built there**: `return List()`, `return make()`, and `let xs = …` whose only
+  escape is being returned. The check refuses the rest as for a region: stored outside the
+  body, passed by value, or made on every pass of a loop (a value returned from inside a
+  loop is made on every pass, so it keeps the heap).
+- **What callers pass**: their region when they keep the result and only borrow it, their
+  own `_dz_result` when they return it, the heap otherwise. In the benchmarks: `words`'
+  generated text and `expr`'s generated source and token list are now built in `main`'s
+  region, as is `Process::args()` in all three. `expr`'s parser nodes are not: each
+  `self.expr() or return …` is kept through `or`, which keeps the heap.
+- **Not yet**: trait methods, functions used as values (round 2); constructors and `copy`
+  (round 3); a result kept through `or`, which is what reaches `expr`'s nodes (the
+  prototype followed `let x = make() or …`); and a temporary (`evens().len()`) or a value
+  assigned rather than bound by `let`, which keep the heap as in stage 1.
+- **Checked**: `regions_change_nothing` (every `tests/run` program, std's own result
+  functions included, prints its `expected.txt` with regions on, warning-clean on clang++
+  and g++); `a_returned_value_is_built_where_the_caller_keeps_it` (callee and caller
+  sides, the loop refusal, and what takes no placement: a function value, a trait
+  implementation, a generic `-> T?`); the corpus test, where the check refuses no result
+  placement the proposer makes. `tests/run/regions` places 16 of its 29 sites, three of
+  them in a result placement.
 
 `tools/bench_regions.py` builds the heap version of each benchmark (every
 `Allocators::Temp` taken out, as T-0104 did) twice, without and with `DZ_REGIONS=1`, checks

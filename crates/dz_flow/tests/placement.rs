@@ -83,7 +83,8 @@ fn nested(flag: bool) -> usize {
     return n
 }
 
-// Heap: returned.
+// Returned: built where the caller keeps it (stage 2), and with everything proposed
+// in its own region, refused as returned.
 fn evens() -> List<i32> {
     let mut xs = List<i32>()
     xs.push(2)
@@ -206,15 +207,10 @@ fn sites<'p>(a: &Analysis, p: &'p Placements, name: &str) -> Vec<&'p Site> {
     body.sites.iter().collect()
 }
 
-/// `name`'s sites as `callee: region scope` or `callee: heap why`.
+/// `name`'s sites as `callee: ` and the label the editor shows: `region: scope`, `result:
+/// …` or `heap: why`.
 fn decisions(a: &Analysis, p: &Placements, name: &str) -> Vec<String> {
-    sites(a, p, name)
-        .into_iter()
-        .map(|s| match &s.decision {
-            Decision::Region { scope, .. } => format!("{}: region: {scope}", s.callee),
-            Decision::Heap { why, .. } => format!("{}: heap: {why}", s.callee),
-        })
-        .collect()
+    sites(a, p, name).into_iter().map(|s| format!("{}: {}", s.callee, s.decision.label())).collect()
 }
 
 fn body<'p>(a: &Analysis, p: &'p Placements, name: &str) -> &'p placement::BodyPlacement {
@@ -252,7 +248,6 @@ const PLACED: &[(&str, &[&str])] = &[
 
 /// The wrong placements: the function, its site's index, and the proposer's reason.
 const WRONG: &[(&str, usize, &str)] = &[
-    ("evens", 0, "List<i32>: heap: returned"),
     ("keep", 0, "List<i32>: heap: stored in `store.saved`"),
     ("tag", 0, "String::from: heap: passed to `names.push`"),
     ("give", 0, "List<i32>: heap: passed to `consume`"),
@@ -299,11 +294,145 @@ fn values_that_leave_their_scope_keep_the_heap_and_say_why() {
     for (f, expected) in FIXED {
         assert_eq!(decisions(&a, &p, f), [*expected], "in `{f}`");
     }
-    // The aggregates `main` builds are moved into a struct literal.
+    // The aggregates `main` builds are moved into a struct literal, and `evens().len()`
+    // reads a temporary, which no block keeps yet.
     assert_eq!(
         decisions(&a, &p, "main"),
-        ["List<i32>: heap: moved into a `Store`", "List<String>: heap: moved into a `Store`"]
+        [
+            "List<i32>: heap: moved into a `Store`",
+            "List<String>: heap: moved into a `Store`",
+            "evens: heap: a temporary"
+        ]
     );
+}
+
+/// Stage 2 (T-0117): a result function builds what it returns where its caller keeps it,
+/// and each caller says where that is — its region, its own result placement, the heap.
+/// What takes a result placement is decided from signatures alone, so every call agrees.
+#[test]
+fn a_returned_value_is_built_where_the_caller_keeps_it() {
+    let a = analyse(
+        r#"
+struct Keeper {
+    pub saved: List<i32>
+
+    // A method returns into its caller's placement too.
+    pub fn fresh(&self) -> List<i32> {
+        return List<i32>()
+    }
+}
+
+trait Maker {
+    fn make(&self) -> List<i32>
+}
+
+impl Maker for Keeper {
+    // Not yet: a trait method's implementations share one calling convention (round 2).
+    fn make(&self) -> List<i32> {
+        return List<i32>()
+    }
+}
+
+fn evens() -> List<i32> {
+    let mut xs = List<i32>()
+    xs.push(2)
+    return move(xs)
+}
+
+// Passes its own caller's placement on.
+fn again() -> List<i32> {
+    return evens()
+}
+
+// Made on every pass of a loop the caller's placement outlives: the check refuses it.
+fn found(n: i32) -> List<i32> {
+    for i in 0..n {
+        let xs = List<i32>()
+        if i == 3 {
+            return xs
+        }
+    }
+    return List<i32>()
+}
+
+// Used as a function value, so it takes no placement: its C++ type stays as written.
+fn valued() -> List<i32> {
+    return List<i32>()
+}
+
+// A bare `T` hands back a value that exists already: no placement.
+fn last<T>(xs: &mut List<T>) -> T? kills xs@items, xs[*] {
+    return xs.pop()
+}
+
+fn main() {
+    let kept = evens()
+    let mut k = Keeper{ saved: List<i32>() }
+    k.saved = again()
+    let made = k.fresh()
+    let f = valued
+    let from_value = f()
+    let other = k.make()
+    let mut nums = List<i32>()
+    let popped = last(&mut nums)
+    println!("{} {} {} {} {} {}", kept.len(), made.len(), from_value.len(), other.len(),
+        found(4).len(), popped or 0)
+}
+"#,
+    );
+    let p = place(&a, Proposer::Rules);
+    let res = a.resolution.as_ref().unwrap();
+    let takes = |name: &str| {
+        p.iter().any(|(owner, _)| match owner {
+            BodyOwner::Fn(s) => res.symbol(*s).name == name && p.takes_result(owner),
+            _ => false,
+        }) || {
+            let hir = a.hir.as_ref().unwrap();
+            hir.bodies().any(|(_, b)| {
+                matches!(&b.owner, BodyOwner::Fn(s) if res.symbol(*s).name == name)
+                    && p.takes_result(&b.owner)
+            })
+        }
+    };
+    for f in ["evens", "again", "found"] {
+        assert!(takes(f), "`{f}` takes a result placement");
+    }
+    for f in ["valued", "last", "main"] {
+        assert!(!takes(f), "`{f}` takes none");
+    }
+
+    assert_eq!(decisions(&a, &p, "evens"), ["List<i32>: result: where `evens`'s caller keeps it"]);
+    assert_eq!(decisions(&a, &p, "again"), ["evens: result: where `again`'s caller keeps it"]);
+    assert_eq!(
+        decisions(&a, &p, "found"),
+        [
+            "List<i32>: heap: made on every pass of a loop",
+            "List<i32>: result: where `found`'s caller keeps it"
+        ]
+    );
+    assert!(body(&a, &p, "found").demoted().contains(&sites(&a, &p, "found")[0].call));
+    assert_eq!(decisions(&a, &p, "valued"), ["List<i32>: heap: returned"]);
+
+    // The method's body, and the trait implementation's, which stays on the heap.
+    let method = |pick: fn(&BodyOwner) -> bool| {
+        p.iter().find(|(o, _)| pick(o)).map(|(_, b)| b.sites[0].decision.label()).unwrap()
+    };
+    assert_eq!(
+        method(|o| matches!(o, BodyOwner::Method { name, .. } if name == "fresh")),
+        "result: where `fresh`'s caller keeps it"
+    );
+    assert_eq!(method(|o| matches!(o, BodyOwner::ImplMethod { .. })), "heap: returned");
+
+    // Each caller says where: kept and borrowed, its region; stored, the heap.
+    let main = decisions(&a, &p, "main");
+    assert_eq!(main[0], "evens: region: `main`");
+    assert!(main.contains(&"again: heap: assigned to `k.saved`; only a `let` gets a region".into()));
+    assert!(main.contains(&"k.fresh: region: `main`".into()), "{main:?}");
+    // The arguments: one past each callee's last written parameter.
+    let evens_call = sites(&a, &p, "main")[0];
+    assert_eq!(evens_call.arg, 0);
+    let fresh_call = sites(&a, &p, "main").into_iter().find(|s| s.callee == "k.fresh").unwrap();
+    assert_eq!(fresh_call.arg, 0, "`self` is not counted");
 }
 
 /// The gate's last row (T-0117): with everything proposed, the region check alone refuses

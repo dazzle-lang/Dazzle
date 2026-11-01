@@ -262,6 +262,10 @@ pub(crate) struct RegionRefusal {
 struct Regions {
     /// Each proposed site's call, and the block whose region it is in.
     sites: Vec<(ExprId, BlockId)>,
+    /// Which sites are in the body's result placement (T-0117 stage 2): a region of the
+    /// outermost block that its end does not release, since the caller keeps it, and that
+    /// a `return` may take.
+    results: Vec<bool>,
     by_call: HashMap<ExprId, usize>,
     /// The region blocks being walked, each with its frame in `scopes`.
     active: HashMap<BlockId, usize>,
@@ -323,15 +327,22 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
 /// A copy carries no region: copying a value out of a region builds the copy on the heap
 /// (T-0117 step 3, in `List::copy` and `HashMap::copy`), a rule this check trusts as it
 /// trusts std's hand-written clauses (§6.7).
+///
+/// A site marked `true` is in the body's result placement (stage 2), given as the body's
+/// outermost block: the same checks, but the block's end does not release it and a
+/// `return` may take it, since that is where the caller keeps the result. Anywhere else
+/// it would go — a field of `self` or of a parameter, a by-value argument, a value made
+/// on every pass of a loop — it is refused as a region would be.
 pub(crate) fn analyse_regions(
     body: &Body,
     table: &TypeTable,
     res: &Resolution,
-    sites: &[(ExprId, BlockId)],
+    sites: &[(ExprId, BlockId, bool)],
 ) -> Vec<Option<RegionRefusal>> {
     let regions = Regions {
-        sites: sites.to_vec(),
-        by_call: sites.iter().enumerate().map(|(i, (call, _))| (*call, i)).collect(),
+        sites: sites.iter().map(|(call, block, _)| (*call, *block)).collect(),
+        results: sites.iter().map(|(_, _, result)| *result).collect(),
+        by_call: sites.iter().enumerate().map(|(i, (call, _, _))| (*call, i)).collect(),
         refused: vec![None; sites.len()],
         ..Regions::default()
     };
@@ -1433,8 +1444,10 @@ impl Analysis<'_> {
     /// be used or dropped after its memory is gone.
     fn region_end(&mut self, block: BlockId, frame: usize, value: Option<&Value>) {
         let Some(regions) = &self.regions else { return };
-        let mine: Vec<usize> =
-            (0..regions.sites.len()).filter(|s| regions.sites[*s].1 == block).collect();
+        // A result placement is the caller's, and outlives every block of the body.
+        let mine: Vec<usize> = (0..regions.sites.len())
+            .filter(|s| regions.sites[*s].1 == block && !regions.results[*s])
+            .collect();
         let mut found = Vec::new();
         let mut take = |v: &Value| {
             for site in v.all_owned() {
@@ -2042,6 +2055,11 @@ impl Analysis<'_> {
                         } else {
                             self.passed(returned_id, value.clone()).all_owned()
                         };
+                    // What is in the result placement is where the caller wants it.
+                    let kept: Vec<usize> = match &self.regions {
+                        Some(r) => kept.into_iter().filter(|s| !r.results[*s]).collect(),
+                        None => kept,
+                    };
                     self.refuse(&kept, Refusal::Returned, node.span);
                     // A tuple hands out the views in its parts as well.
                     let returned = value.held_views();

@@ -31,7 +31,7 @@ use dz_ast::{
 };
 use dz_check::{ItemSig, TypeTable};
 use dz_diag::{codes, Diagnostic, Diagnostics};
-use dz_flow::placement::{BodyPlacement, Placements};
+use dz_flow::placement::{BodyPlacement, Placed, Placements};
 use dz_hir::ty::{FloatTy, IntTy, Ty};
 use dz_hir::{self as hir, BlockId, BodyOwner, ExprId, Hir, LocalId, StmtId};
 use dz_project::{ModuleId, Workspace};
@@ -2728,7 +2728,38 @@ impl<'a> Emitter<'a> {
                 incoming_name(&names[p.index()], self.table, &local.ty)
             ));
         }
+        // Where the result is built, chosen by each caller (spec §14.6, T-0117 stage 2).
+        // Unused where nothing the body returns is built by it.
+        if self.placements.is_some_and(|p| p.takes_result(owner)) {
+            let ty = self.allocator_ty();
+            parts.push(format!("[[maybe_unused]] {ty} {RESULT_PLACEMENT}"));
+        }
         parts.join(", ")
+    }
+
+    /// `^mut Allocator` in C++: the trait object handle every placement is passed as.
+    fn allocator_ty(&mut self) -> String {
+        match self.res.lookup(self.res.prelude, "Allocator") {
+            Some(sym) => self.ptr_ty(true, &Ty::Named { sym, args: Vec::new() }),
+            None => "void*".to_owned(),
+        }
+    }
+
+    /// The heap, as an allocator argument: `Allocators::Global`.
+    fn heap_placement(&self) -> String {
+        match self.res.lookup(self.res.prelude, "Allocators") {
+            Some(sym) => format!("{}::Global()", self.qualify(sym)),
+            None => "nullptr".to_owned(),
+        }
+    }
+
+    /// What a placed call passes as its allocator: its region, or the body's own result
+    /// placement.
+    fn placement_arg(placed: Placed) -> String {
+        match placed {
+            Placed::Region(block) => format!("::dz::addr({})", region_name(block)),
+            Placed::Result => RESULT_PLACEMENT.to_owned(),
+        }
     }
 
     /// A default argument, written at a call. `span` is the call's: a `#location` default,
@@ -4282,8 +4313,8 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Call { callee, args } => {
-                let region = self.placement.and_then(|p| p.region_for(e));
-                self.call(callee, args, body.ty(e).clone(), node.span, region)
+                let placed = self.placement.and_then(|p| p.placed(e));
+                self.call(callee, args, body.ty(e).clone(), node.span, placed)
             }
             hir::ExprKind::Move(inner) => {
                 /// Something `take` can reset: a local, or a field of one.
@@ -4650,16 +4681,17 @@ impl<'a> Emitter<'a> {
     }
 
     /// `node_ty` is the call's own type, which is what says *which* instance a generic
-    /// struct's constructor builds. `region` is where the analysis placed the call: its
-    /// allocator parameter's index, not counting a receiver, and the block whose region
-    /// is passed there in place of the default (spec §14.6, T-0117).
+    /// struct's constructor builds. `placed` is where the analysis placed the call: its
+    /// allocator parameter's index, not counting a receiver, and the region or result
+    /// placement passed there in place of the default (spec §14.6, T-0117). A call to a
+    /// result function passes one past its last parameter, the heap if nothing better.
     fn call(
         &mut self,
         callee: &hir::Callee,
         args: &[ExprId],
         node_ty: Ty,
         span: Span,
-        region: Option<(usize, BlockId)>,
+        placed: Option<(usize, Placed)>,
     ) -> String {
         if let hir::Callee::Method { recv, owner, name, .. } = callee {
             if let Some(native) = self.native_trait_call(*recv, *owner, name, args) {
@@ -4830,10 +4862,20 @@ impl<'a> Emitter<'a> {
             let v = self.render_default(body, default, span);
             rendered.push(v);
         }
-        if let Some((index, block)) = region {
+        let takes_result = self.placements.is_some_and(|p| {
+            dz_flow::placement::callee_owner(self.res, callee)
+                .is_some_and(|(_, owner)| p.takes_result(&owner))
+        });
+        if takes_result {
+            let arg = match placed {
+                Some((_, at)) => Self::placement_arg(at),
+                None => self.heap_placement(),
+            };
+            rendered.push(arg);
+        } else if let Some((index, at)) = placed {
             let receiver = usize::from(rendered_receiver);
             if let Some(slot) = rendered.get_mut(index + receiver) {
-                *slot = format!("::dz::addr({})", region_name(block));
+                *slot = Self::placement_arg(at);
             }
         }
         let call = format!("{target}({})", rendered.join(", "));
@@ -5789,14 +5831,18 @@ fn ends_in_return(body: &hir::Body) -> bool {
     }
 }
 
-/// One C++ identifier per local.
-///
 /// The C++ name of a block's region. A block's id is unique in its body, and `_dz_` names
 /// are never a program's own.
 fn region_name(block: BlockId) -> String {
     format!("_dz_region{}", block.index())
 }
 
+/// The C++ name of a result function's hidden parameter: where its caller wants the result
+/// built (spec §14.6, T-0117 stage 2).
+const RESULT_PLACEMENT: &str = "_dz_result";
+
+/// One C++ identifier per local.
+///
 /// Dazzle lets a `let` shadow an earlier one in the same block and C++ does not, so a name
 /// that is *still in scope* when a second local claims it gets its arena index appended.
 /// Two loops that both say `for i in …` keep their `i`, because the first one's is gone by

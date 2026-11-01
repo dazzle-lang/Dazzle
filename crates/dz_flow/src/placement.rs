@@ -1,10 +1,18 @@
-//! Where each allocation goes: a scope's region or the heap (spec §14.6, T-0117 stage 1).
+//! Where each allocation goes: a scope's region, the caller's result placement, or the heap
+//! (spec §14.6, T-0117 stages 1 and 2).
 //!
 //! A **site** is a call to a `std` function with an allocator parameter left at its default,
 //! `Allocators::Global`: `List<T>()`, `String(…)`, `HashMap`, `HashSet`, `SlotMap`, `Path`,
 //! `Box`, `Rc`, `String::from`, `String::from_utf8`. A call to the program's own function with
 //! such a parameter is a site too, and always heap: what that function does with its
-//! allocator is out of sight here (stage 2's result placement).
+//! allocator is out of sight here.
+//!
+//! A call to a **result function** is a site as well (stage 2). That is a function whose
+//! result owns memory and which takes, out of sight, where to build it: a hidden last
+//! parameter, `_dz_result` in the C++ ([`result_functions`] says which take one). Inside
+//! one, a site whose value is returned is built there ([`Decision::Result`]); at a call,
+//! the caller passes its region, its own result placement, or the heap, decided as for any
+//! site.
 //!
 //! Each site is decided in two steps, per body and from nothing but that body and the
 //! signatures it calls, so the editor, `dz placements` and codegen read one answer:
@@ -29,9 +37,10 @@
 //! The reasons are what the editor and `dz placements` print after `region: ` and `heap: `,
 //! so they are worded here, short and naming the program's own code.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use dz_check::TypeTable;
+use dz_ast::Dispatch;
+use dz_check::{ItemSig, TypeTable};
 use dz_hir::ty::Ty;
 use dz_hir::{self as hir, BlockId, Body, BodyOwner, Callee, ExprId, Hir, LocalId, StmtId};
 use dz_resolve::{Resolution, SymbolId};
@@ -43,6 +52,8 @@ use crate::ties::{analyse_regions, Refusal, RegionRefusal};
 #[derive(Clone, Debug, Default)]
 pub struct Placements {
     bodies: HashMap<BodyOwner, BodyPlacement>,
+    /// The functions that take a hidden result placement ([`result_functions`]).
+    results: HashSet<BodyOwner>,
 }
 
 impl Placements {
@@ -53,6 +64,140 @@ impl Placements {
     pub fn iter(&self) -> impl Iterator<Item = (&BodyOwner, &BodyPlacement)> {
         self.bodies.iter()
     }
+
+    /// Whether the function `owner` takes a hidden result placement: its declaration has
+    /// one more parameter than it writes, and every call passes one (stage 2).
+    pub fn takes_result(&self, owner: &BodyOwner) -> bool {
+        self.results.contains(owner)
+    }
+}
+
+/// The function a call calls, as a body's owner: what [`Placements::takes_result`] and
+/// [`Placements::body`] are asked about. `None` for a call through a function value.
+pub fn callee_owner(res: &Resolution, callee: &Callee) -> Option<(SymbolId, BodyOwner)> {
+    Some(match callee {
+        Callee::Fn { sym, .. } => (*sym, BodyOwner::Fn(*sym)),
+        Callee::Ctor { owner, index } => (*owner, BodyOwner::Ctor { owner: *owner, index: *index }),
+        Callee::Assoc { owner, name, .. } | Callee::BaseMethod { owner, name, .. } => {
+            (*owner, BodyOwner::Method { owner: *owner, name: name.clone() })
+        }
+        Callee::Method { owner, name, .. } => {
+            let o = if res.symbol(*owner).kind == dz_resolve::SymbolKind::Trait {
+                BodyOwner::TraitDefaults { owner: *owner, name: name.clone() }
+            } else {
+                BodyOwner::Method { owner: *owner, name: name.clone() }
+            };
+            (*owner, o)
+        }
+        Callee::Value(_) => return None,
+    })
+}
+
+/// The functions that take a hidden result placement (spec §14.6, T-0117 stage 2): each
+/// whose result keeps an allocator ([`holds_allocator`]), looking through `?`, that is a
+/// free function, or a struct's
+/// or union's method that is neither `virtual` nor `override`, and that takes no allocator
+/// parameter of its own (a stage 1 site already says where it builds).
+///
+/// Left out until their calling conventions carry it (stage 2's round 2): trait methods,
+/// whose implementations share a vtable slot, and any function used as a value anywhere in
+/// the program, whose C++ type would change. A function C calls has no way to pass one
+/// either, and is reached only as a value today.
+pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashSet<BodyOwner> {
+    let mut values = HashSet::new();
+    for (_, body) in hir.bodies() {
+        for e in &body.exprs {
+            if let hir::ExprKind::FnItem { sym, .. } = e.kind {
+                values.insert(sym);
+            }
+        }
+    }
+    let allocator = res.lookup(res.prelude, "Allocator");
+    let mut out = HashSet::new();
+    for (_, body) in hir.bodies() {
+        let sig = match &body.owner {
+            BodyOwner::Fn(sym) if !values.contains(sym) => match table.get(*sym) {
+                Some(ItemSig::Fn(sig)) => sig,
+                _ => continue,
+            },
+            BodyOwner::Method { owner, name }
+                if res.symbol(*owner).kind != dz_resolve::SymbolKind::Trait =>
+            {
+                match table.methods_sig(*owner).and_then(|s| s.methods.get(name)) {
+                    Some(sig) => sig,
+                    None => continue,
+                }
+            }
+            _ => continue,
+        };
+        if sig.dispatch != Dispatch::Static
+            || !holds_allocator(table, allocator, &body.ret, &mut Vec::new())
+            || allocator_param(res, body).is_some()
+        {
+            continue;
+        }
+        out.insert(body.owner.clone());
+    }
+    out
+}
+
+/// Whether a value of `ty` keeps an allocator, in a field or a field's field: what a
+/// placement can be handed. `List`, `String`, `HashMap` and what holds them do; a
+/// `Formatter` or a `File` needs a drop but allocates nothing. A type parameter is taken
+/// not to: a function returning a bare `T` hands back a value that exists already (`pop`,
+/// `get`, `take`), and whether it takes a placement must not depend on the instance, since
+/// every instance is called the same way. `seen` stops a type that holds itself through a
+/// pointer.
+fn holds_allocator(
+    table: &TypeTable,
+    allocator: Option<SymbolId>,
+    ty: &Ty,
+    seen: &mut Vec<Ty>,
+) -> bool {
+    match ty {
+        Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
+            matches!(&**inner, Ty::Named { sym, .. } if Some(*sym) == allocator)
+        }
+        Ty::Optional(inner) | Ty::Fallible(inner) => holds_allocator(table, allocator, inner, seen),
+        Ty::Array { elem, .. } => holds_allocator(table, allocator, elem, seen),
+        Ty::Tuple(parts) => parts.iter().any(|t| holds_allocator(table, allocator, t, seen)),
+        Ty::Named { sym, args } => {
+            if seen.contains(ty) {
+                return false;
+            }
+            seen.push(ty.clone());
+            let fields = match table.get(*sym) {
+                Some(ItemSig::Struct(s)) => table.field_types(*sym, args, &s.fields),
+                Some(ItemSig::Union { variants, .. }) => {
+                    variants.iter().flat_map(|v| table.payload_types(*sym, args, v)).collect()
+                }
+                _ => Vec::new(),
+            };
+            fields.iter().any(|t| holds_allocator(table, allocator, t, seen))
+        }
+        _ => false,
+    }
+}
+
+/// The parameter of `body` that defaults to `Allocators::Global`, by index, `self` not
+/// counted.
+fn allocator_param(res: &Resolution, body: &Body) -> Option<usize> {
+    body.param_defaults.iter().position(|d| {
+        d.is_some_and(|d| {
+            matches!(
+                &body.expr(d).kind,
+                hir::ExprKind::AssocConst { owner, name }
+                    if name == "Global" && res.symbol(*owner).name == "Allocators"
+            )
+        })
+    })
+}
+
+/// How many parameters a function's declaration writes, `self` not counted: where its
+/// hidden result placement goes.
+fn written_params(body: &Body) -> usize {
+    let has_self = body.params.first().is_some_and(|p| body.local(*p).name == "self");
+    body.params.len() - usize::from(has_self)
 }
 
 /// One body's sites, in source order.
@@ -72,7 +217,7 @@ impl BodyPlacement {
             .iter()
             .filter_map(|s| match s.decision {
                 Decision::Region { block, .. } => Some(block),
-                Decision::Heap { .. } => None,
+                Decision::Result { .. } | Decision::Heap { .. } => None,
             })
             .collect();
         blocks.sort_by_key(|b| b.0);
@@ -83,8 +228,19 @@ impl BodyPlacement {
     /// For a call placed in a region: its allocator argument's index in the callee's
     /// parameters (not counting `self`), and the region's block.
     pub fn region_for(&self, call: ExprId) -> Option<(usize, BlockId)> {
+        match self.placed(call)? {
+            (arg, Placed::Region(block)) => Some((arg, block)),
+            (_, Placed::Result) => None,
+        }
+    }
+
+    /// For a call placed anywhere but the heap: its allocator argument's index in the
+    /// callee's parameters (not counting `self`; for a result function, the hidden one
+    /// past the last it writes), and where the memory comes from.
+    pub fn placed(&self, call: ExprId) -> Option<(usize, Placed)> {
         self.sites.iter().find(|s| s.call == call).and_then(|s| match s.decision {
-            Decision::Region { block, .. } => Some((s.arg, block)),
+            Decision::Region { block, .. } => Some((s.arg, Placed::Region(block))),
+            Decision::Result { .. } => Some((s.arg, Placed::Result)),
             Decision::Heap { .. } => None,
         })
     }
@@ -112,19 +268,33 @@ pub enum Decision {
     /// In the region of `block`, released when it ends. `scope` says which, for a reader:
     /// "`update`", "each pass of a loop in `main`".
     Region { block: BlockId, scope: String },
+    /// Returned, so built wherever the function's caller keeps its result: the body's
+    /// hidden result placement. `function` names the function, for a reader.
+    Result { function: String },
     /// On the heap, and why; `at` is the use that decided it, where there is one.
     Heap { why: String, at: Option<Span> },
 }
 
 impl Decision {
-    /// What the editor's hint and `dz placements` print: "region: `update`", "heap:
-    /// returned". One spelling, so the two cannot disagree.
+    /// What the editor's hint and `dz placements` print: "region: `update`", "result:
+    /// where `evens`' caller keeps it", "heap: stored in `self.items`". One spelling, so
+    /// the two cannot disagree.
     pub fn label(&self) -> String {
         match self {
             Decision::Region { scope, .. } => format!("region: {scope}"),
+            Decision::Result { function } => format!("result: where {function}'s caller keeps it"),
             Decision::Heap { why, .. } => format!("heap: {why}"),
         }
     }
+}
+
+/// Where a placed call's memory comes from, for codegen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placed {
+    /// The region of this block.
+    Region(BlockId),
+    /// The body's own hidden result placement.
+    Result,
 }
 
 /// Which proposals the region check is given.
@@ -150,17 +320,28 @@ pub fn place_with(
     res: &Resolution,
     proposer: Proposer,
 ) -> Placements {
+    let results = result_functions(hir, table, res);
     let mut out = Placements::default();
     for (_, body) in hir.bodies() {
-        if let Some(placed) = place_body(hir, table, res, body, proposer) {
+        if let Some(placed) = place_body(hir, table, res, &results, body, proposer) {
             out.bodies.insert(body.owner.clone(), placed);
         }
     }
+    out.results = results;
     out
 }
 
-/// The block a site is proposed for, or why it keeps the heap and where that was decided.
-type Proposal = Result<BlockId, (String, Option<Span>)>;
+/// Where a site is proposed to go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Target {
+    /// The region of this block.
+    Block(BlockId),
+    /// The body's own result placement: the value is returned.
+    Result,
+}
+
+/// Where a site is proposed to go, or why it keeps the heap and where that was decided.
+type Proposal = Result<Target, (String, Option<Span>)>;
 
 /// What a site's callee is, as far as placement cares.
 struct Callable {
@@ -168,6 +349,9 @@ struct Callable {
     arg: usize,
     /// Declared in `std`.
     std: bool,
+    /// A result function: its body builds only its result in the placement it is given,
+    /// which the check holds it to, so the call can be placed whoever wrote it.
+    result: bool,
     /// `Rc`, which a `Weak` can outlive (spec §14.6).
     rc: bool,
     name: String,
@@ -177,13 +361,14 @@ fn place_body(
     hir: &Hir,
     table: &TypeTable,
     res: &Resolution,
+    results: &HashSet<BodyOwner>,
     body: &Body,
     proposer: Proposer,
 ) -> Option<BodyPlacement> {
     let mut found = Vec::new();
     for i in 0..body.exprs.len() {
         let e = ExprId(i as u32);
-        if let Some(c) = callable(hir, res, body, e) {
+        if let Some(c) = callable(hir, res, results, body, e) {
             found.push((e, c));
         }
     }
@@ -191,7 +376,7 @@ fn place_body(
         return None;
     }
     found.sort_by_key(|(e, _)| (body.expr(*e).span.start, e.0));
-    let cx = Cx::new(table, res, body);
+    let cx = Cx::new(table, res, body, results.contains(&body.owner));
 
     // Step 1: what is proposed, and why the rest is not.
     let mut decided: Vec<(ExprId, Callable, Proposal)> = Vec::new();
@@ -200,27 +385,38 @@ fn place_body(
         decided.push((e, c, decision));
     }
 
-    // Step 2: the region check, over every proposal at once.
-    let proposals: Vec<(ExprId, BlockId)> =
-        decided.iter().filter_map(|(e, _, d)| d.as_ref().ok().map(|b| (*e, *b))).collect();
+    // Step 2: the region check, over every proposal at once. A result placement outlives
+    // the body: it is checked as a region of the body's outermost block that its end
+    // does not release, and that a `return` may take.
+    let proposals: Vec<(ExprId, BlockId, bool)> = decided
+        .iter()
+        .filter_map(|(e, _, d)| match d {
+            Ok(Target::Block(b)) => Some((*e, *b, false)),
+            Ok(Target::Result) => Some((*e, body.root, true)),
+            Err(_) => None,
+        })
+        .collect();
     let refusals = if proposals.is_empty() {
         Vec::new()
     } else {
         analyse_regions(body, table, res, &proposals)
     };
     let refused: HashMap<ExprId, RegionRefusal> =
-        proposals.iter().zip(refusals).filter_map(|((e, _), r)| r.map(|r| (*e, r))).collect();
+        proposals.iter().zip(refusals).filter_map(|((e, _, _), r)| r.map(|r| (*e, r))).collect();
 
     let mut sites = Vec::new();
     let mut demoted = Vec::new();
     for (e, c, d) in decided {
         let decision = match d {
-            Ok(block) => match refused.get(&e) {
+            Ok(target) => match refused.get(&e) {
                 Some(r) => {
                     demoted.push(e);
                     Decision::Heap { why: cx.refusal(&r.why), at: Some(r.at) }
                 }
-                None => Decision::Region { block, scope: cx.scope(block) },
+                None => match target {
+                    Target::Block(block) => Decision::Region { block, scope: cx.scope(block) },
+                    Target::Result => Decision::Result { function: cx.function() },
+                },
             },
             Err((why, at)) => Decision::Heap { why, at },
         };
@@ -230,36 +426,26 @@ fn place_body(
 }
 
 /// `e`, when it is a site: a call whose callee has a parameter defaulting to
-/// `Allocators::Global` that the call leaves out.
-fn callable(hir: &Hir, res: &Resolution, body: &Body, e: ExprId) -> Option<Callable> {
+/// `Allocators::Global` that the call leaves out, or a call to a result function.
+fn callable(
+    hir: &Hir,
+    res: &Resolution,
+    results: &HashSet<BodyOwner>,
+    body: &Body,
+    e: ExprId,
+) -> Option<Callable> {
     let node = body.expr(e);
     let hir::ExprKind::Call { callee, args } = &node.kind else { return None };
-    let (sym, owner) = match callee {
-        Callee::Fn { sym, .. } => (*sym, BodyOwner::Fn(*sym)),
-        Callee::Ctor { owner, index } => (*owner, BodyOwner::Ctor { owner: *owner, index: *index }),
-        Callee::Assoc { owner, name, .. } | Callee::BaseMethod { owner, name, .. } => {
-            (*owner, BodyOwner::Method { owner: *owner, name: name.clone() })
-        }
-        Callee::Method { owner, name, .. } => {
-            let o = if res.symbol(*owner).kind == dz_resolve::SymbolKind::Trait {
-                BodyOwner::TraitDefaults { owner: *owner, name: name.clone() }
-            } else {
-                BodyOwner::Method { owner: *owner, name: name.clone() }
-            };
-            (*owner, o)
-        }
-        Callee::Value(_) => return None,
-    };
+    let (sym, owner) = callee_owner(res, callee)?;
     let callee_body = hir.find(&owner)?;
-    let arg = callee_body.param_defaults.iter().position(|d| {
-        d.is_some_and(|d| {
-            matches!(
-                &callee_body.expr(d).kind,
-                hir::ExprKind::AssocConst { owner, name }
-                    if name == "Global" && res.symbol(*owner).name == "Allocators"
-            )
-        })
-    })?;
+    let s = res.symbol(sym);
+    let std = s.module == res.prelude;
+    let name = callee_name(res, body, callee, &node.ty);
+    if results.contains(&owner) {
+        let arg = written_params(callee_body);
+        return Some(Callable { arg, std, result: true, rc: false, name });
+    }
+    let arg = allocator_param(res, callee_body)?;
     let left_out = match args.get(arg) {
         None => true,
         Some(a) => matches!(body.expr(*a).kind, hir::ExprKind::DefaultArg(_)),
@@ -267,13 +453,12 @@ fn callable(hir: &Hir, res: &Resolution, body: &Body, e: ExprId) -> Option<Calla
     if !left_out {
         return None;
     }
-    let s = res.symbol(sym);
-    let std = s.module == res.prelude;
     Some(Callable {
         arg,
         std,
+        result: false,
         rc: std && s.name == "Rc" && matches!(callee, Callee::Ctor { .. }),
-        name: callee_name(res, body, callee, &node.ty),
+        name,
     })
 }
 
@@ -355,14 +540,33 @@ struct Cx<'a> {
     stmt_block: HashMap<StmtId, BlockId>,
     /// Each block's kind, the block around it, and the expression it is part of.
     blocks: HashMap<BlockId, (Kind, Option<BlockId>, Option<ExprId>)>,
+    /// The body is a result function's: what it returns can be built where its caller
+    /// keeps it.
+    returns_result: bool,
+}
+
+/// What the uses of a local do with it.
+enum Escape {
+    /// It stays where it is: borrowed, copied, assigned to.
+    Stays,
+    /// It is returned, and stays otherwise.
+    Returned,
+    /// It leaves, and why and where.
+    Leaves((String, Option<Span>)),
 }
 
 impl<'a> Cx<'a> {
-    fn new(table: &'a TypeTable, res: &'a Resolution, body: &'a Body) -> Self {
+    fn new(
+        table: &'a TypeTable,
+        res: &'a Resolution,
+        body: &'a Body,
+        returns_result: bool,
+    ) -> Self {
         let mut cx = Cx {
             table,
             res,
             body,
+            returns_result,
             up: HashMap::new(),
             expr_block: HashMap::new(),
             stmt_block: HashMap::new(),
@@ -522,9 +726,10 @@ impl<'a> Cx<'a> {
 
     // --- the proposer -----------------------------------------------------------------
 
-    /// The block whose region `e` is proposed for, or why it keeps the heap.
+    /// Where `e` is proposed to go — a block's region, or the body's result placement when
+    /// it is returned — or why it keeps the heap.
     fn propose(&self, e: ExprId, c: &Callable, proposer: Proposer) -> Proposal {
-        if !c.std {
+        if !c.std && !c.result {
             return Err((format!("made inside `{}`", c.name), None));
         }
         if c.rc {
@@ -548,7 +753,11 @@ impl<'a> Cx<'a> {
             return Err(("inside a formatting macro".to_owned(), None));
         }
         if proposer == Proposer::Everything {
-            return Ok(block);
+            return Ok(Target::Block(block));
+        }
+        // `return List()`, `return make()`: built where the caller keeps it.
+        if self.returns_result && self.returned(e) {
+            return Ok(Target::Result);
         }
         let node = self.body.expr(e);
         match self.up.get(&e) {
@@ -560,8 +769,9 @@ impl<'a> Cx<'a> {
                         return Err((format!("kept as `{ty}`"), Some(local.span)));
                     }
                     match self.escape_of(*x) {
-                        None => Ok(block),
-                        Some(found) => Err(found),
+                        Escape::Stays => Ok(Target::Block(block)),
+                        Escape::Returned => Ok(Target::Result),
+                        Escape::Leaves(found) => Err(found),
                     }
                 }
                 hir::StmtKind::Let { .. } => Err(("not kept by `let`".to_owned(), None)),
@@ -596,14 +806,42 @@ impl<'a> Cx<'a> {
         }
     }
 
-    /// The first use of `x` that takes it from where it is, in source order.
-    fn escape_of(&self, x: LocalId) -> Option<(String, Option<Span>)> {
+    /// What the uses of `x` do with it: the first that takes it from where it is, in source
+    /// order. In a result function, returning it does not count as leaving: it is built
+    /// where the caller keeps it instead.
+    fn escape_of(&self, x: LocalId) -> Escape {
         let mut uses: Vec<ExprId> = (0..self.body.exprs.len() as u32)
             .map(ExprId)
             .filter(|e| matches!(self.body.expr(*e).kind, hir::ExprKind::Local(l) if l == x))
             .collect();
         uses.sort_by_key(|e| (self.body.expr(*e).span.start, e.0));
-        uses.into_iter().find_map(|u| self.fate(u))
+        let mut returned = false;
+        for u in uses {
+            if self.returns_result && self.returned(u) {
+                returned = true;
+                continue;
+            }
+            if let Some(found) = self.fate(u) {
+                return Escape::Leaves(found);
+            }
+        }
+        if returned {
+            Escape::Returned
+        } else {
+            Escape::Stays
+        }
+    }
+
+    /// Whether `e`'s value is what the body returns: `return e`, or `return move(e)`.
+    fn returned(&self, mut e: ExprId) -> bool {
+        loop {
+            let Some(Up::Expr(p)) = self.up.get(&e) else { return false };
+            match self.body.expr(*p).kind {
+                hir::ExprKind::Move(_) => e = *p,
+                hir::ExprKind::Return(_) => return true,
+                _ => return false,
+            }
+        }
     }
 
     /// Whether `e` reads a place by value without moving it: for a copyable type, a copy.
