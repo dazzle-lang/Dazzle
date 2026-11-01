@@ -51,3 +51,19 @@ decision file before code:
 
 So the realistic first step, when the time comes, is the decision file for item 1 — because
 it determines how much of the rest is checking and how much is documentation.
+
+**A direction, noted 2026-11-01; not a priority.** The user put threads behind regions.
+[D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md) proposes promising no
+undefined behaviour on one thread. Its aliasing, a `&mut` beside a `&`, is sound only on
+one thread, so threads cannot simply be added beside it. One shape keeps single-threaded
+code exactly as free as it is:
+
+- a value crosses threads only by `move`, and only if it holds no view, no `Rc` and no raw
+  pointer, a property worked out as copyability is;
+- `parallel for &mut e in xs { … }` gives each pass one element, and freezes everything
+  else the body touches for the duration, checked as a `kills` clause is;
+- `Rc` stays on one thread; `Arc` ([T-0001](T-0001-arc-t.md)), a mutex and atomics cover
+  the rest.
+
+That would answer item 1 with checking rather than documentation, and confine Rust's
+discipline to the code that runs in parallel.
