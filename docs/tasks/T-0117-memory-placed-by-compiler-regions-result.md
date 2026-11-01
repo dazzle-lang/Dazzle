@@ -50,7 +50,8 @@ A value's owned parts live where the value lives; a constructor and `copy` build
 wherever `self` is placed. Every function returning something that owns memory takes a
 hidden result placement — free functions, methods, trait methods and function values alike.
 Where a by-value parameter ends up is inferred within a module; across modules, and through
-anything the compiler cannot see, the default is the heap. With the ties checker, a wrong
+anything the compiler cannot see, the default is the heap
+([T-0142](T-0142-by-value-parameter-placement-inferred-only.md)). With the ties checker, a wrong
 placement fails the check and falls back to the heap.
 
 **Why it matters.** It removes the class of bug where a value outlives its arena, and the
@@ -235,6 +236,17 @@ class; or give large blocks straight back to the heap and pool only chunks.
 1. **The peak-memory bug** above: confirm the cause, fix it, and run the checkpoint again.
    The keep-or-drop verdict waits for stage 2.
 
+**What placement rests on (found 2026-11-01).** A placement is checked like a reference, so
+it is only as sound as the ties check, and the review behind
+[D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md) found holes in that
+check: [T-0123](T-0123-call-may-reach-memory-it-kills.md),
+[T-0124](T-0124-two-rc-may-hold-one-value.md),
+[T-0125](T-0125-box-emptied-while-if-let-holds.md) and
+[T-0127](T-0127-view-struct-drop-not-counted-as.md). Close them before the verdict is
+trusted. [T-0131](T-0131-memory-tracking-poisons-every-freed-block.md) makes a wrong
+placement show in tests, and [T-0132](T-0132-sanitizer-builds-in-ci-run-corpus.md) runs the
+corpus with regions on under AddressSanitizer.
+
 **Stage 2 plan (2026-11-01), the result placement, in three rounds.** The user put
 benchmarks aside on a busy machine: what matters is that placement is automatic, checked,
 and right.
@@ -262,7 +274,7 @@ and right.
 
 The user's frame-region idea (one region per pass of an update loop, shared by the
 functions it calls) needs the same hidden parameter, and is a design question for after
-round 1.
+round 1: [T-0139](T-0139-frame-regions-one-region-per-pass.md).
 
 **Stage 2, round 1, built 2026-11-01: free functions and methods.** Behind `DZ_REGIONS`,
 as stage 1; with it unset no declaration or call changes.
@@ -321,7 +333,7 @@ round 1 left both out; now nothing is left out but `virtual` methods.
   41 sites, 22 in a region. Building it found T-0121, a codegen bug of its own (a local
   hiding a free function of the same name), which fails with regions off as well.
 - **Still out**: `virtual` and `override` methods, until a base and its overrides are
-  decided together; a function exported to C (`#[export]` is not implemented).
+  decided together ([T-0141](T-0141-virtual-override-methods-take-no-result.md)); a function exported to C (`#[export]` is not implemented).
 
 **Stage 2, round 3, built 2026-11-01: a value's owned parts live where it lives.**
 
@@ -347,7 +359,8 @@ round 1 left both out; now nothing is left out but `virtual` methods.
   constructor and copy assignment, which can take no placement, so placing one means a
   second, placed copy per type (`List`, `HashMap`, and every struct with a `copy` or with
   fields that have one), emitted where a copy is bound by `let`. Copies are correct as they
-  are, on the heap (stage 1's step 3), so this is speed only.
+  are, on the heap (stage 1's step 3), so this is speed only:
+  [T-0140](T-0140-copy-built-on-heap-wherever-it.md).
 - **Not reached, by design**: `expr`'s nodes. Its `Box`es name the parser's allocator,
   which only T-0119 takes out of ordinary code, and each new node is assigned to `lhs`,
   which outlives the loop that builds it, so the loop rule sends it to the heap.

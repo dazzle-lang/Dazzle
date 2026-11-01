@@ -20,6 +20,23 @@ python tools/track.py check                      # headers, ids, milestones, §-
 
 ## Now
 
+**Memory placed by the compiler, then safe code made sound**, chosen by the user on
+2026-11-01. Automatic placement matters most (T-0117 and what follows it), and threads can
+wait (T-0011 stays in v2). A review that day found safe programs that still reach freed
+memory. D-0094 proposes the rules that close each hole, for the user to decide. The order
+proposed:
+
+1. T-0117's verdict: the peak-memory bug, then the gate.
+2. The holes the placement check shares, since a placement is checked like a reference:
+   T-0123, T-0124 and T-0125 (rules in D-0094) and T-0127 (a bug), with T-0131 so that a
+   wrong placement shows in tests.
+3. Frame regions (T-0139), so `Allocators::Temp` can leave ordinary code without losing
+   speed; then T-0119, allocators out of ordinary code, and T-0118.
+4. The rest of D-0094 (T-0126, T-0128, T-0129, T-0130, T-0135, T-0136), its tests (T-0132
+   to T-0134), and the placement gaps (T-0140 to T-0142).
+5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
+   (T-0137).
+
 **M12, the stdlib**, chosen by the user on 2026-09-13. Its criterion — a small raylib game
 with no C++ of its own — is met: Breakout, 2026-09-15 (`examples/breakout`, its rules played
 headless by `tests/run/breakout_sim`). The order the user set on 2026-09-15 is done through
