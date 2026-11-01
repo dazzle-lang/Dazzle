@@ -73,6 +73,21 @@ placement yet), then measure:
 If any gate fails, regions are dropped: allocators stay as §14 to §14.2 write them, and
 T-0118 and T-0119 close as not doing.
 
+**Settled 2026-11-01: the gate is split in two.** Regions are not finished after stage 1,
+so stage 1 is not judged as if they were. Stage 1 does not reach the hot allocations of
+`words` (its map keys, stored where the map lives) or `expr` (its `Box` nodes, returned
+from its own `Parser`); T-0104 measured them unchanged, 400 ms against 398 and 370
+against 371.
+
+| When | What it is | Passes when |
+|---|---|---|
+| after stage 1 | **a checkpoint**: a failure is a bug to fix, not a reason to drop regions | `astar` faster than the heap; `words` and `expr` not slower (a median at most 2% above the heap's, `NOISE` in `tools/bench_regions.py`); the loop flat; peak memory within 10%; every wrong placement refused |
+| after stage 2 (result placement) | **the verdict**: keep regions or drop them, as above | every row of the table above, `astar`, `words` and `expr` each faster than the heap |
+
+`words` may need more than stage 2: its keys are copies stored into the map, and reaching
+them means building a stored value where its container lives (T-0105's "placement
+follows the value's destination"), which neither stage has yet.
+
 **Stage 1 plan (2026-10-31), in order:**
 
 1. Bring back the region arena from the tag `regions-prototype` (`548b771`): `ScopeArena`
@@ -168,12 +183,48 @@ nothing reads the placements but the tests.
   passes but `every_example_builds`, for want of the vendor submodules. The `dz_lsp`,
   `dz_flow`, `dz_driver` and `dz_cpp` tests, clippy with `-D warnings`, and `cargo fmt`.
 
+**Stage 1, round 3, the checkpoint, measured 2026-11-01** at commit `bc1e1f7`:
+`python tools/bench_regions.py`, `--release`, the median of ten alternating runs of each
+build. Intel Core (family 6, model 158, 8 threads), Windows 10; clang 21.1.8 and MSYS2
+g++ 13.1.0. Peak memory is the peak working set.
+
+| Program | Compiler | Heap | Regions | Regions / heap | Peak, heap / regions | Faster | Not slower (2%) | Peak within 10% |
+|---|---|---:|---:|---:|---:|---|---|---|
+| astar | clang++ | 987 ms | 862 ms | 0.873 | 21.3 / 27.8 MiB | yes | yes | **no** (+31%) |
+| astar | g++ | 788 ms | 632 ms | 0.803 | 21.4 / 28.2 MiB | yes | yes | **no** (+32%) |
+| words | clang++ | 736 ms | 720 ms | 0.978 | 45.3 / 50.9 MiB | yes | yes | **no** (+12%) |
+| words | g++ | 653 ms | 665 ms | 1.019 | 45.7 / 51.3 MiB | no | yes | **no** (+12%) |
+| expr | clang++ | 628 ms | 628 ms | 1.001 | 142.3 / 142.1 MiB | no | yes | yes |
+| expr | g++ | 563 ms | 566 ms | 1.006 | 142.7 / 142.7 MiB | no | yes | yes |
+
+| Loop rule | Compiler | Heap: peak at 10,000 / 1,000,000 | Regions: the same | Flat |
+|---|---|---:|---:|---|
+| reassigned in a loop | clang++ | 6.3 / 5.8 MiB | 6.3 / 5.9 MiB | yes |
+| reassigned in a loop | g++ | 6.2 / 6.6 MiB | 6.3 / 6.6 MiB | yes |
+
+Every wrong placement is refused: `the_region_check_alone_refuses_every_wrong_placement`
+and the other five tests in `dz_flow/tests/placement.rs` pass.
+
+**Read against the checkpoint:** speed passes (`astar` 13% and 20% faster; `words` and
+`expr` within 2%), the loop is flat, and safety holds. **Peak memory fails**: `astar` +31%,
+`words` +12%, against 10%. The prototype saw the same, "a third more peak memory" for
+`astar` (T-0104). By the checkpoint's terms this is a bug to fix, not a reason to drop
+regions.
+
+**The likely cause, not yet confirmed:** `ScopePool` keeps every chunk and every freed
+large block a region gives back, in every size class, with no limit. A map that doubles
+from 16 KiB to its final size hands each outgrown array to the pool, so the pool ends up
+holding about as much again as the map's final array. `astar` has two such maps, and
+6.5 MiB extra is about their size. Smaller outgrown arrays also stay in their chunk until
+the region ends, since only the last allocation can be given back. To confirm: measure
+what the pool holds at `astar`'s peak. Possible fixes, smallest first: keep at most one
+block per size class; free a block to the heap when the pool already holds one of its
+class; or give large blocks straight back to the heap and pool only chunks.
+
 **What is left of stage 1.**
 
-1. **Round 3, the gate.** `cargo build --release -p dz`, then `python tools/bench_regions.py`
-   (clang++ and g++, ten runs each; `--markdown` and `--json` keep the report) for the
-   first three rows; `the_region_check_alone_refuses_every_wrong_placement` is the last.
-   Record the numbers here. Then the user keeps regions or drops them.
+1. **The peak-memory bug** above: confirm the cause, fix it, and run the checkpoint again.
+   The keep-or-drop verdict waits for stage 2.
 
 `tools/bench_regions.py` builds the heap version of each benchmark (every
 `Allocators::Temp` taken out, as T-0104 did) twice, without and with `DZ_REGIONS=1`, checks
@@ -181,12 +232,6 @@ that both print the same checksum, and reports the medians and peak memory; and 
 reassigns a `String`, a `List` and a `format!` result, whose peak at a million passes must
 be within 1 MiB of its peak at ten thousand. Since round 2 codegen reads
 the switch, so it measures regions.
-
-**Open before the gate: the user's call.** T-0104 measured stage 1 alone: `words` took
-400 ms against 398 on the heap, and `expr` 370 against 371. Stage 1 does not reach their
-hot allocations (`words`' keys and text, `expr`'s `Box` nodes, made through its own
-`Parser`). Read as written, "each faster than the heap" would drop regions over those two
-rows even if `astar` gains 15%. Do those rows mean "faster", or "not slower"?
 
 **Settled in r90:**
 
