@@ -6,6 +6,17 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0117: the gate's verdict, regions stay (2026-11-02)
+
+Measurement only; no code changed. `tools/bench_regions.py` at `c2f7a1c`, release, ten
+alternating runs, clang 18 and g++ 13 on a 4-thread cloud VM, with the pre-r104 hand
+build from `39680ee`. Peak memory is within 1% of the heap on `astar` and `expr` and 4% on
+`words` (35% under hand-placed `Temp`); the loop is flat; the 15 tests in
+`dz_flow/tests/placement.rs` pass. Speed is even with the heap: by the medians two of six
+rows miss "faster", but medians sat 10 to 40% above the fastest runs, and by the fastest
+runs every row is within noise. The user kept regions; the speed rows wait for T-0149 and
+T-0140. The tables are in T-0117.
+
 ## r105, T-0140 and T-0149: copies placed, and maps filled in a loop (2026-11-02)
 
 Asked for by the user before T-0117's gate, since both change what it measures: `words`

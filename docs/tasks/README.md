@@ -26,8 +26,9 @@ wait (T-0011 stays in v2). A review that day found safe programs that still reac
 memory. D-0094 proposes the rules that close each hole, for the user to decide. The order
 proposed:
 
-1. T-0117's verdict: the peak-memory bug is fixed (2026-11-02), at the cost of `astar`'s
-   speed, which was the pool's; the gate is next.
+1. T-0117 is done (2026-11-02): the gate kept regions. Peak memory, the loop and safety
+   pass; speed is even with the heap within the noise, and the speed rows are carried by
+   T-0149 and T-0140.
 2. The holes the placement check shares, since a placement is checked like a reference:
    T-0123, T-0124, T-0125 and T-0127 are closed (r103), and T-0131 makes a wrong placement
    show in tests (all 2026-11-02).

@@ -15,8 +15,9 @@ wait (T-0011 stays in v2). A review that day found safe programs that still reac
 memory. D-0094 proposes the rules that close each hole, for the user to decide. The order
 proposed:
 
-1. T-0117's verdict: the peak-memory bug is fixed (2026-11-02), at the cost of `astar`'s
-   speed, which was the pool's; the gate is next.
+1. T-0117 is done (2026-11-02): the gate kept regions. Peak memory, the loop and safety
+   pass; speed is even with the heap within the noise, and the speed rows are carried by
+   T-0149 and T-0140.
 2. The holes the placement check shares, since a placement is checked like a reference:
    T-0123, T-0124, T-0125 and T-0127 are closed (r103), and T-0131 makes a wrong placement
    show in tests (all 2026-11-02).
@@ -137,7 +138,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (38 open)
+## none — not scheduled (37 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -156,7 +157,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0092](tasks/T-0092-dz-fmt-collapses-multi-line-array.md)** dz fmt collapses a multi-line array literal and detaches its elements' comments · bug, tooling
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
-- **[T-0117](tasks/T-0117-memory-placed-by-compiler-regions-result.md)** Memory placed by the compiler: regions and the result placement · feature, ownership
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
 - **[T-0122](tasks/T-0122-constructor-cannot-declare-kills-clause.md)** A constructor cannot declare a kills clause · bug, ownership
 - **[T-0126](tasks/T-0126-if-let-turns-untied-pointer-into.md)** `if let` turns an untied pointer into a reference without `unsafe` · bug, ownership
