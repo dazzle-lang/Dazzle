@@ -1012,6 +1012,9 @@ struct Body<'a, 'c> {
     /// Inside a constructor's `: Base(…)`, which runs before the constructor has begun,
     /// so there is nothing yet to `return` from (spec §7.3).
     in_base_init: bool,
+    /// Inside a parameter's default, which each caller fills in, so `#placement` there
+    /// would be the caller's (spec §12.7, §14.6).
+    in_param_default: bool,
     self_mutable: bool,
     /// The `self` parameter's local, for expanding unqualified field access.
     self_local: Option<LocalId>,
@@ -1073,6 +1076,7 @@ impl<'a, 'c> Body<'a, 'c> {
             pending_nones: Vec::new(),
             if_let_bindings: Vec::new(),
             in_base_init: false,
+            in_param_default: false,
             self_mutable: false,
             self_local: None,
             unsafe_depth: 0,
@@ -1108,6 +1112,30 @@ impl<'a, 'c> Body<'a, 'c> {
             "wrap it in `unsafe { … }` — nothing checks that the memory is still there. \
              To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)",
         );
+    }
+
+    /// `#placement`: where the value the function makes is placed — a constructor's own, or
+    /// a function's result — or the heap where there is no placement (spec §12.7, §14.6). A
+    /// `^mut Allocator`, read only in `unsafe`: what is allocated from it must be freed into
+    /// it, and nothing checks that. Not a parameter's default, where it would be the
+    /// caller's placement, handed to everything the function builds.
+    fn placement(&mut self, span: Span) -> Ty {
+        if self.in_param_default {
+            self.cx.error_help(
+                codes::PLACEMENT_DEFAULT,
+                span,
+                "`#placement` cannot be a parameter's default",
+                "each caller would fill in its own placement here",
+                "read `#placement` in the body, where it is where this function's own value \
+                 goes (spec §14.6)",
+            );
+        } else {
+            self.require_unsafe(span, "`#placement`");
+        }
+        match self.cx.prelude_decl("Allocator", SymbolKind::Trait) {
+            Some(a) => Ty::ptr(true, Ty::plain(a)),
+            None => Ty::Error,
+        }
     }
 
     /// Register a body that is one expression: a `const` initialiser or a field default.
@@ -1649,7 +1677,9 @@ impl<'a, 'c> Body<'a, 'c> {
             // A default on a variadic parameter was reported where the signature was built;
             // checking it against the `[]T` as well would report the one mistake twice.
             let default = p.default.as_ref().filter(|_| !p.variadic).map(|default| {
+                self.in_param_default = true;
                 let c = self.expr(default, Some(&ty));
+                self.in_param_default = false;
                 self.expect(&ty, &c.ty, default.span);
                 c.id
             });
@@ -3643,6 +3673,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     "line" | "column" => Ty::Int(IntTy::U32),
                     "file" | "function" | "module" | "expr_text" => Ty::Str,
                     "location" => Ty::Builtin(dz_hir::ty::BuiltinTy::SourceLocation),
+                    "placement" => self.placement(e.span),
                     _ => Ty::Error,
                 };
                 let kind = hir::ExprKind::Intrinsic { name: name.name.clone(), args };
@@ -6343,7 +6374,7 @@ impl<'a, 'c> Body<'a, 'c> {
             .position(|a| matches!(a.kind, ExprKind::Named { .. }))
             .unwrap_or(args.len());
         let (positional, named) = args.split_at(split);
-        let allocator = self.format_named_args(which, string, named);
+        self.format_named_args(which, named);
 
         let Some(fmt) = positional.first() else {
             self.cx.error_help(
@@ -6437,7 +6468,7 @@ impl<'a, 'c> Body<'a, 'c> {
             let text = self.hir.expr(fmt.span, Ty::Str, hir::ExprKind::Str(pieces.concat()));
             return match (which, string) {
                 ("format", Some(string)) => {
-                    let args = std::iter::once(text.id).chain(allocator).collect();
+                    let args = vec![text.id];
                     let callee = hir::Callee::Ctor { owner: string, index: 0 };
                     self.mk(e, result, hir::ExprKind::Call { callee, args })
                 }
@@ -6505,16 +6536,8 @@ impl<'a, 'c> Body<'a, 'c> {
             bound.push((self.hir.expr(*at, r.clone(), kind).id, r));
         }
         // What the invocation is given besides the values is evaluated with them, in the
-        // order it is written: `format!`'s allocator, and `panic!`'s location last of all.
-        let allocator_ty = string
-            .and_then(|s| self.cx.table.struct_sig(s))
-            .and_then(|s| s.ctors.first())
-            .and_then(|c| c.params.iter().find(|p| p.name == "allocator"))
-            .map(|p| p.ty.clone());
+        // order it is written: `panic!`'s location, last of all.
         let extra_from = bound.len();
-        if let (Some(a), Some(ty)) = (allocator, allocator_ty) {
-            bound.push((a, ty));
-        }
         if let Some(l) = loc {
             bound.push((l, Ty::Builtin(dz_hir::ty::BuiltinTy::SourceLocation)));
         }
@@ -6525,7 +6548,6 @@ impl<'a, 'c> Body<'a, 'c> {
             params.push(self.hir.local("arg·", ty, false, span, LocalKind::Binding));
         }
         let extras = &params[extra_from..];
-        let allocator_param = if allocator.is_some() { extras.first().copied() } else { None };
         let loc_param = if loc.is_some() { extras.last().copied() } else { None };
 
         let fmt_ty = Ty::plain(formatter);
@@ -6537,13 +6559,8 @@ impl<'a, 'c> Body<'a, 'c> {
                 let string_ty = Ty::plain(string);
                 let text = self.hir.local("text·", string_ty.clone(), true, span, LocalKind::Let);
                 let empty = self.hir.expr(span, Ty::Str, hir::ExprKind::Str(String::new())).id;
-                let mut ctor_args = vec![empty];
-                if let Some(p) = allocator_param {
-                    let ty = self.hir_local_ty(p);
-                    ctor_args.push(self.hir.expr(span, ty, hir::ExprKind::Local(p)).id);
-                }
                 let callee = hir::Callee::Ctor { owner: string, index: 0 };
-                let call = hir::ExprKind::Call { callee, args: ctor_args };
+                let call = hir::ExprKind::Call { callee, args: vec![empty] };
                 let init = self.hir.expr(span, string_ty, call).id;
                 let local = Some(text);
                 outer.push(self.hir.stmt(span, hir::StmtKind::Let { local, init: Some(init) }));
@@ -6713,15 +6730,9 @@ impl<'a, 'c> Body<'a, 'c> {
         self.hir.stmt(span, hir::StmtKind::Expr(call.id))
     }
 
-    /// What a formatting macro is given by name: `format!`'s `allocator`, which says where
-    /// the `String` it builds lives (spec §7.2, §12.9), and nothing else.
-    fn format_named_args(
-        &mut self,
-        which: &str,
-        string: Option<SymbolId>,
-        named: &[Expr],
-    ) -> Option<hir::ExprId> {
-        let mut allocator = None;
+    /// What a formatting macro is given by name, which is nothing: each one is reported
+    /// (spec §7.2, §12.9). `format!`'s text is placed by the compiler (spec §14.6).
+    fn format_named_args(&mut self, which: &str, named: &[Expr]) {
         for a in named {
             let ExprKind::Named { name, value } = &a.kind else {
                 self.cx.error_help(
@@ -6735,31 +6746,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.expr(a, None);
                 continue;
             };
-            if which == "format" && name.name == "allocator" {
-                // The type `String`'s constructor gives its own `allocator`.
-                let want = string
-                    .and_then(|s| self.cx.table.struct_sig(s))
-                    .and_then(|s| s.ctors.first())
-                    .and_then(|c| c.params.iter().find(|p| p.name == "allocator"))
-                    .map(|p| p.ty.clone());
-                let c = self.expr(value, want.as_ref());
-                if let Some(want) = &want {
-                    self.expect(want, &c.ty, value.span);
-                }
-                if allocator.is_some() {
-                    self.cx.error(
-                        codes::BAD_NAMED_ARG,
-                        name.span,
-                        "`allocator` is passed twice",
-                        "already passed",
-                    );
-                    continue;
-                }
-                allocator = Some(c.id);
-                continue;
-            }
-            let help = if which == "format" {
-                "`format!` takes `allocator` by name, for where the text lives (spec §12.9)"
+            let help = if which == "format" && name.name == "allocator" {
+                "the compiler places the text `format!` builds, so no allocator is passed \
+                 (spec §14.6)"
                     .to_owned()
             } else {
                 format!("`{which}!` takes nothing by name (spec §12.9)")
@@ -6773,7 +6762,6 @@ impl<'a, 'c> Body<'a, 'c> {
             );
             self.expr(value, None);
         }
-        allocator
     }
 
     /// Each argument of a formatting macro has a way to be written — an implementation of

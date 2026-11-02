@@ -142,9 +142,12 @@ fn looped() -> usize {
     return s.len()
 }
 
-// Heap: the program's own allocator-taking function.
+// Heap: the program's own allocator-taking function, whose use of it is out of sight.
 fn squares_in(n: i32, allocator: ^mut Allocator = Allocators::Global) -> List<i32> {
-    let mut xs = List<i32>(0, allocator)
+    let a = unsafe { allocator or panic!("no allocator") }
+    let scratch = a.alloc(4, 4)
+    a.free(scratch, 4, 4)
+    let mut xs = List<i32>()
     xs.push(n)
     return move(xs)
 }
@@ -283,14 +286,15 @@ fn values_that_stay_in_their_scope_get_its_region() {
     }
     // `outer` keeps its own list in its region; only the inner one, moved out, is heap.
     assert_eq!(decisions(&a, &p, "outer")[0], "List<i32>: region: `outer`");
-    // The region's block and the allocator argument, as codegen reads them.
+    // The region's block and where the placement is passed, as codegen reads them: the
+    // hidden parameter past the last the callee writes.
     let lend = body(&a, &p, "lend");
     let site = &lend.sites[0];
     let Decision::Region { block, .. } = site.decision else { panic!() };
-    assert_eq!(lend.region_for(site.call), Some((1, block)));
+    assert_eq!(lend.region_for(site.call), Some((2, block)), "`List(capacity, loc)`");
     assert_eq!(lend.region_blocks(), vec![block]);
     let printed = body(&a, &p, "printed");
-    assert_eq!(printed.sites[0].arg, 1, "`String::from(s, allocator, loc)`");
+    assert_eq!(printed.sites[0].arg, 2, "`String::from(s, loc)`");
 }
 
 #[test]

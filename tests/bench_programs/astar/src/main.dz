@@ -7,11 +7,11 @@
 // heap and a path, all dropped at the end of it), bounds-checked indexing of the grid, and
 // optionals for "nothing left in the heap" and "no way through".
 //
-// It allocates from the global heap, not `Allocators::Temp`. Measured both ways, the arena
-// was about 5% slower and took 30% more memory: a search's maps grow past the arena's
-// 64 KiB chunk, so each resize is a `malloc` of its own, and the arrays a resize leaves
-// behind cannot be reused until the reset (T-0099). The other two programs are faster
-// with it.
+// It names no allocator: the compiler places its memory (spec §14.6). Each query's maps,
+// heap and path are only lent, so with regions on they go in the region of the function
+// that builds them. When programs still chose, this one kept the heap rather than
+// `Allocators::Temp`, which was about 5% slower and took 30% more memory: a search's maps
+// grow past the arena's 64 KiB chunk, so each resize was a `malloc` of its own (T-0099).
 //
 // Usage: astar [side] [queries]
 
@@ -145,8 +145,8 @@ struct MinHeap<T: Ord> {
     tie @items = m_items@items
     tie @values = m_items[*]
 
-    MinHeap(allocator: ^mut Allocator) {
-        m_items = List<T>(0, allocator)
+    MinHeap() {
+        m_items = List<T>()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -220,7 +220,7 @@ const STEPS_X: [4]i32 = [1, 0, -1, 0]
 const STEPS_Y: [4]i32 = [0, 1, 0, -1]
 
 fn find_path(grid: &Grid, start: Cell, goal: Cell) -> Found {
-    let mut open = MinHeap<Node>(Allocators::Global)
+    let mut open = MinHeap<Node>()
     let mut best = HashMap<Cell, i32>()
     let mut came_from = HashMap<Cell, Cell>()
     let mut found = Found{}

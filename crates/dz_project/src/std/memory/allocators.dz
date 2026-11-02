@@ -1,7 +1,8 @@
 /// The standard allocators (§14.2). Each is a reference to a static, evaluated where it is
 /// named — so `Temp` is the arena of the thread that names it — and a reference, so
-/// `Allocators::Temp.reset()` needs no `unsafe`. Either converts to the `^mut Allocator` a
-/// container stores.
+/// `Allocators::Temp.reset()` needs no `unsafe`. Either converts to a `^mut Allocator`. No
+/// container takes one: the compiler places containers (§14.6), and `Global` is the heap
+/// it falls back to.
 pub struct Allocators {
     /// The C heap: `malloc` and `free`.
     pub const Global: &mut Allocator = unsafe { &mut HEAP }

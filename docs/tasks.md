@@ -23,10 +23,12 @@ proposed:
 3. Frame regions (T-0139) turned out not to be needed yet (2026-11-02): the function
    called each frame already has its region. Two gaps that kept frame data on the heap are
    closed instead (`format!`'s text, and a value handed to a parameter that stays in the
-   call), and a field replaced every frame joined T-0120. Next, T-0119, allocators out of
-   ordinary code, and T-0118.
+   call), and a field replaced every frame joined T-0120. T-0119 is done (r104,
+   2026-11-02): ordinary code names no allocator, and a container reads where it was
+   placed as `#placement`. The speed hand-placed `Temp` gave `words` and `expr` waits
+   for T-0145 and T-0146. Next, T-0118.
 4. The rest of D-0094 (T-0126, T-0128, T-0129, T-0130, T-0135, T-0136), its tests (T-0132
-   to T-0134), and the placement gaps (T-0140 to T-0142).
+   to T-0134), and the placement gaps (T-0140 to T-0142, T-0145, T-0146).
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
    (T-0137).
 
@@ -126,7 +128,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (37 open)
+## none — not scheduled (38 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -147,7 +149,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
 - **[T-0117](tasks/T-0117-memory-placed-by-compiler-regions-result.md)** Memory placed by the compiler: regions and the result placement · feature, ownership
 - **[T-0118](tasks/T-0118-skip-drops-that-only-free-region.md)** Skip drops that only free region memory · feature, ownership
-- **[T-0119](tasks/T-0119-remove-allocators-from-ordinary-code.md)** Remove allocators from ordinary code · feature, stdlib
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
 - **[T-0122](tasks/T-0122-constructor-cannot-declare-kills-clause.md)** A constructor cannot declare a kills clause · bug, ownership
 - **[T-0126](tasks/T-0126-if-let-turns-untied-pointer-into.md)** `if let` turns an untied pointer into a reference without `unsafe` · bug, ownership
@@ -165,3 +166,5 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0140](tasks/T-0140-copy-built-on-heap-wherever-it.md)** A copy is built on the heap wherever it is placed · feature, ownership
 - **[T-0141](tasks/T-0141-virtual-override-methods-take-no-result.md)** `virtual` and `override` methods take no result placement · feature, ownership
 - **[T-0142](tasks/T-0142-by-value-parameter-placement-inferred-only.md)** A by-value parameter's placement is inferred only within its module · feature, ownership
+- **[T-0145](tasks/T-0145-value-stored-into-container-built-where.md)** A value stored into a container is built where the container lives · feature, ownership
+- **[T-0146](tasks/T-0146-value-rebuilt-on-each-pass-loop.md)** A value rebuilt on each pass of a loop, holding the one before, keeps the heap · feature, ownership

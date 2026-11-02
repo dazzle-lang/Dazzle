@@ -325,8 +325,8 @@ fn cmd_fix(
     }
 }
 
-/// `dz placements`: where each allocation left to the default allocator goes, a scope's
-/// region or the heap, and why (spec §14.6, T-0117). Read off `Analysis::placements`, the
+/// `dz placements`: where each allocation goes, a scope's region, the caller's result
+/// placement or the heap, and why (spec §14.6, T-0117). Read off `Analysis::placements`, the
 /// answer codegen and the editor's hint read, through the same label. Only the project's
 /// own files: `std`'s sites are decided too, but are not the reader's to change.
 fn cmd_placements(

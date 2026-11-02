@@ -15,13 +15,13 @@
 pub struct Path {
     m_text: String
 
-    Path(text: &str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
+    Path(text: &str = "", loc: SourceLocation = #location) {
         let bytes = text as &[]u8
         let mut end = bytes.len
         while end > 1 && is_separator(bytes[end - 1]) && !(end == 3 && bytes[1] == ':' as u8) {
             end -= 1
         }
-        m_text = String("", allocator, loc)
+        m_text = String("", loc)
         m_text.reserve(end, loc)
         let mut from: usize = 0
         let mut i: usize = 0

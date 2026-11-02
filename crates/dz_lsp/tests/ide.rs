@@ -74,21 +74,23 @@ fn labels(items: &[ide::Completion]) -> Vec<&str> {
 /// a copy on disk, but the query itself must find the declaration (spec §14.4).
 #[test]
 fn definition_of_a_std_name_is_its_declaration_in_std() {
-    let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/containers"));
-    assert!(!a.diags.has_errors(), "the fixture must check cleanly");
-    let f = main_file(&a);
-    for (needle, within, declared, file_name) in [
-        ("String>()", 0, "String", "<std>/text/string.dz"),
-        ("List<i32>()", 0, "List", "<std>/collections/list.dz"),
-        ("(0, Allocators::Temp)", 4, "Allocators", "<std>/memory/allocators.dz"),
-        ("Temp)", 0, "Temp", "<std>/memory/allocators.dz"),
+    for (fixture, needle, within, declared, file_name) in [
+        ("containers", "String>()", 0, "String", "<std>/text/string.dz"),
+        ("containers", "List<i32>()", 0, "List", "<std>/collections/list.dz"),
+        ("allocators", "= Allocators::Temp", 2, "Allocators", "<std>/memory/allocators.dz"),
+        ("allocators", "Temp\n", 0, "Temp", "<std>/memory/allocators.dz"),
     ] {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run").join(fixture);
+        let a = analyse(&dir);
+        assert!(!a.diags.has_errors(), "the fixture must check cleanly");
+        let f = main_file(&a);
         let i = info(&a, f, needle, within);
         let (file, _) = i.definition.unwrap_or_else(|| panic!("no definition for `{needle}`"));
         let want = ide::embedded_file(&a, file_name).expect("std was parsed");
         assert_eq!(file, want, "`{needle}` did not lead to {file_name}");
         assert_eq!(definition_text(&a, &i).1, declared, "at `{needle}`");
     }
+    let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/containers"));
     // And from inside the standard library, once a file of it is open — across its files.
     let string = ide::embedded_file(&a, "<std>/text/string.dz").expect("std was parsed");
     let i = info(&a, string, "m_bytes: List<u8>", 9);
@@ -506,8 +508,8 @@ fn inlay_hints_show_the_clause_a_body_needs() {
     assert_eq!(clauses, [(brace, "kills ys@items")], "one hint, before `grow`'s body: {hints:?}");
 }
 
-/// Each allocation left to the default allocator shows where its memory goes, after the
-/// call: the label `dz placements` prints, from the one analysis codegen reads (spec §14.6).
+/// Each allocation shows where its memory goes, after the call: the label `dz placements`
+/// prints, from the one analysis codegen reads (spec §14.6).
 #[test]
 fn inlay_hints_show_where_each_allocation_goes() {
     let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/regions"));

@@ -18,6 +18,17 @@ picking `self`); `in (a, b)` names several; a reference, slice or `str` result w
 input is an error, a raw pointer's is not; and a struct, tuple or optional holding a view
 follows the same rules. A view only through a type parameter stays unchecked.
 
+**Settled on the way, 2026-11-02 (r104, by the user):** with the allocator parameters gone
+(T-0119), a container learns where it was placed from the intrinsic `#placement`, a
+`^mut Allocator`: in a constructor where the value being made goes, in a function returning
+something that owns memory where its result goes, else the heap. It may be read in any
+`unsafe` code, not only `std`'s, so a program's own container is placed as `std`'s are;
+freeing into the same allocator and building a copy on the heap are then its author's to
+get right. It cannot be a parameter's default, which would bring back the caller-filled
+`#allocator` this decision rejects. The speed hand-placed `Allocators::Temp` gave `words`
+and `expr` is given up until placement reaches their allocations, and the loss recorded
+(T-0119).
+
 **The question.** Should Dazzle check that a reference is never used after the memory it
 points into has moved or been freed, and, with that check in place, take the choice of
 allocator out of ordinary code altogether?

@@ -344,7 +344,7 @@ pub(crate) fn expr<H: Hooks>(h: &mut H, e: &mut Expr) {
             }
         }
         ExprKind::Unary { operand, .. } => expr(h, operand),
-        // `allocator = a`: the name is the parameter's, not a binding or a path.
+        // `scale = 2`: the name is the parameter's, not a binding or a path.
         ExprKind::Named { value, .. } => expr(h, value),
         ExprKind::Binary { lhs, rhs, .. } => {
             expr(h, lhs);

@@ -1,12 +1,14 @@
 # 14. Memory and allocators
 
-> **Superseded by D-0091 (§14.6).** Ordinary code will not name an allocator: the compiler
-> places memory. What follows, down to §14.2, is how memory works until that is implemented
-> (T-0107); the `Allocator` trait itself stays, for `std`.
+> **Ordinary code names no allocator (D-0091, §14.6).** The compiler places memory, and no
+> constructor in `std` takes an allocator (r104). What follows is the `Allocator` trait and
+> the standard allocators beneath that: what a container, `std`'s or a program's own, takes
+> its memory from, in `unsafe` code.
 
 Dazzle has no global allocator baked into the language. Allocation is a library concern
-expressed through the `Allocator` trait (§7.6), and **the allocator is an explicit
-parameter**. `[DECIDED — §18.10; superseded by D-0091]`
+expressed through the `Allocator` trait (§7.6), and **which allocator a value's memory
+comes from is the compiler's choice** (§14.6). A container stores the one it was placed
+in, which it reads as `#placement` (§12.7). `[DECIDED — D-0091, superseding §18.10]`
 
 ```dz
 pub trait Allocator {
@@ -19,7 +21,10 @@ pub trait Allocator {
 pub struct List<T> {
     m_allocator: ^mut Allocator = Allocators::Global
 
-    List(capacity: u32, allocator: ^mut Allocator = Allocators::Global) { ... }
+    List(capacity: usize = 0, loc: SourceLocation = #location) {
+        m_allocator = unsafe { #placement }   // where the compiler put this list
+        ...
+    }
 }
 ```
 
@@ -42,13 +47,14 @@ recipe of its own. `[DECIDED — D-0084]`
 
 Odin's implicit `context.allocator` removes the parameter from every signature, and the
 price is that you cannot tell from a call whether it allocates or from where. Given
-principle 1 (§1), the parameter stays. The default-argument mechanism (§7.2) gives back
-almost all the ergonomics: `List(8)` reads as cleanly as the implicit version, and
-`List(8, &frame_arena)` is right there when you need it.
+principle 1 (§1), Dazzle first kept the allocator an explicit parameter, defaulted so that
+`List(8)` read as cleanly as the implicit version, with `List(8, &frame_arena)` there when
+needed (§18.10).
 
-D-0091 answers principle 1 differently: where memory comes from is shown by the editor at
-each allocation, not chosen there, and ties make every choice safe, which a parameter a
-program passes by hand never was (a value outliving its arena's `reset()`).
+D-0091 answers principle 1 differently, and replaced the parameter in r104: where memory
+comes from is shown by the editor at each allocation, not chosen there, and ties make every
+choice safe, which a parameter a program passed by hand never was (a value outliving its
+arena's `reset()`).
 
 ## 14.2 Standard allocators
 
@@ -58,7 +64,9 @@ Allocators::Temp        // &mut TempArena — this thread's scratch arena
 ```
 
 Both are associated constants (§7.3): references to statics (§7.7), usable directly —
-`Allocators::Temp.reset()` — and converting to the `^mut Allocator` a container stores.
+`Allocators::Temp.reset()` — and converting to a `^mut Allocator`. No container takes
+either: the compiler places a container (§14.6), and `Global` is the heap it falls back to.
+They are what raw memory is taken from in `unsafe` code.
 
 - **`Global`** is `malloc` and `free`, with nothing of its own in front of them: the C heap is
   already a good general-purpose allocator, and the platform's tools understand it. An
@@ -69,11 +77,12 @@ Both are associated constants (§7.3): references to statics (§7.7), usable dir
   every pointer it handed out is dangling afterwards. `realloc` of the last allocation grows
   in place. `used()` says how much of the current chunk a frame took.
 
+What a frame builds and drops needs no `Temp` of the program's own: the compiler puts it in
+the region of the function that builds it, released when that function returns (§14.6).
+
 ```dz
 fn update(&mut self, dt: f32) {
-    defer Allocators::Temp.reset()
-
-    let visible = self.cull(&camera, Allocators::Temp)   // freed at frame end, no bookkeeping
+    let visible = self.cull(&camera)    // in `update`'s region: freed at its end, no bookkeeping
     for &e in visible { e.draw(&mut self.batch) }
 }
 ```
@@ -102,17 +111,17 @@ reused at the same address is not taken for the same one. It walks every element
 call and turns tracking on, so it is for tests, not for builds a person plays.
 
 **`List<T>`** is the growable array, in `std`. `List<i32>()` is empty and allocates
-nothing; `List<T>(capacity, allocator)` takes both. It doubles when it grows; `push`,
-`pop` (a `T?`), `insert`, `remove`, `swap_remove`, `remove_range(from, to)`, `clear`,
+nothing; `List<T>(capacity)` has room for `capacity` elements. It doubles when it grows;
+`push`, `pop` (a `T?`), `insert`, `remove`, `swap_remove`, `remove_range(from, to)`, `clear`,
 `truncate`, `resize` (new elements at their defaults), `reserve`, `shrink_to_fit`, `len`,
 `capacity`, `is_empty`; `retain(keep)` keeps the elements a `fn(&T) -> bool` says yes to,
 in order, and drops the rest; `append(&mut other)` moves `other`'s elements onto the end;
 `reverse`; `b[i]` reads and writes, checked against the length; `as_slice()` and
 `as_mut_slice()` view the elements; `first()`, `last()`, `first_mut()` and `last_mut()`
 are a `^T`, `null` when the list is empty, as a map's lookup is (§9.1). It is move-only
-unless `T` is copyable, and then a copy copies into a new allocation from the same
-allocator. Every call that may allocate takes `loc = #location`, so tracking names the line
-that pushed.
+unless `T` is copyable, and then a copy copies into a new allocation, on the heap (§14.6).
+Every call that may allocate takes `loc = #location`, so tracking names the line that
+pushed.
 
 What needs more of the element than the list does is a trait implemented for `List<T>`
 with that bound, since a method cannot require more of `T` than its type does — as `sort`
@@ -123,18 +132,19 @@ slice in — one that must not be a view of the list itself, which growing would
 elements `Hash`, so a list can key a map. `[DECIDED — D-0081]`
 
 **`String`** is owned UTF-8 text, in `std`: `String("x")` or `String::from("x")` copy a
-`str`, with an allocator as a second argument. `push_str`, `push` (a `char`, encoded),
+`str`. `push_str`, `push` (a `char`, encoded),
 `insert(at, c)`, `insert_str(at, s)`, `remove(at)` (the character there), `clear`,
 `reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
 `as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
-compares text, and a copy copies it. `format!("…", args)` builds one from a format string,
-taking `allocator = …` by name (§12.9).
+compares text, and a copy copies it. `format!("…", args)` builds one from a format string
+(§12.9).
 
 **`HashMap<K: Hash + Eq, V>`** maps keys to values, in `std`. `HashMap<K, V>()` is
-empty and allocates nothing; `HashMap<K, V>(capacity, allocator)` takes both. `insert(k, v)`
-adds or replaces, dropping a replaced value; `replace(k, v)` returns it as a `V?` instead.
-A lookup takes the key by reference and follows §9.1 — `get(&k)` is a `^V` and `get_mut(&k)`
-a `^mut V`, `null` when the key is absent, so `let hp = health.get(&id) or return`.
+empty and allocates nothing; `HashMap<K, V>(capacity)` has room for `capacity` entries.
+`insert(k, v)` adds or replaces, dropping a replaced value; `replace(k, v)` returns it as a
+`V?` instead. A lookup takes the key by reference and follows §9.1 — `get(&k)` is a `^V`
+and `get_mut(&k)` a `^mut V`, `null` when the key is absent, so
+`let hp = health.get(&id) or return`.
 `remove(&k)` returns the value as a `V?`; `contains`, `len`, `is_empty`, `capacity`,
 `clear`, `reserve`. `get_or_insert(k, default)` is the value for `k` as a `&mut V`, after
 adding `default` when `k` was not there — counting in one lookup. `retain(keep)` drops the
@@ -158,7 +168,7 @@ let tex = textures.get_str(name) or return
 ```
 
 **`HashSet<T: Hash + Eq>`** holds each value once, in `std`, on the same table as a
-`HashMap`: `HashSet<T>(capacity, allocator)`, `insert(v)` (whether `v` was new — when it
+`HashMap`: `HashSet<T>(capacity)`, `insert(v)` (whether `v` was new — when it
 was not, the set is unchanged and `v` dropped), `contains(&v)`, `remove(&v)` (whether it was
 there), `retain`, `clear`, `reserve`, `len`, `is_empty`, `capacity`, and `for &v in set`. A
 `HashSet<String>` also answers `contains_str` and `remove_str` (**`StrSet`**). It is
@@ -207,8 +217,9 @@ A reference to a value that is not a place — `m.get(&7)`, `&make()` — refers
 temporary holding the value until the end of the enclosing block, and the literal takes its
 type from what the reference is wanted to point at.
 
-Additional allocators — `Arena`, `Pool<T>`, `FreeList` — are ordinary Dazzle structs
-implementing the trait, and come later.
+Other allocators — an arena, a pool, a free list — are ordinary Dazzle structs implementing
+the trait, which a program's own container can take memory from in `unsafe` code. Asking the
+compiler to place values in one, under a memory budget or with no heap, is open (T-0143).
 
 ## 14.3 Placement primitives
 
@@ -433,7 +444,7 @@ what is still alive — returning from `main` is the normal way to end.
 
 Game code shares things — a texture drawn by many sprites, an entity several systems
 track — and a raw pointer is the wrong tool for it (§5.2). The standard library has three
-**handles**, each holding a value on the heap from an allocator, as `List` does:
+**handles**, each holding a value in an allocation of its own, as `List` holds its elements:
 
 | Handle | Owns | Copying it | The value is dropped |
 |---|---|---|---|
@@ -447,7 +458,7 @@ Its `Key` is a plain eight-byte value with no count to keep, the values sit toge
 one dies when its owner removes it rather than when the last `Rc` to it goes.
 
 ```dz
-let tex = Rc<Texture>(load("hero.png"))       // Rc(value, allocator = Allocators::Global)
+let tex = Rc<Texture>(load("hero.png"))       // on the heap: a Weak can outlive any scope
 let other = tex                                // tex.count() is now 2
 let watch = Weak<Texture>(&tex)                // does not keep it alive
 let node = Box<Node>(Node{ value: 1 })
@@ -559,9 +570,44 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
   went and why ("heap: popped elements leave `queue`").
 - **A memory budget or a program with no heap** is not expressible yet.
 
-`Allocator`, `Allocators`, `TempArena` and the region arena stay in `std`, for its own
-containers, under `unsafe`. A program that builds a container of its own takes raw memory
-from C, importing `stdlib.h` itself (§14, D-0084), as `examples/ownership` does.
+**A container reads where it was placed as `#placement`** (§12.7), in `unsafe`: in a
+constructor, where the value being made goes; in a function returning something that owns
+memory, where its result goes; anywhere else, the heap. `std`'s containers store it and
+allocate from it, and a program's own container can do the same, and is then placed as
+they are:
 
-Not yet implemented: until T-0107's steps 4 to 6 land, containers still take an allocator
-as §14 to §14.2 describe, and a value used after `Allocators::Temp.reset()` is not caught.
+```dz
+struct Pool {
+    m_allocator: ^mut Allocator = Allocators::Global
+    m_data: ^mut u8 = null
+
+    Pool() {
+        m_allocator = unsafe { #placement }     // this pool's region, its caller's, or the heap
+        let a = unsafe { m_allocator or return }
+        m_data = a.alloc(4096, 16)
+    }
+}
+
+impl Drop for Pool {
+    fn drop(&mut self) {
+        let a = unsafe { m_allocator or return }
+        a.free(m_data, 4096, 16)                 // into the allocator it came from
+    }
+}
+```
+
+The compiler checks where the value goes; what is done with the allocator is the
+container's to get right, as for anything `unsafe`: memory taken from it is freed into it,
+and a copy is built on the heap (`Allocators::Global`), since it may outlive the region its
+original is in. A parameter's default cannot be `#placement`, which would make it each
+caller's (`DZ0579`). `[DECIDED — D-0091, r104]`
+
+`Allocator`, `Allocators`, `TempArena` and the region arena stay in `std`, for containers,
+in `unsafe` code. A container may also take raw memory from C, importing `stdlib.h` itself
+(§14, D-0084), as `examples/ownership` does; that memory is C's heap, wherever the
+container is placed.
+
+Not yet implemented: regions and result placement are built behind a switch until T-0117
+decides whether they stay (`DZ_REGIONS=1`); without it, every value is on the heap. Owner
+arenas (T-0120), skipping a drop that only frees region memory (T-0118), a placed copy
+(T-0140) and a `virtual` method's result (T-0141) are still to come.

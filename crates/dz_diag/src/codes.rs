@@ -254,8 +254,9 @@ pub const BAD_FORMAT_STRING: &str = "DZ0526";
 /// A formatting argument whose type has no way to be written (spec §12.9).
 pub const NOT_FORMATTABLE: &str = "DZ0527";
 /// A raw-memory operation outside `unsafe`: reading or writing through a `^T`, indexing
-/// one, a pointer cast, `construct`/`destroy`/`move_out`/`memcpy`/`memmove`/`free`, or a
-/// call to an `unsafe fn` (spec §5.2). Forming, copying, storing and comparing a pointer are all safe.
+/// one, a pointer cast, `construct`/`destroy`/`move_out`/`memcpy`/`memmove`/`free`,
+/// `#placement`, or a call to an `unsafe fn` (spec §5.2, §14.6). Forming, copying, storing
+/// and comparing a pointer are all safe.
 pub const UNSAFE_OPERATION: &str = "DZ0528";
 /// `if let` on a fallible call. Its `else` has no `Error` to hand over, so the failure
 /// would be silently dropped; that is `or`'s job (spec §9.4, §9.5).
@@ -353,7 +354,7 @@ pub const MISSING_BODY: &str = "DZ0556";
 /// a trait's method, which a trait object would have to call without knowing them
 /// (spec §8.1, §7.6).
 pub const GENERIC_METHOD_NOT_ALLOWED: &str = "DZ0557";
-/// An argument passed by name — `allocator = a` — that does not fit: the call's function
+/// An argument passed by name — `scale = 2` — that does not fit: the call's function
 /// has no parameter of that name after a variadic one, the name is given twice, a
 /// positional argument follows it, or the call is not to a function at all (spec §7.2).
 /// Also a parameter after a variadic one that a call leaves out with no default.
@@ -417,6 +418,10 @@ pub const SLICE_NOT_BORROWED: &str = "DZ0577";
 /// A C string spelled as a value: `cstr` for `&cstr`, a borrowed C string; `const &cstr` is
 /// a literal's, `^cstr` C's own pointer (spec 5.3, 15.2).
 pub const CSTR_NOT_BORROWED: &str = "DZ0578";
+/// `#placement` as a parameter's default. It is where the function's own value is placed,
+/// which its body reads; a default is filled in by each caller, which would pass its own
+/// placement on to whatever the function builds (spec §12.7, §14.6).
+pub const PLACEMENT_DEFAULT: &str = "DZ0579";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

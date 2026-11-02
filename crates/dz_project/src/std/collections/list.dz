@@ -1,8 +1,9 @@
-/// A growable array of `T`, in memory from the allocator it was built with.
+/// A growable array of `T`, in memory from wherever the compiler places the list (spec
+/// §14.6).
 ///
 /// Move-only unless `T` is copyable, in which case copying it copies every element into a
-/// new allocation from the same allocator. `b[i]` reads and writes an element, checked
-/// against the length; `as_slice()` views them all.
+/// new allocation, on the heap. `b[i]` reads and writes an element, checked against the
+/// length; `as_slice()` views them all.
 pub struct List<T> {
     m_data: own ^mut T = null
     m_len: usize = 0
@@ -15,12 +16,8 @@ pub struct List<T> {
 
     /// An empty list, with room for `capacity` elements already allocated when it is
     /// given.
-    List(
-        capacity: usize = 0,
-        allocator: ^mut Allocator = Allocators::Global,
-        loc: SourceLocation = #location,
-    ) {
-        m_allocator = allocator
+    List(capacity: usize = 0, loc: SourceLocation = #location) {
+        m_allocator = unsafe { #placement }
         if capacity > 0 {
             self.grow_to(capacity, loc)
         }

@@ -18,7 +18,8 @@ const SCOPE_LARGE: usize = 16384
 
 /// A region: the memory the compiler places values in when they never leave the scope
 /// that builds them (spec §14.6, T-0117). It is declared first in that scope and handed to
-/// those values' constructors, so it is released after every one of them is dropped. It is
+/// those values' constructors, as their `#placement`, so it is released after every one of
+/// them is dropped. It is
 /// not for ordinary code: a value built in it by hand must not outlive it, and nothing
 /// checks that it does not.
 ///

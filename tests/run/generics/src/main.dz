@@ -63,7 +63,8 @@ struct Pair<T> {
 }
 
 // The M6 criterion (spec §19): an `own` field, a `drop`, a compile-time branch on
-// `T::is_trivially_copyable`, and `construct`/`destroy`, allocating through an `Allocator`.
+// `T::is_trivially_copyable`, and `construct`/`destroy`, allocating through an `Allocator`:
+// the one the compiler places the buffer in, `#placement` (spec §14.6).
 struct Buffer<T> {
     m_data: own ^mut T
     m_len:  usize
@@ -71,8 +72,8 @@ struct Buffer<T> {
     m_allocator: ^mut Allocator = Allocators::Global
 
     // The raw-memory work is `unsafe` (spec §5.2); what `Buffer` offers its users is not.
-    Buffer(cap: usize, allocator: ^mut Allocator = Allocators::Global) {
-        m_allocator = allocator
+    Buffer(cap: usize) {
+        m_allocator = unsafe { #placement }
         let a = unsafe { m_allocator or panic!("a Buffer needs an allocator") }
         // Allocating is safe; calling the bytes `T`s is the part nothing checks.
         unsafe { m_data = a.alloc(cap * sizeof(T), alignof(T)) as ^mut T }
@@ -104,7 +105,8 @@ struct Buffer<T> {
 
 impl<T: Copy> Copy for Buffer<T> {
     fn copy(&mut self, other: &Self) {
-        m_allocator = other.m_allocator
+        // A copy may outlive the scope whose region holds `other`, so it goes to the heap.
+        m_allocator = Allocators::Global
         let a = unsafe { m_allocator or panic!("a Buffer needs an allocator") }
         unsafe {
             m_data = a.alloc(other.m_cap * sizeof(T), alignof(T)) as ^mut T

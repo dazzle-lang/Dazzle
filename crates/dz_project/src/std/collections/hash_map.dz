@@ -1,4 +1,5 @@
-/// A map from keys to values, in memory from the allocator it was built with.
+/// A map from keys to values, in memory from wherever the compiler places the map (spec
+/// §14.6).
 ///
 /// Open addressing with linear probing: one array each of hashes, keys and values, a slot
 /// empty when its hash is zero. It grows to twice the slots when three quarters are full,
@@ -20,12 +21,8 @@ pub struct HashMap<K: Hash + Eq, V> {
     tie [*] = m_keys[*], m_values[*]
 
     /// An empty map, with room for `capacity` entries already allocated when it is given.
-    HashMap(
-        capacity: usize = 0,
-        allocator: ^mut Allocator = Allocators::Global,
-        loc: SourceLocation = #location,
-    ) {
-        m_allocator = allocator
+    HashMap(capacity: usize = 0, loc: SourceLocation = #location) {
+        m_allocator = unsafe { #placement }
         if capacity > 0 {
             self.grow_to(capacity, loc)
         }

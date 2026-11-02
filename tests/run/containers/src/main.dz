@@ -1,7 +1,7 @@
 // `List<T>` and `String` (spec §14): growth, `b[i]` through `Index`/`IndexMut`, removal
-// that moves elements, move-only elements dropped exactly once, copying, and a list in
-// `Allocators::Temp`. `a_tracked_build_reports_leaks_and_bad_frees` builds `allocators`
-// with tracking; this one, run with `--track-memory` too, reports no leaks.
+// that moves elements, move-only elements dropped exactly once, copying, and a scratch list
+// the compiler places (spec §14.6). `a_tracked_build_reports_leaks_and_bad_frees` builds
+// `allocators` with tracking; this one, run with `--track-memory` too, reports no leaks.
 
 static DROPS: i32 = 0
 
@@ -69,12 +69,12 @@ fn main() {
     names.push(String("grace"))
     println!("{} {}", names[1].as_str(), names.len())
 
-    // A frame's scratch list, in the arena.
-    let mut scratch = List<u16>(0, Allocators::Temp)
+    // A frame's scratch list: no allocator is named, so the compiler places it.
+    let mut scratch = List<u16>()
     for i in 0..1000 {
         scratch.push(i as u16)
     }
-    println!("{} {}", scratch[999], Allocators::Temp.used() > 0)
+    println!("{} {}", scratch[999], scratch.len())
 
     // Bytes to text, checked.
     let text = str::from_utf8(s.as_str() as &[]u8) or "invalid"

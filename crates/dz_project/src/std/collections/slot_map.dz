@@ -1,5 +1,5 @@
 /// Values that are added and removed in any order and referred to by `Key<T>`, in memory
-/// from the allocator it was built with.
+/// from wherever the compiler places the map (spec §14.6).
 ///
 /// What to use where a struct would hold a reference to something it does not own (D-0003
 /// forbids that): an entity, a node, a connection. A key to a removed value reads as absent
@@ -23,14 +23,10 @@ pub struct SlotMap<T> {
     tie [*] = m_values[*]
 
     /// An empty map, with room for `capacity` values already allocated when it is given.
-    SlotMap(
-        capacity: usize = 0,
-        allocator: ^mut Allocator = Allocators::Global,
-        loc: SourceLocation = #location,
-    ) {
-        m_values = List<T>(capacity, allocator, loc)
-        m_slot_of = List<u32>(capacity, allocator, loc)
-        m_slots = List<SlotMapSlot>(capacity, allocator, loc)
+    SlotMap(capacity: usize = 0, loc: SourceLocation = #location) {
+        m_values = List<T>(capacity, loc)
+        m_slot_of = List<u32>(capacity, loc)
+        m_slots = List<SlotMapSlot>(capacity, loc)
     }
 
     pub fn len(&self) -> usize {

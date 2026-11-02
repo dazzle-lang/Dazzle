@@ -1,7 +1,9 @@
-// The region arena (spec §14.6, T-0117): `ScopeArena`, the memory the compiler will place
+// The region arena (spec §14.6, T-0117): `ScopeArena`, the memory the compiler places
 // values in, used here by hand. Its chunks come from a per-thread pool and double; an
 // allocation of 16 KiB or more is the heap's, a block of its own freed at once; and a copy
-// of a container in a region goes to the heap, since the copy may outlive it.
+// of a container in a region goes to the heap, since the copy may outlive it. A container
+// is put in a region only by the compiler, so the containers here are in one when regions
+// are on, as `regions_change_nothing` builds every program; with them off, on the heap.
 
 struct Kept {
     pub list: List<i32>
@@ -59,10 +61,10 @@ fn small_allocations() {
     println!("align 64 {}", (wide as usize) % 64 == 0)
 }
 
-// A list and a string grown past 16 KiB: their arrays become large blocks of their own.
+// A list and a string grown past 16 KiB, in this function's region: their arrays become
+// large blocks of their own.
 fn grown_containers() {
-    let mut arena = ScopeArena{}
-    let mut xs = List<i32>(0, &mut arena)
+    let mut xs = List<i32>()
     for i in 0..20000 {
         xs.push(i)
     }
@@ -70,7 +72,7 @@ fn grown_containers() {
     for &x in xs {
         sum += x as i64
     }
-    let mut s = String("", &mut arena)
+    let mut s = String()
     for _ in 0..3000 {
         s.push_str("region ")
     }
@@ -119,7 +121,7 @@ fn churn() -> i32 {
         }
         pieces += 1
     }
-    let mut junk = List<i32>(0, &mut arena)
+    let mut junk = List<i32>()
     for _ in 0..1000 {
         junk.push(-1)
     }
@@ -129,14 +131,14 @@ fn churn() -> i32 {
 fn copies_go_to_the_heap() {
     let mut kept = Kept{ list: List<i32>(), text: String(), map: HashMap<i32, i32>() }
     {
-        let mut arena = ScopeArena{}
-        let mut xs = List<i32>(0, &mut arena)
+        // Only lent, so each is in this block's region.
+        let mut xs = List<i32>()
         for i in 0..100 {
             xs.push(i)
         }
-        let mut s = String("", &mut arena)
+        let mut s = String()
         s.push_str("kept text")
-        let mut m = HashMap<i32, i32>(0, &mut arena)
+        let mut m = HashMap<i32, i32>()
         for i in 0..20 {
             m.insert(i, i * i)
         }

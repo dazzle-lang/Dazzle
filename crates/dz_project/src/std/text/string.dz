@@ -1,4 +1,5 @@
-/// Owned, growable UTF-8 text, in memory from the allocator it was built with.
+/// Owned, growable UTF-8 text, in memory from wherever the compiler places the string
+/// (spec §14.6).
 ///
 /// Its bytes are always followed by a zero, so `as_cstr()` hands a C function the text
 /// without a copy. Copying a `String` copies the text.
@@ -9,20 +10,20 @@ pub struct String {
     tie @text = m_bytes
 
     /// A copy of `s`.
-    String(s: &str = "", allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
-        m_bytes = List<u8>(0, allocator, loc)
+    String(s: &str = "", loc: SourceLocation = #location) {
+        m_bytes = List<u8>(0, loc)
         self.push_str(s, loc)
     }
 
     /// A copy of `s`: `String::from("name")`.
-    pub fn from(s: &str, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String {
-        return String(s, allocator, loc)
+    pub fn from(s: &str, loc: SourceLocation = #location) -> String {
+        return String(s, loc)
     }
 
     /// A copy of `bytes` when they are valid UTF-8, and `none` when they are not.
-    pub fn from_utf8(bytes: &[]u8, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) -> String? {
+    pub fn from_utf8(bytes: &[]u8, loc: SourceLocation = #location) -> String? {
         let text = str::from_utf8(bytes) or return none
-        return String(text, allocator, loc)
+        return String(text, loc)
     }
 
     /// The length in bytes, not counting the zero after them. A character outside ASCII

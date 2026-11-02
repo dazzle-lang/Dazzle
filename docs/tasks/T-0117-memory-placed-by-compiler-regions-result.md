@@ -426,7 +426,9 @@ round 1 left both out; now nothing is left out but `virtual` methods.
 that both print the same checksum, and reports the medians and peak memory; and a loop that
 reassigns a `String`, a `List` and a `format!` result, whose peak at a million passes must
 be within 1 MiB of its peak at ten thousand. Since round 2 codegen reads
-the switch, so it measures regions.
+the switch, so it measures regions. Since r104 (T-0119) the benchmarks name no allocator,
+so each is built as written; `--hand-src` and `--hand-dz` add a third build, the program
+before r104 with its scratch in `Temp`, from an older checkout.
 
 **Settled in r90:**
 

@@ -12,8 +12,8 @@ struct Buffer<T> {
     m_cap:  usize
     m_allocator: ^mut Allocator = Allocators::Global
 
-    Buffer(cap: usize, allocator: ^mut Allocator = Allocators::Global) {
-        m_allocator = allocator
+    Buffer(cap: usize) {
+        m_allocator = unsafe { #placement }
         let a = unsafe { m_allocator or panic!("a Buffer needs an allocator") }
         unsafe {
             m_data = a.alloc(cap * sizeof(T), alignof(T)) as ^mut T

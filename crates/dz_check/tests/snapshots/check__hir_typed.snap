@@ -137,13 +137,14 @@ body field-default HashMap.5 -> void
 body ctor HashMap#0 -> void
   param _0 self: HashMap<K, V>
   param _1 capacity: usize
-  param _2 allocator: ^mut Allocator
-  param _3 loc: SourceLocation
+  param _2 loc: SourceLocation
   block
     assign =
       field #5: ^mut Allocator
         local _0 self: HashMap<K, V>
-      local _2 allocator: ^mut Allocator
+      block-value: ^mut Allocator
+        block
+          intrinsic #placement: ^mut Allocator
     if: void
       binary >: bool
         local _1 capacity: usize
@@ -152,7 +153,7 @@ body ctor HashMap#0 -> void
         call-method HashMap::grow_to: void
           local _0 self: HashMap<K, V>
           local _1 capacity: usize
-          local _3 loc: SourceLocation
+          local _2 loc: SourceLocation
 body method HashMap::len -> usize
   param _0 self: HashMap<K, V>
   block
@@ -1749,16 +1750,14 @@ body impl#9 method advance -> void
 body ctor HashSet#0 -> void
   param _0 self: HashSet<T>
   param _1 capacity: usize
-  param _2 allocator: ^mut Allocator
-  param _3 loc: SourceLocation
+  param _2 loc: SourceLocation
   block
     assign =
       field #0: HashMap<T, bool>
         local _0 self: HashSet<T>
       call-ctor HashMap#0: HashMap<T, bool>
         local _1 capacity: usize
-        local _2 allocator: ^mut Allocator
-        local _3 loc: SourceLocation
+        local _2 loc: SourceLocation
 body method HashSet::len -> usize
   param _0 self: HashSet<T>
   block
@@ -1966,13 +1965,14 @@ body field-default List.3 -> void
 body ctor List#0 -> void
   param _0 self: List<T>
   param _1 capacity: usize
-  param _2 allocator: ^mut Allocator
-  param _3 loc: SourceLocation
+  param _2 loc: SourceLocation
   block
     assign =
       field #3: ^mut Allocator
         local _0 self: List<T>
-      local _2 allocator: ^mut Allocator
+      block-value: ^mut Allocator
+        block
+          intrinsic #placement: ^mut Allocator
     if: void
       binary >: bool
         local _1 capacity: usize
@@ -1981,7 +1981,7 @@ body ctor List#0 -> void
         call-method List::grow_to: void
           local _0 self: List<T>
           local _1 capacity: usize
-          local _3 loc: SourceLocation
+          local _2 loc: SourceLocation
 body method List::len -> usize
   param _0 self: List<T>
   block
@@ -3643,30 +3643,26 @@ body field-default SlotMap.3 -> void
 body ctor SlotMap#0 -> void
   param _0 self: SlotMap<T>
   param _1 capacity: usize
-  param _2 allocator: ^mut Allocator
-  param _3 loc: SourceLocation
+  param _2 loc: SourceLocation
   block
     assign =
       field #0: List<T>
         local _0 self: SlotMap<T>
       call-ctor List#0: List<T>
         local _1 capacity: usize
-        local _2 allocator: ^mut Allocator
-        local _3 loc: SourceLocation
+        local _2 loc: SourceLocation
     assign =
       field #1: List<u32>
         local _0 self: SlotMap<T>
       call-ctor List#0: List<u32>
         local _1 capacity: usize
-        local _2 allocator: ^mut Allocator
-        local _3 loc: SourceLocation
+        local _2 loc: SourceLocation
     assign =
       field #2: List<SlotMapSlot>
         local _0 self: SlotMap<T>
       call-ctor List#0: List<SlotMapSlot>
         local _1 capacity: usize
-        local _2 allocator: ^mut Allocator
-        local _3 loc: SourceLocation
+        local _2 loc: SourceLocation
 body method SlotMap::len -> usize
   param _0 self: SlotMap<T>
   block
@@ -6111,68 +6107,66 @@ body fn dir_close -> void
 body ctor Path#0 -> void
   param _0 self: Path
   param _1 text: &str
-  param _2 allocator: ^mut Allocator
-  param _3 loc: SourceLocation
+  param _2 loc: SourceLocation
   block
-    let _4 bytes: &[]u8
+    let _3 bytes: &[]u8
       cast: &[]u8
         local _1 text: &str
-    let _5 end: usize
+    let _4 end: usize
       len: usize
-        local _4 bytes: &[]u8
+        local _3 bytes: &[]u8
     while
       binary &&: bool
         binary &&: bool
           binary >: bool
-            local _5 end: usize
+            local _4 end: usize
             int 1: usize
           call is_separator: bool
             index: u8
-              local _4 bytes: &[]u8
+              local _3 bytes: &[]u8
               binary -: usize
-                local _5 end: usize
+                local _4 end: usize
                 int 1: usize
         unary !: bool
           binary &&: bool
             binary ==: bool
-              local _5 end: usize
+              local _4 end: usize
               int 3: usize
             binary ==: bool
               index: u8
-                local _4 bytes: &[]u8
+                local _3 bytes: &[]u8
                 int 1: usize
               cast: u8
                 char ':': char
       block
         assign -=
-          local _5 end: usize
+          local _4 end: usize
           int 1: usize
     assign =
       field #0: String
         local _0 self: Path
       call-ctor String#0: String
         str "": &str
-        local _2 allocator: ^mut Allocator
-        local _3 loc: SourceLocation
+        local _2 loc: SourceLocation
     call-method String::reserve: void
       field #0: String
         local _0 self: Path
-      local _5 end: usize
-      local _3 loc: SourceLocation
-    let _6 from: usize
+      local _4 end: usize
+      local _2 loc: SourceLocation
+    let _5 from: usize
       int 0: usize
-    let _7 i: usize
+    let _6 i: usize
       int 0: usize
     while
       binary <: bool
-        local _7 i: usize
-        local _5 end: usize
+        local _6 i: usize
+        local _4 end: usize
       block
         if: void
           binary ==: bool
             index: u8
-              local _4 bytes: &[]u8
-              local _7 i: usize
+              local _3 bytes: &[]u8
+              local _6 i: usize
             cast: u8
               char '\\': char
           block
@@ -6181,30 +6175,30 @@ body ctor Path#0 -> void
                 local _0 self: Path
               call sub: &str
                 local _1 text: &str
-                local _6 from: usize
-                local _7 i: usize
-              local _3 loc: SourceLocation
+                local _5 from: usize
+                local _6 i: usize
+              local _2 loc: SourceLocation
             call-method String::push: void
               field #0: String
                 local _0 self: Path
               char '/': char
-              local _3 loc: SourceLocation
+              local _2 loc: SourceLocation
             assign =
-              local _6 from: usize
+              local _5 from: usize
               binary +: usize
-                local _7 i: usize
+                local _6 i: usize
                 int 1: usize
         assign +=
-          local _7 i: usize
+          local _6 i: usize
           int 1: usize
     call-method String::push_str: void
       field #0: String
         local _0 self: Path
       call sub: &str
         local _1 text: &str
-        local _6 from: usize
-        local _5 end: usize
-      local _3 loc: SourceLocation
+        local _5 from: usize
+        local _4 end: usize
+      local _2 loc: SourceLocation
 body method Path::as_str -> &str
   param _0 self: Path
   block
@@ -10663,20 +10657,22 @@ body field-default Box.3 -> void
 body ctor Box#0 -> void
   param _0 self: Box<T>
   param _1 value: T
-  param _2 allocator: ^mut Allocator
-  param _3 loc: SourceLocation
+  param _2 loc: SourceLocation
   block
-    let _4 a: &mut Allocator
-      block-value: &mut Allocator
-        block
-          or: &mut Allocator
-            local _2 allocator: ^mut Allocator
-            builtin panic: !
-              str "a Box needs an allocator": &str
     assign =
       field #1: ^mut Allocator
         local _0 self: Box<T>
-      local _2 allocator: ^mut Allocator
+      block-value: ^mut Allocator
+        block
+          intrinsic #placement: ^mut Allocator
+    let _3 a: &mut Allocator
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #1: ^mut Allocator
+              local _0 self: Box<T>
+            builtin panic: !
+              str "a Box needs an allocator": &str
     assign =
       field #2: usize
         local _0 self: Box<T>
@@ -10696,12 +10692,12 @@ body ctor Box#0 -> void
         block
           cast: ^mut T
             call-method Allocator::alloc: ^mut u8
-              local _4 a: &mut Allocator
+              local _3 a: &mut Allocator
               field #2: usize
                 local _0 self: Box<T>
               field #3: usize
                 local _0 self: Box<T>
-              local _3 loc: SourceLocation
+              local _2 loc: SourceLocation
     block-value: void
       block
         builtin construct: void
@@ -11005,52 +11001,44 @@ body field-default Rc.1 -> void
 body ctor Rc#0 -> void
   param _0 self: Rc<T>
   param _1 value: T
-  param _2 allocator: ^mut Allocator
-  param _3 loc: SourceLocation
+  param _2 loc: SourceLocation
   block
-    let _4 a: &mut Allocator
-      block-value: &mut Allocator
-        block
-          or: &mut Allocator
-            local _2 allocator: ^mut Allocator
-            builtin panic: !
-              str "an Rc needs an allocator": &str
-    let _5 size: usize
+    let _3 size: usize
       type-query RcBlock<T>::size: usize
-    let _6 align: usize
+    let _4 align: usize
       type-query RcBlock<T>::align: usize
-    let _7 block: ^mut RcBlock<T>
+    let _5 block: ^mut RcBlock<T>
       block-value: ^mut RcBlock<T>
         block
           cast: ^mut RcBlock<T>
             call-method Allocator::alloc: ^mut u8
-              local _4 a: &mut Allocator
-              local _5 size: usize
-              local _6 align: usize
-              local _3 loc: SourceLocation
-    let _8 header: RcHeader
+              const Allocators::Global: &mut Allocator
+              local _3 size: usize
+              local _4 align: usize
+              local _2 loc: SourceLocation
+    let _6 header: RcHeader
       struct-lit RcHeader: RcHeader
         #0
           int 1: usize
         #1
           int 0: usize
         #2
-          local _2 allocator: ^mut Allocator
+          const Allocators::Global: &mut Allocator
         #3
-          local _5 size: usize
+          local _3 size: usize
         #4
-          local _6 align: usize
+          local _4 align: usize
         #5
           fn-item drop_value_as<T>: fn(^mut u8) -> void
     block-value: void
       block
         builtin construct: void
           index: RcBlock<T>
-            local _7 block: ^mut RcBlock<T>
+            local _5 block: ^mut RcBlock<T>
             int 0: usize
           struct-lit RcBlock: RcBlock<T>
             #0
-              local _8 header: RcHeader
+              local _6 header: RcHeader
             #1
               move: T
                 local _1 value: T
@@ -11060,7 +11048,7 @@ body ctor Rc#0 -> void
           ref mut: &mut RcHeader
             field #0: RcHeader
               index: RcBlock<T>
-                local _7 block: ^mut RcBlock<T>
+                local _5 block: ^mut RcBlock<T>
                 int 0: usize
         assign =
           field #1: ^mut T
@@ -11068,7 +11056,7 @@ body ctor Rc#0 -> void
           ref mut: &mut T
             field #1: T
               index: RcBlock<T>
-                local _7 block: ^mut RcBlock<T>
+                local _5 block: ^mut RcBlock<T>
                 int 0: usize
 body method Rc::count -> usize
   param _0 self: Rc<T>
@@ -13063,36 +13051,31 @@ body impl#112 method join -> String
 body ctor String#0 -> void
   param _0 self: String
   param _1 s: &str
-  param _2 allocator: ^mut Allocator
-  param _3 loc: SourceLocation
+  param _2 loc: SourceLocation
   block
     assign =
       field #0: List<u8>
         local _0 self: String
       call-ctor List#0: List<u8>
         int 0: usize
-        local _2 allocator: ^mut Allocator
-        local _3 loc: SourceLocation
+        local _2 loc: SourceLocation
     call-method String::push_str: void
       local _0 self: String
       local _1 s: &str
-      local _3 loc: SourceLocation
+      local _2 loc: SourceLocation
 body method String::from -> String
   param _0 s: &str
-  param _1 allocator: ^mut Allocator
-  param _2 loc: SourceLocation
+  param _1 loc: SourceLocation
   block
     return: !
       call-ctor String#0: String
         local _0 s: &str
-        local _1 allocator: ^mut Allocator
-        local _2 loc: SourceLocation
+        local _1 loc: SourceLocation
 body method String::from_utf8 -> String?
   param _0 bytes: &[]u8
-  param _1 allocator: ^mut Allocator
-  param _2 loc: SourceLocation
+  param _1 loc: SourceLocation
   block
-    let _3 text: &str
+    let _2 text: &str
       or: &str
         builtin str_from_utf8: ^str
           local _0 bytes: &[]u8
@@ -13100,9 +13083,8 @@ body method String::from_utf8 -> String?
           none: String?
     return: !
       call-ctor String#0: String
-        local _3 text: &str
-        local _1 allocator: ^mut Allocator
-        local _2 loc: SourceLocation
+        local _2 text: &str
+        local _1 loc: SourceLocation
 body method String::len -> usize
   param _0 self: String
   block
@@ -16866,6 +16848,66 @@ body fn unchecked -> i32
             int 0: usize
     return: !
       local _2 n: i32
+body field-default Scratch.0 -> void
+  block
+    null: ^mut Allocator
+body field-default Scratch.1 -> void
+  block
+    null: ^mut u8
+body ctor Scratch#0 -> void
+  param _0 self: Scratch
+  block
+    assign =
+      field #0: ^mut Allocator
+        local _0 self: Scratch
+      block-value: ^mut Allocator
+        block
+          intrinsic #placement: ^mut Allocator
+    let _1 a: &mut Allocator
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #0: ^mut Allocator
+              local _0 self: Scratch
+            return: !
+    assign =
+      field #1: ^mut u8
+        local _0 self: Scratch
+      call-method Allocator::alloc: ^mut u8
+        local _1 a: &mut Allocator
+        int 64: usize
+        int 8: usize
+body method Scratch::ready -> bool
+  param _0 self: Scratch
+  block
+    return: !
+      binary !=: bool
+        field #1: ^mut u8
+          local _0 self: Scratch
+        null: ^mut u8
+body drop Scratch -> void
+  param _0 self: Scratch
+  block
+    let _1 a: &mut Allocator
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #0: ^mut Allocator
+              local _0 self: Scratch
+            return: !
+    call-method Allocator::free: void
+      local _1 a: &mut Allocator
+      field #1: ^mut u8
+        local _0 self: Scratch
+      int 64: usize
+      int 8: usize
+body fn scratch_ready -> bool
+  block
+    let _0 s: Scratch
+      call-ctor Scratch#0: Scratch
+    return: !
+      call-method Scratch::ready: bool
+        local _0 s: Scratch
 body fn takes_cstr -> &cstr
   param _0 s: &cstr
   block
@@ -16961,7 +17003,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#144 method mul -> Scale
+body impl#145 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -16972,7 +17014,7 @@ body impl#144 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#145 method mul -> f32
+body impl#146 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -17014,7 +17056,7 @@ body method Label::shout -> const &str
     return: !
       call-method Label::label: const &str
         local _0 self: Label
-body impl#146 method label -> const &str
+body impl#147 method label -> const &str
   param _0 self: f32
   block
     return: !
@@ -17025,7 +17067,7 @@ body fn labels -> const &str
     return: !
       call-method Label::shout: const &str
         local _0 x: f32
-body impl#147 method label -> const &str
+body impl#148 method label -> const &str
   param _0 self: Wrap<T>
   block
     return: !
@@ -17038,7 +17080,7 @@ body fn wrapped -> const &str
     return: !
       call-method Label::label: const &str
         local _0 w: Wrap<f32>
-body impl#148 method shout -> const &str
+body impl#149 method shout -> const &str
   param _0 self: f32
   block
     return: !
@@ -17481,7 +17523,7 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
-body impl#151 method measure -> i32
+body impl#152 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -17499,7 +17541,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#152 method measure -> i32
+body impl#153 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -17811,7 +17853,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#153 method eq -> bool
+body impl#154 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -17827,7 +17869,7 @@ body impl#153 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#154 method hash -> u64
+body impl#155 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -17838,7 +17880,7 @@ body impl#154 method hash -> u64
         call-method Hash::hash: u64
           field #1: i32
             local _0 self: Tile
-body impl#155 method eq -> bool
+body impl#156 method eq -> bool
   param _0 self: TileRef
   param _1 rhs: &TileRef
   block
@@ -17848,7 +17890,7 @@ body impl#155 method eq -> bool
           local _0 self: TileRef
         field #0: ^Tile
           local _1 rhs: &TileRef
-body impl#156 method hash -> u64
+body impl#157 method hash -> u64
   param _0 self: TileRef
   block
     return: !
@@ -17930,7 +17972,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#157 method neg -> Heading
+body impl#158 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -17939,7 +17981,7 @@ body impl#157 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#158 method eq -> bool
+body impl#159 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -17983,7 +18025,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#159 method named -> &str
+body impl#160 method named -> &str
   param _0 self: Heading
   block
     return: !
@@ -18087,7 +18129,7 @@ body fn named_calls -> i32
           int 3: i32
           int 2: i32
           str "d": &str
-body impl#160 method format -> void
+body impl#161 method format -> void
   param _0 self: Heading
   param _1 f: &mut Formatter
   block
@@ -18169,7 +18211,6 @@ body fn formatted -> usize
     let _8 b: String
       call-ctor String#0: String
         str "{}": &str
-        const Allocators::Temp: &mut TempArena
     let _13 c: String
       formatted: String
         bind _9 arg·
@@ -19422,14 +19463,14 @@ body fn count_items -> i32
           int 1: i32
     return: !
       local _2 n: i32
-body impl#161 method valid -> bool
+body impl#162 method valid -> bool
   param _0 self: Flagged<I>
   block
     return: !
       call-method Iterate::valid: bool
         field #0: I
           local _0 self: Flagged<I>
-body impl#161 method get -> (I::Item, bool)
+body impl#162 method get -> (I::Item, bool)
   param _0 self: Flagged<I>
   block
     return: !
@@ -19438,7 +19479,7 @@ body impl#161 method get -> (I::Item, bool)
           field #0: I
             local _0 self: Flagged<I>
         bool true: bool
-body impl#161 method advance -> void
+body impl#162 method advance -> void
   param _0 self: Flagged<I>
   block
     call-method Iterate::advance: void
@@ -19469,7 +19510,7 @@ body fn seen_all -> i32
     return: !
       field #1: i32
         local _0 c: &mut Cursor<I>
-body impl#162 method steps -> SliceIter<String>
+body impl#163 method steps -> SliceIter<String>
   param _0 self: Roster
   block
     return: !
@@ -19517,13 +19558,13 @@ body fn projections -> i32
         call count_items: i32
           local _0 xs: &List<i32>
           fn-item ignore_int: fn(&i32) -> void
-body impl#163 method mul -> Scale
+body impl#164 method mul -> Scale
   param _0 self: f32
   param _1 rhs: Scale
   block
     return: !
       local _1 rhs: Scale
-body impl#164 method convert -> Grams
+body impl#165 method convert -> Grams
   param _0 self: f32
   block
     return: !
@@ -19795,7 +19836,7 @@ body drop Bookshelf -> void
   param _0 self: Bookshelf
   block
     (empty)
-body impl#166 method index -> &String
+body impl#167 method index -> &String
   param _0 self: Bookshelf
   param _1 i: usize
   block
@@ -19813,7 +19854,7 @@ body drop Rack -> void
   param _0 self: Rack
   block
     (empty)
-body impl#168 method iter -> SliceIter<i32>
+body impl#169 method iter -> SliceIter<i32>
   param _0 self: Rack
   block
     return: !

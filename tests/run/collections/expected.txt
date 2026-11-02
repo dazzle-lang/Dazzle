@@ -16,7 +16,7 @@ by path: one-two
 the 3 and 2 distinct 5
 keys 36 values 212
 retained 30 ok true
-hero 1 1 wall 12 | by str allocated 0 | by String allocated 1
+hero 1 1 wall 12
 removed 1 | hero false | wall true
 7 distinct, 1 repeated, has 9 true, has 7 false
 removed 4 true again false

@@ -19,4 +19,4 @@ sprite 1 is 1
 drops 21
 a 2 b 3 shared false
 b has 2 = 20
-temp 98 true
+temp 98 50

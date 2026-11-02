@@ -18,16 +18,16 @@ pub struct Rc<T> {
     pub(module) m_header: ^mut RcHeader = null
     pub(module) m_value: ^mut T = null
 
-    /// A new value, in one allocation with its counts, from `allocator`.
-    Rc(value: T, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {
-        let a = unsafe { allocator or panic!("an Rc needs an allocator") }
+    /// A new value, in one allocation with its counts, on the heap: a `Weak` can outlive
+    /// any scope the `Rc` is made in (spec §14.6).
+    Rc(value: T, loc: SourceLocation = #location) {
         let size = RcBlock<T>::size
         let align = RcBlock<T>::align
-        let block = unsafe { a.alloc(size, align, loc) as ^mut RcBlock<T> }
+        let block = unsafe { Allocators::Global.alloc(size, align, loc) as ^mut RcBlock<T> }
         let header = RcHeader{
             strong: 1,
             weak: 0,
-            allocator: allocator,
+            allocator: Allocators::Global,
             size: size,
             align: align,
             drop_value: drop_value_as<T>,

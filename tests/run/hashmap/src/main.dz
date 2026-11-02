@@ -1,7 +1,8 @@
 // `HashMap<K, V>` and `Hash` (spec §14.2): insert, replace, lookup through `or`, removal
 // with backward shift checked against a plain list, growth, visiting every entry, keys of
 // every built-in kind and a struct's own, move-only values dropped exactly once, copying,
-// and a map in `Allocators::Temp`. Run with `--track-memory` too, which reports no leaks.
+// and a scratch map the compiler places (spec §14.6). Run with `--track-memory` too, which
+// reports no leaks.
 
 struct Cell {
     pub x: i32 = 0
@@ -185,12 +186,12 @@ fn copying() {
 }
 
 fn temporary() {
-    let mut scratch = HashMap<u16, u16>(0, Allocators::Temp)
+    let mut scratch = HashMap<u16, u16>()
     for i in 0..50 {
         scratch.insert(i as u16, (i * 2) as u16)
     }
     let k: u16 = 49
-    println!("temp {} {}", scratch.get(&k) or return, Allocators::Temp.used() > 0)
+    println!("temp {} {}", scratch.get(&k) or return, scratch.len())
 }
 
 fn main() {
@@ -201,5 +202,4 @@ fn main() {
     ownership()
     copying()
     temporary()
-    Allocators::Temp.reset()
 }

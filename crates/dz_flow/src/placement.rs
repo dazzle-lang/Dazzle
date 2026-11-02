@@ -1,18 +1,18 @@
 //! Where each allocation goes: a scope's region, the caller's result placement, or the heap
-//! (spec §14.6, T-0117 stages 1 and 2).
+//! (spec §14.6, T-0117 stages 1 and 2, T-0119).
 //!
-//! A **site** is a call to a `std` function with an allocator parameter left at its default,
-//! `Allocators::Global`: `List<T>()`, `String(…)`, `HashMap`, `HashSet`, `SlotMap`, `Path`,
-//! `Box`, `Rc`, `String::from`, `String::from_utf8`. A call to the program's own function with
-//! such a parameter is a site too, and always heap: what that function does with its
-//! allocator is out of sight here.
+//! A **site** is a call to a **result function**: one whose value owns memory and which
+//! takes, out of sight, where to build it — a hidden last parameter, `_dz_result` in the C++
+//! ([`result_functions`] says which take one). That is every constructor whose struct keeps
+//! an allocator, `std`'s containers among them (`List<T>()`, `String(…)`, `HashMap`,
+//! `HashSet`, `SlotMap`, `Path`, `Box`), which store it as `#placement`, and every function
+//! returning such a value (`String::from`). Inside one, a site whose value is returned is
+//! built there ([`Decision::Result`]); at a call, the caller passes its region, its own
+//! result placement, or the heap, decided the same way for every site.
 //!
-//! A call to a **result function** is a site as well (stage 2). That is a function whose
-//! result owns memory and which takes, out of sight, where to build it: a hidden last
-//! parameter, `_dz_result` in the C++ ([`result_functions`] says which take one). Inside
-//! one, a site whose value is returned is built there ([`Decision::Result`]); at a call,
-//! the caller passes its region, its own result placement, or the heap, decided as for any
-//! site.
+//! Two more calls are sites that always keep the heap, so they are shown: `Rc(…)`, which a
+//! `Weak` can outlive, and a call to the program's own function that takes an allocator
+//! parameter left at `Allocators::Global`, since what it does with it is out of sight here.
 //!
 //! Each site is decided in two steps, per body and from nothing but that body and the
 //! signatures it calls, so the editor, `dz placements` and codegen read one answer:
@@ -434,7 +434,7 @@ impl BodyPlacement {
         blocks
     }
 
-    /// For a call placed in a region: its allocator argument's index in the callee's
+    /// For a call placed in a region: where its placement is passed in the callee's
     /// parameters (not counting `self`), and the region's block.
     pub fn region_for(&self, call: ExprId) -> Option<(usize, BlockId)> {
         match self.placed(call)? {
@@ -443,7 +443,7 @@ impl BodyPlacement {
         }
     }
 
-    /// For a call placed anywhere but the heap: its allocator argument's index in the
+    /// For a call placed anywhere but the heap: where its placement is passed in the
     /// callee's parameters (not counting `self`; for a result function, the hidden one
     /// past the last it writes), and where the memory comes from.
     pub fn placed(&self, call: ExprId) -> Option<(usize, Placed)> {
@@ -460,14 +460,15 @@ impl BodyPlacement {
     }
 }
 
-/// One call that allocates where its allocator is left to its default.
+/// One call that allocates, placed by the compiler.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Site {
     pub call: ExprId,
     pub span: Span,
     /// The callee as a reader names it: `List<Node>`, `String::from`.
     pub callee: String,
-    /// The allocator argument's index in the callee's parameters, not counting `self`.
+    /// Where the placement is passed in the callee's parameters, not counting `self`: for
+    /// a result function, the hidden one past the last it writes.
     pub arg: usize,
     pub decision: Decision,
 }
@@ -556,7 +557,8 @@ type Proposal = Result<Target, (String, Option<Span>)>;
 
 /// What a site's callee is, as far as placement cares.
 struct Callable {
-    /// The allocator parameter's index, not counting `self`.
+    /// Where the placement is passed, not counting `self`: a result function's hidden
+    /// parameter, past the last it writes, or an allocator parameter's index.
     arg: usize,
     /// Declared in `std`.
     std: bool,
@@ -637,8 +639,8 @@ fn place_body(
     Some(BodyPlacement { file: body.file, sites, demoted })
 }
 
-/// `e`, when it is a site: a call whose callee has a parameter defaulting to
-/// `Allocators::Global` that the call leaves out, or a call to a result function.
+/// `e`, when it is a site: a call to a result function, `std`'s `Rc(…)`, or a call whose
+/// callee has a parameter defaulting to `Allocators::Global` that the call leaves out.
 fn callable(
     hir: &Hir,
     table: &TypeTable,
@@ -666,6 +668,12 @@ fn callable(
         let arg = owner_sig(table, &owner).map(|sig| sig.params.len())?;
         return Some(Callable { arg, std, result: true, rc: false, name });
     }
+    // `Rc(…)` takes no placement, since its value is always the heap's, but it allocates,
+    // so it is shown as a site that keeps the heap.
+    if std && s.name == "Rc" && matches!(callee, Callee::Ctor { .. }) {
+        let arg = owner_sig(table, &owner).map(|sig| sig.params.len())?;
+        return Some(Callable { arg, std, result: false, rc: true, name });
+    }
     let callee_body = hir.find(&owner)?;
     let arg = allocator_param(res, callee_body)?;
     let left_out = match args.get(arg) {
@@ -675,13 +683,7 @@ fn callable(
     if !left_out {
         return None;
     }
-    Some(Callable {
-        arg,
-        std,
-        result: false,
-        rc: std && s.name == "Rc" && matches!(callee, Callee::Ctor { .. }),
-        name,
-    })
+    Some(Callable { arg, std, result: false, rc: false, name })
 }
 
 /// A callee as a reader names it.

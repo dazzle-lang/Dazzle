@@ -27,34 +27,6 @@ impl Drop for Token {
     }
 }
 
-/// Counts what it hands out, and passes every call on to the heap.
-struct Counting {
-    pub allocs: i32 = 0
-}
-
-impl Allocator for Counting {
-    fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation = #location) -> ^mut u8 {
-        allocs += 1
-        return unsafe { Allocators::Global.alloc(size, align, loc) }
-    }
-
-    fn realloc(
-        &mut self,
-        p: ^mut u8,
-        old_size: usize,
-        new_size: usize,
-        align: usize,
-        loc: SourceLocation = #location,
-    ) -> ^mut u8 in self {
-        allocs += 1
-        return unsafe { Allocators::Global.realloc(p, old_size, new_size, align, loc) }
-    }
-
-    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation = #location) {
-        Allocators::Global.free(p, size, align, loc)
-    }
-}
-
 fn ids(xs: &List<Token>) -> String {
     let mut out = String()
     for &t in xs {
@@ -221,19 +193,16 @@ fn maps() {
     println!("retained {} ok {}", big.len(), ok)
 
     // `String` keys, looked up by `str`: no `String` is built to do it.
-    let mut counting = Counting{}
-    let mut textures = HashMap<String, i32>(0, &mut counting)
-    textures.insert(String::from("hero", &mut counting), 1)
-    textures.insert(String::from("wall", &mut counting), 2)
+    let mut textures = HashMap<String, i32>()
+    textures.insert(String::from("hero"), 1)
+    textures.insert(String::from("wall"), 2)
     let line = "hero.png"
     let name = line.strip_suffix(".png") or return
-    let allocs = counting.allocs
     let hero = textures.get_str(name) or return
     let wall = textures.get_mut_str("wall") or return
     wall += 10
-    let lookups_allocated = counting.allocs - allocs
-    let built = textures.get(&String::from(name, &mut counting)) or return
-    println!("hero {} {} wall {} | by str allocated {} | by String allocated {}", hero, built, textures.get_str("wall") or return, lookups_allocated, counting.allocs - allocs)
+    let built = textures.get(&String::from(name)) or return
+    println!("hero {} {} wall {}", hero, built, textures.get_str("wall") or return)
     let gone = textures.remove_str("hero") or return
     println!("removed {} | hero {} | wall {}", gone, textures.contains_str("hero"), textures.contains_str("wall"))
 }

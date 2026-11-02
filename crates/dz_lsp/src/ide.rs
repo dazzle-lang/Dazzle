@@ -2038,8 +2038,8 @@ pub enum HintKind {
     /// `kills …` where a function that writes no clause needs one: what its body kills, the
     /// clause `DZ0415`'s fix would insert, shown where it goes (spec §6.7).
     Clause,
-    /// `region: …` or `heap: …` after a call that allocates with its allocator left to the
-    /// default: where the compiler places that memory, and why (spec §14.6, T-0117).
+    /// `region: …`, `result: …` or `heap: …` after a call that allocates: where the compiler
+    /// places that memory, and why (spec §14.6, T-0117).
     Placement,
 }
 

@@ -1375,3 +1375,41 @@ fn main() {
     println!("{}", shout(&s))
 }
 ```
+
+## DZ0579
+
+`#placement` is where the value a function makes is placed: a constructor's own value, or
+the result of a function returning something that owns memory (spec 14.6). The body reads
+it, in `unsafe`, to take memory from there. A parameter's default is filled in by each
+caller instead, so `#placement` there would be the caller's placement, handed to whatever
+the function builds, which is the allocator parameter D-0091 took out of the language.
+
+```dz
+struct Pool {
+    m_allocator: ^mut Allocator = null
+
+    Pool(allocator: ^mut Allocator = unsafe { #placement }) {
+        m_allocator = allocator
+    }
+}
+
+fn main() {
+    let p = Pool()
+    let _ = &p
+}
+```
+
+```dz
+struct Pool {
+    m_allocator: ^mut Allocator = null
+
+    Pool() {
+        m_allocator = unsafe { #placement }
+    }
+}
+
+fn main() {
+    let p = Pool()
+    let _ = &p
+}
+```

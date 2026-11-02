@@ -466,6 +466,23 @@ fn pointer_cast_outside_unsafe(p: ^i32) -> ^u8 {
     return p as ^u8
 }
 
+// --- r104: `#placement` (spec §12.7, §14.6) ----------------------------------------------
+
+// Where the compiler placed the value is read only in `unsafe`, since what is allocated
+// from it must be freed into it, and nothing checks that.
+struct Unsafely {
+    m_allocator: ^mut Allocator = null
+
+    Unsafely() {
+        m_allocator = #placement
+    }
+}
+
+// A default is filled in by each caller, so it would be the caller's placement: DZ0579.
+fn placement_as_default(a: ^mut Allocator = unsafe { #placement }) -> bool {
+    return a != null
+}
+
 // --- r21: a runtime `str` has no terminating zero, so it is not a `cstr` (§5.3, §18.39) ---
 
 fn runtime_str_to_cstr(s: &str) -> &cstr {
@@ -979,9 +996,9 @@ fn bad_format_calls(fmt: &str, h: Unwritten) -> usize {
 
 // §12.9: an enum, an optional and a pointer to a pointer have no `Format`; `{:p}` suits
 // only a pointer, and is not filled with zeros; `error(…)` writes a pointer only by its
-// address; only `format!` takes an argument by name, and only `allocator`; every
-// formatting macro needs its string; and a spread has no count to check the string
-// against.
+// address; no formatting macro takes an argument by name, `format!` no `allocator`
+// either, since the compiler places its text (§14.6); every formatting macro needs its
+// string; and a spread has no count to check the string against.
 enum Shade {
     Light
     Dark
@@ -996,6 +1013,8 @@ fn bad_print_calls(s: Shade, o: i32?, p: ^^i32, xs: &[]i32) {
     println!("{} {} {}", s, o, p)
     println!("{}", 1, allocator = Allocators::Temp)
     let t = format!("{}", 1, colour = 2)
+    let u = format!("{}", 2, allocator = Allocators::Temp)
+    print!("{}", u)
     print!("{}", t)
     print!()
     println!("{} {}", ..xs)

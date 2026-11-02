@@ -6,11 +6,13 @@ Stage 1 of T-0117 keeps scope regions only if they earn it. This measures the ga
 that need a stopwatch:
 
 * `astar`, `words` and `expr` from tests/bench_programs, each built twice from the same
-  source, the heap version of the program: every `Allocators::Temp` taken out, so the
-  allocator is left to its default where the program had a choice, and is
-  `Allocators::Global` where it had to name one (T-0104's definition of "heap"). The two
-  builds differ only in `DZ_REGIONS=1`, which turns placement on in codegen. Both must
-  print the same checksum.
+  source. Since r104 a program names no allocator, so with regions off every value is on
+  the heap (T-0104's "heap"); the two builds differ only in `DZ_REGIONS=1`, which turns
+  placement on in codegen. Both must print the same checksum.
+* with `--hand-src` and `--hand-dz`, a third build: the program as it was before r104,
+  when it put its scratch in `Allocators::Temp` by hand (T-0104's "hand"), from an older
+  checkout's `tests/bench_programs`, built by that checkout's `dz`. Placement must not lose
+  what hand placement gave (T-0119).
 * a loop that reassigns a `String`, a `List` and a formatted string a million times: with
   regions on, its peak memory must be what it is for ten thousand passes (the loop rule).
 
@@ -18,6 +20,7 @@ that need a stopwatch:
     python tools/bench_regions.py --cxx g++ --runs 20 astar
     python tools/bench_regions.py --quick             # small inputs: does it all agree?
     python tools/bench_regions.py --markdown out.md --json out.json
+    python tools/bench_regions.py --hand-src ../old/tests/bench_programs --hand-dz ../old/target/release/dz
 
 Peak memory is the peak resident set on Linux and macOS (tests/bench_programs/measure.cpp)
 and the peak working set on Windows (GetProcessMemoryInfo), which is what T-0104 and T-0105
@@ -27,7 +30,6 @@ measured.
 import argparse
 import json
 import os
-import re
 import shutil
 import statistics
 import subprocess
@@ -49,22 +51,6 @@ PEAK_SLACK = 0.10  # peak memory within 10% of the heap's
 # only not to be slower: a median at most this much above the heap's is run-to-run noise.
 NOISE = 0.02
 FLAT_SLACK_KIB = 1024  # a million passes may peak at most 1 MiB above ten thousand
-
-
-def heap_source(program, text):
-    """`text`, the program's main.dz, with every `Allocators::Temp` taken out: an argument
-    is dropped where the parameter has a default, and becomes `Allocators::Global` where it
-    has none; `Allocators::Temp.reset()` goes. Fails loudly if anything is left, so a
-    change to a benchmark cannot quietly leave it half on the arena."""
-    out = re.sub(r"^[ \t]*Allocators::Temp\.reset\(\)[ \t]*\r?\n", "", text, flags=re.M)
-    if program == "expr":
-        # `Parser(…, allocator)` has no default: the heap is named.
-        out = out.replace("Allocators::Temp)", "Allocators::Global)")
-    out = re.sub(r",\s*Allocators::Temp\)", ")", out)
-    code = "\n".join(line.split("//", 1)[0] for line in out.splitlines())
-    if "Allocators::Temp" in code:
-        sys.exit(f"{program}: an `Allocators::Temp` is left in the heap version")
-    return out
 
 
 LOOP = """\
@@ -169,54 +155,63 @@ def build(dz, project, name, cxx, mode, regions, dest):
     return dest
 
 
-def copy_program(program, work):
-    """The heap version of `program`, written to its own folder under `work`."""
-    src = bp.SUITE / program
-    dst = work / program
+def copy_program(program, suite, work, tag):
+    """`program` from `suite`, copied to a folder of its own under `work`, so a build
+    leaves the checkout alone."""
+    src = suite / program
+    dst = work / f"{program}-{tag}"
     shutil.rmtree(dst, ignore_errors=True)
     (dst / "src").mkdir(parents=True)
     shutil.copy2(src / "dazzle.toml", dst / "dazzle.toml")
-    text = (src / "src" / "main.dz").read_text(encoding="utf-8")
-    (dst / "src" / "main.dz").write_text(heap_source(program, text), encoding="utf-8")
+    shutil.copy2(src / "src" / "main.dz", dst / "src" / "main.dz")
     return dst
 
 
-def bench(dz, program, cxx, mode, runs, args, work, measure):
-    project = copy_program(program, work)
+def bench(dz, program, cxx, mode, runs, args, work, measure, hand=None):
+    """Time the heap and regions builds of `program`, and the hand-placed one when `hand`
+    is `(suite, dz)` from an older checkout."""
+    project = copy_program(program, bp.SUITE, work, "now")
     binaries = {
         side: build(dz, project, program, cxx, mode, side == "regions",
                     work / bp.exe(f"{program}-{side}-{cxx}"))
         for side in ("heap", "regions")
     }
+    if hand:
+        old = copy_program(program, hand[0], work, "hand")
+        binaries["hand"] = build(hand[1], old, program, cxx, mode, False,
+                                 work / bp.exe(f"{program}-hand-{cxx}"))
+    sides = list(binaries)
     # One untimed run of each first: the first run of a fresh binary pays for loading it from
-    # disk, which with two builds to compare is a difference neither of them makes.
-    for side in ("heap", "regions"):
+    # disk, which with several builds to compare is a difference none of them makes.
+    for side in sides:
         run([str(binaries[side]), *args], measure)
-    walls = {"heap": [], "regions": []}
-    peaks = {"heap": 0, "regions": 0}
+    walls = {side: [] for side in sides}
+    peaks = {side: 0 for side in sides}
     sums = {}
     for r in range(runs):
-        # Alternate which build goes first, so neither always runs on a warmer machine.
-        order = ["heap", "regions"] if r % 2 == 0 else ["regions", "heap"]
+        # Rotate which build goes first, so none always runs on a warmer machine.
+        order = sides[r % len(sides):] + sides[:r % len(sides)]
         for side in order:
             wall, peak, text = run([str(binaries[side]), *args], measure)
             walls[side].append(wall)
             peaks[side] = max(peaks[side], peak or 0)
             sums.setdefault(bp.checksum_of(text, f"{program} ({side}, {cxx})"), set()).add(side)
     if len(sums) != 1:
-        sys.exit(f"{program} with {cxx}: regions changed the result: {sums}")
+        sys.exit(f"{program} with {cxx}: the builds disagree: {sums}")
     heap, regions = statistics.median(walls["heap"]), statistics.median(walls["regions"])
-    return {
+    out = {
         "program": program,
         "cxx": cxx,
         "checksum": next(iter(sums)),
-        "heap": {**bp.summarise(walls["heap"]), "peak_kib": peaks["heap"] or None},
-        "regions": {**bp.summarise(walls["regions"]), "peak_kib": peaks["regions"] or None},
+        **{side: {**bp.summarise(walls[side]), "peak_kib": peaks[side] or None} for side in sides},
         "faster": regions < heap,
         "not_slower": regions <= heap * (1 + NOISE),
         "peak_within": bool(peaks["heap"])
         and peaks["regions"] <= peaks["heap"] * (1 + PEAK_SLACK),
     }
+    if hand:
+        out["not_slower_than_hand"] = regions <= statistics.median(walls["hand"]) * (1 + NOISE)
+    return out
 
 
 def loop_gate(dz, cxx, mode, work, measure, quick):
@@ -263,6 +258,21 @@ def report(info, results, loops, mode, runs):
             f"{bp.mib(g['peak_kib'])} | {verdict(r['faster'])} | {verdict(r['not_slower'])} "
             f"| {verdict(r['peak_within'])} |"
         )
+    handed = [r for r in results if "hand" in r]
+    if handed:
+        lines += [
+            "",
+            "| Program | Compiler | Hand (`Temp`) | Regions | Regions / hand | Peak (hand / "
+            "regions) | Not slower than hand (2%) |",
+            "|---|---|---:|---:|---:|---:|---|",
+        ]
+        for r in handed:
+            d, g = r["hand"], r["regions"]
+            lines.append(
+                f"| {r['program']} | {r['cxx']} | {bp.ms(d['median'])} | {bp.ms(g['median'])} "
+                f"| {g['median'] / d['median']:.3f} | {bp.mib(d['peak_kib'])} / "
+                f"{bp.mib(g['peak_kib'])} | {verdict(r['not_slower_than_hand'])} |"
+            )
     lines += [
         "",
         "| Loop rule | Compiler | Heap: peak at {few} / {many} | Regions: peak at {few} / {many} "
@@ -278,10 +288,12 @@ def report(info, results, loops, mode, runs):
         )
     lines += [
         "",
-        f"Run time is the median of {runs} runs of each build, alternating. Both builds of a "
-        "program compile the same source, its heap version (every `Allocators::Temp` taken "
-        "out); they differ only in `DZ_REGIONS=1`. Peak memory is the largest of any run. "
-        "Flat means a million passes peak at most 1 MiB above ten thousand.",
+        f"Run time is the median of {runs} runs of each build, alternating. The heap and "
+        "regions builds of a program compile the same source, which names no allocator; they "
+        "differ only in `DZ_REGIONS=1`. The hand build, where there is one, is the program "
+        "before r104, its scratch in `Allocators::Temp`, built by that checkout's `dz`. Peak "
+        "memory is the largest of any run. Flat means a million passes peak at most 1 MiB "
+        "above ten thousand.",
         "",
         f"- CPU: {info['cpu']} ({info['cores']} threads)",
         f"- OS: {info['os']}",
@@ -307,7 +319,13 @@ def main():
     p.add_argument("--no-loop", action="store_true", help="skip the loop rule's row")
     p.add_argument("--markdown", help="also write the report here")
     p.add_argument("--json", help="also write every measurement here")
+    p.add_argument("--hand-src", help="an older checkout's tests/bench_programs, whose "
+                   "programs placed memory by hand (before r104)")
+    p.add_argument("--hand-dz", help="that checkout's dz binary, which builds them")
     a = p.parse_args()
+    if bool(a.hand_src) != bool(a.hand_dz):
+        sys.exit("--hand-src and --hand-dz go together")
+    hand = (Path(a.hand_src), Path(a.hand_dz)) if a.hand_src else None
 
     programs = a.programs or PROGRAMS
     for prog in programs:
@@ -333,7 +351,7 @@ def main():
             args = (bp.SUITE / prog / "quick_args.txt").read_text().split() if a.quick else []
             for cxx in compilers:
                 print(f"{prog} with {cxx}...", file=sys.stderr)
-                results.append(bench(dz, prog, cxx, a.mode, runs, args, work, measure))
+                results.append(bench(dz, prog, cxx, a.mode, runs, args, work, measure, hand))
         if not a.no_loop and not a.programs:
             for cxx in compilers:
                 print(f"the loop with {cxx}...", file=sys.stderr)

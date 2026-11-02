@@ -76,10 +76,9 @@ fn main() {
     let v = Vec2{ x: 1.5, y: -2.0 }
     println!("{}", format!("v = {}, id {} or {:x}", v, Id{ n: 42 }, Id{ n: 255 }).as_str())
 
-    // Another allocator, passed by name.
-    let t = format!("temp {}", 1, allocator = Allocators::Temp)
+    // Text kept in a local, which the compiler places like any other value (spec §14.6).
+    let t = format!("temp {}", 1)
     println!("{}", t.as_str())
-    Allocators::Temp.reset()
 
     // Named arguments after a variadic one.
     println!("{}", total("a", 1, 2, 3))
@@ -106,13 +105,12 @@ fn main() {
     // A formatting macro of one's own hands its string on, checked where it is written.
     log!("info", "{} of {}", 3, 4)
 
-    // In an `or` clause, never taken; with only text; into another allocator.
+    // In an `or` clause, never taken; with only text; with a precision.
     let present: i32? = 5
     let got = present or panic!("missing {}", 5)
     let plain = format!("plain {{}}")
-    let w = format!("{:.1}", 2.25, allocator = Allocators::Temp)
+    let w = format!("{:.1}", 2.25)
     println!("{} {} {}", got, plain, w)
-    Allocators::Temp.reset()
 
     // Widths: a number right-aligned, with zeros after its sign for `{:0N}`, in hex and
     // with a precision too; anything else left-aligned, counted in characters; nothing cut.

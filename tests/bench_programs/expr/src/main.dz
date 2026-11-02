@@ -9,9 +9,10 @@
 // loop, which counts it and carries on.
 //
 // What it exercises: `String` building through a `Formatter`, tokens that name their text
-// by where it is in the program, `String` keys looked up by `&str` with nothing built, a tagged union holding `Box`es (so a tree that owns its
-// children and drops them with it), each statement's tree in `Allocators::Temp` and
-// released at once before the next, recursion, and the error path.
+// by where it is in the program, `String` keys looked up by `&str` with nothing built, a
+// tagged union holding `Box`es (so a tree that owns its children and drops them with it),
+// recursion, and the error path. It names no allocator: the compiler places its memory
+// (spec §14.6).
 //
 // Usage: expr [statements]
 
@@ -217,16 +218,13 @@ view struct Parser {
     m_source: &String
     m_tokens: &[]Token
     m_at:     usize = 0
-    /// Where the tree's nodes go.
-    m_allocator: ^mut Allocator = Allocators::Global
 
     /// What the program holds, so a name's text outlives the parser (spec 6.7).
     tie @source = m_source
 
-    Parser(source: &String, tokens: &[]Token, allocator: ^mut Allocator) {
+    Parser(source: &String, tokens: &[]Token) {
         m_source = source
         m_tokens = tokens
-        m_allocator = allocator
     }
 
     fn peek(&self) -> Kind {
@@ -274,8 +272,8 @@ view struct Parser {
             let rhs = self.term() or return
             lhs = Expr::Binary{
                 op: op,
-                lhs: Box<Expr>(move(lhs), m_allocator),
-                rhs: Box<Expr>(move(rhs), m_allocator),
+                lhs: Box<Expr>(move(lhs)),
+                rhs: Box<Expr>(move(rhs)),
             }
         }
         return move(lhs)
@@ -289,8 +287,8 @@ view struct Parser {
             let rhs = self.unary() or return
             lhs = Expr::Binary{
                 op: op,
-                lhs: Box<Expr>(move(lhs), m_allocator),
-                rhs: Box<Expr>(move(rhs), m_allocator),
+                lhs: Box<Expr>(move(lhs)),
+                rhs: Box<Expr>(move(rhs)),
             }
         }
         return move(lhs)
@@ -300,7 +298,7 @@ view struct Parser {
         if self.peek_operator('-' as u8, '-' as u8, '-' as u8) != none {
             m_at += 1
             let inner = self.unary() or return
-            return Expr::Negate{ inner: Box<Expr>(move(inner), m_allocator) }
+            return Expr::Negate{ inner: Box<Expr>(move(inner)) }
         }
         return self.primary() or return
     }
@@ -406,10 +404,7 @@ fn main() {
         } else {
             end
         }
-        // The previous statement's tree was dropped at the end of the last iteration; its
-        // nodes are given back all at once, and this one's are bumped out of the same memory.
-        Allocators::Temp.reset()
-        let mut parser = Parser(&program, all[start..end], Allocators::Temp)
+        let mut parser = Parser(&program, all[start..end])
         start = end
 
         let (name, tree) = parser.statement() or { e ->

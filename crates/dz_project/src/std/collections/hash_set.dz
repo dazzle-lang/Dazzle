@@ -1,4 +1,5 @@
-/// A set of values, each held once, in memory from the allocator it was built with.
+/// A set of values, each held once, in memory from wherever the compiler places the set
+/// (spec §14.6).
 ///
 /// A `HashMap` whose values say nothing, so it has the map's table and costs: one byte a
 /// slot beside the hashes and the elements. `for &v in set` visits them in no particular
@@ -11,12 +12,8 @@ pub struct HashSet<T: Hash + Eq> {
     tie [*] = m_map[*]
 
     /// An empty set, with room for `capacity` elements already allocated when it is given.
-    HashSet(
-        capacity: usize = 0,
-        allocator: ^mut Allocator = Allocators::Global,
-        loc: SourceLocation = #location,
-    ) {
-        m_map = HashMap<T, bool>(capacity, allocator, loc)
+    HashSet(capacity: usize = 0, loc: SourceLocation = #location) {
+        m_map = HashMap<T, bool>(capacity, loc)
     }
 
     pub fn len(&self) -> usize {

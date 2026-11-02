@@ -1831,10 +1831,11 @@ impl<'a> Emitter<'a> {
         let mut state = vec![0u8; nodes.len()];
         let mut order = Vec::new();
         // A struct with no fields and no base first. Nothing needs its layout, but a default
-        // argument elsewhere may name one of its constants — `allocator = Allocators::Global`
-        // in `String(…)` — and C++ wants the type complete there. Such types exist to hold
-        // functions and constants (`Allocators`, `Random`, `Directory`), which is exactly
-        // what defaults reach for; before `Path` held a `String`, declaration order hid this.
+        // or a call elsewhere may name one of its constants — `Allocators::Global`, the heap
+        // a placement falls back to — and C++ wants the type complete there. Such types
+        // exist to hold functions and constants (`Allocators`, `Random`, `Directory`), which
+        // is exactly what defaults reach for; before `Path` held a `String`, declaration
+        // order hid this.
         let fieldless = |i: usize| match self.table.get(nodes[i].0) {
             Some(ItemSig::Struct(s)) => s.fields.is_empty() && s.base.is_none(),
             _ => false,
@@ -5855,6 +5856,16 @@ impl<'a> Emitter<'a> {
                     .unwrap_or("")
                     .to_owned();
                 format!("::dz::str({}, {})", quote_cpp(&text), text.len())
+            }
+            // Where this body's own value goes: the placement its caller passed, or the heap
+            // where it takes none — with regions off, everywhere (spec §14.6).
+            "placement" => {
+                let owner = &self.cur().owner;
+                if self.placements.is_some_and(|p| p.takes_result(owner)) {
+                    RESULT_PLACEMENT.to_owned()
+                } else {
+                    self.heap_placement()
+                }
             }
             _ => {
                 // The checker types every intrinsic §12.7 lists, and the parser makes any

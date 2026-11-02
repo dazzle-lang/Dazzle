@@ -292,6 +292,17 @@ cost, no `__FILE__` macro trickery.
 is what lets an assertion macro print `assert(hp > 0)` rather than `assert(false)`.
 `[PROPOSED]`
 
+```dz
+#placement       ^mut Allocator   where the value this function makes is placed (§14.6)
+```
+
+is how a container learns where the compiler put it, so it can take its memory from there:
+in a constructor, where the value being made goes; in a function returning something that
+owns memory, where its result goes; anywhere else, the heap. It is read only in `unsafe`
+(`DZ0528`), since nothing checks what is done with the allocator, and only in a body: unlike
+the intrinsics above it is not the caller's, so a parameter's default cannot be it
+(`DZ0579`). `[DECIDED — D-0091, r104]`
+
 ## 12.8 Attributes
 
 ```dz
@@ -323,7 +334,7 @@ The forms are distinguished by their first tokens, so the parser never has to gu
 
 Intrinsic names are reserved, and so is `error`, which `#error` (§12.6) uses: a macro may
 not be called `file`, `line`, `column`, `function`, `module`, `location`, `expr_text`,
-`print`, `println`, `eprint`, `eprintln`, `panic`, `format` or `error`.
+`placement`, `print`, `println`, `eprint`, `eprintln`, `panic`, `format` or `error`.
 
 **Every attribute is one the language defines, written where it applies.** An attribute the
 language does not have is an error (`DZ0314`): a misspelled `#[tset]` accepted in silence
@@ -405,8 +416,8 @@ places like any other value (§14.6):
 let hud = format!("Score {}   Lives {}", g.score, g.lives)
 ```
 
-Until allocators leave ordinary code (T-0119), one may still be passed by name,
-`allocator = …` (§7.2), the one argument any of these macros takes by name.
+None of these macros takes an argument by name (§7.2): `format!` takes no allocator, since
+its text is placed like any other value.
 
 **`Format` is how a value writes itself.** Anything that implements the trait can be an
 argument — the numbers, `bool`, `char`, `str`, `cstr` and `String` implement it in `std`,

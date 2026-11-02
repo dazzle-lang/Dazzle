@@ -6,6 +6,52 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r104: no allocator in ordinary code, and `#placement` (2026-11-02)
+
+The language change is r104 (T-0119, step 6 of D-0091's plan), with one question settled by
+the user on the way: a container learns where it was placed from an intrinsic,
+`#placement`, readable in any `unsafe` code rather than in `std` alone, so a program's own
+container is placed as `std`'s are. Recorded in D-0091.
+
+- **std's constructors take no allocator.** `List`, `HashMap`, `HashSet`, `SlotMap`,
+  `String` (and `String::from`, `String::from_utf8`), `Path`, `Box` and `Rc` lost their
+  `allocator` parameter. `List`, `HashMap` and `Box` store `unsafe { #placement }`; the
+  rest build through them, and `Rc` allocates from `Allocators::Global`, since a `Weak` can
+  outlive any scope. Each constructor whose struct keeps an allocator already took a hidden
+  placement by T-0117's round-3 rule, so `std`'s containers joined result placement
+  unchanged: a site is now a call to a function that takes a placement (`result_functions`),
+  plus `Rc(…)`, shown as heap, and a call to the program's own function that takes an
+  allocator parameter left at its default, also heap.
+- **`#placement`** (`dz_check`): a `^mut Allocator`, `DZ0528` outside `unsafe`, and
+  `DZ0579`, new, as a parameter's default, where each caller would fill in its own. Codegen
+  writes `_dz_result` in a body that takes a placement and `Allocators::Global()` anywhere
+  else, so with regions off every container is on the heap, as before. `placement` joins
+  `INTRINSICS`, which reserves the name and offers it after `#` in the editor.
+- **`format!`** takes nothing by name: its `allocator =` and the lowering that passed it to
+  `String`'s constructor are gone, and passing one says the compiler places the text.
+- **What changed in the corpora.** The benchmarks name no allocator: `astar`'s `MinHeap`,
+  `words`' text, map, buffer and list, and `expr`'s `Parser`, its `Box`es and the
+  `Temp.reset()` between statements. `tests/run/containers`, `hashmap` and `formatting`
+  build their scratch without `Temp` (`formatting`'s `#location` lines moved up one);
+  `collections` lost the counting allocator that proved a lookup by `str` builds no
+  `String`, since nothing can be given one now; `generics` and `iterator` have their own
+  `Buffer` read `#placement`; `region_arena` lets the compiler put its containers in a
+  region, so the copy guard is exercised by `regions_change_nothing`, with regions on.
+- **`tools/bench_regions.py`** builds each benchmark as written, and with `--hand-src` and
+  `--hand-dz` a third build from an older checkout, with its scratch in `Temp`.
+- **What it cost**, measured against that hand-placed build as T-0104 measured (the table
+  is in T-0119): `astar` nothing; `words` 9–15% and `expr` 5–7% slower than with `Temp`,
+  regions even with the heap on both, since placement does not reach their hot allocations
+  yet (T-0145, T-0146). `words` peaks at 46 MiB where `Temp` took 70. The user chose to take
+  allocators out first and record the loss.
+
+Tests: `typed/` builds a container of its own with `#placement`; `typeerrors/` reads one
+outside `unsafe` (`DZ0528`), takes one as a default (`DZ0579`) and passes `format!` an
+`allocator` (`DZ0558`); `dz explain DZ0579` has its wrong and right programs; the
+placement tests count the hidden parameter where they counted the allocator's index. The
+crates' tests, the run suite but `every_example_builds` (no vendor submodules here), clippy
+and fmt pass.
+
 ## Frame regions not needed yet; two placement gaps closed instead (2026-11-02)
 
 Compiler work; no language change. Before designing frame regions (T-0139), a frame loop
