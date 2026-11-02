@@ -2,8 +2,9 @@
 /// §14.6).
 ///
 /// Move-only unless `T` is copyable, in which case copying it copies every element into a
-/// new allocation, on the heap. `b[i]` reads and writes an element, checked against the
-/// length; `as_slice()` views them all.
+/// new allocation, wherever the compiler places the copy (the heap unless it is placed).
+/// `b[i]` reads and writes an element, checked against the length; `as_slice()` views them
+/// all.
 pub struct List<T> {
     m_data: own ^mut T = null
     m_len: usize = 0
@@ -383,13 +384,9 @@ impl<T> Drop for List<T> {
 
 impl<T: Copy> Copy for List<T> {
     fn copy(&mut self, other: &Self) {
-        m_allocator = other.m_allocator
-        // The copy may outlive the scope a region belongs to, so it goes to the heap (§14.6).
-        if let &from = unsafe { other.m_allocator } {
-            if from.scoped() {
-                m_allocator = Allocators::Global
-            }
-        }
+        // Wherever the compiler places the copy, never where the original is: the copy may
+        // outlive the original's region. The heap unless it is placed (§14.6).
+        m_allocator = unsafe { #placement }
         if other.m_len == 0 {
             return
         }

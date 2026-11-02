@@ -190,6 +190,41 @@ fn export_steps(
     Some((steps, end))
 }
 
+/// Whether killing `ty`'s tie `@name` leaves every element alive, read from the type's own
+/// declarations (T-0149): what `@name` names may move, but nothing in it is dropped or
+/// taken out. A body may kill only what its clause covers, in canonical form (§6.7), so it
+/// is enough that each of the tie's paths, made canonical, reaches no element: it names a
+/// pointer's storage, whose elements canonicalise to somewhere it does not cover (`tie
+/// @items = m_data` beside `tie [*] = m_data[*]`, or `m_names@items` of a `List` field),
+/// or a field that owns nothing. A field that owns memory may be replaced whole, its
+/// elements with it, so it does not count.
+pub(crate) fn tie_spares_elements(
+    table: &TypeTable,
+    res: &dz_resolve::Resolution,
+    ty: &Ty,
+    name: &str,
+) -> bool {
+    let Ty::Named { sym, args } = ty.peeled_refs() else { return false };
+    let this = Ty::Named { sym: *sym, args: args.clone() };
+    let decls = ties::tie_decls(table, *sym);
+    let Some(tie) = decls.iter().find(|t| t.name.as_deref() == Some(name)) else { return false };
+    tie.paths.iter().all(|p| {
+        let Some((steps, end)) = export_steps(table, res, *sym, args, p) else { return false };
+        let canonical = canonicalize(table, res, &this, &steps);
+        if canonical.is_empty() || canonical.contains(&Step::Elements) {
+            return false;
+        }
+        match steps.last() {
+            Some(Step::Storage) => {
+                let mut under = steps.clone();
+                under.push(Step::Elements);
+                !canonicalize(table, res, &this, &under).starts_with(&canonical)
+            }
+            _ => !table.needs_drop(&end),
+        }
+    })
+}
+
 fn is_pointer(ty: &Ty) -> bool {
     matches!(ty, Ty::Ptr { .. } | Ty::OwnPtr { .. })
 }

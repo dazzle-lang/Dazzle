@@ -22,3 +22,5 @@ formatted 86 caption 7 3 c2
 weighed 4950
 stored 20032 20000 12 4
 kept popped
+copied 20036 10 211 held
+kept lent 20000

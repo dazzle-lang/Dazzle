@@ -31,7 +31,7 @@ use dz_ast::{
 };
 use dz_check::{ItemSig, TypeTable};
 use dz_diag::{codes, Diagnostic, Diagnostics};
-use dz_flow::placement::{BodyPlacement, Placed, Placements};
+use dz_flow::placement::{BodyPlacement, Placed, PlacedCopy, Placements};
 use dz_hir::ty::{FloatTy, IntTy, Ty};
 use dz_hir::{self as hir, BlockId, BodyOwner, ExprId, Hir, LocalId, StmtId};
 use dz_project::{ModuleId, Workspace};
@@ -1889,6 +1889,15 @@ impl<'a> Emitter<'a> {
         Ty::Named { sym, args: self.args_for(sym) }
     }
 
+    /// How a value of `ty` is copied into a placement, when it can be (T-0140): its type's
+    /// C++ then has `T(::dz::copy_tag, const T&, ^mut Allocator)`. Regions off, never.
+    fn placed_copy(&self, ty: &Ty) -> Option<PlacedCopy> {
+        self.placements?;
+        let Ty::Named { sym, .. } = ty else { return None };
+        let kind = dz_flow::placement::placed_copy_kind(self.table, self.res, *sym)?;
+        dz_flow::placement::placed_copy(self.table, self.res, ty).then_some(kind)
+    }
+
     fn struct_cpp_name(&self, s: &StructDecl, sym: SymbolId, args: &[Ty]) -> String {
         if args.is_empty() {
             sanitize(&s.name.name)
@@ -2169,7 +2178,15 @@ impl<'a> Emitter<'a> {
         // A type with a `virtual` method — its own or a base's — has its `drop` made
         // virtual too (spec §7.3, 18.32).
         let polymorphic = sig.polymorphic;
-        let needs_special = has_drop || has_copy || !copyable || ctors > 0 || polymorphic;
+        // A copy built into a placement is one more constructor (T-0140), so a type copied
+        // field by field spells out the special members C++ would otherwise give it.
+        let placed_copy = self.placed_copy(&self.self_type(sym));
+        let needs_special = has_drop
+            || has_copy
+            || !copyable
+            || ctors > 0
+            || polymorphic
+            || placed_copy == Some(PlacedCopy::Memberwise);
         if needs_special {
             self.header.push('\n');
             // A user constructor suppresses C++'s implicit default one, and `let v: T`
@@ -2200,6 +2217,13 @@ impl<'a> Emitter<'a> {
             let v = if polymorphic { "virtual " } else { "" };
             let _ = writeln!(self.header, "    {v}~{name}();");
         }
+        if placed_copy.is_some() {
+            let alloc = self.allocator_ty();
+            let _ = writeln!(
+                self.header,
+                "    {name}(::dz::copy_tag, const {name}& other, {alloc} {RESULT_PLACEMENT});"
+            );
+        }
         if has_copy {
             let _ = writeln!(self.header, "    {name}(const {name}& other);");
             let _ = writeln!(self.header, "    {name}& operator=(const {name}& other);");
@@ -2210,7 +2234,9 @@ impl<'a> Emitter<'a> {
             let _ = writeln!(self.header, "    {name}(const {name}&) = default;");
             let _ = writeln!(self.header, "    {name}& operator=(const {name}&) = default;");
         }
-        if has_drop || !copyable {
+        // The same types `struct_bodies` gives move members to: a `copy` of its own counts,
+        // since a C++ default move would leave its plain fields unreset (§6.4).
+        if has_drop || has_copy || !copyable {
             // A moved-from value is left at its defaults, never unspecified (§6.4), so
             // the steal is followed by a reset rather than by whatever C++ would leave.
             let _ = writeln!(self.header, "    {name}({name}&& other);");
@@ -2392,15 +2418,59 @@ impl<'a> Emitter<'a> {
                 None => "other".to_owned(),
             };
             self.current_fn = format!("{name}::copy");
-            let head = format!("{inline}{name}::{name}(const {name}& {param}) {{");
-            self.emit_body(&owner, &head);
+            if self.placed_copy(&self.self_type(sym)) == Some(PlacedCopy::Written) {
+                // The `copy` builds into the placement it is given (T-0140); the plain
+                // copy constructor, which every C++ copy runs, gives it the heap.
+                let alloc = self.allocator_ty();
+                let head = format!(
+                    "{inline}{name}::{name}(::dz::copy_tag, const {name}& {param}, \
+                     [[maybe_unused]] {alloc} {RESULT_PLACEMENT}) {{"
+                );
+                self.emit_body(&owner, &head);
+                let heap = self.heap_placement();
+                self.line(&format!(
+                    "{inline}{name}::{name}(const {name}& {param}) : {name}(::dz::copy_tag{{}}, \
+                     {param}, {heap}) {{}}"
+                ));
+                self.out.push('\n');
+            } else {
+                let head = format!("{inline}{name}::{name}(const {name}& {param}) {{");
+                self.emit_body(&owner, &head);
+            }
             self.copy_assignment(&name, &param);
+        }
+        if self.placed_copy(&self.self_type(sym)) == Some(PlacedCopy::Memberwise) {
+            self.memberwise_copy(&name, sym);
         }
         if self.table.struct_sig(sym).is_some_and(|s| s.drop.is_some() || s.copy.is_some())
             || !self.table.copyable(&self.self_type(sym))
         {
             self.move_members(&name, sym);
         }
+    }
+
+    /// The copy into a placement of a type with no `copy` of its own (T-0140): each field
+    /// that keeps an allocator is copied into the placement by its own placed copy, and
+    /// every other field as C++ copies it.
+    fn memberwise_copy(&mut self, name: &str, sym: SymbolId) {
+        let alloc = self.allocator_ty();
+        let mut inits = Vec::new();
+        for (f, ty) in self.field_list(sym) {
+            if self.placed_copy(&ty).is_some() {
+                let t = self.cpp_ty(&ty);
+                inits.push(format!("{f}({t}(::dz::copy_tag{{}}, other.{f}, {RESULT_PLACEMENT}))"));
+            } else {
+                inits.push(format!("{f}(other.{f})"));
+            }
+        }
+        let inits =
+            if inits.is_empty() { String::new() } else { format!(" : {}", inits.join(", ")) };
+        self.line(&format!(
+            "{}{name}::{name}(::dz::copy_tag, const {name}& other, [[maybe_unused]] {alloc} \
+             {RESULT_PLACEMENT}){inits} {{}}",
+            self.def_prefix
+        ));
+        self.out.push('\n');
     }
 
     /// Copy assignment, lowered exactly as spec §6.6 writes it: destroy, put the object
@@ -4177,6 +4247,22 @@ impl<'a> Emitter<'a> {
         if let Some(local) = self.materialized.get(&e) {
             return local.clone();
         }
+        // A copy placed by the compiler is built where it was placed (T-0140), by its type's
+        // placed copy; C++ would copy it on the heap.
+        let copy = self
+            .placement
+            .and_then(|p| p.placed(e))
+            .filter(|_| !matches!(self.cur().expr(e).kind, hir::ExprKind::Call { .. }));
+        if let Some((_, placed)) = copy {
+            let ty = self.cpp_ty(self.cur().ty(e));
+            let value = self.expr_node(e);
+            return format!("{ty}(::dz::copy_tag{{}}, {value}, {})", Self::placement_arg(placed));
+        }
+        self.expr_node(e)
+    }
+
+    /// [`Self::expr`], for anything but a placed copy.
+    fn expr_node(&mut self, e: ExprId) -> String {
         let body = self.cur();
         let node = body.expr(e);
         match &node.kind {
@@ -4690,7 +4776,9 @@ impl<'a> Emitter<'a> {
                 && s.drop.is_none()
                 && s.base.is_none()
                 && !s.polymorphic
-        }) && self.table.copyable(&node_ty);
+        }) && self.table.copyable(&node_ty)
+            // A copy into a placement is a constructor of its own (T-0140).
+            && self.placed_copy(&node_ty).is_none();
         if self.standard >= 20 && aggregate {
             let mut parts = Vec::new();
             for (i, v) in &values {

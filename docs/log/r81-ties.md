@@ -6,6 +6,56 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r105, T-0140 and T-0149: copies placed, and maps filled in a loop (2026-11-02)
+
+Asked for by the user before T-0117's gate, since both change what it measures: `words`
+spends its allocations on copies of a buffer inserted as keys, and `expr` on names inserted
+into a map in a loop. Behind `DZ_REGIONS`, as all placement is. One language change: r105,
+`#placement` in a `copy` is where the copy goes, rather than the heap (noted in D-0091).
+
+- **T-0149, a map filled under a failed lookup.** `HashMap::insert` may drop what it
+  replaces, so in a loop it kept its values on the heap (the loop rule). An insert in the
+  `else` of an `if let` on `get_mut_str(key)`, or under `!contains`, with the same map and
+  a key read from the same local, replaces nothing: `adds_new` in `dz_flow/src/storing.rs`
+  says so to the proposer, to `keeps` and to the check alike. `format!`'s text pushed in a
+  loop is stored directly now (`formatted_by`, shared by both sides), and a program's own
+  container whose clause kills a tie other than `@items` keeps its elements when the tie's
+  declaration, made canonical, reaches none (`tie_spares_elements` in `dz_flow/src/ties.rs`).
+  None of it is a safety rule; the check still follows every value.
+- **Found while building it**: the check's "this site was stored into a container" was one
+  flag per site, so on a loop's second pass `format!`'s `Formatter` borrowing `&mut text`
+  looked like lending a container with stored values in it. It is now per container.
+- **T-0149's second row is not built.** Building a value with the container's own
+  allocator in a function it is lent to is right only while no element leaves the container
+  for somewhere older, and a valid `give(from: &mut List<String>, store)` that pops and
+  stores elsewhere breaks it, out of the check's sight. It is T-0150, a design question for
+  the user: a language rule on what `pop` returns, or a whole-module summary.
+- **T-0140, a copy is a site.** Where a copy of a type that can be copied into a placement
+  is taken by value (a `let`, an argument, a literal's part, a non-local `return`, a field of
+  `self` in a `copy`), it is decided like any other site, following the copy's own value.
+  `placed_copy_kind` says which structs: a `copy` of their own (`List`, `HashMap`), which
+  becomes a result function reading `#placement`, or none and no `drop`, copied field by
+  field (`String`, `Path`, a program's struct of them). C++ gets `T(::dz::copy_tag, const T&,
+  Allocator__dyn)`; the plain copy constructor delegates to it with the heap, so copy
+  assignment and every copy C++ makes on its own stay on the heap, as before. `List::copy`
+  and `HashMap::copy` build from `#placement` instead of the original's allocator, which
+  retires the `Allocator::scoped` guard they used.
+- **The check** gives a copy site its own region in `passed`, refuses it in `sink`, and
+  refuses one the walk never reached, so a copy is never placed unchecked. A copy is not
+  "built whole" for T-0118, since a copied `List<String>`'s elements are still copied by C++
+  on the heap: its drop is kept.
+- **Found on the way**: a struct with a `copy` and no `drop` never compiled. Its header
+  defaulted the move members that `struct_bodies` defined; the header now declares them,
+  as §6.4's reset needs. Nothing had one until `tests/run/regions`' `Named`.
+- **Where it lands**: `words` places 7 of its 8 allocations (both copies, the key and the
+  word kept in each entry, in `main`'s region), `expr` 5 of 21 (its names). Both print the
+  same with regions on, leak-free under `--track-memory`.
+
+Tests: `a_map_filled_under_a_failed_lookup_keeps_what_it_is_given`,
+`a_copy_is_built_where_it_is_placed` and `which_copies_can_be_placed` in
+`dz_flow/tests/placement.rs`, and the copies in the existing cases' expectations; in
+`tests/run/regions`, `tallied`, `labelled`, `lend_copy`, `named_of` and `named_copy`.
+
 ## T-0145: a value stored into a container lives where the container lives (2026-11-02)
 
 Compiler work; no language change. Spec §14.6 now says what it does. Asked for by the user

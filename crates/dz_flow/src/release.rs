@@ -741,7 +741,12 @@ fn whole_functions(
     let candidates: Vec<&Body> = hir
         .bodies()
         .map(|(_, b)| b)
-        .filter(|b| placements.takes_result(&b.owner) || matches!(b.owner, BodyOwner::Ctor { .. }))
+        // A `copy` takes a placement too (T-0140), but no call reaches it by name: a copy is
+        // never built here, which keeps a copy's drop.
+        .filter(|b| {
+            (placements.takes_result(&b.owner) && !matches!(b.owner, BodyOwner::Copy(_)))
+                || matches!(b.owner, BodyOwner::Ctor { .. })
+        })
         .collect();
     loop {
         let before = whole.len();
