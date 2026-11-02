@@ -430,53 +430,53 @@ the switch, so it measures regions. Since r104 (T-0119) the benchmarks name no a
 so each is built as written; `--hand-src` and `--hand-dz` add a third build, the program
 before r104 with its scratch in `Temp`, from an older checkout.
 
-**Stage 2, the verdict, measured 2026-11-02** at `c2f7a1c` (T-0118, T-0119 and T-0145 in):
+**Stage 2, the verdict, measured 2026-11-02** at `70559b7` (r105 in: T-0140's copies and
+T-0149's maps, which the user asked for before the gate since they change what it measures):
 `python tools/bench_regions.py`, `--release`, the median of ten alternating runs, with the
 hand build from `39680ee` (before r104). Intel Xeon @ 2.80GHz (4 threads), a cloud VM, Linux,
-glibc 2.39; clang 18.1.3 and g++ 13.3.0. Peak memory is the peak resident set. The load
-average was about 1, but the VM was noisy: a build's median sat 10 to 40% above its
-fastest run, so the medians move by more than the differences they are read for. The
-fastest run of each build is given too.
+glibc 2.39; clang 18.1.3 and g++ 13.3.0. Peak memory is the peak resident set. The VM is
+noisy (a build's median sat 5 to 15% above its fastest run), so the fastest run of each build
+is given too.
 
 | Program | Compiler | Heap | Regions | Regions / heap | Fastest, regions / heap | Peak, heap / regions | Faster | Not slower (2%) | Peak within 10% |
 |---|---|---:|---:|---:|---:|---:|---|---|---|
-| astar | clang++ | 1243 ms | 1245 ms | 1.002 | 0.957 | 19.3 / 19.4 MiB | **no** | yes | yes |
-| astar | g++ | 973 ms | 937 ms | 0.964 | 1.013 | 19.2 / 19.4 MiB | yes | yes | yes |
-| words | clang++ | 1018 ms | 872 ms | 0.856 | 1.003 | 43.0 / 44.9 MiB | yes | yes | yes |
-| words | g++ | 1011 ms | 1053 ms | 1.041 | 0.961 | 43.0 / 44.9 MiB | **no** | **no** | yes |
-| expr | clang++ | 860 ms | 776 ms | 0.902 | 0.993 | 139.0 / 139.1 MiB | yes | yes | yes |
-| expr | g++ | 728 ms | 714 ms | 0.981 | 0.906 | 139.1 / 139.1 MiB | yes | yes | yes |
+| astar | clang++ | 1176 ms | 1117 ms | 0.950 | 0.970 | 19.2 / 19.4 MiB | yes | yes | yes |
+| astar | g++ | 985 ms | 947 ms | 0.961 | 0.922 | 19.2 / 19.4 MiB | yes | yes | yes |
+| words | clang++ | 810 ms | 795 ms | 0.982 | 0.897 | 43.0 / 39.2 MiB | yes | yes | yes |
+| words | g++ | 777 ms | 663 ms | 0.853 | 0.864 | 43.0 / 39.2 MiB | yes | yes | yes |
+| expr | clang++ | 767 ms | 786 ms | 1.024 | 1.003 | 139.1 / 139.1 MiB | **no** | **no** | yes |
+| expr | g++ | 656 ms | 649 ms | 0.990 | 0.980 | 139.1 / 139.1 MiB | yes | yes | yes |
 
-| Program | Compiler | Hand (`Temp`) | Regions | Regions / hand | Fastest, hand / regions | Peak, hand / regions |
+| Program | Compiler | Hand (`Temp`) | Regions | Regions / hand | Fastest, regions / hand | Peak, hand / regions |
 |---|---|---:|---:|---:|---:|---:|
-| astar | clang++ | 1265 ms | 1245 ms | 0.984 | 1133 / 1062 ms | 19.2 / 19.4 MiB |
-| astar | g++ | 1003 ms | 937 ms | 0.935 | 897 / 887 ms | 19.2 / 19.4 MiB |
-| words | clang++ | 744 ms | 872 ms | 1.172 | 682 / 714 ms | 69.2 / 44.9 MiB |
-| words | g++ | 884 ms | 1053 ms | 1.191 | 790 / 829 ms | 69.2 / 44.9 MiB |
-| expr | clang++ | 765 ms | 776 ms | 1.014 | 713 / 722 ms | 139.0 / 139.1 MiB |
-| expr | g++ | 679 ms | 714 ms | 1.052 | 589 / 603 ms | 139.1 / 139.1 MiB |
+| astar | clang++ | 1226 ms | 1117 ms | 0.911 | 0.975 | 19.2 / 19.4 MiB |
+| astar | g++ | 977 ms | 947 ms | 0.969 | 0.920 | 19.2 / 19.4 MiB |
+| words | clang++ | 807 ms | 795 ms | 0.985 | 0.953 | 69.2 / 39.2 MiB |
+| words | g++ | 720 ms | 663 ms | 0.920 | 0.903 | 69.2 / 39.2 MiB |
+| expr | clang++ | 749 ms | 786 ms | 1.049 | 1.077 | 139.0 / 139.1 MiB |
+| expr | g++ | 654 ms | 649 ms | 0.993 | 1.005 | 139.1 / 139.1 MiB |
 
 The loop stays flat: 3.4 to 3.5 MiB at ten thousand passes and at a million, both ways, on
-both compilers. Every wrong placement is refused: the 15 tests in
+both compilers. Every wrong placement is refused: the 18 tests in
 `dz_flow/tests/placement.rs` pass, `the_region_check_alone_refuses_every_wrong_placement`
 and the corpus sweep among them.
 
-**Read against the verdict:** peak memory, the loop and safety pass. Speed does not pass as
-written: by the medians `astar` on clang++ is even and `words` on g++ 4% slower; by the
-fastest runs the two builds are within 1% on four of six rows, and no row is outside the
-noise. Regions are not slower than the heap and not reliably faster. Against hand
-placement, `astar` is as fast, `expr` within noise, and `words` about 5% slower by its
-fastest runs (17 to 19% by medians) while using 35% less memory; its keys are T-0149's
-and T-0140's.
+**Read against the verdict:** peak memory, the loop and safety pass. `astar` and `words` are
+faster than the heap on both compilers (`words` by 10 to 14% by its fastest runs, in 9% less
+memory), and as fast as hand placement or faster, `words` in 43% less memory than `Temp`.
+`expr` is even with the heap: 2.4% over by the median on clang++, 0.3% by the fastest run,
+and slightly faster on g++. Its hot allocations, the parser's `Box` nodes, are assigned to
+`lhs`, which outlives the loop that builds them, so the loop rule keeps them on the heap
+(round 3, above); only its names are placed (5 of 21 sites). On clang++ it is about 5%
+behind hand placement, whose `Temp` arena held those nodes.
 
-**Decided 2026-11-02 by the user: regions stay.** Memory, the loop and safety pass, and
-speed is even with the heap within the noise, not worse. Regions were never to be judged
-on stage 2 alone for `words` (above), and the speed rows are carried by what reaches the
-rest of its allocations and `expr`'s:
-[T-0149](T-0149-stored-values-left-on-heap-map.md) (a map filled in a loop) and
-[T-0140](T-0140-copy-built-on-heap-wherever-it.md) (copies). Re-run
-`tools/bench_regions.py` after each, on a quieter machine than this one. T-0118 and T-0119
-are done; this task is done with the verdict.
+Measured once before r105, at `c2f7a1c`, speed was even with the heap on every row (two of
+six missed "faster" by the median, none outside the noise) and `words` about 5% behind
+`Temp`; r105 is what made `words` faster.
+
+**Decided 2026-11-02 by the user: regions stay**, on the first run; the second bears it out. Memory, the loop and safety pass; speed
+passes but for `expr`, which is even, its nodes out of reach by the loop rule. T-0118,
+T-0119, T-0140 and T-0149 are done; this task is done with the verdict.
 
 **Settled in r90:**
 
