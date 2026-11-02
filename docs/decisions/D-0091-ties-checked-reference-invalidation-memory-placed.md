@@ -29,6 +29,12 @@ get right. It cannot be a parameter's default, which would bring back the caller
 and `expr` is given up until placement reaches their allocations, and the loss recorded
 (T-0119).
 
+**Built on that, 2026-11-02 (r105, T-0140, asked for by the user):** `#placement` in a
+`copy` is where the copy goes, as in a constructor, rather than the heap. That is §14.6's
+"a constructor and `copy` build into wherever `self` is placed", which this decision already
+holds, made true for `copy`; a copy is then placed like any other value, and a container
+builds its copy from its own `#placement`, never the original's allocator.
+
 **The question.** Should Dazzle check that a reference is never used after the memory it
 points into has moved or been freed, and, with that check in place, take the choice of
 allocator out of ordinary code altogether?

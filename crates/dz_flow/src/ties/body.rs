@@ -303,9 +303,22 @@ struct Regions {
     param_sites: Vec<(LocalId, usize)>,
     /// The body's module, which a call must share with its callee to rely on `Staying`.
     module: Option<ModuleId>,
-    /// Which sites' values were stored into a container (T-0145): an element taken back
-    /// out of the container, or the container lent as `&mut`, carries them.
-    stored: Vec<bool>,
+    /// Which sites' values were stored into which local's container (T-0145): an element
+    /// taken back out of that container, or the container lent as `&mut`, carries them.
+    /// By container, so lending the value itself before it is stored — `format!`'s text to
+    /// its `Formatter` on a loop's next pass — is not lending a container (T-0149).
+    stored: HashSet<(LocalId, usize)>,
+    /// The sites the walk reached. A copy is a site only where it is taken by value, which
+    /// is where the walk adds its region (`passed`, `sink`); one never reached there is
+    /// refused rather than trusted (T-0140).
+    seen: HashSet<usize>,
+}
+
+/// Record that the walk reached `site`.
+fn regions_seen(regions: &mut Option<Regions>, site: usize) {
+    if let Some(r) = regions {
+        r.seen.insert(site);
+    }
 }
 
 type State = HashMap<LocalId, Value>;
@@ -394,7 +407,7 @@ pub(crate) fn analyse_regions(
         by_call: sites.iter().enumerate().map(|(i, (call, _, _))| (*call, i)).collect(),
         refused: vec![None; sites.len() + params.len()],
         params: vec![false; sites.len()],
-        stored: vec![false; sites.len() + params.len()],
+        stored: HashSet::new(),
         module: Some(crate::placement::owner_module(table, res, &body.owner)),
         ..Regions::default()
     };
@@ -405,7 +418,19 @@ pub(crate) fn analyse_regions(
         regions.results.push(false);
         regions.params.push(true);
     }
-    analyse(body, table, res, Some(regions), Some(staying)).1.map(|r| r.refused).unwrap_or_default()
+    let Some(mut regions) = analyse(body, table, res, Some(regions), Some(staying)).1 else {
+        return Vec::new();
+    };
+    for (i, (site, _, _)) in sites.iter().enumerate() {
+        let copy = !matches!(body.expr(*site).kind, hir::ExprKind::Call { .. });
+        if copy && !regions.seen.contains(&i) && regions.refused[i].is_none() {
+            regions.refused[i] = Some(RegionRefusal {
+                why: Refusal::Unfollowed("a copy the check does not follow"),
+                at: body.expr(*site).span,
+            });
+        }
+    }
+    regions.refused
 }
 
 fn analyse(
@@ -1449,12 +1474,14 @@ impl Analysis<'_> {
         ) && self.table.copyable(self.body.ty(e))
     }
 
-    /// `value`, as computed by `e`, where it is taken by value: a copy carries no region,
-    /// since copying out of a region builds on the heap (T-0117 step 3). The check trusts
-    /// that rule of `List::copy` and `HashMap::copy` as it trusts std's clauses (§6.7).
-    fn passed(&self, e: ExprId, value: Value) -> Value {
+    /// `value`, as computed by `e`, where it is taken by value: a copy carries none of the
+    /// regions of what it copies, since a copy builds in its own placement, the heap unless
+    /// it is placed (T-0117 step 3). The check trusts that rule of `List::copy`,
+    /// `HashMap::copy` and the member-wise copies as it trusts std's clauses (§6.7). A copy
+    /// that is a proposed site carries its own region (T-0140).
+    fn passed(&mut self, e: ExprId, value: Value) -> Value {
         if self.regions.is_some() && self.is_copy(e) {
-            value.without_owned()
+            self.region_site(e, value.without_owned())
         } else {
             value
         }
@@ -1500,9 +1527,7 @@ impl Analysis<'_> {
             })
             .collect();
         for site in &owned {
-            if let Some(s) = regions.stored.get_mut(*site) {
-                *s = true;
-            }
+            regions.stored.insert((container, *site));
         }
         let recv = match &self.body.expr(call).kind {
             hir::ExprKind::Call { callee: Callee::Method { recv, .. }, .. } => *recv,
@@ -1532,7 +1557,7 @@ impl Analysis<'_> {
         }
         let Some(container) = self.local_root(*recv) else { return Vec::new() };
         let Some(v) = self.state.get(&container) else { return Vec::new() };
-        v.owned.iter().copied().filter(|s| regions.stored.get(*s) == Some(&true)).collect()
+        v.owned.iter().copied().filter(|s| regions.stored.contains(&(container, *s))).collect()
     }
 
     /// `&mut place`: what was stored into a container under it is lost (T-0145).
@@ -1541,7 +1566,7 @@ impl Analysis<'_> {
         let Some(container) = self.local_root(place) else { return };
         let Some(v) = self.state.get(&container) else { return };
         let lost: Vec<usize> =
-            v.owned.iter().copied().filter(|s| regions.stored.get(*s) == Some(&true)).collect();
+            v.owned.iter().copied().filter(|s| regions.stored.contains(&(container, *s))).collect();
         self.lost(&lost, "lent as `&mut` once stored", span);
     }
 
@@ -1562,7 +1587,8 @@ impl Analysis<'_> {
                 parent.insert(c, ExprId(i));
             }
         }
-        let mut top = call;
+        // `format!`'s text is stored as the macro's value (T-0149).
+        let mut top = crate::placement::formatted_by(body, call).unwrap_or(call);
         while let Some(&p) = parent.get(&top) {
             let holds = match &body.expr(p).kind {
                 hir::ExprKind::Move(_)
@@ -1586,17 +1612,25 @@ impl Analysis<'_> {
         let Some(&p) = parent.get(&top) else { return false };
         let hir::ExprKind::Call { callee, args } = &body.expr(p).kind else { return false };
         let Some(i) = args.iter().position(|a| *a == top) else { return false };
-        if staying.stores(self.res, module, callee, i) != Some(true) {
-            return false;
+        // Kept on every call, or added under a lookup that found nothing (T-0149).
+        match staying.stores(self.res, module, callee, i) {
+            Some(true) => {}
+            Some(false) if crate::storing::adds_new(body, self.res, p) => {}
+            _ => return false,
         }
         let Callee::Method { recv, .. } = callee else { return false };
-        self.local_root(*recv).is_some_and(|l| crate::storing::keeps(body, self.table, l))
+        self.local_root(*recv).is_some_and(|l| crate::storing::keeps(body, self.table, self.res, l))
     }
 
     /// `value`, computed by `e`, goes where the walk does not follow it: every region in it
-    /// is refused, unless it is a copy.
+    /// is refused. A copy carries none of them, only its own when it is a site (T-0140).
     fn sink(&mut self, e: ExprId, value: &Value, why: Refusal) {
-        if self.regions.is_none() || self.is_copy(e) {
+        let Some(regions) = &self.regions else { return };
+        if self.is_copy(e) {
+            if let Some(&site) = regions.by_call.get(&e) {
+                regions_seen(&mut self.regions, site);
+                self.refuse(&[site], why, self.body.expr(e).span);
+            }
             return;
         }
         let owned = value.all_owned();
@@ -1623,6 +1657,8 @@ impl Analysis<'_> {
     fn region_site(&mut self, call: ExprId, mut value: Value) -> Value {
         let Some(regions) = &self.regions else { return value };
         let Some(&site) = regions.by_call.get(&call) else { return value };
+        regions_seen(&mut self.regions, site);
+        let regions = self.regions.as_ref().unwrap();
         let block = regions.sites[site].1;
         let span = self.body.expr(call).span;
         match regions.active.get(&block).copied() {
@@ -1669,7 +1705,7 @@ impl Analysis<'_> {
         // result placement may go there, since the value lives where it does. `self`
         // then holds it, so moving the field out later is followed like any other value.
         let into_self = root.is_none()
-            && matches!(self.body.owner, BodyOwner::Ctor { .. })
+            && matches!(self.body.owner, BodyOwner::Ctor { .. } | BodyOwner::Copy(_))
             && crate::placement::self_field(self.body, target);
         let refused: Vec<usize> = owned
             .iter()

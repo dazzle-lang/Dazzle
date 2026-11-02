@@ -405,13 +405,9 @@ impl<K, V> Drop for HashMap<K, V> {
 
 impl<K: Hash + Eq + Copy, V: Copy> Copy for HashMap<K, V> {
     fn copy(&mut self, other: &Self) {
-        m_allocator = other.m_allocator
-        // The copy may outlive the scope a region belongs to, so it goes to the heap (§14.6).
-        if let &from = unsafe { other.m_allocator } {
-            if from.scoped() {
-                m_allocator = Allocators::Global
-            }
-        }
+        // Wherever the compiler places the copy, never where the original is: the copy may
+        // outlive the original's region. The heap unless it is placed (§14.6).
+        m_allocator = unsafe { #placement }
         if other.m_len == 0 {
             return
         }

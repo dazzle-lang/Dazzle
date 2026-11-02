@@ -156,6 +156,26 @@ pub(crate) fn self_field(body: &Body, e: ExprId) -> bool {
     matches!(body.expr(e).kind, hir::ExprKind::Field { base, .. } if root(body, base))
 }
 
+/// When `e` is the text a `format!` builds — the first `let` of the macro's body, moved
+/// out as its last statement (`dz_check`'s lowering) — the macro's own expression, whose
+/// value the text is.
+pub(crate) fn formatted_by(body: &Body, e: ExprId) -> Option<ExprId> {
+    (0..body.exprs.len() as u32).map(ExprId).find(|f| {
+        let hir::ExprKind::Formatted { body: block, .. } = body.expr(*f).kind else {
+            return false;
+        };
+        let stmts = &body.block(block).stmts;
+        let (Some(first), Some(last)) = (stmts.first(), stmts.last()) else { return false };
+        let hir::StmtKind::Let { local: Some(text), init: Some(init) } = body.stmt(*first).kind
+        else {
+            return false;
+        };
+        let hir::StmtKind::Expr(tail) = body.stmt(*last).kind else { return false };
+        let hir::ExprKind::Move(moved) = body.expr(tail).kind else { return false };
+        init == e && matches!(body.expr(moved).kind, hir::ExprKind::Local(l) if l == text)
+    })
+}
+
 /// The functions that take a hidden result placement (spec §14.6, T-0117 stage 2): each
 /// whose result keeps an allocator ([`keeps_allocator`]), looking through `?`, decided
 /// from signatures alone so that a declaration and every call agree:
@@ -213,6 +233,13 @@ pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashS
             }
             continue;
         }
+        // A `copy` builds into wherever the copy is placed, as a constructor does (T-0140).
+        if let BodyOwner::Copy(owner) = &body.owner {
+            if placed_copy_kind(table, res, *owner) == Some(PlacedCopy::Written) {
+                out.insert(body.owner.clone());
+            }
+            continue;
+        }
         let sig = match &body.owner {
             BodyOwner::Fn(sym) => match table.get(*sym) {
                 Some(ItemSig::Fn(sig)) => sig,
@@ -237,6 +264,71 @@ pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashS
         out.insert(body.owner.clone());
     }
     out
+}
+
+/// How a struct's copy is built in a placement (T-0140), when it can be.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlacedCopy {
+    /// Its own `copy`, which takes the placement as a result function does and reads it
+    /// as `#placement`: `List`, `HashMap`.
+    Written,
+    /// Field by field, each field that keeps an allocator copied into the placement, the
+    /// rest as C++ copies them: `String`, `Path`, `HashSet`, a program's own struct of them.
+    Memberwise,
+}
+
+/// Whether struct `sym` has a copy that builds in a placement, and how (T-0140): one whose
+/// fields keep an allocator, written by the program (no base, no `virtual` method, not a
+/// `view struct`), with a `copy` of its own or neither `copy` nor `drop`. Its C++ has one
+/// more constructor, `T(::dz::copy_tag, const T&, ^mut Allocator)`; the plain copy
+/// constructor builds on the heap. Decided from the declaration, so codegen and every
+/// instance agree; whether a given instance can be copied at all is [`placed_copy`]'s.
+pub fn placed_copy_kind(table: &TypeTable, res: &Resolution, sym: SymbolId) -> Option<PlacedCopy> {
+    let s = table.struct_sig(sym)?;
+    if s.opaque
+        || s.is_union
+        || s.cpp_owned
+        || s.polymorphic
+        || s.base.is_some()
+        || table.is_view_struct(sym)
+    {
+        return None;
+    }
+    let allocator = res.lookup(res.prelude, "Allocator");
+    if !s.fields.iter().any(|f| holds_allocator(table, allocator, &f.ty, &mut Vec::new())) {
+        return None;
+    }
+    match (&s.copy, &s.drop) {
+        (Some(_), _) => Some(PlacedCopy::Written),
+        (None, None) => Some(PlacedCopy::Memberwise),
+        (None, Some(_)) => None,
+    }
+}
+
+/// Whether a copy of `ty` can be built in a placement rather than on the heap (T-0140): it
+/// is copyable, keeps an allocator, and its struct has a placed copy ([`placed_copy_kind`]);
+/// built field by field, every field that keeps an allocator is placed too, so the whole
+/// copy is where it is placed.
+pub fn placed_copy(table: &TypeTable, res: &Resolution, ty: &Ty) -> bool {
+    fn go(table: &TypeTable, res: &Resolution, ty: &Ty, seen: &mut Vec<Ty>) -> bool {
+        let Ty::Named { sym, args } = ty else { return false };
+        if seen.contains(ty) || !table.copyable(ty) || !keeps_allocator(table, res, ty) {
+            return false;
+        }
+        seen.push(ty.clone());
+        match placed_copy_kind(table, res, *sym) {
+            Some(PlacedCopy::Written) => true,
+            Some(PlacedCopy::Memberwise) => {
+                let Some(s) = table.struct_sig(*sym) else { return false };
+                table
+                    .field_types(*sym, args, &s.fields)
+                    .iter()
+                    .all(|f| !keeps_allocator(table, res, f) || go(table, res, f, seen))
+            }
+            None => false,
+        }
+    }
+    go(table, res, ty, &mut Vec::new())
 }
 
 /// The module a body belongs to.
@@ -667,17 +759,31 @@ fn place_body(
     proposer: Proposer,
 ) -> Option<BodyPlacement> {
     let mut found = Vec::new();
+    let mut copies = Vec::new();
     for i in 0..body.exprs.len() {
         let e = ExprId(i as u32);
         if let Some(c) = callable(hir, table, res, results, body, e) {
             found.push((e, c));
+        } else if copied(table, res, body, e) {
+            copies.push(e);
+        }
+    }
+    if found.is_empty() && copies.is_empty() {
+        return None;
+    }
+    let cx = Cx::new(table, res, body, results.contains(&body.owner), staying);
+    // A copy is a site when it is taken by value somewhere a placement can follow it
+    // (T-0140): what it builds is its own, wherever the value it copies lives.
+    for e in copies {
+        if cx.copied_by_value(e) {
+            let name = format!("a copy of `{}`", place_name(res, body, Some(table), e));
+            found.push((e, Callable { arg: 0, std: true, result: true, rc: false, name }));
         }
     }
     if found.is_empty() {
         return None;
     }
     found.sort_by_key(|(e, _)| (body.expr(*e).span.start, e.0));
-    let cx = Cx::new(table, res, body, results.contains(&body.owner), staying);
 
     // Step 1: what is proposed, and why the rest is not.
     let mut decided: Vec<(ExprId, Callable, Proposal)> = Vec::new();
@@ -779,6 +885,19 @@ fn callable(
         return None;
     }
     Some(Callable { arg, std, result: false, rc: false, name })
+}
+
+/// Whether `e` reads a place by value without moving it, and the copy that makes can be
+/// built in a placement ([`placed_copy`]).
+fn copied(table: &TypeTable, res: &Resolution, body: &Body, e: ExprId) -> bool {
+    matches!(
+        body.expr(e).kind,
+        hir::ExprKind::Local(_)
+            | hir::ExprKind::Field { .. }
+            | hir::ExprKind::TupleIndex { .. }
+            | hir::ExprKind::Index { .. }
+            | hir::ExprKind::Deref(_)
+    ) && placed_copy(table, res, body.ty(e))
 }
 
 /// A callee as a reader names it.
@@ -1113,9 +1232,10 @@ impl<'a> Cx<'a> {
                 }
                 hir::StmtKind::Let { .. } => Err(("not kept by `let`".to_owned(), None)),
                 hir::StmtKind::Assign { target, value, op, .. } if *value == top => {
-                    // A constructor building a field of the value it makes: where that
-                    // value is placed (round 3).
-                    let ctor = matches!(self.body.owner, BodyOwner::Ctor { .. });
+                    // A constructor or a `copy` building a field of the value it makes:
+                    // where that value is placed (round 3, T-0140).
+                    let ctor =
+                        matches!(self.body.owner, BodyOwner::Ctor { .. } | BodyOwner::Copy(_));
                     if ctor
                         && self.returns_result
                         && *op == hir::AssignOp::Assign
@@ -1131,38 +1251,59 @@ impl<'a> Cx<'a> {
                     };
                     Err((why, Some(self.body.stmt(*s).span)))
                 }
-                _ => self.temporary(top, block, formatted.is_none()),
+                _ => self.temporary(top, block),
             },
-            _ => self.temporary(top, block, formatted.is_none()),
+            _ => self.temporary(top, block),
         }
     }
 
-    /// When `e` is the text a `format!` builds — the first `let` of the macro's body, moved
-    /// out as its last statement (`dz_check`'s lowering) — the macro's own expression and
-    /// the block it sits in, which place the text as they would any value.
+    /// Whether the copy `e` makes is taken by value where the proposer and the region
+    /// check both follow a value (T-0140): a `let`'s value, an argument, a part of a struct
+    /// or union literal, a tuple or an array, what is returned (a local returned is moved,
+    /// never copied), or, in a `copy`, what is assigned to a field of `self`.
+    fn copied_by_value(&self, e: ExprId) -> bool {
+        match self.up.get(&e) {
+            Some(Up::Stmt(s)) => match self.body.stmt(*s).kind {
+                hir::StmtKind::Let { init: Some(init), .. } => init == e,
+                hir::StmtKind::Assign { target, value, op: hir::AssignOp::Assign, .. } => {
+                    value == e
+                        && matches!(self.body.owner, BodyOwner::Copy(_))
+                        && self_field(self.body, target)
+                }
+                _ => false,
+            },
+            Some(Up::Expr(p)) => match &self.body.expr(*p).kind {
+                hir::ExprKind::StructLit { .. }
+                | hir::ExprKind::UnionVariant { .. }
+                | hir::ExprKind::Tuple(_)
+                | hir::ExprKind::ArrayLit(_) => true,
+                hir::ExprKind::Call { args, .. } => args.contains(&e),
+                hir::ExprKind::Return(Some(_)) => {
+                    !matches!(self.body.expr(e).kind, hir::ExprKind::Local(_))
+                }
+                _ => false,
+            },
+            None => false,
+        }
+    }
+
+    /// When `e` is the text a `format!` builds, the macro's own expression and the block it
+    /// sits in, which place the text as they would any value ([`formatted_by`]).
     fn formatted_text(&self, e: ExprId, block: BlockId) -> Option<(ExprId, BlockId)> {
         let (Kind::Lambda, _, Some(by)) = *self.blocks.get(&block)? else { return None };
-        let stmts = &self.body.block(block).stmts;
-        let hir::StmtKind::Let { local: Some(text), init: Some(init) } =
-            self.body.stmt(*stmts.first()?).kind
-        else {
-            return None;
-        };
-        let hir::StmtKind::Expr(tail) = self.body.stmt(*stmts.last()?).kind else { return None };
-        let hir::ExprKind::Move(moved) = self.body.expr(tail).kind else { return None };
-        let returns_text =
-            matches!(self.body.expr(moved).kind, hir::ExprKind::Local(l) if l == text);
-        (init == e && returns_text).then_some((by, *self.expr_block.get(&by)?))
+        (formatted_by(self.body, e)? == by).then_some((by, *self.expr_block.get(&by)?))
     }
 
     /// A value no `let` keeps: placed when it is what the body returns, or what a method
-    /// stores into a container (T-0145). `block` is where it is made; `direct` is false for
-    /// `format!`'s text, which is built inside the macro and stored only as its value.
-    fn temporary(&self, e: ExprId, block: BlockId, direct: bool) -> Proposal {
-        match self.fate(e, 0) {
+    /// stores into a container (T-0145). `block` is where it is made. `format!`'s text
+    /// comes here as the macro's value, which is the text itself, moved out of the macro:
+    /// stored at once, it is stored directly (T-0149).
+    fn temporary(&self, e: ExprId, block: BlockId) -> Proposal {
+        // The value `e` makes, a copy site's included.
+        match self.fate_as(e, 0, false) {
             Escape::Returned => Ok(Target::Result),
-            Escape::Into { container, direct: stored, kept } => {
-                self.stored_target(container, block, direct && stored, kept)
+            Escape::Into { container, direct, kept } => {
+                self.stored_target(container, block, direct, kept)
             }
             Escape::Leaves(found) => Err(found),
             Escape::Stays => Err(("a temporary".to_owned(), None)),
@@ -1251,7 +1392,9 @@ impl<'a> Cx<'a> {
             None => Err((format!("made before `{name}`'s block"), None)),
             Some(false) => Ok(target),
             Some(true)
-                if direct && kept && crate::storing::keeps(self.body, self.table, container) =>
+                if direct
+                    && kept
+                    && crate::storing::keeps(self.body, self.table, self.res, container) =>
             {
                 Ok(target)
             }
@@ -1261,10 +1404,20 @@ impl<'a> Cx<'a> {
 
     /// When argument `e` of a call is stored into the call's receiver, a container this body
     /// declares (T-0145): which, and how ([`Escape::Into`]). `depth` is how many `let`s
-    /// the value has passed through on its way here.
-    fn stored_by(&self, callee: &Callee, args: &[ExprId], e: ExprId, depth: u32) -> Option<Escape> {
+    /// the value has passed through on its way here. A method that may drop what it is
+    /// given keeps it at `call` when it adds a key just looked up and not found
+    /// ([`crate::storing::adds_new`]).
+    fn stored_by(
+        &self,
+        call: ExprId,
+        callee: &Callee,
+        args: &[ExprId],
+        e: ExprId,
+        depth: u32,
+    ) -> Option<Escape> {
         let i = args.iter().position(|a| *a == e)?;
-        let kept = self.staying.stores(self.res, self.module, callee, i)?;
+        let kept = self.staying.stores(self.res, self.module, callee, i)?
+            || crate::storing::adds_new(self.body, self.res, call);
         let Callee::Method { recv, .. } = callee else { return None };
         let container = self.receiver_local(*recv)?;
         Some(Escape::Into { container, direct: depth == 0, kept })
@@ -1417,7 +1570,13 @@ impl<'a> Cx<'a> {
     /// where. A return is [`Escape::Returned`] only in a result function; elsewhere the
     /// value leaves with it. `depth` bounds following one local into the next.
     fn fate(&self, e: ExprId, depth: u32) -> Escape {
-        let copy = self.is_copy(e);
+        self.fate_as(e, depth, self.is_copy(e))
+    }
+
+    /// [`Self::fate`], with `copy` saying whether `e` is read as a copy, which leaves the
+    /// place it reads where it is. A copy site's own value is not one: it is followed as a
+    /// value of its own (T-0140).
+    fn fate_as(&self, e: ExprId, depth: u32, copy: bool) -> Escape {
         let span = |x: ExprId| Some(self.body.expr(x).span);
         let leaves = |why: String, at: Option<Span>| {
             if copy {
@@ -1498,7 +1657,7 @@ impl<'a> Cx<'a> {
                         {
                             Escape::Stays
                         }
-                        _ => match self.stored_by(callee, args, e, depth) {
+                        _ => match self.stored_by(p, callee, args, e, depth) {
                             Some(into) if !copy => into,
                             _ => leaves(format!("passed to `{}`", self.call_name(p)), span(p)),
                         },

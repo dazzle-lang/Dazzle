@@ -119,7 +119,8 @@ in order, and drops the rest; `append(&mut other)` moves `other`'s elements onto
 `reverse`; `b[i]` reads and writes, checked against the length; `as_slice()` and
 `as_mut_slice()` view the elements; `first()`, `last()`, `first_mut()` and `last_mut()`
 are a `^T`, `null` when the list is empty, as a map's lookup is (§9.1). It is move-only
-unless `T` is copyable, and then a copy copies into a new allocation, on the heap (§14.6).
+unless `T` is copyable, and then a copy copies into a new allocation, wherever the copy is
+placed (§14.6).
 Every call that may allocate takes `loc = #location`, so tracking names the line that
 pushed.
 
@@ -560,12 +561,17 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
   check, and the value goes to the heap. No placement changes what a program does.
 - **A value's owned parts live where the value lives.** A constructor and `copy` build into
   wherever `self` is placed.
+- **A copy is a value of its own**, placed like any other, never where the value it copies
+  lives: `let names = other.names` or `counts.insert(word, 1)` builds its copy in a region
+  when it outlives none. A copy made by assignment, or by C++ code the compiler does not see,
+  is on the heap. `[DECIDED — D-0091, T-0140]`
 - **A value stored into a container lives where the container lives**: what
   `names.push(…)` or `map.insert(…)` is given, when the container is a local of the
   function. Taken back out (`pop`, `remove`) and kept somewhere the region cannot follow, or
   lent with the container as `&mut`, it goes to the heap instead. Built on every pass of a
   loop, it goes there only when the container keeps everything it is given, so the region
-  grows no faster than the container. `[DECIDED — D-0091, T-0145]`
+  grows no faster than the container: a map does when each insert follows a lookup of the
+  same key that found nothing, which replaces nothing. `[DECIDED — D-0091, T-0145, T-0149]`
 - **Every function that returns something owning memory** takes where its result goes,
   out of sight: free functions, methods, trait methods and function values alike. A function
   called from C or C++ returns on the heap.
@@ -582,8 +588,9 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
 - **A memory budget or a program with no heap** is not expressible yet.
 
 **A container reads where it was placed as `#placement`** (§12.7), in `unsafe`: in a
-constructor, where the value being made goes; in a function returning something that owns
-memory, where its result goes; anywhere else, the heap. `std`'s containers store it and
+constructor, where the value being made goes; in a `copy`, where the copy goes; in a
+function returning something that owns memory, where its result goes; anywhere else, the
+heap. `std`'s containers store it and
 allocate from it, and a program's own container can do the same, and is then placed as
 they are:
 
@@ -609,9 +616,10 @@ impl Drop for Pool {
 
 The compiler checks where the value goes; what is done with the allocator is the
 container's to get right, as for anything `unsafe`: memory taken from it is freed into it,
-and a copy is built on the heap (`Allocators::Global`), since it may outlive the region its
-original is in. A parameter's default cannot be `#placement`, which would make it each
-caller's (`DZ0579`). `[DECIDED — D-0091, r104]`
+and a copy is built from the copy's own `#placement`, never the original's allocator, since
+it may outlive the region its original is in. A parameter's default cannot be
+`#placement`, which would make it each caller's (`DZ0579`). `[DECIDED — D-0091, r104,
+r105]`
 
 `Allocator`, `Allocators`, `TempArena` and the region arena stay in `std`, for containers,
 in `unsafe` code. A container may also take raw memory from C, importing `stdlib.h` itself
@@ -620,6 +628,6 @@ container is placed.
 
 Not yet implemented: regions and result placement are built behind a switch until T-0117
 decides whether they stay (`DZ_REGIONS=1`); without it, every value is on the heap. Owner
-arenas (T-0120), a placed copy (T-0140) and a `virtual` method's result (T-0141) are still to
-come, as are skipped drops for a value lent as `&mut` or built in a generic body (T-0147),
-and a stored value placed for a map filled in a loop or a container lent as `&mut` (T-0149).
+arenas (T-0120) and a `virtual` method's result (T-0141) are still to come, as are skipped
+drops for a value lent as `&mut` or built in a generic body (T-0147), and a stored value
+placed for a container lent to a function (T-0150).

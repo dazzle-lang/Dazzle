@@ -256,6 +256,9 @@ const PLACED: &[(&str, &[&str])] = &[
             "String::from: region: `printed`",
             "HashMap<String, i32>: region: `printed`",
             "String::from: region: `printed`",
+            // A copy builds its own value, here where the map and the local are (T-0140).
+            "a copy of `word`: region: `printed`",
+            "a copy of `word`: region: `printed`",
         ],
     ),
     ("nested", &["Path: region: an `if` in `nested`", "HashSet<i32>: region: a block in `nested`"]),
@@ -1234,8 +1237,8 @@ fn main() {
             format!("List<String>: {}", region("filled")),
             // Built on every pass and stored at once, into a list that keeps it.
             format!("String::from: {}", region("filled")),
-            // Built inside the macro, and stored only as its value.
-            "String: heap: stored in `names` on every pass of a loop".to_owned(),
+            // Built inside the macro, and stored at once as its value (T-0149).
+            format!("String: {}", region("filled")),
         ]
     );
     assert_eq!(
@@ -1267,6 +1270,344 @@ fn main() {
     );
     // The list is the caller's, wherever it is.
     assert_eq!(decisions(&a, p, "tagged"), ["String::from: heap: passed to `names.push`"]);
+}
+
+const COPIES: &str = r#"
+struct Store {
+    pub names: List<String>
+}
+
+struct Named {
+    pub name: String
+    pub tags: List<String>
+}
+
+impl Copy for Named {
+    fn copy(&mut self, other: &Self) {
+        name = other.name
+        tags = other.tags
+    }
+}
+
+// Placed: a copy pushed into a local list, and one in a struct literal.
+fn kept(word: &String, store: &Store) -> usize {
+    let mut names = List<String>()
+    names.push(word)
+    let s = Store{ names: store.names }
+    return names.len() + s.names.len()
+}
+
+// The caller's: a copy returned.
+fn returned(store: &Store) -> List<String> {
+    return store.names
+}
+
+// Heap: pushed into a list the caller lent.
+fn stored(word: &String, store: &mut Store) kills store.names@items {
+    store.names.push(word)
+}
+
+// Heap: a copy made on every pass, kept by a list outside the loop that does not keep it.
+fn churned(word: &String, n: i32) -> usize {
+    let mut names = List<String>()
+    for _ in 0..n {
+        names.push(word)
+        names.clear()
+    }
+    return names.len()
+}
+
+fn main() {
+    let mut store = Store{ names: List<String>() }
+    let w = String::from("w")
+    stored(&w, &mut store)
+    let n = Named{ name: String::from("n"), tags: List<String>() }
+    let m = n
+    println!("{} {} {} {}", kept(&w, &store), returned(&store).len(), churned(&w, 2), m.tags.len())
+}
+"#;
+
+/// A copy is built where it is placed (T-0140): it is a site wherever it is taken by value,
+/// decided like any other, and a type's `copy` builds its fields where the copy is placed.
+/// With everything proposed, the check alone refuses the wrong ones.
+#[test]
+fn a_copy_is_built_where_it_is_placed() {
+    let a = analyse(COPIES);
+    let p = a.placements.as_ref().unwrap();
+    assert_eq!(
+        decisions(&a, p, "kept"),
+        [
+            "List<String>: region: `kept`",
+            "a copy of `word`: region: `kept`",
+            "a copy of `store.names`: region: `kept`",
+        ]
+    );
+    assert_eq!(
+        decisions(&a, p, "returned"),
+        ["a copy of `store.names`: result: where `returned`'s caller keeps it"]
+    );
+    assert_eq!(
+        decisions(&a, p, "stored"),
+        ["a copy of `word`: heap: passed to `store.names.push`"]
+    );
+    assert_eq!(
+        decisions(&a, p, "churned")[1],
+        "a copy of `word`: heap: stored in `names` on every pass of a loop"
+    );
+    // `main`'s copy of `n` is a site, and `Named`'s `copy` builds both fields where it is.
+    assert!(decisions(&a, p, "main").contains(&"a copy of `n`: region: `main`".to_owned()));
+    let res = a.resolution.as_ref().unwrap();
+    let copy = p
+        .iter()
+        .find(|(o, _)| matches!(o, BodyOwner::Copy(s) if res.symbol(*s).name == "Named"))
+        .map(|(_, b)| b)
+        .expect("`Named`'s copy has sites");
+    let labels: Vec<String> =
+        copy.sites.iter().map(|s| format!("{}: {}", s.callee, s.decision.label())).collect();
+    assert_eq!(
+        labels,
+        [
+            "a copy of `other.name`: result: where `Named`'s copy's caller keeps it",
+            "a copy of `other.tags`: result: where `Named`'s copy's caller keeps it",
+        ]
+    );
+    assert!(p.takes_result(&BodyOwner::Copy(res.lookup(res.prelude, "List").unwrap())));
+
+    // Everything proposed: the check alone sends the wrong ones to the heap.
+    let all = place(&a, Proposer::Everything);
+    assert_eq!(
+        decisions(&a, &all, "stored"),
+        ["a copy of `word`: heap: passed to `store.names.push`"]
+    );
+    assert_eq!(decisions(&a, &all, "kept"), decisions(&a, p, "kept"));
+}
+
+/// Which types copy into a placement, and how (T-0140).
+#[test]
+fn which_copies_can_be_placed() {
+    let a = analyse(COPIES);
+    let (table, res) = (a.table.as_ref().unwrap(), a.resolution.as_ref().unwrap());
+    let named = |m: dz_project::ModuleId, name: &str, args: Vec<dz_hir::ty::Ty>| {
+        dz_hir::ty::Ty::Named { sym: res.lookup(m, name).unwrap(), args }
+    };
+    let main = a
+        .hir
+        .as_ref()
+        .unwrap()
+        .bodies()
+        .find_map(|(_, b)| match b.owner {
+            BodyOwner::Fn(s) if res.symbol(s).name == "kept" => Some(res.symbol(s).module),
+            _ => None,
+        })
+        .unwrap();
+    let int = dz_hir::ty::Ty::Int(dz_hir::ty::IntTy::I32);
+    let string = named(res.prelude, "String", vec![]);
+    for (ty, placed) in [
+        (named(res.prelude, "List", vec![int.clone()]), true),
+        (named(res.prelude, "List", vec![string.clone()]), true),
+        (string.clone(), true),
+        (named(res.prelude, "HashMap", vec![string.clone(), int.clone()]), true),
+        (named(main, "Store", vec![]), true),
+        (named(main, "Named", vec![]), true),
+        // Move-only, or nothing to place.
+        (named(res.prelude, "Box", vec![int.clone()]), false),
+        (named(res.prelude, "Vec2", vec![]), false),
+    ] {
+        assert_eq!(
+            placement::placed_copy(table, res, &ty),
+            placed,
+            "{}",
+            dz_check::type_name(res, &ty)
+        );
+    }
+}
+
+/// What T-0149 adds to the loop rule's exception. A map filled under a lookup that found
+/// nothing replaces nothing, so it keeps every key it is given. `format!`'s text is stored
+/// as the macro's value. A program's own container keeps what its methods store when its
+/// ties say they move its elements and drop none. Each case beside one that must still
+/// keep the heap.
+#[test]
+fn a_map_filled_under_a_failed_lookup_keeps_what_it_is_given() {
+    let a = analyse(
+        r#"
+struct Names {
+    m_names: List<String>
+
+    tie @names = m_names@items
+    tie [*] = m_names[*]
+
+    Names() {
+        m_names = List<String>()
+    }
+
+    pub fn add(&mut self, s: String) kills self@names {
+        m_names.push(move(s))
+    }
+
+    pub fn clear(&mut self) kills self@names, self[*] {
+        m_names.clear()
+    }
+
+    pub fn len(&self) -> usize {
+        return m_names.len()
+    }
+}
+
+impl Index<usize> for Names {
+    type Output = String
+
+    fn index(&self, i: usize) -> &String in self@names {
+        return m_names[i]
+    }
+}
+
+struct Pile {
+    m_names: List<String>
+
+    // The whole list: a method that kills it may replace it, elements and all.
+    tie @all = m_names
+
+    Pile() {
+        m_names = List<String>()
+    }
+
+    // Keeps `s`, and drops everything it kept before.
+    pub fn add(&mut self, s: String) kills self@all {
+        m_names = List<String>()
+        m_names.push(move(s))
+    }
+
+    pub fn len(&self) -> usize {
+        return m_names.len()
+    }
+}
+
+fn counted(words: &List<String>) -> usize {
+    let mut counts = HashMap<String, i32>()
+    for w in words {
+        let word = w.as_str()
+        if let &mut n = counts.get_mut_str(word) {
+            n += 1
+        } else {
+            counts.insert(String(word), 1)
+        }
+    }
+    return counts.len()
+}
+
+fn seen(words: &List<String>) -> usize {
+    let mut set = HashSet<String>()
+    for w in words {
+        let word = w.as_str()
+        if !set.contains_str(word) {
+            set.insert(String::from(word))
+        }
+    }
+    return set.len()
+}
+
+fn other_key(words: &List<String>) -> usize {
+    let mut counts = HashMap<String, i32>()
+    for w in words {
+        let word = w.as_str()
+        if let &mut n = counts.get_mut_str("x") {
+            n += 1
+        } else {
+            counts.insert(String(word), 1)
+        }
+    }
+    return counts.len()
+}
+
+fn touched_first(words: &List<String>) -> usize {
+    let mut counts = HashMap<String, i32>()
+    for w in words {
+        let word = w.as_str()
+        if let &mut n = counts.get_mut_str(word) {
+            n += 1
+        } else {
+            counts.insert(String::from("first"), 0)
+            counts.insert(String(word), 1)
+        }
+    }
+    return counts.len()
+}
+
+fn formatted(n: i32) -> usize {
+    let mut names = List<String>()
+    for i in 0..n {
+        names.push(format!("{}", i))
+    }
+    return names.len()
+}
+
+fn owned_names(n: i32) -> usize {
+    let mut names = Names()
+    for _ in 0..n {
+        names.add(String::from("kept"))
+    }
+    return names.len()
+}
+
+fn own_cleared(n: i32) -> usize {
+    let mut names = Names()
+    for _ in 0..n {
+        names.add(String::from("cleared"))
+        names.clear()
+    }
+    return names.len()
+}
+
+fn piled(n: i32) -> usize {
+    let mut pile = Pile()
+    for _ in 0..n {
+        pile.add(String::from("piled"))
+    }
+    return pile.len()
+}
+
+fn main() {
+    let mut words = List<String>()
+    words.push(String::from("a"))
+    println!("{} {} {} {}", counted(&words), seen(&words), other_key(&words), touched_first(&words))
+    println!("{} {} {} {}", formatted(2), owned_names(2), own_cleared(2), piled(2))
+}
+"#,
+    );
+    let p = a.placements.as_ref().unwrap();
+    let last = |f: &str| decisions(&a, p, f).last().cloned().unwrap();
+    assert_eq!(last("counted"), "String: region: `counted`", "an insert under a failed lookup");
+    assert_eq!(last("seen"), "String::from: region: `seen`", "an insert under `!contains`");
+    assert_eq!(
+        last("other_key"),
+        "String: heap: stored in `counts` on every pass of a loop",
+        "the lookup asks for another key"
+    );
+    assert_eq!(
+        decisions(&a, p, "touched_first")[1..],
+        [
+            "String::from: heap: stored in `counts` on every pass of a loop",
+            "String: heap: stored in `counts` on every pass of a loop",
+        ],
+        "the map is changed before the insert"
+    );
+    assert_eq!(last("formatted"), "String: region: `formatted`", "`format!`'s text, stored");
+    assert_eq!(
+        last("owned_names"),
+        "String::from: region: `owned_names`",
+        "`kills self@names` drops none"
+    );
+    assert_eq!(
+        last("own_cleared"),
+        "String::from: heap: stored in `names` on every pass of a loop",
+        "`clear` kills `self[*]`"
+    );
+    assert_eq!(
+        last("piled"),
+        "String::from: heap: stored in `pile` on every pass of a loop",
+        "`@all` reaches the elements"
+    );
 }
 
 /// r90's examples of a drop that only frees, worked out per type instance from the drop
@@ -1433,17 +1774,19 @@ fn main() {
         decisions(&a, p, "skipped")
     );
     // Holds a string built on the heap; grown with elements `resize` builds itself; given a
-    // copy of `key` as its key, built on the heap (T-0145);
+    // copy of `key` as its key, which is in the region (T-0140) but not built by a function
+    // that builds everything there, so its drop is kept;
     // replaced; handed on as `&mut`; built from a value the callee was given; a constructor
     // that keeps its argument; a drop that prints; a field left to its default.
     // Only `key`, which is copied from and keeps its own memory, skips its drop.
     assert_eq!(skipped("kept"), ["List<i32>"], "{:?}", decisions(&a, p, "kept"));
-    // Each of them is in the region all the same: it is the drop that is kept, not the heap.
+    // Each of them is in the region all the same, the copy of `key` too: it is the drop that
+    // is kept, not the heap.
     let regions = sites(&a, p, "kept")
         .iter()
         .filter(|s| matches!(s.decision, Decision::Region { .. }))
         .count();
-    assert_eq!(regions, 12, "{:?}", decisions(&a, p, "kept"));
+    assert_eq!(regions, 13, "{:?}", decisions(&a, p, "kept"));
     let labels: Vec<String> = sites(&a, p, "skipped").iter().map(|s| s.label()).collect();
     assert_eq!(labels[0], "region: `skipped`; drop skipped");
 }
