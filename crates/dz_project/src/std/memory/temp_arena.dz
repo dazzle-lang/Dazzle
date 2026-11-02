@@ -130,6 +130,10 @@ impl Allocator for TempArena {
                     loc.line,
                 )
             }
+            // Freeing gives nothing back until `reset`, but the block is dead now.
+            if p != null {
+                poison(p, 0, size)
+            }
         } #else {
             let _ = p != null && size + align > 0 && loc.line > 0
         }

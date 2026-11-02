@@ -11229,7 +11229,7 @@ body const SCOPE_HEADER -> void
     int 16: usize
 body const SCOPE_LARGE_HEADER -> void
   block
-    int 16: usize
+    int 32: usize
 body const SCOPE_CHUNK -> void
   block
     int 65536: usize
@@ -11378,6 +11378,12 @@ body method ScopeArena::alloc_large -> ^mut u8
             int 1: usize
           field #3: ^mut u8
             local _0 self: ScopeArena
+        assign =
+          index: usize
+            cast: ^mut usize
+              local _2 block: ^mut u8
+            int 2: usize
+          local _1 size: usize
         if: void
           binary !=: bool
             field #3: ^mut u8
@@ -11452,8 +11458,14 @@ body method ScopeArena::free_large -> void
                   local _5 next: ^mut u8
                 int 0: usize
               local _4 prev: ^mut u8
-        call c_free: void
+        call-assoc ScopeArena::release_large: void
           local _2 block: ^mut u8
+body method ScopeArena::release_large -> void
+  param _0 block: ^mut u8
+  block
+    error
+    call c_free: void
+      local _0 block: ^mut u8
 body impl#98 method alloc -> ^mut u8
   param _0 self: ScopeArena
   param _1 size: usize
@@ -11565,6 +11577,7 @@ body impl#98 method realloc -> ^mut u8
               field #2: usize
                 local _0 self: ScopeArena
           block
+            error
             assign =
               field #1: usize
                 local _0 self: ScopeArena
@@ -11630,39 +11643,40 @@ body impl#98 method free -> void
         call-method ScopeArena::free_large: void
           local _0 self: ScopeArena
           local _1 p: ^mut u8
+        return: !
+    error
+    if: void
+      binary &&: bool
+        binary !=: bool
+          field #0: ^mut u8
+            local _0 self: ScopeArena
+          null: ^mut u8
+        binary >=: bool
+          cast: usize
+            local _1 p: ^mut u8
+          cast: usize
+            field #0: ^mut u8
+              local _0 self: ScopeArena
       block
-        if: void
-          binary &&: bool
-            binary !=: bool
+        let _5 offset: usize
+          binary -: usize
+            cast: usize
+              local _1 p: ^mut u8
+            cast: usize
               field #0: ^mut u8
                 local _0 self: ScopeArena
-              null: ^mut u8
-            binary >=: bool
-              cast: usize
-                local _1 p: ^mut u8
-              cast: usize
-                field #0: ^mut u8
-                  local _0 self: ScopeArena
+        if: void
+          binary ==: bool
+            binary +: usize
+              local _5 offset: usize
+              local _2 size: usize
+            field #1: usize
+              local _0 self: ScopeArena
           block
-            let _5 offset: usize
-              binary -: usize
-                cast: usize
-                  local _1 p: ^mut u8
-                cast: usize
-                  field #0: ^mut u8
-                    local _0 self: ScopeArena
-            if: void
-              binary ==: bool
-                binary +: usize
-                  local _5 offset: usize
-                  local _2 size: usize
-                field #1: usize
-                  local _0 self: ScopeArena
-              block
-                assign =
-                  field #1: usize
-                    local _0 self: ScopeArena
-                  local _5 offset: usize
+            assign =
+              field #1: usize
+                local _0 self: ScopeArena
+              local _5 offset: usize
     let _: _
       field #2: u32
         local _4 loc: SourceLocation
@@ -11689,6 +11703,7 @@ body drop ScopeArena -> void
                 cast: ^mut ^mut u8
                   local _1 chunk: ^mut u8
                 int 0: usize
+            error
             call-method ScopePool::give: void
               static SCOPE_POOL: ScopePool
               local _1 chunk: ^mut u8
@@ -11710,7 +11725,7 @@ body drop ScopeArena -> void
                 cast: ^mut ^mut u8
                   local _3 block: ^mut u8
                 int 1: usize
-            call c_free: void
+            call-assoc ScopeArena::release_large: void
               local _3 block: ^mut u8
             assign =
               local _3 block: ^mut u8

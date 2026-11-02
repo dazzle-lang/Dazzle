@@ -50,6 +50,9 @@ impl Allocator for Heap {
         }
         #if TRACK_MEMORY {
             unsafe { TRACKER.release(p, size, align, loc) }
+            // A read through a dangling reference then sees `0xDD`, not the old value
+            // (T-0131).
+            poison(p, 0, size)
         } #else {
             let _ = size + loc.line as usize
         }

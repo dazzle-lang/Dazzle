@@ -6,6 +6,20 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0131: memory tracking overwrites what is freed (2026-11-02)
+
+Compiler and std work; no language change. Under `--track-memory`, every block the heap,
+`Allocators::Temp` or a region frees is filled with `0xDD`, and so is everything a region
+held when it ends, so a read through a dangling reference sees garbage, not a plausible old
+value. Regions needed it most: a small block freed in one stays in its chunk, holding its
+old contents, until the region ends, and a wrong placement is a read of released memory.
+A region's large block keeps its size in its header again (32 bytes) to be overwritten at
+the region's end.
+
+Tests: `a_tracked_build_poisons_what_it_frees`. `tests/run/region_arena` lost its two
+checks that a freed large block comes back at the same address: since the block became the
+heap's, they held only by chance of glibc, and would not on every host.
+
 ## r103: three holes closed, and a drop counted as a use (2026-11-02)
 
 The language change is r103: D-0094 points 1–3, decided as proposed that day (point 2 as

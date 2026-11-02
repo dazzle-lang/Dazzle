@@ -1,7 +1,7 @@
 // The region arena (spec §14.6, T-0117): `ScopeArena`, the memory the compiler will place
 // values in, used here by hand. Its chunks come from a per-thread pool and double; an
-// allocation of 16 KiB or more is a block of its own, freed at once and pooled by size; and
-// a copy of a container in a region goes to the heap, since the copy may outlive it.
+// allocation of 16 KiB or more is the heap's, a block of its own freed at once; and a copy
+// of a container in a region goes to the heap, since the copy may outlive it.
 
 struct Kept {
     pub list: List<i32>
@@ -78,28 +78,28 @@ fn grown_containers() {
     println!("string {} ends {}", s.len(), s.as_str().ends_with("region "))
 }
 
-// Two arenas one after the other: the second takes the first's chunk and large block back
-// from the pool.
+// Two arenas one after the other: the second takes the first's chunk back from the pool.
 fn pool_reuse() {
     let mut first_chunk: usize = 0
-    let mut first_block: usize = 0
     {
         let mut arena = ScopeArena{}
         first_chunk = arena.alloc(100, 8) as usize
-        first_block = arena.alloc(20000, 8) as usize
     }
     let mut arena = ScopeArena{}
     let chunk = arena.alloc(100, 8) as usize
-    let block = arena.alloc(20000, 8) as usize
-    println!("chunk reused {} block reused {}", chunk == first_chunk, block == first_block)
+    println!("chunk reused {}", chunk == first_chunk)
 
-    // A large block freed is pooled at once, and the next of its size takes it.
+    // A large block is the heap's, at its own size, and goes back when it is freed.
     let big = arena.alloc(30000, 16)
+    unsafe {
+        big[0] = 1
+        big[29999] = 2
+    }
+    let ends = unsafe { big[0] + big[29999] }
+    let aligned = (big as usize) % 16 == 0
     arena.free(big, 30000, 16)
-    let again = arena.alloc(30000, 16)
-    println!("freed block reused {} aligned {}", big == again, (again as usize) % 16 == 0)
+    println!("large block {} aligned {}", ends, aligned)
 
-    // Past 4 MiB a block is the heap's, not the pool's; it still works.
     let huge = arena.alloc(5000000, 8)
     unsafe {
         huge[0] = 1

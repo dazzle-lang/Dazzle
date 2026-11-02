@@ -562,6 +562,63 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
     }
 }
 
+/// A tracked build overwrites what it frees with `0xDD` (221), so a read through a dangling
+/// reference sees garbage rather than the old value (T-0131): a small block freed in a
+/// region, which stays in its chunk; a region's chunk once the region ends, which goes back
+/// to the pool; and a block freed in `Allocators::Temp`. All three are still the program's
+/// memory, so reading them is the same on every host; an untracked build reads the old
+/// bytes. The heap's own `free` poisons too, but what C's heap does with a freed block
+/// differs by platform, so it is not read here.
+#[test]
+fn a_tracked_build_poisons_what_it_frees() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let manifest = "[module]\nname = \"poison\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n";
+    let source = "\
+fn main() {
+    let mut kept: usize = 0
+    {
+        let mut arena = ScopeArena{}
+        let freed = arena.alloc(16, 8)
+        let after = arena.alloc(16, 8)
+        unsafe {
+            freed[0] = 7
+            after[0] = 8
+        }
+        arena.free(freed, 16, 8)
+        println!(\"region free {}\", unsafe { freed[0] })
+        kept = after as usize
+    }
+    println!(\"region end {}\", unsafe { (kept as ^mut u8)[0] })
+    let t = Allocators::Temp
+    let a = t.alloc(16, 8)
+    let b = t.alloc(16, 8)
+    unsafe {
+        a[0] = 9
+        b[0] = 10
+    }
+    t.free(a, 16, 8)
+    println!(\"temp free {}\", unsafe { a[0] })
+}
+";
+    for (tracked, expected) in [
+        (true, "region free 221\nregion end 221\ntemp free 221"),
+        (false, "region free 7\nregion end 8\ntemp free 9"),
+    ] {
+        let dir = scratch(&format!("dz_poison_{tracked}"), manifest, source);
+        let mut args = vec!["run", dir.to_str().unwrap()];
+        if tracked {
+            args.push("--track-memory");
+        }
+        let out = Command::new(dz()).args(&args).output().expect("failed to run dz");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), expected, "tracked {tracked}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// `--release` overrides the manifest's `[build] optimize` for one command.
 ///
 /// Asserted through behaviour rather than through the command line the driver built: the

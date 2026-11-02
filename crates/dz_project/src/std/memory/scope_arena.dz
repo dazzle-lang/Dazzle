@@ -1,9 +1,10 @@
 /// Bytes at the start of every region chunk: the previous chunk, and this one's capacity.
 const SCOPE_HEADER: usize = 16
 
-/// Bytes at the start of a large block: the blocks before and after it. A multiple of 16,
-/// so the memory after it is aligned to 16.
-const SCOPE_LARGE_HEADER: usize = 16
+/// Bytes at the start of a large block: the blocks before and after it, and its size, for
+/// memory tracking to overwrite it when the region ends (T-0131). A multiple of 16, so the
+/// memory after it is aligned to 16.
+const SCOPE_LARGE_HEADER: usize = 32
 
 /// The smallest chunk a region asks the pool for.
 const SCOPE_CHUNK: usize = 65536
@@ -26,7 +27,8 @@ const SCOPE_LARGE: usize = 16384
 /// region opened on every call or every pass of a loop costs no `malloc` once the pool holds
 /// enough. A large one is a block of its own, freed at once. A copy of a value in a region
 /// goes to the heap (`scoped`). Its memory comes from the C heap and is not tracked, like
-/// `TempArena`'s.
+/// `TempArena`'s, but under memory tracking every block it frees, and everything it held
+/// when it ends, is overwritten with `0xDD`.
 pub struct ScopeArena {
     m_chunk: ^mut u8 = null
     m_used: usize = 0
@@ -71,6 +73,7 @@ pub struct ScopeArena {
             let links = block as ^mut ^mut u8
             links[0] = null
             links[1] = m_large
+            (block as ^mut usize)[2] = size
             if m_large != null {
                 (m_large as ^mut ^mut u8)[0] = block
             }
@@ -93,8 +96,17 @@ pub struct ScopeArena {
             if next != null {
                 (next as ^mut ^mut u8)[0] = prev
             }
-            c_free(block)
+            ScopeArena::release_large(block)
         }
+    }
+
+    /// Give a large block back to the heap, overwritten first under memory tracking.
+    fn release_large(block: ^mut u8) {
+        #if TRACK_MEMORY {
+            let size = unsafe { (block as ^mut usize)[2] }
+            poison(block, SCOPE_LARGE_HEADER, SCOPE_LARGE_HEADER + size)
+        }
+        c_free(block)
     }
 }
 
@@ -127,6 +139,12 @@ impl Allocator for ScopeArena {
         if p != null && m_chunk != null && small {
             let offset = (p as usize) - (m_chunk as usize)
             if offset + old_size == m_used && offset + new_size <= m_cap {
+                #if TRACK_MEMORY {
+                    // Shrunk in place: the tail it gave up is dead.
+                    if new_size < old_size {
+                        poison(p, new_size, old_size)
+                    }
+                }
                 m_used = offset + new_size
                 return p
             }
@@ -146,7 +164,14 @@ impl Allocator for ScopeArena {
         }
         if ScopeArena::is_large(size, align) {
             self.free_large(p)
-        } else if m_chunk != null && (p as usize) >= (m_chunk as usize) {
+            return
+        }
+        #if TRACK_MEMORY {
+            // A small block stays in its chunk until the region ends, holding its old
+            // contents; a wrong placement reads it (T-0131).
+            poison(p, 0, size)
+        }
+        if m_chunk != null && (p as usize) >= (m_chunk as usize) {
             // The last small allocation goes back: a value built and dropped at once - the
             // key `HashMap::insert` already had - costs the region nothing.
             let offset = (p as usize) - (m_chunk as usize)
@@ -168,6 +193,11 @@ impl Drop for ScopeArena {
         while chunk != null {
             unsafe {
                 let prev = (chunk as ^mut ^mut u8)[0]
+                #if TRACK_MEMORY {
+                    // What the region held is dead: a value that outlived it reads `0xDD`.
+                    let used = if chunk == m_chunk { m_used } else { (chunk as ^mut usize)[1] }
+                    poison(chunk, SCOPE_HEADER, used)
+                }
                 SCOPE_POOL.give(chunk)
                 chunk = prev
             }
@@ -176,7 +206,7 @@ impl Drop for ScopeArena {
         while block != null {
             unsafe {
                 let next = (block as ^mut ^mut u8)[1]
-                c_free(block)
+                ScopeArena::release_large(block)
                 block = next
             }
         }

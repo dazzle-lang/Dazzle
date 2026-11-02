@@ -3,8 +3,8 @@ given back true grown in place true
 align 64 true
 list 20000 sum 199990000
 string 21000 ends true
-chunk reused true block reused true
-freed block reused true aligned true
+chunk reused true
+large block 3 aligned true
 huge 3
 churned 2000
 list 100 sum 4950

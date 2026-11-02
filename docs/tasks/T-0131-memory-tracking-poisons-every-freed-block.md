@@ -2,7 +2,7 @@
 id: T-0131
 title: Memory tracking poisons every freed block, heap and region alike
 milestone: none
-status: open
+status: done
 kind: feature
 area: stdlib
 ---
@@ -37,3 +37,20 @@ goes back. `free` is sized, so the size is known. A stale integer then reads `0x
 and a stale `String` has a garbage length that a bounds check catches. Holding freed blocks
 for a while before reuse (a quarantine, as AddressSanitizer does) would catch more, but is
 optional. The cost falls on tracking builds only. Compiler and std work (`docs/log/`).
+
+**Built 2026-11-02.** Under `TRACK_MEMORY`, through `poison`:
+
+- `Heap::free` overwrites the block after the tracker accepts the free, before C gets it.
+- `TempArena::free` overwrites the block, which stays in its chunk until `reset`.
+- A region overwrites every small block it frees (all but the last stay in their chunk),
+  the tail a shrink in place gives up, and every large block before it goes back to the
+  heap; when it ends, everything its chunks held, before they go to the pool, and the
+  large blocks it still holds. A large block's header is 32 bytes again, to keep its size.
+
+No quarantine: a freed heap block may be reused at once. Tests:
+`a_tracked_build_poisons_what_it_frees` in `dz/tests/run.rs`, which reads a region's freed
+block, a region's chunk after the region and a `Temp` block, `0xDD` tracked and the old
+bytes untracked. The heap is not read there, since what C's heap writes into a freed block
+differs by platform. `tests/run/region_arena` no longer asserts that a freed large block
+comes back at the same address, which since large blocks became the heap's was true only
+by chance of the C heap.

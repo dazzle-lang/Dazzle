@@ -18,8 +18,8 @@ proposed:
 1. T-0117's verdict: the peak-memory bug is fixed (2026-11-02), at the cost of `astar`'s
    speed, which was the pool's; the gate is next.
 2. The holes the placement check shares, since a placement is checked like a reference:
-   T-0123, T-0124, T-0125 and T-0127 are closed (r103, 2026-11-02); T-0131 is left, so that
-   a wrong placement shows in tests.
+   T-0123, T-0124, T-0125 and T-0127 are closed (r103), and T-0131 makes a wrong placement
+   show in tests (all 2026-11-02).
 3. Frame regions (T-0139), so `Allocators::Temp` can leave ordinary code without losing
    speed; then T-0119, allocators out of ordinary code, and T-0118.
 4. The rest of D-0094 (T-0126, T-0128, T-0129, T-0130, T-0135, T-0136), its tests (T-0132
@@ -123,7 +123,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (38 open)
+## none — not scheduled (37 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -151,7 +151,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0128](tasks/T-0128-or-unreachable-undefined-behaviour-in-release.md)** `or unreachable` is undefined behaviour in a release build · design, codegen
 - **[T-0129](tasks/T-0129-division-by-zero-min-1-oversized.md)** Division by zero, `MIN / -1`, oversized shifts and out-of-range casts are undefined in C++ · design, codegen
 - **[T-0130](tasks/T-0130-6-5-says-defer-runs-after.md)** §6.5 says `defer` runs after the scope's drops, the order that would read dropped locals · bug, language
-- **[T-0131](tasks/T-0131-memory-tracking-poisons-every-freed-block.md)** Memory tracking poisons every freed block, heap and region alike · feature, stdlib
 - **[T-0132](tasks/T-0132-sanitizer-builds-in-ci-run-corpus.md)** Sanitizer builds in CI: the run corpus under AddressSanitizer and UBSan · feature, tooling
 - **[T-0133](tasks/T-0133-audit-generated-c-for-undefined-behaviour.md)** An audit of the generated C++ for undefined behaviour · feature, codegen
 - **[T-0134](tasks/T-0134-fuzz-ties-checker-against-sanitizer.md)** Fuzz the ties checker against a sanitizer · feature, tooling
