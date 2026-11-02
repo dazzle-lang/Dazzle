@@ -578,3 +578,45 @@ fn main() {
     println!("{}", w.hp)
 }
 ```
+
+## DZ0420
+
+A function is checked once, for every caller, with its parameters taken as separate places.
+Inside `append_copy` below, `dst` and `src` are two lists, so growing `dst` cannot touch what
+`src` walks. A caller passing one list as both breaks that: the first `push` moves the array
+`src` is walking, and the rest of the copies are read from freed memory (spec 6.7). So at a
+call, memory the clause kills may be reached through the argument the clause names it by,
+and no other: not by one pointing at what owns it, as `&ys` does, nor by a second argument
+naming the same kill. Two arguments may still share memory the call does not kill, or
+memory that cannot die, such as an `i32` field.
+
+```dz
+fn append_copy(dst: &mut List<String>, src: &List<String>) kills dst@items {
+    for &s in src {
+        dst.push(String::from(s.as_str()))
+    }
+}
+
+fn main() {
+    let mut ys = List<String>()
+    ys.push(String::from("a"))
+    append_copy(&mut ys, &ys)
+    println!("{}", ys.len())
+}
+```
+
+```dz
+fn append_copy(dst: &mut List<String>, src: &List<String>) kills dst@items {
+    for &s in src {
+        dst.push(String::from(s.as_str()))
+    }
+}
+
+fn main() {
+    let mut ys = List<String>()
+    ys.push(String::from("a"))
+    let copy = ys
+    append_copy(&mut ys, &copy)
+    println!("{}", ys.len())
+}
+```

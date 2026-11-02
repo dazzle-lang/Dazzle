@@ -481,9 +481,42 @@ if let &mut t = self.texture {
 }                              // dropped here, if that was the last owner
 ```
 
-That costs one count up and one down per `or` or `if let`: plain integers, not atomics. A
-`Box` has no second owner to take, so `self.node = null` inside `if let &n = self.node`
-frees what `n` refers to, as it would through a `^T` (§1.1).
+That costs one count up and one down per `or` or `if let`: plain integers, not atomics.
+
+**A `Box`'s value is in the box**, its `@value` (`tie @value = m_ptr[*]`). A `Box` has no
+second owner to take, so a reference `or` or `if let` takes to its value is a view in
+`self.node@value`, and emptying, replacing or moving the box ends it, as assigning a
+`String` ends a view of its text (§6.7). The mistake is a compile-time error, not freed
+memory:
+
+```dz
+if let &n = self.node {
+    self.node = null           // error DZ0413 below: this write kills `self.node`
+    println!("{}", n.name)     // `n` points into `self.node@value`
+}
+```
+
+A clause names what is inside the value through the tie: a function changing the boxed
+node's name declares `kills self.node@value.name@text`. `[DECIDED — D-0094, revising
+§18.62]`
+
+**Any two `Rc<T>`s may hold one value**, and nothing at compile time says which do, so the
+ties check (§6.7) takes the value every `Rc<T>` and `Weak<T>` holds as one place. A view
+through one is ended by a kill through another, and a call given two of them, one to
+change, is refused as a call given one list twice is:
+
+```dz
+if let &mut dst = a {
+    if let &src = b {                  // `a` and `b` are both `Rc<List<String>>`
+        append_copy(&mut dst, &src)    // error: `src` may be the list `dst` grows
+    }
+}
+```
+
+It costs nothing at run time. The price is a rare refusal: a view into one `Rc<Texture>`'s
+value kept across a kill through a different `Rc<Texture>`, fixed by copying out what is
+kept. Handles of different types, an `Rc<List<String>>` and an `Rc<List<i32>>`, are apart.
+`[DECIDED — D-0094]`
 
 **`Nullable`** is the trait behind this, and any type may implement it: `is_null`,
 `guard` — what `or` and `if let` hold for the duration, itself `Nullable` — and `ptr`, the

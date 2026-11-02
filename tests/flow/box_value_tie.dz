@@ -1,0 +1,54 @@
+// Spec §14.5, D-0094 point 3: a `Box`'s value is in the box, its `@value`. Emptying the
+// box, putting another value in it, or moving it out ends a reference `if let` or `or`
+// took to the value, as assigning a `String` ends a view of its text. Changing the value
+// through the reference, or writing another field of what holds the box, does not.
+// expect: DZ0413, DZ0413, DZ0413
+
+pub struct Node {
+    pub name: String
+}
+
+pub struct Holder {
+    pub node: Box<Node> = null
+    pub count: i32 = 0
+}
+
+fn emptied(h: &mut Holder) kills h.node {
+    if let &n = h.node {
+        h.node = null
+        println!("{}", n.name)
+    }
+}
+
+fn replaced(h: &mut Holder) kills h.node {
+    let n = h.node or return
+    h.node = Box<Node>(Node{ name: String::from("new") })
+    println!("{}", n.name)
+}
+
+fn moved_out() {
+    let mut b = Box<Node>(Node{ name: String::from("b") })
+    if let &n = b {
+        let taken = move(b)
+        println!("{}", n.name)
+        let _ = move(taken)
+    }
+}
+
+// Fine: the value changes, the box does not.
+fn changed(h: &mut Holder) kills h.node@value.name@text {
+    if let &mut n = h.node {
+        n.name.push_str("!")
+        h.count += 1
+        println!("{}", n.name)
+    }
+}
+
+fn main() {
+    let mut h = Holder{}
+    h.node = Box<Node>(Node{ name: String::from("x") })
+    changed(&mut h)
+    emptied(&mut h)
+    replaced(&mut h)
+    moved_out()
+}

@@ -28,6 +28,43 @@ pub fn report(
 ) {
     let file = body.file;
     let show = |p: &Place| render(table, res, body, p);
+    // A place rooted at an `Rc` guard stands for every value an `Rc` of that type holds.
+    let rc_sym = res.lookup(res.prelude, "Rc");
+    let shared = |p: &Place| {
+        let ty = &body.local(p.local).ty;
+        let rc = matches!(ty, Ty::Named { sym, .. } if Some(*sym) == rc_sym);
+        (rc && super::is_guard(body, p.local)).then(|| {
+            let rc = dz_check::type_name_in_file(res, file, &body.local(p.local).ty);
+            format!(
+                "any two `{rc}`s may hold one value, so the check takes every `{rc}` as one \
+                 (spec §14.5)"
+            )
+        })
+    };
+    let start = diags.iter().count();
+    for k in &a.aliased_kills {
+        let killed = show(&k.killed);
+        let (through, other) = (&k.through, &k.other);
+        let mut d = Diagnostic::error(
+            codes::ALIASED_KILL,
+            format!("this call kills `{killed}` through `{through}`, and `{other}` reaches it"),
+        );
+        d = match k.other_span {
+            Some(at) => d.at(file, at, format!("`{other}` reaches `{killed}`")).with_secondary(
+                file,
+                k.span,
+                format!("this call kills `{killed}`"),
+            ),
+            None => {
+                d.at(file, k.span, format!("`{other}` reaches `{killed}`, which this call kills"))
+            }
+        };
+        diags.push(d.with_help(format!(
+            "the function is checked once, for every caller, with `{through}` and `{other}` \
+             taken as separate, so inside it `{other}` would point at freed memory: pass \
+             something `{through}` does not own, or a copy of it (spec §6.7)"
+        )));
+    }
     for u in &a.invalid_uses {
         let tie = show(&u.tie);
         let killed = show(&u.killed.place);
@@ -72,6 +109,23 @@ pub fn report(
             );
             continue;
         }
+        // A value dropped where no line shows a use: its `drop` may read its views.
+        if u.by_drop {
+            diags.push(
+                Diagnostic::error(
+                    codes::USE_AFTER_KILL,
+                    format!("dropped after the memory its views point into was killed: `{tie}`"),
+                )
+                .at(file, u.span, format!("its `drop` reads `{tie}` when this value is dropped"))
+                .with_secondary(file, u.killed.span, format!("{how} `{killed}`"))
+                .with_help(
+                    "a value whose type has a `drop` uses its views when it is dropped, at the \
+                     end of its scope or when it is assigned over: end it before the kill, in \
+                     a block of its own or by moving it out, or make it after (spec §6.7)",
+                ),
+            );
+            continue;
+        }
         diags.push(
             Diagnostic::error(
                 codes::USE_AFTER_KILL,
@@ -85,6 +139,14 @@ pub fn report(
                  (spec §6.7)",
             ),
         );
+    }
+    // One diagnostic each, in order: the aliased kills, then the uses.
+    let places =
+        a.aliased_kills.iter().map(|k| &k.killed).chain(a.invalid_uses.iter().map(|u| &u.tie));
+    for (d, place) in diags.iter_mut().skip(start).zip(places) {
+        if let Some(note) = shared(place) {
+            d.notes.push(format!("note: {note}"));
+        }
     }
     // Wrapping the code in `unsafe` vouches for it, which only its author can: offered,
     // never applied by `dz fix`.
@@ -312,7 +374,7 @@ fn tie_path_held(
     let ident = |name: &str| Ident::new(Span::DUMMY, name);
     let mut out = Vec::new();
     let mut held = Vec::new();
-    let mut ty = body.local(place.local).ty.peeled().clone();
+    let mut ty = super::root_ty(body, place.local).peeled().clone();
     let steps = &place.steps;
     let mut i = 0;
     'outer: while i < steps.len() {
@@ -323,7 +385,21 @@ fn tie_path_held(
                 let Some((rep, end)) = export_steps(table, res, *sym, args, first) else {
                     continue;
                 };
-                if !rep.is_empty() && steps[i..].starts_with(&rep) {
+                // `tie @value = m_ptr[*]` names the memory behind a pointer field, and so
+                // does the allocation keeping it valid, `m_ptr`'s storage (`Box`).
+                let storage = match rep.as_slice() {
+                    [head @ .., Step::Storage, Step::Elements] => {
+                        Some([head, &[Step::Storage]].concat())
+                    }
+                    _ => None,
+                };
+                let matched = steps[i..].starts_with(&rep)
+                    || storage.as_ref().is_some_and(|s| steps[i..].starts_with(s));
+                let rep = match storage {
+                    Some(s) if !steps[i..].starts_with(&rep) => s,
+                    _ => rep,
+                };
+                if !rep.is_empty() && matched {
                     held.push(ty.clone());
                     out.push(TieStep::Tie(ident(name)));
                     i += rep.len();
@@ -355,7 +431,13 @@ fn tie_path_held(
         }
         i += 1;
     }
-    let root = ident(&body.local(place.local).name);
+    // A guard has no name: it is shown as the handle it holds, `Rc<List<String>>`, which
+    // for an `Rc` stands for every one of that type (D-0094 point 2).
+    let root = if super::is_guard(body, place.local) {
+        ident(&dz_check::type_name_in_file(res, body.file, &body.local(place.local).ty))
+    } else {
+        ident(&body.local(place.local).name)
+    };
     (TiePath { span: Span::DUMMY, root, steps: out }, held)
 }
 

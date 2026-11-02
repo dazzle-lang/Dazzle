@@ -2,7 +2,7 @@
 id: T-0127
 title: A view struct's `drop` is not counted as a use of its views
 milestone: none
-status: open
+status: done
 kind: bug
 area: ownership
 ---
@@ -56,3 +56,10 @@ holds views uses those views first. A view that is already dead is then `DZ0413`
 kill, as for any other use. A type without a `drop` loses nothing, which covers most
 iterators. If a type later needs a `drop` that reads none of its views, Rust's answer is an
 `unsafe` marker on the drop (`#[may_dangle]`); it is not needed now. Compiler work only.
+
+**Built 2026-11-02.** `drop_reads` (`dz_flow/src/ties/body.rs`): where a local is dropped,
+at a scope's end (`block_scope`), on a jump out (`unwind`), and when assigned over, a
+value whose type needs a drop and holds views reads them first. A use of a dead view
+there is `DZ0413` with its own wording (`InvalidUse::by_drop`). A local moved out
+(`move(p)`) has its state cleared, so it is not taken as dropped. Tests:
+`tests/flow/view_struct_drop_reads.dz` (three refused, four fine).

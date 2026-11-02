@@ -8,8 +8,8 @@
 /// ```
 ///
 /// Nothing else owns the value, so there is no second owner to keep it alive while it is
-/// used: setting the box to `null` inside `if let &n = self.node` frees what `n` refers to,
-/// as it would through a `^T` (§1.1).
+/// used. Instead the value is in the box, `@value`: setting the box to `null` inside
+/// `if let &n = self.node` ends `n`, and using `n` after is a compile-time error (§14.5).
 ///
 /// A `Box<Button>` is accepted where a `Box<UiElement>` is wanted, moved into it; the box
 /// remembers what it was made as, so dropping it drops the whole `Button` (18.64).
@@ -19,6 +19,10 @@ pub struct Box<T> {
     pub(module) m_size: usize = 0
     pub(module) m_align: usize = 0
     pub(module) m_drop: fn(^mut u8)
+
+    /// The value: emptying, replacing or moving the box ends a reference to it, and a
+    /// clause names what is inside it as `h.node@value.name@text` (D-0094 point 3).
+    tie @value = m_ptr[*]
 
     /// `value`, moved into an allocation from `allocator`.
     Box(value: T, allocator: ^mut Allocator = Allocators::Global, loc: SourceLocation = #location) {

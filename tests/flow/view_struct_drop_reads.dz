@@ -1,0 +1,99 @@
+// Spec §6.7, T-0127: a view struct with a `drop` uses its views when it is dropped, at the
+// end of its scope or when it is assigned over, although no line shows the use; Rust's
+// drop check. Each mistake below reads text the drop prints after it was freed. Moving the
+// value out, returning it, or ending it before the kill is fine, and a view struct with no
+// `drop`, such as an iterator, loses nothing.
+// expect: DZ0413, DZ0413, DZ0413
+
+view struct Peek {
+    m_text: &str
+
+    Peek(text: &str) {
+        m_text = text
+    }
+}
+
+impl Drop for Peek {
+    fn drop(&mut self) {
+        println!("{}", m_text)
+    }
+}
+
+view struct Quiet {
+    m_text: &str
+
+    Quiet(text: &str) {
+        m_text = text
+    }
+}
+
+fn keep(p: Peek) {
+    let _ = move(p)
+}
+
+// Dropped at the end of its scope, after the text it views grew.
+fn at_scope_end() {
+    let mut s = String::from("the original text")
+    let p = Peek(s.as_str())
+    s.push_str("-grow")
+}
+
+// Assigned over: the old value's drop reads the old text.
+fn assigned_over() {
+    let mut s = String::from("first")
+    let t = String::from("second")
+    let mut p = Peek(s.as_str())
+    s.push_str("-grow")
+    p = Peek(t.as_str())
+}
+
+// A `return` drops what is in scope, as the end of the block does.
+fn on_return(early: bool) {
+    let mut s = String::from("text")
+    let p = Peek(s.as_str())
+    s.push_str("-grow")
+    if early {
+        return
+    }
+}
+
+// Fine: ended in a block of its own before the kill.
+fn ended_first() {
+    let mut s = String::from("text")
+    {
+        let p = Peek(s.as_str())
+    }
+    s.push_str("-grow")
+}
+
+// Fine: moved out, so it is not dropped here.
+fn moved_out(s: &str) {
+    let mut mine = String::from("text")
+    let p = Peek(mine.as_str())
+    keep(move(p))
+    mine.push_str("-grow")
+    let _ = s
+}
+
+// Fine: returned, so the caller drops it while the text is still there.
+fn returned(s: &str) -> Peek in s {
+    let p = Peek(s)
+    return move(p)
+}
+
+// Fine: no `drop`, so nothing reads the view when it goes.
+fn no_drop() {
+    let mut s = String::from("text")
+    let q = Quiet(s.as_str())
+    s.push_str("-grow")
+}
+
+fn main() {
+    at_scope_end()
+    assigned_over()
+    on_return(true)
+    ended_first()
+    moved_out("x")
+    let r = returned("x")
+    no_drop()
+}

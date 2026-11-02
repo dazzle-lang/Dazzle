@@ -189,6 +189,9 @@ pub const UNTIED_POINTER_CONVERTED: &str = "DZ0418";
 /// A pointer whose tie is unknown returned under one, outside `unsafe`: the caller would
 /// trust it as tied (spec 6.7).
 pub const UNTIED_POINTER_RETURNED: &str = "DZ0419";
+/// A call that kills memory through one argument while another reaches it, pointing at
+/// what owns it or naming the same kill: `append_copy(&mut ys, &ys)` (spec 6.7).
+pub const ALIASED_KILL: &str = "DZ0420";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 

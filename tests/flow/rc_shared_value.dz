@@ -1,0 +1,65 @@
+// Spec §14.5, D-0094 point 2: any two `Rc<T>`s may hold one value, so the check takes the
+// value every `Rc<T>` and `Weak<T>` holds as one place. A call given two of them, one to
+// change, is refused, and so is a view through one used after a kill through another. One
+// handle alone, or handles of different types, change nothing.
+// expect: DZ0413, DZ0413
+
+fn append_copy(dst: &mut List<String>, src: &List<String>) kills dst@items {
+    for &s in src {
+        dst.push(String::from(s.as_str()))
+    }
+}
+
+fn two_handles() {
+    let mut list = List<String>()
+    list.push(String::from("a"))
+    let mut a = Rc<List<String>>(move(list))
+    let b = a
+    if let &mut dst = a {
+        if let &src = b {
+            append_copy(&mut dst, &src)
+        }
+    }
+}
+
+fn kept_across_a_kill(a: Rc<List<String>>, b: &mut Rc<List<String>>) {
+    if let &first = a {
+        let item = first.first() or return
+        if let &mut grown = b {
+            grown.push(String::from("b"))
+        }
+        println!("{}", item)
+    }
+}
+
+// Fine: one handle.
+fn one_handle(a: &mut Rc<List<String>>) {
+    if let &mut list = a {
+        let n = list.len()
+        list.push(String::from("c"))
+        println!("{}", n)
+    }
+}
+
+// Fine: an `Rc<List<String>>` and an `Rc<List<i32>>` cannot hold one value.
+fn two_types(a: Rc<List<String>>, b: &mut Rc<List<i32>>) {
+    if let &first = a {
+        let item = first.first() or return
+        if let &mut numbers = b {
+            numbers.push(1)
+        }
+        println!("{}", item)
+    }
+}
+
+fn main() {
+    two_handles()
+    let mut list = List<String>()
+    list.push(String::from("a"))
+    let a = Rc<List<String>>(move(list))
+    let mut c = a
+    kept_across_a_kill(a, &mut c)
+    one_handle(&mut c)
+    let mut numbers = Rc<List<i32>>(List<i32>())
+    two_types(a, &mut numbers)
+}

@@ -40,6 +40,26 @@ pub struct InvalidUse {
     /// A loop's next pass over its container, rather than a use the program writes: the
     /// iterator `for` keeps reads the memory a call in the body killed (spec §6.7).
     pub next_pass: bool,
+    /// The implicit `drop` of a value that holds views, at the end of its scope or when it
+    /// is assigned over: its `drop` may read them (spec §6.7, T-0127).
+    pub by_drop: bool,
+}
+
+/// A call that may kill memory through one argument while another reaches it (spec §6.7,
+/// D-0094 point 1): the callee was checked with its parameters taken as separate, so inside
+/// it the other one dangles. `append_copy(&mut ys, &ys)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AliasedKill {
+    /// The call.
+    pub span: Span,
+    /// What the call kills, in this body.
+    pub killed: Place,
+    /// The parameter the clause names it by: `self` for the receiver.
+    pub through: String,
+    /// The other parameter, which reaches it too.
+    pub other: String,
+    /// The other argument in this body; the receiver has none of its own.
+    pub other_span: Option<Span>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +82,7 @@ pub struct Incomplete {
 pub struct BodyAnalysis {
     pub kills: Vec<BodyKill>,
     pub invalid_uses: Vec<InvalidUse>,
+    pub aliased_kills: Vec<AliasedKill>,
     pub invalid_returns: Vec<InvalidReturn>,
     /// Only effects visible to callers, reduced to the narrowest set of paths.
     pub actual: Vec<Place>,
@@ -307,6 +328,9 @@ struct Analysis<'a> {
     /// The regions a `Box` call's contents hold, from `call` to the `Call` node that adds
     /// them to the box's own value. Empty between calls.
     contents: Vec<usize>,
+    /// The first guard local of each `Rc<T>` type in this body, which stands for every value
+    /// an `Rc<T>` or `Weak<T>` shares: any two may hold one (D-0094 point 2, T-0124).
+    shared: Vec<(Ty, LocalId)>,
 }
 
 /// Analyse one checked function, using only other functions' signatures. Findings are
@@ -372,6 +396,7 @@ fn analyse(
         reported: HashSet::new(),
         unsafe_depth: 0,
         contents: Vec::new(),
+        shared: Vec::new(),
         regions,
     };
     let signature = body_signature(body, table, res);
@@ -614,7 +639,7 @@ impl Analysis<'_> {
     /// `@items`, as the first is.
     fn canonical(&self, mut origin: Origin) -> Origin {
         let canon = |p: &Place| {
-            super::canonical_place(self.table, self.res, &self.body.local(p.local).ty, p)
+            super::canonical_place(self.table, self.res, &super::root_ty(self.body, p.local), p)
         };
         origin.target = canon(&origin.target);
         origin.tie = canon(&origin.tie);
@@ -630,7 +655,7 @@ impl Analysis<'_> {
                     self.unchecked(span, "the indexed element's storage is unknown");
                     return Vec::new();
                 };
-                let result = self.invoke(&signature, Some(value), &[], span);
+                let result = self.invoke(&signature, Some(value), &[], &[], span);
                 let mut elements = Vec::new();
                 // Each possible receiver has its own result provenance. Keep its
                 // logical element path even when the returned address is @items.
@@ -748,6 +773,7 @@ impl Analysis<'_> {
                 self.read(value, self.body.expr(*recv).span);
             }
         }
+        let arg_spans: Vec<Span> = args.iter().map(|a| self.body.expr(*a).span).collect();
         let boxed = self.regions.is_some() && crate::placement::boxes_argument(self.res, callee);
         for (i, (arg, value)) in args.iter().zip(&values).enumerate() {
             self.read(value, self.body.expr(*arg).span);
@@ -770,7 +796,7 @@ impl Analysis<'_> {
             // A default left out is the callee's own expression, which cannot name the
             // caller's places: it kills nothing here, and its provenance is unknown, which
             // `invoke` reports only where a clause or tie depends on that parameter.
-            let mut result = self.invoke(&signature, recv.as_ref(), &values, span);
+            let mut result = self.invoke(&signature, recv.as_ref(), &values, &arg_spans, span);
             if let Callee::Method { owner, .. } = callee {
                 let index = self.table.prelude_trait_named("Index") == Some(*owner)
                     || self.table.prelude_trait_named("IndexMut") == Some(*owner);
@@ -806,7 +832,7 @@ impl Analysis<'_> {
                     self_ty: None,
                     owner: None,
                 };
-                return self.invoke(&signature, None, &values, span);
+                return self.invoke(&signature, None, &values, &arg_spans, span);
             }
         }
         self.incomplete(span, "the callee's signature is unknown");
@@ -925,6 +951,7 @@ impl Analysis<'_> {
         signature: &Signature,
         recv: Option<&Value>,
         args: &[Value],
+        arg_spans: &[Span],
         span: Span,
     ) -> Value {
         let scope = signature.scope(self.table, self.res);
@@ -1092,6 +1119,16 @@ impl Analysis<'_> {
             }) || (signature.sig.kills_unknown
                 && signature.sig.takes_self == Some(true)
                 && receiver.iter().any(|o| o.target == kill));
+            // The inputs the clause kills this through, and the others that reach it, by
+            // name and argument: the receiver first, then the parameters in order.
+            let mut naming: Vec<(String, Option<Span>)> = Vec::new();
+            let mut reaching: Vec<(String, Option<Span>)> = Vec::new();
+            let reaches = |origins: &[Origin]| origins.iter().any(|o| o.target.covers(&kill));
+            if receiver_owns_kill {
+                naming.push(("self".into(), None));
+            } else if reaches(&receiver) {
+                reaching.push(("self".into(), None));
+            }
             if !receiver_owns_kill {
                 for origin in &receiver {
                     if origin.ended_by(&kill, Reach::Owned) && self.reported.insert(span) {
@@ -1099,6 +1136,7 @@ impl Analysis<'_> {
                             span,
                             tie: origin.tie.clone(),
                             next_pass: false,
+                            by_drop: false,
                             killed: BodyKill { place: kill.clone(), span, kind: KillKind::Call },
                         });
                     }
@@ -1116,6 +1154,12 @@ impl Analysis<'_> {
                 // A value parameter is a copy made before the callee runs, so where it was
                 // read from cannot dangle inside the call: `counts.insert(*n, 0)`.
                 let holds = super::points(&signature.sig.params[i].ty);
+                let name = signature.sig.params[i].name.clone();
+                if owns_kill {
+                    naming.push((name, arg_spans.get(i).copied()));
+                } else if holds && reaches(origins) {
+                    reaching.push((name, arg_spans.get(i).copied()));
+                }
                 if !owns_kill && holds {
                     for origin in origins {
                         if origin.ended_by(&kill, Reach::Owned) && self.reported.insert(span) {
@@ -1123,6 +1167,7 @@ impl Analysis<'_> {
                                 span,
                                 tie: origin.tie.clone(),
                                 next_pass: false,
+                                by_drop: false,
                                 killed: BodyKill {
                                     place: kill.clone(),
                                     span,
@@ -1130,6 +1175,25 @@ impl Analysis<'_> {
                                 },
                             });
                         }
+                    }
+                }
+            }
+            // A call may reach what it kills through one argument only (D-0094 point 1): the
+            // callee was checked with its parameters taken as separate. Another argument
+            // pointing at the owner of what dies (`append_copy(&mut ys, &ys)`), or naming
+            // the same kill, would dangle inside it. Memory that cannot die, an `i32`
+            // field, is no reason to refuse two arguments.
+            if let Some((through, _)) = naming.first() {
+                let other = naming.get(1).or_else(|| reaching.first());
+                if let Some((other, other_span)) = other {
+                    if self.owns_memory(&kill) && self.reported.insert(span) {
+                        self.result.aliased_kills.push(AliasedKill {
+                            span,
+                            killed: kill.clone(),
+                            through: through.clone(),
+                            other: other.clone(),
+                            other_span: *other_span,
+                        });
                     }
                 }
             }
@@ -1531,9 +1595,113 @@ impl Analysis<'_> {
                 span,
                 tie: origin.tie.clone(),
                 next_pass: false,
+                by_drop: false,
                 killed: origin.dead.clone().unwrap(),
             });
             self.reported.insert(span);
+        }
+    }
+
+    /// `local` is dropped at `span`. When its type has a `drop` and holds views, the drop
+    /// may read them, so they are used here although no line shows it: Rust's drop check
+    /// (spec §6.7, T-0127). A type with no `drop` of its own, such as an iterator, loses
+    /// nothing.
+    fn drop_reads(&mut self, local: LocalId, span: Span) {
+        let ty = &self.body.local(local).ty;
+        if !self.table.needs_drop(ty) || !super::contains_views(ty, self.table) {
+            return;
+        }
+        let Some(value) = self.state.get(&local).cloned() else { return };
+        let before = self.result.invalid_uses.len();
+        self.read(&value, span);
+        for u in &mut self.result.invalid_uses[before..] {
+            u.by_drop = true;
+        }
+    }
+
+    /// The value a guarded `Box` holds, as views of its `@value`, when `init` is the guard
+    /// of a `Box` named by a place: `h.node`, a local, or one through a reference. `None`
+    /// for anything else, whose target stays a view of its guard. A place expression is
+    /// walked again here, which reads but changes nothing.
+    fn box_handle(&mut self, init: ExprId) -> Option<Vec<Origin>> {
+        let hir::ExprKind::Call { callee: Callee::Method { recv, .. }, .. } =
+            &self.body.expr(init).kind
+        else {
+            return None;
+        };
+        let recv = *recv;
+        let boxed = self.res.lookup(self.res.prelude, "Box");
+        if !matches!(self.body.ty(recv).peeled_refs(), Ty::Named { sym, .. } if Some(*sym) == boxed)
+        {
+            return None;
+        }
+        fn place(body: &Body, e: ExprId) -> bool {
+            match body.expr(e).kind {
+                hir::ExprKind::Local(_) => true,
+                hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. } => {
+                    place(body, base)
+                }
+                _ => false,
+            }
+        }
+        if !place(self.body, recv) {
+            return None;
+        }
+        let value = self.expr(recv);
+        let ptr = Step::Field(super::canonical_field(self.table, boxed?, "m_ptr"));
+        let views: Vec<Origin> = self
+            .targets(recv, &value)
+            .into_iter()
+            .map(|o| {
+                // As `&xs[i]` is: the value, `@value`, kept valid by the allocation, which
+                // a write, `null` or a move of the box ends (spec §6.7).
+                let origin = Origin {
+                    target: o.target.followed_by(&[ptr.clone(), Step::Storage, Step::Elements]),
+                    tie: o.target.followed_by(&[ptr.clone(), Step::Storage]),
+                    broad: false,
+                    payload: None,
+                    dead: o.dead,
+                };
+                self.canonical(origin)
+            })
+            .collect();
+        (!views.is_empty()).then_some(views)
+    }
+
+    /// The place standing for every value an `Rc<T>` shares, when `guard` holds an `Rc<T>`:
+    /// the first such guard in this body (D-0094 point 2). Guards are never dropped by the
+    /// walk, so the place lives as long as the body.
+    fn shared_root(&mut self, guard: LocalId) -> Option<LocalId> {
+        let ty = self.body.local(guard).ty.clone();
+        let rc = self.res.lookup(self.res.prelude, "Rc");
+        if !matches!(&ty, Ty::Named { sym, .. } if Some(*sym) == rc) {
+            return None;
+        }
+        if let Some((_, root)) = self.shared.iter().find(|(t, _)| *t == ty) {
+            return Some(*root);
+        }
+        self.shared.push((ty, guard));
+        Some(guard)
+    }
+
+    /// Whether killing `place` can free or move memory, or change a variant: an allocation
+    /// behind a tie, or a value that owns one. Killing an `i32` field changes nothing a
+    /// view can lose (D-0094 point 1). A place whose type cannot be followed counts as one.
+    fn owns_memory(&self, place: &Place) -> bool {
+        let mut ty = super::root_ty(self.body, place.local);
+        for step in &place.steps {
+            match step {
+                // `field_of` looks through references and pointers to the struct.
+                Step::Field(name) => match super::field_of(self.table, &ty, name) {
+                    Some(t) => ty = t,
+                    None => return true,
+                },
+                Step::Elements | Step::Storage => return true,
+            }
+        }
+        match ty.peeled_refs() {
+            Ty::Ptr { .. } | Ty::OwnPtr { .. } => true,
+            t => moves_memory(t, self.table),
         }
     }
 
@@ -1658,6 +1826,7 @@ impl Analysis<'_> {
         // Drops can end a view returned by the block. This includes a local declared
         // inside a nested block and referenced by a binding outside it.
         for local in locals.into_iter().rev() {
+            self.drop_reads(local, self.body.local(local).span);
             self.kill(Place::local(local), self.body.block(block).span, KillKind::Drop);
             self.state.remove(&local);
             for origin in value.origins_mut() {
@@ -1751,8 +1920,10 @@ impl Analysis<'_> {
                             return Value::default();
                         }
                         if !super::points(ty) && super::contains_views(ty, self.table) {
-                            // A struct or tuple holding views takes the new value's, so
-                            // the old ones are not read; what the old value owned dies.
+                            // A struct or tuple holding views takes the new value's; the
+                            // old ones are read only by the old value's `drop`, and what
+                            // the old value owned dies.
+                            self.drop_reads(local, node.span);
                             if moves_memory(ty, self.table) {
                                 self.kill(Place::local(local), node.span, KillKind::Assign);
                             }
@@ -1872,6 +2043,7 @@ impl Analysis<'_> {
         for index in (depth..self.scopes.len()).rev() {
             let (locals, deferred) = std::mem::take(&mut self.scopes[index]);
             for local in locals.into_iter().rev() {
+                self.drop_reads(local, self.body.local(local).span);
                 self.kill(Place::local(local), self.body.local(local).span, KillKind::Drop);
                 self.state.remove(&local);
             }
@@ -1962,6 +2134,8 @@ impl Analysis<'_> {
                 let mut value = self.expr(inner);
                 if let hir::ExprKind::Local(local) = self.body.expr(inner).kind {
                     self.kill(Place::local(local), node.span, KillKind::Move);
+                    // Moved out, it is not dropped here: its views went with the value.
+                    self.state.remove(&local);
                 } else {
                     self.kill_places(&value.places, node.span, KillKind::Move);
                     if value.places.is_empty() {
@@ -2115,6 +2289,7 @@ impl Analysis<'_> {
                                     span: node.span,
                                     tie: origin.tie.clone(),
                                     next_pass: false,
+                                    by_drop: false,
                                     killed,
                                 });
                             }
@@ -2203,10 +2378,28 @@ impl Analysis<'_> {
                 Value::default()
             }
             hir::ExprKind::Guarded { guard, init: init_expr, value } => {
+                let handle = self.box_handle(init_expr);
                 let init = self.expr(init_expr);
                 self.sink(init_expr, &init, Refusal::Unfollowed("held by a guard"));
                 self.bind(guard, init.without_owned());
-                self.expr(value)
+                let mut target = self.expr(value);
+                if let Some(views) = handle {
+                    // A `Box`'s value is in the box (D-0094 point 3): writing, emptying or
+                    // moving the box ends it, as assigning a `String` ends its text.
+                    target.views = views;
+                    target.unknown = false;
+                } else if let Some(root) = self.shared_root(guard) {
+                    // Any two `Rc<T>`s may share one value, so every one's is one place.
+                    for origin in &mut target.views {
+                        if origin.target.local == guard {
+                            origin.target.local = root;
+                        }
+                        if origin.tie.local == guard {
+                            origin.tie.local = root;
+                        }
+                    }
+                }
+                target
             }
             hir::ExprKind::Formatted { args, params, body } => {
                 for (arg, param) in args.into_iter().zip(params) {

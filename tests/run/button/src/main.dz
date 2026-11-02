@@ -26,7 +26,11 @@ struct Button {
     pub state: ButtonState = .DefaultState{}
 
     pub fn update(&mut self, ctx: &ButtonCtx, input: &Input) kills self.state {
-        state.step(ctx, input, &mut self)
+        // The state steps apart from the button it is handed: `step` replaces its state,
+        // and a call may not reach what it replaces through another argument (spec 6.7).
+        let mut s = state
+        s.step(ctx, input, &mut self)
+        state = s
     }
 }
 

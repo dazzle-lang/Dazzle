@@ -2,7 +2,7 @@
 id: T-0123
 title: A call may reach memory it kills through only one argument
 milestone: none
-status: open
+status: done
 kind: design
 area: ownership
 ---
@@ -94,3 +94,14 @@ does not move.
   `dz_flow/tests/placement.rs` too.
 
 A language change: a §21 row and a new diagnostic code.
+
+**Built 2026-11-02 (r103), as proposed.** In `invoke`'s kill loop
+(`dz_flow/src/ties/body.rs`), each kill collects the inputs the clause names it through
+and the other reference inputs whose target covers it. When one names it and another
+reaches it, or two name it, and the killed place owns memory (`owns_memory`: a `Storage`
+step, `[*]`, a pointer, or a type `moves_memory` says owns something), the call is
+`DZ0420` (`AliasedKill`, reported in `ties/report.rs`, explained in
+`dz_diag/explain/flow.md`). An argument pointing *into* the memory stays `DZ0413`, as
+before. Tests: `tests/flow/aliased_kill.dz` (four refused, four fine). `tests/run/button`
+and `tests/run/machine` handed the button to its own state's `step`, which kills the
+state: each now steps a copy of the state and writes it back.

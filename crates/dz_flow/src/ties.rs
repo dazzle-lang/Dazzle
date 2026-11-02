@@ -294,6 +294,22 @@ fn field(scope: &Scope<'_>, ty: &Ty, name: &str) -> Option<Ty> {
     field_of(scope.table, ty, name)
 }
 
+/// The type a place rooted at `local` starts in. A guard local, the hidden one `or` and
+/// `if let` hold a handle's guard in, stands for the value it guards (an `Rc<T>`'s `T`),
+/// which is where a view of the target and every path under it point (spec §14.5).
+pub(crate) fn root_ty(body: &dz_hir::Body, local: dz_hir::LocalId) -> Ty {
+    let ty = &body.local(local).ty;
+    match ty.peeled() {
+        Ty::Named { args, .. } if is_guard(body, local) && args.len() == 1 => args[0].clone(),
+        _ => ty.clone(),
+    }
+}
+
+/// Whether `local` is a guard local, which no program names (spec §14.5).
+pub(crate) fn is_guard(body: &dz_hir::Body, local: dz_hir::LocalId) -> bool {
+    body.local(local).name == "_guard"
+}
+
 fn field_of(table: &TypeTable, ty: &Ty, name: &str) -> Option<Ty> {
     let Ty::Named { sym, args } = ty.peeled() else { return None };
     let f = table.struct_sig(*sym)?.fields.iter().find(|f| f.name == name)?;

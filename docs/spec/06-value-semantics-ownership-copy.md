@@ -422,6 +422,27 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
   think(&mut world.enemies[i], &mut world)   // error: `e` points into `world.enemies@items`
   think(&mut boss, &mut world)               // fine: `boss` is not in `world`
   ```
+- **A call may reach what it kills through one argument only.** A function is checked once,
+  for every caller, with its parameters taken as separate places, so at a call, memory the
+  clause kills may be reached through the argument the clause names it by, and no other
+  (`DZ0420`): not by one pointing at what owns that memory, nor by a second argument naming
+  the same kill. Arguments may still share memory the call does not kill, and memory that
+  cannot die, such as an `i32` field:
+
+  ```dz
+  fn append_copy(dst: &mut List<String>, src: &List<String>) kills dst@items { … }
+  append_copy(&mut ys, &ys)            // error: `ys@items` dies through `dst`, and `src` reaches it
+  append_copy(&mut ys, &zs)            // fine
+  fn rebuild(world: &mut World, score: &i32) kills world.names@items { … }
+  rebuild(&mut world, &world.score)    // fine: an `i32` owns nothing that can die
+  total(&xs, &xs)                      // fine: `total` kills nothing
+  ```
+
+  `[DECIDED — D-0094]`
+- **A value with a `drop` uses its views when it is dropped**, at the end of its scope or
+  when it is assigned over, since its `drop` may read them where no line shows it. A view
+  struct with a `drop`, dropped after what it views was killed, is `DZ0413`; one with no
+  `drop`, such as an iterator, is not.
 
 **A view lives only where a reference does** (D-0093): in a local, a parameter, a result
 or a temporary, never in a field, a container or a type argument. A struct that must hold

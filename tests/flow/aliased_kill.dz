@@ -1,0 +1,71 @@
+// Spec §6.7, D-0094 point 1: a function is checked once with its parameters taken as
+// separate, so at a call, memory the clause kills may be reached through the argument the
+// clause names it by and no other. Refused: another argument pointing at what owns it,
+// whether a parameter or the receiver, and two arguments naming the same kill. Still
+// legal: two arguments sharing memory the call does not kill, memory that cannot die (an
+// `i32` field), and distinct lists.
+// expect: DZ0420, DZ0420, DZ0420, DZ0420
+
+fn append_copy(dst: &mut List<String>, src: &List<String>) kills dst@items {
+    for &s in src {
+        dst.push(String::from(s.as_str()))
+    }
+}
+
+fn grow_both(a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items {
+    a.push(1)
+    b.push(2)
+}
+
+fn total(a: &List<i32>, b: &List<i32>) -> i32 {
+    return a.len() as i32 + b.len() as i32
+}
+
+pub struct World {
+    pub score: i32 = 0
+    pub names: List<String>
+
+    World() {
+        names = List<String>()
+    }
+
+    pub fn add_all(&mut self, from: &World) kills self.names@items {
+        for &n in &from.names {
+            names.push(String::from(n.as_str()))
+        }
+    }
+}
+
+fn rename(w: &mut World, score: &i32) kills w.names@items {
+    w.names.push(String::from("x"))
+    let _ = score + 1
+}
+
+fn rename_seen(w: &mut World, seen: &List<String>) kills w.names@items {
+    w.names.push(String::from("x"))
+    let _ = seen.len()
+}
+
+fn main() {
+    let mut ys = List<String>()
+    ys.push(String::from("a"))
+    append_copy(&mut ys, &ys)
+
+    let mut xs = List<i32>()
+    grow_both(&mut xs, &mut xs)
+
+    let mut w = World()
+    w.add_all(&w)
+    rename_seen(&mut w, &w.names)
+
+    // Fine: the call kills nothing.
+    let n = total(&xs, &xs)
+    // Fine: an `i32` field cannot die.
+    rename(&mut w, &w.score)
+    // Fine: two lists.
+    let mut zs = List<String>()
+    append_copy(&mut zs, &ys)
+    let mut other = List<i32>()
+    grow_both(&mut xs, &mut other)
+    println!("{} {}", n, zs.len())
+}

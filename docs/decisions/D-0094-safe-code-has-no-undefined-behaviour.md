@@ -4,9 +4,10 @@ title: Safe code has no undefined behaviour: closing the holes ties leave
 status: open
 ---
 
-**Proposed, not decided** (2026-11-01). Each point below is the user's call. The tasks hold
-the detail, and each holds the program that shows its hole, to become a test that must be
-refused.
+**Partly decided.** Points 1, 2 and 3 were decided as proposed on 2026-11-02, with point 2
+as option A (one place per `T`), and are built (r103). The rest, points 4–8 and the overall
+question, are open (2026-11-01): each is the user's call. The tasks hold the detail, and
+each holds the program that shows its hole, to become a test that must be refused.
 
 **The question.** Should Dazzle promise that a program with no `unsafe` has no undefined
 behaviour on one thread: no read or write of freed memory, no payload used under the wrong

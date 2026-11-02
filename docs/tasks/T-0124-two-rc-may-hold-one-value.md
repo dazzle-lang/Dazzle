@@ -2,7 +2,7 @@
 id: T-0124
 title: Two `Rc`s may hold one value, and the ties check takes them for two
 milestone: none
-status: open
+status: done
 kind: design
 area: ownership
 ---
@@ -55,3 +55,12 @@ value is in use. It did not settle two handles changing one value.
   Rust's model, and it costs the ergonomics §14.5 chose.
 
 A language change: §14.5 and §6.7, and a §21 row.
+
+**Built 2026-11-02 (r103), option A.** In the walk's `Guarded` case
+(`dz_flow/src/ties/body.rs`), the target of a guard holding an `Rc<T>` is re-rooted at
+the body's first guard local of that type (`shared_root`, the `shared` table); guards are
+never dropped by the walk, so that place lives as long as the body. A guard local stands
+for the value it guards (`root_ty` and `is_guard` in `ties.rs`), so its paths are read on
+`T`, and it is shown as its type, `Rc<List<String>>@items`, with a note saying why
+(`ties/report.rs`). The two-handle program is `DZ0413`. Tests:
+`tests/flow/rc_shared_value.dz`.

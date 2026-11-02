@@ -2,7 +2,7 @@
 id: T-0125
 title: A `Box` emptied while `if let` holds its value
 milestone: none
-status: open
+status: done
 kind: design
 area: ownership
 ---
@@ -47,3 +47,12 @@ no run-time cost, and only programs like the one above are refused. Placement's 
 should use the same tie.
 
 A language change: revises D-0062 and §14.5, with a §21 row.
+
+**Built 2026-11-02 (r103).** `Box` declares `tie @value = m_ptr[*]` (`std/memory/box.dz`):
+`m_ptr[*]` rather than `m_ptr`, so a path can go on into the value
+(`kills h.node@value.name@text`; a tie ending at a pointer cannot). In the walk's
+`Guarded` case, a guard of a `Box` named by a place gets a view as `&xs[i]` does
+(`box_handle`): its target is `@value`, its tie the allocation, which a write, `null` or
+a move of the box ends. A box that is a temporary keeps the old view of its guard. The
+report shows the allocation as `@value` too. Not done: placement's `contents` does not
+use the tie yet. Tests: `tests/flow/box_value_tie.dz`.

@@ -6,6 +6,40 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r103: three holes closed, and a drop counted as a use (2026-11-02)
+
+The language change is r103: D-0094 points 1–3, decided as proposed that day (point 2 as
+option A). T-0127 enforces an existing rule. Every program D-0094 lists for these four now
+fails to compile, where it read freed memory when it ran.
+
+- **A call may reach what it kills through one argument only** (T-0123, `DZ0420`).
+  `invoke`'s kill loop collects, per kill, the inputs the clause names it through and the
+  other reference inputs whose target covers it. One naming and another reaching it, or two
+  naming it, is refused when the killed place owns memory (`owns_memory`), so
+  `rebuild(&mut world, &world.score)` stays fine. An argument pointing *into* the memory
+  stays `DZ0413`, as before.
+- **Every `Rc<T>` is one place** (T-0124). A guard of an `Rc<T>` has its target re-rooted
+  at the body's first guard local of that type. The walk never drops a guard, so the place
+  lasts the whole body. A guard local stands for the value it guards (`root_ty`), and a
+  diagnostic shows it as its type, with a note.
+- **A `Box`'s value is in the box** (T-0125). `Box` declares `tie @value = m_ptr[*]`. D-0094
+  wrote `m_ptr`, which names the same memory, but a tie ending at a pointer cannot be
+  followed further, so the clause a function changing the boxed value needs,
+  `kills h.node@value.name@text`, could not have been written. A guard of a `Box` named by a
+  place gets a view built as `&xs[i]`'s is: target `@value`, tie the allocation.
+- **A drop is a use of a value's views** (T-0127): at a scope's end, on a jump out, and
+  when assigned over, when the value's type needs a drop and holds views. A moved-out local
+  no longer counts as dropped.
+- **The criterion programs** `tests/run/button` (M8) and `tests/run/machine` (M10) handed
+  the button to its own state's `step`, which kills that state: `DZ0420`. Safe as written,
+  since no state touches `btn.state`, but `step` is checked as if `btn` and the state were
+  apart, and a body that did would dangle. Each now steps a copy of the state and writes it
+  back, which prints the same.
+
+Tests: one `tests/flow` file per rule (`aliased_kill`, `rc_shared_value`,
+`box_value_tie`, `view_struct_drop_reads`), and `DZ0420` in `dz explain`. All examples,
+`tests/run` and the bench programs check clean.
+
 ## T-0117, stage 1's peak-memory bug: large blocks are the heap's (2026-11-02)
 
 Compiler work; no language change. Behind `DZ_REGIONS`.

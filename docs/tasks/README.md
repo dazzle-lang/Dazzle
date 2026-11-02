@@ -29,8 +29,8 @@ proposed:
 1. T-0117's verdict: the peak-memory bug is fixed (2026-11-02), at the cost of `astar`'s
    speed, which was the pool's; the gate is next.
 2. The holes the placement check shares, since a placement is checked like a reference:
-   T-0123, T-0124 and T-0125 (rules in D-0094) and T-0127 (a bug), with T-0131 so that a
-   wrong placement shows in tests.
+   T-0123, T-0124, T-0125 and T-0127 are closed (r103, 2026-11-02); T-0131 is left, so that
+   a wrong placement shows in tests.
 3. Frame regions (T-0139), so `Allocators::Temp` can leave ordinary code without losing
    speed; then T-0119, allocators out of ordinary code, and T-0118.
 4. The rest of D-0094 (T-0126, T-0128, T-0129, T-0130, T-0135, T-0136), its tests (T-0132
