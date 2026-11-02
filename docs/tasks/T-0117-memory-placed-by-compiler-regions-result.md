@@ -17,9 +17,9 @@ below, built it).
 | Piece | Where |
 |---|---|
 | The region arena: `ScopeArena` (chunks doubling; a block of 16 KiB or more is the heap's, at its exact size, freed at once) and `ScopePool` (per thread; chunks only) | `dz_project/src/std/memory/scope_arena.dz`, `scope_pool.dz`, listed in `STD_SOURCES` (`dz_project/src/lib.rs`) |
-| A copy of a region value goes to the heap: `Allocator::scoped` (false; `ScopeArena` says true), read by `List::copy` and `HashMap::copy`; `String`, `Path`, `HashSet` and `SlotMap` copy through them | `std/memory/allocator.dz`, `std/collections/list.dz`, `std/collections/hash_map.dz` |
+| A copy is built in its own placement, never its original's (T-0140, which replaced the `Allocator::scoped` guard): `List::copy` and `HashMap::copy` read `#placement`; `String`, `Path`, `HashSet` and `SlotMap` copy field by field through them | `std/collections/list.dz`, `std/collections/hash_map.dz`; the placed copy in T-0140's table |
 | Sites, the proposer and the reasons' words: `place`, `place_with` (`Proposer::Rules`, `Proposer::Everything`), `Placements`, `BodyPlacement` (`region_blocks`, `region_for`, `demoted`), `Site`, `Decision` | `dz_flow/src/placement.rs` |
-| The ties check: `analyse_regions`; `Value::owned`, `Regions`, `Refusal`; `region_site` (the loop rule), `region_assign`, `region_end`, `sink`, `passed` (a copy carries no region) | `dz_flow/src/ties/body.rs` |
+| The ties check: `analyse_regions`; `Value::owned`, `Regions`, `Refusal`; `region_site` (the loop rule), `region_assign`, `region_end`, `sink`, `passed` (a copy carries none of its original's regions, only its own when placed) | `dz_flow/src/ties/body.rs` |
 | One answer for every reader: `Analysis::placements`, computed after ownership and timed as `placement` | `dz_driver/src/lib.rs` |
 | Codegen, behind the switch: `Options::regions`; `emit` takes `Option<&Placements>`; `Emitter::placement` and `regions`, set in `in_body` by the body's owner; the region declared in `block_into`, passed in `call` (`region`), named by `region_name` | `dz_cpp/src/lib.rs` |
 | The switch: `DZ_REGIONS` (any value but `0`), for every command that emits C++ | `emit_cpp`, `crates/dz/src/build.rs` |

@@ -466,13 +466,13 @@ impl<'b> Walk<'b> {
 /// self@items` and nothing under `[*]`) and hands back nothing that owns memory. A `&mut`
 /// lent, an assignment to it or into it, a move of it, or a method that may drop or return
 /// an element (`pop`, `clear`, `HashMap::insert`, which may drop the value it replaces)
-/// says no.
+/// says no — an insert of a key just looked up and not found aside ([`adds_new`]).
 ///
 /// This is not a safety rule: the region check follows an element taken out of a container
 /// wherever it goes. It bounds memory. A value built on every pass of a loop may go into a
 /// region the loop does not end only when the container it is stored into keeps it, so the
 /// region grows no faster than the container does (T-0117's loop rule).
-pub(crate) fn keeps(body: &Body, table: &TypeTable, l: LocalId) -> bool {
+pub(crate) fn keeps(body: &Body, table: &TypeTable, res: &Resolution, l: LocalId) -> bool {
     let walk = Walk::new(body);
     let uses = (0..body.exprs.len() as u32)
         .map(ExprId)
@@ -511,7 +511,10 @@ pub(crate) fn keeps(body: &Body, table: &TypeTable, l: LocalId) -> bool {
                 if recv != top {
                     continue;
                 }
-                if !keeps_through(table, callee, body.ty(up)) {
+                // An insert of a key just looked up and not found replaces nothing.
+                if !keeps_through(table, res, callee, body.ty(top), body.ty(up))
+                    && !adds_new(body, res, up)
+                {
                     return false;
                 }
             }
@@ -521,10 +524,189 @@ pub(crate) fn keeps(body: &Body, table: &TypeTable, l: LocalId) -> bool {
     true
 }
 
-/// Whether a method called on a container leaves every element in it: it takes `&self`, or
-/// it takes `&mut self`, kills at most `self@items` or `self@text` (where the elements are,
-/// not the elements), and returns nothing that owns memory.
-fn keeps_through(table: &TypeTable, callee: &Callee, ret: &Ty) -> bool {
+/// Whether `call`, `std`'s `HashMap::insert` or `HashSet::insert`, adds a key the body has
+/// just looked up and not found, so it never replaces one and drops nothing it is given
+/// (T-0149). That is how most maps are filled:
+///
+/// ```dz
+/// if let &mut n = counts.get_mut_str(word.as_str()) {
+///     n += 1
+/// } else {
+///     counts.insert(word, 1)
+/// }
+/// ```
+///
+/// The guard is an `if let` on a lookup (`get`, `get_mut`, `get_str`, `get_mut_str`) whose
+/// `else` holds the insert, or an `if` on `contains` (`contains_str`) whose `else`, or
+/// whose `then` under `!`, holds it. The lookup is on the same place as the insert, and the
+/// two keys are read from the same local, through `&`, `move`, `as_str()`, `String(…)` or
+/// `String::from(…)`. The insert is a statement of that block, and nothing before it there
+/// mentions the map or the key.
+///
+/// Like [`keeps`], this bounds memory and is not a safety rule: an insert that did replace
+/// would only drop a value into its region, which grows by it.
+pub(crate) fn adds_new(body: &Body, res: &Resolution, call: ExprId) -> bool {
+    let hir::ExprKind::Call { callee: Callee::Method { recv, owner, name, .. }, args } =
+        &body.expr(call).kind
+    else {
+        return false;
+    };
+    let s = res.symbol(*owner);
+    if name != "insert"
+        || s.module != res.prelude
+        || !matches!(s.name.as_str(), "HashMap" | "HashSet")
+    {
+        return false;
+    }
+    let (Some(map), Some(key)) =
+        (place_path(body, *recv), args.first().and_then(|k| key_local(body, res, *k)))
+    else {
+        return false;
+    };
+    for e in (0..body.exprs.len() as u32).map(ExprId) {
+        let (lookup, found, block) = match &body.expr(e).kind {
+            hir::ExprKind::IfLet { operand, else_branch: Some(b), .. } => (*operand, false, *b),
+            hir::ExprKind::If { cond, then, else_branch } => match &body.expr(*cond).kind {
+                hir::ExprKind::Unary { op: dz_ast::UnaryOp::Not, operand } => {
+                    (*operand, true, *then)
+                }
+                _ => match else_branch {
+                    Some(b) => (*cond, true, *b),
+                    None => continue,
+                },
+            },
+            _ => continue,
+        };
+        if looks_up(body, res, lookup, found, &map, key)
+            && first_touch(body, block, call, map.0, key) == Some(true)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether `e` looks `key` up in the map or set at `map`: a pointer lookup for an `if let`,
+/// or `contains` when `found` is what the condition asks.
+fn looks_up(
+    body: &Body,
+    res: &Resolution,
+    e: ExprId,
+    found: bool,
+    map: &(LocalId, Vec<usize>),
+    key: LocalId,
+) -> bool {
+    let hir::ExprKind::Call { callee: Callee::Method { recv, owner, name, .. }, args } =
+        &body.expr(e).kind
+    else {
+        return false;
+    };
+    let names: &[&str] = if found {
+        &["contains", "contains_str"]
+    } else {
+        &["get", "get_mut", "get_str", "get_mut_str"]
+    };
+    res.symbol(*owner).module == res.prelude
+        && names.contains(&name.as_str())
+        && place_path(body, *recv).as_ref() == Some(map)
+        && args.first().and_then(|k| key_local(body, res, *k)) == Some(key)
+}
+
+/// Whether `call` is a statement of `block`, or of a plain or `unsafe` block that is one,
+/// with no statement before it mentioning `map` or `key`: `Some(true)`; `Some(false)` when
+/// one does; `None` when neither is in the block.
+fn first_touch(
+    body: &Body,
+    block: BlockId,
+    call: ExprId,
+    map: LocalId,
+    key: LocalId,
+) -> Option<bool> {
+    for s in &body.block(block).stmts {
+        if let hir::StmtKind::Expr(e) = body.stmt(*s).kind {
+            if e == call {
+                return Some(true);
+            }
+            if let hir::ExprKind::Block(inner) = body.expr(e).kind {
+                if let Some(found) = first_touch(body, inner, call, map, key) {
+                    return Some(found);
+                }
+                continue;
+            }
+        }
+        let mut exprs = Vec::new();
+        stmt_exprs(body, *s, &mut exprs);
+        if exprs
+            .iter()
+            .any(|e| matches!(body.expr(*e).kind, hir::ExprKind::Local(l) if l == map || l == key))
+        {
+            return Some(false);
+        }
+    }
+    None
+}
+
+/// A place as a local and the fields under it, by value: `counts`, `self.names` aside.
+fn place_path(body: &Body, e: ExprId) -> Option<(LocalId, Vec<usize>)> {
+    match body.expr(e).kind {
+        hir::ExprKind::Local(l) => Some((l, Vec::new())),
+        hir::ExprKind::Field { base, index } => {
+            let (l, mut fields) = place_path(body, base)?;
+            fields.push(index);
+            Some((l, fields))
+        }
+        _ => None,
+    }
+}
+
+/// The local a key is read from: `word`, `&word`, `move(word)`, `word.as_str()`,
+/// `String(name)`, `String::from(name)`.
+fn key_local(body: &Body, res: &Resolution, e: ExprId) -> Option<LocalId> {
+    match &body.expr(e).kind {
+        hir::ExprKind::Local(l) => Some(*l),
+        hir::ExprKind::Ref { place: inner, .. }
+        | hir::ExprKind::Move(inner)
+        | hir::ExprKind::Deref(inner) => key_local(body, res, *inner),
+        hir::ExprKind::Call { callee, args } => {
+            let rest_default = |from: usize| {
+                args.iter()
+                    .skip(from)
+                    .all(|a| matches!(body.expr(*a).kind, hir::ExprKind::DefaultArg(_)))
+            };
+            match callee {
+                Callee::Method { recv, name, .. } if name == "as_str" || name == "as_slice" => {
+                    rest_default(0).then(|| key_local(body, res, *recv)).flatten()
+                }
+                Callee::Ctor { owner, .. } | Callee::Assoc { owner, .. } => {
+                    let s = res.symbol(*owner);
+                    let from = match callee {
+                        Callee::Assoc { name, .. } => name == "from",
+                        _ => true,
+                    };
+                    if s.name != "String" || s.module != res.prelude || !from || !rest_default(1) {
+                        return None;
+                    }
+                    key_local(body, res, *args.first()?)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Whether a method called on a container, of type `recv`, leaves every element in it: it
+/// takes `&self`, or it takes `&mut self`, kills only ties of `self` that are where the
+/// elements are rather than the elements, and returns nothing that owns memory. For `std`'s
+/// containers those are `@items` and `@text`; for a program's own, each tie's declaration
+/// says ([`crate::ties::tie_spares_elements`], T-0149).
+fn keeps_through(
+    table: &TypeTable,
+    res: &Resolution,
+    callee: &Callee,
+    recv: &Ty,
+    ret: &Ty,
+) -> bool {
     let (Callee::Method { owner, name, .. } | Callee::BaseMethod { owner, name, .. }) = callee
     else {
         return false;
@@ -538,9 +720,15 @@ fn keeps_through(table: &TypeTable, callee: &Callee, ret: &Ty) -> bool {
     if sig.kills_unknown || owns(table, ret) {
         return false;
     }
+    let std = res.symbol(*owner).module == res.prelude;
     sig.kills.iter().all(|path| {
+        let [TieStep::Tie(t)] = path.steps.as_slice() else { return false };
         path.root.name == "self"
-            && matches!(path.steps.as_slice(), [TieStep::Tie(t)] if t.name == "items" || t.name == "text")
+            && if std {
+                t.name == "items" || t.name == "text"
+            } else {
+                crate::ties::tie_spares_elements(table, res, recv, &t.name)
+            }
     })
 }
 

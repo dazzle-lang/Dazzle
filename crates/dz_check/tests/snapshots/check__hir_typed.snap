@@ -1380,23 +1380,9 @@ body copy HashMap -> void
     assign =
       field #5: ^mut Allocator
         local _0 self: HashMap<K, V>
-      field #5: ^mut Allocator
-        local _1 other: &HashMap<K, V>
-    if-let: void
       block-value: ^mut Allocator
         block
-          field #5: ^mut Allocator
-            local _1 other: &HashMap<K, V>
-      bind _2 from
-      block
-        if: void
-          call-method Allocator::scoped: bool
-            local _2 from: &Allocator
-          block
-            assign =
-              field #5: ^mut Allocator
-                local _0 self: HashMap<K, V>
-              const Allocators::Global: &mut Allocator
+          intrinsic #placement: ^mut Allocator
     if: void
       binary ==: bool
         field #3: usize
@@ -1404,7 +1390,7 @@ body copy HashMap -> void
         int 0: usize
       block
         return: !
-    let _3 a: &mut Allocator
+    let _2 a: &mut Allocator
       block-value: &mut Allocator
         block
           or: &mut Allocator
@@ -1424,7 +1410,7 @@ body copy HashMap -> void
         block
           cast: ^mut u64
             call-method Allocator::alloc: ^mut u8
-              local _3 a: &mut Allocator
+              local _2 a: &mut Allocator
               binary *: usize
                 field #4: usize
                   local _0 self: HashMap<K, V>
@@ -1437,7 +1423,7 @@ body copy HashMap -> void
         block
           cast: ^mut K
             call-method Allocator::alloc: ^mut u8
-              local _3 a: &mut Allocator
+              local _2 a: &mut Allocator
               binary *: usize
                 field #4: usize
                   local _0 self: HashMap<K, V>
@@ -1450,36 +1436,36 @@ body copy HashMap -> void
         block
           cast: ^mut V
             call-method Allocator::alloc: ^mut u8
-              local _3 a: &mut Allocator
+              local _2 a: &mut Allocator
               binary *: usize
                 field #4: usize
                   local _0 self: HashMap<K, V>
                 type-query V::size: usize
               type-query V::align: usize
-    for _4 i
+    for _3 i
       range: usize..usize
         int 0: i32
         field #4: usize
           local _0 self: HashMap<K, V>
       block
-        let _5 h: u64
+        let _4 h: u64
           block-value: u64
             block
               index: u64
                 field #0: own ^mut u64
                   local _1 other: &HashMap<K, V>
-                local _4 i: usize
+                local _3 i: usize
         block-value: void
           block
             assign =
               index: u64
                 field #0: own ^mut u64
                   local _0 self: HashMap<K, V>
-                local _4 i: usize
-              local _5 h: u64
+                local _3 i: usize
+              local _4 h: u64
         if: void
           binary !=: bool
-            local _5 h: u64
+            local _4 h: u64
             int 0: u64
           block
             block-value: void
@@ -1488,20 +1474,20 @@ body copy HashMap -> void
                   index: K
                     field #1: own ^mut K
                       local _0 self: HashMap<K, V>
-                    local _4 i: usize
+                    local _3 i: usize
                   index: K
                     field #1: own ^mut K
                       local _1 other: &HashMap<K, V>
-                    local _4 i: usize
+                    local _3 i: usize
                 builtin construct: void
                   index: V
                     field #2: own ^mut V
                       local _0 self: HashMap<K, V>
-                    local _4 i: usize
+                    local _3 i: usize
                   index: V
                     field #2: own ^mut V
                       local _1 other: &HashMap<K, V>
-                    local _4 i: usize
+                    local _3 i: usize
     assign =
       field #3: usize
         local _0 self: HashMap<K, V>
@@ -3334,23 +3320,9 @@ body copy List -> void
     assign =
       field #3: ^mut Allocator
         local _0 self: List<T>
-      field #3: ^mut Allocator
-        local _1 other: &List<T>
-    if-let: void
       block-value: ^mut Allocator
         block
-          field #3: ^mut Allocator
-            local _1 other: &List<T>
-      bind _2 from
-      block
-        if: void
-          call-method Allocator::scoped: bool
-            local _2 from: &Allocator
-          block
-            assign =
-              field #3: ^mut Allocator
-                local _0 self: List<T>
-              const Allocators::Global: &mut Allocator
+          intrinsic #placement: ^mut Allocator
     if: void
       binary ==: bool
         field #1: usize
@@ -3358,7 +3330,7 @@ body copy List -> void
         int 0: usize
       block
         return: !
-    let _3 a: &mut Allocator
+    let _2 a: &mut Allocator
       block-value: &mut Allocator
         block
           or: &mut Allocator
@@ -3373,7 +3345,7 @@ body copy List -> void
         block
           cast: ^mut T
             call-method Allocator::alloc: ^mut u8
-              local _3 a: &mut Allocator
+              local _2 a: &mut Allocator
               binary *: usize
                 field #1: usize
                   local _1 other: &List<T>
@@ -3384,7 +3356,7 @@ body copy List -> void
         local _0 self: List<T>
       field #1: usize
         local _1 other: &List<T>
-    for _4 i
+    for _3 i
       range: usize..usize
         int 0: i32
         field #1: usize
@@ -3396,11 +3368,11 @@ body copy List -> void
               index: T
                 field #0: own ^mut T
                   local _0 self: List<T>
-                local _4 i: usize
+                local _3 i: usize
               index: T
                 field #0: own ^mut T
                   local _1 other: &List<T>
-                local _4 i: usize
+                local _3 i: usize
     assign =
       field #1: usize
         local _0 self: List<T>

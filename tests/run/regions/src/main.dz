@@ -394,6 +394,79 @@ fn main() {
     println!("weighed {}", weighed())
     println!("stored {} {} {} {}", filled(4), popped(&mut store), drained(3), counted(5))
     println!("kept {}", store.names[store.names.len() - 1])
+    let word = String::from("lent")
+    lend_copy(&mut store, &word)
+    let holder = Holder{ named: Named{ name: String::from("held"), tags: List<String>() } }
+    let got = named_of(&holder)
+    println!("copied {} {} {} {}", tallied("b a c a b a"), labelled(3), named_copy(), got.name)
+    println!("kept {} {}", store.names[store.names.len() - 1], churn())
+}
+
+// A map filled under a lookup that found nothing keeps every key it is given, so each copy
+// of `word` goes into the region with the map, on every pass (T-0140, T-0149).
+fn tallied(text: &str) -> usize {
+    let mut counts = HashMap<String, i32>()
+    let mut word = String()
+    for piece in text.split_whitespace() {
+        word.clear()
+        word.push_str(piece)
+        if let &mut n = counts.get_mut_str(word.as_str()) {
+            n += 1
+        } else {
+            counts.insert(word, 1)
+        }
+    }
+    let mut total: usize = 0
+    for k, &n in counts {
+        total += k.len() * 10 + n as usize
+    }
+    return total + churn() as usize
+}
+
+// `format!`'s text pushed on every pass, into a list that keeps it (T-0149).
+fn labelled(n: i32) -> usize {
+    let mut names = List<String>()
+    for i in 0..n {
+        names.push(format!("label {}", i))
+    }
+    return names[names.len() - 1].len() + names.len()
+}
+
+// A copy into a list the caller lent keeps the heap: the list outlives this region.
+fn lend_copy(store: &mut Store, word: &String) kills store.names@items {
+    store.names.push(word)
+    churn()
+}
+
+struct Named {
+    pub name: String
+    pub tags: List<String>
+}
+
+// A `copy` of its own builds both fields where the copy is placed (T-0140).
+impl Copy for Named {
+    fn copy(&mut self, other: &Self) {
+        name = other.name
+        tags = other.tags
+    }
+}
+
+struct Holder {
+    pub named: Named
+}
+
+// A copy returned: built where the caller keeps it.
+fn named_of(h: &Holder) -> Named {
+    return h.named
+}
+
+// A copy bound by `let`, in this region, which outlives nothing it copied.
+fn named_copy() -> usize {
+    let mut a = Named{ name: String::from("a"), tags: List<String>() }
+    a.tags.push(String::from("tag"))
+    let b = a
+    a.tags.push(String::from("more"))
+    return b.name.len() + b.tags.len() * 10 + a.tags.len() * 100
 }
 
 // Stored into a container: built where the container lives (T-0145). The pushed strings
