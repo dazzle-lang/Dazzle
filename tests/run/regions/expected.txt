@@ -17,3 +17,4 @@ item-2
 traits 12 20 9
 values 55 4 adapted
 bags 10 6 bag empty 2 15
+lent bag 16 lent

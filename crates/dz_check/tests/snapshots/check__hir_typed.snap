@@ -11229,16 +11229,13 @@ body const SCOPE_HEADER -> void
     int 16: usize
 body const SCOPE_LARGE_HEADER -> void
   block
-    int 32: usize
+    int 16: usize
 body const SCOPE_CHUNK -> void
   block
     int 65536: usize
 body const SCOPE_LARGE -> void
   block
     int 16384: usize
-body const SCOPE_POOLED -> void
-  block
-    int 22: usize
 body field-default ScopeArena.0 -> void
   block
     null: ^mut u8
@@ -11360,57 +11357,27 @@ body method ScopeArena::alloc_large -> ^mut u8
   param _0 self: ScopeArena
   param _1 size: usize
   block
-    let _2 k: usize
-      call-assoc ScopePool::class: usize
-        local _1 size: usize
-    let _3 block: ^mut u8
-      null: ^mut u8
-    if: void
-      binary >: bool
-        local _2 k: usize
-        const SCOPE_POOLED: usize
-      block
-        assign =
-          local _2 k: usize
-          const SCOPE_CLASSES: usize
-        assign =
-          local _3 block: ^mut u8
-          call c_malloc: ^mut u8
-            binary +: usize
-              const SCOPE_LARGE_HEADER: usize
-              local _1 size: usize
-      block
-        block-value: void
-          block
-            assign =
-              local _3 block: ^mut u8
-              block-value: ^mut u8
-                block
-                  call-method ScopePool::take_large: ^mut u8
-                    static SCOPE_POOL: ScopePool
-                    local _2 k: usize
+    let _2 block: ^mut u8
+      call c_malloc: ^mut u8
+        binary +: usize
+          const SCOPE_LARGE_HEADER: usize
+          local _1 size: usize
     block-value: !
       block
-        let _4 links: ^mut ^mut u8
+        let _3 links: ^mut ^mut u8
           cast: ^mut ^mut u8
-            local _3 block: ^mut u8
+            local _2 block: ^mut u8
         assign =
           index: ^mut u8
-            local _4 links: ^mut ^mut u8
+            local _3 links: ^mut ^mut u8
             int 0: usize
           null: ^mut u8
         assign =
           index: ^mut u8
-            local _4 links: ^mut ^mut u8
+            local _3 links: ^mut ^mut u8
             int 1: usize
           field #3: ^mut u8
             local _0 self: ScopeArena
-        assign =
-          index: usize
-            cast: ^mut usize
-              local _3 block: ^mut u8
-            int 2: usize
-          local _2 k: usize
         if: void
           binary !=: bool
             field #3: ^mut u8
@@ -11423,40 +11390,16 @@ body method ScopeArena::alloc_large -> ^mut u8
                   field #3: ^mut u8
                     local _0 self: ScopeArena
                 int 0: usize
-              local _3 block: ^mut u8
+              local _2 block: ^mut u8
         assign =
           field #3: ^mut u8
             local _0 self: ScopeArena
-          local _3 block: ^mut u8
+          local _2 block: ^mut u8
         return: !
           ref mut: &mut u8
             index: u8
-              local _3 block: ^mut u8
+              local _2 block: ^mut u8
               const SCOPE_LARGE_HEADER: usize
-body method ScopeArena::release -> void
-  param _0 block: ^mut u8
-  block
-    block-value: void
-      block
-        let _1 k: usize
-          index: usize
-            cast: ^mut usize
-              local _0 block: ^mut u8
-            int 2: usize
-        if: void
-          binary ==: bool
-            local _1 k: usize
-            const SCOPE_CLASSES: usize
-          block
-            call c_free: void
-              local _0 block: ^mut u8
-          block
-            block-value: void
-              block
-                call-method ScopePool::give_large: void
-                  static SCOPE_POOL: ScopePool
-                  local _0 block: ^mut u8
-                  local _1 k: usize
 body method ScopeArena::free_large -> void
   param _0 self: ScopeArena
   param _1 p: ^mut u8
@@ -11509,7 +11452,7 @@ body method ScopeArena::free_large -> void
                   local _5 next: ^mut u8
                 int 0: usize
               local _4 prev: ^mut u8
-        call-assoc ScopeArena::release: void
+        call c_free: void
           local _2 block: ^mut u8
 body impl#98 method alloc -> ^mut u8
   param _0 self: ScopeArena
@@ -11767,57 +11710,14 @@ body drop ScopeArena -> void
                 cast: ^mut ^mut u8
                   local _3 block: ^mut u8
                 int 1: usize
-            call-assoc ScopeArena::release: void
+            call c_free: void
               local _3 block: ^mut u8
             assign =
               local _3 block: ^mut u8
               local _4 next: ^mut u8
-body const SCOPE_CLASSES -> void
-  block
-    int 48: usize
 body field-default ScopePool.0 -> void
   block
     null: ^mut u8
-body field-default ScopePool.1 -> void
-  block
-    null: ^mut ^mut u8
-body method ScopePool::classes -> ^mut ^mut u8
-  param _0 self: ScopePool
-  block
-    if: void
-      binary ==: bool
-        field #1: ^mut ^mut u8
-          local _0 self: ScopePool
-        null: ^mut ^mut u8
-      block
-        assign =
-          field #1: ^mut ^mut u8
-            local _0 self: ScopePool
-          block-value: ^mut ^mut u8
-            block
-              cast: ^mut ^mut u8
-                call c_malloc: ^mut u8
-                  binary *: usize
-                    const SCOPE_CLASSES: usize
-                    type-query usize::size: usize
-        for _1 k
-          range: usize..usize
-            int 0: i32
-            const SCOPE_CLASSES: usize
-          block
-            block-value: void
-              block
-                assign =
-                  index: ^mut u8
-                    field #1: ^mut ^mut u8
-                      local _0 self: ScopePool
-                    local _1 k: usize
-                  null: ^mut u8
-    return: !
-      block-value: ^mut ^mut u8
-        block
-          field #1: ^mut ^mut u8
-            local _0 self: ScopePool
 body method ScopePool::take -> ^mut u8
   param _0 self: ScopePool
   param _1 cap: usize
@@ -11905,85 +11805,6 @@ body method ScopePool::give -> void
       field #0: ^mut u8
         local _0 self: ScopePool
       local _1 chunk: ^mut u8
-body method ScopePool::class -> usize
-  param _0 size: usize
-  block
-    let _1 k: usize
-      int 0: usize
-    while
-      binary <: bool
-        binary <<: usize
-          cast: usize
-            int 1: i32
-          local _1 k: usize
-        local _0 size: usize
-      block
-        assign +=
-          local _1 k: usize
-          int 1: usize
-    return: !
-      local _1 k: usize
-body method ScopePool::take_large -> ^mut u8
-  param _0 self: ScopePool
-  param _1 k: usize
-  block
-    let _2 classes: ^mut ^mut u8
-      call-method ScopePool::classes: ^mut ^mut u8
-        local _0 self: ScopePool
-    block-value: void
-      block
-        let _3 block: ^mut u8
-          index: ^mut u8
-            local _2 classes: ^mut ^mut u8
-            local _1 k: usize
-        if: void
-          binary !=: bool
-            local _3 block: ^mut u8
-            null: ^mut u8
-          block
-            assign =
-              index: ^mut u8
-                local _2 classes: ^mut ^mut u8
-                local _1 k: usize
-              index: ^mut u8
-                cast: ^mut ^mut u8
-                  local _3 block: ^mut u8
-                int 0: usize
-            return: !
-              local _3 block: ^mut u8
-    return: !
-      block-value: ^mut u8
-        block
-          call c_malloc: ^mut u8
-            binary +: usize
-              binary <<: usize
-                cast: usize
-                  int 1: i32
-                local _1 k: usize
-              const SCOPE_LARGE_HEADER: usize
-body method ScopePool::give_large -> void
-  param _0 self: ScopePool
-  param _1 block: ^mut u8
-  param _2 k: usize
-  block
-    let _3 classes: ^mut ^mut u8
-      call-method ScopePool::classes: ^mut ^mut u8
-        local _0 self: ScopePool
-    block-value: void
-      block
-        assign =
-          index: ^mut u8
-            cast: ^mut ^mut u8
-              local _1 block: ^mut u8
-            int 0: usize
-          index: ^mut u8
-            local _3 classes: ^mut ^mut u8
-            local _2 k: usize
-        assign =
-          index: ^mut u8
-            local _3 classes: ^mut ^mut u8
-            local _2 k: usize
-          local _1 block: ^mut u8
 body drop ScopePool -> void
   param _0 self: ScopePool
   block
@@ -12007,53 +11828,10 @@ body drop ScopePool -> void
             assign =
               local _1 chunk: ^mut u8
               local _2 next: ^mut u8
-    if: void
-      binary ==: bool
-        field #1: ^mut ^mut u8
-          local _0 self: ScopePool
-        null: ^mut ^mut u8
-      block
-        return: !
-    for _3 k
-      range: usize..usize
-        int 0: i32
-        const SCOPE_CLASSES: usize
-      block
-        let _4 block: ^mut u8
-          block-value: ^mut u8
-            block
-              index: ^mut u8
-                field #1: ^mut ^mut u8
-                  local _0 self: ScopePool
-                local _3 k: usize
-        while
-          binary !=: bool
-            local _4 block: ^mut u8
-            null: ^mut u8
-          block
-            block-value: void
-              block
-                let _5 next: ^mut u8
-                  index: ^mut u8
-                    cast: ^mut ^mut u8
-                      local _4 block: ^mut u8
-                    int 0: usize
-                call c_free: void
-                  local _4 block: ^mut u8
-                assign =
-                  local _4 block: ^mut u8
-                  local _5 next: ^mut u8
-    call c_free: void
-      block-value: ^mut u8
-        block
-          cast: ^mut u8
-            field #1: ^mut ^mut u8
-              local _0 self: ScopePool
 body static SCOPE_POOL -> void
   block
     struct-lit ScopePool: ScopePool
       #0 (default)
-      #1 (default)
 body const TEMP_HEADER -> void
   block
     int 16: usize

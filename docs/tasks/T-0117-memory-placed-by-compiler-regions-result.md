@@ -16,7 +16,7 @@ below, built it).
 
 | Piece | Where |
 |---|---|
-| The region arena: `ScopeArena` (chunks doubling; a block of 16 KiB or more is its own, freed at once) and `ScopePool` (per thread; large blocks by size class up to 4 MiB) | `dz_project/src/std/memory/scope_arena.dz`, `scope_pool.dz`, listed in `STD_SOURCES` (`dz_project/src/lib.rs`) |
+| The region arena: `ScopeArena` (chunks doubling; a block of 16 KiB or more is the heap's, at its exact size, freed at once) and `ScopePool` (per thread; chunks only) | `dz_project/src/std/memory/scope_arena.dz`, `scope_pool.dz`, listed in `STD_SOURCES` (`dz_project/src/lib.rs`) |
 | A copy of a region value goes to the heap: `Allocator::scoped` (false; `ScopeArena` says true), read by `List::copy` and `HashMap::copy`; `String`, `Path`, `HashSet` and `SlotMap` copy through them | `std/memory/allocator.dz`, `std/collections/list.dz`, `std/collections/hash_map.dz` |
 | Sites, the proposer and the reasons' words: `place`, `place_with` (`Proposer::Rules`, `Proposer::Everything`), `Placements`, `BodyPlacement` (`region_blocks`, `region_for`, `demoted`), `Site`, `Decision` | `dz_flow/src/placement.rs` |
 | The ties check: `analyse_regions`; `Value::owned`, `Regions`, `Refusal`; `region_site` (the loop rule), `region_assign`, `region_end`, `sink`, `passed` (a copy carries no region) | `dz_flow/src/ties/body.rs` |
@@ -231,10 +231,55 @@ what the pool holds at `astar`'s peak. Possible fixes, smallest first: keep at m
 block per size class; free a block to the heap when the pool already holds one of its
 class; or give large blocks straight back to the heap and pool only chunks.
 
-**What is left of stage 1.**
+**The peak-memory bug, fixed 2026-11-02.** Stage 1 is done; the keep-or-drop verdict
+waits for stage 2.
 
-1. **The peak-memory bug** above: confirm the cause, fix it, and run the checkpoint again.
-   The keep-or-drop verdict waits for stage 2.
+- **The cause, confirmed** by taking the pool out of the large-block path alone: with
+  every large block straight from the heap at its exact size, peak memory fell to the
+  heap's in all three programs (`astar` 20.0 against 19.9 MiB, `words` 45.5 against 44.0,
+  `expr` 141.2 against 141.1). There were two costs. The pool kept every class a container
+  grew through, as guessed above. And it rounded each block up to a power of two plus its
+  header, which is why `expr` was 8 MiB over although its sizes do not repeat.
+- **A byte budget does not save the pool.** Held to 512 KiB, 1, 2 or 4 MiB a thread, it
+  kept the extra memory, from 0.7 to 3.4 MiB on `astar` and the full 8 MiB on `expr`, and
+  lost the speed: `astar` from 0.98 to 1.03 of the heap. The 3–7% it had bought came only
+  with the unbounded pool, so the speed was paid for in memory.
+- **The fix** is the last of the three above: a large block is the heap's, at its exact
+  size, and goes back to it when freed. `ScopePool` keeps chunks only, and a large block's
+  header is its two links. This is what the heap does too: `Heap::realloc` is also allocate,
+  copy, free.
+- **Found on the way**: the heap overload of a constructor that takes a placement (round 3)
+  cast a by-reference parameter as `static_cast<Rng&&&>`, so `astar`, whose `Grid` takes
+  `&mut Rng`, did not compile with regions on. `result_adapter` had the same cast. Both
+  now pass a reference on as it is (`forward` in `dz_cpp`), and `tests/run/regions` has a
+  constructor taking `&List<i32>`.
+
+The checkpoint again, at `7fdd285` plus this fix: `python tools/bench_regions.py`,
+`--release`, the median of ten alternating runs. AMD Ryzen 7 H 255 (16 threads), Linux,
+glibc 2.44; clang 23.1.4 and g++ 16.2.1. Peak memory is the peak resident set. The machine
+was busy (load 3 to 6), and the heap's own medians moved by up to 20% between sweeps, so
+read the times as roughly even.
+
+| Program | Compiler | Heap | Regions | Regions / heap | Peak, heap / regions | Faster | Not slower (2%) | Peak within 10% |
+|---|---|---:|---:|---:|---:|---|---|---|
+| astar | clang++ | 719 ms | 722 ms | 1.004 | 19.8 / 20.0 MiB | no | yes | yes |
+| astar | g++ | 578 ms | 567 ms | 0.981 | 19.8 / 20.0 MiB | yes | yes | yes |
+| words | clang++ | 462 ms | 464 ms | 1.003 | 44.7 / 46.3 MiB | no | yes | yes |
+| words | g++ | 587 ms | 459 ms | 0.782 | 44.6 / 46.0 MiB | yes | yes | yes |
+| expr | clang++ | 389 ms | 401 ms | 1.029 | 141.3 / 141.3 MiB | no | **no** | yes |
+| expr | g++ | 312 ms | 306 ms | 0.982 | 141.3 / 141.3 MiB | yes | yes | yes |
+
+The loop stays flat: 4.0 MiB at ten thousand passes and at a million, both ways, on both
+compilers.
+
+**Read against the checkpoint:** peak memory now passes, within 1% of the heap on `astar`,
+4% on `words`, and even on `expr`. The loop is flat. Speed no longer passes: `astar` is
+even with the heap, where the checkpoint asks for faster. On this machine its gain had
+been the pool's (0.97 and 0.93 with it, measured the same day), not the region's. Most of
+its allocations are its maps' arrays, which are large blocks, and large blocks are now the
+heap's. `expr` on clang++ is 0.9% over the noise line, on a busy machine. Stage 2 has to
+earn the speed at the verdict, through what it places in chunks, not through holding
+memory.
 
 **What placement rests on (found 2026-11-01).** A placement is checked like a reference, so
 it is only as sound as the ties check, and the review behind

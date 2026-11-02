@@ -6,6 +6,28 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0117, stage 1's peak-memory bug: large blocks are the heap's (2026-11-02)
+
+Compiler work; no language change. Behind `DZ_REGIONS`.
+
+- **The cause**: `ScopePool` kept every large block a region freed, by power-of-two size
+  class, with no limit. A growing map left every class it grew through in the pool, and
+  each block was rounded up to its class. That came to a third more peak memory than the
+  heap on `astar`, and 8 MiB more on `expr`. With large blocks straight from the heap,
+  peak memory matched the heap's in all three programs.
+- **The fix**: a region's large block (16 KiB or more) is the heap's, at its exact size,
+  freed the moment it is freed. The pool keeps chunks only. A byte budget on the pool was
+  tried at four sizes: it kept part of the memory and none of the speed.
+- **What it cost**: `astar`'s 3–7% edge over the heap. It had been the pool's, paid for in
+  memory, so the stage 1 checkpoint's speed row now fails for `astar` (even with the heap).
+  The numbers are in T-0117.
+- **Found on the way**: a constructor's heap overload, and `result_adapter`, cast a
+  by-reference parameter as `static_cast<T&&&>`, so `astar` did not compile with regions
+  on. Both now pass references on as they are (`forward`).
+
+Tests: `tests/run/regions` gains a constructor taking `&List<i32>`; the typed HIR snapshot
+loses the pool's size classes.
+
 ## T-0117, stage 2, round 3: owned parts live where their value lives (2026-11-01)
 
 Compiler work; no language change. Behind `DZ_REGIONS`.

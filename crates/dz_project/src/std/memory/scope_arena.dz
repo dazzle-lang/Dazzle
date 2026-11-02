@@ -1,24 +1,19 @@
 /// Bytes at the start of every region chunk: the previous chunk, and this one's capacity.
 const SCOPE_HEADER: usize = 16
 
-/// Bytes at the start of a large block: the blocks before and after it, and its size class.
-/// A multiple of 16, so the memory after it is aligned to 16.
-const SCOPE_LARGE_HEADER: usize = 32
+/// Bytes at the start of a large block: the blocks before and after it. A multiple of 16,
+/// so the memory after it is aligned to 16.
+const SCOPE_LARGE_HEADER: usize = 16
 
 /// The smallest chunk a region asks the pool for.
 const SCOPE_CHUNK: usize = 65536
 
-/// Allocations at least this big get a block of their own, given back to the pool as soon
-/// as they are freed. A growing container's outgrown arrays then go back at once, as on the
-/// heap, instead of staying in the region until it ends, which cost up to twice the memory;
-/// and the next region that grows through the same sizes takes them from the pool rather
-/// than from `malloc` (T-0104).
+/// Allocations at least this big get a block of their own from the heap, at their exact
+/// size, given back to it as soon as they are freed. A growing container's outgrown arrays
+/// then go back at once, as on the heap, instead of staying in the region until it ends,
+/// which cost up to twice the memory (T-0104); and the pool does not keep them, which cost
+/// a third more (T-0117, `ScopePool`).
 const SCOPE_LARGE: usize = 16384
-
-/// The largest size class the pool keeps, 4 MiB. A bigger block is exactly its size from
-/// the heap and goes straight back to it: filling it costs far more than the `malloc`, and
-/// keeping every class a huge buffer grew through held as much memory again as the buffer.
-const SCOPE_POOLED: usize = 22
 
 /// A region: the memory the compiler places values in when they never leave the scope
 /// that builds them (spec §14.6, T-0117). It is declared first in that scope and handed to
@@ -71,38 +66,16 @@ pub struct ScopeArena {
     }
 
     fn alloc_large(&mut self, size: usize) -> ^mut u8 {
-        // A class past `SCOPE_POOLED` is recorded as `SCOPE_CLASSES`: not the pool's.
-        let mut k = ScopePool::class(size)
-        let mut block: ^mut u8 = null
-        if k > SCOPE_POOLED {
-            k = SCOPE_CLASSES
-            block = c_malloc(SCOPE_LARGE_HEADER + size)
-        } else {
-            block = unsafe { SCOPE_POOL.take_large(k) }
-        }
+        let block = c_malloc(SCOPE_LARGE_HEADER + size)
         unsafe {
             let links = block as ^mut ^mut u8
             links[0] = null
             links[1] = m_large
-            (block as ^mut usize)[2] = k
             if m_large != null {
                 (m_large as ^mut ^mut u8)[0] = block
             }
             m_large = block
             return &mut block[SCOPE_LARGE_HEADER]
-        }
-    }
-
-    /// Give a large block back: to the pool, or to the heap when its class is too big to
-    /// keep.
-    fn release(block: ^mut u8) {
-        unsafe {
-            let k = (block as ^mut usize)[2]
-            if k == SCOPE_CLASSES {
-                c_free(block)
-            } else {
-                SCOPE_POOL.give_large(block, k)
-            }
         }
     }
 
@@ -120,7 +93,7 @@ pub struct ScopeArena {
             if next != null {
                 (next as ^mut ^mut u8)[0] = prev
             }
-            ScopeArena::release(block)
+            c_free(block)
         }
     }
 }
@@ -203,7 +176,7 @@ impl Drop for ScopeArena {
         while block != null {
             unsafe {
                 let next = (block as ^mut ^mut u8)[1]
-                ScopeArena::release(block)
+                c_free(block)
                 block = next
             }
         }

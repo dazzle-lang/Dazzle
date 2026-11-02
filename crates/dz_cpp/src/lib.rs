@@ -2769,8 +2769,8 @@ impl<'a> Emitter<'a> {
         let mut args = Vec::new();
         for (i, p) in body.params.iter().skip(usize::from(has_self)).enumerate() {
             let t = self.cpp_ty(&body.local(*p).ty);
+            args.push(forward(&t, i));
             list.push(format!("{t} a{i}"));
-            args.push(format!("static_cast<{t}&&>(a{i})"));
         }
         args.push(self.heap_placement());
         let list = list.join(", ");
@@ -2811,8 +2811,8 @@ impl<'a> Emitter<'a> {
         let mut args = Vec::new();
         for (i, p) in params.iter().enumerate() {
             let t = self.cpp_ty(p);
+            args.push(forward(&t, i));
             list.push(format!("{t} a{i}"));
-            args.push(format!("static_cast<{t}&&>(a{i})"));
         }
         list.push(self.allocator_ty());
         Some(format!("+[]({}) -> {ret} {{ return {name}({}); }}", list.join(", "), args.join(", ")))
@@ -6408,6 +6408,17 @@ fn unary_op(op: UnaryOp) -> &'static str {
 /// body — ids, not names, since two sibling loops may carry the same Dazzle label.
 fn loop_label_name(what: &str, id: u32) -> String {
     format!("_dz_{what}_{id}")
+}
+
+/// Parameter `a{i}`, of C++ type `t`, passed on by a function that only delegates: moved
+/// when it is a value, as it is when it is a reference. `static_cast<T&&>` with `T` already
+/// a reference is `Rng&&&`, which C++ rejects outside a template.
+fn forward(t: &str, i: usize) -> String {
+    if t.ends_with('&') {
+        format!("a{i}")
+    } else {
+        format!("static_cast<{t}&&>(a{i})")
+    }
 }
 
 /// Drop one layer of parentheses when they wrap the whole expression, so conditions do

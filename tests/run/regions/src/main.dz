@@ -201,6 +201,17 @@ struct Bag {
         }
         label = String::from("bag")
     }
+
+    // A parameter taken by reference: the heap overload passes it on as it is, where a
+    // value is moved (`static_cast<T&&>` of a reference was `T&&&`).
+    Bag(from: &List<i32>, extra: i32) {
+        items = List<i32>()
+        for &x in from {
+            items.push(x)
+        }
+        items.push(extra)
+        label = String::from("lent")
+    }
 }
 
 // Kept and only lent: the bag and its fields in this block's region.
@@ -333,4 +344,6 @@ fn main() {
     let mut bags = List<Bag>()
     bags.push(Bag(2))
     println!("bags {} {} {} {} {} {}", bag_total(5), sum_of(&kept_bag.items), kept_bag.label, empty.label, bags[0].items.len(), pair_total())
+    let copied = Bag(&kept_bag.items, 10)
+    println!("lent bag {} {}", sum_of(&copied.items), copied.label)
 }
