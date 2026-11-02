@@ -6,6 +6,50 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0118: drops a region makes unnecessary (2026-11-02)
+
+Compiler work; no language change, since a drop that only frees does nothing a program can
+see. Step 5 of D-0091's plan. Spec §14.6 now says what it does, and its "not yet" note
+lists what it leaves (T-0147).
+
+- **A drop that only frees**, proven per type instance from the drop bodies (r90): every
+  `drop` in the type, its bases' and its parts', with the instance's types put in, does
+  nothing but read, compute, write a local or a field of the value being dropped, count with
+  `for i in 0..n`, call `Allocator::free` and `destroy` parts whose drops only free. An `if`
+  of type questions is answered for the instance. `Box`'s `m_drop` is followed as the drop of
+  `T` and of any type deriving from it. r90's examples all hold: `List<String>`, `Box<String>`,
+  `String` do; `File`, `Rc`, `Formatter` and `List<File>` do not.
+- **`HashMap`'s drop** called `clear`, which walks every slot writing its hash before the
+  arrays are freed. It now destroys entries only when `K::has_drop || V::has_drop`, so a map
+  of plain values is freed without a pass over its slots, with regions on or off.
+- **Everything the value owns is in the region**, the half r90 did not settle. Placement says
+  where a value was built, not where its parts came from: a region's `List<String>` holds
+  strings built on the heap, and a region's `String` can be replaced by one built elsewhere,
+  so skipping either drop would leak. A local skips only when it was built whole in its
+  block's region (by a function that builds all it owns in its placement, worked out as the
+  smallest set closed under the rules in `whole_functions`), owns nothing from elsewhere (a
+  container whose elements own nothing, or a struct of such containers whose own methods
+  never replace them), and is never replaced (no assignment to it or an owning part, no
+  `&mut` handed on but to its own methods and a `for`). The proof answers "no" when unsure:
+  a wrong "no" keeps a drop, a wrong "yes" would leak.
+- **Codegen** puts such a local in storage C++ never destroys, `alignas(T) unsigned char
+  _dz_keptN[sizeof(T)]`, built with placement `new`, and binds the name as a `T&` to it, so
+  nothing else in the emitter changes. The block's region is declared first, so it is
+  released after the block's last use of the value.
+- **Shown**: the hint and `dz placements` append "; drop skipped" (`Site::label`), and the JSON
+  has `drop_skipped`.
+- **Reach**: 15 of the 38 sites in a region in `tests/run/regions`; `astar`'s queue, maps and
+  path, and `words`' text and buffer. Left for T-0147: a value lent as `&mut`, one built by a
+  trait method, a function value or `format!`, and a local in a generic body. A container of
+  owning elements waits for T-0145.
+
+Tests: `a_drop_only_frees_when_its_body_does_nothing_but_free` (r90's examples) and
+`a_drop_is_skipped_only_when_its_region_frees_everything` (six skipped, seven kept, each kept
+one in a region all the same) in `dz_flow/tests/placement.rs`; the placement hint and
+`dz placements` tests read the new label. Every `tests/run` program was also run with regions
+on and `--track-memory`: no leaks, the same output as with regions off. Not timed: the
+machine was busy.
+
 ## r104: no allocator in ordinary code, and `#placement` (2026-11-02)
 
 The language change is r104 (T-0119, step 6 of D-0091's plan), with one question settled by

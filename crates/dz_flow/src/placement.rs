@@ -78,6 +78,23 @@ impl Placements {
     pub fn staying(&self) -> &Staying {
         &self.staying
     }
+
+    /// Record that `locals` of `owner`'s body are dropped by their region's release, and
+    /// which of its sites built them ([`crate::release::skipped_drops`]).
+    pub(crate) fn mark_skipped(
+        &mut self,
+        owner: &BodyOwner,
+        locals: Vec<LocalId>,
+        sites: &[ExprId],
+    ) {
+        let Some(body) = self.bodies.get_mut(owner) else { return };
+        for s in &mut body.sites {
+            if sites.contains(&s.call) {
+                s.drop_skipped = true;
+            }
+        }
+        body.skipped = locals;
+    }
 }
 
 /// The function a call calls, as a body's owner: what [`Placements::takes_result`] and
@@ -416,6 +433,8 @@ pub struct BodyPlacement {
     pub sites: Vec<Site>,
     /// The sites the proposer placed and the region check sent to the heap.
     demoted: Vec<ExprId>,
+    /// The locals whose drop is left to their region's release (T-0118).
+    skipped: Vec<LocalId>,
 }
 
 impl BodyPlacement {
@@ -458,6 +477,12 @@ impl BodyPlacement {
     pub fn demoted(&self) -> &[ExprId] {
         &self.demoted
     }
+
+    /// Whether `local`'s drop is skipped: everything it owns is in its block's region,
+    /// which frees it all at once, and its drop would do nothing but free (T-0118).
+    pub fn skips_drop(&self, local: LocalId) -> bool {
+        self.skipped.contains(&local)
+    }
 }
 
 /// One call that allocates, placed by the compiler.
@@ -471,6 +496,21 @@ pub struct Site {
     /// a result function, the hidden one past the last it writes.
     pub arg: usize,
     pub decision: Decision,
+    /// The value is dropped by its region's release, not by its drop (T-0118).
+    pub drop_skipped: bool,
+}
+
+impl Site {
+    /// What the editor's hint and `dz placements` print: the decision, and whether the drop
+    /// of what it built is skipped, "region: `main`; drop skipped".
+    pub fn label(&self) -> String {
+        let label = self.decision.label();
+        if self.drop_skipped {
+            format!("{label}; drop skipped")
+        } else {
+            label
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -540,6 +580,7 @@ pub fn place_with(
     }
     out.results = results;
     out.staying = staying;
+    crate::release::skipped_drops(hir, table, res, &mut out);
     out
 }
 
@@ -634,9 +675,17 @@ fn place_body(
             },
             Err((why, at)) => Decision::Heap { why, at },
         };
-        sites.push(Site { call: e, span: body.expr(e).span, callee: c.name, arg: c.arg, decision });
+        let span = body.expr(e).span;
+        sites.push(Site {
+            call: e,
+            span,
+            callee: c.name,
+            arg: c.arg,
+            decision,
+            drop_skipped: false,
+        });
     }
-    Some(BodyPlacement { file: body.file, sites, demoted })
+    Some(BodyPlacement { file: body.file, sites, demoted, skipped: Vec::new() })
 }
 
 /// `e`, when it is a site: a call to a result function, `std`'s `Rc(…)`, or a call whose

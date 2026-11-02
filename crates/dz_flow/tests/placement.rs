@@ -1111,6 +1111,160 @@ fn astar_places_its_queue_maps_and_path() {
     assert_eq!(decisions(&a, p, "trace"), ["List<Cell>: region: `trace`"]);
 }
 
+/// r90's examples of a drop that only frees, worked out per type instance from the drop
+/// bodies themselves (T-0118).
+#[test]
+fn a_drop_only_frees_when_its_body_does_nothing_but_free() {
+    let a = analyse("fn main() {}\n");
+    let (hir, table, res) =
+        (a.hir.as_ref().unwrap(), a.table.as_ref().unwrap(), a.resolution.as_ref().unwrap());
+    let d = dz_flow::release::Drops::new(hir, table, res);
+    let named = |name: &str, args: Vec<dz_hir::ty::Ty>| dz_hir::ty::Ty::Named {
+        sym: res.lookup(res.prelude, name).unwrap_or_else(|| panic!("no `{name}` in std")),
+        args,
+    };
+    let int = dz_hir::ty::Ty::Int(dz_hir::ty::IntTy::I32);
+    let string = named("String", vec![]);
+    for (ty, frees) in [
+        (named("List", vec![int.clone()]), true),
+        (named("List", vec![string.clone()]), true),
+        (string.clone(), true),
+        (named("HashMap", vec![int.clone(), int.clone()]), true),
+        (named("HashMap", vec![string.clone(), int.clone()]), true),
+        (named("Box", vec![string.clone()]), true),
+        // It closes a handle; it changes a count other owners see.
+        (named("File", vec![]), false),
+        (named("Rc", vec![int.clone()]), false),
+        (named("List", vec![named("File", vec![])]), false),
+        // It writes what it holds out before it goes.
+        (named("Formatter", vec![]), false),
+    ] {
+        assert_eq!(d.only_frees(&ty), frees, "{}", dz_check::type_name(res, &ty));
+    }
+}
+
+/// A drop is skipped only when the region's release frees everything the value owns: the
+/// value was built whole in the region, owns nothing that came from elsewhere, and nothing
+/// replaced it or a part of it since (T-0118).
+#[test]
+fn a_drop_is_skipped_only_when_its_region_frees_everything() {
+    let a = analyse(
+        r#"
+struct Bag {
+    pub items: List<i32>
+    pub label: String
+
+    Bag(n: i32) {
+        items = List<i32>()
+        for i in 0..n {
+            items.push(i)
+        }
+        label = String::from("bag")
+    }
+}
+
+struct Taken {
+    pub items: List<i32>
+
+    // Holds what it is given, which was built wherever its caller built it.
+    Taken(items: List<i32>) {
+        self.items = move(items)
+    }
+}
+
+struct Noisy {
+    pub items: List<i32>
+
+    Noisy() {
+        items = List<i32>()
+    }
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        println!("dropped {}", items.len())
+    }
+}
+
+struct Half {
+    pub built: List<i32>
+    pub given: List<i32> = List<i32>()
+}
+
+fn reset(s: &mut String) kills s {
+    s = String::from("on the heap")
+}
+
+fn pass_on(x: String) -> String {
+    return move(x)
+}
+
+fn fresh() -> String {
+    let mut s = String::from("fresh")
+    s.push_str("!")
+    return s
+}
+
+fn skipped() -> usize {
+    let mut xs = List<i32>()
+    xs.push(1)
+    let s = String::from("abc")
+    let mut m = HashMap<i32, i32>()
+    m.insert(1, 2)
+    let b = Bag(3)
+    let f = fresh()
+    let mut n: usize = 0
+    for _ in 0..3 {
+        let t = String::from("each pass")
+        n += t.len()
+    }
+    return xs.len() + s.len() + m.len() + b.items.len() + f.len() + n
+}
+
+fn kept() -> usize {
+    let mut names = List<String>()
+    names.push(String::from("built on the heap"))
+    let mut a = String::from("a")
+    a = String::from("b")
+    let mut r = String::from("r")
+    reset(&mut r)
+    let c = pass_on(String::from("c"))
+    let t = Taken(List<i32>())
+    let noisy = Noisy()
+    let h = Half{ built: List<i32>() }
+    return names.len() + a.len() + r.len() + c.len() + t.items.len() + noisy.items.len() +
+        h.built.len()
+}
+
+fn main() {
+    println!("{} {}", skipped(), kept())
+}
+"#,
+    );
+    let p = a.placements.as_ref().unwrap();
+    let skipped = |name: &str| -> Vec<String> {
+        sites(&a, p, name).iter().filter(|s| s.drop_skipped).map(|s| s.callee.clone()).collect()
+    };
+    assert_eq!(
+        skipped("skipped"),
+        ["List<i32>", "String::from", "HashMap<i32, i32>", "Bag", "fresh", "String::from"],
+        "{:?}",
+        decisions(&a, p, "skipped")
+    );
+    // Holds strings built on the heap; replaced; handed on as `&mut`; built from a value
+    // the callee was given; a constructor that keeps its argument; a drop that prints; a
+    // field left to its default.
+    assert_eq!(skipped("kept"), Vec::<String>::new(), "{:?}", decisions(&a, p, "kept"));
+    // Each of them is in the region all the same: it is the drop that is kept, not the heap.
+    let regions = sites(&a, p, "kept")
+        .iter()
+        .filter(|s| matches!(s.decision, Decision::Region { .. }))
+        .count();
+    assert_eq!(regions, 7, "{:?}", decisions(&a, p, "kept"));
+    let labels: Vec<String> = sites(&a, p, "skipped").iter().map(|s| s.label()).collect();
+    assert_eq!(labels[0], "region: `skipped`; drop skipped");
+}
+
 fn owner_module(owner: &BodyOwner, a: &Analysis) -> dz_project::ModuleId {
     let res = a.resolution.as_ref().unwrap();
     let sym = match owner {

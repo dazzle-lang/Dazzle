@@ -2103,7 +2103,7 @@ fn placement_hints(a: &Analysis, file: FileId, range: Span, out: &mut Vec<Hint>)
             if at < range.start || at > range.end {
                 continue;
             }
-            out.push(Hint { offset: at, label: site.decision.label(), kind: HintKind::Placement });
+            out.push(Hint { offset: at, label: site.label(), kind: HintKind::Placement });
         }
     }
 }

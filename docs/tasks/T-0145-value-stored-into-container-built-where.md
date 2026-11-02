@@ -48,3 +48,9 @@ argument where the receiver is placed, when the receiver is; and the region chec
 an element taken back out (`pop`, `remove`, a consuming `for`) as carrying the container's
 region, so a wrong placement fails it rather than a test. For `words`' keys, which are
 copies, T-0140's placed copy as well. Compiler work (`docs/log/`).
+
+**It also widens T-0118 (2026-11-02).** A container in a region whose elements own memory,
+`List<String>`, still runs its drop, since what was pushed was built elsewhere. Once every
+value stored into it is built where it lives, the drop can be skipped too: `releasable` in
+`dz_flow/src/release.rs` would accept such a container when nothing stored into it came from
+anywhere but its region.

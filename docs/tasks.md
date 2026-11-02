@@ -26,9 +26,10 @@ proposed:
    call), and a field replaced every frame joined T-0120. T-0119 is done (r104,
    2026-11-02): ordinary code names no allocator, and a container reads where it was
    placed as `#placement`. The speed hand-placed `Temp` gave `words` and `expr` waits
-   for T-0145 and T-0146. Next, T-0118.
+   for T-0145 and T-0146. T-0118 is done (2026-11-02): a drop that only frees is skipped
+   when its region frees everything the value owns; the cases it still leaves are T-0147.
 4. The rest of D-0094 (T-0126, T-0128, T-0129, T-0130, T-0135, T-0136), its tests (T-0132
-   to T-0134), and the placement gaps (T-0140 to T-0142, T-0145, T-0146).
+   to T-0134), and the placement gaps (T-0140 to T-0142, T-0145, T-0146, T-0147).
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
    (T-0137).
 
@@ -148,7 +149,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
 - **[T-0117](tasks/T-0117-memory-placed-by-compiler-regions-result.md)** Memory placed by the compiler: regions and the result placement · feature, ownership
-- **[T-0118](tasks/T-0118-skip-drops-that-only-free-region.md)** Skip drops that only free region memory · feature, ownership
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
 - **[T-0122](tasks/T-0122-constructor-cannot-declare-kills-clause.md)** A constructor cannot declare a kills clause · bug, ownership
 - **[T-0126](tasks/T-0126-if-let-turns-untied-pointer-into.md)** `if let` turns an untied pointer into a reference without `unsafe` · bug, ownership
@@ -168,3 +168,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0142](tasks/T-0142-by-value-parameter-placement-inferred-only.md)** A by-value parameter's placement is inferred only within its module · feature, ownership
 - **[T-0145](tasks/T-0145-value-stored-into-container-built-where.md)** A value stored into a container is built where the container lives · feature, ownership
 - **[T-0146](tasks/T-0146-value-rebuilt-on-each-pass-loop.md)** A value rebuilt on each pass of a loop, holding the one before, keeps the heap · feature, ownership
+- **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method or format!, or in a generic body · feature, ownership

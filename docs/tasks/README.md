@@ -37,9 +37,10 @@ proposed:
    call), and a field replaced every frame joined T-0120. T-0119 is done (r104,
    2026-11-02): ordinary code names no allocator, and a container reads where it was
    placed as `#placement`. The speed hand-placed `Temp` gave `words` and `expr` waits
-   for T-0145 and T-0146. Next, T-0118.
+   for T-0145 and T-0146. T-0118 is done (2026-11-02): a drop that only frees is skipped
+   when its region frees everything the value owns; the cases it still leaves are T-0147.
 4. The rest of D-0094 (T-0126, T-0128, T-0129, T-0130, T-0135, T-0136), its tests (T-0132
-   to T-0134), and the placement gaps (T-0140 to T-0142, T-0145, T-0146).
+   to T-0134), and the placement gaps (T-0140 to T-0142, T-0145, T-0146, T-0147).
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
    (T-0137).
 
