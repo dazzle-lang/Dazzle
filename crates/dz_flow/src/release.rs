@@ -14,11 +14,12 @@
 //!    as.
 //! 2. **Is everything the value owns in the region?** Placement says where the value was
 //!    built; this asks whether anything it owns can have come from elsewhere, or been put
-//!    there since ([`Drops::releasable`], [`skipped_drops`]). Today that is a value whose
-//!    parts own nothing of their own (`String`, `List<i32>`, a struct of those), built
-//!    whole in the region and never replaced. A `List<String>` in a region still holds
-//!    strings built on the heap, until a value stored into a container is built where the
-//!    container lives (T-0145).
+//!    there since ([`Drops::releasable`], [`skipped_drops`]). That is a value whose parts
+//!    own nothing of their own (`String`, `List<i32>`, a struct of those), built whole in
+//!    the region and never replaced; or a container of values that do (`List<String>`)
+//!    when everything put into it was built whole in the same region, which placement does
+//!    for a value stored into a container (T-0145), and nothing could have put anything
+//!    else there ([`Contents`]).
 //!
 //! A drop skipped wrongly would leak, not corrupt memory. Either way, when unsure, both
 //! questions answer "no", which only keeps a drop.
@@ -198,6 +199,23 @@ impl<'a> Drops<'a> {
             return false;
         }
         self.releasable.answer(ty, || self.leaf(ty) || self.composite(ty))
+    }
+
+    /// A container of values that own memory: a struct with a drop of its own that only
+    /// frees, no base, fields that own nothing, and type arguments, at least one owning,
+    /// each [`Self::releasable`] (`List<String>`, `HashMap<i32, String>`). Its own memory is
+    /// where it was placed, as for [`Self::leaf`]; whether its elements are there too
+    /// depends on what was put into it, which [`skipped_drops`] asks of each local (T-0145).
+    fn holder(&self, ty: &Ty) -> bool {
+        let Ty::Named { sym, args } = ty else { return false };
+        let Some(s) = self.table.struct_sig(*sym) else { return false };
+        !ty.has_params()
+            && s.drop.is_some()
+            && s.base.is_none()
+            && args.iter().any(|t| self.owns(t))
+            && args.iter().all(|t| !self.owns(t) || self.releasable(t))
+            && self.table.field_types(*sym, args, &s.fields).iter().all(|t| !self.owns(t))
+            && self.only_frees(ty)
     }
 
     fn composite(&self, ty: &Ty) -> bool {
@@ -475,6 +493,7 @@ fn field_name(table: &TypeTable, base: &Ty, index: usize) -> Option<String> {
 pub fn skipped_drops(hir: &Hir, table: &TypeTable, res: &Resolution, placements: &mut Placements) {
     let d = Drops::new(hir, table, res);
     let whole = whole_functions(hir, table, res, placements, &d);
+    let adders = foreign_adders(hir, table, res, placements.staying());
     for (_, body) in hir.bodies() {
         let Some(placed) = placements.body(&body.owner) else { continue };
         let decision: HashMap<ExprId, &Decision> =
@@ -487,7 +506,30 @@ pub fn skipped_drops(hir: &Hir, table: &TypeTable, res: &Resolution, placements:
             };
             let mut held = Vec::new();
             let built = built_in_region(&d, body, &decision, &whole, init, None, &mut held);
-            if built && d.releasable(&body.local(x).ty) && !replaced(&d, body, x) {
+            if !built || replaced(&d, body, x) {
+                continue;
+            }
+            let ty = &body.local(x).ty;
+            let region = held.first().and_then(|e| match decision.get(e) {
+                Some(Decision::Region { block, .. }) => Some(*block),
+                _ => None,
+            });
+            // A container of values that own memory, `List<String>`, when everything put
+            // into it was built whole in the same region (T-0145).
+            let filled = |block| {
+                let staying = placements.staying();
+                let cx = Contents {
+                    d: &d,
+                    body,
+                    decision: &decision,
+                    whole: &whole,
+                    adders: &adders,
+                    staying,
+                    block,
+                };
+                cx.whole_inside(x)
+            };
+            if d.releasable(ty) || (d.holder(ty) && region.is_some_and(filled)) {
                 skipped.push(x);
                 sites.extend(held);
             }
@@ -832,6 +874,11 @@ fn returns_whole(d: &Drops<'_>, body: &Body, site: impl Fn(ExprId) -> bool) -> b
         if !d.owns(body.ty(v)) {
             return true;
         }
+        // What was put into a container of owning values on its way out is not followed
+        // across the call (T-0145): such a result is never whole.
+        if d.holder(body.ty(v).peeled()) {
+            return false;
+        }
         let v = peel(v);
         match body.expr(v).kind {
             // `return none` from a `-> String?` hands back nothing at all.
@@ -840,4 +887,231 @@ fn returns_whole(d: &Drops<'_>, body: &Body, site: impl Fn(ExprId) -> bool) -> b
             _ => site(v),
         }
     })
+}
+
+/// The methods that may put into `self` a value they were not given (T-0145): a
+/// `construct` into memory reached from `self`, or an assignment to an owning field of it,
+/// of anything but a parameter moved in or a value moved out of memory with `move_out`
+/// (which moves an element the container already had, as growing does); a call on `self`
+/// or a field of it to such a method, or to a trait's `&mut self` method; or handing a
+/// stored parameter of a method anything else. `List::resize`, which builds default
+/// elements, and `Extend::extend`, which copies, are among them; `List::push` and
+/// `HashMap::insert` are not.
+fn foreign_adders(
+    hir: &Hir,
+    table: &TypeTable,
+    res: &Resolution,
+    staying: &crate::placement::Staying,
+) -> HashSet<BodyOwner> {
+    let bodies: Vec<&Body> = hir
+        .bodies()
+        .map(|(_, b)| b)
+        .filter(|b| matches!(b.owner, BodyOwner::Method { .. } | BodyOwner::ImplMethod { .. }))
+        .collect();
+    let mut adders: HashSet<BodyOwner> = HashSet::new();
+    loop {
+        let before = adders.len();
+        for body in &bodies {
+            if !adders.contains(&body.owner) && adds_foreign(table, res, staying, body, &adders) {
+                adders.insert(body.owner.clone());
+            }
+        }
+        if adders.len() == before {
+            return adders;
+        }
+    }
+}
+
+fn adds_foreign(
+    table: &TypeTable,
+    res: &Resolution,
+    staying: &crate::placement::Staying,
+    body: &Body,
+    adders: &HashSet<BodyOwner>,
+) -> bool {
+    let in_self = |mut e: ExprId| loop {
+        match body.expr(e).kind {
+            hir::ExprKind::Local(l) => return body.local(l).name == "self",
+            hir::ExprKind::Field { base, .. }
+            | hir::ExprKind::TupleIndex { base, .. }
+            | hir::ExprKind::Index { base, .. }
+            | hir::ExprKind::Deref(base) => e = base,
+            _ => return false,
+        }
+    };
+    // A parameter moved in, a value moved out of memory, or one that owns nothing: not a
+    // new owner.
+    let given = |e: ExprId| match &body.expr(e).kind {
+        hir::ExprKind::Move(inner) => {
+            matches!(body.expr(*inner).kind, hir::ExprKind::Local(l) if body.params.contains(&l))
+        }
+        hir::ExprKind::Builtin { name, .. } | hir::ExprKind::Intrinsic { name, .. }
+            if name == "move_out" =>
+        {
+            true
+        }
+        _ => !crate::storing::owns(table, body.ty(e)),
+    };
+    let assigned = (0..body.stmts.len() as u32).map(StmtId).any(|s| match body.stmt(s).kind {
+        hir::StmtKind::Assign { target, value, .. } => {
+            in_self(target) && crate::storing::owns(table, body.ty(target)) && !given(value)
+        }
+        _ => false,
+    });
+    assigned
+        || body.exprs.iter().any(|node| match &node.kind {
+            hir::ExprKind::Builtin { name, args } | hir::ExprKind::Intrinsic { name, args }
+                if name == "construct" =>
+            {
+                args.first().is_some_and(|a| in_self(*a))
+                    && args.get(1).map_or(true, |v| !given(*v))
+            }
+            hir::ExprKind::Call { callee, args } => {
+                let (Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. }) = callee else {
+                    return false;
+                };
+                if !in_self(*recv) {
+                    return false;
+                }
+                let Some((_, owner)) = callee_owner(res, callee) else { return true };
+                if matches!(owner, BodyOwner::TraitDefaults { .. }) {
+                    // A trait's method on `self`: which body runs is not followed.
+                    return mutates(table, callee);
+                }
+                adders.contains(&owner)
+                    || args
+                        .iter()
+                        .enumerate()
+                        .any(|(i, a)| staying.param_stored(&owner, i) && !given(*a))
+            }
+            _ => false,
+        })
+}
+
+/// Whether `callee` is a method that takes `&mut self`; an unknown one is taken to.
+fn mutates(table: &TypeTable, callee: &Callee) -> bool {
+    let (Callee::Method { owner, name, .. } | Callee::BaseMethod { owner, name, .. }) = callee
+    else {
+        return false;
+    };
+    table
+        .methods_sig(*owner)
+        .and_then(|s| s.methods.get(name))
+        .map_or(true, |sig| sig.takes_self == Some(true))
+}
+
+/// Whether a value of `ty` can write what it was taken from: a `&mut`, a `^mut`, a writable
+/// slice, or a view struct (an iterator over `&mut` elements is one).
+fn writes_through(table: &TypeTable, ty: &Ty) -> bool {
+    match ty {
+        Ty::Ref { mutable, .. } | Ty::Ptr { mutable, .. } | Ty::Slice { mutable, .. } => *mutable,
+        Ty::OwnPtr { .. } => true,
+        Ty::Optional(inner) | Ty::Fallible(inner) => writes_through(table, inner),
+        Ty::Tuple(parts) => parts.iter().any(|t| writes_through(table, t)),
+        Ty::Named { sym, .. } => table.is_view_struct(*sym),
+        _ => false,
+    }
+}
+
+/// What a body puts into one container local, asked of a [`Drops::holder`] (T-0145).
+struct Contents<'c, 'a> {
+    d: &'c Drops<'a>,
+    body: &'c Body,
+    decision: &'c HashMap<ExprId, &'c Decision>,
+    whole: &'c HashSet<BodyOwner>,
+    adders: &'c HashSet<BodyOwner>,
+    staying: &'c crate::placement::Staying,
+    /// The block whose region the container is in.
+    block: BlockId,
+}
+
+impl Contents<'_, '_> {
+    /// Whether everything ever in the container in `x` was built whole in its region: each
+    /// `&mut self` method called on it is one of its type's own, adds nothing it was not
+    /// given ([`foreign_adders`]), hands back nothing that can write an element (`xs[i] =`,
+    /// `get_or_insert`, `iter_mut`), and is given, for each value it stores, a site built
+    /// whole in the container's region, directly or through a `let` nothing replaces.
+    fn whole_inside(&self, x: LocalId) -> bool {
+        let body = self.body;
+        let mut parent: HashMap<ExprId, ExprId> = HashMap::new();
+        for i in 0..body.exprs.len() as u32 {
+            for c in crate::storing::children(body, ExprId(i)) {
+                parent.insert(c, ExprId(i));
+            }
+        }
+        let uses = (0..body.exprs.len() as u32)
+            .map(ExprId)
+            .filter(|e| matches!(body.expr(*e).kind, hir::ExprKind::Local(l) if l == x));
+        for u in uses {
+            let mut top = u;
+            while let Some(&p) = parent.get(&top) {
+                let place = matches!(body.expr(p).kind,
+                    hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. }
+                    if base == top);
+                if !place {
+                    break;
+                }
+                top = p;
+            }
+            let Some(&p) = parent.get(&top) else { continue };
+            let hir::ExprKind::Call { callee, args } = &body.expr(p).kind else { continue };
+            let (Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. }) = callee else {
+                continue;
+            };
+            if *recv != top || !mutates(self.d.table, callee) {
+                continue;
+            }
+            let Some((_, owner)) = callee_owner(self.d.res, callee) else { return false };
+            if !matches!(owner, BodyOwner::Method { .. })
+                || self.adders.contains(&owner)
+                || writes_through(self.d.table, body.ty(p))
+            {
+                return false;
+            }
+            for (i, a) in args.iter().enumerate() {
+                if self.staying.param_stored(&owner, i) && !self.built_here(*a) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Whether `e`, a value stored into the container, was built whole in its region: a
+    /// site there, a struct literal of them, or a local a `let` bound to one, moved in and
+    /// never replaced.
+    fn built_here(&self, e: ExprId) -> bool {
+        let body = self.body;
+        if !self.d.owns(body.ty(e)) {
+            return true;
+        }
+        // A local passed without `move` is copied, and a copy is built on the heap (T-0140).
+        let (e, moved) = match body.expr(e).kind {
+            hir::ExprKind::Move(inner) => (inner, true),
+            _ => (e, false),
+        };
+        let mut held = Vec::new();
+        if let hir::ExprKind::Local(l) = body.expr(e).kind {
+            if !moved {
+                return false;
+            }
+            let bound =
+                (0..body.stmts.len() as u32).map(StmtId).find_map(|s| match body.stmt(s).kind {
+                    hir::StmtKind::Let { local: Some(x), init: Some(i) } if x == l => Some(i),
+                    _ => None,
+                });
+            return bound.is_some_and(|i| {
+                built_in_region(
+                    self.d,
+                    body,
+                    self.decision,
+                    self.whole,
+                    i,
+                    Some(self.block),
+                    &mut held,
+                ) && !replaced(self.d, body, l)
+            });
+        }
+        built_in_region(self.d, body, self.decision, self.whole, e, Some(self.block), &mut held)
+    }
 }

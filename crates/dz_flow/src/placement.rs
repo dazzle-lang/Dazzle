@@ -30,6 +30,15 @@
 //! runs once per entry of its block: the loop rule (T-0117) holds by construction, and an
 //! assignment's value, `s = String(…)` in a loop, keeps the heap.
 //!
+//! **A value stored into a container** goes where the container lives (T-0145): an
+//! argument a method stores into its receiver ([`crate::storing`]), when the receiver is a
+//! local of the body, is proposed for that local's block, or for the result placement when
+//! the container is returned. The loop rule has one exception there: a value built on every
+//! pass and stored at once, by a method that keeps it, into a container that keeps
+//! everything, may go into a region the loop does not end, since the region then grows no
+//! faster than the container. The check follows the value into the container and back out:
+//! an element taken out, or the container lent as `&mut`, carries it.
+//!
 //! A copy of a placed value carries no region: copying out of a region builds on the heap
 //! (T-0117 step 3, `List::copy` and `HashMap::copy`). Both steps rely on that library rule.
 //! `return x` is never a copy, since C++ moves a local it returns.
@@ -259,9 +268,45 @@ pub fn owner_module(table: &TypeTable, res: &Resolution, owner: &BodyOwner) -> M
 #[derive(Clone, Debug, Default)]
 pub struct Staying {
     params: HashMap<BodyOwner, (ModuleId, Vec<usize>)>,
+    /// The by-value parameters a method stores into `self` (T-0145): each with whether
+    /// every call keeps it, never dropping it ([`crate::storing`]).
+    stored: HashMap<BodyOwner, (ModuleId, Vec<(usize, bool)>)>,
 }
 
 impl Staying {
+    /// Whether argument `arg` of a method call from a body in `module` is stored into the
+    /// receiver, and if so whether every call keeps it (T-0145). Relied on within the
+    /// callee's module, as [`Self::stays`] is, and for `std`'s containers from anywhere:
+    /// `std` is fixed and analysed with every program.
+    pub(crate) fn stores(
+        &self,
+        res: &Resolution,
+        module: ModuleId,
+        callee: &Callee,
+        arg: usize,
+    ) -> Option<bool> {
+        if !matches!(callee, Callee::Method { .. }) {
+            return None;
+        }
+        let (_, owner) = callee_owner(res, callee)?;
+        let (m, params) = self.stored.get(&owner)?;
+        if *m != module && *m != res.prelude {
+            return None;
+        }
+        params.iter().find(|(i, _)| *i == arg).map(|(_, always)| *always)
+    }
+
+    /// Whether parameter `index` of `owner`, `self` not counted, is stored into `self`.
+    pub fn param_stored(&self, owner: &BodyOwner, index: usize) -> bool {
+        self.stored.get(owner).is_some_and(|(_, params)| params.iter().any(|(i, _)| *i == index))
+    }
+
+    /// Whether parameter `index` of `owner` is stored into `self` on every call, and never
+    /// dropped instead.
+    pub fn param_kept(&self, owner: &BodyOwner, index: usize) -> bool {
+        self.stored.get(owner).is_some_and(|(_, params)| params.contains(&(index, true)))
+    }
+
     /// Whether argument `arg` of a call from a body in `module` stays in the call.
     pub(crate) fn stays(
         &self,
@@ -326,7 +371,7 @@ fn staying_params(hir: &Hir, table: &TypeTable, res: &Resolution, proposer: Prop
         }
     }
     loop {
-        let before = Staying { params: claims.clone() };
+        let before = Staying { params: claims.clone(), ..Staying::default() };
         for (owner, (_, params)) in &mut claims {
             let body = bodies[owner];
             let offset = body.params.len() - owner_sig(table, owner).map_or(0, |s| s.params.len());
@@ -571,7 +616,8 @@ pub fn place_with(
     proposer: Proposer,
 ) -> Placements {
     let results = result_functions(hir, table, res);
-    let staying = staying_params(hir, table, res, proposer);
+    let mut staying = staying_params(hir, table, res, proposer);
+    staying.stored = crate::storing::storing_params(hir, table, res, &staying);
     let mut out = Placements::default();
     for (_, body) in hir.bodies() {
         if let Some(placed) = place_body(hir, table, res, &results, &staying, body, proposer) {
@@ -827,6 +873,11 @@ enum Escape {
     Stays,
     /// It is returned, and stays otherwise.
     Returned,
+    /// It is stored into the container in local `container`, by a method that stores the
+    /// argument (T-0145), and stays otherwise. `direct` when it is the argument itself or a
+    /// part of it, never held by a `let` on the way; `kept` when the method keeps it on
+    /// every call.
+    Into { container: LocalId, direct: bool, kept: bool },
     /// It leaves, and why and where.
     Leaves((String, Option<Span>)),
 }
@@ -1030,7 +1081,8 @@ impl<'a> Cx<'a> {
         };
         // `format!`'s text is the macro's value, so it goes where that value goes. The
         // lambda C++ gets captures by reference, so it reaches the region outside it.
-        let (e, block) = self.formatted_text(e, block).unwrap_or((e, block));
+        let formatted = self.formatted_text(e, block);
+        let (e, block) = formatted.unwrap_or((e, block));
         if self.blocks.get(&block).is_some_and(|(k, _, _)| *k == Kind::Lambda) {
             return Err(("inside a formatting macro".to_owned(), None));
         }
@@ -1052,6 +1104,10 @@ impl<'a> Cx<'a> {
                     match self.escape_of(*x, 0) {
                         Escape::Stays => Ok(Target::Block(block)),
                         Escape::Returned => Ok(Target::Result),
+                        // Held by a `let` first, so not stored directly.
+                        Escape::Into { container, kept, .. } => {
+                            self.stored_target(container, block, false, kept)
+                        }
                         Escape::Leaves(found) => Err(found),
                     }
                 }
@@ -1075,9 +1131,9 @@ impl<'a> Cx<'a> {
                     };
                     Err((why, Some(self.body.stmt(*s).span)))
                 }
-                _ => self.temporary(top),
+                _ => self.temporary(top, block, formatted.is_none()),
             },
-            _ => self.temporary(top),
+            _ => self.temporary(top, block, formatted.is_none()),
         }
     }
 
@@ -1099,10 +1155,15 @@ impl<'a> Cx<'a> {
         (init == e && returns_text).then_some((by, *self.expr_block.get(&by)?))
     }
 
-    /// A value no `let` keeps: placed only when it is what the body returns.
-    fn temporary(&self, e: ExprId) -> Proposal {
+    /// A value no `let` keeps: placed when it is what the body returns, or what a method
+    /// stores into a container (T-0145). `block` is where it is made; `direct` is false for
+    /// `format!`'s text, which is built inside the macro and stored only as its value.
+    fn temporary(&self, e: ExprId, block: BlockId, direct: bool) -> Proposal {
         match self.fate(e, 0) {
             Escape::Returned => Ok(Target::Result),
+            Escape::Into { container, direct: stored, kept } => {
+                self.stored_target(container, block, direct && stored, kept)
+            }
             Escape::Leaves(found) => Err(found),
             Escape::Stays => Err(("a temporary".to_owned(), None)),
         }
@@ -1128,17 +1189,181 @@ impl<'a> Cx<'a> {
             .collect();
         uses.sort_by_key(|e| (self.body.expr(*e).span.start, e.0));
         let mut returned = false;
+        let mut into = None;
         for u in uses {
             match self.fate(u, depth) {
                 Escape::Stays => {}
                 Escape::Returned => returned = true,
+                Escape::Into { container, direct, kept } => match into {
+                    // Stored into two containers, or into one twice: on different paths, or
+                    // one a copy. Neither is followed.
+                    Some(_) => {
+                        let span = Some(self.body.expr(u).span);
+                        return Escape::Leaves(("stored in two places".to_owned(), span));
+                    }
+                    None => into = Some(Escape::Into { container, direct, kept }),
+                },
                 Escape::Leaves(found) => return Escape::Leaves(found),
             }
         }
-        if returned {
-            Escape::Returned
-        } else {
-            Escape::Stays
+        match (returned, into) {
+            (true, Some(_)) => Escape::Leaves(("returned and stored".to_owned(), None)),
+            (true, None) => Escape::Returned,
+            (false, Some(into)) => into,
+            (false, None) => Escape::Stays,
+        }
+    }
+
+    /// Where a value stored into `container` is proposed to go (T-0145): where the
+    /// container lives, which is its `let`'s block, or the body's result placement when the
+    /// container is what a result function returns. `site` is the block the value is made
+    /// in. A value made on every pass of a loop that block is outside of goes there only
+    /// when it is stored directly, by a method that keeps it, into a container that keeps
+    /// everything ([`crate::storing::keeps`]); otherwise the region would grow with every
+    /// pass, past what the container holds.
+    fn stored_target(
+        &self,
+        container: LocalId,
+        site: BlockId,
+        direct: bool,
+        kept: bool,
+    ) -> Proposal {
+        let name = self.body.local(container).name.clone();
+        let Some(block) = self.declared_in(container) else {
+            return Err((format!("stored in `{name}`, which is not a `let` of this body"), None));
+        };
+        let target = match self.escape_of(container, 0) {
+            Escape::Stays => Target::Block(block),
+            Escape::Returned => Target::Result,
+            Escape::Into { .. } => {
+                return Err((format!("stored in `{name}`, which is stored in turn"), None))
+            }
+            Escape::Leaves((why, at)) => return Err((format!("stored in `{name}`: {why}"), at)),
+        };
+        if let Some((why, at)) = self.lets_go(container) {
+            return Err((format!("{why} `{name}`"), at));
+        }
+        let outer = match target {
+            Target::Block(b) => b,
+            Target::Result => self.body.root,
+        };
+        match self.loop_between(site, outer) {
+            None => Err((format!("made before `{name}`'s block"), None)),
+            Some(false) => Ok(target),
+            Some(true)
+                if direct && kept && crate::storing::keeps(self.body, self.table, container) =>
+            {
+                Ok(target)
+            }
+            Some(true) => Err((format!("stored in `{name}` on every pass of a loop"), None)),
+        }
+    }
+
+    /// When argument `e` of a call is stored into the call's receiver, a container this body
+    /// declares (T-0145): which, and how ([`Escape::Into`]). `depth` is how many `let`s
+    /// the value has passed through on its way here.
+    fn stored_by(&self, callee: &Callee, args: &[ExprId], e: ExprId, depth: u32) -> Option<Escape> {
+        let i = args.iter().position(|a| *a == e)?;
+        let kept = self.staying.stores(self.res, self.module, callee, i)?;
+        let Callee::Method { recv, .. } = callee else { return None };
+        let container = self.receiver_local(*recv)?;
+        Some(Escape::Into { container, direct: depth == 0, kept })
+    }
+
+    /// Whether what is stored into `container` can leave it for somewhere a region cannot
+    /// follow (T-0145): the container lent as `&mut`, or an element taken back out (a
+    /// `&mut self` method returning something that owns memory: `pop`, `remove`) and then
+    /// not kept here. Why, as "…" before the container's name, and where.
+    fn lets_go(&self, container: LocalId) -> Option<(String, Option<Span>)> {
+        let uses = (0..self.body.exprs.len() as u32).map(ExprId).filter(
+            |e| matches!(self.body.expr(*e).kind, hir::ExprKind::Local(l) if l == container),
+        );
+        for u in uses {
+            let mut top = u;
+            while let Some(Up::Expr(p)) = self.up.get(&top) {
+                let place = matches!(self.body.expr(*p).kind,
+                    hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. }
+                    if base == top);
+                if !place {
+                    break;
+                }
+                top = *p;
+            }
+            let Some(Up::Expr(p)) = self.up.get(&top) else { continue };
+            let span = Some(self.body.expr(*p).span);
+            match &self.body.expr(*p).kind {
+                hir::ExprKind::Ref { mutable: true, .. } => {
+                    return Some(("lent as `&mut` with".to_owned(), span))
+                }
+                hir::ExprKind::Call {
+                    callee: Callee::Method { recv, owner, name, .. }, ..
+                } if *recv == top => {
+                    let mutates = self
+                        .table
+                        .methods_sig(*owner)
+                        .and_then(|s| s.methods.get(name))
+                        .is_some_and(|sig| sig.takes_self == Some(true));
+                    if !mutates || !crate::storing::owns(self.table, self.body.ty(*p)) {
+                        continue;
+                    }
+                    match self.fate(*p, 1) {
+                        Escape::Stays => {}
+                        Escape::Leaves((why, at)) => {
+                            return Some((format!("{why}, once taken out of"), at))
+                        }
+                        Escape::Returned | Escape::Into { .. } => {
+                            return Some(("moved on, once taken out of".to_owned(), span))
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// The block whose `let` declares `local`.
+    fn declared_in(&self, local: LocalId) -> Option<BlockId> {
+        (0..self.body.stmts.len() as u32).map(StmtId).find_map(|s| match self.body.stmt(s).kind {
+            hir::StmtKind::Let { local: Some(l), .. } if l == local => {
+                self.stmt_block.get(&s).copied()
+            }
+            _ => None,
+        })
+    }
+
+    /// Whether a loop lies between block `inner` and block `outer` around it, `inner`
+    /// counted and `outer` not; `None` when `outer` is not around `inner`.
+    fn loop_between(&self, mut inner: BlockId, outer: BlockId) -> Option<bool> {
+        let mut looped = false;
+        loop {
+            if inner == outer {
+                return Some(looped);
+            }
+            let (kind, parent, _) = self.blocks.get(&inner)?;
+            looped |= *kind == Kind::Loop;
+            inner = (*parent)?;
+        }
+    }
+
+    /// The local a method's receiver is a by-value field path of, when the body declares
+    /// it with a `let`: `names` in `names.push(…)` and `store.names.push(…)`.
+    fn receiver_local(&self, recv: ExprId) -> Option<LocalId> {
+        match self.body.expr(recv).kind {
+            hir::ExprKind::Local(l) => {
+                let local = self.body.local(l);
+                let by_value =
+                    !matches!(local.ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::OwnPtr { .. });
+                (by_value && self.declared_in(l).is_some()).then_some(l)
+            }
+            hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. } => {
+                if matches!(self.body.ty(base), Ty::Ref { .. } | Ty::Ptr { .. } | Ty::OwnPtr { .. })
+                {
+                    return None;
+                }
+                self.receiver_local(base)
+            }
+            _ => None,
         }
     }
 
@@ -1273,7 +1498,10 @@ impl<'a> Cx<'a> {
                         {
                             Escape::Stays
                         }
-                        _ => leaves(format!("passed to `{}`", self.call_name(p)), span(p)),
+                        _ => match self.stored_by(callee, args, e, depth) {
+                            Some(into) if !copy => into,
+                            _ => leaves(format!("passed to `{}`", self.call_name(p)), span(p)),
+                        },
                     },
                     hir::ExprKind::Return(_) => {
                         // C++ moves a local it returns, so that is never a copy.

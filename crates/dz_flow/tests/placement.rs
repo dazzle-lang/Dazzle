@@ -30,7 +30,7 @@ fn sum_squares(n: i32) -> i32 {
     return total
 }
 
-// Placed: a region per pass of the loop. What is pushed keeps the heap.
+// Placed: a region per pass of the loop. What is pushed goes there too: the list keeps it.
 fn rounds() -> i32 {
     let mut longest = 0
     for round in 0..50 {
@@ -245,7 +245,8 @@ const PLACED: &[(&str, &[&str])] = &[
         "rounds",
         &[
             "List<String>: region: each pass of a loop in `rounds`",
-            "String::from: heap: passed to `words.push`",
+            // Pushed on every pass of the inner loop into a list that keeps it (T-0145).
+            "String::from: region: each pass of a loop in `rounds`",
         ],
     ),
     ("lend", &["List<i32>: region: `lend`"]),
@@ -731,14 +732,18 @@ fn the_region_check_alone_refuses_every_wrong_placement() {
         ("outer", 1, "List<i32>: heap: stored in `kept`"),
         // The loop rule, from the check: the value goes into a local the pass outlives.
         ("looped", 1, "String::from: heap: stored in `s`"),
-        ("rounds", 1, "String::from: heap: passed to `words.push`"),
+        // Proposed for the inner loop's region, but stored into a list declared outside it
+        // (T-0145).
+        ("rounds", 1, "String::from: heap: stored in `words`"),
     ];
     for (f, index, expected) in checked {
         assert_eq!(decisions(&a, &p, f)[*index], *expected, "in `{f}`");
         let site = sites(&a, &p, f)[*index];
         assert!(body(&a, &p, f).demoted().contains(&site.call), "`{f}`: refused by the check");
     }
-    for (f, expected) in PLACED {
+    // `rounds`' pushed string is right where the proposer puts it, the list's region, and
+    // wrong where everything is proposed, its own loop's: it is in `checked` above.
+    for (f, expected) in PLACED.iter().filter(|(f, _)| *f != "rounds") {
         assert_eq!(decisions(&a, &p, f), *expected, "in `{f}`");
     }
     for (f, expected) in FIXED {
@@ -1111,6 +1116,159 @@ fn astar_places_its_queue_maps_and_path() {
     assert_eq!(decisions(&a, p, "trace"), ["List<Cell>: region: `trace`"]);
 }
 
+/// Which of std's methods store what they are given into `self`, worked out from their
+/// bodies, and which keep it on every call (T-0145).
+#[test]
+fn std_containers_store_what_they_are_given() {
+    let a = analyse(
+        "fn main() {}
+",
+    );
+    let res = a.resolution.as_ref().unwrap();
+    let staying = a.placements.as_ref().unwrap().staying();
+    let method = |ty: &str, name: &str| BodyOwner::Method {
+        owner: res.lookup(res.prelude, ty).unwrap_or_else(|| panic!("no `{ty}` in std")),
+        name: name.to_owned(),
+    };
+    // (type, method, parameter, stored, kept)
+    for (ty, name, index, stored, kept) in [
+        ("List", "push", 0, true, true),
+        ("List", "insert", 1, true, true),
+        ("SlotMap", "insert", 0, true, true),
+        // It may drop the key it already had, or the value it replaces.
+        ("HashMap", "insert", 0, true, false),
+        ("HashMap", "insert", 1, true, false),
+        ("HashMap", "get_or_insert", 1, true, false),
+        ("HashSet", "insert", 0, true, false),
+    ] {
+        let owner = method(ty, name);
+        assert_eq!(staying.param_stored(&owner, index), stored, "{ty}::{name} stores {index}");
+        assert_eq!(staying.param_kept(&owner, index), kept, "{ty}::{name} keeps {index}");
+    }
+}
+
+/// A value stored into a container is built where the container lives, and the region
+/// check follows it back out: popped and kept elsewhere, or lent out with the container as
+/// `&mut`, it keeps the heap. On every pass of a loop it goes there only when the container
+/// keeps everything stored into it (T-0145).
+#[test]
+fn a_value_stored_into_a_container_is_built_where_it_lives() {
+    let a = analyse(
+        r#"
+struct Store {
+    pub names: List<String>
+}
+
+fn filled(n: i32) -> usize {
+    let mut names = List<String>()
+    for _ in 0..n {
+        names.push(String::from("x"))
+        names.push(format!("{}", n))
+    }
+    return names.len()
+}
+
+fn popped(store: &mut Store) -> usize kills store.names@items {
+    let mut names = List<String>()
+    names.push(String::from("kept elsewhere"))
+    let last = names.pop() or return 0
+    store.names.push(move(last))
+    return names.len()
+}
+
+fn drained(n: i32) -> usize {
+    let mut names = List<String>()
+    let mut count: usize = 0
+    for _ in 0..n {
+        names.push(String::from("pass"))
+        let s = names.pop() or return 0
+        count += s.len()
+    }
+    return count
+}
+
+fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items {
+    let s = from.pop() or return
+    store.names.push(move(s))
+}
+
+fn lent(store: &mut Store) -> usize kills store.names@items {
+    let mut names = List<String>()
+    names.push(String::from("lent"))
+    give(&mut names, store)
+    return names.len()
+}
+
+fn mapped(n: i32) -> usize {
+    let mut m = HashMap<i32, String>()
+    m.insert(1, String::from("once"))
+    for i in 0..n {
+        m.insert(i, String::from("may replace"))
+    }
+    return m.len()
+}
+
+fn made() -> List<String> {
+    let mut out = List<String>()
+    out.push(String::from("made"))
+    return out
+}
+
+fn tagged(names: &mut List<String>) kills names@items {
+    names.push(String::from("the caller's list"))
+}
+
+fn main() {
+    let mut store = Store{ names: List<String>() }
+    tagged(&mut store.names)
+    let m = made()
+    println!("{} {} {} {} {} {}", filled(3), popped(&mut store), drained(2), lent(&mut store), mapped(2), m.len())
+}
+"#,
+    );
+    let p = a.placements.as_ref().unwrap();
+    let region = |f: &str| format!("region: `{f}`");
+    assert_eq!(
+        decisions(&a, p, "filled"),
+        [
+            format!("List<String>: {}", region("filled")),
+            // Built on every pass and stored at once, into a list that keeps it.
+            format!("String::from: {}", region("filled")),
+            // Built inside the macro, and stored only as its value.
+            "String: heap: stored in `names` on every pass of a loop".to_owned(),
+        ]
+    );
+    assert_eq!(
+        decisions(&a, p, "popped")[1],
+        "String::from: heap: passed to `store.names.push`, once taken out of `names`",
+        "taken back out and stored where the region cannot follow"
+    );
+    assert_eq!(
+        decisions(&a, p, "drained")[1],
+        "String::from: heap: stored in `names` on every pass of a loop",
+        "popped in the same loop: the list does not keep it, and the region would grow"
+    );
+    assert_eq!(decisions(&a, p, "lent")[1], "String::from: heap: lent as `&mut` with `names`");
+    assert_eq!(
+        decisions(&a, p, "mapped"),
+        [
+            format!("HashMap<i32, String>: {}", region("mapped")),
+            format!("String::from: {}", region("mapped")),
+            // `insert` may drop the value it replaces, so a loop keeps the heap.
+            "String::from: heap: stored in `m` on every pass of a loop".to_owned(),
+        ]
+    );
+    assert_eq!(
+        decisions(&a, p, "made"),
+        [
+            "List<String>: result: where `made`'s caller keeps it",
+            "String::from: result: where `made`'s caller keeps it",
+        ]
+    );
+    // The list is the caller's, wherever it is.
+    assert_eq!(decisions(&a, p, "tagged"), ["String::from: heap: passed to `names.push`"]);
+}
+
 /// r90's examples of a drop that only frees, worked out per type instance from the drop
 /// bodies themselves (T-0118).
 #[test]
@@ -1218,12 +1376,25 @@ fn skipped() -> usize {
         let t = String::from("each pass")
         n += t.len()
     }
-    return xs.len() + s.len() + m.len() + b.items.len() + f.len() + n
+    // Everything put into it was built in its region (T-0145).
+    let mut names = List<String>()
+    for _ in 0..3 {
+        names.push(String::from("each pass, kept"))
+    }
+    let one = String::from("one")
+    names.push(move(one))
+    return xs.len() + s.len() + m.len() + b.items.len() + f.len() + n + names.len()
 }
 
 fn kept() -> usize {
     let mut names = List<String>()
-    names.push(String::from("built on the heap"))
+    names.push(pass_on(String::from("built on the heap")))
+    let mut grown = List<String>()
+    grown.push(String::from("in the region"))
+    grown.resize(4)
+    let key = List<i32>()
+    let mut keyed = HashMap<List<i32>, i32>()
+    keyed.insert(key, 1)
     let mut a = String::from("a")
     a = String::from("b")
     let mut r = String::from("r")
@@ -1232,8 +1403,8 @@ fn kept() -> usize {
     let t = Taken(List<i32>())
     let noisy = Noisy()
     let h = Half{ built: List<i32>() }
-    return names.len() + a.len() + r.len() + c.len() + t.items.len() + noisy.items.len() +
-        h.built.len()
+    return names.len() + grown.len() + keyed.len() + a.len() + r.len() + c.len() + t.items.len() +
+        noisy.items.len() + h.built.len()
 }
 
 fn main() {
@@ -1247,20 +1418,32 @@ fn main() {
     };
     assert_eq!(
         skipped("skipped"),
-        ["List<i32>", "String::from", "HashMap<i32, i32>", "Bag", "fresh", "String::from"],
+        [
+            "List<i32>",
+            "String::from",
+            "HashMap<i32, i32>",
+            "Bag",
+            "fresh",
+            "String::from",
+            "List<String>",
+            // `one`, moved into the list: nothing is left for its drop.
+            "String::from"
+        ],
         "{:?}",
         decisions(&a, p, "skipped")
     );
-    // Holds strings built on the heap; replaced; handed on as `&mut`; built from a value
-    // the callee was given; a constructor that keeps its argument; a drop that prints; a
-    // field left to its default.
-    assert_eq!(skipped("kept"), Vec::<String>::new(), "{:?}", decisions(&a, p, "kept"));
+    // Holds a string built on the heap; grown with elements `resize` builds itself; given a
+    // copy of `key` as its key, built on the heap (T-0145);
+    // replaced; handed on as `&mut`; built from a value the callee was given; a constructor
+    // that keeps its argument; a drop that prints; a field left to its default.
+    // Only `key`, which is copied from and keeps its own memory, skips its drop.
+    assert_eq!(skipped("kept"), ["List<i32>"], "{:?}", decisions(&a, p, "kept"));
     // Each of them is in the region all the same: it is the drop that is kept, not the heap.
     let regions = sites(&a, p, "kept")
         .iter()
         .filter(|s| matches!(s.decision, Decision::Region { .. }))
         .count();
-    assert_eq!(regions, 7, "{:?}", decisions(&a, p, "kept"));
+    assert_eq!(regions, 12, "{:?}", decisions(&a, p, "kept"));
     let labels: Vec<String> = sites(&a, p, "skipped").iter().map(|s| s.label()).collect();
     assert_eq!(labels[0], "region: `skipped`; drop skipped");
 }

@@ -548,7 +548,8 @@ fn inlay_hints_show_where_each_allocation_goes() {
     );
     assert_eq!(
         placed("List<String>()", 5).as_deref(),
-        Some("region: each pass of a loop in `main`"),
+        // Its strings are pushed into its region too, so it skips its drop (T-0145).
+        Some("region: each pass of a loop in `main`; drop skipped"),
         "{all:?}"
     );
 }

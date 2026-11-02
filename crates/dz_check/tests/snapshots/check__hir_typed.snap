@@ -1297,9 +1297,40 @@ body drop HashMap -> void
         null: own ^mut u64
       block
         return: !
-    call-method HashMap::clear: void
-      local _0 self: HashMap<K, V>
-    let _1 a: &mut Allocator
+    if: void
+      binary ||: bool
+        type-query K::has_drop: bool
+        type-query V::has_drop: bool
+      block
+        for _1 i
+          range: usize..usize
+            int 0: i32
+            field #4: usize
+              local _0 self: HashMap<K, V>
+          block
+            if: void
+              binary !=: bool
+                block-value: u64
+                  block
+                    index: u64
+                      field #0: own ^mut u64
+                        local _0 self: HashMap<K, V>
+                      local _1 i: usize
+                int 0: u64
+              block
+                block-value: void
+                  block
+                    builtin destroy: void
+                      index: K
+                        field #1: own ^mut K
+                          local _0 self: HashMap<K, V>
+                        local _1 i: usize
+                    builtin destroy: void
+                      index: V
+                        field #2: own ^mut V
+                          local _0 self: HashMap<K, V>
+                        local _1 i: usize
+    let _2 a: &mut Allocator
       block-value: &mut Allocator
         block
           or: &mut Allocator
@@ -1307,7 +1338,7 @@ body drop HashMap -> void
               local _0 self: HashMap<K, V>
             return: !
     call-method Allocator::free: void
-      local _1 a: &mut Allocator
+      local _2 a: &mut Allocator
       block-value: ^mut u8
         block
           cast: ^mut u8
@@ -1319,7 +1350,7 @@ body drop HashMap -> void
         type-query u64::size: usize
       type-query u64::align: usize
     call-method Allocator::free: void
-      local _1 a: &mut Allocator
+      local _2 a: &mut Allocator
       block-value: ^mut u8
         block
           cast: ^mut u8
@@ -1331,7 +1362,7 @@ body drop HashMap -> void
         type-query K::size: usize
       type-query K::align: usize
     call-method Allocator::free: void
-      local _1 a: &mut Allocator
+      local _2 a: &mut Allocator
       block-value: ^mut u8
         block
           cast: ^mut u8
