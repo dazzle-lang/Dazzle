@@ -206,7 +206,10 @@ fn dz_placements_prints_each_site() {
     let text = normalise(&String::from_utf8_lossy(&out.stdout));
     let lines: Vec<&str> = text.lines().collect();
     assert!(lines.iter().all(|l| !l.contains("<std>")), "{text}");
-    assert!(lines[0].ends_with("src/main.dz:14:18: List<i32>  region: `sum_squares`"), "{text}");
+    assert!(
+        lines[0].ends_with("src/main.dz:14:18: List<i32>  region: `sum_squares`; drop skipped"),
+        "{text}"
+    );
     assert!(
         lines[1].ends_with("src/main.dz:27:18: List<i32>  result: where `evens`'s caller keeps it"),
         "{text}"
@@ -228,11 +231,14 @@ fn dz_placements_prints_each_site() {
     assert_eq!(sites[0]["placement"], "region");
     assert_eq!(sites[0]["scope"], "`sum_squares`");
     assert_eq!(sites[0]["line"], 14);
+    // Its region frees the list whole, so its drop is skipped (T-0118).
+    assert_eq!(sites[0]["drop_skipped"], true);
     assert_eq!(sites[1]["placement"], "result");
     assert_eq!(sites[1]["function"], "`evens`");
     assert_eq!(sites[8]["placement"], "heap");
     assert_eq!(sites[8]["why"], "passed to `store.names.push`");
     assert_eq!(sites[8]["label"], "heap: passed to `store.names.push`");
+    assert_eq!(sites[8]["drop_skipped"], false);
     assert!(sites[8]["at"]["line"].is_u64(), "a heap decision says where: {}", sites[8]);
 }
 

@@ -366,7 +366,8 @@ fn cmd_placements(
                     "line": line,
                     "column": column,
                     "callee": s.callee,
-                    "label": s.decision.label(),
+                    "label": s.label(),
+                    "drop_skipped": s.drop_skipped,
                 });
                 match &s.decision {
                     dz_flow::placement::Decision::Region { scope, .. } => {
@@ -400,7 +401,7 @@ fn cmd_placements(
         .count();
     for (file, s) in &sites {
         let (name, line, column) = place(file, s.span.start);
-        println!("{name}:{line}:{column}: {}  {}", s.callee, s.decision.label());
+        println!("{name}:{line}:{column}: {}  {}", s.callee, s.label());
     }
     println!(
         "{} allocation{}, {regions} in a region",

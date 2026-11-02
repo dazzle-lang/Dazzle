@@ -31,6 +31,7 @@ use dz_resolve::Resolution;
 use dz_span::{FileId, SourceMap, Span};
 
 pub mod placement;
+pub mod release;
 pub mod ties;
 
 /// Check every body in the program.
