@@ -303,6 +303,9 @@ struct Regions {
     param_sites: Vec<(LocalId, usize)>,
     /// The body's module, which a call must share with its callee to rely on `Staying`.
     module: Option<ModuleId>,
+    /// Which sites' values were stored into a container (T-0145): an element taken back
+    /// out of the container, or the container lent as `&mut`, carries them.
+    stored: Vec<bool>,
 }
 
 type State = HashMap<LocalId, Value>;
@@ -391,6 +394,7 @@ pub(crate) fn analyse_regions(
         by_call: sites.iter().enumerate().map(|(i, (call, _, _))| (*call, i)).collect(),
         refused: vec![None; sites.len() + params.len()],
         params: vec![false; sites.len()],
+        stored: vec![false; sites.len() + params.len()],
         module: Some(crate::placement::owner_module(table, res, &body.owner)),
         ..Regions::default()
     };
@@ -770,6 +774,18 @@ impl Analysis<'_> {
     }
 
     fn call(&mut self, callee: &Callee, args: &[ExprId], expression: ExprId) -> Value {
+        let mut result = self.call_inner(callee, args, expression);
+        // An element taken out of a container is in whatever region the values stored
+        // into it were (T-0145): `pop`, `remove`, `HashMap::replace`.
+        for site in self.taken_out(callee, expression) {
+            if !result.owned.contains(&site) {
+                result.owned.push(site);
+            }
+        }
+        result
+    }
+
+    fn call_inner(&mut self, callee: &Callee, args: &[ExprId], expression: ExprId) -> Value {
         let held_start = self.held.len();
         let recv = match callee {
             Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => {
@@ -825,6 +841,12 @@ impl Analysis<'_> {
             // borrowed (spec §7.3), and a reference argument carries no region. A parameter
             // that stays in the call does not keep it: it is gone when the call returns.
             if self.stays_in_call(callee, i) {
+                continue;
+            }
+            // Stored into the receiver, a local's container: it lives where that local
+            // does (T-0145).
+            if let Some(container) = self.stored_into(callee, i) {
+                self.region_store(container, *arg, value, expression);
                 continue;
             }
             self.sink(*arg, value, Refusal::Passed(expression));
@@ -1448,6 +1470,129 @@ impl Analysis<'_> {
         staying.stays(self.res, module, callee, arg)
     }
 
+    /// The local whose container argument `arg` of a call to `callee` is stored into, when
+    /// the callee stores it into its receiver ([`Staying::stores`]) and the receiver is a
+    /// by-value path from a local (T-0145).
+    fn stored_into(&self, callee: &Callee, arg: usize) -> Option<LocalId> {
+        let (staying, module) = (self.staying?, self.regions.as_ref()?.module?);
+        staying.stores(self.res, module, callee, arg)?;
+        let Callee::Method { recv, .. } = callee else { return None };
+        self.local_root(*recv)
+    }
+
+    /// `value`, argument `arg` of `call`, stored into the container in `container`: it may
+    /// go only into one declared inside each of its regions' blocks, as for an assignment
+    /// ([`Self::region_assign`]), and the container then holds it.
+    fn region_store(&mut self, container: LocalId, arg: ExprId, value: &Value, call: ExprId) {
+        let owned = self.passed(arg, value.clone()).all_owned();
+        if owned.is_empty() {
+            return;
+        }
+        let span = self.body.expr(call).span;
+        let Some(regions) = &mut self.regions else { return };
+        let declared = regions.frames.get(&container).copied();
+        let refused: Vec<usize> = owned
+            .iter()
+            .copied()
+            .filter(|site| match (declared, regions.active.get(&regions.sites[*site].1)) {
+                (Some(at), Some(frame)) => at < *frame,
+                _ => true,
+            })
+            .collect();
+        for site in &owned {
+            if let Some(s) = regions.stored.get_mut(*site) {
+                *s = true;
+            }
+        }
+        let recv = match &self.body.expr(call).kind {
+            hir::ExprKind::Call { callee: Callee::Method { recv, .. }, .. } => *recv,
+            _ => call,
+        };
+        self.refuse(&refused, Refusal::Stored(recv), span);
+        let v = self.state.entry(container).or_default();
+        for site in owned {
+            if !v.owned.contains(&site) {
+                v.owned.push(site);
+            }
+        }
+    }
+
+    /// The regions stored into the container a call takes an element out of: a `&mut self`
+    /// method whose result owns memory, on a by-value path from a local (T-0145).
+    fn taken_out(&self, callee: &Callee, call: ExprId) -> Vec<usize> {
+        let Some(regions) = &self.regions else { return Vec::new() };
+        let Callee::Method { recv, owner, name, .. } = callee else { return Vec::new() };
+        let mutates = self
+            .table
+            .methods_sig(*owner)
+            .and_then(|s| s.methods.get(name))
+            .is_some_and(|sig| sig.takes_self == Some(true));
+        if !mutates || !crate::storing::owns(self.table, self.body.ty(call)) {
+            return Vec::new();
+        }
+        let Some(container) = self.local_root(*recv) else { return Vec::new() };
+        let Some(v) = self.state.get(&container) else { return Vec::new() };
+        v.owned.iter().copied().filter(|s| regions.stored.get(*s) == Some(&true)).collect()
+    }
+
+    /// `&mut place`: what was stored into a container under it is lost (T-0145).
+    fn lend(&mut self, place: ExprId, span: Span) {
+        let Some(regions) = &self.regions else { return };
+        let Some(container) = self.local_root(place) else { return };
+        let Some(v) = self.state.get(&container) else { return };
+        let lost: Vec<usize> =
+            v.owned.iter().copied().filter(|s| regions.stored.get(*s) == Some(&true)).collect();
+        self.lost(&lost, "lent as `&mut` once stored", span);
+    }
+
+    /// Whether the site `call` may be made on every pass of a loop its region outlives
+    /// (T-0145): its value, or a value holding it, is the argument a method keeps on every
+    /// call, stored into a local's container that keeps everything stored into it
+    /// ([`crate::storing::keeps`]). The region then grows only as the container does.
+    fn kept_each_pass(&self, call: ExprId) -> bool {
+        let (Some(staying), Some(module)) =
+            (self.staying, self.regions.as_ref().and_then(|r| r.module))
+        else {
+            return false;
+        };
+        let body = self.body;
+        let mut parent: HashMap<ExprId, ExprId> = HashMap::new();
+        for i in 0..body.exprs.len() as u32 {
+            for c in crate::storing::children(body, ExprId(i)) {
+                parent.insert(c, ExprId(i));
+            }
+        }
+        let mut top = call;
+        while let Some(&p) = parent.get(&top) {
+            let holds = match &body.expr(p).kind {
+                hir::ExprKind::Move(_)
+                | hir::ExprKind::StructLit { .. }
+                | hir::ExprKind::UnionVariant { .. }
+                | hir::ExprKind::Tuple(_)
+                | hir::ExprKind::ArrayLit(_) => true,
+                hir::ExprKind::Or { operand, clause } => {
+                    *operand == top || matches!(clause, hir::OrClause::Value(v) if *v == top)
+                }
+                hir::ExprKind::Call { callee, args } => {
+                    args.first() == Some(&top) && crate::placement::boxes_argument(self.res, callee)
+                }
+                _ => false,
+            };
+            if !holds {
+                break;
+            }
+            top = p;
+        }
+        let Some(&p) = parent.get(&top) else { return false };
+        let hir::ExprKind::Call { callee, args } = &body.expr(p).kind else { return false };
+        let Some(i) = args.iter().position(|a| *a == top) else { return false };
+        if staying.stores(self.res, module, callee, i) != Some(true) {
+            return false;
+        }
+        let Callee::Method { recv, .. } = callee else { return false };
+        self.local_root(*recv).is_some_and(|l| crate::storing::keeps(body, self.table, l))
+    }
+
     /// `value`, computed by `e`, goes where the walk does not follow it: every region in it
     /// is refused, unless it is a copy.
     fn sink(&mut self, e: ExprId, value: &Value, why: Refusal) {
@@ -1483,7 +1628,9 @@ impl Analysis<'_> {
         match regions.active.get(&block).copied() {
             None => self.refuse(&[site], Refusal::Unfollowed("outside its region's block"), span),
             Some(frame) => {
-                if self.loops.last().is_some_and(|l| frame < l.scope_depth) {
+                if self.loops.last().is_some_and(|l| frame < l.scope_depth)
+                    && !self.kept_each_pass(call)
+                {
                     self.refuse(&[site], Refusal::EveryPass, span);
                 }
             }
@@ -2126,8 +2273,13 @@ impl Analysis<'_> {
                 self.read(&value, node.span);
                 value
             }
-            hir::ExprKind::Ref { place, .. } => {
+            hir::ExprKind::Ref { place, mutable, .. } => {
                 let value = self.expr(place);
+                // Lent as `&mut`, a container may have an element taken out where the walk
+                // cannot see it, so what was stored into it is lost (T-0145).
+                if mutable {
+                    self.lend(place, node.span);
+                }
                 // A reference to a temporary view struct has no place to point at; it
                 // stands for what the temporary views, which is all a result given it may
                 // be in (spec §6.7, D-0093).

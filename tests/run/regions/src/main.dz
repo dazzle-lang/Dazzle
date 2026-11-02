@@ -392,4 +392,59 @@ fn main() {
     let kept_caption = caption(7)
     println!("formatted {} {} {} {}", heading(12), kept_caption, caps.len(), caps[2])
     println!("weighed {}", weighed())
+    println!("stored {} {} {} {}", filled(4), popped(&mut store), drained(3), counted(5))
+    println!("kept {}", store.names[store.names.len() - 1])
+}
+
+// Stored into a container: built where the container lives (T-0145). The pushed strings
+// are in this function's region with the list, so the list's drop is skipped, and then
+// the region is released and its chunk reused by `churn`.
+fn filled(n: i32) -> usize {
+    let mut names = List<String>()
+    for i in 0..n {
+        names.push(String::from("filled"))
+        if i % 2 == 0 {
+            names.push(String::from("even"))
+        }
+    }
+    let mut total: usize = 0
+    for &s in names {
+        total += s.len()
+    }
+    return total + churn() as usize
+}
+
+// Taken back out and kept in a store that outlives the list: the string keeps the heap, so
+// what `churn` writes over the region does not reach it.
+fn popped(store: &mut Store) -> usize kills store.names@items {
+    let mut names = List<String>()
+    names.push(String::from("popped"))
+    let last = names.pop() or return 0
+    store.names.push(move(last))
+    return names.len() + churn() as usize
+}
+
+// Popped on the same pass: the list does not keep what it is given, so each pass's string
+// keeps the heap rather than grow the region.
+fn drained(n: i32) -> usize {
+    let mut names = List<String>()
+    let mut count: usize = 0
+    for _ in 0..n {
+        names.push(String::from("pass"))
+        let s = names.pop() or return 0
+        count += s.len()
+    }
+    return count
+}
+
+// A map filled outside a loop takes its values into its region, though `insert` may drop
+// the one it replaces.
+fn counted(n: i32) -> usize {
+    let mut m = HashMap<i32, String>()
+    m.insert(n, String::from("five"))
+    let mut total: usize = 0
+    if let &v = m.get(&n) {
+        total += v.len()
+    }
+    return total
 }

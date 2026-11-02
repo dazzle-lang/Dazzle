@@ -80,7 +80,7 @@ effect. The placement hint says when a drop is skipped.
   declared first in the block, so it is released after everything in the block.
 - **What it reaches today**: in `tests/run/regions`, 15 of the 38 sites in a region; in the
   benchmarks, `astar`'s queue, both its maps and its path, and `words`' text and buffer.
-  Kept: a container of owning elements (until T-0145), and the four cases
+  Kept: a container of owning elements (done since by T-0145, round 2), and the four cases
   [T-0147](T-0147-skip-more-drops-value-lent-as.md) lists — a value lent as `&mut`, one built
   by a trait method, a function value or `format!`, and a local in a generic body.
 - **Checked**: every `tests/run` program with regions on and `--track-memory` (no leaks, the

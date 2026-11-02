@@ -20,9 +20,10 @@ region that frees it:
 | `format!`'s text, `let line = format!(…)` | the text is built inside the macro's lambda, not by a call the rule follows | treat the macro's value as the site its text is |
 | in a generic body, `let tmp = List<T>()` | the type has a parameter, and one body is decided for every instance | decide per instance in codegen, which knows `T` |
 
-A container of values that own memory, `List<String>`, is not on the list: its elements are
-built on the heap until [T-0145](T-0145-value-stored-into-container-built-where.md) builds a
-stored value where its container lives.
+A container of values that own memory, `List<String>`, skips its drop since
+[T-0145](T-0145-value-stored-into-container-built-where.md) when everything stored into it was
+built in its region; what it still misses is in
+[T-0149](T-0149-stored-values-left-on-heap-map.md).
 
 **Why it matters.** Each case keeps work at scope exit that the region's release already
 does. Most of it is a call into the region's `free`, which gives memory back only when it was
