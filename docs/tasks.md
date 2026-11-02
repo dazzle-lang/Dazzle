@@ -28,8 +28,13 @@ proposed:
    placed as `#placement`. The speed hand-placed `Temp` gave `words` and `expr` waits
    for T-0145 and T-0146. T-0118 is done (2026-11-02): a drop that only frees is skipped
    when its region frees everything the value owns; the cases it still leaves are T-0147.
+   T-0145 is done too (2026-11-02): a value stored into a local container is built where
+   the container lives, so a `List<String>` filled in its region skips its drop. What
+   `words` and `expr` need from it is in T-0149 (a map filled in a loop) and T-0140
+   (copies). The user's idea of a checked marker for a drop that only frees is T-0148,
+   for later.
 4. The rest of D-0094 (T-0126, T-0128, T-0129, T-0130, T-0135, T-0136), its tests (T-0132
-   to T-0134), and the placement gaps (T-0140 to T-0142, T-0145, T-0146, T-0147).
+   to T-0134), and the placement gaps (T-0140 to T-0142, T-0146, T-0147, T-0149).
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
    (T-0137).
 
@@ -129,7 +134,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (38 open)
+## none — not scheduled (39 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -166,6 +171,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0140](tasks/T-0140-copy-built-on-heap-wherever-it.md)** A copy is built on the heap wherever it is placed · feature, ownership
 - **[T-0141](tasks/T-0141-virtual-override-methods-take-no-result.md)** `virtual` and `override` methods take no result placement · feature, ownership
 - **[T-0142](tasks/T-0142-by-value-parameter-placement-inferred-only.md)** A by-value parameter's placement is inferred only within its module · feature, ownership
-- **[T-0145](tasks/T-0145-value-stored-into-container-built-where.md)** A value stored into a container is built where the container lives · feature, ownership
 - **[T-0146](tasks/T-0146-value-rebuilt-on-each-pass-loop.md)** A value rebuilt on each pass of a loop, holding the one before, keeps the heap · feature, ownership
 - **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method or format!, or in a generic body · feature, ownership
+- **[T-0148](tasks/T-0148-say-in-source-that-drop-only.md)** Say in the source that a drop only frees, checked by the compiler · design, ownership
+- **[T-0149](tasks/T-0149-stored-values-left-on-heap-map.md)** Stored values left on the heap: a map filled in a loop, a container lent as &mut, format! text in a loop · feature, ownership

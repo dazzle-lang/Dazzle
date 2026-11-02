@@ -6,6 +6,49 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0145: a value stored into a container lives where the container lives (2026-11-02)
+
+Compiler work; no language change. Spec §14.6 now says what it does. Asked for by the user
+right after T-0118, for the case it could not reach: a `List<String>` whose strings are in its
+region, so freeing the region frees them and the drop need not walk them.
+
+- **What a method does with what it is given** (`dz_flow/src/storing.rs`), inferred from
+  bodies to a fixed point: a by-value parameter is *stored* when every use borrows, copies,
+  drops or moves it into `self` (`construct` into memory reached from a field, a field
+  assignment, or a stored parameter of a method on `self` or a field), and *kept* when that
+  move runs on every call. `List::push` and `insert` and `SlotMap::insert` keep;
+  `HashMap::insert` and `get_or_insert` and `HashSet::insert` store but may drop. std's
+  summaries hold from any module, a program's own within its module.
+- **The proposer** places a value passed to a stored parameter where the receiver lives (a
+  local's block, or the result placement when the container is returned), unless something
+  taken back out of the container goes where the region cannot follow, or the container is
+  lent as `&mut`. In a loop, only a value stored at once by a keeping method into a container
+  that nothing takes from, drops from or lends (`keeps`): the loop rule bounds memory, and the
+  region then grows no faster than the container.
+- **The region check** follows the value into the container's local, and back out: a `&mut
+  self` method returning something that owns memory carries what was stored, `&mut` of the
+  container loses it. The corpus test caught the proposer placing a string later popped
+  into a longer-lived store; `lets_go` now follows what is taken out.
+- **Skipped drops for a container of owning elements** (T-0118's second half): a
+  `List<String>` or `HashMap<i32, String>` skips its drop when every `&mut self` call on it
+  adds only what it was given (`resize` and `Extend::extend` add their own), hands back
+  nothing that writes an element (`xs[i] =`, `iter_mut`, `get_or_insert`), and is given only
+  sites built whole in its region. The leak check over `tests/run` found one wrong skip while
+  this was built: a list passed without `move` is a copy, on the heap, and a map holding it
+  as a key skipped its drop. A bare local now counts as a copy.
+- **Not yet**: `words`' keys are copies (T-0140); `expr` and most programs fill maps in a
+  loop, where `insert` may drop what it replaces; a container lent to a function; `format!`
+  text pushed in a loop. All in T-0149. The user's idea of a checked marker on a type whose
+  drop only frees, so a reader can see it, is T-0148, for later.
+
+Tests: `std_containers_store_what_they_are_given`,
+`a_value_stored_into_a_container_is_built_where_it_lives` and the skip test's new cases in
+`dz_flow/tests/placement.rs`; `tests/run/regions` gains `filled`, `popped`, `drained` and
+`counted`, the same with regions on and off and warning-clean on both compilers. Every
+`tests/run` program ran with regions on and `--track-memory`: no leaks. The crates' tests,
+clippy and fmt pass; `dz_check`'s typed-tree snapshot of std was stale since T-0118's
+`HashMap` drop and is accepted here.
+
 ## T-0118: drops a region makes unnecessary (2026-11-02)
 
 Compiler work; no language change, since a drop that only frees does nothing a program can

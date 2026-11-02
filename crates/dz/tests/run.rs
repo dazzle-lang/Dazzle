@@ -218,7 +218,7 @@ fn dz_placements_prints_each_site() {
         lines[8].ends_with("src/main.dz:82:22: String::from  heap: passed to `store.names.push`"),
         "{text}"
     );
-    assert_eq!(lines.last().copied(), Some("63 allocations, 38 in a region"), "{text}");
+    assert_eq!(lines.last().copied(), Some("72 allocations, 47 in a region"), "{text}");
 
     let out = Command::new(dz())
         .args(["placements", "--format=json", dir.to_str().unwrap()])
@@ -227,7 +227,7 @@ fn dz_placements_prints_each_site() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON on stdout");
     let sites = doc["sites"].as_array().unwrap();
-    assert_eq!(sites.len(), 63);
+    assert_eq!(sites.len(), 72);
     assert_eq!(sites[0]["placement"], "region");
     assert_eq!(sites[0]["scope"], "`sum_squares`");
     assert_eq!(sites[0]["line"], 14);

@@ -20,3 +20,5 @@ bags 10 6 bag empty 2 15
 lent bag 16 lent
 formatted 86 caption 7 3 c2
 weighed 4950
+stored 20032 20000 12 4
+kept popped

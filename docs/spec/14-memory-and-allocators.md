@@ -560,6 +560,12 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
   check, and the value goes to the heap. No placement changes what a program does.
 - **A value's owned parts live where the value lives.** A constructor and `copy` build into
   wherever `self` is placed.
+- **A value stored into a container lives where the container lives**: what
+  `names.push(…)` or `map.insert(…)` is given, when the container is a local of the
+  function. Taken back out (`pop`, `remove`) and kept somewhere the region cannot follow, or
+  lent with the container as `&mut`, it goes to the heap instead. Built on every pass of a
+  loop, it goes there only when the container keeps everything it is given, so the region
+  grows no faster than the container. `[DECIDED — D-0091, T-0145]`
 - **Every function that returns something owning memory** takes where its result goes,
   out of sight: free functions, methods, trait methods and function values alike. A function
   called from C or C++ returns on the heap.
@@ -568,9 +574,9 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
   contents go where the `Box` goes.
 - **A drop that only frees is not run** when the region frees everything the value owns:
   the type's drop, proven for each instance, does nothing but give memory back (`String`,
-  `List<i32>`; not `File`, which closes a handle, nor `Rc`), the value was built whole in
-  the region, and nothing has replaced a part of it since. No program can tell. `[DECIDED —
-  D-0091, T-0118]`
+  `List<i32>`, `List<String>`; not `File`, which closes a handle, nor `Rc`), the value was
+  built whole in the region, everything put into it since was too, and nothing has replaced
+  a part of it. No program can tell. `[DECIDED — D-0091, T-0118]`
 - **The choice is shown, not written**: an editor hint on each allocation names where it
   went and why ("heap: popped elements leave `queue`"), and says when its drop is skipped.
 - **A memory budget or a program with no heap** is not expressible yet.
@@ -615,4 +621,5 @@ container is placed.
 Not yet implemented: regions and result placement are built behind a switch until T-0117
 decides whether they stay (`DZ_REGIONS=1`); without it, every value is on the heap. Owner
 arenas (T-0120), a placed copy (T-0140) and a `virtual` method's result (T-0141) are still to
-come, as are skipped drops for a value lent as `&mut` or built in a generic body (T-0147).
+come, as are skipped drops for a value lent as `&mut` or built in a generic body (T-0147),
+and a stored value placed for a map filled in a loop or a container lent as `&mut` (T-0149).
