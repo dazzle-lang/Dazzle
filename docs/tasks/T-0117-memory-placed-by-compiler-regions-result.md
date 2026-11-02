@@ -32,9 +32,11 @@ below, built it).
 | Stage 2, round 3: what holds a value places it (`fate`, `holder`, `holds`, `escape_of` following a `let`, `temporary`); `boxes_argument`; constructors in `result_functions`, `self_field` | `dz_flow/src/placement.rs` |
 | Stage 2, round 3 in the check: a `Box`'s contents carried into its value (`contents`, in `call` and the `Call` node); a constructor's result site stored into a field of `self`, then held by `self` (`region_assign`, `self_local`) | `dz_flow/src/ties/body.rs` |
 | Stage 2, round 3 in codegen: a constructor's heap overload, declared and delegating (`heap_ctor`, in `struct_decl` and `struct_bodies`) | `dz_cpp/src/lib.rs` |
+| `format!`'s text placed where the macro's value goes (`formatted_text`, in `propose`) | `dz_flow/src/placement.rs` |
+| A by-value parameter that stays in the call (`Staying`, `staying_params`, `owner_module`; `fate` on a call's argument); the check's side (`analyse_regions`' `params`, `Regions::params`, `stays_in_call`) | `dz_flow/src/placement.rs`, `dz_flow/src/ties/body.rs` |
 | The inlay hint: `HintKind::Placement`, `placement_hints`; sent, with its tooltip, by `inlay_hints` | `dz_lsp/src/ide.rs`, `dz_lsp/src/lib.rs` |
 | `dz placements [path] [--format=json]`: `cmd_placements` | `crates/dz/src/main.rs` |
-| Tests | `dz_flow/tests/placement.rs` (stage 2: `a_returned_value_is_built_where_the_caller_keeps_it`); `tests/run/region_arena` (the arena by hand and the copy guard, also under `--track-memory` and `-Wall -Wextra`); `tests/run/regions` and `regions_change_nothing` (every run program with regions on, warning-clean on clang++ and g++) and `dz_placements_prints_each_site` in `dz/tests/run.rs`; `inlay_hints_show_where_each_allocation_goes` in `dz_lsp/tests/ide.rs` |
+| Tests | `dz_flow/tests/placement.rs` (stage 2: `a_returned_value_is_built_where_the_caller_keeps_it`; `a_formatted_string_goes_where_the_macro_value_goes`, `a_parameter_that_stays_in_the_call_takes_the_callers_region`); `tests/run/region_arena` (the arena by hand and the copy guard, also under `--track-memory` and `-Wall -Wextra`); `tests/run/regions` and `regions_change_nothing` (every run program with regions on, warning-clean on clang++ and g++) and `dz_placements_prints_each_site` in `dz/tests/run.rs`; `inlay_hints_show_where_each_allocation_goes` in `dz_lsp/tests/ide.rs` |
 | The gate's stopwatch | `tools/bench_regions.py` |
 
 **What it is.** No allocator appears in ordinary code: the compiler puts each value in the

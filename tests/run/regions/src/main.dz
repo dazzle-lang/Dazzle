@@ -237,6 +237,46 @@ fn pair_total() -> i32 {
     }
 }
 
+// `format!`'s text goes where the macro's value goes: kept and lent, in a region (here one
+// per pass of the loop); returned, where the caller keeps it; stored, on the heap.
+fn heading(n: i32) -> i32 {
+    let mut total = 0
+    for i in 0..n {
+        let line = format!("== {} ==", i)
+        total += line.len() as i32
+    }
+    return total
+}
+
+fn caption(n: i32) -> String {
+    return format!("caption {}", n)
+}
+
+fn captions(names: &mut List<String>, n: i32) kills names@items {
+    for i in 0..n {
+        let s = format!("c{}", i)
+        names.push(move(s))
+    }
+}
+
+// Passed by value to a parameter that stays in the call: built in the caller's region, and
+// dropped by the callee, into it.
+fn weigh(xs: List<i32>) -> i32 {
+    let mut total = 0
+    for &x in xs {
+        total += x
+    }
+    return total
+}
+
+fn weighed() -> i32 {
+    let mut xs = List<i32>()
+    for i in 0..100 {
+        xs.push(i)
+    }
+    return weigh(move(xs))
+}
+
 fn main() {
     let mut kept = List<String>()
     tag_twice(&mut kept, "kept")
@@ -346,4 +386,10 @@ fn main() {
     println!("bags {} {} {} {} {} {}", bag_total(5), sum_of(&kept_bag.items), kept_bag.label, empty.label, bags[0].items.len(), pair_total())
     let copied = Bag(&kept_bag.items, 10)
     println!("lent bag {} {}", sum_of(&copied.items), copied.label)
+
+    let mut caps = List<String>()
+    captions(&mut caps, 3)
+    let kept_caption = caption(7)
+    println!("formatted {} {} {} {}", heading(12), kept_caption, caps.len(), caps[2])
+    println!("weighed {}", weighed())
 }

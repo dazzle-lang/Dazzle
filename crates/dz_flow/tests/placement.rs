@@ -107,10 +107,20 @@ fn consume(xs: List<i32>) -> usize {
     return xs.len()
 }
 
-// Heap: passed by value.
+// Placed: passed by value to a parameter that stays in the call.
 fn give() -> usize {
     let xs = List<i32>()
     return consume(move(xs))
+}
+
+fn hoard(xs: List<i32>, store: &mut Store) kills store.saved {
+    store.saved = move(xs)
+}
+
+// Heap: passed by value to a parameter that is kept.
+fn handed(store: &mut Store) kills store.saved {
+    let xs = List<i32>()
+    hoard(move(xs), store)
 }
 
 // Heap: moved to an outer local, which is placed itself.
@@ -154,6 +164,7 @@ fn main() {
     println!("{} {} {} {} {}", sum_squares(3), rounds(), lend(), printed(), nested(true))
     let mut store = Store{ saved: List<i32>(), names: List<String>() }
     keep(&mut store)
+    handed(&mut store)
     tag(&mut store.names)
     println!("{} {} {} {} {} {}", evens().len(), give(), outer(), looped(), own_fn(), counted())
 }
@@ -244,13 +255,14 @@ const PLACED: &[(&str, &[&str])] = &[
         ],
     ),
     ("nested", &["Path: region: an `if` in `nested`", "HashSet<i32>: region: a block in `nested`"]),
+    ("give", &["List<i32>: region: `give`"]),
 ];
 
 /// The wrong placements: the function, its site's index, and the proposer's reason.
 const WRONG: &[(&str, usize, &str)] = &[
     ("keep", 0, "List<i32>: heap: stored in `store.saved`"),
     ("tag", 0, "String::from: heap: passed to `names.push`"),
-    ("give", 0, "List<i32>: heap: passed to `consume`"),
+    ("handed", 0, "List<i32>: heap: passed to `hoard`"),
     ("outer", 1, "List<i32>: heap: stored in `kept`"),
     ("looped", 1, "String::from: heap: assigned to `s` on every pass of a loop"),
 ];
@@ -632,8 +644,11 @@ struct Looping {
     }
 }
 
+// Keeps what it is given, so a value passed to it leaves the caller.
 fn consume(xs: List<i32>) -> usize {
-    return xs.len()
+    let mut kept = List<List<i32>>()
+    kept.push(move(xs))
+    return kept.len()
 }
 
 struct Giving {
@@ -708,7 +723,7 @@ fn the_region_check_alone_refuses_every_wrong_placement() {
         ("evens", 0, "List<i32>: heap: returned"),
         ("keep", 0, "List<i32>: heap: stored in `store.saved`"),
         ("tag", 0, "String::from: heap: passed to `names.push`"),
-        ("give", 0, "List<i32>: heap: passed to `consume`"),
+        ("handed", 0, "List<i32>: heap: passed to `hoard`"),
         ("outer", 1, "List<i32>: heap: stored in `kept`"),
         // The loop rule, from the check: the value goes into a local the pass outlives.
         ("looped", 1, "String::from: heap: stored in `s`"),
@@ -795,6 +810,195 @@ fn main() {
         decisions(&a, &p, "kept_inside"),
         ["List<i32>: region: `kept_inside`", "List<i32>: region: `kept_inside`"]
     );
+}
+
+/// `format!`'s text is the macro's value, so it is placed by where that value goes, although
+/// C++ builds it inside a lambda; and the check alone refuses each wrong placement of it.
+#[test]
+fn a_formatted_string_goes_where_the_macro_value_goes() {
+    let a = analyse(
+        r#"
+struct Store {
+    pub name: String
+}
+fn kept(n: i32) -> usize {
+    let s = format!("n = {}", n)
+    return s.len()
+}
+fn per_pass(n: i32) -> usize {
+    let mut total: usize = 0
+    for i in 0..n {
+        let s = format!("{}", i)
+        total += s.len()
+    }
+    return total
+}
+fn made(n: i32) -> String {
+    return format!("made {}", n)
+}
+fn pushed(names: &mut List<String>, n: i32) kills names@items {
+    let s = format!("{}", n)
+    names.push(move(s))
+}
+fn named(store: &mut Store, n: i32) kills store.name {
+    store.name = format!("{}", n)
+}
+fn reassigned(n: i32) -> usize {
+    let mut s = String()
+    for i in 0..n {
+        s = format!("{}", i)
+    }
+    return s.len()
+}
+fn lent(n: i32) -> usize {
+    return format!("{}", n).len()
+}
+fn main() {
+    let mut names = List<String>()
+    pushed(&mut names, 1)
+    let mut store = Store{ name: String() }
+    named(&mut store, 2)
+    println!("{} {} {} {} {}", kept(1), per_pass(3), made(4), reassigned(5), lent(6))
+}
+"#,
+    );
+    let p = place(&a, Proposer::Rules);
+    assert_eq!(decisions(&a, &p, "kept"), ["String: region: `kept`"]);
+    assert_eq!(
+        decisions(&a, &p, "per_pass"),
+        ["String: region: each pass of a loop in `per_pass`"]
+    );
+    assert_eq!(decisions(&a, &p, "made"), ["String: result: where `made`'s caller keeps it"]);
+    assert_eq!(decisions(&a, &p, "pushed"), ["String: heap: passed to `names.push`"]);
+    assert_eq!(
+        decisions(&a, &p, "named"),
+        ["String: heap: assigned to `store.name`; only a `let` gets a region"]
+    );
+    assert_eq!(
+        decisions(&a, &p, "reassigned")[1],
+        "String: heap: assigned to `s` on every pass of a loop"
+    );
+    assert_eq!(decisions(&a, &p, "lent"), ["String: heap: a temporary"]);
+    for f in ["kept", "per_pass", "made"] {
+        assert!(body(&a, &p, f).demoted().is_empty(), "the check refused a placement in `{f}`");
+    }
+
+    let p = place(&a, Proposer::Everything);
+    let refused = |f: &str, index: usize, why: &str| {
+        let site = sites(&a, &p, f)[index];
+        let Decision::Heap { why: found, .. } = &site.decision else {
+            panic!("`{f}`: site {index} was placed")
+        };
+        assert_eq!(found, why, "in `{f}`");
+        assert!(body(&a, &p, f).demoted().contains(&site.call), "`{f}`: refused by the check");
+    };
+    refused("pushed", 0, "passed to `names.push`");
+    refused("named", 0, "stored in `store.name`");
+    refused("reassigned", 1, "stored in `s`");
+    refused("made", 0, "returned");
+}
+
+/// A value passed by value to a parameter that stays in the call — the callee only reads,
+/// borrows, copies or drops it, or hands it to another such parameter — keeps its caller's
+/// region. A parameter returned, stored or handed to one that is kept does not stay, and
+/// the check alone withdraws each such claim.
+#[test]
+fn a_parameter_that_stays_in_the_call_takes_the_callers_region() {
+    let a = analyse(
+        r#"
+struct Holder {
+    pub kept: List<i32>
+
+    Holder() {
+        kept = List<i32>()
+    }
+
+    pub fn total(&self, xs: List<i32>) -> usize {
+        return xs.len() + self.kept.len()
+    }
+
+    pub fn take(&mut self, xs: List<i32>) kills self.kept {
+        self.kept = move(xs)
+    }
+}
+fn measure(xs: List<i32>) -> usize {
+    let n = xs.len()
+    let ys = move(xs)
+    return n + ys.len()
+}
+fn countdown(xs: List<i32>, n: i32) -> usize {
+    if n == 0 {
+        return xs.len()
+    }
+    return countdown(move(xs), n - 1)
+}
+fn forward(xs: List<i32>) -> usize {
+    return measure(move(xs))
+}
+fn hand_back(xs: List<i32>) -> List<i32> {
+    return move(xs)
+}
+fn hoard(xs: List<i32>, into: &mut List<List<i32>>) kills into@items {
+    into.push(move(xs))
+}
+fn relay(xs: List<i32>, into: &mut List<List<i32>>) kills into@items {
+    hoard(move(xs), into)
+}
+fn caller(h: &mut Holder) -> usize kills h.kept {
+    let a = List<i32>()
+    let b = List<i32>()
+    let c = List<i32>()
+    let d = List<i32>()
+    let mut lists = List<List<i32>>()
+    relay(move(d), &mut lists)
+    let e = List<i32>()
+    h.take(move(e))
+    return measure(move(a)) + countdown(move(b), 3) + forward(move(c)) + h.total(List<i32>())
+}
+fn main() {
+    let mut h = Holder()
+    println!("{} {}", caller(&mut h), hand_back(List<i32>()).len())
+}
+"#,
+    );
+    let res = a.resolution.as_ref().unwrap();
+    let hir = a.hir.as_ref().unwrap();
+    let owner = |name: &str| {
+        hir.bodies()
+            .map(|(_, b)| b.owner.clone())
+            .find(|o| match o {
+                BodyOwner::Fn(s) => {
+                    res.symbol(*s).name == name && res.symbol(*s).module != res.prelude
+                }
+                BodyOwner::Method { name: n, .. } => n == name,
+                _ => false,
+            })
+            .unwrap_or_else(|| panic!("no `{name}`"))
+    };
+    for proposer in [Proposer::Rules, Proposer::Everything] {
+        let p = place(&a, proposer);
+        let stays = |f: &str| p.staying().param_stays(&owner(f), 0);
+        for f in ["measure", "countdown", "forward", "total"] {
+            assert!(stays(f), "{proposer:?}: `{f}`'s parameter stays in the call");
+        }
+        for f in ["hand_back", "hoard", "relay", "take"] {
+            assert!(!stays(f), "{proposer:?}: `{f}`'s parameter leaves the call");
+        }
+    }
+    let p = place(&a, Proposer::Rules);
+    assert_eq!(
+        decisions(&a, &p, "caller"),
+        [
+            "List<i32>: region: `caller`",
+            "List<i32>: region: `caller`",
+            "List<i32>: region: `caller`",
+            "List<i32>: heap: passed to `relay`",
+            "List<List<i32>>: region: `caller`",
+            "List<i32>: heap: passed to `h.take`",
+            "List<i32>: heap: a temporary",
+        ]
+    );
+    assert!(body(&a, &p, "caller").demoted().is_empty(), "the check refused a placement");
 }
 
 fn corpus_root() -> PathBuf {

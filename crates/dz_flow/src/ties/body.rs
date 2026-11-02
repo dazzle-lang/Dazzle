@@ -14,6 +14,8 @@ use dz_project::ModuleId;
 use dz_resolve::{Resolution, SymbolId};
 use dz_span::Span;
 
+use crate::placement::Staying;
+
 use super::{Bindings, Mismatch, ParameterTie, Place, ReturnTie, Step};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -294,6 +296,13 @@ struct Regions {
     frames: HashMap<LocalId, usize>,
     /// The first refusal of each site.
     refused: Vec<Option<RegionRefusal>>,
+    /// Which sites are a by-value parameter's value, in a region of the caller's: like a
+    /// result placement, the body's end does not release it, but a `return` may not take it.
+    params: Vec<bool>,
+    /// Each such parameter, and its site.
+    param_sites: Vec<(LocalId, usize)>,
+    /// The body's module, which a call must share with its callee to rely on `Staying`.
+    module: Option<ModuleId>,
 }
 
 type State = HashMap<LocalId, Value>;
@@ -325,6 +334,8 @@ struct Analysis<'a> {
     unsafe_depth: u32,
     /// Set only by [`analyse_regions`].
     regions: Option<Regions>,
+    /// The by-value parameters that stay in the call; set only by [`analyse_regions`].
+    staying: Option<&'a Staying>,
     /// The regions a `Box` call's contents hold, from `call` to the `Call` node that adds
     /// them to the box's own value. Empty between calls.
     contents: Vec<usize>,
@@ -336,7 +347,7 @@ struct Analysis<'a> {
 /// Analyse one checked function, using only other functions' signatures. Findings are
 /// available independently of enforcement so std and editor support can land together.
 pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAnalysis {
-    analyse(body, table, res, None).0
+    analyse(body, table, res, None, None).0
 }
 
 /// The region check (spec §14.6): the walk again, with each of `sites` (a call, and the
@@ -360,20 +371,37 @@ pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAna
 /// `return` may take it, since that is where the caller keeps the result. Anywhere else
 /// it would go — a field of `self` or of a parameter, a by-value argument, a value made
 /// on every pass of a loop — it is refused as a region would be.
+///
+/// Each of `params` is a by-value parameter claimed to stay in the call
+/// ([`crate::placement::Staying`]): its value is taken to be in a region of the caller's,
+/// which outlives the body but which the body may not return, store or pass on. Their
+/// refusals follow the sites'. A by-value argument to a parameter of another function
+/// that `staying` says stays in the call is not refused: it is gone when the call returns.
 pub(crate) fn analyse_regions(
     body: &Body,
     table: &TypeTable,
     res: &Resolution,
     sites: &[(ExprId, BlockId, bool)],
+    params: &[LocalId],
+    staying: &Staying,
 ) -> Vec<Option<RegionRefusal>> {
-    let regions = Regions {
+    let mut regions = Regions {
         sites: sites.iter().map(|(call, block, _)| (*call, *block)).collect(),
         results: sites.iter().map(|(_, _, result)| *result).collect(),
         by_call: sites.iter().enumerate().map(|(i, (call, _, _))| (*call, i)).collect(),
-        refused: vec![None; sites.len()],
+        refused: vec![None; sites.len() + params.len()],
+        params: vec![false; sites.len()],
+        module: Some(crate::placement::owner_module(table, res, &body.owner)),
         ..Regions::default()
     };
-    analyse(body, table, res, Some(regions)).1.map(|r| r.refused).unwrap_or_default()
+    for local in params {
+        regions.param_sites.push((*local, regions.sites.len()));
+        // No call makes it: the value is the parameter's from the start.
+        regions.sites.push((ExprId(u32::MAX), body.root));
+        regions.results.push(false);
+        regions.params.push(true);
+    }
+    analyse(body, table, res, Some(regions), Some(staying)).1.map(|r| r.refused).unwrap_or_default()
 }
 
 fn analyse(
@@ -381,8 +409,10 @@ fn analyse(
     table: &TypeTable,
     res: &Resolution,
     regions: Option<Regions>,
+    staying: Option<&Staying>,
 ) -> (BodyAnalysis, Option<Regions>) {
     let mut cx = Analysis {
+        staying,
         body,
         table,
         res,
@@ -412,6 +442,11 @@ fn analyse(
             let origin = Origin::at(Place::local(*local));
             cx.state.insert(*local, Value { views: vec![origin], ..Value::default() });
         }
+    }
+    // A by-value parameter claimed to stay in the call holds its caller's region.
+    let claimed = cx.regions.as_ref().map(|r| r.param_sites.clone()).unwrap_or_default();
+    for (local, site) in claimed {
+        cx.state.entry(local).or_default().owned.push(site);
     }
     if let Some(signature) = &signature {
         let bindings = body_bindings(body);
@@ -787,7 +822,11 @@ impl Analysis<'_> {
             }
             // A value given to a call by value is the callee's, which may keep it anywhere:
             // `push`, a constructor, a function of the program's own. A receiver is always
-            // borrowed (spec §7.3), and a reference argument carries no region.
+            // borrowed (spec §7.3), and a reference argument carries no region. A parameter
+            // that stays in the call does not keep it: it is gone when the call returns.
+            if self.stays_in_call(callee, i) {
+                continue;
+            }
             self.sink(*arg, value, Refusal::Passed(expression));
         }
         if let Some(signature) =
@@ -1399,6 +1438,16 @@ impl Analysis<'_> {
         }
     }
 
+    /// Whether argument `arg` of a call to `callee` stays in the call ([`Staying`]).
+    fn stays_in_call(&self, callee: &Callee, arg: usize) -> bool {
+        let (Some(staying), Some(module)) =
+            (self.staying, self.regions.as_ref().and_then(|r| r.module))
+        else {
+            return false;
+        };
+        staying.stays(self.res, module, callee, arg)
+    }
+
     /// `value`, computed by `e`, goes where the walk does not follow it: every region in it
     /// is refused, unless it is a copy.
     fn sink(&mut self, e: ExprId, value: &Value, why: Refusal) {
@@ -1538,7 +1587,7 @@ impl Analysis<'_> {
         let Some(regions) = &self.regions else { return };
         // A result placement is the caller's, and outlives every block of the body.
         let mine: Vec<usize> = (0..regions.sites.len())
-            .filter(|s| regions.sites[*s].1 == block && !regions.results[*s])
+            .filter(|s| regions.sites[*s].1 == block && !regions.results[*s] && !regions.params[*s])
             .collect();
         let mut found = Vec::new();
         let mut take = |v: &Value| {

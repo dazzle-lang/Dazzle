@@ -17,10 +17,18 @@ is decided per module, so the editor can run it.
 | Piece | Where |
 |---|---|
 | Where a value ends up: escapes, holders | `Escape`, `fate`, `holder` in `dz_flow/src/placement.rs` |
+| The summary within a module: which parameters stay in the call | `Staying`, `staying_params`, `owner_module` in `dz_flow/src/placement.rs`; checked by `analyse_regions` (`params`, `stays_in_call`) in `dz_flow/src/ties/body.rs` |
 | Per-module analysis and its cache | `dz_driver/src/lib.rs` (`Analysis::placements`) |
 
 **What it is.** A value passed by value to a function in another module goes to the heap,
 because the caller cannot see whether the callee only borrows it, drops it, or keeps it.
+
+Within a module it is inferred since 2026-11-02 (`Staying`): a parameter the callee only
+reads, borrows, copies or drops, or hands to another such parameter, *stays in the call*, and
+what is passed to it keeps the caller's region. The summary is computed from bodies over the
+whole program, and `Staying::stays` refuses to use it across a module boundary. What is left
+is to export it with the module's signatures, so that a call into another module can use it
+too.
 
 **Why it matters.** A game split into modules (engine, game, UI) loses region placement at
 every module boundary. Splitting a program into modules is how §3 wants programs organised.

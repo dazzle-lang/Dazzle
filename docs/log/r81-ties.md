@@ -6,6 +6,39 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## Frame regions not needed yet; two placement gaps closed instead (2026-11-02)
+
+Compiler work; no language change. Before designing frame regions (T-0139), a frame loop
+was run through `dz placements`. Its own motivating case, `let visible = self.cull(…)` in
+the function called each frame, was already in that function's region: scope regions
+open one per call, and result placement carries it down to the callees. So a frame region
+adds no new place for values to go. What kept per-frame values on the heap was three
+narrower gaps. Two are closed here, and the third, a field replaced every frame, joins
+T-0120.
+
+- **`format!`'s text** goes where the macro's value goes. The `String` is built inside the
+  macro's body, which C++ gets as a lambda and where no region can be declared, so it was
+  always heap: every HUD line of every frame. The proposer now places it as the
+  `Formatted` expression itself (`formatted_text`); the lambda captures by reference, so it
+  reaches the region or `_dz_result` outside it. The check needed nothing: it already
+  followed a block's value out.
+- **A value passed by value to a parameter that stays in the call** keeps its caller's
+  region (`Staying`, `staying_params`). Such a parameter is one the callee only reads,
+  borrows, copies or drops, or hands to another such parameter. Every by-value parameter
+  that keeps an allocator is claimed. A claim is withdrawn when the proposer sees the
+  parameter leave, or when the check refuses it, checking the parameter as a region of the
+  caller's that outlives the body but cannot be returned, stored or passed on. This repeats
+  until nothing changes, so recursion and chains are covered. Only direct calls within one
+  module rely on it (T-0142 is the rest), and nothing changes in how a call is made: the
+  callee frees into the caller's region when it drops the value.
+
+Tests: `a_formatted_string_goes_where_the_macro_value_goes` and
+`a_parameter_that_stays_in_the_call_takes_the_callers_region`, each also with everything
+proposed, so the check alone refuses what it must; `give` moved to the placed cases and
+`handed` (a parameter that is kept) replaced it among the wrong ones. `tests/run/regions`
+gains both, 63 sites, 38 in a region, and prints the same both ways and under
+`--track-memory`.
+
 ## T-0131: memory tracking overwrites what is freed (2026-11-02)
 
 Compiler and std work; no language change. Under `--track-memory`, every block the heap,

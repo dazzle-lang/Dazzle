@@ -24,3 +24,10 @@ be tested here.
 
 **What it would take.** A real program with a container of owning values cleared each
 frame, measured against the heap; then the rule, checked by ties.
+
+**From [T-0139](T-0139-frame-regions-one-region-per-pass.md), 2026-11-02:** a field
+*replaced* every frame (`self.visible = self.cull(…)`) is the same question. It goes to the
+heap today ("only a `let` gets a region"). The old value is dropped during the next frame,
+so a region holding it must outlive the frame that made it. That means either proving the
+field is cleared before its frame ends, or two regions used in alternate frames, with proof
+that the field is reassigned on every pass.

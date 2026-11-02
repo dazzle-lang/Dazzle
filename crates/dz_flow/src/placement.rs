@@ -43,6 +43,7 @@ use dz_ast::Dispatch;
 use dz_check::{ItemSig, TypeTable};
 use dz_hir::ty::Ty;
 use dz_hir::{self as hir, BlockId, Body, BodyOwner, Callee, ExprId, Hir, LocalId, StmtId};
+use dz_project::ModuleId;
 use dz_resolve::{Resolution, SymbolId};
 use dz_span::{FileId, Span};
 
@@ -54,6 +55,8 @@ pub struct Placements {
     bodies: HashMap<BodyOwner, BodyPlacement>,
     /// The functions that take a hidden result placement ([`result_functions`]).
     results: HashSet<BodyOwner>,
+    /// The by-value parameters that stay in the call ([`Staying`]).
+    staying: Staying,
 }
 
 impl Placements {
@@ -69,6 +72,11 @@ impl Placements {
     /// one more parameter than it writes, and every call passes one (stage 2).
     pub fn takes_result(&self, owner: &BodyOwner) -> bool {
         self.results.contains(owner)
+    }
+
+    /// The by-value parameters that stay in the call.
+    pub fn staying(&self) -> &Staying {
+        &self.staying
     }
 }
 
@@ -203,6 +211,128 @@ pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashS
         out.insert(body.owner.clone());
     }
     out
+}
+
+/// The module a body belongs to.
+pub fn owner_module(table: &TypeTable, res: &Resolution, owner: &BodyOwner) -> ModuleId {
+    let sym = match owner {
+        BodyOwner::Fn(s)
+        | BodyOwner::Copy(s)
+        | BodyOwner::Drop(s)
+        | BodyOwner::Const(s)
+        | BodyOwner::Static(s) => *s,
+        BodyOwner::Method { owner, .. }
+        | BodyOwner::Ctor { owner, .. }
+        | BodyOwner::AssocConst { owner, .. }
+        | BodyOwner::FieldDefault { owner, .. }
+        | BodyOwner::TraitDefaults { owner, .. } => *owner,
+        BodyOwner::ImplMethod { imp, .. } => return table.impls()[*imp as usize].module,
+    };
+    res.symbol(sym).module
+}
+
+/// The by-value parameters that stay in the call: the function only reads, borrows, copies
+/// or drops what it is given there, or hands it to another such parameter, so the value is
+/// gone when the call returns. A value passed to one may be in its caller's region, and
+/// frees into it when the callee drops it: nothing changes in how the call is made.
+///
+/// Inferred from bodies, so only for a call within the callee's own module (T-0142), and
+/// only for a call that reaches one known body: a free function, or a struct's or union's
+/// method that is neither `virtual` nor `override`.
+#[derive(Clone, Debug, Default)]
+pub struct Staying {
+    params: HashMap<BodyOwner, (ModuleId, Vec<usize>)>,
+}
+
+impl Staying {
+    /// Whether argument `arg` of a call from a body in `module` stays in the call.
+    pub(crate) fn stays(
+        &self,
+        res: &Resolution,
+        module: ModuleId,
+        callee: &Callee,
+        arg: usize,
+    ) -> bool {
+        let Some((_, owner)) = callee_owner(res, callee) else { return false };
+        self.params.get(&owner).is_some_and(|(m, params)| *m == module && params.contains(&arg))
+    }
+
+    /// Whether parameter `index` of `owner`, `self` not counted, stays in the call.
+    pub fn param_stays(&self, owner: &BodyOwner, index: usize) -> bool {
+        self.params.get(owner).is_some_and(|(_, params)| params.contains(&index))
+    }
+}
+
+/// Which by-value parameters stay in the call ([`Staying`]). Every parameter that keeps an
+/// allocator is claimed, and a claim is withdrawn when the proposer sees the parameter leave
+/// or the region check refuses it, the parameter checked as a region of the caller's that
+/// the body may not return, store or pass on. Withdrawing one can withdraw others that hand
+/// it on, so this repeats until nothing changes; claims only shrink, so it ends.
+///
+/// With [`Proposer::Everything`] only the region check withdraws a claim, so it can be
+/// tested alone.
+fn staying_params(hir: &Hir, table: &TypeTable, res: &Resolution, proposer: Proposer) -> Staying {
+    let mut bodies: HashMap<BodyOwner, &Body> = HashMap::new();
+    let mut claims: HashMap<BodyOwner, (ModuleId, Vec<usize>)> = HashMap::new();
+    for (_, body) in hir.bodies() {
+        let sig = match &body.owner {
+            BodyOwner::Fn(sym) => match table.get(*sym) {
+                Some(ItemSig::Fn(sig)) => sig,
+                _ => continue,
+            },
+            BodyOwner::Method { owner, name }
+                if res.symbol(*owner).kind != dz_resolve::SymbolKind::Trait =>
+            {
+                match table.methods_sig(*owner).and_then(|s| s.methods.get(name)) {
+                    Some(sig) => sig,
+                    None => continue,
+                }
+            }
+            _ => continue,
+        };
+        if sig.dispatch != Dispatch::Static {
+            continue;
+        }
+        let offset = usize::from(sig.takes_self.is_some());
+        let params: Vec<usize> = (0..sig.params.len())
+            .filter(|i| {
+                body.params.get(i + offset).is_some_and(|l| {
+                    let ty = &body.local(*l).ty;
+                    !matches!(ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::OwnPtr { .. })
+                        && keeps_allocator(table, res, ty)
+                })
+            })
+            .collect();
+        if !params.is_empty() {
+            claims.insert(body.owner.clone(), (owner_module(table, res, &body.owner), params));
+            bodies.insert(body.owner.clone(), body);
+        }
+    }
+    loop {
+        let before = Staying { params: claims.clone() };
+        for (owner, (_, params)) in &mut claims {
+            let body = bodies[owner];
+            let offset = body.params.len() - owner_sig(table, owner).map_or(0, |s| s.params.len());
+            if proposer == Proposer::Rules {
+                let cx = Cx::new(table, res, body, false, &before);
+                params
+                    .retain(|i| matches!(cx.escape_of(body.params[i + offset], 0), Escape::Stays));
+            }
+            if params.is_empty() {
+                continue;
+            }
+            let locals: Vec<LocalId> = params.iter().map(|i| body.params[i + offset]).collect();
+            let refused = analyse_regions(body, table, res, &[], &locals, &before);
+            let mut kept = refused.iter().map(Option::is_none);
+            params.retain(|_| kept.next().unwrap_or(false));
+        }
+        claims.retain(|_, (_, params)| !params.is_empty());
+        if claims.len() == before.params.len()
+            && claims.iter().all(|(o, (_, p))| before.params.get(o).is_some_and(|(_, q)| p == q))
+        {
+            return before;
+        }
+    }
 }
 
 /// Whether a function returning `ty` takes a result placement, and a function type with
@@ -400,13 +530,15 @@ pub fn place_with(
     proposer: Proposer,
 ) -> Placements {
     let results = result_functions(hir, table, res);
+    let staying = staying_params(hir, table, res, proposer);
     let mut out = Placements::default();
     for (_, body) in hir.bodies() {
-        if let Some(placed) = place_body(hir, table, res, &results, body, proposer) {
+        if let Some(placed) = place_body(hir, table, res, &results, &staying, body, proposer) {
             out.bodies.insert(body.owner.clone(), placed);
         }
     }
     out.results = results;
+    out.staying = staying;
     out
 }
 
@@ -441,6 +573,7 @@ fn place_body(
     table: &TypeTable,
     res: &Resolution,
     results: &HashSet<BodyOwner>,
+    staying: &Staying,
     body: &Body,
     proposer: Proposer,
 ) -> Option<BodyPlacement> {
@@ -455,7 +588,7 @@ fn place_body(
         return None;
     }
     found.sort_by_key(|(e, _)| (body.expr(*e).span.start, e.0));
-    let cx = Cx::new(table, res, body, results.contains(&body.owner));
+    let cx = Cx::new(table, res, body, results.contains(&body.owner), staying);
 
     // Step 1: what is proposed, and why the rest is not.
     let mut decided: Vec<(ExprId, Callable, Proposal)> = Vec::new();
@@ -478,7 +611,7 @@ fn place_body(
     let refusals = if proposals.is_empty() {
         Vec::new()
     } else {
-        analyse_regions(body, table, res, &proposals)
+        analyse_regions(body, table, res, &proposals, &[], staying)
     };
     let refused: HashMap<ExprId, RegionRefusal> =
         proposals.iter().zip(refusals).filter_map(|((e, _, _), r)| r.map(|r| (*e, r))).collect();
@@ -632,6 +765,9 @@ struct Cx<'a> {
     /// The body is a result function's: what it returns can be built where its caller
     /// keeps it.
     returns_result: bool,
+    staying: &'a Staying,
+    /// The body's module, which a call must share with its callee to rely on [`Staying`].
+    module: ModuleId,
 }
 
 /// What the uses of a local do with it.
@@ -650,12 +786,15 @@ impl<'a> Cx<'a> {
         res: &'a Resolution,
         body: &'a Body,
         returns_result: bool,
+        staying: &'a Staying,
     ) -> Self {
         let mut cx = Cx {
             table,
             res,
             body,
             returns_result,
+            staying,
+            module: owner_module(table, res, &body.owner),
             up: HashMap::new(),
             expr_block: HashMap::new(),
             stmt_block: HashMap::new(),
@@ -838,6 +977,9 @@ impl<'a> Cx<'a> {
             // caller, or before the body.
             return Err(("not inside the body's blocks".to_owned(), None));
         };
+        // `format!`'s text is the macro's value, so it goes where that value goes. The
+        // lambda C++ gets captures by reference, so it reaches the region outside it.
+        let (e, block) = self.formatted_text(e, block).unwrap_or((e, block));
         if self.blocks.get(&block).is_some_and(|(k, _, _)| *k == Kind::Lambda) {
             return Err(("inside a formatting macro".to_owned(), None));
         }
@@ -886,6 +1028,24 @@ impl<'a> Cx<'a> {
             },
             _ => self.temporary(top),
         }
+    }
+
+    /// When `e` is the text a `format!` builds — the first `let` of the macro's body, moved
+    /// out as its last statement (`dz_check`'s lowering) — the macro's own expression and
+    /// the block it sits in, which place the text as they would any value.
+    fn formatted_text(&self, e: ExprId, block: BlockId) -> Option<(ExprId, BlockId)> {
+        let (Kind::Lambda, _, Some(by)) = *self.blocks.get(&block)? else { return None };
+        let stmts = &self.body.block(block).stmts;
+        let hir::StmtKind::Let { local: Some(text), init: Some(init) } =
+            self.body.stmt(*stmts.first()?).kind
+        else {
+            return None;
+        };
+        let hir::StmtKind::Expr(tail) = self.body.stmt(*stmts.last()?).kind else { return None };
+        let hir::ExprKind::Move(moved) = self.body.expr(tail).kind else { return None };
+        let returns_text =
+            matches!(self.body.expr(moved).kind, hir::ExprKind::Local(l) if l == text);
+        (init == e && returns_text).then_some((by, *self.expr_block.get(&by)?))
     }
 
     /// A value no `let` keeps: placed only when it is what the body returns.
@@ -1049,10 +1209,16 @@ impl<'a> Cx<'a> {
                     hir::ExprKind::Field { .. } | hir::ExprKind::TupleIndex { .. } => {
                         self.fate(p, depth)
                     }
-                    hir::ExprKind::Call { callee, .. } => match callee {
+                    hir::ExprKind::Call { callee, args } => match callee {
                         // Every Dazzle method borrows its receiver (spec §7.3).
                         Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. }
                             if *recv == e =>
+                        {
+                            Escape::Stays
+                        }
+                        _ if args.iter().position(|a| *a == e).is_some_and(|i| {
+                            self.staying.stays(self.res, self.module, callee, i)
+                        }) =>
                         {
                             Escape::Stays
                         }

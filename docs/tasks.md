@@ -20,8 +20,11 @@ proposed:
 2. The holes the placement check shares, since a placement is checked like a reference:
    T-0123, T-0124, T-0125 and T-0127 are closed (r103), and T-0131 makes a wrong placement
    show in tests (all 2026-11-02).
-3. Frame regions (T-0139), so `Allocators::Temp` can leave ordinary code without losing
-   speed; then T-0119, allocators out of ordinary code, and T-0118.
+3. Frame regions (T-0139) turned out not to be needed yet (2026-11-02): the function
+   called each frame already has its region. Two gaps that kept frame data on the heap are
+   closed instead (`format!`'s text, and a value handed to a parameter that stays in the
+   call), and a field replaced every frame joined T-0120. Next, T-0119, allocators out of
+   ordinary code, and T-0118.
 4. The rest of D-0094 (T-0126, T-0128, T-0129, T-0130, T-0135, T-0136), its tests (T-0132
    to T-0134), and the placement gaps (T-0140 to T-0142).
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be

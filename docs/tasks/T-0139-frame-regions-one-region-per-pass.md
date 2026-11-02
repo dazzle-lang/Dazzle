@@ -68,3 +68,24 @@ ahead of what placement reached in T-0104.
 4. **What the editor shows**: "region: frame of `update`".
 
 A language change if (1) is an attribute: a decision file, §14.6, and a §21 row.
+
+**Looked at 2026-11-02: not needed yet; agreed with the user to close the gaps first.** The
+example above already works without a frame region. `let visible = self.cull(&camera)` in
+`update` is in `update`'s region: scope regions open one per call, and result placement
+carries it to `cull` through the hidden parameter. So the frame region the task describes is
+the region of the function called each frame (or of the loop body), and question 3 is
+answered by what exists, (a). What kept per-frame values on the heap was narrower:
+
+| Gap | Where it went |
+|---|---|
+| `format!`'s text, built in the macro's lambda: every HUD line | fixed 2026-11-02, placed where the macro's value goes |
+| a value handed by value to another system that only reads or drops it | fixed 2026-11-02 within a module (`Staying`); across modules, T-0142 |
+| a field replaced every frame (question 2) | the same question as [T-0120](T-0120-owner-arenas-for-containers-cleared-all.md), and moved there |
+
+What a frame marker would still add is a *policy*, not a place: a region reset and kept
+between passes, so a loop that needs the same large blocks (16 KiB and up, the heap's today)
+stops calling `malloc` once it is warm. T-0117 showed that this speed costs peak memory (it
+was the pool's), the right trade for a game loop and the wrong one for any loop, so if it
+comes it is (1)(b), `#[frame]` on the function, opt-in. It waits until
+[T-0138](T-0138-game-ten-thousand-lines-test-ties.md)'s game shows per-frame `malloc` of
+large blocks costs something.
