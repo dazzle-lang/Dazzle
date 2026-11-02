@@ -529,7 +529,18 @@ fn inlay_hints_show_where_each_allocation_goes() {
             .map(|h| h.label.clone())
     };
     let all: Vec<_> = hints.iter().filter(|h| h.kind == ide::HintKind::Placement).collect();
-    assert_eq!(placed("List<i32>()", 0).as_deref(), Some("region: `sum_squares`"), "{all:?}");
+    // A drop the region's release makes unnecessary is said to be skipped (T-0118).
+    assert_eq!(
+        placed("List<i32>()", 0).as_deref(),
+        Some("region: `sum_squares`; drop skipped"),
+        "{all:?}"
+    );
+    // Its keys are copies, built on the heap, so the map's drop still runs.
+    assert_eq!(
+        placed("HashMap<String, i32>()", 0).as_deref(),
+        Some("region: `distinct`"),
+        "{all:?}"
+    );
     assert_eq!(
         placed("List<i32>()", 1).as_deref(),
         Some("result: where `evens`'s caller keeps it"),

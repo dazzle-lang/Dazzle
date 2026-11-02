@@ -3514,6 +3514,20 @@ impl<'a> Emitter<'a> {
                     let (owners, guards) = (self.owners_made, self.guards_made);
                     let (pre, v) = self.capture(|e| e.stored(&local_ty, *init));
                     let unused = self.unused_attr(l.index());
+                    // A value its region frees whole, whose drop would only free, is built in
+                    // storage C++ never destroys: the region's release is its drop (spec
+                    // §14.6, T-0118). The name is a reference to it, so every use reads as
+                    // before.
+                    let skipped = self.placement.is_some_and(|p| p.skips_drop(*l));
+                    let storage = format!("_dz_kept{}", l.index());
+                    let made = |init: &str| {
+                        format!(
+                            "{unused}{ty}& {name} = *::new (static_cast<void*>({storage})) {ty}{init};"
+                        )
+                    };
+                    if skipped {
+                        self.line(&format!("alignas({ty}) unsigned char {storage}[sizeof({ty})];"));
+                    }
                     // An owner a view was taken from dies with the statement, as a temporary
                     // would, while the binding outlives it: declared first, assigned in the
                     // statement's own scope (see `stmt`).
@@ -3521,13 +3535,20 @@ impl<'a> Emitter<'a> {
                         && self.guards_made == guards
                         && self.declare_then_assign(&local_ty)
                     {
-                        self.line(&format!("{unused}{ty} {name}{{}};"));
+                        if skipped {
+                            self.line(&made("{}"));
+                        } else {
+                            self.line(&format!("{unused}{ty} {name}{{}};"));
+                        }
                         self.line("{");
                         self.indent += 1;
                         self.write_captured(&pre);
                         self.line(&format!("{name} = {v};"));
                         self.indent -= 1;
                         self.line("}");
+                    } else if skipped {
+                        self.write_captured(&pre);
+                        self.line(&made(&format!("({v})")));
                     } else {
                         self.write_captured(&pre);
                         self.line(&format!("{unused}{ty} {name} = {v};"));

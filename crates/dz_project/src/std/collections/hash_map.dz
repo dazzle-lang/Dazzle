@@ -384,7 +384,18 @@ impl<K, V> Drop for HashMap<K, V> {
         if m_hashes == null {
             return
         }
-        self.clear()
+        // Only entries that own something are visited, so a map of plain values is freed
+        // without a pass over its slots, and the drop does nothing but free (T-0118).
+        if K::has_drop || V::has_drop {
+            for i in 0..m_slots {
+                if unsafe { m_hashes[i] } != 0 {
+                    unsafe {
+                        destroy(m_keys[i])
+                        destroy(m_values[i])
+                    }
+                }
+            }
+        }
         let a = unsafe { m_allocator or return }
         a.free(unsafe { m_hashes as ^mut u8 }, m_slots * sizeof(u64), alignof(u64))
         a.free(unsafe { m_keys as ^mut u8 }, m_slots * sizeof(K), alignof(K))
