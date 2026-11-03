@@ -94,7 +94,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (21 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (22 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -117,13 +117,15 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0096](tasks/T-0096-list-sort-by-heapsort-through-function.md)** List::sort_by is a heapsort through a function pointer: five times slower than std::sort · feature, stdlib
 - **[T-0098](tasks/T-0098-str-cannot-be-cut-str-b.md)** A str cannot be cut: str[a..b] is refused, and only String has slice · feature, stdlib
 - **[T-0121](tasks/T-0121-local-named-like-free-function-hides.md)** A local named like a free function hides it in the generated C++ · bug, codegen
+- **[T-0156](tasks/T-0156-string-always-allocates-short-text-kept.md)** "A String always allocates: short text kept inside the String, as std::string does" · design, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (4 open)
+## M15 — `dz bench`, and the C++ comparison (5 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0097](tasks/T-0097-moving-union-through-fallible-result-costs.md)** Moving a union through a fallible result costs a construct, two moves and a drop at every step · feature, codegen
 - **[T-0101](tasks/T-0101-every-build-imports-stdlib-h-with.md)** Every build imports stdlib.h with libclang again: about 380 ms of each build · feature, tooling
 - **[T-0102](tasks/T-0102-standard-library-c-compiled-again-in.md)** The standard library's C++ is compiled again in every build · feature, tooling
+- **[T-0157](tasks/T-0157-astar-each-search-hash-maps-regrow.md)** "astar: each search's hash maps regrow about eleven times, and its Hash and Ord calls are not inlined" · feature, codegen
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
