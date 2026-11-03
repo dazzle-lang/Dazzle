@@ -332,6 +332,15 @@ struct Loop {
     continues: Vec<(State, Vec<Value>)>,
 }
 
+/// What a scope does when it ends, kept in the order it was declared and run in reverse:
+/// a `defer` runs among the drops, so every local declared before it is still alive
+/// (spec §6.5, T-0130). This is the order the C++ scope guard gives.
+#[derive(Clone, Copy)]
+enum Exit {
+    Drop(LocalId),
+    Defer(StmtId),
+}
+
 struct Analysis<'a> {
     body: &'a Body,
     table: &'a TypeTable,
@@ -341,8 +350,8 @@ struct Analysis<'a> {
     held: Vec<Value>,
     live: bool,
     loops: Vec<Loop>,
-    /// Locals and deferred statements belonging to each active lexical scope.
-    scopes: Vec<(Vec<LocalId>, Vec<StmtId>)>,
+    /// The locals and deferred statements of each active lexical scope, in declaration order.
+    scopes: Vec<Vec<Exit>>,
     result: BodyAnalysis,
     expected_return: ReturnTie,
     reported: HashSet<Span>,
@@ -2047,7 +2056,7 @@ impl Analysis<'_> {
     }
 
     fn block_scope(&mut self, block: BlockId) -> Value {
-        self.scopes.push((Vec::new(), Vec::new()));
+        self.scopes.push(Vec::new());
         let mut value = Value::default();
         for stmt in self.body.block(block).stmts.clone() {
             if !self.live {
@@ -2055,32 +2064,35 @@ impl Analysis<'_> {
             }
             value = self.stmt(stmt);
         }
-        let (locals, deferred) = self.scopes.pop().unwrap();
-        // Drops can end a view returned by the block. This includes a local declared
-        // inside a nested block and referenced by a binding outside it.
-        for local in locals.into_iter().rev() {
-            self.drop_reads(local, self.body.local(local).span);
-            self.kill(Place::local(local), self.body.block(block).span, KillKind::Drop);
-            self.state.remove(&local);
-            for origin in value.origins_mut() {
-                if origin.dead.is_none() && origin.ended_by(&Place::local(local), Reach::All) {
-                    origin.dead = Some(BodyKill {
-                        place: Place::local(local),
-                        span: self.body.block(block).span,
-                        kind: KillKind::Drop,
-                    });
+        let exits = self.scopes.pop().unwrap();
+        for exit in exits.into_iter().rev() {
+            match exit {
+                // Drops can end a view returned by the block. This includes a local
+                // declared inside a nested block and referenced by a binding outside it.
+                Exit::Drop(local) => {
+                    self.drop_reads(local, self.body.local(local).span);
+                    self.kill(Place::local(local), self.body.block(block).span, KillKind::Drop);
+                    self.state.remove(&local);
+                    for origin in value.origins_mut() {
+                        if origin.dead.is_none()
+                            && origin.ended_by(&Place::local(local), Reach::All)
+                        {
+                            origin.dead = Some(BodyKill {
+                                place: Place::local(local),
+                                span: self.body.block(block).span,
+                                kind: KillKind::Drop,
+                            });
+                        }
+                    }
+                }
+                // A diverging edge still executes its defers, so liveness is restored for
+                // this statement alone.
+                Exit::Defer(stmt) => {
+                    let live = std::mem::replace(&mut self.live, true);
+                    self.stmt(stmt);
+                    self.live = live;
                 }
             }
-        }
-        if !deferred.is_empty() {
-            // A diverging edge still executes its defers; replay with liveness restored
-            // only for these statements, after the scope's drops (§6.5).
-            let live = self.live;
-            self.live = true;
-            for stmt in deferred.into_iter().rev() {
-                self.stmt(stmt);
-            }
-            self.live = live;
         }
         value
     }
@@ -2096,7 +2108,7 @@ impl Analysis<'_> {
                 };
                 if let Some(local) = local {
                     self.bind(local, value);
-                    self.scopes.last_mut().unwrap().0.push(local);
+                    self.scopes.last_mut().unwrap().push(Exit::Drop(local));
                 }
             }
             hir::StmtKind::LetTuple { locals, init } => {
@@ -2127,7 +2139,7 @@ impl Analysis<'_> {
                             }
                         }
                         self.bind(local, part);
-                        self.scopes.last_mut().unwrap().0.push(local);
+                        self.scopes.last_mut().unwrap().push(Exit::Drop(local));
                     }
                 }
             }
@@ -2252,7 +2264,7 @@ impl Analysis<'_> {
                     Some((self.body.expr(subject).span, iterator)),
                 );
             }
-            hir::StmtKind::Defer(stmt) => self.scopes.last_mut().unwrap().1.push(stmt),
+            hir::StmtKind::Defer(stmt) => self.scopes.last_mut().unwrap().push(Exit::Defer(stmt)),
             hir::StmtKind::Item(_) | hir::StmtKind::Error => {}
         }
         Value::default()
@@ -2274,22 +2286,28 @@ impl Analysis<'_> {
         // Capture jumps after exited scopes drop. Taking the work prevents defers
         // from running twice as the enclosing structured blocks return.
         for index in (depth..self.scopes.len()).rev() {
-            let (locals, deferred) = std::mem::take(&mut self.scopes[index]);
-            for local in locals.into_iter().rev() {
-                self.drop_reads(local, self.body.local(local).span);
-                self.kill(Place::local(local), self.body.local(local).span, KillKind::Drop);
-                self.state.remove(&local);
+            let exits = std::mem::take(&mut self.scopes[index]);
+            for exit in exits.into_iter().rev() {
+                match exit {
+                    Exit::Drop(local) => {
+                        self.drop_reads(local, self.body.local(local).span);
+                        let span = self.body.local(local).span;
+                        self.kill(Place::local(local), span, KillKind::Drop);
+                        self.state.remove(&local);
+                    }
+                    Exit::Defer(stmt) => {
+                        self.stmt(stmt);
+                    }
+                }
             }
-            // A jump out of a region's block releases the region too.
+            // A jump out of a region's block releases the region too, after its drops and
+            // defers: the region is declared first in its block, so it ends last.
             let released = self
                 .regions
                 .as_ref()
                 .and_then(|r| r.active.iter().find(|(_, f)| **f == index).map(|(b, _)| *b));
             if let Some(block) = released {
                 self.region_end(block, index, None);
-            }
-            for stmt in deferred.into_iter().rev() {
-                self.stmt(stmt);
             }
         }
     }

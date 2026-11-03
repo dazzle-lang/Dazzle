@@ -6,6 +6,32 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r110, T-0130: a `defer` runs among its scope's drops (2026-11-03)
+
+§6.5 and §10.5 said a `defer` ran after all of its scope's drops. Codegen never did that: its
+C++ scope guard is declared where the `defer` is written, so C++ destroys it among the
+locals, in reverse order of declaration. The spec now says what the compiler does. The ties
+walk followed the old sentence. It replayed a scope's defers after killing its locals, and
+it had removed their state first, so a pointer read in a `defer` was not checked at all. Its
+scope is now one list of `Exit`s, `Drop(local)` and `Defer(stmt)`, in the order they were
+declared. `block_scope` and `unwind` (a `break`, `continue` or `return`) run that list in
+reverse. A jump out of a region's block now ends the region after the defers too, since the
+region is declared first in its block and so ends last. The move checker only had its
+comment changed: it never modelled when a `defer` runs.
+
+So a `defer` that reads, through a pointer, a local declared after it is now `DZ0413`, and
+one that reads a local declared before it is checked and accepted.
+
+Also fixed: CI had been red since T-0126 on all three platforms. `typed/`'s new `unsafe { p }`
+made the `if let` operand a block value in `check__hir_typed.snap`, and that snapshot was
+not updated.
+
+Tests: `dz_flow/tests/ties.rs`'s `a_defer_runs_among_the_drops_in_reverse_declaration_order`
+covers the block's end and a `break`, reading an earlier and a later local; it fails against
+the old walk. `tests/flow/use_after_kill.dz` refuses the later local and `clean.dz` accepts
+the earlier one. `tests/run/ownership` now declares a local before its `defer` and prints
+`drop c`, `deferred: early live=1`, `drop early`, which pins the run-time order.
+
 ## T-0126: `if let` on an untied pointer needs `unsafe` (2026-11-03)
 
 D-0094's hole that needed no decision: r101 (T-0114) checked `or` only, so `if let &mut n =

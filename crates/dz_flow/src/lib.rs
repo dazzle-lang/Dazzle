@@ -408,8 +408,9 @@ impl<'a> Flow<'a> {
                 self.loop_body(*body, &fresh);
                 false
             }
-            // A deferred statement runs at scope exit, after the drops (spec §6.5). What
-            // it reads is read; when it reads is not something this analysis models.
+            // A deferred statement runs at scope exit, among the drops in reverse order of
+            // declaration (spec §6.5). What it reads is read; when it reads is not
+            // something this analysis models.
             hir::StmtKind::Defer(inner) => {
                 self.stmt(*inner);
                 false

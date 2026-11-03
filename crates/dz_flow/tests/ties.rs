@@ -900,6 +900,43 @@ fn unused_defer_branch(w: &mut World, flag: bool) kills w.bag@items {
     clean(&fixture.analysis("unused_defer_branch"));
 }
 
+/// Spec §6.5, T-0130: a scope's drops and defers run together in reverse order of
+/// declaration, so a `defer` sees every local declared before it alive, and a local
+/// declared after it is already dropped. Both the block's end and a jump out follow it.
+#[test]
+fn a_defer_runs_among_the_drops_in_reverse_declaration_order() {
+    let fixture = Fixture::with_source(
+        r#"
+fn reads_an_earlier_local() {
+    let x = Text{}
+    let p: ^Text = &x
+    defer observe(p)
+}
+fn reads_a_later_local() {
+    let mut p: ^Text = null
+    defer observe(p)
+    let x = Text{}
+    p = &x
+}
+fn breaks_reading_an_earlier_local(flag: bool) {
+    while flag { let x = Text{}; let p: ^Text = &x; defer observe(p); break }
+}
+fn breaks_reading_a_later_local(flag: bool) {
+    let mut p: ^Text = null
+    while flag { defer observe(p); let x = Text{}; p = &x; break }
+}
+"#,
+    );
+    for name in ["reads_an_earlier_local", "breaks_reading_an_earlier_local"] {
+        clean(&fixture.analysis(name));
+    }
+    for name in ["reads_a_later_local", "breaks_reading_a_later_local"] {
+        let a = fixture.analysis(name);
+        assert_eq!(a.invalid_uses.len(), 1, "{name}: {a:#?}");
+        assert!(a.incomplete.is_empty(), "{name}: {a:#?}");
+    }
+}
+
 #[test]
 fn returned_views_cannot_escape_owned_locals_or_value_parameters() {
     let fixture = Fixture::with_source(

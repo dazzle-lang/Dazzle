@@ -38,7 +38,7 @@ proposed:
    A container lent to a function is left as T-0150, a design question. The user's idea of
    a checked marker for a drop that only frees is T-0148, for later.
 4. The rest of D-0094, decided in full on 2026-11-03 (r107) and to be built: T-0128,
-   T-0129 and T-0126 are done (r108, r109, 2026-11-03); then T-0130, T-0135, T-0136, and
+   T-0129, T-0126 and T-0130 are done (r108, r109, r110, 2026-11-03); then T-0135, T-0136, and
    §1.1's promise (T-0160); its tests (T-0132 to T-0134), and the placement gaps (T-0141, T-0142, T-0146, T-0147, T-0150).
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
    (T-0137).
@@ -141,7 +141,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (37 open)
+## none — not scheduled (36 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -162,7 +162,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
 - **[T-0122](tasks/T-0122-constructor-cannot-declare-kills-clause.md)** A constructor cannot declare a kills clause · bug, ownership
-- **[T-0130](tasks/T-0130-6-5-says-defer-runs-after.md)** §6.5 says `defer` runs after the scope's drops, the order that would read dropped locals · bug, language
 - **[T-0132](tasks/T-0132-sanitizer-builds-in-ci-run-corpus.md)** Sanitizer builds in CI: the run corpus under AddressSanitizer and UBSan · feature, tooling
 - **[T-0133](tasks/T-0133-audit-generated-c-for-undefined-behaviour.md)** An audit of the generated C++ for undefined behaviour · feature, codegen
 - **[T-0134](tasks/T-0134-fuzz-ties-checker-against-sanitizer.md)** Fuzz the ties checker against a sanitizer · feature, tooling

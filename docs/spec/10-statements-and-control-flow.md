@@ -186,8 +186,9 @@ fn upload(&mut self) {
 }
 ```
 
-Runs at scope exit, after that scope's drops, in reverse order of registration. Runs on
-every exit path including `return`, `break`, and a diverging `or` clause.
+Runs at scope exit, among that scope's drops, in reverse order of declaration (§6.5): after
+the drops of the locals declared after it, and before those of the locals declared before
+it. Runs on every exit path including `return`, `break`, and a diverging `or` clause.
 
 ## 10.6 Casts
 

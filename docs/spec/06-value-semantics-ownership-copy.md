@@ -158,8 +158,17 @@ A type's `drop` runs deterministically:
 - when the owner of the value is itself dropped (fields drop in reverse declaration order);
 - on a moved-from value — but harmlessly, since the value is back at its defaults.
 
-`defer { ... }` runs a block at scope exit, after that scope's drops, in reverse order of
-registration. It is for the non-RAII cases (`defer profiler::end_zone()`).
+`defer { ... }` runs a block at scope exit. **A scope's drops and its `defer`s run together,
+in reverse order of declaration**: a `defer` runs after the drops of the locals declared
+after it and before those of the locals declared before it, so every local it can name is
+still alive. It is for the non-RAII cases (`defer profiler::end_zone()`).
+
+```dz
+let l = Loud{ name: String::from("first") }
+defer { println!("defer sees {}", l.name) }
+let m = Loud{ name: String::from("second") }
+// at the scope's end: drop second, defer sees first, drop first
+```
 
 **A temporary is dropped at the end of its statement** — a value a call or a literal makes
 that nothing binds, such as the `String` in `String::from(name).as_cstr()`. (`&make()`

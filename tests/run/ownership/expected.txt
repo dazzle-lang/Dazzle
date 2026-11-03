@@ -9,7 +9,8 @@ nested: tag=3 live=1
 slot b released: true
 before scope ends
   drop c
-  deferred
+  deferred: early live=1
+  drop early
 done
   drop Counted(101)
   drop Counted(1)

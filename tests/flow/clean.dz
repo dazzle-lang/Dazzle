@@ -179,3 +179,13 @@ fn kept_items(xs: &List<i32>) -> i32 {
     let b = taken(xs.iter())
     return a + b
 }
+
+// §6.5: a scope's drops and defers run in reverse order of declaration, so a defer
+// sees the locals declared before it alive (T-0130).
+fn noted(s: ^String) {}
+
+fn deferred_reads_an_earlier_local() {
+    let s = String::from("earlier")
+    let p: ^String = &s
+    defer noted(p)
+}

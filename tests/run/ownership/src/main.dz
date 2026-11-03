@@ -77,6 +77,7 @@ fn main() {
     let mut slot_a: i32
     let mut slot_b: i32
     let mut slot_c: i32
+    let mut slot_d: i32
 
     let h = Handle(&mut slot_a, "a")
     println!("live: {}", h.live())
@@ -102,9 +103,11 @@ fn main() {
     }
     println!("slot b released: {}", slot_b == 0)
 
-    // §6.5: `defer` runs at scope exit *after* that scope's drops.
+    // §6.5: a scope's drops and `defer`s run together at its exit, in reverse order of
+    // declaration, so a `defer` sees every local declared before it alive (T-0130).
     {
-        defer println!("  deferred")
+        let early = Handle(&mut slot_d, "early")
+        defer println!("  deferred: early live={}", early.live())
         // Held only for its `drop` at the end of the scope: `_` says so (DZ0406).
         let _e = Handle(&mut slot_c, "c")
         println!("before scope ends")
