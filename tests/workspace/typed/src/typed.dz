@@ -923,14 +923,15 @@ fn optional_presence(v: i32?) -> bool {
     return v == none || none != v
 }
 
-// §9.4: `if let` binds what `or` would produce, in the first block only.
+// §9.4: `if let` binds what `or` would produce, in the first block only. A pointer
+// parameter has no tie, so it is vouched for in `unsafe`, as for `or` (§5.2).
 fn if_let_forms(o: i32?, p: ^mut Vec3) -> f32 {
     if let mut n = o {
         n += 1
-    } else if let &mut v = p {
+    } else if let &mut v = unsafe { p } {
         v.x = 1
     }
-    let got = if let v = p { v.x } else { 0 }
+    let got = if let v = unsafe { p } { v.x } else { 0 }
     return got
 }
 

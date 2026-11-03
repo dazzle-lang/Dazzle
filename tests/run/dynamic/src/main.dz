@@ -58,7 +58,8 @@ fn measure(s: &Shape) -> f32 {
 }
 
 fn grow_through(slot: &Slot, by: f32) -> bool {
-    if let &mut s = slot.shape {
+    // `slot.shape` is a pointer field with no tie: the caller keeps the shape alive.
+    if let &mut s = unsafe { slot.shape } {
         s.grow(by)
         return true
     }

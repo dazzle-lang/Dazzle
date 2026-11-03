@@ -2,8 +2,9 @@
 // A pointer parameter and a pointer field with no tie are untied, so `or` on one needs
 // `unsafe`; a pointer a safe call returns under a tie, or one made from a place, is tied.
 // A function may not return an untied pointer under a tie it cannot back, which is how one
-// would otherwise be laundered into a safe `or`.
-// expect: DZ0418, DZ0419
+// would otherwise be laundered into a safe `or`. `if let` is the same conversion, in every
+// binding form (T-0126).
+// expect: DZ0418, DZ0418, DZ0418, DZ0419
 
 pub struct World {
     pub hp: i32 = 0
@@ -21,6 +22,25 @@ fn from_param(p: ^mut World) {
 fn vouched(p: ^mut World) {
     let w = unsafe { p or return }
     w.hp = 2
+}
+
+fn if_let_field(ctx: &Ctx) {
+    if let &mut w = ctx.world {
+        w.hp = 4
+    }
+}
+
+fn if_let_copy(p: ^mut World) -> i32 {
+    if let w = p {
+        return w.hp
+    }
+    return 0
+}
+
+fn if_let_vouched(ctx: &Ctx) {
+    if let &mut w = unsafe { ctx.world } {
+        w.hp = 5
+    }
 }
 
 fn laundered(ctx: &Ctx) -> ^mut World in ctx {
@@ -41,8 +61,14 @@ fn main() {
     xs.push(1)
     let first = xs.first() or return
     let through = honest(&ctx) or return
+    if let &w = p {
+        println!("{}", w.hp)
+    }
     from_param(p)
     vouched(p)
+    if_let_field(&ctx)
+    let _ = if_let_copy(p)
+    if_let_vouched(&ctx)
     println!("{} {} {}", a.hp, first, through.hp)
     let _ = laundered(&ctx)
 }

@@ -158,7 +158,8 @@ pointer is tied when it was made from a place, as `p` above is, or a safe call r
 under a tie, `in` or elided — `xs.first() or return` stays safe, since the callee's body is
 held to that tie. A pointer parameter, a pointer field with no tie, a cast and C's pointers
 are untied: `ctx.btn or return` is `DZ0418`, and `unsafe { ctx.btn or return }` is the
-programmer's word for it. So a context struct's `^mut World` needs `unsafe` to use, which is
+programmer's word for it. `if let &b = ctx.btn` is the same conversion, in every binding
+form, and `if let &b = unsafe { ctx.btn }` vouches for it. So a context struct's `^mut World` needs `unsafe` to use, which is
 honest: that aliasing is what §6.7 cannot check. A function may not hand an untied pointer
 out under a tie it cannot back, `return ctx.world` from `-> ^mut World in ctx` (`DZ0419`);
 `return unsafe { ctx.world }` vouches for it. With this, everything unchecked is written

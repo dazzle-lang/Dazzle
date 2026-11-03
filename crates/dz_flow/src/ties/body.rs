@@ -97,8 +97,9 @@ pub struct BodyAnalysis {
     /// Where a view could not be followed, so a use or a return went unchecked. This never
     /// hides a kill: every way a kill reaches unknown memory is `incomplete` instead.
     pub unchecked: Vec<Incomplete>,
-    /// `p or …` outside `unsafe` on a pointer with no tie (T-0114): the pointer, then the
-    /// whole `or`.
+    /// `p or …` or `if let … = p` outside `unsafe` on a pointer with no tie (T-0114, T-0126):
+    /// the pointer, then what `unsafe { … }` would wrap — the whole `or`, or the `if let`'s
+    /// operand alone, so its branches stay checked.
     pub untied_conversions: Vec<(Span, Span)>,
     /// A pointer of unknown provenance returned under a tie, outside `unsafe` (T-0114): the
     /// `return`, then the value.
@@ -2406,6 +2407,16 @@ impl Analysis<'_> {
                 let value = self.expr(operand);
                 if !self.live {
                     return Value::default();
+                }
+                // The same conversion as `or`, in every binding form: `&v` and `&mut v` refer
+                // to the pointee, and `v` reads through the pointer (spec §5.2, T-0126).
+                if super::or_pointer(self.body.ty(operand))
+                    && self.unsafe_depth == 0
+                    && !self.vouched(operand)
+                    && !self.tied_pointer(&value)
+                {
+                    let at = self.body.expr(operand).span;
+                    self.result.untied_conversions.push((at, at));
                 }
                 // `if let &v = opt` refers to the payload where it lives (§9); `if let v`
                 // copies it out, and `if let &v = ptr` is the pointee, as the value is.

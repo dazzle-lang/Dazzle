@@ -6,6 +6,22 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0126: `if let` on an untied pointer needs `unsafe` (2026-11-03)
+
+D-0094's hole that needed no decision: r101 (T-0114) checked `or` only, so `if let &mut n =
+slot.target` wrote through a pointer field with no `unsafe`. The `IfLet` arm of `dz_flow`'s
+ties walk now asks what the `Or` arm asks — a pointer type `or_pointer` accepts, outside
+`unsafe`, an operand not written `unsafe { … }`, and not `tied_pointer` — for every binding
+form, `&v`, `&mut v` and `v`, which reads through the pointer. It reports `DZ0418`, and the
+offered fix wraps the operand alone, `if let &mut n = unsafe { slot.target }`, so the
+branches stay checked; wrapping the whole `if let`, as `or` is wrapped, would have vouched
+for them too.
+
+Tests: `tests/flow/untied_pointer.dz` gained a field and a parameter refused, the copy form
+among them, and a vouched and a tied `if let` accepted. Two places relied on the gap and now
+write `unsafe`: `tests/run/dynamic`'s `grow_through`, and `typed/`'s `if_let_forms`, whose
+`p` is a pointer parameter. No example or std source used it.
+
 ## r109, T-0129: arithmetic is defined (2026-11-03)
 
 D-0094 point 5, extending D-0063. The shim's `num` namespace gained `div`, `rem`,
