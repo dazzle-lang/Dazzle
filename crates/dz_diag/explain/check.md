@@ -1413,3 +1413,35 @@ fn main() {
     let _ = &p
 }
 ```
+
+## DZ0580
+
+An integer `/` or `%` whose divisor is a constant zero. An integer division by zero panics
+when it runs (spec 5.1), so a divisor the compiler can see is always zero would panic every
+time: it is reported here instead. A constant counts, as does an expression of constants
+that comes to zero. A float division by zero is not an error: IEEE 754 gives an infinity or
+NaN.
+
+```dz
+const BUCKETS: i32 = 0
+
+fn bucket(hash: i32) -> i32 {
+    return hash % BUCKETS
+}
+
+fn main() {
+    println!("{}", bucket(7))
+}
+```
+
+```dz
+const BUCKETS: i32 = 16
+
+fn bucket(hash: i32) -> i32 {
+    return hash % BUCKETS
+}
+
+fn main() {
+    println!("{}", bucket(7))
+}
+```

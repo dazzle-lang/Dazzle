@@ -199,6 +199,10 @@ p as usize          // a pointer's address, for aligning or hashing
 n as ^mut u8        // an address back to a pointer — `unsafe` (§5.2)
 ```
 
+A float converted to an integer drops its fraction, toward zero. One outside the integer's
+range **saturates**, at the type's `MIN` or `MAX`, and NaN becomes 0: `1e20 as i32` is
+`2147483647`, `(-1.5) as u8` is `0`. C++ leaves both undefined. `[DECIDED — D-0094 point 5]`
+
 `as` never invokes user code and never fails. Fallible conversions are library functions
 returning `T?`, or marked `!->` when they have something to say about the failure. `as`
 never fails, so there is deliberately no `as ref` for `^T` → `&T`; that conversion is an

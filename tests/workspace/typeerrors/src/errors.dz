@@ -1641,3 +1641,10 @@ struct CHolder {
 fn measured_raw(c: ^cstr) -> usize {
     return (c as &str).len
 }
+
+// An integer divisor that is a constant zero would panic every time: DZ0580 (spec 5.1).
+const NO_SLOTS: i32 = 0
+
+fn divided_by_nothing(hash: i32) -> i32 {
+    return hash % NO_SLOTS
+}

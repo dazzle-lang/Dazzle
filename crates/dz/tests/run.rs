@@ -366,6 +366,45 @@ fn overflow_wraps_and_unreachable_is_assumed_only_in_unsafe() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// What C++ leaves undefined is defined, in every build (spec §5.1, §10.6, §11; D-0094 point
+/// 5, T-0129): `MIN / -1` wraps and `MIN % -1` is 0, a shift count is taken modulo the width
+/// and a negative value shifted left wraps, a float converted to an integer saturates and
+/// NaN is 0. The operands come from calls, so no compiler can fold them away. A literal
+/// divisor or count keeps C++'s own operator, and a division by zero panics, naming its line.
+#[test]
+fn arithmetic_cpp_leaves_undefined_is_defined() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_defined_arith",
+        "[module]\nname = \"arith\"\nsources = [\"src/**/*.dz\"]\n",
+        "fn minus_one() -> i32 {\n    return -1\n}\n\nfn forty() -> i32 {\n    return 40\n}\n\nfn huge() -> f64 {\n    return 1e20\n}\n\nfn nan() -> f64 {\n    return 0.0 / 0.0\n}\n\nfn zero() -> i32 {\n    return 0\n}\n\nfn main() {\n    let min: i32 = -2147483648\n    let m8: i8 = -128\n    let neg: i8 = -1\n    println!(\"{} {} {} {}\", min / minus_one(), min % minus_one(), m8 / neg, m8 % neg)\n    println!(\"{} {} {} {}\", 1 << forty(), 1u8 << 9u8, -1 << 3, min << 1)\n    println!(\"{} {} {}\", huge() as i32, (-huge()) as i32, nan() as i32)\n    println!(\"{} {} {}\", 300.7 as u8, (-5.5) as u8, 7 / 2)\n    let mut x = 100\n    x /= minus_one()\n    x %= 7\n    println!(\"{}\", x)\n    println!(\"{}\", 10 / zero())\n}\n",
+    );
+    for mode in ["--debug", "--release"] {
+        let out = Command::new(dz())
+            .args(["run", dir.to_str().unwrap(), mode])
+            .output()
+            .expect("failed to run dz");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{mode}: expected a panic\n{stderr}");
+        assert_eq!(
+            normalise(&String::from_utf8_lossy(&out.stdout)),
+            "-2147483648 0 -128 0\n256 2 -8 0\n2147483647 -2147483648 0\n255 0 3\n-2",
+            "{mode}"
+        );
+        assert!(stderr.contains("division by zero"), "{mode}: {stderr}");
+        assert!(stderr.contains("main.dz:33:"), "{mode}: the panic names its line\n{stderr}");
+        let cpp = std::fs::read_to_string(dir.join("build/cpp/arith.cpp")).unwrap();
+        assert!(cpp.contains("::dz::num::div<int32_t>("), "{mode}\n{cpp}");
+        assert!(cpp.contains("::dz::num::div_assign<int32_t>("), "{mode}\n{cpp}");
+        assert!(cpp.contains("::dz::num::float_to_int<"), "{mode}\n{cpp}");
+        assert!(cpp.contains("(7 / 2)"), "a literal divisor keeps C++'s `/`\n{cpp}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A safe `or unreachable` that is reached panics in a release build too, naming the line,
 /// where it used to let the optimiser run a search past the end of its list (D-0094 point 4,
 /// T-0128).

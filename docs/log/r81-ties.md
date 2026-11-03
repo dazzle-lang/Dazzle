@@ -6,6 +6,28 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r109, T-0129: arithmetic is defined (2026-11-03)
+
+D-0094 point 5, extending D-0063. The shim's `num` namespace gained `div`, `rem`,
+`div_assign`, `rem_assign`, `shl`, `shr` and `float_to_int`, all `constexpr` so a `const`
+can be built from them, and `max_of`, `min_of` and `all_ones` became `constexpr` for
+`float_to_int`. `defined_op` (`dz_cpp`) decides when an integer operator needs one: a
+divisor that is not a literal other than 0 and -1, a shift count that is not a literal below
+the width (`isize` and `usize` counted as 32 bits), and any signed `<<`. The rest keep C++'s
+own operator, so `x / 2` and `x >> 3` read as before. `/=` and `%=` pass the place by
+reference, so it is evaluated once. A float `as` an integer goes through `float_to_int`,
+whose bounds are powers of two and so exact in either float type.
+
+The checker reports a constant zero divisor, folded by `const_int`, so a constant's name
+counts: `DZ0580`, for `/`, `%`, `/=` and `%=` on integers only.
+
+Tests: `arithmetic_cpp_leaves_undefined_is_defined` (`dz/tests/run.rs`) runs every row of
+§5.1's table in debug and release, on clang++ and g++, with operands from calls so nothing
+folds; `typed/` divides by a variable and a float by zero, `typeerrors/` by a constant zero.
+
+**Found on the way:** the parser binds `as` tighter than prefix `-`, so `-x as u8` is
+`-(x as u8)`, where §11.1 puts prefix operators above `as`.
+
 ## r108, T-0128: `or unreachable` panics in every build (2026-11-03)
 
 D-0094 point 4, revising D-0020. The emitter (`dz_cpp`) counts the `unsafe` blocks around

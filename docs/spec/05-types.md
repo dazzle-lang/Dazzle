@@ -18,6 +18,21 @@ too, where C++ would leave it undefined. A program that wants something else say
 the methods on `Integer` (§14.4): `a.checked_add(b)` gives a `T?`, `a.saturating_sub(b)`
 stops at the limit. `[DECIDED — §18.63]`
 
+The rest of integer arithmetic is defined too, so no operator reaches what C++ leaves
+undefined. Where an answer exists, it wraps; where none does, it panics, as an index out of
+bounds does:
+
+| Operation | Result |
+|---|---|
+| `a / 0`, `a % 0` | panics, naming the line; a divisor that is a constant zero is an error (`DZ0580`) |
+| `MIN / -1` | `MIN`: the overflow wraps, as above |
+| `MIN % -1` | `0` |
+| `a << n`, `a >> n` | `n` is taken modulo the width, so `1 << 40` on an `i32` is `1 << 8`; a negative `n` is a large one |
+| a negative value shifted left | wraps, as a multiplication by a power of two would |
+| `>>` on a signed value | arithmetic: the sign is copied in |
+
+A float divided by zero is an infinity or NaN, as IEEE 754 says. `[DECIDED — D-0094 point 5]`
+
 There are no implicit numeric conversions, in either direction, ever — not even widening.
 `let a: i64 = some_i32` is an error; write `some_i32 as i64`. Untyped *literals* are the
 sole exception (§2.5). This is the single most common source of silent bugs in C++ game

@@ -20297,3 +20297,37 @@ body fn c_kinds -> bool
               field #0: &cstr
                 local _1 b: Banner
           int 0: usize
+body const SLOTS -> void
+  block
+    int 16: i32
+body fn divisions -> f64
+  param _0 hash: i32
+  param _1 n: i32
+  block
+    let _2 x: i32
+      binary %: i32
+        local _0 hash: i32
+        const SLOTS: i32
+    assign /=
+      local _2 x: i32
+      local _1 n: i32
+    assign %=
+      local _2 x: i32
+      binary -: i32
+        const SLOTS: i32
+        int 1: i32
+    let _3 shifted: i32
+      binary >>: i32
+        binary <<: i32
+          local _2 x: i32
+          local _1 n: i32
+        int 40: i32
+    return: !
+      binary +: f64
+        cast: f64
+          binary /: i32
+            local _3 shifted: i32
+            int -1: i32
+        binary /: f64
+          float 1: f64
+          float 0: f64

@@ -37,8 +37,8 @@ proposed:
    is built where it is placed. `words`' keys and `expr`'s names are now in `main`'s region.
    A container lent to a function is left as T-0150, a design question. The user's idea of
    a checked marker for a drop that only frees is T-0148, for later.
-4. The rest of D-0094, decided in full on 2026-11-03 (r107) and to be built: T-0128 is
-   done (r108, 2026-11-03); then T-0126, T-0129, T-0130, T-0135, T-0136, and §1.1's
+4. The rest of D-0094, decided in full on 2026-11-03 (r107) and to be built: T-0128 and
+   T-0129 are done (r108, r109, 2026-11-03); then T-0126, T-0130, T-0135, T-0136, and §1.1's
    promise (T-0160); its tests (T-0132
    to T-0134), and the placement gaps (T-0141, T-0142, T-0146, T-0147, T-0150).
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
@@ -164,7 +164,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
 - **[T-0122](tasks/T-0122-constructor-cannot-declare-kills-clause.md)** A constructor cannot declare a kills clause · bug, ownership
 - **[T-0126](tasks/T-0126-if-let-turns-untied-pointer-into.md)** `if let` turns an untied pointer into a reference without `unsafe` · bug, ownership
-- **[T-0129](tasks/T-0129-division-by-zero-min-1-oversized.md)** Division by zero, `MIN / -1`, oversized shifts and out-of-range casts are undefined in C++ · design, codegen
 - **[T-0130](tasks/T-0130-6-5-says-defer-runs-after.md)** §6.5 says `defer` runs after the scope's drops, the order that would read dropped locals · bug, language
 - **[T-0132](tasks/T-0132-sanitizer-builds-in-ci-run-corpus.md)** Sanitizer builds in CI: the run corpus under AddressSanitizer and UBSan · feature, tooling
 - **[T-0133](tasks/T-0133-audit-generated-c-for-undefined-behaviour.md)** An audit of the generated C++ for undefined behaviour · feature, codegen
@@ -182,3 +181,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0150](tasks/T-0150-value-stored-into-container-lent-function.md)** A value stored into a container lent to a function keeps the heap · design, ownership
 - **[T-0159](tasks/T-0159-delete-allocators-global-allocators-temp-temparena.md)** "Delete Allocators::Global, Allocators::Temp and TempArena: nothing outside std names an allocator" · feature, stdlib
 - **[T-0160](tasks/T-0160-1-1-rewritten-safe-dazzle-has.md)** §1.1 rewritten: safe Dazzle has no undefined behaviour on one thread · design, language
+- **[T-0161](tasks/T-0161-parser-binds-as-tighter-than-prefix.md)** The parser binds as tighter than prefix -, against §11.1's table · bug, language

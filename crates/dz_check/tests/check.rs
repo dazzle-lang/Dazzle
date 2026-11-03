@@ -205,6 +205,8 @@ fn every_rule_has_a_failing_case() {
         TIE_ON_NON_REFERENCE,
         // r104 — `#placement` (spec §12.7, §14.6).
         PLACEMENT_DEFAULT,
+        // r109 — a constant zero divisor (spec §5.1, D-0094 point 5).
+        DIVISION_BY_ZERO,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

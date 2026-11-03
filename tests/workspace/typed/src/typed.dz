@@ -2187,3 +2187,15 @@ fn c_kinds(s: &String) -> bool {
     let measured = unsafe { raw as &str }
     return nothing == null && measured.len > 0 && (back as &str).len > 0 && (b.text as &str).len > 0
 }
+
+// Division is defined (spec 5.1, 11): a divisor that is not a constant zero is accepted, by
+// any value, as is a float divided by zero, which IEEE 754 makes an infinity.
+const SLOTS: i32 = 16
+
+fn divisions(hash: i32, n: i32) -> f64 {
+    let mut x = hash % SLOTS
+    x /= n
+    x %= SLOTS - 1
+    let shifted = (x << n) >> 40
+    return (shifted / -1) as f64 + 1.0 / 0.0
+}

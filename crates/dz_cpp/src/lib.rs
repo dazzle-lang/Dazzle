@@ -3811,7 +3811,21 @@ impl<'a> Emitter<'a> {
                     v
                 };
                 self.write_captured(&pre_t);
-                self.line(&format!("{t} {} {v};", op.as_str()));
+                // `a /= b` is `a = a / b` (spec §11.2), so it is defined as `/` is: the place
+                // is passed by reference, and evaluated once.
+                let binary = match op {
+                    AssignOp::Div => Some(BinaryOp::Div),
+                    AssignOp::Rem => Some(BinaryOp::Rem),
+                    _ => None,
+                };
+                match binary.and_then(|b| self.defined_op(b, target_ty.peeled_refs(), *value)) {
+                    Some(helper) => {
+                        let ty = self.cpp_ty(target_ty.peeled_refs());
+                        let loc = self.source_location(s.span);
+                        self.line(&format!("::dz::num::{helper}_assign<{ty}>({t}, {v}, {loc});"));
+                    }
+                    None => self.line(&format!("{t} {} {v};", op.as_str())),
+                }
             }
             hir::StmtKind::Expr(e) => self.stmt_expr(*e),
             hir::StmtKind::While { cond, body: block, label } => {
@@ -4561,13 +4575,32 @@ impl<'a> Emitter<'a> {
                 self.narrow_result(e, format!("{}({o})", unary_op(*op)))
             }
             hir::ExprKind::Binary { op, lhs, rhs } => {
+                if let Some(helper) = self.defined_op(*op, body.ty(e), *rhs) {
+                    let t = self.cpp_ty(body.ty(e));
+                    let v = self.ordered_operands(&[*lhs, *rhs], &[false, false]);
+                    return match helper {
+                        "div" | "rem" => {
+                            let loc = self.source_location(node.span);
+                            format!("::dz::num::{helper}<{t}>({}, {}, {loc})", v[0], v[1])
+                        }
+                        _ => format!("::dz::num::{helper}<{t}>({}, {})", v[0], v[1]),
+                    };
+                }
                 let text = self.binary(*op, *lhs, *rhs);
                 self.narrow_result(e, text)
             }
             hir::ExprKind::Cast { operand, .. } => {
                 let t = self.cpp_ty(body.ty(e));
                 let v = self.expr(*operand);
-                format!("::dz::cast<{t}>({v})")
+                // Out of range, or NaN, a float converted to an integer is undefined in
+                // C++; Dazzle saturates, and NaN is 0 (spec §10.6, D-0094 point 5).
+                if matches!(body.ty(*operand).peeled(), Ty::Float(_))
+                    && matches!(body.ty(e), Ty::Int(_))
+                {
+                    format!("::dz::num::float_to_int<{t}>({v})")
+                } else {
+                    format!("::dz::cast<{t}>({v})")
+                }
             }
             // A range held as a value (spec §10.4): the shim's `Range<T>`, which a `for` over
             // it then counts through. It takes both ends to have a value to hold.
@@ -4772,6 +4805,29 @@ impl<'a> Emitter<'a> {
                 format!("static_cast<{}>({text})", int_name(*i))
             }
             _ => text,
+        }
+    }
+
+    /// The shim's helper for an integer `/`, `%`, `<<` or `>>` whose C++ operator could be
+    /// undefined, and `None` where the plain operator is defined: a divisor that is a
+    /// literal other than 0 and -1, a count that is a literal below the width, and for `<<`
+    /// an unsigned operand. C++ leaves a division by zero, `MIN / -1`, a shift past the
+    /// width and a negative value shifted left undefined; Dazzle panics on the first and
+    /// wraps the rest (spec §5.1, §11, D-0094 point 5).
+    fn defined_op(&self, op: BinaryOp, ty: &Ty, rhs: ExprId) -> Option<&'static str> {
+        let Ty::Int(i) = ty else { return None };
+        let k = literal_value(self.cur(), rhs);
+        match op {
+            BinaryOp::Div | BinaryOp::Rem => {
+                let plain = k.is_some_and(|k| k != 0 && k != -1);
+                (!plain).then_some(if op == BinaryOp::Div { "div" } else { "rem" })
+            }
+            BinaryOp::Shl | BinaryOp::Shr => {
+                let in_range = k.is_some_and(|k| (0..int_bits(*i)).contains(&k));
+                let plain = in_range && (op == BinaryOp::Shr || !i.is_signed());
+                (!plain).then_some(if op == BinaryOp::Shl { "shl" } else { "shr" })
+            }
+            _ => None,
         }
     }
 
@@ -6647,6 +6703,28 @@ fn int_name(i: IntTy) -> &'static str {
         IntTy::U64 => "uint64_t",
         IntTy::Isize => "intptr_t",
         IntTy::Usize => "size_t",
+    }
+}
+
+/// The value of an integer literal, negated or not, and `None` for anything else.
+fn literal_value(body: &hir::Body, e: ExprId) -> Option<i128> {
+    match &body.expr(e).kind {
+        hir::ExprKind::Int(v) => Some(*v),
+        hir::ExprKind::Unary { op: UnaryOp::Neg, operand } => {
+            literal_value(body, *operand)?.checked_neg()
+        }
+        _ => None,
+    }
+}
+
+/// The width of an integer type in bits. `isize` and `usize` count as 32, the narrowest
+/// they are, so a literal shift count is only trusted below that.
+fn int_bits(i: IntTy) -> i128 {
+    match i {
+        IntTy::I8 | IntTy::U8 => 8,
+        IntTy::I16 | IntTy::U16 => 16,
+        IntTy::I32 | IntTy::U32 | IntTy::Isize | IntTy::Usize => 32,
+        IntTy::I64 | IntTy::U64 => 64,
     }
 }
 

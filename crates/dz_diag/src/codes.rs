@@ -422,6 +422,9 @@ pub const CSTR_NOT_BORROWED: &str = "DZ0578";
 /// which its body reads; a default is filled in by each caller, which would pass its own
 /// placement on to whatever the function builds (spec §12.7, §14.6).
 pub const PLACEMENT_DEFAULT: &str = "DZ0579";
+/// An integer `/` or `%`, or `/=` or `%=`, whose divisor is a constant zero: it would panic
+/// every time it ran (spec §5.1, §11).
+pub const DIVISION_BY_ZERO: &str = "DZ0580";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

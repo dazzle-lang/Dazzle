@@ -2041,6 +2041,9 @@ impl<'a, 'c> Body<'a, 'c> {
                         );
                     }
                     self.expect(&t.ty, &v.ty, value.span);
+                    if matches!(op, AssignOp::Div | AssignOp::Rem) && t.ty.is_integral() {
+                        self.reject_zero_divisor(op.as_str(), value);
+                    }
                 }
                 hir::StmtKind::Assign { target: t.id, op: *op, value: v.id, bind: false }
             }
@@ -3877,10 +3880,28 @@ impl<'a, 'c> Body<'a, 'c> {
                         }
                     },
                 };
+                if matches!(op, Div | Rem) && ty.is_integral() {
+                    self.reject_zero_divisor(op.as_str(), rhs);
+                }
                 (ty, a, b)
             }
         };
         self.mk(e, ty, hir::ExprKind::Binary { op, lhs: a.id, rhs: b.id })
+    }
+
+    /// An integer division whose divisor is a constant zero, which would panic every time it
+    /// ran (spec §5.1, §11). A float's divides to an infinity or NaN, as IEEE 754 says.
+    fn reject_zero_divisor(&mut self, op: &str, divisor: &Expr) {
+        if self.cx.const_int(divisor) == Some(0) {
+            self.cx.error_help(
+                codes::DIVISION_BY_ZERO,
+                divisor.span,
+                format!("`{op}` by a constant zero"),
+                "this divisor is always zero",
+                "an integer division by zero panics when it runs (spec §5.1); divide by \
+                 something else, or write `panic!` if failing here is the point",
+            );
+        }
     }
 
     fn check_cast(&mut self, from: &Ty, to: &Ty, span: Span) {

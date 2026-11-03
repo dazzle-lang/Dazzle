@@ -508,9 +508,43 @@ template <class T> DZ_INLINE Opt<T> checked_sub(T a, Same<T> b) { T r; return __
 template <class T> DZ_INLINE Opt<T> checked_mul(T a, Same<T> b) { T r; return __builtin_mul_overflow(a, b, &r) ? Opt<T>() : Opt<T>(r); }
 // Every intermediate is cast back to the unsigned type: `~` on a `uint8_t` promotes it to
 // `int`, and the shift then works on -1 rather than on 0xFF.
-template <class T> DZ_INLINE U<T> all_ones() { return static_cast<U<T>>(~static_cast<U<T>>(0)); }
-template <class T> DZ_INLINE T max_of() { return static_cast<T>(static_cast<U<T>>(all_ones<T>() >> (is_signed<T>() ? 1 : 0))); }
-template <class T> DZ_INLINE T min_of() { return is_signed<T>() ? static_cast<T>(static_cast<U<T>>(~static_cast<U<T>>(all_ones<T>() >> 1))) : T(0); }
+template <class T> DZ_INLINE constexpr U<T> all_ones() { return static_cast<U<T>>(~static_cast<U<T>>(0)); }
+template <class T> DZ_INLINE constexpr T max_of() { return static_cast<T>(static_cast<U<T>>(all_ones<T>() >> (is_signed<T>() ? 1 : 0))); }
+template <class T> DZ_INLINE constexpr T min_of() { return is_signed<T>() ? static_cast<T>(static_cast<U<T>>(~static_cast<U<T>>(all_ones<T>() >> 1))) : T(0); }
+
+// What C++ leaves undefined, defined (spec §5.1, §10.6, §11; D-0094 point 5). The emitter
+// calls these only where an operand could make the plain operator undefined: a divisor that
+// is not a literal other than 0 and -1, a shift count that is not a literal in range, a
+// signed left shift. `constexpr`, since a `const` may be built from them.
+template <class T> DZ_INLINE constexpr T div(T a, Same<T> b, SourceLocation where) {
+    if (b == 0) { panic("division by zero", where); }
+    // `MIN / -1` overflows, and wraps to `MIN` as every overflow does (D-0063).
+    if (is_signed<T>() && b == static_cast<T>(-1)) { return static_cast<T>(static_cast<U<T>>(U<T>(0) - static_cast<U<T>>(a))); }
+    return static_cast<T>(a / b);
+}
+template <class T> DZ_INLINE constexpr T rem(T a, Same<T> b, SourceLocation where) {
+    if (b == 0) { panic("remainder of a division by zero", where); }
+    if (is_signed<T>() && b == static_cast<T>(-1)) { return T(0); }
+    return static_cast<T>(a % b);
+}
+template <class T> DZ_INLINE void div_assign(T& a, Same<T> b, SourceLocation where) { a = div<T>(a, b, where); }
+template <class T> DZ_INLINE void rem_assign(T& a, Same<T> b, SourceLocation where) { a = rem<T>(a, b, where); }
+// The count is taken modulo the width, as Rust's `wrapping_shl` takes it; a negative count
+// is a large one. A left shift goes through the unsigned type, where C++ defines it.
+template <class T> DZ_INLINE constexpr unsigned shift_count(T n) { return static_cast<unsigned>(static_cast<U<T>>(n)) & static_cast<unsigned>(sizeof(T) * 8 - 1); }
+template <class T> DZ_INLINE constexpr T shl(T a, Same<T> n) { return static_cast<T>(static_cast<U<T>>(static_cast<U<T>>(a) << shift_count<T>(n))); }
+template <class T> DZ_INLINE constexpr T shr(T a, Same<T> n) { return static_cast<T>(a >> shift_count<T>(n)); }
+// A float converted to an integer saturates at the integer's range, and NaN is 0. Both
+// bounds are powers of two, so each is exact in either float type: the lowest is the
+// type's `MIN` (or 0), and the first value past the top is `2^bits` (or `2^(bits-1)`).
+template <class T, class F> DZ_INLINE constexpr T float_to_int(F f) {
+    if (__builtin_isnan(f)) { return T(0); }
+    F past = 1;
+    for (unsigned i = 0; i < sizeof(T) * 8 - (is_signed<T>() ? 1 : 0); i++) { past *= 2; }
+    if (!(f < past)) { return max_of<T>(); }
+    if (!(static_cast<F>(min_of<T>()) < f)) { return min_of<T>(); }
+    return static_cast<T>(f);
+}
 template <class T> DZ_INLINE T saturating_add(T a, Same<T> b) {
     T r;
     if (!__builtin_add_overflow(a, b, &r)) { return r; }

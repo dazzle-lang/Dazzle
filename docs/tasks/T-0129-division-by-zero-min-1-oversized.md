@@ -2,7 +2,8 @@
 id: T-0129
 title: Division by zero, `MIN / -1`, oversized shifts and out-of-range casts are undefined in C++
 milestone: none
-status: open
+status: done
+done: r109, 2026-11-03
 kind: design
 area: codegen
 ---
@@ -15,11 +16,13 @@ panicking as Rust's does. It extends D-0063.
 
 | Piece | Where |
 |---|---|
-| Binary operators, emitted as `(a op b)` | `dz_cpp/src/lib.rs`, `binary` (~4549) |
-| Compound assignment (`/=`, `<<=`, …) | `dz_cpp/src/lib.rs`, around `AssignOp` (~3580) |
-| `as` between numbers: a `static_cast` | `cast` in `dz_cpp/src/runtime.rs` (~623) |
+| Which operator needs a helper | `defined_op` in `dz_cpp/src/lib.rs`, called from `expr_node`'s `Binary` arm and from `/=` and `%=` in `stmt`'s `Assign` arm |
+| The helpers: `div`, `rem`, `div_assign`, `rem_assign`, `shl`, `shr`, `float_to_int` | namespace `num` in `dz_cpp/src/runtime.rs` |
+| A float `as` an integer | `expr_node`'s `Cast` arm in `dz_cpp/src/lib.rs` |
+| A constant zero divisor, `DZ0580` | `reject_zero_divisor` in `dz_check/src/check.rs`; `dz explain` in `dz_diag/explain/check.md` |
 | The flags (`-fwrapv`) | `compile` in `crates/dz/src/build.rs` |
-| The rules | §5.1, §10.6, §11; D-0063 |
+| The tests | `arithmetic_cpp_leaves_undefined_is_defined` in `dz/tests/run.rs`; `typed/` and `typeerrors/` |
+| The rules | §5.1, §10.6; D-0063 |
 
 **What it is.** `-fwrapv` makes `+`, `-` and `*` wrap, as D-0063 says. It covers none of
 the following, which the spec does not mention and C++ leaves undefined:

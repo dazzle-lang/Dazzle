@@ -2072,3 +2072,11 @@ error[DZ0528]: reading C's `^cstr` as text is unsafe
      │            ^^^^^^^^^^^ outside an `unsafe` block
      │
      = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
+
+error[DZ0580]: `%` by a constant zero
+     ┌─ typeerrors/src/errors.dz:1649:19
+     │
+1649 │     return hash % NO_SLOTS
+     │                   ^^^^^^^^ this divisor is always zero
+     │
+     = help: an integer division by zero panics when it runs (spec §5.1); divide by something else, or write `panic!` if failing here is the point
