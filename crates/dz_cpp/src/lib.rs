@@ -94,14 +94,15 @@ pub struct Options {
     /// `--no-line-directives`, when it is the generated C++ itself being debugged or read.
     pub line_directives: bool,
     /// Put each allocation the analysis placed in a scope's region there, rather than on
-    /// the heap (spec §14.6, T-0117). Off unless `DZ_REGIONS` is set, until the gate
-    /// decides whether regions stay.
+    /// the heap (spec §14.6, T-0117). On by default since T-0117's gate kept regions;
+    /// `DZ_REGIONS=0` turns it off, putting every value on the heap, for benchmarks and
+    /// for telling a region bug from any other (T-0152).
     pub regions: bool,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { mode: Mode::default(), line_directives: true, regions: false }
+        Options { mode: Mode::default(), line_directives: true, regions: true }
     }
 }
 

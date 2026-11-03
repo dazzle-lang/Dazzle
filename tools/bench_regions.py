@@ -7,8 +7,8 @@ that need a stopwatch:
 
 * `astar`, `words` and `expr` from tests/bench_programs, each built twice from the same
   source. Since r104 a program names no allocator, so with regions off every value is on
-  the heap (T-0104's "heap"); the two builds differ only in `DZ_REGIONS=1`, which turns
-  placement on in codegen. Both must print the same checksum.
+  the heap (T-0104's "heap"); the two builds differ only in `DZ_REGIONS`: `0` turns
+  placement off in codegen, and `1` leaves it on, as it is by default (T-0152). Both must print the same checksum.
 * with `--hand-src` and `--hand-dz`, a third build: the program as it was before r104,
   when it put its scratch in `Allocators::Temp` by hand (T-0104's "hand"), from an older
   checkout's `tests/bench_programs`, built by that checkout's `dz`. Placement must not lose
@@ -143,10 +143,10 @@ def build(dz, project, name, cxx, mode, regions, dest):
     """`dz build` the project at `project`, with regions on or off; copy the binary to
     `dest` and return it."""
     shutil.rmtree(project / "build", ignore_errors=True)
+    # Set either way, never inherited: regions are on by default since T-0152, while a `dz`
+    # from before it (`--hand-dz`) needs `1` to turn them on. `0` is off for both.
     env = dict(os.environ)
-    env.pop("DZ_REGIONS", None)
-    if regions:
-        env["DZ_REGIONS"] = "1"
+    env["DZ_REGIONS"] = "1" if regions else "0"
     cmd = [str(dz), "build", f"--{mode}", "--cxx", cxx, str(project)]
     out = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
     if out.returncode != 0:
@@ -290,7 +290,7 @@ def report(info, results, loops, mode, runs):
         "",
         f"Run time is the median of {runs} runs of each build, alternating. The heap and "
         "regions builds of a program compile the same source, which names no allocator; they "
-        "differ only in `DZ_REGIONS=1`. The hand build, where there is one, is the program "
+        "differ only in `DZ_REGIONS`, `0` for the heap and `1` for regions. The hand build, where there is one, is the program "
         "before r104, its scratch in `Allocators::Temp`, built by that checkout's `dz`. Peak "
         "memory is the largest of any run. Flat means a million passes peak at most 1 MiB "
         "above ten thousand.",

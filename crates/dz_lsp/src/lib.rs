@@ -832,8 +832,8 @@ impl Server {
                             None,
                             false,
                             Some(InlayHintTooltip::String(
-                                "where the compiler places this memory (spec §14.6); a build \
-                                 uses it only with DZ_REGIONS=1 for now"
+                                "where the compiler places this memory (spec §14.6); \
+                                 DZ_REGIONS=0 builds with everything on the heap"
                                     .to_owned(),
                             )),
                             None,

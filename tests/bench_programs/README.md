@@ -24,8 +24,8 @@ Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, a
 - **Memory goes where each language puts it.** Dazzle code names no allocator: the
   compiler places each value (spec §14.6), in the region of the function that builds it
   when it never leaves, where the caller keeps it when it is returned, and on the heap
-  otherwise. Regions are built behind `DZ_REGIONS=1` until T-0117 decides whether they
-  stay; without it everything is on the heap. Until r104 the programs chose by hand:
+  otherwise. Every build places memory so (T-0152); `DZ_REGIONS=0` puts everything on
+  the heap, and `tools/bench_regions.py` measures the two against each other. Until r104 the programs chose by hand:
   `expr` put each statement's tree in the per-thread arena `Allocators::Temp`, reset
   before the next, and `words` its whole count, each 5–11% faster for it, while `astar`
   kept the heap, which the arena made about 5% slower and 30% larger. Placement does not

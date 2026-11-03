@@ -6,6 +6,18 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0152: regions on by default (2026-11-03)
+
+Compiler work; no language change. §14.6 already said where each value goes; until now a
+build did it only with `DZ_REGIONS` set, and the gate's verdict made that the default.
+`dz_cpp::Options::regions` is `true`, and `emit_cpp` turns it off only for `DZ_REGIONS=0`,
+which builds the same program with every value on the heap — the A/B side for
+`tools/bench_regions.py`, which now sets the variable to `0` or `1` either way, and the
+check to make when a result looks wrong. The run corpus runs on the default build;
+`regions_change_nothing` runs it again on the heap, and both builds' C++ is compiled under
+`-Wall -Wextra` on clang++ and g++. The editor's placement hint no longer says a build
+ignores it.
+
 ## T-0151: a region's allocation called directly (2026-11-03)
 
 Compiler work, no language change. A container reaches its allocator through the

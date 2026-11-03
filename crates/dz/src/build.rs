@@ -30,10 +30,11 @@ pub fn emit_cpp(
     else {
         return Err(Diagnostics::new());
     };
-    // Regions are switched on from outside until T-0117's gate decides whether they stay, so
-    // `tools/bench_regions.py` builds one source both ways without a flag of its own.
+    // Regions are on (T-0117 kept them); `DZ_REGIONS=0` builds the heap-only program, so
+    // `tools/bench_regions.py` builds one source both ways without a flag of its own, and a
+    // wrong result can be checked against the heap. Any other value, or none, leaves them on.
     let options = dz_cpp::Options {
-        regions: options.regions || std::env::var_os("DZ_REGIONS").is_some_and(|v| v != "0"),
+        regions: options.regions && !std::env::var_os("DZ_REGIONS").is_some_and(|v| v == "0"),
         ..options
     };
     let emitted = dz_cpp::emit(

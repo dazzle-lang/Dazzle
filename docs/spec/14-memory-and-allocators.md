@@ -626,8 +626,9 @@ in `unsafe` code. A container may also take raw memory from C, importing `stdlib
 (§14, D-0084), as `examples/ownership` does; that memory is C's heap, wherever the
 container is placed.
 
-Not yet implemented: regions and result placement are built behind a switch until T-0117
-decides whether they stay (`DZ_REGIONS=1`); without it, every value is on the heap. Owner
-arenas (T-0120) and a `virtual` method's result (T-0141) are still to come, as are skipped
-drops for a value lent as `&mut` or built in a generic body (T-0147), and a stored value
-placed for a container lent to a function (T-0150).
+Regions and result placement are on in every build; `DZ_REGIONS=0` builds the same
+program with every value on the heap, which prints the same and is there to compare
+against. Not yet implemented: owner arenas (T-0120) and a `virtual` method's result
+(T-0141) are still to come, as are skipped drops for a value lent as `&mut` or built in a
+generic body (T-0147), and a stored value placed for a container lent to a function
+(T-0150).

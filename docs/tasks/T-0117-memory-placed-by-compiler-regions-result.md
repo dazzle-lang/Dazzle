@@ -21,8 +21,8 @@ below, built it).
 | Sites, the proposer and the reasons' words: `place`, `place_with` (`Proposer::Rules`, `Proposer::Everything`), `Placements`, `BodyPlacement` (`region_blocks`, `region_for`, `demoted`), `Site`, `Decision` | `dz_flow/src/placement.rs` |
 | The ties check: `analyse_regions`; `Value::owned`, `Regions`, `Refusal`; `region_site` (the loop rule), `region_assign`, `region_end`, `sink`, `passed` (a copy carries none of its original's regions, only its own when placed) | `dz_flow/src/ties/body.rs` |
 | One answer for every reader: `Analysis::placements`, computed after ownership and timed as `placement` | `dz_driver/src/lib.rs` |
-| Codegen, behind the switch: `Options::regions`; `emit` takes `Option<&Placements>`; `Emitter::placement` and `regions`, set in `in_body` by the body's owner; the region declared in `block_into`, passed in `call` (`region`), named by `region_name` | `dz_cpp/src/lib.rs` |
-| The switch: `DZ_REGIONS` (any value but `0`), for every command that emits C++ | `emit_cpp`, `crates/dz/src/build.rs` |
+| Codegen, on by default since T-0152: `Options::regions`; `emit` takes `Option<&Placements>`; `Emitter::placement` and `regions`, set in `in_body` by the body's owner; the region declared in `block_into`, passed in `call` (`region`), named by `region_name` | `dz_cpp/src/lib.rs` |
+| The off switch: `DZ_REGIONS=0` (T-0152; before it, any value but `0` turned regions on), for every command that emits C++ | `emit_cpp`, `crates/dz/src/build.rs` |
 | One wording for every reader: `Decision::label` | `dz_flow/src/placement.rs` |
 | Stage 2, result placement: `result_functions` (which take one; `holds_allocator`, `allocator_param`), `Placements::takes_result`, `callee_owner`, `Decision::Result`, `Placed`, `BodyPlacement::placed`; the proposer's `Target::Result`, `Escape`, `returned` | `dz_flow/src/placement.rs` |
 | Stage 2 in the check: `Regions::results`, exempt from `region_end` and from the `return` refusal | `dz_flow/src/ties/body.rs` |

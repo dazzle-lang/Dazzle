@@ -110,8 +110,10 @@ fn every_program_produces_its_expected_output() {
             return;
         }
 
+        // The default build, scope regions on (T-0152), whatever the environment says.
         let out = Command::new(dz())
             .args(["run", dir.to_str().unwrap()])
+            .env_remove("DZ_REGIONS")
             .output()
             .expect("failed to run dz");
 
@@ -137,8 +139,9 @@ fn every_program_produces_its_expected_output() {
 }
 
 /// Scope regions (spec §14.6, T-0117) change where memory comes from and nothing else, so
-/// every program here prints its `expected.txt` with them on, and the C++ that places
-/// values in regions is warning-clean on every compiler present (invariant 7). The switch
+/// every program here prints its `expected.txt` with them off too (`DZ_REGIONS=0`, every
+/// value on the heap), and that C++ is warning-clean on every compiler present (invariant
+/// 7). The default build, regions on, is what the other tests here run (T-0152). The switch
 /// is set here rather than inherited, so the test means the same everywhere; each program
 /// is a copy, so it does not race the run test building the same directory.
 #[test]
@@ -160,27 +163,27 @@ fn regions_change_nothing() {
             return;
         }
         let expected = normalise(&std::fs::read_to_string(dir.join("expected.txt")).unwrap());
-        let copy = copy_fixture(name, &format!("dz_regions_{name}"));
+        let copy = copy_fixture(name, &format!("dz_heap_{name}"));
         let out = Command::new(dz())
             .args(["run", copy.to_str().unwrap()])
-            .env("DZ_REGIONS", "1")
+            .env("DZ_REGIONS", "0")
             .output()
             .expect("failed to run dz");
         let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
         match expected.strip_prefix("panic!\n") {
             Some(body) => {
-                assert!(!out.status.success(), "{name}: expected a panic with regions on");
+                assert!(!out.status.success(), "{name}: expected a panic with regions off");
                 for line in body.lines() {
                     assert!(
                         stderr.contains(line.trim()) || stdout.contains(line.trim()),
-                        "{name}: expected {line:?} with regions on\nstdout:\n{stdout}\nstderr:\n{stderr}"
+                        "{name}: expected {line:?} with regions off\nstdout:\n{stdout}\nstderr:\n{stderr}"
                     );
                 }
             }
             None => {
-                assert!(out.status.success(), "{name}: dz run failed with regions on\n{stderr}");
-                assert_eq!(stdout, expected, "{name}: stdout differs with regions on");
+                assert!(out.status.success(), "{name}: dz run failed with regions off\n{stderr}");
+                assert_eq!(stdout, expected, "{name}: stdout differs with regions off");
             }
         }
         if WARNING_CLEAN.contains(&name.as_str()) {
@@ -1278,28 +1281,39 @@ const WARNING_CLEAN: &[&str] = &[
 #[test]
 fn the_generated_code_builds_clean_under_wall_wextra() {
     // spec §16.5 — nothing generated may need exceptions or RTTI, and it must not warn.
-    let Some(cxx) = ["clang++", "g++"]
-        .iter()
-        .find(|c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()))
-    else {
+    // Every compiler present, not the first: the default build places values in regions,
+    // and that C++ must be clean on clang++ and g++ alike (invariant 7, T-0152).
+    let compilers: Vec<&str> = ["clang++", "g++"]
+        .into_iter()
+        .filter(
+            |c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()),
+        )
+        .collect();
+    if compilers.is_empty() {
         return;
-    };
+    }
 
     // A scratch copy per fixture and one `dz cpp` each, so the whole list goes at once.
-    parallel::for_each(WARNING_CLEAN, |fixture| check_warning_clean(cxx, fixture));
+    parallel::for_each(WARNING_CLEAN, |fixture| check_warning_clean(&compilers, fixture));
 }
 
-/// Generate one fixture's C++ and compile every translation unit with warnings as errors.
-fn check_warning_clean(cxx: &str, fixture: &str) {
+/// Generate one fixture's C++, the default build, and compile every translation unit with
+/// warnings as errors on each compiler.
+fn check_warning_clean(compilers: &[&str], fixture: &str) {
     // Copied into a scratch project: the run test drives the same directories, and cargo
     // runs tests in parallel, so sharing a build directory would race.
     // The whole fixture, dependencies included, but not its `build`: that is what the run
     // test writes into.
     let dir = copy_fixture(fixture, &format!("dz_wall_wextra_{fixture}"));
-    let out =
-        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
+    let out = Command::new(dz())
+        .args(["cpp", dir.to_str().unwrap()])
+        .env_remove("DZ_REGIONS")
+        .output()
+        .expect("failed to run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert_cpp_warning_clean(cxx, &dir.join("build/cpp"));
+    for cxx in compilers {
+        assert_cpp_warning_clean(cxx, &dir.join("build/cpp"));
+    }
 }
 
 /// Compile every translation unit in `dir` with warnings as errors (invariant 7).

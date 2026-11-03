@@ -358,8 +358,8 @@ writes the clause a body needs. Aliasing stays legal: `&mut xs[i]` beside `&xs[j
 memory where the compiler can prove it safe: the region of the scope that owns them,
 released in one step when the scope ends; wherever the caller keeps a result; or else the
 heap. The same ties check every placement, the editor shows where each allocation went, and
-`dz placements` lists them. Placement is built and being measured behind `DZ_REGIONS`;
-until it is on by default, values go to the heap.
+`dz placements` lists them. Every build places memory this way; `DZ_REGIONS=0` builds the
+same program with every value on the heap, for comparison.
 [Spec §6.7](docs/spec/06-value-semantics-ownership-copy.md) and
 [§14.6](docs/spec/14-memory-and-allocators.md) have the rules.
 
@@ -687,7 +687,7 @@ different C library, built from source and called with no bindings:
 |---|---|
 | **Done** | lexer, parser, formatter · modules and visibility · type checker · C++ code generation · ownership · ties and `kills` clauses · borrowed views · generics and traits · C and C++ interop from source · tagged unions and `switch` · macros · reflection · `dz test` · `dz bench` and the C++ comparison suite · `dz fix` and `dz explain` · CI on three platforms |
 | **Mostly done** | the language server and VS Code extension: still to come are incremental analysis and the remaining quick fixes |
-| **Now** | memory placed by the compiler, behind `DZ_REGIONS` while it is measured; closing the holes safe code still has ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)); and the standard library, whose criterion, a game written without any C++, is met: [`examples/breakout`](examples/breakout) |
+| **Now** | memory placed by the compiler, on in every build, and reaching more of it; closing the holes safe code still has ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)); and the standard library, whose criterion, a game written without any C++, is met: [`examples/breakout`](examples/breakout) |
 | **Later** | dependencies fetched from git, Dazzle packages and C libraries alike, pinned by a lockfile; hot reload; an installer that bundles libclang |
 
 The open work, milestone by milestone, is the backlog in [`docs/tasks.md`](docs/tasks.md).

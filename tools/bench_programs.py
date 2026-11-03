@@ -7,6 +7,10 @@ level, runs them alternately, and reports run time, peak memory and build time. 
 halves print a `checksum` line, and the run fails if any two disagree: two programs
 computing different things measure nothing.
 
+The Dazzle half is `dz build`'s default, values placed in scope regions (spec §14.6,
+T-0152); `DZ_REGIONS=0` in the environment builds it with every value on the heap instead.
+`tools/bench_regions.py` measures those two against each other.
+
     python tools/bench_programs.py                       # every program, clang++ and g++
     python tools/bench_programs.py --cxx g++ --runs 20 astar
     python tools/bench_programs.py --quick               # small inputs: does it all agree?
