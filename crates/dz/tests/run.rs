@@ -1304,6 +1304,7 @@ const WARNING_CLEAN: &[&str] = &[
     "region_arena",
     "regions",
     "inline",
+    "moves",
 ];
 
 #[test]

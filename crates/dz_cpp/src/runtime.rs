@@ -345,13 +345,24 @@ DZ_INLINE typename strip_ref<T>::type&& mv(T&& x) {
     return static_cast<typename strip_ref<T>::type&&>(x);
 }
 
-// `move` of a copyable value (spec §6.4, §18.33). Such a type has no move constructor to
-// reset its source, so this does: the source is left at its defaults, like any other
-// moved-from value.
+// Whether moving a `T` already resets its source: the types with a move constructor of
+// their own (spec §6.6), which carry `reset_to_defaults__`. A one-byte result says yes.
+template <class T>
+auto resets_itself(int) -> decltype(static_cast<T*>(nullptr)->reset_to_defaults__(), char{});
+template <class T>
+long resets_itself(...);
+
+// `move` of a copyable value (spec §6.4, §18.33). A type with C++'s own move constructor
+// does not reset its source, so this does: the source is left at its defaults, like any
+// other moved-from value. One with a move constructor of its own has reset it already, and
+// assigning it a fresh default too would run its `drop` twice more, on the moved-from value
+// and on the temporary.
 template <class T>
 DZ_INLINE T take(T& x) {
     T v = static_cast<T&&>(x);
-    x = T{};
+    if constexpr (sizeof(resets_itself<T>(0)) != 1) {
+        x = T{};
+    }
     return v;
 }
 

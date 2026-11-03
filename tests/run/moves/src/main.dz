@@ -1,0 +1,40 @@
+// A move steals and resets its source; it never copies (spec §6.4). And a moved-from value
+// is dropped once, at the end of its scope, at its defaults (spec §6.5). `Tracked` says
+// when it is copied, and `Holder` when it is dropped, so a move that copied a field, or
+// dropped its source more than once, prints a line this program does not expect.
+
+struct Tracked {
+    pub id: i32 = 0
+}
+
+impl Copy for Tracked {
+    fn copy(&mut self, other: &Self) {
+        id = other.id
+        println!("copy {}", id)
+    }
+}
+
+struct Holder {
+    pub name:    String
+    pub tracked: Tracked
+}
+
+impl Drop for Holder {
+    fn drop(&mut self) {
+        println!("drop '{}' {}", name, tracked.id)
+    }
+}
+
+impl Copy for Holder {
+    fn copy(&mut self, other: &Self) {
+        name = other.name
+        tracked = other.tracked
+    }
+}
+
+fn main() {
+    let mut a = Holder{ name: String("a"), tracked: Tracked{ id: 1 } }
+    let b = a                // a copy: Tracked's copy runs once
+    let c = move(a)          // a move: no copy, and `a` is left at its defaults
+    println!("{} {} {}", b.name, c.name, c.tracked.id)
+}

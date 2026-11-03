@@ -1,0 +1,5 @@
+copy 1
+a a 1
+drop 'a' 1
+drop 'a' 1
+drop '' 0

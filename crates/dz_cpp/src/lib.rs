@@ -2570,12 +2570,11 @@ impl<'a> Emitter<'a> {
         let fields = self.field_list(sym);
         self.line(&format!("{}{name}::{name}({name}&& other) {{", self.def_prefix));
         self.indent += 1;
-        for (f, ty) in &fields {
-            if self.table.copyable(ty) {
-                self.line(&format!("{f} = other.{f};"));
-            } else {
-                self.line(&format!("{f} = static_cast<decltype({f})&&>(other.{f});"));
-            }
+        // Every field is moved, never copied: a copyable field such as a `String` or a `List`
+        // would otherwise be copied in full and then reset, on every move. Moving a plain
+        // value is copying it, so this is the same for a number or a pointer.
+        for (f, _) in &fields {
+            self.line(&format!("{f} = static_cast<decltype({f})&&>(other.{f});"));
         }
         self.line("other.reset_to_defaults__();");
         self.indent -= 1;
