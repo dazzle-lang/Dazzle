@@ -636,11 +636,14 @@ dz run .
 | `dz fmt <file>` | format in place (`--stdout` to print instead, `--check` to only report) |
 | `dz expand <file>` | the file with every macro invocation expanded |
 | `dz cpp [dir]` | write the generated C++ to `build/cpp/` |
+| `dz placements [dir]` | where each allocation goes, a scope's region or the heap, and why (`--format=json` for JSON) |
 | `dz lsp` | the language server, on stdio |
 
 `dir` defaults to the current directory. `run`, `build`, `cpp`, `test` and `bench` take
-`--debug` (the default), `--release` or `--shipping`, and `--track-memory` records every
-allocation and reports leaks and bad frees when the program exits.
+`--debug` (the default, `-O0`), `--release` (`-O2`) or `--shipping` (`-O3`); the two
+optimised modes also link with link-time optimisation, so calls between modules can be
+inlined. `--track-memory` records every allocation and reports leaks and bad frees when the
+program exits.
 
 **Examples** in [`examples/`](examples) to start from, each a complete project on a
 different C library, built from source and called with no bindings:
@@ -671,7 +674,7 @@ different C library, built from source and called with no bindings:
 - **Platforms:** Windows, Linux and macOS. CI builds and tests on all three for every change.
 - **C++ compilers:** clang++ and g++. The generated code is C++17, compiled with
   `-fno-exceptions -fno-rtti` and expected to be warning-clean under `-Wall -Wextra` on both;
-  clang++ 21 and g++ 13 are verified. On Windows that means clang++ or MinGW g++. MSVC's
+  clang++ 19 and 21 and g++ 13 and 14 are verified. On Windows that means clang++ or MinGW g++. MSVC's
   `cl.exe` is not supported, since `dz` passes GCC-style flags. `dz` uses the first of
   `clang++`, `g++` and `c++` it finds; choose another with `--cxx`, the `DZ_CXX` environment
   variable, or `[build] cxx` in the manifest.
@@ -691,6 +694,13 @@ different C library, built from source and called with no bindings:
 | **Later** | dependencies fetched from git, Dazzle packages and C libraries alike, pinned by a lockfile; hot reload; an installer that bundles libclang |
 
 The open work, milestone by milestone, is the backlog in [`docs/tasks.md`](docs/tasks.md).
+
+**How fast it is today:** three whole programs, each written idiomatically in both
+languages and built by the same compiler, take 1.1 to 2.1 times as long in Dazzle as in
+C++: A\* search 1.1–1.2×, a word count 1.2–1.3×, a parser and evaluator 1.7–2.1×. The
+[benchmarks page](https://dazzle-lang.github.io/project/benchmarks/) has every run and where
+the remaining gap comes from, each cause a task in the backlog;
+[`tests/bench_programs`](tests/bench_programs) has the programs.
 
 ## Documentation
 

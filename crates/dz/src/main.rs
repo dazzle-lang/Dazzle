@@ -54,8 +54,11 @@ nothing anyone ships.
 manifest's `[build] optimize` for that one command:
 
     --debug                     -O0 -g  (the default)
-    --release                   -O2
-    --shipping                  -O3 -DNDEBUG
+    --release                   -O2 -flto=auto
+    --shipping                  -O3 -DNDEBUG -flto=auto
+
+Link-time optimisation inlines across modules; a toolchain whose linker cannot
+do it builds without it and says so.
 
 and build flags, which `#if` reads (spec §12.10):
 
