@@ -523,10 +523,14 @@ static SCRATCH: TempArena = TempArena{}
   struct, array, tuple and variant literals of those (DZ0553). A static exists before `main`
   runs, and C++ builds statics in different files in no promised order, so one static cannot
   be allowed to run code that reads another. Anything more is filled in from `main`.
-- **Reading one is safe; changing one is `unsafe`** (DZ0528). Assigning to it or into it,
-  taking `&mut` of it, calling a `&mut self` method on it, or binding `&mut` into it with
-  `for` or `case` all need an `unsafe` block: a static is shared by every piece of code that
-  names it, and nothing checks what else is reading it or holding a reference into it.
+- **Reading one and changing one are both safe, and checked as a parameter is** (§6.7). A
+  static is one place for the whole program, so a reference into it dies when something
+  kills what it points into, and a function that kills memory a static owns says so in its
+  `kills` clause, naming the static: `fn add(v: i32) kills SCORES.list@items`. Every caller
+  names that kill in its own clause in turn, up to an entry point (`main`, a `#[test]` or a
+  `#[bench]`, which nothing calls). A write that kills nothing, such as `FRAME_COUNT += 1`,
+  needs no clause. A kill inside `unsafe` is vouched for there and needs none either, as
+  every change to a static once did. `[DECIDED — D-0094]`
 - **Nothing moves out of a static**, and a move-only one is not copied either (DZ0402). It
   belongs to the program rather than to any function, exactly as a borrow does.
 - A static that owns resources is dropped when the program exits.

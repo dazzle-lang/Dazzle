@@ -819,7 +819,7 @@ pub fn type_str(t: &Type) -> String {
 
 /// `self@items`, `world.enemies@items`, `list[*]@text` — as written (spec §6.7).
 pub fn tie_path_str(t: &TiePath) -> String {
-    let mut out = t.root.name.clone();
+    let mut out = t.root_spelling();
     for step in &t.steps {
         match step {
             TieStep::Field(f) => {

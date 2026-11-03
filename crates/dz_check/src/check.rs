@@ -648,6 +648,7 @@ fn clauses_within_trait(cx: &mut Ctx, method: &str, trait_name: &str, want: &FnS
         names: names(s),
         results: s.ret_ties.iter().cloned().collect(),
         paths: s.kills.iter().cloned().collect(),
+        statics: s.statics.clone().into(),
     };
     let params: Vec<Ty> = got
         .takes_self
@@ -867,6 +868,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     is_mut: true,
                     is_unsafe: false,
                     foreign_unsafe: None,
+                    statics: Vec::new(),
                     vis: m.vis,
                     span: f.name.span,
                     generics: Vec::new(),
@@ -2149,10 +2151,6 @@ impl<'a, 'c> Body<'a, 'c> {
             }
         }
         let item = self.for_item(subject_ast, &subject.ty, consuming);
-        // `for &mut e in TABLE` writes the static's elements (spec §7.7).
-        if f.bindings.iter().any(|b| b.mode == BindMode::RefMut) {
-            self.require_unsafe_static_write(subject_ast);
-        }
 
         self.push();
         let (shape, bindings) = if indexed {
@@ -2225,9 +2223,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
                 _ => self.place_mutability(ast).unwrap_or(true),
             };
-            if writable {
-                self.require_unsafe_static_write(ast);
-            } else {
+            if !writable {
                 // Said as the loop, not as the `iter_mut` call the loop stands for.
                 self.cx.error_help(
                     codes::NOT_MUTABLE,
@@ -2669,7 +2665,7 @@ impl<'a, 'c> Body<'a, 'c> {
     /// Report if `e` is not something that can be assigned to.
     fn require_mutable(&mut self, e: &Expr) {
         match self.place_mutability(e) {
-            Some(true) => self.require_unsafe_static_write(e),
+            Some(true) => {}
             Some(false) => {
                 let (desc, help) = self.describe_place(e);
                 self.cx.error_help(
@@ -2943,7 +2939,6 @@ impl<'a, 'c> Body<'a, 'c> {
             if let (Ty::Slice { mutable: true, .. }, Ty::Array { .. }) =
                 (&self.subst(exp), &self.subst(&checked.ty))
             {
-                self.require_unsafe_static_write(e);
                 if self.place_mutability(e) == Some(false) {
                     let (desc, _) = self.describe_place(e);
                     let want = self.cx.name_of(exp);
@@ -5891,9 +5886,6 @@ impl<'a, 'c> Body<'a, 'c> {
             ),
             _ => {
                 let ok = self.place_mutability(base).unwrap_or(true);
-                if ok {
-                    self.require_unsafe_static_write(base);
-                }
                 (ok, None)
             }
         };
@@ -7232,6 +7224,7 @@ impl<'a, 'c> Body<'a, 'c> {
                                     names: sig.params.iter().map(|p| p.name.clone()).collect(),
                                     results: sig.ret_ties.iter().cloned().collect(),
                                     paths: sig.kills.iter().cloned().collect(),
+                                    statics: sig.statics.clone().into(),
                                 }
                             },
                         },
@@ -8230,9 +8223,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     // A temporary optional is the `if let`'s own, so it may be written.
                     None => self.place_mutability(subject).unwrap_or(true),
                 };
-                if ok {
-                    self.require_unsafe_static_write(subject);
-                } else if !payload.is_wildcard() {
+                if !ok && !payload.is_wildcard() {
                     self.cx.error_help(
                         codes::NOT_MUTABLE,
                         b.name.span,
@@ -8312,9 +8303,6 @@ impl<'a, 'c> Body<'a, 'c> {
                     _ if ty.is_wildcard() => true,
                     _ => self.place_mutability(subject) == Some(true),
                 };
-                if writable {
-                    self.require_unsafe_static_write(subject);
-                }
                 if !writable {
                     self.cx.error_help(
                         codes::NOT_MUTABLE,
@@ -8588,29 +8576,6 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             _ => None,
         }
-    }
-
-    /// Changing a `static` is `unsafe`: it is one variable shared by all the program, or by
-    /// all of a thread, and nothing checks who else is using it (spec §7.7).
-    fn require_unsafe_static_write(&mut self, e: &Expr) {
-        let Some(sym) = self.static_root(e) else { return };
-        if self.unsafe_depth > 0 {
-            return;
-        }
-        let nested = |a: &Span, b: &Span| a.start <= b.start && b.end <= a.end;
-        if self.unsafe_reported.iter().any(|s| nested(s, &e.span) || nested(&e.span, s)) {
-            return;
-        }
-        self.unsafe_reported.push(e.span);
-        let name = self.cx.res.symbol(sym).name.clone();
-        self.cx.error_help(
-            codes::UNSAFE_OPERATION,
-            e.span,
-            format!("changing the static `{name}` is unsafe"),
-            "outside an `unsafe` block",
-            "wrap it in `unsafe { … }`: a `static` is shared by everything that names it, and \
-             nothing checks what else is reading or holding it (spec §7.7)",
-        );
     }
 
     // --- the `or` clause (spec §9.4) --------------------------------------

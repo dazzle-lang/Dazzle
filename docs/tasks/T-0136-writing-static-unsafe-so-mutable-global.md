@@ -2,10 +2,17 @@
 id: T-0136
 title: Writing a static is `unsafe`, so mutable global state is never checked
 milestone: none
-status: open
+status: done
 kind: design
 area: ownership
 ---
+
+**Done** (r112, 2026-11-03). The user settled three points that day. A write that kills
+nothing is safe with no clause. A static's kill ripples up callers' clauses and stops at
+entry points: `main`, `#[test]`, `#[bench]` ([T-0162](T-0162-entry-point-function-no-dazzle-code.md)
+is a later `#[entry_point]`). A function whose clause names a static fits a function type
+or trait method only if theirs names it too. A kill inside `unsafe` needs no clause, which
+keeps std's arena and C callbacks working. Build log: `docs/log/r81-ties.md`.
 
 Point 7 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), decided
 on 2026-11-03 (r107) as option A below: a `kills` clause may name a static. It revises
@@ -15,8 +22,14 @@ D-0046.
 
 | Piece | Where |
 |---|---|
-| "Changing a `static` is `unsafe`" | `dz_check/src/check.rs` (~8547); D-0046; §7.7 |
-| Where a tie path starts: `self` or a parameter, never a static | `Root` in `dz_check/src/ties.rs`; `Bindings` and `Path::bind` in `dz_flow/src/ties.rs` |
+| The rule | §6.7, the bullet "A path may start at a static"; §7.7 |
+| A root written `world::SCORES` | `TiePath::module` in `dz_ast`; `parse_tie_path` in `dz_parse/src/item.rs` |
+| A static root resolved where the function is declared, and kept on its signature and function types | `tie_statics`, `fn_sig_inner` and the `TypeKind::Fn` lowering in `dz_check/src/lib.rs`; `FnSig::statics`; `FnKills::Known::statics` and `covered` in `dz_hir/src/ty.rs` |
+| `Root::Static`, its visibility (`DZ0563`) | `resolve`, `static_root`, `static_visible` in `dz_check/src/ties.rs` |
+| A static as a place: a pseudo-local per static | `static_local`, `static_of`, `local_ty` and `Bindings::get` in `dz_flow/src/ties.rs`; `hir::ExprKind::Static` in `dz_flow/src/ties/body.rs` |
+| Kills counted against the clause; entry points; `unsafe` vouching | `analyse` (the `actual` filter), `entry_point` and `kill` in `dz_flow/src/ties/body.rs` |
+| A fix that names a static as the file would | `tie_path_held` in `dz_flow/src/ties/report.rs`; `Resolution::spelling_in_file` |
+| Tests | `tests/flow/static_kills.dz`, static cases in `use_after_kill.dz` and `clean.dz`; `typed/` and `typeerrors/` (`ACCOUNTS`); `tests/run/statics`; `a_clause_names_a_static_in_another_module` in `dz/tests/run.rs`; `tests/parse/ties.dz`, `tests/fmt/ties.dz` |
 
 **What it is.** Reading a static is safe; changing one is `unsafe` (D-0046). A safe
 function can change a static inside `unsafe`, and its caller can hold a reference into

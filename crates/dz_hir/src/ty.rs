@@ -197,7 +197,13 @@ pub struct Proj {
 pub enum FnKills {
     /// No `kills` path is a promise to kill nothing; no `in` path, that the result is in
     /// its one view input, as a declaration's is.
-    Known { names: Rc<[String]>, results: Rc<[dz_ast::TiePath]>, paths: Rc<[dz_ast::TiePath]> },
+    Known {
+        names: Rc<[String]>,
+        results: Rc<[dz_ast::TiePath]>,
+        paths: Rc<[dz_ast::TiePath]>,
+        /// The statics its paths name, as written and as resolved where they were (§6.7).
+        statics: Rc<[(Vec<String>, SymbolId)]>,
+    },
     /// A pointer to a C or C++ function, whose header says nothing: a call through it kills
     /// everything reachable through its `&mut` and `^mut` arguments.
     Unknown,
@@ -206,7 +212,12 @@ pub enum FnKills {
 impl FnKills {
     /// The clauses of a function type that names none: it kills nothing.
     pub fn none() -> Self {
-        FnKills::Known { names: Rc::from([]), results: Rc::from([]), paths: Rc::from([]) }
+        FnKills::Known {
+            names: Rc::from([]),
+            results: Rc::from([]),
+            paths: Rc::from([]),
+            statics: Rc::from([]),
+        }
     }
 
     /// Whether a function promising `self` fits where `wider` is promised, for parameters
@@ -230,9 +241,9 @@ impl FnKills {
                 )
             }),
             (
-                FnKills::Known { names: mine, paths: narrow, .. },
-                FnKills::Known { names: theirs, paths: broad, .. },
-            ) => covered(mine, narrow, theirs, broad),
+                FnKills::Known { names: mine, paths: narrow, statics: s1, .. },
+                FnKills::Known { names: theirs, paths: broad, statics: s2, .. },
+            ) => covered((mine, s1), narrow, (theirs, s2), broad),
         }
     }
 
@@ -261,19 +272,45 @@ impl FnKills {
     }
 }
 
-/// Whether every path in `narrow`, rooted at a name in `mine`, is under one in `broad`,
-/// rooted at the same parameter's position in `theirs`.
+/// Where a path is rooted: a parameter's position, or a static (spec §6.7).
+#[derive(PartialEq)]
+enum At {
+    Param(usize),
+    Static(SymbolId),
+}
+
+/// A path's root among `names`, the parameters, or else among `statics`.
+fn root_of(
+    names: &[String],
+    statics: &[(Vec<String>, SymbolId)],
+    p: &dz_ast::TiePath,
+) -> Option<At> {
+    if p.module.is_empty() {
+        if let Some(i) = names.iter().position(|n| *n == p.root.name) {
+            return Some(At::Param(i));
+        }
+    }
+    let written: Vec<&str> =
+        p.module.iter().map(|m| m.name.as_str()).chain([p.root.name.as_str()]).collect();
+    statics
+        .iter()
+        .find(|(s, _)| s.iter().map(String::as_str).eq(written.iter().copied()))
+        .map(|(_, sym)| At::Static(*sym))
+}
+
+/// Whether every path in `narrow`, rooted at a parameter in `mine` or a static, is under one
+/// in `broad` rooted at the same parameter's position in `theirs`, or the same static.
 fn covered(
-    mine: &[String],
+    mine: (&[String], &[(Vec<String>, SymbolId)]),
     narrow: &[dz_ast::TiePath],
-    theirs: &[String],
+    theirs: (&[String], &[(Vec<String>, SymbolId)]),
     broad: &[dz_ast::TiePath],
 ) -> bool {
     narrow.iter().all(|p| {
-        let at = mine.iter().position(|n| *n == p.root.name);
+        let at = root_of(mine.0, mine.1, p);
         broad.iter().any(|q| {
             at.is_some()
-                && theirs.iter().position(|n| *n == q.root.name) == at
+                && root_of(theirs.0, theirs.1, q) == at
                 && q.steps.len() <= p.steps.len()
                 && q.steps.iter().zip(&p.steps).all(|(a, b)| same_step(a, b))
         })

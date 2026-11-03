@@ -1,0 +1,58 @@
+// Spec §6.7, §7.7 (D-0094 point 7): what a function kills in a static, it names in its
+// `kills` clause, as it would through a parameter, and so does every caller up to `main`. A
+// write that kills nothing, a counter, needs no clause, and a kill inside `unsafe` is
+// vouched for there. A clause naming a kill the body never does is refused too.
+// expect: DZ0415, DZ0415, DZ0415, DZ0416
+
+pub struct Scores {
+    pub list: List<i32> = List<i32>()
+    pub best: i32 = 0
+}
+
+static SCORES: Scores = Scores{}
+
+fn add(v: i32) kills SCORES.list@items {
+    SCORES.list.push(v)
+}
+
+// Kills without saying so: the push, the call, and `&mut` handed to a call that kills.
+fn pushes(v: i32) {
+    SCORES.list.push(v)
+}
+
+fn calls_add() {
+    add(1)
+}
+
+fn grow(xs: &mut List<i32>) kills xs@items {
+    xs.push(0)
+}
+
+fn lends() {
+    grow(&mut SCORES.list)
+}
+
+fn says_but_never_does(v: i32) kills SCORES.list@items {
+    SCORES.best = v
+}
+
+// Fine: plain data, and a kill vouched for in `unsafe`.
+fn counts(v: i32) {
+    SCORES.best = v
+}
+
+fn vouched(v: i32) {
+    unsafe {
+        SCORES.list.push(v)
+    }
+}
+
+fn main() {
+    add(1)
+    pushes(2)
+    calls_add()
+    lends()
+    says_but_never_does(3)
+    counts(4)
+    vouched(5)
+}

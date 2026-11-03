@@ -261,9 +261,25 @@ pub struct Param {
 #[derive(Clone, Debug)]
 pub struct TiePath {
     pub span: Span,
-    /// A parameter's name, or `self`.
+    /// The modules before a static's name, `world` in `world::SCORES@items`; empty for a
+    /// parameter, `self`, or a static named bare (spec §6.7).
+    pub module: Vec<Ident>,
+    /// A parameter's name, `self`, or a static's name.
     pub root: Ident,
     pub steps: Vec<TieStep>,
+}
+
+impl TiePath {
+    /// The root as written, with its modules: `world::SCORES`, `self`, `xs`.
+    pub fn root_spelling(&self) -> String {
+        let mut out = String::new();
+        for m in &self.module {
+            out.push_str(&m.name);
+            out.push_str("::");
+        }
+        out.push_str(&self.root.name);
+        out
+    }
 }
 
 #[derive(Clone, Debug)]

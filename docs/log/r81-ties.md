@@ -6,6 +6,63 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r112, T-0136: a `kills` clause may name a static (2026-11-03)
+
+D-0094 point 7. The user settled three points before it was built:
+- A write that kills nothing (`FRAMES += 1`) is safe with no clause.
+- A static's kill ripples up callers' clauses and stops at entry points: `main`, `#[test]`
+  and `#[bench]`. The user suggested a later `#[entry_point]` for functions Dazzle never
+  calls (T-0162).
+- A function whose clause names a static fits a function type or trait method only if its
+  clause names the static too.
+
+The program in the task, which read freed memory, is now refused at the `println!`
+(`DZ0413`).
+
+- **Syntax** (`dz_ast`, `dz_parse`): `TiePath::module` holds the modules before a static,
+  so `world::SCORES@items` parses. `root_spelling` is how the dump, and so the formatter,
+  writes it.
+- **Resolution** (`dz_check`): a root that is not `self` or a parameter is resolved once,
+  where the function is declared, by `Resolution::path_item` (`tie_statics`). It is kept on
+  the signature as `FnSig::statics` and on a function type as `FnKills::Known::statics`,
+  because a caller in another file reads the same clause and cannot resolve it from there.
+  `Root::Static(sym)` is a new root. `changeable` accepts it, and `static_visible` refuses a
+  static less visible than the function (`DZ0563`), since every caller names it.
+  Comparing a function's clause with a function type's (`covered`) matches static roots by
+  symbol.
+- **The checker no longer asks for `unsafe` to change a static.** The seven
+  `require_unsafe_static_write` sites are gone. Whether a change is allowed is now the
+  ties check's question.
+- **The ties walk** (`dz_flow`): a static is a pseudo-local, `LocalId(u32::MAX - sym)`,
+  which no body's own locals reach. It is never declared or dropped, so it outlives every
+  scope. `hir::ExprKind::Static` gives that place instead of "unknown", so a reference into a
+  static is followed like one into a parameter. `Bindings::get` binds a callee's static root
+  to the same place at every call.
+  - Every lookup that could see the place goes through `local_ty`, `root_ty` or `static_of`.
+    Two panics found in testing (`what_it_views`, the reporter's root type) were such lookups.
+  - Kills of statics count against the clause unless the body is an entry point
+    (`entry_point`, which reads `TypeTable::tests` and `benches`).
+  - A kill inside `unsafe` still ends the body's references but is not recorded, which keeps
+    std's arena and the tracker, written in `unsafe`, as they were.
+  - A view of a static returned from a function is not a dropped local. It is held to the
+    result's `in` like any other, so `-> &i32 in SCORES.list@items` is how one is returned.
+  - The reporter spells a static as the body's file names it: `SCORES`, or
+    `world::SCORES` through `Resolution::spelling_in_file`. `dz fix`'s clause compiles in
+    another module.
+
+Tests:
+- `tests/flow/static_kills.dz`: undeclared kills through a push, a call and a `&mut`
+  argument, and a clause that never happens. A counter and an `unsafe` kill are accepted.
+- The static cases in `use_after_kill.dz` and `clean.dz`.
+- `typed/`: safe writes, a clause, a ripple and an `in`. `typeerrors/`: a `pub` function
+  naming a private static. `SHARED = 1` there, and
+  `tests/errors/static_changed_outside_unsafe.dz`, tested the rule that is gone.
+- `tests/run/statics`: its writes are out of `unsafe`, and a static `List` is grown through
+  a clause.
+- `a_clause_names_a_static_in_another_module`: `world::SCORES` across modules, the fix
+  `dz fix` applies, and a clean check after.
+- The parse and fmt corpora have module-qualified roots.
+
 ## r111, T-0135: a C or C++ call that can be handed a pointer is vouched for (2026-11-03)
 
 D-0094 point 6, with its spelling settled by the user on the day: one recipe key, `keeps`,

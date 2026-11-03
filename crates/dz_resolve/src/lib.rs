@@ -325,6 +325,25 @@ impl Resolution {
         Some((sym, used))
     }
 
+    /// The module `file` belongs to.
+    pub fn module_of_file(&self, file: FileId) -> Option<ModuleId> {
+        self.file_module.get(&file).copied()
+    }
+
+    /// How `file` names `sym`: bare when that reaches it, else through the module's key,
+    /// `world::SCORES` (spec §3.2).
+    pub fn spelling_in_file(&self, file: FileId, sym: SymbolId) -> Vec<String> {
+        let s = self.symbol(sym);
+        let module = self.module_of_file(file);
+        if module.and_then(|m| self.lookup_in_file(m, file, &s.name)) == Some(sym) {
+            return vec![s.name.clone()];
+        }
+        match self.module_spelling(file, s.module) {
+            Some(key) => vec![key, s.name.clone()],
+            None => vec![s.name.clone()],
+        }
+    }
+
     /// How `file` writes a module: the key or file alias it goes by, or failing that its
     /// declared name.
     pub fn module_spelling(&self, file: FileId, m: ModuleId) -> Option<String> {

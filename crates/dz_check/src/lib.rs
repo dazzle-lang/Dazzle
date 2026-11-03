@@ -166,6 +166,9 @@ pub struct FnSig {
     pub is_unsafe: bool,
     /// Why an imported function is `unsafe` to call, which the refusal says (spec §15.2).
     pub foreign_unsafe: Option<ForeignUnsafe>,
+    /// The statics its tie paths name, as written (`["world", "SCORES"]`), resolved where
+    /// the function is declared: a caller in another file reads the same clause (spec §6.7).
+    pub statics: Vec<(Vec<String>, SymbolId)>,
     pub vis: Vis,
     pub span: Span,
     /// `fn max<T: Ord>` — this function's own generic parameters (spec §8.1). A method of
@@ -1318,6 +1321,7 @@ impl Ctx<'_> {
                         is_mut: false,
                         is_unsafe: foreign.is_some(),
                         foreign_unsafe: foreign,
+                        statics: Vec::new(),
                         vis: Vis::Public,
                         span: span(d.loc),
                         generics: Vec::new(),
@@ -1425,6 +1429,7 @@ impl Ctx<'_> {
                 is_mut: matches!(m.receiver, Some(Receiver::MutRef)),
                 is_unsafe: unsafe_why.is_some(),
                 foreign_unsafe: unsafe_why,
+                statics: Vec::new(),
                 vis: Vis::Public,
                 span,
                 generics: Vec::new(),
@@ -2461,18 +2466,25 @@ impl<'a> Ctx<'a> {
             TypeKind::Tuple(elems) => {
                 Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect())
             }
-            TypeKind::Fn { params, param_names, ret, ret_ties, kills } => Ty::Fn {
-                params: params.iter().map(|p| self.lower_type_inner(p)).collect(),
-                ret: Rc::new(ret.as_ref().map(|r| self.lower_type_inner(r)).unwrap_or(Ty::Void)),
-                kills: FnKills::Known {
-                    names: param_names
-                        .iter()
-                        .map(|n| n.as_ref().map(|n| n.name.clone()).unwrap_or_default())
-                        .collect(),
-                    results: ret_ties.iter().cloned().collect(),
-                    paths: kills.iter().cloned().collect(),
-                },
-            },
+            TypeKind::Fn { params, param_names, ret, ret_ties, kills } => {
+                let names: Vec<String> = param_names
+                    .iter()
+                    .map(|n| n.as_ref().map(|n| n.name.clone()).unwrap_or_default())
+                    .collect();
+                let statics = self.tie_statics(kills.iter().chain(ret_ties), &names);
+                Ty::Fn {
+                    params: params.iter().map(|p| self.lower_type_inner(p)).collect(),
+                    ret: Rc::new(
+                        ret.as_ref().map(|r| self.lower_type_inner(r)).unwrap_or(Ty::Void),
+                    ),
+                    kills: FnKills::Known {
+                        names: names.into(),
+                        results: ret_ties.iter().cloned().collect(),
+                        paths: kills.iter().cloned().collect(),
+                        statics: statics.into(),
+                    },
+                }
+            }
             // `const &str`, and nothing else yet: static slices wait for a program that
             // needs them (spec §5.3).
             // `const &str`: the constness is the reference's, since what it points at never
@@ -3662,9 +3674,41 @@ impl<'a> Ctx<'a> {
         sig
     }
 
+    /// The statics `paths` start at, as written and resolved from this file: every root that
+    /// is not `self` or one of `params` and names a static (spec §6.7, D-0094 point 7). A
+    /// root that names nothing is left for `ties::check` to report.
+    fn tie_statics<'p>(
+        &self,
+        paths: impl Iterator<Item = &'p dz_ast::TiePath>,
+        params: &[String],
+    ) -> Vec<(Vec<String>, SymbolId)> {
+        let mut out: Vec<(Vec<String>, SymbolId)> = Vec::new();
+        for p in paths {
+            if p.module.is_empty() && (p.root.name == "self" || params.contains(&p.root.name)) {
+                continue;
+            }
+            let written: Vec<String> =
+                p.module.iter().map(|m| m.name.clone()).chain([p.root.name.clone()]).collect();
+            if out.iter().any(|(w, _)| *w == written) {
+                continue;
+            }
+            let segments: Vec<&str> = written.iter().map(String::as_str).collect();
+            if let Some((sym, used)) = self.res.path_item(self.module, self.file, &segments) {
+                if used == segments.len() && self.res.symbol(sym).kind == SymbolKind::Static {
+                    out.push((written, sym));
+                }
+            }
+        }
+        out
+    }
+
     fn fn_sig_inner(&mut self, f: &FnDecl, vis: Vis, generics: Vec<ParamDef>) -> FnSig {
         let (params, variadic) = self.param_sigs(&f.params);
         let ret = f.ret.as_ref().map(|r| self.lower_type(r)).unwrap_or(Ty::Void);
+        let names: Vec<String> = f.params.iter().map(|p| p.name.name.clone()).collect();
+        let tie_paths =
+            f.kills.iter().chain(&f.ret_ties).chain(f.params.iter().flat_map(|p| &p.tie));
+        let statics = self.tie_statics(tie_paths, &names);
         FnSig {
             // Only an imported function needs a cast at the boundary (spec §15.2).
             ret_cast: false,
@@ -3677,6 +3721,7 @@ impl<'a> Ctx<'a> {
             is_mut: f.self_param.is_some_and(|s| s.is_mut),
             is_unsafe: f.is_unsafe,
             foreign_unsafe: None,
+            statics,
             vis,
             span: f.name.span,
             generics,

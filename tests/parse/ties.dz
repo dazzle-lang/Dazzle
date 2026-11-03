@@ -81,3 +81,8 @@ fn count<view T: Iterate, view>(it: T, view: i32) -> i32 {
     let view = view + 1
     return view
 }
+
+// A static, bare or through its module, in a clause and an `in` (spec §6.7).
+fn add(v: i32) kills SCORES.list@items, world::LOG.lines@items {}
+fn first() -> &i32 in world::SCORES.list@items {}
+fn each(f: fn(v: i32) kills (SCORES@items, world::LOG)) {}

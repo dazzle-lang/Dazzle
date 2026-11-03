@@ -273,7 +273,7 @@ owns alone. `[*]` on a pointer field names the array it points at. A type that d
 no `tie [*]` still has `[*]` in its signatures; only its own body cannot follow its
 elements.
 
-**A tie path** names memory: a parameter or `self`, then fields visible wherever the
+**A tie path** names memory: a parameter, `self` or a static, then fields visible wherever the
 function is, declared ties, and `[*]` for any element. A path that ends without a tie means
 every tie under it.
 
@@ -366,6 +366,14 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
 - **A clause names only what is visible wherever the function is.** A private method may
   name a private field (`kills self.m_things@items`); a `pub` one names a tie the struct
   declares for it (`tie @things = m_things@items`, then `kills self@things`).
+- **A path may start at a static** (§7.7), named as an expression names it: `SCORES`, or
+  `world::SCORES` from another module. A static is one place for the whole program, so its
+  kills are no caller's own: every caller names them in its clause too, up to an entry
+  point (`main`, a `#[test]` or a `#[bench]`), which needs no clause for them because
+  nothing called it. A function's clause names only a static every caller can see, so a
+  `pub` function's names a `pub` static (`DZ0563`). A result tied to one says so with `in`,
+  `fn first() -> &i32 in SCORES.list@items`. A kill of a static inside `unsafe` is vouched
+  for there and is no kill a clause must name. `[DECIDED — D-0094]`
 - **A trait method's clause is the most an implementation may kill**, and a function type's
   is the most a function stored in it may; a function type names its parameters when its
   clause does:

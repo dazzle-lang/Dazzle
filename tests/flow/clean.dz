@@ -189,3 +189,29 @@ fn deferred_reads_an_earlier_local() {
     let p: ^String = &s
     defer noted(p)
 }
+
+// §6.7 (D-0094 point 7): a static named in a clause, a reference into it used before the
+// kill and got again after, a result tied to it, and a counter written with no clause.
+pub struct Shelf {
+    pub books: List<i32> = List<i32>()
+    pub reads: i32 = 0
+}
+
+static SHELF: Shelf = Shelf{}
+
+fn shelve(v: i32) kills SHELF.books@items {
+    SHELF.books.push(v)
+}
+
+fn first_book() -> &i32 in SHELF.books@items {
+    return &SHELF.books[0]
+}
+
+fn read_twice() kills SHELF.books@items {
+    shelve(1)
+    let first = first_book()
+    println!("{}", first)
+    shelve(2)
+    println!("{}", first_book())
+    SHELF.reads += 1
+}

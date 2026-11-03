@@ -86,6 +86,12 @@ fn count<view T: Iterate, view>(it: T, view: i32) -> i32
         int 1
     return
       path view
+fn add(v: i32) kills SCORES.list@items, world::LOG.lines@items
+  block
+fn first() -> &i32 in world::SCORES.list@items
+  block
+fn each(f: fn(v: i32) kills (SCORES@items, world::LOG))
+  block
 
 === DIAGNOSTICS ===
 (none)

@@ -549,11 +549,16 @@ fn analyse(
             cx.kill(Place::local(*local), body.span, KillKind::Drop);
         }
     }
+    // What a static loses, a caller sees, unless nothing called this body (D-0094 point 7).
+    let entry = entry_point(body, table, res);
     cx.result.actual = super::minimal(
         &cx.result
             .kills
             .iter()
-            .filter(|k| external.contains(&k.place.local))
+            .filter(|k| {
+                external.contains(&k.place.local)
+                    || !entry && super::static_of(k.place.local).is_some()
+            })
             .map(|k| k.place.clone())
             .collect::<Vec<_>>(),
     );
@@ -566,7 +571,7 @@ fn analyse(
         let ties = |places: &[Place]| {
             places
                 .iter()
-                .map(|p| super::ties(&scope, p, &body.local(p.local).ty))
+                .map(|p| super::ties(&scope, p, &super::local_ty(body, table, p.local)))
                 .collect::<Vec<_>>()
         };
         cx.result.mismatches =
@@ -713,7 +718,12 @@ impl Analysis<'_> {
     /// `@items`, as the first is.
     fn canonical(&self, mut origin: Origin) -> Origin {
         let canon = |p: &Place| {
-            super::canonical_place(self.table, self.res, &super::root_ty(self.body, p.local), p)
+            super::canonical_place(
+                self.table,
+                self.res,
+                &super::root_ty(self.body, self.table, p.local),
+                p,
+            )
         };
         origin.target = canon(&origin.target);
         origin.tie = canon(&origin.tie);
@@ -964,7 +974,7 @@ impl Analysis<'_> {
     /// that `returned` is. A result elided to a view struct, or `in` it whole, is in what it
     /// views, so it may be neither.
     fn own_storage(&self, p: &Place, returned: &Ty) -> bool {
-        let ty = &self.body.local(p.local).ty;
+        let ty = &super::local_ty(self.body, self.table, p.local);
         if !self.table.placed_as_view(ty.peeled()) {
             return false;
         }
@@ -987,7 +997,7 @@ impl Analysis<'_> {
             return None;
         }
         let local = origin.target.local;
-        if !self.table.placed_as_view(self.body.local(local).ty.peeled()) {
+        if !self.table.placed_as_view(super::local_ty(self.body, self.table, local).peeled()) {
             return None;
         }
         let value = self.state.get(&local)?;
@@ -1013,6 +1023,8 @@ impl Analysis<'_> {
             dz_check::ties::Root::Param(i) => {
                 (signature.sig.params.get(i)?.ty.clone(), args.get(i)?)
             }
+            // A static is no input: nothing the caller passed holds it.
+            dz_check::ties::Root::Static(_) => return None,
         };
         let Ty::Named { sym, .. } = root_ty.peeled() else { return None };
         if !self.table.is_view_struct(*sym) {
@@ -1163,6 +1175,8 @@ impl Analysis<'_> {
                                 let input = match root {
                                     dz_check::ties::Root::SelfValue => &receiver,
                                     dz_check::ties::Root::Param(i) => &params[i],
+                                    // The clause bound the static's own place above.
+                                    dz_check::ties::Root::Static(_) => continue,
                                 };
                                 // A result in an input that is a local view, a `str` say,
                                 // is in what that local views too: `v.trim()` dies with
@@ -1930,7 +1944,7 @@ impl Analysis<'_> {
     /// behind a tie, or a value that owns one. Killing an `i32` field changes nothing a
     /// view can lose (D-0094 point 1). A place whose type cannot be followed counts as one.
     fn owns_memory(&self, place: &Place) -> bool {
-        let mut ty = super::root_ty(self.body, place.local);
+        let mut ty = super::root_ty(self.body, self.table, place.local);
         for step in &place.steps {
             match step {
                 // `field_of` looks through references and pointers to the struct.
@@ -1956,7 +1970,10 @@ impl Analysis<'_> {
                 }
             }
         }
-        if !self.result.kills.contains(&killed) {
+        // A static changed inside `unsafe` is vouched for there, as before statics could be
+        // named (D-0046): it ends this body's references but is no kill a clause must name.
+        let vouched = self.unsafe_depth > 0 && super::static_of(killed.place.local).is_some();
+        if !vouched && !self.result.kills.contains(&killed) {
             self.result.kills.push(killed);
         }
     }
@@ -2539,6 +2556,11 @@ impl Analysis<'_> {
                     // Scope-exit kills are applied below; returning a view of a local
                     // must be diagnosed before that local disappears from the state.
                     for origin in &returned {
+                        // A static outlives every call; a view of one is checked against
+                        // the result's `in` below, as any other (spec §6.7).
+                        if super::static_of(origin.target.local).is_some() {
+                            continue;
+                        }
                         let local = self.body.local(origin.target.local);
                         let caller_owned = self.body.params.contains(&origin.target.local)
                             && (super::points(&local.ty)
@@ -2806,9 +2828,12 @@ impl Analysis<'_> {
                 }
                 Value { unknown: super::points(&node.ty), ..Value::default() }
             }
-            // A static is reached only in `unsafe`, and no clause can name one, so it is
-            // unchecked, like a pointer made there (§6.7): no place a kill could reach.
-            hir::ExprKind::Static(_) => Value {
+            // A static is one place for the whole program, which a clause may name, so a
+            // reference into it is checked like one into a parameter (§6.7, D-0094 point 7).
+            // What a static holds that points elsewhere is not followed: it was stored with
+            // nothing to say where.
+            hir::ExprKind::Static(sym) => Value {
+                places: vec![Origin::at(Place::local(super::static_local(sym)))],
                 unknown: super::points(&node.ty) || super::contains_views(&node.ty, self.table),
                 ..Value::default()
             },
@@ -2973,6 +2998,13 @@ impl Signature {
             privileged: self.owner,
         }
     }
+}
+
+/// Whether no Dazzle code calls `body`: `main`, a `#[test]` or a `#[bench]`. Nothing outside
+/// it holds a reference into a static, so what it kills there needs no clause (§6.7).
+fn entry_point(body: &Body, table: &TypeTable, res: &Resolution) -> bool {
+    let BodyOwner::Fn(sym) = body.owner else { return false };
+    res.symbol(sym).name == "main" || table.tests.contains(&sym) || table.benches.contains(&sym)
 }
 
 fn body_bindings(body: &Body) -> Bindings {
@@ -3200,10 +3232,11 @@ fn logical_result(
 ) -> Place {
     let Some(path) = path else { return place.clone() };
     let Ok(path) = super::normalize(scope, path) else { return place.clone() };
-    let Some(mut target) = bindings.get(path.root).cloned() else { return place.clone() };
+    let Some(mut target) = bindings.get(path.root) else { return place.clone() };
     let mut ty = match path.root {
         dz_check::ties::Root::SelfValue => signature.self_ty.clone().unwrap_or(Ty::Error),
         dz_check::ties::Root::Param(i) => signature.sig.params[i].ty.clone(),
+        dz_check::ties::Root::Static(sym) => super::static_ty(scope.table, sym),
     };
     let mut storage_owner = None;
     for step in path.steps {

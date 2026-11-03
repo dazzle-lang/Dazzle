@@ -475,15 +475,26 @@ impl<'a> Parser<'a> {
     /// A path that breaks off is reported and kept as far as it got.
     pub(crate) fn parse_tie_path(&mut self) -> Option<TiePath> {
         let start = self.start();
-        let root = if self.at(TokenKind::SelfValue) {
+        let mut module = Vec::new();
+        let mut root = if self.at(TokenKind::SelfValue) {
             let t = self.bump();
             Ident::new(t.span, "self")
         } else if self.at(TokenKind::Ident) {
             self.parse_ident_or_error()
         } else {
-            self.expected_tie_path("expected a parameter or `self` here");
+            self.expected_tie_path("expected a parameter, `self` or a static here");
             return None;
         };
+        // `world::SCORES@items`: a static in another module, named as an expression names
+        // it (spec §6.7).
+        while root.name != "self" && self.at(TokenKind::ColonColon) {
+            self.bump();
+            if !self.at(TokenKind::Ident) {
+                self.expected_tie_path("expected a static's name after `::`");
+                break;
+            }
+            module.push(std::mem::replace(&mut root, self.parse_ident_or_error()));
+        }
         let mut steps = Vec::new();
         loop {
             if self.eat(TokenKind::Dot) {
@@ -516,7 +527,7 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        Some(TiePath { span: self.span_from(start), root, steps })
+        Some(TiePath { span: self.span_from(start), module, root, steps })
     }
 
     fn expected_tie_path(&mut self, label: &str) {

@@ -123,7 +123,7 @@ error[DZ0218]: expected a tie path, found `{`
    ┌─ tests/parse/errors.dz:26:44
    │
 26 │ fn kills_nothing(xs: &mut List<i32>) kills {}
-   │                                            ^ expected a parameter or `self` here
+   │                                            ^ expected a parameter, `self` or a static here
    │
    = help: a tie path is a parameter or `self`, then fields, `[*]` for any element and `@name` for a tie: `self@items`, `world.enemies@items` (spec §6.7)
 

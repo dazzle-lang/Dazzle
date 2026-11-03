@@ -49,3 +49,7 @@ trait Walk {
 fn count<view T: Iterate>(it: T, view: i32) -> i32 {
     return view
 }
+
+fn add(v: i32) kills SCORES.list@items, world::LOG.lines@items {}
+
+fn first() -> &i32 in world::SCORES.list@items {}

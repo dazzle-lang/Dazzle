@@ -49,7 +49,7 @@ proposed:
    A container lent to a function is left as T-0150, a design question. The user's idea of
    a checked marker for a drop that only frees is T-0148, for later.
 4. The rest of D-0094, decided in full on 2026-11-03 (r107) and to be built: T-0128,
-   T-0129, T-0126, T-0130 and T-0135 are done (r108–r111, 2026-11-03); then T-0136, and
+   T-0129, T-0126, T-0130, T-0135 and T-0136 are done (r108–r112, 2026-11-03); then
    §1.1's promise (T-0160); its tests (T-0132 to T-0134), and the placement gaps (T-0141, T-0142, T-0146, T-0147, T-0150).
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
    (T-0137).

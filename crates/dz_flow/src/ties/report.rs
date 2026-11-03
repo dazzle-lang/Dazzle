@@ -31,8 +31,8 @@ pub fn report(
     // A place rooted at an `Rc` guard stands for every value an `Rc` of that type holds.
     let rc_sym = res.lookup(res.prelude, "Rc");
     let shared = |p: &Place| {
-        let ty = &body.local(p.local).ty;
-        let rc = matches!(ty, Ty::Named { sym, .. } if Some(*sym) == rc_sym);
+        let ty = super::local_ty(body, table, p.local);
+        let rc = matches!(ty, Ty::Named { sym, .. } if Some(sym) == rc_sym);
         (rc && super::is_guard(body, p.local)).then(|| {
             let rc = dz_check::type_name_in_file(res, file, &body.local(p.local).ty);
             format!(
@@ -212,7 +212,7 @@ pub fn report(
     let sig = &signature.sig;
     let name = &signature.name;
     let scope = signature.scope(table, res);
-    let root = |p: &Place| body.local(p.local).ty.clone();
+    let root = |p: &Place| super::local_ty(body, table, p.local);
     // The clause the body needs: what it kills that a caller can see, each spelt as the
     // ties that name it, and nothing that names no memory.
     let needed: Vec<Place> = minimal(
@@ -374,7 +374,7 @@ fn tie_path_held(
     let ident = |name: &str| Ident::new(Span::DUMMY, name);
     let mut out = Vec::new();
     let mut held = Vec::new();
-    let mut ty = super::root_ty(body, place.local).peeled().clone();
+    let mut ty = super::root_ty(body, table, place.local).peeled().clone();
     let steps = &place.steps;
     let mut i = 0;
     'outer: while i < steps.len() {
@@ -433,12 +433,20 @@ fn tie_path_held(
     }
     // A guard has no name: it is shown as the handle it holds, `Rc<List<String>>`, which
     // for an `Rc` stands for every one of that type (D-0094 point 2).
-    let root = if super::is_guard(body, place.local) {
+    let mut module = Vec::new();
+    let root = if let Some(sym) = super::static_of(place.local) {
+        // A static, as this file names it: `SCORES`, or `world::SCORES`.
+        let mut spelt: Vec<Ident> =
+            res.spelling_in_file(body.file, sym).iter().map(|s| ident(s)).collect();
+        let root = spelt.pop().expect("a static has a name");
+        module = spelt;
+        root
+    } else if super::is_guard(body, place.local) {
         ident(&dz_check::type_name_in_file(res, body.file, &body.local(place.local).ty))
     } else {
         ident(&body.local(place.local).name)
     };
-    (TiePath { span: Span::DUMMY, root, steps: out }, held)
+    (TiePath { span: Span::DUMMY, module, root, steps: out }, held)
 }
 
 /// The ties a fix declares so that a clause can name memory behind a field its function's
@@ -483,8 +491,12 @@ impl NewTies {
         })?;
         let TieStep::Field(field) = &path.steps[k] else { return None };
         let Ty::Named { sym, .. } = held.get(k)?.peeled_refs() else { return None };
-        let below =
-            TiePath { span: Span::DUMMY, root: field.clone(), steps: path.steps[k + 1..].to_vec() };
+        let below = TiePath {
+            span: Span::DUMMY,
+            module: Vec::new(),
+            root: field.clone(),
+            steps: path.steps[k + 1..].to_vec(),
+        };
         let below = dz_ast::dump::tie_path_str(&below);
         let name = field.name.strip_prefix("m_").unwrap_or(&field.name).to_owned();
         match self.decls.iter_mut().find(|d| d.owner == *sym && d.field == field.name) {

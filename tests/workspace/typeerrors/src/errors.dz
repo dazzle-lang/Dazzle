@@ -878,16 +878,23 @@ union Motion {
     Stopped
 }
 
-// §7.7: a static is built from constants, and changed only inside `unsafe`.
+// §7.7: a static is built from constants.
 fn a_runtime_value() -> i32 {
     return 3
 }
 
 static STARTS_AT_RUN_TIME: i32 = a_runtime_value()
-static SHARED: i32 = 0
 
-fn changes_a_static_safely() {
-    SHARED = 1
+// §6.7: a clause names only what every caller can see, and they name a static's kills in
+// clauses of their own, so a `pub` function's clause cannot name a private static.
+pub struct Accounts {
+    pub entries: List<i32> = List<i32>()
+}
+
+static ACCOUNTS: Accounts = Accounts{}
+
+pub fn records(v: i32) kills ACCOUNTS.entries@items {
+    ACCOUNTS.entries.push(v)
 }
 
 // §7.3: a function with no receiver is called through its type, never on a value.

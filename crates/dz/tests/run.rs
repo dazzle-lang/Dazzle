@@ -1825,6 +1825,49 @@ fn keeps_vouches_for_the_calls_that_take_a_pointer() {
     assert_eq!(found("keeps = [\"scael\"]").unwrap(), [("DZ0004".to_owned(), 11)]);
 }
 
+/// Spec §6.7, §7.7 (D-0094 point 7, T-0136): a clause names a static in another module as
+/// an expression does, `world::SCORES`, and a caller that leaves its callee's kill out is
+/// told to add it, spelt that way, which `dz fix` writes; the program then checks clean.
+#[test]
+fn a_clause_names_a_static_in_another_module() {
+    let dir = scratch(
+        "dz_static_clause",
+        "[module]\nname = \"game\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\n\
+         std = { open = true }\nworld = { path = \"world\" }\n",
+        "fn named(v: i32) kills world::SCORES.list@items {\n    world::add(v)\n}\n\n\
+         fn unnamed(v: i32) {\n    world::add(v)\n}\n\n\
+         fn main() {\n    named(1)\n    unnamed(2)\n}\n",
+    );
+    std::fs::create_dir_all(dir.join("world/src")).unwrap();
+    std::fs::write(
+        dir.join("world/dazzle.toml"),
+        "[module]\nname = \"world\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\n\
+         std = { open = true }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("world/src/lib.dz"),
+        "pub struct Scores {\n    pub list: List<i32> = List<i32>()\n}\n\n\
+         pub static SCORES: Scores = Scores{}\n\n\
+         pub fn add(v: i32) kills SCORES.list@items {\n    SCORES.list.push(v)\n}\n",
+    )
+    .unwrap();
+    let check = || {
+        let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    let before = check();
+    assert_eq!(before.matches("DZ0415").count(), 1, "{before}");
+    assert!(before.contains("main.dz:6:"), "the kill is `unnamed`'s call:\n{before}");
+    let out = Command::new(dz()).args(["fix", dir.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let main = std::fs::read_to_string(dir.join("src/main.dz")).unwrap();
+    assert!(main.contains("fn unnamed(v: i32) kills world::SCORES.list@items {"), "{main}");
+    let after = check();
+    assert!(!after.contains("error"), "{after}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn an_imported_handle_cannot_be_held_by_value() {
     // spec §15.2, §18.40 — the header declares `Handle` and never defines it, so nothing

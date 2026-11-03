@@ -29,6 +29,9 @@ pub enum Root {
     SelfValue,
     /// The index of a parameter, not counting `self`.
     Param(usize),
+    /// A static: one place for the whole program, which every caller can name too (spec
+    /// §6.7, D-0094 point 7).
+    Static(SymbolId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -317,8 +320,8 @@ pub fn untied_result(scope: &Scope<'_>, f: &dz_ast::FnDecl) -> Option<UntiedResu
                     ),
                     "points into nothing its caller can see",
                     "return text that never dies as `const &str`, return something owned \
-                     (`String`, `List`), or take what the result points into as a parameter \
-                     (spec §6.7)",
+                     (`String`, `List`), take what the result points into as a parameter, or \
+                     name the static it points into, `in SCORES.list@items` (spec §6.7)",
                 ),
                 fix,
             })
@@ -440,6 +443,8 @@ fn points_nowhere(scope: &Scope<'_>, what: &str, t: &Ty, span: Span) -> Error {
 /// see that die.
 fn changeable(scope: &Scope<'_>, tie: &Tie, path: &TiePath) -> Result<(), Error> {
     let (what, ty) = match tie.root {
+        // Anything may change a static, which is why its clause says so (D-0094 point 7).
+        Root::Static(_) => return Ok(()),
         Root::SelfValue => {
             if scope.sig.takes_self == Some(true) {
                 return Ok(());
@@ -487,22 +492,68 @@ pub fn resolve(scope: &Scope<'_>, path: &TiePath) -> Result<Tie, Error> {
             }
         }
     } else {
-        match scope.sig.params.iter().position(|p| p.name == path.root.name) {
-            Some(i) => (Root::Param(i), scope.sig.params[i].ty.clone()),
-            None => {
+        let param = match path.module.is_empty() {
+            true => scope.sig.params.iter().position(|p| p.name == path.root.name),
+            false => None,
+        };
+        match (param, static_root(scope, path)) {
+            (Some(i), _) => (Root::Param(i), scope.sig.params[i].ty.clone()),
+            (None, Some(sym)) => (Root::Static(sym), static_visible(scope, sym, path)?),
+            (None, None) => {
+                let written = path.root_spelling();
                 return Err(error(
                     codes::TIE_PATH_UNRESOLVED,
                     path.root.span,
-                    format!("`{}` is not a parameter of `{}`", path.root.name, scope.name),
-                    "no parameter of this name",
-                    "a tie path starts at one of the function's parameters, or at `self` in a \
-                     method (spec §6.7)",
-                ))
+                    format!("`{written}` is not a parameter of `{}`, or a static", scope.name),
+                    "no parameter or static of this name",
+                    "a tie path starts at one of the function's parameters, at `self` in a \
+                     method, or at a static (spec §6.7)",
+                ));
             }
         }
     };
     let (steps, _, _) = Walker::of(scope).walk(ty, &path.steps, 0)?;
     Ok(Tie { root, steps })
+}
+
+/// The static `path`'s root names, as the signature's declaration resolved it.
+fn static_root(scope: &Scope<'_>, path: &TiePath) -> Option<SymbolId> {
+    let written: Vec<&str> =
+        path.module.iter().map(|m| m.name.as_str()).chain([path.root.name.as_str()]).collect();
+    scope
+        .sig
+        .statics
+        .iter()
+        .find(|(w, _)| w.iter().map(String::as_str).eq(written.iter().copied()))
+        .map(|(_, sym)| *sym)
+}
+
+/// A static's type, once it is known that every caller of the function can name it: each
+/// one names it in a clause of its own, up to `main` (spec §6.7).
+fn static_visible(scope: &Scope<'_>, sym: SymbolId, path: &TiePath) -> Result<Ty, Error> {
+    let s = scope.res.symbol(sym);
+    let vis = if s.vis == Vis::Public { Vis::Public } else { Vis::Module };
+    if !Walker::of(scope).sees_item(s.module, vis) {
+        return Err(error(
+            codes::TIE_PATH_NOT_VISIBLE,
+            path.root.span,
+            format!(
+                "`{}` is less visible than `{}`, whose callers must see it",
+                path.root_spelling(),
+                scope.name
+            ),
+            "not visible to every caller",
+            format!(
+                "every caller of `{}` names what it kills in a clause of its own: make the \
+                 static `pub`, or the function no more visible than the static (spec §6.7)",
+                scope.name
+            ),
+        ));
+    }
+    Ok(match scope.table.get(sym) {
+        Some(crate::ItemSig::Static(ty)) => ty.clone(),
+        _ => Ty::Error,
+    })
 }
 
 /// A path in one of `sym`'s `tie` declarations, at type arguments `args`: the steps from
@@ -752,15 +803,30 @@ impl Walker<'_> {
         };
         reachable && self.callers.map_or(true, |callers| rank(vis) >= rank(callers))
     }
+
+    /// The same for an item of `module` at `vis`, which is `Public` or `Module`.
+    fn sees_item(&self, module: ModuleId, vis: Vis) -> bool {
+        let reachable = vis == Vis::Public || module == self.module;
+        reachable && self.callers.map_or(true, |callers| rank(vis) >= rank(callers))
+    }
 }
 
 /// The signature a call through a value of function type reads (spec §6.7): its
 /// parameters, named as the type names them, its result and where it points, and its
 /// clause, the most a function stored in it may kill. A pointer from C has no clause to read.
 pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
-    let (names, results, paths, unknown): (&[String], &[TiePath], &[TiePath], bool) = match kills {
-        FnKills::Known { names, results, paths } => (names, results, paths, false),
-        FnKills::Unknown => (&[], &[], &[], true),
+    type Statics = [(Vec<String>, SymbolId)];
+    let (names, results, paths, statics, unknown): (
+        &[String],
+        &[TiePath],
+        &[TiePath],
+        &Statics,
+        bool,
+    ) = match kills {
+        FnKills::Known { names, results, paths, statics } => {
+            (names, results, paths, statics, false)
+        }
+        FnKills::Unknown => (&[], &[], &[], &[], true),
     };
     FnSig {
         params: params
@@ -781,6 +847,7 @@ pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
         is_mut: false,
         is_unsafe: false,
         foreign_unsafe: None,
+        statics: statics.to_vec(),
         // A type's clause names what anyone holding the type can see.
         vis: Vis::Public,
         span: Span::DUMMY,

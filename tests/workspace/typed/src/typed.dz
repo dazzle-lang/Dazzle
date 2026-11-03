@@ -1163,7 +1163,8 @@ fn carried_struct(m: &mut Motion) -> f32 kills m {
     }
 }
 
-// §7.7: a static is read anywhere and changed inside `unsafe`.
+// §7.7, §6.7: a static is read anywhere, and changed anywhere a clause says so. Writing
+// plain data kills nothing, so it needs no clause; a caller names the kill its callee does.
 static TALLY: Walking = Walking{ speed: 2 }
 #[thread_local]
 static LIMITS: [2]i32 = [MAX_TALLY, 0]
@@ -1203,12 +1204,29 @@ fn trait_objects(s: &Square) -> i32 {
 
 fn statics() -> f32 {
     let before = TALLY.speed + LIMITS[0] as f32
-    unsafe {
-        TALLY.speed = before
-        LIMITS[1] = 1
-        let _ = TALLY.faster()
-    }
+    TALLY.speed = before
+    LIMITS[1] = 1
+    let _ = TALLY.faster()
     return TALLY.speed
+}
+
+pub struct Journal {
+    pub lines: List<i32> = List<i32>()
+}
+
+pub static JOURNAL: Journal = Journal{}
+
+pub fn journals(v: i32) kills JOURNAL.lines@items {
+    JOURNAL.lines.push(v)
+}
+
+pub fn journals_twice(v: i32) kills JOURNAL.lines@items {
+    journals(v)
+    journals(v + 1)
+}
+
+pub fn first_line() -> &i32 in JOURNAL.lines@items {
+    return &JOURNAL.lines[0]
 }
 
 // §7.3: a constant declared in a type, named through it — a value, or a static's address.

@@ -17813,23 +17813,53 @@ body fn statics -> f32
           index: i32
             static LIMITS: [2]i32
             int 0: usize
-    block-value: void
-      block
-        assign =
-          field #0: f32
-            static TALLY: Walking
-          local _0 before: f32
-        assign =
-          index: i32
-            static LIMITS: [2]i32
-            int 1: usize
-          int 1: i32
-        let _: _
-          call-method Walking::faster: Motion?
-            static TALLY: Walking
+    assign =
+      field #0: f32
+        static TALLY: Walking
+      local _0 before: f32
+    assign =
+      index: i32
+        static LIMITS: [2]i32
+        int 1: usize
+      int 1: i32
+    let _: _
+      call-method Walking::faster: Motion?
+        static TALLY: Walking
     return: !
       field #0: f32
         static TALLY: Walking
+body field-default Journal.0 -> void
+  block
+    call-ctor List#0: List<i32>
+body static JOURNAL -> void
+  block
+    struct-lit Journal: Journal
+      #0 (default)
+body fn journals -> void
+  param _0 v: i32
+  block
+    call-method List::push: void
+      field #0: List<i32>
+        static JOURNAL: Journal
+      local _0 v: i32
+body fn journals_twice -> void
+  param _0 v: i32
+  block
+    call journals: void
+      local _0 v: i32
+    call journals: void
+      binary +: i32
+        local _0 v: i32
+        int 1: i32
+body fn first_line -> &i32
+  block
+    return: !
+      ref: &i32
+        deref: i32
+          call-method IndexMut::index_mut: &mut i32
+            field #0: List<i32>
+              static JOURNAL: Journal
+            int 0: usize
 body const Limits::MAX -> void
   block
     int 64: i32

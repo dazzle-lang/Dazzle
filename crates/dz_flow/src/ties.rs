@@ -22,6 +22,7 @@ use dz_check::TypeTable;
 use dz_diag::codes;
 use dz_hir::ty::Ty;
 use dz_hir::LocalId;
+use dz_resolve::SymbolId;
 use dz_span::Span;
 
 /// A place in the caller, with no public/private aliases left in its path.
@@ -75,11 +76,41 @@ pub struct Bindings {
 }
 
 impl Bindings {
-    fn get(&self, root: Root) -> Option<&Place> {
+    /// A static is the same place at every call, whatever the arguments.
+    fn get(&self, root: Root) -> Option<Place> {
         match root {
-            Root::SelfValue => self.receiver.as_ref(),
-            Root::Param(i) => self.params.get(i).and_then(Option::as_ref),
+            Root::SelfValue => self.receiver.clone(),
+            Root::Param(i) => self.params.get(i).cloned().flatten(),
+            Root::Static(sym) => Some(Place::local(static_local(sym))),
         }
+    }
+}
+
+/// The local a static stands as in every body: one per static, numbered down from the top
+/// so none is a body's own (spec §6.7, D-0094 point 7). It is never declared, never
+/// dropped, and outlives every scope.
+pub(crate) fn static_local(sym: SymbolId) -> LocalId {
+    LocalId(u32::MAX - sym.0)
+}
+
+/// The static `local` stands for, if it is one.
+pub(crate) fn static_of(local: LocalId) -> Option<SymbolId> {
+    (local.0 >= u32::MAX / 2).then(|| SymbolId(u32::MAX - local.0))
+}
+
+/// A static's type, from its declaration.
+pub(crate) fn static_ty(table: &TypeTable, sym: SymbolId) -> Ty {
+    match table.get(sym) {
+        Some(dz_check::ItemSig::Static(ty)) => ty.clone(),
+        _ => Ty::Error,
+    }
+}
+
+/// The type of what `local` holds: its declared type, or a static's.
+pub(crate) fn local_ty(body: &dz_hir::Body, table: &TypeTable, local: LocalId) -> Ty {
+    match static_of(local) {
+        Some(sym) => static_ty(table, sym),
+        None => body.local(local).ty.clone(),
     }
 }
 
@@ -95,6 +126,11 @@ impl Path {
     pub fn bind(&self, bindings: &Bindings) -> Option<Place> {
         Some(bindings.get(self.root)?.followed_by(&self.steps))
     }
+
+    /// Whether it is rooted at a static.
+    pub fn at_static(&self) -> bool {
+        matches!(self.root, Root::Static(_))
+    }
 }
 
 /// Normalize a checked tie path. A tie stands for the first path its declaration lists,
@@ -106,6 +142,7 @@ pub fn normalize(scope: &Scope<'_>, path: &dz_ast::TiePath) -> Result<Path, ties
     let root = match resolved.root {
         Root::SelfValue => scope.self_ty.clone().unwrap_or(Ty::Error),
         Root::Param(i) => scope.sig.params[i].ty.clone(),
+        Root::Static(sym) => static_ty(scope.table, sym),
     };
     let (steps, _) = canonical_steps(scope.table, scope.res, root.clone(), &resolved.steps)
         .ok_or_else(|| internal_path_error(path.span))?;
@@ -332,17 +369,17 @@ fn field(scope: &Scope<'_>, ty: &Ty, name: &str) -> Option<Ty> {
 /// The type a place rooted at `local` starts in. A guard local, the hidden one `or` and
 /// `if let` hold a handle's guard in, stands for the value it guards (an `Rc<T>`'s `T`),
 /// which is where a view of the target and every path under it point (spec §14.5).
-pub(crate) fn root_ty(body: &dz_hir::Body, local: dz_hir::LocalId) -> Ty {
-    let ty = &body.local(local).ty;
+pub(crate) fn root_ty(body: &dz_hir::Body, table: &TypeTable, local: dz_hir::LocalId) -> Ty {
+    let ty = local_ty(body, table, local);
     match ty.peeled() {
         Ty::Named { args, .. } if is_guard(body, local) && args.len() == 1 => args[0].clone(),
-        _ => ty.clone(),
+        _ => ty,
     }
 }
 
 /// Whether `local` is a guard local, which no program names (spec §14.5).
 pub(crate) fn is_guard(body: &dz_hir::Body, local: dz_hir::LocalId) -> bool {
-    body.local(local).name == "_guard"
+    static_of(local).is_none() && body.local(local).name == "_guard"
 }
 
 fn field_of(table: &TypeTable, ty: &Ty, name: &str) -> Option<Ty> {
