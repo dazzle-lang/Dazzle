@@ -17300,7 +17300,9 @@ body fn if_let_forms -> f32
           int 1: i32
       block
         if-let: void
-          local _1 p: ^mut Vec3
+          block-value: ^mut Vec3
+            block
+              local _1 p: ^mut Vec3
           bind _3 v
           block
             assign =
@@ -17309,7 +17311,9 @@ body fn if_let_forms -> f32
               float 1: f32
     let _5 got: f32
       if-let: f32
-        local _1 p: ^mut Vec3
+        block-value: ^mut Vec3
+          block
+            local _1 p: ^mut Vec3
         bind _4 v
         block
           field #0: f32
