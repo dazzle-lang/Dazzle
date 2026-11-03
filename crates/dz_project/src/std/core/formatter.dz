@@ -113,6 +113,7 @@ pub struct Formatter {
     }
 
     /// Append one character, encoded as UTF-8.
+    #[inline]
     pub fn write_char(&mut self, c: char) {
         let mut encoded: [4]u8 = [0, 0, 0, 0]
         let n = encode_utf8(c, &mut encoded)

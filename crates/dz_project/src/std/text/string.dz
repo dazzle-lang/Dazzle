@@ -28,6 +28,7 @@ pub struct String {
 
     /// The length in bytes, not counting the zero after them. A character outside ASCII
     /// takes two to four; `char_count` counts characters.
+    #[inline]
     pub fn len(&self) -> usize {
         if m_bytes.len() == 0 {
             return 0
@@ -35,6 +36,7 @@ pub struct String {
         return m_bytes.len() - 1
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         return self.len() == 0
     }
@@ -44,6 +46,7 @@ pub struct String {
     }
 
     /// The text, borrowed. Valid until the `String` next changes or is dropped.
+    #[inline]
     pub fn as_str(&self) -> &str in self@text {
         let bytes = m_bytes.as_slice()
         return unsafe { bytes[0..self.len()] as &str }
@@ -60,6 +63,7 @@ pub struct String {
     }
 
     /// Append `s`.
+    #[inline]
     pub fn push_str(&mut self, s: &str, loc: SourceLocation = #location) kills self@text {
         if s.len == 0 {
             return
@@ -74,6 +78,7 @@ pub struct String {
     }
 
     /// Append one character, encoded as UTF-8.
+    #[inline]
     pub fn push(&mut self, c: char, loc: SourceLocation = #location) kills self@text {
         let mut encoded: [4]u8 = [0, 0, 0, 0]
         let n = encode_utf8(c, &mut encoded)
@@ -115,6 +120,7 @@ pub struct String {
     }
 
     /// Empty the text and keep the allocation.
+    #[inline]
     pub fn clear(&mut self) kills self@text {
         m_bytes.clear()
     }

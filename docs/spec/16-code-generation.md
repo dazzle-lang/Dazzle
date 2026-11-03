@@ -108,6 +108,12 @@ routinely disable both. `-fwrapv` makes signed arithmetic wrap, as §5.1 require
 16-bit result is also cast back to its own type, since C++ computes it as an `int`. A
 vendored C or C++ library is built without `-fwrapv`, with the semantics it was written for.
 
+An optimised build (`--release`, `--shipping`) adds `-flto=auto` to Dazzle's own code, so
+a call from one module into another can be inlined at link time; a vendored library keeps
+its recipe's flags. A toolchain whose linker cannot do it (LLVM's clang targeting MSVC
+without `lld`, for one) gets the build without it and a note saying so. `#[inline]` (§12.8)
+is what inlines across modules there.
+
 **Which compiler builds it is the project's choice, and the command's.** `dz` drives an
 ordinary C++ compiler, and any of them that takes those flags will do — a console SDK's
 compiler as much as `clang++` or `g++`. Four places may name one, and the nearest to the

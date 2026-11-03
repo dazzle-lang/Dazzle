@@ -36,6 +36,7 @@ impl<V> StrKeys<V> for HashMap<String, V> {
 }
 
 /// Whether the key `k` is the text `s`.
+#[inline]
 fn string_is(k: &String, s: &str) -> bool {
     return k.as_str() == s
 }

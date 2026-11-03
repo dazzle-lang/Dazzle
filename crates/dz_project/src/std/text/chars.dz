@@ -21,15 +21,18 @@ pub view struct Chars {
 impl Iterate for Chars {
     type Item = char
 
+    #[inline]
     fn valid(&self) -> bool {
         return m_at < m_text.len
     }
 
+    #[inline]
     fn get(&self) -> char {
         let (c, _) = decode_utf8(m_text as &[]u8, m_at)
         return c
     }
 
+    #[inline]
     fn advance(&mut self) {
         let (_, width) = decode_utf8(m_text as &[]u8, m_at)
         m_at += width

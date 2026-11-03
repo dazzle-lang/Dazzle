@@ -296,7 +296,33 @@ pub fn compile(
     // What a CMake install's pkg-config file asks for besides libraries: `-pthread`.
     cmd.args(&link.flags);
 
-    let output = cmd.output();
+    // An optimised build is optimised across modules too (T-0154): each module is a
+    // translation unit, and without this a call into `std` that is not `#[inline]` (spec
+    // §12.8) is never inlined. `=auto` runs the link-time work in parallel, and keeps g++
+    // from printing a note about running it serially. Only Dazzle's code: the vendored
+    // libraries above stay as their recipes build them.
+    let lto = module.build.optimize != Optimize::Debug;
+    let mut output = if lto {
+        Command::new(&cxx).args(cmd.get_args()).arg("-flto=auto").output()
+    } else {
+        cmd.output()
+    };
+    // Not every toolchain links with it: LLVM's clang targeting MSVC needs `lld`, for one.
+    // A link that fails with it is tried once without it, and says so.
+    if lto {
+        if let Ok(o) = &output {
+            if !o.status.success() && linker_failure(&String::from_utf8_lossy(&o.stderr)) {
+                let plain = cmd.output();
+                if plain.as_ref().is_ok_and(|p| p.status.success()) {
+                    eprintln!(
+                        "note: built without link-time optimisation: {cxx} could not link \
+                         with `-flto=auto`"
+                    );
+                }
+                output = plain;
+            }
+        }
+    }
     timings.lap("C++ compiler", started);
     let output = match output {
         Ok(o) => o,

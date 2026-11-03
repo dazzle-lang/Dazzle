@@ -392,6 +392,33 @@ fn formatting_dispatches_statically_and_keeps_temporaries() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `#[inline]` puts a body in its module's header, where another module's call can be
+/// inlined, and not in the module's own file (spec §12.8, T-0153); so does an associated
+/// constant, which needs no attribute: `Allocators::Global` runs on every move of a
+/// `String`. Pinned on the C++, since the program prints the same either way.
+#[test]
+fn an_inline_body_is_in_the_header() {
+    let dir = scratch(
+        "dz_inline_header",
+        "[module]\nname = \"inl\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "#[inline]\nfn twice(x: i32) -> i32 {\n    return x * 2\n}\n\nfn thrice(x: i32) -> i32 {\n    return x * 3\n}\n\nstruct Box2 {\n    pub const SIDE: i32 = 2\n\n    #[inline]\n    pub fn area(&self) -> i32 {\n        return 4\n    }\n}\n\nfn main() {\n    println!(\"{} {} {}\", twice(1), thrice(1), Box2{}.area())\n}\n",
+    );
+    let out =
+        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let header = std::fs::read_to_string(dir.join("build/cpp/inl.h")).unwrap();
+    let source = std::fs::read_to_string(dir.join("build/cpp/inl.cpp")).unwrap();
+    assert!(header.contains("inline int32_t twice(int32_t x) {"), "{header}");
+    assert!(header.contains("inline int32_t Box2::area() const {"), "{header}");
+    assert!(!source.contains("twice(int32_t x) {"), "{source}");
+    assert!(!source.contains("Box2::area() const {"), "{source}");
+    // Without the attribute, the body stays in the module's own file.
+    assert!(source.contains("int32_t thrice(int32_t x) {"), "{source}");
+    let std_header = std::fs::read_to_string(dir.join("build/cpp/std.h")).unwrap();
+    assert!(std_header.contains("inline Allocator__dyn Allocators::Global() {"), "{std_header}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A field of a temporary is not a place (spec §12.9). When an earlier argument makes a
 /// formatting call hoist its arguments into variables, `v.lerp(w, t).x` has to be hoisted
 /// as its value: hoisted as an address it pointed into a `Vec3` that died with the
@@ -1276,6 +1303,7 @@ const WARNING_CLEAN: &[&str] = &[
     "ref_fields",
     "region_arena",
     "regions",
+    "inline",
 ];
 
 #[test]

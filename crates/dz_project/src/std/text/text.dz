@@ -269,14 +269,17 @@ pub view struct Split {
 impl Iterate for Split {
     type Item = &str
 
+    #[inline]
     fn valid(&self) -> bool {
         return !m_done
     }
 
+    #[inline]
     fn get(&self) -> &str in self@text {
         return sub(m_text, m_start, m_end)
     }
 
+    #[inline]
     fn advance(&mut self) {
         if m_end >= m_text.len || m_separator.len == 0 {
             m_done = true
@@ -313,10 +316,12 @@ pub view struct Lines {
 impl Iterate for Lines {
     type Item = &str
 
+    #[inline]
     fn valid(&self) -> bool {
         return m_start < m_text.len
     }
 
+    #[inline]
     fn get(&self) -> &str in self@text {
         let mut end = m_end
         if end > m_start && (m_text as &[]u8)[end - 1] == '\r' as u8 {
@@ -325,6 +330,7 @@ impl Iterate for Lines {
         return sub(m_text, m_start, end)
     }
 
+    #[inline]
     fn advance(&mut self) {
         m_start = m_end + 1
         self.find_end()
@@ -347,6 +353,7 @@ pub view struct SplitWhitespace {
     }
 
     /// Skip the whitespace from `at` on, then find where the word after it ends.
+    #[inline]
     fn find_word(&mut self, at: usize) {
         let bytes = m_text as &[]u8
         let mut i = at
@@ -364,14 +371,17 @@ pub view struct SplitWhitespace {
 impl Iterate for SplitWhitespace {
     type Item = &str
 
+    #[inline]
     fn valid(&self) -> bool {
         return m_start < m_text.len
     }
 
+    #[inline]
     fn get(&self) -> &str in self@text {
         return sub(m_text, m_start, m_end)
     }
 
+    #[inline]
     fn advance(&mut self) {
         self.find_word(m_end)
     }

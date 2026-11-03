@@ -432,6 +432,9 @@ impl<'a, 'w> Walker<'a, 'w> {
             ItemKind::Const(_) => AttrTarget::Other("a constant"),
             _ => AttrTarget::Other("this declaration"),
         };
+        if let (ItemKind::Fn(f), AttrTarget::ModuleFn) = (&item.kind, target) {
+            self.inline_needs_body(&item.attrs, f);
+        }
         self.attributes(&item.attrs, target);
         match &item.kind {
             // Removed by the driver before resolution runs (spec §12.10).
@@ -628,14 +631,17 @@ impl<'a, 'w> Walker<'a, 'w> {
         // A trait's items are as public as the trait (spec §4); a struct's are their own.
         let is_trait = fields_in_scope.is_some_and(|f| f.is_empty());
         for m in members {
-            let what = match &m.kind {
-                MemberKind::Field(_) => "a field",
-                MemberKind::Fn(_) => "a method",
-                MemberKind::Ctor(_) => "a constructor",
-                MemberKind::Const(_) => "an associated constant",
-                _ => "a member",
+            let target = match &m.kind {
+                MemberKind::Field(_) => AttrTarget::Other("a field"),
+                MemberKind::Fn(f) => {
+                    self.inline_needs_body(&m.attrs, f);
+                    AttrTarget::Method
+                }
+                MemberKind::Ctor(_) => AttrTarget::Other("a constructor"),
+                MemberKind::Const(_) => AttrTarget::Other("an associated constant"),
+                _ => AttrTarget::Other("a member"),
             };
-            self.attributes(&m.attrs, AttrTarget::Other(what));
+            self.attributes(&m.attrs, target);
             let public = owner.is_some() && (is_trait || m.vis == Vis::Public);
             let exported = |name: &str| {
                 public.then(|| format!("{}::{name}", owner.map(String::as_str).unwrap_or("")))
@@ -1056,7 +1062,6 @@ impl<'a, 'w> Walker<'a, 'w> {
     fn attributes(&mut self, attrs: &[Attr], target: AttrTarget) {
         /// Described by the specification, not implemented by the compiler: each with where.
         const LATER: &[(&str, &str)] = &[
-            ("inline", "§12.8"),
             ("align", "§12.8"),
             ("packed", "§12.8"),
             ("deprecated", "§12.8"),
@@ -1065,7 +1070,7 @@ impl<'a, 'w> Walker<'a, 'w> {
             ("persist", "§17.6"),
             ("raw", "§7.5"),
         ];
-        const KNOWN: &[&str] = &["test", "bench", "thread_local"];
+        const KNOWN: &[&str] = &["test", "bench", "thread_local", "inline"];
         let file = self.file;
         for (i, a) in attrs.iter().enumerate() {
             let name = a.name.name.as_str();
@@ -1095,8 +1100,8 @@ impl<'a, 'w> Walker<'a, 'w> {
                     }
                     (_, Some(s)) => d.with_help(format!("did you mean `#[{s}]`?")),
                     (_, None) => d.with_help(
-                        "the attributes are `#[test]`, `#[bench]` and `#[thread_local]` \
-                         (spec §12.8)",
+                        "the attributes are `#[test]`, `#[bench]`, `#[thread_local]` and \
+                         `#[inline]` (spec §12.8)",
                     ),
                 };
                 self.error(d);
@@ -1117,11 +1122,16 @@ impl<'a, 'w> Walker<'a, 'w> {
                 "test" | "bench" => {
                     (matches!(target, AttrTarget::ModuleFn), "a function at module level")
                 }
+                "inline" => (
+                    matches!(target, AttrTarget::ModuleFn | AttrTarget::Method),
+                    "a function or a method",
+                ),
                 _ => (matches!(target, AttrTarget::Static), "a `static`"),
             };
             if !fits {
                 let on = match target {
                     AttrTarget::ModuleFn => "a function",
+                    AttrTarget::Method => "a method",
                     AttrTarget::Static => "a static",
                     AttrTarget::Other(what) => what,
                 };
@@ -1146,6 +1156,25 @@ impl<'a, 'w> Walker<'a, 'w> {
                 );
             }
         }
+    }
+
+    /// `#[inline]` puts a body where every caller can see it (spec §12.8), so a function
+    /// with none to put there — a trait method without a default, a body-less `virtual
+    /// fn`, an `extern fn` — would take it and do nothing. That is refused, not ignored.
+    fn inline_needs_body(&mut self, attrs: &[Attr], f: &FnDecl) {
+        let Some(a) = attrs.iter().find(|a| a.name.name == "inline") else { return };
+        if f.body.is_some() && !f.is_extern {
+            return;
+        }
+        let file = self.file;
+        self.error(
+            Diagnostic::error(
+                codes::MISPLACED_ATTRIBUTE,
+                format!("`{}` has no body for `#[inline]` to make visible", f.name.name),
+            )
+            .at(file, a.span, "`#[inline]` needs a function with a body")
+            .with_help("put `#[inline]` on the functions that implement this one"),
+        );
     }
 
     /// A type in the signature of something other modules can use must be one they can
@@ -1545,6 +1574,8 @@ impl<'a, 'w> Walker<'a, 'w> {
 #[derive(Clone, Copy)]
 enum AttrTarget {
     ModuleFn,
+    /// A method of a struct, a union, a trait or an implementation.
+    Method,
     Static,
     /// Anything else, described for a message.
     Other(&'static str),

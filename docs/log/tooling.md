@@ -2,6 +2,26 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## Inlining across modules: `#[inline]` (r106, T-0153) and LTO (T-0154; 2026-11-03)
+
+A `gprof` profile of the three benchmarks, regions on, found allocation a small cost and
+missed inlining a large one: each module is its own translation unit, so `std`'s small
+functions were calls from the program however often they ran (`String::push` 14 million
+times in `words`, `hash_combine` 11 million in `astar`), and `Allocators::Global()` ran 32
+million times in `words`, the default a move resets a `String`'s allocator to. Two fixes,
+each for what the other misses:
+
+- **`#[inline]`** (spec §12.8, r106), described but refused until now: the body goes in the
+  module's header, after everything else in it, and every caller can inline it. An
+  associated constant's function always goes there. `std` marks `String`'s small methods,
+  `hash_combine`, `string_is`, the text iterators' steps and `write_char`.
+- **`-flto=auto`** on Dazzle's code in `--release` and `--shipping`, with one retry without
+  it, and a note, when a toolchain cannot link it.
+
+Measured against the compiler before both, fastest of twenty alternating runs: clang++
+`astar` and `words` 18% faster and `expr` 8%; g++ `words` 13%, `astar` and `expr` 4–5%.
+On g++ `#[inline]` gives most of it; on clang++, LTO. Debug builds (`-O0`) are unchanged.
+
 ## A build compiles only the C++ it emitted (T-0087; 2026-10-26)
 
 `compile` used to pass every `.cpp` in `build/cpp/` to the C++ compiler. So a module that

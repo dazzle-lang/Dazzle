@@ -10,6 +10,7 @@ pub trait Hash {
 }
 
 /// Two hashes as one, where the order matters: `(a, b)` and `(b, a)` hash apart.
+#[inline]
 pub fn hash_combine(seed: u64, h: u64) -> u64 {
     return seed ^^ (h + 0x9E3779B97F4A7C15 + (seed << 6) + (seed >> 2))
 }

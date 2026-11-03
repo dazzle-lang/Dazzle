@@ -22,7 +22,7 @@
 //! shorter and is wrong: `return` inside one returns from the lambda, so `or return` — the
 //! single most common clause in the language — would silently not propagate.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use dz_ast::{
@@ -200,6 +200,8 @@ pub fn emit(
             guards_made: 0,
             header_ns: module.id,
             def_prefix: "",
+            inline_fns: HashSet::new(),
+            inline_defs: String::new(),
             qualify_all: false,
             mode,
             line_directives: options.line_directives,
@@ -335,6 +337,8 @@ pub fn emit(
             guards_made: 0,
             header_ns: res.prelude,
             def_prefix: "",
+            inline_fns: HashSet::new(),
+            inline_defs: String::new(),
             qualify_all: false,
             mode,
             line_directives: options.line_directives,
@@ -599,6 +603,13 @@ struct Emitter<'a> {
     /// `"inline "` while an instance's out-of-class definitions are written into a header,
     /// where they may be included by several translation units.
     def_prefix: &'static str,
+    /// The functions and methods of this module written `#[inline]`, by file and name span,
+    /// which is the span their checked body carries (spec §12.8).
+    inline_fns: HashSet<(FileId, Span)>,
+    /// Their definitions, and those of the module's associated constants, written into the
+    /// header after everything else in it rather than into the module's own file, so every
+    /// translation unit that calls them can inline them.
+    inline_defs: String,
     /// Name every type with its namespace, even this module's own. Set inside a union's
     /// methods, where the union's members — one per variant, named after the variant's
     /// struct — hide the structs of the same names (spec §7.5).
@@ -749,6 +760,7 @@ impl<'a> Emitter<'a> {
 
     fn module(&mut self, files: &[ParsedFile]) {
         self.reject_trait_objects();
+        self.inline_fns = inline_fns(files);
         let mut own_types: Vec<(FileId, &Item, SymbolId)> = Vec::new();
         let mut functions: Vec<(FileId, &Item)> = Vec::new();
         for pf in files {
@@ -883,6 +895,12 @@ impl<'a> Emitter<'a> {
         }
         self.impl_definitions();
         self.instance_definitions();
+        // Last, so every type is complete and every function declared (spec §12.8).
+        let defs = std::mem::take(&mut self.inline_defs);
+        if !defs.is_empty() {
+            self.switch_ns(self.module);
+            self.header.push_str(&defs);
+        }
     }
 
     /// Can this constant be defined before the module's structs and unions? Only if its type
@@ -2377,11 +2395,19 @@ impl<'a> Emitter<'a> {
                     });
                     let cname = sanitize(&c.name.name);
                     self.current_fn = format!("{name}::{cname}");
-                    let _ = writeln!(self.out, "{inline}{cpp_ty} {name}::{cname}() {{");
+                    // A constant is a value, so its function is always in the header, where
+                    // a use in another module inlines to the value: `Allocators::Global`
+                    // runs on every move of a `String` (T-0153).
+                    let mut def = format!("inline {cpp_ty} {name}::{cname}() {{\n");
                     for l in pre.lines() {
-                        let _ = writeln!(self.out, "    {l}");
+                        let _ = writeln!(def, "    {l}");
                     }
-                    let _ = writeln!(self.out, "    return {value};\n}}\n");
+                    let _ = writeln!(def, "    return {value};\n}}\n");
+                    if inline.is_empty() {
+                        self.inline_defs.push_str(&def);
+                    } else {
+                        self.out.push_str(&def);
+                    }
                 }
                 MemberKind::Ctor(_) => {
                     let owner = BodyOwner::Ctor { owner: sym, index: ctors };
@@ -2796,7 +2822,8 @@ impl<'a> Emitter<'a> {
         let decl = self.decl_params(&owner);
         // `current_fn` feeds `#function`, which names the Dazzle function, not the C++ one.
         let cpp = sanitize(name);
-        let _ = writeln!(self.header, "{ret} {cpp}({decl});");
+        let inline = if self.is_inline(&owner) { "inline " } else { "" };
+        let _ = writeln!(self.header, "{inline}{ret} {cpp}({decl});");
 
         let params = self.decl_params(&owner);
         self.current_fn = name.to_owned();
@@ -3160,6 +3187,24 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_body(&mut self, owner: &BodyOwner, head: &str) {
+        // A `#[inline]` body goes in the header, so other modules' calls can be inlined
+        // (spec §12.8). An instance's body is already there, already `inline`.
+        if self.is_inline(owner) && !head.starts_with("inline ") {
+            let head = format!("inline {head}");
+            let (text, ()) = self.capture(|e| e.emit_body_here(owner, &head));
+            self.inline_defs.push_str(&text);
+            return;
+        }
+        self.emit_body_here(owner, head);
+    }
+
+    /// Whether `owner`'s declaration is written `#[inline]`.
+    fn is_inline(&self, owner: &BodyOwner) -> bool {
+        self.def_prefix.is_empty()
+            && self.find_body(owner).is_some_and(|b| self.inline_fns.contains(&(b.file, b.span)))
+    }
+
+    fn emit_body_here(&mut self, owner: &BodyOwner, head: &str) {
         let Some(body) = self.find_body(owner) else { return };
         self.last_line = 0;
         self.line(head);
@@ -6098,6 +6143,40 @@ const RESULT_PLACEMENT: &str = "_dz_result";
 /// Two loops that both say `for i in …` keep their `i`, because the first one's is gone by
 /// the time the second starts — the generated code is meant to be read (spec §16.2), and
 /// renaming every repeat would be a steady tax for a rare collision.
+/// The functions and methods written `#[inline]` in `files`, by file and name span: the
+/// span the checker gives each one's body (spec §12.8).
+fn inline_fns(files: &[ParsedFile]) -> HashSet<(FileId, Span)> {
+    fn marked(attrs: &[dz_ast::Attr]) -> bool {
+        attrs.iter().any(|a| a.name.name == "inline")
+    }
+    let mut found = HashSet::new();
+    for pf in files {
+        for item in &pf.ast.items {
+            let members = match &item.kind {
+                ItemKind::Fn(f) => {
+                    if marked(&item.attrs) {
+                        found.insert((pf.file, f.name.span));
+                    }
+                    continue;
+                }
+                ItemKind::Struct(s) => &s.members,
+                ItemKind::Union(u) => &u.methods,
+                ItemKind::Trait(t) => &t.items,
+                ItemKind::Impl(i) => &i.items,
+                _ => continue,
+            };
+            for m in members {
+                if let MemberKind::Fn(f) = &m.kind {
+                    if marked(&m.attrs) {
+                        found.insert((pf.file, f.name.span));
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
 fn local_names(body: &hir::Body) -> Vec<String> {
     let mut namer =
         Namer { body, names: vec![String::new(); body.locals.len()], scopes: vec![Vec::new()] };

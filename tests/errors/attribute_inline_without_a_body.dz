@@ -1,0 +1,11 @@
+// expect: DZ0315
+//
+// `#[inline]` makes a body visible to every caller (spec §12.8). A trait method with no
+// default has none, so the attribute would do nothing; it is refused rather than ignored.
+
+trait Shape {
+    #[inline]
+    fn area(&self) -> f32
+}
+
+fn main() {}

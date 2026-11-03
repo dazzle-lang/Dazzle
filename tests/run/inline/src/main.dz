@@ -1,0 +1,58 @@
+// `#[inline]` on every kind of function that has a body (spec §12.8). It puts the body in
+// the module's header, where every caller can inline it; what the program does is
+// unchanged. `std`'s own `#[inline]` functions are called too: `hash_combine`, and
+// `String`'s `push`, `len` and `as_str`.
+
+#[inline]
+fn twice(x: i32) -> i32 {
+    return x * 2
+}
+
+#[inline]
+fn largest<T: Ord>(a: T, b: T) -> T {
+    if a > b {
+        return move(a)
+    }
+    return move(b)
+}
+
+struct Counter {
+    m_n: i32 = 0
+
+    #[inline]
+    pub fn bump(&mut self) {
+        m_n += 1
+    }
+
+    #[inline]
+    pub fn get(&self) -> i32 {
+        return m_n
+    }
+}
+
+trait Loud {
+    #[inline]
+    fn volume(&self) -> i32 {
+        return 100
+    }
+}
+
+impl Loud for Counter {
+}
+
+impl Hash for Counter {
+    #[inline]
+    fn hash(&self) -> u64 {
+        return hash_combine(7, m_n as u64)
+    }
+}
+
+fn main() {
+    let mut c = Counter{}
+    c.bump()
+    c.bump()
+    let mut s = String("ab")
+    s.push('c')
+    println!("{} {} {} {}", twice(c.get()), largest(3, 9), c.volume(), c.hash() == hash_combine(7, 2))
+    println!("{} {}", s.as_str(), s.len())
+}

@@ -1,0 +1,11 @@
+// expect: DZ0315
+//
+// `#[inline]` goes on a function or a method (spec §12.8); a struct has no body of its own
+// to put in a header.
+
+#[inline]
+struct Point {
+    pub x: i32 = 0
+}
+
+fn main() {}

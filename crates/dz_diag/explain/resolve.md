@@ -278,7 +278,8 @@ fn main() {}
 ## DZ0315
 
 The attribute exists but does not apply here: `#[test]` and `#[bench]` go on functions,
-`#[thread_local]` on a `static`. Each takes no arguments and is written once.
+`#[thread_local]` on a `static`, `#[inline]` on a function or method that has a body to
+show its callers. Each takes no arguments and is written once.
 
 ```dz
 #[thread_local]
