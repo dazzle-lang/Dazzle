@@ -398,6 +398,8 @@ fn linker_failure(stderr: &str) -> bool {
         "undefined symbol",
         "linker command failed",
         "ld returned",
+        // clang's driver, before any linker runs, when its default linker cannot do LTO.
+        "LTO requires",
     ];
     MARKS.iter().any(|m| stderr.contains(m))
 }

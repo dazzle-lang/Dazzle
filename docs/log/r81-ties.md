@@ -6,6 +6,26 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r108, T-0128: `or unreachable` panics in every build (2026-11-03)
+
+D-0094 point 4, revising D-0020. The emitter (`dz_cpp`) counts the `unsafe` blocks around
+what it writes, `unsafe_depth`: `block_into` adds one for a block in the body's
+`unsafe_blocks`, and `in_body` starts at one for an `unsafe fn`, whose root block the HIR
+leaves out since the signature says it (`owner_is_unsafe`). `or unreachable` lowers to
+`::dz::unreachable(loc)` unless the depth is above zero and the build is optimised, where it
+is still `__builtin_unreachable()`. The checker needed nothing: `unsafe { x or unreachable }`
+was already accepted.
+
+Tests: `overflow_wraps_and_unreachable_is_assumed_only_in_unsafe` (`dz/tests/run.rs`)
+counts the assumptions in the C++ of all three builds, a block's and an `unsafe fn`'s;
+`unreachable_reached_panics_in_release` is T-0128's failed search, which a release build
+used to run past the end of its list and now stops at the panic.
+
+**Unrelated, found on the way:** T-0154's fallback to a link without `-flto=auto` never
+fired for LLVM's clang targeting MSVC, the case its comment names, since clang's driver says
+"LTO requires -fuse-ld=lld" before any linker runs. `linker_failure` now knows that message,
+so an optimised build with that clang links without LTO and says so, rather than failing.
+
 ## T-0152: regions on by default (2026-11-03)
 
 Compiler work; no language change. §14.6 already said where each value goes; until now a

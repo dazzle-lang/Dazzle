@@ -209,6 +209,7 @@ pub fn emit(
             placements,
             placement: None,
             regions: Vec::new(),
+            unsafe_depth: 0,
         };
         e.module(module_files);
         e.finish_header();
@@ -346,6 +347,7 @@ pub fn emit(
             placements: None,
             placement: None,
             regions: Vec::new(),
+            unsafe_depth: 0,
         };
         if type_info == dz_project::TypeInfo::All {
             reflect::seed_all(&mut e, files);
@@ -630,6 +632,10 @@ struct Emitter<'a> {
     placement: Option<&'a BodyPlacement>,
     /// The current body's blocks that declare a region.
     regions: Vec<BlockId>,
+    /// How many `unsafe` blocks enclose what is being emitted, counting an `unsafe fn`'s
+    /// body as one. Only there may `or unreachable` hand the optimiser its assumption
+    /// (spec §9.4, D-0094 point 4).
+    unsafe_depth: u32,
 }
 
 impl<'a> Emitter<'a> {
@@ -3400,13 +3406,35 @@ impl<'a> Emitter<'a> {
         let saved_placement = std::mem::replace(&mut self.placement, placement);
         let regions = placement.map(BodyPlacement::region_blocks).unwrap_or_default();
         let saved_regions = std::mem::replace(&mut self.regions, regions);
+        let depth = u32::from(self.owner_is_unsafe(&body.owner));
+        let saved_unsafe = std::mem::replace(&mut self.unsafe_depth, depth);
         let result = self.capture(f);
         self.body = saved_body;
         self.names = saved_names;
         self.file = saved_file;
         self.placement = saved_placement;
         self.regions = saved_regions;
+        self.unsafe_depth = saved_unsafe;
         result
+    }
+
+    /// Whether `owner` is an `unsafe fn`, whose whole body is unsafe code (spec §5.2). The
+    /// body's `unsafe_blocks` leave it out, since the signature says it.
+    fn owner_is_unsafe(&self, owner: &BodyOwner) -> bool {
+        let sig = match owner {
+            BodyOwner::Fn(sym) => match self.table.get(*sym) {
+                Some(ItemSig::Fn(sig)) => Some(sig),
+                _ => None,
+            },
+            BodyOwner::Method { owner, name } | BodyOwner::TraitDefaults { owner, name } => {
+                self.table.methods_sig(*owner).and_then(|s| s.methods.get(name))
+            }
+            BodyOwner::ImplMethod { imp, name } => {
+                self.table.impls().get(*imp as usize).and_then(|i| i.methods.get(name))
+            }
+            _ => None,
+        };
+        sig.is_some_and(|s| s.is_unsafe)
     }
 
     // --- types -------------------------------------------------------------
@@ -3582,6 +3610,8 @@ impl<'a> Emitter<'a> {
                 self.line(&format!("{ty} {}{{}};", region_name(id)));
             }
         }
+        let marked = u32::from(body.unsafe_blocks.contains(&id));
+        self.unsafe_depth += marked;
         let stmts = &body.block(id).stmts;
         let last = stmts.len().saturating_sub(1);
         for (i, s) in stmts.iter().enumerate() {
@@ -3597,6 +3627,7 @@ impl<'a> Emitter<'a> {
             }
             self.stmt(*s);
         }
+        self.unsafe_depth -= marked;
     }
 
     /// Evaluate `e` and put it where `dest` says.
@@ -5791,10 +5822,13 @@ impl<'a> Emitter<'a> {
                 self.block_into(*block, dest);
             }
             hir::OrClause::Ignore => {}
-            // A debug build panics with the location; release and shipping assume the
-            // success path, so the optimiser drops the check (spec §9.4, 18.20).
+            // Every build panics with the location. Only inside `unsafe` may an optimised
+            // build assume the success path and drop the check: a wrong assumption there is
+            // undefined behaviour, which safe code never reaches (spec §9.4, D-0020, D-0094).
             hir::OrClause::Unreachable => {
-                if self.ws.module(self.ws.root).build.optimize == dz_project::Optimize::Debug {
+                if self.unsafe_depth == 0
+                    || self.ws.module(self.ws.root).build.optimize == dz_project::Optimize::Debug
+                {
                     let loc = self.source_location(span);
                     self.line(&format!("::dz::unreachable({loc});"));
                 } else {

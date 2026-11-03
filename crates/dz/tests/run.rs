@@ -327,10 +327,11 @@ fn build_flags_choose_the_branches() {
 
 /// Integer overflow wraps in every build (spec §5.1, 18.63), including at `-O2`, where an
 /// optimiser assuming signed overflow never happens would fold `x + 1 > x` to `true`. And
-/// `or unreachable` panics in a debug build but lets a release build assume success (§9.4,
-/// 18.20) — checked in the generated C++, since the release behaviour is undefined when wrong.
+/// `or unreachable` panics in every build; only inside `unsafe`, a block or an `unsafe fn`,
+/// may an optimised build assume success (§9.4, D-0020, D-0094 point 4). The assumption is
+/// checked in the generated C++, since the behaviour is undefined when it is wrong.
 #[test]
-fn overflow_wraps_and_unreachable_is_assumed_in_release() {
+fn overflow_wraps_and_unreachable_is_assumed_only_in_unsafe() {
     if !have_compiler() {
         eprintln!("skipping: no C++ compiler available");
         return;
@@ -338,7 +339,7 @@ fn overflow_wraps_and_unreachable_is_assumed_in_release() {
     let dir = scratch(
         "dz_overflow",
         "[module]\nname = \"overflow\"\nsources = [\"src/**/*.dz\"]\n",
-        "fn grows(x: i32) -> bool {\n    return x + 1 > x\n}\n\nfn find(n: i32) -> i32? {\n    return n\n}\n\nfn main() {\n    let max: i32 = 2147483647\n    let small = 250u8\n    let v = find(3) or unreachable\n    println!(\"{} {} {} {}\", max + 1, grows(max), small + 10, v)\n}\n",
+        "fn grows(x: i32) -> bool {\n    return x + 1 > x\n}\n\nfn find(n: i32) -> i32? {\n    if n > 0 {\n        return n\n    }\n    return none\n}\n\nunsafe fn first(n: i32) -> i32 {\n    return find(n) or unreachable\n}\n\nfn main() {\n    let max: i32 = 2147483647\n    let small = 250u8\n    let v = find(3) or unreachable\n    let w = unsafe { find(4) or unreachable }\n    let f = unsafe { first(5) }\n    println!(\"{} {} {} {} {} {}\", max + 1, grows(max), small + 10, v, w, f)\n}\n",
     );
     for mode in ["--debug", "--release", "--shipping"] {
         let out = Command::new(dz())
@@ -348,15 +349,49 @@ fn overflow_wraps_and_unreachable_is_assumed_in_release() {
         assert!(out.status.success(), "{mode}: {}", String::from_utf8_lossy(&out.stderr));
         assert_eq!(
             normalise(&String::from_utf8_lossy(&out.stdout)),
-            "-2147483648 false 4 3",
+            "-2147483648 false 4 3 4 5",
             "{mode}"
         );
+        // Two assumptions in an optimised build, the block's and the `unsafe fn`'s; the
+        // safe one in `main` panics in every build.
         let cpp = std::fs::read_to_string(dir.join("build/cpp/overflow.cpp")).unwrap();
+        let assumed = if mode == "--debug" { 0 } else { 2 };
         assert_eq!(
-            cpp.contains("__builtin_unreachable()"),
-            mode != "--debug",
+            cpp.matches("__builtin_unreachable()").count(),
+            assumed,
             "{mode}: `or unreachable` lowering\n{cpp}"
         );
+        assert!(cpp.contains("::dz::unreachable("), "{mode}: safe `or unreachable`\n{cpp}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A safe `or unreachable` that is reached panics in a release build too, naming the line,
+/// where it used to let the optimiser run a search past the end of its list (D-0094 point 4,
+/// T-0128).
+#[test]
+fn unreachable_reached_panics_in_release() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_unreachable_release",
+        "[module]\nname = \"unreached\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "fn find(xs: &List<i32>, v: i32) -> usize? {\n    for i in 0..xs.len() {\n        if xs[i] == v {\n            return i\n        }\n    }\n    return none\n}\n\nfn main() {\n    let mut xs = List<i32>()\n    xs.push(1)\n    let i = find(&xs, 99) or unreachable\n    println!(\"found {}\", i)\n}\n",
+    );
+    for mode in ["--release", "--shipping"] {
+        let out = Command::new(dz())
+            .args(["run", dir.to_str().unwrap(), mode])
+            .output()
+            .expect("failed to run dz");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{mode}: expected a panic\n{stderr}");
+        assert!(
+            stderr.contains("reached code the compiler proved unreachable"),
+            "{mode}: {stderr}"
+        );
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("found"), "{mode}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

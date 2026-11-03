@@ -7,8 +7,9 @@ kind: design
 area: codegen
 ---
 
-Point 5 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), which is
-open. It extends D-0063.
+Point 5 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), decided
+as proposed on 2026-11-03 (r107): the table below, with `MIN / -1` wrapping rather than
+panicking as Rust's does. It extends D-0063.
 
 **Where the code is**
 

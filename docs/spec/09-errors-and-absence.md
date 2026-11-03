@@ -151,11 +151,19 @@ too, use the placeholder. Each fallible call has exactly one clause, and the nes
 visible rather than inferred from precedence. Flat chaining cannot express this and is
 rejected instead of being silently misread. `[DECIDED]`
 
-**`or unreachable`** asserts that the failure cannot happen. In debug builds it panics with
-a `#location`; in release and shipping builds it is free, and the compiler assumes the
-success path (`__builtin_unreachable`). Reaching it there is undefined behaviour. It is the
-escape hatch for hot paths where a null check is provably redundant, and it is spelled
-loudly on purpose. `[DECIDED — §18.20]`
+**`or unreachable`** asserts that the failure cannot happen. When it does, the program
+panics with a `#location`, in every build: the cost is a predictable branch, about what a
+bounds check costs. Inside `unsafe` — a block, or an `unsafe fn`'s body — release and
+shipping builds instead assume the success path (`__builtin_unreachable`), and reaching it
+there is undefined behaviour. That is the escape hatch for hot paths where the check is
+provably redundant, and like every unchecked thing it is written where `grep` finds it:
+
+```dz
+let i = find(&xs, v) or unreachable              // panics, naming this line, if find fails
+let i = unsafe { find(&xs, v) or unreachable }   // checked in debug, free in release
+```
+
+`[DECIDED — D-0020, revised by D-0094 point 4]`
 
 **`or ignore`** is statement position only, because it neither produces a `T` nor diverges
 and so has nothing to bind:

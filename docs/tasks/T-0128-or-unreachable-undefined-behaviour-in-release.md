@@ -2,13 +2,15 @@
 id: T-0128
 title: `or unreachable` is undefined behaviour in a release build
 milestone: none
-status: open
+status: done
+done: r108, 2026-11-03
 kind: design
 area: codegen
 ---
 
-Point 4 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), which is
-open. It revises D-0020.
+Point 4 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), decided
+as proposed on 2026-11-03 (r107): panic in every build, the optimiser's assumption kept as
+`unsafe { x or unreachable }`. It revises D-0020.
 
 **Where the code is**
 
@@ -16,6 +18,8 @@ open. It revises D-0020.
 |---|---|
 | The emission: `::dz::unreachable(loc)` in debug, `__builtin_unreachable()` otherwise | `dz_cpp/src/lib.rs`, `hir::OrClause::Unreachable` (~5596) |
 | The panic | `::dz::unreachable` in `dz_cpp/src/runtime.rs` |
+| Whether the clause is in `unsafe` | `Emitter::unsafe_depth`, counted in `block_into` and set in `in_body` from `owner_is_unsafe` (`dz_cpp/src/lib.rs`) |
+| The tests | `overflow_wraps_and_unreachable_is_assumed_only_in_unsafe`, `unreachable_reached_panics_in_release` in `dz/tests/run.rs` |
 | The rule | D-0020; §9.4; §5.2's example, "checked in debug, free in release" |
 
 **What it is.** In a release build, `x or unreachable` tells the optimiser that `x` never

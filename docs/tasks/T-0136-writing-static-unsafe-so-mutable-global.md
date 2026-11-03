@@ -7,8 +7,9 @@ kind: design
 area: ownership
 ---
 
-Point 7 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), which is
-open. It revises D-0046.
+Point 7 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), decided
+on 2026-11-03 (r107) as option A below: a `kills` clause may name a static. It revises
+D-0046.
 
 **Where the code is**
 

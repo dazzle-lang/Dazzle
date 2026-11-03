@@ -7,8 +7,11 @@ kind: design
 area: interop
 ---
 
-Point 6 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), which is
-open. It revises §15.
+Point 6 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), decided
+on 2026-11-03 (r107) as options A and C below together: a header is trusted once in the
+importing module's manifest, which lists the functions that keep a pointer (`unsafe` to
+call), and a function taking only values is safe without a word. The manifest's spelling
+is still to be settled when it is built. It revises §15.
 
 **Where the code is**
 
