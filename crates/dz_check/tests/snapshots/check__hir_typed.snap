@@ -75,24 +75,46 @@ body impl#0 method insert_slice -> void
       local _1 i: usize
       len: usize
         local _2 xs: &[]T
-    for _6 k
-      range: usize..usize
-        int 0: i32
-        len: usize
-          local _2 xs: &[]T
+    if: void
+      type-query T::is_trivially_copyable: bool
       block
         block-value: void
           block
-            builtin construct: void
-              index: T
-                field #0: own ^mut T
-                  local _0 self: List<T>
-                binary +: usize
+            builtin memcpy: void
+              ref mut: &mut T
+                index: T
+                  field #0: own ^mut T
+                    local _0 self: List<T>
                   local _1 i: usize
-                  local _6 k: usize
-              index: T
-                local _2 xs: &[]T
-                local _6 k: usize
+              ref: &T
+                index: T
+                  local _2 xs: &[]T
+                  int 0: usize
+              binary *: usize
+                len: usize
+                  local _2 xs: &[]T
+                type-query T::size: usize
+      block
+        block-value: void
+          block
+            for _6 k
+              range: usize..usize
+                int 0: i32
+                len: usize
+                  local _2 xs: &[]T
+              block
+                block-value: void
+                  block
+                    builtin construct: void
+                      index: T
+                        field #0: own ^mut T
+                          local _0 self: List<T>
+                        binary +: usize
+                          local _1 i: usize
+                          local _6 k: usize
+                      index: T
+                        local _2 xs: &[]T
+                        local _6 k: usize
     assign +=
       field #1: usize
         local _0 self: List<T>
@@ -13231,17 +13253,11 @@ body method String::push_str -> void
           local _1 s: &str
         int 1: usize
       local _2 loc: SourceLocation
-    let _3 bytes: &[]u8
+    call-method Extend::extend: void
+      field #0: List<u8>
+        local _0 self: String
       cast: &[]u8
         local _1 s: &str
-    for _4 b
-      local _3 bytes: &[]u8
-      block
-        call-method List::push: void
-          field #0: List<u8>
-            local _0 self: String
-          local _4 b: u8
-          local _2 loc: SourceLocation
     call-method List::push: void
       field #0: List<u8>
         local _0 self: String
@@ -13252,28 +13268,69 @@ body method String::push -> void
   param _1 c: char
   param _2 loc: SourceLocation
   block
-    let _3 encoded: [4]u8
+    let _3 cp: u32
+      cast: u32
+        local _1 c: char
+    if: void
+      binary <: bool
+        local _3 cp: u32
+        int 128: u32
+      block
+        let _4 n: usize
+          call-method List::len: usize
+            field #0: List<u8>
+              local _0 self: String
+        if: void
+          binary ==: bool
+            local _4 n: usize
+            int 0: usize
+          block
+            call-method List::push: void
+              field #0: List<u8>
+                local _0 self: String
+              cast: u8
+                local _3 cp: u32
+              local _2 loc: SourceLocation
+          block
+            block-value: void
+              block
+                assign =
+                  call-method IndexMut::index_mut: &mut u8
+                    field #0: List<u8>
+                      local _0 self: String
+                    binary -: usize
+                      local _4 n: usize
+                      int 1: usize
+                  cast: u8
+                    local _3 cp: u32
+        call-method List::push: void
+          field #0: List<u8>
+            local _0 self: String
+          int 0: u8
+          local _2 loc: SourceLocation
+        return: !
+    let _5 encoded: [4]u8
       array: [4]u8
         int 0: u8
         int 0: u8
         int 0: u8
         int 0: u8
-    let _4 n: usize
+    let _6 n: usize
       call encode_utf8: usize
         local _1 c: char
         ref mut: &mut [4]u8
-          local _3 encoded: [4]u8
-    let _5 text: &str
+          local _5 encoded: [4]u8
+    let _7 text: &str
       block-value: &str
         block
           cast: &str
             slice: &mut []u8
-              local _3 encoded: [4]u8
+              local _5 encoded: [4]u8
               int 0: usize
-              local _4 n: usize
+              local _6 n: usize
     call-method String::push_str: void
       local _0 self: String
-      local _5 text: &str
+      local _7 text: &str
       local _2 loc: SourceLocation
 body method String::insert_str -> void
   param _0 self: String

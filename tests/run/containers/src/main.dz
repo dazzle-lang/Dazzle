@@ -64,6 +64,14 @@ fn main() {
     let copy = s
     let same = copy == s
     println!("{} {} {} {} {}", s.as_str(), s.len(), same, String::from("x").len(), s.as_cstr())
+    // `push`'s ASCII path writes where the closing zero was: from empty, between other
+    // characters and after `push_str`, the zero must still end the text for `as_cstr`.
+    let mut built = String()
+    built.push('a')
+    built.push('\u{e9}')
+    built.push_str("bc")
+    built.push('d')
+    println!("{} {} {}", built.as_str(), built.len(), built.as_cstr())
     let mut names = List<String>()
     names.push(String("ada"))
     names.push(String("grace"))

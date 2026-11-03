@@ -29,8 +29,13 @@ impl<T: Copy> Extend<T> for List<T> {
         }
         self.reserve(xs.len)
         self.shift_up(i, xs.len)
-        for k in 0..xs.len {
-            unsafe { construct(m_data[i + k], xs[k]) }
+        if T::is_trivially_copyable {
+            // Bytes copy in one go: `String::push_str` lands here for every piece of text.
+            unsafe { memcpy(&mut m_data[i], &xs[0], xs.len * sizeof(T)) }
+        } else {
+            for k in 0..xs.len {
+                unsafe { construct(m_data[i + k], xs[k]) }
+            }
         }
         m_len += xs.len
     }
