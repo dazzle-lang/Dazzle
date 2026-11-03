@@ -43,18 +43,20 @@ returns null (§9.8). Nothing outside `std` can name that import, so a program a
 through an `Allocator`. A program that wants C's `malloc` itself imports `stdlib.h` with a
 recipe of its own. `[DECIDED — D-0084]`
 
-## 14.1 Why explicit rather than an implicit context
+## 14.1 Why the compiler chooses, rather than a parameter
 
-Odin's implicit `context.allocator` removes the parameter from every signature, and the
-price is that you cannot tell from a call whether it allocates or from where. Given
-principle 1 (§1), Dazzle first kept the allocator an explicit parameter, defaulted so that
-`List(8)` read as cleanly as the implicit version, with `List(8, &frame_arena)` there when
-needed (§18.10).
+Odin passes the allocator as a parameter: a procedure that allocates takes `allocator :=
+context.allocator`, defaulting to the allocator in the implicit `context` every procedure
+receives, which a scope can change for everything it calls. Dazzle first took the same
+shape without the context: an explicit parameter defaulting to the heap, so `List(8)` read
+cleanly and `List(8, &frame_arena)` was there when needed (§18.10). Either way the choice is
+the caller's, and nothing checks it: a value built in a frame arena and kept past the
+arena's `reset()` dangles.
 
-D-0091 answers principle 1 differently, and replaced the parameter in r104: where memory
-comes from is shown by the editor at each allocation, not chosen there, and ties make every
-choice safe, which a parameter a program passed by hand never was (a value outliving its
-arena's `reset()`).
+D-0091 replaced the parameter in r104. The compiler chooses where memory comes from, ties
+make every choice safe, and principle 1 (§1) is kept by showing the choice instead of
+writing it: the editor marks each allocation with where it went, and `dz placements` lists
+them.
 
 ## 14.2 Standard allocators
 
