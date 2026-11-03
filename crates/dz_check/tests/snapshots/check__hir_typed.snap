@@ -11344,6 +11344,64 @@ body method ScopeArena::is_large -> bool
         binary <=: bool
           local _1 align: usize
           const SCOPE_HEADER: usize
+body method ScopeArena::alloc_slow -> ^mut u8
+  param _0 self: ScopeArena
+  param _1 size: usize
+  param _2 align: usize
+  block
+    if: void
+      call-assoc ScopeArena::is_large: bool
+        local _1 size: usize
+        local _2 align: usize
+      block
+        return: !
+          call-method ScopeArena::alloc_large: ^mut u8
+            local _0 self: ScopeArena
+            local _1 size: usize
+    let _3 start: usize
+      call-method ScopeArena::aligned: usize
+        local _0 self: ScopeArena
+        local _2 align: usize
+    if: void
+      binary ||: bool
+        binary ==: bool
+          field #0: ^mut u8
+            local _0 self: ScopeArena
+          null: ^mut u8
+        binary >: bool
+          binary +: usize
+            local _3 start: usize
+            local _1 size: usize
+          field #2: usize
+            local _0 self: ScopeArena
+      block
+        call-method ScopeArena::grow: void
+          local _0 self: ScopeArena
+          local _1 size: usize
+          local _2 align: usize
+        assign =
+          local _3 start: usize
+          call-method ScopeArena::aligned: usize
+            local _0 self: ScopeArena
+            local _2 align: usize
+    assign =
+      field #1: usize
+        local _0 self: ScopeArena
+      binary +: usize
+        local _3 start: usize
+        local _1 size: usize
+    let _4 p: ^mut u8
+      block-value: &mut u8
+        block
+          ref mut: &mut u8
+            index: u8
+              field #0: ^mut u8
+                local _0 self: ScopeArena
+              local _3 start: usize
+    return: !
+      block-value: ^mut u8
+        block
+          local _4 p: ^mut u8
 body method ScopeArena::alloc_large -> ^mut u8
   param _0 self: ScopeArena
   param _1 size: usize
@@ -11464,58 +11522,50 @@ body impl#98 method alloc -> ^mut u8
   param _3 _loc: SourceLocation
   block
     if: void
-      call-assoc ScopeArena::is_large: bool
-        local _1 size: usize
-        local _2 align: usize
-      block
-        return: !
-          call-method ScopeArena::alloc_large: ^mut u8
-            local _0 self: ScopeArena
-            local _1 size: usize
-    let _4 start: usize
-      call-method ScopeArena::aligned: usize
-        local _0 self: ScopeArena
-        local _2 align: usize
-    if: void
-      binary ||: bool
-        binary ==: bool
+      binary &&: bool
+        binary <: bool
+          local _1 size: usize
+          const SCOPE_LARGE: usize
+        binary !=: bool
           field #0: ^mut u8
             local _0 self: ScopeArena
           null: ^mut u8
-        binary >: bool
-          binary +: usize
-            local _4 start: usize
-            local _1 size: usize
-          field #2: usize
-            local _0 self: ScopeArena
       block
-        call-method ScopeArena::grow: void
-          local _0 self: ScopeArena
-          local _1 size: usize
-          local _2 align: usize
-        assign =
-          local _4 start: usize
+        let _4 start: usize
           call-method ScopeArena::aligned: usize
             local _0 self: ScopeArena
             local _2 align: usize
-    assign =
-      field #1: usize
-        local _0 self: ScopeArena
-      binary +: usize
-        local _4 start: usize
-        local _1 size: usize
-    let _5 p: ^mut u8
-      block-value: &mut u8
-        block
-          ref mut: &mut u8
-            index: u8
-              field #0: ^mut u8
-                local _0 self: ScopeArena
+        if: void
+          binary <=: bool
+            binary +: usize
               local _4 start: usize
+              local _1 size: usize
+            field #2: usize
+              local _0 self: ScopeArena
+          block
+            assign =
+              field #1: usize
+                local _0 self: ScopeArena
+              binary +: usize
+                local _4 start: usize
+                local _1 size: usize
+            let _5 p: ^mut u8
+              block-value: &mut u8
+                block
+                  ref mut: &mut u8
+                    index: u8
+                      field #0: ^mut u8
+                        local _0 self: ScopeArena
+                      local _4 start: usize
+            return: !
+              block-value: ^mut u8
+                block
+                  local _5 p: ^mut u8
     return: !
-      block-value: ^mut u8
-        block
-          local _5 p: ^mut u8
+      call-method ScopeArena::alloc_slow: ^mut u8
+        local _0 self: ScopeArena
+        local _1 size: usize
+        local _2 align: usize
 body impl#98 method realloc -> ^mut u8
   param _0 self: ScopeArena
   param _1 p: ^mut u8

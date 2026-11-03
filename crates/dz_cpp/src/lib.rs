@@ -868,9 +868,9 @@ impl<'a> Emitter<'a> {
                 _ => {}
             }
         }
-        self.trait_object_bodies(&traits);
         self.impl_prototypes();
         self.impl_vtables();
+        self.trait_object_bodies(&traits);
         // Member bodies come last so they can call anything in the module.
         for &(file, item, sym) in &own_types {
             self.file = file;
@@ -1282,24 +1282,69 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// Written after [`Emitter::impl_vtables`], since a region's direct call names its
+    /// vtable and its implementation.
     fn trait_object_bodies(&mut self, traits: &[SymbolId]) {
+        let empty = HashMap::new();
         for &sym in traits {
             let name = sanitize(&self.res.symbol(sym).name);
+            let region = self.region_allocator(sym);
             for (m, sig) in self.trait_methods(sym) {
                 let (ret, params) = self.dyn_signature(&sig);
                 let list: Vec<String> =
                     params.iter().enumerate().map(|(i, t)| format!("{t} a{i}")).collect();
+                let rest: Vec<String> = (0..params.len()).map(|i| format!("a{i}")).collect();
                 let mut args = vec!["data".to_owned()];
-                args.extend((0..params.len()).map(|i| format!("a{i}")));
-                let m = sanitize(&m);
+                args.extend(rest.iter().cloned());
+                let call = format!("return vt->{}({});", sanitize(&m), args.join(", "));
+                let body = match &region {
+                    Some((idx, arena)) => {
+                        let vt = format!("{}__vtable", self.qualify(sym));
+                        let ptr = if sig.takes_self == Some(true) {
+                            format!("{arena}*")
+                        } else {
+                            format!("{}*", const_of(arena))
+                        };
+                        let f = self.qualify_impl_fn(*idx, &empty, &m);
+                        let mut direct = vec![format!("*static_cast<{ptr}>(data)")];
+                        direct.extend(rest);
+                        format!(
+                            "\n    if (vt == dz_vtable(static_cast<const {vt}*>(nullptr), \
+                             static_cast<const {arena}*>(nullptr))) {{\n        \
+                             return {f}({});\n    }}\n    {call}\n",
+                            direct.join(", ")
+                        )
+                    }
+                    None => format!(" {call} "),
+                };
                 let _ = writeln!(
                     self.header,
-                    "inline {ret} {name}__dyn::{m}({}) const {{ return vt->{m}({}); }}",
-                    list.join(", "),
-                    args.join(", ")
+                    "inline {ret} {name}__dyn::{}({}) const {{{body}}}",
+                    sanitize(&m),
+                    list.join(", ")
                 );
             }
         }
+    }
+
+    /// The region arena's implementation of `Allocator`, when regions are on and `trait_sym`
+    /// is `Allocator`. An allocation in a region is then a direct call rather than one
+    /// through the vtable, so the C++ compiler can inline its pointer bump wherever it sees
+    /// the arena's body: in `std`, where the containers are (spec §14.6, T-0151). Other
+    /// allocators still go through the vtable.
+    fn region_allocator(&mut self, trait_sym: SymbolId) -> Option<(usize, String)> {
+        self.placements?;
+        if self.res.lookup(self.res.prelude, "Allocator") != Some(trait_sym) {
+            return None;
+        }
+        let arena = self.res.lookup(self.res.prelude, "ScopeArena")?;
+        let idx = self.own_impls().into_iter().map(|(idx, _)| idx).find(|&idx| {
+            let imp = &self.table.impls()[idx];
+            imp.trait_ref.trait_sym == trait_sym
+                && matches!(&imp.self_ty, Ty::Named { sym, .. } if *sym == arena)
+        })?;
+        let self_ty = self.table.impls()[idx].self_ty.clone();
+        Some((idx, self.cpp_ty(&self_ty)))
     }
 
     /// Each implementation of an object-safe trait gives its vtable, found by the handle

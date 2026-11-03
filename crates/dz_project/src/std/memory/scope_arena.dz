@@ -68,6 +68,22 @@ pub struct ScopeArena {
         return size >= SCOPE_LARGE && align <= SCOPE_HEADER
     }
 
+    /// An allocation `alloc`'s pointer bump does not cover: a large block, or a chunk
+    /// with no room (or none yet).
+    fn alloc_slow(&mut self, size: usize, align: usize) -> ^mut u8 {
+        if ScopeArena::is_large(size, align) {
+            return self.alloc_large(size)
+        }
+        let mut start = self.aligned(align)
+        if m_chunk == null || start + size > m_cap {
+            self.grow(size, align)
+            start = self.aligned(align)
+        }
+        m_used = start + size
+        let p: ^mut u8 = unsafe { &mut m_chunk[start] }
+        return unsafe { p }
+    }
+
     fn alloc_large(&mut self, size: usize) -> ^mut u8 {
         let block = c_malloc(SCOPE_LARGE_HEADER + size)
         unsafe {
@@ -112,18 +128,19 @@ pub struct ScopeArena {
 }
 
 impl Allocator for ScopeArena {
+    /// A small block that fits in the current chunk is a pointer bump, and only that is
+    /// here, so the C++ compiler can inline it where codegen calls it directly (T-0151);
+    /// everything else is `alloc_slow`.
     fn alloc(&mut self, size: usize, align: usize, _loc: SourceLocation) -> ^mut u8 {
-        if ScopeArena::is_large(size, align) {
-            return self.alloc_large(size)
+        if size < SCOPE_LARGE && m_chunk != null {
+            let start = self.aligned(align)
+            if start + size <= m_cap {
+                m_used = start + size
+                let p: ^mut u8 = unsafe { &mut m_chunk[start] }
+                return unsafe { p }
+            }
         }
-        let mut start = self.aligned(align)
-        if m_chunk == null || start + size > m_cap {
-            self.grow(size, align)
-            start = self.aligned(align)
-        }
-        m_used = start + size
-        let p: ^mut u8 = unsafe { &mut m_chunk[start] }
-        return unsafe { p }
+        return self.alloc_slow(size, align)
     }
 
     fn realloc(

@@ -6,6 +6,17 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0151: a region's allocation called directly (2026-11-03)
+
+Compiler work, no language change. A container reaches its allocator through the
+`Allocator` trait object, so a region's pointer bump sat behind an indirect call. With
+regions on, `Allocator__dyn`'s methods now check for `ScopeArena`'s vtable and call its
+implementation directly, and `ScopeArena::alloc` is cut to the bump (the rest is
+`alloc_slow`), so the C++ compiler inlines it within `std`. Measured against the compiler
+before it, fastest of twenty alternating runs: 2–6% faster on clang++, `expr` 8% faster
+on g++, `astar` and `words` about 1% slower on g++. The indirect call was a small part of
+the cost; the rest is listed in T-0151.
+
 ## T-0117: the gate's verdict, regions stay (2026-11-02)
 
 Measurement only; no code changed. `tools/bench_regions.py` with r105 in, release, ten
