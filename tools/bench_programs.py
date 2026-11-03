@@ -42,8 +42,8 @@ SUITE = ROOT / "tests" / "bench_programs"
 # -fno-rtti. It does not get -fwrapv: wrapping integer arithmetic is a Dazzle rule
 # (spec §5.1) whose cost belongs to Dazzle's side of the comparison.
 MODES = {
-    "release": ["-O2"],
-    "shipping": ["-O3", "-DNDEBUG"],
+    "release": ["-O2", "-flto=auto"],
+    "shipping": ["-O3", "-DNDEBUG", "-flto=auto"],
 }
 CXX_FLAGS = ["-std=c++17", "-fno-exceptions", "-fno-rtti", "-Wall", "-Wextra"]
 
