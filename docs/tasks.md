@@ -140,7 +140,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (37 open)
+## none — not scheduled (38 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -179,3 +179,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method or format!, or in a generic body · feature, ownership
 - **[T-0148](tasks/T-0148-say-in-source-that-drop-only.md)** Say in the source that a drop only frees, checked by the compiler · design, ownership
 - **[T-0150](tasks/T-0150-value-stored-into-container-lent-function.md)** A value stored into a container lent to a function keeps the heap · design, ownership
+- **[T-0159](tasks/T-0159-delete-allocators-global-allocators-temp-temparena.md)** "Delete Allocators::Global, Allocators::Temp and TempArena: nothing outside std names an allocator" · feature, stdlib
