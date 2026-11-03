@@ -45,11 +45,16 @@ fn main() {
     // using it, and before `RGFW_deinit` (defers run in reverse).
     defer rgfw::RGFW_window_close(win)
 
-    // The pixels belong to the program; RGFW's surface only points at them, so the list is
-    // sized once and never grows while the surface exists.
+    // The pixels belong to the program; RGFW's surface only points at them, which is why the
+    // recipe lists `RGFW_window_createSurface` in `keeps` and the call is `unsafe`. It holds
+    // because the list is sized once and never grows while the surface exists, and the
+    // surface is freed before the list drops: a `defer` runs before the drops of what was
+    // declared ahead of it (spec §6.5).
     let mut pixels: List<u8>
     pixels.resize((WIDTH * HEIGHT * 4) as usize)
-    let surface = rgfw::RGFW_window_createSurface(win, pixels.as_mut_slice().ptr, WIDTH, HEIGHT, rgfw::RGFW_formatRGBA8)
+    let surface = unsafe {
+        rgfw::RGFW_window_createSurface(win, pixels.as_mut_slice().ptr, WIDTH, HEIGHT, rgfw::RGFW_formatRGBA8)
+    }
     defer rgfw::RGFW_surface_free(surface)
 
     let start = Instant::now()

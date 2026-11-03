@@ -62,6 +62,88 @@ impl Header {
     pub fn decl(&self, name: &str) -> Option<&Decl> {
         self.decls.iter().find(|d| d.name == name)
     }
+
+    /// Every function and method as a recipe's `keeps` names it: a function by its
+    /// namespaces and name (`ma_device_init`, `JPH::Thing`), a method by its type's name
+    /// and its own (`Counter::get`), a constructor as `Counter::Counter` (spec §15.2).
+    pub fn function_names(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for d in &self.decls {
+            match &d.kind {
+                DeclKind::Fn { .. } => out.push(d.qualified()),
+                DeclKind::Struct { methods, .. } => {
+                    for m in methods {
+                        out.push(format!("{}::{}", d.qualified(), m.name));
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// Whether a call can hand C or C++ a pointer to Dazzle memory, which it might keep:
+    /// some parameter is a pointer, a reference, or a struct by value with one inside it.
+    /// Numbers, enums, C strings, callbacks and handles are values (spec §15.2, D-0094
+    /// point 6). A handle points at what the library made, never at a Dazzle value.
+    pub fn takes_pointer(&self, params: &[Param]) -> bool {
+        params.iter().any(|p| !self.is_value(&p.ty, &mut Vec::new()))
+    }
+
+    /// A [`CType::Named`] or an alias's target is the C++ path, `::MiniVec2`.
+    fn decl_by_cpp(&self, cpp: &str) -> Option<&Decl> {
+        self.decls.iter().find(|d| d.cpp == cpp && !matches!(d.kind, DeclKind::Fn { .. }))
+    }
+
+    fn is_value(&self, ty: &CType, seen: &mut Vec<String>) -> bool {
+        match ty {
+            CType::Void
+            | CType::Bool
+            | CType::Int(_)
+            | CType::Size { .. }
+            | CType::Float { .. }
+            | CType::CStr
+            | CType::Fn { .. } => true,
+            CType::Ptr { pointee, .. } => self.is_handle(pointee),
+            CType::Ref { .. } | CType::Unsupported(_) => false,
+            CType::Array { elem, .. } => self.is_value(elem, seen),
+            CType::Named(name) => {
+                if seen.contains(name) {
+                    return true;
+                }
+                seen.push(name.clone());
+                match self.decl_by_cpp(name).map(|d| &d.kind) {
+                    Some(DeclKind::Struct { fields, .. }) => {
+                        fields.iter().all(|f| self.is_value(&f.ty, seen))
+                    }
+                    Some(DeclKind::Alias { target }) => {
+                        self.is_value(&CType::Named(target.clone()), seen)
+                    }
+                    Some(DeclKind::Enum { .. } | DeclKind::Const { .. }) => true,
+                    Some(DeclKind::Fn { .. }) | None => false,
+                }
+            }
+        }
+    }
+
+    /// A struct the header declares and never defines, which only the library can make.
+    fn is_handle(&self, ty: &CType) -> bool {
+        let CType::Named(name) = ty else { return false };
+        match self.decl_by_cpp(name).map(|d| &d.kind) {
+            Some(DeclKind::Struct { opaque, .. }) => *opaque,
+            Some(DeclKind::Alias { target }) => self.is_handle(&CType::Named(target.clone())),
+            _ => false,
+        }
+    }
+}
+
+impl Decl {
+    /// Its namespaces and name, as Dazzle code and a recipe's `keeps` write it.
+    pub fn qualified(&self) -> String {
+        let mut parts = self.scope.clone();
+        parts.push(self.name.clone());
+        parts.join("::")
+    }
 }
 
 /// A byte range in one of [`Header::files`].

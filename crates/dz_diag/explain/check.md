@@ -690,6 +690,11 @@ primitives and calling an `unsafe fn` are raw-memory operations: nothing checks 
 memory is still there, so they go inside `unsafe { … }` (spec §5.2). Forming, copying,
 storing and comparing a pointer are all safe.
 
+A C or C++ function that takes a pointer, a reference or a receiver is one too, until its
+recipe in `dazzle.toml` vouches for the library with `keeps = […]`, naming the functions
+that keep a pointer past the call (`keeps = []` when none do). The ones it names stay
+`unsafe` to call; a function taking only values never is (spec §15.2).
+
 ```dz
 fn main() {
     let n = 3

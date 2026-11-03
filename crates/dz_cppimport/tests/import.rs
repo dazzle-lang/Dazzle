@@ -119,6 +119,31 @@ fn a_struct_the_header_never_defines_is_a_handle() {
     }
 }
 
+/// Spec §15.2, D-0094 point 6: a function taking only values is safe to call whatever the
+/// recipe says, and one that can hand C a pointer to Dazzle memory is not, unless a recipe
+/// vouches for it with `keeps`.
+#[test]
+fn a_function_taking_only_values_hands_c_no_pointer() {
+    let Some(h) = import_mini() else { return };
+    let takes = |name: &str| match &h.decl(name).unwrap_or_else(|| panic!("no `{name}`")).kind {
+        DeclKind::Fn { params, .. } => h.takes_pointer(params),
+        other => panic!("{other:?}"),
+    };
+    // Numbers, a struct of numbers by value, an enum, a C string, a callback, a handle.
+    for name in ["mini_scale", "mini_add", "mini_sides", "mini_length", "mini_apply", "mini_count"]
+    {
+        assert!(!takes(name), "{name} takes only values");
+    }
+    // `int *`, `const int *`, a pointer to a struct, and the one that keeps its pointer.
+    for name in ["mini_fill", "mini_sum", "mini_config_total", "mini_read_int", "mini_watch"] {
+        assert!(takes(name), "{name} takes a pointer");
+    }
+    // What a recipe's `keeps` names them by.
+    let names = h.function_names();
+    assert!(names.contains(&"mini_watch".to_owned()), "{names:?}");
+    assert!(!names.iter().any(|n| n == "MiniVec2"), "{names:?}");
+}
+
 #[test]
 fn a_c_union_imports_as_a_type_whose_members_overlap() {
     // spec §15.2, §18.41 — Dazzle's own `union` is tagged and a C one is not, so it comes

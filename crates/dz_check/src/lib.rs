@@ -141,6 +141,16 @@ pub fn caller_default(default: Option<&Expr>) -> Option<String> {
     }
 }
 
+/// Why a C or C++ function is `unsafe` to call (spec §15.2, D-0094 point 6).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ForeignUnsafe {
+    /// It takes a pointer, a reference or a receiver, and no recipe for its library says
+    /// with `keeps` which of the library's functions keep one.
+    Unvouched { recipe: String },
+    /// The recipe lists it in `keeps`: it holds a pointer past the call.
+    Keeps { recipe: String },
+}
+
 #[derive(Clone, Debug)]
 pub struct FnSig {
     pub params: Vec<ParamSig>,
@@ -154,6 +164,8 @@ pub struct FnSig {
     pub is_mut: bool,
     /// `unsafe fn`: a call needs an `unsafe` block, and the body is one (spec §5.2).
     pub is_unsafe: bool,
+    /// Why an imported function is `unsafe` to call, which the refusal says (spec §15.2).
+    pub foreign_unsafe: Option<ForeignUnsafe>,
     pub vis: Vis,
     pub span: Span,
     /// `fn max<T: Ord>` — this function's own generic parameters (spec §8.1). A method of
@@ -1276,6 +1288,12 @@ impl Ctx<'_> {
                 let Some(sym) = self.res.foreign(module.id, &d.cpp) else { continue };
                 let span =
                     |l: dz_project::cppimport::Loc| Span::new(l.start as usize, l.end as usize);
+                let foreign = match &d.kind {
+                    DeclKind::Fn { params, .. } => {
+                        foreign_unsafe(&f.trust, &d.qualified(), f.header.takes_pointer(params))
+                    }
+                    _ => None,
+                };
                 let sig = match &d.kind {
                     DeclKind::Fn { params, ret, ret_cast } => ItemSig::Fn(FnSig {
                         ret_cast: *ret_cast,
@@ -1298,7 +1316,8 @@ impl Ctx<'_> {
                         fallible: false,
                         takes_self: None,
                         is_mut: false,
-                        is_unsafe: false,
+                        is_unsafe: foreign.is_some(),
+                        foreign_unsafe: foreign,
                         vis: Vis::Public,
                         span: span(d.loc),
                         generics: Vec::new(),
@@ -1328,7 +1347,7 @@ impl Ctx<'_> {
                             cpp_owned: *move_only,
                             ..StructSig::default()
                         };
-                        self.foreign_methods(module.id, methods, &mut sig);
+                        self.foreign_methods(module.id, f, &d.qualified(), methods, &mut sig);
                         ItemSig::Struct(sig)
                     }
                     DeclKind::Enum { backing, variants, .. } => ItemSig::Enum {
@@ -1368,12 +1387,22 @@ impl Ctx<'_> {
     fn foreign_methods(
         &mut self,
         module: ModuleId,
+        foreign: &dz_project::Foreign,
+        owner: &str,
         methods: &[dz_project::cppimport::Method],
         sig: &mut StructSig,
     ) {
         use dz_project::cppimport::Receiver;
         for m in methods {
             let span = Span::new(m.loc.start as usize, m.loc.end as usize);
+            // A receiver is a pointer to the object, which C++ may keep as it may keep any
+            // pointer it is given; a constructor's is the object being made.
+            let receives = m.receiver.is_some() || m.is_ctor;
+            let unsafe_why = foreign_unsafe(
+                &foreign.trust,
+                &format!("{owner}::{}", m.name),
+                receives || foreign.header.takes_pointer(&m.params),
+            );
             let f = FnSig {
                 dispatch: Dispatch::Static,
                 variadic: None,
@@ -1394,7 +1423,8 @@ impl Ctx<'_> {
                 fallible: false,
                 takes_self: m.receiver.map(|r| matches!(r, Receiver::Ref | Receiver::MutRef)),
                 is_mut: matches!(m.receiver, Some(Receiver::MutRef)),
-                is_unsafe: false,
+                is_unsafe: unsafe_why.is_some(),
+                foreign_unsafe: unsafe_why,
                 vis: Vis::Public,
                 span,
                 generics: Vec::new(),
@@ -1453,6 +1483,21 @@ impl Ctx<'_> {
             // The importer leaves out whatever uses one, so this is never reached.
             CType::Unsupported(_) => Ty::Error,
         }
+    }
+}
+
+/// Whether an imported function is `unsafe` to call, and why (spec §15.2, D-0094 point 6):
+/// it is listed in `keeps`, or it takes a pointer and no recipe vouched for its library.
+fn foreign_unsafe(
+    trust: &dz_project::Trust,
+    name: &str,
+    takes_pointer: bool,
+) -> Option<ForeignUnsafe> {
+    let recipe = trust.recipe.clone();
+    match &trust.keeps {
+        Some(keeps) if keeps.iter().any(|k| k == name) => Some(ForeignUnsafe::Keeps { recipe }),
+        None if takes_pointer => Some(ForeignUnsafe::Unvouched { recipe }),
+        _ => None,
     }
 }
 
@@ -3631,6 +3676,7 @@ impl<'a> Ctx<'a> {
             // The receiver is the only place a method says it mutates (spec §7.3, §18.34).
             is_mut: f.self_param.is_some_and(|s| s.is_mut),
             is_unsafe: f.is_unsafe,
+            foreign_unsafe: None,
             vis,
             span: f.name.span,
             generics,

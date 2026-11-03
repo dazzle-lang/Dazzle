@@ -30,6 +30,9 @@ defines      = ["SOKOL_IMPL"]
 flags        = ["-include", "sokol_log.h", "-include", "sokol_gfx.h",
                 "-include", "sokol_app.h", "-include", "sokol_glue.h"]
 import       = ["sokol_log.h", "sokol_gfx.h", "sokol_app.h", "sokol_glue.h", "sokol_gl.h"]
+# Vouches for sokol: every `*_desc` is copied by the call it is passed to, and the
+# `user_data` sokol keeps is a `void*`, which only `unsafe` makes (spec §15.2).
+keeps        = []
 
 [cpp.libs.sokol.target.windows]
 link_libs = ["kernel32", "user32", "shell32", "gdi32"]

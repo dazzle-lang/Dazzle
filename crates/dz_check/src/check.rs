@@ -14,7 +14,7 @@ use crate::impls::might_overlap;
 use crate::ty::{self, assignable, join, FnKills, IntTy, Ty};
 use crate::{
     const_int_literal, decode_raw_string_literal, decode_string_literal, parse_float_literal,
-    parse_int_literal, type_name, Ctx, FnSig, ImplSig, ItemSig, ParamDef, TraitRef,
+    parse_int_literal, type_name, Ctx, FnSig, ForeignUnsafe, ImplSig, ItemSig, ParamDef, TraitRef,
 };
 
 pub(crate) fn item(cx: &mut Ctx, it: &Item) {
@@ -866,6 +866,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     takes_self: Some(true),
                     is_mut: true,
                     is_unsafe: false,
+                    foreign_unsafe: None,
                     vis: m.vis,
                     span: f.name.span,
                     generics: Vec::new(),
@@ -1096,6 +1097,46 @@ impl<'a, 'c> Body<'a, 'c> {
     /// cannot see whether a pointer still points at something, so the programmer says so,
     /// in a place a reader — or `grep` — can find.
     fn require_unsafe(&mut self, span: Span, what: &str) {
+        self.require_unsafe_because(
+            span,
+            what,
+            "wrap it in `unsafe { … }` — nothing checks that the memory is still there. \
+             To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)"
+                .to_owned(),
+        );
+    }
+
+    /// A call to an `unsafe fn`. An imported one says why it is unsafe and where to vouch
+    /// for it, since the fix is usually one line in a recipe (spec §15.2).
+    fn require_unsafe_call(&mut self, span: Span, sig: &FnSig, name: &str) {
+        if !sig.is_unsafe {
+            return;
+        }
+        match &sig.foreign_unsafe {
+            None => self.require_unsafe(span, &format!("calling `unsafe fn {name}`")),
+            Some(ForeignUnsafe::Unvouched { recipe }) => self.require_unsafe_because(
+                span,
+                &format!("calling `{name}`"),
+                format!(
+                    "`{name}` takes a pointer, and `[cpp.libs.{recipe}]` does not say which of \
+                     the library's functions keep one past the call. Once you know, write \
+                     `keeps = […]` in that recipe naming the ones that do, `keeps = []` if \
+                     none do; or wrap this call in `unsafe {{ … }}` (spec §15.2)"
+                ),
+            ),
+            Some(ForeignUnsafe::Keeps { recipe }) => self.require_unsafe_because(
+                span,
+                &format!("calling `{name}`"),
+                format!(
+                    "`[cpp.libs.{recipe}]` lists `{name}` in `keeps`: it holds a pointer past \
+                     the call, and nothing checks that what it points at lives that long. \
+                     Wrap the call in `unsafe {{ … }}` (spec §15.2)"
+                ),
+            ),
+        }
+    }
+
+    fn require_unsafe_because(&mut self, span: Span, what: &str, help: String) {
         if self.unsafe_depth > 0 {
             return;
         }
@@ -1109,8 +1150,7 @@ impl<'a, 'c> Body<'a, 'c> {
             span,
             format!("{what} is unsafe"),
             "outside an `unsafe` block",
-            "wrap it in `unsafe { … }` — nothing checks that the memory is still there. \
-             To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)",
+            help,
         );
     }
 
@@ -4902,7 +4942,7 @@ impl<'a, 'c> Body<'a, 'c> {
             self.require_mutable_receiver(base, &recv.ty, &name.name);
         }
         if sig.is_unsafe {
-            self.require_unsafe(span, &format!("calling `unsafe fn {}`", name.name));
+            self.require_unsafe_call(span, &sig, &name.name);
         }
         let args = self.check_args(&sig, args, span, &name.name);
         let ty = fallible_result(&sig, self.subst(&sig.ret));
@@ -4982,7 +5022,7 @@ impl<'a, 'c> Body<'a, 'c> {
         };
         self.check_member_visible(owner, &name.name, sig.vis, sig.span, name.span, "function");
         if sig.is_unsafe {
-            self.require_unsafe(span, &format!("calling `unsafe fn {}`", name.name));
+            self.require_unsafe_call(span, &sig, &name.name);
         }
         // Named as it is written, so "write it out" says `Crate::fresh<T>(…)`.
         let shown = format!("{}::{}", self.cx.res.symbol(owner).name, name.name);
@@ -5062,7 +5102,7 @@ impl<'a, 'c> Body<'a, 'c> {
             self.require_mutable_receiver(first, &recv.ty, &method.name);
         }
         if sig.is_unsafe {
-            self.require_unsafe(span, &format!("calling `unsafe fn {}`", method.name));
+            self.require_unsafe_call(span, &sig, &method.name);
         }
         let args = self.check_args(&sig, rest, span, &method.name);
         let ty = fallible_result(&sig, self.subst(&sig.ret));
@@ -5142,7 +5182,7 @@ impl<'a, 'c> Body<'a, 'c> {
             self.require_mutable_receiver(recv_expr, &recv.ty, &method.name);
         }
         if sig.is_unsafe {
-            self.require_unsafe(span, &format!("calling `unsafe fn {}`", method.name));
+            self.require_unsafe_call(span, &sig, &method.name);
         }
         let args = self.check_args(&sig, rest, span, &method.name);
         let ty = fallible_result(&sig, self.subst(&sig.ret));
@@ -5462,12 +5502,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         if sig.is_mut {
                             self.require_mutable_receiver(base, &base_ty, &name.name);
                         }
-                        if sig.is_unsafe {
-                            self.require_unsafe(
-                                span,
-                                &format!("calling `unsafe fn {}`", name.name),
-                            );
-                        }
+                        self.require_unsafe_call(span, &sig, &name.name);
                         let written = PathSegment {
                             span: name.span,
                             name: name.clone(),
@@ -5655,6 +5690,8 @@ impl<'a, 'c> Body<'a, 'c> {
                         } else {
                             (sig, Ty::plain(sym))
                         };
+                        // A C++ constructor is given the object it makes, and may keep it.
+                        self.require_unsafe_call(span, &sig, &format!("{name}::{name}"));
                         let args = self.check_args(&sig, args, span, &name);
                         self.refuse_abstract(sym, span);
                         let callee = hir::Callee::Ctor { owner: sym, index };
@@ -5681,7 +5718,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         type_args = targs;
                     }
                     if sig.is_unsafe {
-                        self.require_unsafe(span, &format!("calling `unsafe fn {name}`"));
+                        self.require_unsafe_call(span, &sig, &name);
                     }
                     let args = self.check_args(&sig, args, span, &name);
                     let ty = fallible_result(&sig, self.subst(&sig.ret));

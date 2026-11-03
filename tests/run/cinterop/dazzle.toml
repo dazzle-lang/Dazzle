@@ -15,3 +15,6 @@ sources      = ["*.c"]
 include_dirs = ["include"]
 defines      = ["MINI_SCALE=3"]
 import       = ["mini.h"]
+# Vouches for the library: its functions taking a pointer are safe to call, except the one
+# that keeps it past the call (spec §15.2).
+keeps        = ["mini_watch"]

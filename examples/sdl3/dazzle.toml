@@ -15,6 +15,9 @@ gl  = { cpp = "glad" }
 cmake   = "../vendor/SDL"
 options = { SDL_SHARED = false, SDL_STATIC = true, SDL_TEST_LIBRARY = false, SDL_EXAMPLES = false }
 import  = ["SDL3/SDL.h"]
+# Vouches for SDL: what the calls here take, an event or a size to fill, is written
+# during the call and not kept (spec §15.2).
+keeps   = []
 
 # OpenGL past version 1.1 is not exported by the system library on every platform (on
 # Windows, `opengl32.dll` has nothing newer), so its functions are asked of the driver at
@@ -30,3 +33,6 @@ include_dirs = ["."]
 # raylib's copy leaves its allocator to the includer, as raylib sets it to its own.
 defines      = ["GLAD_GL_IMPLEMENTATION", "GLAD_MALLOC=malloc", "GLAD_FREE=free"]
 import       = ["external/glad.h"]
+# OpenGL keeps only a `void*` it is given, as a client-side vertex array, and only
+# `unsafe` makes one (spec §15.2).
+keeps        = []

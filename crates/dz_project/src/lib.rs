@@ -151,6 +151,11 @@ pub struct CppLib {
     /// `import = ["raylib.h"]`: the header Dazzle code sees of this library, as a
     /// `cpp = "…"` dependency names it (spec §15.1).
     pub import: Vec<(String, Span)>,
+    /// `keeps = ["ma_device_init"]`: the recipe vouches for the library's functions, and
+    /// names the ones that keep a pointer past the call, which stay `unsafe` to call. `None`
+    /// when the key is absent: then a function taking a pointer is `unsafe` to call, and
+    /// one taking only values is safe either way (spec §15.2, D-0094 point 6).
+    pub keeps: Option<Vec<(String, Span)>>,
     /// `cmake = "vendor/SDL"`: a library built by its own CMake rather than from `sources`
     /// (spec §15.1, D-0090). Its include dirs, link libraries and the fields below come
     /// from what the build installed, read when the workspace is loaded.
@@ -422,6 +427,20 @@ pub struct Foreign {
     /// `header.files` as they were added to the source map, so a declaration's span points
     /// into the header it came from.
     pub files: Vec<FileId>,
+    /// What the recipe vouches for (spec §15.2).
+    pub trust: Trust,
+}
+
+/// Which of a header's functions are safe to call. One taking only values always is; one
+/// taking a pointer, a reference or a C++ receiver is only when a recipe vouched for the
+/// library with `keeps` and did not list it there (spec §15.2, D-0094 point 6).
+#[derive(Debug, Clone, Default)]
+pub struct Trust {
+    /// The recipe's name, which a refused call names.
+    pub recipe: String,
+    /// `None` when no recipe vouched; otherwise the functions listed in `keeps`, written as
+    /// Dazzle names them: `ma_device_init`, `JPH::BodyInterface::SetUserData`.
+    pub keeps: Option<Vec<String>>,
 }
 
 impl Workspace {
@@ -439,7 +458,21 @@ impl Workspace {
             })
             .map(|m| m.id);
         let id = match existing {
-            Some(id) => id,
+            // Two recipes that read the same header with the same flags share its module.
+            // Either one vouching is enough, and what either says keeps a pointer stays
+            // `unsafe`.
+            Some(id) => {
+                let shared = self.modules[id.0 as usize].foreign.as_mut().expect("foreign");
+                if let Some(theirs) = foreign.trust.keeps {
+                    let keeps = shared.trust.keeps.get_or_insert_with(Vec::new);
+                    for name in theirs {
+                        if !keeps.contains(&name) {
+                            keeps.push(name);
+                        }
+                    }
+                }
+                id
+            }
             None => {
                 let id = ModuleId(self.modules.len() as u32);
                 let header_path = foreign.header.path.clone();
@@ -757,6 +790,38 @@ fn read_cmake_installs(ws: &mut Workspace) {
 ///
 /// Only `ids` import; `added` is every header file already in the map, so two imports that
 /// include one file share it.
+/// A `keeps` entry must name a function or method of what the recipe imports: a misspelt
+/// one would leave the function it meant safe to call (spec §15.2).
+fn unknown_keeps(
+    header: &dz_cppimport::Header,
+    keeps: &[(String, Span)],
+    file: FileId,
+    diags: &mut Diagnostics,
+) {
+    let known = header.function_names();
+    for (name, span) in keeps {
+        if known.contains(name) {
+            continue;
+        }
+        let tail = name.rsplit("::").next().unwrap_or(name);
+        let near = known.iter().find(|k| k.rsplit("::").next() == Some(tail));
+        let help = match near {
+            Some(k) => format!("did you mean `{k}`? A method is named with its type (spec §15.2)"),
+            None => "name a function as Dazzle code calls it, and a method or a constructor \
+                     with its type: `Counter::get`, `Counter::Counter` (spec §15.2)"
+                .to_owned(),
+        };
+        diags.push(
+            Diagnostic::error(
+                codes::MANIFEST_BAD_VALUE,
+                format!("`keeps` names `{name}`, which the library's headers do not declare"),
+            )
+            .at(file, *span, "no function or method by this name")
+            .with_help(help),
+        );
+    }
+}
+
 fn import_headers(
     ws: &mut Workspace,
     ids: &[ModuleId],
@@ -773,6 +838,8 @@ fn import_headers(
     // standard: C++17, the oldest the generated code compiles as, so whatever it declares
     // there is declared under any later standard a project picks.
     let cpp_standard = root.build.cpp_standard.clone();
+    // A recipe two modules import is checked once, so a wrong `keeps` entry is one error.
+    let mut checked_keeps: std::collections::HashSet<(FileId, Span)> = Default::default();
 
     for &id in ids {
         let module = ws.module(id);
@@ -909,7 +976,14 @@ fn import_headers(
                             );
                             continue;
                         }
-                        ws.add_foreign(id, &dep, Foreign { header: h, files: ids });
+                        let keeps = recipe.keeps.as_ref().map(|k| {
+                            if checked_keeps.insert((pf_file, recipe.name_span)) {
+                                unknown_keeps(&h, k, pf_file, diags);
+                            }
+                            k.iter().map(|(n, _)| n.clone()).collect()
+                        });
+                        let trust = Trust { recipe: recipe.name.clone(), keeps };
+                        ws.add_foreign(id, &dep, Foreign { header: h, files: ids, trust });
                     }
                     // The standard library has no manifest to point at, and its import failing
                     // is about the machine, not about anything the program wrote.
@@ -1161,6 +1235,9 @@ impl<'a> Loader<'a> {
                     frameworks: Vec::new(),
                     flags: Vec::new(),
                     import: vec![("stdlib.h".to_owned(), Span::DUMMY)],
+                    // std's bodies are trusted already (D-0094 point 8), so it vouches for
+                    // the C library it calls.
+                    keeps: Some(Vec::new()),
                     cmake: None,
                     shared_defines: Vec::new(),
                     link_flags: Vec::new(),
@@ -1955,6 +2032,7 @@ impl<'a> Loader<'a> {
             "frameworks",
             "flags",
             "import",
+            "keeps",
             "cmake",
             "options",
         ];
@@ -2120,6 +2198,7 @@ impl<'a> Loader<'a> {
                     frameworks: l.frameworks,
                     flags: l.flags,
                     import: l.import,
+                    keeps: l.keeps,
                     // Where it builds is the root project's to say, so it is placed when the
                     // whole workspace has been read (`place_cmake_builds`).
                     cmake: l.cmake.map(|source| CmakeBuild {
@@ -2267,6 +2346,10 @@ impl<'a> Loader<'a> {
                 );
                 continue;
             };
+            // `keeps = []` says something: the recipe vouches, and nothing keeps a pointer.
+            if key == "keeps" {
+                out.keeps.get_or_insert_with(Vec::new);
+            }
             for item in items {
                 let Value::Str(s, span) = item else {
                     self.diags.push(
@@ -2290,6 +2373,8 @@ impl<'a> Loader<'a> {
                     // Found through the include dirs when the header is read, as
                     // `#include <…>` finds it (spec §15.1), so not a path to check here.
                     "import" => out.import.push((s.clone(), *span)),
+                    // Checked against the header once it is read (`unknown_keeps`).
+                    "keeps" => out.keeps.get_or_insert_with(Vec::new).push((s.clone(), *span)),
                     "sources" => {
                         self.lib_sources(file, base, base_desc, s, *span, &mut out.sources)
                     }
@@ -2429,6 +2514,7 @@ struct Lists {
     frameworks: Vec<String>,
     flags: Vec<String>,
     import: Vec<(String, Span)>,
+    keeps: Option<Vec<(String, Span)>>,
     /// `cmake = "…"`: the folder, checked to hold a `CMakeLists.txt`.
     cmake: Option<PathBuf>,
     options: Vec<(String, String)>,

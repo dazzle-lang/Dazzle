@@ -112,8 +112,14 @@ fn main() {
         ptr as ^mut void
     }
 
+    // The audio thread keeps the device it is given, which is why the recipe lists
+    // `ma_device_init` in `keeps` and the call is `unsafe`. It holds because
+    // `ma_device_uninit` stops the thread before `device` and `synth` drop.
     let mut device: ma::ma_device
-    if ma::ma_device_init(null, &config, &mut device) != ma::ma_result::MA_SUCCESS {
+    let started = unsafe {
+        ma::ma_device_init(null, &config, &mut device)
+    }
+    if started != ma::ma_result::MA_SUCCESS {
         eprintln!("no audio device to play on")
         return
     }

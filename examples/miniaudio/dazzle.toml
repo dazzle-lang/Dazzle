@@ -20,6 +20,9 @@ root         = "../vendor/miniaudio"
 sources      = ["miniaudio.c"]
 include_dirs = ["."]
 import       = ["miniaudio.h"]
+# Vouches for miniaudio, except `ma_device_init`: the audio thread keeps using the
+# device it was given, so calling it is `unsafe` (spec §15.2).
+keeps        = ["ma_device_init"]
 
 [cpp.libs.miniaudio.target.windows]
 link_libs = ["ole32"]

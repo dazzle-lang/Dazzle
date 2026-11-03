@@ -122,6 +122,20 @@ defines = ["JPH_PROFILE_ENABLED=0"]
   that builds it, so renaming or replacing a library touches one table. `[DECIDED —
   §18.57]`
 
+- **`keeps`** vouches for the library's functions, and lists the ones that keep a pointer
+  past the call, which stay `unsafe` to call (§15.2). `keeps = []` says none do. Without
+  `keeps`, a function that takes a pointer is `unsafe` to call; one that takes only values
+  is safe either way. An entry names a function as Dazzle code calls it,
+  `ma_device_init`, and a method or a constructor with its type, `Body::SetUserData` or
+  `Counter::Counter`; a name the headers do not declare is an error. `[DECIDED — D-0094]`
+
+  ```toml
+  [cpp.libs.miniaudio]
+  header = "miniaudio.h"
+  import = ["miniaudio.h"]
+  keeps  = ["ma_device_init"]       # the audio thread keeps the device it is given
+  ```
+
 - **A system header is imported only when it is asked for.** `raylib.h` includes
   `stdlib.h`, and importing raylib does not import the C library with it: declarations in
   a system header are passed over. A recipe that names a system header itself —
@@ -199,10 +213,25 @@ libclang pass runs once and not on every build.
 | function-like macro | not imported |
 | variadic `...` | not imported; use a fixed-arity overload |
 
-The importer only teaches the compiler what exists. **A call into a header is ordinary safe
-code**, emitted as the call it names (`::InitWindow(1280, 720, "Dazzle")`): what the callee
-does with a pointer is the header's promise, which Dazzle can neither check nor improve on
-by making every call `unsafe`. Forming the pointer is safe as always (§5.2). A wrapper is
+The importer only teaches the compiler what exists. A call into a header is emitted as the
+call it names (`::InitWindow(1280, 720, "Dazzle")`). **Whether it is safe to call depends on
+what it can be handed, and on what its recipe vouches for** (§15.1). `[DECIDED — D-0094]`
+
+- **A function that takes only values is safe to call.** Numbers, enums, a C string, a
+  callback, a handle, and a struct by value with no pointer inside it, checked through every
+  field, cannot carry a pointer to Dazzle memory for C to keep. Most of raylib is like this:
+  `InitWindow(1280, 720, "Dazzle")`, `DrawText(…, DARKGRAY)`.
+- **A function that takes a pointer, a reference, or a struct with one inside it is
+  `unsafe` to call**, and so is a C++ method or constructor, which C++ hands `this`, until
+  the recipe vouches for the library with `keeps`. C could keep the pointer after the call,
+  and nothing in Dazzle would notice when what it points at drops.
+- **With `keeps`, every such function is safe to call except the ones it lists**, which
+  keep a pointer past the call and stay `unsafe`. The recipe holds the claim, once, where
+  `grep` finds it, rather than an `unsafe` at every call.
+
+A pointer a library keeps that is typed `void*`, such as a callback's user data, needs no
+entry: making a `^mut void` from a Dazzle pointer is a cast, which is `unsafe` already
+(§5.2). Forming any other pointer is safe as always. A wrapper is
 seldom needed to make a call pleasant: a `String` or a `Path` is passed where the header wants
 a `const char*` (§7.2), and the module carrying the recipe may give the header's types the
 language's traits, such as `+` on a vector struct (§7.6). A Dazzle module wrapping the header

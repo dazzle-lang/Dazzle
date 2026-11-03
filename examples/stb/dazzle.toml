@@ -21,3 +21,5 @@ header       = "stb_image_write.h"
 include_dirs = ["."]
 defines      = ["STB_IMAGE_WRITE_IMPLEMENTATION"]
 import       = ["stb_image_write.h"]
+# Vouches for stb_image_write: it reads the pixels during the call (spec §15.2).
+keeps        = []

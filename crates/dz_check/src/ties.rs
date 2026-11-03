@@ -780,6 +780,7 @@ pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
         takes_self: None,
         is_mut: false,
         is_unsafe: false,
+        foreign_unsafe: None,
         // A type's clause names what anyone holding the type can see.
         vis: Vis::Public,
         span: Span::DUMMY,

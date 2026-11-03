@@ -104,4 +104,17 @@ fn main() {
     config.output.gain.right = 4
     println!("config {} {} {} {}", config.rate, config.output.channels, config.output.gain.left,
             mini::mini_config_total(&config))
+
+    // Every call above that takes a pointer is safe because the recipe's `keeps` vouches for
+    // the library. `mini_watch` keeps its pointer past the call, so `keeps` lists it, and the
+    // call is `unsafe`: `level` must outlive the watch, which is ended before it drops.
+    let mut level = 4
+    unsafe {
+        mini::mini_watch(&level)
+    }
+    level = 9
+    println!("watched {}", mini::mini_watched())
+    unsafe {
+        mini::mini_watch(null)
+    }
 }

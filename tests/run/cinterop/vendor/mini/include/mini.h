@@ -103,6 +103,11 @@ typedef void (*MiniShoutProc)(char *text, int n);
 extern MiniShoutProc mini_shout_ptr;
 #define mini_shout mini_shout_ptr
 
+/* A function that keeps the pointer it is given past the call, as a library keeps a buffer
+   it reads later. The recipe lists it in `keeps`, so calling it is `unsafe` (spec §15.2). */
+void mini_watch(const int *value);
+int mini_watched(void);
+
 #ifdef __cplusplus
 }
 

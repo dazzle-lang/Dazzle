@@ -2,25 +2,33 @@
 id: T-0135
 title: Every C and C++ call is trusted without saying so
 milestone: none
-status: open
+status: done
 kind: design
 area: interop
 ---
 
+**Done** (r111, 2026-11-03). The spelling the user settled on that day is one key in the
+recipe, `keeps = […]`, which is itself the vouching. The user's point was that the danger
+is a few specific functions, so the key names those, and `keeps = []` says there are none.
+Struct-by-value parameters count as values only if they hold no pointer, checked
+recursively, and a C++ receiver or constructor counts as a pointer. The editor quick fix
+that would write `keeps = []` is not built. Build log: `docs/log/r81-ties.md`.
+
 Point 6 of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md), decided
 on 2026-11-03 (r107) as options A and C below together: a header is trusted once in the
 importing module's manifest, which lists the functions that keep a pointer (`unsafe` to
-call), and a function taking only values is safe without a word. The manifest's spelling
-is still to be settled when it is built. It revises §15.
+call), and a function taking only values is safe without a word. It revises §15.
 
 **Where the code is**
 
 | Piece | Where |
 |---|---|
-| The rule | §15, the paragraph "The importer only teaches the compiler what exists…" |
-| Imported declarations | `dz_cppimport` |
-| A module's `[cpp]` table and its libraries | `dz_project/src/lib.rs` (the module's C and C++ settings, `CppLib`) |
-| The check that a call to an `unsafe fn` is in `unsafe` | `sig.is_unsafe` in `dz_check/src/check.rs` |
+| The rule | §15.1's `keeps` bullet, and §15.2's paragraph "The importer only teaches the compiler what exists…" |
+| Which parameters are values; the names `keeps` uses | `Header::takes_pointer` and `Header::function_names` in `dz_cppimport/src/lib.rs` |
+| `keeps` read from a recipe, checked against the header, and carried to the module | `CppLib::keeps`, `cpp_section`, `unknown_keeps`, `Trust` and `add_foreign` in `dz_project/src/lib.rs` |
+| An imported function marked `unsafe`, and why | `foreign_unsafe` (with `collect_foreign`, `foreign_methods`) and `FnSig::foreign_unsafe` in `dz_check/src/lib.rs` |
+| The refusal, `DZ0528` with a help that names the recipe | `require_unsafe_call` in `dz_check/src/check.rs`, at every call path and the constructor call |
+| Tests | `a_function_taking_only_values_hands_c_no_pointer` in `dz_cppimport/tests/import.rs`; `keeps_vouches_for_the_calls_that_take_a_pointer` in `dz/tests/run.rs`; `tests/run/cinterop`'s `mini_watch` |
 
 **What it is.** §15 says "a call into a header is ordinary safe code". A C or C++ function
 that keeps a pointer it was given, such as a callback's user data or a buffer a library

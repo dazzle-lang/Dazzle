@@ -24,6 +24,9 @@ header       = "RGFW.h"
 include_dirs = ["."]
 defines      = ["RGFW_IMPLEMENTATION"]
 import       = ["RGFW.h"]
+# Vouches for RGFW, except `RGFW_window_createSurface`: the surface draws from the
+# pixels it was given, so calling it is `unsafe` (spec §15.2).
+keeps        = ["RGFW_window_createSurface"]
 
 # The window system each platform's backend calls into. These were `link_libs` at the top
 # of the recipe and so applied everywhere, which meant this fixture could only ever link on

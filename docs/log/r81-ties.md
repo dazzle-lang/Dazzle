@@ -6,6 +6,47 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r111, T-0135: a C or C++ call that can be handed a pointer is vouched for (2026-11-03)
+
+D-0094 point 6, with its spelling settled by the user on the day: one recipe key, `keeps`,
+whose presence is the vouching. The user asked whether the issue was not specific functions
+rather than a library. It is. The library-wide part exists only so the hundreds of
+pointer-taking functions that keep nothing need no list of their own.
+
+- **Which parameters are values** (`dz_cppimport`): `Header::takes_pointer`. Numbers, enums,
+  `const char*`, callbacks and handles are values, and a struct by value is one if every
+  field is, checked recursively. `CType::Named` and an alias's target hold the C++ path
+  (`::MiniVec2`), not the Dazzle name. The first version looked them up by name, found
+  nothing, and refused `ClearBackground(Color)`, so the lookup is by `Decl::cpp`.
+  `Header::function_names` is what `keeps` entries are checked against: `Decl::qualified`
+  for a function, and `Type::method` for a method, which makes a constructor
+  `Counter::Counter`.
+- **The manifest** (`dz_project`): `keeps` is a recipe key and not a target key. `keeps =
+  []` is `Some(vec![])`. `unknown_keeps` refuses a name the headers do not declare
+  (`DZ0004`), once per recipe. The module carries a `Trust`. When two recipes share a header
+  module, either one vouching is enough, and both `keeps` lists apply. std's libc recipe
+  vouches, since its bodies are trusted already.
+- **The checker** (`dz_check`): `foreign_unsafe` sets `is_unsafe` on an imported function or
+  method, and `FnSig::foreign_unsafe` records why. A C++ receiver or constructor counts as a
+  pointer, as the user chose. `require_unsafe_call` replaces the six `calling unsafe fn`
+  sites, and is now also at the constructor call, which checked nothing before. It keeps
+  `DZ0528` but writes a help that names the recipe and the key to add.
+
+What it found: raylib and Breakout needed nothing, since every call takes values. The
+examples whose recipes now have a `keeps` line are box2d, sokol, stb, sdl3 (and its glad),
+miniaudio and rgfw, plus `tests/run/cppinterop`. Two functions keep a pointer and are now
+called in `unsafe`, each with a comment saying why the call is sound. One is
+`ma_device_init`, whose audio thread keeps the device. The other is
+`RGFW_window_createSurface`, which draws from the pixels it was given; its sound teardown
+leans on r110's `defer` order. sokol's and Box2D's `user_data` needs no entry, since it is
+a `void*` and the example already casts to it in `unsafe`.
+
+Tests: `a_function_taking_only_values_hands_c_no_pointer` (which of `mini.h`'s functions
+take a pointer, and the names `keeps` uses), and `keeps_vouches_for_the_calls_that_take_a_pointer`
+(no `keeps`, `keeps = []`, a listed value-only function, a misspelt name). `tests/run/cinterop`
+gained `mini_watch`, a C function that keeps its pointer, listed in `keeps` and called in
+`unsafe`. Not built: an editor quick fix offering `keeps = []`.
+
 ## r110, T-0130: a `defer` runs among its scope's drops (2026-11-03)
 
 §6.5 and §10.5 said a `defer` ran after all of its scope's drops. Codegen never did that: its

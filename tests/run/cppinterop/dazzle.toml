@@ -13,6 +13,9 @@ root         = "vendor/shapes"
 sources      = ["*.cpp"]
 include_dirs = ["include"]
 import       = ["shapes.hpp"]
+# Vouches for the header: no function or method keeps a pointer or `this` past the
+# call (spec §15.2).
+keeps        = []
 
 # A C++ template is not imported on its own: the instantiations this project wants are
 # named here, and each becomes an ordinary concrete type (spec §15.4).

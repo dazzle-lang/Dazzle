@@ -1758,7 +1758,7 @@ fn a_call_into_c_is_type_checked_like_any_other() {
     // and there are no implicit numeric conversions across the boundary either.
     let dir = scratch(
         "dz_import_types",
-        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
+        "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\nkeeps = []\n",
         "fn main() {\n    let xs: [2]i32 = [1, 2]\n    api::fill(xs.ptr, 2)\n    \
          let n: i64 = 3\n    api::fill(null, n)\n}\n",
     );
@@ -1771,6 +1771,58 @@ fn a_call_into_c_is_type_checked_like_any_other() {
     }
     assert_eq!(stderr.matches("DZ0501").count(), 2, "expected two type mismatches:\n{stderr}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Spec §15.2, D-0094 point 6 (T-0135): a call that can hand C a pointer is `unsafe` until
+/// the recipe vouches for the library with `keeps`, and a function `keeps` lists stays
+/// `unsafe`. A function taking only values is safe either way. A name `keeps` lists must be
+/// one the header declares.
+#[test]
+fn keeps_vouches_for_the_calls_that_take_a_pointer() {
+    // `fill` takes a pointer and `scale` only a value: lines 3 and 4 of the program.
+    let source = "fn main() {\n    let mut xs: [2]i32\n    api::fill(xs.ptr, 2)\n    \
+                  let _ = api::scale(2)\n}\n";
+    let header = "#pragma once\nextern \"C\" void fill(int *out, int n);\n\
+                  extern \"C\" int scale(int v);\n";
+    // Each diagnostic's code, and its line in whichever file it is in.
+    let found = |keeps: &str| -> Option<Vec<(String, u32)>> {
+        let dir = scratch(
+            "dz_import_keeps",
+            &format!(
+                "[module]\nname = \"k\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\n\
+                 api = {{ cpp = \"api\" }}\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\n\
+                 import = [\"api.h\"]\n{keeps}\n"
+            ),
+            source,
+        );
+        std::fs::write(dir.join("api.h"), header).unwrap();
+        let out = Command::new(dz())
+            .args(["check", "--format=json", dir.to_str().unwrap()])
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let json = String::from_utf8_lossy(&out.stdout).into_owned();
+        let field = |line: &str, key: &str| {
+            let rest = &line[line.find(key)? + key.len()..];
+            Some(rest.trim_start_matches([' ', '"']).split(['"', ',']).next()?.to_owned())
+        };
+        let found: Vec<(String, u32)> = json
+            .lines()
+            .filter_map(|l| Some((field(l, "\"code\":")?, field(l, "\"line\":")?.parse().ok()?)))
+            .collect();
+        // DZ0703: this machine has no libclang, so nothing here can be imported.
+        (!found.iter().any(|(c, _)| c == "DZ0703")).then_some(found)
+    };
+    let Some(unvouched) = found("") else { return };
+    assert_eq!(unvouched, [("DZ0528".to_owned(), 3)], "only the pointer call is refused");
+    assert_eq!(found("keeps = []").unwrap(), [], "vouched for, both calls are safe");
+    assert_eq!(
+        found("keeps = [\"scale\"]").unwrap(),
+        [("DZ0528".to_owned(), 4)],
+        "a function `keeps` lists is unsafe, and the rest are vouched for"
+    );
+    // The recipe's `keeps` is on line 11 of the manifest.
+    assert_eq!(found("keeps = [\"scael\"]").unwrap(), [("DZ0004".to_owned(), 11)]);
 }
 
 #[test]

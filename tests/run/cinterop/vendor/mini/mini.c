@@ -125,3 +125,9 @@ static void shout(char *text, int n) {
 }
 
 MiniShoutProc mini_shout_ptr = shout;
+
+static const int *watched;
+
+void mini_watch(const int *value) { watched = value; }
+
+int mini_watched(void) { return watched ? *watched : -1; }
