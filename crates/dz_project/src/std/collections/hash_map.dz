@@ -1,23 +1,30 @@
 /// A map from keys to values, in memory from wherever the compiler places the map (spec
 /// §14.6).
 ///
-/// Open addressing with linear probing: one array each of hashes, keys and values, a slot
-/// empty when its hash is zero. It grows to twice the slots when three quarters are full,
-/// and `remove` shifts the entries after a removed one back rather than leaving a marker,
-/// so lookups never slow down with use. Move-only unless both `K` and `V` are copyable.
+/// A SwissTable: one array each of keys and values, and one control byte per slot, which
+/// says the slot is empty, that its entry was removed, or holds seven bits of the hash of
+/// the entry there. A lookup reads eight control bytes at once and compares a key only
+/// where those seven bits match, so most lookups touch one group of bytes and one key. The
+/// map grows to twice the slots when seven eighths are taken (T-0164). Move-only unless
+/// both `K` and `V` are copyable.
 ///
 /// A lookup returns a pointer, `null` when the key is absent (§9.1), so it is handled with
 /// `or`: `let hp = health.get(&id) or return`.
 pub struct HashMap<K: Hash + Eq, V> {
-    m_hashes: own ^mut u32 = null
+    /// A control byte per slot, then the first group's bytes again, so a group read
+    /// starting at any slot stays inside the array.
+    m_ctrl: own ^mut u8 = null
     m_keys: own ^mut K = null
     m_values: own ^mut V = null
     m_len: usize = 0
     m_slots: usize = 0
+    /// How many empty slots may still be filled before the map grows: seven eighths of the
+    /// slots, less those holding an entry or a removed one's marker.
+    m_growth_left: usize = 0
     m_allocator: ^mut Allocator = Allocators::Global
 
     /// The three arrays, which grow as one.
-    tie @items = m_hashes, m_keys, m_values
+    tie @items = m_ctrl, m_keys, m_values
     tie [*] = m_keys[*], m_values[*]
 
     /// An empty map, with room for `capacity` entries already allocated when it is given.
@@ -38,7 +45,7 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// How many entries fit before the map grows again.
     pub fn capacity(&self) -> usize {
-        return m_slots / 4 * 3
+        return usable_slots(m_slots)
     }
 
     /// Add `key` with `value`. When the key was already there its value is replaced, and
@@ -56,11 +63,7 @@ pub struct HashMap<K: Hash + Eq, V> {
             unsafe { construct(m_values[slot], move(value)) }
             return move(old)
         }
-        if (m_len + 1) * 4 > m_slots * 3 {
-            self.grow_to(m_len + 1, loc)
-        }
-        let _ = self.place(move(key), move(value), h)
-        m_len += 1
+        let _ = self.place(move(key), move(value), h, loc)
         return none
     }
 
@@ -76,11 +79,7 @@ pub struct HashMap<K: Hash + Eq, V> {
         if let slot = self.find(&key, h) {
             return unsafe { &mut m_values[slot] }
         }
-        if (m_len + 1) * 4 > m_slots * 3 {
-            self.grow_to(m_len + 1, loc)
-        }
-        let slot = self.place(move(key), move(default), h)
-        m_len += 1
+        let slot = self.place(move(key), move(default), h, loc)
         return unsafe { &mut m_values[slot] }
     }
 
@@ -114,42 +113,39 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// The slot holding the key `same` says is `key`, whose hash is `h`: a lookup by
     /// something other than a `K`, such as a `str` for a `String` key.
-    pub(module) fn find_by<view Q: Copy>(&self, key: Q, h: u32, same: fn(&K, Q) -> bool) -> usize? {
+    pub(module) fn find_by<view Q: Copy>(&self, key: Q, h: u64, same: fn(&K, Q) -> bool) -> usize? {
         if m_len == 0 {
             return none
         }
         let mask = m_slots - 1
-        let mut i = (h as usize) & mask
+        let tag = tag_of(h)
+        let mut at = (h as usize) & mask
+        let mut stride: usize = 0
         while true {
-            let stored = unsafe { m_hashes[i] }
-            if stored == 0 {
+            let group = unsafe { load_group(m_ctrl, at) }
+            let mut hits = match_tag(group, tag)
+            while hits != 0 {
+                let i = (at + first_byte(hits)) & mask
+                if same(unsafe { &m_keys[i] }, key) {
+                    return i
+                }
+                hits = hits & (hits - 1)
+            }
+            if match_empty(group) != 0 {
                 return none
             }
-            if stored == h && same(unsafe { &m_keys[i] }, key) {
-                return i
-            }
-            i = (i + 1) & mask
+            stride += CTRL_GROUP
+            at = (at + stride) & mask
         }
         return none
     }
 
     /// Drop every entry `keep(q, key, value)` says no to: `retain`, and a `HashSet`'s, which
-    /// asks about the key alone.
+    /// asks about the key alone. Removing moves no entry, so one pass asks each once.
     pub(module) fn retain_with<Q>(&mut self, q: &Q, keep: fn(&Q, &K, &mut V) -> bool) kills self@items, self[*] {
-        if m_len == 0 {
-            return
-        }
-        // Start just past an empty slot and go round once. Removing shifts entries back
-        // towards the slot they hash to, never past an empty one, so an entry already asked
-        // never moves ahead to be asked again; a slot that has just taken one is asked again.
-        let start = self.empty_slot()
-        let mut step: usize = 1
-        while step < m_slots {
-            let i = (start + step) & (m_slots - 1)
-            if unsafe { m_hashes[i] } != 0 && !keep(q, unsafe { &m_keys[i] }, unsafe { &mut m_values[i] }) {
+        for i in 0..m_slots {
+            if self.full(i) && !keep(q, unsafe { &m_keys[i] }, unsafe { &mut m_values[i] }) {
                 let _ = self.remove_slot(i)
-            } else {
-                step += 1
             }
         }
     }
@@ -172,20 +168,23 @@ pub struct HashMap<K: Hash + Eq, V> {
     /// Drop every entry and keep the allocation.
     pub fn clear(&mut self) kills self@items, self[*] {
         for i in 0..m_slots {
-            if unsafe { m_hashes[i] } != 0 {
+            if self.full(i) {
                 unsafe {
                     destroy(m_keys[i])
                     destroy(m_values[i])
-                    m_hashes[i] = 0
                 }
             }
         }
+        for i in 0..m_slots + CTRL_GROUP {
+            unsafe { m_ctrl[i] = CTRL_EMPTY }
+        }
         m_len = 0
+        m_growth_left = usable_slots(m_slots)
     }
 
     /// Room for at least `additional` more entries without growing again.
     pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) kills self@items {
-        if (m_len + additional) * 4 > m_slots * 3 {
+        if m_len + additional > usable_slots(m_slots) {
             self.grow_to(m_len + additional, loc)
         }
     }
@@ -199,7 +198,7 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// The key in `slot`, or `null` when the slot is empty.
     pub fn key_at(&self, slot: usize) -> ^K in self@items {
-        if self.checked_slot(slot) == 0 {
+        if !self.checked_full(slot) {
             return null
         }
         return unsafe { &m_keys[slot] }
@@ -207,7 +206,7 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// The value in `slot`, or `null` when the slot is empty.
     pub fn value_at(&self, slot: usize) -> ^V in self@items {
-        if self.checked_slot(slot) == 0 {
+        if !self.checked_full(slot) {
             return null
         }
         return unsafe { &m_values[slot] }
@@ -215,128 +214,269 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// The value in `slot`, to change in place, or `null` when the slot is empty.
     pub fn value_at_mut(&mut self, slot: usize) -> ^mut V in self@items {
-        if self.checked_slot(slot) == 0 {
+        if !self.checked_full(slot) {
             return null
         }
         return unsafe { &mut m_values[slot] }
     }
 
-    /// The hash stored in `slot`, after checking the slot exists.
-    fn checked_slot(&self, slot: usize) -> u32 {
+    /// Whether `slot` holds an entry, after checking the slot exists.
+    fn checked_full(&self, slot: usize) -> bool {
         if slot >= m_slots {
             panic!("slot {} is out of bounds for a HashMap of {} slots", slot, m_slots)
         }
-        return unsafe { m_hashes[slot] }
+        return self.full(slot)
+    }
+
+    /// Whether `slot` holds an entry: its control byte is seven bits of a hash.
+    #[inline]
+    fn full(&self, slot: usize) -> bool {
+        return (unsafe { m_ctrl[slot] } & 0x80) == 0
     }
 
     /// The slot holding `key`, whose hash is `h`.
-    fn find(&self, key: &K, h: u32) -> usize? {
+    fn find(&self, key: &K, h: u64) -> usize? {
         if m_len == 0 {
             return none
         }
         let mask = m_slots - 1
-        let mut i = (h as usize) & mask
-        // A quarter of the slots are always empty, so the run ends.
+        let tag = tag_of(h)
+        let mut at = (h as usize) & mask
+        let mut stride: usize = 0
+        // An eighth of the slots are always empty, and the probe visits every group, so it
+        // ends.
         while true {
-            let stored = unsafe { m_hashes[i] }
-            if stored == 0 {
+            let group = unsafe { load_group(m_ctrl, at) }
+            let mut hits = match_tag(group, tag)
+            while hits != 0 {
+                let i = (at + first_byte(hits)) & mask
+                if unsafe { m_keys[i].eq(key) } {
+                    return i
+                }
+                hits = hits & (hits - 1)
+            }
+            if match_empty(group) != 0 {
                 return none
             }
-            if stored == h && unsafe { m_keys[i].eq(key) } {
-                return i
-            }
-            i = (i + 1) & mask
+            stride += CTRL_GROUP
+            at = (at + stride) & mask
         }
         return none
     }
 
-    /// Put an entry known not to be present into the first free slot of its run, and say
-    /// which slot that was.
-    fn place(&mut self, key: K, value: V, h: u32) -> usize kills self@items {
+    /// The first slot along `h`'s probe that is empty or holds a removed entry's marker.
+    fn free_slot(&self, h: u64) -> usize {
         let mask = m_slots - 1
-        let mut i = (h as usize) & mask
-        while unsafe { m_hashes[i] } != 0 {
-            i = (i + 1) & mask
+        let mut at = (h as usize) & mask
+        let mut stride: usize = 0
+        while true {
+            let free = unsafe { load_group(m_ctrl, at) } & CTRL_HIGH_BITS
+            if free != 0 {
+                return (at + first_byte(free)) & mask
+            }
+            stride += CTRL_GROUP
+            at = (at + stride) & mask
         }
+        return 0
+    }
+
+    /// Put an entry known not to be present into the first free slot of its probe, growing
+    /// first when it would take the last of the room, and say which slot that was.
+    fn place(&mut self, key: K, value: V, h: u64, loc: SourceLocation) -> usize kills self@items {
+        if m_slots == 0 {
+            self.grow_to(1, loc)
+        }
+        let mut slot = self.free_slot(h)
+        if unsafe { m_ctrl[slot] } == CTRL_EMPTY && m_growth_left == 0 {
+            // Rebuilt at the same size when markers of removed entries took the room, so
+            // they are cleared; grown when entries did.
+            let usable = usable_slots(m_slots)
+            let wanted = if m_len + 1 <= usable / 2 {
+                m_len + 1
+            } else {
+                usable + 1
+            }
+            self.grow_to(wanted, loc)
+            slot = self.free_slot(h)
+        }
+        if unsafe { m_ctrl[slot] } == CTRL_EMPTY {
+            m_growth_left -= 1
+        }
+        self.set_ctrl(slot, tag_of(h))
         unsafe {
-            m_hashes[i] = h
-            construct(m_keys[i], move(key))
-            construct(m_values[i], move(value))
+            construct(m_keys[slot], move(key))
+            construct(m_values[slot], move(value))
         }
-        return i
+        m_len += 1
+        return slot
+    }
+
+    /// Set slot `i`'s control byte, and its copy past the end when it is in the first group.
+    #[inline]
+    fn set_ctrl(&mut self, i: usize, c: u8) {
+        unsafe {
+            m_ctrl[i] = c
+            m_ctrl[((i + m_slots - CTRL_GROUP) & (m_slots - 1)) + CTRL_GROUP] = c
+        }
     }
 
     /// Take the entry in `found` out, returning its value.
     pub(module) fn remove_slot(&mut self, found: usize) -> V kills self@items, self[*] {
         let value = unsafe { move_out(m_values[found]) }
-        unsafe {
-            destroy(m_keys[found])
-            m_hashes[found] = 0
-        }
-        // Backward shift: an entry further along the run moves into the hole when the hole
-        // lies between the slot it hashes to and where it sits, so no probe that passed the
-        // removed entry can stop short at the gap.
+        unsafe { destroy(m_keys[found]) }
+        // The slot may be empty again only when no probe can have passed it looking
+        // further: when the full slots around it, it included, number fewer than a group, a
+        // probe reading any group over it saw an empty slot and stopped there.
         let mask = m_slots - 1
-        let mut hole = found
-        let mut i = (found + 1) & mask
-        while unsafe { m_hashes[i] } != 0 {
-            let home = (unsafe { m_hashes[i] } as usize) & mask
-            if ((i + m_slots - home) & mask) >= ((i + m_slots - hole) & mask) {
-                unsafe {
-                    m_hashes[hole] = m_hashes[i]
-                    m_hashes[i] = 0
-                    construct(m_keys[hole], move_out(m_keys[i]))
-                    construct(m_values[hole], move_out(m_values[i]))
-                }
-                hole = i
-            }
-            i = (i + 1) & mask
+        let mut run: usize = 1
+        let mut back: usize = 1
+        while back < CTRL_GROUP && unsafe { m_ctrl[(found + m_slots - back) & mask] } != CTRL_EMPTY {
+            run += 1
+            back += 1
+        }
+        let mut ahead: usize = 1
+        while ahead < CTRL_GROUP && unsafe { m_ctrl[(found + ahead) & mask] } != CTRL_EMPTY {
+            run += 1
+            ahead += 1
+        }
+        if run >= CTRL_GROUP {
+            self.set_ctrl(found, CTRL_DELETED)
+        } else {
+            self.set_ctrl(found, CTRL_EMPTY)
+            m_growth_left += 1
         }
         m_len -= 1
         return move(value)
     }
 
-    /// The first slot holding no entry. A quarter of them always do, once there are any.
-    fn empty_slot(&self) -> usize {
-        let mut i: usize = 0
-        while unsafe { m_hashes[i] } != 0 {
-            i += 1
-        }
-        return i
-    }
-
-    /// Enough slots for `wanted` entries at three quarters full — a power of two, so a hash
-    /// picks its slot with a mask — with every entry moved over.
+    /// Enough slots for `wanted` entries at seven eighths full, never fewer than there are —
+    /// a power of two, so a hash picks its slot with a mask — with every entry moved over and
+    /// the markers of removed ones gone. Each key is hashed again: a slot keeps only seven
+    /// bits of its hash.
     fn grow_to(&mut self, wanted: usize, loc: SourceLocation) kills self@items {
-        let mut slots: usize = if m_slots == 0 { 8 } else { m_slots * 2 }
-        while wanted * 4 > slots * 3 {
+        let mut slots: usize = CTRL_GROUP
+        while usable_slots(slots) < wanted {
             slots *= 2
         }
+        if slots < m_slots {
+            slots = m_slots
+        }
         let a = unsafe { m_allocator or panic!("a HashMap with no allocator cannot grow") }
-        let old_hashes = unsafe { m_hashes as ^mut u32 }
+        let old_ctrl = unsafe { m_ctrl as ^mut u8 }
         let old_keys = unsafe { m_keys as ^mut K }
         let old_values = unsafe { m_values as ^mut V }
         let old_slots = m_slots
-        m_hashes = unsafe { a.alloc(slots * sizeof(u32), alignof(u32), loc) as ^mut u32 }
+        m_ctrl = unsafe { a.alloc(slots + CTRL_GROUP, 1, loc) }
         m_keys = unsafe { a.alloc(slots * sizeof(K), alignof(K), loc) as ^mut K }
         m_values = unsafe { a.alloc(slots * sizeof(V), alignof(V), loc) as ^mut V }
         m_slots = slots
-        for i in 0..slots {
-            unsafe { m_hashes[i] = 0 }
+        for i in 0..slots + CTRL_GROUP {
+            unsafe { m_ctrl[i] = CTRL_EMPTY }
         }
-        if old_hashes == null {
+        m_growth_left = usable_slots(slots) - m_len
+        if old_ctrl == null {
             return
         }
         for i in 0..old_slots {
-            let h = unsafe { old_hashes[i] }
-            if h != 0 {
-                let _ = unsafe { self.place(move_out(old_keys[i]), move_out(old_values[i]), h) }
+            if (unsafe { old_ctrl[i] } & 0x80) == 0 {
+                let h = key_hash(unsafe { &old_keys[i] })
+                let slot = self.free_slot(h)
+                self.set_ctrl(slot, tag_of(h))
+                unsafe {
+                    construct(m_keys[slot], move_out(old_keys[i]))
+                    construct(m_values[slot], move_out(old_values[i]))
+                }
             }
         }
-        a.free(unsafe { old_hashes as ^mut u8 }, old_slots * sizeof(u32), alignof(u32), loc)
+        a.free(old_ctrl, old_slots + CTRL_GROUP, 1, loc)
         a.free(unsafe { old_keys as ^mut u8 }, old_slots * sizeof(K), alignof(K), loc)
         a.free(unsafe { old_values as ^mut u8 }, old_slots * sizeof(V), alignof(V), loc)
     }
+}
+
+/// How many control bytes a lookup reads at once, as one 64-bit word.
+const CTRL_GROUP: usize = 8
+
+/// A slot with no entry, and none removed from it since the map was last rebuilt.
+const CTRL_EMPTY: u8 = 0xFF
+
+/// A slot whose entry was removed: a probe passes it, as one may have passed it before.
+const CTRL_DELETED: u8 = 0x80
+
+/// The top bit of each byte of a group: set for an empty or removed slot.
+const CTRL_HIGH_BITS: u64 = 0x8080808080808080
+
+/// One in each byte of a group.
+const CTRL_LOW_BITS: u64 = 0x0101010101010101
+
+/// How many of `slots` may hold an entry or a marker before the map grows: seven eighths.
+#[inline]
+fn usable_slots(slots: usize) -> usize {
+    return slots / 8 * 7
+}
+
+/// The control byte an entry with hash `h` leaves in its slot: seven of its bits, taken
+/// after a multiply that mixes every bit of `h` into the top ones, so a hash weak in some
+/// bits still tells its entries apart.
+#[inline]
+fn tag_of(h: u64) -> u8 {
+    return ((h * 0x9E3779B97F4A7C15) >> 57) as u8
+}
+
+/// The eight control bytes from `at`, as one word with byte `k` in bits `8k` to `8k + 7`
+/// whatever the machine's byte order. A copy is one load on every C++ compiler, where
+/// assembling the word byte by byte was one on clang++ and eight on g++.
+#[inline]
+unsafe fn load_group(ctrl: ^mut u8, at: usize) -> u64 {
+    let mut group: u64 = 0
+    memcpy(&mut group, &ctrl[at], CTRL_GROUP)
+    if little_endian() {
+        return group
+    }
+    return swap_bytes(group)
+}
+
+/// Whether the lowest byte of a number comes first in memory. A C++ compiler answers it
+/// while compiling, so the test costs nothing.
+#[inline]
+fn little_endian() -> bool {
+    let one: u16 = 1
+    let mut first: u8 = 0
+    unsafe { memcpy(&mut first, &one, 1) }
+    return first == 1
+}
+
+/// `x` with its bytes in the other order.
+fn swap_bytes(x: u64) -> u64 {
+    let mut out: u64 = 0
+    for i in 0..8 {
+        out = out << 8 | ((x >> (i * 8) as u64) & 0xFF)
+    }
+    return out
+}
+
+/// The bytes of `group` that may be `tag`, each as its top bit. A byte just above a true
+/// match may show too, but only a full slot, whose key is then compared.
+#[inline]
+fn match_tag(group: u64, tag: u8) -> u64 {
+    let x = group ^^ (CTRL_LOW_BITS * (tag as u64))
+    return (x - CTRL_LOW_BITS) & ~x & CTRL_HIGH_BITS
+}
+
+/// The empty bytes of `group`, each as its top bit: an empty byte has its top two bits
+/// set, a removed one only the top.
+#[inline]
+fn match_empty(group: u64) -> u64 {
+    return group & (group << 1) & CTRL_HIGH_BITS
+}
+
+/// Which byte the lowest bit set in `bits` is in, for bits that are each a byte's top bit:
+/// isolated and moved to the bottom of its byte, it is `1 << 8k`, and a multiply leaves `k`
+/// in the top byte.
+#[inline]
+fn first_byte(bits: u64) -> usize {
+    let lowest = bits & (~bits + 1)
+    return (((lowest >> 7) * 0x0001020304050607) >> 56) as usize
 }
 
 /// The first slot from `slot` on that holds an entry, or the slot count when none does.
@@ -370,28 +510,23 @@ fn ask_entry<K, V>(keep: &fn(&K, &mut V) -> bool, key: &K, value: &mut V) -> boo
     return f(key, value)
 }
 
-/// A key's hash folded to 32 bits, never zero: zero marks an empty slot. Each slot keeps
-/// one, to pick its home slot, to tell empty from full, and to skip most key comparisons;
-/// 32 bits do all three, and a slot is 4 bytes smaller than with the whole hash (T-0164).
-fn key_hash<view K: Hash>(key: &K) -> u32 {
-    let h = key.hash()
-    let folded = (h ^^ (h >> 32)) as u32
-    if folded == 0 {
-        return 1
-    }
-    return folded
+/// A key's hash: its low bits pick where its probe starts, and seven of its bits mixed
+/// are its control byte (`tag_of`).
+#[inline]
+fn key_hash<view K: Hash>(key: &K) -> u64 {
+    return key.hash()
 }
 
 impl<K, V> Drop for HashMap<K, V> {
     fn drop(&mut self) {
-        if m_hashes == null {
+        if m_ctrl == null {
             return
         }
         // Only entries that own something are visited, so a map of plain values is freed
         // without a pass over its slots, and the drop does nothing but free (T-0118).
         if K::has_drop || V::has_drop {
             for i in 0..m_slots {
-                if unsafe { m_hashes[i] } != 0 {
+                if (unsafe { m_ctrl[i] } & 0x80) == 0 {
                     unsafe {
                         destroy(m_keys[i])
                         destroy(m_values[i])
@@ -400,7 +535,7 @@ impl<K, V> Drop for HashMap<K, V> {
             }
         }
         let a = unsafe { m_allocator or return }
-        a.free(unsafe { m_hashes as ^mut u8 }, m_slots * sizeof(u32), alignof(u32))
+        a.free(unsafe { m_ctrl as ^mut u8 }, m_slots + CTRL_GROUP, 1)
         a.free(unsafe { m_keys as ^mut u8 }, m_slots * sizeof(K), alignof(K))
         a.free(unsafe { m_values as ^mut u8 }, m_slots * sizeof(V), alignof(V))
     }
@@ -416,13 +551,12 @@ impl<K: Hash + Eq + Copy, V: Copy> Copy for HashMap<K, V> {
         }
         let a = unsafe { m_allocator or panic!("a HashMap with no allocator cannot be copied") }
         m_slots = other.m_slots
-        m_hashes = unsafe { a.alloc(m_slots * sizeof(u32), alignof(u32)) as ^mut u32 }
+        m_ctrl = unsafe { a.alloc(m_slots + CTRL_GROUP, 1) }
         m_keys = unsafe { a.alloc(m_slots * sizeof(K), alignof(K)) as ^mut K }
         m_values = unsafe { a.alloc(m_slots * sizeof(V), alignof(V)) as ^mut V }
+        unsafe { memcpy(m_ctrl, other.m_ctrl, m_slots + CTRL_GROUP) }
         for i in 0..m_slots {
-            let h = unsafe { other.m_hashes[i] }
-            unsafe { m_hashes[i] = h }
-            if h != 0 {
+            if (unsafe { other.m_ctrl[i] } & 0x80) == 0 {
                 unsafe {
                     construct(m_keys[i], other.m_keys[i])
                     construct(m_values[i], other.m_values[i])
@@ -430,5 +564,6 @@ impl<K: Hash + Eq + Copy, V: Copy> Copy for HashMap<K, V> {
             }
         }
         m_len = other.m_len
+        m_growth_left = other.m_growth_left
     }
 }

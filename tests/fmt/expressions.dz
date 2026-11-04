@@ -10,6 +10,9 @@ fn precedence() {
     let h = ~flags & mask
     let i = (a + b) * c
     let j = a + b * c
+    // Comparison does not chain, so a comparison inside one keeps its parentheses.
+    let k = (i % 2 == 0) == found
+    let l = flag != (a < b)
 }
 
 fn postfix() {

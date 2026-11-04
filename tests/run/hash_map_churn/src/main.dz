@@ -1,0 +1,142 @@
+// `HashMap` as a SwissTable (spec §14.4, T-0164): entries removed and added back, a window
+// of keys slid along a hundred thousand times so removed entries' markers pile up and the
+// map must rebuild rather than grow, every key under one hash, `retain`, `clear`, a copy,
+// counting with `get_or_insert`, iteration, and `String` keys removed by `str`.
+
+/// A key whose hash is the same for every value: every entry shares one probe.
+struct Clash {
+    pub id: i32 = 0
+}
+
+impl Eq for Clash {
+    fn eq(&self, rhs: &Clash) -> bool {
+        return id == rhs.id
+    }
+}
+
+impl Hash for Clash {
+    fn hash(&self) -> u64 {
+        return 7
+    }
+}
+
+fn keep_odd(k: &i32, v: &mut i64) -> bool {
+    v += 1
+    return k % 2 == 1
+}
+
+fn removed_and_added() {
+    let mut m = HashMap<i32, i64>()
+    for i in 0..10000 {
+        m.insert(i, i as i64)
+    }
+    for i in 0..10000 {
+        if i % 2 == 0 {
+            let _ = m.remove(&i)
+        }
+    }
+    let mut missing = 0
+    for i in 0..10000 {
+        if (i % 2 == 0) == m.contains(&i) {
+            missing += 1
+        }
+    }
+    println!("half removed: {} left, {} wrong", m.len(), missing)
+    for i in 0..10000 {
+        if i % 2 == 0 {
+            m.insert(i, -1)
+        }
+    }
+    let mut sum: i64 = 0
+    let mut seen = 0
+    for _k, &v in m {
+        sum += v
+        seen += 1
+    }
+    println!("added back: {} entries, {} visited, sum {}", m.len(), seen, sum)
+}
+
+fn sliding_window() {
+    let mut m = HashMap<i32, i32>()
+    for i in 0..100000 {
+        m.insert(i, i)
+        if i >= 100 {
+            let gone = m.remove(&(i - 100)) or -1
+            if gone != i - 100 {
+                println!("lost {}", i - 100)
+            }
+        }
+    }
+    let ok = m.contains(&99999) && m.contains(&99900) && !m.contains(&99899)
+    println!("window: {} live, right keys {}, slots stay small {}", m.len(), ok, m.slot_count() <= 512)
+}
+
+fn one_hash() {
+    let mut m = HashMap<Clash, i32>()
+    for i in 0..300 {
+        m.insert(Clash{ id: i }, i * 2)
+    }
+    for i in 0..300 {
+        if i % 3 == 0 {
+            let _ = m.remove(&Clash{ id: i })
+        }
+    }
+    let mut right = 0
+    for i in 0..300 {
+        let found = m.get(&Clash{ id: i })
+        if i % 3 == 0 {
+            if found == null {
+                right += 1
+            }
+        } else {
+            let v = found or continue
+            if v == i * 2 {
+                right += 1
+            }
+        }
+    }
+    println!("one hash: {} entries, {} of 300 right", m.len(), right)
+}
+
+fn the_rest() {
+    let mut m = HashMap<i32, i64>()
+    for i in 0..50 {
+        m.insert(i, 0)
+    }
+    m.retain(keep_odd)
+    let mut asked: i64 = 0
+    for _k, &v in m {
+        asked += v
+    }
+    println!("retained {} each asked {}", m.len(), asked == 25)
+    let copy = m
+    m.clear()
+    println!("cleared {} copy {} has 49 {}", m.len(), copy.len(), copy.contains(&49))
+    m.insert(1, 1)
+    println!("reused {}", m.len())
+
+    let mut counts = HashMap<i32, i32>()
+    for i in 0..1000 {
+        let n = counts.get_or_insert(i % 7, 0)
+        n += 1
+    }
+    let mut total = 0
+    for _k, &v in counts {
+        total += v
+    }
+    println!("counted {} keys, {} in all", counts.len(), total)
+
+    let mut words = HashMap<String, i32>()
+    for w in ["alpha", "beta", "a key longer than fifteen bytes", "gamma"] {
+        words.insert(String(w), 1)
+    }
+    let gone = words.remove_str("a key longer than fifteen bytes") or 0
+    println!("words {} removed {} beta {}", words.len(), gone, words.contains_str("beta"))
+}
+
+fn main() {
+    removed_and_added()
+    sliding_window()
+    one_hash()
+    the_rest()
+}

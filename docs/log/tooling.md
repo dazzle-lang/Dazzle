@@ -2,6 +2,62 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## `HashMap` is a SwissTable (T-0164; 2026-11-04)
+
+Library work; no program behaves differently, and §14.2's description of the map is
+updated. The user chose a SwissTable over Robin Hood probing, the smaller change, once it
+was the faster and smaller of the two.
+
+- **The layout** (`std/collections/hash_map.dz`): one control byte per slot, `0xFF` for
+  empty, `0x80` for a removed entry's marker, or seven bits of the hash. The bits are taken
+  from the top of the hash times a large odd constant, so a weak hash still spreads them.
+  The first group's eight bytes are repeated after the last slot, so a group read from any
+  slot stays in the array. Keys and values are in their own arrays, as before. The table
+  doubles at seven eighths full: `m_growth_left` counts the empty slots that may still be
+  filled.
+- **A lookup** reads eight control bytes as one word and matches the tag in all of them at
+  once with integer arithmetic, since std has no SIMD. The first match's byte comes from a
+  multiply, since Dazzle has no count-trailing-zeros. It compares keys only at matches and
+  stops at a group holding an empty slot. Probing steps by growing multiples of a group,
+  which visits every group of a power-of-two table.
+- **Removal** marks the slot empty again when fewer than a group's worth of full slots
+  surround it, so no probe can have passed it; otherwise it leaves a marker. When markers
+  take the last room, the map is rebuilt at the same size if at most half of it holds
+  entries, and doubles otherwise, so a map whose keys churn does not grow without bound.
+  A rebuild hashes every key again, since a slot keeps only seven bits.
+- **The group is loaded with a `memcpy`.** Assembled byte by byte, clang++ made it one load
+  and g++ eight; that alone cost g++ most of `astar`'s gain. Byte order is checked by a test
+  both compilers fold away, with a swap for a big-endian target.
+
+Measured against the previous map, the same programs' C++ built by each, eleven alternating
+runs at a load average of about 2:
+
+| Program | clang++ | g++ | Peak memory |
+|---|---|---|---|
+| `astar` | 371 → 321 ms | 410 → 354 ms | 17.4 → 11.2 MiB (the C++ half: 12.6) |
+| `expr` | 164 → 160 ms | 165 → 159 ms | about the same |
+| `words` | 144 → 143 ms | 165 → 174 ms | 37.3 → 36.6 MiB |
+
+`words` on g++ is the one loss. Its lookups go through `get_mut_str`, which compares keys
+through a function pointer, and a 7-bit tag lets through more false matches than the
+32-bit hash the old map stored. `RESULTS.md` is not re-measured: the machine was running
+other work, and a run at a load average of 17 to 32 put the C++ half of `astar` at 2.5
+seconds.
+
+**Found on the way: the formatter broke a chained comparison.** It dropped the parentheses in
+`(i % 2 == 0) == found`, and `a == b == c` does not parse, since comparison does not chain
+(§11.1). A comparison inside a comparison now keeps them (`dz_fmt`, the `Binary` arm), and
+`tests/fmt/expressions.dz` has both sides.
+
+Tests: `tests/run/hash_map_churn` covers:
+- half the entries removed and added back;
+- a window of 100 keys slid along 100,000 times, whose slot count must stay small;
+- 300 keys under one hash;
+- `retain`, `clear`, a copy, `get_or_insert` counting, and `String` keys removed by `str`.
+
+It is clean under ASan and UBSan with regions on and off. Every run program prints what it
+did, every benchmark the C++ half's checksum, and the sanitizer suite is clean.
+
 ## A smaller `Box` moved once, and a smaller map slot (T-0097, T-0164; 2026-11-04)
 
 Compiler and library work; no program behaves differently.

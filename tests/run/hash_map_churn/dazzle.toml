@@ -1,0 +1,9 @@
+[module]
+name    = "hash_map_churn"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

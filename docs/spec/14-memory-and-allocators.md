@@ -159,8 +159,10 @@ entries a `fn(&K, &mut V) -> bool` says no to, asking each once. A loop visits e
 read-only — and `keys()`, `values()` and `values_mut()` visit one side. By slot works too:
 `for s in 0..m.slot_count()` with `m.key_at(s)`, `m.value_at(s)` or `m.value_at_mut(s)`,
 each `null` for an empty slot. The order is the table's, which is no particular one. It is
-move-only unless `K` and `V` are both copyable. Keys are found by linear probing, the table
-doubles at three quarters full, and removal leaves no markers behind.
+move-only unless `K` and `V` are both copyable. It is a SwissTable: a control byte per slot
+holds seven bits of the hash of the entry there, a lookup compares eight of them at once
+and a key only where they match, and the table doubles at seven eighths full. Removal may
+leave a marker that later probes pass, cleared when the table is next rebuilt.
 
 A map with `String` keys is also looked up by `str`, with no `String` built to do it:
 **`StrKeys<V>`**, implemented for `HashMap<String, V>` alone, gives `get_str`,

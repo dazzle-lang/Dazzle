@@ -1,0 +1,9 @@
+half removed: 5000 left, 0 wrong
+added back: 10000 entries, 10000 visited, sum 24995000
+window: 100 live, right keys true, slots stay small true
+one hash: 200 entries, 300 of 300 right
+retained 25 each asked true
+cleared 0 copy 25 has 49 true
+reused 1
+counted 7 keys, 1000 in all
+words 3 removed 1 beta true

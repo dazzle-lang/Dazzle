@@ -999,7 +999,20 @@ impl<'a> Printer<'a> {
                 format!("{}{}", op.as_str(), self.expr_prec(operand, 13))
             }
             ExprKind::Binary { op, lhs, rhs } => {
-                let (l, r) = binary_prec(*op);
+                let (mut l, r) = binary_prec(*op);
+                // Comparison is non-associative (§11.1): `(a == b) == c` keeps its
+                // parentheses, since `a == b == c` does not parse.
+                if matches!(
+                    op,
+                    BinaryOp::Eq
+                        | BinaryOp::Ne
+                        | BinaryOp::Lt
+                        | BinaryOp::Gt
+                        | BinaryOp::Le
+                        | BinaryOp::Ge
+                ) {
+                    l = r;
+                }
                 format!("{} {} {}", self.expr_prec(lhs, l), op.as_str(), self.expr_prec(rhs, r))
             }
             ExprKind::Cast { expr, ty } => {

@@ -141,7 +141,7 @@ body impl#0 method fill -> void
               local _1 v: T
 body field-default HashMap.0 -> void
   block
-    null: own ^mut u32
+    null: own ^mut u8
 body field-default HashMap.1 -> void
   block
     null: own ^mut K
@@ -156,6 +156,9 @@ body field-default HashMap.4 -> void
     int 0: usize
 body field-default HashMap.5 -> void
   block
+    int 0: usize
+body field-default HashMap.6 -> void
+  block
     const Allocators::Global: &mut Allocator
 body ctor HashMap#0 -> void
   param _0 self: HashMap<K, V>
@@ -163,7 +166,7 @@ body ctor HashMap#0 -> void
   param _2 loc: SourceLocation
   block
     assign =
-      field #5: ^mut Allocator
+      field #6: ^mut Allocator
         local _0 self: HashMap<K, V>
       block-value: ^mut Allocator
         block
@@ -195,12 +198,9 @@ body method HashMap::capacity -> usize
   param _0 self: HashMap<K, V>
   block
     return: !
-      binary *: usize
-        binary /: usize
-          field #4: usize
-            local _0 self: HashMap<K, V>
-          int 4: usize
-        int 3: usize
+      call usable_slots: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
 body method HashMap::insert -> void
   param _0 self: HashMap<K, V>
   param _1 key: K
@@ -221,8 +221,8 @@ body method HashMap::replace -> V?
   param _2 value: V
   param _3 loc: SourceLocation
   block
-    let _4 h: u32
-      call key_hash: u32
+    let _4 h: u64
+      call key_hash: u64
         ref: &K
           local _1 key: K
     if-let: void
@@ -230,7 +230,7 @@ body method HashMap::replace -> V?
         local _0 self: HashMap<K, V>
         ref: &K
           local _1 key: K
-        local _4 h: u32
+        local _4 h: u64
       bind _5 slot
       block
         let _6 old: V
@@ -253,26 +253,6 @@ body method HashMap::replace -> V?
         return: !
           move: V
             local _6 old: V
-    if: void
-      binary >: bool
-        binary *: usize
-          binary +: usize
-            field #3: usize
-              local _0 self: HashMap<K, V>
-            int 1: usize
-          int 4: usize
-        binary *: usize
-          field #4: usize
-            local _0 self: HashMap<K, V>
-          int 3: usize
-      block
-        call-method HashMap::grow_to: void
-          local _0 self: HashMap<K, V>
-          binary +: usize
-            field #3: usize
-              local _0 self: HashMap<K, V>
-            int 1: usize
-          local _3 loc: SourceLocation
     let _: _
       call-method HashMap::place: usize
         local _0 self: HashMap<K, V>
@@ -280,11 +260,8 @@ body method HashMap::replace -> V?
           local _1 key: K
         move: V
           local _2 value: V
-        local _4 h: u32
-    assign +=
-      field #3: usize
-        local _0 self: HashMap<K, V>
-      int 1: usize
+        local _4 h: u64
+        local _3 loc: SourceLocation
     return: !
       none: V?
 body method HashMap::get_or_insert -> &mut V
@@ -293,8 +270,8 @@ body method HashMap::get_or_insert -> &mut V
   param _2 default: V
   param _3 loc: SourceLocation
   block
-    let _4 h: u32
-      call key_hash: u32
+    let _4 h: u64
+      call key_hash: u64
         ref: &K
           local _1 key: K
     if-let: void
@@ -302,7 +279,7 @@ body method HashMap::get_or_insert -> &mut V
         local _0 self: HashMap<K, V>
         ref: &K
           local _1 key: K
-        local _4 h: u32
+        local _4 h: u64
       bind _5 slot
       block
         return: !
@@ -313,26 +290,6 @@ body method HashMap::get_or_insert -> &mut V
                   field #2: own ^mut V
                     local _0 self: HashMap<K, V>
                   local _5 slot: usize
-    if: void
-      binary >: bool
-        binary *: usize
-          binary +: usize
-            field #3: usize
-              local _0 self: HashMap<K, V>
-            int 1: usize
-          int 4: usize
-        binary *: usize
-          field #4: usize
-            local _0 self: HashMap<K, V>
-          int 3: usize
-      block
-        call-method HashMap::grow_to: void
-          local _0 self: HashMap<K, V>
-          binary +: usize
-            field #3: usize
-              local _0 self: HashMap<K, V>
-            int 1: usize
-          local _3 loc: SourceLocation
     let _6 slot: usize
       call-method HashMap::place: usize
         local _0 self: HashMap<K, V>
@@ -340,11 +297,8 @@ body method HashMap::get_or_insert -> &mut V
           local _1 key: K
         move: V
           local _2 default: V
-        local _4 h: u32
-    assign +=
-      field #3: usize
-        local _0 self: HashMap<K, V>
-      int 1: usize
+        local _4 h: u64
+        local _3 loc: SourceLocation
     return: !
       block-value: &mut V
         block
@@ -362,7 +316,7 @@ body method HashMap::get -> ^V
         call-method HashMap::find: usize?
           local _0 self: HashMap<K, V>
           local _1 key: &K
-          call key_hash: u32
+          call key_hash: u64
             local _1 key: &K
         return: !
           null: ^V
@@ -383,7 +337,7 @@ body method HashMap::get_mut -> ^mut V
         call-method HashMap::find: usize?
           local _0 self: HashMap<K, V>
           local _1 key: &K
-          call key_hash: u32
+          call key_hash: u64
             local _1 key: &K
         return: !
           null: ^mut V
@@ -404,7 +358,7 @@ body method HashMap::contains -> bool
         call-method HashMap::find: usize?
           local _0 self: HashMap<K, V>
           local _1 key: &K
-          call key_hash: u32
+          call key_hash: u64
             local _1 key: &K
         none: usize?
 body method HashMap::remove -> V?
@@ -416,7 +370,7 @@ body method HashMap::remove -> V?
         call-method HashMap::find: usize?
           local _0 self: HashMap<K, V>
           local _1 key: &K
-          call key_hash: u32
+          call key_hash: u64
             local _1 key: &K
         return: !
           none: V?
@@ -436,7 +390,7 @@ body method HashMap::retain -> void
 body method HashMap::find_by -> usize?
   param _0 self: HashMap<K, V>
   param _1 key: Q
-  param _2 h: u32
+  param _2 h: u64
   param _3 same: fn(&K, Q) -> bool
   block
     if: void
@@ -452,52 +406,80 @@ body method HashMap::find_by -> usize?
         field #4: usize
           local _0 self: HashMap<K, V>
         int 1: usize
-    let _5 i: usize
+    let _5 tag: u8
+      call tag_of: u8
+        local _2 h: u64
+    let _6 at: usize
       binary &: usize
         cast: usize
-          local _2 h: u32
+          local _2 h: u64
         local _4 mask: usize
+    let _7 stride: usize
+      int 0: usize
     while
       bool true: bool
       block
-        let _6 stored: u32
-          block-value: u32
+        let _8 group: u64
+          block-value: u64
             block
-              index: u32
-                field #0: own ^mut u32
+              call load_group: u64
+                field #0: own ^mut u8
                   local _0 self: HashMap<K, V>
-                local _5 i: usize
+                local _6 at: usize
+        let _9 hits: u64
+          call match_tag: u64
+            local _8 group: u64
+            local _5 tag: u8
+        while
+          binary !=: bool
+            local _9 hits: u64
+            int 0: u64
+          block
+            let _10 i: usize
+              binary &: usize
+                binary +: usize
+                  local _6 at: usize
+                  call first_byte: usize
+                    local _9 hits: u64
+                local _4 mask: usize
+            if: void
+              call-value: bool
+                local _3 same: fn(&K, Q) -> bool
+                block-value: &K
+                  block
+                    ref: &K
+                      index: K
+                        field #1: own ^mut K
+                          local _0 self: HashMap<K, V>
+                        local _10 i: usize
+                local _1 key: Q
+              block
+                return: !
+                  local _10 i: usize
+            assign =
+              local _9 hits: u64
+              binary &: u64
+                local _9 hits: u64
+                binary -: u64
+                  local _9 hits: u64
+                  int 1: u64
         if: void
-          binary ==: bool
-            local _6 stored: u32
-            int 0: u32
+          binary !=: bool
+            call match_empty: u64
+              local _8 group: u64
+            int 0: u64
           block
             return: !
               none: usize?
-        if: void
-          binary &&: bool
-            binary ==: bool
-              local _6 stored: u32
-              local _2 h: u32
-            call-value: bool
-              local _3 same: fn(&K, Q) -> bool
-              block-value: &K
-                block
-                  ref: &K
-                    index: K
-                      field #1: own ^mut K
-                        local _0 self: HashMap<K, V>
-                      local _5 i: usize
-              local _1 key: Q
-          block
-            return: !
-              local _5 i: usize
+        assign +=
+          local _7 stride: usize
+          const CTRL_GROUP: usize
         assign =
-          local _5 i: usize
+          local _6 at: usize
           binary &: usize
             binary +: usize
-              local _5 i: usize
-              int 1: usize
+              local _6 at: usize
+              local _7 stride: usize
             local _4 mask: usize
     return: !
       none: usize?
@@ -506,43 +488,17 @@ body method HashMap::retain_with -> void
   param _1 q: &Q
   param _2 keep: fn(&Q, &K, &mut V) -> bool
   block
-    if: void
-      binary ==: bool
-        field #3: usize
-          local _0 self: HashMap<K, V>
-        int 0: usize
-      block
-        return: !
-    let _3 start: usize
-      call-method HashMap::empty_slot: usize
-        local _0 self: HashMap<K, V>
-    let _4 step: usize
-      int 1: usize
-    while
-      binary <: bool
-        local _4 step: usize
+    for _3 i
+      range: usize..usize
+        int 0: i32
         field #4: usize
           local _0 self: HashMap<K, V>
       block
-        let _5 i: usize
-          binary &: usize
-            binary +: usize
-              local _3 start: usize
-              local _4 step: usize
-            binary -: usize
-              field #4: usize
-                local _0 self: HashMap<K, V>
-              int 1: usize
         if: void
           binary &&: bool
-            binary !=: bool
-              block-value: u32
-                block
-                  index: u32
-                    field #0: own ^mut u32
-                      local _0 self: HashMap<K, V>
-                    local _5 i: usize
-              int 0: u32
+            call-method HashMap::full: bool
+              local _0 self: HashMap<K, V>
+              local _3 i: usize
             unary !: bool
               call-value: bool
                 local _2 keep: fn(&Q, &K, &mut V) -> bool
@@ -553,25 +509,19 @@ body method HashMap::retain_with -> void
                       index: K
                         field #1: own ^mut K
                           local _0 self: HashMap<K, V>
-                        local _5 i: usize
+                        local _3 i: usize
                 block-value: &mut V
                   block
                     ref mut: &mut V
                       index: V
                         field #2: own ^mut V
                           local _0 self: HashMap<K, V>
-                        local _5 i: usize
+                        local _3 i: usize
           block
             let _: _
               call-method HashMap::remove_slot: V
                 local _0 self: HashMap<K, V>
-                local _5 i: usize
-          block
-            block-value: void
-              block
-                assign +=
-                  local _4 step: usize
-                  int 1: usize
+                local _3 i: usize
 body method HashMap::keys -> HashMapKeys<K, V>
   param _0 self: HashMap<K, V>
   block
@@ -603,14 +553,9 @@ body method HashMap::clear -> void
           local _0 self: HashMap<K, V>
       block
         if: void
-          binary !=: bool
-            block-value: u32
-              block
-                index: u32
-                  field #0: own ^mut u32
-                    local _0 self: HashMap<K, V>
-                  local _1 i: usize
-            int 0: u32
+          call-method HashMap::full: bool
+            local _0 self: HashMap<K, V>
+            local _1 i: usize
           block
             block-value: void
               block
@@ -624,16 +569,32 @@ body method HashMap::clear -> void
                     field #2: own ^mut V
                       local _0 self: HashMap<K, V>
                     local _1 i: usize
-                assign =
-                  index: u32
-                    field #0: own ^mut u32
-                      local _0 self: HashMap<K, V>
-                    local _1 i: usize
-                  int 0: u32
+    for _2 i
+      range: usize..usize
+        int 0: i32
+        binary +: usize
+          field #4: usize
+            local _0 self: HashMap<K, V>
+          const CTRL_GROUP: usize
+      block
+        block-value: void
+          block
+            assign =
+              index: u8
+                field #0: own ^mut u8
+                  local _0 self: HashMap<K, V>
+                local _2 i: usize
+              const CTRL_EMPTY: u8
     assign =
       field #3: usize
         local _0 self: HashMap<K, V>
       int 0: usize
+    assign =
+      field #5: usize
+        local _0 self: HashMap<K, V>
+      call usable_slots: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
 body method HashMap::reserve -> void
   param _0 self: HashMap<K, V>
   param _1 additional: usize
@@ -641,16 +602,13 @@ body method HashMap::reserve -> void
   block
     if: void
       binary >: bool
-        binary *: usize
-          binary +: usize
-            field #3: usize
-              local _0 self: HashMap<K, V>
-            local _1 additional: usize
-          int 4: usize
-        binary *: usize
+        binary +: usize
+          field #3: usize
+            local _0 self: HashMap<K, V>
+          local _1 additional: usize
+        call usable_slots: usize
           field #4: usize
             local _0 self: HashMap<K, V>
-          int 3: usize
       block
         call-method HashMap::grow_to: void
           local _0 self: HashMap<K, V>
@@ -670,11 +628,10 @@ body method HashMap::key_at -> ^K
   param _1 slot: usize
   block
     if: void
-      binary ==: bool
-        call-method HashMap::checked_slot: u32
+      unary !: bool
+        call-method HashMap::checked_full: bool
           local _0 self: HashMap<K, V>
           local _1 slot: usize
-        int 0: u32
       block
         return: !
           null: ^K
@@ -691,11 +648,10 @@ body method HashMap::value_at -> ^V
   param _1 slot: usize
   block
     if: void
-      binary ==: bool
-        call-method HashMap::checked_slot: u32
+      unary !: bool
+        call-method HashMap::checked_full: bool
           local _0 self: HashMap<K, V>
           local _1 slot: usize
-        int 0: u32
       block
         return: !
           null: ^V
@@ -712,11 +668,10 @@ body method HashMap::value_at_mut -> ^mut V
   param _1 slot: usize
   block
     if: void
-      binary ==: bool
-        call-method HashMap::checked_slot: u32
+      unary !: bool
+        call-method HashMap::checked_full: bool
           local _0 self: HashMap<K, V>
           local _1 slot: usize
-        int 0: u32
       block
         return: !
           null: ^mut V
@@ -728,7 +683,7 @@ body method HashMap::value_at_mut -> ^mut V
               field #2: own ^mut V
                 local _0 self: HashMap<K, V>
               local _1 slot: usize
-body method HashMap::checked_slot -> u32
+body method HashMap::checked_full -> bool
   param _0 self: HashMap<K, V>
   param _1 slot: usize
   block
@@ -776,16 +731,28 @@ body method HashMap::checked_slot -> u32
                   call-method Formatter::message_text: &str
                     local _4 fmt·: Formatter
     return: !
-      block-value: u32
-        block
-          index: u32
-            field #0: own ^mut u32
-              local _0 self: HashMap<K, V>
-            local _1 slot: usize
+      call-method HashMap::full: bool
+        local _0 self: HashMap<K, V>
+        local _1 slot: usize
+body method HashMap::full -> bool
+  param _0 self: HashMap<K, V>
+  param _1 slot: usize
+  block
+    return: !
+      binary ==: bool
+        binary &: u8
+          block-value: u8
+            block
+              index: u8
+                field #0: own ^mut u8
+                  local _0 self: HashMap<K, V>
+                local _1 slot: usize
+          int 128: u8
+        int 0: u8
 body method HashMap::find -> usize?
   param _0 self: HashMap<K, V>
   param _1 key: &K
-  param _2 h: u32
+  param _2 h: u64
   block
     if: void
       binary ==: bool
@@ -800,110 +767,275 @@ body method HashMap::find -> usize?
         field #4: usize
           local _0 self: HashMap<K, V>
         int 1: usize
-    let _4 i: usize
+    let _4 tag: u8
+      call tag_of: u8
+        local _2 h: u64
+    let _5 at: usize
       binary &: usize
         cast: usize
-          local _2 h: u32
+          local _2 h: u64
         local _3 mask: usize
+    let _6 stride: usize
+      int 0: usize
     while
       bool true: bool
       block
-        let _5 stored: u32
-          block-value: u32
+        let _7 group: u64
+          block-value: u64
             block
-              index: u32
-                field #0: own ^mut u32
+              call load_group: u64
+                field #0: own ^mut u8
                   local _0 self: HashMap<K, V>
-                local _4 i: usize
+                local _5 at: usize
+        let _8 hits: u64
+          call match_tag: u64
+            local _7 group: u64
+            local _4 tag: u8
+        while
+          binary !=: bool
+            local _8 hits: u64
+            int 0: u64
+          block
+            let _9 i: usize
+              binary &: usize
+                binary +: usize
+                  local _5 at: usize
+                  call first_byte: usize
+                    local _8 hits: u64
+                local _3 mask: usize
+            if: void
+              block-value: bool
+                block
+                  call-method Eq::eq: bool
+                    index: K
+                      field #1: own ^mut K
+                        local _0 self: HashMap<K, V>
+                      local _9 i: usize
+                    local _1 key: &K
+              block
+                return: !
+                  local _9 i: usize
+            assign =
+              local _8 hits: u64
+              binary &: u64
+                local _8 hits: u64
+                binary -: u64
+                  local _8 hits: u64
+                  int 1: u64
         if: void
-          binary ==: bool
-            local _5 stored: u32
-            int 0: u32
+          binary !=: bool
+            call match_empty: u64
+              local _7 group: u64
+            int 0: u64
           block
             return: !
               none: usize?
-        if: void
-          binary &&: bool
-            binary ==: bool
-              local _5 stored: u32
-              local _2 h: u32
-            block-value: bool
-              block
-                call-method Eq::eq: bool
-                  index: K
-                    field #1: own ^mut K
-                      local _0 self: HashMap<K, V>
-                    local _4 i: usize
-                  local _1 key: &K
-          block
-            return: !
-              local _4 i: usize
+        assign +=
+          local _6 stride: usize
+          const CTRL_GROUP: usize
         assign =
-          local _4 i: usize
+          local _5 at: usize
           binary &: usize
             binary +: usize
-              local _4 i: usize
-              int 1: usize
+              local _5 at: usize
+              local _6 stride: usize
             local _3 mask: usize
     return: !
       none: usize?
-body method HashMap::place -> usize
+body method HashMap::free_slot -> usize
   param _0 self: HashMap<K, V>
-  param _1 key: K
-  param _2 value: V
-  param _3 h: u32
+  param _1 h: u64
   block
-    let _4 mask: usize
+    let _2 mask: usize
       binary -: usize
         field #4: usize
           local _0 self: HashMap<K, V>
         int 1: usize
-    let _5 i: usize
+    let _3 at: usize
       binary &: usize
         cast: usize
-          local _3 h: u32
-        local _4 mask: usize
+          local _1 h: u64
+        local _2 mask: usize
+    let _4 stride: usize
+      int 0: usize
     while
-      binary !=: bool
-        block-value: u32
-          block
-            index: u32
-              field #0: own ^mut u32
-                local _0 self: HashMap<K, V>
-              local _5 i: usize
-        int 0: u32
+      bool true: bool
       block
+        let _5 free: u64
+          binary &: u64
+            block-value: u64
+              block
+                call load_group: u64
+                  field #0: own ^mut u8
+                    local _0 self: HashMap<K, V>
+                  local _3 at: usize
+            const CTRL_HIGH_BITS: u64
+        if: void
+          binary !=: bool
+            local _5 free: u64
+            int 0: u64
+          block
+            return: !
+              binary &: usize
+                binary +: usize
+                  local _3 at: usize
+                  call first_byte: usize
+                    local _5 free: u64
+                local _2 mask: usize
+        assign +=
+          local _4 stride: usize
+          const CTRL_GROUP: usize
         assign =
-          local _5 i: usize
+          local _3 at: usize
           binary &: usize
             binary +: usize
-              local _5 i: usize
-              int 1: usize
-            local _4 mask: usize
+              local _3 at: usize
+              local _4 stride: usize
+            local _2 mask: usize
+    return: !
+      int 0: usize
+body method HashMap::place -> usize
+  param _0 self: HashMap<K, V>
+  param _1 key: K
+  param _2 value: V
+  param _3 h: u64
+  param _4 loc: SourceLocation
+  block
+    if: void
+      binary ==: bool
+        field #4: usize
+          local _0 self: HashMap<K, V>
+        int 0: usize
+      block
+        call-method HashMap::grow_to: void
+          local _0 self: HashMap<K, V>
+          int 1: usize
+          local _4 loc: SourceLocation
+    let _5 slot: usize
+      call-method HashMap::free_slot: usize
+        local _0 self: HashMap<K, V>
+        local _3 h: u64
+    if: void
+      binary &&: bool
+        binary ==: bool
+          block-value: u8
+            block
+              index: u8
+                field #0: own ^mut u8
+                  local _0 self: HashMap<K, V>
+                local _5 slot: usize
+          const CTRL_EMPTY: u8
+        binary ==: bool
+          field #5: usize
+            local _0 self: HashMap<K, V>
+          int 0: usize
+      block
+        let _6 usable: usize
+          call usable_slots: usize
+            field #4: usize
+              local _0 self: HashMap<K, V>
+        let _7 wanted: usize
+          if: usize
+            binary <=: bool
+              binary +: usize
+                field #3: usize
+                  local _0 self: HashMap<K, V>
+                int 1: usize
+              binary /: usize
+                local _6 usable: usize
+                int 2: usize
+            block
+              binary +: usize
+                field #3: usize
+                  local _0 self: HashMap<K, V>
+                int 1: usize
+            block
+              block-value: usize
+                block
+                  binary +: usize
+                    local _6 usable: usize
+                    int 1: usize
+        call-method HashMap::grow_to: void
+          local _0 self: HashMap<K, V>
+          local _7 wanted: usize
+          local _4 loc: SourceLocation
+        assign =
+          local _5 slot: usize
+          call-method HashMap::free_slot: usize
+            local _0 self: HashMap<K, V>
+            local _3 h: u64
+    if: void
+      binary ==: bool
+        block-value: u8
+          block
+            index: u8
+              field #0: own ^mut u8
+                local _0 self: HashMap<K, V>
+              local _5 slot: usize
+        const CTRL_EMPTY: u8
+      block
+        assign -=
+          field #5: usize
+            local _0 self: HashMap<K, V>
+          int 1: usize
+    call-method HashMap::set_ctrl: void
+      local _0 self: HashMap<K, V>
+      local _5 slot: usize
+      call tag_of: u8
+        local _3 h: u64
     block-value: void
       block
-        assign =
-          index: u32
-            field #0: own ^mut u32
-              local _0 self: HashMap<K, V>
-            local _5 i: usize
-          local _3 h: u32
         builtin construct: void
           index: K
             field #1: own ^mut K
               local _0 self: HashMap<K, V>
-            local _5 i: usize
+            local _5 slot: usize
           move: K
             local _1 key: K
         builtin construct: void
           index: V
             field #2: own ^mut V
               local _0 self: HashMap<K, V>
-            local _5 i: usize
+            local _5 slot: usize
           move: V
             local _2 value: V
+    assign +=
+      field #3: usize
+        local _0 self: HashMap<K, V>
+      int 1: usize
     return: !
-      local _5 i: usize
+      local _5 slot: usize
+body method HashMap::set_ctrl -> void
+  param _0 self: HashMap<K, V>
+  param _1 i: usize
+  param _2 c: u8
+  block
+    block-value: void
+      block
+        assign =
+          index: u8
+            field #0: own ^mut u8
+              local _0 self: HashMap<K, V>
+            local _1 i: usize
+          local _2 c: u8
+        assign =
+          index: u8
+            field #0: own ^mut u8
+              local _0 self: HashMap<K, V>
+            binary +: usize
+              binary &: usize
+                binary -: usize
+                  binary +: usize
+                    local _1 i: usize
+                    field #4: usize
+                      local _0 self: HashMap<K, V>
+                  const CTRL_GROUP: usize
+                binary -: usize
+                  field #4: usize
+                    local _0 self: HashMap<K, V>
+                  int 1: usize
+              const CTRL_GROUP: usize
+          local _2 c: u8
 body method HashMap::remove_slot -> V
   param _0 self: HashMap<K, V>
   param _1 found: usize
@@ -923,111 +1055,88 @@ body method HashMap::remove_slot -> V
             field #1: own ^mut K
               local _0 self: HashMap<K, V>
             local _1 found: usize
-        assign =
-          index: u32
-            field #0: own ^mut u32
-              local _0 self: HashMap<K, V>
-            local _1 found: usize
-          int 0: u32
     let _3 mask: usize
       binary -: usize
         field #4: usize
           local _0 self: HashMap<K, V>
         int 1: usize
-    let _4 hole: usize
-      local _1 found: usize
-    let _5 i: usize
-      binary &: usize
-        binary +: usize
-          local _1 found: usize
-          int 1: usize
-        local _3 mask: usize
+    let _4 run: usize
+      int 1: usize
+    let _5 back: usize
+      int 1: usize
     while
-      binary !=: bool
-        block-value: u32
-          block
-            index: u32
-              field #0: own ^mut u32
-                local _0 self: HashMap<K, V>
-              local _5 i: usize
-        int 0: u32
+      binary &&: bool
+        binary <: bool
+          local _5 back: usize
+          const CTRL_GROUP: usize
+        binary !=: bool
+          block-value: u8
+            block
+              index: u8
+                field #0: own ^mut u8
+                  local _0 self: HashMap<K, V>
+                binary &: usize
+                  binary -: usize
+                    binary +: usize
+                      local _1 found: usize
+                      field #4: usize
+                        local _0 self: HashMap<K, V>
+                    local _5 back: usize
+                  local _3 mask: usize
+          const CTRL_EMPTY: u8
       block
-        let _6 home: usize
-          binary &: usize
-            cast: usize
-              block-value: u32
-                block
-                  index: u32
-                    field #0: own ^mut u32
-                      local _0 self: HashMap<K, V>
-                    local _5 i: usize
-            local _3 mask: usize
-        if: void
-          binary >=: bool
-            binary &: usize
-              binary -: usize
-                binary +: usize
-                  local _5 i: usize
-                  field #4: usize
-                    local _0 self: HashMap<K, V>
-                local _6 home: usize
-              local _3 mask: usize
-            binary &: usize
-              binary -: usize
-                binary +: usize
-                  local _5 i: usize
-                  field #4: usize
-                    local _0 self: HashMap<K, V>
-                local _4 hole: usize
-              local _3 mask: usize
+        assign +=
+          local _4 run: usize
+          int 1: usize
+        assign +=
+          local _5 back: usize
+          int 1: usize
+    let _6 ahead: usize
+      int 1: usize
+    while
+      binary &&: bool
+        binary <: bool
+          local _6 ahead: usize
+          const CTRL_GROUP: usize
+        binary !=: bool
+          block-value: u8
+            block
+              index: u8
+                field #0: own ^mut u8
+                  local _0 self: HashMap<K, V>
+                binary &: usize
+                  binary +: usize
+                    local _1 found: usize
+                    local _6 ahead: usize
+                  local _3 mask: usize
+          const CTRL_EMPTY: u8
+      block
+        assign +=
+          local _4 run: usize
+          int 1: usize
+        assign +=
+          local _6 ahead: usize
+          int 1: usize
+    if: void
+      binary >=: bool
+        local _4 run: usize
+        const CTRL_GROUP: usize
+      block
+        call-method HashMap::set_ctrl: void
+          local _0 self: HashMap<K, V>
+          local _1 found: usize
+          const CTRL_DELETED: u8
+      block
+        block-value: void
           block
-            block-value: void
-              block
-                assign =
-                  index: u32
-                    field #0: own ^mut u32
-                      local _0 self: HashMap<K, V>
-                    local _4 hole: usize
-                  index: u32
-                    field #0: own ^mut u32
-                      local _0 self: HashMap<K, V>
-                    local _5 i: usize
-                assign =
-                  index: u32
-                    field #0: own ^mut u32
-                      local _0 self: HashMap<K, V>
-                    local _5 i: usize
-                  int 0: u32
-                builtin construct: void
-                  index: K
-                    field #1: own ^mut K
-                      local _0 self: HashMap<K, V>
-                    local _4 hole: usize
-                  builtin move_out: K
-                    index: K
-                      field #1: own ^mut K
-                        local _0 self: HashMap<K, V>
-                      local _5 i: usize
-                builtin construct: void
-                  index: V
-                    field #2: own ^mut V
-                      local _0 self: HashMap<K, V>
-                    local _4 hole: usize
-                  builtin move_out: V
-                    index: V
-                      field #2: own ^mut V
-                        local _0 self: HashMap<K, V>
-                      local _5 i: usize
-            assign =
-              local _4 hole: usize
-              local _5 i: usize
-        assign =
-          local _5 i: usize
-          binary &: usize
-            binary +: usize
-              local _5 i: usize
+            call-method HashMap::set_ctrl: void
+              local _0 self: HashMap<K, V>
+              local _1 found: usize
+              const CTRL_EMPTY: u8
+            assign +=
+              field #5: usize
+                local _0 self: HashMap<K, V>
               int 1: usize
-            local _3 mask: usize
     assign -=
       field #3: usize
         local _0 self: HashMap<K, V>
@@ -1035,71 +1144,45 @@ body method HashMap::remove_slot -> V
     return: !
       move: V
         local _2 value: V
-body method HashMap::empty_slot -> usize
-  param _0 self: HashMap<K, V>
-  block
-    let _1 i: usize
-      int 0: usize
-    while
-      binary !=: bool
-        block-value: u32
-          block
-            index: u32
-              field #0: own ^mut u32
-                local _0 self: HashMap<K, V>
-              local _1 i: usize
-        int 0: u32
-      block
-        assign +=
-          local _1 i: usize
-          int 1: usize
-    return: !
-      local _1 i: usize
 body method HashMap::grow_to -> void
   param _0 self: HashMap<K, V>
   param _1 wanted: usize
   param _2 loc: SourceLocation
   block
     let _3 slots: usize
-      if: usize
-        binary ==: bool
-          field #4: usize
-            local _0 self: HashMap<K, V>
-          int 0: usize
-        block
-          int 8: usize
-        block
-          block-value: usize
-            block
-              binary *: usize
-                field #4: usize
-                  local _0 self: HashMap<K, V>
-                int 2: usize
+      const CTRL_GROUP: usize
     while
-      binary >: bool
-        binary *: usize
-          local _1 wanted: usize
-          int 4: usize
-        binary *: usize
+      binary <: bool
+        call usable_slots: usize
           local _3 slots: usize
-          int 3: usize
+        local _1 wanted: usize
       block
         assign *=
           local _3 slots: usize
           int 2: usize
+    if: void
+      binary <: bool
+        local _3 slots: usize
+        field #4: usize
+          local _0 self: HashMap<K, V>
+      block
+        assign =
+          local _3 slots: usize
+          field #4: usize
+            local _0 self: HashMap<K, V>
     let _4 a: &mut Allocator
       block-value: &mut Allocator
         block
           or: &mut Allocator
-            field #5: ^mut Allocator
+            field #6: ^mut Allocator
               local _0 self: HashMap<K, V>
             builtin panic: !
               str "a HashMap with no allocator cannot grow": &str
-    let _5 old_hashes: ^mut u32
-      block-value: ^mut u32
+    let _5 old_ctrl: ^mut u8
+      block-value: ^mut u8
         block
-          cast: ^mut u32
-            field #0: own ^mut u32
+          cast: ^mut u8
+            field #0: own ^mut u8
               local _0 self: HashMap<K, V>
     let _6 old_keys: ^mut K
       block-value: ^mut K
@@ -1117,18 +1200,17 @@ body method HashMap::grow_to -> void
       field #4: usize
         local _0 self: HashMap<K, V>
     assign =
-      field #0: own ^mut u32
+      field #0: own ^mut u8
         local _0 self: HashMap<K, V>
-      block-value: ^mut u32
+      block-value: ^mut u8
         block
-          cast: ^mut u32
-            call-method Allocator::alloc: ^mut u8
-              local _4 a: &mut Allocator
-              binary *: usize
-                local _3 slots: usize
-                type-query u32::size: usize
-              type-query u32::align: usize
-              local _2 loc: SourceLocation
+          call-method Allocator::alloc: ^mut u8
+            local _4 a: &mut Allocator
+            binary +: usize
+              local _3 slots: usize
+              const CTRL_GROUP: usize
+            int 1: usize
+            local _2 loc: SourceLocation
     assign =
       field #1: own ^mut K
         local _0 self: HashMap<K, V>
@@ -1162,20 +1244,30 @@ body method HashMap::grow_to -> void
     for _9 i
       range: usize..usize
         int 0: i32
-        local _3 slots: usize
+        binary +: usize
+          local _3 slots: usize
+          const CTRL_GROUP: usize
       block
         block-value: void
           block
             assign =
-              index: u32
-                field #0: own ^mut u32
+              index: u8
+                field #0: own ^mut u8
                   local _0 self: HashMap<K, V>
                 local _9 i: usize
-              int 0: u32
+              const CTRL_EMPTY: u8
+    assign =
+      field #5: usize
+        local _0 self: HashMap<K, V>
+      binary -: usize
+        call usable_slots: usize
+          local _3 slots: usize
+        field #3: usize
+          local _0 self: HashMap<K, V>
     if: void
       binary ==: bool
-        local _5 old_hashes: ^mut u32
-        null: ^mut u32
+        local _5 old_ctrl: ^mut u8
+        null: ^mut u8
       block
         return: !
     for _10 i
@@ -1183,41 +1275,61 @@ body method HashMap::grow_to -> void
         int 0: i32
         local _8 old_slots: usize
       block
-        let _11 h: u32
-          block-value: u32
-            block
-              index: u32
-                local _5 old_hashes: ^mut u32
-                local _10 i: usize
         if: void
-          binary !=: bool
-            local _11 h: u32
-            int 0: u32
-          block
-            let _: _
-              block-value: usize
+          binary ==: bool
+            binary &: u8
+              block-value: u8
                 block
-                  call-method HashMap::place: usize
-                    local _0 self: HashMap<K, V>
-                    builtin move_out: K
+                  index: u8
+                    local _5 old_ctrl: ^mut u8
+                    local _10 i: usize
+              int 128: u8
+            int 0: u8
+          block
+            let _11 h: u64
+              call key_hash: u64
+                block-value: &K
+                  block
+                    ref: &K
                       index: K
                         local _6 old_keys: ^mut K
                         local _10 i: usize
-                    builtin move_out: V
-                      index: V
-                        local _7 old_values: ^mut V
-                        local _10 i: usize
-                    local _11 h: u32
+            let _12 slot: usize
+              call-method HashMap::free_slot: usize
+                local _0 self: HashMap<K, V>
+                local _11 h: u64
+            call-method HashMap::set_ctrl: void
+              local _0 self: HashMap<K, V>
+              local _12 slot: usize
+              call tag_of: u8
+                local _11 h: u64
+            block-value: void
+              block
+                builtin construct: void
+                  index: K
+                    field #1: own ^mut K
+                      local _0 self: HashMap<K, V>
+                    local _12 slot: usize
+                  builtin move_out: K
+                    index: K
+                      local _6 old_keys: ^mut K
+                      local _10 i: usize
+                builtin construct: void
+                  index: V
+                    field #2: own ^mut V
+                      local _0 self: HashMap<K, V>
+                    local _12 slot: usize
+                  builtin move_out: V
+                    index: V
+                      local _7 old_values: ^mut V
+                      local _10 i: usize
     call-method Allocator::free: void
       local _4 a: &mut Allocator
-      block-value: ^mut u8
-        block
-          cast: ^mut u8
-            local _5 old_hashes: ^mut u32
-      binary *: usize
+      local _5 old_ctrl: ^mut u8
+      binary +: usize
         local _8 old_slots: usize
-        type-query u32::size: usize
-      type-query u32::align: usize
+        const CTRL_GROUP: usize
+      int 1: usize
       local _2 loc: SourceLocation
     call-method Allocator::free: void
       local _4 a: &mut Allocator
@@ -1241,6 +1353,156 @@ body method HashMap::grow_to -> void
         type-query V::size: usize
       type-query V::align: usize
       local _2 loc: SourceLocation
+body const CTRL_GROUP -> void
+  block
+    int 8: usize
+body const CTRL_EMPTY -> void
+  block
+    int 255: u8
+body const CTRL_DELETED -> void
+  block
+    int 128: u8
+body const CTRL_HIGH_BITS -> void
+  block
+    int 9259542123273814144: u64
+body const CTRL_LOW_BITS -> void
+  block
+    int 72340172838076673: u64
+body fn usable_slots -> usize
+  param _0 slots: usize
+  block
+    return: !
+      binary *: usize
+        binary /: usize
+          local _0 slots: usize
+          int 8: usize
+        int 7: usize
+body fn tag_of -> u8
+  param _0 h: u64
+  block
+    return: !
+      cast: u8
+        binary >>: u64
+          binary *: u64
+            local _0 h: u64
+            int 11400714819323198485: u64
+          int 57: u64
+body fn load_group -> u64
+  param _0 ctrl: ^mut u8
+  param _1 at: usize
+  block
+    let _2 group: u64
+      int 0: u64
+    builtin memcpy: void
+      ref mut: &mut u64
+        local _2 group: u64
+      ref: &u8
+        index: u8
+          local _0 ctrl: ^mut u8
+          local _1 at: usize
+      const CTRL_GROUP: usize
+    if: void
+      call little_endian: bool
+      block
+        return: !
+          local _2 group: u64
+    return: !
+      call swap_bytes: u64
+        local _2 group: u64
+body fn little_endian -> bool
+  block
+    let _0 one: u16
+      int 1: u16
+    let _1 first: u8
+      int 0: u8
+    block-value: void
+      block
+        builtin memcpy: void
+          ref mut: &mut u8
+            local _1 first: u8
+          ref: &u16
+            local _0 one: u16
+          int 1: i32
+    return: !
+      binary ==: bool
+        local _1 first: u8
+        int 1: u8
+body fn swap_bytes -> u64
+  param _0 x: u64
+  block
+    let _1 out: u64
+      int 0: u64
+    for _2 i
+      range: i32..i32
+        int 0: i32
+        int 8: i32
+      block
+        assign =
+          local _1 out: u64
+          binary |: u64
+            binary <<: u64
+              local _1 out: u64
+              int 8: u64
+            binary &: u64
+              binary >>: u64
+                local _0 x: u64
+                cast: u64
+                  binary *: i32
+                    local _2 i: i32
+                    int 8: i32
+              int 255: u64
+    return: !
+      local _1 out: u64
+body fn match_tag -> u64
+  param _0 group: u64
+  param _1 tag: u8
+  block
+    let _2 x: u64
+      binary ^^: u64
+        local _0 group: u64
+        binary *: u64
+          const CTRL_LOW_BITS: u64
+          cast: u64
+            local _1 tag: u8
+    return: !
+      binary &: u64
+        binary &: u64
+          binary -: u64
+            local _2 x: u64
+            const CTRL_LOW_BITS: u64
+          unary ~: u64
+            local _2 x: u64
+        const CTRL_HIGH_BITS: u64
+body fn match_empty -> u64
+  param _0 group: u64
+  block
+    return: !
+      binary &: u64
+        binary &: u64
+          local _0 group: u64
+          binary <<: u64
+            local _0 group: u64
+            int 1: u64
+        const CTRL_HIGH_BITS: u64
+body fn first_byte -> usize
+  param _0 bits: u64
+  block
+    let _1 lowest: u64
+      binary &: u64
+        local _0 bits: u64
+        binary +: u64
+          unary ~: u64
+            local _0 bits: u64
+          int 1: u64
+    return: !
+      cast: usize
+        binary >>: u64
+          binary *: u64
+            binary >>: u64
+              local _1 lowest: u64
+              int 7: u64
+            int 283686952306183: u64
+          int 56: u64
 body fn first_entry_from -> usize
   param _0 map: &HashMap<K, V>
   param _1 slot: usize
@@ -1291,36 +1553,20 @@ body fn ask_entry -> bool
         local _3 f: fn(&K, &mut V) -> bool
         local _1 key: &K
         local _2 value: &mut V
-body fn key_hash -> u32
+body fn key_hash -> u64
   param _0 key: &K
   block
-    let _1 h: u64
+    return: !
       call-method Hash::hash: u64
         local _0 key: &K
-    let _2 folded: u32
-      cast: u32
-        binary ^^: u64
-          local _1 h: u64
-          binary >>: u64
-            local _1 h: u64
-            int 32: u64
-    if: void
-      binary ==: bool
-        local _2 folded: u32
-        int 0: u32
-      block
-        return: !
-          int 1: u32
-    return: !
-      local _2 folded: u32
 body drop HashMap -> void
   param _0 self: HashMap<K, V>
   block
     if: void
       binary ==: bool
-        field #0: own ^mut u32
+        field #0: own ^mut u8
           local _0 self: HashMap<K, V>
-        null: own ^mut u32
+        null: own ^mut u8
       block
         return: !
     if: void
@@ -1335,14 +1581,16 @@ body drop HashMap -> void
               local _0 self: HashMap<K, V>
           block
             if: void
-              binary !=: bool
-                block-value: u32
-                  block
-                    index: u32
-                      field #0: own ^mut u32
-                        local _0 self: HashMap<K, V>
-                      local _1 i: usize
-                int 0: u32
+              binary ==: bool
+                binary &: u8
+                  block-value: u8
+                    block
+                      index: u8
+                        field #0: own ^mut u8
+                          local _0 self: HashMap<K, V>
+                        local _1 i: usize
+                  int 128: u8
+                int 0: u8
               block
                 block-value: void
                   block
@@ -1360,7 +1608,7 @@ body drop HashMap -> void
       block-value: &mut Allocator
         block
           or: &mut Allocator
-            field #5: ^mut Allocator
+            field #6: ^mut Allocator
               local _0 self: HashMap<K, V>
             return: !
     call-method Allocator::free: void
@@ -1368,13 +1616,13 @@ body drop HashMap -> void
       block-value: ^mut u8
         block
           cast: ^mut u8
-            field #0: own ^mut u32
+            field #0: own ^mut u8
               local _0 self: HashMap<K, V>
-      binary *: usize
+      binary +: usize
         field #4: usize
           local _0 self: HashMap<K, V>
-        type-query u32::size: usize
-      type-query u32::align: usize
+        const CTRL_GROUP: usize
+      int 1: usize
     call-method Allocator::free: void
       local _2 a: &mut Allocator
       block-value: ^mut u8
@@ -1404,7 +1652,7 @@ body copy HashMap -> void
   param _1 other: &HashMap<K, V>
   block
     assign =
-      field #5: ^mut Allocator
+      field #6: ^mut Allocator
         local _0 self: HashMap<K, V>
       block-value: ^mut Allocator
         block
@@ -1420,7 +1668,7 @@ body copy HashMap -> void
       block-value: &mut Allocator
         block
           or: &mut Allocator
-            field #5: ^mut Allocator
+            field #6: ^mut Allocator
               local _0 self: HashMap<K, V>
             builtin panic: !
               str "a HashMap with no allocator cannot be copied": &str
@@ -1430,18 +1678,17 @@ body copy HashMap -> void
       field #4: usize
         local _1 other: &HashMap<K, V>
     assign =
-      field #0: own ^mut u32
+      field #0: own ^mut u8
         local _0 self: HashMap<K, V>
-      block-value: ^mut u32
+      block-value: ^mut u8
         block
-          cast: ^mut u32
-            call-method Allocator::alloc: ^mut u8
-              local _2 a: &mut Allocator
-              binary *: usize
-                field #4: usize
-                  local _0 self: HashMap<K, V>
-                type-query u32::size: usize
-              type-query u32::align: usize
+          call-method Allocator::alloc: ^mut u8
+            local _2 a: &mut Allocator
+            binary +: usize
+              field #4: usize
+                local _0 self: HashMap<K, V>
+              const CTRL_GROUP: usize
+            int 1: usize
     assign =
       field #1: own ^mut K
         local _0 self: HashMap<K, V>
@@ -1468,31 +1715,34 @@ body copy HashMap -> void
                   local _0 self: HashMap<K, V>
                 type-query V::size: usize
               type-query V::align: usize
+    block-value: void
+      block
+        builtin memcpy: void
+          field #0: own ^mut u8
+            local _0 self: HashMap<K, V>
+          field #0: own ^mut u8
+            local _1 other: &HashMap<K, V>
+          binary +: usize
+            field #4: usize
+              local _0 self: HashMap<K, V>
+            const CTRL_GROUP: usize
     for _3 i
       range: usize..usize
         int 0: i32
         field #4: usize
           local _0 self: HashMap<K, V>
       block
-        let _4 h: u32
-          block-value: u32
-            block
-              index: u32
-                field #0: own ^mut u32
-                  local _1 other: &HashMap<K, V>
-                local _3 i: usize
-        block-value: void
-          block
-            assign =
-              index: u32
-                field #0: own ^mut u32
-                  local _0 self: HashMap<K, V>
-                local _3 i: usize
-              local _4 h: u32
         if: void
-          binary !=: bool
-            local _4 h: u32
-            int 0: u32
+          binary ==: bool
+            binary &: u8
+              block-value: u8
+                block
+                  index: u8
+                    field #0: own ^mut u8
+                      local _1 other: &HashMap<K, V>
+                    local _3 i: usize
+              int 128: u8
+            int 0: u8
           block
             block-value: void
               block
@@ -1518,6 +1768,11 @@ body copy HashMap -> void
       field #3: usize
         local _0 self: HashMap<K, V>
       field #3: usize
+        local _1 other: &HashMap<K, V>
+    assign =
+      field #5: usize
+        local _0 self: HashMap<K, V>
+      field #5: usize
         local _1 other: &HashMap<K, V>
 body field-default HashMapIter.1 -> void
   block
@@ -4689,7 +4944,7 @@ body impl#30 method get_str -> ^V
         call-method HashMap::find_by<&str>: usize?
           local _0 self: HashMap<String, V>
           local _1 key: &str
-          call key_hash: u32
+          call key_hash: u64
             ref: &&str
               local _1 key: &str
           fn-item string_is: fn(&String, &str) -> bool
@@ -4712,7 +4967,7 @@ body impl#30 method get_mut_str -> ^mut V
         call-method HashMap::find_by<&str>: usize?
           local _0 self: HashMap<String, V>
           local _1 key: &str
-          call key_hash: u32
+          call key_hash: u64
             ref: &&str
               local _1 key: &str
           fn-item string_is: fn(&String, &str) -> bool
@@ -4735,7 +4990,7 @@ body impl#30 method contains_str -> bool
         call-method HashMap::find_by<&str>: usize?
           local _0 self: HashMap<String, V>
           local _1 key: &str
-          call key_hash: u32
+          call key_hash: u64
             ref: &&str
               local _1 key: &str
           fn-item string_is: fn(&String, &str) -> bool
@@ -4749,7 +5004,7 @@ body impl#30 method remove_str -> V?
         call-method HashMap::find_by<&str>: usize?
           local _0 self: HashMap<String, V>
           local _1 key: &str
-          call key_hash: u32
+          call key_hash: u64
             ref: &&str
               local _1 key: &str
           fn-item string_is: fn(&String, &str) -> bool

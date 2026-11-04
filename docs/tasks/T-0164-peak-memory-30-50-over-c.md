@@ -14,7 +14,8 @@ and not yet measured: the explanation below is a likely cause, to be confirmed f
 
 | Piece | Where |
 |---|---|
-| `HashMap`'s slots (a 32-bit hash, a key, a value, in three arrays) and its growth past three quarters | `grow_to`, `key_hash` in `dz_project/src/std/collections/hash_map.dz` |
+| `HashMap`, a SwissTable: control bytes, keys and values; `find`, `free_slot`, `place`, `remove_slot`, `grow_to`; `load_group`, `match_tag`, `match_empty`, `first_byte` | `dz_project/src/std/collections/hash_map.dz` |
+| The test of its edges | `tests/run/hash_map_churn` |
 | Peak memory on the heap against regions | `tools/bench_regions.py` |
 | The numbers | `tests/bench_programs/RESULTS.md` |
 
@@ -47,3 +48,8 @@ Left, each a library design question:
 - **`words`: each short word's own allocation** was 2 MiB of it: with
   [T-0156](T-0156-string-always-allocates-short-text-kept.md) done, `words` peaks at 37.9
   MiB against 32.3. What is left is the map's layout, as for `astar`.
+
+**`HashMap` is a SwissTable** (2026-11-04), the user's choice. `astar` peaks at 11.2 MiB,
+under the C++ half's 12.6, and is 13–14% faster. `words` is at 36.6 MiB against 32.3, and
+the map is not most of that: what the rest is, is not measured yet, which is what keeps
+this open. `docs/log/tooling.md` has the numbers.
