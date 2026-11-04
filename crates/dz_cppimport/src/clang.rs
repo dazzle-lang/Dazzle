@@ -148,10 +148,11 @@ fn ensure_loaded() -> Result<(), String> {
     let shared = SHARED.get_or_init(|| {
         // Where libclang is looked for, nearest first. `LIBCLANG_PATH` set by hand wins;
         // after that comes **the one shipped with `dz`**, so a release that carries its own
-        // copy needs nothing installed on the machine; then an LLVM install, which anyone
-        // who can build a Dazzle program with clang already has.
+        // copy needs nothing installed on the machine; on macOS, the toolchain `xcrun`
+        // picks; then an LLVM install, which anyone who can build a Dazzle program with
+        // clang already has.
         if std::env::var_os("LIBCLANG_PATH").is_none() {
-            if let Some(dir) = bundled().or_else(beside_clang) {
+            if let Some(dir) = bundled().or_else(xcode_toolchain).or_else(beside_clang) {
                 std::env::set_var("LIBCLANG_PATH", dir);
             }
         }
@@ -275,6 +276,28 @@ pub(crate) fn clang_major(version: &str) -> Option<String> {
     let rest = &version[version.find("version ")? + "version ".len()..];
     let major: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
     (!major.is_empty()).then_some(major)
+}
+
+/// On macOS, the libclang of the toolchain `xcrun` picks: the one beside its `clang`, which is
+/// also what `clang++` runs and where the SDK passed as `-isysroot` comes from.
+///
+/// A Mac often has more than one libclang (the command line tools, one or more Xcodes), and
+/// left to itself clang-sys takes whichever it ranks first. One older than the SDK reads
+/// the SDK's newer `malloc` declaration as something else, and the import of `stdlib.h` then
+/// finds no `malloc` and reports nothing wrong: the first release build hit exactly that on
+/// GitHub's macOS image.
+fn xcode_toolchain() -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let out = std::process::Command::new("xcrun").args(["--find", "clang"]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let clang = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    // `<toolchain>/usr/bin/clang` beside `<toolchain>/usr/lib/libclang.dylib`.
+    let lib = clang.parent()?.parent()?.join("lib");
+    lib.join(lib_name()).is_file().then_some(lib)
 }
 
 fn beside_clang() -> Option<PathBuf> {

@@ -74,6 +74,16 @@ jobs:
           python tools/release.py package --target ${{ matrix.target }} --dz "$exe" \
             --llvm build/llvm --out dist
 
+      # Printed rather than assumed: when a smoke test fails, this says which toolchain it met.
+      - name: Report the toolchain (macos)
+        if: runner.os == 'macOS'
+        run: |
+          xcode-select -p
+          xcrun --find clang
+          xcrun --show-sdk-path
+          clang++ --version
+          ls /Library/Developer/CommandLineTools/usr/lib/libclang.dylib || true
+
       # The smoke test builds a program with the archive alone. It unsets LIBCLANG_PATH
       # itself; on Linux and Windows the bundled libclang is found before any other, and on
       # macOS the one in Xcode's tools is meant to be used.
