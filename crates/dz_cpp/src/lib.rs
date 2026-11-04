@@ -2832,16 +2832,17 @@ impl<'a> Emitter<'a> {
             let _ = writeln!(h, "    {name}(const {name}&) = delete;");
             let _ = writeln!(h, "    {name}& operator=(const {name}&) = delete;");
         }
-        // A move takes the active payload and leaves the source at its defaults, as every
-        // moved-from value is (spec §6.4).
-        let _ = writeln!(
-            h,
-            "    {name}({name}&& o) : kind(o.kind) {{ move_from(o); o.become(Kind::{first}); }}"
-        );
+        // A move takes the active payload and leaves the source's variant as it was, each
+        // field moved from and so at its own defaults; a union has no `drop` of its own to
+        // mind (§7.5). Resetting the source here cost a switch, a drop and a construct on
+        // every move (T-0097). A source a program can still read, a field or an element, is
+        // moved with `take`, which resets it as §6.4 says; a local is never read after its
+        // move, and a temporary never at all.
+        let _ = writeln!(h, "    {name}({name}&& o) : kind(o.kind) {{ move_from(o); }}");
         let _ = writeln!(
             h,
             "    {name}& operator=({name}&& o) {{ if (this != &o) {{ drop_active(); kind = o.kind; \
-             move_from(o); o.become(Kind::{first}); }} return *this; }}"
+             move_from(o); }} return *this; }}"
         );
         // Switching variant drops the old payload before the new one is built (18.52).
         h.push_str("    void become(Kind k) {\n        drop_active();\n        kind = k;\n");
@@ -4146,8 +4147,11 @@ impl<'a> Emitter<'a> {
                         let cpp = self.cpp_ty(&inner);
                         let tmp = self.fresh("opt");
                         // A move-only optional is taken, as `or` takes one (spec §9.4).
-                        let v =
-                            if self.table.copyable(&inner) { v } else { format!("::dz::mv({v})") };
+                        let v = if self.table.copyable(&inner) {
+                            v
+                        } else {
+                            self.moved_out(*operand, v)
+                        };
                         self.line(&format!("::dz::Opt<{cpp}> {tmp} = {v};"));
                         self.line(&format!("if ({tmp}.has) {{"));
                         self.indent += 1;
@@ -4730,8 +4734,7 @@ impl<'a> Emitter<'a> {
                     // reaches here once the item turns out to be a `&T` (spec §8.5).
                     v
                 } else if !self.table.copyable(body.ty(e)) {
-                    // The type's move constructor resets the source (spec §6.4).
-                    format!("::dz::mv({v})")
+                    self.moved_out(*inner, v)
                 } else if is_place(body, *inner) {
                     // A copyable type has no move constructor to do the resetting, so the
                     // shim does it: the source is left at its defaults like any other
@@ -4794,6 +4797,9 @@ impl<'a> Emitter<'a> {
                 if matches!(ty, Ty::Void | Ty::Never | Ty::Error) {
                     self.or_expr(e, *operand, clause, Dest::None);
                     return String::new();
+                }
+                if let Some(value) = self.or_in_place(e, *operand, clause, &ty) {
+                    return value;
                 }
                 let cpp = self.cpp_ty(&ty);
                 let is_ref = matches!(ty, Ty::Ref { .. });
@@ -5817,7 +5823,7 @@ impl<'a> Emitter<'a> {
                 let v = self.expr(operand);
                 // `t or …` on a move-only optional consumes `t`, as ownership analysis
                 // already says it does (spec §6.4); a copy would not compile.
-                let v = if self.table.copyable(&inner) { v } else { format!("::dz::mv({v})") };
+                let v = if self.table.copyable(&inner) { v } else { self.moved_out(operand, v) };
                 self.line(&format!("::dz::Opt<{opt_ty}> {tmp} = {v};"));
                 self.line(&format!("if ({tmp}.has) {{"));
                 self.indent += 1;
@@ -5872,6 +5878,76 @@ impl<'a> Emitter<'a> {
                 // side effect it has still happens.
                 self.stmt_expr(operand);
             }
+        }
+    }
+
+    /// `x or return`, and any `or` whose clause never falls through, on a `!->` result or
+    /// an optional holding a `ty`: the value is read straight out of the result where it is
+    /// used. Building a default `ty` for the clause to fill and moving the value through it
+    /// cost two moves of a union at every level of a recursive parser (T-0097). `None`
+    /// when the clause yields a value, or the shape is any other.
+    fn or_in_place(
+        &mut self,
+        e: ExprId,
+        operand: ExprId,
+        clause: &hir::OrClause,
+        ty: &Ty,
+    ) -> Option<String> {
+        let body = self.cur();
+        let diverges = match clause {
+            hir::OrClause::Value(v) => {
+                matches!(body.expr(*v).kind, hir::ExprKind::Return(None))
+                    || matches!(body.ty(*v), Ty::Never)
+            }
+            hir::OrClause::Unreachable => true,
+            hir::OrClause::Block { .. } | hir::OrClause::Ignore => false,
+        };
+        let (is_res, inner) = match body.ty(operand) {
+            Ty::Fallible(inner) => (true, inner.as_ref().clone()),
+            Ty::Optional(inner) => (false, inner.as_ref().clone()),
+            _ => return None,
+        };
+        if !diverges || matches!(ty, Ty::Ref { .. }) || inner != *ty {
+            return None;
+        }
+        let span = body.expr(e).span;
+        let cpp = self.cpp_ty(ty);
+        let v = self.expr(operand);
+        let (tmp, source) = if is_res {
+            let tmp = self.fresh("res");
+            self.line(&format!("::dz::Res<{cpp}> {tmp} = {v};"));
+            self.line(&format!("if (!{tmp}.ok) {{"));
+            (tmp.clone(), format!("{tmp}.value"))
+        } else {
+            let tmp = self.fresh("opt");
+            // As in `or_expr`: a move-only optional is consumed.
+            let v = if self.table.copyable(ty) { v } else { self.moved_out(operand, v) };
+            self.line(&format!("::dz::Opt<{cpp}> {tmp} = {v};"));
+            self.line(&format!("if (!{tmp}.has) {{"));
+            (tmp.clone(), format!("::dz::opt_get({tmp})"))
+        };
+        self.indent += 1;
+        let error = format!("{tmp}.error");
+        self.clause(clause, Dest::None, is_res.then_some(error.as_str()), span);
+        self.indent -= 1;
+        self.line("}");
+        Some(if self.copy_is_free(ty) { source } else { format!("::dz::mv({source})") })
+    }
+
+    /// A move-only value moved out of `source`, rendered `v`. A local is never read after
+    /// its move and a temporary never at all, so a plain move does. Anything else a program
+    /// can still read afterwards (a field, an element, through a pointer) is left at its
+    /// defaults, as §6.4 says, by `take`: a union's move does not reset its source, and
+    /// neither does C++'s own move of a struct holding one (T-0097).
+    fn moved_out(&self, source: ExprId, v: String) -> String {
+        match self.cur().expr(source).kind {
+            hir::ExprKind::Local(_) => format!("::dz::mv({v})"),
+            hir::ExprKind::Field { .. }
+            | hir::ExprKind::TupleIndex { .. }
+            | hir::ExprKind::Index { .. }
+            | hir::ExprKind::Deref(_)
+            | hir::ExprKind::Static(_) => format!("::dz::take({v})"),
+            _ => format!("::dz::mv({v})"),
         }
     }
 

@@ -52,3 +52,37 @@ defaults on every move" cost a reader would suspect Dazzle of. Here it is real.
    function. That is a library decision, not a language one.
 
 Re-run `python tools/bench_programs.py expr` before and after.
+
+**Where the code is**
+
+| Piece | Where |
+|---|---|
+| `or` whose clause never falls through, read in place | `or_in_place` in `dz_cpp/src/lib.rs`, called from the `ExprKind::Or` arm |
+| `Res`'s constructors and `good`, by reference | `struct Res` in `dz_cpp/src/runtime.rs` |
+| A union's move, which leaves its source's variant; `take` for a source a program can still reach | `union_decl`, `moved_out` in `dz_cpp/src/lib.rs` |
+| `Box`'s constructor, taking its value by value | `std/memory/box.dz` |
+
+**Done so far** (2026-11-04). Point 1, and a move the task did not list:
+- `x or return`, and any `or` whose clause is `return`, `break`, `continue`, a panic or
+  `unreachable`, no longer builds a default value for the clause to fill. The value is
+  moved straight out of the result where it is used: one move where there were two, and no
+  default to drop. A clause that yields a value still uses the temporary.
+- `Res`'s constructor and `Res::good` took their value by value, one more move per
+  `return`; they take it by reference now.
+
+`become` went from 27 million calls to 14.7 million. Measured with `bench_programs.py`,
+seven alternating runs, Dazzle / C++: `expr` 2.10× → 1.54× on clang++ and 1.66× → 1.26×
+on g++; `astar` 1.19× → 1.07× and 1.12× → 1.04×; `words` 1.23× → 1.15× and 1.27× → 1.15×.
+`tests/run/optionals` prints two fewer `drop 0`s: those were the drops of the default
+temporaries, which no longer exist.
+
+Point 2, for unions: a union's move no longer resets its source, whose payload fields are
+each at their own defaults after the move. A source a program can still reach (a field, an
+element, through a pointer, a static, an optional `or` or `if let` consumes) is reset by
+`take` instead (`moved_out` in `dz_cpp`). 11% on clang++, 1% on g++, measured against the
+same C++ with the reset put back. With all three, `expr` against C++ went from 2.10× to
+1.50× on clang++ and from 1.66× to 1.33× on g++.
+
+**Left.** Point 3 (`Box`'s size, a library decision for the user). `Box(value: T)` moves
+its value twice, into the parameter and then into the allocation, and a union literal is
+built as a default, switched to its variant, then filled field by field.

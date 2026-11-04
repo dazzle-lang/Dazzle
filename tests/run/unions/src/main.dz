@@ -40,6 +40,24 @@ fn describe(c: &Command) -> &str {
     }
 }
 
+// A union moved out of a field leaves the field at its first variant (spec §6.4), held
+// directly or inside a struct that is moved whole.
+struct Slot {
+    pub asset: Asset = Asset::Empty{}
+}
+
+struct Shelf {
+    pub slot: Slot = Slot{}
+}
+
+fn kind_of(a: &Asset) -> &str {
+    return switch a {
+        case Empty { "empty" }
+        case Samples { "samples" }
+        case Sound { "sound" }
+    }
+}
+
 fn load(n: i32) -> Asset {
     if n == 0 {
         return .Empty{}
@@ -84,4 +102,14 @@ fn main() {
     println!("list of {}", list.len())
     list.clear()
     println!("drops so far {}", DROPS)
+
+    // Moved out of a field, and out of a struct moved whole: each sound is dropped once, by
+    // whoever holds it last, and the field it left is filled again before its own drop.
+    let mut shelf = Shelf{ slot: Slot{ asset: load(4) } }
+    let taken = move(shelf.slot.asset)
+    shelf.slot.asset = load(5)
+    println!("taken {}, refilled {}", kind_of(&taken), kind_of(&shelf.slot.asset))
+    let whole = move(shelf.slot)
+    shelf.slot = Slot{ asset: load(0) }
+    println!("whole {}, left {}", kind_of(&whole.asset), kind_of(&shelf.slot.asset))
 }

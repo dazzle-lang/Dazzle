@@ -225,9 +225,13 @@ struct Res {
 
     constexpr Res() : value(), error(), ok(false) {}
     // Not explicit: `return v` and `return error(...)` pick the case (spec §9.1).
-    Res(T v) : value(static_cast<T&&>(v)), error(), ok(true) {}
+    // By reference rather than by value: a value parameter is one more move of `T` on every
+    // return, and a union's move switches on its tag and resets its source (T-0097).
+    Res(T&& v) : value(static_cast<T&&>(v)), error(), ok(true) {}
+    Res(const T& v) : value(v), error(), ok(true) {}
     Res(Error e) : value(), error(e), ok(false) {}
-    static Res good(T v) { return Res(static_cast<T&&>(v)); }
+    static Res good(T&& v) { return Res(static_cast<T&&>(v)); }
+    static Res good(const T& v) { return Res(v); }
     static Res bad(Error e) { return Res(e); }
 };
 

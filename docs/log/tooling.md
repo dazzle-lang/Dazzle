@@ -2,6 +2,39 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## Fewer moves through `or return`, and a union's move without a reset (T-0097; 2026-11-04)
+
+Compiler work, no language change. A gprof profile of `expr` had `Expr::become`, a union's
+reset, at 27 million calls for 1.6 million tree nodes: each level of the recursive parser
+moved its `Expr` four times, and every move reset its source.
+
+- **`or` read in place** (`or_in_place` in `dz_cpp`): `x or return`, and any `or` whose
+  clause is `return`, `break`, `continue`, a panic or `unreachable`, no longer builds a
+  default value for the clause to fill. The value is moved straight out of the `Res` or
+  `Opt`. `tests/run/optionals` prints two fewer `drop 0`s, the drops of those defaults.
+- **`Res` by reference**: its constructor and `good` took the value by value, one move more
+  per `return`.
+- **A union's move leaves its source's variant** (`union_decl`): the payload's fields are
+  each moved from, and so at their own defaults, and a union has no `drop` of its own
+  (§7.5), so dropping the source later drops only defaults. A source a program can still
+  reach is reset as §6.4 says, by `take` rather than a plain move (`moved_out`): a field, an
+  element, anything through a pointer, a static, and the optional `or` and `if let`
+  consume. A local is never read after its move (`DZ0401`), and a temporary never at all.
+  `tests/run/unions` gained a union moved out of a field and out of a struct moved whole,
+  each sound dropped once.
+
+`become` fell to 14.7 million calls with the first two. Measured Dazzle against itself
+(the generated C++ with and without the reset, eleven alternating runs), the third is 11%
+on clang++ and 1% on g++. Against the C++ half, `bench_programs.py`, before and after all
+three: `expr` 2.10× → 1.50× on clang++ and 1.66× → 1.33× on g++. The machine was noisy, the
+C++ half itself ranging from 134 to 181 ms between runs, so the ratio within one run is the
+figure to read.
+
+What is left of T-0097: `Box(value: T)` moves its value twice, `Box` is 40 bytes (a
+library decision), and a union literal is built as a default, then switched to its variant,
+then filled field by field. A region for each statement's tree (T-0146) measured 5–7% on
+`expr` by hand-edited C++.
+
 ## Inlining across modules: `#[inline]` (r106, T-0153) and LTO (T-0154; 2026-11-03)
 
 A `gprof` profile of the three benchmarks, regions on, found allocation a small cost and

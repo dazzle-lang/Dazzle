@@ -9,4 +9,8 @@ leaving a scope
 list of 3
   drop sound 9
 drops so far 3
+taken sound, refilled sound
+whole sound, left empty
+  drop sound 5
+  drop sound 4
   drop sound 6
