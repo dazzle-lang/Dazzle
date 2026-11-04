@@ -195,6 +195,90 @@ fn regions_change_nothing() {
     });
 }
 
+/// Every program here, built with clang++ under AddressSanitizer and UBSan, regions on and
+/// off, prints its `expected.txt` and draws no report (T-0132, D-0094). The checker's
+/// promise is that safe code reaches no undefined behaviour (spec §1.1); this is the
+/// evidence, and a wrong placement especially is a use after free that may still print
+/// the right answer. Ignored by default, since it needs clang++ with the sanitizer runtimes
+/// and doubles the run corpus's time: CI's `sanitizers` job runs it with `--ignored`.
+#[test]
+#[ignore]
+fn every_program_is_clean_under_sanitizers() {
+    let found = projects();
+    let runs: Vec<(String, &str)> =
+        found.iter().flat_map(|(name, _)| [(name.clone(), "1"), (name.clone(), "0")]).collect();
+    parallel::for_each(&runs, |(name, regions)| {
+        let dir = run_dir(name);
+        if needs_cmake(&dir) && !have_cmake() {
+            eprintln!("skipping {name}: it builds a library with CMake, which is not installed");
+            return;
+        }
+        let expected = normalise(&std::fs::read_to_string(dir.join("expected.txt")).unwrap());
+        let copy = copy_fixture(name, &format!("dz_san_{name}_{regions}"));
+        let what = format!("{name} (regions {})", if *regions == "1" { "on" } else { "off" });
+        let out = sanitized_run(&what, &copy, regions);
+        let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        match expected.strip_prefix("panic!\n") {
+            Some(body) => {
+                assert!(!out.status.success(), "{what}: expected a panic\n{stderr}");
+                for line in body.lines() {
+                    assert!(
+                        stderr.contains(line.trim()) || stdout.contains(line.trim()),
+                        "{what}: expected {line:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+                    );
+                }
+            }
+            None => {
+                assert!(out.status.success(), "{what}: dz run failed\n{stderr}");
+                assert_eq!(stdout, expected, "{what}: stdout differs");
+            }
+        }
+        let _ = std::fs::remove_dir_all(&copy);
+    });
+}
+
+/// The examples that open no window or audio device, under the same sanitizers (T-0132).
+/// They have no `expected.txt`: running to the end without a report is the test. Each runs
+/// in its own folder, where `stb` writes the `render.png` it is ignored for.
+#[test]
+#[ignore]
+fn headless_examples_are_clean_under_sanitizers() {
+    for name in ["ownership", "stb"] {
+        let dir = repo_root().join("examples").join(name);
+        for regions in ["1", "0"] {
+            let what = format!("examples/{name} (regions {regions})");
+            let out = sanitized_run(&what, &dir, regions);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(out.status.success(), "{what}: dz run failed\n{stderr}");
+        }
+    }
+}
+
+/// `dz run` on `dir` with clang++ (or `DZ_CXX`) under AddressSanitizer and UBSan, failing
+/// on any report. `regions` is `DZ_REGIONS`: "1" for scope regions, "0" for the heap only.
+fn sanitized_run(what: &str, dir: &Path, regions: &str) -> std::process::Output {
+    let cxx = std::env::var("DZ_CXX").ok().filter(|c| !c.is_empty()).unwrap_or("clang++".into());
+    let flags =
+        "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g -O1";
+    let out = Command::new(dz())
+        .args(["run", dir.to_str().unwrap()])
+        .current_dir(dir)
+        .env("DZ_CXX", &cxx)
+        .env("DZ_CXXFLAGS", flags)
+        .env("DZ_REGIONS", regions)
+        // A leak is not undefined behaviour, and a program that panics leaks by design.
+        .env("ASAN_OPTIONS", "detect_leaks=0")
+        .env("UBSAN_OPTIONS", "print_stacktrace=1")
+        .output()
+        .expect("failed to run dz");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    for report in ["AddressSanitizer", "runtime error:", "UndefinedBehaviorSanitizer"] {
+        assert!(!stderr.contains(report), "{what}: the sanitizer reported\n{stderr}");
+    }
+    out
+}
+
 /// `dz placements` prints every site in the project's own files with the editor hint's
 /// label, and none of `std`'s; `--format=json` says the same for a program to read
 /// (spec §14.6, T-0117). It only analyses, so it needs no C++ compiler.

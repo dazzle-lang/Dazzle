@@ -53,14 +53,27 @@ Which corpus covers what. How to add to each is in `CLAUDE.md`; run only the cra
 Breakout programs moved there from `tests/run/` on 2026-10-20 at the user's request, and the
 pre-spec design sketches that had lived there, which never parsed, were removed.
 
-## Checking ownership under a sanitizer
+## Checking under the sanitizers
 
-Ownership is checked against a sanitizer rather than against reading. The clang runtime
-has to be on `PATH` on Windows, which is the only fiddly part:
+Spec §1.1 promises that safe code reaches no undefined behaviour, and the evidence is every
+program that runs, built under AddressSanitizer and UBSan (T-0132). CI's `sanitizers` job
+runs two ignored tests in `crates/dz/tests/run.rs`, which need clang++ with its sanitizer
+runtimes:
+
+- `every_program_is_clean_under_sanitizers`: every `tests/run` program, with regions on
+  and off (`DZ_REGIONS`), must print its `expected.txt` (or panic as it says) and draw no
+  report.
+- `headless_examples_are_clean_under_sanitizers`: `examples/ownership` and `examples/stb`
+  must run to the end without one.
 
 ```bash
-cargo run -p dz -- cpp tests/run/ownership
-cd tests/run/ownership/build/cpp
-clang++ -std=c++17 -fno-exceptions -fno-rtti -fsanitize=address -g -O1 *.cpp -o asan.exe
-./asan.exe
+cargo test -p dz --test run sanitizers -- --ignored
+```
+
+Leak checking is off: a leak is not undefined behaviour, and a program that panics leaks by
+design. To build one program the same way, `DZ_CXXFLAGS` adds flags to the command that
+compiles Dazzle's code and links it (not to vendored libraries):
+
+```bash
+DZ_CXX=clang++ DZ_CXXFLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -g -O1" cargo run -p dz -- run tests/run/ownership
 ```

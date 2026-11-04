@@ -246,3 +246,46 @@ jobs:
       - name: dz fmt --check examples
         if: matrix.name == 'linux'
         run: find examples -name '*.dz' -not -path '*/vendor/*' -not -path '*/build/*' -print0 | xargs -0 cargo run -q -p dz -- fmt --check
+
+  # Spec §1.1 promises that safe code reaches no undefined behaviour (D-0094). The evidence
+  # is every program that runs, built under AddressSanitizer and UBSan with regions on and
+  # off, plus the examples that need no window (T-0132). A wrong placement especially is a
+  # use after free that may still print the right answer. Linux and clang++ only: the
+  # sanitizers are the same everywhere, and this runner ships their runtimes.
+  sanitizers:
+    name: sanitizers
+    if: github.event_name != 'push' || github.event.head_commit.committer.email != 'noreply@github.com'
+    runs-on: ubuntu-latest
+    env:
+      DZ_CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only `examples/stb` of the vendored libraries: the other headless example and every
+      # `tests/run` program vendor theirs in the repository.
+      - name: Fetch stb
+        run: git submodule update --init --depth 1 examples/vendor/stb
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The interop programs import headers, which needs libclang; without it they would
+      # report DZ0703 rather than run. See the test job for why it is found this way.
+      - name: Locate libclang
+        run: |
+          lib=$(ls /usr/lib/llvm-*/lib/libclang.so /usr/lib/llvm-*/lib/libclang.so.1 \
+            2>/dev/null | sort -V | tail -n1)
+          if [ -z "$lib" ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends libclang-dev
+            lib=$(ls /usr/lib/llvm-*/lib/libclang.so /usr/lib/llvm-*/lib/libclang.so.1 \
+              2>/dev/null | sort -V | tail -n1)
+          fi
+          echo "found $lib"
+          echo "LIBCLANG_PATH=$(dirname "$lib")" >> "$GITHUB_ENV"
+          clang++ --version
+
+      - name: Run every program under the sanitizers
+        run: cargo test -p dz --test run sanitizers -- --ignored

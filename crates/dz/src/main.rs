@@ -84,7 +84,11 @@ builds the generated code. Four places may say, nearest first:
     [build] cxx = \"g++\"          the project
     [build.target.linux] cxx    the project, on one platform
 
-With none of them, `dz` uses the first of clang++, g++, c++ that it finds.";
+With none of them, `dz` uses the first of clang++, g++, c++ that it finds.
+
+`DZ_CXXFLAGS` in the environment adds flags to the command that compiles the
+generated code and links the program, after `dz`'s own: for example
+`DZ_CXXFLAGS=\"-fsanitize=address,undefined -g\"`. Vendored libraries do not get them.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

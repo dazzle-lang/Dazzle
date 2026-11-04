@@ -626,6 +626,15 @@ DZ_INLINE size_t len(const str& s) { return s.len; }
 DZ_INLINE const uint8_t* data(const str& s) { return s.ptr; }
 template <class T> DZ_INLINE size_t len(T* p) { return len(*p); }
 
+/// Where the elements start, without reading one: `&c[0]` binds a reference to the first
+/// element, which is undefined when there is none, and an empty slice's pointer may be null
+/// (T-0132 found `String::as_str` doing it on an empty string).
+template <class T> DZ_INLINE T* first_of(const Slice<T>& s) { return s.ptr; }
+template <class T, size_t N> DZ_INLINE T* first_of(Array<T, N>& a) { return a.data; }
+template <class T, size_t N> DZ_INLINE const T* first_of(const Array<T, N>& a) { return a.data; }
+template <class T, size_t N> DZ_INLINE T* first_of(T (&a)[N]) { return a; }
+template <class T> DZ_INLINE auto first_of(T* p) -> decltype(first_of(*p)) { return first_of(*p); }
+
 /// `.ptr` (spec §5.3): the first element, for unchecked access inside `unsafe`. A read-only
 /// view gives a `^T`, which is a `const T*` — `Slice<const T>` does that by itself.
 template <class T> DZ_INLINE T* data(Slice<T>& s) { return s.ptr; }
@@ -709,7 +718,8 @@ DZ_INLINE auto subslice(C&& c, size_t lo, size_t hi, SourceLocation where)
     -> Slice<typename strip_ref<decltype(c[0])>::type> {
     if (hi > len(c)) { panic_bounds(hi, len(c), where); }
     if (lo > hi) { panic_bounds(lo, hi, where); }
-    return {&c[0] + lo, hi - lo};
+    // A null start is only ever an empty slice, so `lo` is 0 there, and C++ defines null + 0.
+    return {first_of(c) + lo, hi - lo};
 }
 
 /// `str::from_utf8(bytes)` (spec §5.3): the bytes as text when they are well-formed UTF-8 —

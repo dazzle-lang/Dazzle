@@ -295,6 +295,12 @@ pub fn compile(
     }
     // What a CMake install's pkg-config file asks for besides libraries: `-pthread`.
     cmd.args(&link.flags);
+    // `DZ_CXXFLAGS`: extra flags for Dazzle's own code and the link, last so they win. It
+    // is how CI builds every program under AddressSanitizer and UBSan (T-0132). Split on
+    // whitespace, with no quoting: a flag holding a space is not supported.
+    if let Ok(extra) = std::env::var("DZ_CXXFLAGS") {
+        cmd.args(extra.split_whitespace());
+    }
 
     // An optimised build is optimised across modules too (T-0154): each module is a
     // translation unit, and without this a call into `std` that is not `#[inline]` (spec

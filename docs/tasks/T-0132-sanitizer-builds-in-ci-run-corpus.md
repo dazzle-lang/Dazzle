@@ -2,7 +2,7 @@
 id: T-0132
 title: Sanitizer builds in CI: the run corpus under AddressSanitizer and UBSan
 milestone: none
-status: open
+status: done
 kind: feature
 area: tooling
 ---
@@ -14,28 +14,25 @@ calls for; it needs no decision.
 
 | Piece | Where |
 |---|---|
-| The C++ command, built from fixed flags | `compile` in `crates/dz/src/build.rs` |
-| CI and its compiler matrix (`DZ_CXX`) | `.github/workflows/ci.yml` |
-| The manual recipe this automates | `docs/testing.md`, "Checking ownership under a sanitizer" |
-| How `tests/run` is driven | `crates/dz/tests/run.rs` |
+| `DZ_CXXFLAGS`, added last to the command for Dazzle's code and the link | `compile` in `crates/dz/src/build.rs`; `dz`'s help in `crates/dz/src/main.rs` |
+| The two ignored tests and `sanitized_run` | `every_program_is_clean_under_sanitizers`, `headless_examples_are_clean_under_sanitizers` in `crates/dz/tests/run.rs` |
+| The CI job | `sanitizers` in `.github/workflows/ci.yml` |
+| How to run it by hand | `docs/testing.md`, "Checking under the sanitizers" |
 
-**What it is.** M5 checked `tests/run/ownership` under AddressSanitizer by hand, and
-`docs/testing.md` says how. Nothing runs that check now, and `dz` cannot pass the C++
-compiler an extra flag.
+**Done** (2026-11-03). `DZ_CXXFLAGS` in the environment adds flags to the C++ command for
+Dazzle's own code and the link; vendored libraries do not get them. CI's `sanitizers` job,
+on Linux with clang++, runs every `tests/run` program with `-fsanitize=address,undefined
+-fno-sanitize-recover=all -g -O1`, with regions on and off, and `examples/ownership` and
+`examples/stb`. A report, a wrong output or a failed run fails it. Leak checking is off,
+since a leak is not undefined behaviour and a panicking program leaks by design.
 
-**Why it matters.** A checker's promises are only as good as the evidence for them. A
-sanitizer run over every program that runs is the cheapest evidence there is. Regions
-especially need it, since a wrong placement is a use after free that may print the right
-answer.
+**What it found on its first run.** The shim's `subslice` built a slice as `&c[0] + lo`,
+binding a reference to the first element even when there was none. An empty `String`'s
+`as_str()` reached it with a null pointer: undefined behaviour from safe code, in
+`collections`, `formatting` and `moves`. It now takes the start without reading an
+element (`first_of`). Every program is clean since.
 
-**What it would take.**
-
-- A way to pass flags for Dazzle's own code: `DZ_CXXFLAGS` in the environment, or
-  `[build] cxxflags`.
-- A Linux CI job with clang++. It builds every `tests/run` program, and the examples that
-  run headless, with `-fsanitize=address,undefined -fno-sanitize-recover=all -g -O1`, once
-  with regions off and once on (`DZ_REGIONS=1`).
-- The job catches what the checker misses in programs that run. The programs of D-0094
-  belong in `tests/flow` and `tests/errors`, as programs that must be refused.
-
-Tooling only (`docs/log/`).
+**What it was.** M5 checked `tests/run/ownership` under AddressSanitizer by hand. Nothing
+ran that check, and `dz` could not pass the C++ compiler an extra flag. The programs of
+D-0094 belong in `tests/flow` and `tests/errors`, as programs that must be refused; this job
+catches what the checker misses in programs that run.

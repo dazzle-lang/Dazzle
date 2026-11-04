@@ -6,6 +6,25 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0132: every program under the sanitizers in CI (2026-11-03)
+
+Tooling, no language change. The evidence for §1.1's promise is every program that runs,
+built under AddressSanitizer and UBSan.
+
+- **`DZ_CXXFLAGS`** (`compile` in `dz/src/build.rs`): extra flags, split on whitespace,
+  added last to the command that compiles Dazzle's code and links. Vendored libraries keep
+  their recipe's flags.
+- **Tests** (`dz/tests/run.rs`, both `#[ignore]`): `every_program_is_clean_under_sanitizers`
+  builds every `tests/run` program with clang++ and `-fsanitize=address,undefined
+  -fno-sanitize-recover=all -g -O1`, regions on and off, each a copy so it races nothing,
+  and checks its output; `headless_examples_are_clean_under_sanitizers` runs
+  `examples/ownership` and `examples/stb` in place. `sanitized_run` fails on any report.
+  Leak checking is off. About 70 seconds on 16 cores.
+- **CI**: a `sanitizers` job on Linux, fetching only the `stb` submodule.
+- **What it found**: the shim's `subslice` returned `{&c[0] + lo, …}`, binding a reference
+  to an element that an empty slice does not have; `String::as_str()` on an empty string
+  reached it with a null pointer. It now uses `first_of(c)`, the start without a read.
+
 ## r113, T-0160 and T-0163: §1.1's promise, and statics dropped in order (2026-11-03)
 
 D-0094 point 8. Before writing the promise, the holes it rests on were checked once more,
