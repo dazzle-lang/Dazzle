@@ -26,12 +26,36 @@ The principles, in priority order. When two conflict, the earlier one wins.
 
 ## 1.1 Non-goals
 
-- **Memory safety as a guarantee.** Dazzle is not Rust. It prevents use-after-move and
-  double-free, and — through ties (§6.7, D-0091) — a reference used after a call moved or
-  freed the memory it points into. It does not prevent every dangling pointer: what it does
-  for raw pointers is *mark* the places one can bite: every read or write through a raw
-  pointer sits inside `unsafe` (§5.2), where a reader — or `grep` — can find it. Nor does it
-  refuse aliasing, which single-threaded code needs. `[DECIDED; revised by D-0091]`
+- **Memory safety by refusing aliasing.** Dazzle is not Rust, but on one thread it makes
+  Rust's promise: **a program with no `unsafe` has no undefined behaviour.** No read or
+  write of freed memory, no payload used under another variant, nothing C++ leaves
+  undefined. It keeps the promise without Rust's rule that memory is shared or changed,
+  never both. In Dazzle it may be both, which single-threaded code needs; what it may not
+  be is freed, or given another variant, while something else can still see it. Each part
+  of the promise is a rule of the language:
+  - a value used after a move is an error, and one is never dropped twice (§6.4);
+  - a reference used after a call killed the memory it points into is an error, and a
+    call reaches what it kills through one argument only (ties, §6.7);
+  - reading or writing through a raw pointer, and turning an untied one into a reference,
+    happen only inside `unsafe` (§5.2);
+  - every value is initialised (§6.2), every index is checked in every build (§5.3),
+    arithmetic is defined (§5.1, §10.6), and `or unreachable` panics (§9.4);
+  - a static is checked as a parameter is, and dropped at exit in an order a drop can rely
+    on (§7.7);
+  - a C or C++ function that can be handed a pointer is vouched for in its library's
+    recipe, and one that keeps the pointer is `unsafe` to call (§15.1, §15.2).
+
+  The promise ends where these rules do, and that is where to look for a bug:
+  - **`unsafe`**, a block or an `unsafe fn`'s body, which vouches for what it does;
+  - **`std`'s trusted bodies**: its containers' `kills` clauses are written by hand over
+    `unsafe` code, and checked at run time in debug builds (§6.7, §14.2);
+  - **the C and C++ a program calls**, and the `keeps` list a recipe vouches for (§15.1);
+  - **threads**: Dazzle has none of its own yet, and how they share memory is undecided
+    (§18.11);
+  - **running out of stack**, which C++ does not define; on every platform Dazzle targets
+    it ends the program.
+
+  `[DECIDED — D-0094; revises D-0091's wording]`
 - **A garbage collector, green threads, or any implicit runtime.**
 - **Source compatibility with C++.** We *call* C++; we are not a superset of it.
 - **Being small.** Odin is small, and that is the problem being solved here.

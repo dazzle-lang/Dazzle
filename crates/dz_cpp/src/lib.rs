@@ -210,8 +210,13 @@ pub fn emit(
             placement: None,
             regions: Vec::new(),
             unsafe_depth: 0,
+            celled_statics: Vec::new(),
         };
         e.module(module_files);
+        e.drop_statics_fn();
+        if module.id == ws.root {
+            e.out.push_str(&drop_all_statics(ws));
+        }
         e.finish_header();
 
         let stem = file_stem(&module.name);
@@ -348,6 +353,7 @@ pub fn emit(
             placement: None,
             regions: Vec::new(),
             unsafe_depth: 0,
+            celled_statics: Vec::new(),
         };
         if type_info == dz_project::TypeInfo::All {
             reflect::seed_all(&mut e, files);
@@ -636,6 +642,9 @@ struct Emitter<'a> {
     /// body as one. Only there may `or unreachable` hand the optimiser its assumption
     /// (spec §9.4, D-0094 point 4).
     unsafe_depth: u32,
+    /// This module's statics in a `StaticCell`, in the order they were declared, for the
+    /// module's `dz_drop_statics__` to drop in reverse (spec §7.7).
+    celled_statics: Vec<String>,
 }
 
 impl<'a> Emitter<'a> {
@@ -2051,15 +2060,49 @@ impl<'a> Emitter<'a> {
         // constants — so the capture-default is dropped.
         let value = value.replace("[&]", "[]");
         let name = sanitize(&name);
+        // A static with something to drop lives in a cell C++ never destroys, and its
+        // module's `dz_drop_statics__` drops it at exit (spec §7.7). Its uses read `.value`.
+        let (ty, init) = if self.in_cell(sym) {
+            self.celled_statics.push(name.clone());
+            let value = if value == "{}" { format!("{ty}{{}}") } else { value };
+            (format!("::dz::StaticCell<{ty}>"), format!("{{[] {{ return {value}; }}}}"))
+        } else {
+            (ty, format!(" = {value}"))
+        };
         if thread_local {
             // Declared in the header and defined once in the module's own file. An `inline
             // thread_local` with a destructor links twice on mingw g++, which emits its
             // per-thread initialiser in every translation unit that includes the header.
             let _ = writeln!(self.header, "extern thread_local {ty} {name};");
-            let _ = writeln!(self.out, "thread_local {ty} {name} = {value};\n");
+            let _ = writeln!(self.out, "thread_local {ty} {name}{init};\n");
         } else {
-            let _ = writeln!(self.header, "inline {ty} {name} = {value};");
+            let _ = writeln!(self.header, "inline {ty} {name}{init};");
         }
+    }
+
+    /// Is the static `sym` kept in a `StaticCell` (spec §7.7)? One with nothing to drop
+    /// needs none, and an imported C++ class is destroyed by C++, as C++ code expects.
+    fn in_cell(&self, sym: SymbolId) -> bool {
+        match self.table.get(sym) {
+            Some(ItemSig::Static(ty)) => {
+                self.table.needs_drop(ty)
+                    && !matches!(ty, Ty::Named { sym, .. } if self.is_foreign(*sym))
+            }
+            _ => false,
+        }
+    }
+
+    /// The module's `dz_drop_statics__()`, which drops its celled statics in reverse order
+    /// of declaration and leaves each at its default (spec §7.7). The root module's file
+    /// calls every module's at exit; see `drop_all_statics`.
+    fn drop_statics_fn(&mut self) {
+        self.switch_ns(self.module);
+        let _ = writeln!(self.header, "void dz_drop_statics__();");
+        let _ = writeln!(self.out, "void dz_drop_statics__() {{");
+        for name in self.celled_statics.iter().rev() {
+            let _ = writeln!(self.out, "    ::dz::drop_static({name});");
+        }
+        let _ = writeln!(self.out, "}}\n");
     }
 
     fn enum_decl(&mut self, e: &EnumDecl, sym: SymbolId) {
@@ -4466,7 +4509,11 @@ impl<'a> Emitter<'a> {
                 };
                 self.result_adapter(e, *sym, &name).unwrap_or(name)
             }
-            hir::ExprKind::Const(sym) | hir::ExprKind::Static(sym) => self.qualify(*sym),
+            hir::ExprKind::Const(sym) => self.qualify(*sym),
+            hir::ExprKind::Static(sym) if self.in_cell(*sym) => {
+                format!("{}.value", self.qualify(*sym))
+            }
+            hir::ExprKind::Static(sym) => self.qualify(*sym),
             hir::ExprKind::AssocConst { owner, name } => {
                 format!("{}::{}()", self.qualify(*owner), sanitize(name))
             }
@@ -6821,6 +6868,41 @@ fn cpp_standard_version(text: &str) -> u32 {
 
 /// `engine::render` → `::dz::engine::render`. Absolute, so a module named `dz` (the
 /// prelude, §18.23) cannot shadow the shim's namespace from inside another module.
+/// The root module's exit hook (spec §7.7): every module's statics are dropped, a module's
+/// before those of the modules it uses, so a drop can still read what its module depends
+/// on, and `std` last of all. Registered from the root's own file by a static initialiser
+/// rather than from `main`, so a library's statics are dropped too.
+fn drop_all_statics(ws: &Workspace) -> String {
+    // Post-order from the root puts each module after everything it uses; reversed, every
+    // module comes before its dependencies. The prelude is every module's dependency.
+    fn visit(ws: &Workspace, m: ModuleId, seen: &mut HashSet<ModuleId>, order: &mut Vec<ModuleId>) {
+        if !seen.insert(m) || ws.module(m).foreign.is_some() {
+            return;
+        }
+        for dep in &ws.module(m).deps {
+            visit(ws, dep.module, seen, order);
+        }
+        order.push(m);
+    }
+    let (mut seen, mut order) = (HashSet::from([ws.prelude]), Vec::new());
+    visit(ws, ws.root, &mut seen, &mut order);
+    order.reverse();
+    order.push(ws.prelude);
+    let mut calls = String::new();
+    for m in order {
+        let _ = writeln!(
+            calls,
+            "    {}::dz_drop_statics__();",
+            qualified_namespace(&ws.module(m).name)
+        );
+    }
+    format!(
+        "static void dz_drop_all_statics__() {{\n{calls}}}\n\
+         [[maybe_unused]] static const int dz_statics_dropped_at_exit__ =\n    \
+         (::atexit(&dz_drop_all_statics__), 0);\n"
+    )
+}
+
 fn qualified_namespace(module: &str) -> String {
     format!("::dz::{}", sanitize_path(module))
 }

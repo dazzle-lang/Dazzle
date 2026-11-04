@@ -533,7 +533,12 @@ static SCRATCH: TempArena = TempArena{}
   every change to a static once did. `[DECIDED — D-0094]`
 - **Nothing moves out of a static**, and a move-only one is not copied either (DZ0402). It
   belongs to the program rather than to any function, exactly as a borrow does.
-- A static that owns resources is dropped when the program exits.
+- **Every static with something to drop is dropped when the program ends**, after `main`
+  returns or on `exit`, in an order the program can rely on: a module's statics before
+  those of the modules it uses, so a drop can still read what its module depends on, and
+  within a module in reverse order of declaration. Each is left at its default, as a
+  moved-from value is (§6.4), so a drop that runs later and reads a static already dropped
+  sees an empty value, never freed memory. `[DECIDED — D-0094]`
 
 `const` has no storage and is folded into its uses; `static` is one place in memory. The
 standard allocators (§14.2) are statics. `[DECIDED — §18.46]`

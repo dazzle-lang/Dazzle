@@ -62,3 +62,6 @@ conversions · every value is initialised · moved-from values reset to defaults
 reference lives only where references live — a local, a parameter, a result, or a view
 struct — never in an ordinary field or a container (this is why no struct carries a
 lifetime, and ties, §6.7, are enough).
+
+**And the promise they add up to:** a program with no `unsafe` has no undefined behaviour on
+one thread (§1.1).

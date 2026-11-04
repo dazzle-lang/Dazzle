@@ -59,8 +59,8 @@ Five ways to refer to something — the model your samples already use, plus `&m
   reference is (§6.7). Its constructor binds a reference field in its opening statements;
   anywhere else, assigning to one writes through it.
 
-  Non-null is enforced at the point of conversion, not by analysis — a `&T` whose target has
-  since been freed is still your problem (§1.1).
+  Non-null is enforced at the point of conversion, not by analysis. That the target is
+  still alive is what ties check (§6.7).
 
   This is a cheap heuristic, not a proof. What the rule buys is that the most common
   dangling case costs zero analysis to prevent, that `&T` keeps a meaning stronger than
@@ -174,9 +174,10 @@ unsafe fn poke(p: ^mut i32, v: i32) { p^ = v }
 unsafe { poke(slot, 3) }
 ```
 
-`unsafe` marks raw memory; it is not a proof. It does not promise that safe code cannot
-misbehave — a stale `&T` handed down a call is still your problem (§1.1) — and it relaxes no
-other rule: moving out of `p^` is still `DZ0402` inside `unsafe`. What it buys is that every
+`unsafe` marks raw memory; it is not a proof. What happens inside it is vouched for rather
+than checked, so a mistake there can break the promise that safe code has no undefined
+behaviour (§1.1). It relaxes no other rule: moving out of `p^` is still `DZ0402` inside
+`unsafe`. What it buys is that every
 place a dangling pointer can bite is marked, and that a container's raw-memory work sits
 behind the safe interface it offers. Pointers are the escape hatch, not the everyday tool:
 shared ownership is the standard library's `Rc<T>`, sole ownership of a heap value `Box<T>`, and

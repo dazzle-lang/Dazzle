@@ -38,8 +38,9 @@ proposed:
    A container lent to a function is left as T-0150, a design question. The user's idea of
    a checked marker for a drop that only frees is T-0148, for later.
 4. The rest of D-0094, decided in full on 2026-11-03 (r107) and to be built: T-0128,
-   T-0129, T-0126, T-0130, T-0135 and T-0136 are done (r108–r112, 2026-11-03); then
-   §1.1's promise (T-0160); its tests (T-0132 to T-0134), and the placement gaps (T-0141, T-0142, T-0146, T-0147, T-0150).
+   T-0129, T-0126, T-0130, T-0135 and T-0136 are done (r108–r112, 2026-11-03), and so is
+   §1.1's promise (T-0160, r113), with the hole found on the way (T-0163, statics dropped
+   at exit); then its tests (T-0132 to T-0134), and the placement gaps (T-0141, T-0142, T-0146, T-0147, T-0150).
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
    (T-0137).
 
@@ -141,7 +142,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (35 open)
+## none — not scheduled (34 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -175,6 +176,5 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0148](tasks/T-0148-say-in-source-that-drop-only.md)** Say in the source that a drop only frees, checked by the compiler · design, ownership
 - **[T-0150](tasks/T-0150-value-stored-into-container-lent-function.md)** A value stored into a container lent to a function keeps the heap · design, ownership
 - **[T-0159](tasks/T-0159-delete-allocators-global-allocators-temp-temparena.md)** "Delete Allocators::Global, Allocators::Temp and TempArena: nothing outside std names an allocator" · feature, stdlib
-- **[T-0160](tasks/T-0160-1-1-rewritten-safe-dazzle-has.md)** §1.1 rewritten: safe Dazzle has no undefined behaviour on one thread · design, language
 - **[T-0161](tasks/T-0161-parser-binds-as-tighter-than-prefix.md)** The parser binds as tighter than prefix -, against §11.1's table · bug, language
 - **[T-0162](tasks/T-0162-entry-point-function-no-dazzle-code.md)** "#[entry_point]: a function no Dazzle code calls, which names no static's kills" · feature, ownership

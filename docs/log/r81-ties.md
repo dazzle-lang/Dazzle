@@ -6,6 +6,39 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r113, T-0160 and T-0163: §1.1's promise, and statics dropped in order (2026-11-03)
+
+D-0094 point 8. Before writing the promise, the holes it rests on were checked once more,
+and one was still open: a static's `drop` at exit reading another static. Each static was a
+C++ `inline` variable, which C++ destroys in reverse order of construction, an order it
+does not promise across files. A safe program whose drop summed a static `List` declared
+after it printed a garbage sum. `thread_local` statics were worse, since C++ destroys them
+before every other static. The user chose that every static's drop runs, in a fixed order,
+and that a dropped static is left at its default (asked first whether statics should never
+be dropped, as in Rust, they said a drop that never runs would be a bug).
+
+- **Storage** (`dz_cpp`): a static whose type needs a drop (`TypeTable::needs_drop`), and
+  is not an imported C++ class, is a `::dz::StaticCell<T>`, a union C++ never destroys
+  (`in_cell`). Its value is built in place from a lambda, since C++17 must elide that: a
+  temporary moved in ran its own `drop` before `main`. A use reads `NAME.value`; the
+  `ExprKind::Static` arm is the only place a static is spelt.
+- **Dropping** (`drop_statics_fn`, `drop_all_statics`): each module gets
+  `dz_drop_statics__()`, which calls the shim's `drop_static` on its cells in reverse order
+  of declaration; `drop_static` moves the value out with `take`, so the static is at its
+  default while its old value's drop runs. The root module's file defines a function calling
+  every module's, in reverse post-order from the root (each module before those it uses),
+  `std` last, and registers it with `atexit` from a static initialiser, so it runs after
+  `main`, on `exit`, and in a library.
+- **Memory tracking** keeps working: `std` is dropped last, so a program's statics free
+  their memory before `TRACKER`'s drop reports leaks.
+- **Spec**: §1.1 rewritten, §0.1 states the promise, §5.2 and §6.7 no longer call a stale
+  `&T` the programmer's problem, §7.7's exit rule. D-0016, D-0046 and D-0094 carry notes;
+  T-0011 and T-0001 now ask whether threads extend the promise.
+- **Tests**: `tests/run/statics` gained `REPORT`, whose drop reads `LOG` (declared before,
+  still whole) and `NOTES` (declared after, already empty). Checked warning-clean with g++
+  and clang++.
+- **Not covered**: a `thread_local` static on a thread C started is never dropped (T-0011).
+
 ## r112, T-0136: a `kills` clause may name a static (2026-11-03)
 
 D-0094 point 7. The user settled three points before it was built:

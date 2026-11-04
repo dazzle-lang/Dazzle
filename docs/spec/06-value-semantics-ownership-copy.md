@@ -570,11 +570,12 @@ kills anything. A use is an error only when a call in between can move the memor
 reference points into. Dazzle is single-threaded until §18.11 is decided, which is what lets
 it keep aliasing that Rust refuses.
 
-**What stays unchecked**, as §1.1 says: a pointer made inside `unsafe` by a cast or
-arithmetic, and a pointer stored in a struct (a context struct's `^mut World`, §5.2), since
-the checker cannot know that it and a separate `&mut world` are one `World`. A pointer a safe
-call returns is tied like a reference. `std`'s own clauses are written by hand over `unsafe`
-code, and are trusted.
+**What stays unchecked** is what `unsafe` vouches for (§1.1): a pointer made inside `unsafe`
+by a cast or arithmetic, and a pointer stored in a struct (a context struct's `^mut World`,
+§5.2), since the checker cannot know that it and a separate `&mut world` are one `World`.
+Using either needs `unsafe`. A pointer a safe call returns is tied like a reference. `std`'s
+own clauses are written by hand over `unsafe` code, and are trusted, and checked at run time
+in debug builds (§14.2).
 
 The ties of `std`'s containers:
 

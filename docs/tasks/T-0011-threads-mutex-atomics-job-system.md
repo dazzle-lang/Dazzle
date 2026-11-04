@@ -36,10 +36,13 @@ to a pool. So the job system is the goal and the other three are the means.
 **The decisions that have to come first.** None of this is mechanical, and each wants a
 decision file before code:
 
-1. **What the language promises.** §1.1 does not promise safety and D-0003 says a dangling
-   `^T` is the programmer's problem, so the consistent position is that a **data race is
-   the programmer's problem too** — no `Send`/`Sync`, no borrow checker across threads. That
-   is defensible and it is cheap; it should be chosen deliberately rather than arrived at.
+1. **What the language promises.** Since r113, §1.1 promises that safe code has no
+   undefined behaviour **on one thread**, and names threads as where the promise ends. A
+   data race is undefined behaviour, so threads either extend the promise (something like
+   `Send`/`Sync`, with the aliasing §6.7 allows on one thread refused across two) or stay a
+   stated exception, a data race being the programmer's problem as a `^T` in `unsafe` is.
+   Either is defensible; it should be chosen deliberately rather than arrived at. A
+   `thread_local` static on a thread other than the main one is not dropped yet (T-0163).
 2. **What a thread may capture.** A `&T` cannot be stored in a field (D-0003) because
    lifetimes are not tracked; a closure handed to a thread is the same question with a
    harder answer.

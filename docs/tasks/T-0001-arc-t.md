@@ -31,8 +31,9 @@ nothing to justify it.
 **What it would take, when the time comes.** Atomics; an `AtomicU32`-equivalent in the
 counts rather than plain ones; a decision about whether `Arc<T>` requires `T` to be
 thread-safe (Rust's `Send`/`Sync`, which Dazzle has no analogue of and may not want — §1.1
-does not promise safety, so "a data race is the programmer's problem" is a consistent
-position and worth deciding explicitly rather than by default); and a thread-safe memory
+promises no undefined behaviour on one thread only, so "a data race is the programmer's
+problem" is still a consistent position, and worth deciding explicitly rather than by
+default); and a thread-safe memory
 tracker ([T-0038](T-0038-memory-tracking-single-threaded.md)), since an `Arc`'s allocation
 goes through the same `Global`.
 

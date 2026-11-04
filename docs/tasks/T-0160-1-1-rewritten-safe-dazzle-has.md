@@ -2,7 +2,7 @@
 id: T-0160
 title: §1.1 rewritten: safe Dazzle has no undefined behaviour on one thread
 milestone: none
-status: open
+status: done
 kind: design
 area: language
 ---
@@ -14,8 +14,13 @@ as proposed on 2026-11-03 (r107).
 
 | Piece | Where |
 |---|---|
-| The non-goal to rewrite | §1.1, "Memory safety as a guarantee" (`docs/spec/01-design-principles.md`) |
-| The one-page summary that repeats it | §0.1 (`docs/spec/00-how-to-read-this.md`) |
+| The promise and where it ends | §1.1, "Memory safety by refusing aliasing" (`docs/spec/01-design-principles.md`) |
+| The one-page summary that repeats it | §0.1, after "The five rules" (`docs/spec/00-how-to-read-this.md`) |
+| Passages that said a stale `&T` was the programmer's problem | §5.2 (non-null, and `unsafe`), §6.7 "What stays unchecked" |
+
+**Done** (r113, 2026-11-03). Every hole the list below names was closed first, and checking
+them found one more, a static's drop at exit reading a static C++ had destroyed
+([T-0163](T-0163-static-drop-at-exit-can-read.md)), closed in the same revision.
 
 **What it is.** §1.1 lists memory safety as a non-goal. D-0094 makes it a promise: a
 program with no `unsafe` has no undefined behaviour on one thread. No read or write of freed

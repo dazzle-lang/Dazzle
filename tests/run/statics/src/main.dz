@@ -38,6 +38,26 @@ fn record(v: i32) kills LOG.lines@items {
     LOG.lines.push(v)
 }
 
+// At exit each static is dropped and left at its default, in reverse order of declaration
+// (spec §7.7): `NOTES`, declared after `REPORT`, is already empty when `REPORT`'s drop reads
+// it, and `LOG`, declared before, is still whole.
+struct Report {
+    pub runs: i32 = 0
+}
+
+impl Drop for Report {
+    fn drop(&mut self) {
+        println!("at exit: {} runs, {} logged, {} notes", runs, LOG.lines.len(), NOTES.lines.len())
+    }
+}
+
+static REPORT: Report = Report{}
+static NOTES: Log = Log{}
+
+fn note(v: i32) kills NOTES.lines@items {
+    NOTES.lines.push(v)
+}
+
 struct Holder {
     pub p: ^mut Counter = null
 }
@@ -69,4 +89,7 @@ fn main() {
     record(4)
     record(5)
     println!("logged {} {}", LOG.lines.len(), LOG.lines[1])
+
+    note(6)
+    REPORT.runs = 1
 }

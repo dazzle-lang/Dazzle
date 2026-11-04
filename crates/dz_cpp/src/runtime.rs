@@ -366,6 +366,27 @@ DZ_INLINE T take(T& x) {
     return v;
 }
 
+// The storage of a static with something to drop (spec §7.7). C++ never destroys it: C++
+// destroys statics in different files in no promised order, so one's drop could read
+// another already freed. The program drops each itself at exit, in a fixed order, through
+// `drop_static`. The value is built in place from `make()`, which C++17 must not copy or
+// move: a temporary moved in would run its own `drop` before `main`.
+template <class T>
+union StaticCell {
+    T value;
+    template <class F>
+    constexpr explicit StaticCell(F make) : value(make()) {}
+    ~StaticCell() {}
+};
+
+// Drops a static and leaves it at its default, as a moved-from value is (spec §7.7), so a
+// drop that runs later and reads it sees an empty value rather than freed memory.
+template <class T>
+DZ_INLINE void drop_static(StaticCell<T>& cell) {
+    T dying = take(cell.value);
+    (void)dying;
+}
+
 // --- raw memory (spec §14.3) ------------------------------------------------
 //
 // No allocation here: memory comes from `std`'s allocators, which reach the C heap through

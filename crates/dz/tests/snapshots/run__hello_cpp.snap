@@ -14,6 +14,7 @@ namespace dz {
 namespace hello {
 
 void main();
+void dz_drop_statics__();
 
 }  // namespace hello
 }  // namespace dz
@@ -32,6 +33,15 @@ void main() {
     ::dz::std_::stream_write(0, ::dz::str("Hello, world!/n", 14));
 }
 
+void dz_drop_statics__() {
+}
+
+static void dz_drop_all_statics__() {
+    ::dz::hello::dz_drop_statics__();
+    ::dz::std_::dz_drop_statics__();
+}
+[[maybe_unused]] static const int dz_statics_dropped_at_exit__ =
+    (::atexit(&dz_drop_all_statics__), 0);
 
 }  // namespace hello
 }  // namespace dz
