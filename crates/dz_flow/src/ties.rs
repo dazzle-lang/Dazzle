@@ -32,16 +32,60 @@ pub struct Place {
     pub steps: Vec<Step>,
 }
 
-/// Canonical path steps. Indices deliberately have no value: `xs[i]` and `xs[j]`
-/// may refer to the same element (spec §6.7).
+/// Canonical path steps. `Elements` is any element: `xs[i]` and `xs[j]` may refer to the
+/// same one (spec §6.7). `Element` is one the caller indexed with something that says which,
+/// so that `xs[0]` and `xs[1]`, or `xs[i]` and `xs[i + 1]`, are told apart; it stands for
+/// `Elements` wherever two places are not being compared.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Step {
     Field(String),
     Elements,
+    Element(Index),
     /// The allocation behind a pointer field, as distinct from the field holding the
     /// pointer. Only a declared tie introduces this step; raw pointer fields do not
     /// acquire checked provenance by being read.
     Storage,
+}
+
+/// Which element an index names, as far as the checker can tell without running it: a
+/// literal, or a local that is not `mut` plus a constant (spec §6.7). Such a local keeps its
+/// value until its binding runs again, when every index naming it is forgotten
+/// ([`Place::forget_index`]), so two indices from one binding are compared as numbers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Index {
+    Literal(i128),
+    Offset(LocalId, i128),
+}
+
+impl Index {
+    /// Whether the two can never name the same element. Index arithmetic wraps (§5.1), and
+    /// two offsets of one value are different elements whenever the constants differ.
+    fn distinct(self, other: Index) -> bool {
+        match (self, other) {
+            (Index::Literal(a), Index::Literal(b)) => a != b,
+            (Index::Offset(x, a), Index::Offset(y, b)) => x == y && a != b,
+            _ => false,
+        }
+    }
+}
+
+impl Step {
+    /// Whether the two may name the same place: equal, or two elements not proven apart.
+    fn may_alias(&self, other: &Step) -> bool {
+        match (self, other) {
+            (Step::Element(a), Step::Element(b)) => !a.distinct(*b),
+            (Step::Elements | Step::Element(_), Step::Elements | Step::Element(_)) => true,
+            _ => self == other,
+        }
+    }
+
+    /// `Element` as the `Elements` it is one of; any other step as it is.
+    pub fn unkeyed(&self) -> Step {
+        match self {
+            Step::Element(_) => Step::Elements,
+            other => other.clone(),
+        }
+    }
 }
 
 impl Place {
@@ -50,9 +94,26 @@ impl Place {
     }
 
     /// Whether ending `self` ends `other` too. This is directional: killing a field
-    /// does not end a reference to its enclosing struct.
+    /// does not end a reference to its enclosing struct. Elements whose indices are
+    /// proven different are apart: killing `xs[0]@text` does not end a view of `xs[1]`.
     pub fn covers(&self, other: &Self) -> bool {
-        self.local == other.local && other.steps.starts_with(&self.steps)
+        self.local == other.local
+            && other.steps.len() >= self.steps.len()
+            && self.steps.iter().zip(&other.steps).all(|(a, b)| a.may_alias(b))
+    }
+
+    /// The place with every element's index forgotten, as a signature names it (`[*]`).
+    pub fn unkeyed(&self) -> Self {
+        Self { local: self.local, steps: self.steps.iter().map(Step::unkeyed).collect() }
+    }
+
+    /// Forget every index computed from `local`, whose binding is about to run again.
+    pub fn forget_index(&mut self, local: LocalId) {
+        for step in &mut self.steps {
+            if matches!(step, Step::Element(Index::Offset(l, _)) if *l == local) {
+                *step = Step::Elements;
+            }
+        }
     }
 
     fn followed_by(&self, steps: &[Step]) -> Self {
@@ -315,7 +376,11 @@ pub(crate) fn canonicalize(
         if let Ty::Named { sym, args } = ty.peeled_refs() {
             if !ties::tie_decls(table, *sym).is_empty() {
                 for (pattern, replacement, after) in rewrites(table, res, *sym, args) {
-                    if steps[i..].starts_with(&pattern) {
+                    // A pattern names elements as `[*]`; an indexed element matches it, and
+                    // its index is given up for the tie it is rewritten to.
+                    let matches = steps.len() - i >= pattern.len()
+                        && steps[i..].iter().zip(&pattern).all(|(s, p)| s.unkeyed() == *p);
+                    if matches {
                         out.extend(replacement);
                         ty = after;
                         i += pattern.len();
@@ -329,7 +394,7 @@ pub(crate) fn canonicalize(
             Step::Field(name) => field_of(table, &ty, name).unwrap_or(Ty::Error),
             // The pointer stays the type until `[*]` reads what it points at.
             Step::Storage => ty,
-            Step::Elements => match &ty {
+            Step::Elements | Step::Element(_) => match &ty {
                 Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => (**inner).clone(),
                 _ => ties::elements_in(table, &ty).flatten().unwrap_or(Ty::Error),
             },
@@ -670,7 +735,7 @@ pub fn ties(scope: &Scope<'_>, place: &Place, root: &Ty) -> Vec<Place> {
                     return vec![canonical_place(scope.table, scope.res, root, &held)];
                 }
             },
-            (Some(t), Step::Elements) => ties::elements(scope, &t).flatten(),
+            (Some(t), Step::Elements | Step::Element(_)) => ties::elements(scope, &t).flatten(),
             _ => None,
         };
     }

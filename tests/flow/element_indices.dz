@@ -1,0 +1,111 @@
+// Spec §6.7, T-0168: elements share their container's ties unless their indices are known
+// apart, two different literals or one local that is not `mut` plus different literals.
+// Refused: the same element, two indices not known apart, a view taken with `i + 1` used
+// in the next pass, where it is `names[i]`, an index from a `mut` local, a kill of the list
+// itself, and an element appended to itself. Accepted: an element and its neighbour, two
+// literals, two inner lists of a list of lists, and `i - 1` beside `i`.
+// expect: DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413
+
+const LONG: const &str = "text long enough to live on the heap rather than in place"
+
+fn names() -> List<String> {
+    let mut names = List<String>()
+    for _k in 0..4 {
+        names.push(String::from("A"))
+    }
+    return names
+}
+
+fn same_element() {
+    let mut names = names()
+    let i: usize = 1
+    let a = names[i].as_str()
+    names[1].push_str(LONG)
+    println!("{}", a)
+}
+
+fn not_known_apart(j: usize) {
+    let mut names = names()
+    let i: usize = 1
+    let a = names[j].as_str()
+    names[i].push_str(LONG)
+    println!("{}", a)
+}
+
+fn next_pass() {
+    let mut names = names()
+    let mut keep: &str = "start"
+    for i in 0..names.len() - 1 {
+        names[i].push_str(LONG)
+        println!("{}", keep)
+        keep = names[i + 1].as_str()
+    }
+}
+
+fn changing_index() {
+    let mut names = names()
+    let mut k: usize = 0
+    let a = names[k + 1].as_str()
+    k = 1
+    names[k].push_str(LONG)
+    println!("{}", a)
+}
+
+fn whole_list() {
+    let mut names = names()
+    let a = &names[1]
+    names.push(String::from(LONG))
+    println!("{}", a)
+}
+
+fn into_itself() {
+    let mut names = names()
+    names[0].push_str(names[0].as_str())
+}
+
+// Fine.
+fn neighbour() {
+    let mut names = names()
+    for i in 0..names.len() - 1 {
+        let s = &mut names[i]
+        s.push_str(names[i + 1].as_str())
+    }
+}
+
+fn two_literals() {
+    let mut names = names()
+    let b = names[1].as_str()
+    names[0].push_str(LONG)
+    println!("{}", b)
+}
+
+fn inner_lists() {
+    let mut nest = List<List<i32>>()
+    nest.push(List<i32>())
+    nest.push(List<i32>())
+    nest[0].push(1)
+    let first = &nest[0][0]
+    nest[1].push(2)
+    println!("{}", first)
+}
+
+fn previous() {
+    let mut names = names()
+    for i in 1..names.len() {
+        let prev = names[i - 1].as_str()
+        names[i].push_str(prev)
+    }
+}
+
+fn main() {
+    same_element()
+    not_known_apart(2)
+    next_pass()
+    changing_index()
+    whole_list()
+    into_itself()
+    neighbour()
+    two_literals()
+    inner_lists()
+    previous()
+}

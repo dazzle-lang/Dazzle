@@ -1,0 +1,59 @@
+// Elements whose indices are known apart are separate places (spec §6.7, T-0168): appending
+// a neighbour's text, a view of one element kept while another grows, and an inner list kept
+// while another inner list grows. Each would read freed memory if the check were wrong, which
+// the sanitizer job would see.
+
+const LONG: const &str = "text long enough to live on the heap rather than in place"
+
+fn names() -> List<String> {
+    let mut strings = List<String>()
+    for _k in 0..4 {
+        strings.push(String::from("A"))
+    }
+    return strings
+}
+
+fn next_text() {
+    let mut strings = names()
+    for i in 0..strings.len() - 1 {
+        let s = &mut strings[i]
+        let next = strings[i + 1].as_str()
+        s.push_str(next)
+    }
+    println!("{}", strings[0])
+}
+
+fn literal_indices() {
+    let mut strings = names()
+    let b = strings[1].as_str()
+    strings[0].push_str(LONG)
+    println!("{}", b)
+}
+
+fn nested() {
+    let mut nest = List<List<i32>>()
+    nest.push(List<i32>())
+    nest.push(List<i32>())
+    nest[0].push(1)
+    let first = &nest[0][0]
+    for k in 0..100 {
+        nest[1].push(k)
+    }
+    println!("{}", first)
+}
+
+fn minus_one() {
+    let mut strings = names()
+    for i in 1..strings.len() {
+        let prev = strings[i - 1].as_str()
+        strings[i].push_str(prev)
+    }
+    println!("{}", strings[3])
+}
+
+fn main() {
+    next_text()
+    literal_indices()
+    nested()
+    minus_one()
+}

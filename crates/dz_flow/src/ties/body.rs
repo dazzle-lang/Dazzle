@@ -16,7 +16,7 @@ use dz_span::Span;
 
 use crate::placement::Staying;
 
-use super::{Bindings, Mismatch, ParameterTie, Place, ReturnTie, Step};
+use super::{static_of, Bindings, Index, Mismatch, ParameterTie, Place, ReturnTie, Step};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum KillKind {
@@ -731,6 +731,50 @@ impl Analysis<'_> {
     }
 
     fn index_origins(&mut self, base: ExprId, value: &Value, span: Span) -> Vec<Origin> {
+        self.index_origins_at(base, value, None, span)
+    }
+
+    /// Which element an index expression names, when that can be told without running it:
+    /// a literal, or a local that is not `mut`, plus or minus a literal (spec §6.7).
+    fn index_key(&self, index: ExprId) -> Option<Index> {
+        let constant = |e: ExprId| match self.body.expr(e).kind {
+            hir::ExprKind::Int(v) => Some(v),
+            _ => None,
+        };
+        let fixed = |e: ExprId| match self.body.expr(e).kind {
+            hir::ExprKind::Local(l) if !self.body.local(l).mutable && static_of(l).is_none() => {
+                Some(l)
+            }
+            _ => None,
+        };
+        match &self.body.expr(index).kind {
+            hir::ExprKind::Int(v) => Some(Index::Literal(*v)),
+            hir::ExprKind::Local(_) => fixed(index).map(|l| Index::Offset(l, 0)),
+            hir::ExprKind::Binary { op: hir::BinaryOp::Add, lhs, rhs } => {
+                match (fixed(*lhs), constant(*rhs), constant(*lhs), fixed(*rhs)) {
+                    (Some(l), Some(c), _, _) | (_, _, Some(c), Some(l)) => {
+                        Some(Index::Offset(l, c))
+                    }
+                    _ => None,
+                }
+            }
+            hir::ExprKind::Binary { op: hir::BinaryOp::Sub, lhs, rhs } => {
+                Some(Index::Offset(fixed(*lhs)?, constant(*rhs)?.checked_neg()?))
+            }
+            _ => None,
+        }
+    }
+
+    /// Where `base[index]` is: [`Self::index_origins`], with the element named by `key`
+    /// where it is known.
+    fn index_origins_at(
+        &mut self,
+        base: ExprId,
+        value: &Value,
+        key: Option<Index>,
+        span: Span,
+    ) -> Vec<Origin> {
+        let element = key.map_or(Step::Elements, Step::Element);
         let targets = self.targets(base, value);
         match self.body.ty(base).peeled_refs() {
             Ty::Named { .. } => {
@@ -747,7 +791,8 @@ impl Analysis<'_> {
                     for origin in &result.views {
                         if parent.target.covers(&origin.target) {
                             let mut origin = origin.clone();
-                            origin.target = parent.target.followed_by(&[Step::Elements]);
+                            origin.target =
+                                parent.target.followed_by(std::slice::from_ref(&element));
                             elements.push(origin);
                         }
                     }
@@ -780,7 +825,7 @@ impl Analysis<'_> {
                 }
                 elements
             }
-            _ => targets.iter().map(|o| o.field(Step::Elements)).collect(),
+            _ => targets.iter().map(|o| o.field(element.clone())).collect(),
         }
     }
 
@@ -910,12 +955,18 @@ impl Analysis<'_> {
                     if let Some(recv) = &recv {
                         let parents =
                             if recv.places.is_empty() { &recv.views } else { &recv.places };
+                        // `xs[1]` on a `List` is this call; its argument may say which element.
+                        let element = args
+                            .first()
+                            .and_then(|a| self.index_key(*a))
+                            .map_or(Step::Elements, Step::Element);
                         let mut elements = Vec::new();
                         for parent in parents {
                             for origin in &result.views {
                                 if parent.target.covers(&origin.target) {
                                     let mut origin = origin.clone();
-                                    origin.target = parent.target.followed_by(&[Step::Elements]);
+                                    origin.target =
+                                        parent.target.followed_by(std::slice::from_ref(&element));
                                     elements.push(origin);
                                 }
                             }
@@ -2001,7 +2052,7 @@ impl Analysis<'_> {
                     Some(t) => ty = t,
                     None => return true,
                 },
-                Step::Elements | Step::Storage => return true,
+                Step::Elements | Step::Element(_) | Step::Storage => return true,
             }
         }
         match ty.peeled_refs() {
@@ -2028,6 +2079,7 @@ impl Analysis<'_> {
     }
 
     fn bind(&mut self, local: LocalId, value: Value) {
+        self.forget_index(local);
         let owned = value.owned.clone();
         self.bind_views(local, value);
         if let Some(regions) = &mut self.regions {
@@ -2042,6 +2094,33 @@ impl Analysis<'_> {
                 self.state.entry(local).or_default().owned = owned;
             } else if let Some(v) = self.state.get_mut(&local) {
                 v.owned.clear();
+            }
+        }
+    }
+
+    /// `local` is bound again, to what may be another value, so an element indexed by it
+    /// (`xs[i + 1]`) is no longer known apart from one indexed by the new value: each index
+    /// it named becomes any element, `[*]` (spec §6.7). Only a local that is not `mut` keys an
+    /// index, so binding it is the one way it changes.
+    fn forget_index(&mut self, local: LocalId) {
+        let forget = |value: &mut Value| {
+            for o in value.origins_mut() {
+                o.target.forget_index(local);
+                o.tie.forget_index(local);
+                if let Some(p) = &mut o.payload {
+                    p.forget_index(local);
+                }
+                if let Some(d) = &mut o.dead {
+                    d.place.forget_index(local);
+                }
+            }
+        };
+        self.state.values_mut().for_each(forget);
+        self.held.iter_mut().for_each(forget);
+        for frame in &mut self.loops {
+            for (state, held) in frame.breaks.iter_mut().chain(frame.continues.iter_mut()) {
+                state.values_mut().for_each(forget);
+                held.iter_mut().for_each(forget);
             }
         }
     }
@@ -2426,8 +2505,9 @@ impl Analysis<'_> {
                 let value = self.expr(base);
                 let at = self.expr(index);
                 self.sink(index, &at, Refusal::Unfollowed("used as an index"));
+                let key = self.index_key(index);
                 Value {
-                    places: self.index_origins(base, &value, node.span),
+                    places: self.index_origins_at(base, &value, key, node.span),
                     unknown: value.unknown,
                     ..Value::default()
                 }
@@ -3296,7 +3376,7 @@ fn logical_result(
                 storage_owner = Some((owner, target.clone()));
                 ty = next;
             }
-            Step::Elements => {
+            Step::Elements | Step::Element(_) => {
                 ty = dz_check::ties::elements(scope, &ty).flatten().unwrap_or(Ty::Error);
                 storage_owner = None;
             }

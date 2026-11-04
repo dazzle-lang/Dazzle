@@ -433,8 +433,25 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
   A clause reaches as far as a write does: a function given `&mut w` can free what `w` owns
   or change its payloads, but cannot move `w`, so `kills w` leaves a reference to a plain
   field of `w` alone.
-- **Elements share their container's ties.** A kill through `xs[i]` is a kill through `xs[j]`,
-  since `i` may equal `j`.
+- **Elements share their container's ties, unless their indices are known apart.** A kill
+  through `xs[i]` is a kill through `xs[j]`, since `i` may equal `j`. Two indices are known
+  apart when both are literals that differ (`xs[0]`, `xs[1]`), or both are the same local
+  that is not `mut` plus or minus different literals (`xs[i]`, `xs[i + 1]`, `xs[i - 1]`).
+  Such a local keeps its value until its binding runs again, as a `for` loop's does on the
+  next pass, and from then on an element it indexed is any element. So appending one string
+  of a list to its neighbour compiles, where the same element, or two indices not known
+  apart, is refused:
+
+  ```dz
+  for i in 0..names.len() - 1 {
+      let s = &mut names[i]
+      s.push_str(names[i + 1].as_str())     // fine: `names[i + 1]` is another element
+  }
+  names[0].push_str(names[0].as_str())      // error: the text read may move as it grows
+  ```
+
+  A clause still names elements as `[*]`: a function cannot say which element it kills.
+  `[DECIDED — T-0168]`
 - **A call kills what its clause names, at the call's arguments.** At a call, a reference
   in a tie that the callee's clause kills is dead afterwards, and using it is an error:
 

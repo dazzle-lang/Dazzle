@@ -6,6 +6,34 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r117, T-0168: elements known apart by their indices (2026-11-04)
+
+The user asked, after the site's comparison with Rust, for the refusals both languages make
+that could soundly be accepted. This is the first: `names[i].push_str(names[i +
+1].as_str())`. The second, one list passed as both arguments of a function that keeps
+nothing across its kills, turned out to depend on the callee's body rather than its
+signature, which the check never reads at a call; the user chose to keep it refused (T-0169,
+dropped).
+
+A place's element step may now carry an index, `Step::Element(Index)`, where `Index` is a
+literal or a local that is not `mut` plus a constant. `index_key` reads it off `xs[e]`, both
+the `Index` expression an array uses and the `Index::index` call a `List` lowers to (the
+latter was the one that mattered: no keyed place reached a `List` until it was covered).
+`Place::covers` compares step by step instead of by prefix, and two element steps are apart
+only when both indices are literals that differ or offsets of one local by different
+constants. A keyed step anywhere else stands for `[*]`: a declared tie's rewrite pattern
+matches it and drops the index, `owns_memory` and the type walks treat it as `[*]`, and the
+report unkeys a place before writing it as a clause or a message.
+
+Soundness rests on the local. One that is not `mut` cannot be assigned or lent as `&mut`,
+so it changes only when its binding runs again: the next pass of a `for`, or a `let` inside
+a loop. `bind` then calls `forget_index`, which turns every index keyed by that local into
+`[*]`, in the state, in held values and in the break and continue states of enclosing loops.
+`tests/flow/element_indices.dz` holds the cases that must stay refused, the view taken with
+`i + 1` that the next pass kills as `names[i]` among them, and the ones now accepted;
+`tests/run/element_indices` runs the accepted ones, clean under the sanitizers on clang++ and
+g++.
+
 ## r115, T-0133 and T-0134: the generated C++ audited, and the ties check fuzzed (2026-11-04)
 
 The two checks D-0094 asked for besides the sanitizer job, done together at the user's

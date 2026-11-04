@@ -375,6 +375,8 @@ fn tie_path_held(
     let mut out = Vec::new();
     let mut held = Vec::new();
     let mut ty = super::root_ty(body, table, place.local).peeled().clone();
+    // A clause and a message name elements as `[*]`, whatever index the caller used.
+    let place = &place.unkeyed();
     let steps = &place.steps;
     let mut i = 0;
     'outer: while i < steps.len() {
@@ -418,7 +420,7 @@ fn tie_path_held(
                 out.push(TieStep::Field(ident(name)));
                 ty = next;
             }
-            Step::Elements => {
+            Step::Elements | Step::Element(_) => {
                 held.push(ty.clone());
                 out.push(TieStep::Elements(Span::DUMMY));
                 ty = match &ty {
