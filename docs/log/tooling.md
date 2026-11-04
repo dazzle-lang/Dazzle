@@ -42,8 +42,23 @@ before a first program.
   current one). It refuses a name that cannot be a module, and a folder that is not empty
   (`crates/dz/tests/new.rs`).
 
-The release workflow has not run yet: GitHub runs a workflow by hand only once it is on the
-default branch.
+**The first dry run found that `dz` could not build anything on Xcode 15.** Linux, Windows
+and the extension packed and passed, but macOS (GitHub's `macos-14` image, Xcode 15.4) failed
+its smoke test: `module libc has no malloc`. A probe on a throwaway branch ruled out
+libclang's choice: every combination failed, debug and release, command line tools' libclang
+and Xcode's. Tracing the import showed why. Apple's libclang 15 reports an `extern "C" { … }`
+block as an `UnexposedDecl` rather than a `LinkageSpec`, and the walk only looked inside the
+latter, so every C function behind `__BEGIN_DECLS` was invisible: `malloc` and `free` for
+`std`, and every function of a C library such as raylib. CI never saw it because its macOS job
+runs on `macos-latest`, whose newer libclang reports a `LinkageSpec`. `flatten` in
+`crates/dz_cppimport/src/clang.rs` now looks inside an `UnexposedDecl` too. The release job
+builds on `macos-14`, so each release's smoke test covers the older libclang. Separately, on
+macOS `dz` now loads the libclang beside the `clang` that `xcrun` picks, so the parser, the
+SDK and the compiler are one toolchain.
+
+Also: the README, the spec's examples and the site's pages write `String("ada")` rather
+than `String::from("ada")`, which is the same constructor with a longer name. The user
+looked at letting a literal convert where a `String` is wanted, and put it off (T-0170).
 
 ## What Dazzle's lead in the benchmarks is made of (2026-11-04)
 

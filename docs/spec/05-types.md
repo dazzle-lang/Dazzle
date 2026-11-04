@@ -309,7 +309,7 @@ measures a C string and copies nothing; measuring C's `^cstr` is `unsafe`, since
 what it points at and it may be null. A runtime `&str` cannot become a `&cstr`: nothing
 follows its last byte, so a C string needs a copy, and a copy has to be owned and freed. That
 owning C string is a `String`, which keeps a zero after its bytes and frees them when dropped:
-`String::from(name)` copies, and its `as_cstr()` borrows the copy as a `&cstr` (§14.4); a
+`String(name)` copies, and its `as_cstr()` borrows the copy as a `&cstr` (§14.4); a
 `String` passed as an argument where a C string is wanted is borrowed that way on its own
 (§7.2). `s.as_str()` borrows the text. `[DECIDED — §18.39, D-0081, D-0089]`
 

@@ -52,8 +52,8 @@ build from source.
 ```rust
 fn main() {
     let mut names = List<String>()
-    names.push(String::from("ada"))
-    names.push(String::from("grace"))
+    names.push(String("ada"))
+    names.push(String("grace"))
 
     // A `&mut` to one element beside a `&` to the next: Rust refuses this (E0502).
     // The indices are known apart, so it is safe, and Dazzle compiles it.
@@ -63,7 +63,7 @@ fn main() {
 
     // The bug C++ does have: a reference kept across a call that may move the array.
     let first = &names[0]
-    names.push(String::from("linus"))
+    names.push(String("linus"))
     println!("{}", first)
 }
 ```
@@ -72,8 +72,8 @@ fn main() {
 error[DZ0413]: used after the memory it points into was killed: `names@items`
    ┌─ src/main.dz:15:20
    │
-14 │     names.push(String::from("linus"))
-   │     --------------------------------- this call kills `names@items`
+14 │     names.push(String("linus"))
+   │     --------------------------- this call kills `names@items`
 15 │     println!("{}", first)
    │                    ^^^^^ points into `names@items`
    │
@@ -235,7 +235,7 @@ struct Level {
     tie @enemies = m_enemies@items           // a public name for that private memory
 
     Level(name: &str) {
-        self.name = String::from(name)
+        self.name = String(name)
     }
 
     pub fn spawn(&mut self, e: Enemy) kills self@enemies {   // says what it may move
@@ -490,7 +490,7 @@ The compiler checks each clause against its function's body, both ways, and `dz 
 writes the clause a body needs. Aliasing stays legal: `&mut xs[i]` beside `&xs[j]`, or a
 `&mut` and a `&` to one value, is fine, as long as nothing in between can move the memory.
 
-**Ordinary code names no allocator.** `List<Enemy>()` and `String::from(name)` get their
+**Ordinary code names no allocator.** `List<Enemy>()` and `String(name)` get their
 memory where the compiler can prove it safe: the region of the scope that owns them,
 released in one step when the scope ends; wherever the caller keeps a result; or else the
 heap. The same ties check every placement, the editor shows where each allocation went, and

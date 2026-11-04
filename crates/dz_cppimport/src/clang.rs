@@ -282,10 +282,9 @@ pub(crate) fn clang_major(version: &str) -> Option<String> {
 /// also what `clang++` runs and where the SDK passed as `-isysroot` comes from.
 ///
 /// A Mac often has more than one libclang (the command line tools, one or more Xcodes), and
-/// left to itself clang-sys takes whichever it ranks first. One older than the SDK reads
-/// the SDK's newer `malloc` declaration as something else, and the import of `stdlib.h` then
-/// finds no `malloc` and reports nothing wrong: the first release build hit exactly that on
-/// GitHub's macOS image.
+/// left to itself clang-sys takes whichever it ranks first, which need not be the one whose
+/// SDK `-isysroot` names. Taking the toolchain `xcrun` picks keeps the parser, the headers
+/// and the compiler that builds the result one and the same.
 fn xcode_toolchain() -> Option<PathBuf> {
     if !cfg!(target_os = "macos") {
         return None;
@@ -1686,9 +1685,14 @@ unsafe fn doc_comment(c: CXCursor) -> String {
 unsafe fn flatten(cs: Vec<CXCursor>) -> Vec<CXCursor> {
     let mut out = Vec::with_capacity(cs.len());
     for c in cs {
-        let inline_ns =
-            clang_getCursorKind(c) == CXCursor_Namespace && clang_Cursor_isInlineNamespace(c) != 0;
-        if clang_getCursorKind(c) == CXCursor_LinkageSpec || inline_ns {
+        let kind = clang_getCursorKind(c);
+        let inline_ns = kind == CXCursor_Namespace && clang_Cursor_isInlineNamespace(c) != 0;
+        // An `extern "C" { … }` block is a `LinkageSpec`, except from Apple's libclang 15
+        // (Xcode 15), which reports the same block as an `UnexposedDecl`. Missing that hid
+        // every C function on such a Mac, `malloc` first, so the standard library could not
+        // be built there at all. What else comes through unexposed holds no declarations the
+        // walk acts on, so looking inside is harmless.
+        if kind == CXCursor_LinkageSpec || kind == CXCursor_UnexposedDecl || inline_ns {
             out.extend(flatten(children(c)));
         } else {
             out.push(c);

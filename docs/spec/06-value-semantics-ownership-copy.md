@@ -164,19 +164,19 @@ after it and before those of the locals declared before it, so every local it ca
 still alive. It is for the non-RAII cases (`defer profiler::end_zone()`).
 
 ```dz
-let l = Loud{ name: String::from("first") }
+let l = Loud{ name: String("first") }
 defer { println!("defer sees {}", l.name) }
-let m = Loud{ name: String::from("second") }
+let m = Loud{ name: String("second") }
 // at the scope's end: drop second, defer sees first, drop first
 ```
 
 **A temporary is dropped at the end of its statement** — a value a call or a literal makes
-that nothing binds, such as the `String` in `String::from(name).as_cstr()`. (`&make()`
+that nothing binds, such as the `String` in `String(name).as_cstr()`. (`&make()`
 written out is the exception: it lives to the end of the block, §14.2.) So a view into a
 temporary — a `&str`, `&cstr`, slice, reference or pointer taken from it through a method,
 a field, an index or a slice — may be handed to a call in the same statement, which
 finishes first, but **keeping one is an error** (`DZ0407`): by `let`, by assignment, or by
-`return`. Bind the owner first, `let owned = String::from(name)`, and take the view from
+`return`. Bind the owner first, `let owned = String(name)`, and take the view from
 it. A function's result is not followed into its arguments, since what it returns need
 not point into them. `[DECIDED — D-0081]`
 
@@ -427,7 +427,7 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
   let x = &body.at.x
   body.at = Vec2{ x: 1, y: 2 }        // fine: `x` still points at `body.at.x`; kills nothing
   let s = body.name.as_str()
-  body.name = String::from("new")     // kills `body.name`: the old text is freed
+  body.name = String("new")     // kills `body.name`: the old text is freed
   ```
 
   A clause reaches as far as a write does: a function given `&mut w` can free what `w` owns

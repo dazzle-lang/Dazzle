@@ -402,12 +402,12 @@ reaches a C function through one. Passed as an argument, a `String` or a `Path` 
 through `std`'s `ImplicitAs<&cstr>` (§7.2):
 
 ```dz
-let owned = String::from(name)
+let owned = String(name)
 rl::LoadFileText(owned)                        // the same as owned.as_cstr()
 rl::DrawText(format!("hp {}", hp), 8, 8, 20, rl::RED)
 ```
 
-`rl::LoadFileText(String::from(name).as_cstr())` is the same, since a temporary lives to the
+`rl::LoadFileText(String(name).as_cstr())` is the same, since a temporary lives to the
 end of its statement; binding that `&cstr` with `let` keeps a view of a temporary, which is an
 error (`DZ0407`, §6.5). `[DECIDED — D-0039, D-0081, D-0089]`
 
