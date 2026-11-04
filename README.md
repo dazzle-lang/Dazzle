@@ -2,14 +2,21 @@
   <img src=".github/logo.png" alt="Dazzle" width="640">
 </p>
 
-**A successor to C++ that compiles to C++.**
+<p align="center"><b>Safe. Fast. Fluent in C++.</b></p>
 
 Dazzle is an upgrade of C++ for the places C++ is used today: games and engines, embedded
-systems, tools and real-time code. It keeps C++'s control and drops forty years of
-accumulated syntax: RAII reduced to three special members, references checked without
-lifetime annotations, no allocator to pass around, encapsulation the compiler enforces,
-errors as values instead of exceptions, generics checked where they are written, and C and
-C++ libraries used directly from their source, with no wrapper or build system.
+systems, tools and real-time code.
+
+- **Safe:** on one thread, a program with no `unsafe` has no undefined behaviour, with no
+  borrow checker and no lifetime annotations.
+- **Fast:** whole programs written idiomatically in both languages take 0.77 to 1.17 times
+  as long in Dazzle as in C++, and the compiler places memory in scope regions itself.
+- **Fluent in C++:** C and C++ libraries are used straight from their source and headers,
+  with no bindings, and the output is standard C++17 for the compiler you already use.
+
+It keeps C++'s control and drops forty years of accumulated syntax: RAII reduced to three
+special members, no allocator to pass around, encapsulation the compiler enforces, errors
+as values instead of exceptions, and generics checked where they are written.
 
 Its goal is close to [Carbon](https://github.com/carbon-language/carbon-lang)'s, with a
 different route: instead of bringing its own LLVM-based toolchain, Dazzle compiles to

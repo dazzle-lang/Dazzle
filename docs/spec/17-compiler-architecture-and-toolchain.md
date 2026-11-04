@@ -16,7 +16,7 @@ crates/
   dz_resolve     modules, imports, visibility, name binding (§3, §4)
   dz_hir         resolved, desugared tree
   dz_check       types, traits, generics, definition-site checking (§5, §8)
-  dz_flow        moves, drops, must-use, use-before-init (§6)
+  dz_flow        moves, drops, must-use, use-before-init, ties and kills, placement (§6, §14.6)
   dz_mono        monomorphization + compile-time folding (§8.4)
   dz_cpp         C++ emission, mangling, #line mapping (§16)
   dz_cppimport   libclang header importer (§15)
@@ -36,7 +36,7 @@ crates/
      │  dz_macro      AST with macros expanded
      │  dz_resolve    every name bound to a definition; visibility enforced
      │  dz_check      every expression typed; traits solved; generics checked once
-     │  dz_flow       ownership, moves, drops inserted, must-use verified
+     │  dz_flow       ownership, moves, drops, ties and kills checked; memory placed
      │  dz_mono       generics instantiated; comptime branches folded
      │  dz_cpp        C++ text + #line map
      ▼

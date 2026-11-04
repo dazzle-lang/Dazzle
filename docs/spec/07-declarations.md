@@ -73,8 +73,8 @@ rl::LoadTexture(path)                                                 // a Path,
 - **The argument is borrowed, not moved**, as any `&self` method borrows its receiver, so it
   is still usable after the call; a temporary, such as a `format!`, lives until the call
   returns. A reference to a type that converts converts as the type does.
-- **Once at most.** A `Pounds` that converts to `Ounces`, which converts to `cstr`, is not a
-  `cstr`.
+- **Once at most.** A `Pounds` that converts to `Ounces`, which converts to `&cstr`, is not a
+  `&cstr`.
 - **Not to choose or infer.** A C++ overload set is still chosen by exact types (§15.3), and
   a generic parameter is still inferred from the argument's own type (§8.1).
 - **Opt-in.** A method or constructor never converts on its own, unlike C++'s single-argument
@@ -86,7 +86,7 @@ trait's argument (§7.6): `impl ImplicitAs<Vec2> for rl::Vector2` belongs with `
 `[DECIDED — D-0089]`
 
 **Variadic parameters.** One parameter may take any number of arguments, written
-`name: ..T`. In the body it is a read-only slice, `[]T`:
+`name: ..T`. In the body it is a read-only slice, `&[]T`:
 
 ```dz
 fn sum(xs: ..i32) -> i32 {

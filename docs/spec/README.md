@@ -2,9 +2,11 @@
 
 **Version:** 0.1 — **unreleased**, revision 114
 **Status:** M0–M8, M10, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle
-programs compile and run, own, move and drop their resources deterministically, have
-generics, traits, unions, macros and reflection, call C and C++ libraries that `dz`
-builds from vendored source, and are edited with a language server. Not yet 0.1: the
+programs compile and run, own, move and drop their resources deterministically, have no
+undefined behaviour outside `unsafe` on one thread (§1.1), get their memory where the
+compiler places it (§14.6), have generics, traits, unions, macros and reflection, call C
+and C++ libraries that `dz` builds from vendored source, run about as fast as the same
+programs written in C++, and are edited with a language server. Not yet 0.1: the
 editor still lacks code actions and incremental analysis (M9), and the standard library,
 which has carried a game written without C++ (M12's criterion), is still growing.
 Open work is the backlog, `docs/tasks.md`; what was built, milestone by milestone, is in `docs/log/`.

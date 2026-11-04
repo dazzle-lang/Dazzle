@@ -1,7 +1,8 @@
 # 0. How to read this document
 
-This is a *design* document, not a description of a working compiler. It is meant to be
-argued with. Three markers appear throughout:
+This is the language's design, and the contract the compiler is built against: where the
+two disagree, the compiler is wrong. Every change to it is a revision row in §21. It is
+still meant to be argued with. Three markers appear throughout:
 
 - **`[DECIDED]`** — settled. Implementation may proceed against it.
 - **`[PROPOSED]`** — my recommendation, written as if decided so you can judge it in

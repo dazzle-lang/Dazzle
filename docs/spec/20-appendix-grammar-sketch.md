@@ -56,7 +56,7 @@ type          = access_type [ "?" ] ;
 access_type   = "^" type | "&" [ "mut" ] type
               | "[" [ expr ] "]" type
               | "own" "^" type
-              | "const" type    (* only `const str`, §5.3 *)
+              | "const" type    (* only `const &str`, `const &cstr` and `const &[]T`, §5.3 *)
               | "fn" "(" [ fn_type_params ] ")"
                 [ ( "->" | "!->" ) type [ "in" ( tie_path | "(" tie_path { "," tie_path } ")" ) ] ]
                 [ "kills" ( tie_path | "(" tie_path { "," tie_path } ")" ) ]

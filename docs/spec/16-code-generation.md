@@ -83,8 +83,9 @@ itself.
 nothing but the C standard library.
 
 It contains: `dz_panic` (message, `SourceLocation`, stack trace in debug), the bounds-check
-helper, the overflow-check helpers, `SourceLocation`, the `TypeInfo` structs, slice and
-`str` layouts, and the `T?` and fallible-return tag helpers.
+helper, the arithmetic helpers (division by zero, shifts, float-to-integer conversion, and
+the checked and saturating integer methods), `SourceLocation`, the `TypeInfo` structs, slice
+and `&str` layouts, and the `T?` and fallible-return tag helpers.
 
 There is no allocator in it, no I/O beyond writing a panic message to stderr, no threading,
 and no global constructors. `[DECIDED]`

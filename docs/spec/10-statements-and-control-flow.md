@@ -69,7 +69,7 @@ switch state {
 - Naming the same variant or value in two labels is an error: the later one could never
   match.
 
-An integer, a `char`, a `bool` or a `str` is matched against **constants** instead of
+An integer, a `char`, a `bool` or a `&str` is matched against **constants** instead of
 variants. A label is anything known while compiling — a literal, a `const`, or arithmetic
 on those — of the subject's type, and there is no exhaustiveness requirement: with no
 matching arm and no `default`, nothing runs. A float cannot be switched on, since it is never

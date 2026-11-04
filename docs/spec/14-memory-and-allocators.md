@@ -135,7 +135,7 @@ slice in — one that must not be a view of the list itself, which growing would
 elements `Hash`, so a list can key a map. `[DECIDED — D-0081]`
 
 **`String`** is owned UTF-8 text, in `std`: `String("x")` or `String::from("x")` copy a
-`str`. `push_str`, `push` (a `char`, encoded),
+`&str`. `push_str`, `push` (a `char`, encoded),
 `insert(at, c)`, `insert_str(at, s)`, `remove(at)` (the character there), `clear`,
 `reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
 `as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
@@ -164,10 +164,10 @@ holds seven bits of the hash of the entry there, a lookup compares eight of them
 and a key only where they match, and the table doubles at seven eighths full. Removal may
 leave a marker that later probes pass, cleared when the table is next rebuilt.
 
-A map with `String` keys is also looked up by `str`, with no `String` built to do it:
+A map with `String` keys is also looked up by `&str`, with no `String` built to do it:
 **`StrKeys<V>`**, implemented for `HashMap<String, V>` alone, gives `get_str`,
-`get_mut_str`, `contains_str` and `remove_str`. A `String` hashes as its text, so the `str`
-finds the entry its `String` would.
+`get_mut_str`, `contains_str` and `remove_str`. A `String` hashes as its text, so the
+`&str` finds the entry its `String` would.
 
 ```dz
 let n = counts.get_or_insert(word, 0)
@@ -216,7 +216,7 @@ fn fire(t: &Turret, enemies: &mut SlotMap<Enemy>) {
 ```
 
 **`Hash`** is the `std` trait a key needs: `fn hash(&self) -> u64`, equal values hashing
-equally. Integers, `bool`, `char` and `str` implement it, and `Eq`, without an `impl`, and
+equally. Integers, `bool`, `char` and `&str` implement it, and `Eq`, without an `impl`, and
 the methods can be called on them directly — `id.hash()`, `name.eq(&other)`, `a.cmp(&b)`.
 Floats do not implement `Hash`, since `NaN != NaN` would break that promise. `String`
 hashes as its text. A struct combines its fields' hashes with `hash_combine(seed, h)`.
@@ -338,12 +338,12 @@ let dt = start.elapsed().as_secs_f32()
 
 Like the math, these are associated functions and methods of types, not free functions.
 
-**Reading text.** The `Text` trait, implemented for `str` and `String`, gives both the same
+**Reading text.** The `Text` trait, implemented for `&str` and `String`, gives both the same
 operations, literals included: `starts_with`, `ends_with`, `find` and `rfind` (a byte
 offset, `usize?`), `contains`, `trim`, `trim_start`, `trim_end`, `strip_prefix` and
-`strip_suffix` (a `str?`, `none` when the text does not start or end so), `split_once(sep)`
+`strip_suffix` (a `^str`, `null` when the text does not start or end so), `split_once(sep)`
 (the text before and after the first `sep`, a `(&str, &str)?`), `split(separator)`,
-`split_whitespace()` and `lines()` (iterators of `str` views), `eq_ignore_ascii_case`,
+`split_whitespace()` and `lines()` (iterators of `&str` views), `eq_ignore_ascii_case`,
 `replace(from, to)`, `to_ascii_lowercase`, `to_ascii_uppercase`, `repeat(n)` (new
 `String`s), and `parse_i64`, `parse_u64`, `parse_f64`, `parse_f32` — the whole text as a
 number, or `none` for anything else, including surrounding spaces and a value that does not
@@ -366,8 +366,9 @@ let volume = setting.trim().parse_f32() or 1.0
 trait — and `xs.sort_by(before)` by any strict order, a `fn(&T, &T) -> bool`; `xs.swap(i,
 j)` exchanges two elements. The sort is an introsort, as `std::sort` is: quicksort, with
 insertion sort for short runs and a heapsort once quicksort splits badly. It allocates
-nothing, is `n log n` at worst, and is not stable. `String` and `Path` are `Ord` by their bytes, which for UTF-8 is code-point
-order, not a language's alphabetical one. `[DECIDED — §18.70]`
+nothing, is `n log n` at worst, and is not stable. `String` and `Path` are `Ord` by their
+bytes, which for UTF-8 is code-point order, not a language's alphabetical one. `[DECIDED —
+§18.70]`
 
 **`Random`** is one generator per thread, called through its type with no value to hold:
 `Random::next_u32()`, `next_u64()`, `next_f32()` and `next_f64()` (the floats in `[0, 1)`),
@@ -377,27 +378,28 @@ order, not a language's alphabetical one. `[DECIDED — §18.70]`
 runs differ; `Random::seed(n)` makes this thread's numbers repeat exactly. The generator is
 SplitMix64: fast and well distributed, and not for cryptography. `[DECIDED — §18.67]`
 
-**Text is UTF-8.** A `str` is UTF-8 bytes and a `String` owns them; `len` counts bytes, and
-a character outside ASCII takes two to four. Characters are decoded as they are read:
+**Text is UTF-8.** A `&str` views UTF-8 bytes and a `String` owns them; `len` counts bytes,
+and a character outside ASCII takes two to four. Characters are decoded as they are read:
 
-- `s.chars()` — or `for c in s` on a `String`, or `Chars(text)` on any `str` — steps through
-  the characters as `char`s. A byte that is not valid UTF-8, which only the unchecked
-  `bytes as str` can produce, reads as U+FFFD.
+- `s.chars()` — or `for c in s` on a `String`, or `Chars(text)` on any `&str` — steps
+  through the characters as `char`s. A byte that is not valid UTF-8, which only the
+  unchecked `bytes as &str` can produce, reads as U+FFFD.
 - `char_count()`, `pop()` (the last character, a `char?`), `is_char_boundary(i)`,
-  `slice(from, to)` (a `str?`: `none` when an end falls inside a character) and
+  `slice(from, to)` (a `^str`: `null` when an end falls inside a character) and
   `truncate(len)` (a panic inside one), so text is never cut into invalid bytes.
 - `insert(at, c)`, `insert_str(at, s)` and `remove(at)` (the character starting there)
   change a `String` in place, and panic when `at` is not where a character starts.
 - `String::from_utf8(bytes)` copies bytes that are valid UTF-8, `none` otherwise.
-- A `char` formatted with `{}` is written as UTF-8, as a `str` is.
+- A `char` formatted with `{}` is written as UTF-8, as a `&str` is.
 
 A character's position is in bytes throughout; there is no indexing by character, which
 would take time in proportion to the text's length on every use. `[DECIDED — §18.69]`
 
-**A C string from text.** A `str` has no zero after it, so it is not a `cstr`; a literal
-is (§5.3). A `String` keeps a zero after its bytes, and `as_cstr()` borrows the text as a
-`cstr` with no copy — so text from anywhere reaches a C function through one. Passed as an
-argument, a `String` or a `Path` *is* one, through `std`'s `ImplicitAs<&cstr>` (§7.2):
+**A C string from text.** A `&str` has no zero after it, so it is not a `&cstr`; a literal
+is, as a `const &cstr` (§5.3). A `String` keeps a zero after its bytes, and `as_cstr()`
+borrows the text as a `&cstr` tied to the `String`, with no copy — so text from anywhere
+reaches a C function through one. Passed as an argument, a `String` or a `Path` *is* one,
+through `std`'s `ImplicitAs<&cstr>` (§7.2):
 
 ```dz
 let owned = String::from(name)
@@ -406,7 +408,7 @@ rl::DrawText(format!("hp {}", hp), 8, 8, 20, rl::RED)
 ```
 
 `rl::LoadFileText(String::from(name).as_cstr())` is the same, since a temporary lives to the
-end of its statement; binding that `cstr` with `let` keeps a view of a temporary, which is an
+end of its statement; binding that `&cstr` with `let` keeps a view of a temporary, which is an
 error (`DZ0407`, §6.5). `[DECIDED — D-0039, D-0081, D-0089]`
 
 **Files** are reached through three types, and no free functions:
@@ -561,7 +563,7 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
 |---|---|
 | never leaves its scope | that scope's **region**, released in one step when the scope ends |
 | is returned | **wherever the caller wants the result**, passed to the function out of sight |
-| is the contents of a container emptied only all at once | an **arena that container owns**, reset when it is cleared (not yet: T-0107) |
+| is the contents of a container emptied only all at once | an **arena that container owns**, reset when it is cleared (not yet: T-0120) |
 | anything else | **the heap** |
 
 - **A placement is checked like a reference** (§6.7): a region is a tie that dies when its

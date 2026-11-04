@@ -79,8 +79,8 @@ Five ways to refer to something — the model your samples already use, plus `&m
 - **`^T`** and **`^mut T`** are C pointers — `const T*` and `T*`. Nullable, freely
   storable, no guarantees. This is how you build a scene graph with parent back-pointers,
   and it is on you to keep it valid. A `^T` is only read through; a `^mut T` may be written
-  through as well. They stand to each other as `&T` and `&mut T` do, and as `[]T` and
-  `[]mut T` do: read-only unless `mut` is written. `[DECIDED — §18.37]`
+  through as well. They stand to each other as `&T` and `&mut T` do, and as `&[]T` and
+  `&mut []T` do: read-only unless `mut` is written. `[DECIDED — §18.37]`
 - **`own ^mut T`** is a `^mut T` that this struct is responsible for releasing. It changes
   the *type's* semantics — see §6. `own ^T` exists too, an owned block that is only read,
   but a container writes into what it owns, so `own ^mut T` is the usual form.
@@ -93,7 +93,7 @@ of a borrow (`DZ0402`, §6.4), and in a generic body that means `T: Copy`. Where
 wanted, a reference stays a reference: `let r2 = r` is another `&T`. `[DECIDED — §18.35]`
 
 An operand of a comparison, an arithmetic or a bitwise operator is read the same way when
-it refers to a number, `bool`, `char`, `str` or an enum: `x > 2`, `x * 2` and `x & 1` on a
+it refers to a number, `bool`, `char`, `&str` or an enum: `x > 2`, `x * 2` and `x & 1` on a
 `&i32` work on the `i32`, whether or not a type is wanted of the result, so a predicate
 taking `&T` reads as one taking `T`. A reference to a struct is compared through `Eq` and
 `Ord` as before (§11.2).
@@ -319,7 +319,7 @@ the same `{ ptr, len }` as a `&str` and the same C++ type, and reads as a `&str`
 `const &str` is not wanted — a call, a comparison, `{}`, `.len` — so every implementation
 for `&str` is one for `const &str`. A `&str` never becomes a `const &str`, since it may view
 a `String`. **A string literal is a `const &str` wherever one is wanted**, as it is a
-`cstr`; elsewhere it is a `&str`, so `let mut label = "none"` can later take any text, while
+`const &cstr`; elsewhere it is a `&str`, so `let mut label = "none"` can later take any text, while
 a `let` with no type keeps a `const &str` value's type. Because nothing kills it, a `const
 &str` carries no tie (§6.7) and is no view: it can be returned from anything, held in a
 field and put in a container, `List<const &str>`, where a `&str` may not.
@@ -381,7 +381,7 @@ into unreadable stacks.
 
 | Axis | Spelled | Asks |
 |---|---|---|
-| **Access** | `^T` `^mut T` `&T` `&mut T` `own ^mut T` `[]T` `[]mut T` | how do I reach this value? |
+| **Access** | `^T` `^mut T` `&T` `&mut T` `own ^mut T` `&[]T` `&mut []T` | how do I reach this value? |
 | **Responsibility** | `own` | who frees it? |
 | **Modality** | `T?` | is the value there at all? |
 

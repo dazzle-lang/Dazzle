@@ -126,7 +126,7 @@ state a freshly declared value would have, which means running its `drop` is alw
 and always a no-op for the resource. It costs a few stores; it removes an entire category
 of bug. `[DECIDED]`
 
-**This holds for every type.** `move` on a copyable value — an `i32`, a `str` — is still a
+**This holds for every type.** `move` on a copyable value — an `i32`, a `&str` — is still a
 move: the source is moved-from afterwards, a later use of it is an error, and at runtime it
 is reset to its defaults. To go on using a copyable value, copy it instead: leave out
 `move`. One rule for every type is also what keeps a generic body honest: `move(v)` in a
@@ -173,7 +173,7 @@ let m = Loud{ name: String::from("second") }
 **A temporary is dropped at the end of its statement** — a value a call or a literal makes
 that nothing binds, such as the `String` in `String::from(name).as_cstr()`. (`&make()`
 written out is the exception: it lives to the end of the block, §14.2.) So a view into a
-temporary — a `str`, `cstr`, slice, reference or pointer taken from it through a method,
+temporary — a `&str`, `&cstr`, slice, reference or pointer taken from it through a method,
 a field, an index or a slice — may be handed to a call in the same statement, which
 finishes first, but **keeping one is an error** (`DZ0407`): by `let`, by assignment, or by
 `return`. Bind the owner first, `let owned = String::from(name)`, and take the view from
@@ -300,7 +300,7 @@ path can go on into them (`list[*]@text`); a type that can only be iterated — 
 whose elements are its entries — is named whole at `[*]`, and the path stops there. So does
 a path at a tie standing for a pointer field, which names that memory as a whole.
 
-**Every reference carries a tie**, known where it is made, except a `const str`, which
+**Every reference carries a tie**, known where it is made, except a `const &str`, which
 points into static storage that nothing kills (§5.3): `&mut world.enemies[i]` is in
 `world.enemies@items`. A reference parameter may say where it points, which is then checked
 inside the function: `e: &mut Enemy in world`.
@@ -314,9 +314,9 @@ fn longer(a: &str, b: &str) -> &str in (a, b) { … }
 ```
 
 With no `in`, a result is in its **one view input** — a reference, a pointer, a slice or a
-`str` parameter, or `self` — as a whole. With more than one, the signature must say which
-(`DZ0570`); with none, a reference, slice or `str` result points into nothing the caller can
-see die (`DZ0571`), and text that never dies is a `const str` instead.
+`&str` parameter, or `self` — as a whole. With more than one, the signature must say which
+(`DZ0570`); with none, a reference, slice or `&str` result points into nothing the caller can
+see die (`DZ0571`), and text that never dies is a `const &str` instead.
 
 ```dz
 fn strip_prefix(&self, prefix: &str) -> ^str in self      // `prefix` is an input too
@@ -328,7 +328,7 @@ The same holds for a result that **holds** a view: a struct (an iterator such as
 `let it = xs.iter()`, then `xs.push(1)`, then using `it` is a use after a kill, and so is
 a half of `s.split_once("=")` after `s` changes. Three results stay untied: one that holds a
 view only through a type parameter (`pop(&mut self) -> T?` hands back the element, which
-points wherever it did, not into the list), a raw pointer or `cstr` with no input, which may
+points wherever it did, not into the list), a raw pointer or `^cstr` with no input, which may
 own what it points at, and an `extern fn`'s with no input, which is C's memory.
 
 **A `kills` clause** says which ties a function may end, after the return type:
@@ -549,8 +549,8 @@ impl<K: Hash + Eq, V> Iterate for HashMapKeys<K, V> {
 A constructor's result, like a function's, is in its one view input, so `HashMapKeys(&map)`
 is in `map`.
 
-**A view struct given to a function stands for what it views**, as a slice or a `str` does.
-A view input is a reference, a pointer, a slice or a `str` parameter, or `self`, and also a
+**A view struct given to a function stands for what it views**, as a slice or a `&str` does.
+A view input is a reference, a pointer, a slice or a `&str` parameter, or `self`, and also a
 view taken by value: a view struct, or a value of a `view` parameter. A result elided to a
 view struct, or `in` it whole, is in what the struct views, so it outlives the struct, and a
 temporary iterator's item can be kept:
@@ -617,5 +617,5 @@ The checker reports a use after a kill (`DZ0413`), a return outside its `in`
 more than dies (`DZ0415`–`DZ0417`), each clause error with the clause the body needs,
 which `dz fix` writes; a returned view that does not say where it points (`DZ0570`,
 `DZ0571`); and a function stored where its function type's clauses promise less than its
-own (`DZ0568` for `kills`, `DZ0572` for `in`). Not yet implemented: the debug-build check
-of `std`'s trusted clauses (T-0116).
+own (`DZ0568` for `kills`, `DZ0572` for `in`). A debug build also checks `std`'s trusted
+clauses at run time (T-0116, r102).

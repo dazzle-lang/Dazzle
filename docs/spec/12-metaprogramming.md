@@ -431,7 +431,7 @@ None of these macros takes an argument by name (§7.2): `format!` takes no alloc
 its text is placed like any other value.
 
 **`Format` is how a value writes itself.** Anything that implements the trait can be an
-argument — the numbers, `bool`, `char`, `str`, `cstr` and `String` implement it in `std`,
+argument — the numbers, `bool`, `char`, `&str`, `&cstr` and `String` implement it in `std`,
 a reference is written as what it refers to, and a type of your own implements it to be
 formatted too:
 

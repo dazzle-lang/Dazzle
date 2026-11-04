@@ -67,7 +67,7 @@ because a stored reference could outlive what it points at, and a location lives
 storage for the whole run of the program. User structs still cannot. `[DECIDED — §18.30]`
 
 **`Error` and `SourceLocation` are provided by the language, not by the stdlib.** Both names
-are in scope everywhere with no import, like `str` and `bool`, because `or { e -> … }` binds
+are in scope everywhere with no import, like `bool` and `i32`, because `or { e -> … }` binds
 one and there is nowhere for an import to come from. They are the only two structs with that
 status. `[DECIDED]`
 

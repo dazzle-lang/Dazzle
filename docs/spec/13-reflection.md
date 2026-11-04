@@ -21,7 +21,7 @@ pub enum TypeKind : u8 {
 }
 
 pub struct TypeInfo {
-    pub name:       const &str             // `Transform`, `List<i32>`, `[]u8` — as Dazzle writes it
+    pub name:       const &str             // `Transform`, `List<i32>`, `&[]u8` — as Dazzle writes it
     pub module_name: const &str            // the declaring module of a named type; empty otherwise
     pub size:       usize
     pub align:      usize
@@ -62,7 +62,7 @@ pub fn typeinfo(id: TypeId) -> &TypeInfo
 | `kind` | What else it fills in |
 |---|---|
 | the primitives, `Void` … `F64` | nothing: `size` says how many bytes to read |
-| `Str`, `Cstr` | `fields`: `ptr` and `len` for a `str`; a `cstr` is one pointer |
+| `Str`, `Cstr` | `fields`: `ptr` and `len` for a `&str`; a `&cstr` is one pointer |
 | `Pointer` | `elem`, `mutable` — `^T`, `^mut T`, `&T`, `&mut T` and `own` pointers alike |
 | `Slice` | `elem`, `mutable`, and `fields`: `ptr`, `len` |
 | `Array` | `elem`, `len`: the elements are contiguous, `elem`'s size apart |
