@@ -18,3 +18,6 @@ root         = "vendor/baseline"
 sources      = ["*.cpp"]
 include_dirs = ["."]
 import       = ["baseline.h"]
+# `baseline_sum_indexed` reads the array it is given during the call and keeps nothing
+# (spec §15.1).
+keeps        = []
