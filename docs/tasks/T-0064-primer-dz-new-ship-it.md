@@ -7,6 +7,11 @@ kind: feature
 area: llm-tooling
 ---
 
+**`dz new` is built (2026-11-04, with T-0076):** a manifest, a `main.dz` with a function, a
+call of it and one `#[test]`, and a `.gitignore` (`cmd_new` in `crates/dz/src/main.rs`,
+tested by `crates/dz/tests/new.rs`). What is left is the primer, and `dz new` dropping it in
+as `AGENTS.md` / `CLAUDE.md`.
+
 **A primer, and `dz new` to ship it.** `docs/primer.md`, about 300 lines, grown from
 spec §0.1, plus a table of false friends for Rust and C++ programmers: `^` versus `&`;
 `!->` is on the signature, never the type; `move()` resets its source (18.33); `&` cannot

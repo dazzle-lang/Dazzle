@@ -1,6 +1,7 @@
 # 21. Changelog
 
-Revisions of the unreleased 0.1. Every change to the **language** — syntax, semantics, or a
+Revisions of the language. 0.1 was released at r117, on 2026-11-04; every row newer than r117
+came after it. Every change to the **language** — syntax, semantics, or a
 §18 decision — gets a row here, whether or not the compiler has caught up with it yet.
 Compiler-only work belongs in `docs/tasks/` while open and `docs/log/` once done, not here.
 

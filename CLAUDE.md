@@ -12,7 +12,7 @@ hook (`.claude/settings.json`) runs `git pull --ff-only` and prints the result; 
 the pull failed, or the pull cannot fast-forward cleanly (uncommitted changes, a conflict, a
 diverged branch), stop and tell the user rather than stashing, rebasing or resolving it.
 
-Where it stands: M0–M8, M10, M11, M14 and M15 are done; most of M9 (`dz lsp` and the VS
+Where it stands: 0.1 is released (2026-11-04). M0–M8, M10, M11, M14 and M15 are done; most of M9 (`dz lsp` and the VS
 Code extension) was pulled forward; **now: M12, the stdlib**, whose criterion (Breakout) is
 met. **`docs/tasks.md` is the backlog** — what is next, and every open task by milestone.
 Spec §19 is the roadmap.
@@ -68,15 +68,15 @@ section, append rather than shift.
 The user drives language design; Claude writes the compiler. Propose alternatives freely,
 but design changes are the user's call, not something to slip into an implementation.
 
-### The version is 0.1 and stays 0.1
+### The version is 0.1
 
-The language is **pre-release**. 0.1 is not finished until there is an LSP good enough to
-work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop (M7). Until
-then Dazzle is a toy: it compiles and runs programs, and that is all.
+**0.1 was released on 2026-11-04** (`v0.1.0`, at revision 117), the user's decision. A
+compiler release is a tag, `v0.1.N`, built and published by `.github/workflows/release.yml`;
+tag one only when the user asks for a release.
 
-So **do not bump the version number.** The spec is *revised*, not versioned: `r1`, `r2`, …
-in §21. If a change feels big enough to deserve a version bump, it deserves a revision row
-and nothing more.
+**Do not bump the version number** past 0.1: the next version is the user's call. The spec
+is *revised*, not versioned: `r1`, `r2`, … in §21. If a change feels big enough to deserve a
+version bump, it deserves a revision row and nothing more.
 
 ### Every language change gets a changelog row
 

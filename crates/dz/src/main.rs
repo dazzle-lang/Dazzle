@@ -15,6 +15,7 @@ const USAGE: &str = "\
 dz — the Dazzle compiler
 
 usage:
+    dz new   <path>             create a project there: a manifest, a hello world, a test
     dz run   [path]             build a project and execute it
     dz build [path]             generate C++ and compile it
     dz cpp   [path]             generate C++ only, no compilation
@@ -121,8 +122,11 @@ fn main() -> ExitCode {
         Some("fmt") => cmd_fmt(&args[1..]),
         Some("lsp") => cmd_lsp(),
         Some("explain") => cmd_explain(args.get(1).map(String::as_str)),
+        Some("new") => cmd_new(args.get(1).map(String::as_str)),
         Some("--version" | "-V") => {
-            println!("dz {}", env!("CARGO_PKG_VERSION"));
+            // A release build is named by its tag (`0.1.0`), set by the release workflow,
+            // so a bug report says which build it came from; any other build is plain 0.1.0.
+            println!("dz {}", option_env!("DZ_RELEASE").unwrap_or(env!("CARGO_PKG_VERSION")));
             ExitCode::SUCCESS
         }
         Some("--help" | "-h") | None => {
@@ -831,6 +835,76 @@ fn print_timings(timings: &dz_driver::Timings) {
         eprintln!("  {name:<24} {:>9.1} ms", ms(*time));
     }
     eprintln!("  {:<24} {:>9.1} ms", "total", ms(timings.total()));
+}
+
+/// `dz new <path>`: a project that runs, so the first thing a newcomer writes is Dazzle
+/// rather than a manifest. The module is named after the folder, with `-` read as `_`.
+fn cmd_new(path: Option<&str>) -> ExitCode {
+    let Some(path) = path else {
+        eprintln!("error: `dz new` needs the folder to create, as in `dz new hello`");
+        return ExitCode::FAILURE;
+    };
+    let dir = Path::new(path);
+    // `dz new .` names the project after the folder it is run in.
+    let folder = std::fs::canonicalize(dir)
+        .ok()
+        .as_deref()
+        .and_then(Path::file_name)
+        .or_else(|| dir.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let name = folder.replace('-', "_");
+    // The manifest's own rule for a name (spec §3.2), checked here so the project made is
+    // one that loads.
+    let valid = name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+        && dz_lex::keyword(&name).is_none()
+        && name != "std";
+    if !valid {
+        eprintln!(
+            "error: `{folder}` cannot name a module; use letters, digits, `_` or `-`, \
+             starting with a letter, and not a keyword or `std`"
+        );
+        return ExitCode::FAILURE;
+    }
+    if dir.exists() && dir.read_dir().map_or(true, |mut d| d.next().is_some()) {
+        eprintln!("error: `{path}` already exists and is not empty");
+        return ExitCode::FAILURE;
+    }
+    let manifest = format!(
+        "[module]\nname    = \"{name}\"\nsources = [\"src/**/*.dz\"]\n\n\
+         [dependencies]\nstd = {{ open = true }}\n\n\
+         [build]\noutput = \"executable\"\n"
+    );
+    // One function, one call of it, and one test of it, so `dz run` and `dz test` both have
+    // something to show (T-0064). Formatted as `dz fmt` writes it.
+    let main = "\
+fn main() {
+    println!(\"{}\", greeting(\"world\"))
+}
+
+fn greeting(name: &str) -> String {
+    return format!(\"Hello, {}!\", name)
+}
+
+// `dz test` runs every `#[test]`; `dz run` and `dz build` leave them out.
+#[test]
+fn greets_by_name() {
+    if greeting(\"Dazzle\").as_str() != \"Hello, Dazzle!\" {
+        panic!(\"the greeting should name who it greets\")
+    }
+}
+";
+    let written = std::fs::create_dir_all(dir.join("src"))
+        .and_then(|()| std::fs::write(dir.join("dazzle.toml"), manifest))
+        .and_then(|()| std::fs::write(dir.join("src").join("main.dz"), main))
+        .and_then(|()| std::fs::write(dir.join(".gitignore"), "build/\n"));
+    if let Err(e) = written {
+        eprintln!("error: cannot create `{path}`: {e}");
+        return ExitCode::FAILURE;
+    }
+    println!("created `{name}` in {path}; run it, or its test, with:\n\n    cd {path}\n    dz run\n    dz test");
+    ExitCode::SUCCESS
 }
 
 /// `dz explain DZ0401` (or `0401`, `401`): the rule behind a diagnostic, why it exists, and

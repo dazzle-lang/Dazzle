@@ -2,6 +2,49 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## Releases, the installers and `dz new` (T-0076; 2026-11-04)
+
+The user asked what would make Dazzle easier to take up, and chose to start with being able to
+install it: until now `dz` was built from source, with Rust, libclang and a `cargo build`
+before a first program.
+
+- **`.github/workflows/release.yml`** builds `dz` for x86-64 and ARM64 Linux (on Ubuntu
+  22.04, so glibc 2.34 or newer will do), Apple-silicon macOS and x86-64 Windows. A tag
+  `v0.1.N` publishes a release (the first, `v0.1.0`, on 2026-11-04); run by hand, it builds and tests the archives and keeps
+  them as the run's artifacts, publishing nothing. `dz --version` names a release build by
+  its tag (`DZ_RELEASE`); any other build is still `0.1.0`.
+- **libclang** comes from LLVM's own release archives, pinned in `tools/release.py`
+  (23.1.5). They build libclang with LLVM linked in statically, so on Linux it needs only
+  libc, libstdc++, libgcc and zlib. The archives are 1–2 GB, so the script streams one and
+  keeps only libclang and clang's 327 builtin headers (`stddef.h` and the rest, which glibc's
+  headers include): about a minute. Stripped and gzipped, the x86-64 Linux release is 63 MB.
+  `dz` already looked for libclang beside itself before anywhere else, and finds the headers by
+  LLVM's layout rule, so no code changed for it: traced with `LD_DEBUG`, the archive's own
+  copy is the one loaded.
+- **macOS carries no libclang.** A Mac's C++ compiler comes from Xcode's command line tools,
+  which ship libclang too, and clang-sys already looks there; it is the path CI tests. No
+  Intel-Mac build: LLVM no longer publishes one to take libclang from.
+- **Every archive is smoke-tested** before it is kept: unpacked, `LIBCLANG_PATH` unset, and a
+  program built and run with it. `println!` reaches `std`, which imports `stdlib.h`, so the
+  one program proves libclang loads and finds its headers.
+- **`install/install.sh`** (`curl -fsSL https://dazzle-lang.github.io/install.sh | sh`) and
+  **`install/install.ps1`** (`irm … | iex`) download the latest release, or the tag in
+  `DAZZLE_VERSION`. They check it against `SHA256SUMS` and unpack it into `~/.dazzle`, then
+  put its `bin/` on the PATH (the shell's startup file, or the user's PATH on Windows). They
+  also say so when no C++ compiler is found. The site copies both to its root
+  (`scripts/sync.mjs`). Tested here under `dash` against a local archive, twice: the second
+  run replaces the first and adds no second PATH line.
+- **The VS Code extension** is packed by the same workflow and attached as `dazzle.vsix`. It
+  already ran the `dz` on PATH when it found none in the workspace.
+- **`dz new <dir>`** (spec §17.3 listed it; T-0064 asked for it) writes a manifest, a
+  `.gitignore` for `build/`, and `src/main.dz`: a function, a call of it, and a `#[test]` of
+  it, so `dz run` and `dz test` both have something to show. It names the module after the folder (`-` read as `_`; `dz new .` uses the
+  current one). It refuses a name that cannot be a module, and a folder that is not empty
+  (`crates/dz/tests/new.rs`).
+
+The release workflow has not run yet: GitHub runs a workflow by hand only once it is on the
+default branch.
+
 ## What Dazzle's lead in the benchmarks is made of (2026-11-04)
 
 The user asked whether `astar` beat C++ because its C++ half used `std::priority_queue`

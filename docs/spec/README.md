@@ -1,20 +1,21 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 117
+**Version:** 0.1 (released 2026-11-04), revision 117
 **Status:** M0–M8, M10, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle
 programs compile and run, own, move and drop their resources deterministically, have no
 undefined behaviour outside `unsafe` on one thread (§1.1), get their memory where the
 compiler places it (§14.6), have generics, traits, unions, macros and reflection, call C
 and C++ libraries that `dz` builds from vendored source, run about as fast as the same
-programs written in C++, and are edited with a language server. Not yet 0.1: the
-editor still lacks code actions and incremental analysis (M9), and the standard library,
-which has carried a game written without C++ (M12's criterion), is still growing.
+programs written in C++, and are edited with a language server. Still to come: the editor
+lacks some code actions and incremental analysis (M9), and the standard library, which has
+carried a game written without C++ (M12's criterion), is still growing.
 Open work is the backlog, `docs/tasks.md`; what was built, milestone by milestone, is in `docs/log/`.
 
-**The version number stays 0.1 until 0.1 is actually finished.** 0.1 means: an LSP good
-enough to work in (§19 M9), a stdlib you can write a game against (M12), and C++ interop
-(M7). Until all three land, this document is revised, not versioned — the revision numbers
-in §21 track *changes to the language*, and none of them is a release.
+**0.1 was released on 2026-11-04**, at revision 117, by the author's decision: a language
+server to work in (§19 M9), a standard library a game is written against (M12), and C++
+interop (M7) were all there. The language is still young and still changes. This document is
+revised, not versioned: the revision numbers in §21 track *changes to the language*, and the
+compiler's releases (`v0.1.0`, `v0.1.1`, …) say which revision they carry.
 **Target:** a systems language that compiles to readable C++17, for the places C++ is used
 today: games and engines, embedded systems, tools, and real-time code.
 

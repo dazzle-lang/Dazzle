@@ -4,8 +4,15 @@
 
 <p align="center"><b>Safe. Fast. Fluent in C++.</b></p>
 
+<p align="center">
+  <a href="https://dazzle-lang.github.io">Website</a> ·
+  <a href="https://dazzle-lang.github.io/playground/">Try it in the browser</a> ·
+  <a href="https://dazzle-lang.github.io/tour/overview/">Tour</a> ·
+  <a href="docs/spec/README.md">Specification</a>
+</p>
+
 Dazzle is an upgrade of C++ for the places C++ is used today: games and engines, embedded
-systems, tools and real-time code.
+systems, tools and real-time code. It compiles to standard C++17.
 
 - **Safe:** on one thread, a program with no `unsafe` has no undefined behaviour, with no
   borrow checker and no lifetime annotations.
@@ -15,61 +22,134 @@ systems, tools and real-time code.
 - **Fluent in C++:** C and C++ libraries are used straight from their source and headers,
   with no bindings, and the output is standard C++17 for the compiler you already use.
 
-It keeps C++'s control and drops forty years of accumulated syntax: RAII reduced to three
-special members, no allocator to pass around, encapsulation the compiler enforces, errors
-as values instead of exceptions, and generics checked where they are written.
+## Install
 
-Its goal is close to [Carbon](https://github.com/carbon-language/carbon-lang)'s, with a
-different route: instead of bringing its own LLVM-based toolchain, Dazzle compiles to
-standard C++17. Whatever compiler, debugger, profiler or console SDK a C++ project already
-uses keeps working, and Dazzle code links into that project without changing anything
-around it. The compiler is written in Rust.
+On Linux or macOS:
 
-```rust
-struct Enemy {
-    pub hp: i32 = 10
-}
-
-struct Level {
-    pub name:  String
-    m_enemies: List<Enemy>                   // no allocator: the compiler places the memory
-    tie @enemies = m_enemies@items           // a public name for that private memory
-
-    Level(name: &str) {
-        self.name = String::from(name)
-    }
-
-    pub fn spawn(&mut self, e: Enemy) kills self@enemies {   // says what it may move
-        m_enemies.push(e)
-    }
-
-    pub fn first(&self) -> ^Enemy in self@enemies {          // says where it points
-        return m_enemies.first()
-    }
-}
-
-fn load(path: &str) !-> Level {              // `!->`: this can fail
-    if path.len == 0 {
-        return error(1, "no path given")
-    }
-    return Level(path)
-}
-
-fn main() {
-    let mut level = load("level1.dat") or panic!("cannot load")   // handled where it is called
-    level.spawn(Enemy{})
-    let boss = level.first() or return       // a reference into the level's array
-    println!("{} {}", level.name, boss.hp)
-    level.spawn(Enemy{ hp: 50 })             // may move that array, which ends `boss`:
-    // println!("{}", boss.hp)               //   reading it now is error[DZ0413]
-}                                            // `level` is freed here, exactly once
+```bash
+curl -fsSL https://dazzle-lang.github.io/install.sh | sh
 ```
 
-> **Status: pre-release.** The language is **0.1, unreleased**. It compiles, runs, checks
-> ownership, calls C and C++, and has a language server; [`examples/breakout`](examples/breakout)
-> is a complete game written in it. It is not finished: 0.1 is declared once the editor support, the standard library
-> and C++ interop are all complete (see [Status](#status-and-roadmap)). **Expect the
-> language to change**: every change is a revision row in the
+On Windows, in PowerShell:
+
+```powershell
+irm https://dazzle-lang.github.io/install.ps1 | iex
+```
+
+Then:
+
+```bash
+dz new hello && cd hello && dz run
+```
+
+All `dz` needs from the machine is a C++ compiler (clang++ or g++). To try it without
+installing anything, the [playground](https://dazzle-lang.github.io/playground/) runs the
+real compiler in your browser. [Installation](#installation) has the details and how to
+build from source.
+
+## Safe, without a borrow checker
+
+```rust
+fn main() {
+    let mut names = List<String>()
+    names.push(String::from("ada"))
+    names.push(String::from("grace"))
+
+    // A `&mut` to one element beside a `&` to the next: Rust refuses this (E0502).
+    // The indices are known apart, so it is safe, and Dazzle compiles it.
+    for i in 0..names.len() - 1 {
+        names[i].push_str(names[i + 1].as_str())
+    }
+
+    // The bug C++ does have: a reference kept across a call that may move the array.
+    let first = &names[0]
+    names.push(String::from("linus"))
+    println!("{}", first)
+}
+```
+
+```text
+error[DZ0413]: used after the memory it points into was killed: `names@items`
+   ┌─ src/main.dz:15:20
+   │
+14 │     names.push(String::from("linus"))
+   │     --------------------------------- this call kills `names@items`
+15 │     println!("{}", first)
+   │                    ^^^^^ points into `names@items`
+   │
+   = help: a call, write, move or drop that can move or free memory ends every reference into it: use this before that happens, or get it again after (spec §6.7)
+```
+
+The loop is safe code that Rust's borrow checker refuses. The last line is the bug C++
+compiles without a warning: `push` may move the array, and `first` would point into freed
+memory. Dazzle accepts the first and refuses the second, with no lifetimes: `push` says in
+its signature that it may move the list's array (`kills self@items`), and a call ends every
+reference into what it kills. Your own types say the same in theirs, and `dz fix` writes
+those clauses for you. More of what the borrow checker refuses and Dazzle compiles:
+[Dazzle and Rust](https://dazzle-lang.github.io/compare/rust/#what-the-borrow-checker-refuses).
+
+## C libraries, with no bindings
+
+A few lines of manifest name a library's source, `dz` builds it, and libclang reads its
+header. Its functions, structs, enums and constants are then an ordinary module:
+
+```toml
+[dependencies]
+rl = { cpp = "raylib" }
+
+[cpp.libs.raylib]
+root         = "vendor/raylib/src"
+sources      = ["*.c"]
+include_dirs = [".", "external/glfw/include"]
+defines      = ["PLATFORM_DESKTOP", "GRAPHICS_API_OPENGL_33"]
+import       = ["raylib.h"]
+```
+
+```rust
+fn main() {
+    rl::InitWindow(800, 450, "Dazzle + raylib")
+    defer rl::CloseWindow()
+    rl::SetTargetFPS(60)
+
+    while !rl::WindowShouldClose() {
+        rl::BeginDrawing()
+        rl::ClearBackground(rl::RAYWHITE)
+        rl::DrawText("Hello from Dazzle", 190, 200, 40, rl::DARKGRAY)
+        rl::DrawCircleV(rl::GetMousePosition(), 8, rl::MAROON)
+        rl::EndDrawing()
+    }
+}
+```
+
+C++ libraries work the same way: classes, overloaded methods, references and the template
+instances you name. Every example in [`examples/`](examples) is built like this, on raylib,
+SDL3, Box2D, sokol, stb, RGFW and miniaudio:
+
+<p align="center">
+  <img src="examples/sdl3/screenshot.avif" width="49%">
+  <img src="examples/stb/screenshot.png" width="49%">
+</p>
+<p align="center">
+  <img src="examples/box2d/screenshot.gif" width="49%">
+  <img src="examples/sokol/screenshot.gif" width="49%">
+</p>
+
+## An upgrade of C++, not a new toolchain
+
+Dazzle's goal is close to [Carbon](https://github.com/carbon-language/carbon-lang)'s, with
+a different route: instead of bringing its own LLVM-based toolchain, it compiles to standard
+C++17. Whatever compiler, debugger, profiler or console SDK a C++ project already uses keeps
+working, and Dazzle code links into that project without changing anything around it. It
+keeps C++'s control and drops forty years of accumulated syntax: RAII reduced to three
+special members, no allocator to pass around, encapsulation the compiler enforces, errors as
+values instead of exceptions, and generics checked where they are written. The compiler is
+written in Rust.
+
+> **Status: 0.1, released November 2026.** Dazzle compiles, runs, checks ownership,
+> places memory, calls C and C++, and has a language server;
+> [`examples/breakout`](examples/breakout) is a complete game written in it. It is young:
+> the standard library is still growing (see [Status](#status-and-roadmap)), and **the
+> language still changes**: every change is a revision row in the
 > [changelog](docs/spec/21-changelog.md).
 
 ---
@@ -138,6 +218,51 @@ matters is that it is standard and portable, and compiles warning-clean under bo
 and g++ with `-fno-exceptions -fno-rtti`.
 
 ## The language at a glance
+
+One small program shows most of it: a type whose memory the compiler places, a public name
+for that memory (a **tie**), methods that say what they may end (**`kills`**) and where a
+result points (**`in`**), a function that can fail (**`!->`**), and the error a stale
+reference gets:
+
+```rust
+struct Enemy {
+    pub hp: i32 = 10
+}
+
+struct Level {
+    pub name:  String
+    m_enemies: List<Enemy>                   // no allocator: the compiler places the memory
+    tie @enemies = m_enemies@items           // a public name for that private memory
+
+    Level(name: &str) {
+        self.name = String::from(name)
+    }
+
+    pub fn spawn(&mut self, e: Enemy) kills self@enemies {   // says what it may move
+        m_enemies.push(e)
+    }
+
+    pub fn first(&self) -> ^Enemy in self@enemies {          // says where it points
+        return m_enemies.first()
+    }
+}
+
+fn load(path: &str) !-> Level {              // `!->`: this can fail
+    if path.len == 0 {
+        return error(1, "no path given")
+    }
+    return Level(path)
+}
+
+fn main() {
+    let mut level = load("level1.dat") or panic!("cannot load")   // handled where it is called
+    level.spawn(Enemy{})
+    let boss = level.first() or return       // a reference into the level's array
+    println!("{} {}", level.name, boss.hp)
+    level.spawn(Enemy{ hp: 50 })             // may move that array, which ends `boss`:
+    // println!("{}", boss.hp)               //   reading it now is error[DZ0413]
+}                                            // `level` is freed here, exactly once
+```
 
 ### Errors are values, not exceptions
 
@@ -572,23 +697,36 @@ data, and neither does a new programmer, so the compiler has to teach. **Availab
   `p->x`, `Foo::new()`) and give the Dazzle spelling.
 - `dz api <module>`, which prints a module's public surface, an imported C++ library's
   included, as Dazzle signatures.
-- Editor queries from the command line, a primer with `dz new`, machine-readable test
+- Editor queries from the command line, a primer that `dz new` adds to a project, machine-readable test
   output, and `dz run --frames N` so a game can be checked without anyone watching its
   window.
 
 ## Installation
 
-There is no release yet; Dazzle is built from source. An installer that bundles everything is
-planned.
+One line installs the latest [release](https://github.com/dazzle-lang/Dazzle/releases):
+`dz`, and on Linux and Windows the libclang it reads C and C++ headers with.
 
-**You need:**
+```bash
+curl -fsSL https://dazzle-lang.github.io/install.sh | sh
+```
 
-| | Why |
-|---|---|
-| A current stable **Rust** toolchain | to build `dz` |
-| **clang++** or **g++** with C++17 | `dz` compiles the C++ it generates with it |
-| **libclang** (any recent LLVM) | to read C and C++ headers: a program's own, and `stdlib.h`, whose `malloc` the standard library takes its memory from |
-| **CMake** (only for some libraries) | to build a library whose recipe names its CMake project, such as SDL3 in `examples/sdl3` |
+```powershell
+irm https://dazzle-lang.github.io/install.ps1 | iex
+```
+
+The first is for Linux and macOS, the second for Windows PowerShell. Each checks the download
+against its checksum, unpacks it into `~/.dazzle` and puts `~/.dazzle/bin` on your `PATH`;
+run it again to update. There are releases for Linux on x86-64 and ARM64 (glibc 2.34 or newer),
+macOS on Apple silicon, and Windows on x86-64.
+
+`dz` needs a **C++17 compiler**, clang++ or g++: on macOS, `xcode-select --install`; on
+Windows, LLVM's clang++ with the Visual Studio Build Tools, or MinGW's g++. A library built
+by its own CMake project, such as SDL3 in `examples/sdl3`, needs **CMake** too. **The VS Code
+extension** is `dazzle.vsix` in each release: `code --install-extension dazzle.vsix`.
+
+**From source**, you need a current stable **Rust** toolchain, a C++ compiler, and
+**libclang** from any recent LLVM (LLVM's installer on Windows, `libclang-dev` on Ubuntu,
+Xcode's command-line tools or Homebrew's `llvm` on macOS):
 
 ```bash
 git clone --recursive https://github.com/dazzle-lang/Dazzle.git
@@ -599,16 +737,12 @@ cd Dazzle && cargo build --release
 ```
 
 `--recursive` fetches the C libraries the examples build from source (raylib, SDL3, RGFW,
-sokol, stb, miniaudio and Box2D), which are git submodules in `examples/vendor/`. In a checkout made without it, run `git
-submodule update --init`. Nothing outside `examples/` needs them.
-
-The compiler is then `target/release/dz` (`dz.exe` on Windows). Put it on your `PATH`.
-
-`dz` finds libclang beside its own executable, in a `lib/` folder next to it, through
-`LIBCLANG_PATH`, or in an installed LLVM. On Windows that means LLVM's installer; on Ubuntu,
-the `libclang-dev` package; on macOS, Xcode's command-line tools or Homebrew's `llvm`.
-
-**The VS Code extension** (needs Node.js):
+sokol, stb, miniaudio and Box2D), which are git submodules in `examples/vendor/`. In a
+checkout made without it, run `git submodule update --init`. Nothing outside `examples/`
+needs them. The compiler is then `target/release/dz` (`dz.exe` on Windows); put it on your
+`PATH`. `dz` finds libclang beside its own executable, in a `lib/` folder next to it, through
+`LIBCLANG_PATH`, or in an installed LLVM. To build the VS Code extension from the checkout
+(needs Node.js):
 
 ```bash
 cd editors/vscode && npm install && npm run deploy
@@ -616,7 +750,11 @@ cd editors/vscode && npm install && npm run deploy
 
 ## Usage
 
-A project is a folder with a `dazzle.toml`:
+```bash
+dz new hello
+```
+
+makes a project: a folder with a `dazzle.toml`,
 
 ```toml
 [module]
@@ -630,20 +768,31 @@ std = { open = true }
 output = "executable"
 ```
 
-and some code, here `src/main.dz`:
+and `src/main.dz`, with a function, a call of it, and a test beside it:
 
 ```rust
 fn main() {
-    println!("Hello, world!")
+    println!("{}", greeting("world"))
+}
+
+fn greeting(name: &str) -> String {
+    return format!("Hello, {}!", name)
+}
+
+// `dz test` runs every `#[test]`; `dz run` and `dz build` leave them out.
+#[test]
+fn greets_by_name() {
+    if greeting("Dazzle").as_str() != "Hello, Dazzle!" {
+        panic!("the greeting should name who it greets")
+    }
 }
 ```
 
-```bash
-dz run .
-```
+`cd hello`, then `dz run` prints `Hello, world!` and `dz test` runs the test.
 
 | Command | Does |
 |---|---|
+| `dz new <dir>` | create a project there: a manifest, a hello world and a test |
 | `dz run [dir]` | build and run |
 | `dz build [dir]` | build an executable into `build/bin/` |
 | `dz check [dir]` | analyse only: every diagnostic, no C++ compiler needed (`--format=json` for JSON) |
@@ -678,15 +827,6 @@ different C library, built from source and called with no bindings:
 | [`miniaudio`](examples/miniaudio) | miniaudio | a synthesizer, with Dazzle as the real-time audio callback |
 | [`ownership`](examples/ownership) | none | a growable array from scratch: `own`, the three special members, copies and moves |
 
-<p align="center">
-  <img src="examples/sdl3/screenshot.avif" width="49%">
-  <img src="examples/stb/screenshot.png" width="49%">
-</p>
-<p align="center">
-  <img src="examples/box2d/screenshot.gif" width="49%">
-  <img src="examples/sokol/screenshot.gif" width="49%">
-</p>
-
 ## Compatibility
 
 - **Platforms:** Windows, Linux and macOS. CI builds and tests on all three for every change.
@@ -706,10 +846,10 @@ different C library, built from source and called with no bindings:
 
 | | |
 |---|---|
-| **Done** | lexer, parser, formatter · modules and visibility · type checker · C++ code generation · ownership · ties and `kills` clauses · borrowed views · no undefined behaviour in safe code, on one thread ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)) · memory placed by the compiler, in regions by default · generics and traits · C and C++ interop from source, CMake builds included · tagged unions and `switch` · macros · reflection · `#[inline]` and link-time optimisation · `dz test` · `dz bench` and the C++ comparison suite · `dz fix` and `dz explain` · CI on three platforms, every test program also run under AddressSanitizer and UndefinedBehaviorSanitizer |
+| **Done** | lexer, parser, formatter · modules and visibility · type checker · C++ code generation · ownership · ties and `kills` clauses · borrowed views · no undefined behaviour in safe code, on one thread ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)) · memory placed by the compiler, in regions by default · generics and traits · C and C++ interop from source, CMake builds included · tagged unions and `switch` · macros · reflection · `#[inline]` and link-time optimisation · `dz test` · `dz bench` and the C++ comparison suite · `dz fix` and `dz explain` · CI on three platforms, every test program also run under AddressSanitizer and UndefinedBehaviorSanitizer · releases for Linux, macOS and Windows with libclang bundled, and one-line installers |
 | **Mostly done** | the language server and VS Code extension: still to come are incremental analysis and the remaining quick fixes |
 | **Now** | more tests of the safety rules, and the cases placement still leaves on the heap; then a game of ten thousand lines, to see how the rules hold at scale. Alongside: the standard library, whose criterion, a game written without any C++, is met: [`examples/breakout`](examples/breakout) |
-| **Later** | dependencies fetched from git, Dazzle packages and C libraries alike, pinned by a lockfile; hot reload; an installer that bundles libclang |
+| **Later** | dependencies fetched from git, Dazzle packages and C libraries alike, pinned by a lockfile; hot reload |
 
 The open work, milestone by milestone, is the backlog in [`docs/tasks.md`](docs/tasks.md).
 

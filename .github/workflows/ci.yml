@@ -29,6 +29,7 @@ on:
       - "docs/**"
       - "editors/**"
       - "tools/**"
+      - "install/**"
       - ".claude/**"
       - ".github/logo.png"
   push:
@@ -38,6 +39,7 @@ on:
       - "docs/**"
       - "editors/**"
       - "tools/**"
+      - "install/**"
       - ".claude/**"
       - ".github/logo.png"
   workflow_dispatch:

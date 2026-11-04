@@ -1,7 +1,7 @@
 # Contributing to Dazzle
 
-Thank you for looking. Dazzle is **pre-release**: the language still changes from week to
-week, and it is designed by one person. That shapes what kind of help fits best right now.
+Thank you for looking. Dazzle is **young**: 0.1 was released in November 2026, the language
+still changes from week to week, and it is designed by one person. That shapes what kind of help fits best right now.
 
 ## What is welcome
 

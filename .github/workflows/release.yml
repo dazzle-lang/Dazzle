@@ -1,0 +1,170 @@
+name: Release
+
+# Builds `dz` for each platform, packs it with libclang (T-0076), proves each archive builds
+# and runs a program on a machine whose own libclang is out of the way, and publishes them
+# as a GitHub release with the installers and a checksum file.
+#
+# A release is a tag, `v0.1.N`: 0.1 was released on 2026-11-04 as `v0.1.0`, and later builds of
+# the compiler count up from it. The spec revision a release carries is read from
+# docs/spec/README.md, since the language is revised on its own schedule (spec §21).
+#
+#     git tag v0.1.1 && git push origin v0.1.1
+#
+# Run by hand (`gh workflow run Release`), it builds and tests the archives and keeps them
+# as the run's artifacts, publishing nothing: a dry run of the next release.
+#
+# What a release holds, and why libclang comes from LLVM's own archives: tools/release.py.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 rather than latest: a binary needs the glibc it was built against or newer,
+          # and LLVM's libclang already needs 2.34, so building here asks for nothing more.
+          - target: x86_64-linux
+            os: ubuntu-22.04
+          - target: aarch64-linux
+            os: ubuntu-22.04-arm
+          - target: aarch64-macos
+            os: macos-14
+          - target: x86_64-windows
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # tools/release.py does the packaging; this makes `python` the same on every image.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # `dz --version` names the build by its tag, so a bug report says which one it was.
+      - name: Name the build
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "DZ_RELEASE=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "DZ_RELEASE=0.1.0-dev.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build dz
+        run: cargo build --release -p dz --locked
+
+      - name: Fetch libclang
+        run: python tools/release.py llvm --target ${{ matrix.target }} --out build/llvm
+
+      - name: Package
+        shell: bash
+        run: |
+          exe=target/release/dz
+          if [ "${{ runner.os }}" = Windows ]; then exe=target/release/dz.exe; fi
+          python tools/release.py package --target ${{ matrix.target }} --dz "$exe" \
+            --llvm build/llvm --out dist
+
+      # The smoke test builds a program with the archive alone. It unsets LIBCLANG_PATH
+      # itself; on Linux and Windows the bundled libclang is found before any other, and on
+      # macOS the one in Xcode's tools is meant to be used.
+      - name: Smoke test
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = Windows ]; then
+            # clang++, for the program the smoke test builds. The image usually ships LLVM.
+            if [ ! -f "/c/Program Files/LLVM/bin/clang++.exe" ]; then
+              choco install llvm --no-progress -y
+            fi
+            export PATH="/c/Program Files/LLVM/bin:$PATH"
+            python tools/release.py smoke dist/dazzle-${{ matrix.target }}.zip
+          else
+            python tools/release.py smoke dist/dazzle-${{ matrix.target }}.tar.gz
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dazzle-${{ matrix.target }}
+          path: dist/dazzle-${{ matrix.target }}.*
+          if-no-files-found: error
+
+  # The VS Code extension, packed as a .vsix: it runs the `dz` on PATH, so an installed
+  # release has the language server, highlighting and run buttons with no checkout.
+  vscode:
+    name: vscode extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Package
+        working-directory: editors/vscode
+        run: |
+          npm ci
+          npm run package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dazzle-vscode
+          path: editors/vscode/dazzle.vsix
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: [build, vscode]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Installers and checksums
+        run: |
+          cp install/install.sh install/install.ps1 dist/
+          python3 tools/release.py sums dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          LLVM_VERSION=$(python3 -c 'import sys; sys.path.insert(0, "tools"); import release; print(release.LLVM_VERSION)')
+          revision=r$(grep -o 'revision [0-9]*' docs/spec/README.md | head -1 | cut -d' ' -f2)
+          cat > notes.md <<EOF
+          Dazzle ${tag#v}: the compiler at spec revision ${revision}. The language is young and still changes; every change is a row in [the changelog](https://dazzle-lang.github.io/spec/21-changelog/).
+
+          **Install** on Linux or macOS:
+
+          \`\`\`bash
+          curl -fsSL https://dazzle-lang.github.io/install.sh | sh
+          \`\`\`
+
+          or on Windows, in PowerShell:
+
+          \`\`\`powershell
+          irm https://dazzle-lang.github.io/install.ps1 | iex
+          \`\`\`
+
+          Each archive holds \`dz\` and, on Linux and Windows, the libclang it reads C and C++ headers with (LLVM ${LLVM_VERSION}). The one thing \`dz\` needs from the machine is a C++17 compiler: clang++ or g++. On macOS, Xcode's command line tools give both. More: [installing Dazzle](https://dazzle-lang.github.io/start/install/).
+
+          **VS Code:** download \`dazzle.vsix\` below and run \`code --install-extension dazzle.vsix\`. It uses the \`dz\` on your PATH.
+          EOF
+          gh release create "$tag" dist/* --title "Dazzle ${tag#v}" --notes-file notes.md --verify-tag --latest

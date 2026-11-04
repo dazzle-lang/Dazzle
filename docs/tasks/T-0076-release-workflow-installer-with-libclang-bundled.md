@@ -2,10 +2,27 @@
 id: T-0076
 title: A release workflow and an installer with libclang bundled
 milestone: none
-status: open
+status: done
 kind: feature
 area: packaging
 ---
+
+**Done 2026-11-04** (`docs/log/tooling.md`, "Releases, the installers and `dz new`"). A tag
+`v0.1.N` publishes archives for x86-64 and ARM64 Linux, Apple-silicon macOS and x86-64
+Windows, each smoke-tested. Linux and Windows carry LLVM's libclang and clang's headers, and
+macOS uses the one in Xcode's tools. The installers are one line each from the website. What
+the text below says about libclang being needed only for `import cpp` is no longer so:
+`std` imports `stdlib.h`, so every build loads it (T-0101).
+
+**Where the code is**
+
+| Piece | Where |
+|---|---|
+| The workflow: build, package, smoke test, publish | `.github/workflows/release.yml` |
+| Fetching libclang, the archive layout, the smoke program, `SHA256SUMS` | `tools/release.py` |
+| The installers | `install/install.sh`, `install/install.ps1`; the site serves them (`scripts/sync.mjs` there) |
+| Where `dz` looks for libclang and its headers | `bundled`, `find_resource_dir` in `crates/dz_cppimport/src/clang.rs` |
+| `dz --version` naming a release (`DZ_RELEASE`) | the `--version` arm of `main` in `crates/dz/src/main.rs` |
 
 The goal: **a released `dz` depends on nothing on the machine except a C++ compiler**, and
 the compiler is the user's choice rather than a fixed requirement (r33 made that
