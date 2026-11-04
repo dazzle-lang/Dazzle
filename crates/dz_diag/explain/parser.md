@@ -447,7 +447,7 @@ pub struct Party {
     m_members: List<String> in @members = List<String>()
 
     pub fn recruit(&mut self, name: &str) kills self@members {
-        m_members.push(String::from(name))
+        m_members.push(String(name))
     }
 }
 
@@ -463,7 +463,7 @@ pub struct Party {
     tie @members = m_members@items
 
     pub fn recruit(&mut self, name: &str) kills self@members {
-        m_members.push(String::from(name))
+        m_members.push(String(name))
     }
 }
 

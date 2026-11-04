@@ -756,7 +756,7 @@ pub struct Party {
 }
 
 fn recruit(party: &mut Party) kills party.member {
-    party.members.push(String::from("Ann"))
+    party.members.push(String("Ann"))
 }
 
 fn main() {
@@ -771,7 +771,7 @@ pub struct Party {
 }
 
 fn recruit(party: &mut Party) kills party.members@items {
-    party.members.push(String::from("Ann"))
+    party.members.push(String("Ann"))
 }
 
 fn main() {
@@ -793,7 +793,7 @@ pub struct Party {
     m_members: List<String> = List<String>()
 
     pub fn recruit(&mut self, name: &str) kills self.m_members {
-        m_members.push(String::from(name))
+        m_members.push(String(name))
     }
 }
 
@@ -809,7 +809,7 @@ pub struct Party {
     tie @members = m_members@items
 
     pub fn recruit(&mut self, name: &str) kills self@members {
-        m_members.push(String::from(name))
+        m_members.push(String(name))
     }
 }
 
@@ -905,7 +905,7 @@ pub struct Party {
     tie @members = m_guests
 
     pub fn recruit(&mut self, name: &str) kills self@members {
-        m_members.push(String::from(name))
+        m_members.push(String(name))
     }
 }
 
@@ -922,7 +922,7 @@ pub struct Party {
     tie @members = m_members@items, m_guests@items
 
     pub fn recruit(&mut self, name: &str) kills self@members {
-        m_members.push(String::from(name))
+        m_members.push(String(name))
     }
 }
 
@@ -945,7 +945,7 @@ pub struct Party {
 }
 
 fn recruit(p: &mut Party) kills p.members@items {
-    p.members.push(String::from("Ann"))
+    p.members.push(String("Ann"))
 }
 
 fn twice(f: fn(p: &mut Party), p: &mut Party) {
@@ -965,7 +965,7 @@ pub struct Party {
 }
 
 fn recruit(p: &mut Party) kills p.members@items {
-    p.members.push(String::from("Ann"))
+    p.members.push(String("Ann"))
 }
 
 fn twice(f: fn(p: &mut Party) kills p.members@items, p: &mut Party) kills p.members@items {

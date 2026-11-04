@@ -13,7 +13,7 @@ it, or move a copy of what you need.
 
 ```dz
 fn main() {
-    let name = String::from("hero")
+    let name = String("hero")
     let kept = move(name)
     println!("{} {}", kept, name)
 }
@@ -21,7 +21,7 @@ fn main() {
 
 ```dz
 fn main() {
-    let name = String::from("hero")
+    let name = String("hero")
     println!("{}", name)
     let kept = move(name)
     println!("{}", kept)
@@ -128,7 +128,7 @@ fn keep(p: Pair) {
 }
 
 fn main() {
-    let p = Pair{ a: String::from("a"), b: String::from("b") }
+    let p = Pair{ a: String("a"), b: String("b") }
     let first = move(p.a)
     keep(move(p))
     println!("{}", first)
@@ -146,7 +146,7 @@ fn keep(p: Pair) {
 }
 
 fn main() {
-    let p = Pair{ a: String::from("a"), b: String::from("b") }
+    let p = Pair{ a: String("a"), b: String("b") }
     let second = move(p.b)
     let first = move(p.a)
     println!("{} {}", first, second)
@@ -222,7 +222,7 @@ fn text_len(c: &cstr) -> usize {
 
 fn main() {
     let name: &str = "hero"
-    let c = String::from(name).as_cstr()
+    let c = String(name).as_cstr()
     println!("{}", text_len(c))
 }
 ```
@@ -234,7 +234,7 @@ fn text_len(c: &cstr) -> usize {
 
 fn main() {
     let name: &str = "hero"
-    let owned = String::from(name)
+    let owned = String(name)
     let c = owned.as_cstr()
     println!("{}", text_len(c))
 }
@@ -376,7 +376,7 @@ fn first_name(t: &Team) -> &str in t.names[*] {
 }
 
 fn main() {
-    let t = Team{ names: List<String>(), coach: String::from("Kim") }
+    let t = Team{ names: List<String>(), coach: String("Kim") }
     println!("{}", first_name(&t))
 }
 ```
@@ -392,7 +392,7 @@ fn coach_name(t: &Team) -> &str in t.coach {
 }
 
 fn main() {
-    let t = Team{ names: List<String>(), coach: String::from("Kim") }
+    let t = Team{ names: List<String>(), coach: String("Kim") }
     println!("{}", coach_name(&t))
 }
 ```
@@ -464,7 +464,7 @@ array, so a caller's view into an element's text survives it, and the clause has
 
 ```dz
 fn add(xs: &mut List<String>) kills xs {
-    xs.push(String::from("x"))
+    xs.push(String("x"))
 }
 
 fn main() {
@@ -476,7 +476,7 @@ fn main() {
 
 ```dz
 fn add(xs: &mut List<String>) kills xs@items {
-    xs.push(String::from("x"))
+    xs.push(String("x"))
 }
 
 fn main() {
@@ -593,13 +593,13 @@ memory that cannot die, such as an `i32` field.
 ```dz
 fn append_copy(dst: &mut List<String>, src: &List<String>) kills dst@items {
     for &s in src {
-        dst.push(String::from(s.as_str()))
+        dst.push(String(s.as_str()))
     }
 }
 
 fn main() {
     let mut ys = List<String>()
-    ys.push(String::from("a"))
+    ys.push(String("a"))
     append_copy(&mut ys, &ys)
     println!("{}", ys.len())
 }
@@ -608,13 +608,13 @@ fn main() {
 ```dz
 fn append_copy(dst: &mut List<String>, src: &List<String>) kills dst@items {
     for &s in src {
-        dst.push(String::from(s.as_str()))
+        dst.push(String(s.as_str()))
     }
 }
 
 fn main() {
     let mut ys = List<String>()
-    ys.push(String::from("a"))
+    ys.push(String("a"))
     let copy = ys
     append_copy(&mut ys, &copy)
     println!("{}", ys.len())
