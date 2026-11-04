@@ -89,6 +89,12 @@ pub struct String {
             m_bytes.push(0, loc)
             return
         }
+        self.push_encoded(c, loc)
+    }
+
+    /// `push` of a character past ASCII. Out of line, so `push` stays small enough for the
+    /// C++ compiler to inline into a loop that builds text a byte at a time (T-0096).
+    fn push_encoded(&mut self, c: char, loc: SourceLocation) kills self@text {
         let mut encoded: [4]u8 = [0, 0, 0, 0]
         let n = encode_utf8(c, &mut encoded)
         let text = unsafe { encoded[0..n] as &str }

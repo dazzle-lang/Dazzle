@@ -79,6 +79,31 @@ fn integers() {
 
     down.swap(0, 3)
     println!("swapped {} {}", down[0], down[3])
+
+    // Shapes that defeat a naive quicksort, long enough that it splits many times.
+    let mut shapes_ok = true
+    for shape in 0..5 {
+        let mut xs = List<i32>()
+        let mut sum: i64 = 0
+        for i in 0..5000 {
+            let v = switch shape {
+                case 0 { i }                                   // already in order
+                case 1 { 42 }                                  // all equal
+                case 2 { if i < 2500 { i } else { 5000 - i } } // organ pipe
+                case 3 { i % 7 }                               // few distinct values
+                default { Random::range(-100000, 100000) }
+            }
+            xs.push(v)
+            sum += v as i64
+        }
+        xs.sort()
+        let mut after: i64 = 0
+        for x in xs {
+            after += x as i64
+        }
+        shapes_ok = shapes_ok && in_order(&xs) && after == sum && xs.len() == 5000
+    }
+    println!("5000 in five shapes sorted: {}", shapes_ok)
 }
 
 fn move_only() {
@@ -91,6 +116,21 @@ fn move_only() {
         println!("tokens {} {} {} {} {} {}", tokens[0].rank, tokens[1].rank, tokens[2].rank, tokens[3].rank, tokens[4].rank, tokens[5].rank)
     }
     println!("dropped exactly once: {}", DROPS == 6)
+
+    // Enough move-only elements to be split, each still dropped once.
+    {
+        let mut tokens = List<Token>()
+        for _ in 0..2000 {
+            tokens.push(Token{ rank: Random::range(1, 500) })
+        }
+        tokens.sort_by(by_rank)
+        let mut ok = true
+        for i in 1..tokens.len() {
+            ok = ok && tokens[i - 1].rank <= tokens[i].rank
+        }
+        println!("2000 tokens in order: {}", ok)
+    }
+    println!("2006 dropped exactly once: {}", DROPS == 2006)
 }
 
 fn text() {

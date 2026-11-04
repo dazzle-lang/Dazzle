@@ -2884,122 +2884,484 @@ body method List::sort_by -> void
         int 2: usize
       block
         return: !
-    let _2 start: usize
-      binary /: usize
-        field #1: usize
-          local _0 self: List<T>
-        int 2: usize
+    let _2 depth: usize
+      int 0: usize
+    let _3 n: usize
+      field #1: usize
+        local _0 self: List<T>
     while
       binary >: bool
-        local _2 start: usize
-        int 0: usize
-      block
-        assign -=
-          local _2 start: usize
-          int 1: usize
-        call-method List::sift_down: void
-          local _0 self: List<T>
-          local _2 start: usize
-          field #1: usize
-            local _0 self: List<T>
-          local _1 before: fn(&T, &T) -> bool
-    let _3 end: usize
-      binary -: usize
-        field #1: usize
-          local _0 self: List<T>
+        local _3 n: usize
         int 1: usize
+      block
+        assign +=
+          local _2 depth: usize
+          int 2: usize
+        assign /=
+          local _3 n: usize
+          int 2: usize
+    call-method List::introsort: void
+      local _0 self: List<T>
+      int 0: usize
+      field #1: usize
+        local _0 self: List<T>
+      local _2 depth: usize
+      local _1 before: fn(&T, &T) -> bool
+body method List::introsort -> void
+  param _0 self: List<T>
+  param _1 start: usize
+  param _2 end: usize
+  param _3 levels: usize
+  param _4 before: fn(&T, &T) -> bool
+  block
+    let _5 lo: usize
+      local _1 start: usize
+    let _6 hi: usize
+      local _2 end: usize
+    let _7 depth: usize
+      local _3 levels: usize
     while
       binary >: bool
-        local _3 end: usize
-        int 0: usize
+        binary -: usize
+          local _6 hi: usize
+          local _5 lo: usize
+        const LIST_INSERTION_RUN: usize
       block
-        call-method List::swap: void
-          local _0 self: List<T>
-          int 0: usize
-          local _3 end: usize
-        call-method List::sift_down: void
-          local _0 self: List<T>
-          int 0: usize
-          local _3 end: usize
-          local _1 before: fn(&T, &T) -> bool
+        if: void
+          binary ==: bool
+            local _7 depth: usize
+            int 0: usize
+          block
+            call-method List::heapsort: void
+              local _0 self: List<T>
+              local _5 lo: usize
+              local _6 hi: usize
+              local _4 before: fn(&T, &T) -> bool
+            return: !
         assign -=
-          local _3 end: usize
+          local _7 depth: usize
           int 1: usize
-body method List::sift_down -> void
+        let _8 p: usize
+          call-method List::partition: usize
+            local _0 self: List<T>
+            local _5 lo: usize
+            local _6 hi: usize
+            local _4 before: fn(&T, &T) -> bool
+        if: void
+          binary <: bool
+            binary -: usize
+              local _8 p: usize
+              local _5 lo: usize
+            binary -: usize
+              local _6 hi: usize
+              local _8 p: usize
+          block
+            call-method List::introsort: void
+              local _0 self: List<T>
+              local _5 lo: usize
+              local _8 p: usize
+              local _7 depth: usize
+              local _4 before: fn(&T, &T) -> bool
+            assign =
+              local _5 lo: usize
+              binary +: usize
+                local _8 p: usize
+                int 1: usize
+          block
+            block-value: void
+              block
+                call-method List::introsort: void
+                  local _0 self: List<T>
+                  binary +: usize
+                    local _8 p: usize
+                    int 1: usize
+                  local _6 hi: usize
+                  local _7 depth: usize
+                  local _4 before: fn(&T, &T) -> bool
+                assign =
+                  local _6 hi: usize
+                  local _8 p: usize
+    call-method List::insertion_sort: void
+      local _0 self: List<T>
+      local _5 lo: usize
+      local _6 hi: usize
+      local _4 before: fn(&T, &T) -> bool
+body method List::partition -> usize
   param _0 self: List<T>
-  param _1 root: usize
-  param _2 len: usize
+  param _1 lo: usize
+  param _2 hi: usize
   param _3 before: fn(&T, &T) -> bool
   block
-    let _4 at: usize
-      local _1 root: usize
+    let _4 mid: usize
+      binary +: usize
+        local _1 lo: usize
+        binary /: usize
+          binary -: usize
+            local _2 hi: usize
+            local _1 lo: usize
+          int 2: usize
+    let _5 last: usize
+      binary -: usize
+        local _2 hi: usize
+        int 1: usize
+    block-value: void
+      block
+        if: void
+          call-value: bool
+            local _3 before: fn(&T, &T) -> bool
+            ref: &T
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                local _4 mid: usize
+            ref: &T
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                local _1 lo: usize
+          block
+            call-method List::exchange: void
+              local _0 self: List<T>
+              local _4 mid: usize
+              local _1 lo: usize
+        if: void
+          call-value: bool
+            local _3 before: fn(&T, &T) -> bool
+            ref: &T
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                local _5 last: usize
+            ref: &T
+              index: T
+                field #0: own ^mut T
+                  local _0 self: List<T>
+                local _4 mid: usize
+          block
+            call-method List::exchange: void
+              local _0 self: List<T>
+              local _5 last: usize
+              local _4 mid: usize
+            if: void
+              call-value: bool
+                local _3 before: fn(&T, &T) -> bool
+                ref: &T
+                  index: T
+                    field #0: own ^mut T
+                      local _0 self: List<T>
+                    local _4 mid: usize
+                ref: &T
+                  index: T
+                    field #0: own ^mut T
+                      local _0 self: List<T>
+                    local _1 lo: usize
+              block
+                call-method List::exchange: void
+                  local _0 self: List<T>
+                  local _4 mid: usize
+                  local _1 lo: usize
+    call-method List::exchange: void
+      local _0 self: List<T>
+      local _1 lo: usize
+      local _4 mid: usize
+    let _6 i: usize
+      local _1 lo: usize
+    let _7 j: usize
+      local _2 hi: usize
     while
       bool true: bool
       block
-        let _5 left: usize
+        assign +=
+          local _6 i: usize
+          int 1: usize
+        while
+          binary &&: bool
+            binary <: bool
+              local _6 i: usize
+              local _5 last: usize
+            block-value: bool
+              block
+                call-value: bool
+                  local _3 before: fn(&T, &T) -> bool
+                  ref: &T
+                    index: T
+                      field #0: own ^mut T
+                        local _0 self: List<T>
+                      local _6 i: usize
+                  ref: &T
+                    index: T
+                      field #0: own ^mut T
+                        local _0 self: List<T>
+                      local _1 lo: usize
+          block
+            assign +=
+              local _6 i: usize
+              int 1: usize
+        assign -=
+          local _7 j: usize
+          int 1: usize
+        while
+          block-value: bool
+            block
+              call-value: bool
+                local _3 before: fn(&T, &T) -> bool
+                ref: &T
+                  index: T
+                    field #0: own ^mut T
+                      local _0 self: List<T>
+                    local _1 lo: usize
+                ref: &T
+                  index: T
+                    field #0: own ^mut T
+                      local _0 self: List<T>
+                    local _7 j: usize
+          block
+            assign -=
+              local _7 j: usize
+              int 1: usize
+        if: void
+          binary >=: bool
+            local _6 i: usize
+            local _7 j: usize
+          block
+            break: !
+        call-method List::exchange: void
+          local _0 self: List<T>
+          local _6 i: usize
+          local _7 j: usize
+    call-method List::exchange: void
+      local _0 self: List<T>
+      local _1 lo: usize
+      local _7 j: usize
+    return: !
+      local _7 j: usize
+body method List::insertion_sort -> void
+  param _0 self: List<T>
+  param _1 lo: usize
+  param _2 hi: usize
+  param _3 before: fn(&T, &T) -> bool
+  block
+    let _4 i: usize
+      binary +: usize
+        local _1 lo: usize
+        int 1: usize
+    while
+      binary <: bool
+        local _4 i: usize
+        local _2 hi: usize
+      block
+        let _5 j: usize
+          local _4 i: usize
+        while
+          binary &&: bool
+            binary >: bool
+              local _5 j: usize
+              local _1 lo: usize
+            block-value: bool
+              block
+                call-value: bool
+                  local _3 before: fn(&T, &T) -> bool
+                  ref: &T
+                    index: T
+                      field #0: own ^mut T
+                        local _0 self: List<T>
+                      local _5 j: usize
+                  ref: &T
+                    index: T
+                      field #0: own ^mut T
+                        local _0 self: List<T>
+                      binary -: usize
+                        local _5 j: usize
+                        int 1: usize
+          block
+            call-method List::exchange: void
+              local _0 self: List<T>
+              local _5 j: usize
+              binary -: usize
+                local _5 j: usize
+                int 1: usize
+            assign -=
+              local _5 j: usize
+              int 1: usize
+        assign +=
+          local _4 i: usize
+          int 1: usize
+body method List::heapsort -> void
+  param _0 self: List<T>
+  param _1 lo: usize
+  param _2 hi: usize
+  param _3 before: fn(&T, &T) -> bool
+  block
+    let _4 len: usize
+      binary -: usize
+        local _2 hi: usize
+        local _1 lo: usize
+    let _5 start: usize
+      binary /: usize
+        local _4 len: usize
+        int 2: usize
+    while
+      binary >: bool
+        local _5 start: usize
+        int 0: usize
+      block
+        assign -=
+          local _5 start: usize
+          int 1: usize
+        call-method List::sift_down: void
+          local _0 self: List<T>
+          local _1 lo: usize
+          local _5 start: usize
+          local _4 len: usize
+          local _3 before: fn(&T, &T) -> bool
+    let _6 end: usize
+      binary -: usize
+        local _4 len: usize
+        int 1: usize
+    while
+      binary >: bool
+        local _6 end: usize
+        int 0: usize
+      block
+        call-method List::exchange: void
+          local _0 self: List<T>
+          local _1 lo: usize
+          binary +: usize
+            local _1 lo: usize
+            local _6 end: usize
+        call-method List::sift_down: void
+          local _0 self: List<T>
+          local _1 lo: usize
+          int 0: usize
+          local _6 end: usize
+          local _3 before: fn(&T, &T) -> bool
+        assign -=
+          local _6 end: usize
+          int 1: usize
+body method List::sift_down -> void
+  param _0 self: List<T>
+  param _1 base: usize
+  param _2 root: usize
+  param _3 len: usize
+  param _4 before: fn(&T, &T) -> bool
+  block
+    let _5 at: usize
+      local _2 root: usize
+    while
+      bool true: bool
+      block
+        let _6 left: usize
           binary +: usize
             binary *: usize
-              local _4 at: usize
+              local _5 at: usize
               int 2: usize
             int 1: usize
         if: void
           binary >=: bool
-            local _5 left: usize
-            local _2 len: usize
+            local _6 left: usize
+            local _3 len: usize
           block
             return: !
-        let _6 larger: usize
-          local _5 left: usize
-        let _7 right: usize
+        let _7 larger: usize
+          local _6 left: usize
+        let _8 right: usize
           binary +: usize
-            local _5 left: usize
+            local _6 left: usize
             int 1: usize
         block-value: void
           block
             if: void
               binary &&: bool
                 binary <: bool
-                  local _7 right: usize
-                  local _2 len: usize
+                  local _8 right: usize
+                  local _3 len: usize
                 call-value: bool
-                  local _3 before: fn(&T, &T) -> bool
+                  local _4 before: fn(&T, &T) -> bool
                   ref: &T
                     index: T
                       field #0: own ^mut T
                         local _0 self: List<T>
-                      local _5 left: usize
+                      binary +: usize
+                        local _1 base: usize
+                        local _6 left: usize
                   ref: &T
                     index: T
                       field #0: own ^mut T
                         local _0 self: List<T>
-                      local _7 right: usize
+                      binary +: usize
+                        local _1 base: usize
+                        local _8 right: usize
               block
                 assign =
-                  local _6 larger: usize
-                  local _7 right: usize
+                  local _7 larger: usize
+                  local _8 right: usize
             if: void
               unary !: bool
                 call-value: bool
-                  local _3 before: fn(&T, &T) -> bool
+                  local _4 before: fn(&T, &T) -> bool
                   ref: &T
                     index: T
                       field #0: own ^mut T
                         local _0 self: List<T>
-                      local _4 at: usize
+                      binary +: usize
+                        local _1 base: usize
+                        local _5 at: usize
                   ref: &T
                     index: T
                       field #0: own ^mut T
                         local _0 self: List<T>
-                      local _6 larger: usize
+                      binary +: usize
+                        local _1 base: usize
+                        local _7 larger: usize
               block
                 return: !
-        call-method List::swap: void
+        call-method List::exchange: void
           local _0 self: List<T>
-          local _4 at: usize
-          local _6 larger: usize
+          binary +: usize
+            local _1 base: usize
+            local _5 at: usize
+          binary +: usize
+            local _1 base: usize
+            local _7 larger: usize
         assign =
-          local _4 at: usize
-          local _6 larger: usize
+          local _5 at: usize
+          local _7 larger: usize
+body method List::exchange -> void
+  param _0 self: List<T>
+  param _1 i: usize
+  param _2 j: usize
+  block
+    if: void
+      binary ==: bool
+        local _1 i: usize
+        local _2 j: usize
+      block
+        return: !
+    block-value: void
+      block
+        let _3 held: T
+          builtin move_out: T
+            index: T
+              field #0: own ^mut T
+                local _0 self: List<T>
+              local _1 i: usize
+        builtin construct: void
+          index: T
+            field #0: own ^mut T
+              local _0 self: List<T>
+            local _1 i: usize
+          builtin move_out: T
+            index: T
+              field #0: own ^mut T
+                local _0 self: List<T>
+              local _2 j: usize
+        builtin construct: void
+          index: T
+            field #0: own ^mut T
+              local _0 self: List<T>
+            local _2 j: usize
+          move: T
+            local _3 held: T
 body method List::clear -> void
   param _0 self: List<T>
   block
@@ -3420,6 +3782,9 @@ body impl#17 method hash -> u64
                     local _2 i: usize
     return: !
       local _1 h: u64
+body const LIST_INSERTION_RUN -> void
+  block
+    int 16: usize
 body fn list_index_out_of_bounds -> void
   param _0 i: usize
   param _1 len: usize
@@ -13292,28 +13657,37 @@ body method String::push -> void
           int 0: u8
           local _2 loc: SourceLocation
         return: !
-    let _5 encoded: [4]u8
+    call-method String::push_encoded: void
+      local _0 self: String
+      local _1 c: char
+      local _2 loc: SourceLocation
+body method String::push_encoded -> void
+  param _0 self: String
+  param _1 c: char
+  param _2 loc: SourceLocation
+  block
+    let _3 encoded: [4]u8
       array: [4]u8
         int 0: u8
         int 0: u8
         int 0: u8
         int 0: u8
-    let _6 n: usize
+    let _4 n: usize
       call encode_utf8: usize
         local _1 c: char
         ref mut: &mut [4]u8
-          local _5 encoded: [4]u8
-    let _7 text: &str
+          local _3 encoded: [4]u8
+    let _5 text: &str
       block-value: &str
         block
           cast: &str
             slice: &mut []u8
-              local _5 encoded: [4]u8
+              local _3 encoded: [4]u8
               int 0: usize
-              local _6 n: usize
+              local _4 n: usize
     call-method String::push_str: void
       local _0 self: String
-      local _7 text: &str
+      local _5 text: &str
       local _2 loc: SourceLocation
 body method String::insert_str -> void
   param _0 self: String

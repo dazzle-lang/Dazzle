@@ -2,6 +2,23 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## `sort_by` an introsort, and `String::push` inlined (T-0096; 2026-11-04)
+
+Library work, no language change. `List::sort_by` was a heapsort, chosen for allocating
+nothing and having no bad inputs, but it makes about twice quicksort's comparisons and
+jumps around memory: about 100 ms of `words`, against 19 ms for `std::sort`. It is now an
+introsort, as `std::sort` is: quicksort around a median of three, insertion sort at 16
+elements or fewer, and the heapsort kept as the fallback once quicksort has gone
+2·log2(n) splits deep, so the old guarantee holds. About 20 ms now. `exchange` is `swap`
+without its checks, and returns at once for one index, since moving out of a slot and back
+into it would read the slot after emptying it. `tests/run/sorting` gained larger inputs, and
+gave the same output with the sort forced down each path alone.
+
+A profile then had `String::push` called 14 million times on clang++, its path past ASCII
+making it too large to inline; that path is `push_encoded` now. `bench_programs.py`, nine
+alternating runs, Dazzle / C++: `words` 0.77× on clang++ and 0.97× on g++; `astar` 0.92× and
+1.08×; `expr` 1.47× and 1.22×. Between runs on this machine a ratio moves by about a tenth.
+
 ## `List`'s index checks inlined (T-0157; 2026-11-04)
 
 Library work, no language change. A gprof profile of `astar`'s release build showed that

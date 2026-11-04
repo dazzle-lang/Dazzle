@@ -256,30 +256,124 @@ pub struct List<T> {
     }
 
     /// Put the elements in order: afterwards no element is `before` one ahead of it.
-    /// `before` must be a strict order — `a < b`, not `a <= b`. A heapsort, so no memory is
-    /// allocated and no input takes more than `n log n` steps; equal elements may change
-    /// places. `xs.sort()` does the same by `<` for elements that are `Ord`.
+    /// `before` must be a strict order — `a < b`, not `a <= b`. An introsort, as C++'s
+    /// `std::sort` is: quicksort, insertion sort for short runs, and heapsort where
+    /// quicksort goes too deep. So no memory is allocated and no input takes more than
+    /// `n log n` steps; equal elements may change places. `xs.sort()` does the same by `<`
+    /// for elements that are `Ord`.
     pub fn sort_by(&mut self, before: fn(&T, &T) -> bool) kills self@items {
         if m_len < 2 {
             return
         }
-        // Build a heap with the greatest element first, then move the greatest to the end
-        // one at a time.
-        let mut start = m_len / 2
+        // Quicksort may split badly at most twice log2(n) times before heapsort takes over.
+        let mut depth: usize = 0
+        let mut n = m_len
+        while n > 1 {
+            depth += 2
+            n /= 2
+        }
+        self.introsort(0, m_len, depth, before)
+    }
+
+    /// Sort the elements in `lo..hi`. The smaller side of each split is sorted by a call,
+    /// the larger by the loop, so the calls nest no deeper than log2(n).
+    fn introsort(&mut self, start: usize, end: usize, levels: usize, before: fn(&T, &T) -> bool) kills self@items {
+        let mut lo = start
+        let mut hi = end
+        let mut depth = levels
+        while hi - lo > LIST_INSERTION_RUN {
+            if depth == 0 {
+                self.heapsort(lo, hi, before)
+                return
+            }
+            depth -= 1
+            let p = self.partition(lo, hi, before)
+            if p - lo < hi - p {
+                self.introsort(lo, p, depth, before)
+                lo = p + 1
+            } else {
+                self.introsort(p + 1, hi, depth, before)
+                hi = p
+            }
+        }
+        self.insertion_sort(lo, hi, before)
+    }
+
+    /// Split `lo..hi` (more than a few elements) around a pivot, the median of the first,
+    /// middle and last: afterwards every element before the returned index is not after
+    /// the pivot, which is at that index, and every element after it is not before it.
+    /// Elements equal to the pivot stop both scans, so a run of equal elements splits in
+    /// the middle rather than to one side.
+    fn partition(&mut self, lo: usize, hi: usize, before: fn(&T, &T) -> bool) -> usize kills self@items {
+        let mid = lo + (hi - lo) / 2
+        let last = hi - 1
+        unsafe {
+            if before(&m_data[mid], &m_data[lo]) {
+                self.exchange(mid, lo)
+            }
+            if before(&m_data[last], &m_data[mid]) {
+                self.exchange(last, mid)
+                if before(&m_data[mid], &m_data[lo]) {
+                    self.exchange(mid, lo)
+                }
+            }
+        }
+        // The median is in the middle; the pivot is kept at `lo` while the rest is split.
+        self.exchange(lo, mid)
+        let mut i = lo
+        let mut j = hi
+        while true {
+            i += 1
+            // `last` holds an element not before the pivot, so this scan stops by `last`.
+            while i < last && unsafe { before(&m_data[i], &m_data[lo]) } {
+                i += 1
+            }
+            j -= 1
+            // The pivot itself, at `lo`, is not after itself, so this scan stops by `lo`.
+            while unsafe { before(&m_data[lo], &m_data[j]) } {
+                j -= 1
+            }
+            if i >= j {
+                break
+            }
+            self.exchange(i, j)
+        }
+        self.exchange(lo, j)
+        return j
+    }
+
+    /// Sort a short run `lo..hi`, each element moved back past the ones after it.
+    fn insertion_sort(&mut self, lo: usize, hi: usize, before: fn(&T, &T) -> bool) kills self@items {
+        let mut i = lo + 1
+        while i < hi {
+            let mut j = i
+            while j > lo && unsafe { before(&m_data[j], &m_data[j - 1]) } {
+                self.exchange(j, j - 1)
+                j -= 1
+            }
+            i += 1
+        }
+    }
+
+    /// Heapsort `lo..hi`: build a heap with the greatest element first, then move the
+    /// greatest to the end one at a time.
+    fn heapsort(&mut self, lo: usize, hi: usize, before: fn(&T, &T) -> bool) kills self@items {
+        let len = hi - lo
+        let mut start = len / 2
         while start > 0 {
             start -= 1
-            self.sift_down(start, m_len, before)
+            self.sift_down(lo, start, len, before)
         }
-        let mut end = m_len - 1
+        let mut end = len - 1
         while end > 0 {
-            self.swap(0, end)
-            self.sift_down(0, end, before)
+            self.exchange(lo, lo + end)
+            self.sift_down(lo, 0, end, before)
             end -= 1
         }
     }
 
-    /// Restore the heap below `root`, among the first `len` elements.
-    fn sift_down(&mut self, root: usize, len: usize, before: fn(&T, &T) -> bool) kills self@items {
+    /// Restore the heap below `root`, among the `len` elements from `base` on.
+    fn sift_down(&mut self, base: usize, root: usize, len: usize, before: fn(&T, &T) -> bool) kills self@items {
         let mut at = root
         while true {
             let left = at * 2 + 1
@@ -289,15 +383,27 @@ pub struct List<T> {
             let mut larger = left
             let right = left + 1
             unsafe {
-                if right < len && before(&m_data[left], &m_data[right]) {
+                if right < len && before(&m_data[base + left], &m_data[base + right]) {
                     larger = right
                 }
-                if !before(&m_data[at], &m_data[larger]) {
+                if !before(&m_data[base + at], &m_data[base + larger]) {
                     return
                 }
             }
-            self.swap(at, larger)
+            self.exchange(base + at, base + larger)
             at = larger
+        }
+    }
+
+    /// `swap` without its checks, for indices the sort has already kept in range.
+    fn exchange(&mut self, i: usize, j: usize) kills self@items {
+        if i == j {
+            return
+        }
+        unsafe {
+            let held = move_out(m_data[i])
+            construct(m_data[i], move_out(m_data[j]))
+            construct(m_data[j], move(held))
         }
     }
 
@@ -425,6 +531,10 @@ impl<T: Hash> Hash for List<T> {
         return h
     }
 }
+
+/// Runs this short or shorter are insertion sorted: on so few elements it is faster than
+/// splitting again.
+const LIST_INSERTION_RUN: usize = 16
 
 // The panics of the checks every index makes, out of line: formatted inside the check, the
 // message made `index` and `index_mut` too large for the C++ compiler to inline into a

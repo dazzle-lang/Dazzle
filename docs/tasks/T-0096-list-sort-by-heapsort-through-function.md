@@ -2,7 +2,7 @@
 id: T-0096
 title: List::sort_by is a heapsort through a function pointer: five times slower than std::sort
 milestone: M12
-status: open
+status: done
 kind: feature
 area: stdlib
 where: `crates/dz_project/src/std/collections/list.dz`, `sort_by` and `sift_down`; `sort.dz`, `compare_bytes`
@@ -50,3 +50,29 @@ list of files. And it is the number a reader of the published benchmark will not
    small enough to inline; measure before deciding.
 
 Re-run `python tools/bench_programs.py words` before and after.
+
+**Where the code is**
+
+| Piece | Where |
+|---|---|
+| `sort_by`, `introsort`, `partition`, `insertion_sort`, `heapsort`, `sift_down`, `exchange`; `LIST_INSERTION_RUN` | `dz_project/src/std/collections/list.dz` |
+| `String::push`'s path past ASCII, out of line | `push_encoded` in `dz_project/src/std/text/string.dz` |
+| The test: five shapes of 5,000, 2,000 move-only tokens | `tests/run/sorting` |
+
+**Done** (2026-11-04), point 1. `sort_by` is an introsort: quicksort around the median of
+the first, middle and last element, with elements equal to the pivot stopping both scans,
+insertion sort for runs of 16 or fewer, and heapsort once quicksort has split badly
+2·log2(n) times. It allocates nothing and no input takes more than `n log n` steps, as
+before. The sort in `words` went from about 100 ms to about 20 ms. `tests/run/sorting`
+gained 5,000 elements in five shapes (in order, all equal, organ pipe, few values, random)
+and 2,000 move-only tokens each dropped once. It printed the same with the sort forced
+through heapsort alone and through quicksort to single elements.
+
+A profile then showed `String::push` called 14 million times, not inlined on clang++: its
+path past ASCII made it too large. That path is now `push_encoded`. `words` against its C++
+half, nine alternating runs: 0.77–0.88× on clang++ and 0.95–0.98× on g++, from 1.15–1.27×.
+
+Point 2 was left: `std` imports only `stdlib.h`, a `memcmp` builtin would be a language
+change, and `words` compares text only between equal counts. Point 3, a comparison the C++
+compiler can inline, is still the user's question; `sort_by` calls `before` through a
+pointer.
