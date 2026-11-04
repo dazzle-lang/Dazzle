@@ -121,12 +121,13 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0098](tasks/T-0098-str-cannot-be-cut-str-b.md)** A str cannot be cut: str[a..b] is refused, and only String has slice · feature, stdlib
 - **[T-0121](tasks/T-0121-local-named-like-free-function-hides.md)** A local named like a free function hides it in the generated C++ · bug, codegen
 
-## M15 — `dz bench`, and the C++ comparison (4 open)
+## M15 — `dz bench`, and the C++ comparison (5 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0101](tasks/T-0101-every-build-imports-stdlib-h-with.md)** Every build imports stdlib.h with libclang again: about 380 ms of each build · feature, tooling
 - **[T-0102](tasks/T-0102-standard-library-c-compiled-again-in.md)** The standard library's C++ is compiled again in every build · feature, tooling
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
+- **[T-0165](tasks/T-0165-words-scope-regions-make-it-5.md)** "words: scope regions make it 5% slower with g++, where clang++ is 30% faster" · feature, ownership
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 

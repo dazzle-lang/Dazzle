@@ -20,7 +20,13 @@ Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, a
   `std::priority_queue`, `std::string` and `std::string_view`, `std::unique_ptr`,
   `std::variant` with `std::visit`, `std::sort`. RAII throughout, nothing hand-tuned that
   the Dazzle side lacks, and nothing tuned on the Dazzle side either: each half uses its own
-  standard library the obvious way.
+  standard library the obvious way, as benchmarks between languages usually do. So a
+  ratio includes each library's design choices, and a report says so where one decides
+  it. The largest is the hash table: Dazzle's `HashMap` is a SwissTable, one array of
+  slots probed eight at a time, where `std::unordered_map` allocates a node per entry.
+  That is most of `astar`'s lead: measured once with Dazzle's map, heap and sort ported
+  line for line into the C++ half (2026-11-04), `astar` was even with C++ (1.00× and
+  1.01×), `expr` 1.13–1.19× and `words` 1.13–1.29×.
 - **Memory goes where each language puts it.** Dazzle code names no allocator: the
   compiler places each value (spec §14.6), in the region of the function that builds it
   when it never leaves, where the caller keeps it when it is returned, and on the heap

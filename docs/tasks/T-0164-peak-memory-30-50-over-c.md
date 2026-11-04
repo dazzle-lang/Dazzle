@@ -53,3 +53,8 @@ Left, each a library design question:
 under the C++ half's 12.6, and is 13–14% faster. `words` is at 36.6 MiB against 32.3, and
 the map is not most of that: what the rest is, is not measured yet, which is what keeps
 this open. `docs/log/tooling.md` has the numbers.
+
+**Against the same map** (2026-11-04, measured once): with this map ported into the C++
+halves, `astar` peaks at 9.4 MiB against 9.3, even, so its lead under `std::unordered_map`
+is the map's. `words` peaks at 37.6 against 34.0: the 3.6 MiB left is not the map, and is
+what keeps this open. The C++ halves stay on `std` (docs/log/tooling.md).

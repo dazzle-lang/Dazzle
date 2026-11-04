@@ -10,7 +10,8 @@ systems, tools and real-time code.
 - **Safe:** on one thread, a program with no `unsafe` has no undefined behaviour, with no
   borrow checker and no lifetime annotations.
 - **Fast:** whole programs written idiomatically in both languages take 0.77 to 1.17 times
-  as long in Dazzle as in C++, and the compiler places memory in scope regions itself.
+  as long in Dazzle as in C++ ([benchmarks](#benchmarks)), and the compiler places memory
+  in scope regions itself.
 - **Fluent in C++:** C and C++ libraries are used straight from their source and headers,
   with no bindings, and the output is standard C++17 for the compiler you already use.
 
@@ -712,13 +713,45 @@ different C library, built from source and called with no bindings:
 
 The open work, milestone by milestone, is the backlog in [`docs/tasks.md`](docs/tasks.md).
 
-**How fast it is today:** three whole programs, each written idiomatically in both
-languages and built by the same compiler, take 0.77 to 1.17 times as long in Dazzle as in
-C++: A\* search 0.77–0.88×, with less peak memory than C++, a word count 0.91–1.02×, a
-parser and evaluator 1.07–1.17×. The
-[benchmarks page](https://dazzle-lang.github.io/project/benchmarks/) has every run and what
-is left; [`tests/bench_programs`](tests/bench_programs) has the programs, and
-[`RESULTS.md`](tests/bench_programs/RESULTS.md) the latest run.
+**How fast it is today:** whole programs take 0.77 to 1.17 times as long in Dazzle as in
+C++; [Benchmarks](#benchmarks) has the numbers.
+
+## Benchmarks
+
+Three whole programs, each written idiomatically in both languages, built by the same
+compiler with the same flags (`-O2` and link-time optimisation), checked to print the same
+checksum over their whole result, and timed end to end as a user would run them:
+
+| Program | What it does | clang++ | g++ | Peak memory |
+|---|---|---:|---:|---:|
+| A\* search | 200 searches across a 400×400 grid: a generic binary heap, hash maps keyed by a struct, allocation in every search | **0.77×** (319 / 413 ms) | **0.88×** (350 / 397 ms) | **0.75×** (9.5 / 12.6 MiB) |
+| Tokenizer, parser and evaluator | 100,000 generated statements: a tree of tagged unions per statement, one in eight failing through `!->` | 1.17× (157 / 134 ms) | 1.07× (157 / 147 ms) | **0.94×** (141 / 151 MiB) |
+| Word count | 2,000,000 generated words counted in a hash map, then sorted | **0.91×** (141 / 155 ms) | 1.02× (171 / 166 ms) | 1.17× (37.6 / 32.2 MiB) |
+
+Each figure is Dazzle's over C++'s, below 1.00× where Dazzle is ahead, from the median of
+ten alternating runs (AMD Ryzen 7 H 255, clang 19, g++ 14, Dazzle at `f0a0ab9`).
+
+Each half uses its own standard library the obvious way, as benchmarks between languages
+usually do: the C++ uses `std::vector`, `std::unordered_map`, `std::priority_queue`,
+`std::string`, `std::unique_ptr` and `std::sort`. So a ratio includes each library's
+design, and the largest difference is the hash table: Dazzle's `HashMap` is a SwissTable,
+one array of slots probed eight at a time, where `std::unordered_map` allocates a node per
+entry. That is most of A\* search's lead. Measured once with Dazzle's map, heap and sort
+ported line for line into the C++ halves, A\* search was even with C++ (1.00× and 1.01×),
+the parser and evaluator 1.13–1.19× and the word count 1.13–1.29×. Some of Dazzle's cost
+is its own, by design: every index is checked and integer arithmetic wraps in every build.
+
+**Building** takes longer than the C++ half's single file: 1.6–2.1 s against 0.4–0.6 s.
+Dazzle's own phases, from reading the manifests to emitting the C++, take about 100 ms;
+importing `stdlib.h` with libclang about 85 ms; nearly all the rest is the C++ compiler on
+the generated code, most of it the standard library's C++, compiled again in every build
+(T-0102).
+
+[`tests/bench_programs`](tests/bench_programs) has the programs, the rules and
+[`RESULTS.md`](tests/bench_programs/RESULTS.md), the latest run in full, and
+`python tools/bench_programs.py` measures them on your machine. The
+[benchmarks page](https://dazzle-lang.github.io/project/benchmarks/) keeps every run, so the
+ratios can be seen to change as the compiler and the standard library do.
 
 ## Documentation
 

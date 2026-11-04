@@ -2,6 +2,30 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## What Dazzle's lead in the benchmarks is made of (2026-11-04)
+
+The user asked whether `astar` beat C++ because its C++ half used `std::priority_queue`
+rather than the same heap. Each C++ half uses its own standard library, so `astar` measured
+Dazzle's SwissTable `HashMap` against `std::unordered_map`'s node per entry as well. To see
+how much of each ratio the libraries make, Dazzle's map and its hashes, `List::sort_by`'s
+introsort through a function pointer, and `astar`'s binary heap were ported line for line
+into C++ and every C++ half run on them, with every pair still agreeing on its checksum.
+Dazzle / C++, clang++ and g++: `astar` 1.00× and 1.01× (0.77× and 0.88× against `std`),
+`expr` 1.19× and 1.13×, `words` 1.13× and 1.29×; peak memory `astar` 9.4 against 9.3 MiB,
+`words` 37.6 against 34.0. The machine was busier than for the `std` run, every time
+12–25% longer, so only the ratios compare. (The port had a bug of its own:
+`values_[place(…)]` read `values_` before `place` grew the table, a use after free that
+AddressSanitizer caught, and the kind Dazzle refuses to compile.)
+
+The user then chose to keep `std` on the C++ side, as benchmarks between languages usually
+do: each half uses its own library, and a report says where a library's choice decides a
+ratio. `tests/bench_programs/README.md` and the website say that `astar`'s lead is mostly
+the hash table, with these numbers; the port is not kept.
+
+What placement is worth, from `tools/bench_regions.py`, each Dazzle half heap-only against
+regions on the same day: `astar` the same, `expr` 3–7% slower heap-only, `words` 30% slower
+heap-only on clang++ but 5% faster on g++ (T-0165).
+
 ## `HashMap` is a SwissTable (T-0164; 2026-11-04)
 
 Library work; no program behaves differently, and §14.2's description of the map is
