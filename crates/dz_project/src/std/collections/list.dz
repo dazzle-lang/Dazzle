@@ -243,7 +243,7 @@ pub struct List<T> {
     /// Exchange the elements at `i` and `j`.
     pub fn swap(&mut self, i: usize, j: usize) kills self@items {
         if i >= m_len || j >= m_len {
-            panic!("List::swap of {} and {} for a length of {}", i, j, m_len)
+            list_swap_out_of_bounds(i, j, m_len)
         }
         if i == j {
             return
@@ -426,12 +426,23 @@ impl<T: Hash> Hash for List<T> {
     }
 }
 
+// The panics of the checks every index makes, out of line: formatted inside the check, the
+// message made `index` and `index_mut` too large for the C++ compiler to inline into a
+// loop, which then paid a call per element (T-0157).
+fn list_index_out_of_bounds(i: usize, len: usize) {
+    panic!("index {} is out of bounds for a List of length {}", i, len)
+}
+
+fn list_swap_out_of_bounds(i: usize, j: usize, len: usize) {
+    panic!("List::swap of {} and {} for a length of {}", i, j, len)
+}
+
 impl<T> Index<usize> for List<T> {
     type Output = T
 
     fn index(&self, i: usize) -> &T in self@items {
         if i >= m_len {
-            panic!("index {} is out of bounds for a List of length {}", i, m_len)
+            list_index_out_of_bounds(i, m_len)
         }
         return unsafe { &m_data[i] }
     }
@@ -460,7 +471,7 @@ impl<T> IndexMut<usize> for List<T> {
 
     fn index_mut(&mut self, i: usize) -> &mut T in self@items {
         if i >= m_len {
-            panic!("index {} is out of bounds for a List of length {}", i, m_len)
+            list_index_out_of_bounds(i, m_len)
         }
         return unsafe { &mut m_data[i] }
     }

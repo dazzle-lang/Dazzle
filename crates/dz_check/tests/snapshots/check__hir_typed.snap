@@ -2837,55 +2837,11 @@ body method List::swap -> void
           field #1: usize
             local _0 self: List<T>
       block
-        block-value: !
-          block
-            formatted: !
-              bind _3 arg·
-                ref: &usize
-                  local _1 i: usize
-              bind _4 arg·
-                ref: &usize
-                  local _2 j: usize
-              bind _5 arg·
-                ref: &usize
-                  field #1: usize
-                    local _0 self: List<T>
-              block
-                let _6 fmt·: Formatter
-                  call-assoc Formatter::message: Formatter
-                call-method Formatter::begin_arg: void
-                  local _6 fmt·: Formatter
-                  str "List::swap of ": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _3 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _6 fmt·: Formatter
-                call-method Formatter::begin_arg: void
-                  local _6 fmt·: Formatter
-                  str " and ": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _4 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _6 fmt·: Formatter
-                call-method Formatter::begin_arg: void
-                  local _6 fmt·: Formatter
-                  str " for a length of ": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _5 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _6 fmt·: Formatter
-                call-method Formatter::finish: void
-                  local _6 fmt·: Formatter
-                  str "": &str
-                builtin panic: !
-                  call-method Formatter::message_text: &str
-                    local _6 fmt·: Formatter
+        call list_swap_out_of_bounds: void
+          local _1 i: usize
+          local _2 j: usize
+          field #1: usize
+            local _0 self: List<T>
     if: void
       binary ==: bool
         local _1 i: usize
@@ -2894,7 +2850,7 @@ body method List::swap -> void
         return: !
     block-value: void
       block
-        let _7 held: T
+        let _3 held: T
           builtin move_out: T
             index: T
               field #0: own ^mut T
@@ -2916,7 +2872,7 @@ body method List::swap -> void
               local _0 self: List<T>
             local _2 j: usize
           move: T
-            local _7 held: T
+            local _3 held: T
 body method List::sort_by -> void
   param _0 self: List<T>
   param _1 before: fn(&T, &T) -> bool
@@ -3464,6 +3420,99 @@ body impl#17 method hash -> u64
                     local _2 i: usize
     return: !
       local _1 h: u64
+body fn list_index_out_of_bounds -> void
+  param _0 i: usize
+  param _1 len: usize
+  block
+    block-value: !
+      block
+        formatted: !
+          bind _2 arg·
+            ref: &usize
+              local _0 i: usize
+          bind _3 arg·
+            ref: &usize
+              local _1 len: usize
+          block
+            let _4 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::begin_arg: void
+              local _4 fmt·: Formatter
+              str "index ": &str
+              str "": &str
+            call-method Format::format: void
+              deref: usize
+                local _2 arg·: &usize
+              ref mut: &mut Formatter
+                local _4 fmt·: Formatter
+            call-method Formatter::begin_arg: void
+              local _4 fmt·: Formatter
+              str " is out of bounds for a List of length ": &str
+              str "": &str
+            call-method Format::format: void
+              deref: usize
+                local _3 arg·: &usize
+              ref mut: &mut Formatter
+                local _4 fmt·: Formatter
+            call-method Formatter::finish: void
+              local _4 fmt·: Formatter
+              str "": &str
+            builtin panic: !
+              call-method Formatter::message_text: &str
+                local _4 fmt·: Formatter
+body fn list_swap_out_of_bounds -> void
+  param _0 i: usize
+  param _1 j: usize
+  param _2 len: usize
+  block
+    block-value: !
+      block
+        formatted: !
+          bind _3 arg·
+            ref: &usize
+              local _0 i: usize
+          bind _4 arg·
+            ref: &usize
+              local _1 j: usize
+          bind _5 arg·
+            ref: &usize
+              local _2 len: usize
+          block
+            let _6 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::begin_arg: void
+              local _6 fmt·: Formatter
+              str "List::swap of ": &str
+              str "": &str
+            call-method Format::format: void
+              deref: usize
+                local _3 arg·: &usize
+              ref mut: &mut Formatter
+                local _6 fmt·: Formatter
+            call-method Formatter::begin_arg: void
+              local _6 fmt·: Formatter
+              str " and ": &str
+              str "": &str
+            call-method Format::format: void
+              deref: usize
+                local _4 arg·: &usize
+              ref mut: &mut Formatter
+                local _6 fmt·: Formatter
+            call-method Formatter::begin_arg: void
+              local _6 fmt·: Formatter
+              str " for a length of ": &str
+              str "": &str
+            call-method Format::format: void
+              deref: usize
+                local _5 arg·: &usize
+              ref mut: &mut Formatter
+                local _6 fmt·: Formatter
+            call-method Formatter::finish: void
+              local _6 fmt·: Formatter
+              str "": &str
+            builtin panic: !
+              call-method Formatter::message_text: &str
+                local _6 fmt·: Formatter
 body impl#18 method index -> &T
   param _0 self: List<T>
   param _1 i: usize
@@ -3474,43 +3523,10 @@ body impl#18 method index -> &T
         field #1: usize
           local _0 self: List<T>
       block
-        block-value: !
-          block
-            formatted: !
-              bind _2 arg·
-                ref: &usize
-                  local _1 i: usize
-              bind _3 arg·
-                ref: &usize
-                  field #1: usize
-                    local _0 self: List<T>
-              block
-                let _4 fmt·: Formatter
-                  call-assoc Formatter::message: Formatter
-                call-method Formatter::begin_arg: void
-                  local _4 fmt·: Formatter
-                  str "index ": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _2 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _4 fmt·: Formatter
-                call-method Formatter::begin_arg: void
-                  local _4 fmt·: Formatter
-                  str " is out of bounds for a List of length ": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _3 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _4 fmt·: Formatter
-                call-method Formatter::finish: void
-                  local _4 fmt·: Formatter
-                  str "": &str
-                builtin panic: !
-                  call-method Formatter::message_text: &str
-                    local _4 fmt·: Formatter
+        call list_index_out_of_bounds: void
+          local _1 i: usize
+          field #1: usize
+            local _0 self: List<T>
     return: !
       block-value: &T
         block
@@ -3543,43 +3559,10 @@ body impl#21 method index_mut -> &mut T
         field #1: usize
           local _0 self: List<T>
       block
-        block-value: !
-          block
-            formatted: !
-              bind _2 arg·
-                ref: &usize
-                  local _1 i: usize
-              bind _3 arg·
-                ref: &usize
-                  field #1: usize
-                    local _0 self: List<T>
-              block
-                let _4 fmt·: Formatter
-                  call-assoc Formatter::message: Formatter
-                call-method Formatter::begin_arg: void
-                  local _4 fmt·: Formatter
-                  str "index ": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _2 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _4 fmt·: Formatter
-                call-method Formatter::begin_arg: void
-                  local _4 fmt·: Formatter
-                  str " is out of bounds for a List of length ": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _3 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _4 fmt·: Formatter
-                call-method Formatter::finish: void
-                  local _4 fmt·: Formatter
-                  str "": &str
-                builtin panic: !
-                  call-method Formatter::message_text: &str
-                    local _4 fmt·: Formatter
+        call list_index_out_of_bounds: void
+          local _1 i: usize
+          field #1: usize
+            local _0 self: List<T>
     return: !
       block-value: &mut T
         block

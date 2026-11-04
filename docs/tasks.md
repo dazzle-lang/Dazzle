@@ -128,7 +128,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0097](tasks/T-0097-moving-union-through-fallible-result-costs.md)** Moving a union through a fallible result costs a construct, two moves and a drop at every step · feature, codegen
 - **[T-0101](tasks/T-0101-every-build-imports-stdlib-h-with.md)** Every build imports stdlib.h with libclang again: about 380 ms of each build · feature, tooling
 - **[T-0102](tasks/T-0102-standard-library-c-compiled-again-in.md)** The standard library's C++ is compiled again in every build · feature, tooling
-- **[T-0157](tasks/T-0157-astar-each-search-hash-maps-regrow.md)** "astar: each search's hash maps regrow about eleven times, and its Hash and Ord calls are not inlined" · feature, codegen
+- **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory 30-50% over C++ in astar and words: a region keeps every small block freed into it" · feature, ownership
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 

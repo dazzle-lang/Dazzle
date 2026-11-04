@@ -2,6 +2,19 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## `List`'s index checks inlined (T-0157; 2026-11-04)
+
+Library work, no language change. A gprof profile of `astar`'s release build showed that
+link-time optimisation already inlined `Hash` and `Ord`, but not `List::index_mut` (100
+million calls, 15%) or `List::swap` (32 million, 5%), called from the binary heap's sift
+loops. Each formatted its out-of-bounds panic in its own body, so a one-compare accessor
+was too large to inline. The panics moved into `list_index_out_of_bounds` and
+`list_swap_out_of_bounds`, and the three accessors now inline. `bench_programs.py`, nine
+alternating runs, Dazzle / C++: `astar` 0.84× on clang++ and 0.95× on g++, faster than its
+C++ half for the first time; `words` 1.11× and 1.07×; `expr` 1.40× and 1.27×. The machine
+was as noisy as the day before. `HashMap`'s regrowth was left: the C++ half regrows too, and
+it is now about 2% of `astar`. Peak memory, 50% over C++ in `astar`, is T-0164.
+
 ## Fewer moves through `or return`, and a union's move without a reset (T-0097; 2026-11-04)
 
 Compiler work, no language change. A gprof profile of `expr` had `Expr::become`, a union's
