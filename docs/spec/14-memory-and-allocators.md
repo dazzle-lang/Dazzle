@@ -364,8 +364,9 @@ let volume = setting.trim().parse_f32() or 1.0
 
 **Sorting.** `xs.sort()` orders a `List` of anything `Ord` by `<` — through the `Sort`
 trait — and `xs.sort_by(before)` by any strict order, a `fn(&T, &T) -> bool`; `xs.swap(i,
-j)` exchanges two elements. The sort is a heapsort: no allocation, `n log n` at worst, and
-not stable. `String` and `Path` are `Ord` by their bytes, which for UTF-8 is code-point
+j)` exchanges two elements. The sort is an introsort, as `std::sort` is: quicksort, with
+insertion sort for short runs and a heapsort once quicksort splits badly. It allocates
+nothing, is `n log n` at worst, and is not stable. `String` and `Path` are `Ord` by their bytes, which for UTF-8 is code-point
 order, not a language's alphabetical one. `[DECIDED — §18.70]`
 
 **`Random`** is one generator per thread, called through its type with no value to hold:

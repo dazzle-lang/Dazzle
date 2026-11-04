@@ -83,12 +83,15 @@ that make it hard. Its principles, in priority order:
    existing C or C++ library is used as it is, from its own source and headers.
 6. **Compile fast.**
 
-Dazzle checks memory without Rust's rules. Use after move, double free, and a reference used
-after a call moved or freed what it points into are compile-time errors. Yet a `&mut` and a
-`&` may point at the same value, and no struct carries a lifetime parameter. Raw pointers are
-read and written only inside `unsafe`, so every unchecked access can be found. Closing the
-holes that remain, so that safe code has no undefined behaviour on one thread, is an open
-decision ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)).
+**On one thread, a program with no `unsafe` has no undefined behaviour**, and Dazzle keeps
+that promise without Rust's rules. Use after move, double free, and a reference used after a
+call moved or freed what it points into are compile-time errors; every value is initialised,
+every index is checked, and arithmetic is defined. Yet a `&mut` and a `&` may point at the
+same value, and no struct carries a lifetime parameter. Raw pointers are read and written
+only inside `unsafe`, so every unchecked access can be found. The promise ends at `unsafe`,
+at the C and C++ a program calls, and at threads, which Dazzle does not have yet (spec
+[§1.1](docs/spec/01-design-principles.md#11-non-goals),
+[D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)).
 
 ### Where it fits
 
@@ -467,6 +470,12 @@ shp::shapes::translate(&mut moving, 1, 1)     // `Point&` is a `&mut Point`
 let pair = shp::IntPair(3, 9)                 // `[cpp.instantiate] "shapes::Pair<int>"`
 ```
 
+A library with a CMake build of its own, such as SDL3, is built by its CMake instead:
+the recipe names the folder with `cmake = "vendor/SDL"`. A function that takes only values
+is safe to call; one that can be handed a pointer is safe once the recipe vouches for the
+library with `keeps`, which lists the functions that keep a pointer past the call and stay
+`unsafe` (spec §15.1, §15.2).
+
 The generated code is plain C++17 with `#line` directives pointing back at your `.dz`
 files, so gdb, the Visual Studio debugger and profilers all show your source.
 
@@ -571,6 +580,7 @@ planned.
 | A current stable **Rust** toolchain | to build `dz` |
 | **clang++** or **g++** with C++17 | `dz` compiles the C++ it generates with it |
 | **libclang** (any recent LLVM) | to read C and C++ headers: a program's own, and `stdlib.h`, whose `malloc` the standard library takes its memory from |
+| **CMake** (only for some libraries) | to build a library whose recipe names its CMake project, such as SDL3 in `examples/sdl3` |
 
 ```bash
 git clone --recursive https://github.com/dazzle-lang/Dazzle.git
@@ -688,19 +698,20 @@ different C library, built from source and called with no bindings:
 
 | | |
 |---|---|
-| **Done** | lexer, parser, formatter · modules and visibility · type checker · C++ code generation · ownership · ties and `kills` clauses · borrowed views · generics and traits · C and C++ interop from source · tagged unions and `switch` · macros · reflection · `dz test` · `dz bench` and the C++ comparison suite · `dz fix` and `dz explain` · CI on three platforms |
+| **Done** | lexer, parser, formatter · modules and visibility · type checker · C++ code generation · ownership · ties and `kills` clauses · borrowed views · no undefined behaviour in safe code, on one thread ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)) · memory placed by the compiler, in regions by default · generics and traits · C and C++ interop from source, CMake builds included · tagged unions and `switch` · macros · reflection · `#[inline]` and link-time optimisation · `dz test` · `dz bench` and the C++ comparison suite · `dz fix` and `dz explain` · CI on three platforms, every test program also run under AddressSanitizer and UndefinedBehaviorSanitizer |
 | **Mostly done** | the language server and VS Code extension: still to come are incremental analysis and the remaining quick fixes |
-| **Now** | memory placed by the compiler, on in every build, and reaching more of it; closing the holes safe code still has ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)); and the standard library, whose criterion, a game written without any C++, is met: [`examples/breakout`](examples/breakout) |
+| **Now** | more tests of the safety rules, and the cases placement still leaves on the heap; then a game of ten thousand lines, to see how the rules hold at scale. Alongside: the standard library, whose criterion, a game written without any C++, is met: [`examples/breakout`](examples/breakout) |
 | **Later** | dependencies fetched from git, Dazzle packages and C libraries alike, pinned by a lockfile; hot reload; an installer that bundles libclang |
 
 The open work, milestone by milestone, is the backlog in [`docs/tasks.md`](docs/tasks.md).
 
 **How fast it is today:** three whole programs, each written idiomatically in both
-languages and built by the same compiler, take 1.1 to 2.1 times as long in Dazzle as in
-C++: A\* search 1.1–1.2×, a word count 1.2–1.3×, a parser and evaluator 1.7–2.1×. The
-[benchmarks page](https://dazzle-lang.github.io/project/benchmarks/) has every run and where
-the remaining gap comes from, each cause a task in the backlog;
-[`tests/bench_programs`](tests/bench_programs) has the programs.
+languages and built by the same compiler, take 0.77 to 1.17 times as long in Dazzle as in
+C++: A\* search 0.77–0.88×, with less peak memory than C++, a word count 0.91–1.02×, a
+parser and evaluator 1.07–1.17×. The
+[benchmarks page](https://dazzle-lang.github.io/project/benchmarks/) has every run and what
+is left; [`tests/bench_programs`](tests/bench_programs) has the programs, and
+[`RESULTS.md`](tests/bench_programs/RESULTS.md) the latest run.
 
 ## Documentation
 
