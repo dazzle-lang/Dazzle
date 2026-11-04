@@ -555,7 +555,10 @@ def run_case(exe, k):
     """Run one case: `report`, `panic`, `crash`, `timeout` or `clean`, and the telling line."""
     env = dict(os.environ, ASAN_OPTIONS="detect_leaks=0", UBSAN_OPTIONS="print_stacktrace=1")
     try:
-        r = subprocess.run([str(exe), str(k)], env=env, capture_output=True, text=True, timeout=30)
+        # A refused program built anyway may print bytes that are not text: a view read
+        # after `clear()` sees a dropped `String` that was never freed.
+        r = subprocess.run([str(exe), str(k)], env=env, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=30)
     except subprocess.TimeoutExpired:
         return "timeout", ""
     err = r.stderr
