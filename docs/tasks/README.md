@@ -52,7 +52,8 @@ proposed:
    T-0129, T-0126, T-0130, T-0135 and T-0136 are done (r108–r112, 2026-11-03), and so is
    §1.1's promise (T-0160, r113), with the hole found on the way (T-0163, statics dropped
    at exit); then its tests: the sanitizer job is done (T-0132), then T-0133 and T-0134;
-   and the placement gaps (T-0141, T-0142, T-0146, T-0147, T-0150).
+   and the placement gaps (T-0141, T-0142, T-0147, T-0150). T-0146 is done (2026-11-04):
+   a value that holds the one it replaces, a parser's tree, keeps its region.
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
    (T-0137).
 

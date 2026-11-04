@@ -26,9 +26,16 @@
 //!    its finding as the reason. It shares no rule with the proposer: it is the safety net
 //!    the prototype lacked, and a placement both accept is one the tie analysis can follow.
 //!
-//! Regions are per block and only `let` initialisers are proposed, so a placed allocation
-//! runs once per entry of its block: the loop rule (T-0117) holds by construction, and an
-//! assignment's value, `s = String(…)` in a loop, keeps the heap.
+//! Regions are per block, and a value is proposed for the block of the `let` that keeps it,
+//! so a placed allocation runs once per entry of its block: the loop rule (T-0117), which
+//! the check enforces.
+//!
+//! **A value assigned to a local** goes where the local lives, as a `let`'s does, and a
+//! tuple `let` is followed as a `let` of each part (T-0146). On every pass of a loop the
+//! local outlives, `s = String(…)` keeps the heap, since each pass drops the one before. The
+//! exception is a local that grows from itself ([`crate::storing::grown_by`]): every
+//! assignment holds what it replaces, `lhs = Binary{ lhs: Box(move(lhs)), … }`, so each
+//! pass's nodes stay held, and a parser's tree is built in the region of its statement.
 //!
 //! **A value stored into a container** goes where the container lives (T-0145): an
 //! argument a method stores into its receiver ([`crate::storing`]), when the receiver is a
@@ -135,6 +142,27 @@ pub(crate) fn boxes_argument(res: &Resolution, callee: &Callee) -> bool {
         Callee::Ctor { owner, .. } => {
             let s = res.symbol(*owner);
             s.name == "Box" && s.module == res.prelude
+        }
+        _ => false,
+    }
+}
+
+/// Whether `parent` holds `e`'s value as its own, so `e`'s memory lives where `parent`'s
+/// does: a `move`, an `or` (its operand or its fallback), a struct or union literal, a
+/// tuple, an array, and the value a `Box` is made of. The proposer and the region check
+/// climb the same chain.
+pub(crate) fn holds_part(body: &Body, res: &Resolution, parent: ExprId, e: ExprId) -> bool {
+    match &body.expr(parent).kind {
+        hir::ExprKind::Move(_)
+        | hir::ExprKind::StructLit { .. }
+        | hir::ExprKind::UnionVariant { .. }
+        | hir::ExprKind::Tuple(_)
+        | hir::ExprKind::ArrayLit(_) => true,
+        hir::ExprKind::Or { operand, clause } => {
+            *operand == e || matches!(clause, hir::OrClause::Value(v) if *v == e)
+        }
+        hir::ExprKind::Call { callee, args } => {
+            args.first() == Some(&e) && boxes_argument(res, callee)
         }
         _ => false,
     }
@@ -997,6 +1025,9 @@ enum Escape {
     /// part of it, never held by a `let` on the way; `kept` when the method keeps it on
     /// every call.
     Into { container: LocalId, direct: bool, kept: bool },
+    /// It is assigned to the whole of a local the body declares, which stays (T-0146): it
+    /// lives where that local does.
+    Held(LocalId),
     /// It leaves, and why and where.
     Leaves((String, Option<Span>)),
 }
@@ -1220,17 +1251,16 @@ impl<'a> Cx<'a> {
                         return Err((format!("kept as `{ty}`"), Some(local.span)));
                     }
                     let block = self.stmt_block.get(s).copied().unwrap_or(block);
-                    match self.escape_of(*x, 0) {
-                        Escape::Stays => Ok(Target::Block(block)),
-                        Escape::Returned => Ok(Target::Result),
-                        // Held by a `let` first, so not stored directly.
-                        Escape::Into { container, kept, .. } => {
-                            self.stored_target(container, block, false, kept)
-                        }
-                        Escape::Leaves(found) => Err(found),
-                    }
+                    self.kept_in(self.escape_of(*x, 0), block, top)
                 }
                 hir::StmtKind::Let { .. } => Err(("not kept by `let`".to_owned(), None)),
+                // `let (name, tree) = parser.statement() or …`: each part is a `let` of its
+                // own, and the tuple goes where they all do (T-0146).
+                hir::StmtKind::LetTuple { locals, init } if *init == top => {
+                    let block = self.stmt_block.get(s).copied().unwrap_or(block);
+                    let locals: Vec<LocalId> = locals.iter().flatten().copied().collect();
+                    self.kept_in(self.escape_of_all(&locals, 0), block, top)
+                }
                 hir::StmtKind::Assign { target, value, op, .. } if *value == top => {
                     // A constructor or a `copy` building a field of the value it makes:
                     // where that value is placed (round 3, T-0140).
@@ -1244,6 +1274,20 @@ impl<'a> Cx<'a> {
                         return Ok(Target::Result);
                     }
                     let name = place_name(self.res, self.body, Some(self.table), *target);
+                    // A whole local of the body: the value lives where the local does, as
+                    // a `let`'s would. On every pass of a loop the local outlives only when
+                    // the local grows from itself, so nothing a pass makes dies (T-0146).
+                    if let (Some(y), hir::AssignOp::Assign) = (self.assigned_local(*target), op) {
+                        let outer = self.declared_in(y).unwrap_or(self.body.root);
+                        let grows = crate::storing::grown_by(self.body, self.table, self.res, top)
+                            == Some(y);
+                        if grows || self.loop_between(block, outer) == Some(false) {
+                            return match self.escape_of(y, 1) {
+                                Escape::Stays => Ok(Target::Block(outer)),
+                                other => self.kept_in(other, block, top),
+                            };
+                        }
+                    }
                     let why = if self.in_loop(block) {
                         format!("assigned to `{name}` on every pass of a loop")
                     } else {
@@ -1305,9 +1349,51 @@ impl<'a> Cx<'a> {
             Escape::Into { container, direct, kept } => {
                 self.stored_target(container, block, direct, kept)
             }
+            Escape::Held(y) => self.held_target(y, block, e),
             Escape::Leaves(found) => Err(found),
             Escape::Stays => Err(("a temporary".to_owned(), None)),
         }
+    }
+
+    /// Where a value made in `block` and kept by a `let` goes, given what becomes of it:
+    /// `block`'s region when it stays there, the result placement when it is returned, a
+    /// container's or another local's place when it moves into one. `top` is the value.
+    fn kept_in(&self, escape: Escape, block: BlockId, top: ExprId) -> Proposal {
+        match escape {
+            Escape::Stays => Ok(Target::Block(block)),
+            Escape::Returned => Ok(Target::Result),
+            // Held by a `let` first, so not stored directly.
+            Escape::Into { container, kept, .. } => {
+                self.stored_target(container, block, false, kept)
+            }
+            Escape::Held(y) => self.held_target(y, block, top),
+            Escape::Leaves(found) => Err(found),
+        }
+    }
+
+    /// Where a value made in `block` goes when it ends up assigned to the local `y`
+    /// (T-0146): the region of `y`'s block, or of `block` when that one is further out. On
+    /// every pass of a loop `y` outlives, only when `y` grows from itself, holding each
+    /// pass's value in its next ([`crate::storing::grown_by`]); otherwise the value it
+    /// replaces would die with the region still growing.
+    fn held_target(&self, y: LocalId, block: BlockId, top: ExprId) -> Proposal {
+        let name = self.body.local(y).name.clone();
+        let Some(at) = self.declared_in(y) else {
+            return Err((format!("stored in `{name}`, which is not a `let` of this body"), None));
+        };
+        let region = if self.loop_between(block, at).is_some() {
+            at
+        } else if self.loop_between(at, block).is_some() {
+            block
+        } else {
+            return Err((format!("moved to `{name}`"), None));
+        };
+        if self.loop_between(block, region) == Some(true)
+            && crate::storing::grown_by(self.body, self.table, self.res, top) != Some(y)
+        {
+            return Err((format!("moved to `{name}` on every pass of a loop"), None));
+        }
+        Ok(Target::Block(region))
     }
 
     fn in_loop(&self, mut block: BlockId) -> bool {
@@ -1324,14 +1410,27 @@ impl<'a> Cx<'a> {
     /// order; else whether one returns it. `depth` bounds following one local into the
     /// next.
     fn escape_of(&self, x: LocalId, depth: u32) -> Escape {
+        self.escape_of_all(&[x], depth)
+    }
+
+    /// [`Self::escape_of`] for the locals a tuple `let` binds, which together hold the
+    /// tuple: where the first that leaves takes it, or else where they all go.
+    fn escape_of_all(&self, xs: &[LocalId], depth: u32) -> Escape {
         let mut uses: Vec<ExprId> = (0..self.body.exprs.len() as u32)
             .map(ExprId)
-            .filter(|e| matches!(self.body.expr(*e).kind, hir::ExprKind::Local(l) if l == x))
+            .filter(
+                |e| matches!(self.body.expr(*e).kind, hir::ExprKind::Local(l) if xs.contains(&l)),
+            )
             .collect();
         uses.sort_by_key(|e| (self.body.expr(*e).span.start, e.0));
         let mut returned = false;
         let mut into = None;
         for u in uses {
+            // Moved into the local's own next value, `lhs = Binary{ lhs: Box(move(lhs)), … }`:
+            // it stays where the local is (T-0146).
+            if self.held_by_itself(u) {
+                continue;
+            }
             match self.fate(u, depth) {
                 Escape::Stays => {}
                 Escape::Returned => returned = true,
@@ -1344,15 +1443,45 @@ impl<'a> Cx<'a> {
                     }
                     None => into = Some(Escape::Into { container, direct, kept }),
                 },
+                Escape::Held(y) => match into {
+                    Some(Escape::Held(z)) if z == y => {}
+                    Some(_) => {
+                        let span = Some(self.body.expr(u).span);
+                        return Escape::Leaves(("stored in two places".to_owned(), span));
+                    }
+                    None => into = Some(Escape::Held(y)),
+                },
                 Escape::Leaves(found) => return Escape::Leaves(found),
             }
         }
         match (returned, into) {
+            // Kept by a local on one path and returned on another: the result placement
+            // outlives the local.
+            (true, Some(Escape::Held(_))) => Escape::Returned,
             (true, Some(_)) => Escape::Leaves(("returned and stored".to_owned(), None)),
             (true, None) => Escape::Returned,
             (false, Some(into)) => into,
             (false, None) => Escape::Stays,
         }
+    }
+
+    /// Whether the use `u` of a local is held by the value assigned to that same local.
+    fn held_by_itself(&self, u: ExprId) -> bool {
+        let hir::ExprKind::Local(x) = self.body.expr(u).kind else { return false };
+        let top = self.holder(u);
+        let Some(Up::Stmt(s)) = self.up.get(&top) else { return false };
+        matches!(self.body.stmt(*s).kind,
+            hir::StmtKind::Assign { target, value, op: hir::AssignOp::Assign, .. }
+            if value == top && matches!(self.body.expr(target).kind, hir::ExprKind::Local(l) if l == x))
+    }
+
+    /// The local `target` is, when it is a whole local this body declares by value with a
+    /// `let`: what an assignment's value may be followed into, as a `let`'s is.
+    fn assigned_local(&self, target: ExprId) -> Option<LocalId> {
+        let hir::ExprKind::Local(y) = self.body.expr(target).kind else { return None };
+        let by_value =
+            !matches!(self.body.local(y).ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::OwnPtr { .. });
+        (by_value && self.declared_in(y).is_some()).then_some(y)
     }
 
     /// Where a value stored into `container` is proposed to go (T-0145): where the
@@ -1376,7 +1505,7 @@ impl<'a> Cx<'a> {
         let target = match self.escape_of(container, 0) {
             Escape::Stays => Target::Block(block),
             Escape::Returned => Target::Result,
-            Escape::Into { .. } => {
+            Escape::Into { .. } | Escape::Held(_) => {
                 return Err((format!("stored in `{name}`, which is stored in turn"), None))
             }
             Escape::Leaves((why, at)) => return Err((format!("stored in `{name}`: {why}"), at)),
@@ -1464,7 +1593,7 @@ impl<'a> Cx<'a> {
                         Escape::Leaves((why, at)) => {
                             return Some((format!("{why}, once taken out of"), at))
                         }
-                        Escape::Returned | Escape::Into { .. } => {
+                        Escape::Returned | Escape::Into { .. } | Escape::Held(_) => {
                             return Some(("moved on, once taken out of".to_owned(), span))
                         }
                     }
@@ -1536,20 +1665,7 @@ impl<'a> Cx<'a> {
 
     /// Whether `parent` holds `e`'s value as its own: what [`Self::holder`] climbs.
     fn holds(&self, parent: ExprId, e: ExprId) -> bool {
-        match &self.body.expr(parent).kind {
-            hir::ExprKind::Move(_)
-            | hir::ExprKind::StructLit { .. }
-            | hir::ExprKind::UnionVariant { .. }
-            | hir::ExprKind::Tuple(_)
-            | hir::ExprKind::ArrayLit(_) => true,
-            hir::ExprKind::Or { operand, clause } => {
-                *operand == e || matches!(clause, hir::OrClause::Value(v) if *v == e)
-            }
-            hir::ExprKind::Call { callee, args } => {
-                args.first() == Some(&e) && boxes_argument(self.res, callee)
-            }
-            _ => false,
-        }
+        holds_part(self.body, self.res, parent, e)
     }
 
     /// Whether `e` reads a place by value without moving it: for a copyable type, a copy.
@@ -1603,10 +1719,34 @@ impl<'a> Cx<'a> {
                             local.map_or("_".to_owned(), |l| self.body.local(l).name.clone());
                         leaves(format!("moved to `{name}`"), Some(stmt.span))
                     }
+                    // Each part goes to its own local, which holds it from here on (T-0146).
+                    hir::StmtKind::LetTuple { locals, init }
+                        if *init == e && !copy && depth < 8 =>
+                    {
+                        let locals: Vec<LocalId> = locals.iter().flatten().copied().collect();
+                        self.escape_of_all(&locals, depth + 1)
+                    }
                     hir::StmtKind::LetTuple { .. } => {
                         leaves("moved into a tuple".to_owned(), Some(stmt.span))
                     }
                     hir::StmtKind::Assign { target, .. } if *target == e => Escape::Stays,
+                    // Assigned to a local of the body, which holds it from here on as a
+                    // `let`'s would (T-0146).
+                    hir::StmtKind::Assign { target, value, op: hir::AssignOp::Assign, .. }
+                        if *value == e && !copy && depth < 8 =>
+                    {
+                        match self.assigned_local(*target) {
+                            Some(y) => match self.escape_of(y, depth + 1) {
+                                Escape::Stays => Escape::Held(y),
+                                other => other,
+                            },
+                            None => {
+                                let name =
+                                    place_name(self.res, self.body, Some(self.table), *target);
+                                leaves(format!("stored in `{name}`"), Some(stmt.span))
+                            }
+                        }
+                    }
                     hir::StmtKind::Assign { target, .. } => {
                         let name = place_name(self.res, self.body, Some(self.table), *target);
                         leaves(format!("stored in `{name}`"), Some(stmt.span))

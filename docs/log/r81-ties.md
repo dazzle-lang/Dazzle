@@ -6,6 +6,56 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0146: a value that holds the one it replaces keeps its region (2026-11-04)
+
+Compiler work; no program behaves differently, and §14.6 gains a bullet beside T-0145's.
+`expr`'s parser built every node on the heap, for two reasons: an assignment's value was
+never placed, and its statement loop's `let (name, tree) = parser.statement()` was a tuple
+`let`, which placement did not follow. Now every allocation in the parser is placed, and
+each statement's tree is built in the region of the statement loop's pass.
+
+- **The proposer** (`dz_flow/src/placement.rs`) follows a value assigned to a whole local
+  the body declares as it follows a `let`'s: a new `Escape::Held(local)` says where it
+  lives, and the region is that local's block, or the `let`'s when it is further out
+  (`held_target`). A tuple `let` is followed as a `let` of each part (`escape_of_all`). A
+  use of a local inside the value assigned to that same local stays where it is
+  (`held_by_itself`), so `lhs = Binary{ lhs: Box(move(lhs)), … }` does not count as leaving.
+  Struct, union, tuple and `Box` literals hold their parts the same way for both steps
+  (`holds_part`, moved out of the two copies).
+- **The loop rule's second exception** (`grown_by` in `dz_flow/src/storing.rs`, beside
+  T-0145's `keeps`): a value made on every pass may go into a region the loop outlives when
+  it is assigned to a local that grows from itself, or is a `let` moved into such an
+  assignment later in the same block with no `break` or `continue` between. A local grows
+  from itself when every assignment to it holds its old value through `move`, and nothing
+  else drops it or gives it away: no `&mut` lent, no `&mut self` method, no part assigned or
+  moved out, no `or`, by-value `if let` or consuming `for`, and a `move` of it only into its
+  own next value or a `return`. Like `keeps`, it bounds memory, not safety.
+- **The region check** (`grown_each_pass` in `ties/body.rs`) accepts the same sites, and
+  also asks that the local be declared outside every loop the region outlives. A tree built
+  in an inner loop and returned from inside an outer one is refused, since each outer pass
+  that does not return drops it.
+- **What else moved**: `s = String(…)` outside a loop is now in `s`'s region, and a list
+  moved to a local of an outer block is in that block's region. Both went to the heap before.
+
+What it bought, `expr` built by the compiler before and after, fifteen alternating runs:
+221 → 211 ms on clang++ and 216 → 204 ms on g++, about 5%, which is what hand-edited C++
+predicted. Against the C++ half (`RESULTS.md`): 1.33× on clang++ and 1.20× on g++, from
+1.40–1.50× and 1.22–1.33×. Peak memory is unchanged, 139–140 MiB: it is the program's text and tokens.
+
+Tests: `a_value_that_holds_the_one_it_replaces_keeps_its_region` in
+`dz_flow/tests/placement.rs` covers:
+- a tree returned and one kept;
+- one the loop also resets, and a pass that may skip the move in;
+- a tree each outer pass drops, and one returned from inside an outer loop;
+- a tuple `let`.
+
+`outer` moved from the wrong placements to the placed ones, and the skipped-drop test counts
+14 regions where it counted 13. `expr` gives the C++ half's checksum under ASan and UBSan.
+The crates' tests and the run suite on clang++ and g++ pass, except `every_example_builds`,
+whose graphical examples cannot build here (no X11, GL or ALSA headers). Those examples
+check and generate their C++. A garbled doc comment on `ExprKind::Break` (backspace
+characters where the backticks were) is fixed.
+
 ## T-0132: every program under the sanitizers in CI (2026-11-03)
 
 Tooling, no language change. The evidence for §1.1's promise is every program that runs,

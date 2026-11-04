@@ -512,10 +512,10 @@ pub enum ExprKind {
         clause: OrClause,
     },
     Return(Option<ExprId>),
-    /// reak, or reak outer naming a loop further out than the innermost, by that
-    /// loop's [LoopLabel::id] (spec §10.2).
+    /// `break`, or `break outer` naming a loop further out than the innermost, by that
+    /// loop's [`LoopLabel::id`] (spec §10.2).
     Break(Option<u32>),
-    /// continue, likewise.
+    /// `continue`, likewise.
     Continue(Option<u32>),
 
     /// `xs.len` on an array or slice (spec §5.3). A node of its own because it is not a

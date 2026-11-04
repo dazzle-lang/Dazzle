@@ -41,7 +41,8 @@ proposed:
    T-0129, T-0126, T-0130, T-0135 and T-0136 are done (r108–r112, 2026-11-03), and so is
    §1.1's promise (T-0160, r113), with the hole found on the way (T-0163, statics dropped
    at exit); then its tests: the sanitizer job is done (T-0132), then T-0133 and T-0134;
-   and the placement gaps (T-0141, T-0142, T-0146, T-0147, T-0150).
+   and the placement gaps (T-0141, T-0142, T-0147, T-0150). T-0146 is done (2026-11-04):
+   a value that holds the one it replaces, a parser's tree, keeps its region.
 5. A game of ten thousand lines (T-0138), before deciding how exact a clause must be
    (T-0137).
 
@@ -142,7 +143,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (33 open)
+## none — not scheduled (32 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -170,7 +171,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0139](tasks/T-0139-frame-regions-one-region-per-pass.md)** Frame regions: one region per pass of an update loop · design, ownership
 - **[T-0141](tasks/T-0141-virtual-override-methods-take-no-result.md)** `virtual` and `override` methods take no result placement · feature, ownership
 - **[T-0142](tasks/T-0142-by-value-parameter-placement-inferred-only.md)** A by-value parameter's placement is inferred only within its module · feature, ownership
-- **[T-0146](tasks/T-0146-value-rebuilt-on-each-pass-loop.md)** A value rebuilt on each pass of a loop, holding the one before, keeps the heap · feature, ownership
 - **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method or format!, or in a generic body · feature, ownership
 - **[T-0148](tasks/T-0148-say-in-source-that-drop-only.md)** Say in the source that a drop only frees, checked by the compiler · design, ownership
 - **[T-0150](tasks/T-0150-value-stored-into-container-lent-function.md)** A value stored into a container lent to a function keeps the heap · design, ownership

@@ -123,7 +123,7 @@ fn handed(store: &mut Store) kills store.saved {
     hoard(move(xs), store)
 }
 
-// Heap: moved to an outer local, which is placed itself.
+// Placed: moved to an outer local, which is placed itself, so in its region (T-0146).
 fn outer() -> usize {
     let mut kept = List<i32>()
     {
@@ -263,6 +263,7 @@ const PLACED: &[(&str, &[&str])] = &[
     ),
     ("nested", &["Path: region: an `if` in `nested`", "HashSet<i32>: region: a block in `nested`"]),
     ("give", &["List<i32>: region: `give`"]),
+    ("outer", &["List<i32>: region: `outer`", "List<i32>: region: `outer`"]),
 ];
 
 /// The wrong placements: the function, its site's index, and the proposer's reason.
@@ -270,7 +271,6 @@ const WRONG: &[(&str, usize, &str)] = &[
     ("keep", 0, "List<i32>: heap: stored in `store.saved`"),
     ("tag", 0, "String::from: heap: passed to `names.push`"),
     ("handed", 0, "List<i32>: heap: passed to `hoard`"),
-    ("outer", 1, "List<i32>: heap: stored in `kept`"),
     ("looped", 1, "String::from: heap: assigned to `s` on every pass of a loop"),
 ];
 
@@ -288,8 +288,6 @@ fn values_that_stay_in_their_scope_get_its_region() {
         assert_eq!(decisions(&a, &p, f), *expected, "in `{f}`");
         assert!(body(&a, &p, f).demoted().is_empty(), "the check refused a placement in `{f}`");
     }
-    // `outer` keeps its own list in its region; only the inner one, moved out, is heap.
-    assert_eq!(decisions(&a, &p, "outer")[0], "List<i32>: region: `outer`");
     // The region's block and where the placement is passed, as codegen reads them: the
     // hidden parameter past the last the callee writes.
     let lend = body(&a, &p, "lend");
@@ -744,9 +742,10 @@ fn the_region_check_alone_refuses_every_wrong_placement() {
         let site = sites(&a, &p, f)[*index];
         assert!(body(&a, &p, f).demoted().contains(&site.call), "`{f}`: refused by the check");
     }
-    // `rounds`' pushed string is right where the proposer puts it, the list's region, and
-    // wrong where everything is proposed, its own loop's: it is in `checked` above.
-    for (f, expected) in PLACED.iter().filter(|(f, _)| *f != "rounds") {
+    // `rounds`' pushed string, and `outer`'s inner list, are right where the proposer puts
+    // them, the region of the local that keeps them, and wrong where everything is
+    // proposed, their own block's: they are in `checked` above.
+    for (f, expected) in PLACED.iter().filter(|(f, _)| *f != "rounds" && *f != "outer") {
         assert_eq!(decisions(&a, &p, f), *expected, "in `{f}`");
     }
     for (f, expected) in FIXED {
@@ -1786,9 +1785,193 @@ fn main() {
         .iter()
         .filter(|s| matches!(s.decision, Decision::Region { .. }))
         .count();
-    assert_eq!(regions, 13, "{:?}", decisions(&a, p, "kept"));
+    assert_eq!(regions, 14, "{:?}", decisions(&a, p, "kept"));
     let labels: Vec<String> = sites(&a, p, "skipped").iter().map(|s| s.label()).collect();
     assert_eq!(labels[0], "region: `skipped`; drop skipped");
+}
+
+/// A local that grows from its own old value on every pass of a loop keeps everything each
+/// pass makes, so what it is built from goes where the local lives (T-0146): a parser's
+/// loop. A local the loop also resets, a pass that may end before its value is moved in,
+/// and a local each pass of an outer loop drops while the region outlives that loop, keep
+/// the heap. A tuple `let` is followed as a `let` of each part.
+#[test]
+fn a_value_that_holds_the_one_it_replaces_keeps_its_region() {
+    let a = analyse(
+        r#"
+union Tree {
+    Leaf { value: i32 }
+    Node { lhs: Box<Tree>, rhs: Box<Tree> }
+}
+
+fn leaf(v: i32) -> Tree {
+    return Tree::Leaf{ value: v }
+}
+
+fn size(t: &Tree) -> i32 {
+    return 1
+}
+
+fn grown(n: i32) -> Tree {
+    let mut t = leaf(0)
+    for i in 0..n {
+        let next = leaf(i)
+        t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(move(next)) }
+    }
+    return move(t)
+}
+
+fn counted(n: i32) -> i32 {
+    let mut t = leaf(0)
+    for i in 0..n {
+        let next = leaf(i)
+        t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(move(next)) }
+    }
+    return size(&t)
+}
+
+fn reset(n: i32) -> i32 {
+    let mut t = leaf(0)
+    for i in 0..n {
+        t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(leaf(i)) }
+        if i % 10 == 0 {
+            t = leaf(0)
+        }
+    }
+    return size(&t)
+}
+
+fn skipped(n: i32) -> i32 {
+    let mut t = leaf(0)
+    for i in 0..n {
+        let next = leaf(i)
+        if i == 3 {
+            continue
+        }
+        t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(move(next)) }
+    }
+    return size(&t)
+}
+
+fn per_round(n: i32) -> i32 {
+    let mut total = 0
+    for _ in 0..n {
+        let mut t = leaf(0)
+        for i in 0..n {
+            t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(leaf(i)) }
+        }
+        total += size(&t)
+    }
+    return total
+}
+
+fn first_big(n: i32) -> Tree {
+    for _ in 0..n {
+        let mut t = leaf(0)
+        for i in 0..n {
+            t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(leaf(i)) }
+        }
+        if size(&t) > 2 {
+            return move(t)
+        }
+    }
+    return leaf(0)
+}
+
+fn pair(n: i32) -> (i32, Tree) {
+    return (n, leaf(n))
+}
+
+fn tuples(n: i32) -> i32 {
+    let mut total = 0
+    for i in 0..n {
+        let (k, t) = pair(i)
+        total += k + size(&t)
+    }
+    return total
+}
+
+fn main() {
+    let t = grown(3)
+    let big = first_big(3)
+    println!("{} {} {} {} {} {} {}", size(&t), size(&big), counted(3), reset(3), skipped(3),
+        per_round(3), tuples(3))
+}
+"#,
+    );
+    let p = place(&a, Proposer::Rules);
+    let result = |f: &str, callee: &str| format!("{callee}: result: where `{f}`'s caller keeps it");
+    // Returned: every node goes where the caller keeps the tree.
+    assert_eq!(
+        decisions(&a, &p, "grown"),
+        [
+            result("grown", "leaf"),
+            result("grown", "leaf"),
+            result("grown", "Box<Tree>"),
+            result("grown", "Box<Tree>")
+        ]
+    );
+    // Kept: in the function's own region, through `next` as well.
+    assert_eq!(
+        decisions(&a, &p, "counted"),
+        [
+            "leaf: region: `counted`",
+            "leaf: region: `counted`",
+            "Box<Tree>: region: `counted`",
+            "Box<Tree>: region: `counted`"
+        ]
+    );
+    // Reset on some passes: what it held would die while the region grows.
+    let every_pass = "heap: assigned to `t` on every pass of a loop";
+    assert_eq!(
+        decisions(&a, &p, "reset"),
+        [
+            "leaf: region: `reset`".to_owned(),
+            format!("Box<Tree>: {every_pass}"),
+            format!("Box<Tree>: {every_pass}"),
+            format!("leaf: {every_pass}"),
+            format!("leaf: {every_pass}"),
+        ]
+    );
+    // A pass may end before `next` is moved in, dropping it; the nodes built are all kept.
+    assert_eq!(
+        decisions(&a, &p, "skipped"),
+        [
+            "leaf: region: `skipped`",
+            "leaf: heap: moved to `t` on every pass of a loop",
+            "Box<Tree>: region: `skipped`",
+            "Box<Tree>: region: `skipped`"
+        ]
+    );
+    // Declared in the outer loop: the region of its pass, which drops it.
+    let round = "region: each pass of a loop in `per_round`";
+    assert_eq!(
+        decisions(&a, &p, "per_round"),
+        [
+            format!("leaf: {round}"),
+            format!("Box<Tree>: {round}"),
+            format!("Box<Tree>: {round}"),
+            format!("leaf: {round}"),
+        ]
+    );
+    // Returned from inside the outer loop, whose passes drop the tree when it is not: the
+    // check refuses the caller's placement.
+    let refused = "heap: made on every pass of a loop";
+    assert_eq!(
+        decisions(&a, &p, "first_big"),
+        [
+            format!("leaf: {refused}"),
+            format!("Box<Tree>: {refused}"),
+            format!("Box<Tree>: {refused}"),
+            format!("leaf: {refused}"),
+            result("first_big", "leaf"),
+        ]
+    );
+    assert_eq!(body(&a, &p, "first_big").demoted().len(), 4);
+    assert_eq!(decisions(&a, &p, "tuples"), ["pair: region: each pass of a loop in `tuples`"]);
+    for f in ["grown", "counted", "skipped", "per_round", "tuples"] {
+        assert!(body(&a, &p, f).demoted().is_empty(), "the check refused a placement in `{f}`");
+    }
 }
 
 fn owner_module(owner: &BodyOwner, a: &Analysis) -> dz_project::ModuleId {

@@ -2,7 +2,7 @@
 id: T-0146
 title: A value rebuilt on each pass of a loop, holding the one before, keeps the heap
 milestone: none
-status: open
+status: done
 kind: feature
 area: ownership
 ---
@@ -14,9 +14,11 @@ half of: what hand-placed `Allocators::Temp` gave `expr`, and placement does not
 
 | Piece | Where |
 |---|---|
-| The proposer's loop rule, an assignment's value ("assigned to `lhs` on every pass of a loop") | `propose` (`StmtKind::Assign`) in `dz_flow/src/placement.rs` |
-| A tuple `let` ("moved into a tuple") | `fate` (`StmtKind::LetTuple`) in `dz_flow/src/placement.rs` |
-| The check's loop rule | `region_site`, `Refusal::EveryPass` in `dz_flow/src/ties/body.rs` |
+| An assignment's value and a tuple `let` followed: `Escape::Held`, `held_target`, `kept_in`, `escape_of_all`, `held_by_itself` | `propose` and `fate` in `dz_flow/src/placement.rs` |
+| What holds a part, shared by both steps | `holds_part` in `dz_flow/src/placement.rs` |
+| A local that grows from itself | `grown_by`, `grows_itself` in `dz_flow/src/storing.rs` |
+| The check's loop rule and its exception | `region_site`, `grown_each_pass` in `dz_flow/src/ties/body.rs` |
+| The test | `a_value_that_holds_the_one_it_replaces_keeps_its_region` in `dz_flow/tests/placement.rs` |
 | The program | `Parser::expr`, `term` and `main` in `tests/bench_programs/expr/src/main.dz` |
 
 **What it is.** A value assigned on every pass of a loop goes to the heap, even when it
@@ -53,3 +55,13 @@ moved into the new one, and the region check agreeing, as a value that holds wha
 replaces rather than a new one each pass; and a tuple `let` followed as a `let` of each
 part. Then `statement`'s tree would be built in the region of the statement loop's pass,
 which is what hand placement did. Compiler work (`docs/log/`).
+
+**Done** (2026-11-04). A value assigned to a local of the body is placed where that local
+lives, and a tuple `let` is followed as a `let` of each part. On every pass of a loop the
+local outlives, an assigned value goes there only when the local grows from itself: every
+assignment holds its old value through `move`, and nothing else drops it or gives it away.
+The check agrees when the local is declared outside every loop the region outlives. None of
+`expr`'s 21 allocations is on the heap now: 6 are in a region and 15 where the caller
+keeps the result, and each statement's tree is in the region of the statement loop's pass. `expr` built before and
+after, fifteen alternating runs: 221 → 211 ms on clang++, 216 → 204 ms on g++, about 5%.
+Peak memory is unchanged. Spec §14.6 has the rule; `docs/log/r81-ties.md` the detail.

@@ -574,6 +574,13 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
   loop, it goes there only when the container keeps everything it is given, so the region
   grows no faster than the container: a map does when each insert follows a lookup of the
   same key that found nothing, which replaces nothing. `[DECIDED — D-0091, T-0145, T-0149]`
+- **A value assigned to a local lives where the local lives**, as a `let`'s does, and so
+  does each part of a tuple `let`. Built on every pass of a loop the local outlives, it goes
+  there only when the local grows from itself: every assignment holds the value it
+  replaces, as `lhs = Expr::Binary{ lhs: Box(move(lhs)), rhs: Box(move(rhs)) }` does, and
+  nothing else drops or gives away what the local holds. Nothing a pass makes then dies
+  before the region does, so a parser's nodes go into the region of the statement they
+  belong to. `[DECIDED — D-0091, T-0146]`
 - **Every function that returns something owning memory** takes where its result goes,
   out of sight: free functions, methods, trait methods and function values alike. A function
   called from C or C++ returns on the heap.

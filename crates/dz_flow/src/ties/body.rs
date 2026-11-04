@@ -1614,21 +1614,7 @@ impl Analysis<'_> {
         // `format!`'s text is stored as the macro's value (T-0149).
         let mut top = crate::placement::formatted_by(body, call).unwrap_or(call);
         while let Some(&p) = parent.get(&top) {
-            let holds = match &body.expr(p).kind {
-                hir::ExprKind::Move(_)
-                | hir::ExprKind::StructLit { .. }
-                | hir::ExprKind::UnionVariant { .. }
-                | hir::ExprKind::Tuple(_)
-                | hir::ExprKind::ArrayLit(_) => true,
-                hir::ExprKind::Or { operand, clause } => {
-                    *operand == top || matches!(clause, hir::OrClause::Value(v) if *v == top)
-                }
-                hir::ExprKind::Call { callee, args } => {
-                    args.first() == Some(&top) && crate::placement::boxes_argument(self.res, callee)
-                }
-                _ => false,
-            };
-            if !holds {
+            if !crate::placement::holds_part(body, self.res, p, top) {
                 break;
             }
             top = p;
@@ -1644,6 +1630,33 @@ impl Analysis<'_> {
         }
         let Callee::Method { recv, .. } = callee else { return false };
         self.local_root(*recv).is_some_and(|l| crate::storing::keeps(body, self.table, self.res, l))
+    }
+
+    /// Whether the site `call`, in the region of the block at `frame`, may be made on every
+    /// pass of the loops that region outlives (T-0146): its value is kept by a local that
+    /// grows from itself ([`crate::storing::grown_by`]), declared outside each of those
+    /// loops, so it lives from one pass to the next and nothing a pass makes dies with it.
+    fn grown_each_pass(&self, call: ExprId, frame: usize) -> bool {
+        let Some(regions) = &self.regions else { return false };
+        let body = self.body;
+        let mut parent: HashMap<ExprId, ExprId> = HashMap::new();
+        for i in 0..body.exprs.len() as u32 {
+            for c in crate::storing::children(body, ExprId(i)) {
+                parent.insert(c, ExprId(i));
+            }
+        }
+        let mut top = call;
+        while let Some(&p) = parent.get(&top) {
+            if !crate::placement::holds_part(body, self.res, p, top) {
+                break;
+            }
+            top = p;
+        }
+        let Some(y) = crate::storing::grown_by(body, self.table, self.res, top) else {
+            return false;
+        };
+        let Some(&declared) = regions.frames.get(&y) else { return false };
+        self.loops.iter().filter(|l| frame < l.scope_depth).all(|l| declared < l.scope_depth)
     }
 
     /// `value`, computed by `e`, goes where the walk does not follow it: every region in it
@@ -1690,6 +1703,7 @@ impl Analysis<'_> {
             Some(frame) => {
                 if self.loops.last().is_some_and(|l| frame < l.scope_depth)
                     && !self.kept_each_pass(call)
+                    && !self.grown_each_pass(call, frame)
                 {
                     self.refuse(&[site], Refusal::EveryPass, span);
                 }

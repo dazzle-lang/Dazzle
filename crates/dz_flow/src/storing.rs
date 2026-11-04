@@ -739,3 +739,208 @@ pub(crate) fn owns(table: &TypeTable, ty: &Ty) -> bool {
         _ => table.needs_drop(ty),
     }
 }
+
+// --- a local that grows from itself (T-0146) ---------------------------------------------
+
+/// The local that keeps `top`'s value from one pass of a loop to the next by growing from
+/// itself (T-0146). `top` is the outermost value holding a site's
+/// ([`crate::placement::holds_part`]), and it is either the value assigned to a local `y`
+/// that also holds `y`'s old value, or a `let`'s value whose local is moved into such an
+/// assignment later in the same block, with no `break` or `continue` between, and is
+/// otherwise only borrowed. Nothing in `body` may drop what `y` holds ([`grows_itself`]).
+/// A parser's loop is the case:
+///
+/// ```dz
+/// let rhs = self.term() or return
+/// lhs = Expr::Binary{ op: op, lhs: Box<Expr>(move(lhs)), rhs: Box<Expr>(move(rhs)) }
+/// ```
+///
+/// Every node a pass makes is then still held by `lhs` when the pass ends, so a region the
+/// loop does not end grows only as `lhs` does, as [`keeps`] lets it grow with a container.
+/// Like `keeps`, this bounds memory and is not a safety rule: the region check still
+/// follows the value, and asks that `y` be declared outside every loop the region outlives.
+pub(crate) fn grown_by(
+    body: &Body,
+    table: &TypeTable,
+    res: &Resolution,
+    top: ExprId,
+) -> Option<LocalId> {
+    let walk = Walk::new(body);
+    let s = *walk.stmt.get(&top)?;
+    match body.stmt(s).kind {
+        hir::StmtKind::Assign { target, value, op: hir::AssignOp::Assign, .. } if value == top => {
+            let hir::ExprKind::Local(y) = body.expr(target).kind else { return None };
+            grows_itself(&walk, table, res, y).then_some(y)
+        }
+        hir::StmtKind::Let { local: Some(x), init: Some(init) } if init == top => {
+            let mut moved = None;
+            for u in uses(body, x) {
+                let p = *walk.parent.get(&u)?;
+                match body.expr(p).kind {
+                    hir::ExprKind::Ref { mutable: false, .. } => {}
+                    hir::ExprKind::Move(_) if moved.is_none() => moved = Some(p),
+                    _ => return None,
+                }
+            }
+            let held = holder_top(&walk, res, moved?);
+            let a = *walk.stmt.get(&held)?;
+            let hir::StmtKind::Assign { target, value, op: hir::AssignOp::Assign, .. } =
+                body.stmt(a).kind
+            else {
+                return None;
+            };
+            let hir::ExprKind::Local(y) = body.expr(target).kind else { return None };
+            if value != held || y == x || !grows_itself(&walk, table, res, y) {
+                return None;
+            }
+            let block = body.blocks.iter().find(|b| b.stmts.contains(&s))?;
+            let at = |t: StmtId| block.stmts.iter().position(|b| *b == t);
+            if at(a)? <= at(s)? {
+                return None;
+            }
+            // Nothing between them ends the pass while `x` still holds the value.
+            let (from, to) = (body.stmt(s).span.end, body.stmt(a).span.start);
+            let leaves = body.exprs.iter().any(|e| {
+                matches!(e.kind, hir::ExprKind::Break(_) | hir::ExprKind::Continue(_))
+                    && e.span.start >= from
+                    && e.span.end <= to
+            });
+            (!leaves).then_some(y)
+        }
+        _ => None,
+    }
+}
+
+/// Whether the local `y` only ever grows from itself: it is a `let` of the body, every
+/// assignment to it is a whole new value holding its old one through `move(y)`, there is
+/// at least one, and no other use drops or gives away what it holds. A borrow, a read, a
+/// copy, or a method whose receiver is not `&mut self` is fine, and so is `return move(y)`.
+/// A `&mut` lent, a part assigned or moved out, `y` moved anywhere else, or taken out by
+/// `or`, a by-value `if let` or a consuming `for`, is not.
+fn grows_itself(walk: &Walk, table: &TypeTable, res: &Resolution, y: LocalId) -> bool {
+    let body = walk.body;
+    let local = body.local(y);
+    if local.name == "self"
+        || body.params.contains(&y)
+        || matches!(local.ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::OwnPtr { .. })
+    {
+        return false;
+    }
+    let mut grows = false;
+    for u in uses(body, y) {
+        let mut top = u;
+        while let Some(&up) = walk.parent.get(&top) {
+            let place = matches!(body.expr(up).kind,
+                hir::ExprKind::Field { base, .. }
+                | hir::ExprKind::TupleIndex { base, .. }
+                | hir::ExprKind::Index { base, .. } if base == top);
+            if !place {
+                break;
+            }
+            top = up;
+        }
+        if let Some(&s) = walk.stmt.get(&top) {
+            match &body.stmt(s).kind {
+                hir::StmtKind::Assign { target, value, op, .. } if *target == top => {
+                    if top != u || *op != hir::AssignOp::Assign || !holds_old(walk, res, y, *value)
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+                hir::StmtKind::For { shape: hir::ForShape::Consuming, .. } => return false,
+                _ => continue,
+            }
+        }
+        let Some(&p) = walk.parent.get(&top) else { continue };
+        match &body.expr(p).kind {
+            hir::ExprKind::Move(_) => {
+                if top != u {
+                    return false;
+                }
+                let held = holder_top(walk, res, p);
+                if into_local(walk, held) == Some(y) {
+                    grows = true;
+                } else if !walk
+                    .parent
+                    .get(&held)
+                    .is_some_and(|r| matches!(body.expr(*r).kind, hir::ExprKind::Return(_)))
+                {
+                    return false;
+                }
+            }
+            hir::ExprKind::Ref { mutable: true, .. } => return false,
+            hir::ExprKind::Or { operand, .. } if *operand == top => return false,
+            hir::ExprKind::IfLet { operand, binding, .. }
+                if *operand == top && !matches!(body.local(*binding).ty, Ty::Ref { .. }) =>
+            {
+                return false
+            }
+            hir::ExprKind::Builtin { name, args } | hir::ExprKind::Intrinsic { name, args }
+                if args.first() == Some(&top)
+                    && matches!(name.as_str(), "construct" | "destroy" | "move_out") =>
+            {
+                return false
+            }
+            hir::ExprKind::Call {
+                callee:
+                    Callee::Method { recv, owner, name, .. }
+                    | Callee::BaseMethod { recv, owner, name, .. },
+                ..
+            } if *recv == top => {
+                let mutates = table
+                    .methods_sig(*owner)
+                    .and_then(|s| s.methods.get(name))
+                    .map_or(true, |sig| sig.takes_self == Some(true));
+                if mutates {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    grows
+}
+
+/// Whether `value`, assigned to `y`, holds `y`'s old value: a `move(y)` it holds.
+fn holds_old(walk: &Walk, res: &Resolution, y: LocalId, value: ExprId) -> bool {
+    uses(walk.body, y).into_iter().any(|u| {
+        walk.parent.get(&u).is_some_and(|m| {
+            matches!(walk.body.expr(*m).kind, hir::ExprKind::Move(_))
+                && holder_top(walk, res, *m) == value
+        })
+    })
+}
+
+/// The local `held` is assigned to whole, when it is an assignment's value.
+fn into_local(walk: &Walk, held: ExprId) -> Option<LocalId> {
+    let s = *walk.stmt.get(&held)?;
+    match walk.body.stmt(s).kind {
+        hir::StmtKind::Assign { target, value, op: hir::AssignOp::Assign, .. } if value == held => {
+            match walk.body.expr(target).kind {
+                hir::ExprKind::Local(l) => Some(l),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The outermost value holding `e`'s ([`crate::placement::holds_part`]).
+fn holder_top(walk: &Walk, res: &Resolution, mut e: ExprId) -> ExprId {
+    while let Some(&p) = walk.parent.get(&e) {
+        if !crate::placement::holds_part(walk.body, res, p, e) {
+            break;
+        }
+        e = p;
+    }
+    e
+}
+
+/// Every expression in `body` that names the local `x`.
+fn uses(body: &Body, x: LocalId) -> Vec<ExprId> {
+    (0..body.exprs.len() as u32)
+        .map(ExprId)
+        .filter(|e| matches!(body.expr(*e).kind, hir::ExprKind::Local(l) if l == x))
+        .collect()
+}
