@@ -1,0 +1,4 @@
+FIRST saw 1 item(s)
+SECOND holds 1 item(s), the first 7
+THIRD saw FIRST see 1
+COUNT 3

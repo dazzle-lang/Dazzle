@@ -51,8 +51,9 @@ Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, a
 - **Same compiler, same optimisation.** For each compiler, the Dazzle half is built by
   `dz build --release --cxx <compiler>`, and the C++ half by the same compiler with the same
   flags: `-std=c++17 -O2 -fno-exceptions -fno-rtti`. Dazzle's generated code also gets
-  `-fwrapv`, because integer arithmetic wraps in Dazzle (spec §5.1); that is Dazzle's cost
-  to carry, so the C++ does not get it. Without exceptions, C++ reports a failure as a value,
+  `-fwrapv`, because integer arithmetic wraps in Dazzle (spec §5.1), and
+  `-fno-finite-loops -fno-strict-aliasing`, which define two more things C++ leaves
+  undefined (§16.5); those are Dazzle's cost to carry, so the C++ does not get them. Without exceptions, C++ reports a failure as a value,
   as Dazzle does; `expr` has the small `Result` type a codebase built that way writes in place
   of C++23's `std::expected`.
 - **Timed from outside, as a user would.** Each run is a whole process, generation and

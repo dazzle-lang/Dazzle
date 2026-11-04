@@ -1,0 +1,51 @@
+// A union whose every payload is plain data is trivially copyable (spec §5.5), so `List`
+// moves it with `memmove` and copies it with `memcpy`. That is defined in C++ only for a
+// type C++ calls trivially copyable too, which the generated code asserts (T-0133). A union
+// carrying a struct with a constructor once had copy and move members of its own, and C++
+// disagreed; this one is built at its first variant's defaults, since a variant carrying
+// such a struct cannot be built yet (T-0041).
+
+struct Rect {
+    pub w: f32 = 3.0
+    pub h: f32 = 2.0
+
+    Rect(w: f32, h: f32) {
+        self.w = w
+        self.h = h
+    }
+}
+
+union Shape {
+    Rect
+    Dot { x: i32 }
+}
+
+fn area(s: &Shape) -> f32 {
+    return switch s {
+        case Dot {
+            0.0
+        }
+        case Rect(&r) {
+            r.w * r.h
+        }
+    }
+}
+
+fn main() {
+    let mut shapes = List<Shape>()
+    for i in 0..10 {
+        shapes.push(Shape::Dot{ x: i })
+        let blank: Shape
+        shapes.insert(0, blank)
+    }
+    shapes.remove(3)
+    let mut total: f32 = 0.0
+    for s in shapes.iter() {
+        total += area(&s)
+    }
+    println!("{} shapes, area {}, trivially copyable: {}", shapes.len(), total, Shape::is_trivially_copyable)
+    let copy = shapes[0]
+    println!("a copy's area {}", area(&copy))
+    let r = Rect(4.0, 5.0)
+    println!("a rect built by its constructor {}", r.w * r.h)
+}

@@ -1,0 +1,9 @@
+[module]
+name    = "static_order"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

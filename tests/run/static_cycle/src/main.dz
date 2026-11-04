@@ -1,0 +1,20 @@
+// A static whose value, while it is being built, reads the same static has no value to read:
+// the program panics, naming it, before `main`'s body runs (spec §7.7, T-0166).
+
+struct Loop {
+    pub n: usize
+
+    Loop() {
+        n = SELF_READ.l.n
+    }
+}
+
+struct Cyclic {
+    pub l: Loop = Loop()
+}
+
+static SELF_READ: Cyclic = Cyclic{}
+
+fn main() {
+    println!("never printed: {}", SELF_READ.l.n)
+}

@@ -255,6 +255,28 @@ fn headless_examples_are_clean_under_sanitizers() {
     }
 }
 
+/// The ties check against the sanitizers on programs no one wrote by hand (T-0134): a fixed
+/// seed of `tools/fuzz_ties.py`, so a change to the checker that accepts a program reaching
+/// freed memory, of a shape the generator writes, fails here. A fixed seed rather than a new
+/// one each run, so a failure belongs to the change that caused it; more seeds are run by
+/// hand. Needs Python 3, and a debug `dz`, which `cargo test` builds.
+#[test]
+#[ignore]
+fn ties_fuzzer_finds_no_hole_under_sanitizers() {
+    let cxx = std::env::var("DZ_CXX").ok().filter(|c| !c.is_empty()).unwrap_or("clang++".into());
+    let work = repo_root().join("target").join("fuzz_ties_ci");
+    let out = Command::new("python3")
+        .arg(repo_root().join("tools").join("fuzz_ties.py"))
+        .args(["--cases", "200", "--batch", "100", "--seed", "1", "--cxx", &cxx, "--dz", dz()])
+        .arg("--work")
+        .arg(&work)
+        .output()
+        .expect("failed to run python3 tools/fuzz_ties.py");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "the ties fuzzer found a hole\n{stdout}\n{stderr}");
+}
+
 /// `dz run` on `dir` with clang++ (or `DZ_CXX`) under AddressSanitizer and UBSan, failing
 /// on any report. `regions` is `DZ_REGIONS`: "1" for scope regions, "0" for the heap only.
 fn sanitized_run(what: &str, dir: &Path, regions: &str) -> std::process::Output {

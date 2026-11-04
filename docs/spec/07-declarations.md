@@ -520,9 +520,16 @@ static SCRATCH: TempArena = TempArena{}
 - **The type is written.** A static is storage that every user of it relies on, so it is
   never inferred from its initialiser.
 - **The initialiser is built from constants**: literals, `const`s, `null`, `none`, and
-  struct, array, tuple and variant literals of those (DZ0553). A static exists before `main`
-  runs, and C++ builds statics in different files in no promised order, so one static cannot
-  be allowed to run code that reads another. Anything more is filled in from `main`.
+  struct, array, tuple and variant literals of those (DZ0553). Anything more is filled in
+  from `main`.
+- **A static whose value takes code is built when the program starts, in a fixed order.** A
+  struct literal leaves fields to their defaults, and a default may call a constructor, which
+  may read another static. Every such static is built before `main`'s body runs: a module's
+  statics after those of the modules it uses, so a value can read what its module depends
+  on, and within a module in order of declaration. A static read before its turn, by a value
+  built ahead of it, is built where it is read; one read while it is being built has no value
+  to give, and the program panics, naming it. A static of constants alone exists before the
+  program runs and costs nothing to read. `[DECIDED — D-0094; T-0166]`
 - **Reading one and changing one are both safe, and checked as a parameter is** (§6.7). A
   static is one place for the whole program, so a reference into it dies when something
   kills what it points into, and a function that kills memory a static owns says so in its

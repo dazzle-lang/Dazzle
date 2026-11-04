@@ -2,13 +2,54 @@
 id: T-0133
 title: An audit of the generated C++ for undefined behaviour
 milestone: none
-status: open
+status: done
 kind: feature
 area: codegen
 ---
 
 Part of [D-0094](../decisions/D-0094-safe-code-has-no-undefined-behaviour.md)'s promise;
 the audit itself needs no decision, though a finding may.
+
+**Where the code is**
+
+| Piece | Where |
+|---|---|
+| The audit: each operation, what C++ leaves undefined, what rules it out | "What the generated C++ relies on" in `docs/testing.md` |
+| The flags (`-fwrapv`, `-fno-finite-loops`, `-fno-strict-aliasing`) | `compile` in `crates/dz/src/build.rs`; spec §16.5 |
+| Defined arithmetic | `num::div`, `rem`, `shl`, `shr`, `float_to_int` in `crates/dz_cpp/src/runtime.rs`; `defined_op` in `crates/dz_cpp/src/lib.rs` |
+| Trivially copyable, checked against C++ | `assert_trivially_copyable` and `union_decl` in `crates/dz_cpp/src/lib.rs` |
+| The shim's C library calls | `panic_len`, `file_read`, `text_parse_f64`, `process_env`, `write_stream` in `crates/dz_cpp/src/runtime.rs` |
+
+**Done** (2026-11-04). Every operation the emitter and the shim produce was listed against what
+C++ leaves undefined for it; the table is in `docs/testing.md`, and spec §16.5 points to it.
+Most were already ruled out (T-0128, T-0129, T-0132). What the audit found:
+
+- **A loop with no side effects was deleted.** `while x < 10 {}` with `x` never changing
+  returned past the loop at `-O2` on both clang++ and g++, since C++ lets an optimiser assume
+  such a loop ends. Fixed with `-fno-finite-loops`; §1.1 now says a loop runs as written.
+- **Strict aliasing.** `std`'s trusted bodies read memory as another type (the memory
+  tracker scans a value's bytes as `usize` words, and `TieGuard` reads a `T*` field as a
+  `const void*`). Fixed for them and for every `unsafe` block with `-fno-strict-aliasing`;
+  §10.6 says a reinterpreted pointer reads the bytes as the type it names. Neither flag moved
+  the whole-program benchmarks beyond their noise.
+- **A union Dazzle calls trivially copyable that C++ did not.** One carrying a struct with a
+  constructor had hand-written copy and move members, so `List`'s `memmove` of it was outside
+  C++'s object model. It now uses C++'s own, and the emitter asserts
+  `__is_trivially_copyable` for every type Dazzle calls trivially copyable, so the two
+  cannot drift apart unseen. The whole run corpus passes the assertion.
+- **The shim handed C a null pointer with a count of 0** (an empty `String`'s text) in
+  `panic_len`, `file_read`, `text_parse_f64`, `process_env` and `write_stream`. Each checks
+  the count now.
+- **A static's field default can run code before `main`** that reads a static C++ has not
+  built: [T-0166](T-0166-static-field-defaults-run-code-before.md), closed the same day by
+  building such statics from `main` in a fixed order (r116). On the way: [T-0167](T-0167-field-default-that-calls-free-function.md), a field
+  default calling a free function does not compile.
+- §10.6 also says what narrowing a signed integer and `f64 as f32` do, which C++17 leaves to
+  the compiler and every supported one defines.
+
+Checked and found sound: the suspects below about `switch` (the end of a function is a
+panic, and a `switch` used as a value starts from a default), C enums (the C boundary, and
+T-0048), and `offsetof` (supported by both compilers on what Dazzle emits).
 
 **What it is.** Every construct `dz_cpp` emits lands on C++, which leaves many inputs
 undefined. The review behind D-0094 found two such places by chance

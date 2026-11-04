@@ -1,0 +1,52 @@
+// A static whose value takes code to build is built from `main`, before its body, in order
+// of declaration, and one read before its turn is built where it is read (spec §7.7,
+// T-0166). `FIRST`'s field default builds a `Probe`, whose constructor writes to `SECOND`,
+// declared after it; C++ used to build `FIRST` before `main` and so read `SECOND` before
+// building it. A static of constants is still built by C++, with no code.
+
+struct Bag {
+    pub items: List<i32> = List<i32>()
+}
+
+struct Probe {
+    pub n: usize
+
+    // `unsafe`: a constructor cannot yet say what it kills (T-0122).
+    Probe() {
+        unsafe {
+            SECOND.items.push(7)
+        }
+        n = SECOND.items.len()
+    }
+}
+
+struct Holder {
+    pub p: Probe = Probe()
+}
+
+struct Witness {
+    pub n: usize
+
+    Witness() {
+        n = FIRST.p.n
+    }
+}
+
+struct Later {
+    pub w: Witness = Witness()
+}
+
+static FIRST: Holder = Holder{}
+
+static SECOND: Bag = Bag{}
+
+static THIRD: Later = Later{}
+
+static COUNT: i32 = 3
+
+fn main() {
+    println!("FIRST saw {} item(s)", FIRST.p.n)
+    println!("SECOND holds {} item(s), the first {}", SECOND.items.len(), SECOND.items[0])
+    println!("THIRD saw FIRST see {}", THIRD.w.n)
+    println!("COUNT {}", COUNT)
+}

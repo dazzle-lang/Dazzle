@@ -1,0 +1,9 @@
+[module]
+name    = "plain_unions"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

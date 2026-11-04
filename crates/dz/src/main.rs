@@ -701,13 +701,34 @@ fn analyse_for_build(
     options: &dz_driver::BuildOptions,
     cxx: Option<&str>,
 ) -> build::Analysis {
-    dz_driver::analyse_prepared(
+    let mut analysis = dz_driver::analyse_prepared(
         Path::new(entry),
         &|_| None,
         dz_driver::Mode::Build,
         options,
         &mut |ws, diags| native::build_cmake_libraries(ws, cxx, diags),
-    )
+    );
+    allow_for_fuzzing(&mut analysis.diags);
+    analysis
+}
+
+/// `DZ_FUZZ_ALLOW=DZ0413,DZ0420` lets those errors through as warnings, so that
+/// `tools/fuzz_ties.py` can build a program the ties check refused and see whether it really
+/// reaches freed memory: one that runs clean under the sanitizers is a refusal that cost
+/// freedom for nothing (T-0134). Only a debug build of `dz` reads it. A release build, which
+/// is what a user installs, ignores it, so nothing outside the compiler's own tests can turn
+/// a safety check off.
+fn allow_for_fuzzing(diags: &mut dz_diag::Diagnostics) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    let Ok(allowed) = std::env::var("DZ_FUZZ_ALLOW") else { return };
+    let allowed: Vec<&str> = allowed.split(',').map(str::trim).collect();
+    for d in diags.iter_mut() {
+        if d.severity == dz_diag::Severity::Error && d.code.is_some_and(|c| allowed.contains(&c)) {
+            d.severity = dz_diag::Severity::Warning;
+        }
+    }
 }
 
 /// `dz cpp`, `dz build` and `dz run` share everything up to where they stop.

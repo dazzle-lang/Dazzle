@@ -391,6 +391,51 @@ DZ_INLINE void drop_static(StaticCell<T>& cell) {
     (void)dying;
 }
 
+/// A static was read while its own value was being built (spec §7.7, T-0166).
+[[noreturn]] void static_read_while_built(const char* name);
+
+// The storage of a static whose value takes code to build: a field default that calls a
+// constructor (spec §7.7, T-0166). C++ would run that code before `main`, in an order it
+// does not promise across files, so it could read a static C++ had not built yet. Here
+// nothing runs before `main`: the cell starts empty, which C++ sets up with no code at all,
+// the generated `main` builds every such static first, in a fixed order, and a static read
+// before its turn is built where it is read. One read while it is being built is a cycle
+// and panics, naming the static (`Name`). `Make` returns the value, which C++17 builds in
+// place without a move.
+template <class T, T (*Make)(), const char* Name>
+struct BuiltStatic {
+    union {
+        char empty_;
+        T value;
+    };
+    uint8_t state;  // 0 not built, 1 being built, 2 built
+
+    constexpr BuiltStatic() : empty_(), state(0) {}
+    ~BuiltStatic() {}
+    BuiltStatic(const BuiltStatic&) = delete;
+    BuiltStatic& operator=(const BuiltStatic&) = delete;
+
+    DZ_INLINE T& get() {
+        if (state != 2) { build(); }
+        return value;
+    }
+    void build() {
+        if (state == 1) { static_read_while_built(Name); }
+        state = 1;
+        ::new (static_cast<void*>(&value)) T(Make());
+        state = 2;
+    }
+};
+
+// Drops a built static as a celled one is, if it was ever built.
+template <class T, T (*Make)(), const char* Name>
+DZ_INLINE void drop_static(BuiltStatic<T, Make, Name>& cell) {
+    if (cell.state == 2) {
+        T dying = take(cell.value);
+        (void)dying;
+    }
+}
+
 // --- raw memory (spec §14.3) ------------------------------------------------
 //
 // No allocation here: memory comes from `std`'s allocators, which reach the C heap through
@@ -895,9 +940,17 @@ void panic_bounds(size_t index, size_t length, SourceLocation where) {
 /// NUL-terminated string, so it cannot go through `panic` above.
 void panic_len(const uint8_t* message, size_t len, SourceLocation where) {
     fputs("panic: ", stderr);
-    fwrite(message, 1, len, stderr);
+    // An empty `String`'s text has a null pointer, and C leaves a null buffer undefined
+    // even for a count of 0 (C17 7.1.4), so no library call here takes one (T-0133).
+    if (len > 0) { fwrite(message, 1, len, stderr); }
     fputc('\n', stderr);
     write_location(where);
+    flush_all();
+    abort();
+}
+
+void static_read_while_built(const char* name) {
+    fprintf(stderr, "panic: `%s` was read while its own value was being built\n", name);
     flush_all();
     abort();
 }
@@ -1168,7 +1221,7 @@ void file_close(size_t handle) {
 size_t file_read(size_t handle, Slice<uint8_t> buf) {
     if (handle == 0) { g_last_error = IO_OTHER; return 0; }
     FILE* f = as_file(handle);
-    const size_t n = fread(buf.ptr, 1, buf.len, f);
+    const size_t n = buf.len == 0 ? 0 : fread(buf.ptr, 1, buf.len, f);
     if (n < buf.len && ferror(f)) {
         failed_errno();
         clearerr(f);
@@ -1428,7 +1481,7 @@ Opt<double> text_parse_f64(str text) {
     char small[128];
     char* buf = text.len < sizeof(small) ? small : static_cast<char*>(malloc(text.len + 1));
     if (buf == nullptr) { return Opt<double>(); }
-    memcpy(buf, text.ptr, text.len);
+    if (text.len > 0) { memcpy(buf, text.ptr, text.len); }
     buf[text.len] = 0;
     char* end = nullptr;
     const double v = strtod(buf, &end);
@@ -1517,7 +1570,7 @@ Opt<str> process_env(str name) {
     char small[256];
     char* buf = name.len < sizeof(small) ? small : static_cast<char*>(malloc(name.len + 1));
     if (buf == nullptr) { return Opt<str>(); }
-    memcpy(buf, name.ptr, name.len);
+    if (name.len > 0) { memcpy(buf, name.ptr, name.len); }
     buf[name.len] = 0;
     const char* value = getenv(buf);
     if (buf != small) { free(buf); }
@@ -1562,7 +1615,7 @@ void write_stream(int which, const char* p, size_t n) {
         if (w != nullptr && w != small) { free(w); }
     }
 #endif
-    fwrite(p, 1, n, f);
+    if (n > 0) { fwrite(p, 1, n, f); }
 }
 
 /// What a `Formatter` on standard output (`which` 0) or standard error (1) hands over,

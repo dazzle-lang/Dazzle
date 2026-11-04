@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 — **unreleased**, revision 114
+**Version:** 0.1 — **unreleased**, revision 116
 **Status:** M0–M8, M10, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle
 programs compile and run, own, move and drop their resources deterministically, have no
 undefined behaviour outside `unsafe` on one thread (§1.1), get their memory where the

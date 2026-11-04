@@ -256,8 +256,17 @@ pub fn compile(
     // arithmetic wraps in every build (spec §5.1, 18.63), where C++ leaves signed overflow
     // undefined and an optimiser is free to assume it never happens. Only for Dazzle's own
     // code; a vendored library keeps the semantics its authors wrote it against.
+    //
+    // Two more things C++ leaves undefined that safe Dazzle can reach (T-0133, D-0094).
+    // `-fno-finite-loops`: C++ lets the optimiser assume a loop with no side effects ends,
+    // and clang++ and g++ both deleted `while x < 10 {}` with `x` unchanged, returning past
+    // it; Dazzle runs the loop as written. `-fno-strict-aliasing`: a pointer cast inside
+    // `unsafe`, or in `std`'s trusted bodies, reads the bytes there as the type it names,
+    // rather than letting the optimiser assume two types never share memory. Neither moved
+    // the whole-program benchmarks beyond their noise.
     cmd.arg(format!("-std={}", module.build.cpp_standard))
         .args(["-fno-exceptions", "-fno-rtti", "-fwrapv", "-Wall", "-Wextra"])
+        .args(["-fno-finite-loops", "-fno-strict-aliasing"])
         .args(opt);
     // Every module's generated C++ is compiled in this one command, so it gets the flags of
     // everything the root reaches (spec §15.1).

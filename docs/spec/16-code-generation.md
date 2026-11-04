@@ -101,13 +101,25 @@ storage (§9.2); everything else formats through the standard library's `Format`
 The generated code is required to build cleanly with:
 
 ```
--std=c++17 -fno-exceptions -fno-rtti -fwrapv -Wall -Wextra
+-std=c++17 -fno-exceptions -fno-rtti -fwrapv -fno-finite-loops -fno-strict-aliasing -Wall -Wextra
 ```
 
 Nothing Dazzle emits may need exceptions or RTTI, because console and mobile targets
-routinely disable both. `-fwrapv` makes signed arithmetic wrap, as §5.1 requires; an 8- or
-16-bit result is also cast back to its own type, since C++ computes it as an `int`. A
-vendored C or C++ library is built without `-fwrapv`, with the semantics it was written for.
+routinely disable both. The other three flags define what C++ leaves undefined and safe
+Dazzle could otherwise reach (§1.1):
+
+- `-fwrapv` makes signed arithmetic wrap, as §5.1 requires; an 8- or 16-bit result is also
+  cast back to its own type, since C++ computes it as an `int`.
+- `-fno-finite-loops` runs a loop as written. C++ lets an optimiser assume that a loop with
+  no side effects ends, and both clang++ and g++ deleted `while x < 10 {}` with `x`
+  unchanged, carrying on past it.
+- `-fno-strict-aliasing` reads memory reached through a pointer cast (`unsafe`, §10.6) as
+  the type the pointer names, rather than letting the optimiser assume two types never
+  share memory.
+
+The flags need clang 12 or GCC 10. A vendored C or C++ library is built without them, with
+the semantics it was written for. What else the emitted C++ relies on, and how each case
+C++ leaves undefined is ruled out, is in the audit in `docs/testing.md`.
 
 An optimised build (`--release`, `--shipping`) adds `-flto=auto` to Dazzle's own code, so
 a call from one module into another can be inlined at link time; a vendored library keeps

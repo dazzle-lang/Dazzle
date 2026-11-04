@@ -1,0 +1,2 @@
+panic!
+panic: `static_cycle::SELF_READ` was read while its own value was being built

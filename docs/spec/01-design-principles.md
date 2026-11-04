@@ -39,7 +39,8 @@ The principles, in priority order. When two conflict, the earlier one wins.
   - reading or writing through a raw pointer, and turning an untied one into a reference,
     happen only inside `unsafe` (§5.2);
   - every value is initialised (§6.2), every index is checked in every build (§5.3),
-    arithmetic is defined (§5.1, §10.6), and `or unreachable` panics (§9.4);
+    arithmetic is defined (§5.1, §10.6), `or unreachable` panics (§9.4), and a loop runs
+    as written, even one with no side effects that never ends (§16.5);
   - a static is checked as a parameter is, and dropped at exit in an order a drop can rely
     on (§7.7);
   - a C or C++ function that can be handed a pointer is vouched for in its library's

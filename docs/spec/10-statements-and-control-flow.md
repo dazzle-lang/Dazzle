@@ -204,6 +204,14 @@ A float converted to an integer drops its fraction, toward zero. One outside the
 range **saturates**, at the type's `MIN` or `MAX`, and NaN becomes 0: `1e20 as i32` is
 `2147483647`, `(-1.5) as u8` is `0`. C++ leaves both undefined. `[DECIDED — D-0094 point 5]`
 
+An integer converted to a narrower one keeps its low bits, in two's complement: `300 as i8`
+is `44`, `-129 as i8` is `127`. C++17 leaves the signed case to the compiler, and every
+compiler Dazzle builds with does this, as C++20 requires. An `f64` too large for an `f32`
+becomes infinity, and NaN stays NaN, as IEEE 754 says; C++ compilers on IEEE hardware
+define it so. A pointer reinterpreted with `as` reads the memory there as the type it now
+names, whatever was stored (§16.5's `-fno-strict-aliasing`); that it is aligned for that
+type, and holds a valid value of it, is the `unsafe` block's to vouch for. (T-0133)
+
 `as` never invokes user code and never fails. Fallible conversions are library functions
 returning `T?`, or marked `!->` when they have something to say about the failure. `as`
 never fails, so there is deliberately no `as ref` for `^T` → `&T`; that conversion is an

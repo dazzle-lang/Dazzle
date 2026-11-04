@@ -6,6 +6,84 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r115, T-0133 and T-0134: the generated C++ audited, and the ties check fuzzed (2026-11-04)
+
+The two checks D-0094 asked for besides the sanitizer job, done together at the user's
+request.
+
+**T-0133, the audit.** Every operation `dz_cpp` emits and the runtime shim performs was
+listed against the inputs C++ leaves undefined, with what rules each out. The table is in
+`docs/testing.md`, "What the generated C++ relies on". Most rows were already covered
+(T-0128, T-0129, T-0132). It found:
+
+- **A loop with no side effects was deleted.** `while x < 10 {}` with `x` never changing, in
+  a `--release` build, printed the line after it on clang++ 19 and g++ 14: C++ lets an
+  optimiser assume such a loop ends. Every build now passes `-fno-finite-loops`, and §1.1
+  says a loop runs as written. That is r115, with the next item.
+- **Strict aliasing.** No safe code casts a pointer, but `std`'s trusted bodies read memory
+  as another type: the memory tracker scans a value's bytes as `usize` words, and `TieGuard`
+  reads a `T*` field as a `const void*`. Every build now passes `-fno-strict-aliasing`, which
+  also defines what a pointer cast in `unsafe` reads (§10.6). Two runs of the whole-program
+  benchmarks with and without both flags, on a busy machine, differed by less than their
+  noise.
+- **A union Dazzle calls trivially copyable that C++ did not.** One carrying a struct with a
+  constructor took the path with hand-written copy and move members, which made it
+  non-trivial to C++, while §5.5 calls it trivially copyable and `List` moves it with
+  `memmove`. Such a union now gets C++'s own copy, move and destructor
+  (`union_decl`). And every type Dazzle calls trivially copyable now gets
+  `static_assert(__is_trivially_copyable(T))` after its definition
+  (`assert_trivially_copyable`), so the two cannot drift apart unseen; the whole run corpus
+  and the feature matrix pass it. `tests/run/plain_unions` is the regression program.
+- **Null with a count of 0.** C leaves a null buffer undefined even when nothing is copied,
+  and an empty `String`'s text is null. `std`'s own copies already return early; the shim's
+  `panic_len`, `file_read`, `text_parse_f64`, `process_env` and `write_stream` now do too.
+- **A static's field default runs code before `main`.** DZ0553 checks a static's
+  initialiser as written, but not the defaults of the fields a struct literal leaves out,
+  and a default may call a constructor that reads another static C++ has not built. It needs
+  the user's choice between two fixes: T-0166. A field default that calls a free function of
+  its own module does not compile at all: T-0167.
+
+**T-0134, the fuzzer.** `tools/fuzz_ties.py` writes programs from fragments: a view into one of
+a list of ints, of long strings or of short ones (whose text lives in the `String`, D-0095),
+a `String`, a hash map, a `Box`, two `Rc`s to one list, a union's payload, two fields of a
+struct, a list of lists and a map of lists; taken directly, through a call returning one, by
+`if let`, `switch` or a `for` loop; then zero to three kills, of the same place or another,
+directly, through a helper, through two arguments, or by a call that also reads a view; then
+each view used once. Cases are batched one function each into one program, sorted by where
+`dz check`'s diagnostics land, re-checked after dropping any the generator got wrong (the
+ties check runs only on a program that type-checks), and run one process each under
+AddressSanitizer and UBSan with `DZ_REGIONS=0`, since a region keeps freed memory mapped.
+Every kill grows its container far enough to move it.
+
+A refused program is built anyway through `DZ_FUZZ_ALLOW`, which only a debug `dz` reads
+(`allow_for_fuzzing` in `dz/src/main.rs`): it demotes the listed codes to warnings, so a
+release `dz` has no way to switch a check off. CI runs seed 1 at 200 cases in the
+`sanitizers` job (`ties_fuzzer_finds_no_hole_under_sanitizers`, about 35 seconds).
+
+Run with seed 4 at 1,000 cases on g++ and seed 5 at 2,000 on clang++, it found **no hole**:
+all 1,889 accepted programs ran clean or panicked by design. Of 1,111 refused, 679 reached
+freed memory when built anyway. Most of the rest read memory that was never freed (after
+`clear()`, a union's change of variant, a long `String`'s text after the `String` moved),
+which the sanitizers cannot see; what is left is the cost of two rules, one kill named by
+two arguments and `nest[*]` for every element of a list of lists. T-0134 has the table.
+
+## r116, T-0166: statics that take code are built from `main` (2026-11-04)
+
+The user chose option B. A static is a `BuiltStatic` when its initialiser, with the defaults
+of the fields its literals leave out, contains anything but literals, constants, and
+aggregates and arithmetic on numbers (`static_runs_code`, conservative where unsure). Its
+storage is a union with a placeholder `char`, which C++ constant-initialises with no code,
+beside a state byte; `get()` builds the value in place from an `inline` function returning
+it (C++17 elides the move), and panics naming the static if called while it is being built.
+Each module's `dz_build_statics__` builds its own in declaration order; the root's
+`dz_build_all_statics__` calls them `std` first and every module after its dependencies,
+and the generated `main` and the test and bench harness call it after `process_start`, so a
+value may read the program's arguments. Drops are unchanged: a `BuiltStatic` with a `drop`
+joins the celled ones, and `drop_static` skips one never built. A static of constants alone
+is emitted as before, which keeps std's allocators, the tracker and `RANDOM` as cheap to
+read as they were. `tests/run/static_order` and `static_cycle` are the regression programs;
+the C++ snapshot gained the two hooks.
+
 ## r114, T-0156: a `String` keeps short text in place (2026-11-04)
 
 D-0095, decided by the user. The language change is in §6.7 and §14.2; what was built:

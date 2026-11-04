@@ -142,7 +142,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (32 open)
+## none — not scheduled (31 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -163,8 +163,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
 - **[T-0122](tasks/T-0122-constructor-cannot-declare-kills-clause.md)** A constructor cannot declare a kills clause · bug, ownership
-- **[T-0133](tasks/T-0133-audit-generated-c-for-undefined-behaviour.md)** An audit of the generated C++ for undefined behaviour · feature, codegen
-- **[T-0134](tasks/T-0134-fuzz-ties-checker-against-sanitizer.md)** Fuzz the ties checker against a sanitizer · feature, tooling
 - **[T-0137](tasks/T-0137-kills-clause-must-be-exact-so.md)** A `kills` clause must be exact, so a change in a body ripples up every caller · design, ownership
 - **[T-0138](tasks/T-0138-game-ten-thousand-lines-test-ties.md)** A game of ten thousand lines, to test ties and placement at scale · feature, language
 - **[T-0139](tasks/T-0139-frame-regions-one-region-per-pass.md)** Frame regions: one region per pass of an update loop · design, ownership
@@ -176,3 +174,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0159](tasks/T-0159-delete-allocators-global-allocators-temp-temparena.md)** "Delete Allocators::Global, Allocators::Temp and TempArena: nothing outside std names an allocator" · feature, stdlib
 - **[T-0161](tasks/T-0161-parser-binds-as-tighter-than-prefix.md)** The parser binds as tighter than prefix -, against §11.1's table · bug, language
 - **[T-0162](tasks/T-0162-entry-point-function-no-dazzle-code.md)** "#[entry_point]: a function no Dazzle code calls, which names no static's kills" · feature, ownership
+- **[T-0167](tasks/T-0167-field-default-that-calls-free-function.md)** A field default that calls a free function of its own module does not compile · bug, codegen

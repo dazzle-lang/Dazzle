@@ -39,8 +39,9 @@ SUITE = ROOT / "tests" / "bench_programs"
 
 # The flags `dz build` gives the generated C++ (crates/dz/src/build.rs), per mode. The C++
 # half gets the same optimisation, the same standard and the same -fno-exceptions
-# -fno-rtti. It does not get -fwrapv: wrapping integer arithmetic is a Dazzle rule
-# (spec §5.1) whose cost belongs to Dazzle's side of the comparison.
+# -fno-rtti. It does not get -fwrapv, -fno-finite-loops or -fno-strict-aliasing: what C++
+# leaves undefined and Dazzle defines (spec §5.1, §16.5) is a cost that belongs to
+# Dazzle's side of the comparison.
 MODES = {
     "release": ["-O2", "-flto=auto"],
     "shipping": ["-O3", "-DNDEBUG", "-flto=auto"],
@@ -308,7 +309,7 @@ def report(info, results, mode, runs):
         lines.append(f"- `{cxx}`: {version}")
     lines += [
         f"- Mode: `--{mode}`. C++ flags: `{flags}`; Dazzle's generated code gets the same "
-        "and `-fwrapv`.",
+        "and `-fwrapv -fno-finite-loops -fno-strict-aliasing`.",
         f"- Dazzle: commit {info['commit']}",
         f"- Load average before / after: {info['load_before']} / {info['load_after']}",
     ]
