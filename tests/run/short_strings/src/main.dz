@@ -1,0 +1,99 @@
+// `String` keeps text of up to 15 bytes inside itself and moves longer text to the heap
+// (spec §14.6, T-0156): every edit on either side of that line and across it, copies and
+// moves of each kind, a short string equal to and hashing like a long one, and a list of
+// strings that grows and sorts.
+
+fn show(label: &str, s: &String) {
+    println!("{} {} [{}]", label, s.len(), s.as_str())
+}
+
+fn grow() {
+    let mut s = String()
+    show("empty", &s)
+    let letters = String("abcdefghijklmnopqrst")
+    for c in letters {
+        s.push(c)
+        if s.len() == 15 || s.len() == 16 {
+            show("pushed", &s)
+        }
+    }
+    show("long", &s)
+    println!("room {}", s.capacity() >= 20)
+    s.truncate(5)
+    show("truncated", &s)
+    s.clear()
+    show("cleared", &s)
+    s.push_str("short again")
+    show("refilled", &s)
+}
+
+fn edits() {
+    let mut t = String("hello world")
+    t.insert_str(5, ", wide")
+    show("inserted", &t)
+    let gone = t.remove(5)
+    println!("removed [{}]", gone)
+    show("after remove", &t)
+    t.insert(0, 'é')
+    show("accented", &t)
+    while t.len() > 3 {
+        let _ = t.pop()
+    }
+    show("popped", &t)
+    let mut short = String("tiny")
+    short.insert_str(2, "-and-now-quite-long-")
+    show("short to long", &short)
+}
+
+fn copies() {
+    let mut long = String("a string longer than fifteen")
+    let copied = long
+    long.push_str("!")
+    show("original", &long)
+    show("copy", &copied)
+    let mut tiny = String("tiny")
+    let also = tiny
+    tiny.push('!')
+    show("tiny", &tiny)
+    show("its copy", &also)
+    let moved = move(long)
+    show("moved", &moved)
+}
+
+fn equality() {
+    let mut cut = String("abcdefghijklmnopq")
+    cut.truncate(3)
+    let built = String("abc")
+    println!("equal {} same hash {}", cut == built, cut.hash() == built.hash())
+    let mut reserved = String("keep")
+    reserved.reserve(100)
+    println!("reserved {} [{}]", reserved.capacity() >= 104, reserved.as_str())
+}
+
+fn containers() {
+    let mut words = List<String>()
+    for i in 0..200 {
+        let w = if i % 2 == 0 {
+            format!("w{}", 199 - i)
+        } else {
+            format!("a much longer word, number {}", i)
+        }
+        words.push(w)
+    }
+    words.sort()
+    println!("sorted {} first [{}] last [{}]", words.len(), words[0].as_str(), words[199].as_str())
+    let mut counts = HashMap<String, i32>()
+    for w in words {
+        counts.insert(w, 1)
+    }
+    let key = "w99"
+    println!("map {} has w99 {}", counts.len(), counts.contains_str(key))
+}
+
+fn main() {
+    grow()
+    edits()
+    copies()
+    equality()
+    containers()
+}

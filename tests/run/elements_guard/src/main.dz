@@ -1,4 +1,7 @@
-// With `check_trusted`, a debug build checks a trusted body keeps what its elements own`n// unless its clause kills `[*]` (spec §6.7, T-0116). `clear_wrong` frees every element's`n// text and says nothing, which the guard catches on the way out.
+// With `check_trusted`, a debug build checks a trusted body keeps what its elements own
+// unless its clause kills `[*]` (spec §6.7, T-0116). `clear_wrong` frees every element's
+// text and says nothing, which the guard catches on the way out. The names are longer than
+// a `String` keeps in place, so each owns a block on the heap for the guard to watch.
 struct Names {
     m_data: own ^mut String = null
     m_len:  usize = 0
@@ -43,8 +46,8 @@ struct Names {
 
 fn main() {
     let mut n = Names{}
-    n.add(String("ada"))
-    n.add(String("grace"))
+    n.add(String("ada lovelace, analyst"))
+    n.add(String("grace hopper, admiral"))
     println!("first {}", n.first_len())
     n.clear_wrong()
     println!("not reached")

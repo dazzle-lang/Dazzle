@@ -1,0 +1,65 @@
+// Spec §6.7, T-0156: a view reached from an element through no pointer's storage is inside
+// the element, so it dies with the array the element is in, as a field read through it
+// does. A `String` keeps short text in place, so growing, sorting or swapping a list of
+// them moves the text, and a view taken before is refused after. A method's reference to a
+// field of an element is the same. A view taken after the change, or used before it, is
+// fine.
+// expect: DZ0413, DZ0413, DZ0413, DZ0413
+
+struct Pair {
+    pub left: i32 = 0
+    pub right: i32 = 0
+
+    pub fn left_of(&self) -> &i32 in self {
+        return &left
+    }
+}
+
+fn use_str(s: &str) {}
+
+fn use_int(n: &i32) {}
+
+fn pushed(names: &mut List<String>) kills names@items {
+    let v = names[0].as_str()
+    names.push(String("b"))
+    use_str(v)
+}
+
+fn sorted(names: &mut List<String>) kills names@items {
+    let v = names[0].as_str()
+    names.sort()
+    use_str(v)
+}
+
+fn swapped(names: &mut List<String>) kills names@items {
+    let v = names[0].as_str()
+    names.swap(0, 1)
+    use_str(v)
+}
+
+fn field_of_element(pairs: &mut List<Pair>) kills pairs@items {
+    let l = pairs[0].left_of()
+    pairs.push(Pair{})
+    use_int(l)
+}
+
+fn fine(names: &mut List<String>) kills names@items {
+    let before = names[0].as_str()
+    use_str(before)
+    names.push(String("c"))
+    let after = names[0].as_str()
+    use_str(after)
+}
+
+fn main() {
+    let mut names = List<String>()
+    names.push(String("a"))
+    names.push(String("z"))
+    pushed(&mut names)
+    sorted(&mut names)
+    swapped(&mut names)
+    fine(&mut names)
+    let mut pairs = List<Pair>()
+    pairs.push(Pair{})
+    field_of_element(&mut pairs)
+}

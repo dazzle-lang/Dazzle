@@ -1,3 +1,3 @@
 panic!
 panic: `Names::clear_wrong` killed `self[*]`, which its clause does not name
-first 3
+first 21

@@ -1,17 +1,24 @@
-/// Owned, growable UTF-8 text, in memory from wherever the compiler places the string
-/// (spec §14.6).
+/// Owned, growable UTF-8 text (spec §14.6). Text of up to 15 bytes is kept inside the
+/// `String` itself, as `std::string` keeps it; longer text is in memory from wherever the
+/// compiler places the string.
 ///
 /// Its bytes are always followed by a zero, so `as_cstr()` hands a C function the text
 /// without a copy. Copying a `String` copies the text.
 pub struct String {
-    m_bytes: List<u8>
+    /// Short text and its zero, in place; or, for longer text, where it is (`[0]`) and how
+    /// many bytes there are room for there, the zero's included (`[1]`).
+    m_store: [2]usize = [0, 0]
+    /// The length in bytes, with its top bit set when the text is on the heap.
+    m_len: usize = 0
+    m_allocator: ^mut Allocator = Allocators::Global
 
-    /// The text: it moves when the string grows.
-    tie @text = m_bytes
+    /// The text. A short one is inside the string, so moving the string ends a view of it,
+    /// as growing it does, and so does moving the list it is in (spec §6.7, T-0156).
+    tie @text = m_store
 
     /// A copy of `s`.
     String(s: &str = "", loc: SourceLocation = #location) {
-        m_bytes = List<u8>(0, loc)
+        m_allocator = unsafe { #placement }
         self.push_str(s, loc)
     }
 
@@ -30,10 +37,7 @@ pub struct String {
     /// takes two to four; `char_count` counts characters.
     #[inline]
     pub fn len(&self) -> usize {
-        if m_bytes.len() == 0 {
-            return 0
-        }
-        return m_bytes.len() - 1
+        return m_len & (STRING_ON_HEAP - 1)
     }
 
     #[inline]
@@ -41,25 +45,27 @@ pub struct String {
         return self.len() == 0
     }
 
+    /// How many bytes it can hold before it next grows, not counting the zero.
+    #[inline]
     pub fn capacity(&self) -> usize {
-        return m_bytes.capacity()
+        if m_len >= STRING_ON_HEAP {
+            return m_store[1] - 1
+        }
+        return STRING_INLINE
     }
 
-    /// The text, borrowed. Valid until the `String` next changes or is dropped.
+    /// The text, borrowed. Valid until the `String` next changes, moves or is dropped.
     #[inline]
     pub fn as_str(&self) -> &str in self@text {
-        let bytes = m_bytes.as_slice()
-        return unsafe { bytes[0..self.len()] as &str }
+        let p = self.start()
+        return unsafe { p[0..self.len()] as &str }
     }
 
     /// The text as a C string, borrowed, for C and C++ functions that want one. Valid until
-    /// the `String` next changes or is dropped, which nothing checks: pass a `String`
+    /// the `String` next changes, moves or is dropped, which nothing checks: pass a `String`
     /// straight to a `cstr` parameter instead, and it converts for that call alone.
     pub fn as_cstr(&self) -> &cstr in self@text {
-        if m_bytes.len() == 0 {
-            return ""
-        }
-        return unsafe { m_bytes.as_slice().ptr as &cstr }
+        return unsafe { self.start() as &cstr }
     }
 
     /// Append `s`.
@@ -68,10 +74,13 @@ pub struct String {
         if s.len == 0 {
             return
         }
-        let _ = m_bytes.pop()
-        m_bytes.reserve(s.len + 1, loc)
-        m_bytes.extend(s as &[]u8)
-        m_bytes.push(0, loc)
+        let len = self.len()
+        if len + s.len > self.capacity() {
+            self.make_room(len + s.len, loc)
+        }
+        let p = self.start()
+        unsafe { memcpy(&mut p[len], (s as &[]u8).ptr, s.len) }
+        self.set_len(len + s.len)
     }
 
     /// Append one character, encoded as UTF-8.
@@ -80,13 +89,13 @@ pub struct String {
         let cp = c as u32
         if cp < 0x80 {
             // ASCII, the common case: one byte where the zero was, and a new zero after it.
-            let n = m_bytes.len()
-            if n == 0 {
-                m_bytes.push(cp as u8, loc)
-            } else {
-                m_bytes[n - 1] = cp as u8
+            let len = self.len()
+            if len == self.capacity() {
+                self.make_room(len + 1, loc)
             }
-            m_bytes.push(0, loc)
+            let p = self.start()
+            unsafe { p[len] = cp as u8 }
+            self.set_len(len + 1)
             return
         }
         self.push_encoded(c, loc)
@@ -109,11 +118,14 @@ pub struct String {
         if s.len == 0 {
             return
         }
-        if m_bytes.len() == 0 {
-            self.push_str(s, loc)
-            return
+        let len = self.len()
+        if len + s.len > self.capacity() {
+            self.make_room(len + s.len, loc)
         }
-        m_bytes.insert_slice(at, s as &[]u8)
+        let p = self.start()
+        unsafe { memmove(&mut p[at + s.len], &p[at], len - at) }
+        unsafe { memcpy(&mut p[at], (s as &[]u8).ptr, s.len) }
+        self.set_len(len + s.len)
     }
 
     /// Put one character in at byte `at`, encoded as UTF-8.
@@ -126,18 +138,21 @@ pub struct String {
     /// Take out the character starting at byte `at` and hand it back. Panics when `at` is
     /// not where a character starts.
     pub fn remove(&mut self, at: usize, loc: SourceLocation = #location) -> char kills self@text {
-        if at >= self.len() || !self.is_char_boundary(at) {
+        let len = self.len()
+        if at >= len || !self.is_char_boundary(at) {
             panic!("remove at byte {}, not the start of a character", at, loc)
         }
         let (c, width) = decode_utf8(self.as_str() as &[]u8, at)
-        m_bytes.remove_range(at, at + width)
+        let p = self.start()
+        unsafe { memmove(&mut p[at], &p[at + width], len - at - width) }
+        self.set_len(len - width)
         return c
     }
 
     /// Empty the text and keep the allocation.
     #[inline]
     pub fn clear(&mut self) kills self@text {
-        m_bytes.clear()
+        self.set_len(0)
     }
 
     /// The characters, decoded from UTF-8: `for c in name.chars()`, or `for c in name`.
@@ -199,13 +214,100 @@ pub struct String {
         if !self.is_char_boundary(len) {
             panic!("truncate at byte {}, inside a character", len, loc)
         }
-        m_bytes.truncate(len)
-        m_bytes.push(0, loc)
+        self.set_len(len)
     }
 
     /// Room for at least `additional` more bytes without growing again.
     pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) kills self@text {
-        m_bytes.reserve(additional + 1, loc)
+        let wanted = self.len() + additional
+        if wanted > self.capacity() {
+            self.make_room(wanted, loc)
+        }
+    }
+
+    /// Where the text starts: inside the string when it is short, else on the heap.
+    #[inline]
+    fn start(&self) -> ^mut u8 in self@text {
+        if m_len >= STRING_ON_HEAP {
+            return unsafe { m_store[0] as ^mut u8 }
+        }
+        let inside: ^usize = &m_store[0]
+        return unsafe { inside as ^mut u8 }
+    }
+
+    /// The text is `n` bytes long, with the zero after them, where it already is. Every
+    /// edit ends here, having changed the bytes under a view through `start()`, which the
+    /// ties check cannot see; `destroy` of a word, which does nothing, tells it (§6.7).
+    #[inline]
+    fn set_len(&mut self, n: usize) kills self@text {
+        unsafe { destroy(m_store[1]) }
+        let p = self.start()
+        unsafe { p[n] = 0 }
+        m_len = if m_len >= STRING_ON_HEAP {
+            n | STRING_ON_HEAP
+        } else {
+            n
+        }
+    }
+
+    /// Room for `n` bytes of text and the zero after them, on the heap, with the text moved
+    /// there: at least twice what there was, so a string built a byte at a time grows a
+    /// logarithmic number of times.
+    fn make_room(&mut self, n: usize, loc: SourceLocation) kills self@text {
+        // The text moves, and on the heap its old memory is freed: see `set_len`.
+        unsafe { destroy(m_store[1]) }
+        let a = unsafe { m_allocator or panic!("a String with no allocator cannot grow") }
+        let len = self.len()
+        let doubled = if m_len >= STRING_ON_HEAP {
+            m_store[1] * 2
+        } else {
+            (STRING_INLINE + 1) * 2
+        }
+        let room = if n + 1 > doubled {
+            n + 1
+        } else {
+            doubled
+        }
+        if m_len >= STRING_ON_HEAP {
+            // Bytes can move anywhere, so the allocator may resize the memory in place.
+            let old = unsafe { m_store[0] as ^mut u8 }
+            let moved = unsafe { a.realloc(old, m_store[1], room, 1, loc) }
+            m_store[0] = unsafe { moved as usize }
+        } else {
+            let fresh = unsafe { a.alloc(room, 1, loc) }
+            unsafe { memcpy(fresh, self.start(), len + 1) }
+            m_store[0] = unsafe { fresh as usize }
+        }
+        m_store[1] = room
+        m_len = len | STRING_ON_HEAP
+    }
+}
+
+/// Text this long or shorter is kept inside the `String`, before its zero: two machine words
+/// on a 64-bit target, so a short string allocates nothing (T-0156).
+const STRING_INLINE: usize = sizeof(usize) * 2 - 1
+
+/// The top bit of a `String`'s length, set when its text is on the heap. No text is that
+/// long.
+const STRING_ON_HEAP: usize = (1 as usize) << (sizeof(usize) * 8 - 1)
+
+/// Gives a long text's memory back; a short one is in the string.
+impl Drop for String {
+    fn drop(&mut self) {
+        if m_len < STRING_ON_HEAP {
+            return
+        }
+        let a = unsafe { m_allocator or return }
+        a.free(unsafe { m_store[0] as ^mut u8 }, m_store[1], 1)
+    }
+}
+
+/// A copy of the text, built wherever the compiler places the copy, never where the original
+/// is: the copy may outlive the original's region (§14.6).
+impl Copy for String {
+    fn copy(&mut self, other: &Self) {
+        m_allocator = unsafe { #placement }
+        self.push_str(other.as_str())
     }
 }
 

@@ -1158,10 +1158,45 @@ impl Analysis<'_> {
                                     continue;
                                 }
                                 let broad = !matches!(place.steps.last(), Some(Step::Storage));
+                                let target =
+                                    logical_result(signature, &scope, &bindings, path, place);
+                                // A tie reached through no pointer's storage is memory inside
+                                // the input itself, a short `String`'s text say (T-0156). When
+                                // the input lives in another value's storage, an element of a
+                                // list, the view dies with that storage too, as a field read
+                                // through the element would (`Origin::field`): growing or
+                                // sorting the list moves the element and what is inside it.
+                                let bound = bindings
+                                    .receiver
+                                    .iter()
+                                    .chain(bindings.params.iter().flatten())
+                                    .collect::<Vec<_>>();
+                                let holders: Vec<Place> = receiver
+                                    .iter()
+                                    .chain(params.iter().flatten())
+                                    .filter(|o| {
+                                        o.tie != o.target
+                                            && bound.contains(&&o.target)
+                                            && o.target.covers(place)
+                                            && !place.steps[o.target.steps.len()..]
+                                                .contains(&Step::Storage)
+                                    })
+                                    .map(|o| o.tie.clone())
+                                    .collect();
+                                for holder in holders {
+                                    let inside = Origin {
+                                        target: target.clone(),
+                                        tie: holder,
+                                        broad: false,
+                                        payload: None,
+                                        dead: None,
+                                    };
+                                    if !value.views.contains(&inside) {
+                                        value.views.push(inside);
+                                    }
+                                }
                                 let origin = Origin {
-                                    target: logical_result(
-                                        signature, &scope, &bindings, path, place,
-                                    ),
+                                    target,
                                     tie: place.clone(),
                                     broad,
                                     payload: None,

@@ -140,7 +140,10 @@ elements `Hash`, so a list can key a map. `[DECIDED — D-0081]`
 `reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
 `as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
 compares text, and a copy copies it. `format!("…", args)` builds one from a format string
-(§12.9).
+(§12.9). **Text of up to 15 bytes is kept inside the `String`**, allocating nothing, as
+`std::string` keeps it; longer text is where the compiler places the string (§14.6). Short
+text moves with its `String`, so a view of it dies when the string moves, and when a list
+holding it grows, sorts or swaps (§6.7). `[DECIDED — D-0095]`
 
 **`HashMap<K: Hash + Eq, V>`** maps keys to values, in `std`. `HashMap<K, V>()` is
 empty and allocates nothing; `HashMap<K, V>(capacity)` has room for `capacity` entries.

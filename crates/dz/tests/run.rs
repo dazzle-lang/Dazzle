@@ -2062,7 +2062,7 @@ fn a_c_array_member_is_indexed_not_copied() {
 /// warning-clean on both compilers (invariant 7).
 #[test]
 fn type_info_none_refuses_reflection_and_all_describes_everything() {
-    let source = "struct Probe {\n    pub a: i32 = 0\n}\n\n\
+    let source = "struct Probe {\n    pub a: i32 = 0\n    pub bytes: List<u8>\n}\n\n\
                   struct Holder<T> {\n    pub item: T\n}\n\n\
                   union Shape {\n    Circle { radius: f32 }\n    Dot {}\n}\n\n\
                   fn main() {\n    println!(\"{}\", typeinfo_of<Probe>().name)\n    \

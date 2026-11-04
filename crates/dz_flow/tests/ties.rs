@@ -1338,13 +1338,13 @@ fn separate(a: &mut List<i32>, b: &mut List<i32>) kills b@items {
 }
 "#,
     );
-    for name in ["counting", "appended", "slot", "cleared_text"] {
+    // `element_text`: `push` moves the array, and a short string's bytes are inside the
+    // element, so they move with it (§6.7, T-0156).
+    for name in ["counting", "appended", "slot", "element_text", "cleared_text"] {
         let a = fixture.analysis(name);
         assert_eq!(a.invalid_uses.len(), 1, "{name}: {a:#?}");
         assert!(a.mismatches.is_empty(), "{name}: {a:#?}");
     }
-    // `push` moves the array, not each string's bytes (§6.7).
-    clean(&fixture.analysis("element_text"));
     clean(&fixture.analysis("separate"));
 }
 

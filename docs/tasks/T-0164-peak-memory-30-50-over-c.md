@@ -44,5 +44,6 @@ Left, each a library design question:
   probing to stay fast there: a control byte per slot probed in groups, as SwissTable does,
   or Robin Hood ordering. The old arrays alive during growth are the cost of open
   addressing, against `std::unordered_map`'s node per entry.
-- **`words`: probably each short word's own allocation**, which `std::string` keeps inside
-  itself ([T-0156](T-0156-string-always-allocates-short-text-kept.md)). Not yet measured.
+- **`words`: each short word's own allocation** was 2 MiB of it: with
+  [T-0156](T-0156-string-always-allocates-short-text-kept.md) done, `words` peaks at 37.9
+  MiB against 32.3. What is left is the map's layout, as for `astar`.

@@ -1,0 +1,23 @@
+empty 0 []
+pushed 15 [abcdefghijklmno]
+pushed 16 [abcdefghijklmnop]
+long 20 [abcdefghijklmnopqrst]
+room true
+truncated 5 [abcde]
+cleared 0 []
+refilled 11 [short again]
+inserted 17 [hello, wide world]
+removed [,]
+after remove 16 [hello wide world]
+accented 18 [éhello wide world]
+popped 3 [éh]
+short to long 24 [ti-and-now-quite-long-ny]
+original 29 [a string longer than fifteen!]
+copy 28 [a string longer than fifteen]
+tiny 5 [tiny!]
+its copy 4 [tiny]
+moved 29 [a string longer than fifteen!]
+equal true same hash true
+reserved true [keep]
+sorted 200 first [a much longer word, number 1] last [w99]
+map 200 has w99 true

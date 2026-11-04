@@ -655,6 +655,12 @@ pub fn ties(scope: &Scope<'_>, place: &Place, root: &Ty) -> Vec<Place> {
     for (i, step) in place.steps.iter().enumerate() {
         ty = match (ty, step) {
             (Some(t), Step::Field(name)) => match field(scope, &t, name) {
+                // Plain bytes a tie names, a short `String`'s text: memory named whole, so
+                // a kill anywhere in it is a kill of it (T-0156).
+                Some(next) if tied_bytes(scope, &t, name, &next) => {
+                    let held = Place { local: place.local, steps: place.steps[..=i].to_vec() };
+                    return vec![canonical_place(scope.table, scope.res, root, &held)];
+                }
                 Some(next) => Some(next),
                 // A field its type does not have, reached through a cast (a `^mut void`
                 // read as a struct): no path can name it, so what holds it is the tie,
@@ -677,6 +683,26 @@ pub fn ties(scope: &Scope<'_>, place: &Place, root: &Ty) -> Vec<Place> {
     // A field read through another type's tie is that tie: a `SlotMap`'s three lists are
     // its one `@items`.
     out.iter().map(|p| canonical_place(scope.table, scope.res, root, p)).collect()
+}
+
+/// Whether field `name` of `owner`, of type `ty`, is plain bytes a tie names: the value's
+/// own memory, which a clause can name though it owns nothing, as a short `String` keeps
+/// its text in place (T-0156). A tied field that is a pointer names what it points at, and
+/// one that is a view or owns memory names that.
+fn tied_bytes(scope: &Scope<'_>, owner: &Ty, name: &str, ty: &Ty) -> bool {
+    let Ty::Named { sym, .. } = owner.peeled() else { return false };
+    let Some(s) = scope.table.struct_sig(*sym) else { return false };
+    s.fields.iter().any(|f| f.name == name && f.tie.is_some()) && plain_bytes(ty)
+}
+
+/// Whether `ty` is plain data: numbers, or an array of them, holding no pointer or view
+/// and owning nothing.
+fn plain_bytes(ty: &Ty) -> bool {
+    match ty {
+        Ty::Array { elem, .. } => plain_bytes(elem),
+        Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char => true,
+        _ => false,
+    }
 }
 
 fn collect_ties(scope: &Scope<'_>, place: &Place, ty: &Ty, out: &mut Vec<Place>, depth: usize) {
@@ -724,6 +750,7 @@ fn collect_ties(scope: &Scope<'_>, place: &Place, ty: &Ty, out: &mut Vec<Place>,
                         }
                         // An untied pointer is unchecked (§6.7).
                         Ty::Ptr { .. } | Ty::OwnPtr { .. } => {}
+                        t if f.tie.is_some() && plain_bytes(&t) => out.push(at),
                         t => collect_ties(scope, &at, &t, out, depth + 1),
                     }
                 }

@@ -233,7 +233,8 @@ its ties among its members, `tie @name = path, …`, saying what memory of its o
 stands for. The paths start at the struct's fields, private ones included: a tie is a public
 name for that private memory, so a signature can mention it without exposing a field (§4).
 A path ending at a pointer field names the memory the pointer owns; one ending anywhere else
-names everything there.
+names everything there. A tie naming plain data, numbers or an array of them, names those
+bytes themselves, inside the value: a short `String`'s text.
 
 ```dz
 pub struct List<T> {
@@ -243,8 +244,9 @@ pub struct List<T> {
     tie [*] = m_data[*]        // the elements in it
 }
 pub struct String {
-    m_bytes: List<u8>
-    tie @text = m_bytes
+    m_store: [2]usize = [0, 0]   // short text in place, or where long text is
+    ...
+    tie @text = m_store
 }
 pub struct HashSet<T> {
     m_map: HashMap<T, bool>
@@ -284,8 +286,13 @@ every tie under it.
 | `list[*]` | everything every element owns |
 | `list` | everything the list owns |
 
-`list@items` and `list[*]@text` are separate: moving the array of strings leaves each
-string's bytes where they are, so a view into one element survives pushing another.
+`list@items` and `list[*]@text` are separate places, but **a view inside an element dies with
+the array**: what a path reaches from an element through no pointer's storage is in the
+element's own bytes, which move when the array does. A `String` keeps text of up to 15 bytes
+in place (§14.2), so `list[i].as_str()` dies when the list grows, sorts or swaps, as
+`&list[i].name` does, and so does a method's reference into an element, `list[i].left_of()`.
+What an element owns behind a pointer stays where it is: a view into one inner list of a
+`List<List<i32>>` survives pushing another.
 
 `[*]` names the elements of what a `for` can walk: an array, a slice, or a type with an
 `Index<usize>` or an `Iterable` implementation. Through `Index` the elements have a type, so a

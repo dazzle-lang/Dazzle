@@ -93,8 +93,8 @@ fn definition_of_a_std_name_is_its_declaration_in_std() {
     let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/containers"));
     // And from inside the standard library, once a file of it is open — across its files.
     let string = ide::embedded_file(&a, "<std>/text/string.dz").expect("std was parsed");
-    let i = info(&a, string, "m_bytes: List<u8>", 9);
-    assert_eq!(definition_text(&a, &i).1, "List");
+    let i = info(&a, string, "m_allocator: ^mut Allocator", 18);
+    assert_eq!(definition_text(&a, &i).1, "Allocator");
 }
 
 /// The math leads into its own files too (spec §14.4): the type, a method on it, and a method

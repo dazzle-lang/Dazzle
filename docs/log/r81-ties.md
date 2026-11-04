@@ -6,6 +6,45 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r114, T-0156: a `String` keeps short text in place (2026-11-04)
+
+D-0095, decided by the user. The language change is in §6.7 and §14.2; what was built:
+
+- **`String`** (`std/text/string.dz`) is two machine words, `m_store`, the length and the
+  allocator: 32 bytes, as before. Text of up to 15 bytes and its zero are in `m_store`;
+  longer text is on the heap or in a region, with `m_store` holding where and how much room,
+  and the length's top bit saying which. It no longer wraps a `List<u8>`, so it has its own
+  `Drop`, which frees only long text and still only frees (T-0118's skipped drops hold),
+  and its own `Copy`, which builds where the copy is placed. Every edit ends in `set_len` or
+  grows through `make_room`, and `unsafe { destroy(m_store[1]) }` there, a no-op on a word,
+  is the kill of `@text` the ties check reads.
+- **A tie naming plain data names those bytes** (`tied_bytes`, `plain_bytes` in
+  `dz_flow/src/ties.rs`). Clauses are compared over the memory each path names, and an
+  array of numbers named none, so `tie @text = m_store` could be neither killed nor
+  declared. Now a tied field of plain data is memory named whole, and a kill under it is a
+  kill of it. A tied reference field, as the iterators have, is unchanged.
+- **A view inside an element dies with the array** (`ties/body.rs`, where a call's
+  returned view gets its tie). A result tied through no pointer's storage to an input that
+  lives in another value's storage, an element, also holds that storage's tie, as
+  `Origin::field` already did for a field read through the element. Growing, sorting or
+  swapping the list now ends `names[0].as_str()`, and a method's `in self` reference into
+  an element too, which was a hole for any type.
+
+Nothing in the repository was refused by the new rule. `words` against the same program
+built before, eleven alternating runs: 162 → 160 ms on clang++ and 179 → 180 ms on g++,
+the same, since in a region an allocation was already a pointer bump. Peak memory 40 →
+37.9 MiB, against the C++ half's 32.3.
+
+Tests: `tests/run/short_strings` (both forms and the line between them, every edit, copies,
+a move, equality and hash across the forms, `reserve`, a list and a map of both kinds),
+clean under ASan and UBSan with regions on and off; `tests/flow/view_inside_an_element.dz`
+(four views refused, two fine). Changed: `element_text` in `dz_flow/tests/ties.rs`, which
+pinned the old rule, is now refused; `tests/run/elements_guard` uses names longer than 15
+bytes, so each owns a heap block for its guard to watch (and its first line, which had
+literal `` `n `` where line breaks were, is fixed); the reflection test reaches `List<u8>`
+through its own `Probe` rather than through `String`; the editor's cross-file definition
+test follows `Allocator` from `string.dz`, which no longer names `List`.
+
 ## T-0146: a value that holds the one it replaces keeps its region (2026-11-04)
 
 Compiler work; no program behaves differently, and §14.6 gains a bullet beside T-0145's.
