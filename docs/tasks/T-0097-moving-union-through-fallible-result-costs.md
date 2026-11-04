@@ -2,7 +2,7 @@
 id: T-0097
 title: Moving a union through a fallible result costs a construct, two moves and a drop at every step
 milestone: M15
-status: open
+status: done
 kind: feature
 area: codegen
 where: `crates/dz_cpp/src/lib.rs`, the lowering of `or` on a `!->` call and of `let`; `std/memory/box.dz`
@@ -60,7 +60,8 @@ Re-run `python tools/bench_programs.py expr` before and after.
 | `or` whose clause never falls through, read in place | `or_in_place` in `dz_cpp/src/lib.rs`, called from the `ExprKind::Or` arm |
 | `Res`'s constructors and `good`, by reference | `struct Res` in `dz_cpp/src/runtime.rs` |
 | A union's move, which leaves its source's variant; `take` for a source a program can still reach | `union_decl`, `moved_out` in `dz_cpp/src/lib.rs` |
-| `Box`'s constructor, taking its value by value | `std/memory/box.dz` |
+| `Box`: pointer, allocator, and `drop_boxed_as<T>`, which drops and frees | `std/memory/box.dz` |
+| A constructor's parameter it always moves out, taken by `&&` | `consumed_params` in `dz_cpp/src/lib.rs`, used by `decl_params`, `take_ownership_of_params` and `heap_ctor` |
 
 **Done so far** (2026-11-04). Point 1, and a move the task did not list:
 - `x or return`, and any `or` whose clause is `return`, `break`, `continue`, a panic or
@@ -86,3 +87,17 @@ same C++ with the reset put back. With all three, `expr` against C++ went from 2
 **Left.** Point 3 (`Box`'s size, a library decision for the user). `Box(value: T)` moves
 its value twice, into the parameter and then into the allocation, and a union literal is
 built as a default, switched to its variant, then filled field by field.
+
+**Done** (2026-11-04), the rest:
+- **`Box` is 24 bytes, from 40**, the user agreeing to shrink it. One function made for
+  the type the box was built as now drops the value and frees it at that type's size, so
+  the box keeps the pointer, its allocator and that function. A `Box<Base>` holding a
+  `Derived` and any allocator work as before.
+- **`Box(value)` moves its value once, from three times.** A constructor's parameter that
+  owns memory, cannot be copied, and is moved out on every path before any `return` takes
+  its argument by `&&` in C++.
+- **A union literal built straight into its variant** measured within noise by hand-edited
+  C++, so it is left as it is.
+
+`expr` against its C++ half: 1.17× on clang++ and 1.10× on g++, from 2.10× and 1.66× when
+this task was opened. `docs/log/tooling.md` has the detail.

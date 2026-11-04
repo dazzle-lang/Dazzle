@@ -2407,7 +2407,7 @@ impl<'a> Emitter<'a> {
                 let _ = writeln!(
                     h,
                     "    template <class O, class = decltype(::dz::implicit_ptr<{base}>(static_cast<O*>(nullptr)->m_ptr))>\n    \
-                     {name}(O&& o)\n        : m_ptr(o.m_ptr), m_allocator(o.m_allocator), m_size(o.m_size), m_align(o.m_align), m_drop(o.m_drop) {{\n        \
+                     {name}(O&& o)\n        : m_ptr(o.m_ptr), m_allocator(o.m_allocator), m_drop(o.m_drop) {{\n        \
                      o.m_ptr = nullptr;\n        o.reset_to_defaults__();\n    }}"
                 );
             }
@@ -2929,13 +2929,15 @@ impl<'a> Emitter<'a> {
         let has_self = body.params.first().is_some_and(|p| body.local(*p).name == "self");
         let start = usize::from(has_self);
 
+        let consumed = consumed_params(body, self.table);
         let mut parts: Vec<String> = Vec::new();
         for p in body.params.iter().skip(start) {
             let local = body.local(*p);
             let ty = self.cpp_ty(&local.ty);
             let unused = if uses[p.index()].read { "" } else { "[[maybe_unused]] " };
+            let by = if consumed.contains(p) { "&&" } else { "" };
             parts.push(format!(
-                "{unused}{ty} {}",
+                "{unused}{ty}{by} {}",
                 incoming_name(&names[p.index()], self.table, &local.ty)
             ));
         }
@@ -2958,12 +2960,14 @@ impl<'a> Emitter<'a> {
         }
         let body = self.find_body(owner)?;
         let has_self = body.params.first().is_some_and(|p| body.local(*p).name == "self");
+        let consumed = consumed_params(body, self.table);
         let mut list = Vec::new();
         let mut args = Vec::new();
         for (i, p) in body.params.iter().skip(usize::from(has_self)).enumerate() {
             let t = self.cpp_ty(&body.local(*p).ty);
             args.push(forward(&t, i));
-            list.push(format!("{t} a{i}"));
+            let by = if consumed.contains(p) { "&&" } else { "" };
+            list.push(format!("{t}{by} a{i}"));
         }
         args.push(self.heap_placement());
         let list = list.join(", ");
@@ -3405,6 +3409,7 @@ impl<'a> Emitter<'a> {
     fn take_ownership_of_params(&mut self, body: &'a hir::Body) {
         let names = local_names(body);
         let uses = hir::local_uses(body);
+        let consumed = consumed_params(body, self.table);
         for p in &body.params {
             let local = body.local(*p);
             if local.name == "self" || !self.table.needs_drop(&local.ty) {
@@ -3414,7 +3419,12 @@ impl<'a> Emitter<'a> {
             let name = &names[p.index()];
             let arg = incoming_name(name, self.table, &local.ty);
             let unused = if uses[p.index()].read { "" } else { "[[maybe_unused]] " };
-            self.line(&format!("{unused}{ty} {name} = ::dz::mv({arg});"));
+            if consumed.contains(p) {
+                // The caller's value, which the body moves out on every path (T-0097).
+                self.line(&format!("{unused}{ty}& {name} = {arg};"));
+            } else {
+                self.line(&format!("{unused}{ty} {name} = ::dz::mv({arg});"));
+            }
         }
     }
 
@@ -6311,6 +6321,96 @@ fn mentions_self(t: &Ty) -> bool {
         Ty::Array { elem, .. } | Ty::Slice { elem, .. } => mentions_self(elem),
         Ty::Tuple(parts) => parts.iter().any(mentions_self),
         Ty::Fn { params, ret, .. } => params.iter().any(mentions_self) || mentions_self(ret),
+        _ => false,
+    }
+}
+
+/// The parameters of a constructor that C++ takes by `&&` and the body uses in place
+/// (T-0097): a value that owns memory and cannot be copied, named once, by a `move` that
+/// every path through the body reaches before any `return`. `Box(value: T)` is the case:
+/// by value, C++ moved the value into the parameter, then into the body's own binding,
+/// then into the allocation; now it moves once, from the caller's value. Every caller hands
+/// such a value over with `move` or as a temporary, so an rvalue reference binds, and
+/// since the body moves it out on every path, it is gone by the time the call returns, as
+/// it would be by value. Only constructors: no function value or trait names their C++
+/// signature.
+fn consumed_params(body: &hir::Body, table: &TypeTable) -> Vec<LocalId> {
+    if !matches!(body.owner, BodyOwner::Ctor { .. }) {
+        return Vec::new();
+    }
+    let returns: Vec<u32> = body
+        .exprs
+        .iter()
+        .filter(|e| matches!(e.kind, hir::ExprKind::Return(_)))
+        .map(|e| e.span.start)
+        .collect();
+    let ids = || (0..body.exprs.len() as u32).map(hir::ExprId);
+    body.params
+        .iter()
+        .copied()
+        .filter(|p| {
+            let local = body.local(*p);
+            if local.name == "self" || !table.needs_drop(&local.ty) || table.copyable(&local.ty) {
+                return false;
+            }
+            let uses: Vec<hir::ExprId> = ids()
+                .filter(|e| matches!(body.expr(*e).kind, hir::ExprKind::Local(l) if l == *p))
+                .collect();
+            let [u] = uses[..] else { return false };
+            let Some(m) =
+                ids().find(|e| matches!(body.expr(*e).kind, hir::ExprKind::Move(x) if x == u))
+            else {
+                return false;
+            };
+            let start = body.expr(m).span.start;
+            returns.iter().all(|r| *r > start) && always_reaches_block(body, body.root, m)
+        })
+        .collect()
+}
+
+/// Whether running block `b` always evaluates `target`: through its statements' values and
+/// what they are built from, a call's arguments, a literal's fields, and a nested `{ … }`
+/// or `unsafe { … }`, but nothing conditional, looped or deferred.
+fn always_reaches_block(body: &hir::Body, b: hir::BlockId, target: hir::ExprId) -> bool {
+    body.block(b).stmts.iter().any(|s| match &body.stmt(*s).kind {
+        hir::StmtKind::Let { init: Some(e), .. }
+        | hir::StmtKind::LetTuple { init: e, .. }
+        | hir::StmtKind::Expr(e) => always_reaches(body, *e, target),
+        hir::StmtKind::Assign { target: t, value, .. } => {
+            always_reaches(body, *value, target) || always_reaches(body, *t, target)
+        }
+        _ => false,
+    })
+}
+
+fn always_reaches(body: &hir::Body, e: hir::ExprId, target: hir::ExprId) -> bool {
+    use hir::ExprKind as K;
+    if e == target {
+        return true;
+    }
+    let any = |xs: &[hir::ExprId]| xs.iter().any(|x| always_reaches(body, *x, target));
+    match &body.expr(e).kind {
+        K::Move(x) | K::Cast { operand: x, .. } | K::Field { base: x, .. } | K::Deref(x) => {
+            always_reaches(body, *x, target)
+        }
+        K::Call { callee, args } => {
+            let first = match callee {
+                hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. } => {
+                    Some(*recv)
+                }
+                hir::Callee::Value(v) => Some(*v),
+                _ => None,
+            };
+            first.is_some_and(|f| always_reaches(body, f, target)) || any(args)
+        }
+        K::Builtin { args, .. }
+        | K::Intrinsic { args, .. }
+        | K::Tuple(args)
+        | K::ArrayLit(args) => any(args),
+        K::StructLit { fields, .. } | K::UnionVariant { payload: fields, .. } => {
+            fields.iter().flatten().any(|x| always_reaches(body, *x, target))
+        }
+        K::Block(b) => always_reaches_block(body, *b, target),
         _ => false,
     }
 }

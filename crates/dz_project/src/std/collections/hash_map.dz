@@ -9,7 +9,7 @@
 /// A lookup returns a pointer, `null` when the key is absent (§9.1), so it is handled with
 /// `or`: `let hp = health.get(&id) or return`.
 pub struct HashMap<K: Hash + Eq, V> {
-    m_hashes: own ^mut u64 = null
+    m_hashes: own ^mut u32 = null
     m_keys: own ^mut K = null
     m_values: own ^mut V = null
     m_len: usize = 0
@@ -114,12 +114,12 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// The slot holding the key `same` says is `key`, whose hash is `h`: a lookup by
     /// something other than a `K`, such as a `str` for a `String` key.
-    pub(module) fn find_by<view Q: Copy>(&self, key: Q, h: u64, same: fn(&K, Q) -> bool) -> usize? {
+    pub(module) fn find_by<view Q: Copy>(&self, key: Q, h: u32, same: fn(&K, Q) -> bool) -> usize? {
         if m_len == 0 {
             return none
         }
         let mask = m_slots - 1
-        let mut i = (h & (mask as u64)) as usize
+        let mut i = (h as usize) & mask
         while true {
             let stored = unsafe { m_hashes[i] }
             if stored == 0 {
@@ -222,7 +222,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// The hash stored in `slot`, after checking the slot exists.
-    fn checked_slot(&self, slot: usize) -> u64 {
+    fn checked_slot(&self, slot: usize) -> u32 {
         if slot >= m_slots {
             panic!("slot {} is out of bounds for a HashMap of {} slots", slot, m_slots)
         }
@@ -230,12 +230,12 @@ pub struct HashMap<K: Hash + Eq, V> {
     }
 
     /// The slot holding `key`, whose hash is `h`.
-    fn find(&self, key: &K, h: u64) -> usize? {
+    fn find(&self, key: &K, h: u32) -> usize? {
         if m_len == 0 {
             return none
         }
         let mask = m_slots - 1
-        let mut i = (h & (mask as u64)) as usize
+        let mut i = (h as usize) & mask
         // A quarter of the slots are always empty, so the run ends.
         while true {
             let stored = unsafe { m_hashes[i] }
@@ -252,9 +252,9 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// Put an entry known not to be present into the first free slot of its run, and say
     /// which slot that was.
-    fn place(&mut self, key: K, value: V, h: u64) -> usize kills self@items {
+    fn place(&mut self, key: K, value: V, h: u32) -> usize kills self@items {
         let mask = m_slots - 1
-        let mut i = (h & (mask as u64)) as usize
+        let mut i = (h as usize) & mask
         while unsafe { m_hashes[i] } != 0 {
             i = (i + 1) & mask
         }
@@ -280,7 +280,7 @@ pub struct HashMap<K: Hash + Eq, V> {
         let mut hole = found
         let mut i = (found + 1) & mask
         while unsafe { m_hashes[i] } != 0 {
-            let home = (unsafe { m_hashes[i] } & (mask as u64)) as usize
+            let home = (unsafe { m_hashes[i] } as usize) & mask
             if ((i + m_slots - home) & mask) >= ((i + m_slots - hole) & mask) {
                 unsafe {
                     m_hashes[hole] = m_hashes[i]
@@ -313,11 +313,11 @@ pub struct HashMap<K: Hash + Eq, V> {
             slots *= 2
         }
         let a = unsafe { m_allocator or panic!("a HashMap with no allocator cannot grow") }
-        let old_hashes = unsafe { m_hashes as ^mut u64 }
+        let old_hashes = unsafe { m_hashes as ^mut u32 }
         let old_keys = unsafe { m_keys as ^mut K }
         let old_values = unsafe { m_values as ^mut V }
         let old_slots = m_slots
-        m_hashes = unsafe { a.alloc(slots * sizeof(u64), alignof(u64), loc) as ^mut u64 }
+        m_hashes = unsafe { a.alloc(slots * sizeof(u32), alignof(u32), loc) as ^mut u32 }
         m_keys = unsafe { a.alloc(slots * sizeof(K), alignof(K), loc) as ^mut K }
         m_values = unsafe { a.alloc(slots * sizeof(V), alignof(V), loc) as ^mut V }
         m_slots = slots
@@ -333,7 +333,7 @@ pub struct HashMap<K: Hash + Eq, V> {
                 let _ = unsafe { self.place(move_out(old_keys[i]), move_out(old_values[i]), h) }
             }
         }
-        a.free(unsafe { old_hashes as ^mut u8 }, old_slots * sizeof(u64), alignof(u64), loc)
+        a.free(unsafe { old_hashes as ^mut u8 }, old_slots * sizeof(u32), alignof(u32), loc)
         a.free(unsafe { old_keys as ^mut u8 }, old_slots * sizeof(K), alignof(K), loc)
         a.free(unsafe { old_values as ^mut u8 }, old_slots * sizeof(V), alignof(V), loc)
     }
@@ -370,13 +370,16 @@ fn ask_entry<K, V>(keep: &fn(&K, &mut V) -> bool, key: &K, value: &mut V) -> boo
     return f(key, value)
 }
 
-/// A key's hash, never zero: zero marks an empty slot.
-fn key_hash<view K: Hash>(key: &K) -> u64 {
+/// A key's hash folded to 32 bits, never zero: zero marks an empty slot. Each slot keeps
+/// one, to pick its home slot, to tell empty from full, and to skip most key comparisons;
+/// 32 bits do all three, and a slot is 4 bytes smaller than with the whole hash (T-0164).
+fn key_hash<view K: Hash>(key: &K) -> u32 {
     let h = key.hash()
-    if h == 0 {
+    let folded = (h ^^ (h >> 32)) as u32
+    if folded == 0 {
         return 1
     }
-    return h
+    return folded
 }
 
 impl<K, V> Drop for HashMap<K, V> {
@@ -397,7 +400,7 @@ impl<K, V> Drop for HashMap<K, V> {
             }
         }
         let a = unsafe { m_allocator or return }
-        a.free(unsafe { m_hashes as ^mut u8 }, m_slots * sizeof(u64), alignof(u64))
+        a.free(unsafe { m_hashes as ^mut u8 }, m_slots * sizeof(u32), alignof(u32))
         a.free(unsafe { m_keys as ^mut u8 }, m_slots * sizeof(K), alignof(K))
         a.free(unsafe { m_values as ^mut u8 }, m_slots * sizeof(V), alignof(V))
     }
@@ -413,7 +416,7 @@ impl<K: Hash + Eq + Copy, V: Copy> Copy for HashMap<K, V> {
         }
         let a = unsafe { m_allocator or panic!("a HashMap with no allocator cannot be copied") }
         m_slots = other.m_slots
-        m_hashes = unsafe { a.alloc(m_slots * sizeof(u64), alignof(u64)) as ^mut u64 }
+        m_hashes = unsafe { a.alloc(m_slots * sizeof(u32), alignof(u32)) as ^mut u32 }
         m_keys = unsafe { a.alloc(m_slots * sizeof(K), alignof(K)) as ^mut K }
         m_values = unsafe { a.alloc(m_slots * sizeof(V), alignof(V)) as ^mut V }
         for i in 0..m_slots {

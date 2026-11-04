@@ -16,9 +16,9 @@
 pub struct Box<T> {
     pub(module) m_ptr: own ^mut T = null
     pub(module) m_allocator: ^mut Allocator = null
-    pub(module) m_size: usize = 0
-    pub(module) m_align: usize = 0
-    pub(module) m_drop: fn(^mut u8)
+    /// Drops the value and frees it, as the type the box was made as: its size and
+    /// alignment are that type's, so the box need not keep them (T-0097).
+    pub(module) m_drop: fn(^mut u8, ^mut Allocator)
 
     /// The value: emptying, replacing or moving the box ends a reference to it, and a
     /// clause names what is inside it as `h.node@value.name@text` (D-0094 point 3).
@@ -29,10 +29,8 @@ pub struct Box<T> {
     Box(value: T, loc: SourceLocation = #location) {
         m_allocator = unsafe { #placement }
         let a = unsafe { m_allocator or panic!("a Box needs an allocator") }
-        m_size = sizeof(T)
-        m_align = alignof(T)
-        m_drop = drop_value_as<T>
-        m_ptr = unsafe { a.alloc(m_size, m_align, loc) as ^mut T }
+        m_drop = drop_boxed_as<T>
+        m_ptr = unsafe { a.alloc(sizeof(T), alignof(T), loc) as ^mut T }
         unsafe { construct(m_ptr[0], move(value)) }
     }
 }
@@ -43,10 +41,17 @@ impl<T> Drop for Box<T> {
             return
         }
         let drop_value = m_drop
-        drop_value(unsafe { m_ptr as ^mut u8 })
-        let a = unsafe { m_allocator or return }
-        a.free(unsafe { m_ptr as ^mut u8 }, m_size, m_align)
+        drop_value(unsafe { m_ptr as ^mut u8 }, m_allocator)
     }
+}
+
+/// Drop the value at `p` as a `T` and give its memory back to `allocator`: what a
+/// `Box` holds, made for the type its value was created as, so a `Box<UiElement>` holding
+/// a `Button` drops and frees a whole `Button` (18.64).
+fn drop_boxed_as<T>(p: ^mut u8, allocator: ^mut Allocator) {
+    unsafe { destroy((p as ^mut T)[0]) }
+    let a = unsafe { allocator or return }
+    a.free(p, sizeof(T), alignof(T))
 }
 
 impl<T> Nullable for Box<T> {

@@ -2,6 +2,48 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## A smaller `Box` moved once, and a smaller map slot (T-0097, T-0164; 2026-11-04)
+
+Compiler and library work; no program behaves differently.
+
+- **`Box` is 24 bytes, from 40** (`std/memory/box.dz`). It kept the size, alignment and
+  drop function of what it was made as, so a `Box<UiElement>` holding a `Button` could drop
+  and free a whole `Button` through any allocator. One function made for that type,
+  `drop_boxed_as<T>`, now does both, so the box keeps only the pointer, its allocator and
+  that function. `dz_cpp`'s upcast constructor copies three fields where it copied five.
+- **A constructor's parameter that it always moves out takes its argument by reference**
+  (`consumed_params` in `dz_cpp/src/lib.rs`). It qualifies when it owns memory and cannot
+  be copied, is named once, by a `move` that every path reaches before any `return`.
+  `Box(value: T)` moved its value three times (into the parameter, into the body's binding,
+  into the allocation) and now moves it once. Only constructors: a function value or a
+  trait method fixes its C++ signature. Measured by hand-edited C++ first: 5% on `expr`
+  with clang++, 1.5% with g++.
+- **Not done: building a union literal directly in its variant.** A constructor per
+  variant, from its payload, measured within noise against the default, `become` and
+  field-by-field assignment the literal does now: the C++ compilers already see through it.
+- **A `HashMap` slot keeps a 32-bit hash, from 64** (`key_hash` folds the halves). It picks
+  the home slot, tells empty from full and skips most key comparisons, and 32 bits do all
+  three, so a slot is 4 bytes smaller.
+
+**T-0164, measured.** Its guess, that a region keeps a growing map's old arrays, was wrong:
+`tools/bench_regions.py` gives `astar` the same peak on the heap as in regions (19.3 and
+19.4 MiB), and `words` a higher one on the heap (44 against 41). Instrumenting `astar` found
+the cause in `HashMap`'s layout. Its largest search holds 110,069 entries in each map, and
+both maps grow to 262,144 slots, 42% full, since a map doubles past three quarters. While
+`came_from` grows, its old arrays are alive beside the new ones. With 20- and 24-byte slots
+that came to about 14.6 MB of the 19.4 MiB peak, the runtime's baseline being 3.5. The
+32-bit hash brings `astar` to 17.4 MiB and `words` to 40. What is left is the open-
+addressing layout itself, and for `words` likely each short `String`'s own allocation,
+which `std::string` keeps inline (T-0156); both are left in T-0164.
+
+Against the C++ half, `bench_programs.py`, nine runs (`RESULTS.md`): `expr` 1.17× on
+clang++ and 1.10× on g++, from 1.33× and 1.20× after T-0146; `astar` 0.81× and 0.95×;
+`words` 0.78× and 0.87×. The machine was loaded, so the ratio within the run is the figure.
+
+Tests: the crates' tests; the run suite on clang++ and g++ (all but `every_example_builds`,
+whose graphical examples need X11, GL and ALSA headers this machine lacks); every run
+program under ASan and UBSan. The HIR snapshot of `std` changed only in the hash's type.
+
 ## `sort_by` an introsort, and `String::push` inlined (T-0096; 2026-11-04)
 
 Library work, no language change. `List::sort_by` was a heapsort, chosen for allocating

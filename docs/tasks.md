@@ -122,13 +122,12 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0121](tasks/T-0121-local-named-like-free-function-hides.md)** A local named like a free function hides it in the generated C++ · bug, codegen
 - **[T-0156](tasks/T-0156-string-always-allocates-short-text-kept.md)** "A String always allocates: short text kept inside the String, as std::string does" · design, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (5 open)
+## M15 — `dz bench`, and the C++ comparison (4 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
-- **[T-0097](tasks/T-0097-moving-union-through-fallible-result-costs.md)** Moving a union through a fallible result costs a construct, two moves and a drop at every step · feature, codegen
 - **[T-0101](tasks/T-0101-every-build-imports-stdlib-h-with.md)** Every build imports stdlib.h with libclang again: about 380 ms of each build · feature, tooling
 - **[T-0102](tasks/T-0102-standard-library-c-compiled-again-in.md)** The standard library's C++ is compiled again in every build · feature, tooling
-- **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory 30-50% over C++ in astar and words: a region keeps every small block freed into it" · feature, ownership
+- **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
