@@ -1,0 +1,26 @@
+[module]
+name    = "shared_types"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std   = { open = true }
+arena = { cpp = "arena" }
+probe = { cpp = "probe" }
+
+# Defines `Thing`.
+[cpp.libs.arena]
+root         = "vendor/arena"
+sources      = ["arena.c"]
+include_dirs = ["include"]
+import       = ["arena.h"]
+keeps        = []
+
+# Declares `Thing` and takes it by pointer. Its source includes `arena.h`, which it finds
+# through `uses`: arena's include dirs join its own (spec §15.1).
+[cpp.libs.probe]
+root         = "vendor/probe"
+sources      = ["probe.c"]
+include_dirs = ["include"]
+uses         = ["arena"]
+import       = ["probe.h"]
+keeps        = []

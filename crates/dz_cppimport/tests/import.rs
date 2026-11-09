@@ -415,6 +415,62 @@ fn a_cpp_reference_is_a_dazzle_reference() {
     }
 }
 
+/// The parameters of `name`'s declarations, in the header's order.
+fn overloads_of(h: &dz_cppimport::Header, name: &str) -> Vec<Vec<dz_cppimport::Param>> {
+    h.decls
+        .iter()
+        .filter(|d| d.name == name)
+        .map(|d| match &d.kind {
+            DeclKind::Fn { params, .. } => params.clone(),
+            other => panic!("`{name}` is {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn a_default_argument_is_recorded_so_a_call_may_leave_it_out() {
+    // spec §15.2 — `int scaled(int value, int times = 2, int plus = 0)`.
+    let Some(h) = import_shapes(&[]) else { return };
+    let scaled = overloads_of(&h, "scaled");
+    let defaults: Vec<bool> = scaled[0].iter().map(|p| p.has_default).collect();
+    assert_eq!(defaults, [false, true, true]);
+}
+
+#[test]
+fn every_overload_of_a_free_function_is_imported() {
+    // spec §15.3 — three `describe`s, each with its own parameters; the header's
+    // declaration of each is read once, not again for its definition elsewhere.
+    let Some(h) = import_shapes(&[]) else { return };
+    let tys: Vec<Vec<CType>> = overloads_of(&h, "describe")
+        .into_iter()
+        .map(|ps| ps.into_iter().map(|p| p.ty).collect())
+        .collect();
+    let int = |signed| CType::Int(CInt { bits: 32, signed });
+    assert_eq!(
+        tys,
+        [
+            vec![int(true)],
+            vec![CType::Named("::shapes::Point".into()), int(true)],
+            vec![int(false), int(false)],
+        ]
+    );
+    assert!(h.decls.iter().filter(|d| d.name == "describe").all(|d| d.cpp == "::shapes::describe"));
+}
+
+#[test]
+fn an_array_parameter_takes_the_whole_array_by_reference() {
+    // spec §15.2 — `float rgb[3]` is `&mut [3]f32`, `const float rgb[3]` is `&[3]f32`, and
+    // the call casts to the element pointer C++ takes.
+    let Some(h) = import_shapes(&[]) else { return };
+    let array = CType::Array { len: 3, elem: Box::new(CType::Float { bits: 32 }) };
+    let halve = &overloads_of(&h, "halve")[0][0];
+    assert_eq!(halve.ty, CType::Ref { mutable: true, referent: Box::new(array.clone()) });
+    assert_eq!(halve.c_cast.as_deref(), Some("float *"));
+    let total = &overloads_of(&h, "total")[0][0];
+    assert_eq!(total.ty, CType::Ref { mutable: false, referent: Box::new(array) });
+    assert_eq!(total.c_cast.as_deref(), Some("const float *"));
+}
+
 #[test]
 fn a_class_imports_its_public_member_functions_and_constructor() {
     // spec §15.2 — a member function is a method, `const` decides the receiver, and a

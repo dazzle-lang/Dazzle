@@ -156,6 +156,11 @@ pub struct CppLib {
     /// when the key is absent: then a function taking a pointer is `unsafe` to call, and
     /// one taking only values is safe either way (spec §15.2, D-0094 point 6).
     pub keeps: Option<Vec<(String, Span)>>,
+    /// `uses = ["sdl3"]`: recipes of the same manifest whose headers this library's sources
+    /// include, so they are compiled with those recipes' include dirs and shared defines.
+    /// ImGui's SDL3 backend includes `SDL3/SDL.h`, which only SDL's CMake install provides,
+    /// at a path that depends on the build's configuration (spec §15.1).
+    pub uses: Vec<String>,
     /// `cmake = "vendor/SDL"`: a library built by its own CMake rather than from `sources`
     /// (spec §15.1, D-0090). Its include dirs, link libraries and the fields below come
     /// from what the build installed, read when the workspace is loaded.
@@ -1238,6 +1243,7 @@ impl<'a> Loader<'a> {
                     // std's bodies are trusted already (D-0094 point 8), so it vouches for
                     // the C library it calls.
                     keeps: Some(Vec::new()),
+                    uses: Vec::new(),
                     cmake: None,
                     shared_defines: Vec::new(),
                     link_flags: Vec::new(),
@@ -2035,6 +2041,7 @@ impl<'a> Loader<'a> {
             "keeps",
             "cmake",
             "options",
+            "uses",
         ];
         const LIB_TARGET_KEYS: &[&str] = &[
             "options",
@@ -2161,6 +2168,28 @@ impl<'a> Loader<'a> {
                 );
             }
         }
+        // `uses` names another recipe of this manifest, whose headers this one is built
+        // against (spec §15.1).
+        let names: Vec<String> = libs.iter().map(|(n, _, _)| n.clone()).collect();
+        for (name, _, l) in &libs {
+            for (used, span) in &l.uses {
+                let (message, label) = if used == name {
+                    (format!("`[cpp.libs.{name}]` cannot use itself"), "its own name")
+                } else if !names.contains(used) {
+                    (format!("no recipe `[cpp.libs.{used}]` in this manifest"), "not a recipe here")
+                } else {
+                    continue;
+                };
+                self.diags.push(
+                    Diagnostic::error(codes::MANIFEST_BAD_VALUE, message)
+                        .at(file, *span, label)
+                        .with_help(
+                        "`uses` names another `[cpp.libs.…]` of this dazzle.toml whose headers \
+                         this library's sources include (spec §15.1)",
+                    ),
+                );
+            }
+        }
         for (name, name_span, _) in
             libs.iter().filter(|(_, _, l)| l.cmake.is_none() && !l.options.is_empty())
         {
@@ -2199,6 +2228,7 @@ impl<'a> Loader<'a> {
                     flags: l.flags,
                     import: l.import,
                     keeps: l.keeps,
+                    uses: l.uses.into_iter().map(|(n, _)| n).collect(),
                     // Where it builds is the root project's to say, so it is placed when the
                     // whole workspace has been read (`place_cmake_builds`).
                     cmake: l.cmake.map(|source| CmakeBuild {
@@ -2375,6 +2405,8 @@ impl<'a> Loader<'a> {
                     "import" => out.import.push((s.clone(), *span)),
                     // Checked against the header once it is read (`unknown_keeps`).
                     "keeps" => out.keeps.get_or_insert_with(Vec::new).push((s.clone(), *span)),
+                    // Checked against the manifest's other recipes once all are read.
+                    "uses" => out.uses.push((s.clone(), *span)),
                     "sources" => {
                         self.lib_sources(file, base, base_desc, s, *span, &mut out.sources)
                     }
@@ -2518,6 +2550,9 @@ struct Lists {
     /// `cmake = "…"`: the folder, checked to hold a `CMakeLists.txt`.
     cmake: Option<PathBuf>,
     options: Vec<(String, String)>,
+    /// `uses = ["sdl3"]`: other recipes of this manifest whose headers this one's sources
+    /// include.
+    uses: Vec<(String, Span)>,
     /// The keys that say how to compile a library from source, which a CMake build says
     /// instead: refused alongside `cmake` (spec §15.1).
     compile_keys: Vec<(String, Span)>,

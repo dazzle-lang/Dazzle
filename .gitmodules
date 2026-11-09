@@ -19,3 +19,6 @@
 [submodule "examples/vendor/SDL"]
 	path = examples/vendor/SDL
 	url = https://github.com/libsdl-org/SDL
+[submodule "examples/vendor/imgui"]
+	path = examples/vendor/imgui
+	url = https://github.com/ocornut/imgui

@@ -236,6 +236,9 @@ pub struct Param {
     /// `int8_t *` (that is `signed char *`), and `long *` is not `int32_t *` even where the
     /// two are the same width. Pointers do not convert between them (spec §15.2).
     pub c_cast: Option<String>,
+    /// `int flags = 0`: a call may leave it out, and C++ supplies the header's default
+    /// (spec §15.2). Never a Dazzle expression: the emitted call simply stops short of it.
+    pub has_default: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

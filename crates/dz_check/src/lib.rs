@@ -1287,8 +1287,15 @@ impl Ctx<'_> {
         let ws = self.ws;
         for module in ws.modules().filter(|m| in_layer(m.id)) {
             let Some(f) = &module.foreign else { continue };
-            for d in &f.header.decls {
-                let Some(sym) = self.res.foreign(module.id, &d.cpp) else { continue };
+            for (index, d) in f.header.decls.iter().enumerate() {
+                let Some(sym) = self.res.foreign_decl.get(&(module.id, index)).copied() else {
+                    continue;
+                };
+                // A type another import also declares is that import's to describe, when
+                // its symbol is the one both use (spec §15.2).
+                if self.res.symbol(sym).module != module.id {
+                    continue;
+                }
                 let span =
                     |l: dz_project::cppimport::Loc| Span::new(l.start as usize, l.end as usize);
                 let foreign = match &d.kind {
@@ -1309,7 +1316,7 @@ impl Ctx<'_> {
                             .map(|p| ParamSig {
                                 name: p.name.clone(),
                                 ty: self.foreign_ty(module.id, &p.ty),
-                                has_default: false,
+                                has_default: p.has_default,
                                 caller_default: None,
                                 c_cast: p.c_cast.clone(),
                                 tie: None,
@@ -1416,7 +1423,7 @@ impl Ctx<'_> {
                     .map(|p| ParamSig {
                         name: p.name.clone(),
                         ty: self.foreign_ty(module, &p.ty),
-                        has_default: false,
+                        has_default: p.has_default,
                         caller_default: None,
                         c_cast: p.c_cast.clone(),
                         tie: None,

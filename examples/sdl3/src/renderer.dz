@@ -206,6 +206,7 @@ pub struct Renderer {
         let viewport: [2]f32 = [width as f32, height as f32]
         gl::glUniform2fv(self.location("u_viewport"), 1, viewport.ptr)
         self.set_f32("u_time", frame.time)
+        self.set_f32("u_sky", frame.sky)
     }
 
     fn draw_mesh(&self, shape: Shape) {

@@ -2,7 +2,8 @@
 id: T-0171
 title: Dear ImGui controls in the SDL3 scene
 milestone: M7b
-status: open
+status: done
+done: r118, 2026-11-09
 kind: feature
 area: interop
 ---
@@ -10,6 +11,28 @@ area: interop
 Planned for 0.2 by the user on 2026-11-09: the C++ interop showcase. It is the ImGui half of
 [T-0010](T-0010-proof-on-real-libraries-dear-imgui.md), as a real example rather than a
 fixture; the Jolt half is not in 0.2.
+
+**Done** (r118, 2026-11-09). The compiler side is built, and so is the panel, with a `Sky`
+uniform added to the shaders so the night preset is dark. The example builds on clang++
+and g++ and runs in a window at 60 fps. With the mouse: a checkbox and the scene's Space
+key both change `paused` and each shows the other's change; dragging a slider leaves the
+camera where it is; dragging the scene still turns it. The panel is scaled by the
+display's content scale (and 1.25), and `screenshot.avif` now shows it.
+
+| Piece | Where |
+|---|---|
+| ImGui, pinned to v1.93.0 | `examples/vendor/imgui` (submodule) |
+| Its recipe, with `uses = ["sdl3"]` | `examples/sdl3/dazzle.toml` |
+| The panel | `examples/sdl3/src/ui.dz`; what it changes is `Settings` in `src/scene.dz` |
+| Default arguments | `Param::has_default`, `Walker::parameters` in `dz_cppimport`; read in `collect_foreign` and `foreign_methods`, `dz_check/src/lib.rs` |
+| Array parameters | `Walker::array_parameter` in `dz_cppimport/src/clang.rs`; `dz::Array`'s explicit `T*` in `dz_cpp/src/runtime.rs` |
+| Overloaded free functions | [T-0016](T-0016-overloaded-free-function-imports-only-its.md) |
+| One type across imports | `unify_foreign_types` in `dz_resolve/src/lib.rs`; tested by `tests/run/shared_types` |
+| `uses` | `CppLib::uses` in `dz_project/src/lib.rs`, read by `build_libraries` in `dz/src/native.rs`; tested by `uses_names_another_recipe_of_the_manifest` in `dz_driver/tests/cmake.rs` |
+
+Variadics ([T-0008](T-0008-variadic-c-functions.md)) were not needed: the panel writes its
+text with `format!` and `TextUnformatted`, so `ImGui::Text` waits for the user's decision
+there.
 
 **What it is.** `examples/sdl3` gets a Dear ImGui panel that changes the scene while it runs.
 ImGui is built from its own source by a `[cpp.libs]` recipe, with its SDL3 and OpenGL 3

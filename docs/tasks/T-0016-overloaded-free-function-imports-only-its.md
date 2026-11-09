@@ -2,11 +2,31 @@
 id: T-0016
 title: An overloaded free function imports only its first declaration
 milestone: M7b
-status: open
+status: done
+done: r118, 2026-11-09
 kind: deferral
 area: interop
 where: `dz_cppimport`, `function`
 ---
+
+**Done** (r118, 2026-11-09, for Dear ImGui, T-0171). Option 1, which §15.3 already
+specified: every overload is imported, and the call chooses by argument count (defaults
+counted, since C++ default arguments are imported too) and then by type, exact types
+settling a tie. Each argument is typed as each candidate's parameter would type it, so
+`"Flag"` is a `cstr` for the overload that takes one.
+
+| Piece | Where |
+|---|---|
+| Overloads kept, redeclarations dropped, by clang's USR | `Walker::function` in `dz_cppimport/src/clang.rs` |
+| The set: the name's symbol and every overload | `Resolution::overloads`, filled in `collect_foreign` in `dz_resolve/src/lib.rs` |
+| Each declaration's own symbol | `Resolution::foreign_decl`; read by `collect_foreign` in `dz_check/src/lib.rs` |
+| The choice at the call | `pick_foreign_overload` and `pick_by_args` in `dz_check/src/check.rs` |
+| Tested | `describe` in `tests/run/cppinterop` |
+
+Still owed from §15.3: the ambiguity error lists the arguments' types, not the candidates'
+signatures, and the `@(...)` suffix is still `[PROPOSED]` and unparsed. Neither was needed
+by ImGui. The boundary cast for an overload is [T-0017](T-0017-imported-overloaded-method-not-cast-at.md),
+which now covers free functions as well as methods.
 
 **What goes wrong.** C++ lets a free function be overloaded — several declarations sharing
 one name, told apart by their parameters. When `import cpp` reads a header,

@@ -10,6 +10,20 @@ int area_of(Kind kind, int size) {
 
 int length_sq(const Point& p) { return p.x * p.x + p.y * p.y; }
 
+int scaled(int value, int times, int plus) { return value * times + plus; }
+
+int describe(int value) { return value; }
+int describe(Point p, int weight) { return (p.x + p.y) * weight; }
+int describe(unsigned value, unsigned bias) { return static_cast<int>(value + bias) * 100; }
+
+void halve(float rgb[3]) {
+    for (int i = 0; i < 3; i++) {
+        rgb[i] *= 0.5f;
+    }
+}
+
+float total(const float rgb[3]) { return rgb[0] + rgb[1] + rgb[2]; }
+
 void translate(Point& p, int dx, int dy) {
     p.x += dx;
     p.y += dy;

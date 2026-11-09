@@ -1,7 +1,8 @@
 // A lit 3D scene on SDL3 and OpenGL 3.3: a window and a GL context from SDL, compiled from
 // its own source by `dz` (see dazzle.toml); OpenGL's functions from glad; and per-pixel
 // lighting, soft shadows, fog and a field of grass computed on the GPU by shaders written
-// inline in `shaders.dz`.
+// inline in `shaders.dz`. A Dear ImGui panel over it (`ui.dz`) changes the light, the time
+// and the knot while it runs.
 //
 // Drag with the mouse to turn the camera, scroll to move it nearer, Space to pause, Escape
 // to quit.
@@ -61,29 +62,34 @@ fn main() {
         return
     }
     let mut renderer = Renderer()
+    start_panel(window, context)
+    defer stop_panel()
+    let mut settings: Settings
     let mut camera: Camera
     let mut t: f32 = 0
-    let mut paused = false
+    let mut fps: f32 = 60
     let mut last = Instant::now()
 
     let mut running = true
     while running {
         let mut ev: sdl::SDL_Event
         while sdl::SDL_PollEvent(&mut ev) {
+            // The panel sees every event first; what it takes, the scene does not.
+            let (panel_mouse, panel_keys) = panel_event(&ev)
             if ev.type == sdl::SDL_EVENT_QUIT {
                 running = false
-            } else if ev.type == sdl::SDL_EVENT_KEY_DOWN {
+            } else if ev.type == sdl::SDL_EVENT_KEY_DOWN && !panel_keys {
                 if ev.key.key == sdl::SDLK_ESCAPE {
                     running = false
                 } else if ev.key.key == sdl::SDLK_SPACE {
-                    paused = !paused
+                    settings.paused = !settings.paused
                 }
-            } else if ev.type == sdl::SDL_EVENT_MOUSE_MOTION {
+            } else if ev.type == sdl::SDL_EVENT_MOUSE_MOTION && !panel_mouse {
                 if ev.motion.state & sdl::SDL_BUTTON_LMASK != 0 {
                     camera.yaw -= ev.motion.xrel * 0.006
                     camera.pitch = (camera.pitch + ev.motion.yrel * 0.006).clamp(0.05, 1.4)
                 }
-            } else if ev.type == sdl::SDL_EVENT_MOUSE_WHEEL {
+            } else if ev.type == sdl::SDL_EVENT_MOUSE_WHEEL && !panel_mouse {
                 camera.distance = (camera.distance - ev.wheel.y).clamp(6, 40)
             }
         }
@@ -91,15 +97,21 @@ fn main() {
         let now = Instant::now()
         let dt = now.since(last).as_secs_f32().min(0.1)
         last = now
-        if !paused {
-            t += dt
-            camera.yaw += dt * 0.12
+        if dt > 0 {
+            fps += (1 / dt - fps) * 0.05
+        }
+        if !settings.paused {
+            t += dt * settings.speed
+            if settings.orbit {
+                camera.yaw += dt * settings.speed * 0.12
+            }
         }
 
         let mut width: i32 = 0
         let mut height: i32 = 0
         sdl::SDL_GetWindowSizeInPixels(window, &mut width, &mut height)
-        renderer.draw(&build(t, &camera), width, height)
+        renderer.draw(&build(t, &camera, &settings), width, height)
+        draw_panel(&mut settings, &mut camera, fps)
         sdl::SDL_GL_SwapWindow(window)
     }
 }

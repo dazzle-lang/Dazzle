@@ -2,6 +2,9 @@ manhattan 7
 round 15 square 25
 length sq 25
 moved 4 5
+scaled 10 15 16
+describe 7 30 6 300
+halved 0.5 0.25 0.125 total 0.875
 counter 18
 buffer 4 12
 pair 3 12

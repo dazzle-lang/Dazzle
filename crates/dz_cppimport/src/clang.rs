@@ -718,6 +718,11 @@ struct Walker {
     decls: Vec<Decl>,
     skipped: Vec<Skipped>,
     seen: HashSet<String>,
+    /// Each function declaration by clang's USR, which a redeclaration shares and an
+    /// overload does not (spec §15.3).
+    fn_usrs: HashSet<String>,
+    /// The names, qualified, that functions hold, so a later overload joins its set.
+    fn_names: HashSet<String>,
     /// Records the header defines somewhere, so a forward declaration of one of them is
     /// passed over rather than imported as a handle.
     defined: HashSet<String>,
@@ -974,9 +979,18 @@ impl Walker {
 
     unsafe fn function(&mut self, c: CXCursor, loc: Loc) {
         let name = string(clang_getCursorSpelling(c));
-        if !self.claim(&name) {
+        // A second declaration of a name is a redeclaration when clang gives it the same
+        // USR, and an overload when it does not; every overload is imported, and the call
+        // chooses among them (spec §15.3). A name a type has already taken stays the type's.
+        let usr = string(clang_getCursorUSR(c));
+        if !self.fn_usrs.insert(usr) {
             return; // a redeclaration
         }
+        let qualified = self.qualified(&name);
+        if !self.fn_names.contains(&qualified) && !self.claim(&name) {
+            return;
+        }
+        self.fn_names.insert(qualified);
         if clang_isFunctionTypeVariadic(clang_getCursorType(c)) != 0 {
             return self.skip(
                 name,
@@ -1130,15 +1144,47 @@ impl Walker {
                 pname = format!("arg{i}");
             }
             let param_ty = clang_getCursorType(p);
-            let ty = self.map_type(param_ty);
+            let (ty, c_cast) = match self.array_parameter(param_ty) {
+                Some(found) => found,
+                None => (self.map_type(param_ty), self.mismatched_spelling(param_ty)),
+            };
             if let CType::Unsupported(w) = &ty {
                 let reason = format!("its parameter `{pname}` is `{w}`");
                 self.skip(what.to_owned(), loc, reason);
                 return None;
             }
-            params.push(Param { name: pname, ty, c_cast: self.mismatched_spelling(param_ty) });
+            // A default argument is an expression below the parameter; its type is not
+            // (spec §15.2).
+            let has_default =
+                children(p).into_iter().any(|e| clang_isExpression(clang_getCursorKind(e)) != 0);
+            params.push(Param { name: pname, ty, c_cast, has_default });
         }
         Some(params)
+    }
+
+    /// `float col[3]` as a parameter: C++ passes a pointer to the first element, which the
+    /// header says is the first of three. Dazzle takes the whole array by reference,
+    /// `&mut [3]f32` (`&[3]f32` for `const float[3]`), so the length is checked where the
+    /// argument is made, and the call casts it to the element pointer C++ expects
+    /// (spec §15.2). `float v[]` says no length and stays a pointer.
+    unsafe fn array_parameter(&self, t: CXType) -> Option<(CType, Option<String>)> {
+        let t = match t.kind {
+            CXType_ConstantArray => t,
+            _ => {
+                let c = clang_getCanonicalType(t);
+                if c.kind != CXType_ConstantArray {
+                    return None;
+                }
+                c
+            }
+        };
+        let elem = clang_getArrayElementType(t);
+        let mutable = clang_isConstQualifiedType(elem) == 0;
+        let ty = match self.map_type(t) {
+            CType::Unsupported(w) => CType::Unsupported(w),
+            array => CType::Ref { mutable, referent: Box::new(array) },
+        };
+        Some((ty, Some(format!("{} *", spelling(elem)))))
     }
 
     /// One record's members. An anonymous `union { … };` or `struct { … };` written inside
@@ -1428,8 +1474,8 @@ impl Walker {
                     inner => CType::Ref { mutable, referent: Box::new(inner) },
                 }
             }
-            // `float m[16]` in a struct. A parameter written as an array is a pointer in C
-            // and arrives here as one, so this is the member case (spec §15.2).
+            // `float m[16]` in a struct. A parameter written as an array is a pointer in C,
+            // and `array_parameter` takes it before it gets here (spec §15.2).
             CXType_ConstantArray => {
                 let len = clang_getArraySize(t);
                 let elem = self.map_type(clang_getArrayElementType(t));

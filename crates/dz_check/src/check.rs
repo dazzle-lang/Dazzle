@@ -2870,10 +2870,20 @@ impl<'a, 'c> Body<'a, 'c> {
     /// Type of an expression without emitting diagnostics or keeping nodes, for place
     /// analysis. The expression has already been checked once; this is a second look.
     fn expr_quiet(&mut self, e: &Expr) -> Ty {
+        self.probe(e, None)
+    }
+
+    /// [`Self::expr_quiet`] in a context that wants `want`, which is what a literal takes
+    /// its type from.
+    fn expr_quiet_as(&mut self, e: &Expr, want: &Ty) -> Ty {
+        self.probe(e, Some(want))
+    }
+
+    fn probe(&mut self, e: &Expr, want: Option<&Ty>) -> Ty {
         let before = self.cx.diags.len();
         let reported = self.unsafe_reported.len();
         let mark = self.hir.mark();
-        let t = self.expr(e, None).ty;
+        let t = self.expr(e, want).ty;
         self.hir.rollback(mark);
         self.cx.diags.truncate(before);
         // A probe that ran before the real check must not use up its diagnostic.
@@ -4358,6 +4368,40 @@ impl<'a, 'c> Body<'a, 'c> {
     /// (§18.27), and is otherwise ambiguous. With none fitting, the first that takes this
     /// many arguments is returned, and checking the arguments against it reports why.
     fn pick_ctor(&mut self, ctors: &[FnSig], args: &[Expr], span: Span, name: &str) -> usize {
+        self.pick_by_args(ctors, args, span, &format!("constructor of `{name}`"), false)
+    }
+
+    /// An imported C++ function's overload, chosen as a constructor is (spec §15.3): by
+    /// how many arguments the call gives, counting defaults, and then by their types,
+    /// exact matches settling a tie. Returns `sym` itself when it is not overloaded.
+    fn pick_foreign_overload(&mut self, sym: SymbolId, args: &[Expr], span: Span) -> SymbolId {
+        let Some(set) = self.cx.res.overloads.get(&sym).cloned() else { return sym };
+        let sigs: Vec<FnSig> = set
+            .iter()
+            .filter_map(|s| match self.cx.table.get(*s) {
+                Some(ItemSig::Fn(f)) => Some(f.clone()),
+                _ => None,
+            })
+            .collect();
+        if sigs.len() != set.len() {
+            return sym;
+        }
+        let name = self.cx.res.symbol(sym).name.clone();
+        let index = self.pick_by_args(&sigs, args, span, &format!("`{name}`"), true);
+        set[index]
+    }
+
+    /// The shared half of [`Self::pick_ctor`] and [`Self::pick_foreign_overload`]; `what`
+    /// names the candidates in the ambiguity error, and `by_param` types each argument
+    /// against each candidate's parameter rather than once on its own.
+    fn pick_by_args(
+        &mut self,
+        ctors: &[FnSig],
+        args: &[Expr],
+        span: Span,
+        what: &str,
+        by_param: bool,
+    ) -> usize {
         if ctors.len() <= 1 {
             return 0;
         }
@@ -4373,10 +4417,30 @@ impl<'a, 'c> Body<'a, 'c> {
             return by_count.first().copied().unwrap_or(0);
         }
         let tys: Vec<Ty> = positional.iter().map(|a| self.expr_quiet(a)).collect();
+        // An imported overload's arguments are typed as its own parameters would type them,
+        // so a literal takes the type its context gives it: `"Flag"` is a `cstr` where one
+        // is wanted, and a `str` with no context at all (spec §15.3).
+        let per: Vec<Vec<Ty>> = (0..ctors.len())
+            .map(|i| {
+                if !by_param {
+                    return tys.clone();
+                }
+                let params = &ctors[i].params;
+                positional
+                    .iter()
+                    .enumerate()
+                    .map(|(k, a)| match params.get(k) {
+                        Some(p) => self.expr_quiet_as(a, &p.ty),
+                        None => tys[k].clone(),
+                    })
+                    .collect()
+            })
+            .collect();
         // A parameter of a generic struct's type parameter fits anything here: what it is
         // solved to is decided once the constructor is chosen.
-        let fits = |s: &FnSig, exact: bool| {
-            s.params.iter().zip(&tys).take(s.variadic.unwrap_or(usize::MAX)).all(|(p, a)| {
+        let fits = |i: usize, exact: bool| {
+            let s = &ctors[i];
+            s.params.iter().zip(&per[i]).take(s.variadic.unwrap_or(usize::MAX)).all(|(p, a)| {
                 if p.ty.has_params() || a.is_wildcard() {
                     return !exact;
                 }
@@ -4387,15 +4451,13 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
             })
         };
-        let fitting: Vec<usize> =
-            by_count.iter().copied().filter(|&i| fits(&ctors[i], false)).collect();
+        let fitting: Vec<usize> = by_count.iter().copied().filter(|&i| fits(i, false)).collect();
         match fitting.as_slice() {
             [] => return by_count[0],
             [one] => return *one,
             _ => {}
         }
-        let exact: Vec<usize> =
-            fitting.iter().copied().filter(|&i| fits(&ctors[i], true)).collect();
+        let exact: Vec<usize> = fitting.iter().copied().filter(|&i| fits(i, true)).collect();
         if let [one] = exact.as_slice() {
             return *one;
         }
@@ -4403,10 +4465,15 @@ impl<'a, 'c> Body<'a, 'c> {
         self.cx.error_help(
             codes::AMBIGUOUS_CALL,
             span,
-            format!("more than one constructor of `{name}` accepts ({})", shown.join(", ")),
-            "ambiguous constructor call",
-            "give an argument a type — `3 as i64`, say — or pass the argument a default would \
-             have supplied, so that exactly one constructor fits (spec §7.2)",
+            format!("more than one {what} accepts ({})", shown.join(", ")),
+            if by_param { "ambiguous call" } else { "ambiguous constructor call" },
+            if by_param {
+                "give an argument a type — `3 as i64`, say — or pass the argument a default \
+                 would have supplied, so that exactly one overload fits (spec §15.3)"
+            } else {
+                "give an argument a type — `3 as i64`, say — or pass the argument a default \
+                 would have supplied, so that exactly one constructor fits (spec §7.2)"
+            },
         );
         fitting[0]
     }
@@ -5698,6 +5765,7 @@ impl<'a, 'c> Body<'a, 'c> {
             // (spec §7.2). The generic `Ty::Fn` path below cannot, since a function type
             // does not record which parameters have defaults.
             if let Some(sym) = self.path_symbol(p) {
+                let sym = self.pick_foreign_overload(sym, args, span);
                 if let Some(ItemSig::Fn(sig)) = self.cx.table.get(sym) {
                     let mut sig = sig.clone();
                     let name = self.cx.res.symbol(sym).name.clone();

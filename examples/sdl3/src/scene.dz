@@ -30,10 +30,44 @@ pub struct Frame {
     pub eye:    Vec3
     pub target: Vec3
     /// Towards the sun.
-    pub sun_dir:    Vec3
-    pub sun_color:  Vec3
+    pub sun_dir:   Vec3
+    pub sun_color: Vec3
+    /// How bright the sky and the fog are: 1 by day.
+    pub sky:        f32
     pub lamp_pos:   [3]Vec3
     pub lamp_color: [3]Vec3
+}
+
+/// What the control panel changes (`ui.dz`). A colour is kept as ImGui's colour picker edits
+/// it, three floats from 0 to 1, with its brightness apart: the lights are brighter than 1.
+pub struct Settings {
+    /// Which of the panel's presets was chosen last.
+    pub preset: i32 = 0
+    pub paused: bool = false
+    pub speed:  f32 = 1
+    /// The camera turns slowly round the knot by itself.
+    pub orbit: bool = true
+
+    /// The sun's height above the horizon, in radians, and how fast it goes round.
+    pub sun_height:   f32 = 0.62
+    pub sun_speed:    f32 = 0.05
+    pub sun_color:    [3]f32 = [1, 0.912, 0.794]
+    pub sun_strength: f32 = 1.7
+    /// How bright the sky is, which the fog fades into: 1 by day.
+    pub sky: f32 = 1
+
+    pub lamp_color:    [3][3]f32 = [[1, 0.375, 0.0875], [0.0875, 0.475, 1], [0.9, 0.125, 0.75]]
+    pub lamp_strength: f32 = 4
+    pub lamp_radius:   f32 = 3.9
+
+    pub knot_color: [3]f32 = [1.0, 0.60, 0.16]
+    pub knot_metal: bool = true
+    pub knot_gloss: f32 = 180
+}
+
+/// A colour picker's three floats, times a brightness.
+fn lit(c: &[3]f32, strength: f32) -> Vec3 {
+    return Vec3{ x: c[0], y: c[1], z: c[2] } * strength
 }
 
 /// An orbit round a point: dragging the mouse turns it, the wheel moves it nearer.
@@ -64,7 +98,7 @@ fn placed(at: Vec3, size: Vec3) -> Mat4 {
 
 const PILLARS: i32 = 6
 
-pub fn build(t: f32, camera: &Camera) -> Frame {
+pub fn build(t: f32, camera: &Camera, s: &Settings) -> Frame {
     let mut f: Frame
     f.eye = camera.eye()
     f.target = camera.target
@@ -72,10 +106,11 @@ pub fn build(t: f32, camera: &Camera) -> Frame {
 
     // An afternoon sun, behind the knot as the camera first sees it, so the shadows fall
     // towards the viewer; it goes slowly round.
-    let elevation: f32 = 0.62
-    let azimuth = 4.35 + t * 0.05
+    let elevation = s.sun_height
+    let azimuth = 4.35 + t * s.sun_speed
     f.sun_dir = Vec3{ x: elevation.cos() * azimuth.cos(), y: elevation.sin(), z: elevation.cos() * azimuth.sin() }
-    f.sun_color = rgb(1.7, 1.55, 1.35)
+    f.sun_color = lit(&s.sun_color, s.sun_strength)
+    f.sky = s.sky
 
     let up = Vec3{ x: 0, y: 1, z: 0 }
     f.objects.push(Object{
@@ -92,7 +127,11 @@ pub fn build(t: f32, camera: &Camera) -> Frame {
     f.objects.push(Object{ shape: Shape::Cube, model: placed(rgb(0, 0.6, 0), rgb(4.4, 0.4, 4.4)), color: slate })
     let spin = Mat4::rotation(up, t * 0.35) * Mat4::rotation(Vec3{ x: 1, y: 0, z: 0 }, 1.25 + (t * 0.3).sin() * 0.25)
     let knot = Mat4::translation(rgb(0, 3.5 + (t * 0.8).sin() * 0.15, 0)) * spin * Mat4::scaling(rgb(0.7, 0.7, 0.7))
-    f.objects.push(Object{ shape: Shape::Knot, model: knot, color: rgb(1.0, 0.60, 0.16), gloss: 180, metal: 1 })
+    let mut knot_obj = Object{ shape: Shape::Knot, model: knot, color: lit(&s.knot_color, 1), gloss: s.knot_gloss }
+    if s.knot_metal {
+        knot_obj.metal = 1
+    }
+    f.objects.push(knot_obj)
 
     // A ring of pillars, each with a ball resting on it and a block at its foot.
     let colors = [rgb(0.95, 0.30, 0.28), rgb(0.12, 0.72, 0.66), rgb(0.52, 0.32, 0.95), rgb(0.98, 0.70, 0.18), rgb(0.22, 0.52, 0.98), rgb(0.55, 0.85, 0.24)]
@@ -119,10 +158,10 @@ pub fn build(t: f32, camera: &Camera) -> Frame {
     }
 
     // Three lamps circling the knot, each a small ball that glows in its own colour.
-    f.lamp_color = [rgb(4.0, 1.5, 0.35), rgb(0.35, 1.9, 4.0), rgb(3.6, 0.5, 3.0)]
     for i in 0..3 {
+        f.lamp_color[i as usize] = lit(&s.lamp_color[i as usize], s.lamp_strength)
         let angle = t * 0.6 + i as f32 * TAU / 3
-        let pos = around(angle, 3.9, 2.1 + (t * 1.1 + i as f32 * 2).sin() * 0.7)
+        let pos = around(angle, s.lamp_radius, 2.1 + (t * 1.1 + i as f32 * 2).sin() * 0.7)
         f.lamp_pos[i as usize] = pos
         let glow = f.lamp_color[i as usize] * 2
         f.objects.push(Object{

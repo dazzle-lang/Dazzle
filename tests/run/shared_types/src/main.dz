@@ -1,0 +1,13 @@
+// One C type is one Dazzle type, whichever import reads it (spec §15.2): `probe.h` only
+// declares the `Thing` that `arena.h` defines, so a pointer from one library passes to the
+// other with no cast, and `probe::Thing` and `arena::Thing` are two names for it.
+fn main() {
+    let t = arena::thing_make(7)
+    probe::probe_double(t)
+    println!("{}", probe::probe_value(t))
+
+    let named: ^mut probe::Thing = t
+    let back: ^mut arena::Thing = named
+    println!("{}", probe::probe_value(back))
+    arena::thing_free(t)
+}

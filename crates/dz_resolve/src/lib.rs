@@ -220,6 +220,13 @@ pub struct Resolution {
     pub foreign_cpp: HashMap<(ModuleId, String), SymbolId>,
     /// The same in reverse: what the generated C++ writes for an imported symbol.
     pub foreign_path: HashMap<SymbolId, String>,
+    /// The symbol each of an imported header's declarations became, by its index in
+    /// `Header::decls`. A type another import also declares is that import's symbol, when
+    /// it is the canonical one (see [`unify_foreign_types`]); an alias has no entry.
+    pub foreign_decl: HashMap<(ModuleId, usize), SymbolId>,
+    /// An imported C++ overload set: the symbol its name resolves to, and every overload
+    /// in the header's order, that one first. A call chooses among them (spec §15.3).
+    pub overloads: HashMap<SymbolId, Vec<SymbolId>>,
     /// The prelude (spec §3.2, §18.23), so an unqualified lookup can fall back to it.
     pub prelude: ModuleId,
     pub diagnostics: Diagnostics,
@@ -455,6 +462,8 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
         inner: HashMap::new(),
         foreign_cpp: HashMap::new(),
         foreign_path: HashMap::new(),
+        foreign_decl: HashMap::new(),
+        overloads: HashMap::new(),
         names: HashMap::new(),
         used_deps: HashSet::new(),
         prelude: ws.prelude,
@@ -475,6 +484,7 @@ pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Re
         }
         r.scopes.insert(module.id, scope);
     }
+    unify_foreign_types(&mut r, ws);
 
     // Pass 1a: what each manifest lets its module name (spec §3.2). After pass 1 because
     // `[names]` names declarations.
@@ -751,7 +761,7 @@ fn collect_foreign(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId
         }
     }
 
-    for d in &f.header.decls {
+    for (index, d) in f.header.decls.iter().enumerate() {
         let member = |name: &str, sort: MemberSort, loc: Loc| MemberSymbol {
             name: name.to_owned(),
             sort,
@@ -786,6 +796,20 @@ fn collect_foreign(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId
             members,
             base: None,
         });
+        r.foreign_decl.insert((module, index), id);
+        // A function whose name an earlier one holds is another overload of it: the name
+        // stays the first's, and the call chooses among the set (spec §15.3).
+        if kind == SymbolKind::Fn {
+            let earlier = match namespaces.get(&d.scope) {
+                Some(ns) => r.inner(*ns, &d.name),
+                None => scope.items.get(&d.name).copied(),
+            };
+            if let Some(first) = earlier.filter(|e| r.symbol(*e).kind == SymbolKind::Fn) {
+                r.overloads.entry(first).or_insert_with(|| vec![first]).push(id);
+                r.foreign_path.insert(id, d.cpp.clone());
+                continue;
+            }
+        }
         // Inside a namespace it is reached through it, and only through it; at the
         // header's own scope it is a name of the module (spec §15.2).
         match namespaces.get(&d.scope) {
@@ -819,6 +843,58 @@ fn collect_foreign(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId
             }
         }
     }
+}
+
+/// One C++ type, one Dazzle type, whichever imports declare it (spec §15.2).
+///
+/// C++ has one type per qualified name in a program, so `::SDL_Window` is the same type in
+/// SDL's own header and in ImGui's backend header, which only declares it to take a
+/// pointer. Each import still reads it, and gets a symbol of its own; this makes every
+/// one of them the **canonical** symbol: the first import, in module order, that defines
+/// the type rather than only declaring it, or the first to declare it when none defines
+/// it. A pointer from one library then passes to the other with no cast.
+fn unify_foreign_types(r: &mut Resolution, ws: &Workspace) {
+    use dz_project::cppimport::DeclKind;
+    // Each C++ path's symbols, the defining one first if there is one.
+    let mut by_path: HashMap<String, Vec<(SymbolId, bool)>> = HashMap::new();
+    for module in ws.modules() {
+        let Some(f) = &module.foreign else { continue };
+        for (index, d) in f.header.decls.iter().enumerate() {
+            let defines = match &d.kind {
+                DeclKind::Struct { opaque, .. } => !opaque,
+                DeclKind::Enum { .. } => true,
+                _ => continue,
+            };
+            let Some(id) = r.foreign_decl.get(&(module.id, index)).copied() else { continue };
+            by_path.entry(d.cpp.clone()).or_default().push((id, defines));
+        }
+    }
+    let mut to: HashMap<SymbolId, SymbolId> = HashMap::new();
+    for syms in by_path.into_values() {
+        if syms.len() < 2 {
+            continue;
+        }
+        let canonical = syms.iter().find(|(_, defines)| *defines).unwrap_or(&syms[0]).0;
+        for (id, _) in syms {
+            if id != canonical {
+                to.insert(id, canonical);
+            }
+        }
+    }
+    if to.is_empty() {
+        return;
+    }
+    let map = |id: &mut SymbolId| {
+        if let Some(c) = to.get(id) {
+            *id = *c;
+        }
+    };
+    for scope in r.scopes.values_mut() {
+        scope.items.values_mut().for_each(map);
+    }
+    r.inner.values_mut().for_each(map);
+    r.foreign_cpp.values_mut().for_each(map);
+    r.foreign_decl.values_mut().for_each(map);
 }
 
 /// How a namespace's member is described when a path names it wrongly.

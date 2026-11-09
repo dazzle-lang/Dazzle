@@ -21,6 +21,25 @@ fn main() {
     shp::shapes::translate(&mut moving, 1, 1)
     println!("moved {} {}", moving.x, moving.y)
 
+    // Default arguments: the call stops short, and C++ supplies the rest (§15.2).
+    println!("scaled {} {} {}",
+            shp::shapes::scaled(5),
+            shp::shapes::scaled(5, 3),
+            shp::shapes::scaled(5, 3, 1))
+
+    // An overloaded free function, chosen by the arguments' count and types (§15.3).
+    let small: u32 = 2
+    println!("describe {} {} {} {}",
+            shp::shapes::describe(7),
+            shp::shapes::describe(a),
+            shp::shapes::describe(a, 2),
+            shp::shapes::describe(small, 1))
+
+    // An array parameter takes the whole array, by reference (§15.2).
+    let mut rgb: [3]f32 = [1, 0.5, 0.25]
+    shp::shapes::halve(&mut rgb)
+    println!("halved {} {} {} total {}", rgb[0], rgb[1], rgb[2], shp::shapes::total(&rgb))
+
     // A class: a constructor call, a `const` method, and a mutating one.
     let mut counter = shp::shapes::Counter(10)
     counter.add(5)

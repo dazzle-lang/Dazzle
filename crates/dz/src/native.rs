@@ -123,6 +123,13 @@ pub fn build_libraries(
             args.extend(module.cpp.include_dirs.iter().map(|d| format!("-I{}", d.display())));
             args.extend(lib.defines.iter().map(|d| format!("-D{d}")));
             args.extend(lib.include_dirs.iter().map(|d| format!("-I{}", d.display())));
+            // `uses`: the recipes whose headers this one includes — their include dirs,
+            // after its own so its own headers win, and the defines every user of their
+            // headers needs. Not their `defines`, which build only their sources (§15.1).
+            for used in module.cpp.libs.iter().filter(|l| lib.uses.contains(&l.name)) {
+                args.extend(used.shared_defines.iter().map(|d| format!("-D{d}")));
+                args.extend(used.include_dirs.iter().map(|d| format!("-I{}", d.display())));
+            }
             // Last, so a recipe can override what `dz` chose — which is the point of the
             // key. `-x objective-c` after the `-x c` above is exactly that: the final `-x`
             // before the input is the one that applies (spec §15.1).

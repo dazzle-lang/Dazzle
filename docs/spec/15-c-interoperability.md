@@ -77,6 +77,13 @@ defines = ["JPH_PROFILE_ENABLED=0"]
   again in each translation unit that includes the header. A define that has to hold on both
   sides, such as the `SHLDEF=` that gives a header-only library's declarations external
   linkage, goes in `[cpp]`.
+- **`uses`** names other recipes of the same manifest whose headers this library's sources
+  include: `uses = ["sdl3"]`. Its sources are then compiled with those recipes' include dirs,
+  after its own, and the defines every user of their headers needs (a CMake install's), but
+  not their `defines`, which build only their own sources. It is how a library is built
+  against another one: Dear ImGui's SDL3 backend includes `SDL3/SDL.h`, which only SDL's
+  CMake build installs, at a path that depends on the build's configuration. A name that is
+  not another recipe of the manifest is an error.
 - **`header`** names a single-header library, and replaces `sources` for one. Such a library
   needs exactly one translation unit that includes its header with the implementation define
   in force, and nothing else about that file is interesting, so `dz` writes it rather than
@@ -197,6 +204,8 @@ libclang pass runs once and not on every build.
 | a `struct` the header only declares | a **handle**: used behind `^T` and `^mut T`, never by value (§18.40) |
 | C `union` | a type whose members are the same memory, as in C; a literal sets one of them (§18.41) |
 | an array member, `float m[16]` | `[16]f32` — indexed, iterated, `.len`, `.ptr`, bounds-checked. A whole one is not a value: C cannot copy an array either (`DZ0707`) |
+| an array parameter, `float col[3]` | `&mut [3]f32`, and `&[3]f32` for `const float col[3]`: C++ passes a pointer to the first element, and Dazzle passes the whole array by reference, so its length is checked at the call. One with no length, `float v[]`, is a pointer |
+| a default argument, `int flags = 0` | the parameter may be left out, as a Dazzle default may (§7.2), and C++ supplies the header's value: `ImGui::Begin("Scene")` for `Begin(const char*, bool* = NULL, int = 0)` |
 | a bit-field, `unsigned on : 1` | an ordinary member to read and assign. It has no address, so `&` on one is refused (`DZ0706`) |
 | a function pointer, `void (*)(const RGFW_event *)` | `fn(^RGFW_event)` (§5.4): a Dazzle function is handed to C as a callback |
 | member function | method — `const` takes `&self`, any other `&mut self`. A `static` one needs associated functions, which Dazzle does not have yet, and is left out with that reason |
@@ -239,6 +248,13 @@ is for what a header cannot say, such as which call frees what it returned.
 What cannot be named in Dazzle yet — a variadic function,
 a union, a function pointer — is left out of the import rather than guessed at.
 
+**One C++ type is one Dazzle type, whichever import reads it.** C++ has one type per
+qualified name in a program, so when two imports declare the same one, both names lead to
+it: ImGui's SDL3 backend header only declares `struct SDL_Window;`, SDL's header defines it,
+and an `^mut sdl::SDL_Window` passes where `imgui::ImGui_ImplSDL3_InitForOpenGL` wants
+`imgui`'s, with no cast. The import that defines the type describes it; one that only
+declares it adds a name for it.
+
 An imported type with a non-trivial C++ destructor is **move-only in Dazzle** unless it also
 has a copy constructor, which makes C++ RAII types obey Dazzle's rules automatically.
 
@@ -261,10 +277,14 @@ overload sets are resolved by argument types at the call site, using exact match
 no implicit conversions, no promotion, no SFINAE. A type's `ImplicitAs` (§7.2) is not tried
 either: it converts an argument once the function is known, and never chooses one.
 
-An overloaded **member function** resolves this way today: `counter.add(5)` and
-`counter.add(point)` reach the two `add`s of one C++ class. An overloaded **free function**
-does not yet — the header's second declaration of a name is passed over, and the first is
-the one imported.
+An overloaded **member function** resolves this way: `counter.add(5)` and
+`counter.add(point)` reach the two `add`s of one C++ class. So does an overloaded **free
+function**: every overload of a name is imported, and the call reaches the one that takes
+as many arguments as it gives, counting those its defaults supply, and whose parameters its
+arguments fit, each argument typed as that parameter would type it, so a literal takes the
+type its context gives. Several fitting is settled by exact types, as for a constructor
+(§7.2). ImGui's `Combo` has three overloads, and `Combo("Preset", &mut current, "A\0B\0")`
+reaches the one whose items are a single string.
 
 When two overloads both match exactly, or none does, the error lists the candidates with
 their parameter types and asks you to disambiguate:

@@ -1,0 +1,128 @@
+// The control panel: Dear ImGui, a C++ library built from its own source by `dz` (see
+// dazzle.toml) and called directly, with no wrapper. ImGui's own SDL3 and OpenGL 3 backends
+// do the input and the drawing; this file only says what is in the panel.
+//
+// What crosses into C++ here, each in spec §15:
+// - a namespace, `imgui::ImGui::Begin`, and C++ default arguments left out: `Begin` takes
+//   three, and the call gives one;
+// - overloads chosen by their arguments: `Combo` has three, and the one that takes its
+//   items as one string is picked by the string;
+// - `float col[3]` parameters, which take a whole `[3]f32` by reference;
+// - `GetIO()`, which returns a C++ reference whose fields are read and written in place;
+// - SDL's own types, which ImGui's backend header only declares and SDL's defines: one C++
+//   type, so `sdl::SDL_Window` and SDL's event pass straight through.
+
+pub fn start_panel(window: ^mut sdl::SDL_Window, context: ^mut sdl::SDL_GLContextState) {
+    imgui::ImGui::CreateContext()
+    imgui::ImGui::StyleColorsDark()
+    let io = imgui::ImGui::GetIO()
+    // No imgui.ini beside the program: the panel opens where `draw_panel` puts it every time.
+    io.IniFilename = null
+    let style = imgui::ImGui::GetStyle()
+    style.WindowRounding = 6
+    style.FrameRounding = 4
+    // Sized for the screen, as ImGui's own SDL3 example does it: the display's content
+    // scale for a high-density screen, and a little more than ImGui's 13 pixels anyway.
+    let scale = sdl::SDL_GetDisplayContentScale(sdl::SDL_GetPrimaryDisplay()).max(1) * 1.25
+    style.ScaleAllSizes(scale)
+    style.FontScaleDpi = scale
+
+    // The backend keeps the window and the context, which SDL made and outlives it; a
+    // GL context is a handle ImGui takes as `void*`, and making one from it is a cast.
+    let gl_context = unsafe {
+        context as ^mut void
+    }
+    imgui::ImGui_ImplSDL3_InitForOpenGL(window, gl_context)
+    imgui::ImGui_ImplOpenGL3_Init("#version 330 core")
+}
+
+pub fn stop_panel() {
+    imgui::ImGui_ImplOpenGL3_Shutdown()
+    imgui::ImGui_ImplSDL3_Shutdown()
+    imgui::ImGui::DestroyContext()
+}
+
+/// Hands ImGui an event, and says whether the panel took the mouse or the keyboard with
+/// it, so that dragging a slider does not also turn the camera.
+pub fn panel_event(ev: &sdl::SDL_Event) -> (bool, bool) {
+    imgui::ImGui_ImplSDL3_ProcessEvent(ev)
+    let io = imgui::ImGui::GetIO()
+    return (io.WantCaptureMouse, io.WantCaptureKeyboard)
+}
+
+/// Builds the panel for this frame and draws it over what is already in the framebuffer.
+pub fn draw_panel(s: &mut Settings, camera: &mut Camera, fps: f32) {
+    imgui::ImGui_ImplOpenGL3_NewFrame()
+    imgui::ImGui_ImplSDL3_NewFrame()
+    imgui::ImGui::NewFrame()
+
+    imgui::ImGui::SetNextWindowPos(&imgui::ImVec2{ x: 16, y: 16 }, imgui::ImGuiCond_FirstUseEver)
+    // Wide enough for the labels at whatever size the font was scaled to.
+    let width = imgui::ImGui::GetFontSize() * 25
+    imgui::ImGui::SetNextWindowSize(&imgui::ImVec2{ x: width, y: 0 }, imgui::ImGuiCond_FirstUseEver)
+    imgui::ImGui::Begin("Scene")
+    imgui::ImGui::TextUnformatted(format!("{} fps, drawn by Dazzle", fps.round() as i32))
+
+    // One string, each preset's name ended by a zero byte: the `Combo` that takes this.
+    if imgui::ImGui::Combo("Preset", &mut s.preset, "Afternoon\0Dusk\0Night\0") {
+        apply(s, s.preset)
+    }
+
+    if imgui::ImGui::CollapsingHeader("Time", imgui::ImGuiTreeNodeFlags_DefaultOpen) {
+        imgui::ImGui::Checkbox("Paused (Space)", &mut s.paused)
+        imgui::ImGui::SliderFloat("Speed", &mut s.speed, 0, 4, "%.2fx")
+        imgui::ImGui::Checkbox("Camera orbits", &mut s.orbit)
+        if imgui::ImGui::Button("Reset camera") {
+            let fresh: Camera
+            camera = fresh
+        }
+    }
+    if imgui::ImGui::CollapsingHeader("Sun", imgui::ImGuiTreeNodeFlags_DefaultOpen) {
+        imgui::ImGui::SliderFloat("Height", &mut s.sun_height, 0.05, 1.5)
+        imgui::ImGui::SliderFloat("Turning", &mut s.sun_speed, 0, 0.5)
+        imgui::ImGui::ColorEdit3("Colour##sun", &mut s.sun_color)
+        imgui::ImGui::SliderFloat("Brightness##sun", &mut s.sun_strength, 0, 4)
+        imgui::ImGui::SliderFloat("Sky", &mut s.sky, 0, 1.5)
+    }
+    if imgui::ImGui::CollapsingHeader("Lamps") {
+        imgui::ImGui::ColorEdit3("First", &mut s.lamp_color[0])
+        imgui::ImGui::ColorEdit3("Second", &mut s.lamp_color[1])
+        imgui::ImGui::ColorEdit3("Third", &mut s.lamp_color[2])
+        imgui::ImGui::SliderFloat("Brightness##lamps", &mut s.lamp_strength, 0, 10)
+        imgui::ImGui::SliderFloat("Orbit", &mut s.lamp_radius, 2.5, 7)
+    }
+    if imgui::ImGui::CollapsingHeader("Knot") {
+        imgui::ImGui::ColorEdit3("Colour##knot", &mut s.knot_color)
+        imgui::ImGui::Checkbox("Metal", &mut s.knot_metal)
+        imgui::ImGui::SliderFloat("Gloss", &mut s.knot_gloss, 4, 400, "%.0f")
+    }
+    imgui::ImGui::End()
+
+    imgui::ImGui::Render()
+    imgui::ImGui_ImplOpenGL3_RenderDrawData(imgui::ImGui::GetDrawData())
+}
+
+/// A preset's light, by its place in the `Combo`.
+fn apply(s: &mut Settings, preset: i32) {
+    let fresh: Settings
+    s.sun_height = fresh.sun_height
+    s.sun_color = fresh.sun_color
+    s.sun_strength = fresh.sun_strength
+    s.sky = fresh.sky
+    s.lamp_strength = fresh.lamp_strength
+    if preset == 1 {
+        // Dusk: a low orange sun, and the lamps beginning to tell.
+        s.sun_height = 0.12
+        s.sun_color = [1, 0.55, 0.3]
+        s.sun_strength = 1.3
+        s.sky = 0.45
+        s.lamp_strength = 6
+    } else if preset == 2 {
+        // Night: a dim blue moon in the sun's place, and the lamps doing the lighting.
+        s.sun_height = 0.9
+        s.sun_color = [0.55, 0.65, 1]
+        s.sun_strength = 0.12
+        s.sky = 0.06
+        s.lamp_strength = 8
+    }
+}

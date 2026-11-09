@@ -89,19 +89,17 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0013](tasks/T-0013-hover-on-imported-name.md)** Hover on an imported name · deferral, editor
 - **[T-0014](tasks/T-0014-import-cache-in-process-only.md)** The import cache is in-process only · deferral, interop
 
-## M7b — Full C and C++ interop (11 open)
+## M7b — Full C and C++ interop (9 open)
 
 - **[T-0008](tasks/T-0008-variadic-c-functions.md)** Variadic C functions · feature, interop
 - **[T-0009](tasks/T-0009-dazzle-struct-implementing-imported-c-abstract.md)** A Dazzle struct implementing an imported C++ abstract class · feature, interop
 - **[T-0010](tasks/T-0010-proof-on-real-libraries-dear-imgui.md)** Proof on real libraries: Dear ImGui and Jolt fixtures · feature, interop
 - **[T-0015](tasks/T-0015-declarations-left-out-import.md)** Declarations left out of an import · deferral, interop
-- **[T-0016](tasks/T-0016-overloaded-free-function-imports-only-its.md)** An overloaded free function imports only its first declaration · deferral, interop
 - **[T-0017](tasks/T-0017-imported-overloaded-method-not-cast-at.md)** An imported overloaded method is not cast at the boundary · deferral, codegen
 - **[T-0018](tasks/T-0018-inheritance-between-imported-c-classes.md)** Inheritance between imported C++ classes · deferral, interop
 - **[T-0019](tasks/T-0019-whole-c-array-member-cannot-be.md)** A whole C array member cannot be copied or passed as a slice · deferral, checker
 - **[T-0020](tasks/T-0020-libclang-parses-with-its-own-default.md)** Libclang parses with its own default target · deferral, interop
 - **[T-0021](tasks/T-0021-untyped-imported-integer-not-range-checked.md)** An untyped imported integer is not range-checked · deferral, checker
-- **[T-0171](tasks/T-0171-dear-imgui-controls-in-sdl3-scene.md)** Dear ImGui controls in the SDL3 scene · feature, interop
 
 ## M9 — LSP: diagnostics, hover, go-to-definition, completion (12 open)
 
@@ -177,7 +175,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (30 open)
+## none — not scheduled (31 open)
 
 - **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
@@ -209,3 +207,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0161](tasks/T-0161-parser-binds-as-tighter-than-prefix.md)** The parser binds as tighter than prefix -, against §11.1's table · bug, language
 - **[T-0162](tasks/T-0162-entry-point-function-no-dazzle-code.md)** "#[entry_point]: a function no Dazzle code calls, which names no static's kills" · feature, ownership
 - **[T-0167](tasks/T-0167-field-default-that-calls-free-function.md)** A field default that calls a free function of its own module does not compile · bug, codegen
+- **[T-0178](tasks/T-0178-for-loop-over-view-temporary-reads.md)** A for loop over a view of a temporary reads freed memory: for c in format!(…).chars() · bug, codegen

@@ -111,6 +111,37 @@ fn a_cmake_library_is_read_from_its_install() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `uses` names another recipe of the same manifest, which a CMake one may be: ImGui's
+/// SDL3 backend includes SDL's installed headers (spec §15.1).
+#[test]
+fn uses_names_another_recipe_of_the_manifest() {
+    let manifest = "[module]\nname = \"app\"\nsources = [\"src/*.dz\"]\n\n\
+        [cpp.libs.tally]\ncmake = \"vendor/tally\"\n\n\
+        [cpp.libs.plain]\nsources = [\"vendor/tally/*.c\"]\n\
+        uses = [\"tally\", \"plain\", \"absent\"]\n";
+    let dir = project(
+        "uses",
+        &[
+            ("dazzle.toml", manifest),
+            ("src/main.dz", "fn main() {}\n"),
+            ("vendor/tally/CMakeLists.txt", CMAKELISTS),
+            ("vendor/tally/tally.c", "int tally;\n"),
+        ],
+    );
+    let analysis = analyse_with(&dir, &|_| None, Mode::Build);
+    let messages: Vec<&str> = analysis
+        .diags
+        .iter()
+        .filter(|d| d.code == Some("DZ0004"))
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(
+        messages,
+        ["`[cpp.libs.plain]` cannot use itself", "no recipe `[cpp.libs.absent]` in this manifest",]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_cmake_recipe_refuses_the_keys_that_build_from_source() {
     let manifest = "[module]\nname = \"app\"\nsources = [\"src/*.dz\"]\n\n\

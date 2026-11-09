@@ -47,7 +47,12 @@ pub(crate) fn stdlib() -> Header {
         docs: String::new(),
         kind: DeclKind::Fn { params, ret, ret_cast: false },
     };
-    let param = |name: &str, ty: CType| Param { name: name.to_owned(), ty, c_cast: None };
+    let param = |name: &str, ty: CType| Param {
+        name: name.to_owned(),
+        ty,
+        c_cast: None,
+        has_default: false,
+    };
     Header {
         requested: vec!["stdlib.h".to_owned()],
         paths: vec![STDLIB_PATH.into()],

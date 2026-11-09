@@ -4,8 +4,9 @@ sources = ["src/**/*.dz"]
 
 [dependencies]
 std = { open = true }
-sdl = { cpp = "sdl3" }
-gl  = { cpp = "glad" }
+sdl   = { cpp = "sdl3" }
+gl    = { cpp = "glad" }
+imgui = { cpp = "imgui" }
 
 # SDL3 built by its own CMake, which `dz` runs with the compilers it uses itself and
 # installs into build/cmake/ (spec §15.1). SDL is a git submodule pinned to its 3.4.18 tag;
@@ -35,4 +36,22 @@ defines      = ["GLAD_GL_IMPLEMENTATION", "GLAD_MALLOC=malloc", "GLAD_FREE=free"
 import       = ["external/glad.h"]
 # OpenGL keeps only a `void*` it is given, as a client-side vertex array, and only
 # `unsafe` makes one (spec §15.2).
+keeps        = []
+
+# Dear ImGui, a C++ library, built from its own source: its four core files and the two
+# backends that read SDL3's input and draw with OpenGL 3. ImGui is a git submodule pinned
+# to its v1.93.0 tag. The OpenGL backend loads the GL functions it needs itself, so it does
+# not need glad.
+[cpp.libs.imgui]
+root         = "../vendor/imgui"
+sources      = ["imgui.cpp", "imgui_draw.cpp", "imgui_tables.cpp", "imgui_widgets.cpp",
+                "backends/imgui_impl_sdl3.cpp", "backends/imgui_impl_opengl3.cpp"]
+include_dirs = [".", "backends"]
+# The SDL3 backend includes `SDL3/SDL.h`, which only SDL's CMake build installs, at a path
+# that depends on its configuration: `uses` builds ImGui against that install (spec §15.1).
+uses         = ["sdl3"]
+import       = ["imgui.h", "imgui_impl_sdl3.h", "imgui_impl_opengl3.h"]
+# Vouches for ImGui: a widget reads and writes what it is handed during the call and keeps
+# nothing (a label is hashed, a value copied), and the backends keep only the window and
+# the context, which are handles (spec §15.2).
 keeps        = []

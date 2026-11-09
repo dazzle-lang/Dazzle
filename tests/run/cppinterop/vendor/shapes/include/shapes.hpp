@@ -34,6 +34,21 @@ int area_of(Kind kind, int size);
 int length_sq(const Point& p);
 void translate(Point& p, int dx, int dy);
 
+// Default arguments: a call may leave them out, and C++ supplies them (spec §15.2).
+int scaled(int value, int times = 2, int plus = 0);
+
+// An overloaded free function: every overload is imported, and the call chooses by its
+// arguments' count and types (spec §15.3). The second takes a default, so `describe(p)`
+// reaches it with one argument.
+int describe(int value);
+int describe(Point p, int weight = 10);
+int describe(unsigned value, unsigned bias);
+
+// An array parameter is a pointer to its first element in C++, and the whole array by
+// reference in Dazzle: `&mut [3]f32` (spec §15.2).
+void halve(float rgb[3]);
+float total(const float rgb[3]);
+
 namespace geom {
 
 // A nested namespace, which Dazzle reaches as `shapes::geom::manhattan`.

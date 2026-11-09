@@ -190,6 +190,10 @@ struct Array {
     constexpr size_t size() const { return N; }
     operator Slice<T>() { return Slice<T>(data, N); }
     operator Slice<const T>() const { return Slice<const T>(data, N); }
+    // A C++ parameter written `float col[3]` takes the first element's address, and an
+    // imported call casts the array to that (spec §15.2). Explicit, so nothing decays.
+    explicit operator T*() { return data; }
+    explicit operator const T*() const { return data; }
 
     T* begin() { return data; }
     T* end() { return data + N; }
