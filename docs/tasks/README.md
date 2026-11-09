@@ -30,7 +30,8 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    (2026-11-09): each generated file has a cached object, so an unchanged `std` is not
    compiled again. T-0180 holds the targets for 0.2 (a debug rebuild under 0.5 s, a clean
    release build within twice C++'s) and what is left of them, in order: a precompiled
-   header (T-0181), one `std` for every project (T-0182), the LTO fallback compiling twice
+   header (T-0181, done 2026-11-09: a debug rebuild of `words` is 0.39 s with clang++),
+   one `std` for every project (T-0182), the LTO fallback compiling twice
    (T-0183), then emitting less only if still needed (T-0184). Then T-0012 (build time at
    scale), T-0103 (stale generated files and objects) and, for the editor, T-0025 (`std`
    checked in every analysis).

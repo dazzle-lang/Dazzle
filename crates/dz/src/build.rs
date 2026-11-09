@@ -290,6 +290,12 @@ pub fn compile(
     let mut sources: Vec<&PathBuf> =
         out.files.iter().filter(|p| p.extension().is_some_and(|x| x == "cpp")).collect();
     sources.sort();
+    // What each of them may start from, precompiled (T-0181).
+    let std_h = out.files.iter().find(|p| p.file_name().is_some_and(|n| n == "std.h"));
+    let sources: Vec<(&PathBuf, Start)> = sources
+        .into_iter()
+        .map(|s| (s, if std_h.is_some() { start_of(s, &out.files) } else { Start::Nothing }))
+        .collect();
 
     let link = ws.link_inputs();
     let mut link_args: Vec<String> = objects.iter().map(|o| o.display().to_string()).collect();
@@ -307,25 +313,41 @@ pub fn compile(
     // §12.8) is never inlined. `=auto` runs the link-time work in parallel, and keeps g++
     // from printing a note about running it serially. Only Dazzle's code: the vendored
     // libraries above stay as their recipes build them.
-    let lto = module.build.optimize != Optimize::Debug;
-    let build = |lto: bool, timings: &mut dz_driver::Timings| {
+    let mut lto = module.build.optimize != Optimize::Debug;
+    let build = |lto: bool, pch: bool, timings: &mut dz_driver::Timings| {
         let mut args = args.clone();
         if lto {
             args.push("-flto=auto".to_owned());
         }
-        compile_and_link(&cxx, &sources, &args, &link_args, root, &exe, timings)
+        let std_h = std_h.filter(|_| pch).map(PathBuf::as_path);
+        compile_and_link(&cxx, &sources, std_h, &args, &link_args, root, &exe, timings)
     };
-    let mut output = build(lto, timings);
+    let mut output = build(lto, true, timings);
     // Not every toolchain links with it: LLVM's clang targeting MSVC needs `lld`, for one.
     // A link that fails with it is tried once without it, and says so.
     if lto && matches!(&output, Err(Failed::Rejected(stderr)) if linker_failure(stderr)) {
-        output = build(false, timings);
+        lto = false;
+        output = build(false, true, timings);
         if output.is_ok() {
             eprintln!(
                 "note: built without link-time optimisation: {cxx} could not link with \
                  `-flto=auto`"
             );
         }
+    }
+    // A precompiled header is an optimisation, so it is never the reason a build fails
+    // (T-0181): a file compiled from it that fails is compiled again without it, whatever the
+    // compiler said. g++ quietly ignores a header that does not fit, but clang++ stops, and
+    // its words for a damaged one do not always name it.
+    if matches!(&output, Err(Failed::FromPch(_))) {
+        output = build(lto, false, timings);
+        if output.is_ok() {
+            eprintln!("note: built without a precompiled header: {cxx} could not use it");
+        }
+    }
+    // Said only of the build that made the program, not of one tried and dropped above.
+    if let Ok(Some(note)) = &output {
+        eprintln!("note: {note}");
     }
 
     if let Err(failed) = output {
@@ -334,7 +356,7 @@ pub fn compile(
                 diags.push(Diagnostic::error(codes::CPP_COMPILER_FAILED, message));
                 return Err(diags);
             }
-            Failed::Rejected(stderr) => stderr,
+            Failed::Rejected(stderr) | Failed::FromPch(stderr) => stderr,
         };
         // A *compile* error in generated code is a compiler bug (invariant 7). A *link*
         // error is almost never one: the code was accepted, and what is missing is a
@@ -381,6 +403,9 @@ enum Failed {
     Spawn(String),
     /// The compiler or the linker refused: its standard error.
     Rejected(String),
+    /// The compiler refused a file compiled from the precompiled `std.h`, which may be the
+    /// header's fault rather than the file's: its standard error.
+    FromPch(String),
 }
 
 /// Compile each generated file to an object of its own in `build/obj/dz/`, then link them.
@@ -389,72 +414,185 @@ enum Failed {
 /// libraries' objects are (`native::up_to_date`), so a rebuild compiles only the files an
 /// edit reached, and an unchanged `std` is not compiled again (T-0102). The object's name
 /// carries the compiler and every flag, so a debug build never links a release object.
+///
+/// `sources` says what each file can start from, precompiled, and `std_h` is the generated
+/// `std.h`, or `None` to compile without precompiled headers (T-0181). They live in
+/// `build/obj/dz/pch-<key>/`:
+///
+/// - **`std.h`**, the runtime and `std`, about 0.5 MB of C++. Every module's `.cpp` and
+///   `dz_main.cpp` use it, and it is built when one of them needs compiling. `std.cpp`
+///   itself does not, so on a build from clean it compiles while the header does.
+/// - **`std.h` and a module's C and C++ headers** (`<SDL3/SDL.h>`, `<imgui.h>`), one for
+///   each distinct set, so modules that import the same libraries share one. In
+///   `examples/sdl3` those headers are two thirds of what a recompile parses. This one is
+///   slower to build than a file is to compile with the first (0.5 s for SDL3 and ImGui on
+///   clang++, 1.5 s on g++), so it is built *alongside*: a file whose set is not built yet is
+///   compiled from `std.h` while its set's header is built, and uses it from the next build
+///   on. A build from clean, or one that never edits the module, never waits for it.
+///
+/// A header that could not be built is a note for the caller to print if this build is the
+/// one kept.
+#[allow(clippy::too_many_arguments)]
 fn compile_and_link(
     cxx: &str,
-    sources: &[&PathBuf],
+    sources: &[(&PathBuf, Start)],
+    std_h: Option<&Path>,
     args: &[String],
     link_args: &[String],
     root: &Path,
     exe: &Path,
     timings: &mut dz_driver::Timings,
-) -> Result<(), Failed> {
+) -> Result<Option<String>, Failed> {
     let started = std::time::Instant::now();
     let dir = root.join("obj").join("dz");
     std::fs::create_dir_all(&dir)
         .map_err(|e| Failed::Spawn(format!("cannot create {}: {e}", dir.display())))?;
-    let mut objects = Vec::new();
-    let mut stale = Vec::new();
-    for source in sources {
-        let mut key = Vec::new();
-        let source_name = source.to_string_lossy();
-        for part in [cxx, &source_name].into_iter().chain(args.iter().map(String::as_str)) {
-            key.extend_from_slice(part.as_bytes());
-            key.push(0);
+    let std_h = std_h.filter(|_| sources.iter().any(|(_, start)| *start != Start::Nothing));
+    let std_pch = match std_h {
+        Some(std_h) => Some(Pch::prepare(cxx, args, &dir, &include_of(std_h))?),
+        None => None,
+    };
+
+    // Which header each file is compiled from, and so its command and its object's name.
+    // `None` is none.
+    let mut sets: Vec<(String, Pch, bool)> = Vec::new();
+    let mut wanted = vec![];
+    let mut files = Vec::new();
+    for &(source, ref start) in sources {
+        let from = match (start, &std_pch) {
+            (Start::Nothing, _) | (_, None) => None,
+            (Start::Std, Some(_)) => Some(Header::Std),
+            (Start::Headers(text), Some(_)) => {
+                let i = match sets.iter().position(|(t, _, _)| t == text) {
+                    Some(i) => i,
+                    None => {
+                        let pch = Pch::prepare(cxx, args, &dir, text)?;
+                        let fresh = pch.fresh();
+                        sets.push((text.clone(), pch, fresh));
+                        sets.len() - 1
+                    }
+                };
+                if sets[i].2 {
+                    Some(Header::Set(i))
+                } else {
+                    // Not built yet: `std.h`'s this time, and the set's is built if this
+                    // file needs compiling.
+                    wanted.push((i, source));
+                    Some(Header::Std)
+                }
+            }
+        };
+        files.push((source.as_path(), from));
+    }
+    let pch_of = |from: Option<Header>| -> Option<&Pch> {
+        match from? {
+            Header::Std => std_pch.as_ref(),
+            Header::Set(i) => Some(&sets[i].1),
         }
-        let stem = source.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
-        let object = dir.join(format!("{stem}-{:016x}.o", crate::native::fnv1a(&key)));
-        if !crate::native::up_to_date(&object) {
-            stale.push((*source, object.clone()));
+    };
+    let args_of = |pch: Option<&Pch>| -> Vec<String> {
+        let mut with = args.to_vec();
+        if let Some(pch) = pch {
+            with.extend(["-include".to_owned(), pch.header.display().to_string()]);
         }
-        objects.push(object);
+        with
+    };
+    // Each file's object, and whether it needs compiling.
+    let mut jobs_of: Vec<Job> = files
+        .into_iter()
+        .map(|(source, from)| {
+            let file_args = args_of(pch_of(from));
+            let object = object_path(&dir, cxx, source, &file_args);
+            let stale = !crate::native::up_to_date(&object);
+            if stale && matches!(from, Some(Header::Set(_))) {
+                // Its set's header has just been built, while the file has not changed since
+                // it was compiled from `std.h`'s: that object will do until it does.
+                let std_args = args_of(std_pch.as_ref());
+                let std_object = object_path(&dir, cxx, source, &std_args);
+                if crate::native::up_to_date(&std_object) {
+                    return (source, Some(Header::Std), std_args, std_object, false);
+                }
+            }
+            (source, from, file_args, object, stale)
+        })
+        .collect();
+    let stale_source =
+        |source: &Path| jobs_of.iter().any(|(s, _, _, _, stale)| *s == source && *stale);
+
+    // `std.h`'s header first, if a file compiled from it needs compiling; the sets' headers
+    // alongside, for the next build.
+    let mut jobs = Jobs::new(cxx);
+    let mut std_child = None;
+    if let Some(pch) = &std_pch {
+        let needed =
+            jobs_of.iter().any(|(_, from, _, _, stale)| *from == Some(Header::Std) && *stale);
+        if needed && !pch.fresh() {
+            std_child = Some(pch.spawn(cxx, args)?);
+        }
+    }
+    let mut set_children = Vec::new();
+    for (i, source) in wanted {
+        if stale_source(source) && !set_children.iter().any(|(j, _)| *j == i) {
+            set_children.push((i, sets[i].1.spawn(cxx, args)?));
+        }
     }
 
-    // The files are compiled at once, as many as there are cores.
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-    let mut errors = String::new();
-    for batch in stale.chunks(cores) {
-        let children: Vec<_> = batch
-            .iter()
-            .map(|(source, object)| {
-                Command::new(cxx)
-                    .args(args)
-                    .arg("-c")
-                    .arg(source)
-                    .arg("-o")
-                    .arg(object)
-                    .args(["-MD", "-MF"])
-                    .arg(object.with_extension("d"))
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::piped())
-                    .spawn()
-            })
-            .collect();
-        for ((source, object), child) in batch.iter().zip(children) {
-            let out = child
-                .and_then(|c| c.wait_with_output())
-                .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
-            if out.status.success() {
-                crate::native::write_stamp(source, object);
-            } else {
-                // The stamp is what says an object is good; a failed compile may have left
-                // a broken one behind.
-                let _ = std::fs::remove_file(object.with_extension("stamp"));
-                errors.push_str(&String::from_utf8_lossy(&out.stderr));
+    // The files that need no header being built start now.
+    for (source, from, file_args, object, stale) in &jobs_of {
+        if *stale && *from != Some(Header::Std) {
+            jobs.start(file_args, source, object, pch_of(*from).map(|p| p.compiled.clone()))?;
+        }
+    }
+    let waiting: Vec<bool> =
+        jobs_of.iter().map(|(_, from, ..)| *from == Some(Header::Std)).collect();
+    let mut note = None;
+    if let (Some(pch), Some(child)) = (&std_pch, std_child) {
+        let out = child
+            .wait_with_output()
+            .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
+        if out.status.success() {
+            crate::native::write_stamp(&pch.header, &pch.compiled);
+        } else {
+            note = Some(why_not(cxx, "std.h", &out.stderr));
+            // Its files are compiled without one.
+            for (source, from, file_args, object, stale) in &mut jobs_of {
+                if *from == Some(Header::Std) {
+                    *from = None;
+                    *file_args = args.to_vec();
+                    *object = object_path(&dir, cxx, source, file_args);
+                    *stale = !crate::native::up_to_date(object);
+                }
             }
         }
     }
+    let mut objects = Vec::new();
+    for ((source, from, file_args, object, stale), waited) in jobs_of.into_iter().zip(waiting) {
+        if stale && waited {
+            jobs.start(&file_args, source, &object, pch_of(from).map(|p| p.compiled.clone()))?;
+        }
+        objects.push(object);
+    }
+    let (errors, refused) = jobs.finish()?;
+    for (i, child) in set_children {
+        let pch = &sets[i].1;
+        let out = child
+            .wait_with_output()
+            .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
+        if out.status.success() {
+            crate::native::write_stamp(&pch.header, &pch.compiled);
+        } else if note.is_none() {
+            note = Some(why_not(cxx, "a module's C and C++ headers", &out.stderr));
+        }
+    }
     let started = timings.lap("C++ compiler", started);
+    if !refused.is_empty() {
+        // Built again next time, rather than refused again; `compile` tries this build
+        // once more without them.
+        for compiled in refused {
+            let _ = std::fs::remove_file(compiled.with_extension("stamp"));
+        }
+        return Err(Failed::FromPch(errors));
+    }
     if !errors.is_empty() {
         return Err(Failed::Rejected(errors));
     }
@@ -469,10 +607,268 @@ fn compile_and_link(
         .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
     timings.lap("link", started);
     if output.status.success() {
-        Ok(())
+        Ok(note)
     } else {
         Err(Failed::Rejected(String::from_utf8_lossy(&output.stderr).into_owned()))
     }
+}
+
+/// Where `source`'s object goes: its name carries the compiler and every flag, so objects
+/// built different ways never stand in for each other.
+fn object_path(dir: &Path, cxx: &str, source: &Path, args: &[String]) -> PathBuf {
+    let mut key = Vec::new();
+    let source_name = source.to_string_lossy();
+    for part in [cxx, &source_name].into_iter().chain(args.iter().map(String::as_str)) {
+        key.extend_from_slice(part.as_bytes());
+        key.push(0);
+    }
+    let stem = source.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+    dir.join(format!("{stem}-{:016x}.o", crate::native::fnv1a(&key)))
+}
+
+/// The C++ compiles running at once, no more than there are cores.
+struct Jobs<'a> {
+    cxx: &'a str,
+    cores: usize,
+    /// Each compile running: its source, its object, the precompiled header it starts from,
+    /// if any, and the compiler.
+    running: std::collections::VecDeque<(PathBuf, PathBuf, Option<PathBuf>, std::process::Child)>,
+    /// What the compiler said about each file it refused.
+    errors: String,
+    /// The precompiled headers those files started from.
+    refused: Vec<PathBuf>,
+}
+
+impl<'a> Jobs<'a> {
+    fn new(cxx: &'a str) -> Self {
+        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        Jobs { cxx, cores, running: Default::default(), errors: String::new(), refused: vec![] }
+    }
+
+    /// Compile `source` to `object`, once fewer than `cores` compiles are running. `pch` is
+    /// the precompiled header its `args` include, if any.
+    fn start(
+        &mut self,
+        args: &[String],
+        source: &Path,
+        object: &Path,
+        pch: Option<PathBuf>,
+    ) -> Result<(), Failed> {
+        while self.running.len() >= self.cores {
+            self.finish_one()?;
+        }
+        let child = Command::new(self.cxx)
+            .args(args)
+            .arg("-c")
+            .arg(source)
+            .arg("-o")
+            .arg(object)
+            .args(["-MD", "-MF"])
+            .arg(object.with_extension("d"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| Failed::Spawn(format!("could not run {}: {e}", self.cxx)))?;
+        self.running.push_back((source.to_path_buf(), object.to_path_buf(), pch, child));
+        Ok(())
+    }
+
+    /// Wait for the compile started first.
+    fn finish_one(&mut self) -> Result<(), Failed> {
+        let Some((source, object, pch, child)) = self.running.pop_front() else { return Ok(()) };
+        let out = child
+            .wait_with_output()
+            .map_err(|e| Failed::Spawn(format!("could not run {}: {e}", self.cxx)))?;
+        if out.status.success() {
+            crate::native::write_stamp(&source, &object);
+        } else {
+            // The stamp is what says an object is good; a failed compile may have left a
+            // broken one behind.
+            let _ = std::fs::remove_file(object.with_extension("stamp"));
+            self.errors.push_str(&String::from_utf8_lossy(&out.stderr));
+            self.refused.extend(pch);
+        }
+        Ok(())
+    }
+
+    /// Wait for every compile, and return what the compiler said about those it refused,
+    /// and the precompiled headers they started from.
+    fn finish(mut self) -> Result<(String, Vec<PathBuf>), Failed> {
+        while !self.running.is_empty() {
+            self.finish_one()?;
+        }
+        Ok((self.errors, self.refused))
+    }
+}
+
+/// A precompiled header (T-0181): `std.h`, or `std.h` and a module's C and C++ headers.
+///
+/// `header` is a short header that includes them, and `compiled` sits beside it as
+/// `std.h.gch`. A file compiled with `-include <header>` then starts from the precompiled
+/// form: g++ looks for `<header>.gch` itself, and clang++'s driver looks for it too and
+/// passes it on as `-include-pch`. Where neither can use it, `-include` still includes the
+/// real headers, so the file compiles the same either way. The folder is named for the
+/// compiler, the flags and what it includes, since a header precompiled one way cannot be
+/// used another.
+struct Pch {
+    header: PathBuf,
+    compiled: PathBuf,
+}
+
+impl Pch {
+    /// Write the header holding `includes`, if it is not already there as it should be.
+    fn prepare(cxx: &str, args: &[String], dir: &Path, includes: &str) -> Result<Pch, Failed> {
+        let mut key = Vec::new();
+        let parts = std::iter::once(cxx).chain(args.iter().map(String::as_str));
+        for part in parts.chain(std::iter::once(includes)) {
+            key.extend_from_slice(part.as_bytes());
+            key.push(0);
+        }
+        let folder = dir.join(format!("pch-{:016x}", crate::native::fnv1a(&key)));
+        std::fs::create_dir_all(&folder)
+            .map_err(|e| Failed::Spawn(format!("cannot create {}: {e}", folder.display())))?;
+        let header = folder.join("std.h");
+        let text = format!("// Generated by the Dazzle compiler. Do not edit.\n{includes}");
+        // Rewritten only when it changes: clang++ refuses a precompiled header whose inputs
+        // are newer than it, even with the same contents.
+        if std::fs::read_to_string(&header).ok().as_deref() != Some(text.as_str()) {
+            std::fs::write(&header, &text)
+                .map_err(|e| Failed::Spawn(format!("cannot write {}: {e}", header.display())))?;
+        }
+        let compiled = folder.join("std.h.gch");
+        Ok(Pch { header, compiled })
+    }
+
+    /// Is the precompiled header there, built from what its inputs hold now, and newer than
+    /// each of them? The contents are what the objects are judged by; the time is for
+    /// clang++, which checks it and refuses the header if an input was touched since.
+    fn fresh(&self) -> bool {
+        if !crate::native::up_to_date(&self.compiled) {
+            return false;
+        }
+        let Ok(built) = std::fs::metadata(&self.compiled).and_then(|m| m.modified()) else {
+            return false;
+        };
+        let Ok(stamp) = std::fs::read_to_string(self.compiled.with_extension("stamp")) else {
+            return false;
+        };
+        stamp.lines().filter_map(|line| line.split_once(' ')).all(|(_, path)| {
+            std::fs::metadata(path).and_then(|m| m.modified()).is_ok_and(|time| time <= built)
+        })
+    }
+
+    fn spawn(&self, cxx: &str, args: &[String]) -> Result<std::process::Child, Failed> {
+        // Gone until the build succeeds, so a build cut short is never taken for a good one.
+        let _ = std::fs::remove_file(self.compiled.with_extension("stamp"));
+        Command::new(cxx)
+            .args(args)
+            .args(["-x", "c++-header"])
+            .arg(&self.header)
+            .arg("-o")
+            .arg(&self.compiled)
+            .args(["-MD", "-MF"])
+            .arg(self.compiled.with_extension("d"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))
+    }
+}
+
+/// What a generated `.cpp` can be compiled from, precompiled (T-0181).
+#[derive(Clone, PartialEq)]
+enum Start {
+    /// Nothing: it does not start with `std.h`, or is `std.cpp`, which gains little from it
+    /// and on a build from clean compiles while the header is built.
+    Nothing,
+    /// `std.h`.
+    Std,
+    /// `std.h` and the C and C++ headers its module imports: the `#include` lines of a
+    /// header that includes them, in the order its module's header does.
+    Headers(String),
+}
+
+/// The precompiled header a file is compiled from, in `compile_and_link`.
+#[derive(Clone, Copy, PartialEq)]
+enum Header {
+    /// `std.h`'s.
+    Std,
+    /// The one for `std.h` and a set of C and C++ headers: an index into its `sets`.
+    Set(usize),
+}
+
+/// A file to compile: its source, the header it starts from, its command's flags, its
+/// object, and whether that object needs compiling.
+type Job<'a> = (&'a Path, Option<Header>, Vec<String>, PathBuf, bool);
+
+/// An `#include` of `path`, a generated file, by its absolute path, since the header that
+/// holds it is in another folder.
+fn include_of(path: &Path) -> String {
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().map(|d| d.join(path)).unwrap_or_else(|_| path.to_path_buf())
+    };
+    format!("#include \"{}\"\n", path.display().to_string().replace('\\', "/"))
+}
+
+/// What `source` can start from. A module's `.cpp` and `dz_main.cpp` start by including a
+/// module's header, which starts with the runtime, `std.h`, and then the module's C and C++
+/// headers (`<SDL3/SDL.h>`), all before a line of its own. Including that run of headers
+/// before anything else, precompiled, changes nothing. It ends at the first line that is
+/// not one of them, such as another module's header, which changes with an edit.
+fn start_of(source: &Path, files: &[PathBuf]) -> Start {
+    // Lines that are neither blank, a comment, nor a module header's include guard.
+    fn lines(text: &str) -> impl Iterator<Item = &str> {
+        text.lines().map(str::trim).filter(|line| {
+            let guard = |head: &str| {
+                line.strip_prefix(head).is_some_and(|m| m.starts_with("DZ_") && m.ends_with("_H"))
+            };
+            !(line.is_empty() || line.starts_with("//") || guard("#ifndef ") || guard("#define "))
+        })
+    }
+    fn quoted(line: &str) -> Option<&str> {
+        line.strip_prefix("#include")?.trim().strip_prefix('"')?.split('"').next()
+    }
+    let generated = |name: &str| files.iter().find(|f| f.file_name().is_some_and(|n| n == name));
+    let Ok(text) = std::fs::read_to_string(source) else { return Start::Nothing };
+    let first = lines(&text).next().and_then(quoted);
+    let Some(header) = first.filter(|&name| name != "std.h").and_then(generated) else {
+        return Start::Nothing;
+    };
+    let Ok(text) = std::fs::read_to_string(header) else { return Start::Nothing };
+    let (mut std, mut includes, mut libraries) = (false, String::new(), false);
+    for line in lines(&text) {
+        match quoted(line) {
+            Some(name @ ("dz_runtime.h" | "dz_prelude.h" | "std.h")) if !libraries => {
+                let Some(path) = generated(name) else { break };
+                includes.push_str(&include_of(path));
+                std |= name == "std.h";
+            }
+            None if std
+                && line.strip_prefix("#include").is_some_and(|n| n.trim().starts_with('<')) =>
+            {
+                includes.push_str(line);
+                includes.push('\n');
+                libraries = true;
+            }
+            _ => break,
+        }
+    }
+    match (std, libraries) {
+        (false, _) => Start::Nothing,
+        (true, false) => Start::Std,
+        (true, true) => Start::Headers(includes),
+    }
+}
+
+/// The note for a precompiled header `cxx` could not build, from its standard error.
+fn why_not(cxx: &str, what: &str, stderr: &[u8]) -> String {
+    let stderr = String::from_utf8_lossy(stderr);
+    let first = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no reason given");
+    format!("compiled without precompiling {what}: {cxx} could not: {}", first.trim())
 }
 
 pub fn run(exe: &Path) -> std::io::Result<std::process::ExitStatus> {

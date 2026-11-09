@@ -788,3 +788,66 @@ On `words` (clang++ 21 on Windows, debug), the C++ side of a one-line change wen
 since the files now compile at once. `--timings` reports `link` as a phase of its own, and
 `tools/bench_programs.py` adds it back into its C++ compiler column. What is left of the
 0.2 targets is T-0180, split into T-0181 to T-0184.
+
+## A precompiled `std.h` (T-0181; 2026-11-09)
+
+After T-0102 a one-line change recompiles only the program's own `.cpp`, but that file
+still parses `std.h` and the runtime again, about 0.5 MB of C++ for `words`. Now `std.h` is
+precompiled once per compiler and flags, into `build/obj/dz/pch-<key>/`, and the program's
+files start from it. The folder holds a one-line `std.h` that includes the generated one,
+and `std.h.gch` beside it. A file is compiled with `-include <that header>`. g++ then looks
+for the `.gch` itself, and clang++'s driver looks for it too and passes it on as
+`-include-pch`, so both compilers take the same flags and `dz` never asks which one it has.
+Where neither can use it, `-include` still includes the real header, which is why the
+one-line header exists.
+
+Only a file whose first include is a generated header that itself starts with `std.h` uses
+it: each module's `.cpp` and `dz_main.cpp`. Including `std.h` before anything else changes
+nothing for those. `std.cpp` gains little from it, and the runtime's files do not include
+`std.h` at all. On a build from clean the header is built while those three compile, and
+the program's files start as soon as it is done. Compiles now run as a pool of up to one
+per core rather than in batches, so they need not wait for `std.cpp`.
+
+The header is judged as the objects are, by the content of everything its depfile names,
+and also by time: clang++ refuses a precompiled header if any input is newer than it, even
+with the same contents, so `dz` rebuilds it then. A header the compiler cannot build means
+the files compile without it, with a note. A file compiled from it that fails is compiled
+again without it, whatever the compiler said, since clang++'s error for a damaged header
+does not always say so. Both paths were tried by truncating the `.gch`, on clang++ 21 and
+g++ 14. A note from a build attempt that is then thrown away is not printed, such as the
+LTO attempt clang++ cannot link on Windows.
+
+On `words` (Windows, release `dz`, debug build, three runs each): with clang++ 21 a
+one-line change spends 157 ms in the C++ compiler, from 225 ms, and the whole `dz build`
+takes 390 ms, from 460 ms. With g++ 14 the same change takes 400 ms, from 530 ms. A build
+from clean is unchanged on clang++ (0.50 s, waiting on `dz_native.cpp` and `windows.h`) and
+went from 1.62 s to 1.50 s on g++. Of the 157 ms, `words.cpp` compiles in about 100 ms. The
+rest is checking which objects are up to date, which hashes every header each object's
+depfile names, hundreds of them for `dz_native.cpp`'s `windows.h`.
+
+**A module's library headers too.** In `examples/sdl3` the `std.h` header did little: a
+recompile of `scene.cpp` went from 500 ms to 430 ms on clang++. The module's header goes on
+to include `<SDL3/SDL.h>`, glad and ImGui, and an empty module including only that header
+takes 300 ms to compile with `std.h` precompiled, but 85 ms with those headers precompiled
+as well. So `start_of` now reads a module header's whole opening run of includes: the
+runtime and `std.h`, then any `<…>` headers, ending at the first line that is anything else,
+such as another module's header (`breakout.h` includes `game.h` first, so it stays with
+`std.h`'s). Each distinct run is precompiled once, keyed by its text with the compiler and
+flags, so modules importing the same libraries share it. Each file gets only its own
+module's headers, never a union of them all: raylib defines `PI` and `RED` as macros, which
+would break a module that never imported it.
+
+That header takes longer to build than a file takes to compile from `std.h`'s: 0.48 s for
+SDL3 and ImGui on clang++, 1.5 s on g++. Built first, it would slow down a build from clean
+and the first edit. So it is built *alongside*: a file whose set is not built yet compiles
+from `std.h`'s header while its set's is built, and uses it from the next build on. A file
+whose object from `std.h`'s header is still up to date keeps it, so the build after the
+header appears recompiles nothing. A set is built only when one of its files needs
+compiling, so a module never edited never pays for it.
+
+On `examples/sdl3` (clang++ 21, debug, release `dz`) a one-line change spends 265 ms in the
+C++ compiler, from 500 ms before T-0181. The whole `dz build` is still about 1.2 s. Most of
+the rest is not compiling: 420 ms importing the C headers through libclang (T-0101), 210 ms
+checking SDL3's CMake build, and 90–270 ms linking. On `examples/raylib` an edit compiles in
+95 ms on clang++ and 155 ms on g++. A corrupted library header was refused, the build went on
+without it, and the next build rebuilt it, on both compilers.

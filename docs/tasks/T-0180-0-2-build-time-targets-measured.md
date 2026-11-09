@@ -32,10 +32,26 @@ from them. The "before" is the `RESULTS.md` at commit f6b62d5 (Linux, `--release
 So the C++ side of the first target is met. The whole `dz build` is still about 1.2 s
 there, because `dz` was a debug build and its own phases took about 0.85 s; measure with a
 release `dz` before calling it met. The clean release target is not met: a clean build still
-compiles all of `std`. The pieces left, each its own task:
+compiles all of `std`.
+
+**After T-0181** (2026-11-09, the same machine, `dz` a **release** build, three runs each):
+
+| `words`, debug, one-line change | before T-0181 | after T-0181 |
+|---|---:|---:|
+| clang++ 21: C++ compiler / whole `dz build` | 225 ms / 460 ms | 157 ms / 390 ms |
+| g++ 14: C++ compiler / whole `dz build` | 530 ms / 835 ms | 400 ms / 705 ms |
+
+So with a release `dz` and clang++, the first target is met: 0.39 s for the whole rebuild.
+With g++ it is not. About 60 ms of the 157 ms is not compiling but checking that objects are
+up to date, which hashes every header each object's depfile names: hundreds of them for
+`dz_native.cpp`, which includes `windows.h`. The pieces left, each its own task:
 
 1. [T-0181](T-0181-precompiled-header-for-runtime-standard-library.md): a precompiled header.
-   Most of the 0.26 s is parsing `std.h` and the program's header again.
+   **Done** (2026-11-09), the table above. It also precompiles each module's C and C++
+   headers, so a one-line change to `examples/sdl3` compiles in 265 ms, from 500 ms. That
+   build is still about 1.2 s, mostly importing headers through libclang
+   ([T-0101](T-0101-every-build-imports-stdlib-h-with.md)), checking SDL3's CMake build and
+   linking.
 2. [T-0182](T-0182-one-compiled-standard-library-shared-by.md): one compiled `std` for every
    project, which is what a clean build needs.
 3. [T-0183](T-0183-release-build-compiles-everything-twice-where.md): where link-time
