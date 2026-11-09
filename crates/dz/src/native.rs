@@ -269,7 +269,8 @@ pub(crate) fn write_stamp(source: &Path, object: &Path) {
         let Ok(bytes) = std::fs::read(p) else { continue };
         stamp.push_str(&format!("{:016x} {}\n", fnv1a(&bytes), p.display()));
     }
-    let _ = std::fs::write(object.with_extension("stamp"), stamp);
+    // Through a file renamed onto it: a shared object's stamp is read by every `dz` running.
+    let _ = crate::shared::write(&object.with_extension("stamp"), stamp.as_bytes());
 }
 
 /// The prerequisites in a make-style depfile, as `-MD` writes it: `target: a b \` continued

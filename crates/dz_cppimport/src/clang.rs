@@ -64,6 +64,16 @@ pub fn import(req: &Request<'_>) -> Result<Arc<Header>, ImportError> {
             }
         }
     }
+    // Then what an earlier process kept, which spares loading libclang at all (T-0101).
+    let disk = req.cache.map(|dir| {
+        let full = crate::disk::full_key(&key);
+        (crate::disk::path_of(dir, &full), full)
+    });
+    if let Some((path, full)) = &disk {
+        if let Some((header, inputs)) = crate::disk::load(path, full) {
+            return Ok(remember(key, Arc::new(header), &inputs));
+        }
+    }
     ensure_loaded().map_err(ImportError::Unavailable)?;
     // Not part of the key: it is fixed for the process, once a libclang is loaded.
     let mut args = args;
@@ -74,7 +84,15 @@ pub fn import(req: &Request<'_>) -> Result<Arc<Header>, ImportError> {
     // SAFETY: libclang is loaded on this thread, and everything handed to it outlives the
     // calls; `parse` disposes of what it creates on every path out.
     let (header, inputs) = unsafe { parse(req, &args)? };
-    let header = Arc::new(header);
+    if let Some((path, full)) = &disk {
+        crate::disk::store(path, full, &header, &inputs);
+    }
+    Ok(remember(key, Arc::new(header), &inputs))
+}
+
+/// Keep `header`, read from `inputs`, in this process's cache under `key`, and return the
+/// one to use.
+fn remember(key: String, header: Arc<Header>, inputs: &[PathBuf]) -> Arc<Header> {
     let stamps: Vec<Stamp> = inputs.iter().map(|p| Stamp::of(p)).collect();
     if let Ok(mut map) = cache().lock() {
         // Another thread may have parsed the same header meanwhile. Its entry stands, so an
@@ -83,12 +101,12 @@ pub fn import(req: &Request<'_>) -> Result<Arc<Header>, ImportError> {
         // very headers it was checked against.
         if let Some((existing, held)) = map.get(&key) {
             if *held == stamps {
-                return Ok(existing.clone());
+                return existing.clone();
             }
         }
         map.insert(key, (header.clone(), stamps));
     }
-    Ok(header)
+    header
 }
 
 fn arguments(req: &Request<'_>) -> Vec<String> {

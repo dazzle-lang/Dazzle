@@ -851,3 +851,75 @@ the rest is not compiling: 420 ms importing the C headers through libclang (T-01
 checking SDL3's CMake build, and 90–270 ms linking. On `examples/raylib` an edit compiles in
 95 ms on clang++ and 155 ms on g++. A corrupted library header was refused, the build went on
 without it, and the next build rebuilt it, on both compilers.
+
+## One compiled `std` for every project (T-0182; 2026-11-09)
+
+After T-0102 and T-0181 a one-line change was quick, but a build from clean, a new project or
+a fresh `dz test` harness still compiled `std.cpp` and precompiled `std.h`: about 0.5 s of a
+0.75 s debug build of `words`. The runtime's five files and `std`'s two come out of
+`dz_cpp` the same for every program but one in the run corpus, once the `#line` paths are
+left out, since an instance of a generic in `std` lives in the module that uses it (spec
+§8.4). The `#line` paths were the only difference: they named copies of `std`'s sources in
+each project's `build/cpp/std/`.
+
+Now `dz_cpp` marks those seven files `shared`, and `emit_cpp` writes them to a folder of a
+per-user cache, `~/.cache/dazzle/std-<hash>/` on Linux (`dz_project::user_cache_dir`;
+`DZ_CACHE_DIR` moves it). The hash is of their contents, and of `std`'s sources when
+`#line`s name them, so the copies a debugger opens are the ones compiled. The sources go in
+its `src/`, and the `#line`s name them there, so every project's files are the same bytes.
+`compile` compiles the shared files from the folder, and precompiles `std.h` there, into
+its `obj/`. The program's own files and the module headers' precompiled sets stay in
+`build/obj/dz/`. `build/cpp` still gets a copy of every file: a module header includes
+`std.h` from beside it, and the folder stays the whole program's C++. A file compiled from
+the shared precompiled `std.h` then reaches the project's own copy through its module
+header, and the include guard, `DZ_STD_H`, skips it.
+
+Keying by contents means nothing had to be listed. The one program in the corpus that
+differs, `elements_guard` with `check_trusted = true`, simply gets a folder of its own, as
+do `--track-memory`, `DZ_REGIONS=0`, a harness and a build without `#line`s. That turned out
+to matter for pruning: a full `cargo test` uses about ten folders at once. So the cache
+keeps the 8 most recently used and never removes one used within the hour, judged by a
+`used` file each build rewrites.
+
+Several `dz` processes now write one folder, which the test suite does constantly. So
+nothing in it is written in place: an object and its depfile are compiled to a name with
+the process id appended and renamed onto theirs, then the stamp is written the same way.
+A precompiled header is built the same way, which also retires the old rule of deleting
+its stamp before rebuilding it. Where Windows refuses the rename because another process
+has the old file open, that file was made from the same inputs, so it is used, or this
+build links its own copy and deletes it after.
+
+On Linux (Ryzen 7 H 255, release `dz`, median of three, `master` and this measured back to
+back), a build from clean of `words` went from 0.76 s to 0.37 s in debug and from 1.21 s to
+0.61 s in release with clang++ 19, against 0.28 s and 0.42 s for the C++ version. With g++
+14, 0.88 s to 0.39 s and 1.11 s to 0.75 s. `astar` and `expr` moved the same way. A build
+from clean now costs what a one-line change does, which T-0180's second target needed.
+
+## The LTO fallback remembered (T-0183; 2026-11-09)
+
+A release build that cannot link with `-flto=auto` (clang++ targeting MSVC without `lld`) is
+built again without it. That compiled everything twice on every build from clean. Now, when
+the second build succeeds, a `no-lto-<key>` file in the shared folder's `obj/` says so, keyed
+by the compiler and every flag. Later builds skip the attempt, and the note names the file
+to delete to try again. Only a success is remembered: a link missing a definition fails
+without LTO too, and must not turn it off for good. The test stands in for the compiler
+with a script that fails any link given `-flto=auto`, so it runs only on Unix.
+
+## Imported headers kept on disk (T-0101; 2026-11-09)
+
+Every `dz` process loaded libclang and parsed `stdlib.h` again for `std`, about 85–115 ms of
+a build whose own phases take 90, and 300 ms for `examples/sdl3`'s SDL3 and ImGui. The
+importer's in-process cache now has a second level in `headers/` of the per-user cache: one
+JSON file per import (serde, already a workspace dependency, now derived on `Header` and
+everything in it). An entry holds every file the parse read, by size, time and hash. It is
+used while each file holds the same contents, checking size and time first and hashing only
+a file whose time changed. On a hit libclang is not loaded at all.
+
+The key is the in-process one plus the `dz` executable's path, size and time, because the
+importer's own logic decides what a header becomes, and a compiler being worked on changes
+it, and `LIBCLANG_PATH`. It cannot name the libclang the search would find without loading
+it. A different libclang's own headers are among the files read, so replacing one changes
+them; an entry from another libclang whose files are all still in place is used, giving
+what that one read from the same headers, which for C declarations is the same.
+
+The phase went from 115 ms to 2 ms on `words` and from 298 ms to 18 ms on `examples/sdl3`.

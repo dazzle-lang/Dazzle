@@ -926,7 +926,7 @@ fn dz_test_runs_the_projects_tests() {
 }
 
 /// Debug information names real files (spec §16.3): the standard library, which is compiled
-/// into `dz`, is written beside the generated C++, and every `#line` naming it points there —
+/// into `dz`, is written into the shared cache, and every `#line` naming it points there —
 /// indented ones inside generated lambdas included — so a debugger can open what it steps
 /// into. A panic's location still reads `<std>/collections/list.dz`.
 #[test]
@@ -936,23 +936,172 @@ fn line_directives_name_files_a_debugger_can_open() {
         "[module]\nname = \"lines\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "fn main() {\n    let mut xs = List<i32>()\n    xs.push(1)\n    println!(\"{}\", xs.len())\n}\n",
     );
-    let out =
-        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
+    // The copies are in the cache every project shares (T-0182), which this test puts in
+    // its own folder.
+    let cache = dir.join("cache");
+    let out = Command::new(dz())
+        .args(["cpp", dir.to_str().unwrap()])
+        .env("DZ_CACHE_DIR", &cache)
+        .output()
+        .expect("failed to run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let copy = dir.join("build/cpp/std/collections/list.dz");
-    assert_eq!(
-        std::fs::read_to_string(&copy).expect("the standard library is written out"),
-        dz_project::std_source(Path::new("<std>/collections/list.dz")).unwrap()
-    );
-    let mut rewritten = 0;
+    let mut named = Vec::new();
     for entry in std::fs::read_dir(dir.join("build/cpp")).unwrap().flatten() {
         let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
         for line in text.lines().filter(|l| l.trim_start().starts_with("#line ")) {
             assert!(!line.contains("<std>"), "{}: {line}", entry.path().display());
-            rewritten += usize::from(line.ends_with("/build/cpp/std/collections/list.dz\""));
+            if line.ends_with("/std/collections/list.dz\"") {
+                named.push(line.rsplit('"').nth(1).unwrap().to_owned());
+            }
         }
     }
-    assert!(rewritten > 0, "the standard library's own code carries `#line`s naming the copy");
+    assert!(!named.is_empty(), "the standard library's own code carries `#line`s naming the copy");
+    let copy = PathBuf::from(&named[0]);
+    assert!(copy.starts_with(&cache), "{} is not in the cache", copy.display());
+    assert!(named.iter().all(|n| *n == named[0]), "one copy: {named:?}");
+    assert_eq!(
+        std::fs::read_to_string(&copy).expect("the standard library is written out"),
+        dz_project::std_source(Path::new("<std>/collections/list.dz")).unwrap()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The runtime and `std` are compiled once for every project (T-0182): a second project,
+/// built from clean, links the objects the first one compiled, and compiles only its own.
+#[test]
+fn a_second_project_reuses_the_compiled_standard_library() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let manifest = |name: &str| {
+        format!(
+            "[module]\nname = \"{name}\"\nsources = [\"src/**/*.dz\"]\n\n\
+             [dependencies]\nstd = {{ open = true }}\n"
+        )
+    };
+    let first =
+        scratch("dz_shared_first", &manifest("first"), "fn main() {\n    println!(\"one\")\n}\n");
+    let second =
+        scratch("dz_shared_second", &manifest("second"), "fn main() {\n    println!(\"two\")\n}\n");
+    let cache = first.join("cache");
+    let build = |dir: &Path| {
+        let out = Command::new(dz())
+            .args(["run", dir.to_str().unwrap()])
+            .env("DZ_CACHE_DIR", &cache)
+            .output()
+            .expect("failed to run dz");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    // Every object in `dir`, with when it was written.
+    let objects = |dir: &Path| -> Vec<(PathBuf, std::time::SystemTime)> {
+        let mut found = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|x| x == "o") {
+                    found.push((path.clone(), entry.metadata().unwrap().modified().unwrap()));
+                }
+            }
+        }
+        found.sort();
+        found
+    };
+    let named = |objects: &[(PathBuf, std::time::SystemTime)], stem: &str| {
+        objects
+            .iter()
+            .filter(|(p, _)| p.file_name().unwrap().to_string_lossy().starts_with(stem))
+            .count()
+    };
+
+    assert_eq!(build(&first), "one\n");
+    let shared = objects(&cache);
+    assert_eq!(named(&shared, "std-"), 1, "{shared:?}");
+    assert_eq!(named(&objects(&first.join("build")), "std-"), 0);
+
+    assert_eq!(build(&second), "two\n");
+    assert_eq!(objects(&cache), shared, "the shared objects were compiled again");
+    let own = objects(&second.join("build"));
+    assert_eq!(named(&own, "second-"), 1, "{own:?}");
+    for stem in ["std-", "dz_runtime-", "dz_native-"] {
+        assert_eq!(named(&own, stem), 0, "{own:?}");
+    }
+    let _ = std::fs::remove_dir_all(&first);
+    let _ = std::fs::remove_dir_all(&second);
+}
+
+/// Where a release build cannot link with `-flto=auto`, it is built again without, and that
+/// is remembered: the next build, even of a project built from clean, does not try (T-0183).
+/// A link that fails for want of a definition fails without it too, and is not remembered.
+/// The compiler is a script around the real one that fails a link with LTO, as clang++
+/// targeting MSVC does without `lld`.
+#[cfg(unix)]
+#[test]
+fn a_toolchain_that_cannot_link_with_lto_is_remembered() {
+    use std::os::unix::fs::PermissionsExt;
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_no_lto",
+        "[module]\nname = \"nolto\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n\n[build]\noptimize = \"release\"\n",
+        "fn main() {\n    println!(\"linked\")\n}\n",
+    );
+    let real = std::env::var("DZ_CXX").ok().filter(|c| !c.is_empty());
+    let real = real.unwrap_or_else(|| {
+        let found = ["clang++", "g++", "c++"].into_iter().find(
+            |c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()),
+        );
+        found.unwrap().to_owned()
+    });
+    let script = dir.join("cxx.sh");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nlto=0; link=1\n\
+             for a in \"$@\"; do case \"$a\" in -flto=auto) lto=1;; -c|-x|--version) link=0;; esac; done\n\
+             [ $lto = 1 ] && echo lto >> \"{log}\"\n\
+             if [ $link = 1 ] && [ -n \"$MISSING\" ]; then echo 'undefined reference to `f'\"'\" >&2; exit 1; fi\n\
+             if [ $link = 1 ] && [ $lto = 1 ]; then echo 'error: LTO requires -fuse-ld=lld' >&2; exit 1; fi\n\
+             exec {real} \"$@\"\n",
+            log = dir.join("lto.log").display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let cache = dir.join("cache");
+    let build = |missing: bool| {
+        let _ = std::fs::remove_dir_all(dir.join("build"));
+        let _ = std::fs::remove_file(dir.join("lto.log"));
+        let mut cmd = Command::new(dz());
+        cmd.args(["run", "--cxx", script.to_str().unwrap(), dir.to_str().unwrap()]);
+        cmd.env("DZ_CACHE_DIR", &cache);
+        if missing {
+            cmd.env("MISSING", "1");
+        }
+        let out = cmd.output().expect("failed to run dz");
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        let tried = std::fs::read_to_string(dir.join("lto.log")).unwrap_or_default();
+        (out.status.success(), stderr, tried.lines().count())
+    };
+
+    // A missing definition: a failure, and LTO is tried again next time.
+    let (ok, stderr, _) = build(true);
+    assert!(!ok && stderr.contains("could not find"), "{stderr}");
+    let (ok, stderr, tried) = build(false);
+    assert!(ok, "{stderr}");
+    assert!(tried > 0, "LTO was not tried again after a missing definition");
+    assert!(stderr.contains("could not link with `-flto=auto`"), "{stderr}");
+    // Remembered: a build from clean compiles nothing with it.
+    let (ok, stderr, tried) = build(false);
+    assert!(ok, "{stderr}");
+    assert_eq!(tried, 0, "LTO was tried again: {stderr}");
+    assert!(stderr.contains("to try again"), "{stderr}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

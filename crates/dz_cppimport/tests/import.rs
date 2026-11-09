@@ -19,6 +19,7 @@ fn import_mini() -> Option<std::sync::Arc<dz_cppimport::Header>> {
         cpp_standard: "c++17",
         from_dir: &std::env::temp_dir(),
         instantiate: &[],
+        cache: None,
     };
     match import(&req) {
         Ok(h) => Some(h),
@@ -253,6 +254,7 @@ fn several_headers_are_one_import() {
         cpp_standard: "c++17",
         from_dir: &std::env::temp_dir(),
         instantiate: &[],
+        cache: None,
     };
     let h = match import(&req) {
         Ok(h) => h,
@@ -303,6 +305,7 @@ fn every_macro_naming_a_function_pointer_is_imported() {
         cpp_standard: "c++17",
         from_dir: &std::env::temp_dir(),
         instantiate: &[],
+        cache: None,
     };
     let h = match import(&req) {
         Ok(h) => h,
@@ -334,6 +337,7 @@ fn a_missing_header_is_reported_with_clang_s_words() {
         cpp_standard: "c++17",
         from_dir: &std::env::temp_dir(),
         instantiate: &[],
+        cache: None,
     };
     match import(&req) {
         Err(ImportError::Failed(msgs)) => {
@@ -361,6 +365,7 @@ fn import_shapes(instantiate: &[(String, String)]) -> Option<std::sync::Arc<dz_c
         cpp_standard: "c++17",
         from_dir: &std::env::temp_dir(),
         instantiate,
+        cache: None,
     };
     match import(&req) {
         Ok(h) => Some(h),

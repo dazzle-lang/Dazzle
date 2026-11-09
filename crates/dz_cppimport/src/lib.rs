@@ -15,12 +15,17 @@
 
 use std::path::{Path, PathBuf};
 
+// Plain data, so an import can be kept on disk between processes (T-0101).
+use serde::{Deserialize, Serialize};
+
 // A WebAssembly build has no libclang to load, nor a C compiler's headers to read, so it
 // carries the one header the standard library cannot do without (spec §14.2) and no other.
 // Built everywhere, so a test can hold it to what libclang reads.
 mod builtin;
 #[cfg(not(target_family = "wasm"))]
 mod clang;
+#[cfg(not(target_family = "wasm"))]
+mod disk;
 
 #[cfg(target_family = "wasm")]
 pub use builtin::import;
@@ -43,7 +48,7 @@ pub fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
 
 /// What one import read: a library's headers, parsed together as one unit, so what they
 /// declare is one module (spec §15.1).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Header {
     /// The headers as the recipe wrote them, in order: `["raylib.h", "raymath.h"]`.
     pub requested: Vec<String>,
@@ -147,14 +152,14 @@ impl Decl {
 }
 
 /// A byte range in one of [`Header::files`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Loc {
     pub file: u32,
     pub start: u32,
     pub end: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Decl {
     /// The name Dazzle knows it by — the C++ name unqualified, or the name
     /// `[cpp.instantiate]` gave a template instance (spec §15.4).
@@ -173,7 +178,7 @@ pub struct Decl {
     pub kind: DeclKind,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DeclKind {
     /// `ret_cast` is the Dazzle-side C++ type a returned pointer must be cast back to,
     /// for the same reason as [`Param::c_cast`].
@@ -206,7 +211,7 @@ pub enum DeclKind {
 }
 
 /// A C++ member function, which Dazzle calls as a method (spec §15.2).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Method {
     pub name: String,
     pub loc: Loc,
@@ -222,13 +227,13 @@ pub struct Method {
     pub is_ctor: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Receiver {
     Ref,
     MutRef,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Param {
     pub name: String,
     pub ty: CType,
@@ -241,7 +246,7 @@ pub struct Param {
     pub has_default: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Field {
     pub name: String,
     pub ty: CType,
@@ -253,14 +258,14 @@ pub struct Field {
     pub bitfield: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Enumerator {
     pub name: String,
     pub value: i128,
     pub loc: Loc,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ConstValue {
     Int(i128),
     /// `single` when written with an `f` suffix, which makes it a C `float`.
@@ -273,14 +278,14 @@ pub enum ConstValue {
     Typed(CType),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CInt {
     pub bits: u8,
     pub signed: bool,
 }
 
 /// A C type, in the terms Dazzle maps it to (spec §15.2).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CType {
     Void,
     Bool,
@@ -321,7 +326,7 @@ pub enum CType {
     Unsupported(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Skipped {
     pub name: String,
     pub loc: Loc,
@@ -353,6 +358,9 @@ pub struct Request<'a> {
     /// Templates are not mapped onto Dazzle generics; the instantiations a project asks for
     /// are imported as ordinary concrete types (spec §15.4).
     pub instantiate: &'a [(String, String)],
+    /// Where imports are kept between processes (T-0101): the per-user cache `dz` keeps
+    /// what every project shares in. `None` keeps them only in this process.
+    pub cache: Option<&'a Path>,
 }
 
 #[cfg(test)]
@@ -445,6 +453,7 @@ mod tests {
             cpp_standard: "c++17",
             from_dir: &std::env::temp_dir(),
             instantiate: &[],
+            cache: None,
         };
         let real = match super::clang::import(&req) {
             Ok(h) => h,

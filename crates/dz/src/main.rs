@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 mod build;
 mod native;
+mod shared;
 
 use dz_project::Optimize;
 use dz_span::{FileId, SourceMap};

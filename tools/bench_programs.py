@@ -391,8 +391,10 @@ def report(info, results, mode, runs):
         "",
         f"Run time is the median of {runs} runs of each half, alternating. Build time is the "
         f"median of {builds} builds, in debug and in `--{mode}`. From clean, `build/` is "
-        "deleted first: for Dazzle, `dz build` then compiles the program and the standard "
-        "library; for C++, one compiler invocation. After a one-line change, a function is "
+        "deleted first: for Dazzle, `dz build` then compiles the program, and finds the runtime "
+        "and the standard library already compiled, and `stdlib.h` already imported, in its "
+        "per-user cache, as a C++ program finds its standard library already built; for C++, "
+        "one compiler invocation. After a one-line change, a function is "
         "appended to the program's source and its number changed before each build, one more "
         "build first not counted: Dazzle compiles the program's own generated C++ again and "
         "links, and C++ compiles its one file again. Dazzle's own "

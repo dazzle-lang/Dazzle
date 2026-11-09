@@ -2,11 +2,33 @@
 id: T-0101
 title: Every build imports stdlib.h with libclang again: about 380 ms of each build
 milestone: M15
-status: open
+status: done
 kind: feature
 area: tooling
-where: `crates/dz_project/src/lib.rs`, `load_for` and `import_headers`; `crates/dz_cppimport`
+where: `crates/dz_cppimport/src/disk.rs`; `import` and `remember` in `crates/dz_cppimport/src/clang.rs`; `import_headers` in `crates/dz_project`
 ---
+
+**Done** (2026-11-09). What an import produces is kept on disk, in `headers/` in the
+per-user cache (`dz_project::user_cache_dir`), one JSON file per import. An entry holds the
+`Header`, every file the parse read with its size, time and content hash, and its full key:
+the in-process cache's (headers, directory, every flag, instantiations), the `dz`
+executable's path, size and time, and `LIBCLANG_PATH`. It is used while every file holds
+the same contents, by size and time first and by hash where the time changed. On a hit
+libclang is not loaded at all. The key does not name the libclang the search would find,
+since finding it means loading it, which is the cost this avoids; a new libclang's own
+headers are among the files read. `Request::cache` says where, `None` in the importer's
+tests. The 64 most recently written entries are kept, and any written within the hour.
+
+On Linux (release `dz`), the "C and C++ headers" phase of `words` went from 115 ms to
+2 ms, and of `examples/sdl3` (SDL3, ImGui) from 298 ms to 18 ms. A `dz build` of
+`words` with nothing changed takes 240 ms in all.
+
+| Piece | Where |
+|---|---|
+| The entry: key, check, store, prune | `crates/dz_cppimport/src/disk.rs` |
+| Asked before libclang is loaded | `import` in `crates/dz_cppimport/src/clang.rs`, then `remember` |
+| The cache folder, passed in | `import_headers` in `crates/dz_project/src/lib.rs`, `Request::cache` |
+| Tests | `disk::tests` |
 
 **What it is.** The standard library imports `stdlib.h` for `Allocators::Global` (spec
 §14.2), so every program imports at least one C header, through libclang. `dz build

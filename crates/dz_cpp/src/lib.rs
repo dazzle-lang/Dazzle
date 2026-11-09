@@ -48,6 +48,21 @@ pub struct GeneratedFile {
     /// Path relative to the build directory, e.g. `cpp/engine.h`.
     pub name: String,
     pub contents: String,
+    /// The runtime and `std`: files that do not depend on the program, so one compiled copy
+    /// can serve every program built with the same `std` (T-0182). A hint, not a promise:
+    /// the build keys the copy by these files' contents, so a setting that changes them
+    /// (`check_trusted`, a harness) gets a copy of its own rather than a wrong one.
+    pub shared: bool,
+}
+
+impl GeneratedFile {
+    fn own(name: impl Into<String>, contents: impl Into<String>) -> Self {
+        GeneratedFile { name: name.into(), contents: contents.into(), shared: false }
+    }
+
+    fn shared(name: impl Into<String>, contents: impl Into<String>) -> Self {
+        GeneratedFile { name: name.into(), contents: contents.into(), shared: true }
+    }
 }
 
 pub struct Emitted {
@@ -154,11 +169,11 @@ pub fn emit(
 
     let mut out = Emitted {
         files: vec![
-            GeneratedFile { name: "dz_runtime.h".into(), contents: RUNTIME_H.into() },
-            GeneratedFile { name: "dz_runtime.cpp".into(), contents: RUNTIME_CPP.into() },
-            GeneratedFile { name: "dz_prelude.h".into(), contents: PRELUDE_H.into() },
-            GeneratedFile { name: "dz_native.h".into(), contents: NATIVE_H.into() },
-            GeneratedFile { name: "dz_native.cpp".into(), contents: NATIVE_CPP.into() },
+            GeneratedFile::shared("dz_runtime.h", RUNTIME_H),
+            GeneratedFile::shared("dz_runtime.cpp", RUNTIME_CPP),
+            GeneratedFile::shared("dz_prelude.h", PRELUDE_H),
+            GeneratedFile::shared("dz_native.h", NATIVE_H),
+            GeneratedFile::shared("dz_native.cpp", NATIVE_CPP),
         ],
         diagnostics: Diagnostics::new(),
         entry: None,
@@ -273,16 +288,16 @@ pub fn emit(
             module.name, e.out
         );
 
-        out.files.push(GeneratedFile { name: format!("{stem}.h"), contents: header });
-        out.files.push(GeneratedFile { name: format!("{stem}.cpp"), contents: body });
+        // `std` is the same in every program: what each one uses of a generic in it is
+        // instantiated in the module that uses it (spec §8.4), not in `std`'s own files.
+        let file = if module.id == ws.prelude { GeneratedFile::shared } else { GeneratedFile::own };
+        out.files.push(file(format!("{stem}.h"), header));
+        out.files.push(file(format!("{stem}.cpp"), body));
         out.diagnostics.extend(e.diags);
 
         // The root module's `main` becomes the program's real entry point.
         if module.id == ws.root && mode != Mode::Program {
-            out.files.push(GeneratedFile {
-                name: "dz_main.cpp".into(),
-                contents: harness_entry(ws, res, table, mode),
-            });
+            out.files.push(GeneratedFile::own("dz_main.cpp", harness_entry(ws, res, table, mode)));
             out.entry = Some("dz_main.cpp".into());
         } else if module.id == ws.root {
             if res.lookup(module.id, "main").is_some() {
@@ -294,7 +309,7 @@ pub fn emit(
                      {0}::dz_build_all_statics__();\n    {0}::main();\n    return 0;\n}}\n",
                     qualified_namespace(&module.name)
                 );
-                out.files.push(GeneratedFile { name: "dz_main.cpp".into(), contents: entry });
+                out.files.push(GeneratedFile::own("dz_main.cpp", entry));
                 out.entry = Some("dz_main.cpp".into());
             } else {
                 out.diagnostics.push(
@@ -373,7 +388,7 @@ pub fn emit(
             })
             .collect();
         let contents = reflect::table_file(&mut e, &headers);
-        out.files.push(GeneratedFile { name: "dz_typeinfo.cpp".into(), contents });
+        out.files.push(GeneratedFile::own("dz_typeinfo.cpp", contents));
         out.diagnostics.extend(e.diags);
     }
 

@@ -18,12 +18,14 @@ the stdlib and the benchmarks go together, since the new programs show what `std
 2. **Build times.** The C++ compiler is about 90% of a build. T-0102 is done
    (2026-11-09): each generated file has a cached object, so an unchanged `std` is not
    compiled again. T-0180 holds the targets for 0.2 (a debug rebuild under 0.5 s, a clean
-   release build within twice C++'s) and what is left of them, in order: a precompiled
-   header (T-0181, done 2026-11-09: a debug rebuild of `words` is 0.39 s with clang++),
-   one `std` for every project (T-0182), the LTO fallback compiling twice
-   (T-0183), then emitting less only if still needed (T-0184). Then T-0012 (build time at
-   scale), T-0103 (stale generated files and objects) and, for the editor, T-0025 (`std`
-   checked in every analysis).
+   release build within twice C++'s), both met on Linux on 2026-11-09 by a precompiled
+   header (T-0181), one `std` for every project (T-0182), the LTO fallback remembered
+   (T-0183) and imported headers kept on disk (T-0101): a build from clean now costs what a
+   one-line change does, 0.29–0.35 s in debug (C++: 0.28–0.47 s), and a clean release
+   build is 1.1–1.6× C++'s.
+   T-0184 (emitting less) is not needed for them. Left: T-0012 (build time at scale), T-0103
+   (stale generated files and objects) and T-0025 (`std` checked in every analysis, now
+   the largest fixed cost of a build after the C++ compiler).
 3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
@@ -159,18 +161,14 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (11 open)
+## M15 — `dz bench`, and the C++ comparison (7 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
-- **[T-0101](tasks/T-0101-every-build-imports-stdlib-h-with.md)** Every build imports stdlib.h with libclang again: about 380 ms of each build · feature, tooling
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
 - **[T-0165](tasks/T-0165-words-scope-regions-make-it-5.md)** "words: scope regions make it 5% slower with g++, where clang++ is 30% faster" · feature, ownership
 - **[T-0172](tasks/T-0172-ecs-benchmark-against-rust-c-query.md)** An ECS benchmark against Rust and C++: a query inside a query · feature, bench
 - **[T-0173](tasks/T-0173-json-benchmark-parsing-writing-structs-through.md)** A json benchmark: parsing, and writing structs through reflection · feature, bench
 - **[T-0174](tasks/T-0174-raytrace-benchmark-floating-point-vector-math.md)** A raytrace benchmark: floating-point and vector math · feature, bench
-- **[T-0180](tasks/T-0180-0-2-build-time-targets-measured.md)** The 0.2 build-time targets, measured and met · feature, tooling
-- **[T-0182](tasks/T-0182-one-compiled-standard-library-shared-by.md)** One compiled standard library shared by every project · feature, tooling
-- **[T-0183](tasks/T-0183-release-build-compiles-everything-twice-where.md)** A release build compiles everything twice where LTO cannot link · feature, tooling
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 
 ## M16 — Packages: dependencies that are fetched (1 open)

@@ -2,11 +2,30 @@
 id: T-0180
 title: The 0.2 build-time targets, measured and met
 milestone: M15
-status: open
+status: done
 kind: feature
 area: tooling
 where: `tests/bench_programs/RESULTS.md`, `tools/bench_programs.py`; the work is in the tasks below
 ---
+
+**Done** (2026-11-09): both targets are met on the machine that writes `RESULTS.md`
+(Linux, Ryzen 7 H 255, release `dz`, median of three), after T-0181, T-0182, T-0183 and
+T-0101. A build from clean now costs what a one-line change does, since the runtime and
+`std` come compiled from the per-user cache and `stdlib.h` comes imported:
+
+| | debug, one-line change | debug, from clean | release, from clean |
+|---|---:|---:|---:|
+| `words`, clang++ 19: Dazzle / C++ | 0.30 s / 0.29 s | 0.29 s / 0.29 s | 0.53 s / 0.42 s (1.26×) |
+| `words`, g++ 14 | 0.30 s / 0.28 s | 0.31 s / 0.28 s | 0.66 s / 0.42 s (1.57×) |
+| `astar`, clang++ / g++ | 0.34 s / 0.35 s | 0.34 s / 0.35 s | 1.20× / 1.61× |
+| `expr`, clang++ / g++ | 0.32 s / 0.34 s (C++: 0.42 s / 0.47 s) | the same | 1.14× / 1.43× |
+
+Before (`master` at f398a8b, measured back to back): from clean in debug 0.76–0.89 s, in
+release 1.05–1.25 s (2.3–2.8× C++). Of a debug build of `words` now, about 90 ms is
+Dazzle's own phases (T-0025 is most of it: `std` checked again), 2 ms the headers, 195 ms
+the C++ compiler and the link. T-0184 was not needed. Not re-measured on Windows, where the
+g++ rebuild was the one over 0.5 s; T-0101 takes most of a Windows build's 380 ms of header
+import off it.
 
 **What it is.** The targets for 0.2, planned with the user on 2026-11-09 and first written
 in [T-0102](T-0102-standard-library-c-compiled-again-in.md). Measure the debug build too,

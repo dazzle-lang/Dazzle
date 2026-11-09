@@ -843,6 +843,8 @@ fn import_headers(
     // standard: C++17, the oldest the generated code compiles as, so whatever it declares
     // there is declared under any later standard a project picks.
     let cpp_standard = root.build.cpp_standard.clone();
+    // Imports are kept between processes too (T-0101).
+    let cache = user_cache_dir();
     // A recipe two modules import is checked once, so a wrong `keeps` entry is one error.
     let mut checked_keeps: std::collections::HashSet<(FileId, Span)> = Default::default();
 
@@ -947,6 +949,7 @@ fn import_headers(
                     cpp_standard: &cpp_standard,
                     from_dir: &from_dir,
                     instantiate: &instantiate,
+                    cache: cache.as_deref(),
                 };
                 match import(&req) {
                     Ok(h) => {
@@ -1158,6 +1161,36 @@ pub fn std_source(pseudo: &Path) -> Option<&'static str> {
 
 /// Every source the compiler carries rather than reads, as `(pseudo-path, text)`. The
 /// language server and a debugger are shown copies of these.
+/// Where `dz` keeps what outlives one process and one project: the runtime and `std`,
+/// compiled (T-0182), and imported headers (T-0101). `DZ_CACHE_DIR` if it is set, otherwise
+/// the platform's per-user cache (`$XDG_CACHE_HOME` or `~/.cache` on Linux,
+/// `~/Library/Caches` on macOS, `%LOCALAPPDATA%` on Windows) with `dazzle` appended, made
+/// absolute. `None` where there is none, or it cannot be created.
+pub fn user_cache_dir() -> Option<PathBuf> {
+    if cfg!(target_family = "wasm") {
+        return None;
+    }
+    let var = |name| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let dir = if let Some(dir) = var("DZ_CACHE_DIR") {
+        dir
+    } else if cfg!(windows) {
+        var("LOCALAPPDATA")?.join("dazzle")
+    } else if cfg!(target_os = "macos") {
+        var("HOME")?.join("Library").join("Caches").join("dazzle")
+    } else {
+        // The XDG spec says a relative path is invalid and is to be ignored.
+        let xdg = var("XDG_CACHE_HOME").filter(|d| d.is_absolute());
+        xdg.or_else(|| var("HOME").map(|h| h.join(".cache")))?.join("dazzle")
+    };
+    std::fs::create_dir_all(&dir).ok()?;
+    // Absolute, since what is in it is named in `#line`s and in stamps.
+    if dir.is_absolute() {
+        Some(dir)
+    } else {
+        std::env::current_dir().ok().map(|cwd| cwd.join(dir))
+    }
+}
+
 pub fn embedded_sources() -> Vec<(&'static str, &'static str)> {
     STD_SOURCES.to_vec()
 }

@@ -17,6 +17,9 @@ pub struct BuildOutput {
     pub files: Vec<PathBuf>,
     /// Only the files whose contents actually changed (spec §16.6).
     pub written: Vec<PathBuf>,
+    /// The folder the runtime and `std` are compiled from, shared with every other project
+    /// built with the same `std` (T-0182). `files` names the project's own copies.
+    pub shared: crate::shared::Shared,
 }
 
 /// Generate C++ for a project, writing only files whose contents changed (spec §16.6).
@@ -62,58 +65,64 @@ pub fn emit_cpp(
         return Err(d);
     }
 
-    // The standard library is compiled into `dz` and have no files, so
-    // their `#line` directives name copies written beside the generated C++ — which is what
-    // a debugger opens when stepping into `List::push` or `Vec3::length` (spec §16.3). Only
-    // the directives change: a panic message still says `<std>/collections/list.dz`.
-    // Without directives nothing names them, so they are not written.
-    let absolute_cpp_dir = if !options.line_directives {
-        None
-    } else if cpp_dir.is_absolute() {
-        Some(cpp_dir.clone())
-    } else {
-        std::env::current_dir().ok().map(|d| d.join(&cpp_dir))
+    // The runtime and `std` are compiled from a folder every project shares (T-0182).
+    let shared = crate::shared::Shared::new(
+        root,
+        emitted.files.iter().filter(|f| f.shared),
+        options.line_directives,
+    );
+    let cannot_write = |path: &Path, e: std::io::Error| {
+        let mut d = Diagnostics::new();
+        d.push(Diagnostic::error(
+            codes::CPP_COMPILER_FAILED,
+            format!("cannot write {}: {e}", path.display()),
+        ));
+        d
     };
+
+    // The standard library is compiled into `dz` and has no files, so its `#line`
+    // directives name copies written into the shared folder — which is what a debugger opens
+    // when stepping into `List::push` or `Vec3::length` (spec §16.3). Only the directives
+    // change: a panic message still says `<std>/collections/list.dz`. Without directives
+    // nothing names them, so they are not written.
     let mut renames: Vec<(String, String)> = Vec::new();
-    if let Some(base) = &absolute_cpp_dir {
+    if options.line_directives {
         for (pseudo, text) in dz_project::embedded_sources() {
-            // `<std>/math/vec3.dz` → `build/cpp/std/math/vec3.dz`.
-            let copy = base.join(pseudo.replace(['<', '>'], ""));
+            // `<std>/math/vec3.dz` → `<cache>/std-<hash>/src/std/math/vec3.dz`.
+            let copy = shared.dir.join("src").join(pseudo.replace(['<', '>'], ""));
             if let Some(dir) = copy.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
-            if std::fs::read_to_string(&copy).ok().as_deref() != Some(text) {
-                let _ = std::fs::write(&copy, text);
-            }
+            let _ = crate::shared::write(&copy, text.as_bytes());
             let real = format!("\"{}\"", copy.display().to_string().replace('\\', "/"));
             renames.push((format!("\"{pseudo}\""), real));
         }
     }
 
+    // Every file is written to `build/cpp`, the shared ones too: a module's header includes
+    // `std.h` from beside it, and the folder is the whole program's C++ for anyone who wants
+    // to read or compile it without `dz`.
     let mut files = Vec::new();
     let mut written = Vec::new();
     for file in &emitted.files {
         let path = cpp_dir.join(&file.name);
         files.push(path.clone());
         let contents = with_embedded_lines(&file.contents, &renames);
+        if file.shared {
+            let copy = shared.dir.join("cpp").join(&file.name);
+            crate::shared::write(&copy, contents.as_bytes()).map_err(|e| cannot_write(&copy, e))?;
+        }
         // Rewriting an unchanged file would defeat the C++ compiler's own incremental
         // build, which is the only incrementality that exists so far (spec §16.6).
         let unchanged =
             std::fs::read_to_string(&path).map(|existing| existing == contents).unwrap_or(false);
         if !unchanged {
-            if let Err(e) = std::fs::write(&path, &contents) {
-                let mut d = Diagnostics::new();
-                d.push(Diagnostic::error(
-                    codes::CPP_COMPILER_FAILED,
-                    format!("cannot write {}: {e}", path.display()),
-                ));
-                return Err(d);
-            }
+            std::fs::write(&path, &contents).map_err(|e| cannot_write(&path, e))?;
             written.push(path.clone());
         }
     }
 
-    Ok(BuildOutput { cpp_dir, files, written })
+    Ok(BuildOutput { cpp_dir, files, written, shared })
 }
 
 /// `text` with every `#line N "<pseudo>"` naming its real copy instead, per `renames` of
@@ -287,14 +296,19 @@ pub fn compile(
     // has been renamed or removed, and compiling it fails against a runtime it was not
     // generated for, with an error naming source that no longer exists (T-0087). Nothing in
     // the folder is deleted, since a user may have put something there.
+    //
+    // The runtime and `std` are compiled from their shared copies, into objects every project
+    // shares (T-0182).
+    let files: Vec<PathBuf> =
+        out.files.iter().map(|f| out.shared.copy_of(f).unwrap_or(f).clone()).collect();
     let mut sources: Vec<&PathBuf> =
-        out.files.iter().filter(|p| p.extension().is_some_and(|x| x == "cpp")).collect();
+        files.iter().filter(|p| p.extension().is_some_and(|x| x == "cpp")).collect();
     sources.sort();
     // What each of them may start from, precompiled (T-0181).
-    let std_h = out.files.iter().find(|p| p.file_name().is_some_and(|n| n == "std.h"));
+    let std_h = files.iter().find(|p| p.file_name().is_some_and(|n| n == "std.h"));
     let sources: Vec<(&PathBuf, Start)> = sources
         .into_iter()
-        .map(|s| (s, if std_h.is_some() { start_of(s, &out.files) } else { Start::Nothing }))
+        .map(|s| (s, if std_h.is_some() { start_of(s, &files) } else { Start::Nothing }))
         .collect();
 
     let link = ws.link_inputs();
@@ -320,15 +334,43 @@ pub fn compile(
             args.push("-flto=auto".to_owned());
         }
         let std_h = std_h.filter(|_| pch).map(PathBuf::as_path);
-        compile_and_link(&cxx, &sources, std_h, &args, &link_args, root, &exe, timings)
+        let dirs = Dirs { own: root.join("obj").join("dz"), shared: &out.shared };
+        compile_and_link(&cxx, &sources, std_h, &args, &link_args, &dirs, &exe, timings)
     };
-    let mut output = build(lto, true, timings);
     // Not every toolchain links with it: LLVM's clang targeting MSVC needs `lld`, for one.
-    // A link that fails with it is tried once without it, and says so.
-    if lto && matches!(&output, Err(Failed::Rejected(stderr)) if linker_failure(stderr)) {
+    // A link that fails with it is tried once without it, and says so. Where that works, it
+    // is remembered, for this compiler and these flags, so later builds do not compile
+    // everything twice for a link known to fail (T-0183). Only then: a missing definition
+    // fails the link without it too, and that says nothing about the toolchain.
+    let no_lto = {
+        let mut key = Vec::new();
+        for part in std::iter::once(cxx.as_str()).chain(args.iter().map(String::as_str)) {
+            key.extend_from_slice(part.as_bytes());
+            key.push(0);
+        }
+        out.shared.obj_dir().join(format!("no-lto-{:016x}", crate::native::fnv1a(&key)))
+    };
+    let remembered = lto && no_lto.exists();
+    let mut output = build(lto && !remembered, true, timings);
+    if remembered {
+        lto = false;
+        if output.is_ok() {
+            eprintln!(
+                "note: built without link-time optimisation: {cxx} could not link with \
+                 `-flto=auto` before; delete {} to try again",
+                no_lto.display()
+            );
+        }
+    } else if let Some(why) = match &output {
+        Err(Failed::Rejected(stderr)) if lto && linker_failure(stderr) => {
+            Some(stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned())
+        }
+        _ => None,
+    } {
         lto = false;
         output = build(false, true, timings);
         if output.is_ok() {
+            let _ = crate::shared::write(&no_lto, format!("{why}\n").as_bytes());
             eprintln!(
                 "note: built without link-time optimisation: {cxx} could not link with \
                  `-flto=auto`"
@@ -408,20 +450,25 @@ enum Failed {
     FromPch(String),
 }
 
-/// Compile each generated file to an object of its own in `build/obj/dz/`, then link them.
+/// Compile each generated file to an object of its own, then link them. The program's own
+/// objects go in `build/obj/dz/`; the runtime's and `std`'s go in their shared folder, where
+/// every project finds them already compiled (T-0182). `dirs` says which is which.
 ///
 /// An object whose inputs have not changed is reused, judged by content as the vendored
 /// libraries' objects are (`native::up_to_date`), so a rebuild compiles only the files an
 /// edit reached, and an unchanged `std` is not compiled again (T-0102). The object's name
 /// carries the compiler and every flag, so a debug build never links a release object.
+/// Each object is compiled beside its name and renamed onto it, since another `dz` may be
+/// reading a shared one.
 ///
 /// `sources` says what each file can start from, precompiled, and `std_h` is the generated
-/// `std.h`, or `None` to compile without precompiled headers (T-0181). They live in
-/// `build/obj/dz/pch-<key>/`:
+/// `std.h`, or `None` to compile without precompiled headers (T-0181). They live in a
+/// `pch-<key>/` folder beside the objects of what they include:
 ///
-/// - **`std.h`**, the runtime and `std`, about 0.5 MB of C++. Every module's `.cpp` and
-///   `dz_main.cpp` use it, and it is built when one of them needs compiling. `std.cpp`
-///   itself does not, so on a build from clean it compiles while the header does.
+/// - **`std.h`**, the runtime and `std`, about 0.5 MB of C++, in the shared folder. Every
+///   module's `.cpp` and `dz_main.cpp` use it, and it is built when one of them needs
+///   compiling. `std.cpp` itself does not, so on a first build it compiles while the header
+///   does.
 /// - **`std.h` and a module's C and C++ headers** (`<SDL3/SDL.h>`, `<imgui.h>`), one for
 ///   each distinct set, so modules that import the same libraries share one. In
 ///   `examples/sdl3` those headers are two thirds of what a recompile parses. This one is
@@ -439,17 +486,19 @@ fn compile_and_link(
     std_h: Option<&Path>,
     args: &[String],
     link_args: &[String],
-    root: &Path,
+    dirs: &Dirs,
     exe: &Path,
     timings: &mut dz_driver::Timings,
 ) -> Result<Option<String>, Failed> {
     let started = std::time::Instant::now();
-    let dir = root.join("obj").join("dz");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| Failed::Spawn(format!("cannot create {}: {e}", dir.display())))?;
+    let dir = &dirs.own;
+    for dir in [dir, &dirs.shared.obj_dir()] {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| Failed::Spawn(format!("cannot create {}: {e}", dir.display())))?;
+    }
     let std_h = std_h.filter(|_| sources.iter().any(|(_, start)| *start != Start::Nothing));
     let std_pch = match std_h {
-        Some(std_h) => Some(Pch::prepare(cxx, args, &dir, &include_of(std_h))?),
+        Some(std_h) => Some(Pch::prepare(cxx, args, &dirs.of(std_h), &include_of(std_h))?),
         None => None,
     };
 
@@ -466,7 +515,7 @@ fn compile_and_link(
                 let i = match sets.iter().position(|(t, _, _)| t == text) {
                     Some(i) => i,
                     None => {
-                        let pch = Pch::prepare(cxx, args, &dir, text)?;
+                        let pch = Pch::prepare(cxx, args, dir, text)?;
                         let fresh = pch.fresh();
                         sets.push((text.clone(), pch, fresh));
                         sets.len() - 1
@@ -502,13 +551,13 @@ fn compile_and_link(
         .into_iter()
         .map(|(source, from)| {
             let file_args = args_of(pch_of(from));
-            let object = object_path(&dir, cxx, source, &file_args);
+            let object = object_path(&dirs.of(source), cxx, source, &file_args);
             let stale = !crate::native::up_to_date(&object);
             if stale && matches!(from, Some(Header::Set(_))) {
                 // Its set's header has just been built, while the file has not changed since
                 // it was compiled from `std.h`'s: that object will do until it does.
                 let std_args = args_of(std_pch.as_ref());
-                let std_object = object_path(&dir, cxx, source, &std_args);
+                let std_object = object_path(&dirs.of(source), cxx, source, &std_args);
                 if crate::native::up_to_date(&std_object) {
                     return (source, Some(Header::Std), std_args, std_object, false);
                 }
@@ -550,16 +599,14 @@ fn compile_and_link(
         let out = child
             .wait_with_output()
             .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
-        if out.status.success() {
-            crate::native::write_stamp(&pch.header, &pch.compiled);
-        } else {
+        if !pch.finish(out.status.success()) {
             note = Some(why_not(cxx, "std.h", &out.stderr));
             // Its files are compiled without one.
             for (source, from, file_args, object, stale) in &mut jobs_of {
                 if *from == Some(Header::Std) {
                     *from = None;
                     *file_args = args.to_vec();
-                    *object = object_path(&dir, cxx, source, file_args);
+                    *object = object_path(&dirs.of(source), cxx, source, file_args);
                     *stale = !crate::native::up_to_date(object);
                 }
             }
@@ -572,15 +619,19 @@ fn compile_and_link(
         }
         objects.push(object);
     }
-    let (errors, refused) = jobs.finish()?;
+    let (errors, refused, kept) = jobs.finish()?;
+    // An object another process had open, so its fresh copy could not replace it.
+    for object in &mut objects {
+        if let Some((_, temp)) = kept.iter().find(|(o, _)| o == object) {
+            *object = temp.clone();
+        }
+    }
     for (i, child) in set_children {
         let pch = &sets[i].1;
         let out = child
             .wait_with_output()
             .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
-        if out.status.success() {
-            crate::native::write_stamp(&pch.header, &pch.compiled);
-        } else if note.is_none() {
+        if !pch.finish(out.status.success()) && note.is_none() {
             note = Some(why_not(cxx, "a module's C and C++ headers", &out.stderr));
         }
     }
@@ -606,6 +657,9 @@ fn compile_and_link(
         .output()
         .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
     timings.lap("link", started);
+    for (_, temp) in kept {
+        let _ = std::fs::remove_file(temp);
+    }
     if output.status.success() {
         Ok(note)
     } else {
@@ -637,12 +691,22 @@ struct Jobs<'a> {
     errors: String,
     /// The precompiled headers those files started from.
     refused: Vec<PathBuf>,
+    /// Objects compiled but not renamed into place, since another process had the old one
+    /// open, which Windows refuses to replace: each object, and where its new copy is.
+    kept: Kept,
 }
 
 impl<'a> Jobs<'a> {
     fn new(cxx: &'a str) -> Self {
         let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-        Jobs { cxx, cores, running: Default::default(), errors: String::new(), refused: vec![] }
+        Jobs {
+            cxx,
+            cores,
+            running: Default::default(),
+            errors: String::new(),
+            refused: vec![],
+            kept: vec![],
+        }
     }
 
     /// Compile `source` to `object`, once fewer than `cores` compiles are running. `pch` is
@@ -657,14 +721,16 @@ impl<'a> Jobs<'a> {
         while self.running.len() >= self.cores {
             self.finish_one()?;
         }
+        // Written beside the object and renamed onto it once complete: the shared objects
+        // are read and written by every `dz` running (T-0182).
         let child = Command::new(self.cxx)
             .args(args)
             .arg("-c")
             .arg(source)
             .arg("-o")
-            .arg(object)
+            .arg(crate::shared::temp_of(object))
             .args(["-MD", "-MF"])
-            .arg(object.with_extension("d"))
+            .arg(crate::shared::temp_of(&object.with_extension("d")))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -680,12 +746,18 @@ impl<'a> Jobs<'a> {
         let out = child
             .wait_with_output()
             .map_err(|e| Failed::Spawn(format!("could not run {}: {e}", self.cxx)))?;
+        let temp = crate::shared::temp_of(&object);
         if out.status.success() {
-            crate::native::write_stamp(&source, &object);
+            match put_in_place(&object, &source) {
+                Ok(()) => {}
+                Err(_) if crate::native::up_to_date(&object) => {
+                    let _ = std::fs::remove_file(&temp);
+                }
+                Err(_) => self.kept.push((object, temp)),
+            }
         } else {
-            // The stamp is what says an object is good; a failed compile may have left a
-            // broken one behind.
-            let _ = std::fs::remove_file(object.with_extension("stamp"));
+            let _ = std::fs::remove_file(&temp);
+            let _ = std::fs::remove_file(crate::shared::temp_of(&object.with_extension("d")));
             self.errors.push_str(&String::from_utf8_lossy(&out.stderr));
             self.refused.extend(pch);
         }
@@ -693,13 +765,24 @@ impl<'a> Jobs<'a> {
     }
 
     /// Wait for every compile, and return what the compiler said about those it refused,
-    /// and the precompiled headers they started from.
-    fn finish(mut self) -> Result<(String, Vec<PathBuf>), Failed> {
+    /// the precompiled headers they started from, and the objects `kept` names.
+    fn finish(mut self) -> Result<(String, Vec<PathBuf>, Kept), Failed> {
         while !self.running.is_empty() {
             self.finish_one()?;
         }
-        Ok((self.errors, self.refused))
+        Ok((self.errors, self.refused, self.kept))
     }
+}
+
+/// Rename `output`, just compiled from `source` beside its final name, onto it, with its
+/// depfile, and record its stamp. The stamp goes last: until it is written, the old one says
+/// what the old output was built from, or there is none.
+fn put_in_place(output: &Path, source: &Path) -> std::io::Result<()> {
+    let depfile = output.with_extension("d");
+    std::fs::rename(crate::shared::temp_of(&depfile), &depfile)?;
+    std::fs::rename(crate::shared::temp_of(output), output)?;
+    crate::native::write_stamp(source, output);
+    Ok(())
 }
 
 /// A precompiled header (T-0181): `std.h`, or `std.h` and a module's C and C++ headers.
@@ -732,10 +815,8 @@ impl Pch {
         let text = format!("// Generated by the Dazzle compiler. Do not edit.\n{includes}");
         // Rewritten only when it changes: clang++ refuses a precompiled header whose inputs
         // are newer than it, even with the same contents.
-        if std::fs::read_to_string(&header).ok().as_deref() != Some(text.as_str()) {
-            std::fs::write(&header, &text)
-                .map_err(|e| Failed::Spawn(format!("cannot write {}: {e}", header.display())))?;
-        }
+        crate::shared::write(&header, text.as_bytes())
+            .map_err(|e| Failed::Spawn(format!("cannot write {}: {e}", header.display())))?;
         let compiled = folder.join("std.h.gch");
         Ok(Pch { header, compiled })
     }
@@ -758,22 +839,52 @@ impl Pch {
         })
     }
 
+    /// Build it beside its final name; `finish` puts it in place. A build cut short leaves the
+    /// old one as it was, and two `dz` processes building it at once each write their own.
     fn spawn(&self, cxx: &str, args: &[String]) -> Result<std::process::Child, Failed> {
-        // Gone until the build succeeds, so a build cut short is never taken for a good one.
-        let _ = std::fs::remove_file(self.compiled.with_extension("stamp"));
         Command::new(cxx)
             .args(args)
             .args(["-x", "c++-header"])
             .arg(&self.header)
             .arg("-o")
-            .arg(&self.compiled)
+            .arg(crate::shared::temp_of(&self.compiled))
             .args(["-MD", "-MF"])
-            .arg(self.compiled.with_extension("d"))
+            .arg(crate::shared::temp_of(&self.compiled.with_extension("d")))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))
+    }
+
+    /// After `spawn`'s compiler has finished, `built` saying whether it succeeded: put what
+    /// it built in place, and say whether a header good to use is there now. It may be
+    /// another process's, if this one could not replace it.
+    fn finish(&self, built: bool) -> bool {
+        if built && put_in_place(&self.compiled, &self.header).is_ok() {
+            return true;
+        }
+        let _ = std::fs::remove_file(crate::shared::temp_of(&self.compiled));
+        let _ = std::fs::remove_file(crate::shared::temp_of(&self.compiled.with_extension("d")));
+        built && self.fresh()
+    }
+}
+
+/// Where objects and precompiled headers go: the project's own in `build/obj/dz/`, the
+/// shared files' in their shared folder (T-0182).
+struct Dirs<'a> {
+    own: PathBuf,
+    shared: &'a crate::shared::Shared,
+}
+
+impl Dirs<'_> {
+    /// The folder for `source`'s object, or for a header precompiled from it.
+    fn of(&self, source: &Path) -> PathBuf {
+        if self.shared.holds(source) {
+            self.shared.obj_dir()
+        } else {
+            self.own.clone()
+        }
     }
 }
 
@@ -802,6 +913,9 @@ enum Header {
 /// A file to compile: its source, the header it starts from, its command's flags, its
 /// object, and whether that object needs compiling.
 type Job<'a> = (&'a Path, Option<Header>, Vec<String>, PathBuf, bool);
+
+/// Objects compiled but left beside their final names, in `Jobs`: each object, and its copy.
+type Kept = Vec<(PathBuf, PathBuf)>;
 
 /// An `#include` of `path`, a generated file, by its absolute path, since the header that
 /// holds it is in another folder.

@@ -29,12 +29,14 @@ the stdlib and the benchmarks go together, since the new programs show what `std
 2. **Build times.** The C++ compiler is about 90% of a build. T-0102 is done
    (2026-11-09): each generated file has a cached object, so an unchanged `std` is not
    compiled again. T-0180 holds the targets for 0.2 (a debug rebuild under 0.5 s, a clean
-   release build within twice C++'s) and what is left of them, in order: a precompiled
-   header (T-0181, done 2026-11-09: a debug rebuild of `words` is 0.39 s with clang++),
-   one `std` for every project (T-0182), the LTO fallback compiling twice
-   (T-0183), then emitting less only if still needed (T-0184). Then T-0012 (build time at
-   scale), T-0103 (stale generated files and objects) and, for the editor, T-0025 (`std`
-   checked in every analysis).
+   release build within twice C++'s), both met on Linux on 2026-11-09 by a precompiled
+   header (T-0181), one `std` for every project (T-0182), the LTO fallback remembered
+   (T-0183) and imported headers kept on disk (T-0101): a build from clean now costs what a
+   one-line change does, 0.29–0.35 s in debug (C++: 0.28–0.47 s), and a clean release
+   build is 1.1–1.6× C++'s.
+   T-0184 (emitting less) is not needed for them. Left: T-0012 (build time at scale), T-0103
+   (stale generated files and objects) and T-0025 (`std` checked in every analysis, now
+   the largest fixed cost of a build after the C++ compiler).
 3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.

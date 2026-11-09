@@ -163,6 +163,8 @@ name = "dz_cppimport"
 version = "0.1.0"
 dependencies = [
  "clang-sys",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

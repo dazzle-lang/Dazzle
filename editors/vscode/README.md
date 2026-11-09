@@ -56,7 +56,8 @@ and `debugger` (`auto`, `vsdbg`, `gdb` or `lldb`). The project must build in `de
 (`[build] optimize = "debug"`, the default), which compiles with `-O0 -g`.
 
 Stepping into `List`, `String` or `HashMap` opens the standard library: `dz` writes it to
-`build/cpp/std/` for the debugger, since it is otherwise compiled into `dz`. With
+its cache for the debugger (`~/.cache/dazzle` on Linux, `%LOCALAPPDATA%\dazzle` on
+Windows), since it is otherwise compiled into `dz`. With
 the Visual Studio debugger, `str` shows as text, slices and arrays as their elements, and
 `T?` as its value or `none` (`dazzle.natvis`).
 

@@ -12,7 +12,8 @@ build/
     game.h
     game.cpp
     dz_typeinfo.cpp     the static type table (§13)
-  obj/                  one object per vendored library source (§15.1)
+  obj/                  one object per vendored library source (§15.1), and in obj/dz/
+                        one per generated file of the program's own (§16.6)
   bin/
     game.exe            the program
   test/                 `dz test`'s own build, the same shape again (§19 M14)
@@ -159,7 +160,24 @@ test compiles an indexing loop and asserts no helper call reaches the object cod
 
 ## 16.6 Incremental builds
 
-Dazzle writes a generated file only when its content hash changes. That way the C++
-compiler's own incremental build does the right thing without Dazzle having to model object
-files. A one-line change in one function rewrites one `.cpp`, and the C++ compiler rebuilds
-one translation unit.
+Dazzle writes a generated file only when its contents change, and compiles each generated
+`.cpp` to an object of its own, compiled again only when the file or a header it includes
+has changed, judged by content rather than by time. A one-line change in one function
+rewrites one `.cpp`, and the C++ compiler rebuilds one translation unit. Every file starts
+from `std.h` precompiled, so that translation unit does not parse the standard library again.
+
+**The runtime and `std` are compiled once for every project.** Their generated files are the
+same in every program, so they, their objects and the precompiled `std.h` live in a per-user
+cache rather than in `build/`: `$XDG_CACHE_HOME/dazzle` or `~/.cache/dazzle` on Linux,
+`~/Library/Caches/dazzle` on macOS, `%LOCALAPPDATA%\dazzle` on Windows, or wherever
+`DZ_CACHE_DIR` names. A new project, or a build from clean, starts with them already built,
+as a C++ program starts with its standard library already built. Each folder in it is named
+for the contents of those files, so a setting that changes them (`--track-memory`,
+`check_trusted`) gets a folder of its own and a stale one is never used. The folders a
+build has not used for a while are removed. `build/cpp` still holds a copy of every file,
+so it is the whole program's C++, and the `#line` directives that name `std`'s sources
+(§16.3) name copies in the cache.
+
+The same cache keeps what each import of a C or C++ header produced (§15.1), so a build does
+not parse `stdlib.h`, or a library's headers, again while none of the files they read has
+changed.

@@ -18,3 +18,6 @@ It is worth doing only if a precompiled header
 together leave the targets of [T-0180](T-0180-0-2-build-time-targets-measured.md) unmet.
 Even then, trimming `std.h`, which every file parses, matters more than trimming `std.cpp`,
 which is compiled once. Compiler work only, for `docs/log/`.
+
+**2026-11-09:** the targets were met without it (T-0180), so it waits until a larger program
+(T-0012) shows `std.h`'s parse is what is left.
