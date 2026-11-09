@@ -7,6 +7,10 @@ level, runs them alternately, and reports run time, peak memory and build time. 
 halves print a `checksum` line, and the run fails if any two disagree: two programs
 computing different things measure nothing.
 
+Build time is measured in debug and in the mode asked for, two ways: from clean, and after
+a one-line change to the program (EDIT), as someone working on it waits for. The programs
+are copied to target/bench_programs/ to be built, so the edit never reaches the suite.
+
 The Dazzle half is `dz build`'s default, values placed in scope regions (spec §14.6,
 T-0152); `DZ_REGIONS=0` in the environment builds it with every value on the heap instead.
 `tools/bench_regions.py` measures those two against each other.
@@ -35,6 +39,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SUITE = ROOT / "tests" / "bench_programs"
+# Where each program is copied to be built, since a rebuild is timed after editing it.
+BUILDS = ROOT / "target" / "bench_programs"
+
+# The one-line change a rebuild is timed after: a function appended to the program's
+# source, whose number changes before each rebuild. Only the program's own generated C++
+# changes, as when someone edits a line of their program; the standard library does not.
+EDIT = {
+    "dazzle": "fn bench_edit() -> i64 {{ return {} }}",
+    "cpp": "int bench_edit() {{ return {}; }}",
+}
 
 
 # The flags `dz build` gives the generated C++ (crates/dz/src/build.rs), per mode. The C++
@@ -46,6 +60,8 @@ MODES = {
     "release": ["-O2", "-flto=auto"],
     "shipping": ["-O3", "-DNDEBUG", "-flto=auto"],
 }
+# Debug is built, and its build timed, but never run: timing -O0 measures nothing.
+FLAGS = {**MODES, "debug": ["-O0", "-g"]}
 CXX_FLAGS = ["-std=c++17", "-fno-exceptions", "-fno-rtti", "-Wall", "-Wextra"]
 
 
@@ -180,36 +196,93 @@ def parse_timings(stderr):
     return phases
 
 
+def dz_build(dz, project, cxx, mode):
+    """One `dz build` of `project`: its wall time and the phases `--timings` reported."""
+    cmd = [str(dz), "build", f"--{mode}", "--timings", "--cxx", cxx, str(project)]
+    wall, out = timed(cmd)
+    if out.returncode != 0:
+        sys.exit(f"dz build --{mode} failed for {project.name} with {cxx}:\n{out.stdout}{out.stderr}")
+    return wall, parse_timings(out.stderr)
+
+
+def edited(text, line):
+    return text.rstrip("\n") + "\n\n" + line + "\n"
+
+
 def build_dazzle(dz, program, cxx, mode, work, builds):
-    """Build the Dazzle half from clean `builds` times. Return the binary, the median wall
-    time, and the median time of each phase `--timings` reported."""
-    project = SUITE / program
-    walls, phases = [], []
+    """Build the Dazzle half, in a copy of the project so the edits never reach the suite:
+    `builds` times from clean, then `builds` times after a one-line change (EDIT), each
+    after the one before it, the first of them after one more that is not counted. Return
+    the binary of the last clean build and [(wall, phases)] for each of the two kinds."""
+    project = BUILDS / program
+    shutil.rmtree(project, ignore_errors=True)
+    shutil.copytree(SUITE / program, project, ignore=shutil.ignore_patterns("build", "main.cpp"))
+    clean = []
     for _ in range(builds):
         shutil.rmtree(project / "build", ignore_errors=True)
-        cmd = [str(dz), "build", f"--{mode}", "--timings", "--cxx", cxx, str(project)]
-        wall, out = timed(cmd)
-        if out.returncode != 0:
-            sys.exit(f"dz build failed for {program} with {cxx}:\n{out.stdout}{out.stderr}")
-        walls.append(wall)
-        phases.append(parse_timings(out.stderr))
-    binary = work / exe(f"{program}-dazzle-{cxx}")
+        clean.append(dz_build(dz, project, cxx, mode))
+    binary = work / exe(f"{program}-dazzle-{cxx}-{mode}")
     shutil.copy2(project / "build" / "bin" / exe(program), binary)
-    median = {n: statistics.median(p.get(n, 0.0) for p in phases) for n in phases[0]}
-    return binary, statistics.median(walls), median
+
+    # The first edit adds the line and is not counted: what is timed is someone changing
+    # a line in a project they have already built since its last edit.
+    main = project / "src" / "main.dz"
+    original = main.read_text(encoding="utf-8")
+    rebuilt = []
+    for n in range(builds + 1):
+        main.write_text(edited(original, EDIT["dazzle"].format(n)), encoding="utf-8")
+        result = dz_build(dz, project, cxx, mode)
+        if n:
+            rebuilt.append(result)
+    return binary, clean, rebuilt
 
 
 def build_cpp(program, cxx, mode, work, builds):
-    """Build the C++ half `builds` times; return the binary and the median wall time."""
-    binary = work / exe(f"{program}-cpp-{cxx}")
-    cmd = [cxx, *CXX_FLAGS, *MODES[mode], str(SUITE / program / "main.cpp"), "-o", str(binary)]
-    walls = []
-    for _ in range(builds):
+    """Build the C++ half `builds` times from its source, then `builds` times after the same
+    one-line change, one more first that is not counted. One file is one compiler
+    invocation, so the change compiles all of it again. Return the binary and the wall
+    times of each kind."""
+
+    def compile_(source, binary):
+        cmd = [cxx, *CXX_FLAGS, *FLAGS[mode], str(source), "-o", str(binary)]
         seconds, out = timed(cmd)
         if out.returncode != 0:
             sys.exit(f"{cxx} failed on {program}/main.cpp:\n{out.stderr}")
-        walls.append(seconds)
-    return binary, statistics.median(walls)
+        return seconds
+
+    source = SUITE / program / "main.cpp"
+    binary = work / exe(f"{program}-cpp-{cxx}-{mode}")
+    clean = [compile_(source, binary) for _ in range(builds)]
+    copy = work / f"{program}-edited.cpp"
+    original = source.read_text(encoding="utf-8")
+    rebuilt = []
+    for n in range(builds + 1):
+        copy.write_text(edited(original, EDIT["cpp"].format(n)), encoding="utf-8")
+        seconds = compile_(copy, work / exe(f"{program}-cpp-{cxx}-{mode}-edited"))
+        if n:
+            rebuilt.append(seconds)
+    return binary, clean, rebuilt
+
+
+def build_record(dazzle, cpp):
+    """The medians of one kind of build: `dazzle` is [(wall, phases)], `cpp` [wall].
+    `dazzle_frontend` is the sum of Dazzle's own phases; `phases` has every one."""
+    phases = {n: statistics.median(p.get(n, 0.0) for _, p in dazzle) for n in dazzle[0][1]}
+    return {
+        "builds": len(dazzle),
+        "dazzle": statistics.median(w for w, _ in dazzle),
+        "dazzle_frontend": sum(t for n, t in phases.items() if n in DAZZLE_PHASES),
+        "phases": phases,
+        "cpp": statistics.median(cpp),
+    }
+
+
+def build_both(dz, program, cxx, mode, work, builds):
+    """Both halves in `mode`: the two binaries, and the records from clean and after a
+    one-line change."""
+    dz_bin, dz_clean, dz_rebuilt = build_dazzle(dz, program, cxx, mode, work, builds)
+    cpp_bin, cpp_clean, cpp_rebuilt = build_cpp(program, cxx, mode, work, builds)
+    return dz_bin, cpp_bin, build_record(dz_clean, cpp_clean), build_record(dz_rebuilt, cpp_rebuilt)
 
 
 def summarise(walls):
@@ -217,9 +290,10 @@ def summarise(walls):
 
 
 def bench(dz, program, cxx, mode, runs, args, work, measure, builds):
-    dz_bin, dz_build, phases = build_dazzle(dz, program, cxx, mode, work, builds)
-    cpp_bin, cpp_build = build_cpp(program, cxx, mode, work, builds)
-    dz_front = sum(t for n, t in phases.items() if n in DAZZLE_PHASES)
+    dz_bin, cpp_bin, build, rebuild = build_both(dz, program, cxx, mode, work, builds)
+    # Built in debug too, `dz build`'s default and what someone waits on all day; nothing
+    # built in debug is run.
+    _, _, debug_build, debug_rebuild = build_both(dz, program, cxx, "debug", work, builds)
 
     sides = {"dazzle": [str(dz_bin), *args], "cpp": [str(cpp_bin), *args]}
     walls = {"dazzle": [], "cpp": []}
@@ -242,14 +316,11 @@ def bench(dz, program, cxx, mode, runs, args, work, measure, builds):
         "checksum": next(iter(sums)),
         "dazzle": {**summarise(walls["dazzle"]), "peak_kib": rss["dazzle"] or None},
         "cpp": {**summarise(walls["cpp"]), "peak_kib": rss["cpp"] or None},
-        # `dazzle_frontend` is the sum of Dazzle's own phases; `phases` has every one.
-        "build": {
-            "builds": builds,
-            "dazzle": dz_build,
-            "dazzle_frontend": dz_front,
-            "phases": phases,
-            "cpp": cpp_build,
-        },
+        # Build time in `mode` and in debug: from clean, and after a one-line change.
+        "build": build,
+        "rebuild": rebuild,
+        "debug_build": debug_build,
+        "debug_rebuild": debug_rebuild,
     }
 
 
@@ -261,11 +332,21 @@ def mib(kib):
     return f"{kib / 1024:.1f} MiB" if kib else "—"
 
 
+def build_kinds(mode):
+    """The four builds each result records, as (key, label)."""
+    return [
+        ("debug_build", "debug, from clean"),
+        ("debug_rebuild", "debug, one-line change"),
+        ("build", f"{mode}, from clean"),
+        ("rebuild", f"{mode}, one-line change"),
+    ]
+
+
 def report(info, results, mode, runs):
     flags = " ".join(CXX_FLAGS + MODES[mode])
     lines = [
         "| Program | Compiler | Dazzle | C++ | Dazzle / C++ | Peak memory (Dazzle / C++) "
-        "| Build: Dazzle / C++ |",
+        "| Build from clean: Dazzle / C++ |",
         "|---|---|---:|---:|---:|---:|---:|",
     ]
     for r in results:
@@ -275,29 +356,46 @@ def report(info, results, mode, runs):
             f"| {d['median'] / c['median']:.2f}× | {mib(d['peak_kib'])} / {mib(c['peak_kib'])} "
             f"| {b['dazzle']:.2f} s / {b['cpp']:.2f} s |"
         )
+    kinds = build_kinds(mode)
+    lines += [
+        "",
+        "Build time, Dazzle / C++:",
+        "",
+        "| Program | Compiler | " + " | ".join(label for _, label in kinds) + " |",
+        "|---|---|" + "---:|" * len(kinds),
+    ]
+    for r in results:
+        cells = [f"{r[k]['dazzle']:.2f} s / {r[k]['cpp']:.2f} s" for k, _ in kinds]
+        lines.append(f"| {r['program']} | {r['cxx']} | " + " | ".join(cells) + " |")
     lines += [
         "",
         "Where Dazzle's build time goes, from `dz build --timings`:",
         "",
-        "| Program | Compiler | Dazzle's own phases | C and C++ headers | C++ compiler | Other |",
-        "|---|---|---:|---:|---:|---:|",
+        "| Program | Compiler | Build | Dazzle's own phases | C and C++ headers "
+        "| C++ compiler and link | Other |",
+        "|---|---|---|---:|---:|---:|---:|",
     ]
     for r in results:
-        b = r["build"]
-        headers = b["phases"].get("C and C++ headers", 0.0)
-        # Since T-0102 the link is a phase of its own; the column is still the whole C++ side.
-        compiler = b["phases"].get("C++ compiler", 0.0) + b["phases"].get("link", 0.0)
-        other = max(0.0, b["dazzle"] - b["dazzle_frontend"] - headers - compiler)
-        lines.append(
-            f"| {r['program']} | {r['cxx']} | {ms(b['dazzle_frontend'])} | {ms(headers)} "
-            f"| {ms(compiler)} | {ms(other)} |"
-        )
+        for k, label in kinds:
+            b = r[k]
+            headers = b["phases"].get("C and C++ headers", 0.0)
+            # Since T-0102 the link is a phase of its own; the column is the whole C++ side.
+            compiler = b["phases"].get("C++ compiler", 0.0) + b["phases"].get("link", 0.0)
+            other = max(0.0, b["dazzle"] - b["dazzle_frontend"] - headers - compiler)
+            lines.append(
+                f"| {r['program']} | {r['cxx']} | {label} | {ms(b['dazzle_frontend'])} "
+                f"| {ms(headers)} | {ms(compiler)} | {ms(other)} |"
+            )
     builds = results[0]["build"]["builds"] if results else 0
     lines += [
         "",
         f"Run time is the median of {runs} runs of each half, alternating. Build time is the "
-        f"median of {builds} builds from clean: for Dazzle, `dz build`, which compiles the "
-        "program and the standard library; for C++, one compiler invocation. Dazzle's own "
+        f"median of {builds} builds, in debug and in `--{mode}`. From clean, `build/` is "
+        "deleted first: for Dazzle, `dz build` then compiles the program and the standard "
+        "library; for C++, one compiler invocation. After a one-line change, a function is "
+        "appended to the program's source and its number changed before each build, one more "
+        "build first not counted: Dazzle compiles the program's own generated C++ again and "
+        "links, and C++ compiles its one file again. Dazzle's own "
         "phases are reading the manifests, parsing, macros, resolving names, type checking, "
         "ownership, placement, instantiating generics and emitting the C++. Other is what no phase "
         "accounts for, mostly starting `dz` and linking the vendored libraries. Peak memory is "
