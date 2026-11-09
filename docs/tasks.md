@@ -24,7 +24,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
 4. **C++ interop: Dear ImGui in the SDL3 scene** (T-0171), the ImGui half of T-0010, with
    what it needs on the way: overloaded free functions (T-0016), variadics (T-0008), enum
-   variants (T-0048). No Jolt.
+   variants (T-0048). No Jolt. Then a C++ namespace reached as a module of its own,
+   `ImGui::Begin` rather than `imgui::ImGui::Begin` (T-0179, added by the user the same
+   day; its spelling is the user's decision).
 5. **Benchmarks.** Two whole programs against C++, `json` (T-0173) and `raytrace`
    (T-0174); an ECS against Rust and C++, a simple one of a few hundred lines, showing a
    query inside a query (T-0172); and the generic-instantiation pair with numbers tracked
@@ -89,7 +91,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0013](tasks/T-0013-hover-on-imported-name.md)** Hover on an imported name · deferral, editor
 - **[T-0014](tasks/T-0014-import-cache-in-process-only.md)** The import cache is in-process only · deferral, interop
 
-## M7b — Full C and C++ interop (9 open)
+## M7b — Full C and C++ interop (10 open)
 
 - **[T-0008](tasks/T-0008-variadic-c-functions.md)** Variadic C functions · feature, interop
 - **[T-0009](tasks/T-0009-dazzle-struct-implementing-imported-c-abstract.md)** A Dazzle struct implementing an imported C++ abstract class · feature, interop
@@ -100,6 +102,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0019](tasks/T-0019-whole-c-array-member-cannot-be.md)** A whole C array member cannot be copied or passed as a slice · deferral, checker
 - **[T-0020](tasks/T-0020-libclang-parses-with-its-own-default.md)** Libclang parses with its own default target · deferral, interop
 - **[T-0021](tasks/T-0021-untyped-imported-integer-not-range-checked.md)** An untyped imported integer is not range-checked · deferral, checker
+- **[T-0179](tasks/T-0179-c-namespace-reached-as-module-its.md)** A C++ namespace reached as a module of its own: ImGui::Begin, not imgui::ImGui::Begin · feature, interop
 
 ## M9 — LSP: diagnostics, hover, go-to-definition, completion (12 open)
 

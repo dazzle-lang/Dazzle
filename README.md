@@ -841,21 +841,56 @@ different C library, built from source and called with no bindings:
   `clang++`, `g++` and `c++` it finds; choose another with `--cxx`, the `DZ_CXX` environment
   variable, or `[build] cxx` in the manifest.
 - **C and C++ libraries:** C, and C++ through namespaces, classes, methods, overloaded
-  methods, references and named template instances. Overloaded *free* functions, variadic C
-  functions and inheritance between imported C++ classes are not imported yet; they are open
-  tasks.
+  functions and methods, default arguments, references and named template instances.
+  Variadic C functions and inheritance between imported C++ classes are not imported yet;
+  they are open tasks.
 - **The output is plain C++**, so anything that links with C++ links with Dazzle.
 
 ## Status and roadmap
 
-| | |
-|---|---|
-| **Done** | lexer, parser, formatter · modules and visibility · type checker · C++ code generation · ownership · ties and `kills` clauses · borrowed views · no undefined behaviour in safe code, on one thread ([D-0094](docs/decisions/D-0094-safe-code-has-no-undefined-behaviour.md)) · memory placed by the compiler, in regions by default · generics and traits · C and C++ interop from source, CMake builds included · tagged unions and `switch` · macros · reflection · `#[inline]` and link-time optimisation · `dz test` · `dz bench` and the C++ comparison suite · `dz fix` and `dz explain` · CI on three platforms, every test program also run under AddressSanitizer and UndefinedBehaviorSanitizer · releases for Linux, macOS and Windows with libclang bundled, and one-line installers |
-| **Mostly done** | the language server and VS Code extension: still to come are incremental analysis and the remaining quick fixes |
-| **Now** | more tests of the safety rules, and the cases placement still leaves on the heap; then a game of ten thousand lines, to see how the rules hold at scale. Alongside: the standard library, whose criterion, a game written without any C++, is met: [`examples/breakout`](examples/breakout) |
-| **Later** | dependencies fetched from git, Dazzle packages and C libraries alike, pinned by a lockfile; hot reload |
+**0.1 was released on 4 November 2026.** You can write a real program in it today: the
+[examples](examples) include a complete game on raylib, a real-time 3D scene on SDL3 with a
+Dear ImGui panel, rigid-body physics on Box2D and a synthesizer on miniaudio. A program
+with no `unsafe` has no undefined behaviour on one thread, whole programs run about as fast
+as their C++, and VS Code has a language server, a debugger and run buttons. Releases are
+built for Linux, macOS and Windows.
 
-The open work, milestone by milestone, is the backlog in [`docs/tasks.md`](docs/tasks.md).
+It is young. The language still changes, and every change is a row in the
+[changelog](docs/spec/21-changelog.md). The standard library is still growing.
+
+### Next: 0.2
+
+- [ ] **Bugs:** generated C++ that fails to compile, and two bugs in the tools
+- [ ] **Faster builds:** the standard library's C++ compiled once, not in every build. The
+  targets: a debug rebuild under 0.5 s, and a clean release build within twice C++'s time
+- [ ] **The standard library:** `BinaryHeap`, `Deque` and `BitSet`, slicing a `str`, and
+  generic methods in a trait
+- [ ] **C++ interop**
+  - [x] a Dear ImGui panel that changes the [SDL3 scene](examples/sdl3) live
+  - [x] overloaded C++ functions, default arguments, array parameters
+  - [ ] a C++ namespace as a module of its own: `ImGui::Begin`, not `imgui::ImGui::Begin`
+  - [ ] variadic C functions, and an imported enum's own list of variants
+- [ ] **Benchmarks:** an ECS of a few hundred lines against C++ and Rust, where Rust has to
+  collect one query's results before running another inside it; `json` and `raytrace`
+  against C++
+- [ ] **The release notes**, and dependencies fetched from git if there is time
+
+### Later
+
+- **Packages:** dependencies fetched from git, Dazzle packages and C libraries alike,
+  pinned by a lockfile, if they miss 0.2.
+- **Scale:** a game of ten thousand lines, to see how the safety rules hold in a large
+  program, and fewer of the cases where the compiler still puts memory on the heap.
+- **Hot reload:** a rebuilt module swapped into a running game, keeping its state.
+- **The editor:** incremental analysis, and the rest of the quick fixes.
+- **Microcontrollers:** builds with no heap and no operating system, for boards such as an
+  Arduino Uno and an STM32.
+- **The web:** the same game running in a browser, through Emscripten.
+- **Threads:** a mutex, atomics and a job system.
+
+The website's [road to 0.2](https://dazzle-lang.github.io/project/roadmap/) links each item
+to its task. The milestones are in [spec §19](docs/spec/19-roadmap.md), and every open task
+is in the backlog, [`docs/tasks.md`](docs/tasks.md).
 
 **How fast it is today:** whole programs take 0.77 to 1.17 times as long in Dazzle as in
 C++; [Benchmarks](#benchmarks) has the numbers.

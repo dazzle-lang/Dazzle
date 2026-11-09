@@ -35,7 +35,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
 4. **C++ interop: Dear ImGui in the SDL3 scene** (T-0171), the ImGui half of T-0010, with
    what it needs on the way: overloaded free functions (T-0016), variadics (T-0008), enum
-   variants (T-0048). No Jolt.
+   variants (T-0048). No Jolt. Then a C++ namespace reached as a module of its own,
+   `ImGui::Begin` rather than `imgui::ImGui::Begin` (T-0179, added by the user the same
+   day; its spelling is the user's decision).
 5. **Benchmarks.** Two whole programs against C++, `json` (T-0173) and `raytrace`
    (T-0174); an ECS against Rust and C++, a simple one of a few hundred lines, showing a
    query inside a query (T-0172); and the generic-instantiation pair with numbers tracked
