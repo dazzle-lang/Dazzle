@@ -1,7 +1,7 @@
 //! The build pipeline: source to C++ to a running program (spec §16).
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_project::{Optimize, OutputKind, Workspace};
@@ -249,9 +249,8 @@ pub fn compile(
     // `root`, not `bin_dir`: the object cache is `build/obj/`, a sibling of `bin/`.
     let started = std::time::Instant::now();
     let objects = crate::native::build_libraries(ws, &cxx, root, opt, &module.build.cpp_standard)?;
-    let started = timings.lap("C and C++ libraries", started);
+    timings.lap("C and C++ libraries", started);
 
-    let mut cmd = Command::new(&cxx);
     // spec §16.5 — nothing generated may need exceptions or RTTI. `-fwrapv`: integer
     // arithmetic wraps in every build (spec §5.1, 18.63), where C++ leaves signed overflow
     // undefined and an optimiser is free to assume it never happens. Only for Dazzle's own
@@ -264,18 +263,24 @@ pub fn compile(
     // `unsafe`, or in `std`'s trusted bodies, reads the bytes there as the type it names,
     // rather than letting the optimiser assume two types never share memory. Neither moved
     // the whole-program benchmarks beyond their noise.
-    cmd.arg(format!("-std={}", module.build.cpp_standard))
-        .args(["-fno-exceptions", "-fno-rtti", "-fwrapv", "-Wall", "-Wextra"])
-        .args(["-fno-finite-loops", "-fno-strict-aliasing"])
-        .args(opt);
-    // Every module's generated C++ is compiled in this one command, so it gets the flags of
-    // everything the root reaches (spec §15.1).
+    let mut args: Vec<String> = vec![format!("-std={}", module.build.cpp_standard)];
+    args.extend(
+        ["-fno-exceptions", "-fno-rtti", "-fwrapv", "-Wall", "-Wextra"]
+            .into_iter()
+            .chain(["-fno-finite-loops", "-fno-strict-aliasing"])
+            .chain(opt.iter().copied())
+            .map(str::to_owned),
+    );
+    // Every module's generated C++ gets the flags of everything the root reaches (spec
+    // §15.1).
     let flags = ws.cpp_flags(ws.root);
-    for dir in &flags.include_dirs {
-        cmd.arg(format!("-I{}", dir.display()));
-    }
-    for define in &flags.defines {
-        cmd.arg(format!("-D{define}"));
+    args.extend(flags.include_dirs.iter().map(|dir| format!("-I{}", dir.display())));
+    args.extend(flags.defines.iter().map(|define| format!("-D{define}")));
+    // `DZ_CXXFLAGS`: extra flags for Dazzle's own code and the link, last so they win. It
+    // is how CI builds every program under AddressSanitizer and UBSan (T-0132). Split on
+    // whitespace, with no quoting: a flag holding a space is not supported.
+    if let Ok(extra) = std::env::var("DZ_CXXFLAGS") {
+        args.extend(extra.split_whitespace().map(str::to_owned));
     }
 
     // Only what this build emitted: `build/cpp/` can still hold the `.cpp` of a module that
@@ -285,31 +290,17 @@ pub fn compile(
     let mut sources: Vec<&PathBuf> =
         out.files.iter().filter(|p| p.extension().is_some_and(|x| x == "cpp")).collect();
     sources.sort();
-    for s in &sources {
-        cmd.arg(s);
-    }
-    cmd.args(&objects);
-    cmd.arg("-o").arg(&exe);
+
     let link = ws.link_inputs();
-    let (lib_dirs, link_libs) = (&link.dirs, &link.libs);
-    for dir in lib_dirs {
-        cmd.arg(format!("-L{}", dir.display()));
-    }
-    for lib in link_libs {
-        cmd.arg(format!("-l{lib}"));
-    }
+    let mut link_args: Vec<String> = objects.iter().map(|o| o.display().to_string()).collect();
+    link_args.extend(link.dirs.iter().map(|dir| format!("-L{}", dir.display())));
+    link_args.extend(link.libs.iter().map(|lib| format!("-l{lib}")));
     // macOS system libraries are frameworks, which `-l` does not find (spec §15.1).
     for f in &link.frameworks {
-        cmd.arg("-framework").arg(f);
+        link_args.extend(["-framework".to_owned(), f.clone()]);
     }
     // What a CMake install's pkg-config file asks for besides libraries: `-pthread`.
-    cmd.args(&link.flags);
-    // `DZ_CXXFLAGS`: extra flags for Dazzle's own code and the link, last so they win. It
-    // is how CI builds every program under AddressSanitizer and UBSan (T-0132). Split on
-    // whitespace, with no quoting: a flag holding a space is not supported.
-    if let Ok(extra) = std::env::var("DZ_CXXFLAGS") {
-        cmd.args(extra.split_whitespace());
-    }
+    link_args.extend(link.flags.iter().cloned());
 
     // An optimised build is optimised across modules too (T-0154): each module is a
     // translation unit, and without this a call into `std` that is not `#[inline]` (spec
@@ -317,41 +308,34 @@ pub fn compile(
     // from printing a note about running it serially. Only Dazzle's code: the vendored
     // libraries above stay as their recipes build them.
     let lto = module.build.optimize != Optimize::Debug;
-    let mut output = if lto {
-        Command::new(&cxx).args(cmd.get_args()).arg("-flto=auto").output()
-    } else {
-        cmd.output()
+    let build = |lto: bool, timings: &mut dz_driver::Timings| {
+        let mut args = args.clone();
+        if lto {
+            args.push("-flto=auto".to_owned());
+        }
+        compile_and_link(&cxx, &sources, &args, &link_args, root, &exe, timings)
     };
+    let mut output = build(lto, timings);
     // Not every toolchain links with it: LLVM's clang targeting MSVC needs `lld`, for one.
     // A link that fails with it is tried once without it, and says so.
-    if lto {
-        if let Ok(o) = &output {
-            if !o.status.success() && linker_failure(&String::from_utf8_lossy(&o.stderr)) {
-                let plain = cmd.output();
-                if plain.as_ref().is_ok_and(|p| p.status.success()) {
-                    eprintln!(
-                        "note: built without link-time optimisation: {cxx} could not link \
-                         with `-flto=auto`"
-                    );
-                }
-                output = plain;
-            }
+    if lto && matches!(&output, Err(Failed::Rejected(stderr)) if linker_failure(stderr)) {
+        output = build(false, timings);
+        if output.is_ok() {
+            eprintln!(
+                "note: built without link-time optimisation: {cxx} could not link with \
+                 `-flto=auto`"
+            );
         }
     }
-    timings.lap("C++ compiler", started);
-    let output = match output {
-        Ok(o) => o,
-        Err(e) => {
-            diags.push(Diagnostic::error(
-                codes::CPP_COMPILER_FAILED,
-                format!("could not run {cxx}: {e}"),
-            ));
-            return Err(diags);
-        }
-    };
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if let Err(failed) = output {
+        let stderr = match failed {
+            Failed::Spawn(message) => {
+                diags.push(Diagnostic::error(codes::CPP_COMPILER_FAILED, message));
+                return Err(diags);
+            }
+            Failed::Rejected(stderr) => stderr,
+        };
         // A *compile* error in generated code is a compiler bug (invariant 7). A *link*
         // error is almost never one: the code was accepted, and what is missing is a
         // definition — most often a vendored library whose implementation nothing compiles.
@@ -389,6 +373,106 @@ pub fn compile(
     }
 
     Ok(exe)
+}
+
+/// Why the generated code did not become an executable.
+enum Failed {
+    /// The compiler could not be run, or its output not stored: the message says which.
+    Spawn(String),
+    /// The compiler or the linker refused: its standard error.
+    Rejected(String),
+}
+
+/// Compile each generated file to an object of its own in `build/obj/dz/`, then link them.
+///
+/// An object whose inputs have not changed is reused, judged by content as the vendored
+/// libraries' objects are (`native::up_to_date`), so a rebuild compiles only the files an
+/// edit reached, and an unchanged `std` is not compiled again (T-0102). The object's name
+/// carries the compiler and every flag, so a debug build never links a release object.
+fn compile_and_link(
+    cxx: &str,
+    sources: &[&PathBuf],
+    args: &[String],
+    link_args: &[String],
+    root: &Path,
+    exe: &Path,
+    timings: &mut dz_driver::Timings,
+) -> Result<(), Failed> {
+    let started = std::time::Instant::now();
+    let dir = root.join("obj").join("dz");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| Failed::Spawn(format!("cannot create {}: {e}", dir.display())))?;
+    let mut objects = Vec::new();
+    let mut stale = Vec::new();
+    for source in sources {
+        let mut key = Vec::new();
+        let source_name = source.to_string_lossy();
+        for part in [cxx, &source_name].into_iter().chain(args.iter().map(String::as_str)) {
+            key.extend_from_slice(part.as_bytes());
+            key.push(0);
+        }
+        let stem = source.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+        let object = dir.join(format!("{stem}-{:016x}.o", crate::native::fnv1a(&key)));
+        if !crate::native::up_to_date(&object) {
+            stale.push((*source, object.clone()));
+        }
+        objects.push(object);
+    }
+
+    // The files are compiled at once, as many as there are cores.
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let mut errors = String::new();
+    for batch in stale.chunks(cores) {
+        let children: Vec<_> = batch
+            .iter()
+            .map(|(source, object)| {
+                Command::new(cxx)
+                    .args(args)
+                    .arg("-c")
+                    .arg(source)
+                    .arg("-o")
+                    .arg(object)
+                    .args(["-MD", "-MF"])
+                    .arg(object.with_extension("d"))
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped())
+                    .spawn()
+            })
+            .collect();
+        for ((source, object), child) in batch.iter().zip(children) {
+            let out = child
+                .and_then(|c| c.wait_with_output())
+                .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
+            if out.status.success() {
+                crate::native::write_stamp(source, object);
+            } else {
+                // The stamp is what says an object is good; a failed compile may have left
+                // a broken one behind.
+                let _ = std::fs::remove_file(object.with_extension("stamp"));
+                errors.push_str(&String::from_utf8_lossy(&out.stderr));
+            }
+        }
+    }
+    let started = timings.lap("C++ compiler", started);
+    if !errors.is_empty() {
+        return Err(Failed::Rejected(errors));
+    }
+
+    let output = Command::new(cxx)
+        .args(args)
+        .args(&objects)
+        .args(link_args)
+        .arg("-o")
+        .arg(exe)
+        .output()
+        .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
+    timings.lap("link", started);
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(Failed::Rejected(String::from_utf8_lossy(&output.stderr).into_owned()))
+    }
 }
 
 pub fn run(exe: &Path) -> std::io::Result<std::process::ExitStatus> {

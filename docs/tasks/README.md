@@ -26,10 +26,14 @@ the stdlib and the benchmarks go together, since the new programs show what `std
 1. **Bugs in the generated C++ and the tools.** A C++ error in generated code is a compiler
    bug (invariant 7): T-0121, T-0167, T-0034 and T-0053; then the parser's `as` precedence
    (T-0161) and `dz fmt` on array literals (T-0092).
-2. **Build times.** The C++ compiler is about 90% of a build, mostly recompiling `std`'s
-   C++ every time: T-0102, which holds the targets for 0.2 (a debug rebuild under 0.5 s, a
-   clean release build within twice C++'s). Then T-0012 (build time at scale), T-0103
-   (stale generated files) and, for the editor, T-0025 (`std` checked in every analysis).
+2. **Build times.** The C++ compiler is about 90% of a build. T-0102 is done
+   (2026-11-09): each generated file has a cached object, so an unchanged `std` is not
+   compiled again. T-0180 holds the targets for 0.2 (a debug rebuild under 0.5 s, a clean
+   release build within twice C++'s) and what is left of them, in order: a precompiled
+   header (T-0181), one `std` for every project (T-0182), the LTO fallback compiling twice
+   (T-0183), then emitting less only if still needed (T-0184). Then T-0012 (build time at
+   scale), T-0103 (stale generated files and objects) and, for the editor, T-0025 (`std`
+   checked in every analysis).
 3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.

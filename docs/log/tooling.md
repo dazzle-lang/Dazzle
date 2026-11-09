@@ -772,3 +772,19 @@ header is one `Arc` per process — which `Workspace::add_foreign`'s sharing rel
 
 `hello` now analyses in about 29 ms steady, from 44; copying the layer is 3.5 ms of that.
 `tolerant.rs` takes 132 s in a debug build (from 293) and 55 s at opt-level 1 (from 96).
+
+## Each generated file its own cached object (T-0102; 2026-11-09)
+
+`dz build` compiled every generated `.cpp` in one command, so `std.cpp` (0.4 MB for
+`words`) was compiled again after any edit. Now each file becomes its own object in
+`build/obj/dz/`. The objects compile in parallel, are skipped while their inputs are
+unchanged, and a separate command links them. The up-to-date check is the vendored
+libraries' own (`native::up_to_date`, `write_stamp`): the content of the source and of
+every header the depfile names, with the compiler and every flag in the object's name. That
+is why the release build's `-flto=auto` and its fallback without it get separate objects.
+
+On `words` (clang++ 21 on Windows, debug), the C++ side of a one-line change went from
+1.9 s to 0.26 s of compiling and 0.1 s of linking. A clean build went from 1.9 s to 0.66 s,
+since the files now compile at once. `--timings` reports `link` as a phase of its own, and
+`tools/bench_programs.py` adds it back into its C++ compiler column. What is left of the
+0.2 targets is T-0180, split into T-0181 to T-0184.

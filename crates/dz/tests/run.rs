@@ -1092,6 +1092,7 @@ fn timings_name_every_phase_on_standard_error() {
         "emit C++",
         "C and C++ libraries",
         "C++ compiler",
+        "link",
         "total",
     ];
     assert_eq!(phases, expected, "{stderr}");

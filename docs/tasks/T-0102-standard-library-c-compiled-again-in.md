@@ -2,11 +2,27 @@
 id: T-0102
 title: The standard library's C++ is compiled again in every build
 milestone: M15
-status: open
+status: done
 kind: feature
 area: tooling
-where: `crates/dz/src/build.rs`, `compile`; `crates/dz_cpp` (which files `std` becomes)
+where: `crates/dz/src/build.rs`, `compile` and `compile_and_link`; `crates/dz/src/native.rs`, `up_to_date` and `write_stamp` (the shared object cache)
 ---
+
+**Done** (2026-11-09), option 1 below. Each generated `.cpp` becomes its own object in
+`build/obj/dz/`, compiled in parallel and reused while its inputs are unchanged. The check
+is the vendored libraries' own: the source, every header in the compiler's depfile, and
+the command, which is part of the object's name. The objects are then linked by a command
+of their own, and `--timings` reports `link` apart from `C++ compiler`. On `words` (debug,
+clang++ 21, Windows) a one-line change now spends 0.26 s compiling and 0.1 s linking, where
+the single command took 1.9 s. A clean build takes 0.54 s, since the files compile at once.
+
+The targets below moved to [T-0180](T-0180-0-2-build-time-targets-measured.md), with what
+is left of them split into
+[T-0181](T-0181-precompiled-header-for-runtime-standard-library.md) (a precompiled
+header), [T-0182](T-0182-one-compiled-standard-library-shared-by.md) (one `std` for
+every project), [T-0183](T-0183-release-build-compiles-everything-twice-where.md) (the LTO
+fallback compiling twice) and
+[T-0184](T-0184-emit-only-standard-library-declarations-program.md) (option 3).
 
 **What it is.** `dz build` passes every generated `.cpp` file to one C++ compiler command:
 the program's, the runtime's, and the standard library's (`std.cpp` with `std.h`; for

@@ -239,7 +239,7 @@ fn run_jobs(cxx: &str, jobs: Vec<Job<'_>>, diags: &mut Diagnostics) {
 
 /// An object is up to date when its stamp exists and every file it lists still has the
 /// content it had when the object was compiled.
-fn up_to_date(object: &Path) -> bool {
+pub(crate) fn up_to_date(object: &Path) -> bool {
     if !object.exists() {
         return false;
     }
@@ -257,7 +257,7 @@ fn up_to_date(object: &Path) -> bool {
 
 /// Record what an object was compiled from: the source, and every header the compiler's
 /// depfile names.
-fn write_stamp(source: &Path, object: &Path) {
+pub(crate) fn write_stamp(source: &Path, object: &Path) {
     let mut inputs = std::fs::read_to_string(object.with_extension("d"))
         .map(|d| depfile_inputs(&d))
         .unwrap_or_default();
@@ -572,7 +572,7 @@ fn tail(bytes: &[u8]) -> String {
 
 /// FNV-1a, 64 bits: stable across Rust versions and platforms, which `DefaultHasher` does
 /// not promise, and a cache key needs.
-fn fnv1a(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {
         h ^= u64::from(*b);

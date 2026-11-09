@@ -285,7 +285,8 @@ def report(info, results, mode, runs):
     for r in results:
         b = r["build"]
         headers = b["phases"].get("C and C++ headers", 0.0)
-        compiler = b["phases"].get("C++ compiler", 0.0)
+        # Since T-0102 the link is a phase of its own; the column is still the whole C++ side.
+        compiler = b["phases"].get("C++ compiler", 0.0) + b["phases"].get("link", 0.0)
         other = max(0.0, b["dazzle"] - b["dazzle_frontend"] - headers - compiler)
         lines.append(
             f"| {r['program']} | {r['cxx']} | {ms(b['dazzle_frontend'])} | {ms(headers)} "
