@@ -9,6 +9,33 @@ the detail (`python tools/track.py show T-NNNN` prints the same). How tasks work
 
 ## Now
 
+**The 0.2 release**, planned with the user on 2026-11-09. Six parts, roughly in this order;
+the stdlib and the benchmarks go together, since the new programs show what `std` lacks:
+
+1. **Bugs in the generated C++ and the tools.** A C++ error in generated code is a compiler
+   bug (invariant 7): T-0121, T-0167, T-0034 and T-0053; then the parser's `as` precedence
+   (T-0161) and `dz fmt` on array literals (T-0092).
+2. **Build times.** The C++ compiler is about 90% of a build, mostly recompiling `std`'s
+   C++ every time: T-0102, which holds the targets for 0.2 (a debug rebuild under 0.5 s, a
+   clean release build within twice C++'s). Then T-0012 (build time at scale), T-0103
+   (stale generated files) and, for the editor, T-0025 (`std` checked in every analysis).
+3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
+   (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
+   generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
+4. **C++ interop: Dear ImGui in the SDL3 scene** (T-0171), the ImGui half of T-0010, with
+   what it needs on the way: overloaded free functions (T-0016), variadics (T-0008), enum
+   variants (T-0048). No Jolt.
+5. **Benchmarks.** Two whole programs against C++, `json` (T-0173) and `raytrace`
+   (T-0174); an ECS against Rust and C++, a simple one of a few hundred lines, showing a
+   query inside a query (T-0172); and the generic-instantiation pair with numbers tracked
+   over time (T-0075). The other programs get no Rust half.
+6. **The release.** Release notes from the §21 rows since r117 (0.1's revision), and
+   packages (T-0077) if there is time, otherwise 0.3. The version stays 0.1 and nothing is
+   tagged until the user asks.
+
+Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147, T-0150), which keep memory on
+the heap but are not safety holes, and the ten-thousand-line game (T-0138).
+
 **Memory placed by the compiler, then safe code made sound**, chosen by the user on
 2026-11-01. Automatic placement matters most (T-0117 and what follows it), and threads can
 wait (T-0011 stays in v2). A review that day found safe programs that still reach freed
@@ -62,7 +89,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0013](tasks/T-0013-hover-on-imported-name.md)** Hover on an imported name · deferral, editor
 - **[T-0014](tasks/T-0014-import-cache-in-process-only.md)** The import cache is in-process only · deferral, interop
 
-## M7b — Full C and C++ interop (10 open)
+## M7b — Full C and C++ interop (11 open)
 
 - **[T-0008](tasks/T-0008-variadic-c-functions.md)** Variadic C functions · feature, interop
 - **[T-0009](tasks/T-0009-dazzle-struct-implementing-imported-c-abstract.md)** A Dazzle struct implementing an imported C++ abstract class · feature, interop
@@ -74,6 +101,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0019](tasks/T-0019-whole-c-array-member-cannot-be.md)** A whole C array member cannot be copied or passed as a slice · deferral, checker
 - **[T-0020](tasks/T-0020-libclang-parses-with-its-own-default.md)** Libclang parses with its own default target · deferral, interop
 - **[T-0021](tasks/T-0021-untyped-imported-integer-not-range-checked.md)** An untyped imported integer is not range-checked · deferral, checker
+- **[T-0171](tasks/T-0171-dear-imgui-controls-in-sdl3-scene.md)** Dear ImGui controls in the SDL3 scene · feature, interop
 
 ## M9 — LSP: diagnostics, hover, go-to-definition, completion (12 open)
 
@@ -98,7 +126,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (21 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (24 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -121,14 +149,20 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0098](tasks/T-0098-str-cannot-be-cut-str-b.md)** A str cannot be cut: str[a..b] is refused, and only String has slice · feature, stdlib
 - **[T-0121](tasks/T-0121-local-named-like-free-function-hides.md)** A local named like a free function hides it in the generated C++ · bug, codegen
 - **[T-0170](tasks/T-0170-literal-passed-where-string-wanted-converts.md)** A literal passed where a String is wanted converts, and the converted copy is placed like a written one · feature, language
+- **[T-0175](tasks/T-0175-binaryheap-priority-queue-in-std.md)** BinaryHeap: a priority queue in std · feature, stdlib
+- **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
+- **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (5 open)
+## M15 — `dz bench`, and the C++ comparison (8 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0101](tasks/T-0101-every-build-imports-stdlib-h-with.md)** Every build imports stdlib.h with libclang again: about 380 ms of each build · feature, tooling
 - **[T-0102](tasks/T-0102-standard-library-c-compiled-again-in.md)** The standard library's C++ is compiled again in every build · feature, tooling
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
 - **[T-0165](tasks/T-0165-words-scope-regions-make-it-5.md)** "words: scope regions make it 5% slower with g++, where clang++ is 30% faster" · feature, ownership
+- **[T-0172](tasks/T-0172-ecs-benchmark-against-rust-c-query.md)** An ECS benchmark against Rust and C++: a query inside a query · feature, bench
+- **[T-0173](tasks/T-0173-json-benchmark-parsing-writing-structs-through.md)** A json benchmark: parsing, and writing structs through reflection · feature, bench
+- **[T-0174](tasks/T-0174-raytrace-benchmark-floating-point-vector-math.md)** A raytrace benchmark: floating-point and vector math · feature, bench
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 

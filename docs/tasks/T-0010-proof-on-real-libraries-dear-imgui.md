@@ -7,6 +7,10 @@ kind: feature
 area: interop
 ---
 
+**In 0.2** (planned with the user on 2026-11-09): the ImGui half becomes a real example, a
+panel in `examples/sdl3` ([T-0171](T-0171-dear-imgui-controls-in-sdl3-scene.md)). Jolt is
+not in 0.2.
+
 **What is missing.** A `tests/run` fixture for **Dear ImGui** (over raylib or GLFW) and one
 for **Jolt**, each built from vendored source the way raylib already is, each a real program
 that compiles, runs and is checked against an `expected.txt`.

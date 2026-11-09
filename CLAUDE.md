@@ -13,8 +13,9 @@ the pull failed, or the pull cannot fast-forward cleanly (uncommitted changes, a
 diverged branch), stop and tell the user rather than stashing, rebasing or resolving it.
 
 Where it stands: 0.1 is released (2026-11-04). M0–M8, M10, M11, M14 and M15 are done; most of M9 (`dz lsp` and the VS
-Code extension) was pulled forward; **now: M12, the stdlib**, whose criterion (Breakout) is
-met. **`docs/tasks.md` is the backlog** — what is next, and every open task by milestone.
+Code extension) was pulled forward; **now: the 0.2 release**, planned on 2026-11-09 in the
+`## Now` section of `docs/tasks/README.md` (build times, stdlib, ImGui in the SDL3 example,
+new benchmarks), with M12, the stdlib, whose criterion (Breakout) is met. **`docs/tasks.md` is the backlog** — what is next, and every open task by milestone.
 Spec §19 is the roadmap.
 
 **Formatting is rustfmt's**, configured by `rustfmt.toml` (`use_small_heuristics = "Max"`,

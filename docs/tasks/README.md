@@ -20,6 +20,33 @@ python tools/track.py check                      # headers, ids, milestones, §-
 
 ## Now
 
+**The 0.2 release**, planned with the user on 2026-11-09. Six parts, roughly in this order;
+the stdlib and the benchmarks go together, since the new programs show what `std` lacks:
+
+1. **Bugs in the generated C++ and the tools.** A C++ error in generated code is a compiler
+   bug (invariant 7): T-0121, T-0167, T-0034 and T-0053; then the parser's `as` precedence
+   (T-0161) and `dz fmt` on array literals (T-0092).
+2. **Build times.** The C++ compiler is about 90% of a build, mostly recompiling `std`'s
+   C++ every time: T-0102, which holds the targets for 0.2 (a debug rebuild under 0.5 s, a
+   clean release build within twice C++'s). Then T-0012 (build time at scale), T-0103
+   (stale generated files) and, for the editor, T-0025 (`std` checked in every analysis).
+3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
+   (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
+   generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
+4. **C++ interop: Dear ImGui in the SDL3 scene** (T-0171), the ImGui half of T-0010, with
+   what it needs on the way: overloaded free functions (T-0016), variadics (T-0008), enum
+   variants (T-0048). No Jolt.
+5. **Benchmarks.** Two whole programs against C++, `json` (T-0173) and `raytrace`
+   (T-0174); an ECS against Rust and C++, a simple one of a few hundred lines, showing a
+   query inside a query (T-0172); and the generic-instantiation pair with numbers tracked
+   over time (T-0075). The other programs get no Rust half.
+6. **The release.** Release notes from the §21 rows since r117 (0.1's revision), and
+   packages (T-0077) if there is time, otherwise 0.3. The version stays 0.1 and nothing is
+   tagged until the user asks.
+
+Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147, T-0150), which keep memory on
+the heap but are not safety holes, and the ten-thousand-line game (T-0138).
+
 **Memory placed by the compiler, then safe code made sound**, chosen by the user on
 2026-11-01. Automatic placement matters most (T-0117 and what follows it), and threads can
 wait (T-0011 stays in v2). A review that day found safe programs that still reach freed

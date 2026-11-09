@@ -34,3 +34,15 @@ combined:
 3. **Emit less**: only the standard library declarations a program reaches.
 
 Measure with `dz build --timings` and `python tools/bench_programs.py`.
+
+**The target for 0.2** (planned with the user on 2026-11-09). Measure the debug build too,
+since `dz run` without `--release` is what someone waits on all day, and every figure above
+is `-O2` with LTO. Then aim for:
+
+- a rebuild after a one-line change to a small program (`tests/bench_programs/words`) in
+  under 0.5 s in a debug build;
+- a build from clean within twice the time of the same program in C++, in release.
+
+Record both, before and after, in `tests/bench_programs/RESULTS.md`, so
+[T-0075](T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)'s tracking starts
+from them.
