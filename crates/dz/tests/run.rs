@@ -1072,7 +1072,8 @@ fn a_second_project_reuses_the_compiled_standard_library() {
             .output()
             .expect("failed to run dz");
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        String::from_utf8_lossy(&out.stdout).into_owned()
+        // stdout is in text mode on Windows, so the program's `\n` arrives as `\r\n`.
+        String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n")
     };
     // Every object in `dir`, with when it was written.
     let objects = |dir: &Path| -> Vec<(PathBuf, std::time::SystemTime)> {
