@@ -1015,3 +1015,22 @@ bug of its own, T-0189, found rather than caused. Doing what C++ does, each file
 One `cargo test` run after the change saw `timings_name_every_phase_on_standard_error` fail
 once, on a cold cache, while dozens of builds made the new shared `std` at once; it did not
 recur in three runs from an empty cache. The test prints `dz`'s whole output when it fails.
+
+## `destroy` of a word ended its lifetime (T-0189; 2026-11-09)
+
+While measuring T-0185, giving g++ a larger inline budget made `words` print a wrong checksum,
+and crash with `DZ_REGIONS=0`; the code from before T-0185 did the same. Every sanitizer hid
+it. glibc reported "corrupted top size", so something wrote past the newest heap block. With
+10 words there were four allocations; a hardware watchpoint on the eight bytes past the last
+one caught `String::set_len` writing the text's zero at offset 41 of a 32-byte buffer.
+
+`make_room` had stored the new capacity, 32 then more, into `m_store[1]`, and `set_len` then
+`destroy`s that word, a no-op kept as a signal to the ties check (§6.7). The runtime's
+`destroy` was `x.~T()`, a pseudo-destructor on a `size_t`, which ends the object's lifetime;
+g++ deletes a store followed by the end of its object's lifetime as dead. Inlined together,
+the store vanished and the string kept a stale capacity. Reduced to a dozen lines, g++ -O2
+prints 0 for a word just set to 41, and warns it is used uninitialised; clang++ prints 41.
+
+`destroy` now runs a destructor only for a class or union (`__is_class`, `__is_union`, which
+GCC, Clang and MSVC share), and `move_out` goes through it. The reduced program is the test,
+compiled against the runtime with each compiler present.

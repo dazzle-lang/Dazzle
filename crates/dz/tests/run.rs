@@ -1000,6 +1000,52 @@ fn line_directives_name_sources_by_their_full_path() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `destroy` of a number, a pointer or an enum ends no lifetime (T-0189). `String` stores
+/// its capacity into a word and then `destroy`s that word, as a signal to the ties check
+/// (spec §6.7). As a C++ pseudo-destructor that ended the word's lifetime, and g++ at -O2
+/// deleted the store before it as dead: once it inlined the two together, a growing string
+/// kept its old capacity and the next append wrote past its end. This is that pattern,
+/// against the runtime itself, with every compiler there is, optimised.
+#[test]
+fn destroying_a_word_keeps_what_was_stored_in_it() {
+    let dir = std::env::temp_dir().join(format!("dz_destroy_word_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("dz_runtime.h"), dz_cpp::RUNTIME_H).unwrap();
+    std::fs::write(
+        dir.join("word.cpp"),
+        "#include \"dz_runtime.h\"\n#include <stdio.h>\n\
+         struct S { size_t words[2]; };\n\
+         __attribute__((noinline)) void grow(S& s, size_t room) {\n\
+         \x20   s.words[1] = room;\n    ::dz::destroy(s.words[1]);\n}\n\
+         int main() {\n    S s{{0, 7}};\n    grow(s, 41);\n    printf(\"%zu\\n\", s.words[1]);\n\
+         \x20   return 0;\n}\n",
+    )
+    .unwrap();
+    let mut tried = 0;
+    for cxx in ["clang++", "g++"] {
+        let exe = dir.join(format!("word-{cxx}"));
+        let Ok(out) = Command::new(cxx)
+            .args(["-std=c++17", "-O2", "-Wall", "-Wextra", "-fno-exceptions", "-fno-rtti"])
+            .arg(dir.join("word.cpp"))
+            .arg("-o")
+            .arg(&exe)
+            .output()
+        else {
+            continue;
+        };
+        tried += 1;
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success() && stderr.trim().is_empty(), "{cxx}: {stderr}");
+        let run = Command::new(&exe).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "41", "with {cxx}");
+    }
+    if tried == 0 {
+        eprintln!("skipping: neither clang++ nor g++ is installed");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The runtime and `std` are compiled once for every project (T-0182): a second project,
 /// built from clean, links the objects the first one compiled, and compiles only its own.
 #[test]

@@ -19,7 +19,9 @@ single-file benchmarks:
 - **g++ inlines less.** At -O2, g++ inlines a function not declared `inline` only up to 15
   instructions, against 70 for one that is, and weighs that a body which must stay is less
   worth inlining. `astar` with g++ went from 352 ms to 396 ms. clang++ is unchanged, and so
-  are `words` and `expr`. Raising g++'s budget fixes it (329 ms) but exposes T-0189.
+  are `words` and `expr`. Raising g++'s budget (`--param max-inline-insns-auto=70`) fixes it, 329 ms; it first
+  exposed T-0189, which is fixed, so that is now an option, though one that changes how
+  g++ treats all of Dazzle's code rather than only the instances.
 
 **What it would take.** Do what C++ does with a template's members: each module's file
 defines, `inline`, exactly the instance methods it calls, and the ones those call, found

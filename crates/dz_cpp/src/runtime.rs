@@ -453,12 +453,26 @@ template <class T, class U> DZ_INLINE void construct(T& dst, U&& v) {
 template <class T> DZ_INLINE void construct(T& dst) {
     ::new (static_cast<void*>(&dst)) T();
 }
-template <class T> DZ_INLINE void destroy(T& x) { x.~T(); }
+//
+// A destructor runs only for a class or a union. On anything else — a number, a pointer,
+// an enum — there is nothing to run, and `x.~T()` would be a pseudo-destructor, which does
+// nothing but end the object's lifetime. g++ then deletes, as dead, a store to it made just
+// before (its lifetime DSE): `String` grows by storing its new capacity and then `destroy`s
+// that word as a signal to the ties check (§6.7), and once g++ inlined the two together the
+// store was gone and the next append wrote past the end of the text (T-0189). `__is_class`
+// and `__is_union` are what <type_traits> is built on, in GCC, Clang and MSVC alike.
+template <class T> DZ_INLINE void destroy(T& x) {
+    if constexpr (__is_class(T) || __is_union(T)) {
+        x.~T();
+    } else {
+        (void)x;
+    }
+}
 // `move_out(x)` (spec §14.3): the value leaves the storage, which is left raw — as after
 // `destroy` — so it may be `construct`ed again.
 template <class T> DZ_INLINE T move_out(T& x) {
     T v(static_cast<T&&>(x));
-    x.~T();
+    ::dz::destroy(x);
     return v;
 }
 

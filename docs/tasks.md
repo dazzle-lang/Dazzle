@@ -30,9 +30,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
    T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).
    T-0185 and T-0186 are done the same day: 100 modules from clean 60 s to 12 s (C++: 5 s),
-   an edit 15 s to 6 s (C++: 1 s). Left: T-0187, the 4.5 s of Dazzle's own phases; T-0190,
-   which wins back what T-0185 cost small programs; and T-0189, a wrong result under g++
-   LTO with more inlining, found on the way, which comes before both.
+   an edit 15 s to 6 s (C++: 1 s). Left: T-0187, the 4.5 s of Dazzle's own phases, and T-0190,
+   which wins back what T-0185 cost small programs. T-0189, found on the way, is fixed: the
+   runtime's `destroy` of a word ended its lifetime, and g++ deleted `String`'s store to it.
 3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
@@ -179,7 +179,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (11 open)
+## M15 — `dz bench`, and the C++ comparison (10 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -190,7 +190,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0187](tasks/T-0187-dazzle-own-phases-grow-faster-than.md)** Dazzle's own phases grow faster than the program: emitting, placement, ownership, instantiation · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
-- **[T-0189](tasks/T-0189-words-computes-wrong-checksum-or-crashes.md)** words computes the wrong checksum, or crashes with regions off, under g++ LTO with a larger inline budget · bug, codegen
 - **[T-0190](tasks/T-0190-each-module-defines-instance-methods-it.md)** Each module defines the instance methods it calls, as C++ instantiates a template's members · feature, codegen
 
 ## M16 — Packages: dependencies that are fetched (1 open)
