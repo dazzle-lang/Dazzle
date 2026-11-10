@@ -410,7 +410,8 @@ def report(info, results, mode, runs):
         lines.append(f"- `{cxx}`: {version}")
     lines += [
         f"- Mode: `--{mode}`. C++ flags: `{flags}`; Dazzle's generated code gets the same "
-        "and `-fwrapv -fno-finite-loops -fno-strict-aliasing`.",
+        "and `-fwrapv -fno-finite-loops -fno-strict-aliasing`, and with g++ in an optimised "
+        "build `--param max-inline-insns-auto=70` (T-0190).",
         f"- Dazzle: commit {info['commit']}",
         f"- Load average before / after: {info['load_before']} / {info['load_after']}",
     ]

@@ -197,6 +197,15 @@ pub fn find_compiler(ws: Option<&Workspace>, chosen: Option<&str>) -> Option<Str
     None
 }
 
+/// Is `cxx` GCC? Told by what `--version` says rather than by its name: macOS's `g++` is
+/// clang, and a cross compiler's name can be anything.
+fn is_gcc(cxx: &str) -> bool {
+    Command::new(cxx).arg("--version").output().is_ok_and(|out| {
+        let text = String::from_utf8_lossy(&out.stdout);
+        text.contains("Free Software Foundation") && !text.contains("clang")
+    })
+}
+
 /// Compile the generated C++ into an executable, after the vendored libraries it links.
 /// `timings` gets the time each of the two took (`--timings`).
 pub fn compile(
@@ -292,6 +301,16 @@ pub fn compile(
             .chain(opt.iter().copied())
             .map(str::to_owned),
     );
+    // g++ at -O2 inlines a function not declared `inline` only up to 15 instructions, against
+    // 70 for one that is. Since T-0185 a generic instance's methods are ordinary functions
+    // in one file, where they used to be `inline` in headers, and `astar` ran 12% slower on
+    // g++ for it. With the budget a declared-`inline` function gets, all three benchmark
+    // programs run 6-17% faster than with either, for 0.1-0.17 s more per release build
+    // (T-0190). clang++ weighs the two alike, and warns about the flag, so it is g++ alone,
+    // told apart by what it says it is.
+    if module.build.optimize != Optimize::Debug && is_gcc(&cxx) {
+        args.extend(["--param".to_owned(), "max-inline-insns-auto=70".to_owned()]);
+    }
     // Every module's generated C++ gets the flags of everything the root reaches (spec
     // §15.1).
     let flags = ws.cpp_flags(ws.root);

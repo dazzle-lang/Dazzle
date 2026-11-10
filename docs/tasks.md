@@ -30,8 +30,10 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
    T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).
    T-0185 and T-0186 are done the same day: 100 modules from clean 60 s to 12 s (C++: 5 s),
-   an edit 15 s to 6 s (C++: 1 s). Left: T-0187, the 4.5 s of Dazzle's own phases, and T-0190,
-   which wins back what T-0185 cost small programs. T-0189, found on the way, is fixed: the
+   an edit 15 s to 6 s (C++: 1 s). Left: T-0187, the 4.5 s of Dazzle's own phases, and the rest
+   of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
+   `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
+   only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the
    runtime's `destroy` of a word ended its lifetime, and g++ deleted `String`'s store to it.
 3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and

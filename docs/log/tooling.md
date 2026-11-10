@@ -1034,3 +1034,19 @@ prints 0 for a word just set to 41, and warns it is used uninitialised; clang++ 
 `destroy` now runs a destructor only for a class or union (`__is_class`, `__is_union`, which
 GCC, Clang and MSVC share), and `move_out` goes through it. The reduced program is the test,
 compiled against the runtime with each compiler present.
+
+## g++'s inline budget for Dazzle's code (T-0190, the first half; 2026-11-09)
+
+T-0185 made a generic instance's methods ordinary functions in one file, where they had been
+`inline` in headers, and `astar` with g++ ran 12% slower: at -O2 g++ inlines a function not
+declared `inline` only up to 15 instructions, against 70 for one that is. An optimised build
+with g++ now passes `--param max-inline-insns-auto=70` for Dazzle's own code, the budget of a
+declared-`inline` function. All three benchmark programs then run faster than before T-0185
+or after it: `astar` 330 ms (352 before, 399 after), `expr` 151 ms (160), `words` 155 ms (165).
+A release build takes 0.1–0.17 s longer. clang++ was not slower, and warns at the flag, so g++
+is told apart by what `--version` says, which also keeps macOS's `g++`, which is clang, out.
+
+The other half, writing only the instance methods each file calls, is still open. The first
+attempt at this flag found T-0189 rather than a speed-up; with that fixed it is safe. What
+makes the other half hard is in T-0190: the C++ uses of a member the emitter never writes,
+a destructor of a field of a struct held by value in another module among them.
