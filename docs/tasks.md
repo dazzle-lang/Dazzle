@@ -25,7 +25,10 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    build is 1.1–1.6× C++'s.
    T-0184 (emitting less) is not needed for them. Left: T-0012 (build time at scale), T-0103
    (stale generated files and objects) and T-0025 (`std` checked in every analysis, now
-   the largest fixed cost of a build after the C++ compiler).
+   the largest fixed cost of a build after the C++ compiler). T-0012 (done 2026-11-09)
+   measured a generated 100-module project: Dazzle is 11× C++ from clean and far behind
+   after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
+   T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).
 3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
@@ -40,7 +43,18 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    over time (T-0075). The other programs get no Rust half.
 6. **The release.** Release notes from the §21 rows since r117 (0.1's revision), and
    packages (T-0077) if there is time, otherwise 0.3. The version stays 0.1 and nothing is
-   tagged until the user asks.
+   tagged until the user asks. **The notes must also cover build times**, which §21 does
+   not hold since they are not a language change (the user asked for this on 2026-11-09):
+   per-file cached objects (T-0102), precompiled headers (T-0181), `std` compiled once per
+   machine (T-0182), the LTO fallback remembered (T-0183) and imported headers kept on
+   disk (T-0101). Take the numbers from T-0180 and `tests/bench_programs/RESULTS.md`: a
+   debug build from clean went from 0.76–0.89 s to 0.29–0.35 s, the same as the C++
+   versions (0.28–0.47 s), and a clean release build from 2.3–2.8× C++'s to 1.1–1.6×. And
+   the test suite: `cargo test -p dz` went from 77 s to 51 s (112 s to 88 s from cold),
+   about a third less CPU, since no test compiles `std` any more. And T-0012's numbers at
+   scale (`tests/bench_programs/SCALE.md`): a 10-module project's build went from 9.7 s on
+   every build to 0.5–1.6 s; and, honestly, where it stands at 100 modules unless T-0185 to
+   T-0187 are done by then.
 
 Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147, T-0150), which keep memory on
 the heap but are not safety holes, and the ten-thousand-line game (T-0138).
@@ -161,7 +175,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (7 open)
+## M15 — `dz bench`, and the C++ comparison (11 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -170,6 +184,10 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0173](tasks/T-0173-json-benchmark-parsing-writing-structs-through.md)** A json benchmark: parsing, and writing structs through reflection · feature, bench
 - **[T-0174](tasks/T-0174-raytrace-benchmark-floating-point-vector-math.md)** A raytrace benchmark: floating-point and vector math · feature, bench
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
+- **[T-0185](tasks/T-0185-generic-instance-method-bodies-are-in.md)** A generic instance's method bodies are in its module's header, parsed again by every module above it · feature, tooling
+- **[T-0186](tasks/T-0186-checking-that-objects-are-up-date.md)** Checking that objects are up to date hashes every header each one includes, on every build · feature, tooling
+- **[T-0187](tasks/T-0187-dazzle-own-phases-grow-faster-than.md)** Dazzle's own phases grow faster than the program: emitting, placement, ownership, instantiation · feature, tooling
+- **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
@@ -184,9 +202,8 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (31 open)
+## none — not scheduled (30 open)
 
-- **[T-0012](tasks/T-0012-measure-compile-time-at-scale.md)** Measure compile time at scale · feature, tooling
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
 - **[T-0063](tasks/T-0063-editor-queries-from-command-line.md)** Editor queries from the command line · feature, llm-tooling

@@ -966,6 +966,40 @@ fn line_directives_name_files_a_debugger_can_open() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A `#line` names its source by its full path, however the project was named: by a
+/// relative path or by its full one. So a debugger started from another directory finds it,
+/// and the directives do not change with how the project was spelled (T-0012 found it).
+/// A panic's location still says the path as it was given, which is the program's output.
+#[test]
+fn line_directives_name_sources_by_their_full_path() {
+    let dir = scratch(
+        "dz_named_paths",
+        "[module]\nname = \"named\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "fn main() {\n    let mut xs = List<i32>()\n    xs.push(1)\n    println!(\"{}\", xs.len())\n}\n",
+    );
+    // As the current directory reports it: macOS reaches its temporary directory through a
+    // link. (Not on Windows, where this adds a `\\?\` prefix no current directory has.)
+    let dir = if cfg!(windows) { dir } else { std::fs::canonicalize(&dir).unwrap() };
+    let cache = dir.join("cache");
+    let generate = |cwd: &Path, path: &str| {
+        let out = Command::new(dz())
+            .current_dir(cwd)
+            .args(["cpp", path])
+            .env("DZ_CACHE_DIR", &cache)
+            .output()
+            .expect("failed to run dz");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let text = std::fs::read_to_string(dir.join("build/cpp/named.cpp")).unwrap();
+        text.lines().filter(|l| l.starts_with("#line ")).collect::<Vec<_>>().join("\n")
+    };
+    let relative = generate(dir.parent().unwrap(), "dz_named_paths");
+    let absolute = generate(Path::new("/"), dir.to_str().unwrap());
+    let full = dir.display().to_string().replace('\\', "/");
+    assert!(relative.contains(&format!("\"{full}")), "{relative}");
+    assert_eq!(relative, absolute);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The runtime and `std` are compiled once for every project (T-0182): a second project,
 /// built from clean, links the objects the first one compiled, and compiles only its own.
 #[test]

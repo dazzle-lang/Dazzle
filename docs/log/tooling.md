@@ -923,3 +923,37 @@ them; an entry from another libclang whose files are all still in place is used,
 what that one read from the same headers, which for C declarations is the same.
 
 The phase went from 115 ms to 2 ms on `words` and from 298 ms to 18 ms on `examples/sdl3`.
+
+## Build time at scale (T-0012; 2026-11-09)
+
+Every build-time number so far came from programs of one file, which is C++'s best case.
+`tools/bench_scale.py` generates a project of N modules, about 510 lines of Dazzle each
+(structs with methods, `Eq` and `Ord`, a generic container over each struct, an enum with a
+`switch`, a `HashMap`, calls into the module before it and the one at half its index), and
+the same program in C++, one header and one source per module. The C++ half is built as
+`make -j` builds a plain project: each source compiled on its own when it or a header it
+includes is newer than its object, with no precompiled headers. Both halves print a
+checksum and must agree. Four debug builds of each: from clean, nothing changed, the leaf
+module edited, the root module edited. `tests/bench_programs/SCALE.md` has the results.
+
+Dazzle does not scale yet. At 10 modules it is 2.5× C++ from clean and close after an edit;
+at 100 modules (51 000 lines, clang++) a build from clean is 60 s against 5.3 s, nothing
+changed 8.8 s against 0.05 s, the leaf edited 15 s against 1.1 s. Three causes, filed as
+T-0185 to T-0187. The largest: a module's header holds every method of every generic
+instance it needs, 1 100 lines for each `List<T>`, so a 500-line module gets a 10 600-line
+header, and each module's `.cpp` parses the headers of every module beneath it. Then the
+up-to-date check hashes every one of those headers again for each object on every build,
+3.2 s at 100 modules with nothing changed. And emitting, ownership, placement and
+instantiation nearly triple each time the project doubles.
+
+It also found that `#line` directives named sources as the project's path was spelled on
+the command line, so `dz build game` after `dz build /full/path/game` changed every
+generated file and compiled each one again. `emit_cpp`'s `#line` rewriting, which already
+renamed `std`'s pseudo-paths, now also makes every relative source path absolute, through
+one lookup per directive. Panic locations have the same trouble, but what they print is the
+program's output, so that is T-0188, a question for the user.
+
+The 0.2 work, measured on it (clang++, 10 modules): before T-0102 every build took 9.7 s,
+edit or not, since all the generated C++ was compiled in one command. After T-0102 and
+T-0181, 0.6 s with nothing changed and 0.8–1.9 s otherwise. T-0182, T-0183 and T-0101 move
+it by 0.1–0.3 s, since at this size `std` is a small part of the build.

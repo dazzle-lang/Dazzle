@@ -85,7 +85,7 @@ pub fn emit_cpp(
     // when stepping into `List::push` or `Vec3::length` (spec §16.3). Only the directives
     // change: a panic message still says `<std>/collections/list.dz`. Without directives
     // nothing names them, so they are not written.
-    let mut renames: Vec<(String, String)> = Vec::new();
+    let mut renames: std::collections::HashMap<String, String> = Default::default();
     if options.line_directives {
         for (pseudo, text) in dz_project::embedded_sources() {
             // `<std>/math/vec3.dz` → `<cache>/std-<hash>/src/std/math/vec3.dz`.
@@ -94,8 +94,21 @@ pub fn emit_cpp(
                 let _ = std::fs::create_dir_all(dir);
             }
             let _ = crate::shared::write(&copy, text.as_bytes());
-            let real = format!("\"{}\"", copy.display().to_string().replace('\\', "/"));
-            renames.push((format!("\"{pseudo}\""), real));
+            renames.insert(pseudo.to_owned(), copy.display().to_string().replace('\\', "/"));
+        }
+        // A project named by a relative path has its sources named that way, and each
+        // `#line` would follow: building it once as `dz build game` and once as `dz build
+        // ./game` or by its full path would change every generated file, and compile every
+        // one again. Named absolutely, the C++ is the same however `dz` was run, and a
+        // debugger started elsewhere still finds the sources (spec §16.3).
+        if let Ok(cwd) = std::env::current_dir() {
+            for file in analysis.map.iter() {
+                let name = file.name().replace('\\', "/");
+                if !name.starts_with('<') && Path::new(&name).is_relative() {
+                    let absolute = cwd.join(file.path()).display().to_string().replace('\\', "/");
+                    renames.insert(name, absolute);
+                }
+            }
         }
     }
 
@@ -125,22 +138,21 @@ pub fn emit_cpp(
     Ok(BuildOutput { cpp_dir, files, written, shared })
 }
 
-/// `text` with every `#line N "<pseudo>"` naming its real copy instead, per `renames` of
-/// quoted pseudo-path to quoted real path.
-fn with_embedded_lines(text: &str, renames: &[(String, String)]) -> String {
-    if !renames.iter().any(|(pseudo, _)| text.contains(pseudo.as_str())) {
-        return text.to_owned();
-    }
+/// `text` with every `#line N "path"` whose path `renames` holds naming its replacement
+/// instead: `std`'s pseudo-paths their real copies, and relative paths absolute ones.
+fn with_embedded_lines(text: &str, renames: &std::collections::HashMap<String, String>) -> String {
     let mut out = String::with_capacity(text.len());
     for line in text.split_inclusive('\n') {
-        let bare = line.strip_suffix('\n').unwrap_or(line);
         // Indented inside an immediately-invoked lambda, which C++ allows.
-        let renamed = line.trim_start().starts_with("#line ").then(|| {
-            renames.iter().find_map(|(pseudo, real)| {
-                bare.strip_suffix(pseudo.as_str()).map(|head| format!("{head}{real}\n"))
-            })
+        let renamed = line.trim_start().strip_prefix("#line ").and_then(|rest| {
+            let bare = line.trim_end();
+            let path = rest.trim_end().split_once(' ')?.1.strip_prefix('"')?.strip_suffix('"')?;
+            let real = renames.get(path)?;
+            // Everything before the quoted path, which ends the line.
+            let head = &bare[..bare.len() - path.len() - 2];
+            Some(format!("{head}\"{real}\"\n"))
         });
-        match renamed.flatten() {
+        match renamed {
             Some(new_line) => out.push_str(&new_line),
             None => out.push_str(line),
         }

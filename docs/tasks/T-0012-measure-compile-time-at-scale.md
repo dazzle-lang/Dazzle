@@ -2,10 +2,42 @@
 id: T-0012
 title: Measure compile time at scale
 milestone: none
-status: open
+status: done
 kind: feature
 area: tooling
+where: `tools/bench_scale.py`; results in `tests/bench_programs/SCALE.md`
 ---
+
+**Done** (2026-11-09). `python tools/bench_scale.py` generates a project of N modules (about
+510 lines of Dazzle each: structs with methods, `Eq`/`Ord` impls, a generic container over
+each struct, an enum with a `switch`, a `HashMap`, calls into two earlier modules) and the
+same program in C++, which it builds as `make -j` builds a plain project, with no
+precompiled headers. It times four debug builds of each half: from clean, nothing changed,
+a one-line change to the leaf module and to the root one, with `dz`'s phases apart from the
+C++ compiler. Both halves must print the same checksum. Results, and the before and after of
+the 0.2 build-time work, are in `tests/bench_programs/SCALE.md`.
+
+At 10 modules Dazzle is about 2.5× C++ from clean and close after an edit. It does not
+scale: at 100 modules (51 000 lines, clang++) a build from clean takes 60 s against 5.3 s, a
+build with nothing changed 8.8 s against 0.05 s, and a one-line change to the leaf module
+15 s against 1.1 s. Three causes, each its own task:
+
+- [T-0185](T-0185-generic-instance-method-bodies-are-in.md): every method of every generic
+  instance is in its module's header, so each module parses the instances of every module
+  beneath it. The C++ compile grows with the square of the project.
+- [T-0186](T-0186-checking-that-objects-are-up-date.md): the up-to-date check hashes every
+  header each object includes, on every build: 3.2 s at 100 modules with nothing changed.
+- [T-0187](T-0187-dazzle-own-phases-grow-faster-than.md): emitting, ownership, placement and
+  instantiation nearly triple as the project doubles: 4.6 s of every build at 100 modules.
+
+It also found that `#line` directives named sources as the project's path was spelled, so
+building it by another spelling compiled every file again; they now name the full path.
+Panic locations do the same, which is a question for the user
+([T-0188](T-0188-panic-location-names-its-file-as.md)).
+
+Before the 0.2 work (`f6b62d5`) every build of 10 modules took 9.7 s, edit or not; after
+T-0102 and T-0181 it is 0.6–1.9 s. T-0182, T-0183 and T-0101 change little at this size,
+where `std` is a small part of the build. Tracking over time is shared with T-0075.
 
 **What is missing.** A **generated 20k–50k-line project**, built cold and warm through
 `dz build`, with the numbers recorded. **Principle 6 is "compile fast" and nothing measures
