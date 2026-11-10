@@ -40,6 +40,10 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    measured a generated 100-module project: Dazzle is 11× C++ from clean and far behind
    after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
    T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).
+   T-0185 and T-0186 are done the same day: 100 modules from clean 60 s to 12 s (C++: 5 s),
+   an edit 15 s to 6 s (C++: 1 s). Left: T-0187, the 4.5 s of Dazzle's own phases; T-0190,
+   which wins back what T-0185 cost small programs; and T-0189, a wrong result under g++
+   LTO with more inlining, found on the way, which comes before both.
 3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
@@ -64,8 +68,8 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    the test suite: `cargo test -p dz` went from 77 s to 51 s (112 s to 88 s from cold),
    about a third less CPU, since no test compiles `std` any more. And T-0012's numbers at
    scale (`tests/bench_programs/SCALE.md`): a 10-module project's build went from 9.7 s on
-   every build to 0.5–1.6 s; and, honestly, where it stands at 100 modules unless T-0185 to
-   T-0187 are done by then.
+   every build to 0.5–1.6 s; and at 100 modules (51 000 lines) from clean 60 s to 12 s and an edit
+   15 s to 6 s, against 5 s and 1 s for C++ (T-0185, T-0186); update with T-0187.
 
 Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147, T-0150), which keep memory on
 the heap but are not safety holes, and the ten-thousand-line game (T-0138).

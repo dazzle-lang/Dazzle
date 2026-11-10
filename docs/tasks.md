@@ -29,6 +29,10 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    measured a generated 100-module project: Dazzle is 11× C++ from clean and far behind
    after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
    T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).
+   T-0185 and T-0186 are done the same day: 100 modules from clean 60 s to 12 s (C++: 5 s),
+   an edit 15 s to 6 s (C++: 1 s). Left: T-0187, the 4.5 s of Dazzle's own phases; T-0190,
+   which wins back what T-0185 cost small programs; and T-0189, a wrong result under g++
+   LTO with more inlining, found on the way, which comes before both.
 3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
@@ -53,8 +57,8 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    the test suite: `cargo test -p dz` went from 77 s to 51 s (112 s to 88 s from cold),
    about a third less CPU, since no test compiles `std` any more. And T-0012's numbers at
    scale (`tests/bench_programs/SCALE.md`): a 10-module project's build went from 9.7 s on
-   every build to 0.5–1.6 s; and, honestly, where it stands at 100 modules unless T-0185 to
-   T-0187 are done by then.
+   every build to 0.5–1.6 s; and at 100 modules (51 000 lines) from clean 60 s to 12 s and an edit
+   15 s to 6 s, against 5 s and 1 s for C++ (T-0185, T-0186); update with T-0187.
 
 Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147, T-0150), which keep memory on
 the heap but are not safety holes, and the ten-thousand-line game (T-0138).
@@ -175,7 +179,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (10 open)
+## M15 — `dz bench`, and the C++ comparison (11 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -184,9 +188,10 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0173](tasks/T-0173-json-benchmark-parsing-writing-structs-through.md)** A json benchmark: parsing, and writing structs through reflection · feature, bench
 - **[T-0174](tasks/T-0174-raytrace-benchmark-floating-point-vector-math.md)** A raytrace benchmark: floating-point and vector math · feature, bench
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
-- **[T-0185](tasks/T-0185-generic-instance-method-bodies-are-in.md)** A generic instance's method bodies are in its module's header, parsed again by every module above it · feature, tooling
 - **[T-0187](tasks/T-0187-dazzle-own-phases-grow-faster-than.md)** Dazzle's own phases grow faster than the program: emitting, placement, ownership, instantiation · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
+- **[T-0189](tasks/T-0189-words-computes-wrong-checksum-or-crashes.md)** words computes the wrong checksum, or crashes with regions off, under g++ LTO with a larger inline budget · bug, codegen
+- **[T-0190](tasks/T-0190-each-module-defines-instance-methods-it.md)** Each module defines the instance methods it calls, as C++ instantiates a template's members · feature, codegen
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 

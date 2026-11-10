@@ -2,11 +2,41 @@
 id: T-0185
 title: A generic instance's method bodies are in its module's header, parsed again by every module above it
 milestone: M15
-status: open
+status: done
 kind: feature
 area: tooling
-where: `crates/dz_cpp/src/lib.rs`: `instance_struct_bodies`, `instance_fn_body`, and where their `_DEF` blocks go
+where: `crates/dz_cpp/src/lib.rs`: `place_instance_body`, `defined`, `cpp_chunks`; the four instance paths that call it
 ---
+
+**Done** (2026-11-09), the second way. An instance's struct and its methods' declarations stay
+in the header of each module that needs it. Its bodies are defined once in the program, as
+ordinary functions, in the file of the first module emitted that needs it; the prelude is
+module 0, so `std`'s own instances stay in `std.cpp`, the same for every program. Bodies
+written `#[inline]`, and associated constants, still go in every needing module's header,
+behind a guard. `place_instance_body` does this for all four kinds of instance (a type's
+members, a generic function, a generic impl's methods, a generic method), with a set of
+defined guards shared across the program and per-namespace chunks for each file.
+
+A module's header in the 100-module project went from 10 600 lines to 1 270, and `std.h`
+to 2 400. At 100 modules (clang++, debug): from clean 60 s to 12.2 s (C++: 5.2 s), the leaf
+module edited 15.2 s to 6.0 s (C++: 1.1 s), and with T-0186 nothing changed 8.8 s to 4.8 s.
+The C++ work after an edit is now 1.0–1.3 s against C++'s 1.0–1.1 s; what is left is
+Dazzle's own phases (T-0187).
+
+It costs the single-file benchmarks a little: every method of an owned instance is now
+compiled whether called or not (a debug rebuild of `astar` 0.35 s to 0.41 s), and g++
+inlines an ordinary function less than an `inline` one (`astar` with g++ 352 ms to 396 ms;
+clang++, `words` and `expr` unchanged). Both are [T-0190](T-0190-each-module-defines-instance-methods-it.md).
+Raising g++'s inline budget instead found [T-0189](T-0189-words-computes-wrong-checksum-or-crashes.md).
+Marking the bodies `inline __attribute__((used))` did not help g++, and clang++ then emitted
+only one of a destructor's two symbols.
+
+| Piece | Where |
+|---|---|
+| Where a body goes | `place_instance_body` in `crates/dz_cpp/src/lib.rs` |
+| Which file defines it | `defined`, shared by every module's `Emitter` |
+| Its namespace in the file | `cpp_chunks`, written after the module's own code in `emit` |
+| Measured by | `tools/bench_scale.py`, `tests/bench_programs/SCALE.md` |
 
 **What is wrong.** T-0012's generated project (`tools/bench_scale.py`) found it. A module of
 about 500 lines of Dazzle, with six structs, gets a C++ header of 10 600 lines. 8 100 of them

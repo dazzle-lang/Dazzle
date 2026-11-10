@@ -977,3 +977,41 @@ link and written after one succeeds.
 
 At 100 modules with nothing changed, the C++ compiler phase went from 3.2 s to 28 ms and the
 link from 0.38 s to 0.2 ms. The 4.5 s left is Dazzle's own phases (T-0187).
+
+## Instance bodies out of headers (T-0185; 2026-11-09)
+
+T-0012 found that a 500-line module got a 10 600-line header: every method of every generic
+instance it needed, `inline`, 1 100 lines for each `List<T>`. Every module above it includes
+that header, so the C++ compile grew with the square of the project, 60 s from clean at 100
+modules against 5.3 s for C++.
+
+Now an instance's type and its methods' declarations stay in each needing module's header,
+behind its guard, and the bodies are defined once in the program, as ordinary functions, in
+the file of the first module emitted that needs them. The prelude is module 0, so `std`'s own
+instances stay in `std.cpp`, which T-0182 needs to be the same for every program. One helper,
+`place_instance_body`, does it for a type's members, a generic function, a generic impl's
+methods and a generic method. It emits the body as a plain module's would be: `emit_body`
+already sends a `#[inline]` body to the header, and associated constants always go there, so
+what lands in the header is wrapped in an `_INLINE` guard in every needing module's header,
+and the rest goes to the owner's file, in the generic's namespace (`cpp_chunks`). A set of
+`_DEF` guards shared by every module's emitter says which file owns what.
+
+At 100 modules (clang++, debug), from clean went from 60 s to 12.2 s, an edit to the leaf
+module from 15.2 s to 6.0 s, and with T-0186 nothing changed from 8.8 s to 4.8 s. The C++ side
+of an edit is now 1.0–1.3 s, against C++'s 1.0–1.1 s; the rest is Dazzle's own phases.
+
+What it cost: an ordinary function is compiled even when nothing calls it, where an unused
+`inline` one was not, so a small program's debug rebuild got 0.03–0.06 s slower. And g++
+inlines less: `astar` with g++ went from 352 ms to 396 ms. g++ at -O2 inlines a function not
+declared `inline` up to 15 instructions against 70, and counts a body that must stay as more
+growth. Two tries failed. Marking the bodies `inline __attribute__((used))` changed nothing for
+g++, and clang++ then emitted only one of a destructor's two symbols, failing the link.
+Raising g++'s budget for functions not declared inline (`--param max-inline-insns-auto=70`)
+made `astar` faster than ever, 329 ms, but made `words` print a wrong checksum, and crash
+with `DZ_REGIONS=0` — and so did the code from before T-0185 with the same flag, so that is a
+bug of its own, T-0189, found rather than caused. Doing what C++ does, each file defining
+`inline` exactly the instance methods it calls, would win both back: T-0190.
+
+One `cargo test` run after the change saw `timings_name_every_phase_on_standard_error` fail
+once, on a cold cache, while dozens of builds made the new shared `std` at once; it did not
+recur in three runs from an empty cache. The test prints `dz`'s whole output when it fails.

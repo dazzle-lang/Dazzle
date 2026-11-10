@@ -25,9 +25,13 @@ build/
 `build/bench`, which is exactly the directory `dz bench` needs — and the build fails with
 "Not a directory" on every platform whose executables have no extension.
 
-One header and one translation unit per module. Generic instantiations are emitted into the
-module that *uses* them, deduplicated by mangled name with include guards, so a
-`Buffer<f32>` used by three modules is defined once.
+One header and one translation unit per module. A generic instantiation's type and the
+declarations of its methods go in the header of each module that *uses* it, behind an
+include guard, so a `Buffer<f32>` used by three modules is one type. Its method bodies are
+defined once in the whole program, in the translation unit of the first module that needs
+it, the standard library first; only those written `#[inline]` (§12.8) are in every user's
+header, so they can be inlined. A header then holds declarations, which every module above
+it parses, rather than every body of every instance it needs.
 
 ## 16.2 Readability of the output
 
