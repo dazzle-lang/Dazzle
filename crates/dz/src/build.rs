@@ -632,6 +632,7 @@ fn compile_and_link(
         objects.push(object);
     }
     let (errors, refused, kept) = jobs.finish()?;
+    let kept_any = !kept.is_empty();
     // An object another process had open, so its fresh copy could not replace it.
     for object in &mut objects {
         if let Some((_, temp)) = kept.iter().find(|(o, _)| o == object) {
@@ -660,6 +661,32 @@ fn compile_and_link(
         return Err(Failed::Rejected(errors));
     }
 
+    // Linked again only if something it is linked from changed, as `make` does: the
+    // command, and the size and time of every file it names. 0.4 s of a build with nothing
+    // changed in a 100-module project (T-0012).
+    let link_stamp = dirs.own.join(format!(
+        "link-{}.stamp",
+        exe.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default()
+    ));
+    let link_key = {
+        let mut key = format!("{cxx}\n{}\n", exe.display());
+        let objects = objects.iter().map(|o| o.display().to_string());
+        for part in args.iter().cloned().chain(objects).chain(link_args.iter().cloned()) {
+            // A file's size and time too, so an object compiled again is another key.
+            let meta = std::fs::metadata(&part).ok();
+            let time = meta.as_ref().and_then(|m| m.modified().ok());
+            let time = time.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+            let size = meta.map_or(0, |m| m.len());
+            key.push_str(&format!("{part} {size} {}\n", time.map_or(0, |t| t.as_nanos())));
+        }
+        key
+    };
+    if exe.exists() && std::fs::read_to_string(&link_stamp).is_ok_and(|k| k == link_key) {
+        timings.lap("link", started);
+        return Ok(note);
+    }
+    // Gone until the link succeeds, so a link cut short is never taken for a good one.
+    let _ = std::fs::remove_file(&link_stamp);
     let output = Command::new(cxx)
         .args(args)
         .args(&objects)
@@ -673,6 +700,11 @@ fn compile_and_link(
         let _ = std::fs::remove_file(temp);
     }
     if output.status.success() {
+        // Not when an object was a temporary copy, which is gone now.
+        if kept_any {
+            return Ok(note);
+        }
+        let _ = std::fs::write(&link_stamp, &link_key);
         Ok(note)
     } else {
         Err(Failed::Rejected(String::from_utf8_lossy(&output.stderr).into_owned()))
@@ -846,7 +878,7 @@ impl Pch {
         let Ok(stamp) = std::fs::read_to_string(self.compiled.with_extension("stamp")) else {
             return false;
         };
-        stamp.lines().filter_map(|line| line.split_once(' ')).all(|(_, path)| {
+        crate::native::stamp_paths(&stamp).iter().all(|path| {
             std::fs::metadata(path).and_then(|m| m.modified()).is_ok_and(|time| time <= built)
         })
     }

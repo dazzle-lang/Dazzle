@@ -175,7 +175,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (11 open)
+## M15 — `dz bench`, and the C++ comparison (10 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -185,7 +185,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0174](tasks/T-0174-raytrace-benchmark-floating-point-vector-math.md)** A raytrace benchmark: floating-point and vector math · feature, bench
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0185](tasks/T-0185-generic-instance-method-bodies-are-in.md)** A generic instance's method bodies are in its module's header, parsed again by every module above it · feature, tooling
-- **[T-0186](tasks/T-0186-checking-that-objects-are-up-date.md)** Checking that objects are up to date hashes every header each one includes, on every build · feature, tooling
 - **[T-0187](tasks/T-0187-dazzle-own-phases-grow-faster-than.md)** Dazzle's own phases grow faster than the program: emitting, placement, ownership, instantiation · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 

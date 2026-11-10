@@ -957,3 +957,23 @@ The 0.2 work, measured on it (clang++, 10 modules): before T-0102 every build to
 edit or not, since all the generated C++ was compiled in one command. After T-0102 and
 T-0181, 0.6 s with nothing changed and 0.8–1.9 s otherwise. T-0182, T-0183 and T-0101 move
 it by 0.1–0.3 s, since at this size `std` is a small part of the build.
+
+## Up to date by size and time, and no link when nothing changed (T-0186; 2026-11-09)
+
+T-0102's check read and hashed every file an object's depfile names, on every build. In
+T-0012's 100-module project each object names every header beneath it, so a build with
+nothing changed spent 3.2 s hashing. A stamp line now holds the file's size and time beside
+its hash. A file with the same size and time is taken as unchanged when that time is at
+least 2 s older than the stamp; any other is hashed, as before. The margin is git's answer to
+"racy" index entries: on a file system whose clock ticks every 2 s, a file written twice in
+one tick keeps its time. The generated files are written just before they are compiled, so
+their first stamp often cannot trust them; a stamp that needed hashing and still holds is
+written again, and the next build goes by the times. A stamp in the old format means
+compiling again, never a guess.
+
+The link is skipped too when nothing it names changed: the command, and the size and time of
+each object and library, kept in `build/obj/dz/link-<exe>.stamp`, which is removed before a
+link and written after one succeeds.
+
+At 100 modules with nothing changed, the C++ compiler phase went from 3.2 s to 28 ms and the
+link from 0.38 s to 0.2 ms. The 4.5 s left is Dazzle's own phases (T-0187).

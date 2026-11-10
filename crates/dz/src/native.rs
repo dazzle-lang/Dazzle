@@ -237,22 +237,112 @@ fn run_jobs(cxx: &str, jobs: Vec<Job<'_>>, diags: &mut Diagnostics) {
     }
 }
 
+/// One file an object was built from, as its stamp records it: `hash size time path`, the
+/// time in nanoseconds since the epoch, 0 when unknown.
+struct Input {
+    hash: u64,
+    len: u64,
+    modified: u128,
+    path: PathBuf,
+}
+
+impl Input {
+    /// `path` as it is now, or `None` if it cannot be read.
+    fn of(path: &Path) -> Option<Input> {
+        let bytes = std::fs::read(path).ok()?;
+        let modified = std::fs::metadata(path).ok().and_then(|m| nanos(m.modified().ok()?));
+        Some(Input {
+            hash: fnv1a(&bytes),
+            len: bytes.len() as u64,
+            modified: modified.unwrap_or(0),
+            path: path.to_path_buf(),
+        })
+    }
+
+    fn line(&self) -> String {
+        format!("{:016x} {} {} {}\n", self.hash, self.len, self.modified, self.path.display())
+    }
+}
+
+fn nanos(time: std::time::SystemTime) -> Option<u128> {
+    time.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_nanos())
+}
+
+/// The files a stamp lists. A path may hold spaces, so it is the rest of the line.
+fn stamp_inputs(stamp: &str) -> Option<Vec<Input>> {
+    stamp
+        .lines()
+        .map(|line| {
+            let mut parts = line.splitn(4, ' ');
+            Some(Input {
+                hash: u64::from_str_radix(parts.next()?, 16).ok()?,
+                len: parts.next()?.parse().ok()?,
+                modified: parts.next()?.parse().ok()?,
+                path: PathBuf::from(parts.next()?),
+            })
+        })
+        .collect()
+}
+
+/// The paths of the files `stamp`, a stamp's text, lists.
+pub(crate) fn stamp_paths(stamp: &str) -> Vec<PathBuf> {
+    stamp_inputs(stamp).unwrap_or_default().into_iter().map(|i| i.path).collect()
+}
+
+/// How much older than its stamp a file's time must be before the time is trusted. A file
+/// written again within the same tick of its file system's clock keeps the same time, and
+/// some file systems tick every 2 s; so a file written that close to when the stamp was is
+/// read and hashed instead, as git does with its index ("racy" entries).
+const SETTLED: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// An object is up to date when its stamp exists and every file it lists still has the
 /// content it had when the object was compiled.
+///
+/// Reading and hashing every file each time was most of a build with nothing changed in a
+/// large project, since every object lists every header beneath it (T-0186). So a file whose
+/// size and time are what the stamp recorded is taken as unchanged, if that time was
+/// settled when the stamp was written; any other is hashed. A stamp that needed hashing and
+/// still holds is written again, so the next build can go by the times.
 pub(crate) fn up_to_date(object: &Path) -> bool {
     if !object.exists() {
         return false;
     }
-    let Ok(stamp) = std::fs::read_to_string(object.with_extension("stamp")) else { return false };
-    let mut any = false;
-    for line in stamp.lines() {
-        let Some((hash, path)) = line.split_once(' ') else { return false };
-        match std::fs::read(path) {
-            Ok(bytes) if format!("{:016x}", fnv1a(&bytes)) == hash => any = true,
+    let stamp_path = object.with_extension("stamp");
+    let Ok(stamp) = std::fs::read_to_string(&stamp_path) else { return false };
+    let Some(inputs) = stamp_inputs(&stamp) else { return false };
+    let Some(written) = std::fs::metadata(&stamp_path).ok().and_then(|m| m.modified().ok()) else {
+        return false;
+    };
+    let settled = nanos(written).map_or(0, |w| w.saturating_sub(SETTLED.as_nanos()));
+    let mut hashed = false;
+    for input in &inputs {
+        let Ok(meta) = std::fs::metadata(&input.path) else { return false };
+        if meta.len() != input.len {
+            return false;
+        }
+        let modified = meta.modified().ok().and_then(nanos);
+        if input.modified != 0 && modified == Some(input.modified) && input.modified < settled {
+            continue;
+        }
+        match std::fs::read(&input.path) {
+            Ok(bytes) if fnv1a(&bytes) == input.hash => hashed = true,
             _ => return false,
         }
     }
-    any
+    if inputs.is_empty() {
+        return false;
+    }
+    if hashed {
+        let fresh: Option<Vec<Input>> = inputs.iter().map(|i| Input::of(&i.path)).collect();
+        if let Some(fresh) = fresh {
+            // Only if nothing changed while it was being checked.
+            if fresh.iter().zip(&inputs).all(|(f, i)| f.hash == i.hash) {
+                let text: String = fresh.iter().map(Input::line).collect();
+                let _ = crate::shared::write(&stamp_path, text.as_bytes());
+            }
+        }
+    }
+    true
 }
 
 /// Record what an object was compiled from: the source, and every header the compiler's
@@ -264,11 +354,7 @@ pub(crate) fn write_stamp(source: &Path, object: &Path) {
     if !inputs.iter().any(|p| p == source) {
         inputs.insert(0, source.to_path_buf());
     }
-    let mut stamp = String::new();
-    for p in &inputs {
-        let Ok(bytes) = std::fs::read(p) else { continue };
-        stamp.push_str(&format!("{:016x} {}\n", fnv1a(&bytes), p.display()));
-    }
+    let stamp: String = inputs.iter().filter_map(|p| Input::of(p)).map(|i| i.line()).collect();
     // Through a file renamed onto it: a shared object's stamp is read by every `dz` running.
     let _ = crate::shared::write(&object.with_extension("stamp"), stamp.as_bytes());
 }
@@ -584,8 +670,56 @@ pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{c_compiler_for, depfile_inputs};
+    use super::{c_compiler_for, depfile_inputs, up_to_date, write_stamp};
     use std::path::PathBuf;
+    use std::time::{Duration, SystemTime};
+
+    /// T-0186: a stamp goes by size and time once the time has settled, and by content until
+    /// then. Same-length edits are what time alone could miss.
+    #[test]
+    fn an_object_is_judged_by_content_until_its_inputs_times_settle() {
+        let dir = std::env::temp_dir().join(format!("dz_stamp_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("a.cpp");
+        let object = dir.join("a.o");
+        std::fs::write(&object, "object").unwrap();
+        let set_time = |age: Duration| {
+            let f = std::fs::File::options().write(true).open(&source).unwrap();
+            f.set_modified(SystemTime::now() - age).unwrap();
+        };
+
+        // Just written: its time is too close to the stamp's to trust, so it is hashed.
+        std::fs::write(&source, "int a = 1;").unwrap();
+        write_stamp(&source, &object);
+        assert!(up_to_date(&object));
+        std::fs::write(&source, "int a = 2;").unwrap();
+        assert!(!up_to_date(&object), "a same-length edit was missed");
+
+        // Settled: the same size and time are taken as unchanged, without reading it.
+        std::fs::write(&source, "int a = 1;").unwrap();
+        set_time(Duration::from_secs(3600));
+        write_stamp(&source, &object);
+        assert!(up_to_date(&object));
+        let recorded = std::fs::metadata(&source).unwrap().modified().unwrap();
+        std::fs::write(&source, "int a = 3;").unwrap();
+        std::fs::File::options().write(true).open(&source).unwrap().set_modified(recorded).unwrap();
+        assert!(up_to_date(&object), "a settled time was not trusted");
+        // Any other time, or size, is checked.
+        set_time(Duration::from_secs(60));
+        assert!(!up_to_date(&object));
+        std::fs::write(&source, "int a = 1; ").unwrap();
+        assert!(!up_to_date(&object));
+
+        // A stamp in the format before this one means compiling again, never a guess.
+        std::fs::write(
+            object.with_extension("stamp"),
+            format!("0123456789abcdef {}\n", source.display()),
+        )
+        .unwrap();
+        assert!(!up_to_date(&object));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn cmake_gets_the_c_compiler_of_the_same_family() {
