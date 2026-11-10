@@ -70,3 +70,11 @@ code exactly as free as it is:
 
 That would answer item 1 with checking rather than documentation, and confine Rust's
 discipline to the code that runs in parallel.
+
+**The design, written 2026-11-10:
+[D-0096](../decisions/D-0096-threads-safe-multithreading-built-on-ties.md)**, open. It
+grows the direction above into a whole design, agreed in direction with the user: memory
+another thread sees is owned, frozen or synchronised; `join`, `for_each` and `spawn` live
+in `std`, not syntax; and a world keyed by component type gets a tie per type, so ECS
+systems run in parallel with their access checked from their signatures. It answers
+items 1–4 above, and lists the programs that must be refused before it is decided.

@@ -39,3 +39,8 @@ goes through the same `Global`.
 
 All of it belongs to [T-0011](T-0011-threads-mutex-atomics-job-system.md) and should be done
 as part of it, not before.
+
+**2026-11-10:** the open design for threads,
+[D-0096](../decisions/D-0096-threads-safe-multithreading-built-on-ties.md), answers the
+question above its way: `Arc<T>` requires `T` to be shareable, a property worked out from
+`T`'s fields, so a data race is refused rather than left to the programmer.
