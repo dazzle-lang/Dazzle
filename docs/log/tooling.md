@@ -1050,3 +1050,36 @@ The other half, writing only the instance methods each file calls, is still open
 attempt at this flag found T-0189 rather than a speed-up; with that fixed it is safe. What
 makes the other half hard is in T-0190: the C++ uses of a member the emitter never writes,
 a destructor of a field of a struct held by value in another module among them.
+
+## Dazzle's own phases grow with the program (T-0187; 2026-11-11)
+
+T-0012 found emitting, ownership, placement and instantiation nearly tripling each time the
+generated project doubled: 4.5 s of every build at 100 modules, an edit or not. With `perf`
+not allowed on the machine, a few hundred stacks sampled with gdb from a release `dz` with
+line tables found three causes.
+
+`TypeTable::impls_for`, under every question of whether a type implements a trait, tried
+every `impl` in the program. Ownership's `elements_in`, placement, instantiation and emit
+all ask it about every type they meet, and every module adds implementations, so the cost
+grew with the square of the program: 59% of the time at 100 modules. The implementations are
+now also kept by the head of their type, a declaration or a shape such as a pointer or
+`i32` (`impls_by_head`), and only those with the type's head, and any for a bare
+parameter, are tried. `match_ty` never matches a type against a pattern with another head,
+so every answer, and its order, is what it was.
+
+`place_instance_body` (T-0185) emitted an instance's bodies for every module that needs the
+instance and kept them only in the first, since the others need just the `#[inline]` part in
+their header. `emit_body` now skips the rest there (`inline_only`). The generated C++ is
+the same except for the numbers in temporaries' names, which changes every file once.
+
+And `dz build` spent 0.1 s at 100 modules freeing the analysis just before exiting. It is
+now left to the operating system, as rustc does.
+
+Dazzle's phases now double when the project doubles: 0.24, 0.50, 0.96 and 1.89 s at 10, 25,
+50 and 100 modules, where they were 0.31, 0.75, 1.71 and 4.5 s. At 100 modules (clang++,
+debug), nothing changed went from 4.8 s to 2.1 s, an edit to the leaf module from 6.0 s to
+3.3 s and from clean from 12.2 s to 9.5 s, against 0.05 s, 1.1 s and 5.3 s for C++
+(`tests/bench_programs/SCALE.md`). Small programs gain too: the phases of `hello` went from
+75 to 65 ms, and those of the benchmark programs from 90-101 to 74-80 ms. What is left at
+scale is one copy of each instance's body in `dz_mono` and emitting it, both linear, and
+re-analysing what an edit did not touch, which is T-0023.

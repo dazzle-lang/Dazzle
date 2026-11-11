@@ -218,6 +218,7 @@ pub fn emit(
             def_prefix: "",
             inline_fns: HashSet::new(),
             inline_defs: String::new(),
+            inline_only: false,
             qualify_all: false,
             mode,
             line_directives: options.line_directives,
@@ -373,6 +374,7 @@ pub fn emit(
             def_prefix: "",
             inline_fns: HashSet::new(),
             inline_defs: String::new(),
+            inline_only: false,
             qualify_all: false,
             mode,
             line_directives: options.line_directives,
@@ -659,6 +661,10 @@ struct Emitter<'a> {
     /// header after everything else in it rather than into the module's own file, so every
     /// translation unit that calls them can inline them.
     inline_defs: String,
+    /// Emit only the `#[inline]` bodies: set while an instance's bodies are emitted for a
+    /// module after the one that defines them, which needs only those, in its header
+    /// (T-0187). The rest used to be emitted again for every such module and thrown away.
+    inline_only: bool,
     /// Name every type with its namespace, even this module's own. Set inside a union's
     /// methods, where the union's members — one per variant, named after the variant's
     /// struct — hide the structs of the same names (spec §7.5).
@@ -1781,7 +1787,9 @@ impl<'a> Emitter<'a> {
     fn place_instance_body(&mut self, guard: String, emit: impl FnOnce(&mut Self)) {
         let first = self.defined.borrow_mut().insert(guard.clone());
         let saved = std::mem::take(&mut self.inline_defs);
+        let saved_only = std::mem::replace(&mut self.inline_only, !first);
         let (text, ()) = self.capture(emit);
+        self.inline_only = saved_only;
         let inline = std::mem::replace(&mut self.inline_defs, saved);
         if !inline.trim().is_empty() {
             let guard = format!("{guard}_INLINE");
@@ -3446,6 +3454,9 @@ impl<'a> Emitter<'a> {
             let head = format!("inline {}", head.strip_prefix(self.def_prefix).unwrap_or(head));
             let (text, ()) = self.capture(|e| e.emit_body_here(owner, &head));
             self.inline_defs.push_str(&text);
+            return;
+        }
+        if self.inline_only {
             return;
         }
         self.emit_body_here(owner, head);

@@ -30,7 +30,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
    T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).
    T-0185 and T-0186 are done the same day: 100 modules from clean 60 s to 12 s (C++: 5 s),
-   an edit 15 s to 6 s (C++: 1 s). Left: T-0187, the 4.5 s of Dazzle's own phases, and the rest
+   an edit 15 s to 6 s (C++: 1 s). T-0187 is done (2026-11-11): Dazzle's own phases now
+   grow with the program, 4.5 s to 1.9 s at 100 modules, so nothing changed is 2.1 s and an
+   edit 3.3 s; the rest of an edit is re-analysing what it did not touch (T-0023). Left: the rest
    of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
    `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
    only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the
@@ -60,7 +62,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    about a third less CPU, since no test compiles `std` any more. And T-0012's numbers at
    scale (`tests/bench_programs/SCALE.md`): a 10-module project's build went from 9.7 s on
    every build to 0.5–1.6 s; and at 100 modules (51 000 lines) from clean 60 s to 12 s and an edit
-   15 s to 6 s, against 5 s and 1 s for C++ (T-0185, T-0186); update with T-0187.
+   15 s to 6 s, against 5 s and 1 s for C++ (T-0185, T-0186); and with T-0187 from clean
+   9.5 s, nothing changed 4.8 s to 2.1 s and an edit 3.3 s, and Dazzle's own phases of a
+   small program 13-21% less.
 
 Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147, T-0150), which keep memory on
 the heap but are not safety holes, and the ten-thousand-line game (T-0138).
@@ -181,7 +185,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (10 open)
+## M15 — `dz bench`, and the C++ comparison (9 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -190,7 +194,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0173](tasks/T-0173-json-benchmark-parsing-writing-structs-through.md)** A json benchmark: parsing, and writing structs through reflection · feature, bench
 - **[T-0174](tasks/T-0174-raytrace-benchmark-floating-point-vector-math.md)** A raytrace benchmark: floating-point and vector math · feature, bench
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
-- **[T-0187](tasks/T-0187-dazzle-own-phases-grow-faster-than.md)** Dazzle's own phases grow faster than the program: emitting, placement, ownership, instantiation · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0190](tasks/T-0190-each-module-defines-instance-methods-it.md)** Each module defines the instance methods it calls, as C++ instantiates a template's members · feature, codegen
 

@@ -93,7 +93,9 @@ impl Ctx<'_> {
         if !self.impl_placement_ok(&imp) {
             return;
         }
-        self.impl_at.insert(key, self.table.impls.len());
+        let idx = self.table.impls.len();
+        self.impl_at.insert(key, idx);
+        self.table.impls_by_head.entry(impl_head(&imp.self_ty)).or_default().push(idx);
         self.table.impls.push(imp);
     }
 
@@ -497,10 +499,10 @@ impl TypeTable {
     /// derived type's would emit a second destructor that ran the same body twice.
     pub fn impls_for(&self, ty: &Ty) -> Vec<(usize, TraitRef, HashMap<u32, Ty>)> {
         let direct: Vec<(usize, TraitRef, HashMap<u32, Ty>)> = self
-            .impls
-            .iter()
-            .enumerate()
-            .filter_map(|(i, imp)| {
+            .impls_that_might_apply(ty)
+            .into_iter()
+            .filter_map(|i| {
+                let imp = &self.impls[i];
                 let map = self.impl_applies(imp, ty)?;
                 Some((i, subst_ref(&imp.trait_ref, &map, ty), map))
             })
@@ -520,7 +522,8 @@ impl TypeTable {
         for base in chain.into_iter().skip(1) {
             // A generic base is the instance this type inherits (T-0035).
             let base_ty = Ty::Named { sym: base, args: self.args_as(sym, &args, base) };
-            for (i, imp) in self.impls.iter().enumerate() {
+            for i in self.impls_that_might_apply(&base_ty) {
+                let imp = &self.impls[i];
                 if Some(imp.trait_ref.trait_sym) == self.drop_trait
                     || Some(imp.trait_ref.trait_sym) == self.copy_trait
                 {
@@ -535,6 +538,23 @@ impl TypeTable {
                 }
                 out.push((i, r, map));
             }
+        }
+        out
+    }
+
+    /// The implementations whose type has `ty`'s head, and the ones for a bare parameter, in
+    /// declaration order: every one [`impl_applies`](Self::impl_applies) could accept, since
+    /// a type matches only a pattern with its own head or a hole (T-0187).
+    fn impls_that_might_apply(&self, ty: &Ty) -> Vec<usize> {
+        // `impl_applies` reads static text as text (§5.3), so its implementations are the ones.
+        let ty = if *ty == Ty::ConstStr { &Ty::Str } else { ty };
+        let any = self.impls_by_head.get(&None).map_or(&[][..], Vec::as_slice);
+        let Some(head) = impl_head(ty) else { return any.to_vec() };
+        let own = self.impls_by_head.get(&Some(head)).map_or(&[][..], Vec::as_slice);
+        let mut out = own.to_vec();
+        if !any.is_empty() {
+            out.extend_from_slice(any);
+            out.sort_unstable();
         }
         out
     }
@@ -637,6 +657,25 @@ impl TypeTable {
             }
         }
         found.into_iter().next().map(|(i, _, m)| (i, m))
+    }
+}
+
+/// What an implementation's type is at its outermost: a declaration, or one of the built-in
+/// shapes (a pointer, a slice, `i32`…) without what is inside it. [`match_ty`] only ever
+/// matches a type against a pattern with the same head, unless the pattern is a hole.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum ImplHead {
+    Named(SymbolId),
+    Shape(std::mem::Discriminant<Ty>),
+}
+
+/// The head `ty` is indexed under, or `None` for a bare parameter, which as a pattern is a
+/// hole that matches anything.
+pub(crate) fn impl_head(ty: &Ty) -> Option<ImplHead> {
+    match ty {
+        Ty::Param(_) => None,
+        Ty::Named { sym, .. } => Some(ImplHead::Named(*sym)),
+        _ => Some(ImplHead::Shape(std::mem::discriminant(ty))),
     }
 }
 

@@ -2,11 +2,45 @@
 id: T-0187
 title: Dazzle's own phases grow faster than the program: emitting, placement, ownership, instantiation
 milestone: M15
-status: open
+status: done
 kind: feature
 area: tooling
-where: `crates/dz_cpp` (emit), `crates/dz_flow` (ownership, placement), `crates/dz_mono`
+where: `crates/dz_check/src/impls.rs`: `impls_for`, `impls_that_might_apply`, `impl_head`, and `impls_by_head` on `TypeTable` (`lib.rs`); `crates/dz_cpp/src/lib.rs`: `place_instance_body`, `emit_body`, `inline_only`; `crates/dz/src/main.rs`: `cmd_pipeline`
 ---
+
+**Done** (2026-11-11). Every phase now grows with the program: the same table after, in
+milliseconds, best of three.
+
+| Phase | 10 modules | 25 | 50 | 100 |
+|---|---:|---:|---:|---:|
+| emit C++ | 90 | 202 | 398 | 808 |
+| ownership | 51 | 93 | 162 | 302 |
+| placement | 29 | 70 | 142 | 290 |
+| instantiate generics | 26 | 62 | 117 | 232 |
+| type check | 21 | 36 | 59 | 110 |
+| all of Dazzle's phases | 235 | 498 | 937 | 1 844 |
+
+Found by sampling stacks with gdb (`perf` is not allowed on the machine it was measured on).
+Three causes:
+
+- **`TypeTable::impls_for` tried every `impl` in the program** against the type it was asked
+  about, and it is under every "does this type implement that trait" question: ownership's
+  `elements_in`, placement, instantiation and emit all ask it, about every type they meet.
+  Each module adds implementations (`Eq` and `Ord` for each struct here), so the questions
+  and the implementations each grew with the program: 59% of the time at 100 modules. The
+  implementations are now also indexed by the head of their type (`impls_by_head`: a
+  declaration, or a shape such as a pointer or `i32`), and only those with the type's own
+  head, and any for a bare parameter, are tried. `match_ty` never matches a type against a
+  pattern with another head, so the answers and their order are the same.
+- **`place_instance_body` emitted an instance's bodies once for every module that needs
+  it** and threw the text away in all but the first, keeping only the `#[inline]` part for
+  the header. An `inline_only` flag now makes `emit_body` skip the others there. The generated
+  C++ is the same but for the numbers in temporaries' names.
+- **Freeing the analysis** at the end of `dz build` took 0.1 s at 100 modules; the CLI now
+  leaves that to the operating system (`ManuallyDrop`).
+
+At 100 modules Dazzle's phases went from 4.5 s to 1.84 s; small programs gain too, `hello`
+75 → 65 ms and the benchmark programs 90–101 → 74–80 ms.
 
 **What is wrong.** T-0012's generated project (`tools/bench_scale.py`), a build with nothing
 changed, clang++, release `dz`. Milliseconds per phase as the project doubles:

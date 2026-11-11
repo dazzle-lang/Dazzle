@@ -2,6 +2,34 @@
 
 Written by `python tools/bench_scale.py --markdown tests/bench_programs/SCALE.md`, which generates a project of N modules and the same program in C++ (`target/scale/<N>/`).
 
+## After T-0187 (2026-11-11, clang++)
+
+Implementations found by their type's head, instance bodies emitted once, and the analysis not freed at exit: Dazzle's own phases now grow with the program.
+
+| Modules | Lines (Dazzle / C++) | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---|---:|---:|---:|---:|
+| 10 | 5112 / 3440 | clang++ | 0.92 s / 0.59 s | 0.31 s / 0.00 s | 0.72 s / 0.41 s | 0.76 s / 0.39 s |
+| 25 | 12777 / 8600 | clang++ | 1.99 s / 1.31 s | 0.66 s / 0.00 s | 1.18 s / 0.52 s | 1.16 s / 0.49 s |
+| 50 | 25552 / 17200 | clang++ | 4.10 s / 2.65 s | 1.16 s / 0.02 s | 1.89 s / 0.71 s | 1.75 s / 0.66 s |
+| 100 | 51102 / 34400 | clang++ | 9.54 s / 5.33 s | 2.14 s / 0.05 s | 3.29 s / 1.13 s | 2.92 s / 1.02 s |
+
+Where Dazzle's time goes: its own phases / the C++ compiler and link.
+
+| Modules | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---:|---:|---:|---:|
+| 10 | clang++ | 0.25 s / 0.67 s | 0.24 s / 0.06 s | 0.24 s / 0.48 s | 0.24 s / 0.50 s |
+| 25 | clang++ | 0.51 s / 1.46 s | 0.50 s / 0.14 s | 0.50 s / 0.66 s | 0.51 s / 0.63 s |
+| 50 | clang++ | 0.96 s / 3.10 s | 0.96 s / 0.18 s | 0.95 s / 0.90 s | 0.95 s / 0.77 s |
+| 100 | clang++ | 1.90 s / 7.59 s | 1.89 s / 0.20 s | 1.88 s / 1.37 s | 1.88 s / 0.99 s |
+
+Each cell is Dazzle / C++, the median of the builds asked for, in debug (`-O0 -g`). Dazzle is `dz build`. C++ is the same program as one header and one source per module, built as `make -j` builds a plain project: each source compiled on its own when it or a header it includes is newer than its object, one per core at once, with no precompiled headers, then linked. From clean deletes both `build/` folders (Dazzle's per-user cache stays, as C++'s standard library stays built). A changed module has one function's body changed, which changes no header: the leaf is the last module, which no other calls, and the root is module 0, which every other depends on. Dazzle's own phases are everything `--timings` reports but the headers, the libraries, the C++ compiler and the link.
+
+- CPU: AMD Ryzen 7 H 255 w/ Radeon 780M Graphics (16 threads)
+- OS: Linux-6.12.115+deb13.1-amd64-x86_64-with-glibc2.41
+- `clang++`: Debian clang version 19.1.7 (3+b1)
+- `dz`: commit 7758a9c with T-0187
+- Load average before / after: 3.44 / 5.60
+
 ## After T-0185 and T-0186 (2026-11-09, clang++)
 
 Instance bodies out of headers, objects judged by size and time, and no link when nothing changed.

@@ -406,6 +406,12 @@ pub struct TypeTable {
     drop_trait: Option<SymbolId>,
     /// Every `impl Trait for Type`, in declaration order (spec §7.6).
     impls: Vec<ImplSig>,
+    /// `impls` by the head of the type each is for, in declaration order, so a question
+    /// about one type tries only the implementations that could be for it rather than
+    /// every one in the program, which made every phase that asks grow with the square of
+    /// the program (T-0187). `None` holds the ones for a bare parameter, which could be
+    /// for anything.
+    impls_by_head: HashMap<Option<impls::ImplHead>, Vec<usize>>,
     /// The `impl Drop` / `impl Copy` of each struct that has one (spec §6.1). They are
     /// implementations like any other, but they become the struct's C++ destructor and
     /// copy constructor, so each struct has at most one of each and they are found by struct.
@@ -1198,6 +1204,7 @@ impl<'a> Ctx<'a> {
                 copy_trait: None,
                 drop_trait: None,
                 impls: Vec::new(),
+                impls_by_head: HashMap::new(),
                 drop_impls: HashMap::new(),
                 copy_impls: HashMap::new(),
                 prelude_names: HashMap::new(),

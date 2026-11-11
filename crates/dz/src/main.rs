@@ -745,7 +745,10 @@ fn cmd_pipeline(
     line_directives: bool,
     show_timings: bool,
 ) -> ExitCode {
-    let mut analysis = analyse_for_build(entry, options, cxx);
+    // Never freed: the process ends with this command, and the operating system takes the
+    // memory back at once, where dropping every tree, table and instance one allocation at
+    // a time cost a 100-module build 0.1 s (T-0187).
+    let mut analysis = std::mem::ManuallyDrop::new(analyse_for_build(entry, options, cxx));
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
