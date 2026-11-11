@@ -1673,6 +1673,71 @@ fn main() {
 }
 
 #[test]
+fn a_module_being_edited_compiles_from_its_own_header_precompiled() {
+    // T-0195 — a module's file starts with its own header, which includes every module header
+    // beneath it, and a body edit leaves it as it was. So once a module is being edited (its
+    // file compiled before, and again now), that header is precompiled alongside, and the
+    // next edit compiles from it. A build from clean precompiles none.
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let manifest = "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n\
+                    [dependencies]\nstd = { open = true }\n";
+    let program = |n: u32| format!("fn main() {{\n    println!(\"{{}}\", {n})\n}}\n");
+    let dir = scratch(&format!("dz_module_pch_{}", std::process::id()), manifest, &program(1));
+    let objects = dir.join("build/obj/dz");
+    let run = || {
+        let out = Command::new(dz())
+            .args(["run", dir.to_str().unwrap()])
+            .output()
+            .expect("failed to run dz");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        normalise(&String::from_utf8_lossy(&out.stdout))
+    };
+    // The folders of the headers precompiled for this project (`std`'s is in the shared
+    // cache), each holding the header that includes the module's.
+    let module_headers = || -> Vec<PathBuf> {
+        std::fs::read_dir(&objects)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("pch-")))
+            .filter(|p| {
+                std::fs::read_to_string(p.join("std.h")).is_ok_and(|t| t.contains("/t.h\""))
+            })
+            .collect()
+    };
+
+    assert_eq!(run(), "1");
+    assert!(module_headers().is_empty(), "a build from clean precompiles no module's header");
+
+    std::fs::write(dir.join("src/main.dz"), program(2)).unwrap();
+    assert_eq!(run(), "2");
+    let built = module_headers();
+    assert_eq!(built.len(), 1, "the edited module's header is precompiled");
+    assert!(built[0].join("std.h.gch").exists());
+
+    std::fs::write(dir.join("src/main.dz"), program(3)).unwrap();
+    assert_eq!(run(), "3");
+    // The module's newest object was compiled from it: its depfile names the header.
+    let newest = std::fs::read_dir(&objects)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            let name = p.file_name().unwrap().to_string_lossy().into_owned();
+            name.starts_with("t-") && name.ends_with(".d")
+        })
+        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).unwrap())
+        .expect("the module's object has a depfile");
+    let depfile = std::fs::read_to_string(&newest).unwrap().replace('\\', "/");
+    let header = built[0].join("std.h").display().to_string().replace('\\', "/");
+    assert!(depfile.contains(&header), "{} does not name {header}:\n{depfile}", newest.display());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn no_line_directives_leaves_out_the_directives_and_nothing_else() {
     // spec §16.3 — for reading or debugging the generated C++ itself. Every file, the
     // standard library's included, is the default output with its `#line`s taken out.

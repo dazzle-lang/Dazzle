@@ -337,9 +337,15 @@ pub fn compile(
     sources.sort();
     // What each of them may start from, precompiled (T-0181).
     let std_h = files.iter().find(|p| p.file_name().is_some_and(|n| n == "std.h"));
-    let sources: Vec<(&PathBuf, Start)> = sources
+    let sources: Vec<(&PathBuf, Start, Option<String>)> = sources
         .into_iter()
-        .map(|s| (s, if std_h.is_some() { start_of(s, &files) } else { Start::Nothing }))
+        .map(|s| match std_h {
+            Some(_) => {
+                let (start, module) = start_of(s, &files);
+                (s, start, module.map(|h| include_of(&h)))
+            }
+            None => (s, Start::Nothing, None),
+        })
         .collect();
 
     let link = ws.link_inputs();
@@ -513,7 +519,7 @@ enum Failed {
 #[allow(clippy::too_many_arguments)]
 fn compile_and_link(
     cxx: &str,
-    sources: &[(&PathBuf, Start)],
+    sources: &[(&PathBuf, Start, Option<String>)],
     std_h: Option<&Path>,
     args: &[String],
     link_args: &[String],
@@ -527,7 +533,7 @@ fn compile_and_link(
         std::fs::create_dir_all(dir)
             .map_err(|e| Failed::Spawn(format!("cannot create {}: {e}", dir.display())))?;
     }
-    let std_h = std_h.filter(|_| sources.iter().any(|(_, start)| *start != Start::Nothing));
+    let std_h = std_h.filter(|_| sources.iter().any(|(_, start, _)| *start != Start::Nothing));
     let std_pch = match std_h {
         Some(std_h) => Some(Pch::prepare(cxx, args, &dirs.of(std_h), &include_of(std_h))?),
         None => None,
@@ -537,21 +543,25 @@ fn compile_and_link(
     // `None` is none.
     let mut sets: Vec<(String, Pch, bool)> = Vec::new();
     let mut wanted = vec![];
+    // The module headers to build if their file is being edited: the set, the file.
+    let mut editing = vec![];
     let mut files = Vec::new();
-    for &(source, ref start) in sources {
+    // A set's index for `includes`, prepared the first time it is asked for.
+    let set_of = |sets: &mut Vec<(String, Pch, bool)>, includes: &str| {
+        if let Some(i) = sets.iter().position(|(t, _, _)| t == includes) {
+            return Ok(i);
+        }
+        let pch = Pch::prepare(cxx, args, dir, includes)?;
+        let fresh = pch.fresh();
+        sets.push((includes.to_owned(), pch, fresh));
+        Ok::<usize, Failed>(sets.len() - 1)
+    };
+    for &(source, ref start, ref module) in sources {
         let from = match (start, &std_pch) {
             (Start::Nothing, _) | (_, None) => None,
             (Start::Std, Some(_)) => Some(Header::Std),
             (Start::Headers(text), Some(_)) => {
-                let i = match sets.iter().position(|(t, _, _)| t == text) {
-                    Some(i) => i,
-                    None => {
-                        let pch = Pch::prepare(cxx, args, dir, text)?;
-                        let fresh = pch.fresh();
-                        sets.push((text.clone(), pch, fresh));
-                        sets.len() - 1
-                    }
-                };
+                let i = set_of(&mut sets, text)?;
                 if sets[i].2 {
                     Some(Header::Set(i))
                 } else {
@@ -562,7 +572,25 @@ fn compile_and_link(
                 }
             }
         };
-        files.push((source.as_path(), from));
+        // The module's own header, which includes everything the file starts with and every
+        // module header beneath it: most of what a module's file compiles (0.47 s of 0.52 s
+        // for the leaf of a 100-module project). Precompiled only for a module being edited,
+        // whose file is compiled again; a build from clean never waits for or builds one
+        // (T-0195).
+        let base = from;
+        let from = match (from, module) {
+            (Some(_), Some(module)) => {
+                let i = set_of(&mut sets, module)?;
+                if sets[i].2 {
+                    Some(Header::Set(i))
+                } else {
+                    editing.push((i, source.as_path(), base));
+                    base
+                }
+            }
+            _ => from,
+        };
+        files.push((source.as_path(), from, base));
     }
     let pch_of = |from: Option<Header>| -> Option<&Pch> {
         match from? {
@@ -580,17 +608,19 @@ fn compile_and_link(
     // Each file's object, and whether it needs compiling.
     let mut jobs_of: Vec<Job> = files
         .into_iter()
-        .map(|(source, from)| {
+        .map(|(source, from, base)| {
             let file_args = args_of(pch_of(from));
             let object = object_path(&dirs.of(source), cxx, source, &file_args);
             let stale = !crate::native::up_to_date(&object);
-            if stale && matches!(from, Some(Header::Set(_))) {
-                // Its set's header has just been built, while the file has not changed since
-                // it was compiled from `std.h`'s: that object will do until it does.
-                let std_args = args_of(std_pch.as_ref());
-                let std_object = object_path(&dirs.of(source), cxx, source, &std_args);
-                if crate::native::up_to_date(&std_object) {
-                    return (source, Some(Header::Std), std_args, std_object, false);
+            // A header has just been built for it, while the file has not changed since it
+            // was compiled from the one before: that object will do until it does. Before a
+            // module's own header that is its set's, or `std.h`'s; before a set's, `std.h`'s.
+            let before = if base != from { base } else { Some(Header::Std) };
+            if stale && matches!(from, Some(Header::Set(_))) && before != from {
+                let before_args = args_of(pch_of(before));
+                let before_object = object_path(&dirs.of(source), cxx, source, &before_args);
+                if crate::native::up_to_date(&before_object) {
+                    return (source, before, before_args, before_object, false);
                 }
             }
             (source, from, file_args, object, stale)
@@ -613,6 +643,16 @@ fn compile_and_link(
     let mut set_children = Vec::new();
     for (i, source) in wanted {
         if stale_source(source) && !set_children.iter().any(|(j, _)| *j == i) {
+            set_children.push((i, sets[i].1.spawn(cxx, args)?));
+        }
+    }
+    // A module's own header, for a file compiled before and compiled again now: the module
+    // is being edited, and the next edit will start from it.
+    for (i, source, base) in editing {
+        let edited = jobs_of.iter().any(|(s, from, _, object, stale)| {
+            *s == source && *stale && *from == base && object.exists()
+        });
+        if edited && !set_children.iter().any(|(j, _)| *j == i) {
             set_children.push((i, sets[i].1.spawn(cxx, args)?));
         }
     }
@@ -664,7 +704,7 @@ fn compile_and_link(
             .wait_with_output()
             .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
         if !pch.finish(out.status.success()) && note.is_none() {
-            note = Some(why_not(cxx, "a module's C and C++ headers", &out.stderr));
+            note = Some(why_not(cxx, "a module's headers", &out.stderr));
         }
     }
     let started = timings.lap("C++ compiler", started);
@@ -860,10 +900,14 @@ fn put_in_place(output: &Path, source: &Path) -> std::io::Result<()> {
 struct Pch {
     header: PathBuf,
     compiled: PathBuf,
+    /// What `header` holds.
+    text: String,
 }
 
 impl Pch {
-    /// Write the header holding `includes`, if it is not already there as it should be.
+    /// The header holding `includes`: where it and its precompiled form go. Nothing is
+    /// written until it is built (`spawn`), so asking after a module's own header, which most
+    /// builds never build, leaves no folder behind (T-0195).
     fn prepare(cxx: &str, args: &[String], dir: &Path, includes: &str) -> Result<Pch, Failed> {
         let mut key = Vec::new();
         let parts = std::iter::once(cxx).chain(args.iter().map(String::as_str));
@@ -872,16 +916,10 @@ impl Pch {
             key.push(0);
         }
         let folder = dir.join(format!("pch-{:016x}", crate::native::fnv1a(&key)));
-        std::fs::create_dir_all(&folder)
-            .map_err(|e| Failed::Spawn(format!("cannot create {}: {e}", folder.display())))?;
         let header = folder.join("std.h");
         let text = format!("// Generated by the Dazzle compiler. Do not edit.\n{includes}");
-        // Rewritten only when it changes: clang++ refuses a precompiled header whose inputs
-        // are newer than it, even with the same contents.
-        crate::shared::write(&header, text.as_bytes())
-            .map_err(|e| Failed::Spawn(format!("cannot write {}: {e}", header.display())))?;
         let compiled = folder.join("std.h.gch");
-        Ok(Pch { header, compiled })
+        Ok(Pch { header, compiled, text })
     }
 
     /// Is the precompiled header there, built from what its inputs hold now, and newer than
@@ -905,6 +943,17 @@ impl Pch {
     /// Build it beside its final name; `finish` puts it in place. A build cut short leaves the
     /// old one as it was, and two `dz` processes building it at once each write their own.
     fn spawn(&self, cxx: &str, args: &[String]) -> Result<std::process::Child, Failed> {
+        if let Some(folder) = self.header.parent() {
+            std::fs::create_dir_all(folder)
+                .map_err(|e| Failed::Spawn(format!("cannot create {}: {e}", folder.display())))?;
+        }
+        // Rewritten only when it changes: clang++ refuses a precompiled header whose inputs
+        // are newer than it, even with the same contents.
+        if std::fs::read_to_string(&self.header).ok().as_deref() != Some(self.text.as_str()) {
+            crate::shared::write(&self.header, self.text.as_bytes()).map_err(|e| {
+                Failed::Spawn(format!("cannot write {}: {e}", self.header.display()))
+            })?;
+        }
         Command::new(cxx)
             .args(args)
             .args(["-x", "c++-header"])
@@ -996,7 +1045,7 @@ fn include_of(path: &Path) -> String {
 /// headers (`<SDL3/SDL.h>`), all before a line of its own. Including that run of headers
 /// before anything else, precompiled, changes nothing. It ends at the first line that is
 /// not one of them, such as another module's header, which changes with an edit.
-fn start_of(source: &Path, files: &[PathBuf]) -> Start {
+fn start_of(source: &Path, files: &[PathBuf]) -> (Start, Option<PathBuf>) {
     // Lines that are neither blank, a comment, nor a module header's include guard.
     fn lines(text: &str) -> impl Iterator<Item = &str> {
         text.lines().map(str::trim).filter(|line| {
@@ -1010,12 +1059,12 @@ fn start_of(source: &Path, files: &[PathBuf]) -> Start {
         line.strip_prefix("#include")?.trim().strip_prefix('"')?.split('"').next()
     }
     let generated = |name: &str| files.iter().find(|f| f.file_name().is_some_and(|n| n == name));
-    let Ok(text) = std::fs::read_to_string(source) else { return Start::Nothing };
+    let Ok(text) = std::fs::read_to_string(source) else { return (Start::Nothing, None) };
     let first = lines(&text).next().and_then(quoted);
     let Some(header) = first.filter(|&name| name != "std.h").and_then(generated) else {
-        return Start::Nothing;
+        return (Start::Nothing, None);
     };
-    let Ok(text) = std::fs::read_to_string(header) else { return Start::Nothing };
+    let Ok(text) = std::fs::read_to_string(header) else { return (Start::Nothing, None) };
     let (mut std, mut includes, mut libraries) = (false, String::new(), false);
     for line in lines(&text) {
         match quoted(line) {
@@ -1035,9 +1084,9 @@ fn start_of(source: &Path, files: &[PathBuf]) -> Start {
         }
     }
     match (std, libraries) {
-        (false, _) => Start::Nothing,
-        (true, false) => Start::Std,
-        (true, true) => Start::Headers(includes),
+        (false, _) => (Start::Nothing, None),
+        (true, false) => (Start::Std, Some(header.clone())),
+        (true, true) => (Start::Headers(includes), Some(header.clone())),
     }
 }
 

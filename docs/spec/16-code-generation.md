@@ -173,6 +173,9 @@ from `std.h` precompiled, so that translation unit does not parse the standard l
 The bodies of the generic instances a module is the first to need are a file of their own,
 `<module>.inst.cpp`, with temporaries numbered apart from the module's own code, so an edit
 to one of the module's bodies leaves that file as it was and it is not compiled again.
+A module being edited, one whose file is compiled again, gets its own header precompiled
+alongside that compile. That header holds every module header beneath it, and the module's
+next edit compiles from it, so an edit costs about what the module's own code does.
 
 **A build with nothing changed does nothing.** A successful `dz build` or `dz run` records
 what it read, in `build/obj/dz/build-<key>.stamp`. The key is what the build was asked for:

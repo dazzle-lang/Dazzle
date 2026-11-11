@@ -1212,3 +1212,30 @@ It found one difference anyway: a removed module's `.h`, `.cpp` and `.inst.cpp` 
 `build/cpp`. Nothing includes or compiles them, so the program is right, but they are stale
 output, and per-module reuse will have to tell a module removed from one left alone. The
 test tolerates exactly those files, for a module its edit removed, until T-0194 deletes them.
+
+## The module being edited compiles from its own header (T-0195; 2026-11-11)
+
+Stage 3b. After T-0191 a leaf edit at 100 modules still spent 0.9 s compiling the module's
+`.cpp`. Taking the file apart showed where:
+- an empty file with the same flags: 0.04 s;
+- `#include "m099.h"` alone: 0.47 s, 129 000 lines of module headers beneath it;
+- with the module's own 890 lines: 0.52 s.
+
+So the module's own header is now precompiled once the module is being edited, and the next
+edit starts from it. This is T-0181's header sets with one more set per file, the module's
+header. It is built alongside a compile of a file whose object exists but is stale, and used
+from the next build on while it is fresh. A build from clean has no stale objects, so it
+builds none and waits for none.
+
+`Pch::prepare` used to write each header's folder when it was asked about. Asking about a
+module's header for every module left 101 empty folders, so the folder is written by
+`spawn` now. The object compiled from the header before is reused while the file has not
+changed, as it already was for a set's.
+
+Leaf edit, the C++ compiler phase, from the second edit on:
+- 100 modules, clang++: 0.91 s to 0.24 s;
+- 10 modules, clang++: 0.32 s to 0.20 s;
+- 10 modules, g++: 0.43 s to 0.14 s.
+
+At 100 modules the whole edit went from 3.3 s to 2.45 s. What is left is Dazzle's own
+phases, 1.7 s (stage 2 of the plan), and the link, 0.44 s with GNU `ld` (stage 3c).
