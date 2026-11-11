@@ -1307,3 +1307,42 @@ program.
 
 The link varied between 0.08 s and 0.44 s across the day with GNU `ld`, for the same
 link, so compare its column with care.
+
+## A body-only edit leaves the modules above it alone (T-0198; 2026-11-11)
+
+Stage 2b, the last of the plan. T-0197 redid every module depending on an edited one, so a
+body edit to the root of the 100-module project redid all of them: 2.32 s, against 1.0 s
+for `make`, which recompiles the one `.cpp`.
+
+**The interface.** A module's record now also holds a hash of what other modules' C++ can be
+made from of it, written from its AST:
+- declarations and signatures, constants, statics, macros and imports, as text;
+- field defaults and default arguments, as text with their line;
+- generic items and traits whole, with their line.
+
+The body of a plain function, method or constructor is left out. A module is redone when its
+own sources changed, or the interface of anything beneath it did.
+
+Lines are kept only where a position reaches another module, and the corpus showed it does.
+`root_body_grows_above_a_generic` grows a body above a generic that only `m001`
+instantiates. With lines left out entirely it failed: verify reported `m001.inst.cpp`
+differs, its `#line`s naming the moved generic. The first version of that scenario used
+`Shelf0<T>`, whose instances the root itself defines, and passed either way. So it now adds
+a generic of its own.
+
+**Placement** can carry a body across modules too: whether a callee keeps an argument, or
+builds its result whole, comes from the callee's body. So each record also holds a
+fingerprint of what placement decided for the module's own bodies
+(`BodyPlacement::fingerprint`, which leaves the file's id out), and one for every generic
+body. Placement moved before the choice of modules, so `--timings` lists it before
+ownership. No scenario in the corpus moves a decision across modules this way, so that part
+is held up by verify alone.
+
+**Measured** (`SCALE.md`), at 100 modules:
+- a root edit: 2.32 s to 1.08 s, against 1.00 s for `make`;
+- a leaf edit: 1.08 s, against 1.10 s;
+- nothing changed: 0.01 s, against 0.05 s.
+
+From clean is 13.2 s, against 5.2 s for C++, mostly T-0191's extra translation units.
+What remains of an edit at scale is placement, 0.29 s, and the front end, 0.17 s, over the
+whole program.

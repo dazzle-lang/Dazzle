@@ -51,8 +51,10 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    from its own header, precompiled (a leaf edit's C++ 0.91 s to 0.24 s); T-0196, a debug
    build links with `mold` or `lld` when one is installed; T-0197, an edit re-runs
    ownership, instantiation and emission only for the modules it can affect (a leaf edit
-   at 100 modules 2.45 s to 0.88 s, against 1.1 s for `make`). Next in that plan: stage
-   2b, so a body-only edit to a module others depend on does not redo them. Left besides: the rest
+   at 100 modules 2.45 s to 0.88 s, against 1.1 s for `make`); T-0198, a body-only edit
+   to a module others depend on leaves them as they were (the root's, 2.32 s to 0.88 s,
+   against 1.0 s). The plan is done; what is left at scale is placement and the front end
+   over the whole program, T-0023's ground. Left besides: the rest
    of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
    `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
    only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the

@@ -200,7 +200,11 @@ build printed and stops, without analysing anything; `dz run` runs the program.
 wrote: a hash of its sources, the files it wrote, and the instance bodies it needs and
 defines. The next build reads the whole program and checks its types as before. It then
 checks ownership, instantiates generics and writes C++ only for the modules whose own
-sources changed, or which depend on one that did. The others' files stay in `build/cpp`
+sources changed, or which depend on one whose *interface* changed: its declarations,
+constants, defaults, and generic and trait bodies, but not the body of a plain function,
+which only its own module's C++ holds. As in C++, an edit inside a function body is then
+compiled again in its own module alone. What placement decided for each body is compared
+too, since it can carry a callee's body into its callers. The others' files stay in `build/cpp`
 as they were, and their warnings are printed from their records. Which module defines an
 instance body is worked out the same way whether it is written now or kept, so the result
 is the same C++ a build of the whole program writes. `DZ_INCREMENTAL=verify` checks that,

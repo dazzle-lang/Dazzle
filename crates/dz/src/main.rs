@@ -708,7 +708,7 @@ fn analyse_for_build(
     options: &dz_driver::BuildOptions,
     cxx: Option<&str>,
 ) -> build::Analysis {
-    analyse_selecting_for_build(entry, options, cxx, &|_, _, _| None)
+    analyse_selecting_for_build(entry, options, cxx, &|_| None)
 }
 
 /// [`analyse_for_build`], with `select` choosing which modules to finish (T-0197).
@@ -793,12 +793,9 @@ fn cmd_pipeline(
     let records =
         stamp.as_ref().filter(|_| reuse_mode.is_some()).map(|k| reuse::Records::load(&root, k));
     let cpp_dir = root.join("cpp");
-    let select = |ws: &dz_project::Workspace,
-                  map: &dz_span::SourceMap,
-                  files: &std::collections::HashMap<
-        dz_project::ModuleId,
-        Vec<dz_resolve::ParsedFile>,
-    >| { records.as_ref().and_then(|r| r.select(&cpp_dir, ws, map, files)) };
+    let select = |checked: &dz_driver::Checked<'_>| {
+        records.as_ref().and_then(|r| r.select(&cpp_dir, checked))
+    };
     let mut analysis =
         std::mem::ManuallyDrop::new(analyse_selecting_for_build(entry, options, cxx, &select));
     // The ownership warnings of the modules not checked again, as their last build gave them.

@@ -603,6 +603,13 @@ pub struct BodyPlacement {
 }
 
 impl BodyPlacement {
+    /// Every decision, as text, without the file's id, which moves when a file is added
+    /// before it: what a build compares to tell whether this body's C++ could differ from
+    /// the last build's (T-0198).
+    pub fn fingerprint(&self) -> String {
+        format!("{:?}\n{:?}\n{:?}", self.sites, self.demoted, self.skipped)
+    }
+
     /// The blocks that declare a region, each once, in id order.
     pub fn region_blocks(&self) -> Vec<BlockId> {
         let mut blocks: Vec<BlockId> = self

@@ -1316,8 +1316,10 @@ fn timings_name_every_phase_on_standard_error() {
         "#if and macros",
         "resolve names",
         "type check",
-        "ownership",
+        // Before ownership: what placement decided is part of choosing which modules
+        // ownership runs for (T-0198).
         "placement",
+        "ownership",
         "instantiate generics",
         "emit C++",
         "C and C++ libraries",

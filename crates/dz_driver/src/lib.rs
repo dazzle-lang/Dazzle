@@ -107,14 +107,21 @@ pub struct Analysis {
     pub flow_diags: Diagnostics,
 }
 
-/// Which modules to finish, asked once every module is type-checked: `None` for all of them.
+/// Which modules to finish, asked once every module is type-checked and placed: `None` for
+/// all of them.
 /// A build answers from what its last build recorded, so a module an edit cannot affect is
 /// not checked for ownership or instantiated again (T-0197).
-pub type Select<'a> = &'a dyn Fn(
-    &Workspace,
-    &SourceMap,
-    &HashMap<ModuleId, Vec<ParsedFile>>,
-) -> Option<HashSet<ModuleId>>;
+pub type Select<'a> = &'a dyn Fn(&Checked<'_>) -> Option<HashSet<ModuleId>>;
+
+/// What a build chooses from (see [`Select`]): every module checked and placed.
+pub struct Checked<'a> {
+    pub ws: &'a Workspace,
+    pub map: &'a SourceMap,
+    pub files: &'a HashMap<ModuleId, Vec<ParsedFile>>,
+    pub hir: &'a dz_hir::Hir,
+    pub table: &'a dz_check::TypeTable,
+    pub placements: &'a dz_flow::placement::Placements,
+}
 
 /// Load a project from disk and run every analysis phase that the previous one left viable.
 pub fn analyse(entry: &Path) -> Analysis {
@@ -155,7 +162,7 @@ pub fn analyse_prepared(
     options: &BuildOptions,
     prepare: &mut dyn FnMut(&Workspace, &mut Diagnostics),
 ) -> Analysis {
-    analyse_selecting(entry, overlay, mode, options, prepare, &|_, _, _| None)
+    analyse_selecting(entry, overlay, mode, options, prepare, &|_| None)
 }
 
 /// [`analyse_prepared`], with `select` choosing which modules ownership and instantiation
@@ -342,7 +349,20 @@ pub fn analyse_selecting(
             // it failed: a body whose types are unknown moves values of unknown kinds, and
             // every answer this pass gave would be a guess.
             if checked_cleanly {
-                finished = select(&ws, &map, &files);
+                // Placement reads the same bodies, one at a time, as the editor can (§14.6).
+                // Before the choice: what each body's placement decided is part of what a
+                // build compares to choose (T-0198).
+                let placed = dz_flow::placement::place(&checked.hir, &checked.table, &r);
+                lap = timings.lap("placement", lap);
+                finished = select(&Checked {
+                    ws: &ws,
+                    map: &map,
+                    files: &files,
+                    hir: &checked.hir,
+                    table: &checked.table,
+                    placements: &placed,
+                });
+                placements = Some(placed);
                 // The files of the modules chosen; `std`'s own bodies are never checked
                 // again, since nothing in a project changes them.
                 let only: Option<HashSet<FileId>> = finished.as_ref().map(|chosen| {
@@ -356,9 +376,6 @@ pub fn analyse_selecting(
                 flow_diags.extend(flow.iter().cloned());
                 diags.extend(flow);
                 lap = timings.lap("ownership", lap);
-                // Placement reads the same bodies, one at a time, as the editor can (§14.6).
-                placements = Some(dz_flow::placement::place(&checked.hir, &checked.table, &r));
-                lap = timings.lap("placement", lap);
                 // Instantiation runs here rather than at codegen so that `dz check`
                 // reports a runaway instantiation (DZ0536) too; it is a property of the
                 // program, not of the C++ (spec §8.4).

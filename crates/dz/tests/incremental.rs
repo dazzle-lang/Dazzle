@@ -83,6 +83,34 @@ const SCENARIOS: &[Scenario] = &[
         setup: &[],
         edit: &[Replace(M000, "return (p.score() + 0) % 1000003", "return (p.score() + 1) % 1000003")],
     },
+    // A body edit to a module every other depends on, which leaves its interface as it was
+    // (T-0198): the modules above keep their C++.
+    Scenario {
+        name: "root_constructor_body",
+        project: Scale,
+        setup: &[],
+        edit: &[Replace(M000, "label = format!(\"p0_0_{}\", id)", "label = format!(\"q0_0_{}\", id)")],
+    },
+    // A body that grows a line moves everything after it, and `pick0<T>`, a generic only
+    // `m001` instantiates, is further down: its instance is in `m001`'s C++ and names its
+    // lines in `#line`s, so `m001` must be written again (T-0198).
+    Scenario {
+        name: "root_body_grows_above_a_generic",
+        project: Scale,
+        setup: &[
+            Replace(
+                M000,
+                "pub fn touch0(",
+                "pub fn pick0<T: Copy>(x: T) -> T {\n    let y = x\n    return y\n}\n\npub fn touch0(",
+            ),
+            Replace(M001, M001_CALL, "touch0(pick0(seed + 1))"),
+        ],
+        edit: &[Replace(
+            M000,
+            "weight = (id * 3 + 1) % 1009",
+            "weight = (id * 3 + 1) % 1009\n        weight = weight % 1009",
+        )],
+    },
     Scenario {
         name: "root_signature",
         project: Scale,

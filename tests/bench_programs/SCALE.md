@@ -2,6 +2,34 @@
 
 Written by `python tools/bench_scale.py --markdown tests/bench_programs/SCALE.md`, which generates a project of N modules and the same program in C++ (`target/scale/<N>/`).
 
+## After T-0198 (2026-11-11, clang++)
+
+A body-only edit to a module others depend on leaves them as they were: the root module's edit is now as cheap as the leaf's. Three builds per scenario, GNU `ld`.
+
+| Modules | Lines (Dazzle / C++) | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---|---:|---:|---:|---:|
+| 10 | 5112 / 3440 | clang++ | 1.05 s / 0.59 s | 0.02 s / 0.00 s | 0.34 s / 0.39 s | 0.34 s / 0.38 s |
+| 25 | 12777 / 8600 | clang++ | 2.37 s / 1.28 s | 0.03 s / 0.00 s | 0.56 s / 0.50 s | 0.57 s / 0.47 s |
+| 50 | 25552 / 17200 | clang++ | 5.10 s / 2.60 s | 0.00 s / 0.01 s | 0.72 s / 0.69 s | 0.73 s / 0.64 s |
+| 100 | 51102 / 34400 | clang++ | 13.19 s / 5.24 s | 0.01 s / 0.05 s | 1.08 s / 1.10 s | 1.08 s / 1.00 s |
+
+Where Dazzle's time goes: its own phases / the C++ compiler and link.
+
+| Modules | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---:|---:|---:|---:|
+| 10 | clang++ | 0.22 s / 0.81 s | 0.02 s / 0.00 s | 0.10 s / 0.22 s | 0.10 s / 0.23 s |
+| 25 | clang++ | 0.47 s / 1.88 s | 0.03 s / 0.00 s | 0.17 s / 0.38 s | 0.17 s / 0.38 s |
+| 50 | clang++ | 0.92 s / 4.15 s | 0.00 s / 0.00 s | 0.30 s / 0.41 s | 0.30 s / 0.40 s |
+| 100 | clang++ | 1.84 s / 11.28 s | 0.01 s / 0.00 s | 0.56 s / 0.48 s | 0.57 s / 0.47 s |
+
+Each cell is Dazzle / C++, the median of the builds asked for, in debug (`-O0 -g`). Dazzle is `dz build`. C++ is the same program as one header and one source per module, built as `make -j` builds a plain project: each source compiled on its own when it or a header it includes is newer than its object, one per core at once, with no precompiled headers, then linked. From clean deletes both `build/` folders (Dazzle's per-user cache stays, as C++'s standard library stays built). A changed module has one function's body changed, which changes no header: the leaf is the last module, which no other calls, and the root is module 0, which every other depends on. Dazzle's own phases are everything `--timings` reports but the headers, the libraries, the C++ compiler and the link.
+
+- CPU: AMD Ryzen 7 H 255 w/ Radeon 780M Graphics (16 threads)
+- OS: Linux-6.12.115+deb13.1-amd64-x86_64-with-glibc2.41
+- `clang++`: Debian clang version 19.1.7 (3+b1)
+- `dz`: commit 613593c with T-0198
+- Load average before / after: 8.80 / 8.18
+
 ## After the incremental build (T-0191 to T-0197; 2026-11-11, clang++)
 
 A build with nothing changed checks a stamp (T-0192); a module's instance bodies are a file of their own (T-0191); the module being edited compiles from its own header, precompiled (T-0195); and an edit finishes only the modules it can affect (T-0197). Each scenario is three builds, so an edited module's header is precompiled from the second on. No `mold` or `lld` was installed, so the link is GNU `ld`'s.
