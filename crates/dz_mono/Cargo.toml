@@ -7,6 +7,7 @@ license.workspace = true
 description = "Monomorphization for the Dazzle language"
 
 [dependencies]
+dz_ast.workspace = true
 dz_span.workspace = true
 dz_diag.workspace = true
 dz_project.workspace = true

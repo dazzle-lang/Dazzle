@@ -1381,3 +1381,39 @@ depfile from g++ does not name the precompiled header.
 **Measured** (`SCALE.md`): from clean at 100 modules 13.19 s to 8.99 s (C++: 5.22 s), the
 C++ compiler 11.28 s to 7.11 s; at 50, 5.10 s to 3.83 s. Edits as they were. Next is
 declaring only the instance methods a program calls, T-0199's second fix.
+
+## An instance has only the methods the program calls (T-0199; 2026-11-11)
+
+T-0199's second fix. Every instance of a generic struct declared every method of the
+generic in each header that held it, and its owner's file defined them all: about 45 for a
+`List`, against the handful a program calls.
+
+**Which methods.** `dz_mono::called_methods` walks the whole program once: every body but a
+generic struct's plain methods is a root, and such a method's body joins once something
+counted calls it, by `Method`, `BaseMethod` or `Assoc`. It is per generic and name, not per
+instance: a call anywhere, `std` included, keeps the method on every instance. Per instance
+would keep about 5 of a `List`'s 36 where this keeps 18, but needs the type arguments
+followed through every call, which instantiation only does for the modules a build redoes.
+
+**Why it must be whole-program.** An instance's class is written, under one include guard,
+into the header of every module that uses it, and a file gets the first one it includes. So
+every header must say the same, and a module the incremental build keeps has the header it
+had. The set is folded into the program-wide `templates` fingerprint, which redoes every
+module when it changes. Two edit scenarios, `first_call_of_a_method` and
+`last_call_of_a_method`, both fail with the fingerprint left out.
+
+**What stays.** `virtual` and `override` methods, since a table of them names each;
+constructors, `drop`, `copy` and constants; methods with type parameters of their own,
+instantiated per call already; and every method of an instance `std` itself holds, since
+`std.h` is shared by every program on the machine (T-0182) and is included before any
+module's header, so its full copy is the one every file gets.
+
+The emitter writes no method calls of its own: a `for` loop, an index or an operator goes
+through a trait's implementation, which is a root. So a method missed would be a C++
+compile error in every build, not a link error in some, and the run corpus passes on
+clang++ and g++.
+
+**Measured** (`SCALE.md`): from clean at 100 modules 8.99 s to 7.22 s (C++: 5.24 s); the
+C++ compiler 7.11 s to 5.64 s, and Dazzle's own phases 1.81 s to 1.51 s, as fewer instances
+are made. `m050`'s two files as one 0.48 s to 0.38 s, against 0.34 s for its C++. What is
+left of a clean build's gap is mostly Dazzle's own phases over the whole program.

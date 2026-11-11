@@ -2,11 +2,31 @@
 id: T-0199
 title: A clean build at scale parses every module's headers twice, and every List instance whole
 milestone: M15
-status: open
+status: done
 kind: feature
 area: tooling
-where: `compile` in `crates/dz/src/build.rs`; `dz_cpp::emit` and the instance class declarations in `crates/dz_cpp/src/lib.rs`
+where: `combine` in `crates/dz/src/build.rs`; `dz_mono::Called`; `Emitter::has_method` in `crates/dz_cpp/src/lib.rs`
 ---
+
+**Done** (2026-11-11), fixes 1 and 2; fix 3 is not needed. From clean at 100 modules
+13.19 s to 7.22 s, against 5.24 s for C++ (2.5× to 1.4×), and edits as they were. The C++
+compiler is now 5.64 s of it, about what C++ takes; most of what is left is Dazzle's own
+phases, 1.51 s, over the whole program (T-0023's ground). An instance could still be
+trimmed further, per instance rather than per generic (below), but the C++ compiler is no
+longer where the gap is.
+
+**Fix 2 done** (2026-11-11): an instance outside `std` declares and defines only the
+methods the program calls (`dz_mono::Called`). Found per generic struct, not per instance,
+from the whole program: every body but those methods' own is a root, and a method counts
+once something counted calls it. So a `List<PartN>` keeps 18 of 36 methods, the ones `std`
+and the program call on any `List`; per instance it would be about five, which would need
+the type arguments followed through every call. Kept whatever is called: `virtual` and
+`override` methods, constructors, `drop`, `copy`, constants, and every method of an
+instance `std` holds, since `std`'s files are shared by every program (T-0182). The set is
+the same in every header, so a change to it (the first call anywhere of a method, or the
+last gone) redoes every module, through the incremental build's program-wide fingerprint.
+From clean at 100 modules 8.99 s to 7.22 s; `m050`'s two files as one 0.48 s to 0.38 s,
+against 0.34 s for its C++.
 
 **Fix 1 done** (2026-11-11): when more files need compiling than there are cores, a
 module's `.cpp` and `.inst.cpp` are compiled as one, `build/obj/dz/<module>.both.cpp`,
@@ -23,8 +43,10 @@ longer. Left: fixes 2 and 3 below.
 | Which pairs are compiled as one, and when | `combine` in `crates/dz/src/build.rs`, called from `compile_and_link` |
 | A module's header precompiled after a combined build | `Together::before`, in `compile_and_link`'s `editing` loop |
 | The two files written, per module | `dz_cpp::emit` in `crates/dz_cpp/src/lib.rs` |
-| The instance class declarations, and their bodies (fix 2) | `Emitter::instance_decl` and `Emitter::instance_struct_bodies` in `crates/dz_cpp/src/lib.rs` |
-| Tested by | the incremental corpus, `crates/dz/tests/incremental.rs`: its 10-module first build has more files than a 16-core machine, so it combines, and each edit then compiles apart |
+| Which methods the program calls (fix 2) | `Called` and `called_methods` in `crates/dz_mono/src/lib.rs`; `instantiate_type` skips the others |
+| An instance's class and bodies without them | `Emitter::has_method`, used by `struct_decl` and `struct_bodies` in `crates/dz_cpp/src/lib.rs` |
+| A change to the set redoes every module | `Facts::of` in `crates/dz/src/reuse.rs`, into `templates` |
+| Tested by | the incremental corpus, `crates/dz/tests/incremental.rs`: its 10-module first build has more files than a 16-core machine, so it combines, and each edit then compiles apart; `first_call_of_a_method` and `last_call_of_a_method` change the set; `an_instance_has_only_the_methods_the_program_calls` in `crates/dz/tests/run.rs` |
 
 **What is wrong.** After T-0198 an edit at 100 modules costs what `make` does, but a build
 from clean is still 2.5× C++'s: 13.2 s against 5.2 s (`tests/bench_programs/SCALE.md`),

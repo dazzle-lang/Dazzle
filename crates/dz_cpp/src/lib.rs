@@ -2426,6 +2426,14 @@ impl<'a> Emitter<'a> {
     /// A struct's C++ definition. `args` is empty for an ordinary struct, and holds the type
     /// arguments of an instance of a generic one (spec §8.4), which is emitted from the same
     /// declaration under its mangled name with every type substituted.
+    /// Does this instance of `sym` (`args`, empty for a plain struct) have its method `key`?
+    /// An instance outside `std` has only the methods the program calls, so its class is
+    /// cheaper for every file that includes it to parse (T-0199, `dz_mono::Called`); `std`'s
+    /// files are shared by every program, so its instances have them all.
+    fn has_method(&self, sym: SymbolId, args: &[Ty], key: &str) -> bool {
+        args.is_empty() || self.emitting == self.res.prelude || self.mono.called.keeps(sym, key)
+    }
+
     fn struct_decl(&mut self, s: &StructDecl, sym: SymbolId, args: &[Ty]) {
         let name = self.struct_cpp_name(s, sym, args);
         // `struct Button : UiElement` lowers to C++ single inheritance, which is what puts
@@ -2527,7 +2535,7 @@ impl<'a> Emitter<'a> {
                     fns += 1;
                     // A method with parameters of its own is not a member: each instance is
                     // a free function of its own (`method_instance_fn`, spec §8.4).
-                    if !f.generics.is_empty() {
+                    if !f.generics.is_empty() || !self.has_method(sym, args, &key) {
                         continue;
                     }
                     let method = f.name.name.clone();
@@ -2787,7 +2795,7 @@ impl<'a> Emitter<'a> {
                 MemberKind::Fn(f) => {
                     let key = keys.get(fns).cloned().unwrap_or_else(|| f.name.name.clone());
                     fns += 1;
-                    if !f.generics.is_empty() {
+                    if !f.generics.is_empty() || !self.has_method(sym, args, &key) {
                         continue;
                     }
                     let method = f.name.name.clone();

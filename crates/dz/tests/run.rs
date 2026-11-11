@@ -1605,6 +1605,62 @@ fn a_build_ignores_cpp_left_behind_by_a_module_that_is_gone() {
 }
 
 #[test]
+fn an_instance_has_only_the_methods_the_program_calls() {
+    // T-0199 — an instance's class is parsed by every file whose headers hold it, so it
+    // declares, and its module's file defines, only the methods something calls: called
+    // directly, or from a method that is. A `virtual` method stays, since a table of them
+    // names it.
+    const CELL: &str = "\
+pub struct Cell<T: Copy> {
+    pub value: T
+
+    pub fn get(&self) -> T {
+        return self.inner()
+    }
+
+    fn inner(&self) -> T {
+        return self.value
+    }
+
+    pub fn unused(&self) -> T {
+        return self.value
+    }
+
+    pub virtual fn describe(&self) -> i32 {
+        return 7
+    }
+}
+";
+    const MAIN: &str = "\
+fn main() {
+    let c = Cell<i32>{ value: 5 }
+    println!(\"{}\", c.get())
+}
+";
+    let manifest = "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n\
+                    [dependencies]\nstd = { open = true }\n";
+    let dir = scratch("dz_called_methods", manifest, MAIN);
+    std::fs::write(dir.join("src/cell.dz"), CELL).unwrap();
+    let out = Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let read = |name: &str| std::fs::read_to_string(dir.join("build/cpp").join(name)).unwrap();
+    let (header, instances) = (read("t.h"), read("t.inst.cpp"));
+    for called in ["get(", "inner(", "describe("] {
+        assert!(header.contains(called), "`{called}` is declared\n{header}");
+        assert!(instances.contains(&format!("Cell__i32::{called}")), "`{called}` is defined");
+    }
+    assert!(!header.contains("unused("), "a method nothing calls is not declared\n{header}");
+    assert!(!instances.contains("unused("), "nor defined\n{instances}");
+
+    if have_compiler() {
+        let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "5");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_body_edit_leaves_the_instance_file_unchanged() {
     // T-0191 — the bodies of the generic instances a module is the first to need are a file
     // of their own, `<module>.inst.cpp`, so an edit to one of the module's own bodies leaves

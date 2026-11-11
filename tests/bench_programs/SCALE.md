@@ -2,6 +2,34 @@
 
 Written by `python tools/bench_scale.py --markdown tests/bench_programs/SCALE.md`, which generates a project of N modules and the same program in C++ (`target/scale/<N>/`).
 
+## After T-0199's second fix (2026-11-11, clang++)
+
+An instance outside `std` declares and defines only the methods the program calls: a `List<PartN>` here keeps 18 of its 36 methods, those `std` and the program call on any `List`. From clean at 100 modules: 8.99 s to 7.22 s, the C++ compiler 7.11 s to 5.64 s, and Dazzle's own phases 1.81 s to 1.51 s, as fewer instances are made. Edits are as they were. Three builds per scenario, GNU `ld`; the machine was busy when it started (load 20).
+
+| Modules | Lines (Dazzle / C++) | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---|---:|---:|---:|---:|
+| 10 | 5112 / 3440 | clang++ | 0.69 s / 0.59 s | 0.02 s / 0.00 s | 0.30 s / 0.39 s | 0.30 s / 0.39 s |
+| 25 | 12777 / 8600 | clang++ | 1.46 s / 1.31 s | 0.03 s / 0.01 s | 0.45 s / 0.50 s | 0.45 s / 0.48 s |
+| 50 | 25552 / 17200 | clang++ | 3.02 s / 2.61 s | 0.00 s / 0.01 s | 0.73 s / 0.69 s | 0.73 s / 0.64 s |
+| 100 | 51102 / 34400 | clang++ | 7.22 s / 5.24 s | 0.01 s / 0.05 s | 1.00 s / 1.10 s | 0.99 s / 1.00 s |
+
+Where Dazzle's time goes: its own phases / the C++ compiler and link.
+
+| Modules | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---:|---:|---:|---:|
+| 10 | clang++ | 0.20 s / 0.48 s | 0.01 s / 0.00 s | 0.10 s / 0.19 s | 0.10 s / 0.19 s |
+| 25 | clang++ | 0.40 s / 1.03 s | 0.02 s / 0.00 s | 0.17 s / 0.26 s | 0.17 s / 0.27 s |
+| 50 | clang++ | 0.76 s / 2.23 s | 0.00 s / 0.00 s | 0.29 s / 0.41 s | 0.29 s / 0.41 s |
+| 100 | clang++ | 1.51 s / 5.64 s | 0.00 s / 0.00 s | 0.56 s / 0.40 s | 0.56 s / 0.39 s |
+
+Each cell is Dazzle / C++, the median of the builds asked for, in debug (`-O0 -g`), as in the sections below.
+
+- CPU: AMD Ryzen 7 H 255 w/ Radeon 780M Graphics (16 threads)
+- OS: Linux-6.12.115+deb13.1-amd64-x86_64-with-glibc2.41
+- `clang++`: Debian clang version 19.1.7 (3+b1)
+- `dz`: commit f1b8100 with T-0199's second fix
+- Load average before / after: 20.57 / 9.90
+
 ## After T-0199's first fix (2026-11-11, clang++)
 
 When more files need compiling than there are cores, a module's `.cpp` and `.inst.cpp` are compiled as one file, so the module headers they both include are parsed once. From clean at 100 modules: 13.19 s to 8.99 s, the C++ compiler 11.28 s to 7.11 s. Edits are as they were. Three builds per scenario, GNU `ld`. The machine was still busy from a test run when it started (load 17), which if anything slows the first sizes.

@@ -58,7 +58,8 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    2.5× C++'s, profiled the same day as T-0199: clang++ parsing module headers, twice per
    module, full of every `List` instance's methods. Its first fix, a module's two files
    compiled as one when the build has more files than cores, took 100 modules from 13.2 s
-   to 9.0 s (C++: 5.2 s); declaring only the instance methods a program calls is next.
+   to 9.0 s, and its second, an instance declaring only the methods the program calls, to
+   7.2 s (C++: 5.2 s). The C++ compiler is now about C++'s; the rest is Dazzle's phases.
    Left besides: the rest
    of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
    `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling

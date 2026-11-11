@@ -8,6 +8,12 @@ area: codegen
 where: `crates/dz_cpp/src/lib.rs`: `place_instance_body`, `instance_definitions`; `crates/dz_mono`
 ---
 
+**Mostly done by T-0199** (2026-11-11): an instance outside `std` now declares and defines
+only the methods the program calls, found from the whole program per generic struct
+(`dz_mono::Called`). A method nobody calls is no longer compiled, which was this task's
+first cost. What is left is the per-module half below, each module defining `inline` what
+it calls, which only g++'s inlining would gain from and the inline budget already covers.
+
 **Part done** (2026-11-09): g++'s inlining. An optimised build with g++ now passes
 `--param max-inline-insns-auto=70`, the budget g++ gives a function declared `inline`, to
 Dazzle's own code (`is_gcc` in `crates/dz/src/build.rs`, by what `--version` says). All three

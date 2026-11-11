@@ -92,6 +92,9 @@ pub struct ModuleInstances {
 pub struct Mono {
     pub by_module: HashMap<ModuleId, ModuleInstances>,
     pub diagnostics: Diagnostics,
+    /// The methods of generic structs the program calls; an instance outside `std` has
+    /// only those (T-0199).
+    pub called: Called,
     /// Where each instance is in `by_module`, by its declaration, so codegen can find the
     /// instance a call reaches without scanning every module's: that scan, for each body
     /// emitted, grew with the square of the program (T-0187).
@@ -206,6 +209,8 @@ pub fn monomorphize_only(
         }
     }
 
+    // From the whole program whatever `only` says, since every module's headers must agree.
+    let called = called_methods(res, table, hir);
     let mut by_module = HashMap::new();
     let mut diagnostics = Diagnostics::new();
     let modules: Vec<ModuleId> = {
@@ -222,6 +227,7 @@ pub fn monomorphize_only(
             res,
             members: &members,
             impl_members: &impl_members,
+            called: (m != res.prelude).then_some(&called),
             out: ModuleInstances::default(),
             requested: Vec::new(),
             requested_impls: Vec::new(),
@@ -293,7 +299,119 @@ pub fn monomorphize_only(
     }
 
     let index = Index::of(&by_module);
-    Mono { by_module, diagnostics, index }
+    Mono { by_module, diagnostics, called, index }
+}
+
+/// Which methods of generic structs the program calls (T-0199).
+///
+/// An instance used to have every method of its generic, declared in each header that needs
+/// it and defined in one module's file, whatever the program called. A `List<T>` has about
+/// forty-five, and a module file's headers can hold hundreds of instances: in a 100-module
+/// project, parsing those declarations was two thirds of what each file spent on classes.
+/// C++ parses `std::vector` once and instantiates the members a file uses.
+///
+/// So an instance has the methods something calls, found from the whole program, whatever
+/// the type arguments: every body but those methods' own is a root, and a method's body
+/// counts once the method is called, from a root or from a method already counted. A
+/// method is named by the struct that declares it and its name, overloads together, so a
+/// call through a derived struct counts for its base.
+///
+/// Kept whatever is called: a `virtual` or `override` method, which a table of them names;
+/// constructors, `drop`, `copy` and constants, which are not methods here; a method with
+/// type parameters of its own, instantiated per call already (§8.1); and every method of an
+/// instance `std` itself holds, since `std`'s files are shared by every program (T-0182).
+///
+/// The set is the same in every module, since the header of each one that uses an instance
+/// carries the instance, under one include guard, and the first one a file includes is the
+/// one it gets. A change to it changes those headers, which the incremental build knows from
+/// `fingerprint` (`crates/dz/src/reuse.rs`).
+#[derive(Default)]
+pub struct Called {
+    /// The methods called, by the struct declaring the method and its name before any `#n`
+    /// of an overload.
+    names: std::collections::HashSet<(SymbolId, String)>,
+    /// The methods an instance has only if they are called, named the same way.
+    counted: std::collections::HashSet<(SymbolId, String)>,
+}
+
+impl Called {
+    /// Does an instance of `owner` outside `std` have its method `key` (an overload key,
+    /// `name` or `name#n`)?
+    pub fn keeps(&self, owner: SymbolId, key: &str) -> bool {
+        let named = (owner, base_name(key).to_owned());
+        !self.counted.contains(&named) || self.names.contains(&named)
+    }
+
+    /// The whole set, for telling whether it changed since a build: the methods kept, by
+    /// struct name and method, in order.
+    pub fn fingerprint(&self, res: &Resolution) -> Vec<u8> {
+        let mut kept: Vec<String> = self
+            .names
+            .iter()
+            .filter(|named| self.counted.contains(*named))
+            .map(|(owner, name)| {
+                let s = res.symbol(*owner);
+                format!("{}::{}::{name}", s.module.0, s.name)
+            })
+            .collect();
+        kept.sort();
+        kept.join("\n").into_bytes()
+    }
+}
+
+/// An overload key, `push#1`, without its number.
+fn base_name(key: &str) -> &str {
+    key.split('#').next().unwrap_or(key)
+}
+
+/// Is `owner` a method whose instances have it only if it is called (see `Called`)?
+fn counted_method(res: &Resolution, table: &TypeTable, owner: &BodyOwner) -> bool {
+    let BodyOwner::Method { owner, name } = owner else { return false };
+    if res.symbol(*owner).kind != SymbolKind::Struct || !table.is_generic(*owner) {
+        return false;
+    }
+    let Some(sig) = table.methods_sig(*owner).and_then(|s| s.methods.get(name)) else {
+        return false;
+    };
+    !sig.is_generic() && sig.dispatch == dz_ast::Dispatch::Static
+}
+
+/// [`Called`] for the whole program.
+pub fn called_methods(res: &Resolution, table: &TypeTable, hir: &Hir) -> Called {
+    let mut called = Called::default();
+    let mut queue: Vec<&Body> = Vec::new();
+    for (_, b) in hir.bodies() {
+        if counted_method(res, table, &b.owner) {
+            if let BodyOwner::Method { owner, name } = &b.owner {
+                called.counted.insert((*owner, base_name(name).to_owned()));
+            }
+        } else {
+            queue.push(b);
+        }
+    }
+    while let Some(b) = queue.pop() {
+        for e in &b.exprs {
+            let ExprKind::Call { callee, .. } = &e.kind else { continue };
+            let (owner, name) = match callee {
+                Callee::Method { owner, name, .. }
+                | Callee::BaseMethod { owner, name, .. }
+                | Callee::Assoc { owner, name, .. } => (*owner, base_name(name)),
+                _ => continue,
+            };
+            let named = (owner, name.to_owned());
+            if !called.counted.contains(&named) || !called.names.insert(named) {
+                continue;
+            }
+            // Every overload of the name, and from it, what it calls.
+            let keys = table.struct_sig(owner).map(|s| s.method_keys.clone()).unwrap_or_default();
+            for key in keys.into_iter().filter(|k| base_name(k) == name) {
+                if let Some(body) = hir.find(&BodyOwner::Method { owner, name: key }) {
+                    queue.push(body);
+                }
+            }
+        }
+    }
+    called
 }
 
 /// The declaration a body belongs to — `None` for an implementation's method, since an
@@ -357,6 +475,8 @@ struct Worklist<'a> {
     res: &'a Resolution,
     members: &'a HashMap<SymbolId, Vec<&'a Body>>,
     impl_members: &'a HashMap<usize, Vec<&'a Body>>,
+    /// Which methods an instance has; `None` for every method, in `std`.
+    called: Option<&'a Called>,
     out: ModuleInstances,
     /// Everything ever asked for, so each instance is produced once. `Ty` has no `Hash`,
     /// and a module has few instances, so a list is the simple answer.
@@ -445,6 +565,12 @@ impl Worklist<'_> {
             // instance's arguments and the call's (`instantiate_method`).
             if is_generic_method(self.table, &b.owner) {
                 continue;
+            }
+            // A method nothing calls is not part of the instance (T-0199).
+            if let (BodyOwner::Method { owner, name }, Some(called)) = (&b.owner, self.called) {
+                if !called.keeps(*owner, name) {
+                    continue;
+                }
             }
             // `Drop` and `Copy` are implementations, written in terms of the implementation's
             // own parameters, so they are read through it rather than through the struct's
