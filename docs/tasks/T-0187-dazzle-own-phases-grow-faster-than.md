@@ -5,7 +5,7 @@ milestone: M15
 status: done
 kind: feature
 area: tooling
-where: `crates/dz_check/src/impls.rs`: `impls_for`, `impls_that_might_apply`, `impl_head`, and `impls_by_head` on `TypeTable` (`lib.rs`); `crates/dz_cpp/src/lib.rs`: `place_instance_body`, `emit_body`, `inline_only`; `crates/dz/src/main.rs`: `cmd_pipeline`
+where: `crates/dz_check/src/impls.rs`: `impls_for`, `impls_that_might_apply`, `impl_head`, and `impls_by_head` on `TypeTable` (`lib.rs`); `crates/dz_cpp/src/lib.rs`: `place_instance_body`, `emit_body`, `inline_only`, `param_names`, `struct_sig_or_empty`; `crates/dz_mono/src/lib.rs`: `Index`, `Mono::instance`; `crates/dz/src/main.rs`: `cmd_pipeline`
 ---
 
 **Done** (2026-11-11). Every phase now grows with the program: the same table after, in
@@ -41,6 +41,12 @@ Three causes:
 
 At 100 modules Dazzle's phases went from 4.5 s to 1.84 s; small programs gain too, `hello`
 75 → 65 ms and the benchmark programs 90–101 → 74–80 ms.
+
+A second round took emit from 0.79 s to 0.69 s at 100 modules, with the same C++: a header's
+declaration of an instance's methods names only their parameters (`param_names`, rather than
+walking each whole body), instances are looked up by declaration (`Mono::instance`,
+`impl_instance`, `method_instance`) rather than by scanning every module's, and a struct's
+signature (`struct_sig_or_empty`) and `Namer`'s nodes are borrowed rather than cloned.
 
 **What is wrong.** T-0012's generated project (`tools/bench_scale.py`), a build with nothing
 changed, clang++, release `dz`. Milliseconds per phase as the project doubles:

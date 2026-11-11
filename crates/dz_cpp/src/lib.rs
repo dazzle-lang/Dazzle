@@ -775,6 +775,17 @@ impl<'a> Emitter<'a> {
         )
     }
 
+    /// A struct's signature, borrowed from the table. It holds every method's signature,
+    /// and copying it for each struct and constructor emitted was an eighth of a large
+    /// build's emitting (T-0187).
+    fn struct_sig_or_empty(&self, sym: SymbolId) -> std::borrow::Cow<'a, dz_check::StructSig> {
+        let table: &'a TypeTable = self.table;
+        match table.struct_sig(sym) {
+            Some(s) => std::borrow::Cow::Borrowed(s),
+            None => std::borrow::Cow::Owned(Default::default()),
+        }
+    }
+
     fn fresh(&mut self, prefix: &str) -> String {
         self.temp += 1;
         format!("_dz_{prefix}{}", self.temp)
@@ -2384,7 +2395,7 @@ impl<'a> Emitter<'a> {
             }
         }
 
-        let sig = self.table.struct_sig(sym).cloned().unwrap_or_default();
+        let sig = self.struct_sig_or_empty(sym);
         let mut ctors = 0usize;
         let mut fns = 0usize;
         for m in &s.members {
@@ -2662,7 +2673,7 @@ impl<'a> Emitter<'a> {
                     }
                     // `let v: T` runs a constructor every argument of which has a default
                     // (spec §6.2), so C++'s default constructor delegates to it with them.
-                    let sig = self.table.struct_sig(sym).cloned().unwrap_or_default();
+                    let sig = self.struct_sig_or_empty(sym);
                     let index = ctors - 1;
                     if nullary_ctor(&sig) == Some(index) && !sig.ctors[index].params.is_empty() {
                         if let Some(body) = self.find_body(&owner) {
@@ -2710,7 +2721,7 @@ impl<'a> Emitter<'a> {
         // `impl Drop` and `impl Copy` are the destructor and the copy constructor (spec
         // §6.1, §6.6). Their bodies live with the implementation; they are emitted here,
         // as members, because that is what they are in C++.
-        let sig = self.table.struct_sig(sym).cloned().unwrap_or_default();
+        let sig = self.struct_sig_or_empty(sym);
         if sig.drop.is_some() {
             self.current_fn = format!("{name}::drop");
             let head = format!("{inline}{name}::~{name}() {{");
@@ -2722,7 +2733,7 @@ impl<'a> Emitter<'a> {
             let owner = BodyOwner::Copy(sym);
             let param = match self.find_body(&owner) {
                 Some(b) => match b.params.get(1) {
-                    Some(p) => local_names(b)[p.index()].clone(),
+                    Some(p) => param_names(b)[p.index()].clone(),
                     None => "other".to_owned(),
                 },
                 None => "other".to_owned(),
@@ -3098,7 +3109,7 @@ impl<'a> Emitter<'a> {
         let decl = self.decl_params(&owner);
         let cpp = sanitize(name);
         let _ = writeln!(self.header, "{ret} {cpp}({decl});");
-        let names = local_names(body);
+        let names = param_names(body);
         let mut params = Vec::new();
         let mut args = Vec::new();
         for p in &body.params {
@@ -3132,7 +3143,7 @@ impl<'a> Emitter<'a> {
     /// argument it leaves out (see [`Emitter::callee_defaults`]).
     fn decl_params(&mut self, owner: &BodyOwner) -> String {
         let Some(body) = self.find_body(owner) else { return String::new() };
-        let names = local_names(body);
+        let names = param_names(body);
         let uses = hir::local_uses(body);
         let has_self = body.params.first().is_some_and(|p| body.local(*p).name == "self");
         let start = usize::from(has_self);
@@ -3346,10 +3357,7 @@ impl<'a> Emitter<'a> {
                         .collect();
                     let body = self
                         .mono
-                        .by_module
-                        .values()
-                        .flat_map(|m| &m.impls)
-                        .find(|i| i.imp == idx && i.args == imp_args)
+                        .impl_instance(idx, &imp_args)
                         .and_then(|i| i.find(&o))
                         .or_else(|| hir.find(&o));
                     for (i, own) in of(body).into_iter().enumerate() {
@@ -3376,13 +3384,7 @@ impl<'a> Emitter<'a> {
     ) -> Option<&'a hir::Body> {
         let o = BodyOwner::Method { owner, name: name.to_owned() };
         if !method_args.is_empty() {
-            let inst = self.mono.by_module.values().flat_map(|m| &m.methods).find(|m| {
-                m.owner == owner
-                    && m.name == name
-                    && m.owner_args == owner_args
-                    && m.args == method_args
-            });
-            if let Some(inst) = inst {
+            if let Some(inst) = self.mono.method_instance(owner, owner_args, name, method_args) {
                 return Some(&inst.body);
             }
         }
@@ -3401,12 +3403,7 @@ impl<'a> Emitter<'a> {
         if args.is_empty() {
             return None;
         }
-        self.mono
-            .by_module
-            .values()
-            .flat_map(|m| m.fns.iter().chain(&m.types))
-            .find(|i| i.sym == sym && i.args == args)
-            .and_then(|i| i.find(owner))
+        self.mono.instance(sym, args).and_then(|i| i.find(owner))
     }
 
     /// Emit `head`, then the body's statements, then the closing brace.
@@ -3617,7 +3614,7 @@ impl<'a> Emitter<'a> {
     /// husk, whose `drop` §6.4 already guarantees is a harmless no-op. The cost is a move
     /// per owning parameter, which is what the language promised anyway.
     fn take_ownership_of_params(&mut self, body: &'a hir::Body) {
-        let names = local_names(body);
+        let names = param_names(body);
         let uses = hir::local_uses(body);
         let consumed = consumed_params(body, self.table);
         for p in &body.params {
@@ -6711,11 +6708,7 @@ fn inline_fns(files: &[ParsedFile]) -> HashSet<(FileId, Span)> {
 }
 
 fn local_names(body: &hir::Body) -> Vec<String> {
-    let mut namer =
-        Namer { body, names: vec![String::new(); body.locals.len()], scopes: vec![Vec::new()] };
-    for p in &body.params {
-        namer.declare(*p);
-    }
+    let mut namer = params_named(body);
     namer.block(body.root);
     // Anything the walk did not reach — a default-argument expression's own bindings,
     // say — still needs a name, and by then nothing it could collide with is in scope.
@@ -6725,6 +6718,23 @@ fn local_names(body: &hir::Body) -> Vec<String> {
         }
     }
     namer.names
+}
+
+/// The parameters' names as [`local_names`] gives them, by local, and nothing else's. They
+/// are declared before the body is walked, so nothing in it changes them, and a declaration
+/// needs only these: walking every method's whole body for each header that declares an
+/// instance's methods was a twelfth of a large build's emitting (T-0187).
+fn param_names(body: &hir::Body) -> Vec<String> {
+    params_named(body).names
+}
+
+fn params_named(body: &hir::Body) -> Namer<'_> {
+    let mut namer =
+        Namer { body, names: vec![String::new(); body.locals.len()], scopes: vec![Vec::new()] };
+    for p in &body.params {
+        namer.declare(*p);
+    }
+    namer
 }
 
 /// A Dazzle identifier as a C++ one. `double`, `class` and `template` are ordinary names
@@ -6898,33 +6908,36 @@ impl Namer<'_> {
     }
 
     fn expr(&mut self, id: ExprId) {
-        match self.body.expr(id).kind.clone() {
-            hir::ExprKind::Block(b) => self.block(b),
+        // Borrowed from the body, which outlives the walk: cloning each node's kind, with
+        // its argument lists, was a tenth of a large build's emitting (T-0187).
+        let body: &hir::Body = self.body;
+        match &body.expr(id).kind {
+            hir::ExprKind::Block(b) => self.block(*b),
             hir::ExprKind::If { cond, then, else_branch } => {
-                self.expr(cond);
-                self.block(then);
+                self.expr(*cond);
+                self.block(*then);
                 if let Some(b) = else_branch {
-                    self.block(b);
+                    self.block(*b);
                 }
             }
             // Declared in the enclosing scope, where its C++ line lands.
             hir::ExprKind::Guarded { guard, init, value } => {
-                self.expr(init);
-                self.declare(guard);
-                self.expr(value);
+                self.expr(*init);
+                self.declare(*guard);
+                self.expr(*value);
             }
             hir::ExprKind::IfLet { binding, operand, then, else_branch } => {
-                self.expr(operand);
+                self.expr(*operand);
                 self.scoped(|n| {
-                    n.declare(binding);
-                    n.block(then);
+                    n.declare(*binding);
+                    n.block(*then);
                 });
                 if let Some(b) = else_branch {
-                    self.block(b);
+                    self.block(*b);
                 }
             }
             hir::ExprKind::Switch { subject, arms, default } => {
-                self.expr(subject);
+                self.expr(*subject);
                 for arm in arms {
                     self.scoped(|n| {
                         if let Some(l) = arm.binding {
@@ -6934,18 +6947,18 @@ impl Namer<'_> {
                     });
                 }
                 if let Some(b) = default {
-                    self.block(b);
+                    self.block(*b);
                 }
             }
             hir::ExprKind::Or { operand, clause } => {
-                self.expr(operand);
+                self.expr(*operand);
                 match clause {
-                    hir::OrClause::Value(v) => self.expr(v),
+                    hir::OrClause::Value(v) => self.expr(*v),
                     hir::OrClause::Block { binding, body } => self.scoped(|n| {
                         if let Some(l) = binding {
-                            n.declare(l);
+                            n.declare(*l);
                         }
-                        n.block(body);
+                        n.block(*body);
                     }),
                     hir::OrClause::Ignore | hir::OrClause::Unreachable => {}
                 }
@@ -6956,72 +6969,72 @@ impl Namer<'_> {
             | hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Unary { operand: base, .. }
             | hir::ExprKind::Cast { operand: base, .. }
-            | hir::ExprKind::Move(base) => self.expr(base),
+            | hir::ExprKind::Move(base) => self.expr(*base),
             hir::ExprKind::Index { base, index } => {
-                self.expr(base);
-                self.expr(index);
+                self.expr(*base);
+                self.expr(*index);
             }
             hir::ExprKind::SliceRange { base, start, end } => {
-                self.expr(base);
+                self.expr(*base);
                 for x in [start, end].into_iter().flatten() {
-                    self.expr(x);
+                    self.expr(*x);
                 }
             }
-            hir::ExprKind::Len(base) | hir::ExprKind::DataPtr(base) => self.expr(base),
+            hir::ExprKind::Len(base) | hir::ExprKind::DataPtr(base) => self.expr(*base),
             hir::ExprKind::Binary { lhs, rhs, .. } => {
-                self.expr(lhs);
-                self.expr(rhs);
+                self.expr(*lhs);
+                self.expr(*rhs);
             }
             hir::ExprKind::Range { start, end, .. } => {
                 for e in [start, end].into_iter().flatten() {
-                    self.expr(e);
+                    self.expr(*e);
                 }
             }
             hir::ExprKind::StructLit { fields, .. } => {
-                for f in fields.into_iter().flatten() {
-                    self.expr(f);
+                for f in fields.iter().flatten() {
+                    self.expr(*f);
                 }
             }
             hir::ExprKind::UnionVariant { payload, .. } => {
-                for f in payload.into_iter().flatten() {
-                    self.expr(f);
+                for f in payload.iter().flatten() {
+                    self.expr(*f);
                 }
             }
             hir::ExprKind::Tuple(parts) | hir::ExprKind::ArrayLit(parts) => {
                 for p in parts {
-                    self.expr(p);
+                    self.expr(*p);
                 }
             }
             hir::ExprKind::Call { callee, args } => {
                 match callee {
                     hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. } => {
-                        self.expr(recv)
+                        self.expr(*recv)
                     }
-                    hir::Callee::Value(v) => self.expr(v),
+                    hir::Callee::Value(v) => self.expr(*v),
                     _ => {}
                 }
                 for a in args {
-                    self.expr(a);
+                    self.expr(*a);
                 }
             }
             hir::ExprKind::Builtin { args, .. } | hir::ExprKind::Intrinsic { args, .. } => {
                 for a in args {
-                    self.expr(a);
+                    self.expr(*a);
                 }
             }
             // The parameters of the lambda it becomes, and its body (`Emitter::formatted`).
             hir::ExprKind::Formatted { args, params, body } => {
                 for a in args {
-                    self.expr(a);
+                    self.expr(*a);
                 }
                 self.scoped(|n| {
                     for p in params {
-                        n.declare(p);
+                        n.declare(*p);
                     }
-                    n.block(body);
+                    n.block(*body);
                 });
             }
-            hir::ExprKind::Return(Some(v)) => self.expr(v),
+            hir::ExprKind::Return(Some(v)) => self.expr(*v),
             _ => {}
         }
     }

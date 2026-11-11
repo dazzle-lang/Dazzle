@@ -92,11 +92,79 @@ pub struct ModuleInstances {
 pub struct Mono {
     pub by_module: HashMap<ModuleId, ModuleInstances>,
     pub diagnostics: Diagnostics,
+    /// Where each instance is in `by_module`, by its declaration, so codegen can find the
+    /// instance a call reaches without scanning every module's: that scan, for each body
+    /// emitted, grew with the square of the program (T-0187).
+    index: Index,
+}
+
+/// Positions in `by_module`, by the declaration (or implementation) each instance is of.
+#[derive(Default)]
+struct Index {
+    /// A generic function's or type's instances: (module, is it a type, position).
+    instances: HashMap<SymbolId, Vec<(ModuleId, bool, usize)>>,
+    impls: HashMap<usize, Vec<(ModuleId, usize)>>,
+    methods: HashMap<SymbolId, Vec<(ModuleId, usize)>>,
+}
+
+impl Index {
+    fn of(by_module: &HashMap<ModuleId, ModuleInstances>) -> Index {
+        let mut ix = Index::default();
+        for (&m, mi) in by_module {
+            for (i, inst) in mi.fns.iter().enumerate() {
+                ix.instances.entry(inst.sym).or_default().push((m, false, i));
+            }
+            for (i, inst) in mi.types.iter().enumerate() {
+                ix.instances.entry(inst.sym).or_default().push((m, true, i));
+            }
+            for (i, inst) in mi.impls.iter().enumerate() {
+                ix.impls.entry(inst.imp).or_default().push((m, i));
+            }
+            for (i, inst) in mi.methods.iter().enumerate() {
+                ix.methods.entry(inst.owner).or_default().push((m, i));
+            }
+        }
+        ix
+    }
 }
 
 impl Mono {
     pub fn module(&self, m: ModuleId) -> Option<&ModuleInstances> {
         self.by_module.get(&m)
+    }
+
+    /// The instance of generic function or type `sym` at `args`, from whichever module asked
+    /// for it.
+    pub fn instance(&self, sym: SymbolId, args: &[Ty]) -> Option<&Instance> {
+        self.index.instances.get(&sym)?.iter().find_map(|&(m, is_type, i)| {
+            let mi = &self.by_module[&m];
+            let inst = if is_type { &mi.types[i] } else { &mi.fns[i] };
+            (inst.args == args).then_some(inst)
+        })
+    }
+
+    /// The instance of implementation `imp` at `args`.
+    pub fn impl_instance(&self, imp: usize, args: &[Ty]) -> Option<&ImplInstance> {
+        self.index.impls.get(&imp)?.iter().find_map(|&(m, i)| {
+            let inst = &self.by_module[&m].impls[i];
+            (inst.args == args).then_some(inst)
+        })
+    }
+
+    /// The instance of `owner`'s generic method `name`, the type at `owner_args` and the
+    /// method at `args`.
+    pub fn method_instance(
+        &self,
+        owner: SymbolId,
+        owner_args: &[Ty],
+        name: &str,
+        args: &[Ty],
+    ) -> Option<&MethodInstance> {
+        self.index.methods.get(&owner)?.iter().find_map(|&(m, i)| {
+            let inst = &self.by_module[&m].methods[i];
+            (inst.name == name && inst.owner_args == owner_args && inst.args == args)
+                .then_some(inst)
+        })
     }
 }
 
@@ -212,7 +280,8 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
         }
     }
 
-    Mono { by_module, diagnostics }
+    let index = Index::of(&by_module);
+    Mono { by_module, diagnostics, index }
 }
 
 /// The declaration a body belongs to — `None` for an implementation's method, since an

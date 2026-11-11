@@ -1083,3 +1083,18 @@ debug), nothing changed went from 4.8 s to 2.1 s, an edit to the leaf module fro
 75 to 65 ms, and those of the benchmark programs from 90-101 to 74-80 ms. What is left at
 scale is one copy of each instance's body in `dz_mono` and emitting it, both linear, and
 re-analysing what an edit did not touch, which is T-0023.
+
+A second round the same day took emit's constant factors, profiled this time with the real
+release settings (thin LTO, one codegen unit) plus line tables, since the first round's
+build without LTO had made clones look three times as costly as they are. Declaring an
+instance's methods in a header walked each method's whole body to name its locals, where
+only the parameters' names are needed and nothing after them changes those (`param_names`).
+The instances a call reaches were found by scanning every module's (`Mono::instance` and
+its two siblings now look them up by declaration). And a struct's signature and each node
+`Namer` visits were cloned rather than borrowed. Emit at 100 modules went from 0.79 s to
+0.69 s, all of Dazzle's phases from 1.82 s to 1.72 s, and a small program's by 3-8%; the
+C++ is byte for byte the same. What is left is spread thin: a quarter of the time is emitting
+each instance's body once, which is output the program needs, and the rest has no
+single place. The next large step is not a constant factor: running phases on several
+threads needs `Ty`'s `Rc` to become `Arc`, and skipping the modules an edit did not touch
+is T-0023.
