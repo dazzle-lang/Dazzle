@@ -42,8 +42,13 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    ownership, instantiation and emission only for the modules it can affect (a leaf edit
    at 100 modules 2.45 s to 0.88 s, against 1.1 s for `make`); T-0198, a body-only edit
    to a module others depend on leaves them as they were (the root's, 2.32 s to 0.88 s,
-   against 1.0 s). The plan is done; what is left at scale is placement and the front end
-   over the whole program, T-0023's ground. Left besides: the rest
+   against 1.0 s). The plan is done; what is left of an edit at scale is placement and the
+   front end over the whole program, T-0023's ground. A build from clean at scale was still
+   2.5× C++'s, profiled the same day as T-0199: clang++ parsing module headers, twice per
+   module, full of every `List` instance's methods. Its first fix, a module's two files
+   compiled as one when the build has more files than cores, took 100 modules from 13.2 s
+   to 9.0 s (C++: 5.2 s); declaring only the instance methods a program calls is next.
+   Left besides: the rest
    of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
    `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
    only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the
@@ -197,7 +202,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (10 open)
+## M15 — `dz bench`, and the C++ comparison (11 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -209,6 +214,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0190](tasks/T-0190-each-module-defines-instance-methods-it.md)** Each module defines the instance methods it calls, as C++ instantiates a template's members · feature, codegen
 - **[T-0194](tasks/T-0194-removed-module-generated-files-are-deleted.md)** A removed module's generated files are deleted from build/cpp · feature, tooling
+- **[T-0199](tasks/T-0199-clean-build-at-scale-parses-every.md)** A clean build at scale parses every module's headers twice, and every List instance whole · feature, tooling
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 

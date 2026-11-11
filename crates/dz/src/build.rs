@@ -656,14 +656,17 @@ fn compile_and_link(
                 let before_args = args_of(pch_of(before));
                 let before_object = object_path(&dirs.of(source), cxx, source, &before_args);
                 if crate::native::up_to_date(&before_object) {
-                    return (source, before, before_args, before_object, false);
+                    return (source.to_path_buf(), before, before_args, before_object, false);
                 }
             }
-            (source, from, file_args, object, stale)
+            (source.to_path_buf(), from, file_args, object, stale)
         })
         .collect();
-    let stale_source =
-        |source: &Path| jobs_of.iter().any(|(s, _, _, _, stale)| *s == source && *stale);
+    let together = combine(&mut jobs_of, cxx, dirs)?;
+    let stale_source = |source: &Path| {
+        together.merged.iter().any(|m| m == source)
+            || jobs_of.iter().any(|(s, _, _, _, stale)| *s == source && *stale)
+    };
 
     // `std.h`'s header first, if a file compiled from it needs compiling; the sets' headers
     // alongside, for the next build.
@@ -683,10 +686,14 @@ fn compile_and_link(
         }
     }
     // A module's own header, for a file compiled before and compiled again now: the module
-    // is being edited, and the next edit will start from it.
+    // is being edited, and the next edit will start from it. Compiled before includes inside
+    // its module's combined file, which is how a build from clean compiles it.
     for (i, source, base) in editing {
         let edited = jobs_of.iter().any(|(s, from, _, object, stale)| {
-            *s == source && *stale && *from == base && object.exists()
+            *s == source
+                && *stale
+                && *from == base
+                && (object.exists() || together.before.iter().any(|b| b == source))
         });
         if edited && !set_children.iter().any(|(j, _)| *j == i) {
             set_children.push((i, sets[i].1.spawn(cxx, args)?));
@@ -722,7 +729,7 @@ fn compile_and_link(
     let mut objects = Vec::new();
     for ((source, from, file_args, object, stale), waited) in jobs_of.into_iter().zip(waiting) {
         if stale && waited {
-            jobs.start(&file_args, source, &object, pch_of(from).map(|p| p.compiled.clone()))?;
+            jobs.start(&file_args, &source, &object, pch_of(from).map(|p| p.compiled.clone()))?;
         }
         objects.push(object);
     }
@@ -819,6 +826,111 @@ fn object_path(dir: &Path, cxx: &str, source: &Path, args: &[String]) -> PathBuf
     dir.join(format!("{stem}-{:016x}.o", crate::native::fnv1a(&key)))
 }
 
+/// How many compiles run at once: one per core the system reports.
+fn cores() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+}
+
+/// What `combine` decided, for the precompiled headers chosen after it.
+#[derive(Default)]
+struct Together {
+    /// Files compiled this build inside their module's combined file, so not on their own.
+    merged: Vec<PathBuf>,
+    /// Module files compiled on their own this build whose module has a combined object
+    /// from an earlier one: compiled before, though they have no object of their own.
+    before: Vec<PathBuf>,
+}
+
+/// Compile a module's `.cpp` and its `.inst.cpp` as one translation unit, when that is
+/// cheaper (T-0199). Each starts by including the module's header, which includes every
+/// module header beneath it, and that parse is most of what either costs: in a 100-module
+/// project, 0.30 s + 0.44 s apart against 0.48 s together. They are two files so that a
+/// body edit compiles only the first (T-0191).
+///
+/// So the two are compiled together, as `<module>.both.cpp` in the object folder, a file
+/// that includes both, when both need compiling and there are more files to compile than
+/// cores: a build from clean, or an edit that reaches most modules. With cores to spare, two
+/// files compiled at once finish sooner than one that holds both, so a small build is left
+/// as it was. A combined object that is still up to date stands in for the pair, as after a
+/// build from clean with nothing changed. A body edit after that compiles the two apart, the
+/// instance file for the last time until it changes.
+///
+/// `jobs_of` loses each pair combined, and gains the combined file in its place.
+fn combine(jobs_of: &mut Vec<Job>, cxx: &str, dirs: &Dirs) -> Result<Together, Failed> {
+    // The pairs that could be combined: the module file's index, the instance file's, the
+    // combined file, its object, and whether that object is up to date.
+    let mut pairs = Vec::new();
+    for (n, (inst, ..)) in jobs_of.iter().enumerate() {
+        // `std.inst.cpp` is compiled once per machine, and never needs this.
+        if dirs.shared.holds(inst) {
+            continue;
+        }
+        let Some(stem) = inst.file_name().and_then(|f| f.to_str()?.strip_suffix(".inst.cpp"))
+        else {
+            continue;
+        };
+        let module = inst.with_file_name(format!("{stem}.cpp"));
+        let Some(m) = jobs_of.iter().position(|(s, ..)| *s == module) else { continue };
+        let ((_, from, args, _, stale), (_, inst_from, inst_args, _, inst_stale)) =
+            (&jobs_of[m], &jobs_of[n]);
+        if from != inst_from || args != inst_args || !(*stale && *inst_stale) {
+            continue;
+        }
+        let both = dirs.own.join(format!("{stem}.both.cpp"));
+        let object = object_path(&dirs.of(&both), cxx, &both, args);
+        // Written only when it changes, which is when the project has moved: the paths are
+        // absolute, as the file is in another folder than the two it includes. Not at all
+        // for a module never combined, until it is.
+        let text = format!(
+            "// Generated by the Dazzle compiler: module `{stem}`'s two files, compiled as one \
+             (T-0199). Do not edit.\n{}{}",
+            include_of(&module),
+            include_of(inst)
+        );
+        let fresh = object.exists() && {
+            write_if_changed(&both, &text)?;
+            crate::native::up_to_date(&object)
+        };
+        pairs.push((m, n, both, text, object, fresh));
+    }
+    // Counted once the pairs a combined object stands in for are set aside: after a build
+    // from clean, every module's own two objects are missing, and that is not work to do.
+    let fresh_files = pairs.iter().filter(|p| p.5).count() * 2;
+    let crowded = jobs_of.iter().filter(|(.., stale)| *stale).count() - fresh_files > cores();
+
+    let mut together = Together::default();
+    let mut gone = vec![false; jobs_of.len()];
+    let mut added = Vec::new();
+    for (m, n, both, text, object, fresh) in pairs {
+        if !fresh && !crowded {
+            if object.exists() {
+                together.before.push(jobs_of[m].0.clone());
+            }
+            continue;
+        }
+        if !fresh {
+            write_if_changed(&both, &text)?;
+            together.merged.extend([jobs_of[m].0.clone(), jobs_of[n].0.clone()]);
+        }
+        gone[m] = true;
+        gone[n] = true;
+        added.push((both, jobs_of[m].1, jobs_of[m].2.clone(), object, !fresh));
+    }
+    let mut gone = gone.into_iter();
+    jobs_of.retain(|_| !gone.next().unwrap_or(false));
+    jobs_of.extend(added);
+    Ok(together)
+}
+
+/// Write `text` to `path` unless it already holds it, so its time stays as it was.
+fn write_if_changed(path: &Path, text: &str) -> Result<(), Failed> {
+    if std::fs::read_to_string(path).ok().as_deref() == Some(text) {
+        return Ok(());
+    }
+    crate::shared::write(path, text.as_bytes())
+        .map_err(|e| Failed::Spawn(format!("cannot write {}: {e}", path.display())))
+}
+
 /// The C++ compiles running at once, no more than there are cores.
 struct Jobs<'a> {
     cxx: &'a str,
@@ -837,10 +949,9 @@ struct Jobs<'a> {
 
 impl<'a> Jobs<'a> {
     fn new(cxx: &'a str) -> Self {
-        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
         Jobs {
             cxx,
-            cores,
+            cores: cores(),
             running: Default::default(),
             errors: String::new(),
             refused: vec![],
@@ -1060,7 +1171,7 @@ enum Header {
 
 /// A file to compile: its source, the header it starts from, its command's flags, its
 /// object, and whether that object needs compiling.
-type Job<'a> = (&'a Path, Option<Header>, Vec<String>, PathBuf, bool);
+type Job = (PathBuf, Option<Header>, Vec<String>, PathBuf, bool);
 
 /// Objects compiled but left beside their final names, in `Jobs`: each object, and its copy.
 type Kept = Vec<(PathBuf, PathBuf)>;
