@@ -1603,6 +1603,76 @@ fn a_build_ignores_cpp_left_behind_by_a_module_that_is_gone() {
 }
 
 #[test]
+fn a_body_edit_leaves_the_instance_file_unchanged() {
+    // T-0191 — the bodies of the generic instances a module is the first to need are a file
+    // of their own, `<module>.inst.cpp`, so an edit to one of the module's own bodies leaves
+    // it byte for byte as it was and its object is not compiled again. The edit below adds a
+    // temporary to `main`, emitted before the instances: numbered on from the module's own
+    // code, the instance's temporary would be renamed by it.
+    const PAIR: &str = "\
+struct Pair<A: Copy> {
+    pub first: A
+
+    pub fn repeat(&self, n: i32) -> i32 {
+        let mut count = 0
+        for _ in 0..n {
+            count += 1
+        }
+        return count
+    }
+}
+";
+    const BEFORE: &str = "\
+fn main() {
+    let p = Pair<i32>{ first: 1 }
+    println!(\"{}\", p.repeat(3))
+}
+";
+    const AFTER: &str = "\
+fn main() {
+    for _ in 0..2 {
+        println!(\"again\")
+    }
+    let p = Pair<i32>{ first: 1 }
+    println!(\"{}\", p.repeat(3))
+}
+";
+    let manifest = "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n\
+                    [dependencies]\nstd = { open = true }\n";
+    let dir = scratch("dz_instance_file", manifest, BEFORE);
+    std::fs::write(dir.join("src/pair.dz"), PAIR).unwrap();
+    let generate = || {
+        let out = Command::new(dz())
+            .args(["cpp", dir.to_str().unwrap()])
+            .output()
+            .expect("failed to run dz");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let read = |name: &str| std::fs::read_to_string(dir.join("build/cpp").join(name)).unwrap();
+        (read("t.cpp"), read("t.inst.cpp"))
+    };
+    let (own, instances) = generate();
+    let definition = "Pair__i32::repeat(";
+    assert!(instances.contains(definition), "the instance's body is in its file\n{instances}");
+    assert!(!own.contains(definition), "the module's own file has no instance body\n{own}");
+
+    std::fs::write(dir.join("src/main.dz"), AFTER).unwrap();
+    let (edited, after) = generate();
+    assert_ne!(own, edited, "the edit changes the module's own file");
+    assert_eq!(instances, after, "a body edit must leave the instance file as it was");
+
+    // Two objects, one program.
+    if have_compiler() {
+        let out = Command::new(dz())
+            .args(["run", dir.to_str().unwrap()])
+            .output()
+            .expect("failed to run dz");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "again\nagain\n3");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn no_line_directives_leaves_out_the_directives_and_nothing_else() {
     // spec §16.3 — for reading or debugging the generated C++ itself. Every file, the
     // standard library's included, is the default output with its `#line`s taken out.

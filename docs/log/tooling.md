@@ -1150,3 +1150,39 @@ Not covered yet:
 
 `--timings` shows `up to date` on a skip and `build stamp` on a build;
 `tools/bench_programs.py` counts the latter as Dazzle's own work.
+
+## A module's instance bodies in a file of their own (T-0191; 2026-11-11)
+
+Stage 3a of making a build cost what an edit changed. Since T-0185 an instance's bodies are
+defined once, in the `.cpp` of the first module that needs them. In `bench_scale.py`'s
+100-module project that is 7 000 of the leaf `m099.cpp`'s 7 929 lines, and any edit to one of
+the module's own bodies compiled them all again. They are now `<module>.inst.cpp`, an object
+of its own; the module's `.cpp` keeps its own 891 lines. The instances' temporaries are
+numbered from zero rather than on from the module's code, or a `for` added to `main` would
+rename `_dz_i1` in every instance after it and the file would change anyway (the new test
+fails without that). A module that is first to need no instance has no file at all: an empty
+one would still be a compile and an object to link. `std`'s own instances stay with `std`,
+in its shared `std.inst.cpp`. A file starts with its module's header, so it is compiled from
+the same precompiled header as the module's `.cpp`, and its object's name (`m099.inst-…`)
+cannot meet a module's, since a module's name has no `.`.
+
+Measured on the 100-module project, a leaf edit (`bench_scale.py`'s `edit`, five in a row,
+medians), release `dz`, on a machine another session was loading, so the walls are noisy and
+the C++ phase is the steadier figure:
+
+| leaf edit | before | after |
+|---|---:|---:|
+| clang++: C++ compiler | 1.06 s | 0.61 s |
+| clang++: whole build | 3.45 s | 2.89 s |
+| g++: C++ compiler | 1.84 s | 0.53 s |
+| g++: whole build | 6.62 s | 2.94 s |
+
+Only `m099.cpp` is compiled again; `m099.inst.cpp` and `m099.h` are unchanged.
+
+The price is a build from clean. Every one of the 101 modules has instances here, so a build
+from clean compiles 101 more files, each parsing its module's header again (0.47 s for the
+leaf's): about 105 CPU-seconds before and 152 after on clang++, +45%. On 16 cores that is a
+few seconds of wall time; on a laptop with four it is more. A build from clean is rarer than
+an edit, and stage 3b, the edited module's header precompiled, does nothing for it, so if it
+matters the alternative is to keep a module's instances in its `.cpp` until the module is
+first edited, the rule 3b uses for its header.

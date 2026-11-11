@@ -9,6 +9,7 @@ build/
     dz_runtime.cpp
     engine.h            module "engine": all types, in dependency order
     engine.cpp          module "engine": all function bodies
+    engine.inst.cpp     the bodies of the generic instances "engine" is first to need (§8.4)
     game.h
     game.cpp
     dz_typeinfo.cpp     the static type table (§13)
@@ -169,6 +170,9 @@ Dazzle writes a generated file only when its contents change, and compiles each 
 has changed, judged by content rather than by time. A one-line change in one function
 rewrites one `.cpp`, and the C++ compiler rebuilds one translation unit. Every file starts
 from `std.h` precompiled, so that translation unit does not parse the standard library again.
+The bodies of the generic instances a module is the first to need are a file of their own,
+`<module>.inst.cpp`, with temporaries numbered apart from the module's own code, so an edit
+to one of the module's bodies leaves that file as it was and it is not compiled again.
 
 **A build with nothing changed does nothing.** A successful `dz build` or `dz run` records
 what it read, in `build/obj/dz/build-<key>.stamp`. The key is what the build was asked for:
