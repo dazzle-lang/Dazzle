@@ -4,7 +4,7 @@
 //! server (spec §17.4). The server is "the compiler with a different front end", so it must
 //! run exactly this function rather than a copy of it that could drift.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -98,7 +98,23 @@ pub struct Analysis {
     pub parsed_cleanly: bool,
     /// How long each phase took. A build adds its own (emitting and compiling the C++).
     pub timings: Timings,
+    /// The modules ownership and instantiation ran for, when a build chose which (see
+    /// [`analyse_selecting`]); `None` when they ran for every module. `std` is always
+    /// instantiated, since its C++ is written every build.
+    pub finished: Option<HashSet<ModuleId>>,
+    /// What ownership and instantiation said, also in `diags`: what a build that skips a
+    /// module next time has to say again for it (T-0197).
+    pub flow_diags: Diagnostics,
 }
+
+/// Which modules to finish, asked once every module is type-checked: `None` for all of them.
+/// A build answers from what its last build recorded, so a module an edit cannot affect is
+/// not checked for ownership or instantiated again (T-0197).
+pub type Select<'a> = &'a dyn Fn(
+    &Workspace,
+    &SourceMap,
+    &HashMap<ModuleId, Vec<ParsedFile>>,
+) -> Option<HashSet<ModuleId>>;
 
 /// Load a project from disk and run every analysis phase that the previous one left viable.
 pub fn analyse(entry: &Path) -> Analysis {
@@ -139,6 +155,19 @@ pub fn analyse_prepared(
     options: &BuildOptions,
     prepare: &mut dyn FnMut(&Workspace, &mut Diagnostics),
 ) -> Analysis {
+    analyse_selecting(entry, overlay, mode, options, prepare, &|_, _, _| None)
+}
+
+/// [`analyse_prepared`], with `select` choosing which modules ownership and instantiation
+/// run for.
+pub fn analyse_selecting(
+    entry: &Path,
+    overlay: &dyn Fn(&Path) -> Option<String>,
+    mode: Mode,
+    options: &BuildOptions,
+    prepare: &mut dyn FnMut(&Workspace, &mut Diagnostics),
+    select: Select<'_>,
+) -> Analysis {
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
     let mut timings = Timings::default();
@@ -171,6 +200,8 @@ pub fn analyse_prepared(
             table: None,
             mono: None,
             placements: None,
+            finished: None,
+            flow_diags: Diagnostics::new(),
             diags,
             parsed_cleanly: false,
             timings,
@@ -275,6 +306,8 @@ pub fn analyse_prepared(
     let mut table = None;
     let mut mono = None;
     let mut placements = None;
+    let mut finished = None;
+    let mut flow_diags = Diagnostics::new();
     if parsed_cleanly || tolerant {
         let r = dz_resolve::resolve(&ws, &files);
         lap = timings.lap("resolve names", lap);
@@ -309,7 +342,19 @@ pub fn analyse_prepared(
             // it failed: a body whose types are unknown moves values of unknown kinds, and
             // every answer this pass gave would be a guess.
             if checked_cleanly {
-                diags.extend(dz_flow::check(&checked.hir, &checked.table, &r, &map));
+                finished = select(&ws, &map, &files);
+                // The files of the modules chosen; `std`'s own bodies are never checked
+                // again, since nothing in a project changes them.
+                let only: Option<HashSet<FileId>> = finished.as_ref().map(|chosen| {
+                    chosen
+                        .iter()
+                        .flat_map(|m| files.get(m).into_iter().flatten().map(|f| f.file))
+                        .collect()
+                });
+                let flow =
+                    dz_flow::check_files(&checked.hir, &checked.table, &r, &map, only.as_ref());
+                flow_diags.extend(flow.iter().cloned());
+                diags.extend(flow);
                 lap = timings.lap("ownership", lap);
                 // Placement reads the same bodies, one at a time, as the editor can (§14.6).
                 placements = Some(dz_flow::placement::place(&checked.hir, &checked.table, &r));
@@ -317,8 +362,19 @@ pub fn analyse_prepared(
                 // Instantiation runs here rather than at codegen so that `dz check`
                 // reports a runaway instantiation (DZ0536) too; it is a property of the
                 // program, not of the C++ (spec §8.4).
-                let m = dz_mono::monomorphize(&r, &checked.table, &checked.hir);
+                let instantiate = finished.as_ref().map(|chosen| {
+                    let mut chosen = chosen.clone();
+                    chosen.insert(ws.prelude);
+                    chosen
+                });
+                let m = dz_mono::monomorphize_only(
+                    &r,
+                    &checked.table,
+                    &checked.hir,
+                    instantiate.as_ref(),
+                );
                 timings.lap("instantiate generics", lap);
+                flow_diags.extend(m.diagnostics.iter().cloned());
                 diags.extend(m.diagnostics.clone());
                 mono = Some(m);
             }
@@ -340,6 +396,8 @@ pub fn analyse_prepared(
         table,
         mono,
         placements,
+        finished,
+        flow_diags,
         diags,
         parsed_cleanly,
         timings,

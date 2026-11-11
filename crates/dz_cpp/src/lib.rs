@@ -53,15 +53,18 @@ pub struct GeneratedFile {
     /// the build keys the copy by these files' contents, so a setting that changes them
     /// (`check_trusted`, a harness) gets a copy of its own rather than a wrong one.
     pub shared: bool,
+    /// The module whose C++ this is, for a module's files; `None` for the runtime's and the
+    /// program's own (the type table).
+    pub module: Option<ModuleId>,
 }
 
 impl GeneratedFile {
     fn own(name: impl Into<String>, contents: impl Into<String>) -> Self {
-        GeneratedFile { name: name.into(), contents: contents.into(), shared: false }
+        GeneratedFile { name: name.into(), contents: contents.into(), shared: false, module: None }
     }
 
     fn shared(name: impl Into<String>, contents: impl Into<String>) -> Self {
-        GeneratedFile { name: name.into(), contents: contents.into(), shared: true }
+        GeneratedFile { name: name.into(), contents: contents.into(), shared: true, module: None }
     }
 }
 
@@ -70,6 +73,22 @@ pub struct Emitted {
     pub diagnostics: Diagnostics,
     /// The translation unit holding the real `int main()`, if the root module has one.
     pub entry: Option<String>,
+    /// For each module emitted, the `_DEF` guard of every instance body it placed, and
+    /// whether it defines that body: the first module in order to need one defines it
+    /// (T-0185). What a later build that emits only some modules decides ownership from.
+    pub claims: HashMap<ModuleId, Vec<(String, bool)>>,
+    /// The modules emitted that read the type table (spec §13). Its ids are handed out in
+    /// the order modules first name a type, so such a program is always emitted whole.
+    pub reflects: HashSet<ModuleId>,
+}
+
+/// Which modules to emit, when not all (T-0197): the rest keep the files an earlier build
+/// wrote. `claimed` is every instance body one of those defines, by its `_DEF` guard: a
+/// module emitted now defines it only when it comes before that module, as it would have
+/// if every module were emitted.
+pub struct Selection {
+    pub modules: HashSet<ModuleId>,
+    pub claimed: HashMap<String, ModuleId>,
 }
 
 /// What is being built (spec §19 M14).
@@ -135,7 +154,26 @@ pub fn emit(
     files: &HashMap<ModuleId, Vec<ParsedFile>>,
     options: Options,
 ) -> Emitted {
+    emit_selected(ws, res, table, hir, mono, placements, map, files, options, None)
+}
+
+/// [`emit`], for the modules `selection` names, or every module for `None`.
+#[allow(clippy::too_many_arguments)]
+pub fn emit_selected(
+    ws: &Workspace,
+    res: &Resolution,
+    table: &TypeTable,
+    hir: &Hir,
+    mono: &dz_mono::Mono,
+    placements: Option<&Placements>,
+    map: &SourceMap,
+    files: &HashMap<ModuleId, Vec<ParsedFile>>,
+    options: Options,
+    selection: Option<&Selection>,
+) -> Emitted {
     let mode = options.mode;
+    let no_claims = HashMap::new();
+    let claimed = selection.map_or(&no_claims, |s| &s.claimed);
     // The analysis decides every site whether or not regions are on; the switch only says
     // whether codegen reads the answer.
     let placements = placements.filter(|_| options.regions);
@@ -177,13 +215,20 @@ pub fn emit(
         ],
         diagnostics: Diagnostics::new(),
         entry: None,
+        claims: HashMap::new(),
+        reflects: HashSet::new(),
     };
     let reflection: reflect::Shared = Default::default();
     let defined: std::cell::RefCell<HashSet<String>> = Default::default();
 
     // An imported header generates nothing: its names are the header's own (spec §15.1).
     for module in ws.modules().filter(|m| m.foreign.is_none()) {
+        if selection.is_some_and(|s| !s.modules.contains(&module.id)) {
+            continue;
+        }
         let Some(module_files) = files.get(&module.id) else { continue };
+        let first_file = out.files.len();
+        let reflected_before = reflection.borrow().size();
         let mut e = Emitter {
             ws,
             res,
@@ -224,7 +269,10 @@ pub fn emit(
             line_directives: options.line_directives,
             reflect: &reflection,
             defined: &defined,
+            claimed,
+            placed: Vec::new(),
             cpp_chunks: Vec::new(),
+            emitting: module.id,
             placements,
             placement: None,
             regions: Vec::new(),
@@ -232,6 +280,7 @@ pub fn emit(
             celled_statics: Vec::new(),
             built_statics: Vec::new(),
         };
+        e.emitting = module.id;
         e.module(module_files);
         e.drop_statics_fn();
         if module.id == ws.root {
@@ -317,6 +366,7 @@ pub fn emit(
             out.files.push(file(format!("{stem}.inst.cpp"), instances));
         }
         out.diagnostics.extend(e.diags);
+        out.claims.insert(module.id, std::mem::take(&mut e.placed));
 
         // The root module's `main` becomes the program's real entry point.
         if module.id == ws.root && mode != Mode::Program {
@@ -346,6 +396,12 @@ pub fn emit(
                     ),
                 );
             }
+        }
+        for f in &mut out.files[first_file..] {
+            f.module = Some(module.id);
+        }
+        if reflection.borrow().size() != reflected_before {
+            out.reflects.insert(module.id);
         }
     }
 
@@ -393,7 +449,10 @@ pub fn emit(
             line_directives: options.line_directives,
             reflect: &reflection,
             defined: &defined,
+            claimed,
+            placed: Vec::new(),
             cpp_chunks: Vec::new(),
+            emitting: res.prelude,
             placements: None,
             placement: None,
             regions: Vec::new(),
@@ -696,6 +755,13 @@ struct Emitter<'a> {
     defined: &'a std::cell::RefCell<HashSet<String>>,
     /// Instance bodies this module's file defines, each in its generic's namespace.
     cpp_chunks: Vec<(ModuleId, String)>,
+    /// The module this emitter writes the files of. `module` changes while an instance is
+    /// emitted in its generic's namespace; this does not.
+    emitting: ModuleId,
+    /// Instance bodies a module not emitted this time defines, by `_DEF` guard (T-0197).
+    claimed: &'a HashMap<String, ModuleId>,
+    /// Every instance body this module placed, and whether it defines it.
+    placed: Vec<(String, bool)>,
     /// Where each allocation goes, when regions are on (spec §14.6, T-0117); `None` puts
     /// everything on the heap, as the program wrote it.
     placements: Option<&'a Placements>,
@@ -1819,7 +1885,11 @@ impl<'a> Emitter<'a> {
     /// every method of every instance it needed: 1 100 lines for each `List<T>`, parsed again
     /// by every module above it. In a 100-module project that was most of the build.
     fn place_instance_body(&mut self, guard: String, emit: impl FnOnce(&mut Self)) {
-        let first = self.defined.borrow_mut().insert(guard.clone());
+        // Defined by a module not emitted this time, which comes before this one: its file
+        // still holds the body. Otherwise the first module emitted to need it defines it.
+        let elsewhere = self.claimed.get(&guard).is_some_and(|m| *m < self.emitting);
+        let first = !elsewhere && self.defined.borrow_mut().insert(guard.clone());
+        self.placed.push((guard.clone(), first));
         let saved = std::mem::take(&mut self.inline_defs);
         let saved_only = std::mem::replace(&mut self.inline_only, !first);
         let (text, ()) = self.capture(emit);

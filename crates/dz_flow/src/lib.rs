@@ -40,12 +40,28 @@ pub mod ties;
 /// `map` is read only to lay out a fix's edit, as in `dz_check::check`: a tie the fix
 /// declares goes on a line of its own among the type's members (spec §6.7).
 pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution, map: &SourceMap) -> Diagnostics {
+    check_files(hir, table, res, map, None)
+}
+
+/// [`check`], for the bodies written in `only`'s files, or every body for `None`. A body is
+/// checked against other functions' signatures alone, so the bodies of a module nothing
+/// changed for need no checking again (T-0197).
+pub fn check_files(
+    hir: &Hir,
+    table: &TypeTable,
+    res: &Resolution,
+    map: &SourceMap,
+    only: Option<&std::collections::HashSet<FileId>>,
+) -> Diagnostics {
     let mut diags = Diagnostics::new();
     // The prelude is the compiler's own code: a warning there is noise in every program.
     let prelude: std::collections::HashSet<FileId> =
         res.symbols.iter().filter(|s| s.module == res.prelude).map(|s| s.file).collect();
     let mut unread = Unread::default();
     for (_, body) in hir.bodies() {
+        if only.is_some_and(|only| !only.contains(&body.file)) {
+            continue;
+        }
         let mut cx = Flow {
             body,
             table,

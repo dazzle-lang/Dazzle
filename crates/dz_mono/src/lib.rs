@@ -170,6 +170,18 @@ impl Mono {
 
 /// Collect every instantiation each module needs (spec §8.4).
 pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
+    monomorphize_only(res, table, hir, None)
+}
+
+/// [`monomorphize`], for the modules in `only`, or every module for `None`. Each module's
+/// instances are found from its own bodies and the templates they reach, so a module whose
+/// C++ is not written again needs none (T-0197).
+pub fn monomorphize_only(
+    res: &Resolution,
+    table: &TypeTable,
+    hir: &Hir,
+    only: Option<&std::collections::HashSet<ModuleId>>,
+) -> Mono {
     // A type's member bodies, by type, and an implementation's, by implementation, so an
     // instance can find all of them at once.
     let mut members: HashMap<SymbolId, Vec<&Body>> = HashMap::new();
@@ -203,7 +215,7 @@ pub fn monomorphize(res: &Resolution, table: &TypeTable, hir: &Hir) -> Mono {
         ms
     };
 
-    for m in modules {
+    for m in modules.into_iter().filter(|m| only.map_or(true, |only| only.contains(m))) {
         let mut w = Worklist {
             table,
             hir,

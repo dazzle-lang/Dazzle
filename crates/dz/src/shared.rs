@@ -240,6 +240,7 @@ mod tests {
             name: "std.cpp".into(),
             contents: contents.into(),
             shared: true,
+            module: None,
         };
         let cache = build.join("cache");
         let a = Shared::in_cache(&cache, [file("int x;")].iter(), false);

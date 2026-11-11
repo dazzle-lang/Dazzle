@@ -1257,3 +1257,53 @@ Neither linker is on this machine, and fetching `mold`'s release binary to measu
 refused, so there is no number here. The test stands in a `ld.lld` that records its uses
 and runs `ld`, and a `ld.mold` that always fails. It checks the failing one is passed over
 and the other is tried once and then used, with clang++ and with g++.
+
+## An edit finishes only the modules it can affect (T-0197; 2026-11-11)
+
+Stage 2a. After the stamp and the C++-side stages, a leaf edit at 100 modules was still 1.7 s
+of Dazzle's own work. Ownership, instantiation and emission were 1.2 s of that, done again
+for every module.
+
+**Which modules are skipped.** Each build now records every module it wrote, in
+`build/obj/dz/modules-<key>/`, under the stamp's key:
+- its sources' hash;
+- its files' sizes and times;
+- the instance bodies it placed and the ones it defines;
+- whether it read the type table;
+- its ownership warnings.
+
+The next build reads and checks the whole program as before, then hands the driver a set of
+modules to finish (`analyse_selecting`). These are the ones whose record is missing or
+stale, or that depend on such a module. Ownership (`check_files`), instantiation
+(`monomorphize_only`) and emission (`emit_selected`) run for those and for `std`,
+whose files key the shared cache. The others' files are compiled as they are, and their
+warnings are printed from their records.
+
+**What could not be skipped.** Placement runs over the whole program: its whole-program pass
+`release::whole_functions` reads the placement of every callee, and an edited module calls
+into the modules beneath it. That is the 0.29 s left.
+
+**Instance bodies.** Which module defines one depended on emitting every module in order:
+the first to need it. The emitter is now told which bodies the kept modules define
+(`Selection::claimed`), and an emitted module defers to a kept one before it. It reports
+every body it placed. Owners are then worked out again from all modules' needs, and a kept
+module whose bodies changed hands is instantiated and emitted too. Anything the rule cannot
+explain, or any use of the type table (whose ids follow emission order), emits the whole
+program.
+
+**Checks.**
+- `DZ_INCREMENTAL=verify` also emits the whole program and fails on any file that differs.
+- The edit corpus (T-0193) runs every incremental build with verify on, and passed
+  unchanged.
+- `crates/dz/tests/reuse.rs` changes a kept file by hand, keeping its size and time, to
+  show it really is kept, and that verify refuses it.
+
+**Measured** (`SCALE.md`), a leaf edit at 100 modules: 1.07 s, against 1.10 s for
+`make`.
+- Dazzle's own phases: 0.56 s. Placement (0.29 s) and the front end are what remain.
+- Nothing changed: 0.01 s, against 0.05 s.
+- An edit to the root module: 2.32 s. Every module depends on it, so every module is redone,
+  even for a body-only edit. That is stage 2b.
+
+The link varied between 0.08 s and 0.44 s across the day with GNU `ld`, for the same
+link, so compare its column with care.

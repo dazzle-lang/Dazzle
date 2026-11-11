@@ -20,13 +20,26 @@ pub struct BuildOutput {
     /// The folder the runtime and `std` are compiled from, shared with every other project
     /// built with the same `std` (T-0182). `files` names the project's own copies.
     pub shared: crate::shared::Shared,
+    /// For each module emitted, the instance bodies it placed and which it defines, and the
+    /// files it wrote, by name in `cpp_dir`; and the modules that read the type table
+    /// (T-0197).
+    pub claims: std::collections::HashMap<dz_project::ModuleId, Vec<(String, bool)>>,
+    pub module_files: std::collections::HashMap<dz_project::ModuleId, Vec<String>>,
+    pub reflects: std::collections::HashSet<dz_project::ModuleId>,
+    /// How `#line` paths were rewritten (`with_embedded_lines`), for comparing a build that
+    /// kept some files with one that emits them all.
+    pub renames: std::collections::HashMap<String, String>,
 }
 
 /// Generate C++ for a project, writing only files whose contents changed (spec §16.6).
+/// Generate the C++ into `root`'s `cpp/`: every module's, or only `selection`'s, the others'
+/// files, `kept`, compiled as an earlier build left them (T-0197).
 pub fn emit_cpp(
     analysis: &Analysis,
     root: &Path,
     options: dz_cpp::Options,
+    selection: Option<&dz_cpp::Selection>,
+    kept: &[String],
 ) -> Result<BuildOutput, Diagnostics> {
     let (Some(ws), Some(resolution), Some(table), Some(hir), Some(mono)) =
         (&analysis.ws, &analysis.resolution, &analysis.table, &analysis.hir, &analysis.mono)
@@ -40,7 +53,7 @@ pub fn emit_cpp(
         regions: options.regions && !std::env::var_os("DZ_REGIONS").is_some_and(|v| v == "0"),
         ..options
     };
-    let emitted = dz_cpp::emit(
+    let emitted = dz_cpp::emit_selected(
         ws,
         resolution,
         table,
@@ -50,6 +63,7 @@ pub fn emit_cpp(
         &analysis.map,
         &analysis.files,
         options,
+        selection,
     );
     if emitted.diagnostics.has_errors() {
         return Err(emitted.diagnostics);
@@ -117,9 +131,14 @@ pub fn emit_cpp(
     // to read or compile it without `dz`.
     let mut files = Vec::new();
     let mut written = Vec::new();
+    let mut module_files: std::collections::HashMap<dz_project::ModuleId, Vec<String>> =
+        Default::default();
     for file in &emitted.files {
         let path = cpp_dir.join(&file.name);
         files.push(path.clone());
+        if let Some(m) = file.module {
+            module_files.entry(m).or_default().push(file.name.clone());
+        }
         let contents = with_embedded_lines(&file.contents, &renames);
         if file.shared {
             let copy = shared.dir.join("cpp").join(&file.name);
@@ -135,12 +154,26 @@ pub fn emit_cpp(
         }
     }
 
-    Ok(BuildOutput { cpp_dir, files, written, shared })
+    // The kept modules' files, as their last build wrote them.
+    files.extend(kept.iter().map(|name| cpp_dir.join(name)));
+    Ok(BuildOutput {
+        cpp_dir,
+        files,
+        written,
+        shared,
+        claims: emitted.claims,
+        module_files,
+        reflects: emitted.reflects,
+        renames,
+    })
 }
 
 /// `text` with every `#line N "path"` whose path `renames` holds naming its replacement
 /// instead: `std`'s pseudo-paths their real copies, and relative paths absolute ones.
-fn with_embedded_lines(text: &str, renames: &std::collections::HashMap<String, String>) -> String {
+pub(crate) fn with_embedded_lines(
+    text: &str,
+    renames: &std::collections::HashMap<String, String>,
+) -> String {
     let mut out = String::with_capacity(text.len());
     for line in text.split_inclusive('\n') {
         // Indented inside an immediately-invoked lambda, which C++ allows.

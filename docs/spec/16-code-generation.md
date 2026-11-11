@@ -196,6 +196,16 @@ The next build with the same key checks these first, by size and time, and by co
 where a time is too recent to trust. When all of them hold, it prints the warnings that
 build printed and stops, without analysing anything; `dz run` runs the program.
 
+**An edit finishes only the modules it can affect.** A build also records each module it
+wrote: a hash of its sources, the files it wrote, and the instance bodies it needs and
+defines. The next build reads the whole program and checks its types as before. It then
+checks ownership, instantiates generics and writes C++ only for the modules whose own
+sources changed, or which depend on one that did. The others' files stay in `build/cpp`
+as they were, and their warnings are printed from their records. Which module defines an
+instance body is worked out the same way whether it is written now or kept, so the result
+is the same C++ a build of the whole program writes. `DZ_INCREMENTAL=verify` checks that,
+and `DZ_INCREMENTAL=0` writes every module.
+
 **The runtime and `std` are compiled once for every project.** Their generated files are the
 same in every program, so they, their objects and the precompiled `std.h` live in a per-user
 cache rather than in `build/`: `$XDG_CACHE_HOME/dazzle` or `~/.cache/dazzle` on Linux,

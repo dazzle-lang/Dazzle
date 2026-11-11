@@ -35,6 +35,11 @@ impl Reflection {
     pub(crate) fn is_needed(&self) -> bool {
         self.needed || !self.types.is_empty()
     }
+
+    /// How much has asked for the table so far, to tell which module asked (T-0197).
+    pub(crate) fn size(&self) -> (bool, usize) {
+        (self.needed, self.types.len())
+    }
 }
 
 impl<'a> Emitter<'a> {

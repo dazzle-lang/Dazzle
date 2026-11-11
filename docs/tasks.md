@@ -38,8 +38,10 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    5 ms at 100 modules); T-0191, a module's instance bodies in a file of their own; T-0193,
    a test that an incremental build equals a clean one; T-0195, the edited module compiles
    from its own header, precompiled (a leaf edit's C++ 0.91 s to 0.24 s); T-0196, a debug
-   build links with `mold` or `lld` when one is installed. Next in that plan: re-running
-   the later phases only for the modules an edit can affect. Left besides: the rest
+   build links with `mold` or `lld` when one is installed; T-0197, an edit re-runs
+   ownership, instantiation and emission only for the modules it can affect (a leaf edit
+   at 100 modules 2.45 s to 0.88 s, against 1.1 s for `make`). Next in that plan: stage
+   2b, so a body-only edit to a module others depend on does not redo them. Left besides: the rest
    of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
    `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
    only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the

@@ -8,6 +8,7 @@ use std::process::ExitCode;
 mod build;
 mod fresh;
 mod native;
+mod reuse;
 mod shared;
 
 use dz_project::Optimize;
@@ -509,7 +510,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     let dir = if benching { "bench" } else { "test" };
     let root = project_root(path).join("build").join(dir);
     let emit = dz_cpp::Options { mode: kind, line_directives, ..Default::default() };
-    let out = match build::emit_cpp(&analysis, &root, emit) {
+    let out = match build::emit_cpp(&analysis, &root, emit, None, &[]) {
         Ok(o) => o,
         Err(d) => {
             dz_diag::emit_to_stderr(&analysis.map, &d);
@@ -707,12 +708,23 @@ fn analyse_for_build(
     options: &dz_driver::BuildOptions,
     cxx: Option<&str>,
 ) -> build::Analysis {
-    let mut analysis = dz_driver::analyse_prepared(
+    analyse_selecting_for_build(entry, options, cxx, &|_, _, _| None)
+}
+
+/// [`analyse_for_build`], with `select` choosing which modules to finish (T-0197).
+fn analyse_selecting_for_build(
+    entry: &str,
+    options: &dz_driver::BuildOptions,
+    cxx: Option<&str>,
+    select: dz_driver::Select<'_>,
+) -> build::Analysis {
+    let mut analysis = dz_driver::analyse_selecting(
         Path::new(entry),
         &|_| None,
         dz_driver::Mode::Build,
         options,
         &mut |ws, diags| native::build_cmake_libraries(ws, cxx, diags),
+        select,
     );
     allow_for_fuzzing(&mut analysis.diags);
     analysis
@@ -774,10 +786,30 @@ fn cmd_pipeline(
     // Never freed: the process ends with this command, and the operating system takes the
     // memory back at once, where dropping every tree, table and instance one allocation at
     // a time cost a 100-module build 0.1 s (T-0187).
-    let mut analysis = std::mem::ManuallyDrop::new(analyse_for_build(entry, options, cxx));
+    //
+    // What the last build recorded of each module decides which modules this one finishes:
+    // the ones an edit can affect (T-0197).
+    let reuse_mode = reuse::mode();
+    let records =
+        stamp.as_ref().filter(|_| reuse_mode.is_some()).map(|k| reuse::Records::load(&root, k));
+    let cpp_dir = root.join("cpp");
+    let select = |ws: &dz_project::Workspace,
+                  map: &dz_span::SourceMap,
+                  files: &std::collections::HashMap<
+        dz_project::ModuleId,
+        Vec<dz_resolve::ParsedFile>,
+    >| { records.as_ref().and_then(|r| r.select(&cpp_dir, ws, map, files)) };
+    let mut analysis =
+        std::mem::ManuallyDrop::new(analyse_selecting_for_build(entry, options, cxx, &select));
+    // The ownership warnings of the modules not checked again, as their last build gave them.
+    let replayed = match (&records, &analysis.ws) {
+        (Some(r), Some(ws)) => r.kept_warnings(ws, analysis.finished.as_ref()),
+        _ => String::new(),
+    };
     if !analysis.diags.is_empty() {
         dz_diag::emit_to_stderr(&analysis.map, &analysis.diags);
     }
+    eprint!("{replayed}");
     if analysis.diags.has_errors() {
         return failure(&analysis.diags);
     }
@@ -785,7 +817,13 @@ fn cmd_pipeline(
     let emit =
         dz_cpp::Options { mode: dz_cpp::Mode::Program, line_directives, ..Default::default() };
     let started = std::time::Instant::now();
-    let out = match build::emit_cpp(&analysis, &root, emit) {
+    let out = match emit_reusing(
+        &mut analysis,
+        &root,
+        emit,
+        records.as_ref(),
+        reuse_mode == Some(true),
+    ) {
         Ok(o) => o,
         Err(d) => {
             dz_diag::emit_to_stderr(&analysis.map, &d);
@@ -811,15 +849,19 @@ fn cmd_pipeline(
     let compiled = build::compile(&analysis, &out, &root, cxx, &mut timings);
     if let (Some(key), Ok(exe)) = (&stamp, &compiled) {
         let started = std::time::Instant::now();
-        let warnings = if analysis.diags.is_empty() {
+        let mut warnings = if analysis.diags.is_empty() {
             String::new()
         } else {
             dz_diag::render_to_string(&analysis.map, &analysis.diags)
         };
+        warnings.push_str(&replayed);
         if let Some(cxx) = build::find_compiler(analysis.ws.as_ref(), cxx) {
             fresh::write(&root, key, &analysis, &cxx, exe, &warnings);
         }
         timings.lap("build stamp", started);
+    }
+    if let (Some(records), Ok(_)) = (&records, &compiled) {
+        records.write(&analysis, &out);
     }
     if show_timings {
         print_timings(&timings);
@@ -837,6 +879,111 @@ fn cmd_pipeline(
         return ExitCode::SUCCESS;
     }
     run_program(&exe)
+}
+
+/// Emit the C++: only the modules `analysis` finished, when it finished only some, around
+/// the files the others' last build wrote (T-0197). Modules whose instance bodies change
+/// hands are emitted too, and a program that reads the type table is emitted whole. With
+/// `verify`, the whole program is emitted as well, and any file that differs from what was
+/// kept or written is an error.
+fn emit_reusing(
+    analysis: &mut build::Analysis,
+    root: &Path,
+    emit: dz_cpp::Options,
+    records: Option<&reuse::Records>,
+    verify: bool,
+) -> Result<build::BuildOutput, dz_diag::Diagnostics> {
+    let mut selection = match (records, &analysis.ws, &analysis.finished) {
+        (Some(r), Some(ws), Some(finished)) => Some(r.selection(ws, finished)),
+        _ => None,
+    };
+    let selective = selection.is_some();
+    let out = loop {
+        let (Some(records), Some(ws), Some(chosen)) = (records, &analysis.ws, &selection) else {
+            break build::emit_cpp(analysis, root, emit, None, &[])?;
+        };
+        let kept = records.kept_files(ws, chosen);
+        let out = build::emit_cpp(analysis, root, emit, Some(chosen), &kept)?;
+        let next = match records.reconcile(ws, chosen, &out.claims, &out.reflects) {
+            Some(extra) if extra.is_empty() => break out,
+            Some(extra) => {
+                let mut modules = chosen.modules.clone();
+                modules.extend(extra);
+                Some(records.selection(ws, &modules))
+            }
+            None => None,
+        };
+        selection = next;
+        // Instantiated again for what is emitted now.
+        let (Some(res), Some(table), Some(hir)) =
+            (&analysis.resolution, &analysis.table, &analysis.hir)
+        else {
+            break out;
+        };
+        let modules = selection.as_ref().map(|s| &s.modules);
+        analysis.mono = Some(dz_mono::monomorphize_only(res, table, hir, modules));
+    };
+    if verify && selective {
+        verify_whole(analysis, &out, emit)?;
+    }
+    Ok(out)
+}
+
+/// `DZ_INCREMENTAL=verify`: emit the whole program and compare it with `build/cpp`, which
+/// holds what this build kept and wrote.
+fn verify_whole(
+    analysis: &mut build::Analysis,
+    out: &build::BuildOutput,
+    emit: dz_cpp::Options,
+) -> Result<(), dz_diag::Diagnostics> {
+    let (Some(ws), Some(res), Some(table), Some(hir)) =
+        (&analysis.ws, &analysis.resolution, &analysis.table, &analysis.hir)
+    else {
+        return Ok(());
+    };
+    let mono = dz_mono::monomorphize_only(res, table, hir, None);
+    let emit = dz_cpp::Options {
+        regions: emit.regions && !std::env::var_os("DZ_REGIONS").is_some_and(|v| v == "0"),
+        ..emit
+    };
+    let whole = dz_cpp::emit(
+        ws,
+        res,
+        table,
+        hir,
+        &mono,
+        analysis.placements.as_ref(),
+        &analysis.map,
+        &analysis.files,
+        emit,
+    );
+    let differing: Vec<String> = whole
+        .files
+        .iter()
+        .filter(|f| {
+            let expected = build::with_embedded_lines(&f.contents, &out.renames);
+            std::fs::read_to_string(out.cpp_dir.join(&f.name)).ok().as_deref()
+                != Some(expected.as_str())
+        })
+        .map(|f| f.name.clone())
+        .collect();
+    if differing.is_empty() {
+        return Ok(());
+    }
+    let mut d = dz_diag::Diagnostics::new();
+    d.push(
+        dz_diag::Diagnostic::error(
+            dz_diag::codes::INTERNAL_ERROR,
+            format!(
+                "the C++ this build kept or wrote differs from the whole program's in {}",
+                differing.join(", ")
+            ),
+        )
+        .with_help(
+            "this is a bug in the Dazzle compiler's incremental build (T-0197);              `DZ_INCREMENTAL=0` builds without it",
+        ),
+    );
+    Err(d)
 }
 
 /// Run what `dz run` built, passing its exit code through.
