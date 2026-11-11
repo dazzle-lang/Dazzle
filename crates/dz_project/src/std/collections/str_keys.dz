@@ -11,7 +11,7 @@ pub trait StrKeys<V> {
     fn contains_str(&self, key: &str) -> bool
 
     /// Take the entry for `key` out, returning its value, or `none` when there is none.
-    fn remove_str(&mut self, key: &str) -> V? kills self
+    fn remove_str(&mut self, key: &str) -> V? in self@home kills self
 }
 
 impl<V> StrKeys<V> for HashMap<String, V> {
@@ -29,7 +29,7 @@ impl<V> StrKeys<V> for HashMap<String, V> {
         return self.find_by(key, key_hash(&key), string_is) != none
     }
 
-    fn remove_str(&mut self, key: &str) -> V? kills self@items, self[*] {
+    fn remove_str(&mut self, key: &str) -> V? in self@home kills self@items, self[*] {
         let slot = self.find_by(key, key_hash(&key), string_is) or return none
         return self.remove_slot(slot)
     }

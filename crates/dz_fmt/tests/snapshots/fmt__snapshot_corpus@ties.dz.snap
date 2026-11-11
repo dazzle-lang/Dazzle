@@ -53,3 +53,12 @@ fn count<view T: Iterate>(it: T, view: i32) -> i32 {
 fn add(v: i32) kills SCORES.list@items, world::LOG.lines@items {}
 
 fn first() -> &i32 in world::SCORES.list@items {}
+
+fn give(
+    from: &mut List<String>,
+    store: &mut Store
+) kills from@items, from[*] sends from[*] to store, from[*] to KEPT {}
+
+fn put(&mut self, v: T) kills self@items sends v to self {}
+
+fn last(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {}

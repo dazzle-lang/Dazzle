@@ -1,0 +1,48 @@
+// The movers of X1 and X2 in `transfers`, in a module of their own: what the caller knows
+// of them is their signatures, and placement trusts what a method stores only within its
+// own module and `std` (`Staying::stores`), so what is given to `Shelf::put` keeps the heap.
+
+pub fn move_one<T>(xs: &mut List<T>, out: &mut List<T>) kills xs@items, xs[*], out@items sends xs[*] to out {
+    let v = xs.pop() or return
+    out.push(move(v))
+}
+
+pub fn tag(names: &mut List<String>, n: i32) kills names@items {
+    names.push(format!("x1 tagged {}, long enough to need memory", n))
+}
+
+// A container of the program's own: stores what `put` is given, hands it back on `take`.
+pub struct Shelf {
+    m_items: List<String>
+    tie @items = m_items
+
+    pub Shelf() {
+        m_items = List<String>()
+    }
+
+    pub fn put(&mut self, s: String) kills self@items@items sends s to self {
+        m_items.push(move(s))
+    }
+
+    pub fn take(&mut self) -> String? in self@home kills self@items {
+        return m_items.pop()
+    }
+
+    pub fn total(&self) -> usize {
+        let mut n: usize = 0
+        for &s in m_items {
+            n += s.len()
+        }
+        return n
+    }
+}
+
+fn shorter_first(a: &String, b: &String) -> bool {
+    return a.len() < b.len()
+}
+
+// Sorts and reads a list it is lent, and sends nothing out of it.
+pub fn longest(names: &mut List<String>) -> usize kills names@items {
+    names.sort_by(shorter_first)
+    return names[names.len() - 1].len()
+}

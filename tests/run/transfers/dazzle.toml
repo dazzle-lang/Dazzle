@@ -1,0 +1,10 @@
+[module]
+name    = "transfers"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std    = { open = true }
+movers = { path = "movers" }
+
+[build]
+output = "executable"

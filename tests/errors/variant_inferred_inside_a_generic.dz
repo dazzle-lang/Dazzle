@@ -7,7 +7,7 @@ union Choice<T> {
     Neither {}
 }
 
-fn wrap<T>(x: T) -> Choice<T> {
+fn wrap<T>(x: T) -> Choice<T> in x@home {
     return Choice::One{ value: move(x) }
 }
 

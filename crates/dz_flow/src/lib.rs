@@ -76,6 +76,13 @@ pub fn check_files(
         // the body kills (spec §6.7).
         let analysis = ties::analyse_body(body, table, res);
         ties::report(body, table, res, map, &analysis, &mut diags);
+        // What the body does with its inputs' memory, against `sends` and `in x@home`
+        // (D-0097). `std` is the same for every program, so its clauses are checked once,
+        // by `check_std_homes` in the test suite, rather than in every build.
+        if !prelude.contains(&body.file) {
+            let homes = ties::analyse_homes(body, table, res);
+            ties::report_homes(body, table, res, &homes, &mut diags);
+        }
         // A trait method's parameters are declarations, not bindings anything could read:
         // its body exists only to hold their defaults (spec §7.6).
         let signature_only = matches!(body.owner, dz_hir::BodyOwner::TraitDefaults { .. });
@@ -85,6 +92,22 @@ pub fn check_files(
     }
     unread.report(&mut diags);
     diags.sort_by_position();
+    diags
+}
+
+/// `std`'s bodies against their `sends` and `in x@home` (D-0097): what [`check_files`]
+/// leaves out, since `std` is the same for every program. The test suite runs it, so a
+/// clause `std` gets wrong fails there rather than in every build.
+pub fn check_std_homes(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
+    let mut diags = Diagnostics::new();
+    let prelude: std::collections::HashSet<FileId> =
+        res.symbols.iter().filter(|s| s.module == res.prelude).map(|s| s.file).collect();
+    for (_, body) in hir.bodies() {
+        if prelude.contains(&body.file) {
+            let homes = ties::analyse_homes(body, table, res);
+            ties::report_homes(body, table, res, &homes, &mut diags);
+        }
+    }
     diags
 }
 

@@ -137,6 +137,14 @@ array element is not something the function has the right to reset — so `move(
 `move(r.field)` through a reference, and `move(xs[i])` are errors. A local, a by-value
 parameter, and a field of either are fine. `[DECIDED]`
 
+**A move hands on ownership, not memory.** The value's memory stays in its **home**, the
+region or heap the compiler placed it in (§14.6), so `let b = move(a)` is a pointer steal
+however much `a` owns. Ownership may therefore move only to an owner whose home dies no
+later than the value's. Inside one function the compiler sees every move and places the
+value at its birth in a home that outlives everywhere it goes; across a call, the
+signature says where ownership goes, with `sends` and `in x@home` (§6.7). A move never
+copies by itself, and nothing is decided at run time. `[DECIDED — D-0097]`
+
 The same flow analysis handles **use-before-assignment** for the cases where default
 initialisation does not apply (a `let` with no type and no initialiser is rejected outright;
 a partially-moved struct field is tracked per field), and **definite return**: a function
@@ -326,10 +334,11 @@ fn title() -> const &str                                   // `-> str` is DZ0571
 The same holds for a result that **holds** a view: a struct (an iterator such as `iter()`'s
 `SliceIter`), a tuple or an optional with one inside, other than behind a pointer field. So
 `let it = xs.iter()`, then `xs.push(1)`, then using `it` is a use after a kill, and so is
-a half of `s.split_once("=")` after `s` changes. Three results stay untied: one that holds a
-view only through a type parameter (`pop(&mut self) -> T?` hands back the element, which
-points wherever it did, not into the list), a raw pointer or `^cstr` with no input, which may
-own what it points at, and an `extern fn`'s with no input, which is C's memory.
+a half of `s.split_once("=")` after `s` changes. Three results hold no view the check
+follows: one that holds a view only through a type parameter (`pop(&mut self) -> T?` hands
+back the element, whose views point wherever they did, not into the list, though its memory
+is the list's, `in self@home`, below), a raw pointer or `^cstr` with no input, which may own
+what it points at, and an `extern fn`'s with no input, which is C's memory.
 
 **A `kills` clause** says which ties a function may end, after the return type:
 
@@ -628,6 +637,65 @@ alone.
 `String`'s `push_str` and `push` kill `self@text`. `HashMap`, `HashSet` and `SlotMap` follow
 `List`; a map's `insert` and `replace` kill `self[*]` as well, since a value they replace is
 handed back or dropped.
+
+**Every value that owns memory has a home**: the region or heap the compiler placed it in
+(§14.6), named by the tie `@home`, which no struct declares (`tie @home` is `DZ0581`). A
+value's home is the shortest of its parts' homes, and a part's is never shorter than its
+owner's: a list assigned to a field of a struct in a region may be the heap's, but not the
+other way round. Each part keeps its own, per path, as every tie is: `store.saved@home` may
+be the heap while `store@home` is a region, so moving `store.saved` out is judged by the
+heap, and moving `store` whole by the region. `[DECIDED — D-0097]`
+
+**A `sends` clause** says what a function hands from one input to another, after the return
+type with its `kills`, in either order:
+
+```dz
+fn give(from: &mut List<String>, store: &mut Store)
+    kills from@items, from[*], store.names@items
+    sends from[*] to store
+
+pub fn push(&mut self, v: T) kills self@items sends v to self
+pub fn append(&mut self, other: &mut List<T>) kills self@items, other@items sends other[*] to self
+fn stash(xs: &mut List<String>) kills xs@items, xs[*], KEPT sends xs[*] to KEPT
+```
+
+- What is sent is a parameter taken by value, or what a `&mut` parameter, `&mut self` or a
+  static holds (`from[*]`, `from`, the same home); where it goes is a `&mut` parameter,
+  `&mut self` or a static (`DZ0583` otherwise). `to` is a word only here. A pair without one
+  is `DZ0220`.
+- **A caller places by it.** Lending a list to `give` beside `store` makes its elements
+  go where `store` lives, so the caller places the list in a home that outlives `store`'s;
+  lent to a function that sends nothing out of it, the list keeps its region, and so does
+  everything stored into it. A function given a container builds what it hands the
+  container in the container's own home (§14.6).
+- **It is checked both ways**, as `kills` is: a body that hands an input's memory to
+  another input without saying so is `DZ0421`, and a pair the body never does is `DZ0422`;
+  `dz fix` writes the clause. Inside one function nothing is refused: the compiler places
+  each local so that it outlives where its memory goes.
+- **Generic code writes it for every `T`**: `fn move_last<T>(xs: &mut List<T>, out: &mut
+  List<T>) … sends xs[*] to out`, which says nothing for a `T` that owns no memory.
+
+**An owned result says whose home it is in** with `in`, as a view says where it points:
+`pop(&mut self) -> T? in self@home` hands back an element that is still in the list's
+home, and a function that returns a parameter taken by value returns it in that
+parameter's home:
+
+```dz
+fn last_of(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*]
+fn largest<T: Ord>(a: T, b: T) -> T in (a@home, b@home)
+```
+
+A caller keeps such a result where the argument is, not where it keeps results it is given
+fresh. The body is held to it both ways (`DZ0421`, `DZ0422`), and `dz fix` writes it where
+no `in` is written yet. `@home` names nothing anywhere else: not in a `kills` clause, not on
+a view's or a parameter's `in`, not in a `sends` path, and not on a value that owns no
+memory (`DZ0582`). `[DECIDED — D-0097]`
+
+`std` says this for every container: `sends` on `List`'s `push`, `insert` and `append`,
+on `HashMap`'s `insert`, `replace` and `get_or_insert`, and on `HashSet`'s and `SlotMap`'s
+`insert`; `in self@home` on `List`'s `pop`, `remove` and `swap_remove`, `HashMap`'s
+`replace` and `remove`, and `SlotMap`'s `remove`. `Box(…)` needs none: a constructor's
+value holds what it is given.
 
 The checker reports a use after a kill (`DZ0413`), a return outside its `in`
 (`DZ0414`), and a clause that leaves a kill out, names one that never happens, or names

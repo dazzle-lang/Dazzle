@@ -878,6 +878,10 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     kills: Vec::new(),
                     kills_span: None,
                     kills_unknown: false,
+                    sends: Vec::new(),
+                    sends_span: None,
+                    ret_span: None,
+                    ret_home: Vec::new(),
                 };
                 let owner = BodyOwner::Ctor { owner: sym, index: ctors };
                 ctors += 1;

@@ -151,21 +151,8 @@ impl Allocator for ScopeArena {
         align: usize,
         loc: SourceLocation,
     ) -> ^mut u8 in (self, p) {
-        // The last small allocation grows in place when the chunk has room and it stays
-        // small: freeing it later by its size must not take it for a large block.
-        let small = !ScopeArena::is_large(old_size, align) && !ScopeArena::is_large(new_size, align)
-        if p != null && m_chunk != null && small {
-            let offset = (p as usize) - (m_chunk as usize)
-            if offset + old_size == m_used && offset + new_size <= m_cap {
-                #if TRACK_MEMORY {
-                    // Shrunk in place: the tail it gave up is dead.
-                    if new_size < old_size {
-                        poison(p, new_size, old_size)
-                    }
-                }
-                m_used = offset + new_size
-                return p
-            }
+        if self.resize_in_place(p, old_size, new_size, align) {
+            return p
         }
         let q = self.alloc(new_size, align, loc)
         if p != null {
@@ -198,6 +185,32 @@ impl Allocator for ScopeArena {
             }
         }
         let _ = loc.line
+    }
+
+    /// The last small allocation grows or shrinks where it is when the chunk has room: the
+    /// bump moves and nothing is copied. It must stay small, since freeing it later by its
+    /// size must not take it for a large block. A `List` whose elements cannot move as bytes
+    /// grows this way without moving them, where a fresh block would leave the old one
+    /// behind until the region ends.
+    fn resize_in_place(&mut self, p: ^mut u8, old_size: usize, new_size: usize, align: usize) -> bool {
+        if p == null || m_chunk == null || (p as usize) < (m_chunk as usize) {
+            return false
+        }
+        if ScopeArena::is_large(old_size, align) || ScopeArena::is_large(new_size, align) {
+            return false
+        }
+        let offset = (p as usize) - (m_chunk as usize)
+        if offset + old_size != m_used || offset + new_size > m_cap {
+            return false
+        }
+        #if TRACK_MEMORY {
+            // Shrunk in place: the tail it gave up is dead.
+            if new_size < old_size {
+                poison(p, new_size, old_size)
+            }
+        }
+        m_used = offset + new_size
+        return true
     }
 
     fn scoped(&self) -> bool {

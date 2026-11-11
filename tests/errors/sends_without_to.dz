@@ -1,0 +1,14 @@
+// expect: DZ0220
+//
+// A `sends` pair names what leaves, then `to`, then where it goes (D-0097).
+
+fn move_last(xs: &mut List<String>, out: &mut List<String>) kills xs@items, xs[*], out@items sends xs[*] out {
+    let v = xs.pop() or return
+    out.push(move(v))
+}
+
+fn main() {
+    let mut a = List<String>()
+    let mut b = List<String>()
+    move_last(&mut a, &mut b)
+}

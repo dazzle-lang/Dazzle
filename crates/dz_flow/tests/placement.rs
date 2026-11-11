@@ -97,7 +97,7 @@ fn keep(store: &mut Store) kills store.saved {
     store.saved = move(xs)
 }
 
-// Heap: pushed into a container.
+// Pushed into a container it was lent: built in that container's home (D-0097).
 fn tag(names: &mut List<String>) kills names@items {
     let s = String::from("a")
     names.push(move(s))
@@ -113,7 +113,7 @@ fn give() -> usize {
     return consume(move(xs))
 }
 
-fn hoard(xs: List<i32>, store: &mut Store) kills store.saved {
+fn hoard(xs: List<i32>, store: &mut Store) kills store.saved sends xs to store {
     store.saved = move(xs)
 }
 
@@ -269,7 +269,6 @@ const PLACED: &[(&str, &[&str])] = &[
 /// The wrong placements: the function, its site's index, and the proposer's reason.
 const WRONG: &[(&str, usize, &str)] = &[
     ("keep", 0, "List<i32>: heap: stored in `store.saved`"),
-    ("tag", 0, "String::from: heap: passed to `names.push`"),
     ("handed", 0, "List<i32>: heap: passed to `hoard`"),
     ("looped", 1, "String::from: heap: assigned to `s` on every pass of a loop"),
 ];
@@ -312,6 +311,9 @@ fn values_that_leave_their_scope_keep_the_heap_and_say_why() {
     for (f, expected) in FIXED {
         assert_eq!(decisions(&a, &p, f), [*expected], "in `{f}`");
     }
+    // Pushed into a list it was lent, by `push`'s `sends v to self`: built where the list
+    // lives, whatever its caller made of it (D-0097, T-0150).
+    assert_eq!(decisions(&a, &p, "tag"), ["String::from: home: where `names` lives"]);
     // The lists `main` builds are a struct literal's fields, placed where the struct is:
     // `store` is only lent, so in `main`'s region (round 3). `evens().len()` reads a
     // temporary, which no block keeps yet.
@@ -414,7 +416,7 @@ fn valued() -> List<i32> {
 }
 
 // A bare `T` hands back a value that exists already: no placement.
-fn last<T>(xs: &mut List<T>) -> T? kills xs@items, xs[*] {
+fn last<T>(xs: &mut List<T>) -> T? in xs@home kills xs@items, xs[*] {
     return xs.pop()
 }
 
@@ -599,7 +601,7 @@ fn main() {
         assert!(d.ends_with("heap: stored in `h.kept`"), "{d}");
     }
     for d in decisions(&a, &p, "given") {
-        assert!(d.ends_with("heap: passed to `xs.push`"), "{d}");
+        assert!(d.ends_with("home: where `xs` lives"), "{d}");
     }
 
     // The check alone, with every site proposed for its block.
@@ -880,7 +882,7 @@ fn main() {
         ["String: region: each pass of a loop in `per_pass`"]
     );
     assert_eq!(decisions(&a, &p, "made"), ["String: result: where `made`'s caller keeps it"]);
-    assert_eq!(decisions(&a, &p, "pushed"), ["String: heap: passed to `names.push`"]);
+    assert_eq!(decisions(&a, &p, "pushed"), ["String: home: where `names` lives"]);
     assert_eq!(
         decisions(&a, &p, "named"),
         ["String: heap: assigned to `store.name`; only a `let` gets a region"]
@@ -928,7 +930,7 @@ struct Holder {
         return xs.len() + self.kept.len()
     }
 
-    pub fn take(&mut self, xs: List<i32>) kills self.kept {
+    pub fn take(&mut self, xs: List<i32>) kills self.kept sends xs to self {
         self.kept = move(xs)
     }
 }
@@ -946,13 +948,13 @@ fn countdown(xs: List<i32>, n: i32) -> usize {
 fn forward(xs: List<i32>) -> usize {
     return measure(move(xs))
 }
-fn hand_back(xs: List<i32>) -> List<i32> {
+fn hand_back(xs: List<i32>) -> List<i32> in xs@home {
     return move(xs)
 }
-fn hoard(xs: List<i32>, into: &mut List<List<i32>>) kills into@items {
+fn hoard(xs: List<i32>, into: &mut List<List<i32>>) kills into@items sends xs to into {
     into.push(move(xs))
 }
-fn relay(xs: List<i32>, into: &mut List<List<i32>>) kills into@items {
+fn relay(xs: List<i32>, into: &mut List<List<i32>>) kills into@items sends xs to into {
     hoard(move(xs), into)
 }
 fn caller(h: &mut Holder) -> usize kills h.kept {
@@ -1005,7 +1007,7 @@ fn main() {
             "List<i32>: region: `caller`",
             "List<i32>: heap: passed to `relay`",
             "List<List<i32>>: region: `caller`",
-            "List<i32>: heap: passed to `h.take`",
+            "List<i32>: home: where `h` lives",
             "List<i32>: heap: a temporary",
         ]
     );
@@ -1189,7 +1191,7 @@ fn drained(n: i32) -> usize {
     return count
 }
 
-fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items {
+fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items sends from[*] to store {
     let s = from.pop() or return
     store.names.push(move(s))
 }
@@ -1242,7 +1244,7 @@ fn main() {
     );
     assert_eq!(
         decisions(&a, p, "popped")[1],
-        "String::from: heap: passed to `store.names.push`, once taken out of `names`",
+        "String::from: heap: given to `store.names`, once taken out of `names`",
         "taken back out and stored where the region cannot follow"
     );
     assert_eq!(
@@ -1250,7 +1252,7 @@ fn main() {
         "String::from: heap: stored in `names` on every pass of a loop",
         "popped in the same loop: the list does not keep it, and the region would grow"
     );
-    assert_eq!(decisions(&a, p, "lent")[1], "String::from: heap: lent as `&mut` with `names`");
+    assert_eq!(decisions(&a, p, "lent")[1], "String::from: heap: handed on by `give` from `names`");
     assert_eq!(
         decisions(&a, p, "mapped"),
         [
@@ -1267,8 +1269,8 @@ fn main() {
             "String::from: result: where `made`'s caller keeps it",
         ]
     );
-    // The list is the caller's, wherever it is.
-    assert_eq!(decisions(&a, p, "tagged"), ["String::from: heap: passed to `names.push`"]);
+    // The list is the caller's, wherever it is: built where it lives (D-0097).
+    assert_eq!(decisions(&a, p, "tagged"), ["String::from: home: where `names` lives"]);
 }
 
 const COPIES: &str = r#"
@@ -1345,10 +1347,8 @@ fn a_copy_is_built_where_it_is_placed() {
         decisions(&a, p, "returned"),
         ["a copy of `store.names`: result: where `returned`'s caller keeps it"]
     );
-    assert_eq!(
-        decisions(&a, p, "stored"),
-        ["a copy of `word`: heap: passed to `store.names.push`"]
-    );
+    // A copy is a value of its own: built where the lent list it goes into lives.
+    assert_eq!(decisions(&a, p, "stored"), ["a copy of `word`: home: where `store.names` lives"]);
     assert_eq!(
         decisions(&a, p, "churned")[1],
         "a copy of `word`: heap: stored in `names` on every pass of a loop"
@@ -1440,7 +1440,7 @@ struct Names {
         m_names = List<String>()
     }
 
-    pub fn add(&mut self, s: String) kills self@names {
+    pub fn add(&mut self, s: String) kills self@names sends s to self {
         m_names.push(move(s))
     }
 
@@ -1472,7 +1472,7 @@ struct Pile {
     }
 
     // Keeps `s`, and drops everything it kept before.
-    pub fn add(&mut self, s: String) kills self@all {
+    pub fn add(&mut self, s: String) kills self@all sends s to self {
         m_names = List<String>()
         m_names.push(move(s))
     }
@@ -1693,7 +1693,7 @@ fn reset(s: &mut String) kills s {
     s = String::from("on the heap")
 }
 
-fn pass_on(x: String) -> String {
+fn pass_on(x: String) -> String in x@home {
     return move(x)
 }
 
@@ -1970,6 +1970,148 @@ fn main() {
     assert_eq!(body(&a, &p, "first_big").demoted().len(), 4);
     assert_eq!(decisions(&a, &p, "tuples"), ["pair: region: each pass of a loop in `tuples`"]);
     for f in ["grown", "counted", "skipped", "per_round", "tuples"] {
+        assert!(body(&a, &p, f).demoted().is_empty(), "the check refused a placement in `{f}`");
+    }
+}
+
+/// D-0097, T-0200 stage 4: what a container is lent to says, by its clauses, all that leaves
+/// it. A list lent to a function that only reads it keeps what was pushed into it; one lent
+/// to a function that may build in it, whose elements another function sends into a list of
+/// an outer block, lives in that block's region rather than on the heap.
+#[test]
+fn a_lent_container_is_placed_by_its_callees_clauses() {
+    let a = analyse(
+        r#"
+fn longest(names: &mut List<String>) -> usize {
+    return names.len()
+}
+
+fn tag(names: &mut List<String>) kills names@items {
+    names.push(String::from("tagged"))
+}
+
+fn take_last(from: &mut List<String>, into: &mut List<String>) kills from@items, from[*], into@items sends from[*] to into {
+    let s = from.pop() or return
+    into.push(move(s))
+}
+
+fn read_only() -> usize {
+    let mut names = List<String>()
+    names.push(String::from("kept"))
+    return longest(&mut names)
+}
+
+fn outer() -> usize {
+    let mut kept = List<String>()
+    {
+        let mut lent = List<String>()
+        tag(&mut lent)
+        take_last(&mut lent, &mut kept)
+    }
+    return kept.len()
+}
+
+fn main() {
+    println!("{} {}", read_only(), outer())
+}
+"#,
+    );
+    let p = place(&a, Proposer::Rules);
+    // Lent to `longest`, whose clauses send nothing out of it: the string stays.
+    assert_eq!(
+        decisions(&a, &p, "read_only"),
+        ["List<String>: region: `read_only`", "String::from: region: `read_only`"]
+    );
+    // `tag` builds in `lent`'s home and `take_last` sends its elements into `kept`: `lent` is
+    // in `kept`'s block's region, which they die with.
+    assert_eq!(
+        decisions(&a, &p, "outer"),
+        ["List<String>: region: `outer`", "List<String>: region: `outer`"]
+    );
+    assert_eq!(decisions(&a, &p, "tag"), ["String::from: home: where `names` lives"]);
+    for f in ["read_only", "outer"] {
+        assert!(body(&a, &p, f).demoted().is_empty(), "the check refused a placement in `{f}`");
+    }
+}
+
+#[test]
+fn a_value_built_by_a_let_and_then_stored_goes_where_the_container_lives() {
+    let a = analyse(
+        r#"
+fn built(n: i32) -> usize {
+    let mut paths = List<List<i32>>()
+    for i in 0..n {
+        let mut path = List<i32>()
+        for step in 0..4 {
+            path.push(i + step)
+        }
+        paths.push(move(path))
+    }
+    return paths.len()
+}
+
+fn skipped(n: i32) -> usize {
+    let mut paths = List<List<i32>>()
+    for i in 0..n {
+        let mut path = List<i32>()
+        path.push(i)
+        if i == 3 {
+            continue
+        }
+        paths.push(move(path))
+    }
+    return paths.len()
+}
+
+fn sometimes(n: i32) -> usize {
+    let mut paths = List<List<i32>>()
+    for i in 0..n {
+        let mut path = List<i32>()
+        path.push(i)
+        if i % 2 == 0 {
+            paths.push(move(path))
+        }
+    }
+    return paths.len()
+}
+
+fn replaced(n: i32) -> usize {
+    let mut paths = List<List<i32>>()
+    for i in 0..n {
+        let mut path = List<i32>()
+        path.push(i)
+        path = List<i32>()
+        paths.push(move(path))
+    }
+    return paths.len()
+}
+
+fn main() {
+    println!("{} {} {} {}", built(3), skipped(3), sometimes(3), replaced(3))
+}
+"#,
+    );
+    let p = place(&a, Proposer::Rules);
+    // Moved in by the statement after its loop, on every pass: as `paths.push(List())` is.
+    assert_eq!(
+        decisions(&a, &p, "built"),
+        ["List<List<i32>>: region: `built`", "List<i32>: region: `built`"]
+    );
+    let every_pass = "heap: stored in `paths` on every pass of a loop";
+    // A pass may end, or the push not run, while `path` holds the list: it would die in a
+    // region that outlives the pass.
+    assert_eq!(
+        decisions(&a, &p, "skipped"),
+        ["List<List<i32>>: region: `skipped`".to_owned(), format!("List<i32>: {every_pass}")]
+    );
+    assert_eq!(
+        decisions(&a, &p, "sometimes"),
+        ["List<List<i32>>: region: `sometimes`".to_owned(), format!("List<i32>: {every_pass}")]
+    );
+    // Replaced before the push: the first list dies on every pass.
+    let first = &decisions(&a, &p, "replaced")[1];
+    assert!(first.starts_with("List<i32>: heap: "), "{first}");
+    for f in ["built", "skipped", "sometimes", "replaced"] {
         assert!(body(&a, &p, f).demoted().is_empty(), "the check refused a placement in `{f}`");
     }
 }

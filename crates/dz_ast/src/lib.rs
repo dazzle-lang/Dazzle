@@ -205,6 +205,11 @@ pub struct FnDecl {
     pub kills: Vec<TiePath>,
     /// The whole clause, `kills` through its last path, so a fix can replace or remove it.
     pub kills_span: Option<Span>,
+    /// `sends from[*] to store`: what this function hands from one input to another, which
+    /// its callers place by (D-0097). Empty when it sends nothing.
+    pub sends: Vec<Send>,
+    /// The whole clause, `sends` through its last path.
+    pub sends_span: Option<Span>,
     /// `None` for a trait method with no default body.
     pub body: Option<Block>,
     /// `Button(w: i32) : UiElement(w) { … }` — a constructor's base initialiser, and
@@ -254,6 +259,15 @@ pub struct Param {
     pub variadic: bool,
     /// `e: &mut Enemy in world`: where a reference parameter points (spec §6.7).
     pub tie: Option<TiePath>,
+}
+
+/// One pair of a `sends` clause, `from[*] to store`: what one input owns, handed to another
+/// (D-0097).
+#[derive(Clone, Debug)]
+pub struct Send {
+    pub span: Span,
+    pub what: TiePath,
+    pub to: TiePath,
 }
 
 /// Memory named by a path, in a `kills` clause or after `in` (spec §6.7): `self@items`,

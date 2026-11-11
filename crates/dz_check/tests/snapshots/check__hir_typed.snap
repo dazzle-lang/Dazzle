@@ -1,6 +1,5 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 242
 expression: r.hir
 ---
 body impl#0 method extend -> void
@@ -3809,59 +3808,88 @@ body method List::move_to -> void
                       type-query T::align: usize
                       local _2 loc: SourceLocation
           block
-            block-value: void
-              block
-                let _5 fresh: ^mut T
-                  block-value: ^mut T
-                    block
-                      cast: ^mut T
-                        call-method Allocator::alloc: ^mut u8
-                          local _3 a: &mut Allocator
-                          binary *: usize
-                            local _1 cap: usize
-                            type-query T::size: usize
-                          type-query T::align: usize
-                          local _2 loc: SourceLocation
-                for _6 i
-                  range: usize..usize
-                    int 0: i32
-                    field #1: usize
-                      local _0 self: List<T>
-                  block
-                    block-value: void
-                      block
-                        builtin construct: void
-                          index: T
-                            local _5 fresh: ^mut T
-                            local _6 i: usize
-                          builtin move_out: T
-                            index: T
-                              field #0: own ^mut T
-                                local _0 self: List<T>
-                              local _6 i: usize
-                if: void
+            if: void
+              binary &&: bool
+                binary &&: bool
                   binary !=: bool
                     field #0: own ^mut T
                       local _0 self: List<T>
                     null: own ^mut T
-                  block
-                    call-method Allocator::free: void
-                      local _3 a: &mut Allocator
-                      block-value: ^mut u8
-                        block
-                          cast: ^mut u8
-                            field #0: own ^mut T
-                              local _0 self: List<T>
-                      binary *: usize
-                        field #2: usize
+                  binary >=: bool
+                    local _1 cap: usize
+                    field #1: usize
+                      local _0 self: List<T>
+                call-method Allocator::resize_in_place: bool
+                  local _3 a: &mut Allocator
+                  block-value: ^mut u8
+                    block
+                      cast: ^mut u8
+                        field #0: own ^mut T
                           local _0 self: List<T>
-                        type-query T::size: usize
-                      type-query T::align: usize
-                      local _2 loc: SourceLocation
-                assign =
-                  field #0: own ^mut T
-                    local _0 self: List<T>
-                  local _5 fresh: ^mut T
+                  binary *: usize
+                    field #2: usize
+                      local _0 self: List<T>
+                    type-query T::size: usize
+                  binary *: usize
+                    local _1 cap: usize
+                    type-query T::size: usize
+                  type-query T::align: usize
+              block
+                (empty)
+              block
+                block-value: void
+                  block
+                    let _5 fresh: ^mut T
+                      block-value: ^mut T
+                        block
+                          cast: ^mut T
+                            call-method Allocator::alloc: ^mut u8
+                              local _3 a: &mut Allocator
+                              binary *: usize
+                                local _1 cap: usize
+                                type-query T::size: usize
+                              type-query T::align: usize
+                              local _2 loc: SourceLocation
+                    for _6 i
+                      range: usize..usize
+                        int 0: i32
+                        field #1: usize
+                          local _0 self: List<T>
+                      block
+                        block-value: void
+                          block
+                            builtin construct: void
+                              index: T
+                                local _5 fresh: ^mut T
+                                local _6 i: usize
+                              builtin move_out: T
+                                index: T
+                                  field #0: own ^mut T
+                                    local _0 self: List<T>
+                                  local _6 i: usize
+                    if: void
+                      binary !=: bool
+                        field #0: own ^mut T
+                          local _0 self: List<T>
+                        null: own ^mut T
+                      block
+                        call-method Allocator::free: void
+                          local _3 a: &mut Allocator
+                          block-value: ^mut u8
+                            block
+                              cast: ^mut u8
+                                field #0: own ^mut T
+                                  local _0 self: List<T>
+                          binary *: usize
+                            field #2: usize
+                              local _0 self: List<T>
+                            type-query T::size: usize
+                          type-query T::align: usize
+                          local _2 loc: SourceLocation
+                    assign =
+                      field #0: own ^mut T
+                        local _0 self: List<T>
+                      local _5 fresh: ^mut T
     assign =
       field #2: usize
         local _0 self: List<T>
@@ -11253,6 +11281,15 @@ body method Allocator::scoped -> bool
   block
     return: !
       bool false: bool
+body method Allocator::resize_in_place -> bool
+  param _0 self: Allocator
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  block
+    return: !
+      bool false: bool
 body const Allocators::Global -> void
   block
     block-value: &mut Heap
@@ -12193,60 +12230,17 @@ body impl#98 method realloc -> ^mut u8
   param _4 align: usize
   param _5 loc: SourceLocation
   block
-    let _6 small: bool
-      binary &&: bool
-        unary !: bool
-          call-assoc ScopeArena::is_large: bool
-            local _2 old_size: usize
-            local _4 align: usize
-        unary !: bool
-          call-assoc ScopeArena::is_large: bool
-            local _3 new_size: usize
-            local _4 align: usize
     if: void
-      binary &&: bool
-        binary &&: bool
-          binary !=: bool
-            local _1 p: ^mut u8
-            null: ^mut u8
-          binary !=: bool
-            field #0: ^mut u8
-              local _0 self: ScopeArena
-            null: ^mut u8
-        local _6 small: bool
+      call-method Allocator::resize_in_place: bool
+        local _0 self: ScopeArena
+        local _1 p: ^mut u8
+        local _2 old_size: usize
+        local _3 new_size: usize
+        local _4 align: usize
       block
-        let _7 offset: usize
-          binary -: usize
-            cast: usize
-              local _1 p: ^mut u8
-            cast: usize
-              field #0: ^mut u8
-                local _0 self: ScopeArena
-        if: void
-          binary &&: bool
-            binary ==: bool
-              binary +: usize
-                local _7 offset: usize
-                local _2 old_size: usize
-              field #1: usize
-                local _0 self: ScopeArena
-            binary <=: bool
-              binary +: usize
-                local _7 offset: usize
-                local _3 new_size: usize
-              field #2: usize
-                local _0 self: ScopeArena
-          block
-            error
-            assign =
-              field #1: usize
-                local _0 self: ScopeArena
-              binary +: usize
-                local _7 offset: usize
-                local _3 new_size: usize
-            return: !
-              local _1 p: ^mut u8
-    let _8 q: ^mut u8
+        return: !
+          local _1 p: ^mut u8
+    let _6 q: ^mut u8
       call-method Allocator::alloc: ^mut u8
         local _0 self: ScopeArena
         local _3 new_size: usize
@@ -12257,7 +12251,7 @@ body impl#98 method realloc -> ^mut u8
         local _1 p: ^mut u8
         null: ^mut u8
       block
-        let _9 kept: usize
+        let _7 kept: usize
           if: usize
             binary <: bool
               local _2 old_size: usize
@@ -12271,9 +12265,9 @@ body impl#98 method realloc -> ^mut u8
         block-value: void
           block
             builtin memcpy: void
-              local _8 q: ^mut u8
+              local _6 q: ^mut u8
               local _1 p: ^mut u8
-              local _9 kept: usize
+              local _7 kept: usize
         call-method Allocator::free: void
           local _0 self: ScopeArena
           local _1 p: ^mut u8
@@ -12281,7 +12275,7 @@ body impl#98 method realloc -> ^mut u8
           local _4 align: usize
           local _5 loc: SourceLocation
     return: !
-      local _8 q: ^mut u8
+      local _6 q: ^mut u8
 body impl#98 method free -> void
   param _0 self: ScopeArena
   param _1 p: ^mut u8
@@ -12340,6 +12334,76 @@ body impl#98 method free -> void
     let _: _
       field #2: u32
         local _4 loc: SourceLocation
+body impl#98 method resize_in_place -> bool
+  param _0 self: ScopeArena
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  block
+    if: void
+      binary ||: bool
+        binary ||: bool
+          binary ==: bool
+            local _1 p: ^mut u8
+            null: ^mut u8
+          binary ==: bool
+            field #0: ^mut u8
+              local _0 self: ScopeArena
+            null: ^mut u8
+        binary <: bool
+          cast: usize
+            local _1 p: ^mut u8
+          cast: usize
+            field #0: ^mut u8
+              local _0 self: ScopeArena
+      block
+        return: !
+          bool false: bool
+    if: void
+      binary ||: bool
+        call-assoc ScopeArena::is_large: bool
+          local _2 old_size: usize
+          local _4 align: usize
+        call-assoc ScopeArena::is_large: bool
+          local _3 new_size: usize
+          local _4 align: usize
+      block
+        return: !
+          bool false: bool
+    let _5 offset: usize
+      binary -: usize
+        cast: usize
+          local _1 p: ^mut u8
+        cast: usize
+          field #0: ^mut u8
+            local _0 self: ScopeArena
+    if: void
+      binary ||: bool
+        binary !=: bool
+          binary +: usize
+            local _5 offset: usize
+            local _2 old_size: usize
+          field #1: usize
+            local _0 self: ScopeArena
+        binary >: bool
+          binary +: usize
+            local _5 offset: usize
+            local _3 new_size: usize
+          field #2: usize
+            local _0 self: ScopeArena
+      block
+        return: !
+          bool false: bool
+    error
+    assign =
+      field #1: usize
+        local _0 self: ScopeArena
+      binary +: usize
+        local _5 offset: usize
+        local _3 new_size: usize
+    return: !
+      bool true: bool
 body impl#98 method scoped -> bool
   param _0 self: ScopeArena
   block
@@ -12777,46 +12841,16 @@ body impl#101 method realloc -> ^mut u8
   param _5 loc: SourceLocation
   block
     if: void
-      binary &&: bool
-        binary !=: bool
-          local _1 p: ^mut u8
-          null: ^mut u8
-        binary !=: bool
-          field #0: ^mut u8
-            local _0 self: TempArena
-          null: ^mut u8
+      call-method Allocator::resize_in_place: bool
+        local _0 self: TempArena
+        local _1 p: ^mut u8
+        local _2 old_size: usize
+        local _3 new_size: usize
+        local _4 align: usize
       block
-        let _6 offset: usize
-          binary -: usize
-            cast: usize
-              local _1 p: ^mut u8
-            cast: usize
-              field #0: ^mut u8
-                local _0 self: TempArena
-        if: void
-          binary &&: bool
-            binary ==: bool
-              binary +: usize
-                local _6 offset: usize
-                local _2 old_size: usize
-              field #1: usize
-                local _0 self: TempArena
-            binary <=: bool
-              binary +: usize
-                local _6 offset: usize
-                local _3 new_size: usize
-              field #2: usize
-                local _0 self: TempArena
-          block
-            assign =
-              field #1: usize
-                local _0 self: TempArena
-              binary +: usize
-                local _6 offset: usize
-                local _3 new_size: usize
-            return: !
-              local _1 p: ^mut u8
-    let _7 q: ^mut u8
+        return: !
+          local _1 p: ^mut u8
+    let _6 q: ^mut u8
       call-method Allocator::alloc: ^mut u8
         local _0 self: TempArena
         local _3 new_size: usize
@@ -12827,7 +12861,7 @@ body impl#101 method realloc -> ^mut u8
         local _1 p: ^mut u8
         null: ^mut u8
       block
-        let _8 kept: usize
+        let _7 kept: usize
           if: usize
             binary <: bool
               local _2 old_size: usize
@@ -12841,11 +12875,11 @@ body impl#101 method realloc -> ^mut u8
         block-value: void
           block
             builtin memcpy: void
-              local _7 q: ^mut u8
+              local _6 q: ^mut u8
               local _1 p: ^mut u8
-              local _8 kept: usize
+              local _7 kept: usize
     return: !
-      local _7 q: ^mut u8
+      local _6 q: ^mut u8
 body impl#101 method free -> void
   param _0 self: TempArena
   param _1 p: ^mut u8
@@ -12854,6 +12888,66 @@ body impl#101 method free -> void
   param _4 loc: SourceLocation
   block
     error
+body impl#101 method resize_in_place -> bool
+  param _0 self: TempArena
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  block
+    if: void
+      binary ||: bool
+        binary ||: bool
+          binary ==: bool
+            local _1 p: ^mut u8
+            null: ^mut u8
+          binary ==: bool
+            field #0: ^mut u8
+              local _0 self: TempArena
+            null: ^mut u8
+        binary <: bool
+          cast: usize
+            local _1 p: ^mut u8
+          cast: usize
+            field #0: ^mut u8
+              local _0 self: TempArena
+      block
+        return: !
+          bool false: bool
+    let _5 offset: usize
+      binary -: usize
+        cast: usize
+          local _1 p: ^mut u8
+        cast: usize
+          field #0: ^mut u8
+            local _0 self: TempArena
+    if: void
+      binary ||: bool
+        binary !=: bool
+          binary +: usize
+            local _5 offset: usize
+            local _2 old_size: usize
+          field #1: usize
+            local _0 self: TempArena
+        binary >: bool
+          binary +: usize
+            local _5 offset: usize
+            local _3 new_size: usize
+          field #2: usize
+            local _0 self: TempArena
+      block
+        return: !
+          bool false: bool
+    let _: _
+      local _4 align: usize
+    assign =
+      field #1: usize
+        local _0 self: TempArena
+      binary +: usize
+        local _5 offset: usize
+        local _3 new_size: usize
+    return: !
+      bool true: bool
 body drop TempArena -> void
   param _0 self: TempArena
   block
@@ -21315,3 +21409,61 @@ body fn divisions -> f64
         binary /: f64
           float 1: f64
           float 0: f64
+body field-default Mailbox.0 -> void
+  block
+    call-ctor List#0: List<String>
+body method Mailbox::post -> void
+  param _0 self: Mailbox
+  param _1 letter: String
+  block
+    call-method List::push: void
+      field #0: List<String>
+        local _0 self: Mailbox
+      move: String
+        local _1 letter: String
+body method Mailbox::collect -> String?
+  param _0 self: Mailbox
+  block
+    return: !
+      call-method List::pop: String?
+        field #0: List<String>
+          local _0 self: Mailbox
+body static OUTBOX -> void
+  block
+    none: List<String>?
+body fn forward -> void
+  param _0 from: &mut List<T>
+  param _1 to: &mut List<T>
+  block
+    let _2 v: T
+      or: T
+        call-method List::pop: T?
+          local _0 from: &mut List<T>
+        return: !
+    call-method List::push: void
+      local _1 to: &mut List<T>
+      move: T
+        local _2 v: T
+body fn oldest -> String
+  param _0 letters: &mut List<String>
+  block
+    return: !
+      call-method List::remove: String
+        local _0 letters: &mut List<String>
+        int 0: usize
+body fn dispatch -> void
+  param _0 letters: &mut List<String>
+  block
+    let _1 v: String
+      or: String
+        call-method List::pop: String?
+          local _0 letters: &mut List<String>
+        return: !
+    if-let: void
+      static OUTBOX: List<String>?
+      bind _2 out
+      block
+        call-method List::push: void
+          local _2 out: &mut List<String>
+          move: String
+            local _1 v: String

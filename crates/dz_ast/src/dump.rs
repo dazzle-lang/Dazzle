@@ -262,8 +262,10 @@ impl<'a> Dumper<'a> {
         } else {
             format!("{recv}, {}", params.join(", "))
         };
-        // Where a returned reference points, and what the function kills (spec §6.7).
-        let ties = format!("{}{}", in_str(&f.ret_ties), kills_str(&f.kills, false));
+        // Where a returned reference points, what the function kills (spec §6.7), and what
+        // it sends from one input to another (D-0097).
+        let ties =
+            format!("{}{}{}", in_str(&f.ret_ties), kills_str(&f.kills, false), sends_str(&f.sends));
         self.line(format_args!(
             "{vis}{}{}{}{} {}{}({}){}{ties}",
             match f.dispatch {
@@ -867,6 +869,18 @@ pub fn kills_str(kills: &[TiePath], in_type: bool) -> String {
         _ if in_type => format!(" kills ({})", paths.join(", ")),
         _ => format!(" kills {}", paths.join(", ")),
     }
+}
+
+/// ` sends a to b, c to d`, or nothing when there are none (D-0097).
+pub fn sends_str(sends: &[Send]) -> String {
+    if sends.is_empty() {
+        return String::new();
+    }
+    let pairs: Vec<String> = sends
+        .iter()
+        .map(|s| format!("{} to {}", tie_path_str(&s.what), tie_path_str(&s.to)))
+        .collect();
+    format!(" sends {}", pairs.join(", "))
 }
 
 pub fn pat_str(p: &Pat) -> String {

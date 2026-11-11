@@ -56,6 +56,15 @@ fn small_allocations() {
     let c = arena.realloc(b, 40, 80, 8)
     println!("given back {} grown in place {}", a == b, b == c)
 
+    // Resized without moving, as a `List` of values that cannot move as bytes grows: only
+    // the last small allocation, and never into a large block.
+    let d = arena.alloc(64, 8)
+    let e = arena.alloc(16, 8)
+    let last = arena.resize_in_place(e, 16, 48, 8)
+    let earlier = arena.resize_in_place(d, 64, 128, 8)
+    let large = arena.resize_in_place(e, 48, 20000, 8)
+    println!("resized last {} earlier {} into large {}", last, earlier, large)
+
     // Stricter alignment than a large block keeps stays in a chunk.
     let wide = arena.alloc(32, 64)
     println!("align 64 {}", (wide as usize) % 64 == 0)
@@ -78,6 +87,16 @@ fn grown_containers() {
     }
     println!("list {} sum {}", xs.len(), sum)
     println!("string {} ends {}", s.len(), s.as_str().ends_with("region "))
+
+    // Elements that are not moved as bytes: short names, kept in place, so nothing else is
+    // allocated between the pushes and the list grows where it is, then shrinks there.
+    let mut names = List<String>()
+    for i in 0..500 {
+        names.push(format!("n{}", i))
+    }
+    names.truncate(10)
+    names.shrink_to_fit()
+    println!("names {} {} {} capacity {}", names.len(), names[0], names[9], names.capacity())
 }
 
 // Two arenas one after the other: the second takes the first's chunk back from the pool.

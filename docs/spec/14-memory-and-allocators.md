@@ -225,9 +225,18 @@ A reference to a value that is not a place — `m.get(&7)`, `&make()` — refers
 temporary holding the value until the end of the enclosing block, and the literal takes its
 type from what the reference is wanted to point at.
 
+**A container's elements live in its home** (§6.7): what `push` or `insert` is given is
+built where the container is, and what `pop` or `remove` hands back is still there, which
+their `sends` and `in self@home` say. A container keeps the allocator it was placed in, which
+is how a function lent one builds into it (§14.6). `[DECIDED — D-0097]`
+
 Other allocators — an arena, a pool, a free list — are ordinary Dazzle structs implementing
 the trait, which a program's own container can take memory from in `unsafe` code. Asking the
 compiler to place values in one, under a memory budget or with no heap, is open (T-0143).
+An allocator that can grow or shrink a block without moving it says so with
+`resize_in_place(p, old_size, new_size, align) -> bool`, `false` by default: an arena can
+for its last allocation, by moving its bump. It is how a `List` of values that cannot move as
+bytes grows in a region without copying them.
 
 ## 14.3 Placement primitives
 
@@ -578,7 +587,16 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
 - **A value stored into a container lives where the container lives**: what
   `names.push(…)` or `map.insert(…)` is given, when the container is a local of the
   function. Taken back out (`pop`, `remove`) and kept somewhere the region cannot follow, or
-  lent with the container as `&mut`, it goes to the heap instead. Built on every pass of a
+  lent with the container to a call whose clauses hand it on, it goes to the heap instead,
+  or with the container to a home that outlives where it goes (D-0097).
+- **A function lent a container builds into its home**: what it hands a container it was
+  lent, by a call whose `sends` puts it there (`names.push(String::from("x"))` in a function
+  given `names: &mut List<String>`), is built with the allocator the container keeps, read
+  from the container at run time, so it lives wherever the caller put the container. A
+  caller that lends a container to a function of the program's own then takes it to hold
+  values in its own region, and places it so that what leaves it, by a `sends` or an
+  `in x@home` result, outlives nothing: in the region of the outermost block it goes into,
+  or the heap. `[DECIDED — D-0097, T-0150]` Built on every pass of a
   loop, it goes there only when the container keeps everything it is given, so the region
   grows no faster than the container: a map does when each insert follows a lookup of the
   same key that found nothing, which replaces nothing. `[DECIDED — D-0091, T-0145, T-0149]`
@@ -647,5 +665,4 @@ Regions and result placement are on in every build; `DZ_REGIONS=0` builds the sa
 program with every value on the heap, which prints the same and is there to compare
 against. Not yet implemented: owner arenas (T-0120) and a `virtual` method's result
 (T-0141) are still to come, as are skipped drops for a value lent as `&mut` or built in a
-generic body (T-0147), and a stored value placed for a container lent to a function
-(T-0150).
+generic body (T-0147).

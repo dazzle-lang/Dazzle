@@ -84,8 +84,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    small program 13-21% less; and with T-0192 a build with nothing changed 5 ms (`make`:
    50 ms); update with the rest of the incremental-build stages.
 
-Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147, T-0150), which keep memory on
-the heap but are not safety holes, and the ten-thousand-line game (T-0138).
+Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147), which keep memory on the heap
+but are not safety holes, and the ten-thousand-line game (T-0138). T-0150 is done, by
+D-0097's homes (r119, T-0200).
 
 **Memory placed by the compiler, then safe code made sound**, chosen by the user on
 2026-11-01. Automatic placement matters most (T-0117 and what follows it), and threads can
@@ -255,9 +256,9 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0142](tasks/T-0142-by-value-parameter-placement-inferred-only.md)** A by-value parameter's placement is inferred only within its module · feature, ownership
 - **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method or format!, or in a generic body · feature, ownership
 - **[T-0148](tasks/T-0148-say-in-source-that-drop-only.md)** Say in the source that a drop only frees, checked by the compiler · design, ownership
-- **[T-0150](tasks/T-0150-value-stored-into-container-lent-function.md)** A value stored into a container lent to a function keeps the heap · design, ownership
 - **[T-0159](tasks/T-0159-delete-allocators-global-allocators-temp-temparena.md)** "Delete Allocators::Global, Allocators::Temp and TempArena: nothing outside std names an allocator" · feature, stdlib
 - **[T-0161](tasks/T-0161-parser-binds-as-tighter-than-prefix.md)** The parser binds as tighter than prefix -, against §11.1's table · bug, language
 - **[T-0162](tasks/T-0162-entry-point-function-no-dazzle-code.md)** "#[entry_point]: a function no Dazzle code calls, which names no static's kills" · feature, ownership
 - **[T-0167](tasks/T-0167-field-default-that-calls-free-function.md)** A field default that calls a free function of its own module does not compile · bug, codegen
 - **[T-0178](tasks/T-0178-for-loop-over-view-temporary-reads.md)** A for loop over a view of a temporary reads freed memory: for c in format!(…).chars() · bug, codegen
+- **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership

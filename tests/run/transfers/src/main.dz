@@ -1,0 +1,295 @@
+// Ownership moved out of a container whose memory may be a region, into an owner that
+// outlives it (D-0097, "try to break it"). Each probe then reuses the region (`churn`) and
+// reads what it moved, so a placement that let the value stay in the region shows as wrong
+// output here or a report under the sanitizers. Today every one of these values is placed on
+// the heap, and `dz placements` says why; under homes, the P and X probes are the ones a
+// rule must refuse or place, and the K ones must keep compiling with no copy.
+//
+// Two shapes have no probe because the language already refuses them: moving out through a
+// reference (`let tmp = move(last)` of a `&mut` from `last_mut`, DZ0402), and a consuming
+// `for` (`for s in move(names)`, DZ0501).
+
+import movers::{ longest, move_one, tag, Shelf }
+
+struct Store {
+    pub names: List<String>
+    pub boxes: List<Box<String>>
+    pub maybe: String?
+}
+
+static KEPT: List<String>? = none
+
+fn churn() -> i32 {
+    let mut junk = List<String>()
+    for _ in 0..2000 {
+        junk.push(String::from("################################"))
+    }
+    return junk.len() as i32
+}
+
+// P1: every element moved by `append`, through a `&mut` parameter, not a by-value one.
+fn appended(store: &mut Store) -> i32 kills store.names@items {
+    let mut names = List<String>()
+    names.push(String::from("p1 appended, long enough to need memory"))
+    store.names.append(&mut names)
+    return churn()
+}
+
+// P2: popped out of a list of an inner block and pushed into one of the outer block.
+fn inner_to_outer() -> usize {
+    let mut outer = List<String>()
+    {
+        let mut inner = List<String>()
+        inner.push(String::from("p2 inner to outer, long enough to need memory"))
+        let s = inner.pop() or return 0
+        outer.push(move(s))
+    }
+    churn()
+    println!("{}", outer[0])
+    return outer[0].len()
+}
+
+// P3: through a function that hands back what it is given.
+fn id(s: String) -> String in s@home {
+    return move(s)
+}
+
+fn through_id(store: &mut Store) -> i32 kills store.names@items {
+    let mut names = List<String>()
+    names.push(String::from("p3 through id, long enough to need memory"))
+    let s = names.pop() or return 0
+    store.names.push(id(move(s)))
+    return churn()
+}
+
+// P4: `remove` and `swap_remove` rather than `pop`.
+fn removed(store: &mut Store) -> i32 kills store.names@items {
+    let mut names = List<String>()
+    names.push(String::from("p4 removed, long enough to need memory"))
+    names.push(String::from("p4 swap removed, long enough to need memory"))
+    store.names.push(names.swap_remove(1))
+    store.names.push(names.remove(0))
+    return churn()
+}
+
+// P5: `HashMap::replace`'s old value, and `remove`'s.
+fn replaced(store: &mut Store) -> i32 kills store.names@items {
+    let mut m = HashMap<i32, String>()
+    m.insert(1, String::from("p5 replaced, long enough to need memory"))
+    m.insert(2, String::from("p5 removed from a map, long enough to need memory"))
+    let old = m.replace(1, String::from("new")) or return 0
+    store.names.push(move(old))
+    let gone = m.remove(&2) or return 0
+    store.names.push(move(gone))
+    return churn()
+}
+
+// P6: into an optional field rather than a container.
+fn into_field(store: &mut Store) -> i32 kills store.maybe {
+    let mut names = List<String>()
+    names.push(String::from("p6 into a field, long enough to need memory"))
+    store.maybe = names.pop()
+    return churn()
+}
+
+// P7: a consuming `for` does not exist (`for s in move(names)` is DZ0501), so the shape
+// it stands for is a drain by `pop` in a loop.
+fn consumed(store: &mut Store) -> i32 kills store.names@items {
+    let mut names = List<String>()
+    names.push(String::from("p7 drained, long enough to need memory"))
+    while true {
+        let s = names.pop() or break
+        store.names.push(move(s))
+    }
+    return churn()
+}
+
+// P8: into a static's list.
+fn into_static() -> i32 kills KEPT {
+    let mut names = List<String>()
+    names.push(String::from("p8 into a static, long enough to need memory"))
+    let s = names.pop() or return 0
+    if let &mut kept = KEPT {
+        kept.push(move(s))
+    }
+    return churn()
+}
+
+// P9: a generic function that moves a `T` between two lists it is lent; the caller's
+// source list is a local.
+fn move_last<T>(xs: &mut List<T>, out: &mut List<T>) kills xs@items, xs[*], out@items sends xs[*] to out {
+    let v = xs.pop() or return
+    out.push(move(v))
+}
+
+fn generic(store: &mut Store) -> i32 kills store.names@items {
+    let mut names = List<String>()
+    names.push(String::from("p9 generic, long enough to need memory"))
+    move_last(&mut names, &mut store.names)
+    return churn()
+}
+
+// P10: a `Box` built in a region, moved into the store.
+fn boxed(store: &mut Store) -> i32 kills store.boxes@items {
+    let b = Box(String::from("p10 boxed, long enough to need memory"))
+    store.boxes.push(move(b))
+    return churn()
+}
+
+// P11: a whole list moved out, then an element pushed into it before the move.
+fn whole(store: &mut Store) -> i32 kills store.names {
+    let mut names = List<String>()
+    names.push(String::from("p11 whole list, long enough to need memory"))
+    store.names = move(names)
+    return churn()
+}
+
+// P13: an element of a local list, returned: the result is built where the caller keeps
+// it, but this value was built for the list.
+fn first_local() -> String {
+    let mut xs = List<String>()
+    xs.push(String::from("p13 returned from a local list, long enough to need memory"))
+    return xs.pop() or String()
+}
+
+// P14: an element of a lent list, returned, then kept by a store that outlives the list.
+fn last_of(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {
+    return xs.pop() or String()
+}
+
+fn from_lent(store: &mut Store) -> i32 kills store.names@items {
+    let mut names = List<String>()
+    names.push(String::from("p14 returned from a lent list, long enough to need memory"))
+    let s = last_of(&mut names)
+    store.names.push(move(s))
+    return churn()
+}
+
+// X1: a list filled by another module's function, then drained by another's.
+fn filled_then_moved(store: &mut Store) -> i32 kills store.names@items {
+    let mut names = List<String>()
+    tag(&mut names, 1)
+    names.push(String::from("x1 pushed here, long enough to need memory"))
+    move_one(&mut names, &mut store.names)
+    move_one(&mut names, &mut store.names)
+    return churn()
+}
+
+// X2: a container of another module's, given a string built here, which is then taken
+// back out and kept by the store.
+fn shelved(store: &mut Store) -> i32 kills store.names@items {
+    let mut shelf = Shelf()
+    shelf.put(String::from("x2 shelved, long enough to need memory"))
+    let s = shelf.take() or return 0
+    store.names.push(move(s))
+    return churn()
+}
+
+// Kept, with no copy: what homes must go on accepting as it is.
+
+// K1: a work queue that pops and drops.
+fn queue() -> usize {
+    let mut q = List<String>()
+    q.push(String::from("k1 one"))
+    q.push(String::from("k1 two"))
+    let mut total: usize = 0
+    while true {
+        let s = q.pop() or break
+        total += s.len()
+    }
+    return total
+}
+
+// K2: a list returned whole.
+fn built() -> List<String> {
+    let mut xs = List<String>()
+    xs.push(String::from("k2 returned whole, long enough to need memory"))
+    return move(xs)
+}
+
+// K3: a `Box` built in a region and moved to a local of the same block.
+fn reboxed() -> usize {
+    let b = Box(String::from("k3 reboxed"))
+    let c = move(b)
+    if let &s = c {
+        return s.len()
+    }
+    return 0
+}
+
+// K4: `swap_remove`'s element read and dropped, as Breakout's bricks are.
+fn swapped_out() -> usize {
+    let mut names = List<String>()
+    names.push(String::from("k4 a"))
+    names.push(String::from("k4 bb"))
+    let s = names.swap_remove(0)
+    return s.len() + names.len()
+}
+
+fn show(store: &Store) {
+    for &s in store.names {
+        println!("{}", s)
+    }
+    for &b in store.boxes {
+        if let &s = b {
+            println!("{}", s)
+        }
+    }
+    if let &s = store.maybe {
+        println!("{}", s)
+    }
+}
+
+// K5: a container of another module's, given strings and only read: `put`'s `sends` says it
+// keeps them, so they stay in this function's region with it.
+fn shelved_kept() -> usize {
+    let mut shelf = Shelf()
+    shelf.put(String::from("k5 kept on a shelf of another module"))
+    shelf.put(String::from("k5 and a second, long enough to need memory"))
+    churn()
+    return shelf.total()
+}
+
+// K6: a list filled here, then lent to a function of another module that sorts and reads
+// it: its clauses send nothing out of it, so what was pushed stays in the region with it.
+fn lent_kept() -> usize {
+    let mut names = List<String>()
+    names.push(String::from("k6 zeta, long enough to need memory"))
+    names.push(String::from("k6 alpha, quite a bit longer, long enough to need memory"))
+    let n = longest(&mut names)
+    churn()
+    return n + names[0].len()
+}
+
+fn main() {
+    let mut store = Store{ names: List<String>(), boxes: List<Box<String>>(), maybe: none }
+    KEPT = List<String>()
+    appended(&mut store)
+    println!("p2 {}", inner_to_outer())
+    through_id(&mut store)
+    removed(&mut store)
+    replaced(&mut store)
+    into_field(&mut store)
+    consumed(&mut store)
+    into_static()
+    generic(&mut store)
+    boxed(&mut store)
+    filled_then_moved(&mut store)
+    shelved(&mut store)
+    from_lent(&mut store)
+    show(&store)
+    let s13 = first_local()
+    churn()
+    println!("{}", s13)
+    whole(&mut store)
+    show(&store)
+    let k2 = built()
+    churn()
+    println!("{} {} {} {}", queue(), k2[0], reboxed(), swapped_out())
+    println!("{} {}", shelved_kept(), lent_kept())
+    if let &kept = KEPT {
+        for &s in kept {
+            println!("{}", s)
+        }
+    }
+}

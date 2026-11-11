@@ -313,6 +313,63 @@ struct Regions {
     /// is where the walk adds its region (`passed`, `sink`); one never reached there is
     /// refused rather than trusted (T-0140).
     seen: HashSet<usize>,
+    /// For a site placed in the home of a container the body was lent (D-0097), the input
+    /// the container is under: the one place the value may go.
+    home_input: Vec<Option<LocalId>>,
+    /// The local containers lent to a call whose `sends` hands something to them: the
+    /// callee may build into the container's own region (D-0097), so what is taken back out
+    /// of it may be in that region too.
+    built_into: HashSet<LocalId>,
+    /// The regions the result of the call being walked is in, by its callee's `in x@home`,
+    /// from [`Analysis::region_clauses`] to [`Analysis::call`].
+    result: Vec<usize>,
+    /// The `&mut` arguments whose lending keeps what the container holds ([`lend_keeps`]).
+    lend_kept: HashSet<ExprId>,
+}
+
+/// The facts [`analyse_homes`] adds to the walk (D-0097, T-0200): which input's home each
+/// value's memory is in. In this walk [`Value::owned`] holds indices into `sources`.
+#[derive(Default)]
+struct Homes {
+    /// The inputs whose homes a value may be in: a by-value parameter that owns memory, and
+    /// a `&mut` parameter or `&mut self` a value is taken out of. A static is the heap's,
+    /// which outlives every home, so taking out of one needs no clause.
+    sources: Vec<LocalId>,
+    /// The inputs a value may be sent to: a `&mut` parameter, `&mut self` (but not a
+    /// constructor's, `copy`'s or `drop`'s, whose `self` is the value being made or ended),
+    /// and a static.
+    dests: HashSet<LocalId>,
+    /// The body's module, which a call must share with its callee to rely on `Staying`.
+    module: Option<ModuleId>,
+    /// Each value handed from a source to an input: the source, the input, and where.
+    sent: Vec<(usize, LocalId, Span)>,
+    /// Each source a returned value's memory is in, and where.
+    returned: Vec<(usize, Span)>,
+}
+
+impl Homes {
+    fn source(&mut self, local: LocalId) -> usize {
+        match self.sources.iter().position(|l| *l == local) {
+            Some(i) => i,
+            None => {
+                self.sources.push(local);
+                self.sources.len() - 1
+            }
+        }
+    }
+}
+
+/// What [`analyse_homes`] found a body does with what its inputs own (D-0097).
+#[derive(Clone, Debug, Default)]
+pub struct HomesFound {
+    /// Each input whose memory the body hands to another input: from, to, and the first
+    /// place it does so.
+    pub sent: Vec<(LocalId, LocalId, Span)>,
+    /// Each input whose memory a returned value may be in, and the first `return` of it.
+    pub returned: Vec<(LocalId, Span)>,
+    /// Where a value from an input went somewhere the walk does not follow, so what it
+    /// found may not be all, and the clauses are not compared with it.
+    pub incomplete: Vec<Incomplete>,
 }
 
 /// Record that the walk reached `site`.
@@ -360,6 +417,11 @@ struct Analysis<'a> {
     unsafe_depth: u32,
     /// Set only by [`analyse_regions`].
     regions: Option<Regions>,
+    /// Set only by [`analyse_homes`].
+    homes: Option<Homes>,
+    /// The homes the result of the call being walked is in, from [`Self::homes_call`] to
+    /// [`Self::call`]. Empty between calls.
+    homes_result: Vec<usize>,
     /// The by-value parameters that stay in the call; set only by [`analyse_regions`].
     staying: Option<&'a Staying>,
     /// The regions a `Box` call's contents hold, from `call` to the `Call` node that adds
@@ -373,7 +435,80 @@ struct Analysis<'a> {
 /// Analyse one checked function, using only other functions' signatures. Findings are
 /// available independently of enforcement so std and editor support can land together.
 pub fn analyse_body(body: &Body, table: &TypeTable, res: &Resolution) -> BodyAnalysis {
-    analyse(body, table, res, None, None).0
+    analyse(body, table, res, None, None, None).0
+}
+
+/// The homes walk (D-0097, T-0200 stage 2): what the body does with the memory its inputs
+/// own. A home is followed as a region is ([`analyse_regions`]): a by-value parameter's
+/// value is in its own, an element taken out of a `&mut` input is in that input's, and every
+/// value either is moved into carries it. Where a region would be refused, the home is
+/// recorded instead: stored under another input, given to a call that sends it there, or
+/// returned. A call is read by its callee's clauses alone, `std`'s included.
+pub fn analyse_homes(body: &Body, table: &TypeTable, res: &Resolution) -> HomesFound {
+    let mut homes = Homes {
+        module: Some(crate::placement::owner_module(table, res, &body.owner)),
+        ..Homes::default()
+    };
+    let makes_self =
+        matches!(body.owner, BodyOwner::Ctor { .. } | BodyOwner::Copy(_) | BodyOwner::Drop(_));
+    // A method's `self` local has the receiver's type; whether it is `&mut self` is the
+    // signature's to say.
+    let mut_self = body_signature(body, table, res).is_some_and(|s| s.sig.takes_self == Some(true));
+    for local in &body.params {
+        let l = body.local(*local);
+        let mutable = matches!(
+            l.ty,
+            Ty::Ref { mutable: true, .. }
+                | Ty::Ptr { mutable: true, .. }
+                | Ty::Slice { mutable: true, .. }
+        );
+        if l.name == "self" {
+            // `self` is a reference to the receiver; `&mut self` is the one a value may be
+            // handed to, or taken out of.
+            if (mutable || mut_self) && !makes_self {
+                homes.dests.insert(*local);
+                homes.source(*local);
+            }
+        } else if mutable {
+            homes.dests.insert(*local);
+            homes.source(*local);
+        } else if !super::points(&l.ty)
+            && !table.placed_as_view(&l.ty)
+            && dz_check::ties::owns_memory(table, &l.ty)
+        {
+            homes.source(*local);
+        }
+    }
+    let (analysis, _, homes) = analyse(body, table, res, None, Some(homes), None);
+    let Some(homes) = homes else { return HomesFound::default() };
+    let mut found = HomesFound::default();
+    for (source, to, span) in homes.sent {
+        let from = homes.sources[source];
+        if from != to && !found.sent.iter().any(|(f, t, _)| *f == from && *t == to) {
+            found.sent.push((from, to, span));
+        }
+    }
+    for (source, span) in homes.returned {
+        let from = homes.sources[source];
+        if !found.returned.iter().any(|(f, _)| *f == from) {
+            found.returned.push((from, span));
+        }
+    }
+    // Where the views walk gives up is not where homes are lost: a body over a pointer's
+    // elements is trusted for its views (T-0116), and destroying through a pointer moves
+    // nothing, but this walk follows what `construct` and `move_out` move there.
+    found.incomplete = analysis
+        .incomplete
+        .into_iter()
+        .filter(|i| {
+            !matches!(
+                i.reason,
+                "a body over a tied pointer's elements is trusted"
+                    | "destruction through unknown storage"
+            )
+        })
+        .collect();
+    found
 }
 
 /// The region check (spec §14.6): the walk again, with each of `sites` (a call, and the
@@ -408,6 +543,7 @@ pub(crate) fn analyse_regions(
     table: &TypeTable,
     res: &Resolution,
     sites: &[(ExprId, BlockId, bool)],
+    homes: &[(ExprId, LocalId)],
     params: &[LocalId],
     staying: &Staying,
 ) -> Vec<Option<RegionRefusal>> {
@@ -415,20 +551,42 @@ pub(crate) fn analyse_regions(
         sites: sites.iter().map(|(call, block, _)| (*call, *block)).collect(),
         results: sites.iter().map(|(_, _, result)| *result).collect(),
         by_call: sites.iter().enumerate().map(|(i, (call, _, _))| (*call, i)).collect(),
-        refused: vec![None; sites.len() + params.len()],
+        refused: vec![None; sites.len() + homes.len() + params.len()],
         params: vec![false; sites.len()],
+        home_input: vec![None; sites.len()],
         stored: HashSet::new(),
         module: Some(crate::placement::owner_module(table, res, &body.owner)),
         ..Regions::default()
     };
+    for i in 0..body.exprs.len() as u32 {
+        let call = ExprId(i);
+        let hir::ExprKind::Call { args, .. } = &body.expr(call).kind else { continue };
+        for (index, a) in args.iter().enumerate() {
+            let lent = matches!(body.expr(*a).kind, hir::ExprKind::Ref { mutable: true, .. });
+            if lent && lend_keeps(body, table, res, call, index) {
+                regions.lend_kept.insert(*a);
+            }
+        }
+    }
+    // A site in a lent container's home: outside every region of the body, as a by-value
+    // parameter's value is, so the body's end does not release it and a `return` may not
+    // take it; it may go only into the container's input (D-0097).
+    for (call, input) in homes {
+        regions.by_call.insert(*call, regions.sites.len());
+        regions.sites.push((*call, body.root));
+        regions.results.push(false);
+        regions.params.push(true);
+        regions.home_input.push(Some(*input));
+    }
     for local in params {
         regions.param_sites.push((*local, regions.sites.len()));
         // No call makes it: the value is the parameter's from the start.
         regions.sites.push((ExprId(u32::MAX), body.root));
         regions.results.push(false);
         regions.params.push(true);
+        regions.home_input.push(None);
     }
-    let Some(mut regions) = analyse(body, table, res, Some(regions), Some(staying)).1 else {
+    let Some(mut regions) = analyse(body, table, res, Some(regions), None, Some(staying)).1 else {
         return Vec::new();
     };
     for (i, (site, _, _)) in sites.iter().enumerate() {
@@ -448,8 +606,9 @@ fn analyse(
     table: &TypeTable,
     res: &Resolution,
     regions: Option<Regions>,
+    homes: Option<Homes>,
     staying: Option<&Staying>,
-) -> (BodyAnalysis, Option<Regions>) {
+) -> (BodyAnalysis, Option<Regions>, Option<Homes>) {
     let mut cx = Analysis {
         staying,
         body,
@@ -467,6 +626,8 @@ fn analyse(
         contents: Vec::new(),
         shared: Vec::new(),
         regions,
+        homes,
+        homes_result: Vec::new(),
     };
     let signature = body_signature(body, table, res);
     if signature.as_ref().is_some_and(|s| s.sig.is_unsafe) {
@@ -486,6 +647,20 @@ fn analyse(
     let claimed = cx.regions.as_ref().map(|r| r.param_sites.clone()).unwrap_or_default();
     for (local, site) in claimed {
         cx.state.entry(local).or_default().owned.push(site);
+    }
+    // A by-value parameter that owns memory is in its own home, the caller's (D-0097).
+    let by_value: Vec<(LocalId, usize)> = match &cx.homes {
+        Some(h) => h
+            .sources
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| !h.dests.contains(l) && body.local(**l).name != "self")
+            .map(|(i, l)| (*l, i))
+            .collect(),
+        None => Vec::new(),
+    };
+    for (local, source) in by_value {
+        cx.state.entry(local).or_default().owned.push(source);
     }
     if let Some(signature) = &signature {
         let bindings = body_bindings(body);
@@ -577,7 +752,7 @@ fn analyse(
         cx.result.mismatches =
             super::compare_ties(&ties(&cx.result.declared), &ties(&cx.result.actual));
     }
-    (cx.result, cx.regions)
+    (cx.result, cx.regions, cx.homes)
 }
 
 impl Analysis<'_> {
@@ -865,6 +1040,18 @@ impl Analysis<'_> {
 
     fn call(&mut self, callee: &Callee, args: &[ExprId], expression: ExprId) -> Value {
         let mut result = self.call_inner(callee, args, expression);
+        if let Some(r) = &mut self.regions {
+            for site in std::mem::take(&mut r.result) {
+                if !result.owned.contains(&site) {
+                    result.owned.push(site);
+                }
+            }
+        }
+        for source in std::mem::take(&mut self.homes_result) {
+            if !result.owned.contains(&source) {
+                result.owned.push(source);
+            }
+        }
         // An element taken out of a container is in whatever region the values stored
         // into it were (T-0145): `pop`, `remove`, `HashMap::replace`.
         for site in self.taken_out(callee, expression) {
@@ -918,6 +1105,10 @@ impl Analysis<'_> {
         let boxed = self.regions.is_some() && crate::placement::boxes_argument(self.res, callee);
         for (i, (arg, value)) in args.iter().zip(&values).enumerate() {
             self.read(value, self.body.expr(*arg).span);
+            // The homes walk follows what a call keeps in [`Self::homes_call`].
+            if self.homes.is_some() {
+                continue;
+            }
             // What a `Box` is made of is its contents, in the box's own memory: it holds
             // the region as a struct literal holds its fields' (spec §14.6). The call's
             // value carries it, through `contents`.
@@ -939,7 +1130,29 @@ impl Analysis<'_> {
                 self.region_store(container, *arg, value, expression);
                 continue;
             }
+            // A value in a lent container's home, handed to that container by a call whose
+            // `sends` says so, is where it belongs (D-0097): a copy made there too.
+            let roots = self.home_sent_roots(callee, i);
+            if !roots.is_empty() && self.is_copy(*arg) {
+                let site = self.regions.as_ref().and_then(|r| r.by_call.get(arg).copied());
+                let home = site.and_then(|s| {
+                    self.regions.as_ref().and_then(|r| r.home_input.get(s).copied().flatten())
+                });
+                if let (Some(site), Some(input)) = (site, home) {
+                    if roots.contains(&input) {
+                        regions_seen(&mut self.regions, site);
+                        continue;
+                    }
+                }
+            }
+            let value = &self.without_home(&roots, value);
             self.sink(*arg, value, Refusal::Passed(expression));
+        }
+        if self.homes.is_some() {
+            self.homes_call(callee, args, &values, expression);
+        }
+        if self.regions.is_some() {
+            self.region_clauses(callee, args, &values, expression);
         }
         if let Some(signature) =
             call_signature(self.body, callee, args, expression, self.table, self.res)
@@ -1562,7 +1775,8 @@ impl Analysis<'_> {
                 && value.parts.is_empty()
             {
                 self.unchecked(span, "optional view provenance is not modeled yet");
-                return Value { unknown: true, ..Value::default() };
+                // Where its memory is does not depend on its views: a region or a home stays.
+                return Value { unknown: true, owned: value.owned, ..Value::default() };
             }
         }
         value
@@ -1592,6 +1806,8 @@ impl Analysis<'_> {
     fn passed(&mut self, e: ExprId, value: Value) -> Value {
         if self.regions.is_some() && self.is_copy(e) {
             self.region_site(e, value.without_owned())
+        } else if self.homes.is_some() && self.is_copy(e) {
+            value.without_owned()
         } else {
             value
         }
@@ -1599,9 +1815,7 @@ impl Analysis<'_> {
 
     /// Whether argument `arg` of a call to `callee` stays in the call ([`Staying`]).
     fn stays_in_call(&self, callee: &Callee, arg: usize) -> bool {
-        let (Some(staying), Some(module)) =
-            (self.staying, self.regions.as_ref().and_then(|r| r.module))
-        else {
+        let (Some(staying), Some(module)) = (self.staying, self.walk_module()) else {
             return false;
         };
         staying.stays(self.res, module, callee, arg)
@@ -1612,7 +1826,11 @@ impl Analysis<'_> {
     /// by-value path from a local (T-0145).
     fn stored_into(&self, callee: &Callee, arg: usize) -> Option<LocalId> {
         let (staying, module) = (self.staying?, self.regions.as_ref()?.module?);
-        staying.stores(self.res, module, callee, arg)?;
+        if staying.stores(self.res, module, callee, arg).is_none()
+            && !sends_to_self(self.table, callee, arg)
+        {
+            return None;
+        }
         let Callee::Method { recv, .. } = callee else { return None };
         self.local_root(*recv)
     }
@@ -1705,9 +1923,20 @@ impl Analysis<'_> {
             }
             top = p;
         }
-        let Some(&p) = parent.get(&top) else { return false };
-        let hir::ExprKind::Call { callee, args } = &body.expr(p).kind else { return false };
-        let Some(i) = args.iter().position(|a| *a == top) else { return false };
+        // The argument itself, or a `let`'s value moved into the call as surely
+        // ([`crate::storing::stored_after_let`]).
+        let (p, i) = match parent.get(&top) {
+            Some(&p) => {
+                let hir::ExprKind::Call { args, .. } = &body.expr(p).kind else { return false };
+                let Some(i) = args.iter().position(|a| *a == top) else { return false };
+                (p, i)
+            }
+            None => match crate::storing::stored_after_let(body, top) {
+                Some(found) => found,
+                None => return false,
+            },
+        };
+        let hir::ExprKind::Call { callee, .. } = &body.expr(p).kind else { return false };
         // Kept on every call, or added under a lookup that found nothing (T-0149).
         match staying.stores(self.res, module, callee, i) {
             Some(true) => {}
@@ -1782,6 +2011,12 @@ impl Analysis<'_> {
         let Some(&site) = regions.by_call.get(&call) else { return value };
         regions_seen(&mut self.regions, site);
         let regions = self.regions.as_ref().unwrap();
+        // A home is the caller's: no block of this body releases it, and a value built on
+        // every pass into it is kept by the container it is given to.
+        if regions.home_input.get(site).copied().flatten().is_some() {
+            value.owned.push(site);
+            return value;
+        }
         let block = regions.sites[site].1;
         let span = self.body.expr(call).span;
         match regions.active.get(&block).copied() {
@@ -1861,6 +2096,408 @@ impl Analysis<'_> {
     }
 
     /// The body's `self`, if it has one.
+    /// The inputs a place is under (D-0097): a parameter or `self` it is a path of, through
+    /// fields, elements and references, a static, or what a local reference views.
+    fn input_roots(&self, e: ExprId) -> Vec<LocalId> {
+        match self.body.expr(e).kind {
+            hir::ExprKind::Local(l) if self.body.params.contains(&l) => vec![l],
+            hir::ExprKind::Local(l) => match self.state.get(&l) {
+                Some(v) if matches!(self.body.local(l).ty, Ty::Ref { .. } | Ty::Ptr { .. }) => {
+                    let mut roots: Vec<LocalId> = Vec::new();
+                    for o in v.views.iter().chain(&v.places) {
+                        let t = o.target.local;
+                        let input = self.body.params.contains(&t) || static_of(t).is_some();
+                        if input && !roots.contains(&t) {
+                            roots.push(t);
+                        }
+                    }
+                    roots
+                }
+                _ => Vec::new(),
+            },
+            hir::ExprKind::Static(sym) => vec![super::static_local(sym)],
+            hir::ExprKind::Field { base, .. }
+            | hir::ExprKind::TupleIndex { base, .. }
+            | hir::ExprKind::Index { base, .. }
+            | hir::ExprKind::Deref(base)
+            | hir::ExprKind::Ref { place: base, .. } => self.input_roots(base),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The homes of what is under a place: the input it is under, as a source, and what was
+    /// stored into a local container it is a path of.
+    fn homes_under(&mut self, e: ExprId) -> Vec<usize> {
+        let mut out = Vec::new();
+        let inner = match self.body.expr(e).kind {
+            hir::ExprKind::Ref { place, .. } => place,
+            _ => e,
+        };
+        for root in self.input_roots(inner) {
+            let Some(h) = &mut self.homes else { break };
+            if h.dests.contains(&root) {
+                let s = h.source(root);
+                if !out.contains(&s) {
+                    out.push(s);
+                }
+            } else if let Some(v) = self.state.get(&root) {
+                // A by-value parameter's value, in its own home.
+                for s in &v.owned {
+                    if !out.contains(s) {
+                        out.push(*s);
+                    }
+                }
+            }
+        }
+        if let Some(local) = self.local_root(inner) {
+            if let Some(v) = self.state.get(&local) {
+                for s in &v.owned {
+                    if !out.contains(s) {
+                        out.push(*s);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// What argument `e`, of value `value`, hands a callee (D-0097): a reference argument the
+    /// homes of what it refers to, any other the homes of its own memory.
+    fn homes_carried(&mut self, e: ExprId, value: &Value) -> Vec<usize> {
+        if matches!(self.body.ty(e), Ty::Ref { .. } | Ty::Ptr { .. } | Ty::Slice { .. }) {
+            self.homes_under(e)
+        } else {
+            self.passed(e, value.clone()).all_owned()
+        }
+    }
+
+    /// Memory in `owned`'s homes, handed to the place `dest` (D-0097): a send to each input
+    /// it is under, or else held by the local container it is a path of.
+    fn homes_give(&mut self, owned: &[usize], dest: ExprId, span: Span) {
+        if owned.is_empty() || self.homes.is_none() {
+            return;
+        }
+        let inner = match self.body.expr(dest).kind {
+            hir::ExprKind::Ref { place, .. } => place,
+            _ => dest,
+        };
+        let roots = self.input_roots(inner);
+        let homes = self.homes.as_mut().unwrap();
+        let mut given = false;
+        for root in roots {
+            if homes.dests.contains(&root) || static_of(root).is_some() {
+                for s in owned {
+                    homes.sent.push((*s, root, span));
+                }
+                given = true;
+            }
+        }
+        if given {
+            return;
+        }
+        if let Some(local) = self.local_root(inner) {
+            let v = self.state.entry(local).or_default();
+            for s in owned {
+                if !v.owned.contains(s) {
+                    v.owned.push(*s);
+                }
+            }
+        }
+    }
+
+    /// What a call does with its inputs' homes (D-0097), in the homes walk: what it sends
+    /// from one argument to another, and which homes its result is in, kept for
+    /// [`Self::call`] to add to the result.
+    fn homes_call(
+        &mut self,
+        callee: &Callee,
+        args: &[ExprId],
+        values: &[Value],
+        expression: ExprId,
+    ) {
+        let span = self.body.expr(expression).span;
+        let recv = match callee {
+            Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => Some(*recv),
+            _ => None,
+        };
+        let mut result: Vec<usize> = Vec::new();
+        // A constructor's value is built from what it is given by value, as a struct
+        // literal's is from its fields.
+        if matches!(callee, Callee::Ctor { .. })
+            || crate::placement::boxes_argument(self.res, callee)
+        {
+            for (a, v) in args.iter().zip(values) {
+                if !matches!(self.body.ty(*a), Ty::Ref { .. } | Ty::Ptr { .. } | Ty::Slice { .. }) {
+                    result.extend(self.passed(*a, v.clone()).all_owned());
+                }
+            }
+        }
+        let signature = call_signature(self.body, callee, args, expression, self.table, self.res);
+        if let Some(signature) = &signature {
+            let scope = signature.scope(self.table, self.res);
+            let carried_by = |cx: &mut Self, root: dz_check::ties::Root| -> Vec<usize> {
+                match root {
+                    dz_check::ties::Root::Param(i) => match (args.get(i), values.get(i)) {
+                        (Some(a), Some(v)) => cx.homes_carried(*a, v),
+                        _ => Vec::new(),
+                    },
+                    dz_check::ties::Root::SelfValue => match recv {
+                        Some(r) => cx.homes_under(r),
+                        None => Vec::new(),
+                    },
+                    // A static's memory is the heap's, which outlives every home.
+                    dz_check::ties::Root::Static(_) => Vec::new(),
+                }
+            };
+            for send in &signature.sig.sends {
+                let (Ok(what), Ok(to)) = (
+                    dz_check::ties::resolve(&scope, &send.what),
+                    dz_check::ties::resolve(&scope, &send.to),
+                ) else {
+                    continue;
+                };
+                let owned = carried_by(self, what.root);
+                match to.root {
+                    dz_check::ties::Root::Param(j) => {
+                        if let Some(a) = args.get(j) {
+                            self.homes_give(&owned, *a, span);
+                        }
+                    }
+                    dz_check::ties::Root::SelfValue => {
+                        if let Some(r) = recv {
+                            self.homes_give(&owned, r, span);
+                        }
+                    }
+                    dz_check::ties::Root::Static(sym) => {
+                        if let Some(h) = &mut self.homes {
+                            for s in &owned {
+                                h.sent.push((*s, super::static_local(sym), span));
+                            }
+                        }
+                    }
+                }
+            }
+            for path in &signature.sig.ret_home {
+                if let Ok(tie) = dz_check::ties::resolve(&scope, path) {
+                    result.extend(carried_by(self, tie.root));
+                }
+            }
+        }
+        result.sort_unstable();
+        result.dedup();
+        self.homes_result = result;
+    }
+
+    /// What a call's clauses do with the regions of what it is lent (D-0097, T-0200 stage 4).
+    /// A callee may build into the home of a container its `sends` hands something to, so
+    /// that container is marked [`Regions::built_into`]. What a `sends` hands on from a lent
+    /// container goes with that container's regions: into a local container, which must die
+    /// within them ([`Self::region_store`]), or under an input or a static, which outlives
+    /// them all, so they are refused. A result its callee says is `in x@home` is in the
+    /// regions of what `x` is.
+    fn region_clauses(
+        &mut self,
+        callee: &Callee,
+        args: &[ExprId],
+        values: &[Value],
+        expression: ExprId,
+    ) {
+        let Some(signature) =
+            call_signature(self.body, callee, args, expression, self.table, self.res)
+        else {
+            return;
+        };
+        let recv = match callee {
+            Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => Some(*recv),
+            _ => None,
+        };
+        let sig = &signature.sig;
+        // A function of the program's own may build into the home of any container it is
+        // lent `&mut`, with nothing in its signature to say so: a value it makes is not
+        // sent from an input. `std`'s methods only move what they are given.
+        let program_callee = match callee {
+            Callee::Fn { sym, .. } => self.res.symbol(*sym).module != self.res.prelude,
+            Callee::Method { owner, .. }
+            | Callee::BaseMethod { owner, .. }
+            | Callee::Assoc { owner, .. }
+            | Callee::Ctor { owner, .. } => self.res.symbol(*owner).module != self.res.prelude,
+            Callee::Value(_) => true,
+        };
+        if program_callee {
+            let mut lent: Vec<ExprId> = args
+                .iter()
+                .filter_map(|a| match self.body.expr(*a).kind {
+                    hir::ExprKind::Ref { mutable: true, place, .. } => Some(place),
+                    _ => None,
+                })
+                .collect();
+            if let (Some(r), Some(true)) = (recv, sig.takes_self) {
+                lent.push(r);
+            }
+            let containers: Vec<LocalId> =
+                lent.iter().filter_map(|p| self.local_root(*p)).collect();
+            if let Some(r) = &mut self.regions {
+                r.built_into.extend(containers);
+            }
+        }
+        // A clause path's root, as the expression the call gives it.
+        let arg_of = |name: &str| -> Option<ExprId> {
+            if name == "self" {
+                return recv;
+            }
+            let i = sig.params.iter().position(|p| p.name == name)?;
+            args.get(i).copied()
+        };
+        let mut result = Vec::new();
+        for path in &sig.ret_home {
+            let Some(a) = arg_of(&path.root.name) else { continue };
+            let i = args.iter().position(|x| *x == a);
+            let by_value =
+                !matches!(self.body.ty(a), Ty::Ref { .. } | Ty::Ptr { .. } | Ty::Slice { .. })
+                    && Some(a) != recv;
+            if by_value {
+                if let Some(v) = i.and_then(|i| values.get(i)) {
+                    result.extend(v.all_owned());
+                }
+            } else {
+                result.extend(self.regions_held(a));
+            }
+        }
+        for send in &sig.sends {
+            let (Some(what), Some(to)) = (arg_of(&send.what.root.name), arg_of(&send.to.root.name))
+            else {
+                // A send to a static: whatever it carries outlives every region.
+                if let Some(what) = arg_of(&send.what.root.name) {
+                    let by_ref = matches!(self.body.ty(what), Ty::Ref { .. } | Ty::Ptr { .. })
+                        || Some(what) == recv;
+                    if by_ref {
+                        let owned = self.regions_held(what);
+                        let span = self.body.expr(expression).span;
+                        self.refuse(&owned, Refusal::Passed(expression), span);
+                    }
+                }
+                continue;
+            };
+            let to_place = match self.body.expr(to).kind {
+                hir::ExprKind::Ref { place, .. } => place,
+                _ => to,
+            };
+            // A by-value argument is followed where it is passed; what a lent container
+            // holds is followed here.
+            let by_ref =
+                matches!(self.body.ty(what), Ty::Ref { .. } | Ty::Ptr { .. }) || Some(what) == recv;
+            if !by_ref {
+                continue;
+            }
+            let owned = self.regions_held(what);
+            if owned.is_empty() {
+                continue;
+            }
+            match self.local_root(to_place) {
+                Some(container) => {
+                    let value = Value { owned, ..Value::default() };
+                    self.region_store(container, to_place, &value, expression);
+                }
+                None => {
+                    let span = self.body.expr(expression).span;
+                    self.refuse(&owned, Refusal::Passed(expression), span);
+                }
+            }
+        }
+        if let Some(r) = &mut self.regions {
+            r.result = result;
+        }
+    }
+
+    /// The regions what a place holds is in: for a local container, what was stored into
+    /// it, and its own regions too when a callee may have built into it
+    /// ([`Regions::built_into`]).
+    fn regions_held(&self, e: ExprId) -> Vec<usize> {
+        let place = match self.body.expr(e).kind {
+            hir::ExprKind::Ref { place, .. } => place,
+            _ => e,
+        };
+        let (Some(regions), Some(container)) = (&self.regions, self.local_root(place)) else {
+            return Vec::new();
+        };
+        let Some(v) = self.state.get(&container) else { return Vec::new() };
+        let built = regions.built_into.contains(&container);
+        v.owned
+            .iter()
+            .copied()
+            .filter(|s| built || regions.stored.contains(&(container, *s)))
+            .collect()
+    }
+
+    /// The inputs a call's receiver is under, when the callee's `sends` hands its argument
+    /// `arg` to its receiver (D-0097): where a value in one of their homes belongs.
+    fn home_sent_roots(&self, callee: &Callee, arg: usize) -> Vec<LocalId> {
+        let (Callee::Method { recv, owner, name, .. }
+        | Callee::BaseMethod { recv, owner, name, .. }) = callee
+        else {
+            return Vec::new();
+        };
+        let sends =
+            self.table.methods_sig(*owner).and_then(|s| s.methods.get(name)).is_some_and(|sig| {
+                let param = sig.params.get(arg).map(|p| p.name.as_str());
+                sig.sends.iter().any(|s| {
+                    Some(s.what.root.name.as_str()) == param
+                        && s.what.steps.is_empty()
+                        && s.to.root.name == "self"
+                })
+            });
+        if !sends {
+            return Vec::new();
+        }
+        self.input_roots(*recv)
+    }
+
+    /// `value` less the home sites of `roots`: what goes into its own home is not refused.
+    fn without_home(&self, roots: &[LocalId], value: &Value) -> Value {
+        let Some(regions) = &self.regions else { return value.clone() };
+        let mut kept = value.clone();
+        kept.owned.retain(|s| match regions.home_input.get(*s).copied().flatten() {
+            Some(input) => !roots.contains(&input),
+            None => true,
+        });
+        kept
+    }
+
+    /// The body's module, in a walk that relies on `Staying`.
+    fn walk_module(&self) -> Option<ModuleId> {
+        self.regions
+            .as_ref()
+            .and_then(|r| r.module)
+            .or_else(|| self.homes.as_ref().and_then(|h| h.module))
+    }
+
+    /// `target = value` in the homes walk (D-0097): what `value`'s memory is in goes under
+    /// whatever input `target` is a path of, or into the local it is a path of.
+    fn homes_assign(&mut self, target: ExprId, op: hir::AssignOp, value: &Value, span: Span) {
+        if self.homes.is_none() {
+            return;
+        }
+        let owned = value.all_owned();
+        if !self.input_roots(target).is_empty() {
+            self.homes_give(&owned, target, span);
+            return;
+        }
+        let whole = op == hir::AssignOp::Assign
+            && matches!(self.body.expr(target).kind, hir::ExprKind::Local(_));
+        if let Some(local) = self.local_root(target) {
+            let v = self.state.entry(local).or_default();
+            if whole {
+                v.owned = owned;
+            } else {
+                for s in owned {
+                    if !v.owned.contains(&s) {
+                        v.owned.push(s);
+                    }
+                }
+            }
+        }
+    }
+
     fn self_local(&self) -> Option<LocalId> {
         self.body.params.iter().copied().find(|p| self.body.local(*p).name == "self")
     }
@@ -2089,7 +2726,10 @@ impl Analysis<'_> {
                 let frame = self.scopes.len().saturating_sub(1);
                 regions.frames.entry(local).or_insert(frame);
             }
-            // Whatever its type: a `List<i32>` holds no view, but it may hold a region.
+        }
+        if self.regions.is_some() || self.homes.is_some() {
+            // Whatever its type: a `List<i32>` holds no view, but it may hold a region, or
+            // be in an input's home.
             if !owned.is_empty() {
                 self.state.entry(local).or_default().owned = owned;
             } else if let Some(v) = self.state.get_mut(&local) {
@@ -2300,6 +2940,7 @@ impl Analysis<'_> {
                     return Value::default();
                 }
                 self.region_assign(target, op, &value, node.span);
+                self.homes_assign(target, op, &value, node.span);
                 let ty = self.body.ty(target);
                 if op == hir::AssignOp::Assign {
                     if let hir::ExprKind::Local(local) = self.body.expr(target).kind {
@@ -2476,8 +3117,10 @@ impl Analysis<'_> {
             hir::ExprKind::Ref { place, mutable, .. } => {
                 let value = self.expr(place);
                 // Lent as `&mut`, a container may have an element taken out where the walk
-                // cannot see it, so what was stored into it is lost (T-0145).
-                if mutable {
+                // cannot see it, so what was stored into it is lost (T-0145): unless it is
+                // lent to a call whose clauses say all that leaves (D-0097).
+                let kept = self.regions.as_ref().is_some_and(|r| r.lend_kept.contains(&id));
+                if mutable && !kept {
                     self.lend(place, node.span);
                 }
                 // A reference to a temporary view struct has no place to point at; it
@@ -2680,6 +3323,9 @@ impl Analysis<'_> {
                         None => kept,
                     };
                     self.refuse(&kept, Refusal::Returned, node.span);
+                    if let Some(h) = &mut self.homes {
+                        h.returned.extend(kept.iter().map(|s| (*s, node.span)));
+                    }
                     // A tuple hands out the views in its parts as well.
                     let returned = value.held_views();
                     // Scope-exit kills are applied below; returning a view of a local
@@ -2927,6 +3573,27 @@ impl Analysis<'_> {
                 Value { owned, ..Value::default() }
             }
             hir::ExprKind::Builtin { name, args } | hir::ExprKind::Intrinsic { name, args } => {
+                // In the homes walk, `construct(dst, value)` stores `value`'s memory under
+                // `dst`, as an assignment does, and `move_out(src)`'s value is in what `src`
+                // is under: how `std`'s containers keep and hand back an element (D-0097).
+                if self.homes.is_some() {
+                    match (name.as_str(), args.as_slice()) {
+                        ("construct", [dst, value_expr]) => {
+                            let value = self.expr(*value_expr);
+                            let owned = self.passed(*value_expr, value).all_owned();
+                            self.expr(*dst);
+                            self.homes_give(&owned, *dst, node.span);
+                            return Value::default();
+                        }
+                        ("move_out", [src]) => {
+                            let place = self.expr(*src);
+                            self.kill_places(&place.places, node.span, KillKind::Drop);
+                            let owned = self.homes_under(*src);
+                            return Value { owned, ..Value::default() };
+                        }
+                        _ => {}
+                    }
+                }
                 let mut first = Value::default();
                 for (i, arg) in args.into_iter().enumerate() {
                     let value = self.expr(arg);
@@ -3196,6 +3863,45 @@ pub(super) fn body_signature(
         // A body reads its own signature unsubstituted, where `call_effects` already
         // leaves a `T` result unknown.
     })
+}
+
+/// Whether a method's `sends` hands its argument `arg` to its receiver, `sends v to self`
+/// (D-0097): stored into the receiver, as [`Staying::stores`] infers within a module.
+pub(crate) fn sends_to_self(table: &TypeTable, callee: &Callee, arg: usize) -> bool {
+    let (Callee::Method { owner, name, .. } | Callee::BaseMethod { owner, name, .. }) = callee
+    else {
+        return false;
+    };
+    table.methods_sig(*owner).and_then(|s| s.methods.get(name)).is_some_and(|sig| {
+        let param = sig.params.get(arg).map(|p| p.name.as_str());
+        sig.sends.iter().any(|s| {
+            Some(s.what.root.name.as_str()) == param
+                && s.what.steps.is_empty()
+                && s.to.root.name == "self"
+        })
+    })
+}
+
+/// Whether lending a container `&mut`, as argument `arg` of `call`, keeps what it holds
+/// (D-0097). Nothing can leave it there but what the callee's clauses say: a `&mut` cannot be
+/// kept, what its `sends` hands on is followed at the call ([`Analysis::region_clauses`]), and
+/// so is a result `in` its home. That needs clauses: a function value has none yet, and a C
+/// function's are unknown.
+pub(crate) fn lend_keeps(
+    body: &Body,
+    table: &TypeTable,
+    res: &Resolution,
+    call: ExprId,
+    arg: usize,
+) -> bool {
+    let hir::ExprKind::Call { callee, args } = &body.expr(call).kind else { return false };
+    if matches!(callee, Callee::Value(_)) {
+        return false;
+    }
+    let Some(signature) = call_signature(body, callee, args, call, table, res) else {
+        return false;
+    };
+    !signature.sig.kills_unknown && arg < signature.sig.params.len()
 }
 
 fn call_signature(

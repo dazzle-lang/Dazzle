@@ -92,6 +92,16 @@ fn first() -> &i32 in world::SCORES.list@items
   block
 fn each(f: fn(v: i32) kills (SCORES@items, world::LOG))
   block
+fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*] sends from[*] to store, from[*] to KEPT
+  block
+fn put(&mut self, v: T) kills self@items sends v to self
+  block
+fn last(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*]
+  block
+fn to(to: i32) -> i32
+  block
+    return
+      path to
 
 === DIAGNOSTICS ===
 (none)

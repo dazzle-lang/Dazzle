@@ -41,6 +41,9 @@ pub enum Step {
     Elements,
     /// `@items`
     Tie(String),
+    /// `@home`: the region or heap the value's memory is in, which no struct declares
+    /// (D-0097). Only ever the last step.
+    Home,
 }
 
 /// What a function's tie paths are resolved against.
@@ -127,6 +130,10 @@ pub fn check(scope: &Scope<'_>, params: &[dz_ast::Param]) -> Vec<Error> {
     let mut out = Vec::new();
     for path in &scope.sig.kills {
         match resolve(scope, path) {
+            Ok(tie) if tie.steps.contains(&Step::Home) => out.push(home_misplaced(
+                path,
+                "a home is never killed, since it is the region or heap the value was placed in",
+            )),
             Ok(tie) => {
                 if let Err(e) = changeable(scope, &tie, path) {
                     out.push(e);
@@ -137,16 +144,69 @@ pub fn check(scope: &Scope<'_>, params: &[dz_ast::Param]) -> Vec<Error> {
     }
     for path in &scope.sig.ret_ties {
         match resolve(scope, path) {
+            Ok(tie) if tie.steps.contains(&Step::Home) => out.push(home_misplaced(
+                path,
+                "`@home` ends a path: it names where the value's memory is, and nothing inside it",
+            )),
             Ok(_) if !holds_view(scope.table, &scope.sig.ret, true) => {
-                out.push(points_nowhere(scope, "the result", &scope.sig.ret, path.span))
+                let mut e = points_nowhere(scope, "the result", &scope.sig.ret, path.span);
+                if owns_memory(scope.table, &scope.sig.ret) {
+                    // An owned result is tied to where its memory is, not to where it points.
+                    e.help = format!(
+                        "an owned result taken out of an input says it lives in that input's \
+                         home: `in {}@home` (D-0097)",
+                        path.root_spelling()
+                    );
+                }
+                out.push(e)
             }
             Ok(_) => {}
             Err(e) => out.push(e),
         }
     }
+    for path in &scope.sig.ret_home {
+        match resolve(scope, path) {
+            // A type parameter may be given an owned value, so only a result that is a view
+            // whatever it is given is refused.
+            Ok(_) if holds_view(scope.table, &scope.sig.ret, false) => out.push(home_misplaced(
+                path,
+                "a view says where it points with `in` and a path without `@home`; `@home` is \
+                 for an owned result",
+            )),
+            Ok(_) if !owns_memory(scope.table, &scope.sig.ret) => {
+                let n = crate::type_name(scope.res, &scope.sig.ret);
+                out.push(home_misplaced(
+                    path,
+                    &format!("the result is `{n}`, which owns no memory, so it has no home"),
+                ))
+            }
+            Ok(_) => {}
+            Err(e) => out.push(e),
+        }
+    }
+    for send in &scope.sig.sends {
+        for (path, giving) in [(&send.what, true), (&send.to, false)] {
+            match resolve(scope, path) {
+                Ok(tie) if tie.steps.contains(&Step::Home) => out.push(home_misplaced(
+                    path,
+                    "a `sends` names values, which take their homes with them",
+                )),
+                Ok(tie) => {
+                    if let Err(e) = sendable(scope, &tie, path, giving) {
+                        out.push(e);
+                    }
+                }
+                Err(e) => out.push(e),
+            }
+        }
+    }
     for (i, (p, sig)) in params.iter().zip(&scope.sig.params).enumerate() {
         let Some(path) = &p.tie else { continue };
         match resolve(scope, path) {
+            Ok(tie) if tie.steps.contains(&Step::Home) => out.push(home_misplaced(
+                path,
+                "a reference parameter says where it points, which is never a home",
+            )),
             Ok(_) if !points(&sig.ty) => {
                 out.push(points_nowhere(scope, &format!("`{}`", p.name.name), &sig.ty, path.span))
             }
@@ -175,6 +235,17 @@ pub fn check_struct(table: &TypeTable, res: &Resolution, sym: SymbolId) -> Vec<E
     let type_name = &res.symbol(sym).name;
     for (i, t) in s.ties.iter().enumerate() {
         let shown = t.name.as_ref().map_or("[*]".to_owned(), |n| format!("@{n}"));
+        if t.name.as_deref() == Some("home") {
+            out.push(error(
+                codes::HOME_TIE_RESERVED,
+                t.span,
+                format!("`{type_name}` declares `@home`, which every value that owns memory has"),
+                "reserved",
+                "`@home` is the region or heap a value was placed in, which no struct declares; \
+                 give this tie another name (D-0097)",
+            ));
+            continue;
+        }
         if s.ties[..i].iter().any(|e| e.name == t.name) {
             out.push(error(
                 codes::TIE_DECLARED_TWICE,
@@ -438,6 +509,88 @@ fn points_nowhere(scope: &Scope<'_>, what: &str, t: &Ty, span: Span) -> Error {
     )
 }
 
+/// `@home` at the end of `path` (D-0097): whether a parsed path is one, so a result's `in`
+/// can be told apart as saying where an owned value lives.
+pub fn ends_at_home(path: &TiePath) -> bool {
+    matches!(path.steps.last(), Some(TieStep::Tie(t)) if t.name == "home")
+}
+
+/// `@home` in `path` where it means nothing, and why.
+fn home_misplaced(path: &TiePath, why: &str) -> Error {
+    let span = path
+        .steps
+        .iter()
+        .find_map(|s| match s {
+            TieStep::Tie(t) if t.name == "home" => Some(t.span),
+            _ => None,
+        })
+        .unwrap_or(path.span);
+    error(
+        codes::HOME_MISPLACED,
+        span,
+        format!("`@home` cannot be named here: {why}"),
+        "`@home` here",
+        "`@home` ends a path after a result's `in`, for an owned result taken out of an input: \
+         `-> T in xs@home` (D-0097)",
+    )
+}
+
+/// Whether a value of `t`, or what `t` refers to, may own memory from an allocator, and so
+/// have a home (D-0097). A type parameter may; a reference or pointer is asked of what it
+/// points at, and an optional of what it holds.
+pub fn owns_memory(table: &TypeTable, t: &Ty) -> bool {
+    match t.peeled() {
+        Ty::Optional(inner) | Ty::Fallible(inner) => owns_memory(table, inner),
+        // A trait's `self` in its declaration, which an implementation may give memory.
+        Ty::Named { sym, .. } if matches!(table.get(*sym), Some(crate::ItemSig::Trait(_))) => true,
+        other => table.needs_drop(other),
+    }
+}
+
+/// A `sends` path (D-0097). What is sent, `giving`, comes from something the function owns
+/// (a by-value parameter) or can change (a `&mut` parameter, `&mut self`, a static); what
+/// it is sent to, the function must be able to change.
+fn sendable(scope: &Scope<'_>, tie: &Tie, path: &TiePath, giving: bool) -> Result<(), Error> {
+    let (what, ty) = match tie.root {
+        Root::Static(_) => return Ok(()),
+        Root::SelfValue => {
+            if scope.sig.takes_self == Some(true) {
+                return Ok(());
+            }
+            ("`self`".to_owned(), "taken as `&self`".to_owned())
+        }
+        Root::Param(i) => {
+            let p = &scope.sig.params[i];
+            let by_value = !matches!(p.ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::Slice { .. });
+            if (giving && by_value)
+                || matches!(
+                    p.ty,
+                    Ty::Ref { mutable: true, .. }
+                        | Ty::Ptr { mutable: true, .. }
+                        | Ty::Slice { mutable: true, .. }
+                )
+            {
+                return Ok(());
+            }
+            let n = crate::type_name(scope.res, &p.ty);
+            (format!("`{}`", p.name), format!("taken as `{n}`"))
+        }
+    };
+    let message = if giving {
+        format!("`{}` sends from {what}, which it neither owns nor can change", scope.name)
+    } else {
+        format!("`{}` sends to {what}, which it cannot change", scope.name)
+    };
+    Err(error(
+        codes::SENDS_NEEDS_MUT,
+        path.root.span,
+        message,
+        ty,
+        "a function sends what it was given by value, or takes through a `&mut` parameter or \
+         `&mut self`, into a `&mut` parameter, `&mut self` or a static (D-0097)",
+    ))
+}
+
 /// A `kills` path must start where the function can change something: a `&mut` or `^mut`
 /// parameter, or `&mut self`. What it was given by value is its own, and its callers never
 /// see that die.
@@ -601,6 +754,12 @@ fn export_path_at(
     steps.push(TieStep::Field(path.root.clone()));
     steps.extend(path.steps.iter().cloned());
     let (out, ty, mut ended) = w.walk(Ty::Named { sym, args: args.to_vec() }, &steps, depth)?;
+    if out.contains(&Step::Home) {
+        return Err(home_misplaced(
+            path,
+            "a tie stands for memory inside the type, which a home is not",
+        ));
+    }
     if ended.is_none() && matches!(ty, Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
         ended = Some(format!("the memory `{}` points into", path.root.name));
     }
@@ -640,6 +799,23 @@ impl Walker<'_> {
                     ty = self.field(&ty, &f.name, f.span)?;
                     pointer_field = matches!(ty, Ty::Ptr { .. } | Ty::OwnPtr { .. });
                     steps.push(Step::Field(f.name.clone()));
+                }
+                // `@home`, which no struct declares (D-0097): whether it may stand where it
+                // does is the caller's to say, from the `Step::Home` it finds.
+                TieStep::Tie(t) if t.name == "home" => {
+                    if !owns_memory(self.table, &ty) {
+                        let n = crate::type_name(self.res, ty.peeled());
+                        return Err(error(
+                            codes::HOME_MISPLACED,
+                            t.span,
+                            format!("`{n}` owns no memory, so it has no home"),
+                            "nothing here has a home",
+                            "`@home` names the region or heap a value that owns memory was placed \
+                             in (D-0097)",
+                        ));
+                    }
+                    ended = Some("`@home`, which names where the memory is".to_owned());
+                    steps.push(Step::Home);
                 }
                 TieStep::Tie(t) => {
                     let parts = self.tie(&ty, &t.name, t.span, depth)?;
@@ -860,6 +1036,10 @@ pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
         kills: paths.to_vec(),
         kills_span: None,
         kills_unknown: unknown,
+        sends: Vec::new(),
+        sends_span: None,
+        ret_span: None,
+        ret_home: Vec::new(),
     }
 }
 

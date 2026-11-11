@@ -49,6 +49,19 @@ fn run(source_path: &Path) -> Outcome {
 }
 
 fn analyse(dir: &Path) -> Outcome {
+    analyse_with(dir, dz_flow::check)
+}
+
+/// [`analyse`], with `last` as the ownership pass.
+fn analyse_with(
+    dir: &Path,
+    last: impl Fn(
+        &dz_hir::Hir,
+        &dz_check::TypeTable,
+        &dz_resolve::Resolution,
+        &SourceMap,
+    ) -> Diagnostics,
+) -> Outcome {
     let dir = dir.to_path_buf();
     let mut map = SourceMap::new();
     let mut diags = Diagnostics::new();
@@ -80,7 +93,7 @@ fn analyse(dir: &Path) -> Outcome {
     let checked = dz_check::check(&ws, &resolution, &files, &map);
     diags.extend(checked.diagnostics.clone());
     if !checked.diagnostics.has_errors() {
-        diags.extend(dz_flow::check(&checked.hir, &checked.table, &resolution, &map));
+        diags.extend(last(&checked.hir, &checked.table, &resolution, &map));
     }
     diags.sort_by_position();
 
@@ -101,6 +114,16 @@ fn the_typed_workspace_is_ownership_clean() {
         got.codes,
         got.rendered
     );
+}
+
+/// `std`'s `sends` and `in x@home` are true of its bodies (D-0097, T-0200). A build leaves
+/// `std` out of that check, since it is the same for every program, so this is where a
+/// clause it gets wrong is caught.
+#[test]
+fn std_says_where_it_sends_what_it_is_given() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/workspace/typed");
+    let got = analyse_with(&dir, |hir, table, res, _| dz_flow::check_std_homes(hir, table, res));
+    assert!(got.codes.is_empty(), "std's clauses differ from its bodies:\n{}", got.rendered);
 }
 
 /// The codes an `// expect:` header asks for. `(none)` means the file must be clean.

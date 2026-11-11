@@ -86,3 +86,10 @@ fn count<view T: Iterate, view>(it: T, view: i32) -> i32 {
 fn add(v: i32) kills SCORES.list@items, world::LOG.lines@items {}
 fn first() -> &i32 in world::SCORES.list@items {}
 fn each(f: fn(v: i32) kills (SCORES@items, world::LOG)) {}
+
+// `sends` after `kills`, or before it; `to` stays a name elsewhere; `in x@home` on an
+// owned result (D-0097).
+fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*] sends from[*] to store, from[*] to KEPT {}
+fn put(&mut self, v: T) sends v to self kills self@items {}
+fn last(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {}
+fn to(to: i32) -> i32 { return to }

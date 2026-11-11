@@ -87,6 +87,9 @@ pub const EXPECTED_TIE_PATH: &str = "DZ0218";
 /// `in @items` after a field's type: since r84 a struct declares its ties itself, `tie
 /// @items = m_data` (spec §6.7).
 pub const TIE_ON_FIELD: &str = "DZ0219";
+/// A pair of a `sends` clause with no `to`: `sends from[*] to store` names what one input
+/// owns, then the input it is handed to (D-0097).
+pub const SENDS_NEEDS_TO: &str = "DZ0220";
 
 // --- DZ00xx: projects and manifests --------------------------------------------
 
@@ -192,6 +195,13 @@ pub const UNTIED_POINTER_RETURNED: &str = "DZ0419";
 /// A call that kills memory through one argument while another reaches it, pointing at
 /// what owns it or naming the same kill: `append_copy(&mut ys, &ys)` (spec 6.7).
 pub const ALIASED_KILL: &str = "DZ0420";
+/// A body that hands what one input owns to another, or returns it, where its signature
+/// does not say so: a caller places what it lends by `sends` and `in x@home`, so a value
+/// that went elsewhere could outlive its memory (D-0097).
+pub const SEND_NOT_DECLARED: &str = "DZ0421";
+/// A `sends` pair, or an owned result's `in x@home`, that the body never does: it would make
+/// callers place memory further out than it goes (D-0097).
+pub const SEND_NEVER_HAPPENS: &str = "DZ0422";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 
@@ -425,6 +435,17 @@ pub const PLACEMENT_DEFAULT: &str = "DZ0579";
 /// An integer `/` or `%`, or `/=` or `%=`, whose divisor is a constant zero: it would panic
 /// every time it ran (spec §5.1, §11).
 pub const DIVISION_BY_ZERO: &str = "DZ0580";
+/// A struct declaring `tie @home`. Every value that owns memory has a home, the region or
+/// heap it was placed in, and `@home` names it; no struct declares it (D-0097).
+pub const HOME_TIE_RESERVED: &str = "DZ0581";
+/// `@home` where it names nothing: not the last step of its path, in a `kills` clause (a
+/// home is never killed), on a parameter's `in`, in a `sends` path, after `in` on a
+/// result that is a view or owns no memory, or on a value that owns none (D-0097).
+pub const HOME_MISPLACED: &str = "DZ0582";
+/// A `sends` that takes from something the function neither owns nor can change, or gives
+/// to something it cannot change: `sends` moves from a by-value parameter or through a
+/// `&mut` one, and into a `&mut` parameter, `&mut self` or a static (D-0097).
+pub const SENDS_NEEDS_MUT: &str = "DZ0583";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

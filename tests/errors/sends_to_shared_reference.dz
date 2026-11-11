@@ -1,0 +1,13 @@
+// expect: DZ0583
+//
+// What a `sends` gives to must be something the function can change; a `&` parameter is
+// not (D-0097).
+
+fn keep(v: String, out: &List<String>) sends v to out {
+    println!("{} {}", v, out.len())
+}
+
+fn main() {
+    let names = List<String>()
+    keep(String::from("one"), &names)
+}

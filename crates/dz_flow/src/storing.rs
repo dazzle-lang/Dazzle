@@ -740,6 +740,62 @@ pub(crate) fn owns(table: &TypeTable, ty: &Ty) -> bool {
     }
 }
 
+/// The call a `let` keeping `top` hands its local to as surely as if `top` were that call's
+/// argument, with the argument's index: a later statement of the `let`'s block is a method
+/// call given the local itself, `move(x)`, and no statement between them ends the
+/// pass (`break`, `continue`) or gives the local a new value, which would drop this one
+/// while its region kept the memory. A `return` ends every pass, so it does not count.
+///
+/// A list built over several statements and then pushed is the case:
+///
+/// ```dz
+/// let mut path = List<Vec2>()
+/// for step in 0..12 { path.push(…) }
+/// paths.push(move(path))
+/// ```
+///
+/// It lets the loop rule treat `path` as `paths.push(List<Vec2>())` would be treated
+/// (T-0145): placed where `paths` lives when `push` keeps it and `paths` keeps everything.
+/// Like [`keeps`], this bounds memory and is not a safety rule.
+pub(crate) fn stored_after_let(body: &Body, top: ExprId) -> Option<(ExprId, usize)> {
+    let s = body.stmts.iter().position(
+        |st| matches!(st.kind, hir::StmtKind::Let { local: Some(_), init: Some(i) } if i == top),
+    )?;
+    let s = StmtId(s as u32);
+    let hir::StmtKind::Let { local: Some(x), .. } = body.stmt(s).kind else { return None };
+    let block = body.blocks.iter().find(|b| b.stmts.contains(&s))?;
+    let at = block.stmts.iter().position(|t| *t == s)?;
+    for &t in &block.stmts[at + 1..] {
+        if let hir::StmtKind::Expr(e) = body.stmt(t).kind {
+            if let hir::ExprKind::Call { callee: Callee::Method { .. }, args } = &body.expr(e).kind
+            {
+                // Only `move(x)`: `x` alone is a copy, and the original still dies here.
+                let given = args.iter().position(|a| {
+                    matches!(body.expr(*a).kind, hir::ExprKind::Move(inner)
+                        if matches!(body.expr(inner).kind, hir::ExprKind::Local(y) if y == x))
+                });
+                if let Some(i) = given {
+                    return Some((e, i));
+                }
+            }
+        }
+        let span = body.stmt(t).span;
+        let inside = |at: dz_span::Span| at.start >= span.start && at.end <= span.end;
+        let ends_pass = body.exprs.iter().any(|e| {
+            matches!(e.kind, hir::ExprKind::Break(_) | hir::ExprKind::Continue(_)) && inside(e.span)
+        });
+        let replaced = body.stmts.iter().any(|st| {
+            matches!(st.kind, hir::StmtKind::Assign { target, .. }
+                if matches!(body.expr(target).kind, hir::ExprKind::Local(y) if y == x))
+                && inside(st.span)
+        });
+        if ends_pass || replaced {
+            return None;
+        }
+    }
+    None
+}
+
 // --- a local that grows from itself (T-0146) ---------------------------------------------
 
 /// The local that keeps `top`'s value from one pass of a loop to the next by growing from

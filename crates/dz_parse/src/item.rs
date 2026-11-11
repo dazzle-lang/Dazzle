@@ -443,13 +443,22 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        let kills_start = self.start();
-        let (kills, kills_span) = if self.eat(TokenKind::Kills) {
-            let paths = self.parse_kills(false);
-            (paths, Some(self.span_from(kills_start)))
-        } else {
-            (Vec::new(), None)
-        };
+        // `kills …` and `sends … to …`, each at most once and in either order; the
+        // formatter writes `kills` first (D-0097).
+        let (mut kills, mut kills_span) = (Vec::new(), None);
+        let (mut sends, mut sends_span) = (Vec::new(), None);
+        loop {
+            let clause_start = self.start();
+            if kills_span.is_none() && self.eat(TokenKind::Kills) {
+                kills = self.parse_kills(false);
+                kills_span = Some(self.span_from(clause_start));
+            } else if sends_span.is_none() && self.eat(TokenKind::Sends) {
+                sends = self.parse_sends();
+                sends_span = Some(self.span_from(clause_start));
+            } else {
+                break;
+            }
+        }
 
         let body = if self.at(TokenKind::LBrace) { Some(self.parse_block()) } else { None };
         FnDecl {
@@ -466,9 +475,42 @@ impl<'a> Parser<'a> {
             fallible,
             kills,
             kills_span,
+            sends,
+            sends_span,
             body,
             base_init: None,
         }
+    }
+
+    /// The pairs after `sends`, the keyword already consumed: `what to to`, separated by
+    /// commas (D-0097). `to` is read as a word here, not a keyword, so it stays free as a
+    /// name everywhere else. A pair missing its `to` is reported and left out.
+    fn parse_sends(&mut self) -> Vec<Send> {
+        let mut pairs = Vec::new();
+        loop {
+            let start = self.start();
+            let Some(what) = self.parse_tie_path() else { break };
+            if self.at(TokenKind::Ident) && self.text_at(self.pos) == "to" {
+                self.bump();
+                if let Some(to) = self.parse_tie_path() {
+                    pairs.push(Send { span: self.span_from(start), what, to });
+                }
+            } else {
+                let at = self.peek_token().span;
+                self.report_help(
+                    codes::SENDS_NEEDS_TO,
+                    at,
+                    "a `sends` names where the value goes, after `to`",
+                    "expected `to` here",
+                    "write `sends from[*] to store`: what one input owns, then the input it is \
+                     handed to (D-0097)",
+                );
+            }
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        pairs
     }
 
     /// `self@items`, `world.enemies@items`, `list[*]@text`, or a bare `world` (spec §6.7).
@@ -943,6 +985,8 @@ impl<'a> Parser<'a> {
             // A constructor kills nothing: what it builds is not yet anyone's.
             kills: Vec::new(),
             kills_span: None,
+            sends: Vec::new(),
+            sends_span: None,
             body,
             base_init,
         }

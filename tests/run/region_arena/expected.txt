@@ -1,8 +1,10 @@
 small 10000 intact true aligned true
 given back true grown in place true
+resized last true earlier false into large false
 align 64 true
 list 20000 sum 199990000
 string 21000 ends true
+names 10 n0 n9 capacity 10
 chunk reused true
 large block 3 aligned true
 huge 3

@@ -22,7 +22,7 @@ struct Pair<A: Copy> {
     pub first: A
 
     /// The type's parameter and the method's side by side.
-    pub fn with<B>(&self, second: B) -> (A, B) {
+    pub fn with<B>(&self, second: B) -> (A, B) in second@home {
         return (first, move(second))
     }
 
@@ -34,11 +34,11 @@ struct Pair<A: Copy> {
 
 struct Maker {
     /// A move-only argument is moved in and moved out; it is dropped exactly once.
-    pub fn keep<T>(value: T) -> T {
+    pub fn keep<T>(value: T) -> T in value@home {
         return move(value)
     }
 
-    pub fn swap<X, Y>(x: X, y: Y) -> (Y, X) {
+    pub fn swap<X, Y>(x: X, y: Y) -> (Y, X) in (y@home, x@home) {
         return (move(y), move(x))
     }
 }

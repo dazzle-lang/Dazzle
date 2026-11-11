@@ -95,8 +95,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    small program 13-21% less; and with T-0192 a build with nothing changed 5 ms (`make`:
    50 ms); update with the rest of the incremental-build stages.
 
-Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147, T-0150), which keep memory on
-the heap but are not safety holes, and the ten-thousand-line game (T-0138).
+Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147), which keep memory on the heap
+but are not safety holes, and the ten-thousand-line game (T-0138). T-0150 is done, by
+D-0097's homes (r119, T-0200).
 
 **Memory placed by the compiler, then safe code made sound**, chosen by the user on
 2026-11-01. Automatic placement matters most (T-0117 and what follows it), and threads can

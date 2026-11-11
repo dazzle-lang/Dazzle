@@ -35,7 +35,7 @@ the generic function itself, at the line that does it, rather than at some later
 instantiation — which is the point of definition-site generics (§8.6). Add the bound.
 
 ```dz
-fn larger<T: Copy>(a: T, b: T) -> T {
+fn larger<T: Copy>(a: T, b: T) -> T in (a@home, b@home) {
     if a > b {
         return a
     }
@@ -48,7 +48,7 @@ fn main() {
 ```
 
 ```dz
-fn larger<T: Copy + Ord>(a: T, b: T) -> T {
+fn larger<T: Copy + Ord>(a: T, b: T) -> T in (a@home, b@home) {
     if a > b {
         return a
     }

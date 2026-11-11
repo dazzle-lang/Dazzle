@@ -72,7 +72,7 @@ fn grow(s: &mut Shape) {
     }
 }
 
-fn unwrap_or<T: Copy>(m: Maybe<T>, fallback: T) -> T {
+fn unwrap_or<T: Copy>(m: Maybe<T>, fallback: T) -> T in fallback@home {
     return switch m {
         case Some(s) { s.value }
         case Nothing { fallback }
