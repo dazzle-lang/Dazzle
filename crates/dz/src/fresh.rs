@@ -264,13 +264,18 @@ fn try_write(
     // here, it must find exactly what loading found: a file added while the build ran, or a
     // path the expansion spells differently, would make the check disagree, so then there is
     // no stamp and the next build simply runs.
+    //
+    // The hash is of the expansion, as the check will spell it: on Windows `PathBuf`s equal
+    // with either separator, but their text, which is what is hashed, does not, so a hash of
+    // `found` (`cwd.join` writes `\`) never matched the expansion's (`/`).
     for (pattern, found) in ws.globs() {
         let pattern = cwd.join(pattern).to_string_lossy().replace('\\', "/");
         let found: Vec<PathBuf> = found.iter().map(|p| cwd.join(p)).collect();
-        if dz_project::glob_entries(&pattern).ok()? != found {
+        let expanded = dz_project::glob_entries(&pattern).ok()?;
+        if expanded != found {
             return None;
         }
-        text.push_str(&format!("glob {:016x} {pattern}\n", list_hash(&found)));
+        text.push_str(&format!("glob {:016x} {pattern}\n", list_hash(&expanded)));
     }
     for (_, lib) in ws.cpp_libs() {
         if let Some(cmake) = &lib.cmake {

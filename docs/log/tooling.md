@@ -1151,6 +1151,13 @@ Not covered yet:
 `--timings` shows `up to date` on a skip and `build stamp` on a build;
 `tools/bench_programs.py` counts the latter as Dazzle's own work.
 
+**Fixed the same day: on Windows the stamp never matched**, and every `stamp.rs` test
+failed in CI. A `glob` line hashed the source list as loading found it, joined to the
+current folder with `\`, while the check hashed the list the pattern expands to, spelled
+with `/`. The two compare equal as `PathBuf`s on Windows, which is why the write's own
+comparison passed, but their text differs. The stamp now hashes the expansion, which is
+what the check computes. macOS and Linux spell both alike, so only the Windows job saw it.
+
 ## A module's instance bodies in a file of their own (T-0191; 2026-11-11)
 
 Stage 3a of making a build cost what an edit changed. Since T-0185 an instance's bodies are
