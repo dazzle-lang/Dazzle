@@ -1186,3 +1186,29 @@ few seconds of wall time; on a laptop with four it is more. A build from clean i
 an edit, and stage 3b, the edited module's header precompiled, does nothing for it, so if it
 matters the alternative is to keep a module's instances in its `.cpp` until the module is
 first edited, the rule 3b uses for its header.
+
+## An incremental build is checked against a clean one (T-0193; 2026-11-11)
+
+Before any build reuses earlier work for the modules an edit cannot reach, there is a test
+that would catch it reusing too much: `crates/dz/tests/incremental.rs`. Each scenario builds
+a project, applies one scripted edit, builds again in place, then copies the edited sources
+to a folder of their own and builds them from clean. `build/cpp` must be the same byte for
+byte, once each folder's own path is replaced (a `#line` names its source by its full path),
+and the two programs must print the same thing.
+
+The edits are the ones where one module's change shows up in another's generated code: a
+leaf and a root body, the root's signature, a module added and one removed, and a constant,
+default argument, field default, `Drop` body and reflected type declared in the root and
+used from the module above it. They run on `bench_scale.py generate 10`, whose text is known
+exactly, so each edit is a replacement that must match once; and a generic body, a field
+default and a reflected field in three `tests/run` projects. A scenario whose edit changes no
+generated C++ fails, since it would pass however stale a build was. The scenarios run in
+parallel, about 20 s in all, debug, with the per-user `std` cache shared. Every build sets
+`DZ_INCREMENTAL` itself (`verify` for the incremental one, `0` for the clean one), which the
+compiler does not read yet.
+
+Today's compiler re-analyses everything, so the test passes trivially, as it was meant to.
+It found one difference anyway: a removed module's `.h`, `.cpp` and `.inst.cpp` stay in
+`build/cpp`. Nothing includes or compiles them, so the program is right, but they are stale
+output, and per-module reuse will have to tell a module removed from one left alone. The
+test tolerates exactly those files, for a module its edit removed, until T-0194 deletes them.

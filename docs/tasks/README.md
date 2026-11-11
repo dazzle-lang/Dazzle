@@ -43,7 +43,13 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    T-0185 and T-0186 are done the same day: 100 modules from clean 60 s to 12 s (C++: 5 s),
    an edit 15 s to 6 s (C++: 1 s). T-0187 is done (2026-11-11): Dazzle's own phases now
    grow with the program, 4.5 s to 1.9 s at 100 modules, so nothing changed is 2.1 s and an
-   edit 3.3 s; the rest of an edit is re-analysing what it did not touch (T-0023). Left: the rest
+   edit 3.3 s; the rest of an edit is re-analysing what it did not touch (T-0023). Then, from
+   a plan the user approved the same day (incremental builds, in stages, each its own
+   commit): T-0192, a build with nothing changed checks a stamp and skips analysis (2.0 s to
+   5 ms at 100 modules); T-0191, a module's instance bodies in a file of their own; T-0193,
+   a test that an incremental build equals a clean one. Next in that plan: the edited
+   module's header precompiled, the fastest linker present, then re-running the later
+   phases only for the modules an edit can affect. Left besides: the rest
    of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
    `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
    only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the
@@ -75,7 +81,8 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    every build to 0.5–1.6 s; and at 100 modules (51 000 lines) from clean 60 s to 12 s and an edit
    15 s to 6 s, against 5 s and 1 s for C++ (T-0185, T-0186); and with T-0187 from clean
    9.5 s, nothing changed 4.8 s to 2.1 s and an edit 3.3 s, and Dazzle's own phases of a
-   small program 13-21% less.
+   small program 13-21% less; and with T-0192 a build with nothing changed 5 ms (`make`:
+   50 ms); update with the rest of the incremental-build stages.
 
 Not in 0.2: the placement gaps below (T-0141, T-0142, T-0147, T-0150), which keep memory on
 the heap but are not safety holes, and the ten-thousand-line game (T-0138).
