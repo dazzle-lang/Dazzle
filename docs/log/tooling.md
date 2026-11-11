@@ -1346,3 +1346,38 @@ is held up by verify alone.
 From clean is 13.2 s, against 5.2 s for C++, mostly T-0191's extra translation units.
 What remains of an edit at scale is placement, 0.29 s, and the front end, 0.17 s, over the
 whole program.
+
+## A build from clean compiles a module's two files as one (T-0199; 2026-11-11)
+
+**Profiled first.** At 100 modules a build from clean was 13.2 s against 5.2 s for C++,
+11.3 s of it the C++ compiler. Timing files one at a time, and clang's `-ftime-trace`,
+showed it is parsing, not code generation:
+- every module's file includes its header, which includes every module header beneath it,
+  49 KB each against C++'s 4 KB: `m050.h` alone parses in 0.24 s, `m099.h` in 0.46 s;
+- most of that is the `List` instances, each a class with ~45 member declarations whatever
+  the program calls: 110 ms of `m050.cpp`'s 167 ms of `ParseClass`, where C++ parses
+  `std::vector` once, in 4 ms;
+- since T-0191 each module is two files, and both parse it all: `m050` 0.30 s + 0.44 s
+  apart, 0.48 s as one file.
+- `#line` is 56% of an instance file's bytes and costs nothing measurable.
+
+**The fix here** is the cheapest of the three T-0199 lists. When both of a module's files
+need compiling and there are more files to compile than cores, `combine` replaces the pair
+with `<module>.both.cpp` in the object folder, which includes both, and links its one
+object. With cores to spare two files at once finish sooner than one holding both, so a
+small build is as it was. A combined object still up to date stands in for the pair, which
+is every module after a clean build: so the count of files to compile leaves those pairs
+out, or every later build looks crowded and compiles each edited module combined, as the
+first version did (each leaf edit 1.58 s). A body edit then compiles the two apart, the
+instance file once. That first edit also precompiles the module's header (T-0195), now told
+the module was compiled before by its combined object.
+
+Generated C++ is unchanged, so the edit corpus holds as it was; its 10-module first build
+combines on a 16-core machine. Forcing every pair together, the run corpus passed on
+clang++ and g++, so a module's two files share no name at file scope. One test fails on g++
+before and after: `a_module_being_edited_compiles_from_its_own_header_precompiled`, whose
+depfile from g++ does not name the precompiled header.
+
+**Measured** (`SCALE.md`): from clean at 100 modules 13.19 s to 8.99 s (C++: 5.22 s), the
+C++ compiler 11.28 s to 7.11 s; at 50, 5.10 s to 3.83 s. Edits as they were. Next is
+declaring only the instance methods a program calls, T-0199's second fix.

@@ -2,6 +2,34 @@
 
 Written by `python tools/bench_scale.py --markdown tests/bench_programs/SCALE.md`, which generates a project of N modules and the same program in C++ (`target/scale/<N>/`).
 
+## After T-0199's first fix (2026-11-11, clang++)
+
+When more files need compiling than there are cores, a module's `.cpp` and `.inst.cpp` are compiled as one file, so the module headers they both include are parsed once. From clean at 100 modules: 13.19 s to 8.99 s, the C++ compiler 11.28 s to 7.11 s. Edits are as they were. Three builds per scenario, GNU `ld`. The machine was still busy from a test run when it started (load 17), which if anything slows the first sizes.
+
+| Modules | Lines (Dazzle / C++) | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---|---:|---:|---:|---:|
+| 10 | 5112 / 3440 | clang++ | 0.86 s / 0.59 s | 0.02 s / 0.00 s | 0.31 s / 0.39 s | 0.31 s / 0.38 s |
+| 25 | 12777 / 8600 | clang++ | 1.85 s / 1.29 s | 0.03 s / 0.00 s | 0.46 s / 0.50 s | 0.46 s / 0.48 s |
+| 50 | 25552 / 17200 | clang++ | 3.83 s / 2.60 s | 0.00 s / 0.01 s | 0.66 s / 0.69 s | 0.66 s / 0.64 s |
+| 100 | 51102 / 34400 | clang++ | 8.99 s / 5.22 s | 0.01 s / 0.05 s | 0.99 s / 1.10 s | 0.98 s / 0.99 s |
+
+Where Dazzle's time goes: its own phases / the C++ compiler and link.
+
+| Modules | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---:|---:|---:|---:|
+| 10 | clang++ | 0.23 s / 0.62 s | 0.02 s / 0.00 s | 0.10 s / 0.20 s | 0.10 s / 0.20 s |
+| 25 | clang++ | 0.47 s / 1.35 s | 0.03 s / 0.00 s | 0.17 s / 0.28 s | 0.17 s / 0.28 s |
+| 50 | clang++ | 0.91 s / 2.89 s | 0.00 s / 0.00 s | 0.29 s / 0.34 s | 0.29 s / 0.34 s |
+| 100 | clang++ | 1.81 s / 7.11 s | 0.01 s / 0.00 s | 0.56 s / 0.40 s | 0.56 s / 0.39 s |
+
+Each cell is Dazzle / C++, the median of the builds asked for, in debug (`-O0 -g`), as in the sections below.
+
+- CPU: AMD Ryzen 7 H 255 w/ Radeon 780M Graphics (16 threads)
+- OS: Linux-6.12.115+deb13.1-amd64-x86_64-with-glibc2.41
+- `clang++`: Debian clang version 19.1.7 (3+b1)
+- `dz`: commit bc83e1d with T-0199's first fix
+- Load average before / after: 17.13 / 7.54
+
 ## After T-0198 (2026-11-11, clang++)
 
 A body-only edit to a module others depend on leaves them as they were: the root module's edit is now as cheap as the leaf's. Three builds per scenario, GNU `ld`.
