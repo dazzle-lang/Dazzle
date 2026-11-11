@@ -1737,6 +1737,56 @@ fn a_module_being_edited_compiles_from_its_own_header_precompiled() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// T-0196 — a debug build links with `mold` or `lld` when one is installed and the compiler
+/// links with it, and with the default linker otherwise. Neither is assumed to be on the
+/// machine: the test puts its own on the `PATH`, a `ld.mold` that always fails, which must be
+/// passed over, and a `ld.lld` that records each use and hands the work to the system `ld`.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_debug_build_links_with_a_faster_linker_when_one_works() {
+    use std::os::unix::fs::PermissionsExt;
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let manifest = "[module]\nname = \"t\"\nsources = [\"src/**/*.dz\"]\n\n\
+                    [dependencies]\nstd = { open = true }\n";
+    let dir = scratch(
+        &format!("dz_fast_linker_{}", std::process::id()),
+        manifest,
+        "fn main() {\n    println!(\"linked\")\n}\n",
+    );
+    let bin = dir.join("linkers");
+    std::fs::create_dir_all(&bin).unwrap();
+    let used = dir.join("lld-used");
+    let script = |name: &str, body: String| {
+        let path = bin.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    script("ld.mold", "exit 1".to_owned());
+    script("ld.lld", format!("echo used >> '{}'\nexec ld \"$@\"", used.display()));
+    let path = std::env::join_paths(
+        std::iter::once(bin.clone())
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())),
+    )
+    .unwrap();
+
+    let out = Command::new(dz())
+        .args(["run", dir.to_str().unwrap()])
+        .env("PATH", &path)
+        .env("DZ_CACHE_DIR", dir.join("cache"))
+        .env_remove("DZ_CXXFLAGS")
+        .output()
+        .expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "linked");
+    // Once to try it, once to link the program.
+    let uses = std::fs::read_to_string(&used).unwrap_or_default().lines().count();
+    assert_eq!(uses, 2, "ld.lld was tried, then linked the program");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn no_line_directives_leaves_out_the_directives_and_nothing_else() {
     // spec §16.3 — for reading or debugging the generated C++ itself. Every file, the

@@ -310,7 +310,7 @@ fn tool_line(name: &str) -> Option<String> {
 }
 
 /// Where `name` is: itself if it names a folder, otherwise the first match on the `PATH`.
-fn which(name: &str) -> Option<PathBuf> {
+pub(crate) fn which(name: &str) -> Option<PathBuf> {
     let direct = Path::new(name);
     if direct.components().count() > 1 {
         return direct.is_file().then(|| direct.to_path_buf());

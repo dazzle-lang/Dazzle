@@ -176,6 +176,8 @@ to one of the module's bodies leaves that file as it was and it is not compiled 
 A module being edited, one whose file is compiled again, gets its own header precompiled
 alongside that compile. That header holds every module header beneath it, and the module's
 next edit compiles from it, so an edit costs about what the module's own code does.
+A debug build links with `mold` or `lld` where one is installed and the compiler can use
+it, since the link is then the largest part of an edit; otherwise with the system's linker.
 
 **A build with nothing changed does nothing.** A successful `dz build` or `dz run` records
 what it read, in `build/obj/dz/build-<key>.stamp`. The key is what the build was asked for:

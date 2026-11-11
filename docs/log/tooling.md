@@ -1239,3 +1239,21 @@ Leaf edit, the C++ compiler phase, from the second edit on:
 
 At 100 modules the whole edit went from 3.3 s to 2.45 s. What is left is Dazzle's own
 phases, 1.7 s (stage 2 of the plan), and the link, 0.44 s with GNU `ld` (stage 3c).
+
+## A debug build links with mold or lld (T-0196; 2026-11-11)
+
+Stage 3c. With T-0195, a leaf edit at 100 modules compiled its file in 0.24 s and then spent
+0.44 s in GNU `ld`. A debug build on Linux now links with `mold`, else `lld`, when one
+is on the `PATH` and the compiler links an empty program with it.
+
+That check runs once per compiler and linker and is cached in the shared cache, keyed by both
+files' path, size and time. An upgrade asks again, and an uninstalled linker is not found, so
+no build fails because of it. Some cases keep the system's linker:
+- optimised builds, whose LTO `lld` cannot link for g++;
+- macOS and Windows;
+- a `-fuse-ld` the user gave in `DZ_CXXFLAGS`.
+
+Neither linker is on this machine, and fetching `mold`'s release binary to measure it was
+refused, so there is no number here. The test stands in a `ld.lld` that records its uses
+and runs `ld`, and a `ld.mold` that always fails. It checks the failing one is passed over
+and the other is tried once and then used, with clang++ and with g++.

@@ -358,6 +358,9 @@ pub fn compile(
     }
     // What a CMake install's pkg-config file asks for besides libraries: `-pthread`.
     link_args.extend(link.flags.iter().cloned());
+    if module.build.optimize == Optimize::Debug {
+        link_args.extend(fast_linker(&cxx, &args, &out.shared));
+    }
 
     // An optimised build is optimised across modules too (T-0154): each module is a
     // translation unit, and without this a call into `std` that is not `#[inline]` (spec
@@ -1103,6 +1106,73 @@ pub fn run(exe: &Path) -> std::io::Result<std::process::ExitStatus> {
 
 fn file_stem(module: &str) -> String {
     module.replace("::", "_")
+}
+
+/// `-fuse-ld=mold` or `-fuse-ld=lld`, for a debug build where one of those linkers is
+/// installed and `cxx` links with it (T-0196). GNU `ld` took 0.44 s of every edit to a
+/// 100-module project, more than compiling the edited file; both are several times faster.
+///
+/// Debug only: an optimised build links with LTO, which `lld` cannot do for g++'s objects,
+/// and is not what an edit waits for. Not on macOS, whose own linker is fast, nor Windows.
+/// A `-fuse-ld` of the user's own, in `DZ_CXXFLAGS`, is left to win.
+///
+/// Whether `cxx` links a program with it is tried once, by linking an empty one, and the
+/// answer kept in the shared cache under the compiler's and the linker's files, size and time.
+/// So an upgrade of either asks again, and a linker taken away is simply not found.
+fn fast_linker(cxx: &str, args: &[String], shared: &crate::shared::Shared) -> Option<String> {
+    if !cfg!(unix) || cfg!(target_os = "macos") || args.iter().any(|a| a.starts_with("-fuse-ld")) {
+        return None;
+    }
+    let identity = |path: &Path| -> Option<String> {
+        let real = std::fs::canonicalize(path).ok()?;
+        let meta = std::fs::metadata(&real).ok()?;
+        let time = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+        Some(format!("{} {} {time}", real.display(), meta.len()))
+    };
+    let compiler = identity(&crate::fresh::which(cxx)?)?;
+    for (program, name) in [("ld.mold", "mold"), ("ld.lld", "lld")] {
+        let Some(linker) = crate::fresh::which(program).and_then(|p| identity(&p)) else {
+            continue;
+        };
+        let flag = format!("-fuse-ld={name}");
+        let key = format!("{compiler}\0{linker}\0{flag}");
+        let answer =
+            shared.obj_dir().join(format!("linker-{:016x}", crate::native::fnv1a(key.as_bytes())));
+        let works = match std::fs::read_to_string(&answer) {
+            Ok(known) => known.trim() == "yes",
+            Err(_) => {
+                let works = links_with(cxx, &flag, &shared.obj_dir());
+                let _ = crate::shared::write(&answer, if works { b"yes\n" } else { b"no\n" });
+                works
+            }
+        };
+        if works {
+            return Some(flag);
+        }
+    }
+    None
+}
+
+/// Does `cxx` link an empty program with `flag`? Tried in a folder of its own under `dir`.
+fn links_with(cxx: &str, flag: &str, dir: &Path) -> bool {
+    let folder = dir.join(format!("linker-probe-{}", std::process::id()));
+    if std::fs::create_dir_all(&folder).is_err() {
+        return false;
+    }
+    let source = folder.join("probe.cpp");
+    let works = std::fs::write(&source, "int main() { return 0; }\n").is_ok()
+        && Command::new(cxx)
+            .arg(flag)
+            .arg(&source)
+            .arg("-o")
+            .arg(folder.join("probe"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+    let _ = std::fs::remove_dir_all(&folder);
+    works
 }
 
 /// Did the C++ compiler get as far as linking, and fail there?
