@@ -109,7 +109,7 @@ impl Records {
         if self.by_name.is_empty() || self.by_name.values().any(|r| r.reflects) {
             return None;
         }
-        let facts = Facts::of(c.ws, c.map, c.files, c.hir, c.table, c.placements);
+        let facts = Facts::of(c.ws, c.files, c.res, c.hir, c.table, c.placements);
         // The modules whose interface changed, which every module above them must follow.
         let mut reached: HashSet<ModuleId> = HashSet::new();
         let mut changed: HashSet<ModuleId> = HashSet::new();
@@ -239,9 +239,13 @@ impl Records {
         out: &crate::build::BuildOutput,
     ) -> Option<()> {
         let ws = analysis.ws.as_ref()?;
-        let (hir, table, placements) =
-            (analysis.hir.as_ref()?, analysis.table.as_ref()?, analysis.placements.as_ref()?);
-        let facts = Facts::of(ws, &analysis.map, &analysis.files, hir, table, placements);
+        let (res, hir, table, placements) = (
+            analysis.resolution.as_ref()?,
+            analysis.hir.as_ref()?,
+            analysis.table.as_ref()?,
+            analysis.placements.as_ref()?,
+        );
+        let facts = Facts::of(ws, &analysis.files, res, hir, table, placements);
         std::fs::create_dir_all(&self.dir).ok()?;
         for m in ws.modules().filter(|m| m.id != ws.prelude) {
             let emitted = out.claims.get(&m.id);
@@ -361,8 +365,8 @@ struct Facts {
 impl Facts {
     fn of(
         ws: &Workspace,
-        _map: &SourceMap,
         files: &HashMap<ModuleId, Vec<ParsedFile>>,
+        res: &dz_resolve::Resolution,
         hir: &dz_hir::Hir,
         table: &dz_check::TypeTable,
         placements: &dz_flow::placement::Placements,
@@ -386,6 +390,11 @@ impl Facts {
             into.extend_from_slice(placed.as_bytes());
             into.push(0);
         }
+        // Which methods of generic structs the program calls, which is which methods every
+        // instance outside `std` has, in every header that holds one (T-0199). So, as with a
+        // generic body's placement, a change redoes every module: the first call anywhere to
+        // a method nothing called before, or the last call gone.
+        templates.extend(dz_mono::called_methods(res, table, hir).fingerprint(res));
         Facts {
             placement: by_module.into_iter().map(|(m, bytes)| (m, fnv1a(&bytes))).collect(),
             templates: fnv1a(&templates),

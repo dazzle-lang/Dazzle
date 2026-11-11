@@ -66,6 +66,11 @@ const M009: &str = "m009/src/m009.dz";
 const M001_CALL: &str = "touch0(seed + 1)";
 /// The end of `run1`, where a statement can be added to `m001`.
 const M001_END: &str = "    return acc\n}";
+/// Where `m009` builds a list, and the same with a call of a `List` method nothing else in
+/// the program calls: every instance of `List` outside `std` gains it (T-0199).
+const M009_SHELF: &str = "let mut shelf0 = Shelf9<Part9_0>{ items: List<Part9_0>() }";
+const M009_SHELF_REVERSED: &str =
+    "let mut shelf0 = Shelf9<Part9_0>{ items: List<Part9_0>() }\n    shelf0.items.reverse()";
 
 use Edit::*;
 use Project::*;
@@ -76,6 +81,21 @@ const SCENARIOS: &[Scenario] = &[
         project: Scale,
         setup: &[],
         edit: &[Replace(M009, "return (p.score() + 0) % 1000003", "return (p.score() + 1) % 1000003")],
+    },
+    // A body edit in a leaf that makes the first call of a generic struct's method: every
+    // module's header with an instance of it changes, though no interface did (T-0199).
+    Scenario {
+        name: "first_call_of_a_method",
+        project: Scale,
+        setup: &[],
+        edit: &[Replace(M009, M009_SHELF, M009_SHELF_REVERSED)],
+    },
+    // And the last call gone: the method leaves every instance again.
+    Scenario {
+        name: "last_call_of_a_method",
+        project: Scale,
+        setup: &[Replace(M009, M009_SHELF, M009_SHELF_REVERSED)],
+        edit: &[Replace(M009, M009_SHELF_REVERSED, M009_SHELF)],
     },
     Scenario {
         name: "root_body",

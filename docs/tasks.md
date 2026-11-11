@@ -47,7 +47,8 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    2.5× C++'s, profiled the same day as T-0199: clang++ parsing module headers, twice per
    module, full of every `List` instance's methods. Its first fix, a module's two files
    compiled as one when the build has more files than cores, took 100 modules from 13.2 s
-   to 9.0 s (C++: 5.2 s); declaring only the instance methods a program calls is next.
+   to 9.0 s, and its second, an instance declaring only the methods the program calls, to
+   7.2 s (C++: 5.2 s). The C++ compiler is now about C++'s; the rest is Dazzle's phases.
    Left besides: the rest
    of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
    `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
@@ -202,7 +203,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (11 open)
+## M15 — `dz bench`, and the C++ comparison (10 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -214,7 +215,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0190](tasks/T-0190-each-module-defines-instance-methods-it.md)** Each module defines the instance methods it calls, as C++ instantiates a template's members · feature, codegen
 - **[T-0194](tasks/T-0194-removed-module-generated-files-are-deleted.md)** A removed module's generated files are deleted from build/cpp · feature, tooling
-- **[T-0199](tasks/T-0199-clean-build-at-scale-parses-every.md)** A clean build at scale parses every module's headers twice, and every List instance whole · feature, tooling
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
