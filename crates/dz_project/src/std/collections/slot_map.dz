@@ -43,7 +43,7 @@ pub struct SlotMap<T> {
     }
 
     /// Add `v`, returning the key that names it from now until it is removed.
-    pub fn insert(&mut self, v: T, loc: SourceLocation = #location) -> Key<T> kills self@items {
+    pub fn insert(&mut self, v: T, loc: SourceLocation = #location) -> Key<T> kills self@items sends v to self {
         let place = m_values.len() as u32
         let mut slot = m_free
         if slot == NO_SLOT {
@@ -84,7 +84,7 @@ pub struct SlotMap<T> {
 
     /// Take the value `k` names out, or `none` when there is none. Every key to it reads as
     /// absent from now on.
-    pub fn remove(&mut self, k: Key<T>) -> T? kills self@items, self[*] {
+    pub fn remove(&mut self, k: Key<T>) -> T? in self@home kills self@items, self[*] {
         let place = self.place_of(k) or return none
         self.free_slot(k.index())
         let v = m_values.swap_remove(place)

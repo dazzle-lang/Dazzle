@@ -472,3 +472,38 @@ fn main() {
     p.recruit("Ann")
 }
 ```
+
+## DZ0220
+
+A `sends` clause says what a function hands from one input to another, so its callers can
+place the memory where it will end up (D-0097). Each pair names what is sent, then `to`,
+then where it goes: `sends from[*] to store`. A pair with no `to` says what leaves but not
+where it goes.
+
+```dz
+fn move_last(xs: &mut List<String>, out: &mut List<String>) kills xs@items, xs[*], out@items sends xs[*] out {
+    let v = xs.pop() or return
+    out.push(move(v))
+}
+
+fn main() {
+    let mut a = List<String>()
+    let mut b = List<String>()
+    a.push(String::from("one"))
+    move_last(&mut a, &mut b)
+}
+```
+
+```dz
+fn move_last(xs: &mut List<String>, out: &mut List<String>) kills xs@items, xs[*], out@items sends xs[*] to out {
+    let v = xs.pop() or return
+    out.push(move(v))
+}
+
+fn main() {
+    let mut a = List<String>()
+    let mut b = List<String>()
+    a.push(String::from("one"))
+    move_last(&mut a, &mut b)
+}
+```

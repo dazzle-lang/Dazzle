@@ -504,7 +504,7 @@ fn staying_params(hir: &Hir, table: &TypeTable, res: &Resolution, proposer: Prop
                 continue;
             }
             let locals: Vec<LocalId> = params.iter().map(|i| body.params[i + offset]).collect();
-            let refused = analyse_regions(body, table, res, &[], &locals, &before);
+            let refused = analyse_regions(body, table, res, &[], &[], &locals, &before);
             let mut kept = refused.iter().map(Option::is_none);
             params.retain(|_| kept.next().unwrap_or(false));
         }
@@ -617,7 +617,7 @@ impl BodyPlacement {
             .iter()
             .filter_map(|s| match s.decision {
                 Decision::Region { block, .. } => Some(block),
-                Decision::Result { .. } | Decision::Heap { .. } => None,
+                Decision::Result { .. } | Decision::Home { .. } | Decision::Heap { .. } => None,
             })
             .collect();
         blocks.sort_by_key(|b| b.0);
@@ -630,7 +630,7 @@ impl BodyPlacement {
     pub fn region_for(&self, call: ExprId) -> Option<(usize, BlockId)> {
         match self.placed(call)? {
             (arg, Placed::Region(block)) => Some((arg, block)),
-            (_, Placed::Result) => None,
+            (_, Placed::Result | Placed::Home(_)) => None,
         }
     }
 
@@ -641,6 +641,7 @@ impl BodyPlacement {
         self.sites.iter().find(|s| s.call == call).and_then(|s| match s.decision {
             Decision::Region { block, .. } => Some((s.arg, Placed::Region(block))),
             Decision::Result { .. } => Some((s.arg, Placed::Result)),
+            Decision::Home { container, .. } => Some((s.arg, Placed::Home(container))),
             Decision::Heap { .. } => None,
         })
     }
@@ -693,6 +694,10 @@ pub enum Decision {
     /// Returned, so built wherever the function's caller keeps its result: the body's
     /// hidden result placement. `function` names the function, for a reader.
     Result { function: String },
+    /// In the home of a container this body was lent, read from the container at run time
+    /// (D-0097, T-0200 stage 4): the value is handed to it by a call whose `sends` says so.
+    /// `container` is the receiver, and `name` names it for a reader.
+    Home { container: ExprId, name: String },
     /// On the heap, and why; `at` is the use that decided it, where there is one.
     Heap { why: String, at: Option<Span> },
 }
@@ -705,6 +710,7 @@ impl Decision {
         match self {
             Decision::Region { scope, .. } => format!("region: {scope}"),
             Decision::Result { function } => format!("result: where {function}'s caller keeps it"),
+            Decision::Home { name, .. } => format!("home: where `{name}` lives"),
             Decision::Heap { why, .. } => format!("heap: {why}"),
         }
     }
@@ -717,6 +723,8 @@ pub enum Placed {
     Region(BlockId),
     /// The body's own hidden result placement.
     Result,
+    /// The allocator a container keeps, reached from this expression by [`home_path`].
+    Home(ExprId),
 }
 
 /// Which proposals the region check is given.
@@ -764,10 +772,51 @@ enum Target {
     Block(BlockId),
     /// The body's own result placement: the value is returned.
     Result,
+    /// The home of the container `recv`, under the input `input` (D-0097).
+    Home { recv: ExprId, input: LocalId },
+}
+
+/// The fields from a value of type `ty` to an allocator it keeps, `m_allocator` last: how
+/// the home of a container is reached at run time (D-0097). Every `std` type that owns memory
+/// keeps one, or holds a part that does; a program's own type, through a field holding one.
+/// Through references, never through a pointer or an element.
+pub fn home_path(table: &TypeTable, ty: &Ty) -> Option<Vec<String>> {
+    fn go(table: &TypeTable, ty: &Ty, depth: usize) -> Option<Vec<String>> {
+        if depth > 6 {
+            return None;
+        }
+        let Ty::Named { sym, args } = ty.peeled_refs() else { return None };
+        let s = table.struct_sig(*sym)?;
+        let types = table.field_types(*sym, args, &s.fields);
+        for (f, fty) in s.fields.iter().zip(&types) {
+            if f.name == "m_allocator" && matches!(fty, Ty::Ptr { .. }) {
+                return Some(vec![f.name.clone()]);
+            }
+        }
+        for (f, fty) in s.fields.iter().zip(&types) {
+            if matches!(fty, Ty::Named { .. }) {
+                if let Some(mut rest) = go(table, fty, depth + 1) {
+                    rest.insert(0, f.name.clone());
+                    return Some(rest);
+                }
+            }
+        }
+        None
+    }
+    go(table, ty, 0)
 }
 
 /// Where a site is proposed to go, or why it keeps the heap and where that was decided.
 type Proposal = Result<Target, (String, Option<Span>)>;
+
+/// Where a lent container's elements may go once a callee may have built them into its home
+/// (D-0097).
+enum Left {
+    /// Into locals: the container may be in the region of this block, which they die with.
+    Into(BlockId),
+    /// Somewhere a region of this body cannot follow, and why.
+    Elsewhere((String, Option<Span>)),
+}
 
 /// What a site's callee is, as far as placement cares.
 struct Callable {
@@ -835,16 +884,30 @@ fn place_body(
         .filter_map(|(e, _, d)| match d {
             Ok(Target::Block(b)) => Some((*e, *b, false)),
             Ok(Target::Result) => Some((*e, body.root, true)),
-            Err(_) => None,
+            Ok(Target::Home { .. }) | Err(_) => None,
         })
         .collect();
-    let refusals = if proposals.is_empty() {
+    // A home is the caller's, outside every region of the body: the check is told which
+    // input each is under, and lets the value go only into that input (D-0097).
+    let homes: Vec<(ExprId, LocalId)> = decided
+        .iter()
+        .filter_map(|(e, _, d)| match d {
+            Ok(Target::Home { input, .. }) => Some((*e, *input)),
+            _ => None,
+        })
+        .collect();
+    let refusals = if proposals.is_empty() && homes.is_empty() {
         Vec::new()
     } else {
-        analyse_regions(body, table, res, &proposals, &[], staying)
+        analyse_regions(body, table, res, &proposals, &homes, &[], staying)
     };
-    let refused: HashMap<ExprId, RegionRefusal> =
-        proposals.iter().zip(refusals).filter_map(|((e, _, _), r)| r.map(|r| (*e, r))).collect();
+    let refused: HashMap<ExprId, RegionRefusal> = proposals
+        .iter()
+        .map(|(e, _, _)| *e)
+        .chain(homes.iter().map(|(e, _)| *e))
+        .zip(refusals)
+        .filter_map(|(e, r)| r.map(|r| (e, r)))
+        .collect();
 
     let mut sites = Vec::new();
     let mut demoted = Vec::new();
@@ -858,6 +921,10 @@ fn place_body(
                 None => match target {
                     Target::Block(block) => Decision::Region { block, scope: cx.scope(block) },
                     Target::Result => Decision::Result { function: cx.function() },
+                    Target::Home { recv, .. } => Decision::Home {
+                        container: recv,
+                        name: place_name(res, body, Some(table), recv),
+                    },
                 },
             },
             Err((why, at)) => Decision::Heap { why, at },
@@ -1032,6 +1099,10 @@ enum Escape {
     /// part of it, never held by a `let` on the way; `kept` when the method keeps it on
     /// every call.
     Into { container: LocalId, direct: bool, kept: bool },
+    /// It is handed, by a call whose `sends` says so, to the container `recv`, which is
+    /// under the input `input`: a container this body was lent (D-0097). `direct` as for
+    /// [`Escape::Into`].
+    IntoHome { recv: ExprId, input: LocalId, direct: bool },
     /// It is assigned to the whole of a local the body declares, which stays (T-0146): it
     /// lives where that local does.
     Held(LocalId),
@@ -1356,6 +1427,7 @@ impl<'a> Cx<'a> {
             Escape::Into { container, direct, kept } => {
                 self.stored_target(container, block, direct, kept)
             }
+            Escape::IntoHome { recv, input, direct } => self.home_target(recv, input, direct),
             Escape::Held(y) => self.held_target(y, block, e),
             Escape::Leaves(found) => Err(found),
             Escape::Stays => Err(("a temporary".to_owned(), None)),
@@ -1366,12 +1438,30 @@ impl<'a> Cx<'a> {
     /// `block`'s region when it stays there, the result placement when it is returned, a
     /// container's or another local's place when it moves into one. `top` is the value.
     fn kept_in(&self, escape: Escape, block: BlockId, top: ExprId) -> Proposal {
+        if matches!(escape, Escape::Stays | Escape::Returned) {
+            match self.built_and_left(top, block) {
+                Some(Left::Elsewhere(found)) => return Err(found),
+                Some(Left::Into(outer)) if matches!(escape, Escape::Stays) => {
+                    return Ok(Target::Block(outer))
+                }
+                Some(Left::Into(_)) => {
+                    return Err(("its elements sent into a local".to_owned(), None))
+                }
+                None => {}
+            }
+        }
         match escape {
             Escape::Stays => Ok(Target::Block(block)),
             Escape::Returned => Ok(Target::Result),
-            // Held by a `let` first, so not stored directly.
+            // Held by a `let` first: stored directly only when the store is as sure as a
+            // call's argument is.
             Escape::Into { container, kept, .. } => {
-                self.stored_target(container, block, false, kept)
+                let direct = self.surely_stored(top, container);
+                self.stored_target(container, block, direct, kept)
+            }
+            Escape::IntoHome { recv, input, .. } => {
+                let direct = self.surely_stored_into(top, recv);
+                self.home_target(recv, input, direct)
             }
             Escape::Held(y) => self.held_target(y, block, top),
             Escape::Leaves(found) => Err(found),
@@ -1450,6 +1540,13 @@ impl<'a> Cx<'a> {
                     }
                     None => into = Some(Escape::Into { container, direct, kept }),
                 },
+                Escape::IntoHome { recv, input, direct } => match into {
+                    Some(_) => {
+                        let span = Some(self.body.expr(u).span);
+                        return Escape::Leaves(("stored in two places".to_owned(), span));
+                    }
+                    None => into = Some(Escape::IntoHome { recv, input, direct }),
+                },
                 Escape::Held(y) => match into {
                     Some(Escape::Held(z)) if z == y => {}
                     Some(_) => {
@@ -1482,6 +1579,200 @@ impl<'a> Cx<'a> {
             if value == top && matches!(self.body.expr(target).kind, hir::ExprKind::Local(l) if l == x))
     }
 
+    /// Where the container a `let` keeps as `top`, in `block`, must be (D-0097), when a
+    /// function of the program's own it is lent `&mut` may build into its home, which is then
+    /// where its elements are, and one leaves: taken out by a call whose result is `in` its
+    /// home and moved on, or handed on by a callee's `sends`. When every element leaves by a
+    /// `sends` into locals of blocks around `block`, with no loop between, it may be in the
+    /// region of the outermost of them, which they die with ([`Left::Into`]); otherwise it
+    /// outlives this body's regions ([`Left::Elsewhere`]).
+    fn built_and_left(&self, top: ExprId, block: BlockId) -> Option<Left> {
+        let Some(Up::Stmt(s)) = self.up.get(&top) else { return None };
+        let hir::StmtKind::Let { local: Some(x), .. } = self.body.stmt(*s).kind else {
+            return None;
+        };
+        let mut built: Option<String> = None;
+        let mut left: Option<(String, Option<Span>)> = None;
+        let mut into_blocks: Vec<BlockId> = Vec::new();
+        for i in 0..self.body.exprs.len() as u32 {
+            let call = ExprId(i);
+            let hir::ExprKind::Call { callee, args } = &self.body.expr(call).kind else {
+                continue;
+            };
+            let recv = match callee {
+                Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => Some(*recv),
+                _ => None,
+            };
+            let on_x = |e: ExprId| {
+                let e = match self.body.expr(e).kind {
+                    hir::ExprKind::Ref { mutable: true, place, .. } => place,
+                    _ => e,
+                };
+                self.receiver_local(e) == Some(x)
+            };
+            let lent: Vec<Option<String>> = recv
+                .into_iter()
+                .map(|r| on_x(r).then(|| "self".to_owned()))
+                .chain(args.iter().enumerate().map(|(i, a)| on_x(*a).then(|| i.to_string())))
+                .collect();
+            if lent.iter().all(Option::is_none) {
+                continue;
+            }
+            let Some((owner_sym, _)) = callee_owner(self.res, callee) else { continue };
+            let Some(sig) = self.callee_sig(callee) else { continue };
+            let program = self.res.symbol(owner_sym).module != self.res.prelude;
+            let names: Vec<String> = lent
+                .iter()
+                .flatten()
+                .map(|k| match k.as_str() {
+                    "self" => "self".to_owned(),
+                    i => sig.params[i.parse::<usize>().unwrap_or(0)].name.clone(),
+                })
+                .collect();
+            let mutates_self = recv.is_some_and(on_x) && sig.takes_self == Some(true);
+            if program && (mutates_self || args.iter().any(|a| on_x(*a))) {
+                built.get_or_insert_with(|| self.call_name(call));
+            }
+            let span = Some(self.body.expr(call).span);
+            for send in sig.sends.iter().filter(|s| names.contains(&s.what.root.name)) {
+                // Into a local container, which keeps them as long as it lives: its block.
+                let to = if send.to.root.name == "self" {
+                    recv
+                } else {
+                    sig.params
+                        .iter()
+                        .position(|p| p.name == send.to.root.name)
+                        .and_then(|i| args.get(i).copied())
+                };
+                let to = to.map(|e| match self.body.expr(e).kind {
+                    hir::ExprKind::Ref { place, .. } => place,
+                    _ => e,
+                });
+                let into = to
+                    .and_then(|e| self.receiver_local(e))
+                    .and_then(|d| self.declared_in(d))
+                    .filter(|b| self.loop_between(block, *b) == Some(false));
+                match into {
+                    Some(b) => into_blocks.push(b),
+                    None => {
+                        let why = format!("its elements sent on by `{}`", self.call_name(call));
+                        left.get_or_insert((why, span));
+                    }
+                }
+            }
+            if sig.ret_home.iter().any(|p| names.contains(&p.root.name))
+                && !matches!(self.fate(call, 1), Escape::Stays)
+            {
+                left.get_or_insert((
+                    format!("taken out by `{}` and moved on", self.call_name(call)),
+                    span,
+                ));
+            }
+        }
+        let built = built?;
+        if let Some((why, at)) = left {
+            return Some(Left::Elsewhere((
+                format!("lent to `{built}`, which may build in it, and {why}"),
+                at,
+            )));
+        }
+        // The outermost block any element goes into: the others are inside it.
+        into_blocks.into_iter().min_by_key(|b| self.depth_of(*b)).map(Left::Into)
+    }
+
+    /// How many blocks enclose `block`.
+    fn depth_of(&self, block: BlockId) -> usize {
+        let mut depth = 0;
+        let mut at = block;
+        while let Some((_, Some(parent), _)) = self.blocks.get(&at) {
+            depth += 1;
+            at = *parent;
+        }
+        depth
+    }
+
+    /// The signature `callee` is called by.
+    fn callee_sig(&self, callee: &Callee) -> Option<&dz_check::FnSig> {
+        match callee {
+            Callee::Fn { sym, .. } => match self.table.get(*sym)? {
+                dz_check::ItemSig::Fn(sig) => Some(sig),
+                _ => None,
+            },
+            Callee::Method { owner, name, .. }
+            | Callee::BaseMethod { owner, name, .. }
+            | Callee::Assoc { owner, name, .. } => {
+                self.table.methods_sig(*owner)?.methods.get(name)
+            }
+            _ => None,
+        }
+    }
+
+    /// The input a call's receiver is under, when the call hands its argument `arg` to the
+    /// receiver by its `sends` clause (`sends v to self`), the receiver is a path of a
+    /// parameter or `self` through fields alone, and its type keeps an allocator to build in
+    /// ([`home_path`]): a container this body was lent, whose home a value may be built in
+    /// (D-0097, T-0150).
+    fn home_receiver(&self, recv: ExprId, callee: &Callee, arg: usize) -> Option<LocalId> {
+        if self.receiver_local(recv).is_some() {
+            return None;
+        }
+        let mut e = recv;
+        let input = loop {
+            match self.body.expr(e).kind {
+                hir::ExprKind::Local(l) if self.body.params.contains(&l) => break l,
+                hir::ExprKind::Field { base, .. }
+                | hir::ExprKind::TupleIndex { base, .. }
+                | hir::ExprKind::Deref(base) => e = base,
+                _ => return None,
+            }
+        };
+        let (_, owner) = callee_owner(self.res, callee)?;
+        let BodyOwner::Method { owner, name } = owner else { return None };
+        let sig = self.table.methods_sig(owner)?.methods.get(&name)?;
+        let param = &sig.params.get(arg)?.name;
+        let sends = sig.sends.iter().any(|s| {
+            s.what.root.name == *param && s.what.steps.is_empty() && s.to.root.name == "self"
+        });
+        (sends && home_path(self.table, self.body.ty(recv)).is_some()).then_some(input)
+    }
+
+    /// A value given to the container `recv`'s home: there, when it is given on every call
+    /// of this body that makes it, so the home holds no more than the container keeps.
+    fn home_target(&self, recv: ExprId, input: LocalId, direct: bool) -> Proposal {
+        if direct {
+            Ok(Target::Home { recv, input })
+        } else {
+            let name = place_name(self.res, self.body, Some(self.table), recv);
+            Err((format!("passed to `{name}` on only some paths"), None))
+        }
+    }
+
+    /// Whether the value `top` a `let` keeps is moved, as surely as an argument, into a call
+    /// on the receiver `recv` ([`crate::storing::stored_after_let`]).
+    fn surely_stored_into(&self, top: ExprId, recv: ExprId) -> bool {
+        let Some((call, _)) = crate::storing::stored_after_let(self.body, top) else {
+            return false;
+        };
+        matches!(&self.body.expr(call).kind,
+            hir::ExprKind::Call { callee: Callee::Method { recv: r, .. }, .. } if *r == recv)
+    }
+
+    /// Whether the value `top`, which a `let` keeps, reaches `container` on every pass as
+    /// surely as a value passed straight to the storing method: a later statement of the
+    /// `let`'s own block moves the local into it, and nothing between them ends the pass
+    /// (`break`, `continue`) or gives the local a new value, dropping this one while the
+    /// region keeps its memory. A list built over several statements and then pushed,
+    /// `let mut path = List(); …; paths.push(move(path))`, then goes where `paths` lives,
+    /// as `paths.push(List())` would. A `return` ends every pass, so it does not count.
+    fn surely_stored(&self, top: ExprId, container: LocalId) -> bool {
+        let Some((call, _)) = crate::storing::stored_after_let(self.body, top) else {
+            return false;
+        };
+        matches!(&self.body.expr(call).kind,
+            hir::ExprKind::Call { callee: Callee::Method { recv, .. }, .. }
+            if self.receiver_local(*recv) == Some(container))
+    }
+
     /// The local `target` is, when it is a whole local this body declares by value with a
     /// `let`: what an assignment's value may be followed into, as a `let`'s is.
     fn assigned_local(&self, target: ExprId) -> Option<LocalId> {
@@ -1512,7 +1803,7 @@ impl<'a> Cx<'a> {
         let target = match self.escape_of(container, 0) {
             Escape::Stays => Target::Block(block),
             Escape::Returned => Target::Result,
-            Escape::Into { .. } | Escape::Held(_) => {
+            Escape::Into { .. } | Escape::IntoHome { .. } | Escape::Held(_) => {
                 return Err((format!("stored in `{name}`, which is stored in turn"), None))
             }
             Escape::Leaves((why, at)) => return Err((format!("stored in `{name}`: {why}"), at)),
@@ -1522,7 +1813,7 @@ impl<'a> Cx<'a> {
         }
         let outer = match target {
             Target::Block(b) => b,
-            Target::Result => self.body.root,
+            Target::Result | Target::Home { .. } => self.body.root,
         };
         match self.loop_between(site, outer) {
             None => Err((format!("made before `{name}`'s block"), None)),
@@ -1552,8 +1843,19 @@ impl<'a> Cx<'a> {
         depth: u32,
     ) -> Option<Escape> {
         let i = args.iter().position(|a| *a == e)?;
-        let kept = self.staying.stores(self.res, self.module, callee, i)?
-            || crate::storing::adds_new(self.body, self.res, call);
+        if let Callee::Method { recv, .. } = callee {
+            if let Some(input) = self.home_receiver(*recv, callee, i) {
+                return Some(Escape::IntoHome { recv: *recv, input, direct: depth == 0 });
+            }
+        }
+        // Inferred within the callee's module and `std`, where it also says whether every
+        // call keeps it; elsewhere, the callee's `sends` says it is stored, but not that it is
+        // always kept (D-0097).
+        let kept = match self.staying.stores(self.res, self.module, callee, i) {
+            Some(kept) => kept,
+            None if crate::ties::sends_to_self(self.table, callee, i) => false,
+            None => return None,
+        } || crate::storing::adds_new(self.body, self.res, call);
         let Callee::Method { recv, .. } = callee else { return None };
         let container = self.receiver_local(*recv)?;
         Some(Escape::Into { container, direct: depth == 0, kept })
@@ -1582,7 +1884,38 @@ impl<'a> Cx<'a> {
             let span = Some(self.body.expr(*p).span);
             match &self.body.expr(*p).kind {
                 hir::ExprKind::Ref { mutable: true, .. } => {
-                    return Some(("lent as `&mut` with".to_owned(), span))
+                    // Lent to a call whose clauses say all that leaves keeps it, unless they
+                    // say something does (D-0097).
+                    let mut kept = false;
+                    if let Some(Up::Expr(call)) = self.up.get(p) {
+                        if let hir::ExprKind::Call { callee, args } = &self.body.expr(*call).kind {
+                            if let Some(i) = args.iter().position(|a| a == p) {
+                                if crate::ties::lend_keeps(
+                                    self.body, self.table, self.res, *call, i,
+                                ) {
+                                    let param = self
+                                        .callee_sig(callee)
+                                        .and_then(|s| s.params.get(i).map(|p| p.name.clone()));
+                                    let leaves = self.callee_sig(callee).is_some_and(|s| {
+                                        s.sends
+                                            .iter()
+                                            .any(|x| Some(&x.what.root.name) == param.as_ref())
+                                            || s.ret_home
+                                                .iter()
+                                                .any(|x| Some(&x.root.name) == param.as_ref())
+                                    });
+                                    if leaves {
+                                        let name = self.call_name(*call);
+                                        return Some((format!("handed on by `{name}` from"), span));
+                                    }
+                                    kept = true;
+                                }
+                            }
+                        }
+                    }
+                    if !kept {
+                        return Some(("lent as `&mut` with".to_owned(), span));
+                    }
                 }
                 hir::ExprKind::Call {
                     callee: Callee::Method { recv, owner, name, .. }, ..
@@ -1599,6 +1932,10 @@ impl<'a> Cx<'a> {
                         Escape::Stays => {}
                         Escape::Leaves((why, at)) => {
                             return Some((format!("{why}, once taken out of"), at))
+                        }
+                        Escape::IntoHome { recv, .. } => {
+                            let to = place_name(self.res, self.body, Some(self.table), recv);
+                            return Some((format!("given to `{to}`, once taken out of"), span));
                         }
                         Escape::Returned | Escape::Into { .. } | Escape::Held(_) => {
                             return Some(("moved on, once taken out of".to_owned(), span))

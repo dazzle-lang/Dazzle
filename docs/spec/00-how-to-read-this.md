@@ -45,6 +45,7 @@ impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable 
 | Copy vs move | `let b = a` / `let b = move(a)` | if the type owns anything, copying needs an `impl Copy`; otherwise `move()` |
 | Invalidation | `fn push(&mut self, v: T) kills self@items` | every function says which ties (`@items`) it may end; a reference into a killed tie is an error to use; aliasing stays legal (§6.7) |
 | Memory | `List<T>()` | no allocator in ordinary code: the compiler places each value — the scope's region, the caller's result, else the heap (§14.6) |
+| Homes | `fn push(&mut self, v: T) sends v to self` / `fn pop(&mut self) -> T? in self@home` | a value's memory stays where it was placed, its home; a function says where it hands what its inputs own (`sends`) and which input's home an owned result is in (`in x@home`), and callers place by it (§6.4, §6.7) |
 | Absence | `T?` | postfix, binds to the type name. `^T?` is a pointer to an optional; an optional pointer is just `^T` |
 | Failure | `fn f(…) !-> T` | `!` marks the *signature*, never a type. There is no `T!` to store, annotate, or point at |
 | Handle anything fallible | `let v = f() or { e -> … }` | one clause for `T!`, `T?`, and `^T` alike |

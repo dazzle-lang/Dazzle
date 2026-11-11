@@ -12,10 +12,11 @@
 mod body;
 mod report;
 pub use body::{
-    analyse_body, BodyAnalysis, BodyKill, Incomplete, InvalidReturn, InvalidUse, KillKind,
+    analyse_body, analyse_homes, BodyAnalysis, BodyKill, HomesFound, Incomplete, InvalidReturn,
+    InvalidUse, KillKind,
 };
-pub(crate) use body::{analyse_regions, Refusal, RegionRefusal};
-pub use report::report;
+pub(crate) use body::{analyse_regions, lend_keeps, sends_to_self, Refusal, RegionRefusal};
+pub use report::{report, report_homes};
 
 use dz_check::ties::{self, Root, Scope};
 use dz_check::TypeTable;
@@ -235,6 +236,10 @@ fn canonical_steps(
                 }
                 ty = next;
             }
+            // A home is not memory a view can point into, and the signature check refuses it
+            // in every clause this reads (D-0097); the check that compares homes is T-0200's
+            // stage 2.
+            ties::Step::Home => return None,
             ties::Step::Tie(name) => {
                 let (inner, end) = tie_steps(table, res, &ty, name)?;
                 out.extend(inner);

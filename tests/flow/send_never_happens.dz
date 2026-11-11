@@ -1,0 +1,34 @@
+// D-0097: a clause says exactly what goes where, so callers do not place memory further out
+// than it goes. Refused: a `sends` pair the body never does, and an `in x@home` on a result
+// the body always builds itself. Still legal: each clause where the body does what it says.
+// expect: DZ0422, DZ0422
+
+struct Store {
+    pub names: List<String>
+}
+
+fn looks(from: &mut List<String>, store: &mut Store) kills store.names@items sends from[*] to store {
+    store.names.push(String::from(if from.is_empty() { "none" } else { "some" }))
+}
+
+fn gives(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items sends from[*] to store {
+    let s = from.pop() or return
+    store.names.push(move(s))
+}
+
+fn fresh(xs: &mut List<String>) -> String in xs@home {
+    return format!("{} names", xs.len())
+}
+
+fn taken(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {
+    return xs.pop() or String()
+}
+
+fn main() {
+    let mut store = Store{ names: List<String>() }
+    let mut xs = List<String>()
+    xs.push(String::from("a"))
+    looks(&mut xs, &mut store)
+    gives(&mut xs, &mut store)
+    println!("{} {}", fresh(&mut xs), taken(&mut xs))
+}

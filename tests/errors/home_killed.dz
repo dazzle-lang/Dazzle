@@ -1,0 +1,13 @@
+// expect: DZ0582
+//
+// A home is where a value was placed, which no call ends: a `kills` clause never names one
+// (D-0097).
+
+fn emptied(xs: &mut List<String>) kills xs@home {
+    xs.clear()
+}
+
+fn main() {
+    let mut a = List<String>()
+    emptied(&mut a)
+}

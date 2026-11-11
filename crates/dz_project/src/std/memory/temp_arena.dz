@@ -103,13 +103,8 @@ impl Allocator for TempArena {
         align: usize,
         loc: SourceLocation,
     ) -> ^mut u8 in (self, p) {
-        // The last allocation grows in place when the chunk has room.
-        if p != null && m_chunk != null {
-            let offset = (p as usize) - (m_chunk as usize)
-            if offset + old_size == m_used && offset + new_size <= m_cap {
-                m_used = offset + new_size
-                return p
-            }
+        if self.resize_in_place(p, old_size, new_size, align) {
+            return p
         }
         let q = self.alloc(new_size, align, loc)
         if p != null {
@@ -137,6 +132,20 @@ impl Allocator for TempArena {
         } #else {
             let _ = p != null && size + align > 0 && loc.line > 0
         }
+    }
+
+    /// The last allocation grows or shrinks where it is when the chunk has room.
+    fn resize_in_place(&mut self, p: ^mut u8, old_size: usize, new_size: usize, align: usize) -> bool {
+        if p == null || m_chunk == null || (p as usize) < (m_chunk as usize) {
+            return false
+        }
+        let offset = (p as usize) - (m_chunk as usize)
+        if offset + old_size != m_used || offset + new_size > m_cap {
+            return false
+        }
+        let _ = align
+        m_used = offset + new_size
+        return true
     }
 }
 

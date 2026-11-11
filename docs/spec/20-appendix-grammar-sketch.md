@@ -26,8 +26,9 @@ attribute     = "#" "[" ident [ "(" token_tree ")" ] "]" ;
 
 fn_decl       = [ "unsafe" ] [ "mut" ] "fn" ident [ generics ] "(" [ params ] ")"
                 [ ( "->" | "!->" ) type [ "in" in_list ] ]
-                [ "kills" kill_list ] block ;   (* §6.7 *)
+                [ "kills" kill_list ] [ "sends" send_list ] block ;   (* §6.7, D-0097 *)
 kill_list     = tie_path { "," tie_path } | "(" tie_path { "," tie_path } ")" ;
+send_list     = tie_path "to" tie_path { "," tie_path "to" tie_path } ;   (* "to" is a word, not a keyword *)
 in_list       = tie_path | "(" tie_path { "," tie_path } ")" ;
 params        = param { "," param } ;
 param         = [ "&" | "&mut" ] "self" | ident ":" type [ "in" tie_path ] [ "=" expr ] ;

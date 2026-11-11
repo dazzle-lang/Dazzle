@@ -57,6 +57,7 @@ pub enum TokenKind {
     Import,
     In,
     Kills,
+    Sends,
     Let,
     Macro,
     Module,
@@ -178,6 +179,7 @@ impl TokenKind {
             Import => "import",
             In => "in",
             Kills => "kills",
+            Sends => "sends",
             Let => "let",
             Macro => "macro",
             Module => "module",
@@ -274,6 +276,7 @@ impl TokenKind {
                 | Import
                 | In
                 | Kills
+                | Sends
                 | Let
                 | Macro
                 | Module
@@ -380,6 +383,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "import" => Import,
         "in" => In,
         "kills" => Kills,
+        "sends" => Sends,
         "let" => Let,
         "macro" => Macro,
         "module" => Module,

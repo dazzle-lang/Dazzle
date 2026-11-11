@@ -9,7 +9,7 @@ fn twice(x: i32) -> i32 {
 }
 
 #[inline]
-fn largest<T: Ord>(a: T, b: T) -> T {
+fn largest<T: Ord>(a: T, b: T) -> T in (a@home, b@home) {
     if a > b {
         return move(a)
     }

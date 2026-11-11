@@ -69,7 +69,7 @@ pub fn take(r: Res) -> i32 {
     return r.n
 }
 
-pub fn keep<T>(x: T) -> T {
+pub fn keep<T>(x: T) -> T in x@home {
     return move(x)
 }
 
@@ -108,7 +108,7 @@ pub struct Counter {
         n += 1
     }
 
-    pub fn echo<T>(&self, v: T) -> T {
+    pub fn echo<T>(&self, v: T) -> T in v@home {
         return move(v)
     }
 
@@ -116,7 +116,7 @@ pub struct Counter {
         return (v, v)
     }
 
-    pub fn wrap<T>(v: T) -> T {
+    pub fn wrap<T>(v: T) -> T in v@home {
         return move(v)
     }
 }

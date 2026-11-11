@@ -620,3 +620,78 @@ fn main() {
     println!("{}", ys.len())
 }
 ```
+
+## DZ0421
+
+The compiler places each value's memory, in a region or on the heap, and a caller places
+what it lends by the signatures of the functions it lends it to (D-0097). So a function
+that hands what one input owns to another says so, `sends from[*] to store`, and one that
+returns what an input owns says the result lives in that input's home, `-> T in xs@home`.
+A body that does either without saying so could leave the memory where the caller put it,
+while the value now lives somewhere that outlasts it. `dz fix` writes the clause.
+
+```dz
+struct Store {
+    pub names: List<String>
+}
+
+fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items {
+    let s = from.pop() or return
+    store.names.push(move(s))
+}
+
+fn main() {
+    let mut store = Store{ names: List<String>() }
+    let mut names = List<String>()
+    names.push(String::from("one"))
+    give(&mut names, &mut store)
+}
+```
+
+```dz
+struct Store {
+    pub names: List<String>
+}
+
+fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items sends from[*] to store {
+    let s = from.pop() or return
+    store.names.push(move(s))
+}
+
+fn main() {
+    let mut store = Store{ names: List<String>() }
+    let mut names = List<String>()
+    names.push(String::from("one"))
+    give(&mut names, &mut store)
+}
+```
+
+## DZ0422
+
+A `sends` clause, and a result's `in x@home`, say exactly where memory goes, as a `kills`
+clause says exactly what dies (D-0097). One the body never does would make every caller
+place memory further out than it goes: a list it lends kept off its region for nothing, a
+result kept where an input lives though it is built fresh. Remove what the body does not
+do; `dz fix` writes the clause it needs.
+
+```dz
+fn label(xs: &mut List<String>) -> String in xs@home {
+    return format!("{} names", xs.len())
+}
+
+fn main() {
+    let mut names = List<String>()
+    println!("{}", label(&mut names))
+}
+```
+
+```dz
+fn label(xs: &mut List<String>) -> String {
+    return format!("{} names", xs.len())
+}
+
+fn main() {
+    let mut names = List<String>()
+    println!("{}", label(&mut names))
+}
+```

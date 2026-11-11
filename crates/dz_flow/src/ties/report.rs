@@ -582,3 +582,176 @@ impl NewTies {
         Some(out)
     }
 }
+
+/// Report where a body's `sends` clause, or its result's `in x@home`, differs from what
+/// [`super::analyse_homes`] found it does (D-0097), both ways, with the clause it needs as a
+/// fix. Nothing is said where the walk could not follow every value, as for `kills`.
+pub fn report_homes(
+    body: &Body,
+    table: &TypeTable,
+    res: &Resolution,
+    found: &super::HomesFound,
+    diags: &mut Diagnostics,
+) {
+    let Some(signature) = body_signature(body, table, res) else { return };
+    let sig = &signature.sig;
+    if !sig.has_body || !found.incomplete.is_empty() {
+        return;
+    }
+    let file = body.file;
+    let scope = signature.scope(table, res);
+    let offset = usize::from(sig.takes_self.is_some());
+    let local_of = |root: ties::Root| match root {
+        ties::Root::Param(i) => body.params.get(i + offset).copied(),
+        ties::Root::SelfValue => body.params.first().copied(),
+        ties::Root::Static(sym) => Some(super::static_local(sym)),
+    };
+    let name_of = |l: dz_hir::LocalId| match super::static_of(l) {
+        Some(sym) => res.symbol(sym).name.clone(),
+        None => body.local(l).name.clone(),
+    };
+    // What is sent, written as a clause names it: a by-value parameter itself, and the
+    // contents of a `&mut` one or of `self` as `[*]` where the type has elements.
+    let what_of = |l: dz_hir::LocalId| {
+        let n = name_of(l);
+        let ty = super::local_ty(body, table, l);
+        let by_ref = matches!(ty, Ty::Ref { .. } | Ty::Ptr { .. }) || n == "self";
+        if by_ref && ties::elements_in(table, ty.peeled()).is_some() {
+            format!("{n}[*]")
+        } else {
+            n
+        }
+    };
+    let mut declared: Vec<(dz_hir::LocalId, dz_hir::LocalId, Span)> = Vec::new();
+    for s in &sig.sends {
+        let (Ok(w), Ok(t)) = (ties::resolve(&scope, &s.what), ties::resolve(&scope, &s.to)) else {
+            return;
+        };
+        let (Some(w), Some(t)) = (local_of(w.root), local_of(t.root)) else { return };
+        declared.push((w, t, s.span));
+    }
+    let mut homes: Vec<(dz_hir::LocalId, Span)> = Vec::new();
+    for p in &sig.ret_home {
+        let Ok(tie) = ties::resolve(&scope, p) else { return };
+        let Some(l) = local_of(tie.root) else { return };
+        homes.push((l, p.span));
+    }
+    let name = &signature.name;
+    // The clause the body needs: every pair it does, in the order it first does them.
+    let pairs: Vec<String> =
+        found.sent.iter().map(|(f, t, _)| format!("{} to {}", what_of(*f), name_of(*t))).collect();
+    let clause = if pairs.is_empty() { None } else { Some(format!("sends {}", pairs.join(", "))) };
+    let fix = match (&clause, sig.sends_span) {
+        (Some(c), Some(at)) => {
+            Some((format!("write `{c}`"), Edit { file, span: at, text: c.clone() }))
+        }
+        (Some(c), None) => {
+            let at = body.block(body.root).span.start as usize;
+            Some((
+                format!("add `{c}`"),
+                Edit { file, span: Span::new(at, at), text: format!("{c} ") },
+            ))
+        }
+        (None, Some(at)) => {
+            Some(("remove the clause".to_owned(), Edit { file, span: at, text: String::new() }))
+        }
+        (None, None) => None,
+    };
+    // A function a macro wrote has every token at the invocation (§12): no edit here can
+    // write its clause.
+    let written_by_macro = body.block(body.root).span.start <= body.span.end;
+    let mut fixed = false;
+    let mut with_fix = |d: Diagnostic| -> Diagnostic {
+        match (&fix, written_by_macro, fixed) {
+            (Some((title, edit)), false, false) => {
+                fixed = true;
+                d.with_fix(title.clone(), vec![edit.clone()])
+            }
+            _ => d,
+        }
+    };
+    let needs = match &clause {
+        Some(c) => format!("the body needs `{c}`"),
+        None => "the body sends nothing, so it needs no `sends` clause".to_owned(),
+    };
+    if let Some((f, t, at)) =
+        found.sent.iter().find(|(f, t, _)| !declared.iter().any(|(w, d, _)| w == f && d == t))
+    {
+        let (from, to) = (name_of(*f), name_of(*t));
+        let d = Diagnostic::error(
+            codes::SEND_NOT_DECLARED,
+            format!("`{name}` sends what `{from}` owns to `{to}`, and its `sends` clause does not say so"),
+        )
+        .at(file, *at, format!("`{from}`'s memory goes to `{to}` here"))
+        .with_help(format!(
+            "a caller places what it lends by this clause, so memory is where it ends up: \
+             {needs} (D-0097)"
+        ));
+        diags.push(with_fix(d));
+    }
+    if let Some((w, t, at)) =
+        declared.iter().find(|(w, t, _)| !found.sent.iter().any(|(f, d, _)| f == w && d == t))
+    {
+        let (from, to) = (name_of(*w), name_of(*t));
+        let d = Diagnostic::error(
+            codes::SEND_NEVER_HAPPENS,
+            format!("`{name}` never sends what `{from}` owns to `{to}`"),
+        )
+        .at(file, *at, "more than the body sends")
+        .with_help(format!(
+            "a clause says exactly what goes where, so callers do not place memory further out \
+             than it goes: {needs} (D-0097)"
+        ));
+        diags.push(with_fix(d));
+    }
+    let missing: Vec<&(dz_hir::LocalId, Span)> =
+        found.returned.iter().filter(|(f, _)| !homes.iter().any(|(h, _)| h == f)).collect();
+    if let Some((f, at)) = missing.first() {
+        let n = name_of(*f);
+        // The whole `in` the result needs: what it says now, then what it leaves out.
+        let all: Vec<String> = homes
+            .iter()
+            .map(|(h, _)| *h)
+            .chain(missing.iter().map(|(f, _)| *f))
+            .map(|l| format!("{}@home", name_of(l)))
+            .collect();
+        let clause = match all.as_slice() {
+            [one] => format!("in {one}"),
+            _ => format!("in ({})", all.join(", ")),
+        };
+        let mut d = Diagnostic::error(
+            codes::SEND_NOT_DECLARED,
+            format!("`{name}` returns what `{n}` owns, and its result does not say it lives there"),
+        )
+        .at(file, *at, format!("in `{n}`'s home"))
+        .with_help(format!(
+            "a caller keeps the result where its signature says it lives: write `{clause}` after \
+             the result's type (D-0097)"
+        ));
+        // Only where nothing follows the type yet; an `in` already written is the author's
+        // to extend.
+        if let (Some(ret), true, true, false) =
+            (sig.ret_span, homes.is_empty(), sig.ret_ties.is_empty(), written_by_macro)
+        {
+            let at = ret.end as usize;
+            d = d.with_fix(
+                format!("write `{clause}`"),
+                vec![Edit { file, span: Span::new(at, at), text: format!(" {clause}") }],
+            );
+        }
+        diags.push(d);
+    }
+    if let Some((h, at)) = homes.iter().find(|(h, _)| !found.returned.iter().any(|(f, _)| f == h)) {
+        diags.push(
+            Diagnostic::error(
+                codes::SEND_NEVER_HAPPENS,
+                format!("`{name}` never returns what `{}` owns", name_of(*h)),
+            )
+            .at(file, *at, "more than the body returns")
+            .with_help(
+                "`in x@home` says the result lives in an input's home; remove it, and the result \
+                 is built where the caller keeps it (D-0097)",
+            ),
+        );
+    }
+}

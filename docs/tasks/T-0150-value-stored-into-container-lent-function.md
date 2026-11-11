@@ -2,7 +2,7 @@
 id: T-0150
 title: A value stored into a container lent to a function keeps the heap
 milestone: none
-status: open
+status: done
 kind: design
 area: ownership
 ---
@@ -12,7 +12,10 @@ not built because the answer it proposed is not sound on its own.
 
 **2026-11-11:** the user turned down the whole-module summary below and chose a language
 answer instead: homes, drafted as [D-0097](../decisions/D-0097-homes-ownership-that-travels-with-its.md),
-open. This task is built once that is decided.
+open. This task is built once that is decided. **Decided the same day** (r119), and
+**done**, under [T-0200](T-0200-homes-built-sends-clauses-home-tie.md) stage 4: `tag` below
+builds its string with `names`' own allocator, wherever its caller put `names`, and a caller
+that lends `names` to `give` places it where `store` lives.
 
 **Where the code is**
 

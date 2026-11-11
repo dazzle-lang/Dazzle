@@ -384,7 +384,7 @@ fn every_completed_keyword_is_a_keyword() {
 fn signature_help_tracks_the_argument_under_the_cursor() {
     let (a, f) = generics();
     let sig = ide::signature_help(&a, f, at(&a, f, "largest(3, 9)", 11)).unwrap();
-    assert_eq!(sig.label, "fn largest<T: Ord>(a: T, b: T) -> T");
+    assert_eq!(sig.label, "fn largest<T: Ord>(a: T, b: T) -> T in (a@home, b@home)");
     let params: Vec<&str> = sig.params.iter().map(|&(s, e)| &sig.label[s..e]).collect();
     assert_eq!(params, ["a: T", "b: T"]);
     assert_eq!(sig.active, 1);
@@ -462,8 +462,9 @@ fn inlay_hints_qualify_an_imported_type_the_way_the_file_must_write_it() {
     assert_eq!(label.as_deref(), Some(": mini::MiniVec2"), "{hints:?}");
 }
 
-/// What a call may end is part of its signature (spec §6.7), so every place that shows one
-/// shows the `kills` clause: hover, signature help, and a method's completion detail.
+/// What a call may end is part of its signature (spec §6.7), and so is what it sends where
+/// (D-0097), so every place that shows one shows its `kills` and `sends` clauses: hover,
+/// signature help, and a method's completion detail.
 #[test]
 fn a_call_shows_what_it_kills() {
     let a = analyse(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/run/containers"));
@@ -475,7 +476,7 @@ fn a_call_shows_what_it_kills() {
     assert!(hover.contains("fn push(&mut self, v: T") && hover.contains(") kills self@items"));
 
     let sig = ide::signature_help(&a, f, at(&a, f, push, 11)).unwrap();
-    assert!(sig.label.ends_with("kills self@items"), "{}", sig.label);
+    assert!(sig.label.ends_with("kills self@items sends v to self"), "{}", sig.label);
 
     let text = a.map.get(f).text();
     let offset = at(&a, f, push, 6) as usize;
@@ -483,7 +484,10 @@ fn a_call_shows_what_it_kills() {
     let detail = |name: &str| {
         items.iter().find(|c| c.label == name).and_then(|c| c.detail.clone()).unwrap_or_default()
     };
-    assert_eq!(detail("push"), "fn push(v: T, loc: SourceLocation) kills self@items");
+    assert_eq!(
+        detail("push"),
+        "fn push(v: T, loc: SourceLocation) kills self@items sends v to self"
+    );
     assert_eq!(detail("clear"), "fn clear() kills self@items, self[*]");
     assert_eq!(detail("len"), "fn len() -> usize", "a function that kills nothing says nothing");
 }

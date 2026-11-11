@@ -392,6 +392,10 @@ fn cmd_placements(
                         v["placement"] = "result".into();
                         v["function"] = function.as_str().into();
                     }
+                    dz_flow::placement::Decision::Home { name, .. } => {
+                        v["placement"] = "home".into();
+                        v["container"] = name.as_str().into();
+                    }
                     dz_flow::placement::Decision::Heap { why, at } => {
                         v["placement"] = "heap".into();
                         v["why"] = why.as_str().into();
@@ -413,12 +417,20 @@ fn cmd_placements(
         .iter()
         .filter(|(_, s)| matches!(s.decision, dz_flow::placement::Decision::Region { .. }))
         .count();
+    // A lent container's home is the caller's: a region or the heap, known only at run
+    // time, so it is counted on its own (D-0097).
+    let homes = sites
+        .iter()
+        .filter(|(_, s)| matches!(s.decision, dz_flow::placement::Decision::Home { .. }))
+        .count();
     for (file, s) in &sites {
         let (name, line, column) = place(file, s.span.start);
         println!("{name}:{line}:{column}: {}  {}", s.callee, s.label());
     }
+    let homes =
+        if homes == 0 { String::new() } else { format!(", {homes} in a lent container's home") };
     println!(
-        "{} allocation{}, {regions} in a region",
+        "{} allocation{}, {regions} in a region{homes}",
         sites.len(),
         if sites.len() == 1 { "" } else { "s" }
     );

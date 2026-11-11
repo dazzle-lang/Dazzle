@@ -141,7 +141,7 @@ impl Ord for {p} {{
 pub struct Shelf{i}<T> {{
     pub items: List<T>
 
-    pub fn put(&mut self, v: T) kills self.items@items {{
+    pub fn put(&mut self, v: T) kills self.items@items sends v to self {{
         items.push(move(v))
     }}
 

@@ -21,7 +21,7 @@ struct Buffer<T> {
         m_cap = cap
     }
 
-    pub fn push(&mut self, v: T) {
+    pub fn push(&mut self, v: T) sends v to self {
         if m_len == m_cap {
             panic!("buffer full")
         }
@@ -74,7 +74,7 @@ struct List<T> {
         m_buffer = Buffer<T>(cap)
     }
 
-    pub fn push(&mut self, value: T) {
+    pub fn push(&mut self, value: T) sends value to self {
         m_buffer.push(move(value))
     }
 

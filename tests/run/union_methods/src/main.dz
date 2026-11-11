@@ -60,7 +60,7 @@ union Slot<T: Copy> {
     Empty {}
     Full { value: T }
 
-    pub fn or_else(&self, fallback: T) -> T {
+    pub fn or_else(&self, fallback: T) -> T in fallback@home {
         return switch self {
             case Empty { fallback }
             case Full(&f) { f.value }

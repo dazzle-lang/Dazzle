@@ -1450,3 +1450,105 @@ fn main() {
     println!("{}", bucket(7))
 }
 ```
+
+## DZ0581
+
+Every value that owns memory has a home, the region or heap the compiler placed it in, and
+`x@home` names it (D-0097). No struct declares it: a value's home follows from where it was
+placed, and its parts live where it lives. So `@home` is reserved, as a keyword is, and a
+struct's own tie takes another name.
+
+```dz
+pub struct House {
+    m_rooms: List<String> = List<String>()
+    tie @home = m_rooms@items
+
+    pub fn rooms(&self) -> usize {
+        return m_rooms.len()
+    }
+}
+
+fn main() {
+    let h = House{}
+    println!("{}", h.rooms())
+}
+```
+
+```dz
+pub struct House {
+    m_rooms: List<String> = List<String>()
+    tie @rooms = m_rooms@items
+
+    pub fn rooms(&self) -> usize {
+        return m_rooms.len()
+    }
+}
+
+fn main() {
+    let h = House{}
+    println!("{}", h.rooms())
+}
+```
+
+## DZ0582
+
+`@home` names where a value's memory is, the region or heap it was placed in (D-0097). It
+has one use in a signature: after a result's `in`, saying that an owned result taken out of
+an input lives in that input's home, `-> String in xs@home`. It ends its path, since a home
+has nothing inside to name. A home is never killed, a view says where it points rather than
+where memory lives, a `sends` names values, which carry their homes with them, and a value
+that owns no memory has no home.
+
+```dz
+fn last_of(xs: &mut List<String>) kills xs@home {
+    xs.clear()
+}
+
+fn main() {
+    let mut a = List<String>()
+    a.push(String::from("one"))
+    last_of(&mut a)
+}
+```
+
+```dz
+fn last_of(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {
+    return xs.pop() or String()
+}
+
+fn main() {
+    let mut a = List<String>()
+    a.push(String::from("one"))
+    println!("{}", last_of(&mut a))
+}
+```
+
+## DZ0583
+
+A `sends` clause says a function hands what one input owns to another (D-0097). What is sent
+must be the function's to give: a parameter taken by value, or something reached through a
+`&mut` parameter, `&mut self` or a static. Where it goes must be something the function can
+change: a `&mut` parameter, `&mut self` or a static. A `&` parameter can be neither, since
+the function may not take from it or add to it.
+
+```dz
+fn keep(v: String, out: &List<String>) sends v to out {
+    println!("{} {}", v, out.len())
+}
+
+fn main() {
+    let names = List<String>()
+    keep(String::from("one"), &names)
+}
+```
+
+```dz
+fn keep(v: String, out: &mut List<String>) kills out@items sends v to out {
+    out.push(move(v))
+}
+
+fn main() {
+    let mut names = List<String>()
+    keep(String::from("one"), &mut names)
+}
+```

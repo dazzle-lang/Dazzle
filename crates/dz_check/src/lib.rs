@@ -195,6 +195,17 @@ pub struct FnSig {
     pub kills: Vec<dz_ast::TiePath>,
     /// The whole clause as written, `kills` through its last path (spec §6.7).
     pub kills_span: Option<Span>,
+    /// `sends from[*] to store`, as written: what the function hands from one input to
+    /// another, which its callers place by (D-0097).
+    pub sends: Vec<dz_ast::Send>,
+    /// The whole `sends` clause as written, so a fix can replace it.
+    pub sends_span: Option<Span>,
+    /// The result's type as written, so a fix can say where the result lives after it.
+    pub ret_span: Option<Span>,
+    /// `-> String in xs@home`: an owned result that lives in an input's home, not where its
+    /// caller keeps results (D-0097). Kept apart from [`Self::ret_ties`], which say where a
+    /// view points.
+    pub ret_home: Vec<dz_ast::TiePath>,
     /// A C or C++ function, whose header says nothing of what it kills: a call to it kills
     /// everything reachable through its `&mut` and `^mut` arguments, and `kills` is empty.
     pub kills_unknown: bool,
@@ -1344,6 +1355,10 @@ impl Ctx<'_> {
                         kills: Vec::new(),
                         kills_span: None,
                         kills_unknown: true,
+                        sends: Vec::new(),
+                        sends_span: None,
+                        ret_span: None,
+                        ret_home: Vec::new(),
                     }),
                     DeclKind::Struct { fields, opaque, is_union, methods, move_only } => {
                         let mut sig = StructSig {
@@ -1452,6 +1467,10 @@ impl Ctx<'_> {
                 kills: Vec::new(),
                 kills_span: None,
                 kills_unknown: true,
+                sends: Vec::new(),
+                sends_span: None,
+                ret_span: None,
+                ret_home: Vec::new(),
             };
             if m.is_ctor {
                 sig.ctors.push(f);
@@ -2052,6 +2071,8 @@ impl<'a> Ctx<'a> {
         }
         if sig.kills.is_empty()
             && sig.ret_ties.is_empty()
+            && sig.ret_home.is_empty()
+            && sig.sends.is_empty()
             && f.params.iter().all(|p| p.tie.is_none())
         {
             return;
@@ -3720,8 +3741,17 @@ impl<'a> Ctx<'a> {
         let (params, variadic) = self.param_sigs(&f.params);
         let ret = f.ret.as_ref().map(|r| self.lower_type(r)).unwrap_or(Ty::Void);
         let names: Vec<String> = f.params.iter().map(|p| p.name.name.clone()).collect();
-        let tie_paths =
-            f.kills.iter().chain(&f.ret_ties).chain(f.params.iter().flat_map(|p| &p.tie));
+        // An `in` whose path ends at `@home` says where an owned result lives, not where a view
+        // points (D-0097); the two are kept apart, and `ties::check` says which is which.
+        let (ret_home, ret_ties): (Vec<_>, Vec<_>) =
+            f.ret_ties.iter().cloned().partition(ties::ends_at_home);
+        let sends = f.sends.iter().flat_map(|s| [&s.what, &s.to]);
+        let tie_paths = f
+            .kills
+            .iter()
+            .chain(&f.ret_ties)
+            .chain(f.params.iter().flat_map(|p| &p.tie))
+            .chain(sends);
         let statics = self.tie_statics(tie_paths, &names);
         FnSig {
             // Only an imported function needs a cast at the boundary (spec §15.2).
@@ -3741,10 +3771,14 @@ impl<'a> Ctx<'a> {
             generics,
             has_body: f.body.is_some(),
             variadic,
-            ret_ties: f.ret_ties.clone(),
+            ret_ties,
             kills: f.kills.clone(),
             kills_span: f.kills_span,
             kills_unknown: false,
+            sends: f.sends.clone(),
+            sends_span: f.sends_span,
+            ret_span: f.ret.as_ref().map(|r| r.span),
+            ret_home,
         }
     }
 

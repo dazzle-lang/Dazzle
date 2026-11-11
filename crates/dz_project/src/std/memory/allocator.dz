@@ -21,4 +21,12 @@ pub trait Allocator {
     fn scoped(&self) -> bool {
         return false
     }
+
+    /// Resize the allocation at `p` from `old_size` to `new_size` bytes without moving it,
+    /// when this allocator can: an arena's last allocation can, by moving its bump. On
+    /// `false` nothing has changed. Unlike `realloc`, it never copies, so it is how a
+    /// container grows when its elements cannot be moved as bytes.
+    fn resize_in_place(&mut self, p: ^mut u8, old_size: usize, new_size: usize, align: usize) -> bool {
+        return false
+    }
 }

@@ -100,7 +100,7 @@ fn tag_twice(names: &mut List<String>, prefix: &str) kills names@items {
 fn take_last(
     names: &mut List<String>,
     into: &mut Store
-) kills names@items, names[*], into.names@items {
+) kills names@items, names[*], into.names@items sends names[*] to into {
     let last = names.pop() or return
     into.names.push(move(last))
 }
@@ -179,7 +179,7 @@ fn apply(make: fn(i32) -> List<i32>, n: i32) -> List<i32> {
 }
 
 // A generic function takes no placement, so as a `fn(String) -> String` it is adapted.
-fn same<T>(x: T) -> T {
+fn same<T>(x: T) -> T in x@home {
     return move(x)
 }
 
@@ -400,6 +400,27 @@ fn main() {
     let got = named_of(&holder)
     println!("copied {} {} {} {}", tallied("b a c a b a"), labelled(3), named_copy(), got.name)
     println!("kept {} {}", store.names[store.names.len() - 1], churn())
+    println!("paths {}", paths(8))
+}
+
+// Each pass builds a list over several statements and then pushes it: it goes into the
+// region with `all`, as `all.push(List())` would, and the outer list's growth and `churn`
+// must leave every path intact.
+fn paths(n: i32) -> i32 {
+    let mut all = List<List<i32>>()
+    for i in 0..n {
+        let mut path = List<i32>()
+        for step in 0..20 {
+            path.push(i * 100 + step)
+        }
+        all.push(move(path))
+    }
+    churn()
+    let mut sum = 0
+    for &p in all {
+        sum += p[0] + p[19]
+    }
+    return sum
 }
 
 // A map filled under a lookup that found nothing keeps every key it is given, so each copy

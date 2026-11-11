@@ -1655,3 +1655,18 @@ const NO_SLOTS: i32 = 0
 fn divided_by_nothing(hash: i32) -> i32 {
     return hash % NO_SLOTS
 }
+
+// D-0097: homes. `tie @home` is reserved; `@home` names nothing in a `kills` clause; and a
+// `sends` cannot give to a `&` parameter.
+pub struct Cottage {
+    m_rooms: List<String> = List<String>()
+    tie @home = m_rooms@items
+}
+
+fn cleared_home(rooms: &mut List<String>) kills rooms@home {
+    rooms.clear()
+}
+
+fn kept_in_view(letter: String, rooms: &List<String>) sends letter to rooms {
+    println!("{} {}", letter, rooms.len())
+}

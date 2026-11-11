@@ -1,0 +1,23 @@
+p2 inner to outer, long enough to need memory
+p2 45
+p1 appended, long enough to need memory
+p3 through id, long enough to need memory
+p4 swap removed, long enough to need memory
+p4 removed, long enough to need memory
+p5 replaced, long enough to need memory
+p5 removed from a map, long enough to need memory
+p7 drained, long enough to need memory
+p9 generic, long enough to need memory
+x1 pushed here, long enough to need memory
+x1 tagged 1, long enough to need memory
+x2 shelved, long enough to need memory
+p14 returned from a lent list, long enough to need memory
+p10 boxed, long enough to need memory
+p6 into a field, long enough to need memory
+p13 returned from a local list, long enough to need memory
+p11 whole list, long enough to need memory
+p10 boxed, long enough to need memory
+p6 into a field, long enough to need memory
+12 k2 returned whole, long enough to need memory 10 5
+79 91
+p8 into a static, long enough to need memory

@@ -3351,12 +3351,24 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// What a placed call passes as its allocator: its region, or the body's own result
-    /// placement.
-    fn placement_arg(placed: Placed) -> String {
+    /// What a placed call passes as its allocator: its region, the body's own result
+    /// placement, or the allocator a container the body was lent keeps, reached through
+    /// its fields (D-0097): `::dz::obj(::dz::obj(events).m_list).m_allocator`.
+    fn placement_arg(&mut self, placed: Placed) -> String {
         match placed {
             Placed::Region(block) => format!("::dz::addr({})", region_name(block)),
             Placed::Result => RESULT_PLACEMENT.to_owned(),
+            Placed::Home(container) => {
+                let ty = self.cur().ty(container).clone();
+                let Some(path) = dz_flow::placement::home_path(self.table, &ty) else {
+                    return self.heap_placement();
+                };
+                let mut out = self.expr(container);
+                for field in path {
+                    out = format!("::dz::obj({out}).{field}");
+                }
+                out
+            }
         }
     }
 
@@ -4756,7 +4768,8 @@ impl<'a> Emitter<'a> {
         if let Some((_, placed)) = copy {
             let ty = self.cpp_ty(self.cur().ty(e));
             let value = self.expr_node(e);
-            return format!("{ty}(::dz::copy_tag{{}}, {value}, {})", Self::placement_arg(placed));
+            let at = self.placement_arg(placed);
+            return format!("{ty}(::dz::copy_tag{{}}, {value}, {at})");
         }
         self.expr_node(e)
     }
@@ -5613,14 +5626,15 @@ impl<'a> Emitter<'a> {
         }
         if self.call_takes_result(callee) {
             let arg = match placed {
-                Some((_, at)) => Self::placement_arg(at),
+                Some((_, at)) => self.placement_arg(at),
                 None => self.heap_placement(),
             };
             rendered.push(arg);
         } else if let Some((index, at)) = placed {
             let receiver = usize::from(rendered_receiver);
-            if let Some(slot) = rendered.get_mut(index + receiver) {
-                *slot = Self::placement_arg(at);
+            if index + receiver < rendered.len() {
+                let arg = self.placement_arg(at);
+                rendered[index + receiver] = arg;
             }
         }
         let call = format!("{target}({})", rendered.join(", "));

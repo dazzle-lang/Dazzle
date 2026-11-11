@@ -129,7 +129,7 @@ fn count<T: Copy>(xs: &[]T, stop: Step) -> i32 {
     return n
 }
 
-fn wrap<T>(x: T) -> Choice<T> {
+fn wrap<T>(x: T) -> Choice<T> in x@home {
     return Choice::One{ value: move(x) }
 }
 

@@ -6,6 +6,277 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r119, T-0200 stage 4, second part: a lent container is placed by its callees' clauses (2026-11-11)
+
+Since the first part, the caller follows everything a callee's clauses can do with a
+container it lends: what its `sends` hands on, and what it returns `in` the container's
+home. A `&mut` cannot be kept. Three of the old inferences gave way to that.
+
+**Lending keeps what was stored.** A local container lent `&mut` used to lose what had been
+stored into it, since the walk could not see an element taken out. Lent to a call with
+clauses, it now keeps it (`lend_keeps`). A function value or a C function still loses it,
+having none. The proposer refuses only where the clauses do hand something on, and says
+so: "handed on by `give` from `names`".
+
+**Other modules' and local containers.** A method's `sends v to self` now counts where
+`Staying::stores` has no answer (`sends_to_self`), in both the proposer and the check. A
+`Shelf` from another module keeps the strings it is given in its caller's region. A `sends`
+does not say the value is kept on every call, so the loop rule stays strict for these.
+
+**An outer block's region.** A container a callee may build into, whose elements are all
+sent by a `sends` into locals of enclosing blocks with no loop between, goes in the
+outermost such block's region instead of on the heap (`Left::Into`). `tests/run/regions`'
+`lent`, which `take_last` empties into `given`, is now in `main`'s region with `given`; the
+region check accepts it unchanged, since a send into a local declared in that block dies
+with that block.
+
+Tests: `a_lent_container_is_placed_by_its_callees_clauses` in `dz_flow/tests/placement.rs`,
+and K5 and K6 in `tests/run/transfers`. Every program checks out with regions on and off,
+under the sanitizers, under the ties fuzzer and in the headless examples. The frame loop and
+the benchmarks are unchanged.
+
+## r119, T-0200 stage 4, first part: a function builds in a lent container's home (2026-11-11)
+
+Placement reads `sends`. A value handed to a receiver under a parameter or `self`, by a call
+whose clause says `sends v to self`, is built in that container's home. That is T-0150: a
+function filling a list its caller lent it builds with the list's own allocator, wherever
+the caller put the list. The new pieces:
+
+- **`Decision::Home`**, and `Placed::Home(receiver)` for codegen. The home is read at run
+  time from the receiver through its fields to the `m_allocator` every `std` container
+  keeps (`placement::home_path`). Codegen writes `::dz::obj(::dz::obj(events).m_list).m_allocator`,
+  and private fields are public in the generated C++.
+- **The proposer** (`Escape::IntoHome`, `home_receiver`, `home_target`) proposes a home for
+  a direct argument, or one surely stored after a `let`, and only where the receiver's type
+  keeps an allocator.
+- **The region check** treats a home site as a by-value parameter's region, not released by
+  the body and not returnable, which may go only into its own container's input
+  (`home_input`, `home_sent_roots`). A copy made there counts too.
+
+**Callers stay sound.** A function building into a container its caller lent it puts memory
+in the caller's region that the caller never saw made. So the caller's region check now
+treats three things as carrying that region:
+
+- a local container lent `&mut` to a function of the program's own (`built_into`); `std`'s
+  methods only move what they are given;
+- what a callee's `sends` hands on from a lent container (`region_clauses`);
+- a result its callee says is `in x@home`.
+
+When such a value leaves for somewhere longer-lived, the container goes to the heap. The
+proposer makes the same judgement (`built_and_left`), so the two agree on the whole
+corpus. In `tests/run/regions` this is exactly `lent`, whose test says "what `tag` pushes
+here must not be in it". The ties fuzzer and every program under the sanitizers pass.
+
+**Results.** `dz placements` counts homes: `tests/run/regions` builds four strings in a lent
+container's home. On D-0097's frame loop the engine's `emit` and `text` declare
+`sends … to self`, which the check demanded. Every value the systems make then goes into the
+frame's lists in the frame's region: **no `malloc` per frame** (35 before), and 0.56 s
+against 0.61 s on the heap. That is 3% slower than with those values on the heap and the
+lists alone in the region, because a list's buffer, interleaved with the strings built into
+its home, can no longer grow in place. `words`, `expr` and `astar` are unchanged.
+
+What is left of stage 4 is in T-0200.
+
+## r119, T-0200 stage 3: `std` says what it keeps and hands back (2026-11-11)
+
+`std` has its clauses: seventeen signatures, listed in T-0200. `List::push(&mut self, v: T)
+sends v to self`, `List::pop(&mut self) -> T? in self@home`, and so on. Its containers move
+elements with intrinsics, so the homes walk now follows them in `std`'s bodies:
+
+- `construct(dst, v)` stores `v` under `dst`, as an assignment does;
+- `move_out(src)` takes out of `src`.
+
+The views walk trusts a body over a pointer's elements (T-0116) and calls that
+incomplete. That says nothing about homes, so the homes walk no longer stops there. Checking
+`std` then found what the hand count had missed: `HashMap`'s private `place` and
+`remove_slot`, and `StrKeys::remove_str`. A trait's `self` in a declaration may have a home,
+as an implementation may give it memory.
+
+With `std` declared, the stage-2 stand-ins went, and a call is read by its callee's clauses
+alone. The stand-ins were:
+
+- `Staying::stores` for what a `std` method stores;
+- the guess that a `&mut self` method of `std` returning an owned value takes it out of its
+  receiver.
+
+The check no longer computes `Staying`. `std` is the same for every program, so a build
+leaves its bodies out, and `check_std_homes` checks them once in the suite
+(`std_says_where_it_sends_what_it_is_given`). Removing `push`'s clause makes that test fail,
+naming `push` and also `insert`, which relies on it. Checking `std` in every build had cost
+`breakout` 70% of its `dz check`; as built, the homes check costs 3–5%.
+
+The `construct` handling also found three program containers written with raw memory whose
+`push` stores into `self`, in `tests/run/generics`, `tests/run/iterator` and
+`examples/ownership`; they got `sends v to self`. The editor's hover, signature help and
+completion detail now show `std`'s clauses.
+
+## r119, T-0200 stage 2: a body checked against its `sends` and `in x@home` (2026-11-11)
+
+**The walk.** `analyse_homes` is the ties walk a third time, after the ties check and the
+region check, and it reuses the region check's machinery. A home is a fact carried in
+`Value::owned`, as a region is: a by-value parameter that owns memory starts in its own
+home; an element taken out of a `&mut` input, or out of `&mut self`, is in that input's
+(`homes_call`, from the callee's `in x@home` or, for `std` until stage 3, from any
+`&mut self` method of `std` whose result owns memory); a constructor's or `Box`'s value
+holds what it is given by value. A home is followed through `let`s, `or`, struct
+literals, local containers and loops. Where the region check would refuse a placement,
+this walk records a send instead:
+
+- an assignment to a place under another input (`homes_assign`);
+- a call whose `sends` names an argument and where it goes;
+- a method of `std` that stores an argument into a receiver under an input
+  (`Staying::stores`, until stage 3);
+- a `return`.
+
+A copy carries no home.
+
+**The report.** `report_homes` compares the sends and returns with the signature both
+ways, as `kills` are. DZ0421 is a send or an owned return the signature leaves out; its
+fix writes the whole `sends` clause, or the result's `in` when none is written. DZ0422 is a
+pair, or an `in x@home`, the body never does. Nothing is reported where the walk could not
+follow a value, and `std` is skipped until its clauses are written.
+
+**What the user decided on the way.** A by-value parameter returned is an owned result
+in that parameter's home, so `largest<T>(a: T, b: T) -> T in (a@home, b@home)`. Placing
+every argument whose type the result could hold where the result goes was the other
+answer. It needs no clause, but it is a hidden guess, and it costs a longer home for
+arguments that are never returned.
+
+**Two fixes the walk needed.** `bind` kept `owned` only in the region check, and
+`unwrapped` dropped it with an optional of a generic type whose views it cannot follow;
+a home depends on neither.
+
+**What it found in the repository.** What D-0097's trial predicted: the six functions of
+`tests/run/transfers`, `take_last` in `tests/run/regions`, the `push` and `pop` of
+user-written containers in `tests/run/iterator` and the `astar` benchmark, and
+`Shelf::put` in `tools/bench_scale.py`'s generated program. It also found about a dozen
+generic functions returning a parameter (`largest`, `swap`, `keep`, `unwrap_or`,
+`or_else`, the feature matrix's helpers). `dz fix` wrote their clauses; `typed.dz` was done
+by hand, since `dz fix` also applies the fixes of unrelated warnings there. Placement is
+unchanged: it reads no clause until stage 4.
+
+Tests: `tests/flow/send_not_declared.dz` and `send_never_happens.dz`, which also hold the
+legal cases (a value built in the body, a copy, an element put back, plain data), and
+`dz explain` entries for both codes. The walk adds about 5% to `dz check` on `examples/sdl3`
+and `breakout`.
+
+## r119, T-0200 stage 1: `sends` and `@home` parsed and resolved (2026-11-11)
+
+D-0097 (homes) was decided as variant A. Its first stage is the syntax, with nothing yet
+checked against a body.
+
+- **`sends` is a keyword**, as `kills` is. `to` is read as a word in the clause and stays a
+  name everywhere else (a parameter may still be called `to`). A signature takes
+  `kills …` and `sends a to b, c to d` in either order, at most once each, and the formatter
+  writes `kills` first. That is layout only, since `FnDecl` keeps the two apart.
+- **`FnSig::sends`** holds the pairs. **`FnSig::ret_home`** holds an owned result's
+  `in xs@home`, split from `ret_ties` by `ties::ends_at_home` when the signature is built.
+  `dz_flow` reads `ret_ties` as where a view points, so an owned result's home must never
+  reach it.
+- **`@home` resolves to `Step::Home`**, which no struct declares, on any value that may own
+  memory (`ties::owns_memory`: a type parameter may, and a reference or optional is asked of
+  what it holds). It ends its path. `ties::check` refuses it in a `kills` clause, on a view
+  result's or a parameter's `in`, in a `sends` path, in a type's own `tie`, after a result
+  that owns nothing, and on a value that owns nothing: all DZ0582, each with its own reason.
+  `tie @home` is DZ0581.
+- **A `sends` path** resolves like a `kills` path, a static's included. Its source must be
+  the function's own (a by-value parameter) or reached through `&mut`; its destination must
+  be changeable (DZ0583). A pair with no `to` is DZ0220, and the clause keeps its other pairs.
+- **The editor** completes `sends` and highlights it, and hover shows both clauses. The macro
+  hygiene walk renames `sends` paths' roots as it does `kills` paths'. §2.7 lists the keyword
+  and §20's grammar the clause.
+
+Tests: `tests/errors/{sends_without_to,home_tie_declared,home_killed,sends_to_shared_reference}`,
+a `dz explain` entry for each code, `typed/` (a container whose `post` sends into it and
+whose `collect` returns `in self@home`, a generic mover, a send to a static) against
+`typeerrors/` (`tie @home`, a killed home, a send to a `&`), and the parser and formatter
+corpora (`tests/parse/ties.dz`, `tests/fmt/ties.dz`), with a `sends` written before `kills`
+and a function named `to`.
+
+## A value a `let` builds and then stores goes where the container lives (2026-11-11)
+
+Compiler work; no language change. The loop rule (T-0145) lets a value made on every pass
+into a region the loop does not end only when it is stored *directly*, by a method that
+keeps it, into a container that keeps everything. Otherwise a pass could drop the value
+while the region kept its memory, and the region would grow past what the container holds.
+"Directly" meant the site was the argument itself, so a list built over several statements
+and then pushed kept the heap:
+
+```dz
+let mut path = List<Vec2>()
+for step in 0..12 { path.push(…) }
+paths.push(move(path))
+```
+
+`storing::stored_after_let` finds the call a `let`'s local is moved into, `move(x)` and not
+a copy, in a later statement of the `let`'s own block, with no `break`, `continue` or
+assignment to the local in between. A `return` ends every pass, so it does not count. Such
+a store is as sure as a direct one. The proposer (`Cx::surely_stored`, from `kept_in`) and the
+region check (`kept_each_pass`) both use it, so they agree. Every other condition stands:
+the method keeps the value, and the container keeps everything.
+
+Found by D-0097's frame measurement. Written as one body, the frame made 16 `malloc`s per
+pass, all path buffers; it now makes none, and runs 10% faster than on the heap. No
+placement in the corpus, benchmarks or examples changed. `dz_flow/tests/placement.rs` pins
+the rule (`a_value_built_by_a_let_and_then_stored_goes_where_the_container_lives`): the
+direct case, and a `continue` between, a push under an `if`, and the local replaced before
+the push, which keep the heap. `tests/run/regions` builds paths so, churns the region and
+reads them back.
+
+## A list grows where it is in a region: `Allocator::resize_in_place` (2026-11-11)
+
+This is library work, not a language change: a defaulted trait method, like `scoped`. It
+was found by measuring D-0097 on a game's frame loop. Each pass of the loop builds an event
+list, a draw list and a list of paths, and systems fill them. With regions on, the loop ran
+12% *slower* than with every value on the heap (200,000 frames: 0.68 s against 0.61 s,
+release, clang++).
+
+A sampling profiler (an `LD_PRELOAD` shim on a POSIX timer, since `perf` was not
+available) showed destructors and moves around the draw list. A/B runs then settled it.
+With the frame's lists given their capacity up front, regions were 4% *ahead*; with only the
+draw list reserved, the gap closed. `List::move_to` grows a list of elements that are not
+trivially copyable (`DrawCmd` holds a `String`) by allocating a new block, moving each
+element and freeing the old one. On the heap the freed block is reused at once. In a region
+it stays until the region ends, since only the last allocation can be given back. So every
+doubling cost a full move and left the old block behind.
+
+`Allocator` now has `resize_in_place(p, old_size, new_size, align) -> bool`. It resizes
+without moving when the allocator can, and its default says it cannot. `ScopeArena` and
+`TempArena` can when `p` is their last allocation and the chunk has room (`ScopeArena` also
+requires the block to stay small, as its `realloc` did). Both `realloc`s now use it.
+`List::move_to` tries it before the fresh-block path, so such a list in a region grows and
+shrinks where it is with no move. The `Heap` keeps the default: glibc has no portable way
+to try.
+
+The frame loop is now 11% *faster* with regions than on the heap (0.54 s against 0.61 s),
+and 20% faster than before the change (0.68 s). `words`, `expr` and `astar` are unchanged,
+within a millisecond (best of 7, regions on, release, before and after built from the same
+tree).
+Entering and leaving a region was measured on its own: 10 million calls of a function that
+builds a four-element list cost 0.10 s with a region and 0.14 s on the heap, since the
+per-thread pool hands back the chunk with no `malloc`. `tests/run/region_arena` checks the
+method directly (the last allocation resizes; an earlier one, or one grown into a large
+block, does not), and grows and shrinks a `List<String>` in a region.
+
+## D-0097: homes tried before deciding (2026-11-11)
+
+D-0097 (homes, open) asked for its programs to be written before it is decided. They are
+`tests/run/transfers`, with a second module, `movers`, for the cross-module cases. Each
+probe moves a value out of a container whose memory could be a region, into something that
+outlives it, then reuses the region with `churn` and prints the value. The test runs with
+regions on and off, and under the sanitizers with the rest of `tests/run`.
+
+No hole turned up. Every probe's value was placed on the heap with a reason that names it,
+including `List::append`, whose transfer goes through a `&mut` parameter that the storing
+inference (by-value parameters only) never looks at. The proposer already sends a local
+"lent as `&mut`" to the heap. A result function that returns a value it did not build is
+dropped by its caller and does not leak.
+
+Two numbers matter for the decision, and both are in D-0097. Only four of the 118 heap sites
+across `tests/run` are the shape homes would move, with none in the benchmarks or the
+examples. And `Staying::stores` trusts a method's stores only within its own module and
+`std`, so a container from another module gets the heap for everything it is given.
+
 ## r117, T-0168: elements known apart by their indices (2026-11-04)
 
 The user asked, after the site's comparison with Rust, for the refusals both languages make

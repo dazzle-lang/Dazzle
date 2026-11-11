@@ -153,7 +153,7 @@ struct MinHeap<T: Ord> {
         return m_items.is_empty()
     }
 
-    pub fn push(&mut self, v: T) kills self@items {
+    pub fn push(&mut self, v: T) kills self@items sends v to self {
         m_items.push(move(v))
         let mut at = m_items.len() - 1
         while at > 0 {
@@ -166,7 +166,7 @@ struct MinHeap<T: Ord> {
         }
     }
 
-    pub fn pop(&mut self) -> T? kills self@items, self@values {
+    pub fn pop(&mut self) -> T? in self@home kills self@items, self@values {
         if m_items.is_empty() {
             return none
         }

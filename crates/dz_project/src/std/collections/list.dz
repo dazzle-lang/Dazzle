@@ -77,7 +77,7 @@ pub struct List<T> {
     }
 
     /// Add `v` at the end, growing when there is no room.
-    pub fn push(&mut self, v: T, loc: SourceLocation = #location) kills self@items {
+    pub fn push(&mut self, v: T, loc: SourceLocation = #location) kills self@items sends v to self {
         if m_len == m_cap {
             self.grow_to(m_len + 1, loc)
         }
@@ -86,7 +86,7 @@ pub struct List<T> {
     }
 
     /// Take the last element out, or `none` when there is none.
-    pub fn pop(&mut self) -> T? kills self@items, self[*] {
+    pub fn pop(&mut self) -> T? in self@home kills self@items, self[*] {
         if m_len == 0 {
             return none
         }
@@ -95,7 +95,7 @@ pub struct List<T> {
     }
 
     /// Put `v` at index `i`, moving the elements from `i` on up by one. `i` may be `len()`.
-    pub fn insert(&mut self, i: usize, v: T, loc: SourceLocation = #location) kills self@items {
+    pub fn insert(&mut self, i: usize, v: T, loc: SourceLocation = #location) kills self@items sends v to self {
         if i > m_len {
             panic!("List::insert at {} past the length {}", i, m_len)
         }
@@ -108,7 +108,7 @@ pub struct List<T> {
     }
 
     /// Take the element at `i` out, moving the ones after it down by one.
-    pub fn remove(&mut self, i: usize) -> T kills self@items, self[*] {
+    pub fn remove(&mut self, i: usize) -> T in self@home kills self@items, self[*] {
         if i >= m_len {
             panic!("List::remove at {} for a length of {}", i, m_len)
         }
@@ -153,7 +153,7 @@ pub struct List<T> {
 
     /// Move every element of `other` onto the end, in order, leaving `other` empty with its
     /// allocation kept.
-    pub fn append(&mut self, other: &mut List<T>, loc: SourceLocation = #location) kills self@items, other@items {
+    pub fn append(&mut self, other: &mut List<T>, loc: SourceLocation = #location) kills self@items, other@items sends other[*] to self {
         let n = other.m_len
         if n == 0 {
             return
@@ -228,7 +228,7 @@ pub struct List<T> {
 
     /// Take the element at `i` out and put the last one in its place: no shifting, and the
     /// order is not kept.
-    pub fn swap_remove(&mut self, i: usize) -> T kills self@items, self[*] {
+    pub fn swap_remove(&mut self, i: usize) -> T in self@home kills self@items, self[*] {
         if i >= m_len {
             panic!("List::swap_remove at {} for a length of {}", i, m_len)
         }
@@ -459,6 +459,10 @@ pub struct List<T> {
             // Bytes can move anywhere, so the allocator may resize the memory in place.
             let old = unsafe { m_data as ^mut u8 }
             m_data = unsafe { a.realloc(old, m_cap * sizeof(T), cap * sizeof(T), alignof(T), loc) as ^mut T }
+        } else if m_data != null && cap >= m_len &&
+            a.resize_in_place(unsafe { m_data as ^mut u8 }, m_cap * sizeof(T), cap * sizeof(T), alignof(T)) {
+            // Resized where it is, in a region whose last allocation it was: nothing moves,
+            // and no old block is left in the region until it ends.
         } else {
             let fresh = unsafe { a.alloc(cap * sizeof(T), alignof(T), loc) as ^mut T }
             for i in 0..m_len {

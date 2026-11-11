@@ -1,0 +1,95 @@
+// D-0097: a body that hands what one input owns to another, or returns it, says so, since
+// callers place what they lend by `sends` and keep a result where its `in x@home` says it
+// lives. Refused: an element taken out of one lent list and pushed into another, a by-value
+// parameter stored into `&mut self`, a popped element returned, and a by-value parameter
+// returned. Still legal: the same with their clauses, a value the body builds itself,
+// a copy, an element put back where it came from, and a value that owns no memory.
+// expect: DZ0421, DZ0421, DZ0421, DZ0421
+
+struct Store {
+    pub names: List<String>
+    pub counts: List<i32>
+}
+
+struct Shelf {
+    m_items: List<String>
+    tie @items = m_items
+
+    pub Shelf() {
+        m_items = List<String>()
+    }
+
+    pub fn put(&mut self, s: String) kills self@items@items {
+        m_items.push(move(s))
+    }
+
+    pub fn put_declared(&mut self, s: String) kills self@items@items sends s to self {
+        m_items.push(move(s))
+    }
+}
+
+fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items {
+    let s = from.pop() or return
+    store.names.push(move(s))
+}
+
+fn give_declared(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items sends from[*] to store {
+    let s = from.pop() or return
+    store.names.push(move(s))
+}
+
+fn last_of(xs: &mut List<String>) -> String kills xs@items, xs[*] {
+    return xs.pop() or String()
+}
+
+fn last_of_declared(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {
+    return xs.pop() or String()
+}
+
+fn keep(s: String) -> String {
+    return move(s)
+}
+
+fn keep_declared(s: String) -> String in s@home {
+    return move(s)
+}
+
+// Built here, copied, put back, or owning nothing: no input's memory leaves for another.
+fn built(store: &mut Store) kills store.names@items {
+    store.names.push(String::from("built here"))
+}
+
+fn copied(word: &String, store: &mut Store) kills store.names@items {
+    store.names.push(word)
+}
+
+fn put_back(xs: &mut List<String>) kills xs@items, xs[*] {
+    let s = xs.pop() or return
+    xs.push(move(s))
+}
+
+fn counted(from: &mut List<i32>, store: &mut Store) kills from@items, store.counts@items {
+    let n = from.pop() or return
+    store.counts.push(n)
+}
+
+fn main() {
+    let mut store = Store{ names: List<String>(), counts: List<i32>() }
+    let mut xs = List<String>()
+    xs.push(String::from("a"))
+    let mut shelf = Shelf()
+    shelf.put(String::from("b"))
+    shelf.put_declared(String::from("c"))
+    give(&mut xs, &mut store)
+    give_declared(&mut xs, &mut store)
+    let a = last_of(&mut xs)
+    let b = last_of_declared(&mut xs)
+    let c = keep(String::from("d"))
+    let d = keep_declared(String::from("e"))
+    built(&mut store)
+    copied(&a, &mut store)
+    put_back(&mut xs)
+    let mut ns = List<i32>()
+    counted(&mut ns, &mut store)
+    println!("{} {} {} {}", a, b, c, d)
+}

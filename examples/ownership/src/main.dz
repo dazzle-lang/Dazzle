@@ -19,7 +19,7 @@ struct Shelf<T> {
         m_cap = cap
     }
 
-    pub fn push(&mut self, v: T) {
+    pub fn push(&mut self, v: T) sends v to self {
         if m_len == m_cap {
             self.grow()
         }

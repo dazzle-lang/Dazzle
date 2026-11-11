@@ -207,6 +207,10 @@ fn every_rule_has_a_failing_case() {
         PLACEMENT_DEFAULT,
         // r109 — a constant zero divisor (spec §5.1, D-0094 point 5).
         DIVISION_BY_ZERO,
+        // r119 — homes (D-0097).
+        HOME_TIE_RESERVED,
+        HOME_MISPLACED,
+        SENDS_NEEDS_MUT,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

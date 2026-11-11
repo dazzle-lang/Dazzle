@@ -1,0 +1,13 @@
+// expect: DZ0581
+//
+// Every value that owns memory has a home, and `@home` names it: no struct declares it
+// (D-0097).
+
+pub struct House {
+    m_rooms: List<String> = List<String>()
+    tie @home = m_rooms@items
+}
+
+fn main() {
+    let h = House{}
+}

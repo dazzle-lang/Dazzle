@@ -324,10 +324,14 @@ fn dz_placements_prints_each_site() {
         "{text}"
     );
     assert!(
-        lines[8].ends_with("src/main.dz:82:22: String::from  heap: passed to `store.names.push`"),
+        lines[8].ends_with("src/main.dz:82:22: String::from  home: where `store.names` lives"),
         "{text}"
     );
-    assert_eq!(lines.last().copied(), Some("91 allocations, 62 in a region"), "{text}");
+    assert_eq!(
+        lines.last().copied(),
+        Some("93 allocations, 64 in a region, 4 in a lent container's home"),
+        "{text}"
+    );
 
     let out = Command::new(dz())
         .args(["placements", "--format=json", dir.to_str().unwrap()])
@@ -336,7 +340,7 @@ fn dz_placements_prints_each_site() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON on stdout");
     let sites = doc["sites"].as_array().unwrap();
-    assert_eq!(sites.len(), 91);
+    assert_eq!(sites.len(), 93);
     assert_eq!(sites[0]["placement"], "region");
     assert_eq!(sites[0]["scope"], "`sum_squares`");
     assert_eq!(sites[0]["line"], 14);
@@ -344,11 +348,16 @@ fn dz_placements_prints_each_site() {
     assert_eq!(sites[0]["drop_skipped"], true);
     assert_eq!(sites[1]["placement"], "result");
     assert_eq!(sites[1]["function"], "`evens`");
-    assert_eq!(sites[8]["placement"], "heap");
-    assert_eq!(sites[8]["why"], "passed to `store.names.push`");
-    assert_eq!(sites[8]["label"], "heap: passed to `store.names.push`");
+    // Built in the home of a container the function was lent (D-0097).
+    assert_eq!(sites[8]["placement"], "home");
+    assert_eq!(sites[8]["container"], "store.names");
+    assert_eq!(sites[8]["label"], "home: where `store.names` lives");
     assert_eq!(sites[8]["drop_skipped"], false);
-    assert!(sites[8]["at"]["line"].is_u64(), "a heap decision says where: {}", sites[8]);
+    let why = "assigned to `store.saved`; only a `let` gets a region";
+    let heap = sites.iter().find(|s| s["why"] == why).expect("a heap site");
+    assert_eq!(heap["placement"], "heap");
+    assert_eq!(heap["label"], format!("heap: {why}"));
+    assert!(heap["at"]["line"].is_u64(), "a heap decision says where: {heap}");
 }
 
 /// The examples, guarded. Most open a window or an audio device, so none can carry an

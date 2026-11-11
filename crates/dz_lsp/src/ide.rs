@@ -1428,13 +1428,19 @@ impl<'a> Query<'a> {
             .map(|p| format!("{}: {}{}", p.name, type_name(self.res, &p.ty), in_tie(&p.tie)))
             .collect::<Vec<_>>()
             .join(", ");
-        let kills = dz_ast::dump::kills_str(&f.kills, false);
+        let kills = format!(
+            "{}{}",
+            dz_ast::dump::kills_str(&f.kills, false),
+            dz_ast::dump::sends_str(&f.sends)
+        );
         if f.ret == Ty::Void && !f.fallible {
             return format!("fn {name}({params}){kills}");
         }
         let arrow = if f.fallible { "!->" } else { "->" };
         let ret = type_name(self.res, &f.ret);
-        format!("fn {name}({params}) {arrow} {ret}{}{kills}", dz_ast::dump::in_str(&f.ret_ties))
+        // A view's `in` and an owned result's `in … @home` are one clause as written (D-0097).
+        let ties: Vec<_> = f.ret_ties.iter().chain(&f.ret_home).cloned().collect();
+        format!("fn {name}({params}) {arrow} {ret}{}{kills}", dz_ast::dump::in_str(&ties))
     }
 
     /// Fields and methods of a struct, or a union's methods (spec §7.5); its private ones
@@ -1760,6 +1766,7 @@ pub const KEYWORDS: &[&str] = &[
     "return",
     "self",
     "Self",
+    "sends",
     "static",
     "struct",
     "switch",

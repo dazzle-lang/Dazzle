@@ -2080,3 +2080,27 @@ error[DZ0580]: `%` by a constant zero
      │                   ^^^^^^^^ this divisor is always zero
      │
      = help: an integer division by zero panics when it runs (spec §5.1); divide by something else, or write `panic!` if failing here is the point
+
+error[DZ0581]: `Cottage` declares `@home`, which every value that owns memory has
+     ┌─ typeerrors/src/errors.dz:1663:10
+     │
+1663 │     tie @home = m_rooms@items
+     │          ^^^^ reserved
+     │
+     = help: `@home` is the region or heap a value was placed in, which no struct declares; give this tie another name (D-0097)
+
+error[DZ0582]: `@home` cannot be named here: a home is never killed, since it is the region or heap the value was placed in
+     ┌─ typeerrors/src/errors.dz:1666:55
+     │
+1666 │ fn cleared_home(rooms: &mut List<String>) kills rooms@home {
+     │                                                       ^^^^ `@home` here
+     │
+     = help: `@home` ends a path after a result's `in`, for an owned result taken out of an input: `-> T in xs@home` (D-0097)
+
+error[DZ0583]: `kept_in_view` sends to `rooms`, which it cannot change
+     ┌─ typeerrors/src/errors.dz:1670:71
+     │
+1670 │ fn kept_in_view(letter: String, rooms: &List<String>) sends letter to rooms {
+     │                                                                       ^^^^^ taken as `&List<String>`
+     │
+     = help: a function sends what it was given by value, or takes through a `&mut` parameter or `&mut self`, into a `&mut` parameter, `&mut self` or a static (D-0097)

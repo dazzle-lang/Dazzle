@@ -588,7 +588,7 @@ fn vector_arithmetic(a: Vec2, b: Vec2) -> Vec2 {
 // `std::Ord` names the same trait through the standard library's key (spec §3.2).
 // `T` may be move-only, so returning one is written `move` exactly as it would be for any
 // move-only type (spec §6.3, §8.2): a generic body is checked for every `T` at once.
-fn largest<T: std::Ord>(a: T, b: T) -> T {
+fn largest<T: std::Ord>(a: T, b: T) -> T in (a@home, b@home) {
     if a > b {
         return move(a)
     }
@@ -1440,7 +1440,7 @@ struct Shelf<T> {
         return (other, other)
     }
 
-    pub fn take<U>(first: U, second: U) -> U {
+    pub fn take<U>(first: U, second: U) -> U in first@home {
         let _ = move(second)
         return move(first)
     }
@@ -1939,7 +1939,7 @@ fn fresh_bytes() -> ^mut u8 {
     return null
 }
 
-fn either_value<T>(a: &Roster, b: &Roster, v: T) -> T {
+fn either_value<T>(a: &Roster, b: &Roster, v: T) -> T in v@home {
     return move(v)
 }
 
@@ -2217,4 +2217,38 @@ fn divisions(hash: i32, n: i32) -> f64 {
     x %= SLOTS - 1
     let shifted = (x << n) >> 40
     return (shifted / -1) as f64 + 1.0 / 0.0
+}
+
+// D-0097: homes. `sends` says what a function hands from one input to another, by value or
+// through `&mut`, into `&mut` or a static; `in x@home` says an owned result lives in an
+// input's home. Clauses come in either order.
+pub struct Mailbox {
+    m_letters: List<String> = List<String>()
+    tie @letters = m_letters
+
+    pub fn post(&mut self, letter: String) kills self@letters@items sends letter to self {
+        m_letters.push(move(letter))
+    }
+
+    pub fn collect(&mut self) -> String? in self@home kills self@letters@items, self@letters[*] {
+        return m_letters.pop()
+    }
+}
+
+pub static OUTBOX: List<String>? = none
+
+fn forward<T>(from: &mut List<T>, to: &mut List<T>) kills from@items, from[*], to@items sends from[*] to to {
+    let v = from.pop() or return
+    to.push(move(v))
+}
+
+fn oldest(letters: &mut List<String>) -> String in letters@home kills letters@items, letters[*] {
+    return letters.remove(0)
+}
+
+fn dispatch(letters: &mut List<String>) sends letters[*] to OUTBOX kills letters@items, letters[*], OUTBOX {
+    let v = letters.pop() or return
+    if let &mut out = OUTBOX {
+        out.push(move(v))
+    }
 }
