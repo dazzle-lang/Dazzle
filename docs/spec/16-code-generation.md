@@ -170,6 +170,23 @@ has changed, judged by content rather than by time. A one-line change in one fun
 rewrites one `.cpp`, and the C++ compiler rebuilds one translation unit. Every file starts
 from `std.h` precompiled, so that translation unit does not parse the standard library again.
 
+**A build with nothing changed does nothing.** A successful `dz build` or `dz run` records
+what it read, in `build/obj/dz/build-<key>.stamp`. The key is what the build was asked for:
+the `dz` executable itself, the options, the project as the command line named it, and the
+environment variables that change a build. A different `dz` is a different build, since it
+may generate different C++ from the same source. The inputs are:
+- every manifest and source file, and each source pattern expanded again, so a file added
+  or removed counts;
+- every file a header import read, and every file each object was compiled from, the system
+  headers included;
+- every CMake library's source tree;
+- the C++ compiler the name resolves to;
+- the executable.
+
+The next build with the same key checks these first, by size and time, and by content
+where a time is too recent to trust. When all of them hold, it prints the warnings that
+build printed and stops, without analysing anything; `dz run` runs the program.
+
 **The runtime and `std` are compiled once for every project.** Their generated files are the
 same in every program, so they, their objects and the precompiled `std.h` live in a per-user
 cache rather than in `build/`: `$XDG_CACHE_HOME/dazzle` or `~/.cache/dazzle` on Linux,

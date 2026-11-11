@@ -239,16 +239,16 @@ fn run_jobs(cxx: &str, jobs: Vec<Job<'_>>, diags: &mut Diagnostics) {
 
 /// One file an object was built from, as its stamp records it: `hash size time path`, the
 /// time in nanoseconds since the epoch, 0 when unknown.
-struct Input {
-    hash: u64,
-    len: u64,
-    modified: u128,
-    path: PathBuf,
+pub(crate) struct Input {
+    pub(crate) hash: u64,
+    pub(crate) len: u64,
+    pub(crate) modified: u128,
+    pub(crate) path: PathBuf,
 }
 
 impl Input {
     /// `path` as it is now, or `None` if it cannot be read.
-    fn of(path: &Path) -> Option<Input> {
+    pub(crate) fn of(path: &Path) -> Option<Input> {
         let bytes = std::fs::read(path).ok()?;
         let modified = std::fs::metadata(path).ok().and_then(|m| nanos(m.modified().ok()?));
         Some(Input {
@@ -259,17 +259,17 @@ impl Input {
         })
     }
 
-    fn line(&self) -> String {
+    pub(crate) fn line(&self) -> String {
         format!("{:016x} {} {} {}\n", self.hash, self.len, self.modified, self.path.display())
     }
 }
 
-fn nanos(time: std::time::SystemTime) -> Option<u128> {
+pub(crate) fn nanos(time: std::time::SystemTime) -> Option<u128> {
     time.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_nanos())
 }
 
 /// The files a stamp lists. A path may hold spaces, so it is the rest of the line.
-fn stamp_inputs(stamp: &str) -> Option<Vec<Input>> {
+pub(crate) fn stamp_inputs(stamp: &str) -> Option<Vec<Input>> {
     stamp
         .lines()
         .map(|line| {
@@ -310,15 +310,34 @@ pub(crate) fn up_to_date(object: &Path) -> bool {
     let stamp_path = object.with_extension("stamp");
     let Ok(stamp) = std::fs::read_to_string(&stamp_path) else { return false };
     let Some(inputs) = stamp_inputs(&stamp) else { return false };
+    if inputs.is_empty() {
+        return false;
+    }
     let Some(written) = std::fs::metadata(&stamp_path).ok().and_then(|m| m.modified().ok()) else {
         return false;
     };
+    let Some(hashed) = inputs_hold(&inputs, written) else { return false };
+    if hashed {
+        if let Some(fresh) = refreshed(&inputs) {
+            let text: String = fresh.iter().map(Input::line).collect();
+            let _ = crate::shared::write(&stamp_path, text.as_bytes());
+        }
+    }
+    true
+}
+
+/// Whether every one of `inputs` still has the content a stamp written at `written`
+/// recorded: `Some(hashed)` if so, `hashed` saying whether any had to be read to tell.
+///
+/// A file whose size and time are what the stamp holds is taken as unchanged when that time
+/// was settled when the stamp was written; any other is read and hashed.
+pub(crate) fn inputs_hold(inputs: &[Input], written: std::time::SystemTime) -> Option<bool> {
     let settled = nanos(written).map_or(0, |w| w.saturating_sub(SETTLED.as_nanos()));
     let mut hashed = false;
-    for input in &inputs {
-        let Ok(meta) = std::fs::metadata(&input.path) else { return false };
+    for input in inputs {
+        let meta = std::fs::metadata(&input.path).ok()?;
         if meta.len() != input.len {
-            return false;
+            return None;
         }
         let modified = meta.modified().ok().and_then(nanos);
         if input.modified != 0 && modified == Some(input.modified) && input.modified < settled {
@@ -326,23 +345,17 @@ pub(crate) fn up_to_date(object: &Path) -> bool {
         }
         match std::fs::read(&input.path) {
             Ok(bytes) if fnv1a(&bytes) == input.hash => hashed = true,
-            _ => return false,
+            _ => return None,
         }
     }
-    if inputs.is_empty() {
-        return false;
-    }
-    if hashed {
-        let fresh: Option<Vec<Input>> = inputs.iter().map(|i| Input::of(&i.path)).collect();
-        if let Some(fresh) = fresh {
-            // Only if nothing changed while it was being checked.
-            if fresh.iter().zip(&inputs).all(|(f, i)| f.hash == i.hash) {
-                let text: String = fresh.iter().map(Input::line).collect();
-                let _ = crate::shared::write(&stamp_path, text.as_bytes());
-            }
-        }
-    }
-    true
+    Some(hashed)
+}
+
+/// `inputs` as they are now, for a stamp that had to hash some of them to hold, so the next
+/// check can go by their times. `None` if any changed while it was being checked.
+pub(crate) fn refreshed(inputs: &[Input]) -> Option<Vec<Input>> {
+    let fresh: Vec<Input> = inputs.iter().map(|i| Input::of(&i.path)).collect::<Option<_>>()?;
+    fresh.iter().zip(inputs).all(|(f, i)| f.hash == i.hash).then_some(fresh)
 }
 
 /// Record what an object was compiled from: the source, and every header the compiler's

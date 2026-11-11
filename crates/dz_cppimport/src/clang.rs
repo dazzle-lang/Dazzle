@@ -44,6 +44,18 @@ fn cache() -> &'static Cache {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Every file an import in this process read, each header's own includes and the system
+/// headers under them, sorted and without repeats: what a build that imported them must
+/// be built again for when one changes (`dz build`'s stamp).
+pub fn files_read() -> Vec<PathBuf> {
+    let Ok(map) = cache().lock() else { return Vec::new() };
+    let mut out: Vec<PathBuf> =
+        map.values().flat_map(|(_, stamps)| stamps.iter().map(|s| s.path.clone())).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Import one header.
 pub fn import(req: &Request<'_>) -> Result<Arc<Header>, ImportError> {
     let args = arguments(req);

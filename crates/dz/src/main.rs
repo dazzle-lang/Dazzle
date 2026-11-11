@@ -6,6 +6,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 mod build;
+mod fresh;
 mod native;
 mod shared;
 
@@ -745,6 +746,31 @@ fn cmd_pipeline(
     line_directives: bool,
     show_timings: bool,
 ) -> ExitCode {
+    // The output directory, not the project root: `emit_cpp` and `compile` write straight
+    // into it, so a harness can put its own elsewhere without nesting a second `build/`
+    // inside the first.
+    let root = project_root(entry).join("build");
+
+    // Nothing changed since the last build like this one: say so, with what it warned
+    // about, and run what it made, without analysing anything (T-0192).
+    let stamp = (stage != Stage::Cpp).then(|| fresh::key(entry, options, cxx, line_directives));
+    if let Some(key) = &stamp {
+        let started = std::time::Instant::now();
+        if let Some(found) = fresh::check(&root, key) {
+            eprint!("{}", found.warnings);
+            if show_timings {
+                let mut timings = dz_driver::Timings::default();
+                timings.lap("up to date", started);
+                print_timings(&timings);
+            }
+            if stage == Stage::Build {
+                println!("built {}", found.exe.display());
+                return ExitCode::SUCCESS;
+            }
+            return run_program(&found.exe);
+        }
+    }
+
     // Never freed: the process ends with this command, and the operating system takes the
     // memory back at once, where dropping every tree, table and instance one allocation at
     // a time cost a 100-module build 0.1 s (T-0187).
@@ -756,10 +782,6 @@ fn cmd_pipeline(
         return failure(&analysis.diags);
     }
 
-    // The output directory, not the project root: `emit_cpp` and `compile` write straight
-    // into it, so a harness can put its own elsewhere without nesting a second `build/`
-    // inside the first.
-    let root = project_root(entry).join("build");
     let emit =
         dz_cpp::Options { mode: dz_cpp::Mode::Program, line_directives, ..Default::default() };
     let started = std::time::Instant::now();
@@ -787,6 +809,18 @@ fn cmd_pipeline(
 
     let mut timings = std::mem::take(&mut analysis.timings);
     let compiled = build::compile(&analysis, &out, &root, cxx, &mut timings);
+    if let (Some(key), Ok(exe)) = (&stamp, &compiled) {
+        let started = std::time::Instant::now();
+        let warnings = if analysis.diags.is_empty() {
+            String::new()
+        } else {
+            dz_diag::render_to_string(&analysis.map, &analysis.diags)
+        };
+        if let Some(cxx) = build::find_compiler(analysis.ws.as_ref(), cxx) {
+            fresh::write(&root, key, &analysis, &cxx, exe, &warnings);
+        }
+        timings.lap("build stamp", started);
+    }
     if show_timings {
         print_timings(&timings);
     }
@@ -802,8 +836,12 @@ fn cmd_pipeline(
         println!("built {}", exe.display());
         return ExitCode::SUCCESS;
     }
+    run_program(&exe)
+}
 
-    match build::run(&exe) {
+/// Run what `dz run` built, passing its exit code through.
+fn run_program(exe: &Path) -> ExitCode {
+    match build::run(exe) {
         Ok(status) => {
             if status.success() {
                 ExitCode::SUCCESS

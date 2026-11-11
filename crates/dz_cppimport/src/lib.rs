@@ -30,7 +30,14 @@ mod disk;
 #[cfg(target_family = "wasm")]
 pub use builtin::import;
 #[cfg(not(target_family = "wasm"))]
-pub use clang::import;
+pub use clang::{files_read, import};
+
+/// Every file an import in this process read. A WebAssembly build reads none: its one
+/// header is built in.
+#[cfg(target_family = "wasm")]
+pub fn files_read() -> Vec<std::path::PathBuf> {
+    Vec::new()
+}
 
 /// The bytes of one of [`Header::files`]: from disk, or from the compiler itself for a
 /// header a WebAssembly build carries.

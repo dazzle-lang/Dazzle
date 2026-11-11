@@ -571,6 +571,9 @@ pub struct Workspace {
     prelude_layer: u32,
     /// How long loading spent outside reading manifests, for `--timings`.
     pub load_times: LoadTimes,
+    /// Every source pattern loading expanded, from where `dz` ran, with what it matched:
+    /// what a build stamp expands again to see a file added or removed (`dz build`).
+    globs: Vec<(String, Vec<PathBuf>)>,
 }
 
 /// The parts of loading a workspace that can take far longer than reading its manifests.
@@ -592,6 +595,13 @@ impl Workspace {
 
     pub fn module(&self, id: ModuleId) -> &Module {
         &self.modules[id.0 as usize]
+    }
+
+    /// Every source pattern loading expanded, from where `dz` ran, with every path it
+    /// matched, folders too, sorted. Expanded again with [`glob_entries`], a different list
+    /// means a file was added or removed.
+    pub fn globs(&self) -> &[(String, Vec<PathBuf>)] {
+        &self.globs
     }
 
     pub fn modules(&self) -> impl Iterator<Item = &Module> {
@@ -644,7 +654,8 @@ pub fn load_for(
     let manifest_path =
         normalize(&if entry.is_dir() { entry.join("dazzle.toml") } else { entry.to_owned() });
 
-    let mut loader = Loader { map, diags, modules: Vec::new(), by_path: HashMap::new() };
+    let mut loader =
+        Loader { map, diags, modules: Vec::new(), by_path: HashMap::new(), globs: Vec::new() };
     let prelude = loader.add_prelude();
     // The prelude's headers are read before any project module exists, so their modules
     // and files come straight after the prelude's own and are numbered the same in every
@@ -656,6 +667,7 @@ pub fn load_for(
         prelude,
         prelude_layer: 1,
         load_times: LoadTimes::default(),
+        globs: Vec::new(),
     };
     let started = std::time::Instant::now();
     import_headers(&mut layer, &[prelude], &mut added, loader.map, loader.diags);
@@ -668,6 +680,7 @@ pub fn load_for(
     // are written in it (spec §14.4). One whose manifest does not list it gets the
     // dependency anyway, marked implicit, which name resolution treats as not nameable.
     let mut modules = loader.modules;
+    let globs = loader.globs;
     // Not an imported header, which is C declarations and depends on nothing.
     for m in modules.iter_mut().filter(|m| m.foreign.is_none()) {
         if m.id != prelude && !m.deps.iter().any(|d| d.module == prelude) {
@@ -706,7 +719,7 @@ pub fn load_for(
     }
     let rest: Vec<ModuleId> =
         modules.iter().map(|m| m.id).filter(|id| id.0 >= prelude_layer).collect();
-    let mut ws = Workspace { modules, root, prelude, prelude_layer, load_times };
+    let mut ws = Workspace { modules, root, prelude, prelude_layer, load_times, globs };
     // Every module, not just the root: a dependency compiled at a different optimisation
     // level is the classic way to get a binary that behaves differently from either.
     if let Some(m) = optimize {
@@ -1166,6 +1179,14 @@ pub fn std_source(pseudo: &Path) -> Option<&'static str> {
 /// the platform's per-user cache (`$XDG_CACHE_HOME` or `~/.cache` on Linux,
 /// `~/Library/Caches` on macOS, `%LOCALAPPDATA%` on Windows) with `dazzle` appended, made
 /// absolute. `None` where there is none, or it cannot be created.
+/// Every path `pattern` matches, folders too, sorted: how a manifest's `sources` are
+/// expanded, and how a build stamp expands them again to compare.
+pub fn glob_entries(pattern: &str) -> Result<Vec<PathBuf>, glob::PatternError> {
+    let mut out: Vec<PathBuf> = glob::glob(pattern)?.flatten().collect();
+    out.sort();
+    Ok(out)
+}
+
 pub fn user_cache_dir() -> Option<PathBuf> {
     if cfg!(target_family = "wasm") {
         return None;
@@ -1209,6 +1230,8 @@ struct Loader<'a> {
     modules: Vec<Module>,
     /// Canonical manifest path to module, so a diamond dependency loads once.
     by_path: HashMap<PathBuf, ModuleId>,
+    /// Every source pattern expanded, with what it matched (`Workspace::globs`).
+    globs: Vec<(String, Vec<PathBuf>)>,
 }
 
 impl<'a> Loader<'a> {
@@ -1488,8 +1511,11 @@ impl<'a> Loader<'a> {
             };
             let joined = root_dir.join(pat);
             let joined = joined.to_string_lossy().replace('\\', "/");
-            let matches = match glob::glob(&joined) {
-                Ok(m) => m,
+            let matches = match glob_entries(&joined) {
+                Ok(m) => {
+                    self.globs.push((joined.clone(), m.clone()));
+                    m
+                }
                 Err(e) => {
                     self.diags.push(
                         Diagnostic::error(
@@ -1502,7 +1528,7 @@ impl<'a> Loader<'a> {
                 }
             };
             let mut found = 0usize;
-            for entry in matches.flatten() {
+            for entry in matches {
                 if entry.is_dir() {
                     continue;
                 }
@@ -2476,8 +2502,11 @@ impl<'a> Loader<'a> {
     ) {
         let is_glob = pattern.contains(['*', '?', '[']);
         let joined = normalize(&base.join(pattern)).to_string_lossy().replace('\\', "/");
-        let matches: Vec<PathBuf> = match glob::glob(&joined) {
-            Ok(m) => m.flatten().filter(|p| p.is_file()).collect(),
+        let matches: Vec<PathBuf> = match glob_entries(&joined) {
+            Ok(m) => {
+                self.globs.push((joined.clone(), m.clone()));
+                m.into_iter().filter(|p| p.is_file()).collect()
+            }
             Err(e) => {
                 self.diags.push(
                     Diagnostic::error(

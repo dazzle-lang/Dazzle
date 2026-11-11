@@ -178,6 +178,8 @@ DAZZLE_PHASES = [
     "placement",
     "instantiate generics",
     "emit C++",
+    # What the build read, recorded so a build with nothing changed can be skipped (T-0192).
+    "build stamp",
 ]
 
 

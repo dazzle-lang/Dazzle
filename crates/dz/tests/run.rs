@@ -1323,6 +1323,9 @@ fn timings_name_every_phase_on_standard_error() {
         "C and C++ libraries",
         "C++ compiler",
         "link",
+        // Recording what the build read, so the next one can be skipped if nothing changed
+        // (T-0192).
+        "build stamp",
         "total",
     ];
     assert_eq!(phases, expected, "{stderr}");

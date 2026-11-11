@@ -1098,3 +1098,55 @@ each instance's body once, which is output the program needs, and the rest has n
 single place. The next large step is not a constant factor: running phases on several
 threads needs `Ty`'s `Rc` to become `Arc`, and skipping the modules an edit did not touch
 is T-0023.
+
+## A build with nothing changed skips analysis (T-0192; 2026-11-11)
+
+Stage 1 of the plan to make a build cost what changed rather than how big the program is.
+Every `dz build` analysed the whole program before it could learn that nothing needed
+compiling: 2 s at T-0012's 100 modules, against 0.05 s for `make`.
+
+A successful `dz build` or `dz run` now writes a build stamp (`crates/dz/src/fresh.rs`),
+and the next build with the same key checks it before anything else. The key is the `dz`
+executable (path, size, time and version), the entry as written and the folder `dz` ran
+from, the options, and the environment variables that change a build. A rebuilt `dz` is
+another key, since it may generate different C++ from the same source; no version has to be
+bumped by hand.
+
+The inputs are:
+- the C++ compiler, resolved on the `PATH` with links followed, by size and time;
+- the executable;
+- each source pattern, expanded again, so an added or removed file counts;
+- each CMake source tree, by its files' sizes and times;
+- every file read, by size, time and hash, under T-0186's rule that a time within 2 s of the
+  stamp is not trusted.
+
+The files read are taken from three places:
+- the source map: manifests and `.dz` sources, hashed as they were read, so an edit made
+  while the build ran is seen;
+- `dz_cppimport::files_read`: every file a header import read;
+- the link stamp's objects and each object's own stamp: generated C++, library sources, C
+  and system headers. Those carry the hashes from when the object was compiled.
+
+The warnings the build printed are kept, and printed again on a skip, as Cargo does.
+
+Two things the tests found:
+- A file restored to a size and a time that were already settled cannot be seen by any
+  time-based check, `make`'s included. The test pins the case the 2 s rule exists for
+  instead: a time too recent to trust.
+- Building from beside the project (`dz build hello`) makes a different executable than
+  building inside it, 24 bytes apart, because panic locations name sources as the command
+  line did (T-0188). So the key holds the entry as written and the folder, and the two are
+  different builds.
+
+Measured with a release `dz` and clang++:
+- nothing changed in the 100-module project: 2.0 s to 5 ms, the check 0.6–2.3 ms over 910
+  files and 100 patterns;
+- `tests/run/hello`: 7 ms;
+- writing the stamp adds 20–40 ms to a real build.
+
+Not covered yet:
+- `dz test`'s binary, whose harness builds through another path;
+- `dz cpp` and `dz check`, which analyse because diagnostics are what they are for.
+
+`--timings` shows `up to date` on a skip and `build stamp` on a build;
+`tools/bench_programs.py` counts the latter as Dazzle's own work.
