@@ -203,6 +203,12 @@ pub enum FnKills {
         paths: Rc<[dz_ast::TiePath]>,
         /// The statics its paths name, as written and as resolved where they were (§6.7).
         statics: Rc<[(Vec<String>, SymbolId)]>,
+        /// `sends s to xs`: what a function stored in it may hand from one input to another
+        /// (D-0097, T-0202). None is a promise to send nothing.
+        sends: Rc<[dz_ast::Send]>,
+        /// `-> String in xs@home`: whose home an owned result may be in. None is a promise
+        /// that the result is built where its caller keeps it.
+        homes: Rc<[dz_ast::TiePath]>,
     },
     /// A pointer to a C or C++ function, whose header says nothing: a call through it kills
     /// everything reachable through its `&mut` and `^mut` arguments.
@@ -217,14 +223,56 @@ impl FnKills {
             results: Rc::from([]),
             paths: Rc::from([]),
             statics: Rc::from([]),
+            sends: Rc::from([]),
+            homes: Rc::from([]),
         }
     }
 
     /// Whether a function promising `self` fits where `wider` is promised, for parameters
-    /// `params`: it kills no more ([`FnKills::kills_within`]), and its result points into no
-    /// more ([`FnKills::results_within`]).
+    /// `params`: it kills no more ([`FnKills::kills_within`]), its result points into no
+    /// more ([`FnKills::results_within`]), it sends no more ([`FnKills::sends_within`]), and
+    /// its result is in no more homes ([`FnKills::homes_within`]).
     pub fn within(&self, wider: &FnKills, params: &[Ty]) -> bool {
-        self.kills_within(wider, params) && self.results_within(wider, params)
+        self.kills_within(wider, params)
+            && self.results_within(wider, params)
+            && self.sends_within(wider)
+            && self.homes_within(wider)
+    }
+
+    /// Whether every pair `self` sends is one `wider` sends, or under one on both sides,
+    /// parameter by position (D-0097, T-0202). A pointer from C sends nothing a clause can
+    /// name, and fits only where nothing can be killed, which `kills_within` holds it to.
+    pub fn sends_within(&self, wider: &FnKills) -> bool {
+        let (
+            FnKills::Known { names: mine, statics: s1, sends: narrow, .. },
+            FnKills::Known { names: theirs, statics: s2, sends: broad, .. },
+        ) = (self, wider)
+        else {
+            return true;
+        };
+        let one = std::slice::from_ref;
+        narrow.iter().all(|n| {
+            broad.iter().any(|b| {
+                covered((mine, s1), one(&n.what), (theirs, s2), one(&b.what))
+                    && covered((mine, s1), one(&n.to), (theirs, s2), one(&b.to))
+            })
+        })
+    }
+
+    /// Whether every home `self`'s result may be in is one `wider`'s may be in, or under one
+    /// (D-0097, T-0202): a part's home is never shorter than its owner's, so `xs@home` covers
+    /// `xs.items@home`. With none, a result is built where its caller keeps it, which fits
+    /// any type.
+    pub fn homes_within(&self, wider: &FnKills) -> bool {
+        let (
+            FnKills::Known { names: mine, statics: s1, homes: narrow, .. },
+            FnKills::Known { names: theirs, statics: s2, homes: broad, .. },
+        ) = (self, wider)
+        else {
+            return true;
+        };
+        let broad: Vec<dz_ast::TiePath> = broad.iter().map(without_home).collect();
+        narrow.iter().all(|n| covered((mine, s1), &[without_home(n)], (theirs, s2), &broad))
     }
 
     /// Whether every path `self` kills is one `wider` names, or under one. Unknown kills
@@ -344,6 +392,15 @@ fn result_places<'a>(
         [one] => Some(vec![(one, &[][..])]),
         _ => None,
     }
+}
+
+/// `path` without a trailing `@home`: the owner whose home it names (D-0097).
+pub fn without_home(path: &dz_ast::TiePath) -> dz_ast::TiePath {
+    let mut p = path.clone();
+    if matches!(p.steps.last(), Some(dz_ast::TieStep::Tie(t)) if t.name == "home") {
+        p.steps.pop();
+    }
+    p
 }
 
 fn same_step(a: &dz_ast::TieStep, b: &dz_ast::TieStep) -> bool {

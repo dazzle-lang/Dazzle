@@ -21467,3 +21467,130 @@ body fn dispatch -> void
           local _2 out: &mut List<String>
           move: String
             local _1 v: String
+body impl#172 method lay -> void
+  param _0 self: Mailbox
+  param _1 letter: String
+  block
+    call-method Mailbox::post: void
+      local _0 self: Mailbox
+      move: String
+        local _1 letter: String
+body impl#172 method lift -> String?
+  param _0 self: Mailbox
+  block
+    return: !
+      call-method Mailbox::collect: String?
+        local _0 self: Mailbox
+body field-default Blank.0 -> void
+  block
+    int 0: i32
+body impl#173 method lay -> void
+  param _0 self: Blank
+  param _1 letter: String
+  block
+    assign +=
+      field #0: i32
+        local _0 self: Blank
+      cast: i32
+        call-method String::len: usize
+          local _1 letter: String
+body impl#173 method lift -> String?
+  param _0 self: Blank
+  block
+    assign -=
+      field #0: i32
+        local _0 self: Blank
+      int 1: i32
+    return: !
+      call-assoc String::from: String
+        str "blank": &str
+body fn lay_through -> void
+  param _0 tray: &mut Tray
+  param _1 letter: String
+  block
+    call-method Tray::lay: void
+      local _0 tray: &mut Tray
+      move: String
+        local _1 letter: String
+body fn lift_through -> void
+  param _0 tray: &mut Tray
+  param _1 to: &mut List<String>
+  block
+    let _2 v: String
+      or: String
+        call-method Tray::lift: String?
+          local _0 tray: &mut Tray
+        return: !
+    call-method List::push: void
+      local _1 to: &mut List<String>
+      move: String
+        local _2 v: String
+body fn stash_letter -> void
+  param _0 letters: &mut List<String>
+  param _1 letter: String
+  block
+    call-method List::push: void
+      local _0 letters: &mut List<String>
+      move: String
+        local _1 letter: String
+body fn post_with -> void
+  param _0 f: fn(&mut List<String>, String) -> void
+  param _1 letters: &mut List<String>
+  block
+    call-value: void
+      local _0 f: fn(&mut List<String>, String) -> void
+      local _1 letters: &mut List<String>
+      call-assoc String::from: String
+        str "posted through a function type": &str
+body fn take_with -> void
+  param _0 f: fn(&mut List<String>) -> String
+  param _1 letters: &mut List<String>
+  param _2 to: &mut List<String>
+  block
+    call-method List::push: void
+      local _2 to: &mut List<String>
+      call-value: String
+        local _0 f: fn(&mut List<String>) -> String
+        local _1 letters: &mut List<String>
+body fn pass_letters -> void
+  block
+    let _0 box: Mailbox
+      struct-lit Mailbox: Mailbox
+        #0 (default)
+    call lay_through: void
+      ref mut: &mut Mailbox
+        local _0 box: Mailbox
+      call-assoc String::from: String
+        str "laid": &str
+    let _1 blank: Blank
+      struct-lit Blank: Blank
+        #0 (default)
+    call lay_through: void
+      ref mut: &mut Blank
+        local _1 blank: Blank
+      call-assoc String::from: String
+        str "counted": &str
+    let _2 kept: List<String>
+      call-ctor List#0: List<String>
+    call lift_through: void
+      ref mut: &mut Mailbox
+        local _0 box: Mailbox
+      ref mut: &mut List<String>
+        local _2 kept: List<String>
+    call lift_through: void
+      ref mut: &mut Blank
+        local _1 blank: Blank
+      ref mut: &mut List<String>
+        local _2 kept: List<String>
+    let _3 letters: List<String>
+      call-ctor List#0: List<String>
+    call post_with: void
+      fn-item stash_letter: fn(&mut List<String>, String) -> void
+      ref mut: &mut List<String>
+        local _3 letters: List<String>
+    call take_with: void
+      fn-item oldest: fn(&mut List<String>) -> String
+      ref mut: &mut List<String>
+        local _3 letters: List<String>
+      ref mut: &mut List<String>
+        local _2 kept: List<String>

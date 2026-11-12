@@ -1552,3 +1552,42 @@ fn main() {
     keep(String::from("one"), &mut names)
 }
 ```
+
+## DZ0584
+
+A function type's `sends` clause is the most a function stored in it may hand from one input
+to another (D-0097), and a call through a value of the type places its arguments by it: a
+value it is told stays in the call may be built in the caller's region. A function that sends
+more does not fit, since it could keep that value in a container that outlives the region. A
+function type with no `sends` promises to send nothing.
+
+```dz
+fn stash(xs: &mut List<String>, s: String) kills xs@items sends s to xs {
+    xs.push(move(s))
+}
+
+fn put(f: fn(xs: &mut List<String>, s: String) kills xs@items, xs: &mut List<String>) kills xs@items {
+    f(xs, String::from("kept"))
+}
+
+fn main() {
+    let mut names = List<String>()
+    put(stash, &mut names)
+}
+```
+
+```dz
+fn stash(xs: &mut List<String>, s: String) kills xs@items sends s to xs {
+    xs.push(move(s))
+}
+
+fn put(f: fn(xs: &mut List<String>, s: String) kills xs@items sends s to xs, xs: &mut List<String>) kills xs@items {
+    f(xs, String::from("kept"))
+}
+
+fn main() {
+    let mut names = List<String>()
+    put(stash, &mut names)
+    println!("{}", names.len())
+}
+```

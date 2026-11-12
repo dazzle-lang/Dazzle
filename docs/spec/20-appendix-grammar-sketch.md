@@ -28,7 +28,8 @@ fn_decl       = [ "unsafe" ] [ "mut" ] "fn" ident [ generics ] "(" [ params ] ")
                 [ ( "->" | "!->" ) type [ "in" in_list ] ]
                 [ "kills" kill_list ] [ "sends" send_list ] block ;   (* §6.7, D-0097 *)
 kill_list     = tie_path { "," tie_path } | "(" tie_path { "," tie_path } ")" ;
-send_list     = tie_path "to" tie_path { "," tie_path "to" tie_path } ;   (* "to" is a word, not a keyword *)
+send_list     = send { "," send } | "(" send { "," send } ")" ;
+send          = tie_path "to" tie_path ;   (* "to" is a word, not a keyword *)
 in_list       = tie_path | "(" tie_path { "," tie_path } ")" ;
 params        = param { "," param } ;
 param         = [ "&" | "&mut" ] "self" | ident ":" type [ "in" tie_path ] [ "=" expr ] ;
@@ -61,9 +62,11 @@ access_type   = "^" type | "&" [ "mut" ] type
               | "fn" "(" [ fn_type_params ] ")"
                 [ ( "->" | "!->" ) type [ "in" ( tie_path | "(" tie_path { "," tie_path } ")" ) ] ]
                 [ "kills" ( tie_path | "(" tie_path { "," tie_path } ")" ) ]
-                (* names needed only by a clause, §6.7; a comma after a bare path begins the
-                   next parameter, so more than one path is parenthesised here; an `in`
-                   after the result is the type's, not an enclosing parameter's *)
+                [ "sends" ( send | "(" send { "," send } ")" ) ]
+                (* names needed only by a clause, §6.7; a comma after a bare path or pair
+                   begins the next parameter, so more than one is parenthesised here; an
+                   `in` after the result, `@home` included, is the type's, not an enclosing
+                   parameter's; `kills` and `sends` come in either order, D-0097 *)
               | "(" type_list ")"
               | path [ "<" type_list ">" ] ;
 path          = ident { "::" ident } ;

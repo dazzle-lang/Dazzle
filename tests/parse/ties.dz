@@ -93,3 +93,8 @@ fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*] se
 fn put(&mut self, v: T) sends v to self kills self@items {}
 fn last(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {}
 fn to(to: i32) -> i32 { return to }
+
+// A function type takes `sends` and `in x@home` as a declaration does; more than one pair is
+// parenthesised, and a comma after a bare pair begins the next parameter (T-0202).
+fn put_with(f: fn(xs: &mut List<String>, s: String) kills xs@items sends s to xs, n: i32) {}
+fn take_with(f: fn(xs: &mut List<String>) -> String in xs@home sends (xs[*] to KEPT, xs[*] to LOG) kills xs) {}

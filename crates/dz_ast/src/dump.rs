@@ -798,8 +798,8 @@ pub fn type_str(t: &Type) -> String {
         TypeKind::Tuple(elems) => {
             format!("({})", elems.iter().map(type_str).collect::<Vec<_>>().join(", "))
         }
-        TypeKind::Fn { params, param_names, ret, ret_ties, kills } => format!(
-            "fn({}){}{}{}",
+        TypeKind::Fn { params, param_names, ret, ret_ties, kills, sends } => format!(
+            "fn({}){}{}{}{}",
             params
                 .iter()
                 .zip(param_names)
@@ -811,7 +811,8 @@ pub fn type_str(t: &Type) -> String {
                 .join(", "),
             ret.as_ref().map(|r| format!(" -> {}", type_str(r))).unwrap_or_default(),
             in_str(ret_ties),
-            kills_str(kills, true)
+            kills_str(kills, true),
+            sends_in(sends, true)
         ),
         TypeKind::Const(inner) => format!("const {}", type_str(inner)),
         TypeKind::SelfType => "Self".to_owned(),
@@ -873,14 +874,22 @@ pub fn kills_str(kills: &[TiePath], in_type: bool) -> String {
 
 /// ` sends a to b, c to d`, or nothing when there are none (D-0097).
 pub fn sends_str(sends: &[Send]) -> String {
-    if sends.is_empty() {
-        return String::new();
-    }
+    sends_in(sends, false)
+}
+
+/// [`sends_str`], where in a function type more than one pair is parenthesised, as
+/// [`kills_str`]'s paths are (T-0202).
+pub fn sends_in(sends: &[Send], in_type: bool) -> String {
     let pairs: Vec<String> = sends
         .iter()
         .map(|s| format!("{} to {}", tie_path_str(&s.what), tie_path_str(&s.to)))
         .collect();
-    format!(" sends {}", pairs.join(", "))
+    match pairs.len() {
+        0 => String::new(),
+        1 => format!(" sends {}", pairs[0]),
+        _ if in_type => format!(" sends ({})", pairs.join(", ")),
+        _ => format!(" sends {}", pairs.join(", ")),
+    }
 }
 
 pub fn pat_str(p: &Pat) -> String {

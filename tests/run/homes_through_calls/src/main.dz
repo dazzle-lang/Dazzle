@@ -1,0 +1,145 @@
+// A value built in a container's home, handed back through a call that does not name its
+// callee: a trait object, a generic bound, a local reference and a function value (D-0097,
+// T-0202). Each is kept by a list that outlives the container; `churn` then reuses the memory
+// of the region the container was in, so a placement that left the value there shows here as
+// another string's text, or a report under the sanitizers.
+
+fn churn() -> i32 {
+    let mut junk = List<String>()
+    for _ in 0..2000 {
+        junk.push(String::from("################################"))
+    }
+    return junk.len() as i32
+}
+
+trait Source {
+    fn make(&mut self, n: i32) -> String? in self@home kills self
+    fn keep(&mut self, s: String) kills self sends s to self
+}
+
+pub struct Bag {
+    pub items: List<String>
+
+    pub Bag() {
+        items = List<String>()
+    }
+}
+
+impl Source for Bag {
+    // Builds a string in the bag's own home, then hands it back.
+    fn make(&mut self, n: i32) -> String? in self@home kills self.items@items, self.items[*] {
+        items.push(format!("made {} in the bag's home, long enough to need memory", n))
+        return items.pop()
+    }
+
+    fn keep(&mut self, s: String) kills self.items@items sends s to self {
+        items.push(move(s))
+    }
+}
+
+// Through a trait object a local reference holds.
+fn through_object(store: &mut List<String>) -> i32 kills store@items {
+    let mut bag = Bag()
+    let s: &mut Source = &mut bag
+    let v = s.make(1) or return 0
+    store.push(move(v))
+    return churn()
+}
+
+// Through a trait-object parameter.
+fn make_from(src: &mut Source, store: &mut List<String>) kills src, store@items sends src to store {
+    let v = src.make(2) or return
+    store.push(move(v))
+}
+
+fn through_parameter(store: &mut List<String>) -> i32 kills store@items {
+    let mut bag = Bag()
+    make_from(&mut bag, store)
+    return churn()
+}
+
+// Through a generic bound.
+fn make_one<S: Source>(
+    src: &mut S,
+    store: &mut List<String>
+) kills src, store@items sends src to store {
+    let v = src.make(3) or return
+    store.push(move(v))
+}
+
+fn through_bound(store: &mut List<String>) -> i32 kills store@items {
+    let mut bag = Bag()
+    make_one(&mut bag, store)
+    return churn()
+}
+
+// Through a local reference of the bag's own type.
+fn through_reference(store: &mut List<String>) -> i32 kills store@items {
+    let mut bag = Bag()
+    let s = &mut bag
+    let v = s.make(4) or return 0
+    store.push(move(v))
+    return churn()
+}
+
+// Directly: the control.
+fn directly(store: &mut List<String>) -> i32 kills store@items {
+    let mut bag = Bag()
+    let v = bag.make(5) or return 0
+    store.push(move(v))
+    return churn()
+}
+
+// Through a function value, whose type says where its result is.
+fn made(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {
+    xs.push(String::from("made 6 in a lent list's home, long enough to need memory"))
+    return xs.pop() or String()
+}
+
+fn through_value(
+    f: fn(xs: &mut List<String>) -> String in xs@home kills xs,
+    store: &mut List<String>
+) -> i32 kills store@items {
+    let mut names = List<String>()
+    store.push(f(&mut names))
+    return churn()
+}
+
+// Through a function value whose type says it keeps what it is given.
+fn stash(xs: &mut List<String>, s: String) kills xs@items sends s to xs {
+    xs.push(move(s))
+}
+
+fn kept_by_value(
+    f: fn(xs: &mut List<String>, s: String) kills xs@items sends s to xs,
+    store: &mut List<String>
+) -> i32 kills store@items {
+    f(store, String::from("kept 7 through a function value, long enough to need memory"))
+    return churn()
+}
+
+// Kept by a bag through the trait, then read back.
+fn kept_by_object(bag: &mut Source) -> i32 kills bag {
+    bag.keep(String::from("kept 8 through a trait object, long enough to need memory"))
+    return churn()
+}
+
+fn main() {
+    let mut store = List<String>()
+    through_object(&mut store)
+    through_parameter(&mut store)
+    through_bound(&mut store)
+    through_reference(&mut store)
+    directly(&mut store)
+    through_value(made, &mut store)
+    kept_by_value(stash, &mut store)
+    let mut bag = Bag()
+    kept_by_object(&mut bag)
+    churn()
+    for &s in store {
+        println!("{}", s)
+    }
+    for &s in bag.items {
+        println!("{}", s)
+    }
+}

@@ -691,6 +691,29 @@ no `in` is written yet. `@home` names nothing anywhere else: not in a `kills` cl
 a view's or a parameter's `in`, not in a `sends` path, and not on a value that owns no
 memory (`DZ0582`). `[DECIDED — D-0097]`
 
+**Where there is no body, `sends` and `in x@home` are promises**, as `kills` is: a trait
+method's say the most an implementation may send and whose homes its result may be in, and
+a function type's the most a function stored in it may. A call through the trait, through a
+bound or through a value of the type places by those alone, so an implementation's own may
+say no more than its trait's (`DZ0573`), and a function fits a function type only when the
+type's cover its own (`DZ0584` for `sends`, `DZ0572` for `in`). A pair is covered by one
+whose two paths are the same or above it, parameter by position; a home by the same input's
+or an owner's, since a part's home is never shorter. With none, a trait method or a function
+type promises to send nothing and to build its result for its caller. A function type writes
+them after its result, in either order with `kills`, more than one pair parenthesised:
+
+```dz
+trait Source {
+    fn make(&mut self) -> String? in self@home kills self
+    fn keep(&mut self, s: String) kills self sends s to self
+}
+
+fn take(f: fn(xs: &mut List<String>) -> String in xs@home kills xs, xs: &mut List<String>) -> String in xs@home kills xs
+fn put(f: fn(xs: &mut List<String>, s: String) kills xs@items sends s to xs, xs: &mut List<String>) kills xs@items
+```
+
+`[DECIDED — D-0097, T-0202]`
+
 `std` says this for every container: `sends` on `List`'s `push`, `insert` and `append`,
 on `HashMap`'s `insert`, `replace` and `get_or_insert`, and on `HashSet`'s and `SlotMap`'s
 `insert`; `in self@home` on `List`'s `pop`, `remove` and `swap_remove`, `HashMap`'s
@@ -702,5 +725,5 @@ The checker reports a use after a kill (`DZ0413`), a return outside its `in`
 more than dies (`DZ0415`–`DZ0417`), each clause error with the clause the body needs,
 which `dz fix` writes; a returned view that does not say where it points (`DZ0570`,
 `DZ0571`); and a function stored where its function type's clauses promise less than its
-own (`DZ0568` for `kills`, `DZ0572` for `in`). A debug build also checks `std`'s trusted
-clauses at run time (T-0116, r102).
+own (`DZ0568` for `kills`, `DZ0572` for `in`, `DZ0584` for `sends`). A debug build also
+checks `std`'s trusted clauses at run time (T-0116, r102).

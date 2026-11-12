@@ -51,3 +51,5 @@ fn first()->&i32 in  world::SCORES.list@items {}
 fn give(from:&mut List<String>,store:&mut Store) kills from@items,from[*]  sends from[*] to   store,from[*] to KEPT {}
 fn put(&mut self,v:T)  sends v to self kills self@items {}
 fn last(xs:&mut List<String>)->String in xs@home kills xs@items,xs[*] {}
+fn put_with(f: fn(xs:&mut List<String>,s:String)  sends s to   xs kills xs@items,n:i32) {}
+fn take_with(f: fn(xs:&mut List<String>)->String in xs@home sends ( xs[*] to KEPT ) kills xs) {}

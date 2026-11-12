@@ -102,6 +102,10 @@ fn to(to: i32) -> i32
   block
     return
       path to
+fn put_with(f: fn(xs: &mut List<String>, s: String) kills xs@items sends s to xs, n: i32)
+  block
+fn take_with(f: fn(xs: &mut List<String>) -> String in xs@home kills xs sends (xs[*] to KEPT, xs[*] to LOG))
+  block
 
 === DIAGNOSTICS ===
 (none)

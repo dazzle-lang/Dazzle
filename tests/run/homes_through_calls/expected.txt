@@ -1,0 +1,8 @@
+made 1 in the bag's home, long enough to need memory
+made 2 in the bag's home, long enough to need memory
+made 3 in the bag's home, long enough to need memory
+made 4 in the bag's home, long enough to need memory
+made 5 in the bag's home, long enough to need memory
+made 6 in a lent list's home, long enough to need memory
+kept 7 through a function value, long enough to need memory
+kept 8 through a trait object, long enough to need memory

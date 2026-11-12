@@ -1608,7 +1608,7 @@ impl<'a> Cx<'a> {
                     hir::ExprKind::Ref { mutable: true, place, .. } => place,
                     _ => e,
                 };
-                self.receiver_local(e) == Some(x)
+                self.receiver_local(e) == Some(x) || self.reference_to(e) == Some(x)
             };
             let lent: Vec<Option<String>> = recv
                 .into_iter()
@@ -1618,9 +1618,21 @@ impl<'a> Cx<'a> {
             if lent.iter().all(Option::is_none) {
                 continue;
             }
-            let Some((owner_sym, _)) = callee_owner(self.res, callee) else { continue };
-            let Some(sig) = self.callee_sig(callee) else { continue };
-            let program = self.res.symbol(owner_sym).module != self.res.prelude;
+            // A call through a function value reads the type's clauses, and may be any
+            // function of the program's own (T-0202).
+            let value_sig;
+            let (sig, program) = match callee {
+                Callee::Value(v) => {
+                    let Ty::Fn { params, ret, kills } = self.body.ty(*v) else { continue };
+                    value_sig = dz_check::ties::fn_type_sig(params, ret, kills);
+                    (&value_sig, true)
+                }
+                _ => {
+                    let Some((owner_sym, _)) = callee_owner(self.res, callee) else { continue };
+                    let Some(sig) = self.callee_sig(callee) else { continue };
+                    (sig, self.res.symbol(owner_sym).module != self.res.prelude)
+                }
+            };
             let names: Vec<String> = lent
                 .iter()
                 .flatten()
@@ -1991,6 +2003,25 @@ impl<'a> Cx<'a> {
             }
             _ => None,
         }
+    }
+
+    /// The local `e` is a reference to, when `e` is a local reference the body declares as
+    /// `let s = &mut bag` (or `&bag`, or as a trait object): a call through `s` is a call on
+    /// `bag` (T-0202).
+    fn reference_to(&self, e: ExprId) -> Option<LocalId> {
+        let hir::ExprKind::Local(s) = self.body.expr(e).kind else { return None };
+        if self.body.params.contains(&s) || !matches!(self.body.local(s).ty, Ty::Ref { .. }) {
+            return None;
+        }
+        self.body.stmts.iter().find_map(|stmt| match stmt.kind {
+            hir::StmtKind::Let { local: Some(l), init: Some(init) } if l == s => {
+                match self.body.expr(init).kind {
+                    hir::ExprKind::Ref { place, .. } => self.receiver_local(place),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
     }
 
     /// The outermost value holding `e`'s, through what moves it whole into another: a

@@ -6,6 +6,40 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## r120, T-0202: `sends` and `in x@home` through traits and function types (2026-11-12)
+
+Probes run against r119 found safe code reading freed memory. An implementation whose result
+was `in self@home`, reached through a trait method, a bound or a function type that said
+nothing of it, handed back a value built in its receiver's home; the caller, reading only the
+trait's or the type's clause, kept it in a list that outlived that home's region. Direct calls
+were sound. The other direction, an argument handed in, was safe only because placement
+put such arguments on the heap.
+
+- **Traits** (`clauses_within_trait`): an implementation's `sends` and `in … @home` must be
+  within its trait's, as its `kills` and `in` already were (DZ0573), each pair or home
+  compared by parameter position.
+- **Function types**, decided by the user over refusing such functions: `TypeKind::Fn`
+  gained `sends`, parsed after the result in either order with `kills`, more than one pair
+  parenthesised as `kills` paths are (`parse_sends(in_type)`, `dump::sends_in`). `FnKills`
+  gained `sends` and `homes`, the `in` split as a declaration's is, and `within` compares
+  them (`sends_within`, `homes_within`); a function that does not fit is DZ0584 (new) or
+  DZ0572. `fn_type_sig` hands them to callers, and `fn_types` checks their paths with the
+  declaration's own loops (`homes_and_sends`).
+- **The region check** read no clauses at a call through a function value, since
+  `call_signature` answers only for a function item: `signature_at` falls back to the
+  type's signature, for `region_clauses` and the homes walk.
+- **A local reference**, found on the way, with no trait involved: `let s = &mut bag;
+  s.make()` kept `bag` in a region. `local_root` stops at a reference local, so neither
+  `built_into` nor `regions_held` saw `bag`; `containers_of` follows a reference local to
+  what the walk says it views. The proposer's `built_and_left` follows `let s = &mut bag`
+  (`reference_to`) and reads a function value's type, so the two still agree.
+
+Tests: `tests/run/homes_through_calls` (seven shapes, each read back after a churn),
+four programs in `tests/errors`, the `Tray` section of the typed workspace (and its HIR
+snapshot), and the new syntax in `tests/parse/ties.dz` and `tests/fmt/ties.dz`. Every
+example, run program and bench program still checks. `dz fix` extending an `in` already
+written is T-0204.
+
 ## T-0203: a call through a trait object kills the object (2026-11-12)
 
 A hole found while probing T-0202: `put_many(sink: &mut Sink)` called `sink.put(…)`, whose

@@ -170,9 +170,26 @@ impl<'a> Parser<'a> {
                 } else {
                     Vec::new()
                 };
-                let kills =
-                    if self.eat(TokenKind::Kills) { self.parse_kills(true) } else { Vec::new() };
-                TypeKind::Fn { params, param_names, ret, ret_ties, kills }
+                // `kills …` and `sends … to …`, each at most once and in either order, as a
+                // declaration takes them (D-0097, T-0202).
+                let (mut kills, mut sends) = (None, None);
+                loop {
+                    if kills.is_none() && self.eat(TokenKind::Kills) {
+                        kills = Some(self.parse_kills(true));
+                    } else if sends.is_none() && self.eat(TokenKind::Sends) {
+                        sends = Some(self.parse_sends(true));
+                    } else {
+                        break;
+                    }
+                }
+                TypeKind::Fn {
+                    params,
+                    param_names,
+                    ret,
+                    ret_ties,
+                    kills: kills.unwrap_or_default(),
+                    sends: sends.unwrap_or_default(),
+                }
             }
             TokenKind::SelfType => {
                 self.bump();

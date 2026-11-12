@@ -2,7 +2,7 @@
 id: T-0202
 title: "Homes through traits and function types: a result `in self@home` read through either reaches freed memory"
 milestone: none
-status: open
+status: done
 kind: feature
 area: ownership
 ---
@@ -15,13 +15,18 @@ homes.
 
 | Piece | Where |
 |---|---|
-| An implementation's `kills` and `in` against its trait's (DZ0573, `IMPL_CLAUSE_WIDER`) | `clauses_within_trait` in `dz_check/src/check.rs` |
-| A function type's clauses; a function fitting a function type | `FnKills` (`within`, `kills_within`, `results_within`) and the `Ty::Fn` case of fitting in `dz_hir/src/ty.rs` |
-| A function type's clauses parsed | `dz_parse/src/ty.rs` (`fn(world: &mut World) kills world`); the AST type in `dz_ast/src/lib.rs` |
-| A function type's clauses resolved into a signature | `fn_type_sig` in `dz_check/src/ties.rs` |
+| An implementation's clauses against its trait's, `sends` and `in … @home` included (DZ0573) | `clauses_within_trait` in `dz_check/src/check.rs` |
+| A function type's clauses, `sends` and `homes` included; a function fitting a type | `FnKills` (`within`, `kills_within`, `results_within`, `sends_within`, `homes_within`, `without_home`) in `dz_hir/src/ty.rs` |
+| The report when a function does not fit a type (DZ0568, DZ0572, DZ0584) | the `Ty::Fn` case of a type mismatch in `dz_check/src/check.rs` |
+| A function item's value carries its own clauses | the `SymbolKind::Fn` value in `dz_check/src/check.rs` |
+| A function type parsed, `sends` with it; `sends` parenthesised in a type | `dz_parse/src/ty.rs`; `parse_sends(in_type)` in `dz_parse/src/item.rs`; `TypeKind::Fn::sends` in `dz_ast/src/lib.rs`; `dump::sends_in` |
+| A function type lowered, its `in` split into views and homes | `TypeKind::Fn` in `lower_type_inner`, `dz_check/src/lib.rs` |
+| A function type's clauses resolved and checked | `fn_type_sig`, `fn_types` and `homes_and_sends` in `dz_check/src/ties.rs` |
 | `FnSig::sends`, `FnSig::ret_home` | `fn_sig_inner` in `dz_check/src/lib.rs` |
-| A body's sends and returns against its clauses, and the fix that writes one | `report_homes` in `dz_flow/src/ties/report.rs` (DZ0421, DZ0422) |
-| A call read by its callee's clauses in placement | `lend_keeps`, `sends_to_self`, `region_clauses` in `dz_flow/src/placement.rs` |
+| The region check reading a call through a function value | `signature_at` in `dz_flow/src/ties/body.rs` |
+| The region check following a local reference to its container | `containers_of`, `regions_held`, `region_clauses` in `dz_flow/src/ties/body.rs` |
+| The proposer doing the same | `reference_to` and the function-value case of `built_and_left` in `dz_flow/src/placement.rs` |
+| The tests | `tests/run/homes_through_calls`; `tests/errors/impl_*_trait.dz`, `fn_*_its_type.dz`; the `Tray` section of `tests/workspace/typed`; `tests/parse/ties.dz`, `tests/fmt/ties.dz` |
 
 **What it is.** Three gaps in where `sends` and `in x@home` are read:
 
@@ -88,17 +93,23 @@ in r81's syntax; the probe used `kills xs`, which covers both).
 A second hole was found on the way, in `kills` rather than homes, and is closed:
 [T-0203](T-0203-call-through-trait-object-kills-nothing.md).
 
-**What it would take.**
+**Done 2026-11-12 (r120)**, for 1 and 2; 3 is
+[T-0204](T-0204-dz-fix-adds-home-owned-result.md). The user chose to write the clauses on
+function types over refusing to store such functions.
 
-- Turn the probes into a regression program, `tests/run/transfers` or one of its own:
-  T7 (trait object), T9 (generic bound) and F3 (function value), each with a churn
-  between building and reading, checked under the sanitizer job (T-0132) as well.
-- For 1: compare `sends` and `ret_home` in `clauses_within_trait`, each implementation's
-  within its trait's, by parameter position as `kills` is; a new code or DZ0573 with its
-  own message. An `in self@home` on an implementation is wider than a trait method's
-  untied owned result, so T7 is refused there and the trait must say `in self@home`.
-- For 2: function-type syntax for `sends` and `in … @home` (a language change: a §21 row,
-  spec §6.7 and §20), carried in `FnKills`, compared in `within`, and read by placement at
-  a call through a function value. Until then a function with `sends` or `in … @home`
-  could be refused where a function type is expected.
-- For 3: `report_homes`' fix rewrites the existing `in` with the new path added.
+- **Traits.** `clauses_within_trait` holds an implementation's `sends` and `in … @home`
+  within its trait's (DZ0573), so a trait whose implementations keep or hand back memory
+  says so, and a call through the trait or a bound places by it.
+- **Function types** take `sends` and `in x@home` as a declaration does, carried in
+  `FnKills` and compared in `within`: a function fits only a type that covers its clauses
+  (DZ0584 for `sends`, new; DZ0572 for `in`). A call through a function value now reads the
+  type's signature in the region check (`signature_at`), where `call_signature` had nothing
+  for a value that is not a function item.
+- **A local reference.** Fixing the trait object showed a hole with no trait in it at all:
+  `let s = &mut bag; s.make()` left `bag` in a region while its result went to a longer-lived
+  list. The region check stopped at a reference local (`local_root`); it now follows it to
+  what it views (`containers_of`), and the proposer follows a `let s = &mut bag` to `bag`
+  (`reference_to`), so they agree.
+
+The probe's nine cases all print what they built; `tests/run/homes_through_calls` keeps
+seven of them, each placing its container on the heap where it was a region before.

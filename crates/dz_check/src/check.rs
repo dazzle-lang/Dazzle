@@ -649,6 +649,8 @@ fn clauses_within_trait(cx: &mut Ctx, method: &str, trait_name: &str, want: &FnS
         results: s.ret_ties.iter().cloned().collect(),
         paths: s.kills.iter().cloned().collect(),
         statics: s.statics.clone().into(),
+        sends: s.sends.iter().cloned().collect(),
+        homes: s.ret_home.iter().cloned().collect(),
     };
     let params: Vec<Ty> = got
         .takes_self
@@ -695,6 +697,58 @@ fn clauses_within_trait(cx: &mut Ctx, method: &str, trait_name: &str, want: &FnS
             format!(
                 "a call through `{trait_name}` relies on the trait's `in`: point into no more, \
                  or widen `{trait_name}::{method}`'s (spec §6.7)"
+            ),
+        );
+    }
+    // `sends` and an owned result's `in … @home` (D-0097) are promises too: a call through
+    // the trait, or through a bound, places what it hands the method and keeps what comes
+    // back by the trait's clauses alone, so an implementation's may say no more (T-0202).
+    // One pair or one home of the implementation's at a time, so the report names it.
+    let only = |sends: &[dz_ast::Send], homes: &[dz_ast::TiePath]| FnKills::Known {
+        names: names(got),
+        results: Rc::from([]),
+        paths: Rc::from([]),
+        statics: got.statics.clone().into(),
+        sends: sends.into(),
+        homes: homes.into(),
+    };
+    let shown = |p: &dz_ast::TiePath| dz_ast::dump::tie_path_str(p);
+    if let Some(send) =
+        got.sends.iter().find(|s| !only(std::slice::from_ref(s), &[]).sends_within(&theirs))
+    {
+        let pair = format!("{} to {}", shown(&send.what), shown(&send.to));
+        cx.error_help(
+            codes::IMPL_CLAUSE_WIDER,
+            send.span,
+            format!("`{method}` sends `{pair}`, and `{trait_name}::{method}` does not say so"),
+            "sends what the trait does not",
+            format!(
+                "a call through `{trait_name}` places what it hands `{method}` by the trait's \
+                 clause: send no more, or add `sends {pair}` to `{trait_name}::{method}` \
+                 (spec §6.7)"
+            ),
+        );
+    }
+    if let Some(home) =
+        got.ret_home.iter().find(|h| !only(&[], std::slice::from_ref(h)).homes_within(&theirs))
+    {
+        let allowed = match want.ret_home.len() {
+            0 => "is built for its caller".to_owned(),
+            _ => format!("is in {}", listed(&want.ret_home)),
+        };
+        cx.error_help(
+            codes::IMPL_CLAUSE_WIDER,
+            home.span,
+            format!(
+                "`{method}`'s result is in `{}`, and `{trait_name}::{method}`'s {allowed}",
+                shown(home)
+            ),
+            "its result lives where the trait's does not",
+            format!(
+                "a call through `{trait_name}` keeps the result where the trait's `in` says: \
+                 return a value built for the caller, or add `in {}` to \
+                 `{trait_name}::{method}`'s result (spec §6.7)",
+                shown(home)
             ),
         );
     }
@@ -1499,6 +1553,64 @@ impl<'a, 'c> Body<'a, 'c> {
             (&expected, &actual)
         {
             let any = Ty::Fn { params: params.clone(), ret: ret.clone(), kills: FnKills::Unknown };
+            let listed = |paths: &[dz_ast::TiePath]| {
+                paths
+                    .iter()
+                    .map(|p| format!("`{}`", dz_ast::dump::tie_path_str(p)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            // Where its owned result lives, and what it sends (D-0097, T-0202).
+            if assignable(&any, &actual) && !narrow.homes_within(wider) {
+                let homes = |k: &FnKills| match k {
+                    FnKills::Known { homes, .. } if !homes.is_empty() => {
+                        format!("in {}", listed(homes))
+                    }
+                    _ => "built where its caller keeps it".to_owned(),
+                };
+                let (may, allowed) = (homes(narrow), homes(wider));
+                self.cx.error_help(
+                    codes::FN_RESULT_TOO_WIDE,
+                    span,
+                    format!(
+                        "this function's result is {may}, and the function type's is {allowed}"
+                    ),
+                    "its result lives where the type does not say",
+                    "a call through a function type keeps the result where the type's `in` says, \
+                     so a result left in an input's home needs the type to say so, `fn(xs: &mut \
+                     List<String>) -> String in xs@home`, or store a function whose result is \
+                     built for its caller (spec §6.7)",
+                );
+                return;
+            }
+            if assignable(&any, &actual) && !narrow.sends_within(wider) {
+                let sends = |k: &FnKills| match k {
+                    FnKills::Known { sends, .. } if !sends.is_empty() => sends
+                        .iter()
+                        .map(|s| {
+                            format!(
+                                "`{} to {}`",
+                                dz_ast::dump::tie_path_str(&s.what),
+                                dz_ast::dump::tie_path_str(&s.to)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    _ => "nothing".to_owned(),
+                };
+                let (may, allowed) = (sends(narrow), sends(wider));
+                self.cx.error_help(
+                    codes::FN_SENDS_TOO_MUCH,
+                    span,
+                    format!("this function sends {may}, and the function type allows {allowed}"),
+                    "sends more than the type allows",
+                    "a function type's `sends` is the most a function stored in it may hand from \
+                     one input to another, and a call through it places its arguments by that: \
+                     name it in the type, `fn(xs: &mut List<String>, s: String) kills xs@items \
+                     sends s to xs`, or store a function that sends no more (spec §6.7)",
+                );
+                return;
+            }
             if assignable(&any, &actual) && !narrow.results_within(wider, params) {
                 let shown = |k: &FnKills| match k {
                     FnKills::Known { results, .. } if !results.is_empty() => {
@@ -7297,6 +7409,8 @@ impl<'a, 'c> Body<'a, 'c> {
                                     results: sig.ret_ties.iter().cloned().collect(),
                                     paths: sig.kills.iter().cloned().collect(),
                                     statics: sig.statics.clone().into(),
+                                    sends: sig.sends.iter().cloned().collect(),
+                                    homes: sig.ret_home.iter().cloned().collect(),
                                 }
                             },
                         },

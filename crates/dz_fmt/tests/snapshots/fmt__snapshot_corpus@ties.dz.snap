@@ -62,3 +62,7 @@ fn give(
 fn put(&mut self, v: T) kills self@items sends v to self {}
 
 fn last(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {}
+
+fn put_with(f: fn(xs: &mut List<String>, s: String) kills xs@items sends s to xs, n: i32) {}
+
+fn take_with(f: fn(xs: &mut List<String>) -> String in xs@home kills xs sends xs[*] to KEPT) {}

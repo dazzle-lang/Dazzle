@@ -1,0 +1,25 @@
+// expect: DZ0573
+//
+// A call through a trait keeps the result where the trait's `in` says, so an implementation's
+// owned result is in no home its trait does not name (D-0097, T-0202): here `take` hands back
+// an element still in its list's home, and `Source::take` says it is built for its caller.
+
+trait Source {
+    fn take(&mut self) -> String? kills self
+}
+
+struct Bag {
+    pub items: List<String> = List<String>()
+}
+
+impl Source for Bag {
+    fn take(&mut self) -> String? in self@home kills self.items@items {
+        return items.pop()
+    }
+}
+
+fn main() {
+    let mut bag = Bag{}
+    let s = bag.take() or return
+    println!("{}", s)
+}

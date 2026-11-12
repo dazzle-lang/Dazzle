@@ -2501,12 +2501,17 @@ impl<'a> Ctx<'a> {
             TypeKind::Tuple(elems) => {
                 Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect())
             }
-            TypeKind::Fn { params, param_names, ret, ret_ties, kills } => {
+            TypeKind::Fn { params, param_names, ret, ret_ties, kills, sends } => {
                 let names: Vec<String> = param_names
                     .iter()
                     .map(|n| n.as_ref().map(|n| n.name.clone()).unwrap_or_default())
                     .collect();
-                let statics = self.tie_statics(kills.iter().chain(ret_ties), &names);
+                let sent = sends.iter().flat_map(|s| [&s.what, &s.to]);
+                let statics = self.tie_statics(kills.iter().chain(ret_ties).chain(sent), &names);
+                // An `in` ending at `@home` says whose home an owned result is in, as a
+                // declaration's does (D-0097); the rest say where a view points.
+                let (homes, results): (Vec<_>, Vec<_>) =
+                    ret_ties.iter().cloned().partition(ties::ends_at_home);
                 Ty::Fn {
                     params: params.iter().map(|p| self.lower_type_inner(p)).collect(),
                     ret: Rc::new(
@@ -2514,9 +2519,11 @@ impl<'a> Ctx<'a> {
                     ),
                     kills: FnKills::Known {
                         names: names.into(),
-                        results: ret_ties.iter().cloned().collect(),
+                        results: results.into(),
                         paths: kills.iter().cloned().collect(),
                         statics: statics.into(),
+                        sends: sends.iter().cloned().collect(),
+                        homes: homes.into(),
                     },
                 }
             }

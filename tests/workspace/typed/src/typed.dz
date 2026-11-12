@@ -2252,3 +2252,81 @@ fn dispatch(letters: &mut List<String>) sends letters[*] to OUTBOX kills letters
         out.push(move(v))
     }
 }
+
+// A trait method and a function type say what a function behind them sends, and whose home
+// its result is in, as a declaration does; an implementation or a function stored in the type
+// says no more (D-0097, T-0202).
+trait Tray {
+    fn lay(&mut self, letter: String) kills self sends letter to self
+    fn lift(&mut self) -> String? in self@home kills self
+}
+
+impl Tray for Mailbox {
+    fn lay(&mut self, letter: String) kills self@letters@items sends letter to self {
+        self.post(move(letter))
+    }
+
+    fn lift(&mut self) -> String? in self@home kills self@letters@items, self@letters[*] {
+        return self.collect()
+    }
+}
+
+// An implementation that says less than its trait: it sends nothing and builds its result.
+pub struct Blank {
+    pub count: i32 = 0
+}
+
+impl Tray for Blank {
+    fn lay(&mut self, letter: String) {
+        count += letter.len() as i32
+    }
+
+    fn lift(&mut self) -> String? {
+        count -= 1
+        return String::from("blank")
+    }
+}
+
+fn lay_through(tray: &mut Tray, letter: String) kills tray sends letter to tray {
+    tray.lay(move(letter))
+}
+
+fn lift_through(tray: &mut Tray, to: &mut List<String>) kills tray, to@items sends tray to to {
+    let v = tray.lift() or return
+    to.push(move(v))
+}
+
+fn stash_letter(
+    letters: &mut List<String>,
+    letter: String
+) kills letters@items sends letter to letters {
+    letters.push(move(letter))
+}
+
+fn post_with(
+    f: fn(xs: &mut List<String>, s: String) kills xs@items sends s to xs,
+    letters: &mut List<String>
+) kills letters@items {
+    f(letters, String::from("posted through a function type"))
+}
+
+fn take_with(
+    f: fn(xs: &mut List<String>) -> String in xs@home kills xs,
+    letters: &mut List<String>,
+    to: &mut List<String>
+) kills letters, to@items sends letters to to {
+    to.push(f(letters))
+}
+
+fn pass_letters() {
+    let mut box = Mailbox{}
+    lay_through(&mut box, String::from("laid"))
+    let mut blank = Blank{}
+    lay_through(&mut blank, String::from("counted"))
+    let mut kept = List<String>()
+    lift_through(&mut box, &mut kept)
+    lift_through(&mut blank, &mut kept)
+    let mut letters = List<String>()
+    post_with(stash_letter, &mut letters)
+    take_with(oldest, &mut letters, &mut kept)
+}

@@ -1211,6 +1211,29 @@ impl Analysis<'_> {
         Value { unknown: carries, ..Value::default() }
     }
 
+    /// The signature a call's clauses are read from: its callee's, or, through a function
+    /// value, the function type's, whose `sends` and `in … @home` place a call through it as
+    /// a declaration's place a direct call (§6.7, T-0202).
+    fn signature_at(
+        &self,
+        callee: &Callee,
+        args: &[ExprId],
+        expression: ExprId,
+    ) -> Option<Signature> {
+        if let Some(s) = call_signature(self.body, callee, args, expression, self.table, self.res) {
+            return Some(s);
+        }
+        let Callee::Value(value) = callee else { return None };
+        let Ty::Fn { params, ret, kills } = self.body.ty(*value) else { return None };
+        Some(Signature {
+            sig: dz_check::ties::fn_type_sig(params, ret, kills),
+            module: self.module(),
+            name: "the function value".into(),
+            self_ty: None,
+            owner: None,
+        })
+    }
+
     /// The module this body is in, which a function type's clause is read in.
     fn module(&self) -> ModuleId {
         let sym = match &self.body.owner {
@@ -2232,7 +2255,7 @@ impl Analysis<'_> {
                 }
             }
         }
-        let signature = call_signature(self.body, callee, args, expression, self.table, self.res);
+        let signature = self.signature_at(callee, args, expression);
         if let Some(signature) = &signature {
             let scope = signature.scope(self.table, self.res);
             let carried_by = |cx: &mut Self, root: dz_check::ties::Root| -> Vec<usize> {
@@ -2302,9 +2325,7 @@ impl Analysis<'_> {
         values: &[Value],
         expression: ExprId,
     ) {
-        let Some(signature) =
-            call_signature(self.body, callee, args, expression, self.table, self.res)
-        else {
+        let Some(signature) = self.signature_at(callee, args, expression) else {
             return;
         };
         let recv = match callee {
@@ -2324,10 +2345,16 @@ impl Analysis<'_> {
             Callee::Value(_) => true,
         };
         if program_callee {
+            // Lent `&mut` directly, or through a local `&mut` reference to it.
             let mut lent: Vec<ExprId> = args
                 .iter()
                 .filter_map(|a| match self.body.expr(*a).kind {
                     hir::ExprKind::Ref { mutable: true, place, .. } => Some(place),
+                    hir::ExprKind::Local(_)
+                        if matches!(self.body.ty(*a), Ty::Ref { mutable: true, .. }) =>
+                    {
+                        Some(*a)
+                    }
                     _ => None,
                 })
                 .collect();
@@ -2335,7 +2362,7 @@ impl Analysis<'_> {
                 lent.push(r);
             }
             let containers: Vec<LocalId> =
-                lent.iter().filter_map(|p| self.local_root(*p)).collect();
+                lent.iter().flat_map(|p| self.containers_of(*p)).collect();
             if let Some(r) = &mut self.regions {
                 r.built_into.extend(containers);
             }
@@ -2413,20 +2440,47 @@ impl Analysis<'_> {
     /// it, and its own regions too when a callee may have built into it
     /// ([`Regions::built_into`]).
     fn regions_held(&self, e: ExprId) -> Vec<usize> {
+        let Some(regions) = &self.regions else { return Vec::new() };
+        let mut out = Vec::new();
+        for container in self.containers_of(e) {
+            let Some(v) = self.state.get(&container) else { continue };
+            let built = regions.built_into.contains(&container);
+            for s in v.owned.iter().copied() {
+                if (built || regions.stored.contains(&(container, s))) && !out.contains(&s) {
+                    out.push(s);
+                }
+            }
+        }
+        out
+    }
+
+    /// The local containers a call's argument or receiver `e` is: the local it is a path of,
+    /// or, for a local reference (`let s = &mut bag`), what it views (T-0202). A clause read at
+    /// the call is about those, as much as about a container lent directly.
+    fn containers_of(&self, e: ExprId) -> Vec<LocalId> {
         let place = match self.body.expr(e).kind {
             hir::ExprKind::Ref { place, .. } => place,
             _ => e,
         };
-        let (Some(regions), Some(container)) = (&self.regions, self.local_root(place)) else {
+        if let Some(container) = self.local_root(place) {
+            return vec![container];
+        }
+        let hir::ExprKind::Local(l) = self.body.expr(place).kind else { return Vec::new() };
+        if self.body.params.contains(&l) || !matches!(self.body.local(l).ty, Ty::Ref { .. }) {
             return Vec::new();
-        };
-        let Some(v) = self.state.get(&container) else { return Vec::new() };
-        let built = regions.built_into.contains(&container);
-        v.owned
-            .iter()
-            .copied()
-            .filter(|s| built || regions.stored.contains(&(container, *s)))
-            .collect()
+        }
+        let Some(v) = self.state.get(&l) else { return Vec::new() };
+        let mut out: Vec<LocalId> = Vec::new();
+        for o in v.views.iter().chain(&v.places) {
+            let t = o.target.local;
+            let local = !self.body.params.contains(&t)
+                && static_of(t).is_none()
+                && !matches!(self.body.local(t).ty, Ty::Ref { .. } | Ty::Ptr { .. });
+            if local && !out.contains(&t) {
+                out.push(t);
+            }
+        }
+        out
     }
 
     /// The inputs a call's receiver is under, when the callee's `sends` hands its argument

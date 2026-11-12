@@ -1,0 +1,21 @@
+// expect: DZ0584
+//
+// A function type's `sends` is the most a function stored in it may hand from one input to
+// another, and a call through it places its arguments by that (D-0097, T-0202): `stash` keeps
+// what it is given, and the type says it keeps nothing.
+
+fn stash(xs: &mut List<String>, s: String) kills xs@items sends s to xs {
+    xs.push(move(s))
+}
+
+fn put(
+    f: fn(xs: &mut List<String>, s: String) kills xs@items,
+    xs: &mut List<String>
+) kills xs@items {
+    f(xs, String::from("kept"))
+}
+
+fn main() {
+    let mut names = List<String>()
+    put(stash, &mut names)
+}

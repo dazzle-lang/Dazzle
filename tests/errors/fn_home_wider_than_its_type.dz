@@ -1,0 +1,19 @@
+// expect: DZ0572
+//
+// A call through a function type keeps the result where the type's `in` says (D-0097,
+// T-0202): `last_of` hands back an element still in its list's home, and the type says its
+// result is built for its caller.
+
+fn last_of(xs: &mut List<String>) -> String in xs@home kills xs@items, xs[*] {
+    return xs.pop() or String()
+}
+
+fn take(f: fn(xs: &mut List<String>) -> String kills xs, xs: &mut List<String>) -> String kills xs {
+    return f(xs)
+}
+
+fn main() {
+    let mut names = List<String>()
+    names.push(String::from("one"))
+    println!("{}", take(last_of, &mut names))
+}

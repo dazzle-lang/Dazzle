@@ -1,0 +1,9 @@
+[module]
+name    = "homes_through_calls"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

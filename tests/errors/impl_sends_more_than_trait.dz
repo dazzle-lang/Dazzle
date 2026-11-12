@@ -1,0 +1,24 @@
+// expect: DZ0573
+//
+// A call through a trait places what it hands the method by the trait's clause, so an
+// implementation sends no more than its trait says (D-0097, T-0202): here `put` keeps what it
+// is given, and `Sink::put` says it keeps nothing.
+
+trait Sink {
+    fn put(&mut self, s: String) kills self
+}
+
+struct Bag {
+    pub items: List<String> = List<String>()
+}
+
+impl Sink for Bag {
+    fn put(&mut self, s: String) kills self.items@items sends s to self {
+        items.push(move(s))
+    }
+}
+
+fn main() {
+    let mut bag = Bag{}
+    bag.put(String::from("one"))
+}

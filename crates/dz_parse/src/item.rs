@@ -453,7 +453,7 @@ impl<'a> Parser<'a> {
                 kills = self.parse_kills(false);
                 kills_span = Some(self.span_from(clause_start));
             } else if sends_span.is_none() && self.eat(TokenKind::Sends) {
-                sends = self.parse_sends();
+                sends = self.parse_sends(false);
                 sends_span = Some(self.span_from(clause_start));
             } else {
                 break;
@@ -484,9 +484,12 @@ impl<'a> Parser<'a> {
 
     /// The pairs after `sends`, the keyword already consumed: `what to to`, separated by
     /// commas (D-0097). `to` is read as a word here, not a keyword, so it stays free as a
-    /// name everywhere else. A pair missing its `to` is reported and left out.
-    fn parse_sends(&mut self) -> Vec<Send> {
+    /// name everywhere else. A pair missing its `to` is reported and left out. A list in
+    /// parentheses is accepted anywhere; a function type needs one for more than a pair, as
+    /// for `kills` ([`Self::parse_kills`]).
+    pub(crate) fn parse_sends(&mut self, in_type: bool) -> Vec<Send> {
         let mut pairs = Vec::new();
+        let parenthesised = self.eat(TokenKind::LParen);
         loop {
             let start = self.start();
             let Some(what) = self.parse_tie_path() else { break };
@@ -506,9 +509,12 @@ impl<'a> Parser<'a> {
                      handed to (D-0097)",
                 );
             }
-            if !self.eat(TokenKind::Comma) {
+            if (in_type && !parenthesised) || !self.eat(TokenKind::Comma) {
                 break;
             }
+        }
+        if parenthesised {
+            self.expect_in(TokenKind::RParen, "to close the `sends` list");
         }
         pairs
     }

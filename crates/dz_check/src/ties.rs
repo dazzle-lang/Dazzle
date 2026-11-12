@@ -164,6 +164,35 @@ pub fn check(scope: &Scope<'_>, params: &[dz_ast::Param]) -> Vec<Error> {
             Err(e) => out.push(e),
         }
     }
+    homes_and_sends(scope, &mut out);
+    for (i, (p, sig)) in params.iter().zip(&scope.sig.params).enumerate() {
+        let Some(path) = &p.tie else { continue };
+        match resolve(scope, path) {
+            Ok(tie) if tie.steps.contains(&Step::Home) => out.push(home_misplaced(
+                path,
+                "a reference parameter says where it points, which is never a home",
+            )),
+            Ok(_) if !points(&sig.ty) => {
+                out.push(points_nowhere(scope, &format!("`{}`", p.name.name), &sig.ty, path.span))
+            }
+            Ok(tie) if tie.root == Root::Param(i) => out.push(error(
+                codes::TIE_ON_NON_REFERENCE,
+                path.root.span,
+                format!("`{}` cannot point into itself", p.name.name),
+                "the parameter being declared",
+                "`in` names another parameter, or `self`, that this reference may point into \
+                 (spec §6.7)",
+            )),
+            Ok(_) => {}
+            Err(e) => out.push(e),
+        }
+    }
+    out
+}
+
+/// The mistakes in a signature's `in … @home` and `sends` (D-0097): a declaration's, or a
+/// function type's (T-0202).
+fn homes_and_sends(scope: &Scope<'_>, out: &mut Vec<Error>) {
     for path in &scope.sig.ret_home {
         match resolve(scope, path) {
             // A type parameter may be given an owned value, so only a result that is a view
@@ -200,29 +229,6 @@ pub fn check(scope: &Scope<'_>, params: &[dz_ast::Param]) -> Vec<Error> {
             }
         }
     }
-    for (i, (p, sig)) in params.iter().zip(&scope.sig.params).enumerate() {
-        let Some(path) = &p.tie else { continue };
-        match resolve(scope, path) {
-            Ok(tie) if tie.steps.contains(&Step::Home) => out.push(home_misplaced(
-                path,
-                "a reference parameter says where it points, which is never a home",
-            )),
-            Ok(_) if !points(&sig.ty) => {
-                out.push(points_nowhere(scope, &format!("`{}`", p.name.name), &sig.ty, path.span))
-            }
-            Ok(tie) if tie.root == Root::Param(i) => out.push(error(
-                codes::TIE_ON_NON_REFERENCE,
-                path.root.span,
-                format!("`{}` cannot point into itself", p.name.name),
-                "the parameter being declared",
-                "`in` names another parameter, or `self`, that this reference may point into \
-                 (spec §6.7)",
-            )),
-            Ok(_) => {}
-            Err(e) => out.push(e),
-        }
-    }
-    out
 }
 
 /// Every mistake in `sym`'s own `tie` declarations: a tie declared twice, `[*]` on a type
@@ -992,17 +998,20 @@ impl Walker<'_> {
 /// clause, the most a function stored in it may kill. A pointer from C has no clause to read.
 pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
     type Statics = [(Vec<String>, SymbolId)];
-    let (names, results, paths, statics, unknown): (
+    #[allow(clippy::type_complexity)]
+    let (names, results, paths, statics, sends, homes, unknown): (
         &[String],
         &[TiePath],
         &[TiePath],
         &Statics,
+        &[dz_ast::Send],
+        &[TiePath],
         bool,
     ) = match kills {
-        FnKills::Known { names, results, paths, statics } => {
-            (names, results, paths, statics, false)
+        FnKills::Known { names, results, paths, statics, sends, homes } => {
+            (names, results, paths, statics, sends, homes, false)
         }
-        FnKills::Unknown => (&[], &[], &[], &[], true),
+        FnKills::Unknown => (&[], &[], &[], &[], &[], &[], true),
     };
     FnSig {
         params: params
@@ -1036,10 +1045,12 @@ pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
         kills: paths.to_vec(),
         kills_span: None,
         kills_unknown: unknown,
-        sends: Vec::new(),
+        // What a function stored in it may send, and whose home its result may be in: a
+        // call through the value places by these as by a declaration's (T-0202).
+        sends: sends.to_vec(),
         sends_span: None,
         ret_span: None,
-        ret_home: Vec::new(),
+        ret_home: homes.to_vec(),
     }
 }
 
@@ -1103,6 +1114,7 @@ fn fn_types(
                     Err(e) => out.push(e),
                 }
             }
+            homes_and_sends(&scope, out);
             if let FnKills::Known { names, .. } = kills {
                 out.extend(untied_fn_type(&scope, names, span));
             }

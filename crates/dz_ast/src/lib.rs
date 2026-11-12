@@ -675,9 +675,13 @@ pub enum TypeKind {
         param_names: Vec<Option<Ident>>,
         ret: Option<Box<Type>>,
         /// `-> &T in (a, b)`: where the result of a function stored in it may point (spec
-        /// §6.7). Empty when no `in` is written.
+        /// §6.7), or, ending at `@home`, whose home an owned result is in (D-0097). Empty when
+        /// no `in` is written.
         ret_ties: Vec<TiePath>,
         kills: Vec<TiePath>,
+        /// `sends s to xs`: the most a function stored in it may hand from one input to
+        /// another (D-0097, T-0202). More than one pair is parenthesised, as `kills` is.
+        sends: Vec<Send>,
     },
     /// `const str`: text in static storage (spec §5.3). Only `str` may follow `const`; the
     /// checker reports anything else.

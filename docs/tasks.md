@@ -262,4 +262,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0167](tasks/T-0167-field-default-that-calls-free-function.md)** A field default that calls a free function of its own module does not compile · bug, codegen
 - **[T-0178](tasks/T-0178-for-loop-over-view-temporary-reads.md)** A for loop over a view of a temporary reads freed memory: for c in format!(…).chars() · bug, codegen
 - **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership
-- **[T-0202](tasks/T-0202-homes-through-traits-function-types-sends.md)** "Homes through traits and function types: a result `in self@home` read through either reaches freed memory" · feature, ownership
+- **[T-0204](tasks/T-0204-dz-fix-adds-home-owned-result.md)** "`dz fix` adds a home to an owned result's `in` clause already written" · feature, tooling

@@ -446,6 +446,9 @@ pub const HOME_MISPLACED: &str = "DZ0582";
 /// to something it cannot change: `sends` moves from a by-value parameter or through a
 /// `&mut` one, and into a `&mut` parameter, `&mut self` or a static (D-0097).
 pub const SENDS_NEEDS_MUT: &str = "DZ0583";
+/// A function stored where a function type's `sends` allows less than its own (D-0097):
+/// a call through the type places its arguments by the type's clause (T-0202).
+pub const FN_SENDS_TOO_MUCH: &str = "DZ0584";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 
