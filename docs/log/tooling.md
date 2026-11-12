@@ -1429,3 +1429,11 @@ clang++ and g++.
 C++ compiler 7.11 s to 5.64 s, and Dazzle's own phases 1.81 s to 1.51 s, as fewer instances
 are made. `m050`'s two files as one 0.48 s to 0.38 s, against 0.34 s for its C++. What is
 left of a clean build's gap is mostly Dazzle's own phases over the whole program.
+
+## GCC records dependencies from precompiled headers (2026-11-12)
+
+Without `-fpch-deps`, GCC used the edited module's precompiled header but left it and
+its inputs out of the object's depfile. The object cache uses that file to decide when
+to rebuild, and the module header test failed on Linux when it looked for the header
+there. `dz` now passes `-fpch-deps` to GCC both when creating and when using the header.
+Clang already records these inputs without the flag.

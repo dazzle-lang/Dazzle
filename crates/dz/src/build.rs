@@ -341,8 +341,14 @@ pub fn compile(
     // programs run 6-17% faster than with either, for 0.1-0.17 s more per release build
     // (T-0190). clang++ weighs the two alike, and warns about the flag, so it is g++ alone,
     // told apart by what it says it is.
-    if module.build.optimize != Optimize::Debug && is_gcc(&cxx) {
-        args.extend(["--param".to_owned(), "max-inline-insns-auto=70".to_owned()]);
+    if is_gcc(&cxx) {
+        if module.build.optimize != Optimize::Debug {
+            args.extend(["--param".to_owned(), "max-inline-insns-auto=70".to_owned()]);
+        }
+        // GCC needs this both when building and when using a precompiled header. Otherwise
+        // its depfile can omit the headers inside the PCH, leaving the object cache unaware
+        // of those inputs. Clang already records them and does not accept this flag.
+        args.push("-fpch-deps".to_owned());
     }
     // Every module's generated C++ gets the flags of everything the root reaches (spec
     // §15.1).
