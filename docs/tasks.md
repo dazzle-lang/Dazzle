@@ -230,7 +230,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (31 open)
+## none — not scheduled (33 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -263,3 +263,5 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership
 - **[T-0204](tasks/T-0204-dz-fix-adds-home-owned-result.md)** "`dz fix` adds a home to an owned result's `in` clause already written" · feature, tooling
 - **[T-0205](tasks/T-0205-field-method-with-same-name-compile.md)** A field and a method with the same name compile to invalid C++ · bug, codegen
+- **[T-0206](tasks/T-0206-for-loop-over-user-written-iterator.md)** A for loop over a user-written iterator checks nothing: for _, &mut h in query(set) · bug, ownership
+- **[T-0207](tasks/T-0207-kill-through-call-misses-reference-into.md)** A kill through a call misses a reference into a multi-place tie's later place · bug, ownership
