@@ -140,11 +140,19 @@ fn prune(root: &Path, current: &Path) {
     }
 }
 
-/// Where a file is written before it is renamed onto `path`: beside it, named for this
-/// process, so two processes writing the same file never write the same bytes at once.
+/// Give each writer its own temporary file beside `path` for the atomic rename.
 pub fn temp_of(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(format!(".{}.tmp", std::process::id()));
+    #[cfg(not(target_os = "wasi"))]
+    let suffix = std::process::id();
+    #[cfg(target_os = "wasi")]
+    let suffix = {
+        use std::hash::BuildHasher;
+
+        // WASI has no process IDs. Use a randomly seeded hash for the temporary name.
+        std::collections::hash_map::RandomState::new().hash_one(())
+    };
+    name.push(format!(".{suffix}.tmp"));
     path.with_file_name(name)
 }
 

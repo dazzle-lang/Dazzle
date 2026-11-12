@@ -401,6 +401,11 @@ Under Node's WASI on Windows, a glob in `sources` matched nothing (directory lis
 while literal paths worked. The playground names `src/main.dz` literally, so it does not
 depend on listing directories.
 
+The shared C++ cache (T-0182) used process IDs to name its temporary files. WASI builds
+now use randomly seeded names for the same atomic writes. The website runs
+`dz cpp --no-line-directives` under WASI during its checks to exercise the same code
+generation path as the playground.
+
 ## Raised on 2026-09-12
 
 Struct inheritance is done (r30). What follows is the tooling the language needs before it
