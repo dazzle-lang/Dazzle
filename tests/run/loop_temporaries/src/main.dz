@@ -1,0 +1,132 @@
+// A temporary that a `for`, `switch` or `if let` head looks into lives as long as that
+// construct (T-0178). Each head below takes a view — an iterator, a slice, a pointer, a
+// reference — of a value nothing else holds: a `format!`, a function's returned `String`, a
+// `List` or a struct returned by value. C++ destroys such a temporary at the end of the
+// statement that made it, which for a C-style `for` is its init statement, before the
+// first pass; every head here then read freed memory. The bodies allocate, so freed memory
+// is likely reused at once, and `Holder` says when it dies, so the order shows in the
+// output even where nothing checks the reads.
+
+fn greeting() -> String {
+    return format!("hi {}", 42)
+}
+
+fn numbers() -> List<i32> {
+    let mut xs = List<i32>()
+    xs.push(10)
+    xs.push(20)
+    xs.push(30)
+    return xs
+}
+
+union Shape {
+    Circle { radius: i32 }
+    Square { side: i32 }
+}
+
+// Says when it dies, so the output shows each temporary outliving its loop and no more.
+struct Holder {
+    pub shape: Shape = Shape::Circle{ radius: 1 }
+    pub name:  String = String()
+
+    pub fn form(&self) -> &Shape in self {
+        return &shape
+    }
+}
+
+impl Drop for Holder {
+    fn drop(&mut self) {
+        if name.len() != 0 {
+            println!("  drop {}", name)
+        }
+    }
+}
+
+fn holder(side: i32, name: &str) -> Holder {
+    return Holder{ shape: Shape::Square{ side: side }, name: String::from(name) }
+}
+
+fn step(n: i32) -> i32 {
+    println!("  step {}", n)
+    return n
+}
+
+fn listed(n: i32) -> List<i32> {
+    println!("  step {}", n)
+    let mut xs = List<i32>()
+    xs.push(n * 100)
+    return xs
+}
+
+fn second(_n: i32, xs: &[]i32) -> &[]i32 in xs {
+    return xs
+}
+
+fn main() {
+    // The owner dies after the loop, not before its first pass.
+    for c in holder(3, "loop").name.chars() {
+        println!("{}", c)
+    }
+    println!("after loop")
+
+    // What is kept is still evaluated where it stands: `step(1)` before `listed(2)`, as
+    // arguments are, left to right (spec §7.2).
+    for x in second(step(1), listed(2).as_slice()) {
+        println!("{}", x)
+    }
+
+    // A view of a `format!`: the P6 header from T-0178, "P6\n1280 720\n255\n".
+    let mut out = List<u8>()
+    for c in format!("P6\n{} {}\n255\n", 1280, 720).chars() {
+        let noise = format!("{}{}{}", c, c, c)
+        out.push(c as u8 + noise.len() as u8 - 3)
+    }
+    print!("format:")
+    for b in out.as_slice() {
+        print!(" {}", b)
+    }
+    println!("")
+
+    // A view of a function's returned `String`.
+    for c in greeting().chars() {
+        let noise = format!("[{}]", c)
+        print!("{}", noise)
+    }
+    println!("")
+
+    // Lines and words of a temporary.
+    for w in format!("one two  three").split_whitespace() {
+        let noise = format!("<{}>", w)
+        print!("{}", noise)
+    }
+    println!("")
+
+    // A slice of a `List` returned by value, plain and counted.
+    for x in numbers().as_slice() {
+        let noise = numbers()
+        print!(" {}", x + noise.len() as i32)
+    }
+    println!("")
+    for i, x in numbers().as_slice().indexed() {
+        print!(" {}:{}", i, x)
+    }
+    println!("")
+
+    // An `if let` whose binding points into a temporary.
+    if let &first = numbers().first() {
+        let noise = numbers()
+        println!("first {} of {}", first, noise.len())
+    }
+
+    // A `switch` whose payload binding refers into a temporary.
+    switch holder(7, "subject").form() {
+        case Circle(&c) {
+            println!("circle {}", c.radius)
+        }
+        case Square(&s) {
+            let noise = holder(99, "noise")
+            println!("square {} {}", s.side, noise.name)
+        }
+    }
+    println!("after switch")
+}

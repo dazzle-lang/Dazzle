@@ -340,6 +340,35 @@ template <class T> DZ_INLINE T& as_ref(T& r) { return r; }
 /// reference is only ever read through, so dropping `const` writes nothing.
 template <class T> DZ_INLINE Addr<T> temp_addr(const T& x) { return Addr<T>{const_cast<T*>(&x)}; }
 
+/// A temporary that a `for`, `switch` or `if let` keeps a view of — `for c in
+/// format!(…).chars()` — held for as long as that construct runs rather than to the end of
+/// the statement C++ would give it (T-0178). The slot is declared empty before the
+/// construct and the value built in it where the temporary stood, `kept(make())`, so the
+/// expression around it is evaluated in its written order; it dies when the slot's scope
+/// ends, after the construct, in place of the temporary.
+template <class T>
+struct Kept {
+    union {
+        char empty_;
+        T value;
+    };
+    bool held;
+
+    Kept() : empty_(), held(false) {}
+    ~Kept() {
+        if (held) { value.~T(); }
+    }
+    Kept(const Kept&) = delete;
+    Kept& operator=(const Kept&) = delete;
+
+    template <class U> DZ_INLINE T& operator()(U&& v) {
+        if (held) { value.~T(); }
+        ::new (static_cast<void*>(&value)) T(static_cast<U&&>(v));
+        held = true;
+        return value;
+    }
+};
+
 
 /// `move(x)` (spec §6.4). Hand-rolled rather than `std::move`, so the shim keeps its
 /// promise of depending on nothing but the C standard library — `<utility>` is a

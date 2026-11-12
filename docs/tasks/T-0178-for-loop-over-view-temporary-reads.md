@@ -2,7 +2,7 @@
 id: T-0178
 title: A for loop over a view of a temporary reads freed memory: for c in format!(…).chars()
 milestone: none
-status: open
+status: done
 kind: bug
 area: codegen
 ---
@@ -57,3 +57,22 @@ rule out, in a form people write all the time (`for line in read_text(p).lines()
 Either way, add a `tests/run` program that iterates a view of a `format!`, of a function's
 returned `String`, and of a `List` returned by value, checked under the sanitizer job.
 Also check `while` heads, `if` heads and `switch` subjects for the same shape.
+
+**Done 2026-11-12, option 1**, for `for` subjects, `switch` subjects and `if let` operands,
+which all had the shape. A `while` or `if` condition is a `bool` and keeps no view past
+its own statement. Not by hoisting the temporary into a local first, which would move it
+ahead of anything evaluated before it (`second(step(1), listed(2).as_slice())` would call
+`listed` first, against spec §7.2): each temporary gets an empty `::dz::Kept<T>` slot
+declared before the construct, and is built in that slot where it stands, so the
+evaluation order is as written and it dies when the construct's scope ends. See
+`docs/log/r81-ties.md`.
+
+## Where the code is
+
+| What | Where |
+|---|---|
+| The slot | `Kept<T>` in `crates/dz_cpp/src/runtime.rs`, beside `temp_addr` |
+| Which temporaries a construct keeps | `owners_to_keep`, `keep_owners`, `release_kept` in `crates/dz_cpp/src/lib.rs`, after `collect_owners` |
+| Built in its slot where it stands | the `kept` lookup at the top of `Emitter::expr` |
+| The three constructs | `for_loop`; the `IfLet` arm of `control_flow`; `switch` |
+| The test | `tests/run/loop_temporaries` (run under the sanitizers by CI's `sanitizers` job) |

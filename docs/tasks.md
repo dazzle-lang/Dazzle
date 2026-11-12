@@ -260,6 +260,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0161](tasks/T-0161-parser-binds-as-tighter-than-prefix.md)** The parser binds as tighter than prefix -, against §11.1's table · bug, language
 - **[T-0162](tasks/T-0162-entry-point-function-no-dazzle-code.md)** "#[entry_point]: a function no Dazzle code calls, which names no static's kills" · feature, ownership
 - **[T-0167](tasks/T-0167-field-default-that-calls-free-function.md)** A field default that calls a free function of its own module does not compile · bug, codegen
-- **[T-0178](tasks/T-0178-for-loop-over-view-temporary-reads.md)** A for loop over a view of a temporary reads freed memory: for c in format!(…).chars() · bug, codegen
 - **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership
 - **[T-0204](tasks/T-0204-dz-fix-adds-home-owned-result.md)** "`dz fix` adds a home to an owned result's `in` clause already written" · feature, tooling
+- **[T-0205](tasks/T-0205-field-method-with-same-name-compile.md)** A field and a method with the same name compile to invalid C++ · bug, codegen

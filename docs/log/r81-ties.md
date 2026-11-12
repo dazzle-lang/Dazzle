@@ -6,6 +6,43 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0178: a temporary a loop head looks into lives as long as the loop (2026-11-12)
+
+`for c in format!(…).chars()` read freed memory in safe code. The loop was emitted as
+`for (auto it = ::dz::obj(<format!>).chars(); …)`, and C++ destroys the `String` at the end
+of that init statement, before the first pass. The same held for a range-for over
+`numbers().as_slice()` (`auto&& seq = …` extends the slice's life, not the list's), an `if
+let &x = numbers().first()`, and a `switch holder().shape()` whose payload binding referred
+into the destroyed `Holder` (its `drop` printed before the arm ran). A `while` or `if`
+condition is a `bool`, which keeps nothing. Compiler work, not a language change: the
+checker already took the temporary to live as long as the construct that uses it.
+
+Hoisting each temporary into a local before the construct, as `emit_args` does for a view
+argument, would have moved its evaluation ahead of whatever precedes it:
+`second(step(1), listed(2).as_slice())` would call `listed` first, against §7.2. So the
+temporary is built in place instead. A new runtime type, `::dz::Kept<T>`, is an empty slot
+declared at the top of the construct's own scope (`for_loop`'s block, a block `if let`
+opens when it keeps something, the one `switch` already had, which the subject's evaluation
+now moves inside). Its call operator move-constructs the value in place and returns it, and
+its destructor drops it when that scope ends. `Emitter::expr` writes a kept expression as
+`_dz_heldN(<expression>)` where it stands.
+
+What is kept is `collect_owners`' answer for the subject, when its type looks into memory
+at all (`borrows`). Three changes to it, which `emit_args` shares:
+- A `format!` (`Formatted`) is a temporary that owns, as a call is.
+- An argument that owns something is not followed. It is moved into the callee, so the
+  result cannot look into it, and holding it would have copied a move-only value.
+- `&make()` is not followed: its value already sits in a local to the end of the block.
+
+`is_place` is not used to rule a subject out, because it takes any reference for a place,
+and `holder().shape()` is a reference into a temporary.
+
+Tests: `tests/run/loop_temporaries` covers the four head shapes. Its `Holder` prints its
+drop, and a step-numbered case pins the order, so the output shows the fix even where
+nothing checks the reads; CI's `sanitizers` job runs it under ASan and UBSan. The generated
+C++ is warning-clean under g++ and clang++. Writing the test turned up T-0205: a field and a
+method with the same name compile to invalid C++.
+
 ## r120, T-0202: `sends` and `in x@home` through traits and function types (2026-11-12)
 
 Probes run against r119 found safe code reading freed memory. An implementation whose result

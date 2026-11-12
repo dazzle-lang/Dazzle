@@ -1,0 +1,19 @@
+l
+o
+o
+p
+  drop loop
+after loop
+  step 1
+  step 2
+200
+format: 80 54 10 49 50 56 48 32 55 50 48 10 50 53 53 10
+[h][i][ ][4][2]
+<one><two><three>
+ 13 23 33
+ 0:10 1:20 2:30
+first 10 of 3
+square 7 noise
+  drop noise
+  drop subject
+after switch

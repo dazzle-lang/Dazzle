@@ -256,6 +256,7 @@ pub fn emit_selected(
             method_instance: None,
             chunks: Vec::new(),
             materialized: HashMap::new(),
+            kept: HashMap::new(),
             callees: Vec::new(),
             owners_made: 0,
             guards_made: 0,
@@ -436,6 +437,7 @@ pub fn emit_selected(
             method_instance: None,
             chunks: Vec::new(),
             materialized: HashMap::new(),
+            kept: HashMap::new(),
             callees: Vec::new(),
             owners_made: 0,
             guards_made: 0,
@@ -714,6 +716,9 @@ struct Emitter<'a> {
     /// Expressions already evaluated into a local of their own, by that local's name: the
     /// owners a hoisted view borrows from (`emit_args`).
     materialized: HashMap<ExprId, String>,
+    /// Temporaries a `for`, `switch` or `if let` keeps a view of, by the `::dz::Kept` slot
+    /// each is built in where it stands (`keep_owners`, T-0178).
+    kept: HashMap<ExprId, String>,
     /// The defaults of the calls whose arguments are being rendered, innermost last: a
     /// `DefaultArg` among them is the default of the innermost one's callee.
     callees: Vec<Vec<Option<ParamDefault<'a>>>>,
@@ -4312,6 +4317,9 @@ impl<'a> Emitter<'a> {
         if let Some(i) = &counter {
             self.line(&format!("size_t {i} = 0;"));
         }
+        // `for c in format!(…).chars()`: the `String` lives as long as the loop (T-0178).
+        let kept = self.owners_to_keep(subject);
+        self.keep_owners(&kept);
 
         let item = if let Ty::Range(elem) = subject_ty.peeled() {
             // A range held in a variable, or counted with `indexed()`.
@@ -4342,6 +4350,7 @@ impl<'a> Emitter<'a> {
                 });
             let Some((valid, get, advance)) = calls else {
                 self.unsupported(span, "`for` over this type", "owed by M12");
+                self.release_kept(&kept);
                 self.indent -= 1;
                 self.line("}");
                 return;
@@ -4368,6 +4377,7 @@ impl<'a> Emitter<'a> {
             self.line(&format!("for (auto&& {x} : {seq_obj}) {{"));
             x
         };
+        self.release_kept(&kept);
         self.indent += 1;
 
         // The pass count is taken at the top of each pass, so a `continue` cannot skip it.
@@ -4458,11 +4468,17 @@ impl<'a> Emitter<'a> {
                 // A handle's guard is a line of the current block; a block of its own ends it
                 // with the `if let`, which is as long as the binding can use it (spec §14.5).
                 let guarded = matches!(body.expr(*operand).kind, hir::ExprKind::Guarded { .. });
-                if guarded {
+                // `if let &x = make().first()`: what `x` points into lives as long as the
+                // `if let`, in the same block of its own (T-0178).
+                let kept = self.owners_to_keep(*operand);
+                let scoped = guarded || !kept.is_empty();
+                if scoped {
                     self.line("{");
                     self.indent += 1;
                 }
+                self.keep_owners(&kept);
                 let v = self.expr(*operand);
+                self.release_kept(&kept);
                 match operand_ty {
                     Ty::Optional(_) if by_ref => {
                         // Bound to the optional itself when it is a place, so a write through
@@ -4526,7 +4542,7 @@ impl<'a> Emitter<'a> {
                     }
                     None => self.line("}"),
                 }
-                if guarded {
+                if scoped {
                     self.indent -= 1;
                     self.line("}");
                 }
@@ -4599,8 +4615,8 @@ impl<'a> Emitter<'a> {
             // `cpp_ty`, not `qualify`: a `Maybe<i32>` subject compares against its instance.
             (self.cpp_ty(&subject_ty), is_union, variants)
         });
-        let text = self.expr(subject);
         if arms.is_empty() {
+            let text = self.expr(subject);
             match default {
                 Some(d) => {
                     self.line(&format!("(void)({text});"));
@@ -4620,6 +4636,14 @@ impl<'a> Emitter<'a> {
         // is no fallthrough to break out of (§10.3). The subject is evaluated once, and
         // held by reference so a payload binding writes into the union itself.
         let subject_var = self.fresh("switch");
+        self.line("{");
+        self.indent += 1;
+        // `switch holder().shape()`: a reference into a temporary, which lives as long as
+        // the switch (T-0178).
+        let kept = self.owners_to_keep(subject);
+        self.keep_owners(&kept);
+        let text = self.expr(subject);
+        self.release_kept(&kept);
         // `obj` reaches through a pointer or a reference. A value is bound directly, so a
         // temporary — `switch next_state()` — has its lifetime extended rather than being
         // passed through `obj` and left dangling.
@@ -4627,8 +4651,6 @@ impl<'a> Emitter<'a> {
             Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. } => format!("::dz::obj({text})"),
             _ => text,
         };
-        self.line("{");
-        self.indent += 1;
         self.line(&format!("auto&& {subject_var} = {init};"));
         for (i, arm) in arms.iter().enumerate() {
             let tests: Vec<String> = match &named {
@@ -4758,6 +4780,12 @@ impl<'a> Emitter<'a> {
     fn expr(&mut self, e: ExprId) -> String {
         if let Some(local) = self.materialized.get(&e) {
             return local.clone();
+        }
+        // A temporary a construct keeps is built in its slot, where it stands (T-0178).
+        if let Some(slot) = self.kept.remove(&e) {
+            let v = self.expr(e);
+            self.kept.insert(e, slot.clone());
+            return format!("{slot}({v})");
         }
         // A copy placed by the compiler is built where it was placed (T-0140), by its type's
         // placed copy; C++ would copy it on the heap.
@@ -5940,6 +5968,10 @@ impl<'a> Emitter<'a> {
     /// The temporaries a view computed by `e` may look into: every call or literal on the
     /// way to it whose value owns something (`needs_drop`) — a receiver, an argument, the
     /// base of a field or an index. Not below one of them, which is evaluated whole.
+    ///
+    /// Not an argument that owns something either: it is moved into the callee, so nothing
+    /// the call returns can look into it. Nor `&make()`, whose value already lives in a local
+    /// to the end of the block.
     fn owning_temporaries(&self, e: ExprId) -> Vec<ExprId> {
         let mut out = Vec::new();
         self.collect_owners(e, true, &mut out);
@@ -5955,6 +5987,7 @@ impl<'a> Emitter<'a> {
                 | hir::ExprKind::StructLit { .. }
                 | hir::ExprKind::ArrayLit(_)
                 | hir::ExprKind::Tuple(_)
+                | hir::ExprKind::Formatted { .. }
         );
         if !root && produces && self.table.needs_drop(&node.ty) {
             out.push(e);
@@ -5968,9 +6001,12 @@ impl<'a> Emitter<'a> {
                     self.collect_owners(*recv, false, out);
                 }
                 for a in args {
-                    self.collect_owners(*a, false, out);
+                    if !self.table.needs_drop(body.ty(*a)) {
+                        self.collect_owners(*a, false, out);
+                    }
                 }
             }
+            hir::ExprKind::Ref { place, temporary: false, .. } if !self.is_place(*place) => {}
             hir::ExprKind::Field { base, .. }
             | hir::ExprKind::TupleIndex { base, .. }
             | hir::ExprKind::Index { base, .. }
@@ -5981,6 +6017,41 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Cast { operand: base, .. } => self.collect_owners(*base, false, out),
             _ => {}
+        }
+    }
+
+    /// The temporaries a view computed by `e` looks into, when a construct goes on using the
+    /// view after the statement that made it ends — a `for` subject, a `switch` subject, an
+    /// `if let` operand (T-0178). C++ destroys a temporary at the end of its full
+    /// expression, which for `for (auto it = make().chars(); …)` is the init statement,
+    /// before the first pass, and the view then reads freed memory. A value that looks into
+    /// nothing needs nothing kept. Not `is_place`, which takes any reference for one: the
+    /// `&Shape` that `holder().shape()` returns refers into a temporary.
+    fn owners_to_keep(&self, e: ExprId) -> Vec<ExprId> {
+        if !self.borrows(self.cur().ty(e)) {
+            return Vec::new();
+        }
+        self.owning_temporaries(e)
+    }
+
+    /// Declare a `::dz::Kept` slot for each of `owners`, in the current C++ scope, which the
+    /// caller has opened so that it ends with the construct. Emitting the expression then
+    /// builds each temporary in its slot where it stands, so nothing is evaluated out of its
+    /// written order, as hoisting it into a local first would (spec §7.2). The caller releases
+    /// them with `release_kept` once the expression is written.
+    fn keep_owners(&mut self, owners: &[ExprId]) {
+        for owner in owners {
+            let ty = self.cpp_ty(self.cur().ty(*owner));
+            // Not `kept`: `_dz_kept<local>` is a region's storage for a local (T-0118).
+            let slot = self.fresh("held");
+            self.line(&format!("::dz::Kept<{ty}> {slot};"));
+            self.kept.insert(*owner, slot);
+        }
+    }
+
+    fn release_kept(&mut self, owners: &[ExprId]) {
+        for owner in owners {
+            self.kept.remove(owner);
         }
     }
 
