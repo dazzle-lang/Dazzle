@@ -1,0 +1,119 @@
+struct Position {
+    pub x: i32
+}
+
+struct Velocity {
+    pub x: i32
+}
+
+struct Health {
+    pub hp: i32
+}
+
+struct World {
+    m_entities:             SlotMap<Entity>
+    pub(module) positions:  SparseSet<Position>
+    pub(module) velocities: SparseSet<Velocity>
+    pub(module) health:     SparseSet<Health>
+
+    tie @entities = m_entities@items, m_entities[*]
+    tie @components = positions@items, velocities@items, health@items
+
+    World() {
+        m_entities = SlotMap<Entity>()
+        positions = SparseSet<Position>()
+        velocities = SparseSet<Velocity>()
+        health = SparseSet<Health>()
+    }
+
+    pub fn spawn(
+        &mut self,
+        x: i32,
+        speed: i32?,
+        hp: i32?
+    ) -> Key<Entity> kills self@entities, self@components {
+        let entity = m_entities.insert(Entity{})
+        positions.insert(entity, Position{ x: x })
+        if let v = speed {
+            velocities.insert(entity, Velocity{ x: v })
+        }
+        if let h = hp {
+            health.insert(entity, Health{ hp: h })
+        }
+        return entity
+    }
+
+    pub fn despawn(&mut self, entity: Key<Entity>) -> bool kills self@components, self@entities {
+        if !m_entities.contains(entity) {
+            return false
+        }
+        let _ = positions.remove(entity)
+        let _ = velocities.remove(entity)
+        let _ = health.remove(entity)
+        let _ = m_entities.remove(entity)
+        return true
+    }
+}
+
+fn move_entities(world: &mut World) {
+    for _, &mut position, &velocity in query2(&mut world.positions, &mut world.velocities) {
+        position.x += velocity.x
+    }
+}
+
+fn separate_overlaps(world: &mut World) {
+    for a, &pa, &mut va in query2(&mut world.positions, &mut world.velocities) {
+        for b, &pb, &mut vb in query2(&mut world.positions, &mut world.velocities) {
+            if a.index() < b.index() && pa.x == pb.x {
+                va.x = -1
+                vb.x = 1
+                if let &mut ha = world.health.get_mut(a) {
+                    ha.hp -= 1
+                }
+                if let &mut hb = world.health.get_mut(b) {
+                    hb.hp -= 1
+                }
+            }
+        }
+    }
+}
+
+fn remove_dead(world: &mut World) kills world@components, world@entities {
+    // Queue entity keys, then make structural changes after the query has finished.
+    let mut dead = List<Key<Entity>>()
+    for entity, &health in query(&mut world.health) {
+        if health.hp <= 0 {
+            dead.push(entity)
+        }
+    }
+    for entity in dead {
+        let _ = world.despawn(entity)
+    }
+}
+
+fn main() {
+    let mut world = World()
+    let scout = world.spawn(0, 2, 1)
+    let runner = world.spawn(4, -2, 3)
+    let marker = world.spawn(10, none, none)
+
+    move_entities(&mut world)
+    separate_overlaps(&mut world)
+    remove_dead(&mut world)
+
+    let replacement = world.spawn(6, 1, 2)
+    assert(replacement.index() == scout.index())
+    assert(replacement != scout && !world.positions.contains(scout))
+    assert(!world.health.contains(scout) && !world.velocities.contains(scout))
+    assert(world.positions.contains(runner) && world.positions.contains(marker))
+    let runner_position = world.positions.get(runner) or unreachable
+    let runner_velocity = world.velocities.get(runner) or unreachable
+    let runner_health = world.health.get(runner) or unreachable
+    assert(runner_position.x == 2 && runner_velocity.x == 1 && runner_health.hp == 2)
+
+    println!("Moving entities after one tick:")
+    for entity, &position, &velocity in query2(&mut world.positions, &mut world.velocities) {
+        let health = world.health.get(entity) or unreachable
+        println!("  {}: x={}, speed={}, hp={}", entity, position.x, velocity.x, health.hp)
+    }
+}

@@ -1,0 +1,78 @@
+struct Entity {
+}
+
+// A zero sparse slot means absent. Otherwise it stores the dense row plus one.
+// Check the whole key so an old generation cannot name a replacement entity.
+struct SparseSet<T> {
+    m_sparse:   List<usize>
+    m_entities: List<Key<Entity>>
+    m_values:   List<T>
+
+    tie @items = m_sparse@items, m_entities@items, m_values@items
+
+    tie @values = m_values[*]
+
+    SparseSet() {
+        m_sparse = List<usize>()
+        m_entities = List<Key<Entity>>()
+        m_values = List<T>()
+    }
+
+    pub fn len(&self) -> usize {
+        return m_entities.len()
+    }
+
+    pub fn entity_at(&self, row: usize) -> Key<Entity> {
+        return m_entities[row]
+    }
+
+    pub fn contains(&self, entity: Key<Entity>) -> bool {
+        return self.row_of(entity) != none
+    }
+
+    pub fn get(&self, entity: Key<Entity>) -> ^T in self@items {
+        let row = self.row_of(entity) or return null
+        return &m_values[row]
+    }
+
+    pub fn get_mut(&mut self, entity: Key<Entity>) -> ^mut T in self@items {
+        let row = self.row_of(entity) or return null
+        return &mut m_values[row]
+    }
+
+    pub fn insert(&mut self, entity: Key<Entity>, value: T) kills self@items sends value to self {
+        let index = entity.index() as usize
+        if index >= m_sparse.len() {
+            m_sparse.resize(index + 1)
+        }
+        // World removes every component before letting the entity slot be reused.
+        assert(m_sparse[index] == 0)
+        m_sparse[index] = m_entities.len() + 1
+        m_entities.push(entity)
+        m_values.push(move(value))
+    }
+
+    pub fn remove(&mut self, entity: Key<Entity>) -> bool kills self@items, self@values {
+        let row = self.row_of(entity) or return false
+        let _ = m_values.swap_remove(row)
+        let _ = m_entities.swap_remove(row)
+        m_sparse[entity.index() as usize] = 0
+        if row < m_entities.len() {
+            let moved = m_entities[row]
+            m_sparse[moved.index() as usize] = row + 1
+        }
+        return true
+    }
+
+    fn row_of(&self, entity: Key<Entity>) -> usize? {
+        let index = entity.index() as usize
+        if index >= m_sparse.len() || m_sparse[index] == 0 {
+            return none
+        }
+        let row = m_sparse[index] - 1
+        if self.entity_at(row) != entity {
+            return none
+        }
+        return row
+    }
+}

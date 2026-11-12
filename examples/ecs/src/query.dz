@@ -1,0 +1,85 @@
+// Queries hold views of the pools they walk (spec 6.7).
+view struct Query<T> {
+    pub(module) pool: &mut SparseSet<T>
+    row:              usize = 0
+    tie @items = pool
+}
+
+fn query<T>(pool: &mut SparseSet<T>) -> Query<T> {
+    return Query<T>{ pool: pool }
+}
+
+impl<T> Iterate for Query<T> {
+    type Item = (Key<Entity>, &mut T)
+
+    fn valid(&self) -> bool {
+        return row < pool.len()
+    }
+
+    fn get(&self) -> (Key<Entity>, &mut T) in self@items {
+        let entity = pool.entity_at(row)
+        let value = pool.get_mut(entity) or unreachable
+        return (entity, value)
+    }
+
+    fn advance(&mut self) {
+        row += 1
+    }
+}
+
+// Walk the smaller pool and probe the other by entity. Iteration allocates nothing.
+view struct Query2<A, B> {
+    pub(module) first:      &mut SparseSet<A>
+    pub(module) second:     &mut SparseSet<B>
+    pub(module) scan_first: bool
+    row:                    usize = 0
+    tie @items = first, second
+
+    pub(module) fn seek(&mut self) {
+        if scan_first {
+            while row < first.len() && !second.contains(first.entity_at(row)) {
+                row += 1
+            }
+        } else {
+            while row < second.len() && !first.contains(second.entity_at(row)) {
+                row += 1
+            }
+        }
+    }
+}
+
+fn query2<A, B>(
+    first: &mut SparseSet<A>,
+    second: &mut SparseSet<B>
+) -> Query2<A, B> in (first@items, second@items) {
+    let mut result = Query2<A, B>{ first: first, second: second, scan_first: first.len() <= second.len() }
+    result.seek()
+    return result
+}
+
+impl<A, B> Iterate for Query2<A, B> {
+    type Item = (Key<Entity>, &mut A, &mut B)
+
+    fn valid(&self) -> bool {
+        if scan_first {
+            return row < first.len()
+        }
+        return row < second.len()
+    }
+
+    fn get(&self) -> (Key<Entity>, &mut A, &mut B) in self@items {
+        let entity = if scan_first {
+            first.entity_at(row)
+        } else {
+            second.entity_at(row)
+        }
+        let a = first.get_mut(entity) or unreachable
+        let b = second.get_mut(entity) or unreachable
+        return (entity, a, b)
+    }
+
+    fn advance(&mut self) {
+        row += 1
+        self.seek()
+    }
+}

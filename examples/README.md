@@ -14,6 +14,7 @@ to work with, copy its folder, and you have a project that already builds.
 | <img src="rgfw/screenshot.gif" width="200"> | [**rgfw**](rgfw) | [RGFW](https://github.com/ColleagueRiley/RGFW) | A window with a plasma effect computed pixel by pixel, no GPU API |
 | <img src="raylib/screenshot.png" width="200"> | [**raylib**](raylib) | [raylib](https://www.raylib.com) | The smallest windowed program: sixteen lines |
 | 🔊 | [**miniaudio**](miniaudio) | [miniaudio](https://miniaud.io) | A synthesizer: an arpeggio and a bass line, generated sample by sample |
+| `>_` | [**ecs**](ecs) | none | Sparse-set component pools, mutable queries and deferred entity removal |
 | `>_` | [**ownership**](ownership) | none | A growable array from scratch: `own`, the three special members, copies and moves |
 
 ## Running one

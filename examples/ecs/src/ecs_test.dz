@@ -1,0 +1,38 @@
+#[test]
+fn move_owned_components_and_repair_sparse_rows() {
+    let mut registry = SlotMap<Entity>()
+    let a = registry.insert(Entity{})
+    let b = registry.insert(Entity{})
+    let c = registry.insert(Entity{})
+    let mut labels = SparseSet<String>()
+    labels.insert(a, String("long name for the first entity"))
+    labels.insert(b, String("long name for the second entity"))
+    labels.insert(c, String("long name for the third entity"))
+    assert(labels.remove(a))
+    let name = labels.get(c) or unreachable
+    assert(name.as_str() == "long name for the third entity")
+    assert(!labels.remove(a))
+}
+
+#[test]
+fn query_intersects_in_either_order_and_handles_empty_pools() {
+    let mut world = World()
+    let _ = world.spawn(0, none, 3)
+    let _ = world.spawn(4, 1, none)
+    let _ = world.spawn(6, 1, none)
+    let both = world.spawn(8, 2, 7)
+    let mut count: i32 = 0
+    for entity, &_speed, &_health in query2(&mut world.velocities, &mut world.health) {
+        assert(entity == both)
+        count += 1
+    }
+    for entity, &_health, &_speed in query2(&mut world.health, &mut world.velocities) {
+        assert(entity == both)
+        count += 1
+    }
+    let mut empty = SparseSet<Health>()
+    for _, &_speed, &_health in query2(&mut world.velocities, &mut empty) {
+        count += 1
+    }
+    assert(count == 2)
+}
