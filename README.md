@@ -2,25 +2,48 @@
   <img src=".github/logo.png" alt="Dazzle" width="640">
 </p>
 
-<p align="center"><b>Safe. Fast. Fluent in C++.</b></p>
+<p align="center"><b>Safe systems programming with automatic memory placement</b></p>
 
 <p align="center">
-  <a href="https://dazzle-lang.github.io">Website</a> ·
-  <a href="https://dazzle-lang.github.io/playground/">Try it in the browser</a> ·
+  <a href="https://dazzle-lang.github.io/playground/?example=order-reference">Try it in the browser</a> ·
   <a href="https://dazzle-lang.github.io/tour/overview/">Tour</a> ·
+  <a href="#install">Install</a> ·
   <a href="docs/spec/README.md">Specification</a>
 </p>
 
-Dazzle is an upgrade of C++ for the places C++ is used today: games and engines, embedded
-systems, tools and real-time code. It compiles to standard C++17.
+Dazzle checks when references can become invalid and chooses where allocations live. Ordinary
+code passes no allocators. Scope regions release their memory together, with no garbage
+collector. Dazzle compiles to standard C++17 and uses C and C++ libraries directly.
 
-- **Safe:** on one thread, a program with no `unsafe` has no undefined behaviour, with no
-  borrow checker and no lifetime annotations.
-- **Fast:** whole programs written idiomatically in both languages take 0.77 to 1.17 times
-  as long in Dazzle as in C++ ([benchmarks](#benchmarks)), and the compiler places memory
-  in scope regions itself.
-- **Fluent in C++:** C and C++ libraries are used straight from their source and headers,
-  with no bindings, and the output is standard C++17 for the compiler you already use.
+## Safe, without a borrow checker
+
+```rust
+struct Order {
+    pub number: i32
+    pub total_cents: i32
+}
+
+fn main() {
+    let mut orders = List<Order>()
+    orders.push(Order{ number: 17, total_cents: 2000 })
+
+    let number = &orders[0].number
+    orders[0].total_cents += 500
+    println!("Order {}: {} cents", number, orders[0].total_cents)
+
+    orders.push(Order{ number: 18, total_cents: 1200 })
+}
+```
+
+`&orders[0].number` takes a reference to the first order's number. Updating the total
+leaves that number in place. If you add the next order before printing, `push` can move
+the list's backing array and invalidate the reference. The compiler points to both the
+call and the later use. [See both versions](https://dazzle-lang.github.io/#safe-code-without-a-borrow-checker).
+
+A helper can push a string into a list it receives as a parameter. Dazzle puts the
+string's text in the same region as the list's backing array. Call the helper with a
+different list and the new string uses that list's region.
+[Follow both calls and their allocations](https://dazzle-lang.github.io/tour/memory-placement/).
 
 ## Install
 
@@ -46,47 +69,6 @@ All `dz` needs from the machine is a C++ compiler (clang++ or g++). To try it wi
 installing anything, the [playground](https://dazzle-lang.github.io/playground/) runs the
 real compiler in your browser. [Installation](#installation) has the details and how to
 build from source.
-
-## Safe, without a borrow checker
-
-```rust
-fn main() {
-    let mut names = List<String>()
-    names.push(String("ada"))
-    names.push(String("grace"))
-
-    // A `&mut` to one element beside a `&` to the next: Rust refuses this (E0502).
-    // The indices are known apart, so it is safe, and Dazzle compiles it.
-    for i in 0..names.len() - 1 {
-        names[i].push_str(names[i + 1].as_str())
-    }
-
-    // The bug C++ does have: a reference kept across a call that may move the array.
-    let first = &names[0]
-    names.push(String("linus"))
-    println!("{}", first)
-}
-```
-
-```text
-error[DZ0413]: used after the memory it points into was killed: `names@items`
-   ┌─ src/main.dz:15:20
-   │
-14 │     names.push(String("linus"))
-   │     --------------------------- this call kills `names@items`
-15 │     println!("{}", first)
-   │                    ^^^^^ points into `names@items`
-   │
-   = help: a call, write, move or drop that can move or free memory ends every reference into it: use this before that happens, or get it again after (spec §6.7)
-```
-
-The loop is safe code that Rust's borrow checker refuses. The last line is the bug C++
-compiles without a warning: `push` may move the array, and `first` would point into freed
-memory. Dazzle accepts the first and refuses the second, with no lifetimes: `push` says in
-its signature that it may move the list's array (`kills self@items`), and a call ends every
-reference into what it kills. Your own types say the same in theirs, and `dz fix` writes
-those clauses for you. More of what the borrow checker refuses and Dazzle compiles:
-[Dazzle and Rust](https://dazzle-lang.github.io/compare/rust/#what-the-borrow-checker-refuses).
 
 ## C libraries, with no bindings
 
@@ -478,7 +460,7 @@ it may end, with a **`kills`** clause. A call ends every reference into what it 
 
 ```rust
 // in std's List: each signature says what a call may end
-pub fn push(&mut self, v: T) kills self@items      // may move the array
+pub fn push(&mut self, v: T) kills self@items sends v to self
 pub fn len(&self) -> usize                         // no clause: kills nothing
 
 // in your code
@@ -492,11 +474,11 @@ writes the clause a body needs. Aliasing stays legal: `&mut xs[i]` beside `&xs[j
 `&mut` and a `&` to one value, is fine, as long as nothing in between can move the memory.
 
 **Ordinary code names no allocator.** `List<Enemy>()` and `String(name)` get their
-memory where the compiler can prove it safe: the region of the scope that owns them,
-released in one step when the scope ends; wherever the caller keeps a result; or else the
-heap. The same ties check every placement, the editor shows where each allocation went, and
-`dz placements` lists them. Every build places memory this way; `DZ_REGIONS=0` builds the
-same program with every value on the heap, for comparison.
+memory in a scope region, in the caller’s result storage, or on the heap. A helper
+can build into the home of a container it was lent. A `sends` clause tells callers where
+ownership can travel, so the compiler can pick a home that lasts long enough. The editor
+shows where allocations go, and `dz placements` lists them with their reasons.
+`DZ_REGIONS=0` builds the same program with allocator-backed memory on the heap for comparison.
 [Spec §6.7](docs/spec/06-value-semantics-ownership-copy.md) and
 [§14.6](docs/spec/14-memory-and-allocators.md) have the rules.
 
@@ -672,8 +654,8 @@ and `panic!` check their format string against their arguments at compile time.
 
 ## Error messages, tooling, and working with an LLM
 
-Dazzle is designed to be learned from the compiler. No model has Dazzle in its training
-data, and neither does a new programmer, so the compiler has to teach. **Available today:**
+Dazzle is designed to be learned from the compiler. Programmers and coding agents can use
+the same diagnostics to understand a rule, apply an edit, and check the result.
 
 - **Every diagnostic has a stable code** (`DZ0510`), points at your code and never at the
   generated C++, and nearly always ends in a `help:` that says what to write instead and
@@ -860,20 +842,13 @@ It is young. The language still changes, and every change is a row in the
 
 ### Next: 0.2
 
-- [ ] **Bugs:** generated C++ that fails to compile, and two bugs in the tools
-- [ ] **Faster builds:** the standard library's C++ compiled once, not in every build. The
-  targets: a debug rebuild under 0.5 s, and a clean release build within twice C++'s time
-- [ ] **The standard library:** `BinaryHeap`, `Deque` and `BitSet`, slicing a `str`, and
-  generic methods in a trait
-- [ ] **C++ interop**
-  - [x] a Dear ImGui panel that changes the [SDL3 scene](examples/sdl3) live
-  - [x] overloaded C++ functions, default arguments, array parameters
-  - [ ] a C++ namespace as a module of its own: `ImGui::Begin`, not `imgui::ImGui::Begin`
-  - [ ] variadic C functions, and an imported enum's own list of variants
-- [ ] **Benchmarks:** an ECS of a few hundred lines against C++ and Rust, where Rust has to
-  collect one query's results before running another inside it; `json` and `raytrace`
-  against C++
-- [ ] **The release notes**, and dependencies fetched from git if there is time
+**Landed since 0.1:** automatic memory placement across calls with `sends`, incremental
+builds, and a [Dear ImGui panel in the SDL3 example](examples/sdl3). Both small-program
+build targets have been met on Linux.
+
+**Remaining:** code generation and tooling fixes, standard-library additions, broader C++
+imports, new benchmarks, and release notes. [The road to 0.2](https://dazzle-lang.github.io/project/roadmap/)
+has the current work and measurements.
 
 ### Later
 
