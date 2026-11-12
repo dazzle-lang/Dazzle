@@ -788,6 +788,10 @@ fn collect_ties(scope: &Scope<'_>, place: &Place, ty: &Ty, out: &mut Vec<Place>,
         }
         Ty::Tuple(_) if body::moves_memory(ty, scope.table) => out.push(place.clone()),
         Ty::Named { sym, args } => match scope.table.get(*sym) {
+            // A trait object: what it is may own anything, so it is named whole, as a type
+            // parameter is. Naming nothing made a call through `&mut Trait` kill nothing,
+            // and a view into the object survived it (T-0203).
+            Some(dz_check::ItemSig::Trait(_)) => out.push(place.clone()),
             Some(dz_check::ItemSig::Union { .. }) => {
                 if body::moves_memory(ty, scope.table) {
                     out.push(place.clone());

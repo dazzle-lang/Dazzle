@@ -1,0 +1,28 @@
+// Spec §6.7, §7.6: a call through a trait object kills, at the object, what its trait
+// method's clause names, as a direct call or a call through a bound does. What is behind a
+// trait may own anything, so `kills self` ends every reference into it (T-0203).
+// expect: DZ0415, DZ0413
+
+trait Sink {
+    fn put(&mut self, v: i32) kills self
+}
+
+impl Sink for List<i32> {
+    fn put(&mut self, v: i32) kills self@items {
+        self.push(v)
+    }
+}
+
+fn put_undeclared(sink: &mut Sink) {
+    sink.put(1)
+}
+
+fn put_declared(sink: &mut Sink) kills sink {
+    sink.put(1)
+}
+
+fn held_across(xs: &mut List<i32>) kills xs {
+    let first = &xs[0]
+    put_declared(xs)
+    println!("{}", first)
+}

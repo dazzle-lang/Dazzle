@@ -6,6 +6,25 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0203: a call through a trait object kills the object (2026-11-12)
+
+A hole found while probing T-0202: `put_many(sink: &mut Sink)` called `sink.put(…)`, whose
+trait declaration says `kills self`, and was accepted with no clause; writing `kills sink`
+was refused as never killed (DZ0416). A caller's `&xs[0]` then survived `put_many(&mut xs)`
+growing the list, and read its freed buffer once the list was on the heap (in a region the
+old buffer stays, which hid it). The same body with `&mut List<String>`, or through a bound
+`<S: Sink>`, was refused as it should be.
+
+The cause was in `collect_ties` (`dz_flow/src/ties.rs`), which lists the ties a killed place
+names: a trait object's type is `Ty::Named` with the trait's symbol, and that arm named
+nothing for a trait, so `kills self` at the object was a kill of nothing. A trait object may
+be anything, so it is now named whole, as a type parameter is.
+
+Every example, `tests/run` program and bench program still checks with the stricter rule.
+Tests: `tests/flow/trait_object_kills.dz` (the missing clause, DZ0415, and the view used
+after the call, DZ0413) and a passing pair in `tests/flow/clean.dz`; without the fix the
+first gives DZ0416 instead and the second DZ0416.
+
 ## r119, T-0200 stage 4, second part: a lent container is placed by its callees' clauses (2026-11-11)
 
 Since the first part, the caller follows everything a callee's clauses can do with a

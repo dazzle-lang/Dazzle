@@ -131,4 +131,6 @@ written in one body makes none.
    implemented; §0.1 has a row for homes. The r119 row no longer says "being built".
 
 **Done.** In-place growth beside what is built into a list's home, the last item of stage 4,
-is [T-0201](T-0201-list-in-region-grows-in-place.md).
+is [T-0201](T-0201-list-in-region-grows-in-place.md). What stages 1 and 2 left open (a
+function type's `sends`, a trait method's against its implementations', and `dz fix`
+extending an `in`) is [T-0202](T-0202-homes-through-traits-function-types-sends.md).

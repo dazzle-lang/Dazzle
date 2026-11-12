@@ -215,3 +215,26 @@ fn read_twice() kills SHELF.books@items {
     println!("{}", first_book())
     SHELF.reads += 1
 }
+
+// A call through a trait object kills the object, so its clause says so, and a reference
+// into the object is taken again after it (T-0203).
+trait Sink {
+    fn put(&mut self, v: i32) kills self
+}
+
+impl Sink for List<i32> {
+    fn put(&mut self, v: i32) kills self@items {
+        self.push(v)
+    }
+}
+
+fn put_through(sink: &mut Sink) kills sink {
+    sink.put(1)
+}
+
+fn read_after_put(xs: &mut List<i32>) kills xs {
+    println!("{}", xs[0])
+    put_through(xs)
+    let first = &xs[0]
+    println!("{}", first)
+}
