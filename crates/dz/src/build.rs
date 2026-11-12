@@ -341,7 +341,8 @@ pub fn compile(
     // programs run 6-17% faster than with either, for 0.1-0.17 s more per release build
     // (T-0190). clang++ weighs the two alike, and warns about the flag, so it is g++ alone,
     // told apart by what it says it is.
-    if is_gcc(&cxx) {
+    let gcc = is_gcc(&cxx);
+    if gcc {
         if module.build.optimize != Optimize::Debug {
             args.extend(["--param".to_owned(), "max-inline-insns-auto=70".to_owned()]);
         }
@@ -398,7 +399,7 @@ pub fn compile(
     // What a CMake install's pkg-config file asks for besides libraries: `-pthread`.
     link_args.extend(link.flags.iter().cloned());
     if module.build.optimize == Optimize::Debug {
-        link_args.extend(fast_linker(&cxx, &args, &out.shared));
+        link_args.extend(fast_linker(&cxx, gcc, &args, &out.shared));
     }
 
     // An optimised build is optimised across modules too (T-0154): each module is a
@@ -1264,14 +1265,22 @@ fn file_stem(module: &str) -> String {
 ///
 /// Debug only: an optimised build links with LTO, which `lld` cannot do for g++'s objects,
 /// and is not what an edit waits for. Not on macOS, whose own linker is fast, nor Windows.
-/// A `-fuse-ld` of the user's own, in `DZ_CXXFLAGS`, is left to win.
+/// A linker explicitly chosen in `DZ_CXXFLAGS` is left to win.
 ///
 /// Whether `cxx` links a program with it is tried once, by linking an empty one, and the
 /// answer kept in the shared cache under the compiler's and the linker's files, size and time.
 /// So an upgrade of either asks again, and a linker taken away is simply not found.
-fn fast_linker(cxx: &str, args: &[String], shared: &crate::shared::Shared) -> Option<String> {
-    if !cfg!(unix) || cfg!(target_os = "macos") || args.iter().any(|a| a.starts_with("-fuse-ld")) {
-        return None;
+fn fast_linker(
+    cxx: &str,
+    gcc: bool,
+    args: &[String],
+    shared: &crate::shared::Shared,
+) -> Vec<String> {
+    if !cfg!(unix)
+        || cfg!(target_os = "macos")
+        || args.iter().any(|a| a.starts_with("-fuse-ld") || a.starts_with("--ld-path="))
+    {
+        return vec![];
     }
     let identity = |path: &Path| -> Option<String> {
         let real = std::fs::canonicalize(path).ok()?;
@@ -1279,32 +1288,45 @@ fn fast_linker(cxx: &str, args: &[String], shared: &crate::shared::Shared) -> Op
         let time = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
         Some(format!("{} {} {time}", real.display(), meta.len()))
     };
-    let compiler = identity(&crate::fresh::which(cxx)?)?;
+    let Some(compiler) = crate::fresh::which(cxx).and_then(|p| identity(&p)) else {
+        return vec![];
+    };
     for (program, name) in [("ld.mold", "mold"), ("ld.lld", "lld")] {
-        let Some(linker) = crate::fresh::which(program).and_then(|p| identity(&p)) else {
-            continue;
-        };
-        let flag = format!("-fuse-ld={name}");
-        let key = format!("{compiler}\0{linker}\0{flag}");
+        let Some(path) = crate::fresh::which(program) else { continue };
+        let Some(linker) = identity(&path) else { continue };
+        let mut flags = vec![format!("-fuse-ld={name}")];
+        if !gcc {
+            // Clang can find its bundled linker before PATH. Use the same executable that
+            // supplied the cache identity. Keep the symlink's name for drivers like ld.lld.
+            let path = if path.is_absolute() {
+                path
+            } else if let Ok(cwd) = std::env::current_dir() {
+                cwd.join(path)
+            } else {
+                continue;
+            };
+            flags.push(format!("--ld-path={}", path.display()));
+        }
+        let key = format!("{compiler}\0{linker}\0{}", flags.join("\0"));
         let answer =
             shared.obj_dir().join(format!("linker-{:016x}", crate::native::fnv1a(key.as_bytes())));
         let works = match std::fs::read_to_string(&answer) {
             Ok(known) => known.trim() == "yes",
             Err(_) => {
-                let works = links_with(cxx, &flag, &shared.obj_dir());
+                let works = links_with(cxx, &flags, &shared.obj_dir());
                 let _ = crate::shared::write(&answer, if works { b"yes\n" } else { b"no\n" });
                 works
             }
         };
         if works {
-            return Some(flag);
+            return flags;
         }
     }
-    None
+    vec![]
 }
 
-/// Does `cxx` link an empty program with `flag`? Tried in a folder of its own under `dir`.
-fn links_with(cxx: &str, flag: &str, dir: &Path) -> bool {
+/// Does `cxx` link an empty program with `flags`? Tried in a folder of its own under `dir`.
+fn links_with(cxx: &str, flags: &[String], dir: &Path) -> bool {
     let folder = dir.join(format!("linker-probe-{}", std::process::id()));
     if std::fs::create_dir_all(&folder).is_err() {
         return false;
@@ -1312,7 +1334,7 @@ fn links_with(cxx: &str, flag: &str, dir: &Path) -> bool {
     let source = folder.join("probe.cpp");
     let works = std::fs::write(&source, "int main() { return 0; }\n").is_ok()
         && Command::new(cxx)
-            .arg(flag)
+            .args(flags)
             .arg(&source)
             .arg("-o")
             .arg(folder.join("probe"))

@@ -1270,6 +1270,10 @@ refused, so there is no number here. The test stands in a `ld.lld` that records 
 and runs `ld`, and a `ld.mold` that always fails. It checks the failing one is passed over
 and the other is tried once and then used, with clang++ and with g++.
 
+On runners with a bundled LLD, Clang can resolve `-fuse-ld=lld` to its own linker before
+looking on `PATH`. Dazzle also passes `--ld-path` to Clang so the probe and the final link
+use the executable identified in the cache key.
+
 ## An edit finishes only the modules it can affect (T-0197; 2026-11-11)
 
 Stage 2a. After the stamp and the C++-side stages, a leaf edit at 100 modules was still 1.7 s
