@@ -18,6 +18,9 @@ pub use body::{
 pub(crate) use body::{analyse_regions, lend_keeps, sends_to_self, Refusal, RegionRefusal};
 pub use report::{report, report_homes};
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dz_check::ties::{self, Root, Scope};
 use dz_check::TypeTable;
 use dz_diag::codes;
@@ -374,20 +377,56 @@ pub(crate) fn canonicalize(
     root: &Ty,
     steps: &[Step],
 ) -> Vec<Step> {
+    canonicalize_with(table, res, root, steps, &Rewrites::default())
+}
+
+/// What each type instance's ties rewrite ([`rewrites`]), worked out once and kept. A body's
+/// walk makes every call's places canonical (T-0207), and a `List`'s ties are asked about at
+/// nearly every one, so the walk keeps one of these for the whole body. `Ty` has no hash, and
+/// a body meets few types.
+#[derive(Default)]
+pub(crate) struct Rewrites(RefCell<Vec<(Ty, Rc<[(Vec<Step>, Vec<Step>, Ty)]>)>>);
+
+impl Rewrites {
+    fn of(
+        &self,
+        table: &TypeTable,
+        res: &dz_resolve::Resolution,
+        sym: dz_resolve::SymbolId,
+        args: &[Ty],
+    ) -> Rc<[(Vec<Step>, Vec<Step>, Ty)]> {
+        let key = Ty::Named { sym, args: args.to_vec() };
+        if let Some((_, known)) = self.0.borrow().iter().find(|(t, _)| *t == key) {
+            return known.clone();
+        }
+        let found: Rc<[_]> = rewrites(table, res, sym, args).into();
+        self.0.borrow_mut().push((key, found.clone()));
+        found
+    }
+}
+
+/// [`canonicalize`], reading each type's ties from `known`.
+pub(crate) fn canonicalize_with(
+    table: &TypeTable,
+    res: &dz_resolve::Resolution,
+    root: &Ty,
+    steps: &[Step],
+    known: &Rewrites,
+) -> Vec<Step> {
     let mut out = Vec::with_capacity(steps.len());
     let mut ty = root.peeled().clone();
     let mut i = 0;
     'outer: while i < steps.len() {
         if let Ty::Named { sym, args } = ty.peeled_refs() {
             if !ties::tie_decls(table, *sym).is_empty() {
-                for (pattern, replacement, after) in rewrites(table, res, *sym, args) {
+                for (pattern, replacement, after) in known.of(table, res, *sym, args).iter() {
                     // A pattern names elements as `[*]`; an indexed element matches it, and
                     // its index is given up for the tie it is rewritten to.
                     let matches = steps.len() - i >= pattern.len()
-                        && steps[i..].iter().zip(&pattern).all(|(s, p)| s.unkeyed() == *p);
+                        && steps[i..].iter().zip(pattern.iter()).all(|(s, p)| s.unkeyed() == *p);
                     if matches {
-                        out.extend(replacement);
-                        ty = after;
+                        out.extend(replacement.iter().cloned());
+                        ty = after.clone();
                         i += pattern.len();
                         continue 'outer;
                     }
@@ -417,7 +456,18 @@ pub(crate) fn canonical_place(
     root: &Ty,
     place: &Place,
 ) -> Place {
-    Place { local: place.local, steps: canonicalize(table, res, root, &place.steps) }
+    canonical_place_with(table, res, root, place, &Rewrites::default())
+}
+
+/// [`canonical_place`], reading each type's ties from `known`.
+pub(crate) fn canonical_place_with(
+    table: &TypeTable,
+    res: &dz_resolve::Resolution,
+    root: &Ty,
+    place: &Place,
+    known: &Rewrites,
+) -> Place {
+    Place { local: place.local, steps: canonicalize_with(table, res, root, &place.steps, known) }
 }
 
 /// The field standing for `name` in `sym`'s places. Fields tied together are one span of

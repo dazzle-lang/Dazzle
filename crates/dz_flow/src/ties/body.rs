@@ -430,6 +430,8 @@ struct Analysis<'a> {
     /// The first guard local of each `Rc<T>` type in this body, which stands for every value
     /// an `Rc<T>` or `Weak<T>` shares: any two may hold one (D-0094 point 2, T-0124).
     shared: Vec<(Ty, LocalId)>,
+    /// Each type instance's tie rewrites, for [`Self::canonical`] (T-0207).
+    rewrites: super::Rewrites,
 }
 
 /// Analyse one checked function, using only other functions' signatures. Findings are
@@ -628,6 +630,7 @@ fn analyse(
         regions,
         homes,
         homes_result: Vec::new(),
+        rewrites: super::Rewrites::default(),
     };
     let signature = body_signature(body, table, res);
     if signature.as_ref().is_some_and(|s| s.sig.is_unsafe) {
@@ -893,11 +896,12 @@ impl Analysis<'_> {
     /// `@items`, as the first is.
     fn canonical(&self, mut origin: Origin) -> Origin {
         let canon = |p: &Place| {
-            super::canonical_place(
+            super::canonical_place_with(
                 self.table,
                 self.res,
                 &super::root_ty(self.body, self.table, p.local),
                 p,
+                &self.rewrites,
             )
         };
         origin.target = canon(&origin.target);

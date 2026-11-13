@@ -30,6 +30,16 @@ Compiler work; no language change: both are §6.7 as written, which the checker 
   every example and `tests/run` program still checks clean with the coarser rule. A tuple
   `Item` is covered the same way, and its `unchecked` note is gone.
 
+**What it cost, and the cache that paid it back.** Making every call's places canonical
+slowed `dz check` by 9–27% (`examples/ecs` 1.07 s to 1.35 s, almost all of it the ownership
+phase): `canonicalize` worked out a type's tie rewrites (`rewrites`, through `export_path`) on
+every call, and a `List`'s are asked for at nearly every one. They are now kept per type
+instance for the body's walk (`ties::Rewrites`, in `Analysis::rewrites`), which the field reads
+that already canonicalised share. Against the compiler before T-0208, best of seven, debug
+builds: `ecs` 1066 to 931 ms, `breakout` 481 to 381, `tests/run/regions` 817 to 791,
+`bench_programs/expr` 469 to 397, `tests/bench` 381 to 304. The generated C++ of every
+benchmark is unchanged apart from paths, so their run times are too.
+
 Tests: `tests/flow/kill_through_a_later_tie_place.dz` (through a field-named and a tie-named
 clause, a method, the reverse direction, the first place, a direct push, and a reference
 taken after the kill, which stays clean) and `tests/flow/loop_over_a_view_struct.dz` (a call, a
