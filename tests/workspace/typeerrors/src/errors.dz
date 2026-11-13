@@ -364,6 +364,11 @@ fn orders_without_ord(a: Plain, b: Plain) -> bool {
     return a < b
 }
 
+// r121: a `&mut` compares with a `&` of the same type only; writability is all it ignores.
+fn compares_writable_with_another_type(a: &mut String, b: &Plain) -> bool {
+    return a == b
+}
+
 // Arithmetic likewise: `+` is `Add`.
 fn adds_without_add(a: Plain, b: Plain) -> Plain {
     return a + b

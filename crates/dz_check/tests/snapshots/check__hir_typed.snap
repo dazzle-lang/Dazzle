@@ -17566,6 +17566,57 @@ body fn comparing_a_user_type -> bool
               ref: &Score
                 local _1 b: Score
             enum-variant Ordering#0: Ordering
+body fn comparing_writable_with_read_only -> bool
+  param _0 a: &mut Score
+  param _1 b: &Score
+  param _2 name: &String
+  block
+    let _3 names: List<String>
+      call-ctor List#0: List<String>
+    call-method List::push: void
+      local _3 names: List<String>
+      call-assoc String::from: String
+        str "a": &str
+    let _4 p: i32
+      int 1: i32
+    let _5 w: ^mut i32
+      ref mut: &mut i32
+        local _4 p: i32
+    let _6 r: ^i32
+      ref: &i32
+        local _4 p: i32
+    return: !
+      binary &&: bool
+        binary &&: bool
+          binary &&: bool
+            binary &&: bool
+              call-method Eq::eq: bool
+                local _0 a: &mut Score
+                ref: &&Score
+                  local _1 b: &Score
+              binary ==: bool
+                call-method Ord::cmp: Ordering
+                  local _1 b: &Score
+                  ref: &&mut Score
+                    local _0 a: &mut Score
+                enum-variant Ordering#0: Ordering
+            call-method Eq::eq: bool
+              call-method IndexMut::index_mut: &mut String
+                local _3 names: List<String>
+                int 0: usize
+              ref: &&String
+                local _2 name: &String
+          binary !=: bool
+            call-method Ord::cmp: Ordering
+              local _2 name: &String
+              ref: &&mut String
+                call-method IndexMut::index_mut: &mut String
+                  local _3 names: List<String>
+                  int 0: usize
+            enum-variant Ordering#0: Ordering
+        binary ==: bool
+          local _5 w: ^mut i32
+          local _6 r: ^i32
 body impl#143 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2

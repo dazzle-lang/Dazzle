@@ -98,6 +98,12 @@ it refers to a number, `bool`, `char`, `&str` or an enum: `x > 2`, `x * 2` and `
 taking `&T` reads as one taking `T`. A reference to a struct is compared through `Eq` and
 `Ord` as before (§11.2).
 
+A comparison only reads, so a writable reference or pointer compares with a read-only one
+to the same type: a `&mut String` with a `&String`, either way round, and a `^mut T` with a
+`^T`. That is what makes `xs[i] == name` work on a `let mut` list, whose `xs[i]` is
+`index_mut`'s `&mut T` (§11.2). The types must still be the same once writability is set
+aside: `&mut String` and `&str` do not compare.
+
 **There is no reference to a reference.** `&r` or `&mut r` on an `r: &mut T` refers to the
 `T` that `r` refers to, and is a `&T` or a `&mut T`; so is `&mut list[i]`, whose `IndexMut`
 already hands back a reference (§11.2). `&mut` of a `&T` is an error, since nothing writable

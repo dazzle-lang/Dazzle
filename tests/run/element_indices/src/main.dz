@@ -51,9 +51,20 @@ fn minus_one() {
     println!("{}", strings[3])
 }
 
+// An element of a `let mut` list is `index_mut`'s `&mut String`, compared with a `&String`
+// either way round, as a `&mut` local is; a comparison only reads (spec §5.2, r121).
+fn compared(name: &String) {
+    let mut strings = names()
+    strings[1].push_str("B")
+    let mut held = String::from("A")
+    let mine = &mut held
+    println!("{} {} {} {} {} {}", strings[0] == name, name != strings[1], strings[1] > name, name <= strings[0], mine == name, name == mine)
+}
+
 fn main() {
     next_text()
     literal_indices()
     nested()
     minus_one()
+    compared(&String::from("A"))
 }

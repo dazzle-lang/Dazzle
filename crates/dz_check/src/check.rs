@@ -3891,7 +3891,17 @@ impl<'a, 'c> Body<'a, 'c> {
                     let b = self.expr(rhs, Some(&a.ty));
                     (a, self.read_operand(b, rhs))
                 };
-                if join(&a.ty, &b.ty).is_none() {
+                // A comparison only reads, so a writable reference or pointer is compared as
+                // its read-only form: `xs[i] == name`, where `xs[i]` is `index_mut`'s
+                // `&mut String` and `name` a `&String` (spec §5.2, §11.2).
+                let read_only = |t: &Ty| match t {
+                    Ty::Ref { inner, .. } => Ty::Ref { mutable: false, inner: inner.clone() },
+                    Ty::Ptr { inner, .. } => Ty::Ptr { mutable: false, inner: inner.clone() },
+                    other => other.clone(),
+                };
+                if join(&a.ty, &b.ty).is_none()
+                    && join(&read_only(&a.ty), &read_only(&b.ty)).is_none()
+                {
                     let (x, y) = (self.cx.name_of(&a.ty), self.cx.name_of(&b.ty));
                     self.cx.error_help(
                         codes::INVALID_OPERANDS,

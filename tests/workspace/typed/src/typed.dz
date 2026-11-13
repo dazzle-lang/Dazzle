@@ -558,6 +558,17 @@ fn comparing_a_user_type(a: Score, b: Score) -> bool {
     return a == b || a != b && a < b && a > b && a <= b && a >= b
 }
 
+// r121: a comparison only reads, so a `&mut` compares with a `&` of the same type, either
+// way round; an element of a `let mut` list is `index_mut`'s `&mut` (§11.2).
+fn comparing_writable_with_read_only(a: &mut Score, b: &Score, name: &String) -> bool {
+    let mut names = List<String>()
+    names.push(String::from("a"))
+    let mut p = 1
+    let w: ^mut i32 = &mut p
+    let r: ^i32 = &p
+    return a == b && b < a && names[0] == name && name >= names[0] && w == r
+}
+
 // `Rhs` defaults to `Self`, so `Add` alone is `Vec2 + Vec2`; `Mul<f32>` is `Vec2 * f32`.
 pub struct Vec2 {
     pub x: f32
