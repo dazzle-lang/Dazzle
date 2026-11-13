@@ -37,4 +37,29 @@ which waits for T-0145 anyway.
 | The rules: `skipped_drops`, `built_in_region`, `replaced`, `whole_functions`, `returns_whole` | `dz_flow/src/release.rs` |
 | The test that pins what is kept today | `a_drop_is_skipped_only_when_its_region_frees_everything` in `dz_flow/tests/placement.rs` |
 
+**The `format!` row first** (the user's choice, 2026-11-13). This keeps its drop only because
+of `format!`; with `String("…")` in the loop it is skipped, since T-0208 and T-0209 follow the
+indexing and the `&mut` in a `let`:
+
+```dz
+fn create_strings() -> String {
+    let mut strings: List<String> = List<String>()
+    for i in 0..1000 {
+        strings.push(format!("String number {}", i))   // in the region since T-0149
+    }
+    let selected: &mut String = &mut strings[500]
+    selected.push_str(" - modified!")
+    strings[100].push_str(" - changed too")
+    println!("{}", selected)
+    strings.push(String("One more string"))
+    return strings[500]                                  // a copy, on the heap
+}
+```
+
+Where it stops: `built_in_region` in `dz_flow/src/release.rs` accepts a `Call` or a struct
+literal as a site built whole, and `format!` is a `Formatted` node. Its value is the text
+`placement.rs`'s `formatted_by` already treats as a site (T-0149); `Contents::built_here`
+would take it when that site is placed in the container's region and the macro builds its
+text whole there.
+
 **What it would take.** Compiler work only (`docs/log/`). Each row is independent.

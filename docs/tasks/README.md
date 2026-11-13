@@ -20,6 +20,14 @@ python tools/track.py check                      # headers, ids, milestones, §-
 
 ## Now
 
+**First, by the user's choice (2026-11-13): T-0147's `format!` row.** A `List<String>`
+filled with `format!` text in its region still runs its drop, though the text is in the
+region (T-0149 placed it there): the drop-skip rule does not take the macro's value as a site
+built whole. The same function with `String(…)` in place of `format!`
+skips its drop, indexing, `&mut xs[i]` held in a `let`, `push_str` and returning a copy
+included (T-0208, T-0209), so `format!` is all that is left of the user's example in T-0147.
+Suggest it before anything else when asked what to work on.
+
 **The 0.2 release**, planned with the user on 2026-11-09. Six parts, roughly in this order;
 the stdlib and the benchmarks go together, since the new programs show what `std` lacks:
 
