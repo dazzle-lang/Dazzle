@@ -3542,6 +3542,11 @@ impl Analysis<'_> {
                     pointee(self.body.ty(operand)).is_some_and(|from| from == to)
                 });
                 let made = explicit && matches!(node.ty, Ty::Ptr { .. } | Ty::OwnPtr { .. });
+                // A number made from what a reference refers to is a copy of it, no view:
+                // `xs[i] as usize`, where `xs[i]` is `index`'s `&T` (§11.2).
+                if matches!(node.ty, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char) {
+                    return Value::default();
+                }
                 if super::points(&node.ty) && (!same || made) {
                     Value { unknown: true, ..Value::default() }
                 } else {

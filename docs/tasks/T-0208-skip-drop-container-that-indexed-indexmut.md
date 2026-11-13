@@ -2,10 +2,19 @@
 id: T-0208
 title: Skip the drop of a container that is indexed: IndexMut chosen for reads, an element lent as &mut
 milestone: none
-status: open
+status: done
 kind: feature
 area: ownership
 ---
+
+**Done 2026-11-13**, both rows, in `dz_flow` alone. The first row's fix as written below would
+have changed §11.2, which is `[DECIDED]` (D-0050: `index_mut` whenever the container is
+writable), so the checker is unchanged: the `&mut` element `index_mut` hands back is followed
+instead (`Contents::lent_to_keep`). Found on the way and fixed with it: `List::append` from
+another list skipped the drop of a list that held the other list's heap strings (a leak),
+`names.sort()` kept a drop it need not, and `xs[i] as usize` was refused as a view (DZ0413).
+What is still kept, a local holding the element's `&mut`, is
+[T-0209](T-0209-follow-element-reference-kept-in-local.md). See `docs/log/r81-ties.md`.
 
 Left out of [T-0118](T-0118-skip-drops-that-only-free-region.md) and
 [T-0145](T-0145-value-stored-into-container-built-where.md), and not one of the rows of
@@ -39,9 +48,8 @@ element, each `free` a near no-op into the region). No program prints differentl
 | Piece | Where |
 |---|---|
 | `Index` versus `IndexMut` for `b[i]`, decided by `place_mutability` | `ExprKind::Index` in `dz_check/src/check.rs` (around line 3480) |
-| The guard that refuses a mutating method returning `&mut`: `whole_inside`, `writes_through` | `dz_flow/src/release.rs` |
-| `&mut` of an owning part counted as a replacement: `replaced` | `dz_flow/src/release.rs` |
-| The test that pins what is kept today | `a_drop_is_skipped_only_when_its_region_frees_everything` in `dz_flow/tests/placement.rs` |
-
-**What it would take.** Compiler work only (`docs/log/`). The two rows are independent; the
-first is the smaller and affects far more programs.
+| What is done with an element `index_mut` lent: `lent_to_keep`, `lends_element` | `Contents` in `dz_flow/src/release.rs` |
+| A method on the container or an element, a trait's found in the type's `impl`: `keeps`, `runs` | `Contents` in `dz_flow/src/release.rs` |
+| What a method may add: `adds_foreign` (`move_out` only of `self`'s own memory) | `dz_flow/src/release.rs` |
+| A cast to a number carries no view | the `Cast` arm of `Cx::expr`, `dz_flow/src/ties/body.rs` |
+| The tests | `an_indexed_container_skips_its_drop_unless_an_element_is_replaced` in `dz_flow/tests/placement.rs`; `element_as_number` in `tests/flow/clean.dz`, `cast_after_kill` in `tests/flow/use_after_kill.dz` |

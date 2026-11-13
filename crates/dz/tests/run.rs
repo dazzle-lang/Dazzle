@@ -329,7 +329,7 @@ fn dz_placements_prints_each_site() {
     );
     assert_eq!(
         lines.last().copied(),
-        Some("93 allocations, 64 in a region, 4 in a lent container's home"),
+        Some("100 allocations, 70 in a region, 4 in a lent container's home"),
         "{text}"
     );
 
@@ -340,7 +340,7 @@ fn dz_placements_prints_each_site() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON on stdout");
     let sites = doc["sites"].as_array().unwrap();
-    assert_eq!(sites.len(), 93);
+    assert_eq!(sites.len(), 100);
     assert_eq!(sites[0]["placement"], "region");
     assert_eq!(sites[0]["scope"], "`sum_squares`");
     assert_eq!(sites[0]["line"], 14);
@@ -735,7 +735,10 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
     };
 
     // The containers too: a tracked build of a program that frees everything prints exactly
-    // what an untracked one does, so any leak report would break the comparison.
+    // what an untracked one does, and reports nothing. A leak is reported on stderr with
+    // the program still succeeding, so stderr is what shows one. The programs that skip
+    // drops a region makes unnecessary are here, since a drop skipped wrongly is a leak and
+    // nothing else (T-0118, T-0208).
     for fixture in [
         "allocators",
         "hashmap",
@@ -745,12 +748,19 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
         "sorting",
         "collections",
         "region_arena",
+        "regions",
+        "homes_through_calls",
+        "short_strings",
+        "element_indices",
+        "containers",
     ] {
         let clean = copy_fixture(fixture, &format!("dz_tracked_clean_{fixture}"));
         let out = run(&clean);
         let expected =
             normalise(&std::fs::read_to_string(run_dir(fixture).join("expected.txt")).unwrap());
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{fixture}: {stderr}");
+        assert!(!stderr.contains("leak"), "{fixture}: memory leaked\n{stderr}");
         assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), expected, "{fixture}");
         let _ = std::fs::remove_dir_all(&clean);
     }

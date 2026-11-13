@@ -944,17 +944,64 @@ fn adds_foreign(
             _ => return false,
         }
     };
-    // A parameter moved in, a value moved out of memory, or one that owns nothing: not a
-    // new owner.
-    let given = |e: ExprId| match &body.expr(e).kind {
-        hir::ExprKind::Move(inner) => {
-            matches!(body.expr(*inner).kind, hir::ExprKind::Local(l) if body.params.contains(&l))
+    // What a `let` that is not `mut` was bound to: `let old_keys = m_keys as ^mut K`, `let
+    // held = move_out(m_data[i])`.
+    let bound = |l: LocalId| {
+        let local = body.local(l);
+        if local.mutable || local.kind != hir::LocalKind::Let {
+            return None;
         }
-        hir::ExprKind::Builtin { name, .. } | hir::ExprKind::Intrinsic { name, .. }
+        (0..body.stmts.len() as u32).map(StmtId).find_map(|s| match body.stmt(s).kind {
+            hir::StmtKind::Let { local: Some(x), init } if x == l => init,
+            _ => None,
+        })
+    };
+    // Memory `self` already owns: reached from it, or through a pointer to it a `let` keeps
+    // while the method moves its elements to a new allocation (`HashMap::rehash`).
+    let owned_by_self = |mut e: ExprId| {
+        for _ in 0..body.exprs.len() {
+            match body.expr(e).kind {
+                hir::ExprKind::Local(l) if body.local(l).name == "self" => return true,
+                hir::ExprKind::Local(l) => match bound(l) {
+                    Some(init) => e = init,
+                    None => return false,
+                },
+                hir::ExprKind::Field { base, .. }
+                | hir::ExprKind::TupleIndex { base, .. }
+                | hir::ExprKind::Index { base, .. }
+                | hir::ExprKind::Deref(base)
+                | hir::ExprKind::Cast { operand: base, .. } => e = base,
+                // `unsafe { m_keys as ^mut K }`: a block that is nothing but its value.
+                hir::ExprKind::Block(b) => match body.block(b).stmts[..] {
+                    [s] => match body.stmt(s).kind {
+                        hir::StmtKind::Expr(value) => e = value,
+                        _ => return false,
+                    },
+                    _ => return false,
+                },
+                _ => return false,
+            }
+        }
+        false
+    };
+    let moved_out_of_self = |e: ExprId| match &body.expr(e).kind {
+        hir::ExprKind::Builtin { name, args } | hir::ExprKind::Intrinsic { name, args }
             if name == "move_out" =>
         {
-            true
+            args.first().is_some_and(|a| owned_by_self(*a))
         }
+        _ => false,
+    };
+    // A parameter moved in, an element `self` already had moved out of its memory (as
+    // growing and `swap` do), or one that owns nothing: not a new owner. An element moved
+    // out of another container's memory is one: `List::append` (T-0208).
+    let given = |e: ExprId| match &body.expr(e).kind {
+        hir::ExprKind::Move(inner) => match body.expr(*inner).kind {
+            hir::ExprKind::Local(l) if body.params.contains(&l) => true,
+            hir::ExprKind::Local(l) => bound(l).is_some_and(moved_out_of_self),
+            _ => false,
+        },
+        _ if moved_out_of_self(e) => true,
         _ => !crate::storing::owns(table, body.ty(e)),
     };
     let assigned = (0..body.stmts.len() as u32).map(StmtId).any(|s| match body.stmt(s).kind {
@@ -1063,23 +1110,152 @@ impl Contents<'_, '_> {
             let (Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. }) = callee else {
                 continue;
             };
-            if *recv != top || !mutates(self.d.table, callee) {
+            if *recv != top {
                 continue;
             }
-            let Some((_, owner)) = callee_owner(self.d.res, callee) else { return false };
-            if !matches!(owner, BodyOwner::Method { .. })
-                || self.adders.contains(&owner)
-                || writes_through(self.d.table, body.ty(p))
-            {
-                return false;
-            }
-            for (i, a) in args.iter().enumerate() {
-                if self.staying.param_stored(&owner, i) && !self.built_here(*a) {
+            // `xs[i]` on a `let mut` container is `index_mut` whether it is read or written
+            // (§11.2), so the `&mut` it hands back is followed rather than refused (T-0208).
+            if self.lends_element(callee) {
+                if !self.keeps(callee, args, body.ty(top)) || !self.lent_to_keep(p, &parent) {
                     return false;
                 }
+                continue;
+            }
+            if writes_through(self.d.table, body.ty(p)) && mutates(self.d.table, callee) {
+                return false;
+            }
+            if !self.keeps(callee, args, body.ty(top)) {
+                return false;
             }
         }
         true
+    }
+
+    /// Whether a method called on a `recv`, the container or an element it lent, keeps
+    /// everything inside built in the region: a `&self` method does; a `&mut self` one that
+    /// adds nothing it was not given ([`foreign_adders`]) does when it is the type's own and
+    /// is given, for each value it stores, a site built whole in the region, or when it is the
+    /// type's implementation of a trait (`names.sort()`, `index_mut`) and is given nothing
+    /// that owns memory, since which parameters such a method stores is not worked out.
+    fn keeps(&self, callee: &Callee, args: &[ExprId], recv: &Ty) -> bool {
+        if !mutates(self.d.table, callee) {
+            return true;
+        }
+        let Some(owner) = self.runs(callee, recv) else { return false };
+        if self.adders.contains(&owner) {
+            return false;
+        }
+        match owner {
+            BodyOwner::Method { .. } => args
+                .iter()
+                .enumerate()
+                .all(|(i, a)| !self.staying.param_stored(&owner, i) || self.built_here(*a)),
+            BodyOwner::ImplMethod { .. } => args.iter().all(|a| !self.d.owns(self.body.ty(*a))),
+            _ => false,
+        }
+    }
+
+    /// The body a method call on a `recv` runs: the type's own method, or for a trait's
+    /// method the one in the type's implementation of that trait, when exactly one applies
+    /// and writes it. `None` for a trait's default, which [`foreign_adders`] does not follow.
+    fn runs(&self, callee: &Callee, recv: &Ty) -> Option<BodyOwner> {
+        let (_, owner) = callee_owner(self.d.res, callee)?;
+        let BodyOwner::TraitDefaults { owner: trait_sym, name } = owner else {
+            return Some(owner);
+        };
+        let table = self.d.table;
+        let recv = match recv {
+            Ty::Ref { inner, .. } => &**inner,
+            t => t,
+        };
+        let mut found = table.impls().iter().enumerate().filter(|(_, i)| {
+            i.trait_ref.trait_sym == trait_sym && table.impl_applies(i, recv).is_some()
+        });
+        let (imp, _) = found.next()?;
+        if found.next().is_some() {
+            return None;
+        }
+        let owner = BodyOwner::ImplMethod { imp: imp as u32, name };
+        self.d.hir.find(&owner).is_some().then_some(owner)
+    }
+
+    /// Whether `callee` is `IndexMut::index_mut`: `xs[i]` on a writable container.
+    fn lends_element(&self, callee: &Callee) -> bool {
+        let Callee::Method { owner, name, .. } = callee else { return false };
+        name == "index_mut" && self.d.table.prelude_trait_named("IndexMut") == Some(*owner)
+    }
+
+    /// Whether the `&mut` element an `index_mut` call `e` hands back can only be read, or
+    /// changed by the element's own methods, never replaced by a value from elsewhere
+    /// (T-0208). Followed through the place it is the root of (`xs[i].name`), it may be
+    /// read, borrowed `&`, assigned where the part assigned owns nothing, or the receiver of
+    /// a method that [`Self::keeps`]; anything that hands on something writable, `&mut` of an
+    /// owning part, `construct`, `destroy` and `move_out` replace it. The element's type is
+    /// [`Drops::releasable`], since the container is a [`Drops::holder`], so its own methods
+    /// keep its memory where it was placed (§14.6) and replace none of its parts.
+    fn lent_to_keep(&self, e: ExprId, parent: &HashMap<ExprId, ExprId>) -> bool {
+        use hir::ExprKind as K;
+        let body = self.body;
+        let table = self.d.table;
+        let mut top = e;
+        while let Some(&p) = parent.get(&top) {
+            let place = match body.expr(p).kind {
+                K::Field { base, .. } | K::TupleIndex { base, .. } | K::Index { base, .. } => {
+                    base == top
+                }
+                K::Deref(_) => true,
+                _ => false,
+            };
+            if !place {
+                break;
+            }
+            top = p;
+        }
+        let referent = |t: ExprId| match body.ty(t) {
+            Ty::Ref { inner, .. } => (**inner).clone(),
+            other => other.clone(),
+        };
+        let Some(&p) = parent.get(&top) else {
+            // The root of a statement: `xs[i].hp = 0`, a `let`, a loop's subject.
+            for s in (0..body.stmts.len() as u32).map(StmtId) {
+                match body.stmt(s).kind {
+                    hir::StmtKind::Assign { target, .. } if target == top => {
+                        return !self.d.owns(&referent(top));
+                    }
+                    hir::StmtKind::Expr(x) if x == top => return true,
+                    _ => {}
+                }
+            }
+            return !writes_through(table, body.ty(top));
+        };
+        match &body.expr(p).kind {
+            K::Ref { mutable: false, .. } => true,
+            K::Ref { mutable: true, .. } => !self.d.owns(&referent(top)),
+            // `println!("{}", xs[i])`: what an argument is bound to is read by
+            // `Format::format`, which takes `&self`, and by nothing else.
+            K::Formatted { .. } => true,
+            K::Call { callee, args } => match callee {
+                // `nest[i][j]`: the element is a container too, and lends its own.
+                Callee::Method { recv, .. } if *recv == top && self.lends_element(callee) => {
+                    self.keeps(callee, args, body.ty(top)) && self.lent_to_keep(p, parent)
+                }
+                Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } if *recv == top => {
+                    !writes_through(table, body.ty(p)) && self.keeps(callee, args, body.ty(top))
+                }
+                _ => !writes_through(table, body.ty(top)),
+            },
+            K::Builtin { name, .. } | K::Intrinsic { name, .. }
+                if matches!(name.as_str(), "construct" | "destroy" | "move_out") =>
+            {
+                false
+            }
+            K::Move(_) => false,
+            // `xs[i] as usize`, `xs[i] + 1`: an operator reads what it is given.
+            K::Cast { .. } | K::Binary { .. } | K::Unary { .. } => {
+                !writes_through(table, body.ty(p))
+            }
+            _ => !writes_through(table, body.ty(top)) && !writes_through(table, body.ty(p)),
+        }
     }
 
     /// Whether `e`, a value stored into the container, was built whole in its region: a

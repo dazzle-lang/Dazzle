@@ -1790,6 +1790,162 @@ fn main() {
     assert_eq!(labels[0], "region: `skipped`; drop skipped");
 }
 
+/// `xs[i]` on a `let mut` container is `index_mut` even for a read (§11.2), so what is done
+/// with the `&mut` element it hands back decides whether the container's drop is skipped
+/// (T-0208): reading it, formatting it, a non-owning part assigned and the element's own
+/// methods leave everything in the region; assigning it or an owning part, `&mut` of it
+/// handed on, and a `let` that keeps the `&mut` keep the drop.
+#[test]
+fn an_indexed_container_skips_its_drop_unless_an_element_is_replaced() {
+    let a = analyse(
+        r#"
+struct Unit {
+    pub hp: i32
+    pub name: String
+}
+
+fn reset(s: &mut String) kills s {
+    s = String::from("on the heap")
+}
+
+fn read() -> usize {
+    let mut xs = List<String>()
+    for _ in 0..3 {
+        xs.push(String::from("x"))
+    }
+    return xs[1].len()
+}
+
+fn grown() -> usize {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    xs[0].push_str("y")
+    return xs.len()
+}
+
+fn printed() {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    println!("{}", xs[0])
+}
+
+fn compared(o: &String) -> bool {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    return xs[0].eq(o)
+}
+
+fn parts() -> i32 {
+    let mut us = List<Unit>()
+    us.push(Unit{ hp: 1, name: String::from("u") })
+    us[0].hp = 3
+    us[0].hp += 1
+    us[0].name.push_str("!")
+    return us[0].hp
+}
+
+fn assigned(s: String) -> usize {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    xs[0] = move(s)
+    return xs.len()
+}
+
+fn through_a_ref(s: String) -> usize {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    let r = &mut xs[0]
+    r = move(s)
+    return xs.len()
+}
+
+fn handed_on() -> usize {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    reset(&mut xs[0])
+    return xs.len()
+}
+
+fn part_assigned(s: String) -> usize {
+    let mut us = List<Unit>()
+    us.push(Unit{ hp: 1, name: String::from("u") })
+    us[0].name = move(s)
+    return us.len()
+}
+
+fn part_handed_on() -> usize {
+    let mut us = List<Unit>()
+    us.push(Unit{ hp: 1, name: String::from("u") })
+    reset(&mut us[0].name)
+    return us.len()
+}
+
+fn kept_in_a_let() -> usize {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    let r = xs[0]
+    r.push_str("y")
+    return xs.len()
+}
+
+// An element of an element, read as a number.
+fn nested() -> usize {
+    let mut nest = List<List<i32>>()
+    nest.push(List<i32>())
+    nest[0].push(1)
+    return nest[0][0] as usize
+}
+
+// `Sort::sort`, found in `List`'s implementation of it, moves only elements it had.
+fn sorted() -> usize {
+    let mut xs = List<String>()
+    xs.push(String::from("b"))
+    xs.push(String::from("a"))
+    xs.sort()
+    return xs.len()
+}
+
+// `append` moves in another list's elements, which were built elsewhere.
+fn appended(other: &mut List<String>) -> usize kills other@items {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    xs.append(other)
+    return xs.len()
+}
+
+fn main() {
+    let o = String::from("x")
+    println!("{} {} {} {}", read(), grown(), compared(&o), parts())
+    printed()
+    println!("{} {} {}", assigned(String::from("a")), through_a_ref(String::from("b")), handed_on())
+    println!("{} {} {}", part_assigned(String::from("c")), part_handed_on(), kept_in_a_let())
+    let mut other = List<String>()
+    println!("{} {} {}", nested(), sorted(), appended(&mut other))
+}
+"#,
+    );
+    let p = a.placements.as_ref().unwrap();
+    let skipped = |name: &str| -> Vec<String> {
+        sites(&a, p, name).iter().filter(|s| s.drop_skipped).map(|s| s.callee.clone()).collect()
+    };
+    for name in ["read", "grown", "printed", "compared", "sorted"] {
+        assert_eq!(skipped(name), ["List<String>"], "{name}: {:?}", decisions(&a, p, name));
+    }
+    assert_eq!(skipped("parts"), ["List<Unit>"], "{:?}", decisions(&a, p, "parts"));
+    assert_eq!(skipped("nested"), ["List<List<i32>>"], "{:?}", decisions(&a, p, "nested"));
+    for name in [
+        "assigned",
+        "through_a_ref",
+        "handed_on",
+        "part_assigned",
+        "part_handed_on",
+        "kept_in_a_let",
+        "appended",
+    ] {
+        assert!(skipped(name).is_empty(), "{name}: {:?}", decisions(&a, p, name));
+    }
+}
+
 /// A local that grows from its own old value on every pass of a loop keeps everything each
 /// pass makes, so what it is built from goes where the local lives (T-0146): a parser's
 /// loop. A local the loop also resets, a pass that may end before its value is moved in,

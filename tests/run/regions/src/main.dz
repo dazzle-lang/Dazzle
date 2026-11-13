@@ -401,6 +401,32 @@ fn main() {
     println!("copied {} {} {} {}", tallied("b a c a b a"), labelled(3), named_copy(), got.name)
     println!("kept {} {}", store.names[store.names.len() - 1], churn())
     println!("paths {}", paths(8))
+    println!("appended {} indexed {}", appended(), indexed())
+}
+
+// `append` moves in the elements of a list that was lent, so they are on the heap: the
+// list that takes them keeps its drop, or they would leak (T-0208).
+fn appended() -> usize {
+    let mut other = List<String>()
+    other.push(String::from("appended from a list that was lent, long enough for the heap"))
+    let mut names = List<String>()
+    names.push(String::from("built here"))
+    names.append(&mut other)
+    churn()
+    let last = names.last() or return 0
+    return last.len()
+}
+
+// Read, grown and sorted through its elements, everything still in the region: it skips its
+// drop, and `churn` must leave every element intact (T-0208).
+fn indexed() -> usize {
+    let mut names = List<String>()
+    names.push(String::from("b, long enough to need memory of its own"))
+    names.push(String::from("a"))
+    names[1].push_str(", grown in place until it too needs memory of its own")
+    names.sort()
+    churn()
+    return names[0].len() + names[1].len() + names.len()
 }
 
 // Each pass builds a list over several statements and then pushes it: it goes into the

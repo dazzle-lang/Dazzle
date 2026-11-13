@@ -238,3 +238,12 @@ fn read_after_put(xs: &mut List<i32>) kills xs {
     let first = &xs[0]
     println!("{}", first)
 }
+
+// A number cast from an element is a copy of it, not a view: `xs[i]` on a `let mut` list is
+// `index_mut`'s `&mut i32` (§11.2), and the cast reads through it.
+fn element_as_number() -> usize {
+    let mut xs = List<i32>()
+    xs.push(1)
+    let v = xs[0]
+    return xs[0] as usize + v as usize
+}

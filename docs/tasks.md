@@ -230,7 +230,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (34 open)
+## none — not scheduled (36 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -265,4 +265,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0205](tasks/T-0205-field-method-with-same-name-compile.md)** A field and a method with the same name compile to invalid C++ · bug, codegen
 - **[T-0206](tasks/T-0206-for-loop-over-user-written-iterator.md)** A for loop over a user-written iterator checks nothing: for _, &mut h in query(set) · bug, ownership
 - **[T-0207](tasks/T-0207-kill-through-call-misses-reference-into.md)** A kill through a call misses a reference into a multi-place tie's later place · bug, ownership
-- **[T-0208](tasks/T-0208-skip-drop-container-that-indexed-indexmut.md)** Skip the drop of a container that is indexed: IndexMut chosen for reads, an element lent as &mut · feature, ownership
+- **[T-0209](tasks/T-0209-follow-element-reference-kept-in-local.md)** Follow an element reference kept in a local: let r = xs[i], for &mut s in xs · feature, ownership
+- **[T-0210](tasks/T-0210-static-that-owns-memory-reports-leaks.md)** A static that owns memory reports leaks and a bad free under --track-memory · bug, stdlib
+- **[T-0211](tasks/T-0211-leaks-are-checked-in-no-automatic.md)** Leaks are checked in no automatic test but the tracked run: turn on LeakSanitizer · feature, tooling

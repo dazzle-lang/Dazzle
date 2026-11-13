@@ -6,6 +6,51 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0208: an indexed container skips its drop, and a leak no test could see (2026-11-13)
+
+Compiler work; no language change. A `List<String>` filled in its region kept its drop as
+soon as it was indexed, even to read: §11.2 makes `xs[i]` on a writable place `index_mut`,
+and `whole_inside` refused any `&mut self` call returning something writable. The task
+proposed choosing `Index` for reads in the checker, but that is §11.2's `[DECIDED]` rule
+(D-0050) and would change what `let r = xs[i]` is, so the checker is unchanged and `dz_flow`
+follows the `&mut` instead (`Contents::lent_to_keep`): through the place it roots
+(`xs[i].name`), it may be read, borrowed `&`, formatted, given to an operator or a cast,
+assigned where the part owns nothing, or the receiver of a method that keeps (`keeps`): the
+element's own, or `index_mut` again for `nest[i][j]`. Anything that hands on something
+writable, `&mut` of an owning part, `construct`, `destroy`, `move_out` and `move` keep the
+drop. A `let` holding the `&mut` is not followed yet (T-0209).
+
+Found on the way, by surveying which drops `examples/` and `tests/run` still keep:
+- **A leak in safe code.** `adds_foreign` took every `move_out` for an element the container
+  already had, so `List::append`, which moves another list's elements in, was not an adder:
+  `names.append(&mut other)` skipped `names`' drop while it held `other`'s heap strings. Now
+  only a `move_out` of `self`'s own memory counts, directly or through a `let` that is not
+  `mut` (`swap`'s `held`, `HashMap::rehash`'s `old_keys`, through the `unsafe { }` it is in).
+- **`names.sort()`** kept a drop: `Sort::sort` is a trait method, which `keeps` refused, and
+  `swap` was an adder by the rule above. A trait method is now found in the type's own
+  implementation (`runs`), accepted when it is given nothing that owns memory, since
+  `storing` works out stored parameters only for a type's own methods.
+- **`xs[0] as usize` was refused** (`DZ0413`, "returns a view into `xs`"), since a cast passed
+  its operand's origins on whatever it made. A cast to a number, `bool` or `char` is a copy
+  (`ties/body.rs`); the read through the reference is still checked.
+
+**Why none of it was seen.** A drop kept for nothing changes no output, and the skip test
+pinned only what was kept, with no indexed container in it. A drop skipped wrongly is a leak,
+and no automatic test looked for one: the sanitizer job runs with `detect_leaks=0`, and
+`a_tracked_build_reports_leaks_and_bad_frees` compared stdout alone while the leak report goes
+to stderr with the program succeeding, so its "clean" fixtures were never checked for leaks.
+It now fails on a report, and runs `regions`, `homes_through_calls`, `short_strings`,
+`element_indices` and `containers` too; LeakSanitizer in CI is T-0211. `transfers` cannot join
+it yet: under `--track-memory` a static that owns memory is reported as leaked, then freed into
+a tracker already dropped (T-0210, older than this).
+
+Tests: `an_indexed_container_skips_its_drop_unless_an_element_is_replaced` in
+`dz_flow/tests/placement.rs` (reads, growth, formatting, parts, nested lists and `sort` skip;
+assignment, `&mut` handed on, a `let` of the `&mut` and `append` keep);
+`tests/run/regions` gains `appended` and `indexed`, the first leaking 61 bytes tracked under
+the old compiler; `element_as_number` in `tests/flow/clean.dz` and `cast_after_kill` in
+`tests/flow/use_after_kill.dz`.
+
 ## T-0178: a temporary a loop head looks into lives as long as the loop (2026-11-12)
 
 `for c in format!(…).chars()` read freed memory in safe code. The loop was emitted as
