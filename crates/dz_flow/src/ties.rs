@@ -335,6 +335,9 @@ fn is_pointer(ty: &Ty) -> bool {
     matches!(ty, Ty::Ptr { .. } | Ty::OwnPtr { .. })
 }
 
+/// One rewrite: the path a tie stands for, the path it becomes, and the type that ends at.
+type Rewrite = (Vec<Step>, Vec<Step>, Ty);
+
 /// What `sym`'s ties rewrite, at `args`: a path the type's tie stands for, other than
 /// the first, becomes the first, and a path `[*]` stands for becomes `[*]`. Each with
 /// the type the replacement ends at.
@@ -343,7 +346,7 @@ fn rewrites(
     res: &dz_resolve::Resolution,
     sym: dz_resolve::SymbolId,
     args: &[Ty],
-) -> Vec<(Vec<Step>, Vec<Step>, Ty)> {
+) -> Vec<Rewrite> {
     let mut out = Vec::new();
     for decl in ties::tie_decls(table, sym) {
         let paths: Vec<_> =
@@ -385,7 +388,7 @@ pub(crate) fn canonicalize(
 /// nearly every one, so the walk keeps one of these for the whole body. `Ty` has no hash, and
 /// a body meets few types.
 #[derive(Default)]
-pub(crate) struct Rewrites(RefCell<Vec<(Ty, Rc<[(Vec<Step>, Vec<Step>, Ty)]>)>>);
+pub(crate) struct Rewrites(RefCell<Vec<(Ty, Rc<[Rewrite]>)>>);
 
 impl Rewrites {
     fn of(
@@ -394,7 +397,7 @@ impl Rewrites {
         res: &dz_resolve::Resolution,
         sym: dz_resolve::SymbolId,
         args: &[Ty],
-    ) -> Rc<[(Vec<Step>, Vec<Step>, Ty)]> {
+    ) -> Rc<[Rewrite]> {
         let key = Ty::Named { sym, args: args.to_vec() };
         if let Some((_, known)) = self.0.borrow().iter().find(|(t, _)| *t == key) {
             return known.clone();
