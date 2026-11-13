@@ -1121,6 +1121,16 @@ impl Contents<'_, '_> {
                 }
                 continue;
             }
+            // `for &mut s in xs`: `iter_mut`'s iterator is the loop's own, and each element
+            // reaches the body only through its bindings, which are followed (T-0209).
+            if let Some(bindings) = self.walked_by(callee, p) {
+                if !self.keeps(callee, args, body.ty(top))
+                    || !bindings.iter().flatten().all(|l| self.local_keeps(*l, &parent))
+                {
+                    return false;
+                }
+                continue;
+            }
             if writes_through(self.d.table, body.ty(p)) && mutates(self.d.table, callee) {
                 return false;
             }
@@ -1185,6 +1195,32 @@ impl Contents<'_, '_> {
         name == "index_mut" && self.d.table.prelude_trait_named("IndexMut") == Some(*owner)
     }
 
+    /// The bindings of the `for` whose subject is `call`, when `call` is
+    /// `IterableMut::iter_mut`: `for &mut s in xs`.
+    fn walked_by(&self, callee: &Callee, call: ExprId) -> Option<Vec<Option<LocalId>>> {
+        let Callee::Method { owner, name, .. } = callee else { return None };
+        if name != "iter_mut" || self.d.table.prelude_trait_named("IterableMut") != Some(*owner) {
+            return None;
+        }
+        (0..self.body.stmts.len() as u32).map(StmtId).find_map(|s| match &self.body.stmt(s).kind {
+            hir::StmtKind::For { bindings, subject, .. } if *subject == call => {
+                Some(bindings.clone())
+            }
+            _ => None,
+        })
+    }
+
+    /// Whether every use of `l`, a local holding an element's `&mut` (`let r = xs[i]`, a
+    /// `for &mut` binding), keeps the element as [`Self::lent_to_keep`] asks of the
+    /// expression it was taken by. A reference cannot be pointed elsewhere, so each use is the
+    /// element, and `r = v` writes it (§5.2).
+    fn local_keeps(&self, l: LocalId, parent: &HashMap<ExprId, ExprId>) -> bool {
+        (0..self.body.exprs.len() as u32)
+            .map(ExprId)
+            .filter(|e| matches!(self.body.expr(*e).kind, hir::ExprKind::Local(x) if x == l))
+            .all(|e| self.lent_to_keep(e, parent))
+    }
+
     /// Whether the `&mut` element an `index_mut` call `e` hands back can only be read, or
     /// changed by the element's own methods, never replaced by a value from elsewhere
     /// (T-0208). Followed through the place it is the root of (`xs[i].name`), it may be
@@ -1223,6 +1259,11 @@ impl Contents<'_, '_> {
                         return !self.d.owns(&referent(top));
                     }
                     hir::StmtKind::Expr(x) if x == top => return true,
+                    // `let r = xs[i]`: the local is the element, followed through its uses
+                    // (T-0209). A copy, `let s: String = xs[i]`, writes nothing back.
+                    hir::StmtKind::Let { local: Some(l), init: Some(i) } if i == top => {
+                        return !writes_through(table, body.ty(top)) || self.local_keeps(l, parent);
+                    }
                     _ => {}
                 }
             }
@@ -1230,7 +1271,10 @@ impl Contents<'_, '_> {
         };
         match &body.expr(p).kind {
             K::Ref { mutable: false, .. } => true,
-            K::Ref { mutable: true, .. } => !self.d.owns(&referent(top)),
+            // `&mut xs[i]` is the same `&mut` again (§5.2), followed where it goes.
+            K::Ref { mutable: true, .. } => {
+                !self.d.owns(&referent(top)) || self.lent_to_keep(p, parent)
+            }
             // `println!("{}", xs[i])`: what an argument is bound to is read by
             // `Format::format`, which takes `&self`, and by nothing else.
             K::Formatted { .. } => true,

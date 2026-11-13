@@ -60,9 +60,12 @@ pub struct SlotMap<T> {
         // again, and a key that old would name the new value.
         s.version += 1
         s.link = place
+        // Read before the pushes: `@items` stands for all three lists, so growing one ends
+        // `s` too (§6.7).
+        let version = s.version
         m_values.push(move(v), loc)
         m_slot_of.push(slot, loc)
-        return Key<T>(slot, s.version)
+        return Key<T>(slot, version)
     }
 
     /// The value `k` names, or `null` when it was removed, belongs to another map, or is

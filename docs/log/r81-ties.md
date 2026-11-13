@@ -6,6 +6,48 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0206, T-0207: two ways safe code escaped the ties check, closed (2026-11-13)
+
+Compiler work; no language change: both are §6.7 as written, which the checker now holds.
+
+- **A kill through a call missed a multi-place tie's later place** (T-0207). A tie standing
+  for several places is spelt by its first (`canonicalize`), but `Cx::invoke` bound a call's
+  kills and result origins without making them canonical in the caller's frame, so `grow_b(w)`
+  killing `w.b@items` (spelt `w.a…` in the callee) never met a reference bound as `w.b@items`
+  through `List::index_mut`. The result's origins are now made canonical there, and each kill
+  ends what its canonical spelling reaches as well as its own (`kill_spelt`); it is recorded
+  and reported as written, so `DZ0415`/`DZ0416` and `DZ0420` compare what they did. The other
+  direction, that places of one tie "live and die together", now holds too, and it caught
+  `std`'s `SlotMap::insert`, which read a slot's version through a reference into `m_slots`
+  after pushing onto `m_values`, both under `@items`; it now reads it first.
+- **A `for` over a user-written iterator checked nothing** (T-0206). A subject that was not a
+  container's `iter`/`iter_mut` took its elements from `index_origins`, which knows no `Index`
+  for a view struct and gave none. Now a view struct's loop walks what it views
+  (`iterated_view`, from the local holding it or from what a temporary carries): elements
+  named whole at `[*]` of that memory, broad, as an iterable type's are, so any kill under it
+  ends a binding and the next pass. Following `Iterate::get`'s `in self@items` through the
+  view field would be finer, but a temporary `one(xs)` has no place to bind as its receiver;
+  every example and `tests/run` program still checks clean with the coarser rule. A tuple
+  `Item` is covered the same way, and its `unchecked` note is gone.
+
+Tests: `tests/flow/kill_through_a_later_tie_place.dz` (through a field-named and a tie-named
+clause, a method, the reverse direction, the first place, a direct push, and a reference
+taken after the kill, which stays clean) and `tests/flow/loop_over_a_view_struct.dz` (a call, a
+local and a tuple iterator, each refused twice; a `break` after the kill and another list
+grown stay clean).
+
+## T-0209: an element's `&mut` followed through a local (2026-11-13)
+
+Compiler work; no language change. T-0208 followed the `&mut` element `index_mut` lends as far
+as the expression it is used in, and kept the drop once a local held it. Now `let r = xs[i]`,
+`let m = &mut xs[i]` and a `for &mut s in xs` binding are followed through every use
+(`Contents::local_keeps`): a reference cannot be pointed elsewhere, so each use is the
+element, judged as `lent_to_keep` judges the expression, and `r = v` writes the element (§5.2)
+and keeps the drop. A `for` is accepted when its subject is `iter_mut` itself, whose iterator
+nothing else sees (`walked_by`). Tests: four cases in the indexed-container placement test,
+and `tests/run/regions`' `indexed` reads through a local and a loop, the same tracked, with
+regions on and off.
+
 ## T-0208: an indexed container skips its drop, and a leak no test could see (2026-11-13)
 
 Compiler work; no language change. A `List<String>` filled in its region kept its drop as

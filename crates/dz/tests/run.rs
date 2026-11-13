@@ -81,6 +81,45 @@ fn normalise(s: &str) -> String {
     s.replace("\r\n", "\n").trim_end().to_owned()
 }
 
+/// Every program here that does not panic, built with `--track-memory` (spec §14.2), prints
+/// what it does untracked and reports no leak (T-0211). A drop a region makes unnecessary and
+/// skipped wrongly (T-0118) is a leak and nothing else, so this is where one shows: the
+/// sanitizer job runs with leak detection off. A program that panics leaks by design. Each
+/// runs on a copy, since a tracked build beside the untracked one would race in `build/`.
+#[test]
+fn every_program_frees_everything_it_allocates() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let found = projects();
+    parallel::for_each(&found, |(name, dir)| {
+        let expected = normalise(&std::fs::read_to_string(dir.join("expected.txt")).unwrap());
+        if expected.starts_with("panic!") {
+            return;
+        }
+        if needs_cmake(dir) && !have_cmake() {
+            eprintln!("skipping {name}: it builds a library with CMake, which is not installed");
+            return;
+        }
+        let copy = copy_fixture(name, &format!("dz_tracked_all_{name}"));
+        let out = Command::new(dz())
+            .args(["run", copy.to_str().unwrap(), "--track-memory"])
+            .env_remove("DZ_REGIONS")
+            .output()
+            .expect("failed to run dz");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{name}: dz run --track-memory failed\n{stderr}");
+        assert!(!stderr.contains("leak"), "{name}: memory leaked\n{stderr}");
+        assert_eq!(
+            normalise(&String::from_utf8_lossy(&out.stdout)),
+            expected,
+            "{name}: a tracked build printed something else"
+        );
+        let _ = std::fs::remove_dir_all(&copy);
+    });
+}
+
 #[test]
 fn every_program_produces_its_expected_output() {
     if !have_compiler() {
@@ -720,7 +759,8 @@ fn eprintln_writes_to_stderr() {
 
 /// Memory tracking (spec §14.2), turned on for one build with `--track-memory`: a clean
 /// program says nothing more, a leak is reported at exit with the line that allocated it,
-/// and a double free or a free of the wrong size stops the program at the free.
+/// and a double free or a free of the wrong size stops the program at the free. That every
+/// program in `tests/run` frees everything is `every_program_frees_everything_it_allocates`.
 #[test]
 fn a_tracked_build_reports_leaks_and_bad_frees() {
     if !have_compiler() {
@@ -733,37 +773,6 @@ fn a_tracked_build_reports_leaks_and_bad_frees() {
             .output()
             .expect("failed to run dz")
     };
-
-    // The containers too: a tracked build of a program that frees everything prints exactly
-    // what an untracked one does, and reports nothing. A leak is reported on stderr with
-    // the program still succeeding, so stderr is what shows one. The programs that skip
-    // drops a region makes unnecessary are here, since a drop skipped wrongly is a leak and
-    // nothing else (T-0118, T-0208).
-    for fixture in [
-        "allocators",
-        "hashmap",
-        "handles",
-        "files",
-        "handle_upcast",
-        "sorting",
-        "collections",
-        "region_arena",
-        "regions",
-        "homes_through_calls",
-        "short_strings",
-        "element_indices",
-        "containers",
-    ] {
-        let clean = copy_fixture(fixture, &format!("dz_tracked_clean_{fixture}"));
-        let out = run(&clean);
-        let expected =
-            normalise(&std::fs::read_to_string(run_dir(fixture).join("expected.txt")).unwrap());
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{fixture}: {stderr}");
-        assert!(!stderr.contains("leak"), "{fixture}: memory leaked\n{stderr}");
-        assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), expected, "{fixture}");
-        let _ = std::fs::remove_dir_all(&clean);
-    }
 
     let manifest = "[module]\nname = \"tracked\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n";
     let leak = scratch(

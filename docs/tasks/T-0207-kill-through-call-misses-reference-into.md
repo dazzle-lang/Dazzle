@@ -2,10 +2,18 @@
 id: T-0207
 title: A kill through a call misses a reference into a multi-place tie's later place
 milestone: none
-status: open
+status: done
 kind: bug
 area: ownership
 ---
+
+**Done 2026-11-13.** `Cx::invoke` makes what it binds canonical in the caller's frame: the
+result's origins, and each kill, which now ends what its canonical spelling reaches too
+(`kill_spelt`), while it is recorded and reported as written, so the clause comparison is
+unchanged. The reverse direction holds as well, and caught `std`'s own `SlotMap::insert`,
+which read `s.version` through a reference into `m_slots` after growing `m_values`; it now
+reads it first. Tests: `tests/flow/kill_through_a_later_tie_place.dz`. See
+`docs/log/r81-ties.md`.
 
 Found on 2026-11-12 while writing the sparse-set ECS example (`examples/ecs`), beside T-0206.
 Safe code, no `unsafe`, writes freed memory.

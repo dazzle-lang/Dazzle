@@ -2,10 +2,16 @@
 id: T-0209
 title: Follow an element reference kept in a local: let r = xs[i], for &mut s in xs
 milestone: none
-status: open
+status: done
 kind: feature
 area: ownership
 ---
+
+**Done 2026-11-13.** `Contents::local_keeps` follows each use of such a local as
+`lent_to_keep` follows the expression; `for &mut s in xs` is accepted when `iter_mut`'s
+iterator is the loop's own subject (`walked_by`), and `&mut xs[i]` is followed where it goes.
+`replaced` was not involved: the loop's subject is the `iter_mut` call, which `whole_inside`
+had refused. See `docs/log/r81-ties.md`.
 
 Left out of [T-0208](T-0208-skip-drop-container-that-indexed-indexmut.md), which follows the
 `&mut` element `index_mut` hands back only as far as the expression it is used in. Found
@@ -31,7 +37,7 @@ fn kept() -> usize {
 | Case | Why its drop still runs | What would let it skip |
 |---|---|---|
 | `let r = xs[i]`, `let r = &mut xs[i]` | `Contents::lent_to_keep` refuses a `let` of something that writes through | follow the local: a reference cannot be pointed elsewhere, so every use of `r` is a use of the element, judged as `lent_to_keep` judges the expression |
-| `for &mut s in xs` | `replaced` counts `&mut` of a container with owning elements as a replacement, unless it is a leaf | the same, for the binding: each use of `s` in the body |
+| `for &mut s in xs` | `whole_inside` refuses `iter_mut`, a `&mut self` method handing back a view struct | the same, for the binding: each use of `s` in the body |
 
 Not a correctness problem: the drop walks the elements and frees into the region, which is
 cheap.
@@ -41,7 +47,5 @@ cheap.
 | Piece | Where |
 |---|---|
 | What is done with an element `index_mut` lent | `Contents::lent_to_keep` in `dz_flow/src/release.rs` |
-| `for e in &mut xs` refused unless the container is a leaf | `replaced` in the same file |
-| The test that pins what is kept | `an_indexed_container_skips_its_drop_unless_an_element_is_replaced` (`kept_in_a_let`) in `dz_flow/tests/placement.rs` |
-
-**What it would take.** Compiler work only (`docs/log/`).
+| A local holding it: `local_keeps`; a `for` over `iter_mut`: `walked_by` | `Contents` in the same file |
+| The tests | `an_indexed_container_skips_its_drop_unless_an_element_is_replaced` (`held_in_a_let`, `walked`, `replaced_through_a_let`, `replaced_while_walked`) in `dz_flow/tests/placement.rs`; `indexed` in `tests/run/regions` |

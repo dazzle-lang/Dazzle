@@ -1018,6 +1018,36 @@ impl Analysis<'_> {
         (walks && args.is_empty()).then_some(*recv)
     }
 
+    /// What a `for` over a view struct walks (spec §6.7, D-0093, T-0206): the memory the
+    /// struct views, read from the local holding it or, for a temporary such as `one(xs)`,
+    /// from what the expression carries. `None` for anything else, or a view not known.
+    fn iterated_view(&self, subject: ExprId, value: &Value) -> Option<Vec<Origin>> {
+        if !self.table.placed_as_view(self.body.ty(subject).peeled()) || value.unknown {
+            return None;
+        }
+        let mut viewed: Vec<Origin> = Vec::new();
+        for origin in value.places.iter().chain(&value.views) {
+            let held = match self.what_it_views(origin) {
+                Some(held) => held,
+                // A local view struct whose views are not known: nothing to follow.
+                None if origin.target.steps.is_empty()
+                    && self.table.placed_as_view(
+                        super::local_ty(self.body, self.table, origin.target.local).peeled(),
+                    ) =>
+                {
+                    return None
+                }
+                None => vec![origin.clone()],
+            };
+            for o in held {
+                if !viewed.contains(&o) {
+                    viewed.push(o);
+                }
+            }
+        }
+        (!viewed.is_empty()).then_some(viewed)
+    }
+
     /// Where each element of the container `base` denotes is, as a loop over it sees them.
     /// Through `Index` they are what `&xs[i]` points into, slot and owned memory apart;
     /// a type that can only be iterated has its elements named whole at `[*]` (§6.7), so
@@ -1539,7 +1569,23 @@ impl Analysis<'_> {
                 Err(_) => self.incomplete(span, "a callee's tie path does not resolve"),
             }
         }
+        // What the call binds is spelt in the callee's frame, or in that of the type whose
+        // method produced it (`List::index`'s `self@items` bound to `w.b`), so each place is
+        // made canonical in this one before it meets this body's own: a tie standing for
+        // several places names them by its first, `w.b@items` as `w.a@items`, and a kill
+        // through any of them ends a view into any other (§6.7, T-0207).
+        value.views = {
+            let mut views: Vec<Origin> = Vec::new();
+            for origin in std::mem::take(&mut value.views) {
+                let origin = self.canonical(origin);
+                if !views.contains(&origin) {
+                    views.push(origin);
+                }
+            }
+            views
+        };
         for kill in kills {
+            let canonical = self.canonical(Origin::at(kill.clone())).target;
             // Independent argument aliases that the call can invalidate cannot safely
             // be given to it. The argument through which this kill happens is allowed:
             // `reset(&mut world)` is what the clause is for.
@@ -1563,7 +1609,9 @@ impl Analysis<'_> {
             }
             if !receiver_owns_kill {
                 for origin in &receiver {
-                    if origin.ended_by(&kill, Reach::Owned) && self.reported.insert(span) {
+                    let ended = origin.ended_by(&kill, Reach::Owned)
+                        || origin.ended_by(&canonical, Reach::Owned);
+                    if ended && self.reported.insert(span) {
                         self.result.invalid_uses.push(InvalidUse {
                             span,
                             tie: origin.tie.clone(),
@@ -1594,7 +1642,9 @@ impl Analysis<'_> {
                 }
                 if !owns_kill && holds {
                     for origin in origins {
-                        if origin.ended_by(&kill, Reach::Owned) && self.reported.insert(span) {
+                        let ended = origin.ended_by(&kill, Reach::Owned)
+                            || origin.ended_by(&canonical, Reach::Owned);
+                        if ended && self.reported.insert(span) {
                             self.result.invalid_uses.push(InvalidUse {
                                 span,
                                 tie: origin.tie.clone(),
@@ -1629,7 +1679,8 @@ impl Analysis<'_> {
                     }
                 }
             }
-            self.kill(kill, span, KillKind::Call);
+            let also = (canonical != kill).then_some(&canonical);
+            self.kill_spelt(kill.clone(), also, span, KillKind::Call);
         }
         // Trusted whatever was known of the inputs: the callee's body is held to the tie its
         // signature declares, `in` or elided to its one view input (T-0114).
@@ -2753,10 +2804,19 @@ impl Analysis<'_> {
     }
 
     fn kill(&mut self, place: Place, span: Span, kind: KillKind) {
+        self.kill_spelt(place, None, span, kind);
+    }
+
+    /// [`Self::kill`], ending as well what `also` reaches: the same place spelt as this
+    /// frame's ties name it (T-0207). The kill is recorded, and reported, as `place`.
+    fn kill_spelt(&mut self, place: Place, also: Option<&Place>, span: Span, kind: KillKind) {
         let killed = BodyKill { place, span, kind };
+        let reach = killed.kind.reach();
         for value in self.state.values_mut().chain(&mut self.held) {
             for origin in value.origins_mut() {
-                if origin.dead.is_none() && origin.ended_by(&killed.place, killed.kind.reach()) {
+                let ended = origin.ended_by(&killed.place, reach)
+                    || also.is_some_and(|p| origin.ended_by(p, reach));
+                if origin.dead.is_none() && ended {
                     origin.dead = Some(killed.clone());
                 }
             }
@@ -3061,6 +3121,7 @@ impl Analysis<'_> {
                 // is a struct holding a view. Its elements are the container's `[*]`
                 // (§6.7), so they and the iterator are followed from the container itself.
                 let walked = self.iterated_container(subject);
+                let mut followed = walked.is_some();
                 let (element, iterator) = match walked {
                     Some(container) => {
                         let value = self.expr(container);
@@ -3070,13 +3131,36 @@ impl Analysis<'_> {
                     }
                     None => {
                         let value = self.expr(subject);
-                        let element = self.index_origins(subject, &value, span);
-                        let iterator = Value {
-                            views: self.targets(subject, &value),
-                            unknown: value.unknown,
-                            ..Value::default()
-                        };
-                        (element, iterator)
+                        match self.iterated_view(subject, &value) {
+                            // A view struct's `Iterate` (T-0206): what `get` hands back is
+                            // in what the struct views, named whole at `[*]` as an iterable
+                            // type's elements are, so any kill under it ends both a binding
+                            // and the loop's next pass.
+                            Some(viewed) => {
+                                followed = true;
+                                let element: Vec<Origin> = viewed
+                                    .iter()
+                                    .map(|o| Origin {
+                                        target: o.target.followed_by(&[Step::Elements]),
+                                        tie: o.target.clone(),
+                                        broad: true,
+                                        payload: None,
+                                        dead: o.dead.clone(),
+                                    })
+                                    .collect();
+                                let iterator = Value { views: element.clone(), ..Value::default() };
+                                (element, iterator)
+                            }
+                            None => {
+                                let element = self.index_origins(subject, &value, span);
+                                let iterator = Value {
+                                    views: self.targets(subject, &value),
+                                    unknown: value.unknown,
+                                    ..Value::default()
+                                };
+                                (element, iterator)
+                            }
+                        }
                     }
                 };
                 let fresh = bindings
@@ -3093,7 +3177,7 @@ impl Analysis<'_> {
                     .collect::<Vec<_>>();
                 // The parts of a container's element all point into it; an iterator's
                 // tuple of views could point anywhere.
-                if matches!(shape, hir::ForShape::Tuple) && walked.is_none() {
+                if matches!(shape, hir::ForShape::Tuple) && !followed {
                     self.unchecked(node.span, "tuple iterator bindings are not modeled yet");
                 }
                 self.loop_body(

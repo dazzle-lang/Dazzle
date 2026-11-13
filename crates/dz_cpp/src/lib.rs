@@ -2361,9 +2361,18 @@ impl<'a> Emitter<'a> {
     /// Is the static `sym` kept in a `StaticCell` (spec §7.7)? One with nothing to drop
     /// needs none, and an imported C++ class is destroyed by C++, as C++ code expects.
     fn in_cell(&self, sym: SymbolId) -> bool {
+        // An optional that may hold an owner is dropped as the owner is: a `static KEPT:
+        // List<String>? = none` left to C++ was destroyed after `std`'s statics, the memory
+        // tracker among them (T-0210).
+        fn owns(table: &TypeTable, ty: &Ty) -> bool {
+            match ty {
+                Ty::Optional(inner) | Ty::Fallible(inner) => owns(table, inner),
+                _ => table.needs_drop(ty),
+            }
+        }
         match self.table.get(sym) {
             Some(ItemSig::Static(ty)) => {
-                self.table.needs_drop(ty)
+                owns(self.table, ty)
                     && !matches!(ty, Ty::Named { sym, .. } if self.is_foreign(*sym))
             }
             _ => false,

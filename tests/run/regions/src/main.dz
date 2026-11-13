@@ -425,6 +425,12 @@ fn indexed() -> usize {
     names.push(String::from("a"))
     names[1].push_str(", grown in place until it too needs memory of its own")
     names.sort()
+    // Through a local, and through a loop's bindings (T-0209).
+    let first = names[0]
+    first.push_str("!")
+    for &mut s in names {
+        s.push_str("?")
+    }
     churn()
     return names[0].len() + names[1].len() + names.len()
 }

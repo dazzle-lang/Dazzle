@@ -2,10 +2,18 @@
 id: T-0206
 title: A for loop over a user-written iterator checks nothing: for _, &mut h in query(set)
 milestone: none
-status: open
+status: done
 kind: bug
 area: ownership
 ---
+
+**Done 2026-11-13.** A `for` over a view struct now walks what the struct views
+(`Cx::iterated_view`): its elements are named whole at `[*]` of that memory, as an iterable
+type's are (`iterated_origins`), so any kill under it ends a binding and the loop's next pass,
+and a tuple `Item` no longer leaves an `unchecked` note. Coarser than following `Iterate::get`'s
+`in self@items` through the view field, which a temporary iterator has no place for; in
+exchange it needs no signature. Tests: `tests/flow/loop_over_a_view_struct.dz`. See
+`docs/log/r81-ties.md`.
 
 Found on 2026-11-12 while writing the sparse-set ECS example (`examples/ecs`). Safe code,
 no `unsafe`, writes freed memory: a hole in §1.1's promise and in §6.7.

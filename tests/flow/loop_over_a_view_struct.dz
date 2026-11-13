@@ -1,0 +1,95 @@
+// Spec §6.7, D-0093, T-0206: a `for` over a view struct that implements `Iterate` walks what
+// the struct views, as a loop over the container would. Refused: growing the list inside
+// the loop, both as the loop's next pass and as a use of the binding, whether the iterator
+// is a call, a local, or hands back a tuple. Accepted: a `break` right after the kill, and
+// growing another list.
+// expect: DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413
+
+view struct One<T> {
+    pub(module) pool: &mut List<T>
+    row:              usize = 0
+    tie @items = pool
+}
+
+fn one<T>(pool: &mut List<T>) -> One<T> {
+    return One<T>{ pool: pool }
+}
+
+impl<T> Iterate for One<T> {
+    type Item = &mut T
+
+    fn valid(&self) -> bool {
+        return row < pool.len()
+    }
+
+    fn get(&self) -> &mut T in self@items {
+        return &mut pool[row]
+    }
+
+    fn advance(&mut self) {
+        row += 1
+    }
+}
+
+view struct Two<T> {
+    pub(module) pool: &mut List<T>
+    row:              usize = 0
+    tie @items = pool
+}
+
+fn two<T>(pool: &mut List<T>) -> Two<T> {
+    return Two<T>{ pool: pool }
+}
+
+impl<T> Iterate for Two<T> {
+    type Item = (usize, &mut T)
+
+    fn valid(&self) -> bool {
+        return row < pool.len()
+    }
+
+    fn get(&self) -> (usize, &mut T) in self@items {
+        return (row, &mut pool[row])
+    }
+
+    fn advance(&mut self) {
+        row += 1
+    }
+}
+
+fn grow(xs: &mut List<i32>) kills xs@items {
+    for &mut x in one(xs) {
+        xs.push(1)
+        x += 1
+    }
+}
+
+fn grow_local(xs: &mut List<i32>) kills xs@items {
+    let it = one(xs)
+    for &mut x in it {
+        xs.push(1)
+        x += 1
+    }
+}
+
+fn grow_tuple(xs: &mut List<i32>) kills xs@items {
+    for _, &mut x in two(xs) {
+        xs.push(1)
+        x += 1
+    }
+}
+
+fn breaks(xs: &mut List<i32>) kills xs@items {
+    for &mut x in one(xs) {
+        x += 1
+        xs.push(1)
+        break
+    }
+}
+
+fn fine(xs: &mut List<i32>, ys: &mut List<i32>) kills ys@items {
+    for &mut x in one(xs) {
+        x += 1
+        ys.push(x)
+    }
+}

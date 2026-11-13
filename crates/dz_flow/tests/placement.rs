@@ -1793,8 +1793,9 @@ fn main() {
 /// `xs[i]` on a `let mut` container is `index_mut` even for a read (§11.2), so what is done
 /// with the `&mut` element it hands back decides whether the container's drop is skipped
 /// (T-0208): reading it, formatting it, a non-owning part assigned and the element's own
-/// methods leave everything in the region; assigning it or an owning part, `&mut` of it
-/// handed on, and a `let` that keeps the `&mut` keep the drop.
+/// methods leave everything in the region, and so does a `let` or a `for &mut` binding that
+/// holds the `&mut` and only does those (T-0209); assigning it or an owning part, directly
+/// or through such a local, and `&mut` of it handed on keep the drop.
 #[test]
 fn an_indexed_container_skips_its_drop_unless_an_element_is_replaced() {
     let a = analyse(
@@ -1880,11 +1881,40 @@ fn part_handed_on() -> usize {
     return us.len()
 }
 
-fn kept_in_a_let() -> usize {
+// A local holding the element's `&mut` is the element, followed through its uses (T-0209).
+fn held_in_a_let() -> usize {
     let mut xs = List<String>()
     xs.push(String::from("x"))
     let r = xs[0]
     r.push_str("y")
+    let m = &mut xs[0]
+    println!("{}", m)
+    return xs.len() + r.len()
+}
+
+fn walked() -> usize {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    for &mut s in xs {
+        s.push_str("!")
+    }
+    return xs.len()
+}
+
+fn replaced_through_a_let(s: String) -> usize {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    let r = xs[0]
+    r = move(s)
+    return xs.len()
+}
+
+fn replaced_while_walked() -> usize {
+    let mut xs = List<String>()
+    xs.push(String::from("x"))
+    for &mut s in xs {
+        reset(s)
+    }
     return xs.len()
 }
 
@@ -1918,7 +1948,8 @@ fn main() {
     println!("{} {} {} {}", read(), grown(), compared(&o), parts())
     printed()
     println!("{} {} {}", assigned(String::from("a")), through_a_ref(String::from("b")), handed_on())
-    println!("{} {} {}", part_assigned(String::from("c")), part_handed_on(), kept_in_a_let())
+    println!("{} {} {}", part_assigned(String::from("c")), part_handed_on(), held_in_a_let())
+    println!("{} {} {}", walked(), replaced_through_a_let(String::from("d")), replaced_while_walked())
     let mut other = List<String>()
     println!("{} {} {}", nested(), sorted(), appended(&mut other))
 }
@@ -1928,7 +1959,7 @@ fn main() {
     let skipped = |name: &str| -> Vec<String> {
         sites(&a, p, name).iter().filter(|s| s.drop_skipped).map(|s| s.callee.clone()).collect()
     };
-    for name in ["read", "grown", "printed", "compared", "sorted"] {
+    for name in ["read", "grown", "printed", "compared", "sorted", "held_in_a_let", "walked"] {
         assert_eq!(skipped(name), ["List<String>"], "{name}: {:?}", decisions(&a, p, name));
     }
     assert_eq!(skipped("parts"), ["List<Unit>"], "{:?}", decisions(&a, p, "parts"));
@@ -1939,7 +1970,8 @@ fn main() {
         "handed_on",
         "part_assigned",
         "part_handed_on",
-        "kept_in_a_let",
+        "replaced_through_a_let",
+        "replaced_while_walked",
         "appended",
     ] {
         assert!(skipped(name).is_empty(), "{name}: {:?}", decisions(&a, p, name));

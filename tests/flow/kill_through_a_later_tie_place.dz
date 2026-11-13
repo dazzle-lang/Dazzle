@@ -1,0 +1,71 @@
+// Spec §6.7, T-0207: the places a tie stands for live and die together, so a kill through
+// a call's clause ends a reference into any of them, not only into the first: here into
+// `b`, the second place of `@lists`, whether the clause names the field or the tie, through
+// a function or a method. The other way too: growing `a` ends a reference into `b`. A
+// reference into the first place, a direct push, and one taken after the kill as before.
+// expect: DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413
+
+struct W {
+    pub a: List<i32>
+    pub b: List<i32>
+    tie @lists = a@items, b@items
+
+    W() {
+        a = List<i32>()
+        b = List<i32>()
+    }
+
+    pub fn grow_b_method(&mut self) kills self.b@items {
+        b.push(1)
+    }
+}
+
+fn grow_b(w: &mut W) kills w.b@items {
+    w.b.push(1)
+}
+
+fn grow_tie(w: &mut W) kills w@lists {
+    w.b.push(1)
+}
+
+fn missed(w: &mut W) kills w.b@items {
+    let r = &mut w.b[0]
+    grow_b(w)
+    r += 1
+}
+
+fn through_tie(w: &mut W) kills w@lists {
+    let r = &mut w.b[0]
+    grow_tie(w)
+    r += 1
+}
+
+fn through_method(w: &mut W) kills w.b@items {
+    let r = &mut w.b[0]
+    w.grow_b_method()
+    r += 1
+}
+
+fn reverse(w: &mut W) kills w.a@items {
+    let r = &mut w.b[0]
+    w.a.push(1)
+    r += 1
+}
+
+fn first_place(w: &mut W) kills w.b@items {
+    let r = &mut w.a[0]
+    grow_b(w)
+    r += 1
+}
+
+fn caught(w: &mut W) kills w.b@items {
+    let r = &mut w.b[0]
+    w.b.push(1)
+    r += 1
+}
+
+fn fine(w: &mut W) kills w.b@items {
+    grow_b(w)
+    let r = &mut w.b[0]
+    r += 1
+}
