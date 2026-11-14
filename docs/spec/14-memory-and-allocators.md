@@ -182,6 +182,23 @@ there), `retain`, `clear`, `reserve`, `len`, `is_empty`, `capacity`, and `for &v
 `HashSet<String>` also answers `contains_str` and `remove_str` (**`StrSet`**). It is
 move-only unless `T` is copyable. `[DECIDED — D-0081]`
 
+**`BinaryHeap<T: Ord>`** is a priority queue, in `std`: `pop()` takes out the **largest**
+element as a `T?`, as C++'s `priority_queue` and Rust's `BinaryHeap` do, and `peek()` is a
+`^T` to it, `null` when the heap is empty. `BinaryHeap<T>(capacity)`, or
+`BinaryHeap<T>(items)` to build one from a `List<T>` in place; `push(v)`, `len`,
+`is_empty`, `capacity`, `clear`, `reserve`, and `as_slice()`, the elements in the heap's
+own order. Equal elements come out in no particular order. It is move-only unless `T` is
+copyable. For the smallest first, each element goes in a **`Reverse<T: Ord>`**, whose one
+field, `value`, it orders the other way round: `BinaryHeap<Reverse<Node>>`, with
+`Reverse<Node>{ value: n }` pushed and `.value` read from what `pop` gives. A `Reverse` is
+copyable when `T` is. `[DECIDED — D-0098]`
+
+```dz
+let mut open = BinaryHeap<Reverse<Node>>()
+open.push(Reverse<Node>{ value: start })
+let node = (open.pop() or return).value      // the smallest
+```
+
 **`SlotMap<T>`** holds values that are added and removed in any order and named by a
 **`Key<T>`**, in `std`. It is what to use where a struct would keep a reference to
 something it does not own — an entity, a node, a connection — which a field cannot be

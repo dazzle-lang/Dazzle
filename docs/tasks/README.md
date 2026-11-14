@@ -73,7 +73,8 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
    only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the
    runtime's `destroy` of a word ended its lifetime, and g++ deleted `String`'s store to it.
-3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
+3. **The stdlib.** `BinaryHeap` (T-0175, done 2026-11-14, r125: the largest first, with
+   `Reverse<T>` for the smallest, D-0098; `astar` uses it), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
 4. **C++ interop: Dear ImGui in the SDL3 scene** (T-0171), the ImGui half of T-0010, with

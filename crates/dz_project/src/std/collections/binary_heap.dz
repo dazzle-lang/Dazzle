@@ -1,0 +1,112 @@
+/// A priority queue: `pop` takes out the largest element by `Ord`, as C++'s
+/// `priority_queue` and Rust's `BinaryHeap` do. For the smallest first, hold each element
+/// in a `Reverse`: `BinaryHeap<Reverse<Node>>`. In memory from wherever the compiler places
+/// the heap (spec §14.6).
+///
+/// A binary heap in a `List`: `push` and `pop` take `log n` steps, `peek` one. Equal
+/// elements come out in no particular order. Move-only unless `T` is copyable.
+pub struct BinaryHeap<T: Ord> {
+    m_items: List<T>
+
+    /// The heap's array, and the elements in it.
+    tie @items = m_items@items
+    tie @values = m_items[*]
+
+    /// An empty heap, with room for `capacity` elements already allocated when it is given.
+    BinaryHeap(capacity: usize = 0, loc: SourceLocation = #location) {
+        m_items = List<T>(capacity, loc)
+    }
+
+    /// A heap of `items`, built in place in `n` steps rather than `n log n` pushes.
+    BinaryHeap(items: List<T>) {
+        m_items = move(items)
+        let n = m_items.len()
+        let mut at = n / 2
+        while at > 0 {
+            at -= 1
+            self.sift_down(at)
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        return m_items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return m_items.is_empty()
+    }
+
+    /// How many elements fit before the heap grows again.
+    pub fn capacity(&self) -> usize {
+        return m_items.capacity()
+    }
+
+    /// The largest element, or `null` when the heap is empty: `let top = heap.peek() or
+    /// return`.
+    pub fn peek(&self) -> ^T in self@items {
+        return m_items.first()
+    }
+
+    /// Add `v`.
+    pub fn push(&mut self, v: T, loc: SourceLocation = #location) kills self@items sends v to self {
+        m_items.push(move(v), loc)
+        let mut at = m_items.len() - 1
+        while at > 0 {
+            let parent = (at - 1) / 2
+            if !(m_items[parent] < m_items[at]) {
+                return
+            }
+            m_items.swap(at, parent)
+            at = parent
+        }
+    }
+
+    /// Take the largest element out, or `none` when the heap is empty.
+    pub fn pop(&mut self) -> T? in self@home kills self@items, self@values {
+        if m_items.is_empty() {
+            return none
+        }
+        let last = m_items.len() - 1
+        m_items.swap(0, last)
+        let top = m_items.pop()
+        self.sift_down(0)
+        return move(top)
+    }
+
+    /// Drop every element and keep the allocation.
+    pub fn clear(&mut self) kills self@items, self@values {
+        m_items.clear()
+    }
+
+    /// Room for at least `additional` more elements without growing again.
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) kills self@items {
+        m_items.reserve(additional, loc)
+    }
+
+    /// Every element, in the heap's order: the largest first, the rest in no order a
+    /// program should rely on. Valid until the heap next changes or is dropped.
+    pub fn as_slice(&self) -> &[]T in self@items {
+        return m_items.as_slice()
+    }
+
+    /// Move the element at `at` down until neither child is larger.
+    fn sift_down(&mut self, at: usize) kills self@items {
+        let n = m_items.len()
+        let mut at = at
+        while true {
+            let left = at * 2 + 1
+            if left >= n {
+                return
+            }
+            let mut larger = left
+            if left + 1 < n && m_items[left] < m_items[left + 1] {
+                larger = left + 1
+            }
+            if !(m_items[at] < m_items[larger]) {
+                return
+            }
+            m_items.swap(at, larger)
+            at = larger
+        }
+    }
+}

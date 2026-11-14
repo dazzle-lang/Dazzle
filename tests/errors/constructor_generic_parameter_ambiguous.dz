@@ -1,0 +1,23 @@
+// expect: DZ0538
+//
+// A bare type parameter still fits anything (spec §7.2): `value: T` and `items: List<T>`
+// both take a `List<i32>` when `T` is not yet known to be `i32` or `List<i32>`, and neither
+// is an exact match, so the call is ambiguous. `constructor_generic_parameter_shape` is the
+// other half: a shape only one parameter has is no ambiguity.
+
+struct Holder<T> {
+    m_count: usize = 0
+
+    Holder(value: T) {
+        m_count = 1
+    }
+
+    Holder(items: List<T>) {
+        m_count = items.len()
+    }
+}
+
+fn main() {
+    let xs = List<i32>()
+    let h = Holder(move(xs))
+}

@@ -2,10 +2,28 @@
 id: T-0175
 title: BinaryHeap: a priority queue in std
 milestone: M12
-status: open
+status: done
 kind: feature
 area: stdlib
 ---
+
+**Done** (2026-11-14, r125): the largest first, with `Reverse<T>` for the smallest, the
+user's choice (D-0098). `astar` uses `BinaryHeap<Reverse<Node>>` instead of its own
+55-line heap: the same checksum, and as fast with g++ (329 ms to 331 ms, release, median of
+nine, alternated); with clang++ 324 ms to 331 ms, 2%, a call to `Node`'s `cmp` through
+`Reverse`'s that LTO can inline. Building one from a `List` needed a checker fix: a
+constructor parameter `items: List<T>` fitted any argument, so `BinaryHeap<T>(16)` was
+ambiguous (§7.2).
+
+## Where the code is
+
+| What | Where |
+|---|---|
+| the heap | `crates/dz_project/src/std/collections/binary_heap.dz` |
+| `Reverse` | `crates/dz_project/src/std/core/reverse.dz` |
+| listed in `std` | `crates/dz_project/src/lib.rs`, `STD_SOURCES` |
+| choosing a constructor by a generic parameter's shape | `crates/dz_check/src/check.rs`, `pick_by_args` and `shape_fits` |
+| tests | `tests/run/binary_heap`; `tests/errors/constructor_generic_parameter_shape.dz` and `_ambiguous.dz` |
 
 Planned for 0.2 by the user on 2026-11-09.
 

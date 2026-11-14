@@ -1,0 +1,17 @@
+empty: true 0
+pop on empty: true
+peek on empty: true
+len 8 peek 9 first in slice 9
+largest first: 9 8 8 7 5 3 2 1 
+empty again: true
+built: 10 6 6 5 4 3 2 1 
+cleared: 0 true
+capacity at least 16: true
+smallest first: 1 2 3 5 8 9 
+job 9 deploy
+job 5 test
+job 5 build
+job 2 write
+job 2 lint
+tokens: 1 2 3 
+1000 popped in order: true true

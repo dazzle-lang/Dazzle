@@ -1,0 +1,137 @@
+// std's BinaryHeap (T-0175): the largest first, and the smallest through Reverse.
+
+/// A job ordered by its priority, then by its name, so no two compare equal.
+struct Job {
+    pub priority: i32
+    pub name:     String
+}
+
+impl Eq for Job {
+    fn eq(&self, rhs: &Job) -> bool {
+        return priority == rhs.priority && name == rhs.name
+    }
+}
+
+impl Ord for Job {
+    fn cmp(&self, rhs: &Job) -> Ordering {
+        if priority != rhs.priority {
+            return priority.cmp(&rhs.priority)
+        }
+        return name.cmp(&rhs.name)
+    }
+}
+
+/// Move-only: a heap of these moves each one in and out.
+struct Token {
+    pub n:  i32
+    m_held: own ^mut i32 = null
+}
+
+impl Drop for Token {
+    fn drop(&mut self) {}
+}
+
+impl Eq for Token {
+    fn eq(&self, rhs: &Token) -> bool {
+        return n == rhs.n
+    }
+}
+
+impl Ord for Token {
+    fn cmp(&self, rhs: &Token) -> Ordering {
+        return n.cmp(&rhs.n)
+    }
+}
+
+fn drain(heap: &mut BinaryHeap<i32>) -> String kills heap@items {
+    let mut out = String()
+    while true {
+        let v = heap.pop() or break
+        out.push_str(format!("{} ", v))
+    }
+    return out
+}
+
+fn main() {
+    let mut heap = BinaryHeap<i32>()
+    println!("empty: {} {}", heap.is_empty(), heap.len())
+    println!("pop on empty: {}", heap.pop() == none)
+    println!("peek on empty: {}", heap.peek() == null)
+    for v in [5, 1, 8, 3, 9, 2, 8, 7] {
+        heap.push(v)
+    }
+    let top = heap.peek() or unreachable
+    println!("len {} peek {} first in slice {}", heap.len(), top, heap.as_slice()[0])
+    println!("largest first: {}", drain(&mut heap))
+    println!("empty again: {}", heap.is_empty())
+
+    // Built from a list in place, and cleared.
+    let mut items = List<i32>()
+    for v in [4, 10, 3, 5, 1, 6, 6, 2] {
+        items.push(v)
+    }
+    let mut built = BinaryHeap<i32>(move(items))
+    println!("built: {}", drain(&mut built))
+    built.push(1)
+    built.push(2)
+    built.clear()
+    println!("cleared: {} {}", built.len(), built.is_empty())
+
+    // The smallest first.
+    let mut least = BinaryHeap<Reverse<i32>>(16)
+    println!("capacity at least 16: {}", least.capacity() >= 16)
+    for v in [5, 1, 8, 3, 9, 2] {
+        least.push(Reverse<i32>{ value: v })
+    }
+    let mut ascending = String()
+    while true {
+        let r = least.pop() or break
+        ascending.push_str(format!("{} ", r.value))
+    }
+    println!("smallest first: {}", ascending)
+
+    // Strings in each element, ties broken by name.
+    let mut jobs = BinaryHeap<Job>()
+    jobs.push(Job{ priority: 2, name: String::from("write") })
+    jobs.push(Job{ priority: 5, name: String::from("build") })
+    jobs.push(Job{ priority: 2, name: String::from("lint") })
+    jobs.push(Job{ priority: 9, name: String::from("deploy") })
+    jobs.push(Job{ priority: 5, name: String::from("test") })
+    while true {
+        let job = jobs.pop() or break
+        println!("job {} {}", job.priority, job.name)
+    }
+
+    // Move-only elements.
+    let mut tokens = BinaryHeap<Reverse<Token>>()
+    for n in [3, 1, 2] {
+        tokens.push(Reverse<Token>{ value: Token{ n: n } })
+    }
+    let mut order = String()
+    while true {
+        let t = tokens.pop() or break
+        order.push_str(format!("{} ", t.value.n))
+    }
+    println!("tokens: {}", order)
+
+    // Many, against a sorted list.
+    let mut big = BinaryHeap<i32>()
+    let mut sorted = List<i32>()
+    let mut x: i32 = 12345
+    for _ in 0..1000 {
+        x = (x * 1103 + 12345) % 10007
+        big.push(x)
+        sorted.push(x)
+    }
+    sorted.sort()
+    let mut same = true
+    let mut i = sorted.len()
+    while i > 0 {
+        i -= 1
+        let v = big.pop() or unreachable
+        if v != sorted[i] {
+            same = false
+        }
+    }
+    println!("1000 popped in order: {} {}", same, big.is_empty())
+}

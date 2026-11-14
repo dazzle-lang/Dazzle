@@ -1111,8 +1111,8 @@ fn astar_places_its_queue_maps_and_path() {
     assert_eq!(
         decisions(&a, p, "find_path"),
         [
-            // The queue: its constructor builds its list where the queue is (round 3).
-            "MinHeap<Node>: region: `find_path`",
+            // The queue, `std`'s heap: its constructor builds its list where it is (round 3).
+            "BinaryHeap<Reverse<Node>>: region: `find_path`",
             "HashMap<Cell, i32>: region: `find_path`",
             "HashMap<Cell, Cell>: region: `find_path`",
         ]
@@ -1139,6 +1139,7 @@ fn std_containers_store_what_they_are_given() {
         ("List", "push", 0, true, true),
         ("List", "insert", 1, true, true),
         ("SlotMap", "insert", 0, true, true),
+        ("BinaryHeap", "push", 0, true, true),
         // It may drop the key it already had, or the value it replaces.
         ("HashMap", "insert", 0, true, false),
         ("HashMap", "insert", 1, true, false),

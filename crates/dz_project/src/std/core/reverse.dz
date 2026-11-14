@@ -1,0 +1,18 @@
+/// `value`, ordered the other way round: the larger of two `Reverse`s is the one whose
+/// `value` is smaller. A `BinaryHeap<Reverse<T>>` gives the smallest element first, which
+/// is what path finding and event queues ordered by time want. Copyable when `T` is.
+pub struct Reverse<T: Ord> {
+    pub value: T
+}
+
+impl<T: Ord> Eq for Reverse<T> {
+    fn eq(&self, rhs: &Reverse<T>) -> bool {
+        return value == rhs.value
+    }
+}
+
+impl<T: Ord> Ord for Reverse<T> {
+    fn cmp(&self, rhs: &Reverse<T>) -> Ordering {
+        return rhs.value.cmp(&value)
+    }
+}

@@ -41,7 +41,10 @@ fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
   type it would default to; if that still leaves more than one, the call is ambiguous and an
   error. So `Color(r: u8, g: u8, b: u8, a: u8 = 255)` and `Color(gray: f32)` are told apart
   by `Color(1, 2, 3)` and `Color(0.5)`, while `Span(from: i32, to: i32 = 0)` beside
-  `Span(len: i32)` makes `Span(4)` an error.
+  `Span(len: i32)` makes `Span(4)` an error. A parameter whose type names the struct's own
+  type parameter fits whatever that parameter could be, and nothing else: a bare `value:
+  T` fits any argument, while `items: List<T>` fits only a `List`, so `BinaryHeap<T>(16)`
+  reaches `capacity: usize` and not `items: List<T>`.
 
 **Arguments are evaluated left to right**, each completely before the next: in
 `println!("{} {}", touch(), COUNT.hits)`, `touch()` has run by the time `COUNT.hits` is

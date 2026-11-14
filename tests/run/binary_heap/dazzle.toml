@@ -1,0 +1,9 @@
+[module]
+name    = "binary_heap"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

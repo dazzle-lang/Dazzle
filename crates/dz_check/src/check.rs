@@ -4563,13 +4563,15 @@ impl<'a, 'c> Body<'a, 'c> {
                     .collect()
             })
             .collect();
-        // A parameter of a generic struct's type parameter fits anything here: what it is
-        // solved to is decided once the constructor is chosen.
+        // A generic struct's type parameter fits anything here: what it is solved to is
+        // decided once the constructor is chosen. The type around it still has to fit, so
+        // `items: List<T>` is not a candidate for `BinaryHeap(16)`, which only
+        // `capacity: usize` takes.
         let fits = |i: usize, exact: bool| {
             let s = &ctors[i];
             s.params.iter().zip(&per[i]).take(s.variadic.unwrap_or(usize::MAX)).all(|(p, a)| {
                 if p.ty.has_params() || a.is_wildcard() {
-                    return !exact;
+                    return !exact && (a.is_wildcard() || shape_fits(&p.ty, a));
                 }
                 if exact {
                     p.ty == *a || p.ty == a.defaulted()
@@ -9090,6 +9092,24 @@ fn unify(pattern: &Ty, actual: &Ty, out: &mut HashMap<u32, Ty>) {
         }
         _ => {}
     }
+}
+
+/// Can `actual` be passed where some instantiation of the generic `pattern` is wanted? Its
+/// parameters are solved from `actual` as a call solves them, any left unsolved become
+/// wildcards, which fit anything, and the result must fit as `assignable` says. A type that
+/// is still generic after that (a projection, `T::Item`) is taken to fit, since only
+/// solving it could tell.
+fn shape_fits(pattern: &Ty, actual: &Ty) -> bool {
+    let mut solved = HashMap::new();
+    unify(pattern, actual, &mut solved);
+    // Unified with itself, a type names each of its parameters once.
+    let mut params = HashMap::new();
+    unify(pattern, pattern, &mut params);
+    for id in params.into_keys() {
+        solved.entry(id).or_insert(Ty::Error);
+    }
+    let shape = ty::substitute(pattern, &solved);
+    shape.has_params() || assignable(&shape, actual)
 }
 
 /// A trait method's signature as seen through one implementer (spec §7.6).

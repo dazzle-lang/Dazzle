@@ -1,0 +1,31 @@
+// expect: (none)
+//
+// A constructor parameter whose type names the struct's type parameter fits only an
+// argument of that shape (spec §7.2): `items: List<T>` fits a `List`, never `16`. So
+// `Stack<i32>(16)` reaches `capacity`, and `Stack<i32>(move(xs))` reaches `items`. The
+// checker once let a generic parameter fit anything, which made the first ambiguous.
+
+struct Stack<T> {
+    m_items: List<T>
+
+    Stack(capacity: usize) {
+        m_items = List<T>(capacity)
+    }
+
+    Stack(items: List<T>) {
+        m_items = move(items)
+    }
+
+    pub fn len(&self) -> usize {
+        return m_items.len()
+    }
+}
+
+fn main() {
+    let empty = Stack<i32>(16)
+    let mut xs = List<i32>()
+    xs.push(1)
+    xs.push(2)
+    let full = Stack<i32>(move(xs))
+    println!("{} {}", empty.len(), full.len())
+}

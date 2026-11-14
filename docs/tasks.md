@@ -62,7 +62,8 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
    only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the
    runtime's `destroy` of a word ended its lifetime, and g++ deleted `String`'s store to it.
-3. **The stdlib.** `BinaryHeap` (T-0175, with a decision on which end pops first), `Deque`
+3. **The stdlib.** `BinaryHeap` (T-0175, done 2026-11-14, r125: the largest first, with
+   `Reverse<T>` for the smallest, D-0098; `astar` uses it), `Deque`
    (T-0176) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
 4. **C++ interop: Dear ImGui in the SDL3 scene** (T-0171), the ImGui half of T-0010, with
@@ -185,7 +186,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (21 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (20 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -205,7 +206,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0094](tasks/T-0094-function-pointers-casts-null-optional-fn.md)** Function pointers: casts, null, optional fn, and C's function-pointer typedefs and globals · design, interop
 - **[T-0098](tasks/T-0098-str-cannot-be-cut-str-b.md)** A str cannot be cut: str[a..b] is refused, and only String has slice · feature, stdlib
 - **[T-0170](tasks/T-0170-literal-passed-where-string-wanted-converts.md)** A literal passed where a String is wanted converts, and the converted copy is placed like a written one · feature, language
-- **[T-0175](tasks/T-0175-binaryheap-priority-queue-in-std.md)** BinaryHeap: a priority queue in std · feature, stdlib
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 

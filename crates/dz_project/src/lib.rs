@@ -1076,6 +1076,7 @@ pub const STD_LIBC: &str = "libc";
 /// names nothing on disk — and its text. Folders are organisation only, as in any project
 /// (§3.1). A test holds this list to the files under `src/std`.
 pub const STD_SOURCES: &[(&str, &str)] = &[
+    ("<std>/collections/binary_heap.dz", include_str!("std/collections/binary_heap.dz")),
     ("<std>/collections/extend.dz", include_str!("std/collections/extend.dz")),
     ("<std>/collections/hash_map.dz", include_str!("std/collections/hash_map.dz")),
     ("<std>/collections/hash_map_iter.dz", include_str!("std/collections/hash_map_iter.dz")),
@@ -1113,6 +1114,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/core/ops.dz", include_str!("std/core/ops.dz")),
     ("<std>/core/ordering.dz", include_str!("std/core/ordering.dz")),
     ("<std>/core/ownership.dz", include_str!("std/core/ownership.dz")),
+    ("<std>/core/reverse.dz", include_str!("std/core/reverse.dz")),
     ("<std>/io/directory.dz", include_str!("std/io/directory.dz")),
     ("<std>/io/file.dz", include_str!("std/io/file.dz")),
     ("<std>/io/file_mode.dz", include_str!("std/io/file_mode.dz")),
