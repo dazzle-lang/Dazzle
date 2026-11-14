@@ -231,6 +231,12 @@ These are load-bearing. Breaking one is a real regression even if tests still pa
 - **Comments** explain *why*, especially where a choice looks arbitrary. Do not narrate
   what the code already says.
 - **Do not commit or push unless the user asks.**
+- **Clean up after landing.** Once a branch's work is on `origin/master`, switch back to
+  `master`, pull, and delete the branch (local and remote) and its worktree, in the same
+  session. Before deleting one, check `git log origin/master..<branch>`: work may have landed
+  rebased, so compare what it holds, not commit ids. A branch left with unpushed commits is
+  said in the wrap-up, never left silently: on 2026-11-14 `bugs-0.2` held eight finished
+  fixes that `master` still listed as open.
 - **No AI attribution in commits or PRs**: no `Co-Authored-By: Claude` trailer, no
   "Generated with Claude Code" line. The README's "How Dazzle is made" section discloses it
   once for the whole repository; `.claude/settings.json` turns the trailers off.
