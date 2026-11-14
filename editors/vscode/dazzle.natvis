@@ -5,7 +5,7 @@
   `cppvsdbg` by the Dazzle debug configuration.
 -->
 <AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
-  <Type Name="dz::str">
+  <Type Name="dz::rt::str">
     <DisplayString Condition="ptr == 0">""</DisplayString>
     <DisplayString>{(const char*)ptr,[len]s8}</DisplayString>
     <StringView>(const char*)ptr,[len]s8</StringView>
@@ -14,7 +14,7 @@
     </Expand>
   </Type>
 
-  <Type Name="dz::Slice&lt;*&gt;">
+  <Type Name="dz::rt::Slice&lt;*&gt;">
     <DisplayString>{{ len={len} }}</DisplayString>
     <Expand>
       <Item Name="len">len</Item>
@@ -25,7 +25,7 @@
     </Expand>
   </Type>
 
-  <Type Name="dz::Array&lt;*,*&gt;">
+  <Type Name="dz::rt::Array&lt;*,*&gt;">
     <DisplayString>{{ len={$T2} }}</DisplayString>
     <Expand>
       <ArrayItems>
@@ -35,7 +35,7 @@
     </Expand>
   </Type>
 
-  <Type Name="dz::Opt&lt;*&gt;">
+  <Type Name="dz::rt::Opt&lt;*&gt;">
     <DisplayString Condition="!has">none</DisplayString>
     <DisplayString>{value}</DisplayString>
     <Expand>
@@ -43,7 +43,7 @@
     </Expand>
   </Type>
 
-  <Type Name="dz::Range&lt;*&gt;">
+  <Type Name="dz::rt::Range&lt;*&gt;">
     <DisplayString Condition="inclusive">{start}..={end}</DisplayString>
     <DisplayString>{start}..{end}</DisplayString>
   </Type>

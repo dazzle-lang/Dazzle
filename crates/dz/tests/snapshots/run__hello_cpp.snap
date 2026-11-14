@@ -32,7 +32,7 @@ namespace hello {
 
 void main() {
 #line 2 "main.dz"
-    ::dz::std_::stream_write(0, ::dz::str("Hello, world!/n", 14));
+    ::dz::std_::stream_write(0, ::dz::rt::str("Hello, world!/n", 14));
 }
 
 void dz_drop_statics__() {

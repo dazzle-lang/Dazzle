@@ -181,12 +181,11 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (24 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (23 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
 - **[T-0007](tasks/T-0007-generic-methods-in-trait.md)** Generic methods in a trait · feature, generics
-- **[T-0034](tasks/T-0034-module-named-after-runtime-shim-identifier.md)** A module named after a runtime-shim identifier does not compile · deferral, codegen
 - **[T-0037](tasks/T-0037-indexed-exists-only-in-for-head.md)** `indexed()` exists only in a `for` head · deferral, checker
 - **[T-0038](tasks/T-0038-memory-tracking-single-threaded.md)** Memory tracking is single-threaded · deferral, stdlib
 - **[T-0041](tasks/T-0041-union-variant-carrying-struct-with-constructor.md)** A union variant carrying a struct with a constructor cannot be built · deferral, checker

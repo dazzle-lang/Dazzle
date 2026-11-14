@@ -79,7 +79,7 @@ impl<'a> Emitter<'a> {
         let id = self.reflect_id(ty);
         if info {
             let t = self.std_cpp("TypeInfo");
-            format!("(*static_cast<const {t}*>(::dz::reflect_entry({id}u)))")
+            format!("(*static_cast<const {t}*>(::dz::rt::reflect_entry({id}u)))")
         } else {
             let t = self.std_cpp("TypeId");
             format!("([]() {{ {t} id_; id_.index = {id}u; return id_; }}())")
@@ -90,7 +90,7 @@ impl<'a> Emitter<'a> {
     pub(crate) fn typeinfo_by_id(&mut self, id: &str) -> String {
         self.reflect.borrow_mut().needed = true;
         let t = self.std_cpp("TypeInfo");
-        format!("(*static_cast<const {t}*>(::dz::reflect_entry(({id}).index)))")
+        format!("(*static_cast<const {t}*>(::dz::rt::reflect_entry(({id}).index)))")
     }
 }
 
@@ -156,7 +156,7 @@ pub(crate) fn seed_all(
     }
 }
 
-/// `dz_typeinfo.cpp`: the table, and `::dz::reflect_entry`, which reads it.
+/// `dz_typeinfo.cpp`: the table, and `::dz::rt::reflect_entry`, which reads it.
 pub(crate) fn table_file(e: &mut Emitter<'_>, headers: &[String]) -> String {
     // The closure: describing a type interns what it is made of, which may add more.
     let mut rows: Vec<TypeRow> = Vec::new();
@@ -178,7 +178,7 @@ pub(crate) fn table_file(e: &mut Emitter<'_>, headers: &[String]) -> String {
     let intern = |s: &str, strings: &mut Vec<String>| -> String {
         let n = strings.len();
         strings.push(s.to_owned());
-        format!("::dz::str(dz_s{n}, {})", s.len())
+        format!("::dz::rt::str(dz_s{n}, {})", s.len())
     };
 
     let field_count: usize = rows
@@ -209,9 +209,9 @@ pub(crate) fn table_file(e: &mut Emitter<'_>, headers: &[String]) -> String {
             *next_field += 1;
         }
         if fields.is_empty() {
-            format!("::dz::Slice<const {field}>()")
+            format!("::dz::rt::Slice<const {field}>()")
         } else {
-            format!("::dz::Slice<const {field}>(&f[{start}], {})", fields.len())
+            format!("::dz::rt::Slice<const {field}>(&f[{start}], {})", fields.len())
         }
     };
     for (id, r) in rows.iter().enumerate() {
@@ -219,7 +219,7 @@ pub(crate) fn table_file(e: &mut Emitter<'_>, headers: &[String]) -> String {
         let module = intern(&r.module, &mut strings);
         let fields = write_fields(&r.fields, &mut fill, &mut strings, &mut next_field);
         let variants = if r.variants.is_empty() {
-            format!("::dz::Slice<const {variant}>()")
+            format!("::dz::rt::Slice<const {variant}>()")
         } else {
             let start = next_variant;
             for v in &r.variants {
@@ -233,7 +233,7 @@ pub(crate) fn table_file(e: &mut Emitter<'_>, headers: &[String]) -> String {
                 );
                 next_variant += 1;
             }
-            format!("::dz::Slice<const {variant}>(&v[{start}], {})", r.variants.len())
+            format!("::dz::rt::Slice<const {variant}>(&v[{start}], {})", r.variants.len())
         };
         let _ = writeln!(
             fill,
@@ -275,14 +275,14 @@ pub(crate) fn table_file(e: &mut Emitter<'_>, headers: &[String]) -> String {
         "\nstruct DzTypeTable {{\n    {info} t[{types}];\n    {field} f[{fields}];\n    {variant} v[{variants}];\n\
          \n    DzTypeTable() {{\n{fill}    }}\n}};\n\n\
          const void* dz_type_table_entry(uint32_t id) {{\n    static DzTypeTable table;\n    \
-         if (id >= {count}u) {{\n        ::dz::panic(\"typeinfo of an id the type table does not hold\", \
-         ::dz::SourceLocation{{\"<type table>\", \"typeinfo\", 0, 0}});\n    }}\n    return &table.t[id];\n}}\n",
+         if (id >= {count}u) {{\n        ::dz::rt::panic(\"typeinfo of an id the type table does not hold\", \
+         ::dz::rt::SourceLocation{{\"<type table>\", \"typeinfo\", 0, 0}});\n    }}\n    return &table.t[id];\n}}\n",
         count = rows.len()
     );
     out.push_str(&namespace_close("std"));
     let _ = writeln!(
         out,
-        "\nnamespace dz {{\nconst void* reflect_entry(uint32_t id) {{ return ::dz::{}::dz_type_table_entry(id); }}\n}}  // namespace dz",
+        "\nnamespace dz {{\nnamespace rt {{\nconst void* reflect_entry(uint32_t id) {{ return ::dz::{}::dz_type_table_entry(id); }}\n}}  // namespace rt\n}}  // namespace dz",
         sanitize("std")
     );
     out
@@ -322,8 +322,8 @@ fn describe(e: &mut Emitter<'_>, ty: &Ty) -> TypeRow {
             let p = e.reflect_id(&Ty::ptr(false, Ty::Int(IntTy::U8)));
             let n = e.reflect_id(&usize_ty);
             row.fields = vec![
-                field("ptr", p, "offsetof(::dz::str, ptr)".to_owned()),
-                field("len", n, "offsetof(::dz::str, len)".to_owned()),
+                field("ptr", p, "offsetof(::dz::rt::str, ptr)".to_owned()),
+                field("len", n, "offsetof(::dz::rt::str, len)".to_owned()),
             ];
             "Str"
         }

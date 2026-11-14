@@ -515,7 +515,7 @@ fn overflow_wraps_and_unreachable_is_assumed_only_in_unsafe() {
             assumed,
             "{mode}: `or unreachable` lowering\n{cpp}"
         );
-        assert!(cpp.contains("::dz::unreachable("), "{mode}: safe `or unreachable`\n{cpp}");
+        assert!(cpp.contains("::dz::rt::unreachable("), "{mode}: safe `or unreachable`\n{cpp}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -551,9 +551,9 @@ fn arithmetic_cpp_leaves_undefined_is_defined() {
         assert!(stderr.contains("division by zero"), "{mode}: {stderr}");
         assert!(stderr.contains("main.dz:33:"), "{mode}: the panic names its line\n{stderr}");
         let cpp = std::fs::read_to_string(dir.join("build/cpp/arith.cpp")).unwrap();
-        assert!(cpp.contains("::dz::num::div<int32_t>("), "{mode}\n{cpp}");
-        assert!(cpp.contains("::dz::num::div_assign<int32_t>("), "{mode}\n{cpp}");
-        assert!(cpp.contains("::dz::num::float_to_int<"), "{mode}\n{cpp}");
+        assert!(cpp.contains("::dz::rt::num::div<int32_t>("), "{mode}\n{cpp}");
+        assert!(cpp.contains("::dz::rt::num::div_assign<int32_t>("), "{mode}\n{cpp}");
+        assert!(cpp.contains("::dz::rt::num::float_to_int<"), "{mode}\n{cpp}");
         assert!(cpp.contains("(7 / 2)"), "a literal divisor keeps C++'s `/`\n{cpp}");
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -1045,7 +1045,7 @@ fn destroying_a_word_keeps_what_was_stored_in_it() {
         "#include \"dz_runtime.h\"\n#include <stdio.h>\n\
          struct S { size_t words[2]; };\n\
          __attribute__((noinline)) void grow(S& s, size_t room) {\n\
-         \x20   s.words[1] = room;\n    ::dz::destroy(s.words[1]);\n}\n\
+         \x20   s.words[1] = room;\n    ::dz::rt::destroy(s.words[1]);\n}\n\
          int main() {\n    S s{{0, 7}};\n    grow(s, 41);\n    printf(\"%zu\\n\", s.words[1]);\n\
          \x20   return 0;\n}\n",
     )
@@ -1553,9 +1553,9 @@ fn a_module_named_after_a_build_directory_does_not_collide() {
     let src = "#[bench]\nfn measured() {\n    blackbox(1)\n}\n\n\
                #[test]\nfn checked() {}\n\n\
                fn main() {\n    println!(\"ok\")\n}\n";
-    // Not `obj`: that name collides with the runtime shim's `dz::obj` helper rather than
-    // with a directory, which is a separate bug — see the deferral register.
-    for name in ["bench", "test", "cpp", "bin"] {
+    // And modules named after what the runtime shim declares, which once collided with it
+    // in `namespace dz` (T-0034); the shim is in `dz::rt` now, and a module `rt` is renamed.
+    for name in ["bench", "test", "cpp", "bin", "obj", "index", "len", "str", "panic", "rt"] {
         let dir = scratch(
             &format!("dz_collide_{name}"),
             &format!("[module]\nname = \"{name}\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = {{ open = true }}\n"),

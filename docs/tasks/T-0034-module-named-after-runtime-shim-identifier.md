@@ -2,11 +2,19 @@
 id: T-0034
 title: A module named after a runtime-shim identifier does not compile
 milestone: M12
-status: open
+status: done
 kind: deferral
 area: codegen
 where: `dz_cpp/src/lib.rs`, `qualified_namespace`
 ---
+
+**Done 2026-11-14**, by option 2. The runtime shim, the prelude and the native layer are
+in `namespace dz::rt`, and every reference the emitter writes is `::dz::rt::…`; a module's
+namespace stays `dz::<name>`. A module named `rt` becomes `rt_`, as `std` already became
+`std_`, which replaced `runtime_names`, a scan of the shim's text that renamed any module
+called after a word it declared (`index`, `len`, `data`…). The natvis names `dz::rt::str`
+and the rest. `a_module_named_after_a_build_directory_does_not_collide` now builds modules
+named `obj`, `index`, `len`, `str`, `panic` and `rt` too.
 
 **What goes wrong.** The runtime shim declares about forty names **directly in
 `namespace dz`** — `obj`, `len`, `mv`, `str`, `index`, `Array`, `panic` and the rest — and a
