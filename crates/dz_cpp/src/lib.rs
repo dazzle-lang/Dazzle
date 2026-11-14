@@ -1079,17 +1079,6 @@ impl<'a> Emitter<'a> {
             self.file = file;
             self.const_decl(sym);
         }
-        // Statics last among the declarations: every type they hold is complete by now, and
-        // their initialisers are constants, so they depend on nothing else (spec §7.7).
-        for (file, item) in &functions {
-            if let ItemKind::Static(_) = &item.kind {
-                self.file = *file;
-                let thread_local = item.attrs.iter().any(|a| a.name.name == "thread_local");
-                if let Some(sym) = self.symbol_of(item) {
-                    self.static_decl(sym, thread_local);
-                }
-            }
-        }
         for (file, item) in &functions {
             self.file = *file;
             let Some(sym) = self.symbol_of(item) else { continue };
@@ -1105,6 +1094,19 @@ impl<'a> Emitter<'a> {
         }
         self.impl_prototypes();
         self.impl_vtables();
+        // Statics after the vtables: every type they hold is complete by now, their
+        // initialisers are constants, and an allocator's hidden vtable member is one only
+        // once its `constexpr` vtable is defined, so `HEAP` needs no code run to set it
+        // (spec §7.7, D-0103).
+        for (file, item) in &functions {
+            if let ItemKind::Static(_) = &item.kind {
+                self.file = *file;
+                let thread_local = item.attrs.iter().any(|a| a.name.name == "thread_local");
+                if let Some(sym) = self.symbol_of(item) {
+                    self.static_decl(sym, thread_local);
+                }
+            }
+        }
         self.trait_object_bodies(&traits);
         // Member bodies come last so they can call anything in the module.
         for &(file, item, sym) in &own_types {
@@ -1497,12 +1499,15 @@ impl<'a> Emitter<'a> {
                 let _ = writeln!(self.header, "    {ret} (*{})({});", sanitize(m), all.join(", "));
             }
             self.header.push_str("};\n\n");
-            let _ = writeln!(self.header, "struct {name}__dyn : ::dz::rt::Dyn<{name}__vtable> {{");
-            let _ = writeln!(self.header, "    using Dyn::Dyn;");
+            // `Allocator`'s handle is one word; every other trait's is two (D-0103).
+            let base = if self.thin_trait(sym) { "ThinDyn" } else { "Dyn" };
+            let _ =
+                writeln!(self.header, "struct {name}__dyn : ::dz::rt::{base}<{name}__vtable> {{");
+            let _ = writeln!(self.header, "    using {base}::{base};");
             // `&(handle)` where a handle is wanted: the same object, not a pointer to one.
             let _ = writeln!(
                 self.header,
-                "    {name}__dyn(const {name}__dyn* h) : Dyn(*h) {{}}\n    \
+                "    {name}__dyn(const {name}__dyn* h) : {base}(*h) {{}}\n    \
                  {name}__dyn(const {name}__dyn& h) = default;\n    \
                  {name}__dyn& operator=(const {name}__dyn& h) = default;\n    \
                  const {name}__dyn& operator*() const {{ return *this; }}"
@@ -1527,6 +1532,8 @@ impl<'a> Emitter<'a> {
         for &sym in traits {
             let name = sanitize(&self.res.symbol(sym).name);
             let region = self.region_allocator(sym);
+            // A thin handle reads its vtable from the object's first word (D-0103).
+            let vt_of = if self.thin_trait(sym) { "vt()" } else { "vt" };
             for (m, sig) in self.trait_methods(sym) {
                 let (ret, params) = self.dyn_signature(&sig);
                 let list: Vec<String> =
@@ -1534,7 +1541,7 @@ impl<'a> Emitter<'a> {
                 let rest: Vec<String> = (0..params.len()).map(|i| format!("a{i}")).collect();
                 let mut args = vec!["data".to_owned()];
                 args.extend(rest.iter().cloned());
-                let call = format!("return vt->{}({});", sanitize(&m), args.join(", "));
+                let call = format!("return {vt_of}->{}({});", sanitize(&m), args.join(", "));
                 let body = match &region {
                     Some((idx, arena)) => {
                         let vt = format!("{}__vtable", self.qualify(sym));
@@ -1547,7 +1554,7 @@ impl<'a> Emitter<'a> {
                         let mut direct = vec![format!("*static_cast<{ptr}>(data)")];
                         direct.extend(rest);
                         format!(
-                            "\n    if (vt == dz_vtable(static_cast<const {vt}*>(nullptr), \
+                            "\n    if ({vt_of} == dz_vtable(static_cast<const {vt}*>(nullptr), \
                              static_cast<const {arena}*>(nullptr))) {{\n        \
                              return {f}({});\n    }}\n    {call}\n",
                             direct.join(", ")
@@ -1583,6 +1590,27 @@ impl<'a> Emitter<'a> {
         })?;
         let self_ty = self.table.impls()[idx].self_ty.clone();
         Some((idx, self.cpp_ty(&self_ty)))
+    }
+
+    /// Whether a `^Trait` of this trait is one word, the object's address, with the vtable
+    /// the object's first member: `Allocator`'s is, which is what makes a container's
+    /// allocator, and every placed call's hidden result, one word (D-0103).
+    fn thin_trait(&self, sym: SymbolId) -> bool {
+        self.res.lookup(self.res.prelude, "Allocator") == Some(sym)
+    }
+
+    /// The thin trait the struct `sym` implements, whose vtable it then holds as its first
+    /// member. The checker allows only a plain struct of the implementation's own module to
+    /// implement one (`DZ0587`), so it is never generic and has no base or `virtual`.
+    fn thin_impl(&self, sym: SymbolId) -> Option<SymbolId> {
+        self.table
+            .impls()
+            .iter()
+            .find(|imp| {
+                self.thin_trait(imp.trait_ref.trait_sym)
+                    && matches!(&imp.self_ty, Ty::Named { sym: s, args } if *s == sym && args.is_empty())
+            })
+            .map(|imp| imp.trait_ref.trait_sym)
     }
 
     /// Each implementation of an object-safe trait gives its vtable, found by the handle
@@ -1639,6 +1667,24 @@ impl<'a> Emitter<'a> {
                     .collect(),
                 _ => Vec::new(),
             };
+            // A thin trait's table is a `constexpr` variable, so the hidden member that points
+            // at it is a constant, and `HEAP` and `TEMP` are initialised before any code
+            // runs rather than in whatever order C++ starts the program's statics (D-0103).
+            // The struct declared this function before its own definition.
+            if let (true, Ty::Named { sym: own, .. }) = (self.thin_trait(tsym), &imp.self_ty) {
+                let var = format!(
+                    "{}__{}__vt",
+                    sanitize(&self.res.symbol(*own).name),
+                    sanitize(&self.res.symbol(tsym).name)
+                );
+                let _ = writeln!(
+                    self.header,
+                    "inline constexpr {vt} {var}{{\n{}\n}};\n\
+                     constexpr const {vt}* dz_vtable(const {vt}*, const {self_cpp}*) {{ return &{var}; }}\n",
+                    entries.join("\n")
+                );
+                continue;
+            }
             let (head, pointee) = if twins.is_empty() {
                 (String::new(), const_of(&self_cpp))
             } else {
@@ -2515,6 +2561,16 @@ impl<'a> Emitter<'a> {
             None => None,
         };
         let inherited = self.table.struct_sig(sym).map_or(0, |s| s.inherited);
+        let thin_vt = self
+            .thin_impl(sym)
+            .filter(|_| args.is_empty())
+            .map(|t| format!("{}__vtable", self.qualify(t)));
+        if let Some(vt) = &thin_vt {
+            let _ = writeln!(
+                self.header,
+                "constexpr const {vt}* dz_vtable(const {vt}*, const {name}*);\n"
+            );
+        }
         match base {
             Some(b) => {
                 // A generic base is the instance this one inherits, `Panel<i32>` (T-0035).
@@ -2529,6 +2585,18 @@ impl<'a> Emitter<'a> {
             None => {
                 let _ = writeln!(self.header, "struct {name} {{");
             }
+        }
+
+        // An allocator's vtable is its first member, so a `^mut Allocator` is its address
+        // alone (D-0103). The function giving the vtable was declared above the struct and is
+        // defined with the vtable, after the implementation's functions; it is `constexpr`, so
+        // the member is a constant and a static allocator needs no code run to set it.
+        if let Some(vt) = &thin_vt {
+            let _ = writeln!(
+                self.header,
+                "    const {vt}* _dz_vt = dz_vtable(static_cast<const {vt}*>(nullptr), \
+                 static_cast<const {name}*>(nullptr));"
+            );
         }
 
         // Fields, in declaration order, each with its default (spec §6.2). A field with

@@ -822,6 +822,47 @@ struct Dyn {
     DZ_INLINE bool operator!=(decltype(nullptr)) const { return data != nullptr; }
 };
 
+/// `^Allocator`: a thin trait pointer, one word, the allocator's address (D-0103). Every
+/// implementation keeps its vtable as its first member, `_dz_vt`, as a C++ class with
+/// virtual functions keeps its own, so the handle reads it from the object. That is what
+/// makes a container's allocator one word, and every placed call's hidden result one
+/// register.
+template <class VT> struct ThinDyn;
+template <class VT> char thin_probe(const ThinDyn<VT>*);
+long thin_probe(...);
+template <class T> struct is_thin {
+    static constexpr bool value = sizeof(thin_probe(static_cast<T*>(nullptr))) == 1;
+};
+
+template <class VT>
+struct ThinDyn {
+    void* data = nullptr;
+
+    DZ_INLINE ThinDyn() = default;
+    DZ_INLINE ThinDyn(decltype(nullptr)) {}
+    // The address of the hidden member, not of the object: the two are the same for the
+    // implementation itself, and through a derived type it is still the implementation's
+    // own. A type that is not an implementation has no `_dz_vt` and does not compile.
+    template <class T>
+    DZ_INLINE ThinDyn(T* p)
+        : data(p ? const_cast<void*>(static_cast<const void*>(&p->_dz_vt)) : nullptr) {
+        static_assert(is_same<decltype(p->_dz_vt), const VT*>::value,
+                      "a thin trait object is made only from an implementation of its trait");
+    }
+    template <class T> DZ_INLINE ThinDyn(const Addr<T>& a) : ThinDyn(a.p) {}
+    template <class T,
+              typename enable_if_c<!is_ptr<T>::value && !is_addr<typename unconst<T>::type>::value
+                                   && !is_thin<typename unconst<T>::type>::value>::type = 0>
+    DZ_INLINE ThinDyn(T& r) : ThinDyn(&r) {}
+
+    /// The vtable, from the object's first word.
+    DZ_INLINE const VT* vt() const { return *static_cast<const VT* const*>(data); }
+
+    DZ_INLINE explicit operator bool() const { return data != nullptr; }
+    DZ_INLINE bool operator==(decltype(nullptr)) const { return data == nullptr; }
+    DZ_INLINE bool operator!=(decltype(nullptr)) const { return data != nullptr; }
+};
+
 /// `as` between numbers, pointers, and an enum and its backing type (spec §10.6).
 ///
 /// `static_cast` already covers enum-to-integer and every numeric conversion. A pointer

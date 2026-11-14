@@ -53,3 +53,9 @@ clang++ and 1.42× to 1.31× on g++ (`RESULTS.md`). Now, in ms on clang++: parse
 MiB against 181 and about 20 ms of page faults, from the containers' two-word allocator
 handle: T-0228, a design question. Convert's copies of every string out of the tree and
 the writer's per-value type lookups are the rest.
+
+**Progress, later on 2026-11-14.** T-0228 made a `^mut Allocator` one word (r132, D-0103):
+`String` and `List` are 32 bytes, `Json` 40 and `Member` 72, as in the C++ half. `json` went
+from 1.15× to 1.07× on clang++ and 1.32× to 1.24× on g++, and its peak memory from 236 MiB
+to 208 against 181. The 27 MiB left is not the types' size; what a region keeps of a list
+that grew is the suspect, not yet measured on its own.

@@ -2,11 +2,28 @@
 id: T-0228
 title: A one-word allocator handle in String, List and the other containers
 milestone: none
-status: open
+status: done
 kind: design
 area: stdlib
-where: `crates/dz_project/src/std/memory/` (`Allocator`, `Heap`, `ScopeArena`, `Allocators`); `std/text/string.dz`, `std/collections/*.dz` (their `m_allocator`); `crates/dz_cpp/src/lib.rs`: trait objects (`dz_vtable`, `Allocator__dyn`)
+where: `crates/dz_cpp/src/runtime.rs` (`ThinDyn`); `crates/dz_cpp/src/lib.rs` (`thin_trait`, `thin_impl`, `struct_decl`'s hidden `_dz_vt`, `impl_vtables`, `trait_object_bodies`, statics after the vtables); `crates/dz_check/src/impls.rs` (`check_allocator_impls`, `DZ0587`)
 ---
+
+**Done 2026-11-14: every `^mut Allocator` is one word** (D-0103, r132, the user's choice of
+the three ways below). Nothing in `std`'s source changed: the containers still hold a
+`^mut Allocator`, which is now the allocator's address alone.
+
+| What | Where the code is |
+|---|---|
+| the one-word handle, reading the vtable from the object's first word | `crates/dz_cpp/src/runtime.rs`: `ThinDyn` |
+| which trait is thin (`Allocator`), and which struct implements it | `crates/dz_cpp/src/lib.rs`: `thin_trait`, `thin_impl` |
+| the hidden first member `_dz_vt`, and `dz_vtable` declared before the struct | `crates/dz_cpp/src/lib.rs`: `struct_decl` |
+| the vtable as a `constexpr` variable, so `HEAP` and `TEMP` stay constant-initialised | `crates/dz_cpp/src/lib.rs`: `impl_vtables`; statics are emitted after it |
+| the handle's methods, and the region's direct call (T-0151) | `crates/dz_cpp/src/lib.rs`: `trait_object_bodies` |
+| only a plain struct of its own module implements `Allocator` | `crates/dz_check/src/impls.rs`: `check_allocator_impls`, `DZ0587` |
+
+Measured on every benchmark: see `docs/log/tooling.md`, "A one-word allocator handle".
+
+What follows is the question as it was asked.
 
 **A design question for the user**, raised 2026-11-14 from the `json` benchmark (T-0173,
 T-0225).

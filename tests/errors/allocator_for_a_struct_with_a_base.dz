@@ -1,0 +1,35 @@
+// expect: DZ0587
+//
+// A `^mut Allocator` is one word, the allocator's address: every allocator keeps the table
+// of its functions as its hidden first field (spec §14, D-0103). A struct with a base starts
+// with the base's fields, so it has no first field of its own to keep it in. Implement
+// `Allocator` for a struct that holds the derived one instead.
+
+struct Arena {
+    pub used: usize = 0
+}
+
+struct CountingArena : Arena {
+    pub count: usize = 0
+}
+
+impl Allocator for CountingArena {
+    fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation) -> ^mut u8 {
+        return null
+    }
+
+    fn realloc(
+        &mut self,
+        p: ^mut u8,
+        old_size: usize,
+        new_size: usize,
+        align: usize,
+        loc: SourceLocation,
+    ) -> ^mut u8 in self {
+        return null
+    }
+
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {}
+}
+
+fn main() {}

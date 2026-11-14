@@ -242,7 +242,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (30 open)
+## none — not scheduled (29 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -273,4 +273,3 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0219](tasks/T-0219-loop-hints-what-loop-does-on.md)** "Loop hints: what a loop does on every pass that it could avoid" · feature, tooling
 - **[T-0226](tasks/T-0226-warn-on-while-true-suggest-loop.md)** Warn on while true and suggest loop, which dz fix rewrites · feature, tooling
 - **[T-0227](tasks/T-0227-move-on-path-that-ends-in.md)** A move on a path that ends in return is counted when a loop body runs again · feature, flow
-- **[T-0228](tasks/T-0228-one-word-allocator-handle-in-string.md)** A one-word allocator handle in String, List and the other containers · design, stdlib

@@ -52,7 +52,7 @@ impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable 
 | Propagate | `f() or return` | only where the enclosing signature can carry the failure |
 | Fall back | `f() or Textures::Missing` | "on failure use this instead" — the common case in game code |
 | Sum type | `union S { A{…} B{} C }` + `switch` | tagged, exhaustive, no fallthrough; bare `C` carries `struct C` |
-| Interface | `trait X` + `impl X for Y` | bound `<T: X>` = static dispatch; `^X` = fat pointer, object stays the same size; an `impl` lives with the trait or with the type, so a module can add a trait to a type it did not write |
+| Interface | `trait X` + `impl X for Y` | bound `<T: X>` = static dispatch; `^X` = fat pointer, object stays the same size (`^mut Allocator` alone is one word, D-0103); an `impl` lives with the trait or with the type, so a module can add a trait to a type it did not write |
 | Generics | `fn f<T: Ord>(…)` | checked once at the definition, then monomorphized by Dazzle |
 | Module | one `dazzle.toml` = one module | folders mean nothing; `name = "engine::render"` for nesting |
 | Metaprogramming | `macro m -> decl { … }`, invoked `#m …`; an `expr` or `stmt` macro `m!(…)` | declarative pattern → expand, so the LSP can complete inside it |

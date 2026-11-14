@@ -321,6 +321,62 @@ impl Ctx<'_> {
     ///
     /// Only the implementations from `from` on: the ones before are an earlier layer's,
     /// attached already.
+    /// `impl Allocator` only for a plain struct of the implementation's own module (D-0103):
+    /// a `^mut Allocator` is one word, and the table of the allocator's functions is the
+    /// struct's hidden first field. A generic struct would need a table per instance, a base
+    /// or a `virtual` method would take the first word, and nothing else has fields at all.
+    /// After the bases are flattened, which is when a struct's base and `virtual` are known.
+    ///
+    /// Only the implementations from `from` on, as for [`Ctx::attach_special_impls`].
+    pub(crate) fn check_allocator_impls(&mut self, from: usize) {
+        let Some(allocator) = self.prelude_trait("Allocator") else { return };
+        let saved = (self.file, self.module);
+        for idx in from..self.table.impls.len() {
+            let imp = &self.table.impls[idx];
+            if imp.trait_ref.trait_sym != allocator {
+                continue;
+            }
+            let (span, file, module) = (imp.span, imp.file, imp.module);
+            let me = self.name_of(&imp.self_ty);
+            let why = match &imp.self_ty {
+                Ty::Named { sym, args } => {
+                    let symbol = self.res.symbol(*sym);
+                    if symbol.kind != dz_resolve::SymbolKind::Struct {
+                        Some(format!("`{me}` is not a struct"))
+                    } else if symbol.module != module {
+                        // An imported header's struct, which the orphan rule lets the
+                        // module carrying its recipe implement traits for.
+                        Some(format!("`{me}` is declared in another module"))
+                    } else if !args.is_empty() || !imp.generics.is_empty() {
+                        Some(format!("`{me}` is generic"))
+                    } else {
+                        match self.table.struct_sig(*sym) {
+                            Some(s) if s.base.is_some() => Some(format!("`{me}` has a base")),
+                            Some(s) if s.polymorphic => {
+                                Some(format!("`{me}` has a `virtual` method"))
+                            }
+                            _ => None,
+                        }
+                    }
+                }
+                _ => Some(format!("`{me}` is not a struct")),
+            };
+            let Some(why) = why else { continue };
+            (self.file, self.module) = (file, module);
+            self.error_help(
+                codes::ALLOCATOR_NOT_STRUCT,
+                span,
+                format!("`Allocator` can only be implemented for a plain struct, and {why}"),
+                "implemented here",
+                "a `^mut Allocator` is one word, the allocator's address, and the table of its \
+                 functions is the struct's hidden first field: implement it for a struct of \
+                 this module with no type parameters, no base and no `virtual` method, and \
+                 keep anything else in a field of it (spec §14, D-0103)",
+            );
+        }
+        (self.file, self.module) = saved;
+    }
+
     pub(crate) fn attach_special_impls(&mut self, from: usize) {
         let (Some(drop), Some(copy)) = (self.prelude_trait("Drop"), self.prelude_trait("Copy"))
         else {

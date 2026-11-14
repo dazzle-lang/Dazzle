@@ -2160,3 +2160,11 @@ error[DZ0586]: text's length says its unit: `byte_len` or `len()`
      │                 ^^^ bytes or characters?
      │
      = help: `s.byte_len` is the length in bytes, what `s.len` was; `s.len()` counts the characters (spec §5.3)
+
+error[DZ0587]: `Allocator` can only be implemented for a plain struct, and `Pool<T>` is generic
+     ┌─ typeerrors/src/errors.dz:1726:9
+     │
+1726 │ impl<T> Allocator for Pool<T> {
+     │         ^^^^^^^^^ implemented here
+     │
+     = help: a `^mut Allocator` is one word, the allocator's address, and the table of its functions is the struct's hidden first field: implement it for a struct of this module with no type parameters, no base and no `virtual` method, and keep anything else in a field of it (spec §14, D-0103)

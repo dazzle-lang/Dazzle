@@ -456,6 +456,11 @@ pub const FIELD_METHOD_SAME_NAME: &str = "DZ0585";
 /// `s.len()` in characters (spec §5.3, D-0100). `dz fix` respells it `byte_len`, which is
 /// what it meant.
 pub const TEXT_LEN_FIELD: &str = "DZ0586";
+/// `impl Allocator` for anything but a struct declared in the implementation's module,
+/// with no type parameters, no base and no `virtual` method. A `^mut Allocator` is one word,
+/// the allocator's address, because every allocator keeps the table of its functions as its
+/// hidden first field, and only such a struct can have one there (spec §14, D-0103).
+pub const ALLOCATOR_NOT_STRUCT: &str = "DZ0587";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

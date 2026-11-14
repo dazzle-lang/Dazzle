@@ -24080,3 +24080,76 @@ body fn pass_letters -> void
         local _3 letters: List<String>
       ref mut: &mut List<String>
         local _2 kept: List<String>
+body field-default Counting.0 -> void
+  block
+    int 0: usize
+body impl#190 method alloc -> ^mut u8
+  param _0 self: Counting
+  param _1 size: usize
+  param _2 align: usize
+  param _3 loc: SourceLocation
+  block
+    assign +=
+      field #0: usize
+        local _0 self: Counting
+      int 1: usize
+    return: !
+      block-value: ^mut u8
+        block
+          call-method Allocator::alloc: ^mut u8
+            const Allocators::Global: &mut Allocator
+            local _1 size: usize
+            local _2 align: usize
+            local _3 loc: SourceLocation
+body impl#190 method realloc -> ^mut u8
+  param _0 self: Counting
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  param _5 loc: SourceLocation
+  block
+    return: !
+      block-value: ^mut u8
+        block
+          call-method Allocator::realloc: ^mut u8
+            const Allocators::Global: &mut Allocator
+            local _1 p: ^mut u8
+            local _2 old_size: usize
+            local _3 new_size: usize
+            local _4 align: usize
+            local _5 loc: SourceLocation
+body impl#190 method free -> void
+  param _0 self: Counting
+  param _1 p: ^mut u8
+  param _2 size: usize
+  param _3 align: usize
+  param _4 loc: SourceLocation
+  block
+    call-method Allocator::free: void
+      const Allocators::Global: &mut Allocator
+      local _1 p: ^mut u8
+      local _2 size: usize
+      local _3 align: usize
+      local _4 loc: SourceLocation
+body fn counted -> usize
+  block
+    let _0 c: Counting
+      struct-lit Counting: Counting
+        #0 (default)
+    let _1 a: &mut Allocator
+      ref mut: &mut Counting
+        local _0 c: Counting
+    let _2 p: ^mut u8
+      call-method Allocator::alloc: ^mut u8
+        local _1 a: &mut Allocator
+        int 16: usize
+        int 8: usize
+    call-method Allocator::free: void
+      local _1 a: &mut Allocator
+      local _2 p: ^mut u8
+      int 16: usize
+      int 8: usize
+    return: !
+      field #0: usize
+        local _0 c: Counting

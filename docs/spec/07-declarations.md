@@ -509,6 +509,14 @@ swap (§17.6).
 The cost is that `^Drawable` is 16 bytes while `^Sprite` is 8. The compiler will not let you
 silently confuse them, and the LSP shows the fat-pointer-ness on hover.
 
+**`Allocator` is the one exception**: a `^mut Allocator` is one word, the allocator's
+address, and each allocator carries its vtable as a hidden first field, as a C++ class with
+`virtual` functions does. Every container stores the allocator it was placed in (§14.6), so
+the handle's size is paid by every container, where the hidden field is paid by a few
+allocators. It is why only a struct of the implementation's own module, with no type
+parameters, no base and no `virtual` method, may implement `Allocator` (`DZ0587`).
+`[DECIDED — D-0103]`
+
 ## 7.7 Statics
 
 A `static` is a variable declared at module scope, and there is one of it for the whole

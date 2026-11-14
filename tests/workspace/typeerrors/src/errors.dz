@@ -1715,3 +1715,29 @@ fn measured(name: &str) -> usize {
     let first = name[0]
     return name.len
 }
+
+// `Allocator` only for a plain struct of the module's own (spec §14, D-0103): a
+// `^mut Allocator` is one word, and the table of the allocator's functions is the struct's
+// hidden first field, which a generic struct would need one of per instance: DZ0587.
+struct Pool<T> {
+    m_items: ^mut T = null
+}
+
+impl<T> Allocator for Pool<T> {
+    fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation) -> ^mut u8 {
+        return null
+    }
+
+    fn realloc(
+        &mut self,
+        p: ^mut u8,
+        old_size: usize,
+        new_size: usize,
+        align: usize,
+        loc: SourceLocation,
+    ) -> ^mut u8 in self {
+        return null
+    }
+
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {}
+}

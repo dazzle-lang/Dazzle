@@ -199,6 +199,46 @@ making it too large to inline; that path is `push_encoded` now. `bench_programs.
 alternating runs, Dazzle / C++: `words` 0.77× on clang++ and 0.97× on g++; `astar` 0.92× and
 1.08×; `expr` 1.47× and 1.22×. Between runs on this machine a ratio moves by about a tenth.
 
+## A one-word allocator handle (r132; D-0103; T-0228; 2026-11-14)
+
+The user chose, of the three ways T-0228 laid out, to make every `^mut Allocator` one word,
+not only the containers' field. Each implementation of `Allocator` keeps its vtable as a
+hidden first member, `_dz_vt`, and `Allocator__dyn` is `ThinDyn`, the address alone, which
+reads the vtable from the object. `std`'s source did not change: `String`, `List`,
+`HashMap`, `Deque`, `Box` and `RcBlock` still hold a `^mut Allocator`, and every placed call
+still passes one, each now a word.
+
+- **The vtable is a `constexpr` variable**, `Heap__Allocator__vt`, and `dz_vtable` for a
+  thin trait a `constexpr` function returning its address, declared before the struct so the
+  member's default can name it. Statics are now emitted after the vtables: with the function
+  defined above it, `inline Heap HEAP = Heap{}` is constant-initialised, as it was with no
+  member to set, instead of falling to dynamic initialisation in whatever order C++ starts a
+  program's statics, which a static built from the heap could have run before.
+- **The handle is made from `&p->_dz_vt`**, not `p`, so through a derived type it is still
+  the implementation's own address, and a type that implements no `Allocator` has no such
+  member and does not compile.
+- **The region's direct call (T-0151) compares `vt()`**, the allocator's first word, which
+  the call touches next anyway.
+- **`DZ0587`**: only a struct of the implementation's own module, not generic, with no base
+  and no `virtual` method, may implement `Allocator`; an imported header's struct is
+  refused too. Nothing in the repository implemented it otherwise.
+
+Measured on every benchmark, the run before and after on the same machine in one sitting
+(`RESULTS.md` is the after):
+
+| Program | Compiler | Before | After | Peak memory before → after |
+|---|---|---:|---:|---:|
+| json | clang++ | 259 ms (1.15×) | 239 ms (1.07×) | 235.9 → 208.3 MiB |
+| json | g++ | 278 ms (1.32×) | 262 ms (1.24×) | 234.0 → 209.9 MiB |
+| words | clang++ | 139 ms (0.90×) | 136 ms (0.88×) | 37.8 → 33.5 MiB |
+| words | g++ | 146 ms (0.88×) | 148 ms (0.89×) | 38.0 → 34.0 MiB |
+| astar, expr, raytrace | both | | within 2 ms | unchanged |
+
+`json`'s types are now the size of its C++ half's, `String` and `List` 32 bytes, `Json` 40
+and a member 72 (`sizeof` in the generated C++), so the 27 MiB it still holds more is not
+their size; T-0225 has the other suspect, what a region keeps of a list that grew, not yet
+measured on its own.
+
 ## Moves that leave nothing to reset, and small `std` functions inlined (T-0225; 2026-11-14)
 
 Compiler and library work, no language change. On `json`, from 1.25× its C++ half on

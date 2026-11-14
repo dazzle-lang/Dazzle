@@ -1652,3 +1652,80 @@ fn main() {
     println!("{} bytes, {} characters", s.byte_len, s.len())
 }
 ```
+
+## DZ0587
+
+Every container keeps the allocator it was placed in, so the size of that handle is paid
+by every `String` and `List`, and by every function returning one, which takes where its
+result goes. A trait object of any other trait is two words, the object's address and the
+table of its implementation's functions. A `^mut Allocator` is one: each allocator keeps that
+table as its hidden first field, as a C++ class with `virtual` functions does, and the
+handle is the allocator's address alone (D-0103).
+
+Only a struct of the module's own can have that field there. An enum or a primitive has no
+fields, a generic struct would need a table for each instance, and a struct with a base or a
+`virtual` method starts with something else. Keep what the allocator needs in a struct, as a
+field of it if it must be one of those.
+
+```dz
+struct Pool<T> {
+    m_items: ^mut T = null
+}
+
+impl<T> Allocator for Pool<T> {
+    fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation) -> ^mut u8 {
+        return null
+    }
+
+    fn realloc(
+        &mut self,
+        p: ^mut u8,
+        old_size: usize,
+        new_size: usize,
+        align: usize,
+        loc: SourceLocation,
+    ) -> ^mut u8 in self {
+        return null
+    }
+
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {}
+}
+
+fn main() {}
+```
+
+```dz
+struct Counting {
+    pub count: usize = 0
+}
+
+impl Allocator for Counting {
+    fn alloc(&mut self, size: usize, align: usize, loc: SourceLocation) -> ^mut u8 {
+        count += 1
+        return unsafe { Allocators::Global.alloc(size, align, loc) }
+    }
+
+    fn realloc(
+        &mut self,
+        p: ^mut u8,
+        old_size: usize,
+        new_size: usize,
+        align: usize,
+        loc: SourceLocation,
+    ) -> ^mut u8 in self {
+        return unsafe { Allocators::Global.realloc(p, old_size, new_size, align, loc) }
+    }
+
+    fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+        Allocators::Global.free(p, size, align, loc)
+    }
+}
+
+fn main() {
+    let mut c = Counting{}
+    let a: &mut Allocator = &mut c
+    let p = a.alloc(16, 8)
+    a.free(p, 16, 8)
+    println!("{} allocation", c.count)
+}
+```

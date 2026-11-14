@@ -1357,6 +1357,7 @@ impl<'a> Ctx<'a> {
         // later question about ownership reads — so after every signature exists, and before
         // any body is checked (spec §6.1).
         self.attach_special_impls(impls_before);
+        self.check_allocator_impls(impls_before);
         run(self, &check::item);
     }
 }

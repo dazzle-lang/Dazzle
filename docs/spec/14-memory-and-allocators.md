@@ -33,8 +33,11 @@ pub struct List<T> {
   allocator needs no header to remember them, and tracking can check them.
 - **`loc`** is the caller's location (§12.7). A container forwards the one it was given, so a
   report names the line that built the container rather than the container's own code.
-- `^mut Allocator` is a fat trait pointer (§7.6), which is what lets one `List<f32>` work
-  with any allocator.
+- `^mut Allocator` is a trait pointer (§7.6), which is what lets one `List<f32>` work
+  with any allocator. Unlike other traits' it is **one word**, the allocator's address: each
+  allocator keeps the table of its functions as a hidden first field, so a `String` or a
+  `List` is 32 bytes, and only a plain struct of the implementation's own module may
+  implement `Allocator` (`DZ0587`). `[DECIDED — D-0103]`
 
 **Memory comes only from an allocator.** The language has no `alloc` or `free` of its own.
 Underneath `Allocators::Global` is the C heap: the standard library imports `stdlib.h` as a
