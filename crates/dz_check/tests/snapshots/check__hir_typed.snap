@@ -1,6 +1,5 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 248
 expression: r.hir
 ---
 body ctor BinaryHeap#0 -> void
@@ -6806,61 +6805,97 @@ body fn write_digits -> void
       int 21: usize
     let _6 n: u64
       local _1 value: u64
-    let _7 ten: u8
-      if: u8
-        call-method Formatter::upper: bool
-          local _0 f: &mut Formatter
-        block
-          cast: u8
-            char 'A': char
-        block
-          block-value: u8
-            block
-              cast: u8
-                char 'a': char
-    while
-      bool true: bool
+    if: void
+      binary ==: bool
+        local _2 base: u64
+        int 10: u64
       block
-        assign -=
-          local _5 at: usize
-          int 1: usize
-        let _8 d: u8
-          cast: u8
-            binary %: u64
-              local _6 n: u64
-              local _2 base: u64
-        assign =
-          index: u8
-            local _4 buf: [21]u8
-            local _5 at: usize
-          if: u8
-            binary <: bool
-              local _8 d: u8
-              int 10: u8
-            block
+        while
+          bool true: bool
+          block
+            assign -=
+              local _5 at: usize
+              int 1: usize
+            assign =
+              index: u8
+                local _4 buf: [21]u8
+                local _5 at: usize
               binary +: u8
                 cast: u8
                   char '0': char
-                local _8 d: u8
-            block
-              block-value: u8
-                block
-                  binary -: u8
-                    binary +: u8
-                      local _7 ten: u8
-                      local _8 d: u8
-                    int 10: u8
-        assign =
-          local _6 n: u64
-          binary /: u64
-            local _6 n: u64
-            local _2 base: u64
-        if: void
-          binary ==: bool
-            local _6 n: u64
-            int 0: u64
+                cast: u8
+                  binary %: u64
+                    local _6 n: u64
+                    int 10: u64
+            assign =
+              local _6 n: u64
+              binary /: u64
+                local _6 n: u64
+                int 10: u64
+            if: void
+              binary ==: bool
+                local _6 n: u64
+                int 0: u64
+              block
+                break: !
+      block
+        block-value: void
           block
-            break: !
+            let _7 ten: u8
+              if: u8
+                call-method Formatter::upper: bool
+                  local _0 f: &mut Formatter
+                block
+                  cast: u8
+                    char 'A': char
+                block
+                  block-value: u8
+                    block
+                      cast: u8
+                        char 'a': char
+            while
+              bool true: bool
+              block
+                assign -=
+                  local _5 at: usize
+                  int 1: usize
+                let _8 d: u8
+                  cast: u8
+                    binary %: u64
+                      local _6 n: u64
+                      local _2 base: u64
+                assign =
+                  index: u8
+                    local _4 buf: [21]u8
+                    local _5 at: usize
+                  if: u8
+                    binary <: bool
+                      local _8 d: u8
+                      int 10: u8
+                    block
+                      binary +: u8
+                        cast: u8
+                          char '0': char
+                        local _8 d: u8
+                    block
+                      block-value: u8
+                        block
+                          binary -: u8
+                            binary +: u8
+                              local _7 ten: u8
+                              local _8 d: u8
+                            int 10: u8
+                assign =
+                  local _6 n: u64
+                  binary /: u64
+                    local _6 n: u64
+                    local _2 base: u64
+                if: void
+                  binary ==: bool
+                    local _6 n: u64
+                    int 0: u64
+                  block
+                    break: !
     if: void
       local _3 negative: bool
       block
@@ -7005,6 +7040,32 @@ body method Formatter::write_str -> void
   param _1 s: &str
   block
     if: void
+      binary &&: bool
+        binary <: bool
+          field #1: i32
+            local _0 self: Formatter
+          int 0: i32
+        unary !: bool
+          field #10: bool
+            local _0 self: Formatter
+      block
+        block-value: void
+          block
+            call-method String::push_str: void
+              field #0: ^mut String
+                local _0 self: Formatter
+              local _1 s: &str
+              field #4: SourceLocation
+                local _0 self: Formatter
+        return: !
+    call-method Formatter::write_str_slowly: void
+      local _0 self: Formatter
+      local _1 s: &str
+body method Formatter::write_str_slowly -> void
+  param _0 self: Formatter
+  param _1 s: &str
+  block
+    if: void
       field #10: bool
         local _0 self: Formatter
       block
@@ -7127,6 +7188,30 @@ body method Formatter::write_char -> void
   param _0 self: Formatter
   param _1 c: char
   block
+    if: void
+      binary &&: bool
+        binary &&: bool
+          binary <: bool
+            field #1: i32
+              local _0 self: Formatter
+            int 0: i32
+          unary !: bool
+            field #10: bool
+              local _0 self: Formatter
+        binary <: bool
+          cast: u32
+            local _1 c: char
+          int 128: u32
+      block
+        block-value: void
+          block
+            call-method String::push: void
+              field #0: ^mut String
+                local _0 self: Formatter
+              local _1 c: char
+              field #4: SourceLocation
+                local _0 self: Formatter
+        return: !
     let _2 encoded: [4]u8
       array: [4]u8
         int 0: u8
