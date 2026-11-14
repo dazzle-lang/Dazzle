@@ -2,6 +2,34 @@
 
 Written by `python tools/bench_scale.py --markdown tests/bench_programs/SCALE.md`, which generates a project of N modules and the same program in C++ (`target/scale/<N>/`).
 
+## After T-0214's regression was undone (2026-11-14, clang++)
+
+Measured again for the website, a build from clean at 100 modules took 12.0 s: T-0214 put `std`'s `#[inline]` `List` accessors in every module's header, and every module above parsed them again. A debug build now defines them once, out of line, and the build from clean is 8.18 s; 7.7 s with the project as the generator writes it since r119 was the best before (this run's program differs from the 11 November runs below: its containers say `sends`). An edit is 0.88 s at 100 modules, from 1.00 s, by keeping `std`'s C++ between builds and asking the compiler's version once. Dazzle is ahead of `make` after an edit at every size. Three builds per scenario, GNU `ld`.
+
+| Modules | Lines (Dazzle / C++) | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---|---:|---:|---:|---:|
+| 10 | 5112 / 3440 | clang++ | 0.73 s / 0.59 s | 0.01 s / 0.00 s | 0.25 s / 0.39 s | 0.25 s / 0.39 s |
+| 25 | 12777 / 8600 | clang++ | 1.66 s / 1.29 s | 0.00 s / 0.00 s | 0.35 s / 0.50 s | 0.35 s / 0.47 s |
+| 50 | 25552 / 17200 | clang++ | 3.48 s / 2.58 s | 0.00 s / 0.01 s | 0.52 s / 0.69 s | 0.51 s / 0.64 s |
+| 100 | 51102 / 34400 | clang++ | 8.18 s / 5.20 s | 0.01 s / 0.05 s | 0.88 s / 1.10 s | 0.86 s / 0.99 s |
+
+Where Dazzle's time goes: its own phases / the C++ compiler and link.
+
+| Modules | Compiler | from clean | nothing changed | leaf module changed | root module changed |
+|---:|---|---:|---:|---:|---:|
+| 10 | clang++ | 0.25 s / 0.46 s | 0.01 s / 0.00 s | 0.10 s / 0.14 s | 0.10 s / 0.14 s |
+| 25 | clang++ | 0.57 s / 1.07 s | 0.00 s / 0.00 s | 0.18 s / 0.15 s | 0.18 s / 0.14 s |
+| 50 | clang++ | 1.11 s / 2.33 s | 0.00 s / 0.00 s | 0.33 s / 0.16 s | 0.33 s / 0.16 s |
+| 100 | clang++ | 2.26 s / 5.86 s | 0.00 s / 0.00 s | 0.63 s / 0.21 s | 0.63 s / 0.19 s |
+
+Each cell is Dazzle / C++, the median of the builds asked for, in debug (`-O0 -g`). Dazzle is `dz build`. C++ is the same program as one header and one source per module, built as `make -j` builds a plain project: each source compiled on its own when it or a header it includes is newer than its object, one per core at once, with no precompiled headers, then linked. From clean deletes both `build/` folders (Dazzle's per-user cache stays, as C++'s standard library stays built). A changed module has one function's body changed, which changes no header: the leaf is the last module, which no other calls, and the root is module 0, which every other depends on. Dazzle's own phases are everything `--timings` reports but the headers, the libraries, the C++ compiler and the link.
+
+- CPU: AMD Ryzen 7 H 255 w/ Radeon 780M Graphics (16 threads)
+- OS: Linux-6.12.116+deb13-amd64-x86_64-with-glibc2.41
+- `clang++`: Debian clang version 19.1.7 (3+b1)
+- `dz`: commit 7e45dee with T-0025's rebuild work and T-0214's regression undone
+- Load average before / after: 6.40 / 6.24
+
 ## After T-0199's second fix (2026-11-11, clang++)
 
 An instance outside `std` declares and defines only the methods the program calls: a `List<PartN>` here keeps 18 of its 36 methods, those `std` and the program call on any `List`. From clean at 100 modules: 8.99 s to 7.22 s, the C++ compiler 7.11 s to 5.64 s, and Dazzle's own phases 1.81 s to 1.51 s, as fewer instances are made. Edits are as they were. Three builds per scenario, GNU `ld`; the machine was busy when it started (load 20).

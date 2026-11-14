@@ -33,26 +33,22 @@ pub struct BuildOutput {
 
 /// Generate C++ for a project, writing only files whose contents changed (spec §16.6).
 /// Generate the C++ into `root`'s `cpp/`: every module's, or only `selection`'s, the others'
-/// files, `kept`, compiled as an earlier build left them (T-0197).
+/// files, `kept`, compiled as an earlier build left them (T-0197). `kept_shared` is the shared
+/// folder `std`'s kept files were compiled from, when they are among them.
 pub fn emit_cpp(
     analysis: &Analysis,
     root: &Path,
     options: dz_cpp::Options,
     selection: Option<&dz_cpp::Selection>,
     kept: &[String],
+    kept_shared: Option<&Path>,
 ) -> Result<BuildOutput, Diagnostics> {
     let (Some(ws), Some(resolution), Some(table), Some(hir), Some(mono)) =
         (&analysis.ws, &analysis.resolution, &analysis.table, &analysis.hir, &analysis.mono)
     else {
         return Err(Diagnostics::new());
     };
-    // Regions are on (T-0117 kept them); `DZ_REGIONS=0` builds the heap-only program, so
-    // `tools/bench_regions.py` builds one source both ways without a flag of its own, and a
-    // wrong result can be checked against the heap. Any other value, or none, leaves them on.
-    let options = dz_cpp::Options {
-        regions: options.regions && !std::env::var_os("DZ_REGIONS").is_some_and(|v| v == "0"),
-        ..options
-    };
+    let options = for_build(options, ws);
     let emitted = dz_cpp::emit_selected(
         ws,
         resolution,
@@ -79,12 +75,22 @@ pub fn emit_cpp(
         return Err(d);
     }
 
-    // The runtime and `std` are compiled from a folder every project shares (T-0182).
-    let shared = crate::shared::Shared::new(
-        root,
-        emitted.files.iter().filter(|f| f.shared),
-        options.line_directives,
-    );
+    // The runtime and `std` are compiled from a folder every project shares (T-0182). Its
+    // name is a hash of their files, so where `std`'s were kept rather than emitted, it is
+    // the one their last build recorded.
+    let shared = match kept_shared {
+        Some(dir) => crate::shared::Shared::kept(
+            dir,
+            emitted.files.iter().filter(|f| f.shared).map(|f| f.name.as_str()).chain(
+                kept.iter().map(String::as_str).filter(|n| dir.join("cpp").join(n).is_file()),
+            ),
+        ),
+        None => crate::shared::Shared::new(
+            root,
+            emitted.files.iter().filter(|f| f.shared),
+            options.line_directives,
+        ),
+    };
     let cannot_write = |path: &Path, e: std::io::Error| {
         let mut d = Diagnostics::new();
         d.push(Diagnostic::error(
@@ -167,6 +173,23 @@ pub fn emit_cpp(
         reflects: emitted.reflects,
         renames,
     })
+}
+
+/// `options` as this build emits with them, from what the workspace and the environment say.
+///
+/// Regions are on (T-0117 kept them); `DZ_REGIONS=0` builds the heap-only program, so
+/// `tools/bench_regions.py` builds one source both ways without a flag of its own, and a
+/// wrong result can be checked against the heap. Any other value, or none, leaves them on.
+///
+/// A debug build keeps instances' `#[inline]` bodies out of headers: at `-O0` nothing is
+/// inlined, and every module above parsed them again (`dz_cpp::Options::inline_instances`).
+pub(crate) fn for_build(options: dz_cpp::Options, ws: &Workspace) -> dz_cpp::Options {
+    dz_cpp::Options {
+        regions: options.regions && !std::env::var_os("DZ_REGIONS").is_some_and(|v| v == "0"),
+        inline_instances: options.inline_instances
+            && ws.module(ws.root).build.optimize != Optimize::Debug,
+        ..options
+    }
 }
 
 /// The line every file `dz` generates starts with.
@@ -290,22 +313,77 @@ pub fn find_compiler(ws: Option<&Workspace>, chosen: Option<&str>) -> Option<Str
             }
         }
     }
-    for candidate in ["clang++", "g++", "c++"] {
-        let probe = Command::new(candidate).arg("--version").output();
-        if matches!(probe, Ok(o) if o.status.success()) {
-            return Some(candidate.to_owned());
-        }
-    }
-    None
+    ["clang++", "g++", "c++"]
+        .into_iter()
+        .find(|candidate| version_of(candidate).is_some())
+        .map(str::to_owned)
 }
 
 /// Is `cxx` GCC? Told by what `--version` says rather than by its name: macOS's `g++` is
 /// clang, and a cross compiler's name can be anything.
 fn is_gcc(cxx: &str) -> bool {
-    Command::new(cxx).arg("--version").output().is_ok_and(|out| {
-        let text = String::from_utf8_lossy(&out.stdout);
-        text.contains("Free Software Foundation") && !text.contains("clang")
-    })
+    version_of(cxx)
+        .is_some_and(|text| text.contains("Free Software Foundation") && !text.contains("clang"))
+}
+
+/// What `cxx --version` prints, or `None` if it does not run or fails.
+///
+/// Running it costs about 15 ms, and a build asked it up to three times (which compiler,
+/// whether it is GCC, and again for the build stamp): half of a rebuild that compiled
+/// nothing. So the answer is kept, in the process and in the per-user cache, under the
+/// compiler's file, size and time, as the fast-linker probe's is: an upgrade, or another
+/// compiler first on the `PATH`, is another file and is asked again. A name that resolves to
+/// no file is asked every time.
+fn version_of(cxx: &str) -> Option<String> {
+    use std::sync::Mutex;
+    static ASKED: Mutex<Vec<(String, Option<String>)>> = Mutex::new(Vec::new());
+    if let Some((_, known)) = ASKED.lock().ok()?.iter().find(|(name, _)| name == cxx) {
+        return known.clone();
+    }
+    let identity = crate::fresh::which(cxx).and_then(|path| {
+        let real = std::fs::canonicalize(path).ok()?;
+        let meta = std::fs::metadata(&real).ok()?;
+        let time = meta.modified().ok().and_then(crate::native::nanos)?;
+        Some(format!("{} {} {time}", real.display(), meta.len()))
+    });
+    let answer_file = identity.zip(dz_project::user_cache_dir()).map(|(identity, dir)| {
+        let key = format!("dz compiler version 1\0{identity}");
+        dir.join("compilers").join(format!("{:016x}", crate::native::fnv1a(key.as_bytes())))
+    });
+    // The file says `runs` and the text, or `fails`.
+    let kept =
+        answer_file.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|text| {
+            match text.split_once('\n') {
+                Some(("runs", version)) => Some(Some(version.to_owned())),
+                Some(("fails", _)) => Some(None),
+                _ => None,
+            }
+        });
+    let known = kept.unwrap_or_else(|| {
+        let asked = Command::new(cxx)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+        if let Some(file) = &answer_file {
+            let text = match &asked {
+                Some(version) => format!("runs\n{version}"),
+                None => "fails\n".to_owned(),
+            };
+            if let Some(folder) = file.parent() {
+                let _ = std::fs::create_dir_all(folder);
+            }
+            let _ = crate::shared::write(file, text.as_bytes());
+        }
+        asked
+    });
+    if let Ok(mut asked) = ASKED.lock() {
+        asked.push((cxx.to_owned(), known.clone()));
+    }
+    known
 }
 
 /// Compile the generated C++ into an executable, after the vendored libraries it links.

@@ -33,7 +33,14 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    T-0184 (emitting less) is not needed for them. Left: T-0012 (build time at scale), T-0103
    (stale generated files and objects; done 2026-11-14 with T-0194) and T-0025 (`std` checked in every analysis, now
    the largest fixed cost of a build after the C++ compiler; its ownership half is done,
-   2026-11-14, a small program's analysis 58 ms to 40 ms, and its type check is left). T-0012 (done 2026-11-09)
+   2026-11-14, a small program's analysis 58 ms to 40 ms; the same day `std`'s C++ is kept
+   between builds, its checked layer is no longer copied, and its files are parsed on every
+   core, and two bugs went with them, the compiler asked `--version` three times a build and
+   a stamp that never settled: a rebuild whose C++ did not change 136 ms to 57 ms; and a
+   regression from T-0214, a debug build of 100 modules from clean 8.1 s to 12.0 s, undone
+   by keeping instances' `#[inline]` bodies out of debug builds' headers. Only its
+   type check is left, ~11 ms, which needs the checked layer on disk, a design of its own;
+   not in 0.2). T-0012 (done 2026-11-09)
    measured a generated 100-module project: Dazzle is 11× C++ from clean and far behind
    after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
    T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).
@@ -57,10 +64,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    compiled as one when the build has more files than cores, took 100 modules from 13.2 s
    to 9.0 s, and its second, an instance declaring only the methods the program calls, to
    7.2 s (C++: 5.2 s). The C++ compiler is now about C++'s; the rest is Dazzle's phases.
-   Left besides: the rest
-   of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
-   `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
-   only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the
+   T-0190 is done (2026-11-14): its g++ half gave an optimised g++ build the inline budget
+   of an `inline` function (the benchmarks run 6-17% faster), and its other half, compiling
+   only the methods something calls, came with T-0199. T-0189, found on the way, is fixed: the
    runtime's `destroy` of a word ended its lifetime, and g++ deleted `String`'s store to it.
 3. **The stdlib.** `BinaryHeap` (T-0175, done 2026-11-14, r125: the largest first, with
    `Reverse<T>` for the smallest, D-0098; `astar` uses it), `Deque`
@@ -208,7 +214,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0170](tasks/T-0170-literal-passed-where-string-wanted-converts.md)** A literal passed where a String is wanted converts, and the converted copy is placed like a written one · feature, language
 - **[T-0213](tasks/T-0213-let-x-list-i-binds-reference.md)** let x = list[i] binds a reference to the element, where let x = arr[i] copies it · design, language
 
-## M15 — `dz bench`, and the C++ comparison (10 open)
+## M15 — `dz bench`, and the C++ comparison (9 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -218,7 +224,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0174](tasks/T-0174-raytrace-benchmark-floating-point-vector-math.md)** A raytrace benchmark: floating-point and vector math · feature, bench
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
-- **[T-0190](tasks/T-0190-each-module-defines-instance-methods-it.md)** Each module defines the instance methods it calls, as C++ instantiates a template's members · feature, codegen
 - **[T-0220](tasks/T-0220-call-sourcelocation-stored-stack-on-every.md)** A call's SourceLocation is stored to the stack on every pass, though only a cold path reads it · feature, codegen
 
 ## M16 — Packages: dependencies that are fetched (1 open)

@@ -2,11 +2,21 @@
 id: T-0190
 title: Each module defines the instance methods it calls, as C++ instantiates a template's members
 milestone: M15
-status: open
+status: done
 kind: feature
 area: codegen
 where: `crates/dz_cpp/src/lib.rs`: `place_instance_body`, `instance_definitions`; `crates/dz_mono`
 ---
+
+**Done** (2026-11-14), with nothing more to build: both of its costs are gone. Unused methods
+are no longer compiled, since an instance outside `std` has only the methods the program
+calls (T-0199); `std`'s instances are compiled once per machine (T-0182). And g++ inlines
+Dazzle's functions with the budget of an `inline` one (below). The 0.03-0.06 s that "what is
+left" names was measured on 2026-11-09, before T-0199: since then a one-line edit to a
+function body compiles only the module's `.cpp`, never its `.inst.cpp` (checked on `words`:
+one object rebuilt, `words.cpp`'s, 78 ms of a 158 ms build). Defining instance methods
+`inline` in each module that calls them would only move them back into the files that are
+recompiled, at the cost of the link-error risk below.
 
 **Mostly done by T-0199** (2026-11-11): an instance outside `std` now declares and defines
 only the methods the program calls, found from the whole program per generic struct

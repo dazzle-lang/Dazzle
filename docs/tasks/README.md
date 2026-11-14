@@ -44,7 +44,14 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    T-0184 (emitting less) is not needed for them. Left: T-0012 (build time at scale), T-0103
    (stale generated files and objects; done 2026-11-14 with T-0194) and T-0025 (`std` checked in every analysis, now
    the largest fixed cost of a build after the C++ compiler; its ownership half is done,
-   2026-11-14, a small program's analysis 58 ms to 40 ms, and its type check is left). T-0012 (done 2026-11-09)
+   2026-11-14, a small program's analysis 58 ms to 40 ms; the same day `std`'s C++ is kept
+   between builds, its checked layer is no longer copied, and its files are parsed on every
+   core, and two bugs went with them, the compiler asked `--version` three times a build and
+   a stamp that never settled: a rebuild whose C++ did not change 136 ms to 57 ms; and a
+   regression from T-0214, a debug build of 100 modules from clean 8.1 s to 12.0 s, undone
+   by keeping instances' `#[inline]` bodies out of debug builds' headers. Only its
+   type check is left, ~11 ms, which needs the checked layer on disk, a design of its own;
+   not in 0.2). T-0012 (done 2026-11-09)
    measured a generated 100-module project: Dazzle is 11× C++ from clean and far behind
    after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
    T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).
@@ -68,10 +75,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    compiled as one when the build has more files than cores, took 100 modules from 13.2 s
    to 9.0 s, and its second, an instance declaring only the methods the program calls, to
    7.2 s (C++: 5.2 s). The C++ compiler is now about C++'s; the rest is Dazzle's phases.
-   Left besides: the rest
-   of T-0190: its g++ half is done (an optimised g++ build gets the inline budget of an
-   `inline` function, and the benchmarks run 6-17% faster), and what is left, compiling
-   only the methods something calls, is worth 0.03-0.06 s on a small program's debug build. T-0189, found on the way, is fixed: the
+   T-0190 is done (2026-11-14): its g++ half gave an optimised g++ build the inline budget
+   of an `inline` function (the benchmarks run 6-17% faster), and its other half, compiling
+   only the methods something calls, came with T-0199. T-0189, found on the way, is fixed: the
    runtime's `destroy` of a word ended its lifetime, and g++ deleted `String`'s store to it.
 3. **The stdlib.** `BinaryHeap` (T-0175, done 2026-11-14, r125: the largest first, with
    `Reverse<T>` for the smallest, D-0098; `astar` uses it), `Deque`

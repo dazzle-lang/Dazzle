@@ -654,6 +654,10 @@ fn an_inline_body_is_in_the_header() {
 /// eight times slower than the same sum over a slice (T-0214). A constructor that only
 /// stores its parameters goes in the header too, which `SliceIter`'s, started by every
 /// `for &x in list`, needs; one that does more stays out of line.
+///
+/// In an optimised build only: at `-O0` nothing is inlined, and in a debug build those bodies
+/// only made every module above parse them again (12.0 s from clean at 100 modules, against
+/// 8.1 s), so there they are defined once, out of line, as the instance's other bodies are.
 #[test]
 fn another_modules_inline_reaches_its_instances() {
     let dir = scratch(
@@ -661,12 +665,25 @@ fn another_modules_inline_reaches_its_instances() {
         "[module]\nname = \"inst\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "struct Stored {\n    m_a: i32 = 0\n\n    Stored(a: i32) {\n        m_a = a\n    }\n\n    pub fn a(&self) -> i32 {\n        return m_a\n    }\n}\n\nstruct Doubled {\n    m_a: i32 = 0\n\n    Doubled(a: i32) {\n        m_a = a * 2\n    }\n\n    pub fn a(&self) -> i32 {\n        return m_a\n    }\n}\n\nfn sum(xs: &List<i32>) -> i32 {\n    let mut t = 0\n    for i in 0..xs.len() {\n        t += xs[i]\n    }\n    for &x in xs {\n        t += x\n    }\n    return t\n}\n\nfn main() {\n    let mut xs = List<i32>()\n    xs.push(3)\n    println!(\"{} {} {}\", sum(&xs), Stored(1).a(), Doubled(1).a())\n}\n",
     );
-    let out =
-        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let header = std::fs::read_to_string(dir.join("build/cpp/inst.h")).unwrap();
+    let emit = |mode: &str| {
+        let out = Command::new(dz())
+            .args(["cpp", mode, dir.to_str().unwrap()])
+            .output()
+            .expect("failed to run dz");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let read = |name: &str| std::fs::read_to_string(dir.join("build/cpp").join(name)).unwrap();
+        (read("inst.h"), read("inst.inst.cpp"))
+    };
+
+    let (header, instances) = emit("--debug");
+    assert!(!header.contains("inline size_t List__i32::len() const {"), "{header}");
+    assert!(instances.contains("size_t List__i32::len() const {"), "{instances}");
+    assert!(!header.contains("inline SliceIter__i32::SliceIter__i32("), "{header}");
+    // The program's own constructor is not an instance's, and stays in the header.
+    assert!(header.contains("inline Stored::Stored(int32_t a) {"), "{header}");
+
+    let (header, instances) = emit("--release");
     let source = std::fs::read_to_string(dir.join("build/cpp/inst.cpp")).unwrap();
-    let instances = std::fs::read_to_string(dir.join("build/cpp/inst.inst.cpp")).unwrap();
     for body in [
         "inline const int32_t& Index_usize__std_List_L_i32_R__index(",
         "inline size_t List__i32::len() const {",

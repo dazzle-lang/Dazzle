@@ -1200,10 +1200,33 @@ pub fn check_from(
     map: &SourceMap,
     prelude: Option<&PreludeLayer>,
 ) -> CheckResult {
+    let prelude = prelude.filter(|p| p.symbols == prelude_symbols(ws, res));
+    check_layered(ws, res, files, map, prelude.cloned())
+}
+
+/// [`check_from`], handing over a layer nothing else will use, so it is not copied: about
+/// 5 ms of a small program's build, where the layer is made and used once (T-0025).
+pub fn check_with(
+    ws: &Workspace,
+    res: &Resolution,
+    files: &HashMap<ModuleId, Vec<ParsedFile>>,
+    map: &SourceMap,
+    prelude: PreludeLayer,
+) -> CheckResult {
+    let prelude = (prelude.symbols == prelude_symbols(ws, res)).then_some(prelude);
+    check_layered(ws, res, files, map, prelude)
+}
+
+fn check_layered(
+    ws: &Workspace,
+    res: &Resolution,
+    files: &HashMap<ModuleId, Vec<ParsedFile>>,
+    map: &SourceMap,
+    prelude: Option<PreludeLayer>,
+) -> CheckResult {
     let mut cx = Ctx::new(ws, res, map);
-    match prelude.filter(|p| p.symbols == prelude_symbols(ws, res)) {
+    match prelude {
         Some(p) => {
-            let p = p.clone();
             cx.table = p.table;
             cx.hir = p.hir;
             cx.diags = p.diags;

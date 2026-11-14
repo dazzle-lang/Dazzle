@@ -67,6 +67,9 @@ struct Record {
     /// Each instance body it placed, by `_DEF` guard, and whether it defines it.
     claims: Vec<(String, bool)>,
     reflects: bool,
+    /// `std`'s alone: the shared folder its files were compiled from (T-0182), which their
+    /// contents name, so a build that keeps them must be told where it is.
+    shared: Option<PathBuf>,
     warnings: String,
 }
 
@@ -109,11 +112,11 @@ impl Records {
         if self.by_name.is_empty() || self.by_name.values().any(|r| r.reflects) {
             return None;
         }
-        let facts = Facts::of(c.ws, c.files, c.res, c.hir, c.table, c.placements);
+        let facts = Facts::of(c.files, c.res, c.hir, c.table, c.placements);
         // The modules whose interface changed, which every module above them must follow.
         let mut reached: HashSet<ModuleId> = HashSet::new();
         let mut changed: HashSet<ModuleId> = HashSet::new();
-        for m in ws.modules().filter(|m| m.id != ws.prelude) {
+        for m in ws.modules() {
             let Some(record) = self.by_name.get(&m.name) else {
                 changed.insert(m.id);
                 continue;
@@ -123,11 +126,21 @@ impl Records {
                     meta.len() == *len && meta.modified().ok().and_then(nanos) == Some(*time)
                 })
             });
+            // `std`'s files are compiled from the shared folder, which another build may have
+            // pruned since (`shared::prune`): then they are emitted again, and it is made again.
+            let shared_holds = m.id != ws.prelude
+                || record.shared.as_ref().is_some_and(|dir| {
+                    record.outputs.iter().all(|(name, len, _)| {
+                        std::fs::metadata(dir.join("cpp").join(name))
+                            .is_ok_and(|meta| meta.len() == *len)
+                    })
+                });
             if record.interface != facts.interface(ws, map, files, m.id) {
                 reached.insert(m.id);
             }
             if record.source != source_hash(ws, map, files, m.id)
                 || !outputs_hold
+                || !shared_holds
                 || record.placement != facts.placement_of(m.id)
                 || record.templates != facts.templates
             {
@@ -135,21 +148,32 @@ impl Records {
             }
         }
         // A module is affected when it changed, or the interface of anything beneath it did.
+        // `std` is one like any other: it was emitted in every build, since its files name
+        // the shared folder, until the folder was kept in its record (T-0025). Unchanged, it
+        // was 14 ms of a small program's 20 ms of emitting.
         let mut affected = HashSet::new();
-        for m in ws.modules().filter(|m| m.foreign.is_none() && m.id != ws.prelude) {
+        for m in ws.modules().filter(|m| m.foreign.is_none()) {
             let beneath: Vec<ModuleId> = ws.module(m.id).deps.iter().map(|d| d.module).collect();
             if changed.contains(&m.id) || beneath.iter().any(|&d| depends_on_any(ws, d, &reached)) {
                 affected.insert(m.id);
             }
         }
-        let all = ws.modules().filter(|m| m.foreign.is_none() && m.id != ws.prelude).count();
+        let all = ws.modules().filter(|m| m.foreign.is_none()).count();
         (affected.len() < all).then_some(affected)
+    }
+
+    /// The shared folder of `std`'s files when `selection` keeps them, as its last build
+    /// recorded it.
+    pub fn kept_shared(&self, ws: &Workspace, selection: &dz_cpp::Selection) -> Option<&Path> {
+        if selection.modules.contains(&ws.prelude) {
+            return None;
+        }
+        self.by_name.get(&ws.module(ws.prelude).name)?.shared.as_deref()
     }
 
     /// What `select`'s modules emit around: the instance bodies the kept modules define.
     pub fn selection(&self, ws: &Workspace, modules: &HashSet<ModuleId>) -> dz_cpp::Selection {
-        let mut emit = modules.clone();
-        emit.insert(ws.prelude);
+        let emit = modules.clone();
         let mut claimed = HashMap::new();
         for m in ws.modules().filter(|m| m.foreign.is_none() && !emit.contains(&m.id)) {
             if let Some(record) = self.by_name.get(&m.name) {
@@ -245,9 +269,9 @@ impl Records {
             analysis.table.as_ref()?,
             analysis.placements.as_ref()?,
         );
-        let facts = Facts::of(ws, &analysis.files, res, hir, table, placements);
+        let facts = Facts::of(&analysis.files, res, hir, table, placements);
         std::fs::create_dir_all(&self.dir).ok()?;
-        for m in ws.modules().filter(|m| m.id != ws.prelude) {
+        for m in ws.modules() {
             let emitted = out.claims.get(&m.id);
             if m.foreign.is_none() && emitted.is_none() {
                 continue;
@@ -269,6 +293,9 @@ impl Records {
             }
             for (guard, defines) in emitted.into_iter().flatten() {
                 text.push_str(&format!("claim {} {guard}\n", u8::from(*defines)));
+            }
+            if m.id == ws.prelude {
+                text.push_str(&format!("shared {}\n", out.shared.dir.display()));
             }
             text.push_str("warnings\n");
             // A module emitted again only because its instance bodies changed hands was not
@@ -323,6 +350,7 @@ fn parse(text: &str) -> Option<(String, Record)> {
                 let (defines, guard) = rest.split_once(' ')?;
                 r.claims.push((guard.to_owned(), defines == "1"));
             }
+            "shared" => r.shared = Some(PathBuf::from(rest)),
             _ => return None,
         }
     }
@@ -343,8 +371,14 @@ fn source_hash(
         all.extend_from_slice(format!("{:?}\n{:?}", foreign.header, foreign.trust).as_bytes());
         return fnv1a(&all);
     }
-    for id in
-        std::iter::once(module.manifest).chain(files.get(&m).into_iter().flatten().map(|f| f.file))
+    // The root's manifest has the settings of the whole build, which every module's C++ is
+    // written for: `optimize` (a debug build keeps instances' `#[inline]` bodies out of
+    // headers), `cpp_standard`, and `std`'s `#if`s (`TRACK_MEMORY`, `check_trusted`). So an
+    // edit to it emits every module again rather than keep files written for other settings.
+    let root = (m != ws.root).then(|| ws.module(ws.root).manifest);
+    for id in std::iter::once(module.manifest)
+        .chain(root)
+        .chain(files.get(&m).into_iter().flatten().map(|f| f.file))
     {
         let file = map.get(id);
         all.extend_from_slice(file.path().to_string_lossy().as_bytes());
@@ -364,7 +398,6 @@ struct Facts {
 
 impl Facts {
     fn of(
-        ws: &Workspace,
         files: &HashMap<ModuleId, Vec<ParsedFile>>,
         res: &dz_resolve::Resolution,
         hir: &dz_hir::Hir,
@@ -383,8 +416,8 @@ impl Facts {
                 &mut templates
             } else {
                 match module_of.get(&body.file) {
-                    Some(m) if *m != ws.prelude => by_module.entry(*m).or_default(),
-                    _ => continue,
+                    Some(m) => by_module.entry(*m).or_default(),
+                    None => continue,
                 }
             };
             into.extend_from_slice(placed.as_bytes());

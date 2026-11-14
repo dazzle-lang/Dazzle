@@ -11,6 +11,12 @@ where: `crates/dz_cpp/src/lib.rs`: `inline_fns`, `Emitter::is_inline`, `only_sto
 **Done** (2026-11-14). Found while asking whether bounds checks cost in loops over the
 benchmarks (they do not: see below).
 
+**Optimised builds only, since the same day.** In every module's header, those bodies made
+a debug build of the 100-module scale project from clean 8.1 s to 12.0 s, every module
+parsing its dependencies' `List` accessors again, for nothing at `-O0`. A debug build now
+defines them once, out of line (`dz_cpp::Options::inline_instances`, `dz::build::for_build`;
+`docs/log/tooling.md`).
+
 | Piece | Where |
 |---|---|
 | The `#[inline]` set, now every module's, built once in `emit_selected` | `inline_fns` in `crates/dz_cpp/src/lib.rs` |

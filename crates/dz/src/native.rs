@@ -317,24 +317,23 @@ pub(crate) fn up_to_date(object: &Path) -> bool {
         return false;
     };
     let Some(hashed) = inputs_hold(&inputs, written) else { return false };
-    if hashed {
-        if let Some(fresh) = refreshed(&inputs) {
-            let text: String = fresh.iter().map(Input::line).collect();
-            let _ = crate::shared::write(&stamp_path, text.as_bytes());
-        }
+    if let Some(fresh) = refreshed(inputs, &hashed) {
+        let text: String = fresh.iter().map(Input::line).collect();
+        let _ = crate::shared::replace(&stamp_path, text.as_bytes());
     }
     true
 }
 
 /// Whether every one of `inputs` still has the content a stamp written at `written`
-/// recorded: `Some(hashed)` if so, `hashed` saying whether any had to be read to tell.
+/// recorded: `Some(hashed)` if so, `hashed` being the indices of those that had to be read
+/// to tell.
 ///
 /// A file whose size and time are what the stamp holds is taken as unchanged when that time
 /// was settled when the stamp was written; any other is read and hashed.
-pub(crate) fn inputs_hold(inputs: &[Input], written: std::time::SystemTime) -> Option<bool> {
+pub(crate) fn inputs_hold(inputs: &[Input], written: std::time::SystemTime) -> Option<Vec<usize>> {
     let settled = nanos(written).map_or(0, |w| w.saturating_sub(SETTLED.as_nanos()));
-    let mut hashed = false;
-    for input in inputs {
+    let mut hashed = Vec::new();
+    for (i, input) in inputs.iter().enumerate() {
         let meta = std::fs::metadata(&input.path).ok()?;
         if meta.len() != input.len {
             return None;
@@ -344,18 +343,35 @@ pub(crate) fn inputs_hold(inputs: &[Input], written: std::time::SystemTime) -> O
             continue;
         }
         match std::fs::read(&input.path) {
-            Ok(bytes) if fnv1a(&bytes) == input.hash => hashed = true,
+            Ok(bytes) if fnv1a(&bytes) == input.hash => hashed.push(i),
             _ => return None,
         }
     }
     Some(hashed)
 }
 
-/// `inputs` as they are now, for a stamp that had to hash some of them to hold, so the next
-/// check can go by their times. `None` if any changed while it was being checked.
-pub(crate) fn refreshed(inputs: &[Input]) -> Option<Vec<Input>> {
-    let fresh: Vec<Input> = inputs.iter().map(|i| Input::of(&i.path)).collect::<Option<_>>()?;
-    fresh.iter().zip(inputs).all(|(f, i)| f.hash == i.hash).then_some(fresh)
+/// `inputs` as they are now, for a stamp that had to hash those at `hashed` to hold, so the
+/// next check can go by their times: `None` if none needed it, or if one changed while it
+/// was being checked. Only those are read again; the rest were settled, and stay as they
+/// were recorded.
+///
+/// The caller writes the stamp again even when its text is the same, which it usually is:
+/// what makes the times trusted next time is the stamp's own, newer time. Written only when
+/// the text changed, a stamp written within `SETTLED` of its inputs never moved on, and every
+/// build hashed them again: the shared `std`'s objects, whose sources and stamps are written
+/// by the same build, cost each later build about 20 ms that way.
+pub(crate) fn refreshed(mut inputs: Vec<Input>, hashed: &[usize]) -> Option<Vec<Input>> {
+    if hashed.is_empty() {
+        return None;
+    }
+    for &i in hashed {
+        let now = Input::of(&inputs[i].path)?;
+        if now.hash != inputs[i].hash {
+            return None;
+        }
+        inputs[i] = now;
+    }
+    Some(inputs)
 }
 
 /// Record what an object was compiled from: the source, and every header the compiler's

@@ -1535,3 +1535,70 @@ fails both.
 **Measured**, release `dz check`, median of five: `words` 57.6 ms to 40.0 ms, `astar` 63.1 ms
 to 46.4 ms, `expr` 58.0 ms to 41.7 ms; ownership 22–26 ms to 5–9 ms. What is left of
 `std`'s cost is its type check (~14 ms) and placement (~6 ms), T-0025's remainder.
+
+## What a small program's rebuild spent besides compiling (T-0025, T-0190; 2026-11-14)
+
+A debug rebuild of `words` after an edit that left its C++ unchanged took 106 ms, of which
+the C++ compiler compiled nothing. Five costs, two of them bugs:
+
+- **The C++ compiler was asked `--version` up to three times a build**, 15 ms each: by
+  `find_compiler` when none was named, by `is_gcc` for g++'s flags, and again by
+  `find_compiler` for the build stamp. `version_of` now keeps the answer in the process and
+  in the per-user cache (`compilers/`), under the compiler's resolved file, size and time,
+  as the fast-linker probe is (T-0196): an upgrade, or another compiler first on the `PATH`,
+  is asked again. The build stamp went from 18 ms to 2 ms.
+- **A refreshed stamp was never written** (`native::refreshed`). An object whose inputs
+  were written within `SETTLED` of its stamp has them hashed, and the stamp is written again
+  so the next build can go by their times. It was written through `shared::write`, which
+  skips a file that already holds the text, and a refreshed stamp's text is usually the same,
+  so its time never moved and every build hashed again. The shared `std`'s objects are
+  always in that state, since one build writes their sources and their stamps: about 3 MB of
+  system headers hashed on every build, 20 ms. `shared::replace` writes it regardless, and
+  only the inputs that needed hashing are read again, not every one.
+- **`std`'s C++ was emitted every build**, 14 of emitting's 20 ms: T-0197's reuse forced
+  `std` into every selection, since its files are what name the shared folder (T-0182). Its
+  record now names the folder, `Shared::kept` builds from it, and `std` is kept like any
+  module when its sources, the root's manifest (whose settings decide `std`'s `#if`s), its
+  placement and the generic bodies are as recorded and the folder still holds its files.
+  `DZ_INCREMENTAL=verify` builds and `crates/dz/tests/incremental.rs` hold it to a clean
+  build. A one-module program is now selective too: it used to emit everything, since its
+  one module was all the modules there were.
+- **`std`'s checked layer was copied out of the per-thread cache** (`dz_check::check_from`),
+  5 ms, in a process that analyses once. `dz build`, `run` and `cpp` call
+  `dz_driver::analyse_once`, and the layer is handed over (`check_with`); the editor and the
+  tests keep the cache.
+- **`std`'s 85 files were parsed one after another**, and their trees copied the same way:
+  both now on up to eight threads (`on_every_core`), 10 ms to 5.5 ms.
+
+**Measured**, release `dz`, debug builds, median of seven, `master` and this back to back:
+
+| | `words` | `astar` | `expr` |
+|---|---:|---:|---:|
+| edit, C++ unchanged (a comment) | 136 → 56 ms | 142 → 62 ms | 136 → 55 ms |
+| edit adding a function | 335 → 261 ms | 346 → 270 ms | 337 → 260 ms |
+| nothing changed | 6 → 2 ms | 7 → 2 ms | 7 → 2 ms |
+
+What is left of Dazzle's own phases in a small rebuild, about 45 ms: the type check (~11 ms)
+and placement (~7 ms), nearly all `std`, which T-0025 now says would need the checked layer
+kept on disk.
+
+**A regression at scale, found on the way**: re-running `tools/bench_scale.py` for the
+website, a debug build of the 100-module project from clean took 12.0 s, against 7.2 s on
+2026-11-11. Bisected, with the project as today's generator writes it (D-0097's `sends`
+since r119): 7.7 s at r119, 8.1 s through T-0177, 12.0 s from T-0214. T-0214 let `std`'s
+`#[inline]` bodies reach other modules' instances, and made `List`'s accessors `#[inline]`,
+so each module's header held `len`, `as_slice` and `as_mut_slice` for each of its `List`
+instances, and every module above it parsed them again: `m050.h` 41 KB to 65 KB. At `-O0`
+nothing is inlined, so in a debug build they bought nothing. `dz_cpp::Options::
+inline_instances` is now off for a debug build (`build::for_build`): an instance's
+`#[inline]` bodies, and its constructors that only store their parameters, are defined once,
+as its other bodies are (T-0185). Release builds keep them in headers, which is what
+vectorises a `List<i32>` loop on clang++. From clean, 12.0 s to 8.1 s. Since the root's
+manifest decides `optimize`, every module's record hash now includes it (`reuse::
+source_hash`), so changing a build setting there emits every module again rather than keep
+files written for the other one.
+
+**T-0190 is closed** with nothing more built: its first cost, unused instance methods
+compiled, went with T-0199, and its second, g++'s inlining, with the inline budget. Its
+estimate of 0.03–0.06 s left predates T-0199; a body edit now recompiles only the module's
+`.cpp`, never its `.inst.cpp`.

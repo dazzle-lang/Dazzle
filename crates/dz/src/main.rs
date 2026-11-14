@@ -522,7 +522,7 @@ fn cmd_harness(args: &[String], kind: dz_cpp::Mode) -> ExitCode {
     let dir = if benching { "bench" } else { "test" };
     let root = project_root(path).join("build").join(dir);
     let emit = dz_cpp::Options { mode: kind, line_directives, ..Default::default() };
-    let out = match build::emit_cpp(&analysis, &root, emit, None, &[]) {
+    let out = match build::emit_cpp(&analysis, &root, emit, None, &[], None) {
         Ok(o) => o,
         Err(d) => {
             dz_diag::emit_to_stderr(&analysis.map, &d);
@@ -702,6 +702,8 @@ fn build_args(args: &[String]) -> Result<BuildArgs, ExitCode> {
 }
 
 fn with_mode(args: &[String], stage: Stage) -> ExitCode {
+    // One analysis, then the C++ compiler: nothing is left to reuse the checked `std` for.
+    dz_driver::analyse_once();
     match build_args(args) {
         Ok(b) => {
             cmd_pipeline(&b.path, stage, &b.options, b.cxx.as_deref(), b.line_directives, b.timings)
@@ -909,10 +911,11 @@ fn emit_reusing(
     let selective = selection.is_some();
     let out = loop {
         let (Some(records), Some(ws), Some(chosen)) = (records, &analysis.ws, &selection) else {
-            break build::emit_cpp(analysis, root, emit, None, &[])?;
+            break build::emit_cpp(analysis, root, emit, None, &[], None)?;
         };
         let kept = records.kept_files(ws, chosen);
-        let out = build::emit_cpp(analysis, root, emit, Some(chosen), &kept)?;
+        let shared = records.kept_shared(ws, chosen);
+        let out = build::emit_cpp(analysis, root, emit, Some(chosen), &kept, shared)?;
         let next = match records.reconcile(ws, chosen, &out.claims, &out.reflects) {
             Some(extra) if extra.is_empty() => break out,
             Some(extra) => {
@@ -951,10 +954,7 @@ fn verify_whole(
         return Ok(());
     };
     let mono = dz_mono::monomorphize_only(res, table, hir, None);
-    let emit = dz_cpp::Options {
-        regions: emit.regions && !std::env::var_os("DZ_REGIONS").is_some_and(|v| v == "0"),
-        ..emit
-    };
+    let emit = build::for_build(emit, ws);
     let whole = dz_cpp::emit(
         ws,
         res,

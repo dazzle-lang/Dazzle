@@ -217,6 +217,7 @@ pub fn analyse_selecting(
     };
 
     let mut files: HashMap<ModuleId, Vec<ParsedFile>> = HashMap::new();
+    let mut std_trees = std_trees();
     // An imported header has no Dazzle source, and a module with an entry here is one
     // codegen writes files for: an empty `raylib.cpp` for the header would overwrite the
     // one generated for a module itself called `raylib` (spec §15.1).
@@ -228,7 +229,8 @@ pub fn analyse_selecting(
             // pause in typing, and `std` is most of what a small program parses (§14.4).
             // Its files are already in the map, put there first by `dz_project::load`.
             if let Some(&id) = module.embedded_files.get(n) {
-                let ast = std_tree(path).unwrap_or_else(|| {
+                let key = path.to_string_lossy().replace('\\', "/");
+                let ast = std_trees.remove(key.as_str()).unwrap_or_else(|| {
                     let text = map.get(id).text().to_owned();
                     let lexed = dz_lex::lex(id, &text);
                     let parsed_file = dz_parse::parse(id, &text, &lexed.tokens);
@@ -435,6 +437,16 @@ pub fn prelude_reuses() -> usize {
     REUSED.get()
 }
 
+static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Say that this process analyses one program and exits, as `dz build` does. The standard
+/// library's checked layer is then handed to that analysis rather than kept for a next one
+/// on the thread, which never comes, and copied out of the cache: 5 ms of a small program's
+/// build (T-0025). The language server, which analyses on every pause in typing, does not.
+pub fn analyse_once() {
+    ONCE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Type check, starting from the standard library already checked when this thread has
 /// checked one like it before (see [`dz_check::PreludeLayer`]).
 ///
@@ -477,6 +489,10 @@ fn check(
             const { RefCell::new(None) };
     }
 
+    if ONCE.load(std::sync::atomic::Ordering::Relaxed) {
+        let layer = dz_check::check_prelude(ws, r, files, map);
+        return dz_check::check_with(ws, r, files, map, layer);
+    }
     let key = Key {
         flags: flags.map(|f| f.on_for(ws.prelude)),
         headers: ws
@@ -500,27 +516,51 @@ fn check(
     dz_check::check_from(ws, r, files, map, Some(&layer))
 }
 
-/// The parsed tree of the standard-library file at `pseudo`, from a process-wide cache.
+/// The parsed tree of every standard-library file, by pseudo-path, from a process-wide cache,
+/// copied for one analysis to own.
 ///
 /// A tree holds byte offsets and no file ids, so one parse serves every source map it is
 /// added to. A file that lexed or parsed with a diagnostic is not cached — those carry the
 /// id they were reported against — and falls back to being parsed where it is used, where
 /// the mistake is reported as usual (it would be a compiler bug either way).
-fn std_tree(pseudo: &Path) -> Option<dz_ast::SourceFileAst> {
+///
+/// Parsing and copying both run on every core: the files are independent, and doing them one
+/// after another was 7 of the 10 ms a small program's build spent lexing and parsing.
+fn std_trees() -> HashMap<&'static str, dz_ast::SourceFileAst> {
     use std::sync::OnceLock;
-    static TREES: OnceLock<HashMap<&'static str, dz_ast::SourceFileAst>> = OnceLock::new();
+    static TREES: OnceLock<Vec<(&'static str, dz_ast::SourceFileAst)>> = OnceLock::new();
     let trees = TREES.get_or_init(|| {
-        let mut out = HashMap::new();
-        for (path, text) in dz_project::STD_SOURCES {
+        on_every_core(dz_project::STD_SOURCES, |(path, text)| {
             let file = FileId(0);
             let lexed = dz_lex::lex(file, text);
             let parsed = dz_parse::parse(file, text, &lexed.tokens);
-            if lexed.diagnostics.is_empty() && parsed.diagnostics.is_empty() {
-                out.insert(*path, parsed.ast);
-            }
-        }
-        out
+            (lexed.diagnostics.is_empty() && parsed.diagnostics.is_empty())
+                .then_some((*path, parsed.ast))
+        })
     });
-    let key = pseudo.to_string_lossy().replace('\\', "/");
-    trees.get(key.as_str()).cloned()
+    on_every_core(trees, |(path, ast)| Some((*path, ast.clone()))).into_iter().collect()
+}
+
+/// `f` of each of `items` that gives something, on up to eight threads. Each takes every n-th
+/// item, so large ones spread out. The web build has no threads, and runs them in turn.
+fn on_every_core<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> Option<R> + Sync) -> Vec<R> {
+    let threads = if cfg!(target_family = "wasm") {
+        1
+    } else {
+        std::thread::available_parallelism().map_or(1, |n| n.get()).min(8)
+    };
+    if threads <= 1 {
+        return items.iter().filter_map(f).collect();
+    }
+    let f = &f;
+    std::thread::scope(|scope| {
+        let parts: Vec<_> = (0..threads)
+            .map(|i| {
+                scope.spawn(move || {
+                    items.iter().skip(i).step_by(threads).filter_map(f).collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        parts.into_iter().flat_map(|p| p.join().unwrap_or_default()).collect()
+    })
 }

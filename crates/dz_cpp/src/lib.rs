@@ -132,11 +132,23 @@ pub struct Options {
     /// `DZ_REGIONS=0` turns it off, putting every value on the heap, for benchmarks and
     /// for telling a region bug from any other (T-0152).
     pub regions: bool,
+    /// Put a generic instance's `#[inline]` bodies, and its constructors that only store
+    /// their parameters, in the header of every module that needs the instance, so its calls
+    /// can be inlined there (spec §12.8, T-0214). Off for a debug build, which inlines nothing
+    /// at `-O0`: there they only made every module above parse them again, and a 100-module
+    /// project's build from clean went from 8.1 s to 12.0 s. Off, they are defined once, in the
+    /// first module that needs them, like the instance's other bodies (T-0185).
+    pub inline_instances: bool,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { mode: Mode::default(), line_directives: true, regions: true }
+        Options {
+            mode: Mode::default(),
+            line_directives: true,
+            regions: true,
+            inline_instances: true,
+        }
     }
 }
 
@@ -271,6 +283,7 @@ pub fn emit_selected(
             views: Vec::new(),
             inline_defs: String::new(),
             inline_only: false,
+            inline_instances: options.inline_instances,
             qualify_all: false,
             mode,
             line_directives: options.line_directives,
@@ -456,6 +469,7 @@ pub fn emit_selected(
             views: Vec::new(),
             inline_defs: String::new(),
             inline_only: false,
+            inline_instances: options.inline_instances,
             qualify_all: false,
             mode,
             line_directives: options.line_directives,
@@ -766,6 +780,8 @@ struct Emitter<'a> {
     /// module after the one that defines them, which needs only those, in its header
     /// (T-0187). The rest used to be emitted again for every such module and thrown away.
     inline_only: bool,
+    /// [`Options::inline_instances`].
+    inline_instances: bool,
     /// Name every type with its namespace, even this module's own. Set inside a union's
     /// methods, where the union's members — one per variant, named after the variant's
     /// struct — hide the structs of the same names (spec §7.5).
@@ -3664,8 +3680,16 @@ impl<'a> Emitter<'a> {
     }
 
     /// Whether `owner`'s body goes in the header: its declaration is written `#[inline]`, or
-    /// it is a constructor that only stores its parameters (see [`only_stores_params`]).
+    /// it is a constructor that only stores its parameters (see [`only_stores_params`]). An
+    /// instance's never does in a debug build ([`Options::inline_instances`]): its prototype
+    /// and its body are both written in the instance, so they agree.
     fn is_inline(&self, owner: &BodyOwner) -> bool {
+        let instance = self.instance.is_some()
+            || self.impl_instance.is_some()
+            || self.method_instance.is_some();
+        if instance && !self.inline_instances {
+            return false;
+        }
         self.find_body(owner)
             .is_some_and(|b| self.inline_fns.contains(&(b.file, b.span)) || only_stores_params(b))
     }

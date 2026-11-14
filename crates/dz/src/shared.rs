@@ -84,6 +84,15 @@ impl Shared {
         Shared { dir, files }
     }
 
+    /// The folder at `dir`, already holding the files named `names`: where a build that kept
+    /// `std`'s files rather than emitting them compiles them from, as their last build did.
+    pub fn kept<'a>(dir: &Path, names: impl Iterator<Item = &'a str>) -> Shared {
+        // Its time is when a build last used the folder, which pruning goes by.
+        let _ = std::fs::write(dir.join("used"), b"");
+        let files = names.map(|n| dir.join("cpp").join(n)).collect();
+        Shared { dir: dir.to_path_buf(), files }
+    }
+
     pub fn obj_dir(&self) -> PathBuf {
         self.dir.join("obj")
     }
@@ -162,6 +171,12 @@ pub fn write(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     if std::fs::read(path).is_ok_and(|old| old == contents) {
         return Ok(());
     }
+    replace(path, contents)
+}
+
+/// [`write`], even when `path` already holds `contents`: for a stamp, whose own time is part
+/// of what it says (`native::refreshed`).
+pub fn replace(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     let temp = temp_of(path);
     std::fs::write(&temp, contents)?;
     match std::fs::rename(&temp, path) {

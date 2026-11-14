@@ -165,21 +165,19 @@ pub fn check(build_root: &Path, key: &str) -> Option<Fresh> {
     let hashed = inputs_hold(&files, written)?;
     // Hashing was needed only for files written just before the stamp; with their times
     // settled now, the next check need not read them.
-    if hashed {
-        if let Some(fresh) = refreshed(&files) {
-            let mut text = String::with_capacity(text.len());
-            for line in head.lines().filter(|l| !l.starts_with("file ")) {
-                text.push_str(line);
-                text.push('\n');
-            }
-            for input in &fresh {
-                text.push_str("file ");
-                text.push_str(&input.line());
-            }
-            text.push_str("warnings\n");
-            text.push_str(warnings);
-            let _ = crate::shared::write(&path, text.as_bytes());
+    if let Some(fresh) = refreshed(files, &hashed) {
+        let mut text = String::with_capacity(text.len());
+        for line in head.lines().filter(|l| !l.starts_with("file ")) {
+            text.push_str(line);
+            text.push('\n');
         }
+        for input in &fresh {
+            text.push_str("file ");
+            text.push_str(&input.line());
+        }
+        text.push_str("warnings\n");
+        text.push_str(warnings);
+        let _ = crate::shared::replace(&path, text.as_bytes());
     }
     Some(Fresh { exe, warnings: warnings.to_owned() })
 }
